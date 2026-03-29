@@ -2160,12 +2160,16 @@ async def view_rum():
         "Timestamp",
     )
     order_clause = f"ORDER BY {sort_col} {'ASC' if sort_dir == 'asc' else 'DESC'}"
+    from_ts, to_ts, time_error = _parse_time_window_args()
 
     conditions = []
     params = []
     if event_type:
         conditions.append("EventName=?")
         params.append(event_type)
+    time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
+    conditions.extend(time_conditions)
+    params.extend(time_params)
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
     total = db.execute(f"SELECT COUNT(*) FROM hyperdx_sessions {where}", params).fetchone()[0]
@@ -2238,6 +2242,9 @@ async def view_rum():
         vitals_summary=vitals_summary,
         sort_by=sort_by,
         sort_dir=sort_dir,
+        from_ts=from_ts,
+        to_ts=to_ts,
+        error_msg=time_error,
     )
 
 

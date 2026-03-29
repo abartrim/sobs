@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block title %}RUM{% endblock %}
 {% block content %}
+{% set from_ts = from_ts or request.args.get('from_ts', '') %}
+{% set to_ts = to_ts or request.args.get('to_ts', '') %}
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="fw-semibold mb-0"><i class="bi bi-globe me-2 text-primary"></i>Real User Monitoring</h4>
   <span class="text-secondary small">{{ total }} events</span>
@@ -38,11 +40,27 @@
           {% endfor %}
         </select>
       </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">From</label>
+        <input type="text" name="from_ts" id="rum-from-ts" class="form-control form-control-sm font-monospace" placeholder="2026-03-29T12:00:00Z" value="{{ from_ts }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">To</label>
+        <div class="input-group input-group-sm">
+          <input type="text" name="to_ts" id="rum-to-ts" class="form-control form-control-sm font-monospace" placeholder="2026-03-29T12:05:00Z" value="{{ to_ts }}">
+          <button type="button" class="btn btn-outline-secondary" data-drp-toggle data-drp-from="rum-from-ts" data-drp-to="rum-to-ts" title="Date/time picker">
+            <i class="bi bi-calendar3"></i>
+          </button>
+        </div>
+      </div>
       <div class="col-md-2 d-flex gap-1">
         <button type="submit" class="btn btn-primary btn-sm">Filter</button>
         <a href="{{ url_for('view_rum') }}" class="btn btn-outline-secondary btn-sm">Reset</a>
       </div>
     </form>
+    {% if error_msg %}
+    <div class="alert alert-danger mt-2 mb-0 py-1 small">{{ error_msg }}</div>
+    {% endif %}
   </div>
 </div>
 

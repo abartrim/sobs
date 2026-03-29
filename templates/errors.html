@@ -45,11 +45,16 @@
       </div>
       <div class="col-md-2">
         <label class="form-label small text-secondary">From</label>
-        <input type="text" name="from_ts" class="form-control form-control-sm font-monospace" placeholder="2026-03-29T12:00:00Z" value="{{ from_ts }}">
+        <input type="text" name="from_ts" id="errors-from-ts" class="form-control form-control-sm font-monospace" placeholder="2026-03-29T12:00:00Z" value="{{ from_ts }}">
       </div>
       <div class="col-md-2">
         <label class="form-label small text-secondary">To</label>
-        <input type="text" name="to_ts" class="form-control form-control-sm font-monospace" placeholder="2026-03-29T12:05:00Z" value="{{ to_ts }}">
+        <div class="input-group input-group-sm">
+          <input type="text" name="to_ts" id="errors-to-ts" class="form-control form-control-sm font-monospace" placeholder="2026-03-29T12:05:00Z" value="{{ to_ts }}">
+          <button type="button" class="btn btn-outline-secondary" data-drp-toggle data-drp-from="errors-from-ts" data-drp-to="errors-to-ts" title="Date/time picker">
+            <i class="bi bi-calendar3"></i>
+          </button>
+        </div>
       </div>
       <div class="col-md-2 d-flex gap-1">
         <button type="submit" class="btn btn-primary btn-sm">Filter</button>
