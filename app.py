@@ -1576,6 +1576,26 @@ async def dashboard():
     )
 
 
+def _compute_log_stats(db, where_clause: str, params: list) -> tuple[dict, dict]:
+    """Return (level_stats, service_stats) counts for the given WHERE clause."""
+    level_stats = {
+        (r["SeverityText"] or "UNKNOWN"): r["cnt"]
+        for r in db.execute(
+            f"SELECT SeverityText, COUNT(*) AS cnt FROM otel_logs {where_clause} GROUP BY SeverityText ORDER BY cnt DESC",
+            params,
+        ).fetchall()
+    }
+    svc_cond = "AND ServiceName!=''" if where_clause else "WHERE ServiceName!=''"
+    service_stats = {
+        r["ServiceName"]: r["cnt"]
+        for r in db.execute(
+            f"SELECT ServiceName, COUNT(*) AS cnt FROM otel_logs {where_clause} {svc_cond} GROUP BY ServiceName ORDER BY cnt DESC LIMIT 10",
+            params,
+        ).fetchall()
+    }
+    return level_stats, service_stats
+
+
 # ---------------------------------------------------------------------------
 # Web UI – Logs
 # ---------------------------------------------------------------------------
@@ -1598,6 +1618,8 @@ async def view_logs():
     rows = []
     total = 0
     error_msg = ""
+    level_stats: dict = {}
+    service_stats: dict = {}
 
     if sql_where:
         # Allow raw WHERE clause (SQL search)
@@ -1615,6 +1637,7 @@ async def view_logs():
             )
             rows = db.execute(query, (limit, offset)).fetchall()
             total = db.execute(f"SELECT COUNT(*) FROM otel_logs WHERE {safe_sql}").fetchone()[0]
+            level_stats, service_stats = _compute_log_stats(db, f"WHERE {safe_sql}", [])
         except Exception as exc:
             error_msg = f"SQL error: {exc}"
             rows = []
@@ -1634,6 +1657,7 @@ async def view_logs():
             f"{order_clause} LIMIT ? OFFSET ?",
             params + [limit, offset],
         ).fetchall()
+        level_stats, service_stats = _compute_log_stats(db, where, params)
 
     log_rows = []
     grep_pat = re.compile(q, re.IGNORECASE) if q else None
@@ -1677,6 +1701,8 @@ async def view_logs():
         error_msg=error_msg,
         sort_by=sort_by,
         sort_dir=sort_dir,
+        level_stats=level_stats,
+        service_stats=service_stats,
     )
 
 

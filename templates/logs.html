@@ -70,6 +70,49 @@
   </div>
 </div>
 
+<!-- Query Statistics Panel -->
+{% if level_stats or service_stats %}
+<div class="accordion mb-3" id="statsAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header" id="statsHeading">
+      <button class="accordion-button collapsed py-2" type="button"
+              data-bs-toggle="collapse" data-bs-target="#statsPanel"
+              aria-expanded="false" aria-controls="statsPanel">
+        <i class="bi bi-bar-chart-line me-2 text-info"></i>
+        <span class="fw-semibold">Query Statistics</span>
+        <span class="badge bg-secondary ms-2">{{ total }} record{{ 's' if total != 1 else '' }}</span>
+      </button>
+    </h2>
+    <div id="statsPanel" class="accordion-collapse collapse" aria-labelledby="statsHeading" data-bs-parent="#statsAccordion">
+      <div class="accordion-body py-3">
+        <div class="row g-3">
+          {% if level_stats %}
+          <div class="col-md-6">
+            <h6 class="text-secondary small mb-2"><i class="bi bi-tag me-1"></i>By Level</h6>
+            <div class="d-flex flex-wrap gap-2">
+              {% for lvl, cnt in level_stats.items() %}
+              <span class="badge badge-level-{{ lvl }}">{{ lvl }}: {{ cnt }}</span>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+          {% if service_stats %}
+          <div class="col-md-6">
+            <h6 class="text-secondary small mb-2"><i class="bi bi-server me-1"></i>By Service</h6>
+            <div class="d-flex flex-wrap gap-2">
+              {% for svc, cnt in service_stats.items() %}
+              <span class="badge bg-secondary">{{ svc }}: {{ cnt }}</span>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div id="logsTableContainer" class="table-responsive{% if not logs %} d-none{% endif %}">
   <table class="table table-sm table-hover align-middle">
     <thead>

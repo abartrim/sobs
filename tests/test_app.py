@@ -948,6 +948,43 @@ class TestUIPages:
         r = await client.get("/logs?sort_by=ServiceName&sort_dir=desc")
         assert r.status_code == 200
 
+    async def test_logs_stats_panel_visible(self, client):
+        """Query statistics panel should appear when logs exist."""
+        await client.post(
+            "/v1/logs",
+            json={
+                "resourceLogs": [
+                    {
+                        "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "stats-svc"}}]},
+                        "scopeLogs": [
+                            {
+                                "logRecords": [
+                                    {
+                                        "timeUnixNano": str(int(time.time() * 1_000_000_000)),
+                                        "severityText": "ERROR",
+                                        "body": {"stringValue": "stats panel test error"},
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+        r = await client.get("/logs")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Query Statistics" in data
+        assert b"By Level" in data
+        assert b"By Service" in data
+
+    async def test_logs_stats_panel_sql_mode(self, client):
+        """Query statistics panel should appear when using SQL WHERE filter."""
+        r = await client.get("/logs?sql=SeverityText%3D%27ERROR%27")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Query Statistics" in data
+
     async def test_logs_invalid_sort_ignored(self, client):
         """An unknown sort_by value should fall back to Timestamp without error."""
         r = await client.get("/logs?sort_by=INVALID_COL&sort_dir=desc")
