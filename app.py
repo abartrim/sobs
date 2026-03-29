@@ -23,7 +23,7 @@ import urllib.request
 import uuid
 import zlib
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from typing import Callable
@@ -263,6 +263,131 @@ CREATE TABLE IF NOT EXISTS sobs_chart_configs (
 ) ENGINE = ReplacingMergeTree(Version)
 ORDER BY (DashboardId, Id)
 SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS otel_metrics_gauge (
+    TimeUnix DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    TimeUnixMs DateTime DEFAULT toDateTime(TimeUnix) CODEC(Delta(4), ZSTD(1)),
+    ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricDescription String CODEC(ZSTD(1)),
+    MetricUnit LowCardinality(String) CODEC(ZSTD(1)),
+    Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    Value Float64 CODEC(ZSTD(1)),
+    Flags UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AttrFingerprint String CODEC(ZSTD(1))
+) ENGINE = MergeTree()
+PARTITION BY toDate(TimeUnixMs)
+ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
+CREATE TABLE IF NOT EXISTS otel_metrics_sum (
+    TimeUnix DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    TimeUnixMs DateTime DEFAULT toDateTime(TimeUnix) CODEC(Delta(4), ZSTD(1)),
+    ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricDescription String CODEC(ZSTD(1)),
+    MetricUnit LowCardinality(String) CODEC(ZSTD(1)),
+    Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    Value Float64 CODEC(ZSTD(1)),
+    Flags UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    IsMonotonic UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AggregationTemporality Int32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AttrFingerprint String CODEC(ZSTD(1))
+) ENGINE = MergeTree()
+PARTITION BY toDate(TimeUnixMs)
+ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
+CREATE TABLE IF NOT EXISTS otel_metrics_histogram (
+    TimeUnix DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    TimeUnixMs DateTime DEFAULT toDateTime(TimeUnix) CODEC(Delta(4), ZSTD(1)),
+    ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricDescription String CODEC(ZSTD(1)),
+    MetricUnit LowCardinality(String) CODEC(ZSTD(1)),
+    Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    Count UInt64 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Sum Float64 CODEC(ZSTD(1)),
+    BucketCounts Array(UInt64) CODEC(ZSTD(1)),
+    ExplicitBounds Array(Float64) CODEC(ZSTD(1)),
+    Flags UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AggregationTemporality Int32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AttrFingerprint String CODEC(ZSTD(1))
+) ENGINE = MergeTree()
+PARTITION BY toDate(TimeUnixMs)
+ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
+CREATE VIEW IF NOT EXISTS v_otel_metrics_1m AS
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    'gauge' AS MetricKind,
+    toStartOfMinute(TimeUnix) AS MinuteBucket,
+    avg(Value) AS Value,
+    count() AS SampleCount
+FROM otel_metrics_gauge
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    'sum' AS MetricKind,
+    toStartOfMinute(TimeUnix) AS MinuteBucket,
+    avg(Value) AS Value,
+    count() AS SampleCount
+FROM otel_metrics_sum
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    'histogram' AS MetricKind,
+    toStartOfMinute(TimeUnix) AS MinuteBucket,
+    avg(if(Count > 0, Sum / Count, 0)) AS Value,
+    sum(Count) AS SampleCount
+FROM otel_metrics_histogram
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
+
+CREATE VIEW IF NOT EXISTS v_otel_metrics_anomaly AS
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    MetricKind,
+    MinuteBucket AS time,
+    Value AS value,
+    SampleCount,
+    round(avg(Value) OVER w, 6) AS baseline_mean,
+    round(sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))), 6) AS baseline_stddev,
+    round(avg(Value) OVER w - 2.0 * sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))), 6) AS baseline_lower,
+    round(avg(Value) OVER w + 2.0 * sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))), 6) AS baseline_upper,
+    round(
+        if(
+            sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))) > 0,
+            abs(Value - avg(Value) OVER w) / sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))),
+            0
+        ),
+        4
+    ) AS anomaly_score,
+    multiIf(
+        sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))) > 0
+            AND abs(Value - avg(Value) OVER w) > 3.0 * sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))),
+        'outlier',
+        sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))) > 0
+            AND abs(Value - avg(Value) OVER w) > 2.0 * sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))),
+        'warning',
+        'normal'
+    ) AS anomaly_state
+FROM v_otel_metrics_1m
+WINDOW w AS (
+    PARTITION BY ServiceName, MetricName, AttrFingerprint
+    ORDER BY MinuteBucket
+    ROWS BETWEEN 59 PRECEDING AND CURRENT ROW
+);
 """
 
 
@@ -848,6 +973,8 @@ def _insert_rows_json_each_row(db, table_name: str, rows: list[dict]) -> int:
         item = dict(row)
         if "Timestamp" in item:
             item["Timestamp"] = _normalize_ch_timestamp(item["Timestamp"])
+        if "TimeUnix" in item:
+            item["TimeUnix"] = _normalize_ch_timestamp(item["TimeUnix"])
         if "Events" in item and isinstance(item["Events"], dict) and "Timestamp" in item["Events"]:
             item["Events"]["Timestamp"] = [_normalize_ch_timestamp(v) for v in item["Events"]["Timestamp"]]
         normalized_rows.append(item)
@@ -957,6 +1084,47 @@ class MetricEvent:
     attrs: dict
 
 
+# Attribute key prefixes excluded from the metric series fingerprint (high-cardinality
+# resource attributes that do not differentiate metric series).
+_FINGERPRINT_SKIP_PREFIXES = ("telemetry.", "process.", "os.", "runtime.")
+
+
+def _attr_fingerprint(attrs: dict) -> str:
+    """Compute a stable, low-cardinality fingerprint of data-point attributes.
+
+    Excludes high-cardinality resource/runtime attribute prefixes and limits
+    to the first 8 sorted key=value pairs to keep cardinality manageable.
+    """
+    pairs = sorted(
+        f"{k}={v}"
+        for k, v in attrs.items()
+        if not any(k.startswith(p) for p in _FINGERPRINT_SKIP_PREFIXES)
+    )[:8]
+    # MD5 is used here for non-cryptographic cardinality reduction only (16-hex fingerprint).
+    return hashlib.md5("|".join(pairs).encode()).hexdigest()[:16]
+
+
+@dataclass
+class TypedMetricEvent:
+    """A single OTEL metric data point with type information and value extracted."""
+
+    ts: str
+    service: str
+    metric_name: str
+    metric_description: str
+    metric_unit: str
+    metric_kind: str  # 'gauge', 'sum', or 'histogram'
+    value: float
+    attrs: dict  # data-point-level attributes
+    attr_fp: str  # stable fingerprint for series identity
+    is_monotonic: int = 0
+    aggregation_temporality: int = 0
+    histogram_count: int = 0
+    histogram_sum: float = 0.0
+    histogram_buckets: list = field(default_factory=list)
+    histogram_bounds: list = field(default_factory=list)
+
+
 def _proto_logs_to_events(msg: ExportLogsServiceRequest) -> list[LogEvent]:
     events: list[LogEvent] = []
     for resource_log in msg.resource_logs:
@@ -1026,21 +1194,107 @@ def _proto_traces_to_events(msg: ExportTraceServiceRequest) -> tuple[list[SpanEv
     return span_events, error_events
 
 
-def _proto_metrics_to_events(msg: ExportMetricsServiceRequest) -> list[MetricEvent]:
-    events: list[MetricEvent] = []
+def _proto_metrics_to_events(msg: ExportMetricsServiceRequest) -> list[TypedMetricEvent]:
+    """Parse OTLP ExportMetricsServiceRequest into typed data-point events.
+
+    Supports gauge, sum, and histogram metric types with actual numeric values.
+    """
+    events: list[TypedMetricEvent] = []
     for resource_metric in msg.resource_metrics:
         resource_attrs = _proto_kvlist_to_dict(resource_metric.resource.attributes)
         service = str(resource_attrs.get("service.name", "metrics"))
         for scope_metric in resource_metric.scope_metrics:
             for metric in scope_metric.metrics:
-                events.append(
-                    MetricEvent(
-                        ts=_now_iso(),
-                        service=service,
-                        name=metric.name,
-                        attrs={**resource_attrs, "metric": metric.name},
+                name = metric.name
+                desc = metric.description
+                unit = metric.unit
+                which = metric.WhichOneof("data")
+
+                if which == "gauge":
+                    for dp in metric.gauge.data_points:
+                        dp_attrs = _proto_kvlist_to_dict(dp.attributes)
+                        vfield = dp.WhichOneof("value")
+                        value = float(dp.as_int) if vfield == "as_int" else dp.as_double
+                        ts = _ns_to_iso(int(dp.time_unix_nano)) if dp.time_unix_nano else _now_iso()
+                        events.append(
+                            TypedMetricEvent(
+                                ts=ts,
+                                service=service,
+                                metric_name=name,
+                                metric_description=desc,
+                                metric_unit=unit,
+                                metric_kind="gauge",
+                                value=value,
+                                attrs=dp_attrs,
+                                attr_fp=_attr_fingerprint(dp_attrs),
+                            )
+                        )
+
+                elif which == "sum":
+                    for dp in metric.sum.data_points:
+                        dp_attrs = _proto_kvlist_to_dict(dp.attributes)
+                        vfield = dp.WhichOneof("value")
+                        value = float(dp.as_int) if vfield == "as_int" else dp.as_double
+                        ts = _ns_to_iso(int(dp.time_unix_nano)) if dp.time_unix_nano else _now_iso()
+                        events.append(
+                            TypedMetricEvent(
+                                ts=ts,
+                                service=service,
+                                metric_name=name,
+                                metric_description=desc,
+                                metric_unit=unit,
+                                metric_kind="sum",
+                                value=value,
+                                attrs=dp_attrs,
+                                attr_fp=_attr_fingerprint(dp_attrs),
+                                is_monotonic=1 if metric.sum.is_monotonic else 0,
+                                aggregation_temporality=int(metric.sum.aggregation_temporality),
+                            )
+                        )
+
+                elif which == "histogram":
+                    for dp in metric.histogram.data_points:
+                        dp_attrs = _proto_kvlist_to_dict(dp.attributes)
+                        count = int(dp.count)
+                        hist_sum = float(dp.sum)
+                        mean_val = hist_sum / count if count > 0 else 0.0
+                        ts = _ns_to_iso(int(dp.time_unix_nano)) if dp.time_unix_nano else _now_iso()
+                        events.append(
+                            TypedMetricEvent(
+                                ts=ts,
+                                service=service,
+                                metric_name=name,
+                                metric_description=desc,
+                                metric_unit=unit,
+                                metric_kind="histogram",
+                                value=mean_val,
+                                attrs=dp_attrs,
+                                attr_fp=_attr_fingerprint(dp_attrs),
+                                aggregation_temporality=int(metric.histogram.aggregation_temporality),
+                                histogram_count=count,
+                                histogram_sum=hist_sum,
+                                histogram_buckets=list(dp.bucket_counts),
+                                histogram_bounds=list(dp.explicit_bounds),
+                            )
+                        )
+
+                else:
+                    # Unsupported metric type (exponential histogram, summary):
+                    # fall back to a minimal gauge-like entry at current time.
+                    events.append(
+                        TypedMetricEvent(
+                            ts=_now_iso(),
+                            service=service,
+                            metric_name=name,
+                            metric_description=desc,
+                            metric_unit=unit,
+                            metric_kind="gauge",
+                            value=0.0,
+                            attrs={},
+                            attr_fp=_attr_fingerprint({}),
+                        )
                     )
-                )
+
     return events
 
 
@@ -1128,32 +1382,53 @@ def _insert_error_events(db, error_events: list[ErrorEvent]):
     _insert_rows_json_each_row(db, "otel_logs", rows)
 
 
-def _insert_metric_events(db, events: list[MetricEvent]) -> int:
-    rows = []
-    for event in events:
-        attrs = _stringify_attrs(event.attrs)
-        attrs["metric.name"] = event.name
-        rows.append(
-            {
-                "Timestamp": event.ts,
-                "TraceId": "",
-                "SpanId": "",
-                "TraceFlags": 0,
-                "SeverityText": "INFO",
-                "SeverityNumber": _severity_number("INFO"),
-                "ServiceName": event.service,
-                "Body": f"METRIC {event.name}",
-                "ResourceSchemaUrl": "",
-                "ResourceAttributes": {},
-                "ScopeSchemaUrl": "",
-                "ScopeName": "",
-                "ScopeVersion": "",
-                "ScopeAttributes": {},
-                "LogAttributes": attrs,
-                "EventName": "metric",
-            }
-        )
-    return _insert_rows_json_each_row(db, "otel_logs", rows)
+def _insert_metric_events(db, events: list[TypedMetricEvent]) -> int:
+    """Insert typed OTEL metric data points into the appropriate metric tables."""
+    return _insert_typed_metric_events(db, events)
+
+
+def _insert_typed_metric_events(db, events: list[TypedMetricEvent]) -> int:
+    """Route typed metric events to their respective OTEL metric tables."""
+    gauge_rows: list[dict] = []
+    sum_rows: list[dict] = []
+    histogram_rows: list[dict] = []
+
+    for ev in events:
+        base = {
+            "TimeUnix": ev.ts,
+            "ServiceName": ev.service,
+            "MetricName": ev.metric_name,
+            "MetricDescription": ev.metric_description,
+            "MetricUnit": ev.metric_unit,
+            "Attributes": _stringify_attrs(ev.attrs),
+            "Value": float(ev.value),
+            "Flags": 0,
+            "AttrFingerprint": ev.attr_fp,
+        }
+        if ev.metric_kind == "gauge":
+            gauge_rows.append(base)
+        elif ev.metric_kind == "sum":
+            sum_rows.append({**base, "IsMonotonic": ev.is_monotonic, "AggregationTemporality": ev.aggregation_temporality})
+        elif ev.metric_kind == "histogram":
+            histogram_rows.append(
+                {
+                    **{k: v for k, v in base.items() if k != "Value"},
+                    "Count": ev.histogram_count,
+                    "Sum": float(ev.histogram_sum),
+                    "BucketCounts": ev.histogram_buckets or [],
+                    "ExplicitBounds": ev.histogram_bounds or [],
+                    "AggregationTemporality": ev.aggregation_temporality,
+                }
+            )
+
+    inserted = 0
+    if gauge_rows:
+        inserted += _insert_rows_json_each_row(db, "otel_metrics_gauge", gauge_rows)
+    if sum_rows:
+        inserted += _insert_rows_json_each_row(db, "otel_metrics_sum", sum_rows)
+    if histogram_rows:
+        inserted += _insert_rows_json_each_row(db, "otel_metrics_histogram", histogram_rows)
+    return inserted
 
 
 _PROTOBUF_CONTENT_TYPE = "application/x-protobuf"
@@ -1283,7 +1558,7 @@ async def ingest_traces():
 
 
 # ---------------------------------------------------------------------------
-# OTLP Ingest – Metrics  POST /v1/metrics  (stored as logs for simplicity)
+# OTLP Ingest – Metrics  POST /v1/metrics
 # ---------------------------------------------------------------------------
 @app.route("/v1/metrics", methods=["POST"])
 @require_api_key
@@ -2512,11 +2787,13 @@ CHART_TEMPLATES = {
         "query_shape": "Columns: time, metric, anomaly_score",
         "sample_sql": (
             "SELECT\n"
-            "  toStartOfMinute(Timestamp) AS time,\n"
-            "  avg(Duration) AS metric,\n"
-            "  max(AnomalyScore) AS anomaly_score\n"
-            "FROM otel_traces_with_anomalies\n"
-            "GROUP BY time\n"
+            "  time,\n"
+            "  value AS metric,\n"
+            "  anomaly_score\n"
+            "FROM v_otel_metrics_anomaly\n"
+            "WHERE ServiceName = 'my-service'\n"
+            "  AND MetricName = 'my.metric'\n"
+            "  AND time >= now() - INTERVAL 1 HOUR\n"
             "ORDER BY time"
         ),
         "drilldown": {
@@ -2563,6 +2840,77 @@ CHART_TEMPLATES = {
                     "data": "{{anomaly_score}}",
                     "yAxisIndex": 1,
                     "itemStyle": {"color": "rgba(220, 53, 69, 0.5)"},
+                },
+            ],
+        },
+    },
+    "anomaly_overlay": {
+        "id": "anomaly_overlay",
+        "name": "Anomaly Overlay",
+        "description": "Metric with baseline band and per-point anomaly state markers (normal/warning/outlier)",
+        "icon": "bi-activity",
+        "query_shape": "Columns: time, value, baseline_mean, baseline_lower, baseline_upper, anomaly_state",
+        "sample_sql": (
+            "SELECT\n"
+            "  time,\n"
+            "  value,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state\n"
+            "FROM v_otel_metrics_anomaly\n"
+            "WHERE ServiceName = 'my-service'\n"
+            "  AND MetricName = 'my.metric'\n"
+            "  AND time >= now() - INTERVAL 6 HOUR\n"
+            "ORDER BY time"
+        ),
+        "drilldown": {
+            "target": "logs",
+            "label": "Open anomaly logs",
+            "bucket_seconds": 60,
+            "time_axis": "x",
+        },
+        "min_columns": 6,
+        "max_columns": 6,
+        "column_roles": {
+            "time": 0,
+            "value": 1,
+            "baseline_mean": 2,
+            "baseline_lower": 3,
+            "baseline_upper": 4,
+            "anomaly_state": 5,
+        },
+        "echarts_option_template": {
+            "tooltip": {"trigger": "axis"},
+            "legend": {"data": ["Value", "Baseline", "Normal Band"], "bottom": 0},
+            "xAxis": {"type": "time", "data": "{{time}}"},
+            "yAxis": {"type": "value"},
+            "grid": {"left": "3%", "right": "4%", "bottom": "15%", "containLabel": True},
+            "series": [
+                {
+                    "name": "Normal Band",
+                    "type": "line",
+                    "data": "{{baseline_upper}}",
+                    "lineStyle": {"opacity": 0},
+                    "areaStyle": {"color": "rgba(13, 110, 253, 0.08)"},
+                    "symbol": "none",
+                    "stack": "band",
+                },
+                {
+                    "name": "Baseline",
+                    "type": "line",
+                    "data": "{{baseline_mean}}",
+                    "lineStyle": {"type": "dashed", "color": "#6c757d"},
+                    "symbol": "none",
+                },
+                {
+                    "name": "Value",
+                    "type": "line",
+                    "data": "{{value}}",
+                    "lineStyle": {"color": "#0d6efd"},
+                    "symbol": "circle",
+                    "symbolSize": "{{anomaly_symbol_size}}",
+                    "itemStyle": {"color": "{{anomaly_point_color}}"},
                 },
             ],
         },
@@ -2726,6 +3074,14 @@ def _extract_bindings(template: dict, columns: list[str], rows: list) -> dict:  
         if isinstance(v_list, list) and v_list:
             bindings["value_first"] = v_list[0]
 
+    # For anomaly_overlay: build per-point symbol sizes and colors from anomaly_state
+    if "anomaly_state" in bindings and isinstance(bindings["anomaly_state"], list):
+        states = bindings["anomaly_state"]
+        _state_colors = {"outlier": "#dc3545", "warning": "#ffc107", "normal": "#0d6efd"}
+        _state_sizes = {"outlier": 10, "warning": 7, "normal": 4}
+        bindings["anomaly_point_color"] = [_state_colors.get(str(s), "#0d6efd") for s in states]
+        bindings["anomaly_symbol_size"] = [_state_sizes.get(str(s), 4) for s in states]
+
     return bindings  # type: ignore
 
 
@@ -2768,7 +3124,7 @@ def _attach_drilldown_metadata(template: dict, bindings: dict[str, object], opti
     template_id = str(template.get("id", ""))
     bucket_seconds = drilldown.get("bucket_seconds")
 
-    if template_id in {"time_series_percentiles", "dual_axis_anomaly"}:
+    if template_id in {"time_series_percentiles", "dual_axis_anomaly", "anomaly_overlay"}:
         time_values = bindings.get("time")
         if isinstance(time_values, list):
             for series_entry in series:
@@ -3141,6 +3497,90 @@ async def render_chart():
         return jsonify({"error": str(ve)}), 400
     except Exception as exc:
         app.logger.exception("Chart render failed: template=%s query=%s", template_id, query)
+        return jsonify({"error": _public_dashboard_query_error(exc)}), 400
+
+
+# ---------------------------------------------------------------------------
+# Metrics Anomaly API  GET /api/metrics/anomaly
+# ---------------------------------------------------------------------------
+@app.route("/api/metrics/anomaly", methods=["GET"])
+@require_basic_auth
+async def metrics_anomaly():
+    """Return per-minute anomaly detection data for a specific metric series.
+
+    Query parameters:
+    - ``service``: ServiceName (required)
+    - ``metric``: MetricName (required)
+    - ``hours``: look-back window in hours, 1–168 (default: 24)
+    - ``attr_fp``: optional AttrFingerprint to select a single series
+
+    Response JSON::
+
+        {
+          "service": "...",
+          "metric": "...",
+          "columns": ["time", "value", "sample_count", "baseline_mean",
+                      "baseline_stddev", "baseline_lower", "baseline_upper",
+                      "anomaly_score", "anomaly_state", "metric_kind", "attr_fp"],
+          "rows": [[...], ...]
+        }
+    """
+    service = (request.args.get("service") or "").strip()
+    metric = (request.args.get("metric") or "").strip()
+    if not service or not metric:
+        return jsonify({"error": "service and metric query parameters are required"}), 400
+
+    try:
+        hours = max(1, min(168, int(request.args.get("hours") or 24)))
+    except (TypeError, ValueError):
+        hours = 24
+
+    attr_fp = (request.args.get("attr_fp") or "").strip()
+
+    db = get_db()
+    try:
+        fp_clause = " AND AttrFingerprint = ?" if attr_fp else ""
+        params: list = [service, metric, hours]
+        if attr_fp:
+            params.append(attr_fp)
+        result = db.execute(
+            "SELECT"
+            "  time,"
+            "  value,"
+            "  SampleCount AS sample_count,"
+            "  baseline_mean,"
+            "  baseline_stddev,"
+            "  baseline_lower,"
+            "  baseline_upper,"
+            "  anomaly_score,"
+            "  anomaly_state,"
+            "  MetricKind AS metric_kind,"
+            "  AttrFingerprint AS attr_fp"
+            " FROM v_otel_metrics_anomaly"
+            " WHERE ServiceName = ?"
+            "   AND MetricName = ?"
+            f"   AND time >= now() - INTERVAL ? HOUR"
+            f"{fp_clause}"
+            " ORDER BY time"
+            " LIMIT 1440",
+            params,
+        )
+        rows = result.fetchall()
+        columns = list(rows[0].keys()) if rows else [
+            "time", "value", "sample_count", "baseline_mean", "baseline_stddev",
+            "baseline_lower", "baseline_upper", "anomaly_score", "anomaly_state",
+            "metric_kind", "attr_fp",
+        ]
+
+        def _safe(v):  # type: ignore
+            if isinstance(v, float) and (v != v):  # IEEE 754: NaN is the only value not equal to itself
+                return None
+            return v
+
+        data = [[_safe(row[col]) for col in columns] for row in rows]
+        return jsonify({"service": service, "metric": metric, "columns": columns, "rows": data})
+    except Exception as exc:
+        app.logger.exception("metrics_anomaly query failed: service=%s metric=%s", service, metric)
         return jsonify({"error": _public_dashboard_query_error(exc)}), 400
 
 

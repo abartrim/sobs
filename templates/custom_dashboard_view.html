@@ -35,6 +35,7 @@
       <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-bar-chart me-1 text-primary"></i>{{ chart.title }}</span>
         <div class="d-flex gap-2 align-items-center">
+          <span id="anomaly-badge-{{ chart.id }}" class="badge d-none"></span>
           <span class="badge bg-secondary text-capitalize">{{ chart.chart_type }}</span>
           <form method="post"
                 action="{{ url_for('remove_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
@@ -226,6 +227,40 @@
     return parts.join(' ');
   }
 
+  /* ── Anomaly badge helper ── */
+  var _ANOMALY_STATE_COLOR = {
+    outlier: '#dc3545',
+    warning: '#ffc107',
+    normal:  '#28a745',
+  };
+  var _ANOMALY_BADGE = {
+    outlier: { cls: 'bg-danger',  label: '⚠ Outlier' },
+    warning: { cls: 'bg-warning text-dark', label: '⚡ Warning' },
+    normal:  { cls: 'bg-success', label: '✓ Normal' },
+  };
+
+  function updateAnomalyBadge(chartId, states) {
+    var badge = document.getElementById('anomaly-badge-' + chartId);
+    if (!badge || !states || !states.length) return;
+    var worst = 'normal';
+    for (var i = 0; i < states.length; i++) {
+      var s = states[i];
+      if (s === 'outlier') { worst = 'outlier'; break; }
+      if (s === 'warning') worst = 'warning';
+    }
+    var info = _ANOMALY_BADGE[worst] || _ANOMALY_BADGE['normal'];
+    badge.className = 'badge ' + info.cls;
+    badge.textContent = info.label;
+    badge.title = 'Latest anomaly state: ' + worst + ' (' + states.filter(function (s) { return s !== 'normal'; }).length + ' flagged points)';
+    badge.classList.remove('d-none');
+  }
+
+  function extractAnomalyStates(option) {
+    // For anomaly_overlay: the value series carries per-point itemStyle color info.
+    // Look for an anomaly_state list stored in option._anomalyStates (injected below).
+    return option._anomalyStates || null;
+  }
+
   /* ── Render existing charts ── */
   function renderChart(chartCfg) {
     var el = document.getElementById('chart-' + chartCfg.id);
@@ -249,7 +284,45 @@
           if (hintEl) { hintEl.textContent = ''; }
           return;
         }
-        ec.setOption(data.option);
+
+        var option = data.option;
+
+        // Anomaly overlay: annotate per-point items with tooltip showing why-flagged detail
+        if (chartCfg.chart_type === 'anomaly_overlay' && option && option.series) {
+          var valueSeries = null;
+          for (var si = 0; si < option.series.length; si++) {
+            if (option.series[si].name === 'Value') { valueSeries = option.series[si]; break; }
+          }
+          if (valueSeries && Array.isArray(valueSeries.data)) {
+            var anomalyStates = [];
+            valueSeries.data = valueSeries.data.map(function (pt) {
+              var state = (pt && pt.drilldown && pt.drilldown._anomaly_state) || 'normal';
+              anomalyStates.push(state);
+              return pt;
+            });
+            // Store states for badge computation; also expose via tooltip
+            option._anomalyStates = anomalyStates;
+            option.tooltip = option.tooltip || {};
+            option.tooltip.formatter = function (params) {
+              var lines = [params[0] && params[0].axisValueLabel || ''];
+              params.forEach(function (p) {
+                var extra = '';
+                if (p.seriesName === 'Value' && p.data && p.data.drilldown) {
+                  var dd = p.data.drilldown;
+                  var st = dd._anomaly_state || 'normal';
+                  var score = dd._anomaly_score != null ? dd._anomaly_score.toFixed(2) : '—';
+                  var stColor = _ANOMALY_STATE_COLOR[st] || '#adb5bd';
+                  extra = ' <span style="color:' + stColor + '">● ' + st + ' (z=' + score + ')</span>';
+                }
+                lines.push('<b>' + p.seriesName + '</b>: ' + (p.value != null ? p.value : '—') + extra);
+              });
+              return lines.join('<br/>');
+            };
+            updateAnomalyBadge(chartCfg.id, anomalyStates);
+          }
+        }
+
+        ec.setOption(option);
 
         var template = templatesMap[chartCfg.chart_type];
         var drilldown = template && template.drilldown;

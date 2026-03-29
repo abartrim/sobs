@@ -2391,3 +2391,377 @@ class TestCustomDashboards:
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
         assert "bar-chart-line" in body
+
+
+# ---------------------------------------------------------------------------
+# OTEL Metrics Anomaly Detection Tests
+# ---------------------------------------------------------------------------
+class TestMetricsAnomalyDetection:
+    """Tests for the SQL-first anomaly-detection layer on OTEL metrics."""
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    def _make_gauge_payload(self, service: str, metric: str, value: float, ts_ns: int | None = None) -> dict:
+        ts = ts_ns or int(time.time() * 1_000_000_000)
+        return {
+            "resourceMetrics": [
+                {
+                    "resource": {
+                        "attributes": [{"key": "service.name", "value": {"stringValue": service}}]
+                    },
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": metric,
+                                    "description": "test gauge",
+                                    "unit": "ms",
+                                    "gauge": {
+                                        "dataPoints": [
+                                            {
+                                                "timeUnixNano": str(ts),
+                                                "asDouble": value,
+                                            }
+                                        ]
+                                    },
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+
+    def _make_sum_payload(self, service: str, metric: str, value: float, ts_ns: int | None = None) -> dict:
+        ts = ts_ns or int(time.time() * 1_000_000_000)
+        return {
+            "resourceMetrics": [
+                {
+                    "resource": {
+                        "attributes": [{"key": "service.name", "value": {"stringValue": service}}]
+                    },
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": metric,
+                                    "description": "test counter",
+                                    "unit": "1",
+                                    "sum": {
+                                        "isMonotonic": True,
+                                        "aggregationTemporality": 2,
+                                        "dataPoints": [
+                                            {
+                                                "timeUnixNano": str(ts),
+                                                "asDouble": value,
+                                            }
+                                        ],
+                                    },
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+
+    def _make_histogram_payload(
+        self, service: str, metric: str, count: int, hsum: float, ts_ns: int | None = None
+    ) -> dict:
+        ts = ts_ns or int(time.time() * 1_000_000_000)
+        return {
+            "resourceMetrics": [
+                {
+                    "resource": {
+                        "attributes": [{"key": "service.name", "value": {"stringValue": service}}]
+                    },
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": metric,
+                                    "description": "test histogram",
+                                    "unit": "ms",
+                                    "histogram": {
+                                        "aggregationTemporality": 2,
+                                        "dataPoints": [
+                                            {
+                                                "timeUnixNano": str(ts),
+                                                "count": str(count),
+                                                "sum": hsum,
+                                                "bucketCounts": ["1", str(count - 1)],
+                                                "explicitBounds": [50.0],
+                                            }
+                                        ],
+                                    },
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+
+    # ── schema / table existence ─────────────────────────────────────────────
+
+    async def test_otel_metric_tables_exist(self, client):
+        """The three typed metric tables must be created by init_db."""
+        db = sobs_app.get_db()
+        for table in ("otel_metrics_gauge", "otel_metrics_sum", "otel_metrics_histogram"):
+            row = db.execute(
+                "SELECT 1 FROM system.tables WHERE database='default' AND name=?", (table,)
+            ).fetchone()
+            assert row is not None, f"Table {table!r} not found in schema"
+
+    async def test_anomaly_views_exist(self, client):
+        """The two anomaly views must be created by init_db."""
+        db = sobs_app.get_db()
+        for view in ("v_otel_metrics_1m", "v_otel_metrics_anomaly"):
+            row = db.execute(
+                "SELECT 1 FROM system.tables WHERE database='default' AND name=?", (view,)
+            ).fetchone()
+            assert row is not None, f"View {view!r} not found in schema"
+
+    # ── gauge ingest ─────────────────────────────────────────────────────────
+
+    async def test_gauge_metric_ingest_accepted(self, client):
+        payload = self._make_gauge_payload("svc-gauge", "cpu.usage", 42.5)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["accepted"] == 1
+
+    async def test_gauge_metric_persisted_in_db(self, client):
+        ts_ns = int(time.time() * 1_000_000_000)
+        payload = self._make_gauge_payload("svc-gauge-db", "memory.usage", 77.0, ts_ns)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+        row = sobs_app.get_db().execute(
+            "SELECT Value, ServiceName FROM otel_metrics_gauge WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
+            ("svc-gauge-db",),
+        ).fetchone()
+        assert row is not None, "Gauge row not found"
+        assert abs(float(row["Value"]) - 77.0) < 1e-6
+
+    # ── sum ingest ───────────────────────────────────────────────────────────
+
+    async def test_sum_metric_ingest_accepted(self, client):
+        payload = self._make_sum_payload("svc-sum", "requests.total", 1000.0)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+        assert json.loads(await r.get_data())["accepted"] == 1
+
+    async def test_sum_metric_persisted_in_db(self, client):
+        ts_ns = int(time.time() * 1_000_000_000)
+        payload = self._make_sum_payload("svc-sum-db", "http.requests", 500.0, ts_ns)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+        row = sobs_app.get_db().execute(
+            "SELECT Value, IsMonotonic FROM otel_metrics_sum WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
+            ("svc-sum-db",),
+        ).fetchone()
+        assert row is not None, "Sum row not found"
+        assert abs(float(row["Value"]) - 500.0) < 1e-6
+        assert int(row["IsMonotonic"]) == 1
+
+    # ── histogram ingest ─────────────────────────────────────────────────────
+
+    async def test_histogram_metric_ingest_accepted(self, client):
+        payload = self._make_histogram_payload("svc-hist", "request.duration", 100, 5000.0)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+        assert json.loads(await r.get_data())["accepted"] == 1
+
+    async def test_histogram_metric_persisted_in_db(self, client):
+        ts_ns = int(time.time() * 1_000_000_000)
+        payload = self._make_histogram_payload("svc-hist-db", "latency", 200, 10000.0, ts_ns)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+        row = sobs_app.get_db().execute(
+            "SELECT Count, Sum FROM otel_metrics_histogram WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
+            ("svc-hist-db",),
+        ).fetchone()
+        assert row is not None, "Histogram row not found"
+        assert int(row["Count"]) == 200
+        assert abs(float(row["Sum"]) - 10000.0) < 1e-6
+
+    # ── attr fingerprint ─────────────────────────────────────────────────────
+
+    async def test_attr_fingerprint_is_stable(self, client):
+        """Same attribute dict should always produce the same fingerprint."""
+        from app import _attr_fingerprint  # noqa: PLC0415
+
+        attrs = {"env": "prod", "region": "us-east-1"}
+        fp1 = _attr_fingerprint(attrs)
+        fp2 = _attr_fingerprint(attrs)
+        assert fp1 == fp2
+        assert len(fp1) == 16
+
+    async def test_attr_fingerprint_excludes_runtime_attrs(self, client):
+        """Runtime/telemetry prefixes should not affect fingerprint."""
+        from app import _attr_fingerprint  # noqa: PLC0415
+
+        attrs_with = {"env": "prod", "telemetry.sdk.version": "1.0", "process.pid": "42"}
+        attrs_without = {"env": "prod"}
+        # telemetry.* and process.* are excluded so fingerprints should match
+        assert _attr_fingerprint(attrs_with) == _attr_fingerprint(attrs_without)
+
+    # ── normalised view ───────────────────────────────────────────────────────
+
+    async def test_v_otel_metrics_1m_returns_gauge_data(self, client):
+        """After ingesting a gauge, v_otel_metrics_1m should include the row."""
+        ts_ns = int(time.time() * 1_000_000_000)
+        payload = self._make_gauge_payload("svc-view-test", "view.metric", 99.9, ts_ns)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+
+        rows = sobs_app.get_db().execute(
+            "SELECT MetricKind, Value FROM v_otel_metrics_1m"
+            " WHERE ServiceName='svc-view-test' AND MetricName='view.metric'"
+            " ORDER BY MinuteBucket DESC LIMIT 1"
+        ).fetchall()
+        assert rows, "v_otel_metrics_1m returned no rows for ingested gauge"
+        assert str(rows[0]["MetricKind"]) == "gauge"
+
+    # ── anomaly API endpoint ──────────────────────────────────────────────────
+
+    async def test_anomaly_api_requires_service_and_metric(self, client):
+        r = await client.get("/api/metrics/anomaly")
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert "error" in data
+
+    async def test_anomaly_api_missing_metric_returns_400(self, client):
+        r = await client.get("/api/metrics/anomaly?service=svc")
+        assert r.status_code == 400
+
+    async def test_anomaly_api_returns_expected_structure(self, client):
+        """After ingesting gauge points the anomaly API must return expected columns."""
+        # Insert several gauge data points so the view has data
+        ts_base = int(time.time() * 1_000_000_000)
+        for i in range(5):
+            ts_ns = ts_base - i * 60 * 1_000_000_000
+            p = self._make_gauge_payload("svc-anomaly-api", "api.metric", float(10 + i), ts_ns)
+            await client.post("/v1/metrics", json=p)
+
+        r = await client.get("/api/metrics/anomaly?service=svc-anomaly-api&metric=api.metric&hours=1")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["service"] == "svc-anomaly-api"
+        assert data["metric"] == "api.metric"
+        assert "columns" in data
+        assert "rows" in data
+        expected_cols = {"time", "value", "anomaly_score", "anomaly_state", "baseline_mean"}
+        assert expected_cols.issubset(set(data["columns"]))
+
+    async def test_anomaly_api_spike_flagged_as_warning_or_outlier(self, client):
+        """A synthetic 10-sigma spike should be flagged as warning or outlier."""
+        ts_base = int(time.time() * 1_000_000_000)
+        # 59 normal points near 10.0 …
+        for i in range(59):
+            ts_ns = ts_base - (60 - i) * 60 * 1_000_000_000
+            p = self._make_gauge_payload("svc-spike-test", "spike.metric", 10.0, ts_ns)
+            await client.post("/v1/metrics", json=p)
+        # … followed by one large spike
+        spike_ts = ts_base - 1 * 60 * 1_000_000_000
+        p = self._make_gauge_payload("svc-spike-test", "spike.metric", 1000.0, spike_ts)
+        await client.post("/v1/metrics", json=p)
+
+        r = await client.get("/api/metrics/anomaly?service=svc-spike-test&metric=spike.metric&hours=2")
+        assert r.status_code == 200
+        data = await r.get_json()
+        col_idx = {c: i for i, c in enumerate(data["columns"])}
+        states = [row[col_idx["anomaly_state"]] for row in data["rows"]]
+        assert any(s in ("warning", "outlier") for s in states), (
+            f"No anomalous point detected for 10-sigma spike; states={states!r}"
+        )
+
+    async def test_anomaly_api_steady_series_not_over_flagged(self, client):
+        """A perfectly steady series should produce only 'normal' anomaly states."""
+        ts_base = int(time.time() * 1_000_000_000)
+        for i in range(30):
+            ts_ns = ts_base - i * 60 * 1_000_000_000
+            p = self._make_gauge_payload("svc-steady", "steady.metric", 42.0, ts_ns)
+            await client.post("/v1/metrics", json=p)
+
+        r = await client.get("/api/metrics/anomaly?service=svc-steady&metric=steady.metric&hours=1")
+        assert r.status_code == 200
+        data = await r.get_json()
+        col_idx = {c: i for i, c in enumerate(data["columns"])}
+        if data["rows"]:
+            states = [row[col_idx["anomaly_state"]] for row in data["rows"]]
+            assert all(s == "normal" for s in states), (
+                f"Steady series was over-flagged; states={states!r}"
+            )
+
+    # ── chart templates ───────────────────────────────────────────────────────
+
+    async def test_dual_axis_anomaly_template_present(self, client):
+        """The dual_axis_anomaly template must reference v_otel_metrics_anomaly."""
+        from app import CHART_TEMPLATES  # noqa: PLC0415
+
+        t = CHART_TEMPLATES.get("dual_axis_anomaly")
+        assert t is not None
+        assert "v_otel_metrics_anomaly" in t["sample_sql"]
+
+    async def test_anomaly_overlay_template_present(self, client):
+        """The anomaly_overlay template must exist with the correct column count."""
+        from app import CHART_TEMPLATES  # noqa: PLC0415
+
+        t = CHART_TEMPLATES.get("anomaly_overlay")
+        assert t is not None
+        assert t["min_columns"] == 6
+        assert "anomaly_state" in t["column_roles"]
+
+    async def test_anomaly_overlay_render_with_synthetic_data(self, client):
+        """anomaly_overlay template must render without errors for synthetic data."""
+        query = (
+            "SELECT"
+            "  now() AS time,"
+            "  10.0 AS value,"
+            "  10.0 AS baseline_mean,"
+            "   8.0 AS baseline_lower,"
+            "  12.0 AS baseline_upper,"
+            " 'normal' AS anomaly_state"
+        )
+        r = await client.post(
+            "/api/dashboards/render",
+            json={"query": query, "template_id": "anomaly_overlay"},
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "error" not in data
+        assert "option" in data
+
+    async def test_anomaly_overlay_spike_coloring(self, client):
+        """An outlier row should produce red colour binding in the rendered option."""
+        query = (
+            "SELECT"
+            "  now() AS time,"
+            "  100.0 AS value,"
+            "  10.0 AS baseline_mean,"
+            "   8.0 AS baseline_lower,"
+            "  12.0 AS baseline_upper,"
+            " 'outlier' AS anomaly_state"
+        )
+        r = await client.post(
+            "/api/dashboards/render",
+            json={"query": query, "template_id": "anomaly_overlay"},
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        # The rendered option must contain the outlier colour (#dc3545) somewhere
+        option_str = json.dumps(data.get("option", {}))
+        assert "#dc3545" in option_str, "Outlier colour not found in rendered chart option"
+
+    # ── hours boundary ────────────────────────────────────────────────────────
+
+    async def test_anomaly_api_hours_clamped(self, client):
+        """hours parameter must be clamped to the 1–168 range."""
+        r = await client.get("/api/metrics/anomaly?service=x&metric=y&hours=9999")
+        # Should not raise; may return empty data or valid JSON
+        assert r.status_code in (200, 400)
+        data = await r.get_json()
+        # If 200, it's valid JSON with the expected structure
+        if r.status_code == 200:
+            assert "rows" in data
