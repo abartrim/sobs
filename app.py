@@ -1576,12 +1576,30 @@ async def dashboard():
     )
 
 
-def _compute_log_stats(db, where_clause: str, params: list) -> tuple[dict, dict]:
-    """Return (level_stats, service_stats) counts for the given WHERE clause."""
+def _sanitize_sql_where(raw: str) -> str:
+    """Apply column alias substitutions and strip semicolons from a raw SQL WHERE fragment."""
+    safe = raw.replace(";", "")
+    safe = re.sub(r"\blevel\b", "SeverityText", safe, flags=re.IGNORECASE)
+    safe = re.sub(r"\bservice\b", "ServiceName", safe, flags=re.IGNORECASE)
+    safe = re.sub(r"\btrace_id\b", "TraceId", safe, flags=re.IGNORECASE)
+    safe = re.sub(r"\bspan_id\b", "SpanId", safe, flags=re.IGNORECASE)
+    safe = re.sub(r"\bts\b", "Timestamp", safe, flags=re.IGNORECASE)
+    safe = re.sub(r"\bbody\b", "Body", safe, flags=re.IGNORECASE)
+    return safe
+
+
+def _compute_log_stats(db, where_clause: str, params: list) -> tuple[dict, dict, dict]:
+    """Return (level_stats, service_stats, msg_stats) counts for the given WHERE clause.
+
+    level_stats   – {SeverityText: count} ordered by count descending.
+    service_stats – {ServiceName: count} top 10 non-empty service names.
+    msg_stats     – {"top_messages": [(body, count), ...], "unique_count": int, "error_count": int}
+    """
     level_stats = {
         (r["SeverityText"] or "UNKNOWN"): r["cnt"]
         for r in db.execute(
-            f"SELECT SeverityText, COUNT(*) AS cnt FROM otel_logs {where_clause} GROUP BY SeverityText ORDER BY cnt DESC",
+            f"SELECT SeverityText, COUNT(*) AS cnt FROM otel_logs {where_clause}"
+            " GROUP BY SeverityText ORDER BY cnt DESC",
             params,
         ).fetchall()
     }
@@ -1589,11 +1607,34 @@ def _compute_log_stats(db, where_clause: str, params: list) -> tuple[dict, dict]
     service_stats = {
         r["ServiceName"]: r["cnt"]
         for r in db.execute(
-            f"SELECT ServiceName, COUNT(*) AS cnt FROM otel_logs {where_clause} {svc_cond} GROUP BY ServiceName ORDER BY cnt DESC LIMIT 10",
+            f"SELECT ServiceName, COUNT(*) AS cnt FROM otel_logs {where_clause} {svc_cond}"
+            " GROUP BY ServiceName ORDER BY cnt DESC LIMIT 10",
             params,
         ).fetchall()
     }
-    return level_stats, service_stats
+    body_cond = "AND Body!=''" if where_clause else "WHERE Body!=''"
+    top_msgs = [
+        (r["Body"], r["cnt"])
+        for r in db.execute(
+            f"SELECT Body, COUNT(*) AS cnt FROM otel_logs {where_clause} {body_cond}"
+            " GROUP BY Body ORDER BY cnt DESC LIMIT 5",
+            params,
+        ).fetchall()
+    ]
+    unique_row = db.execute(
+        f"SELECT uniqExact(Body) AS u FROM otel_logs {where_clause}", params
+    ).fetchone()
+    error_row = db.execute(
+        "SELECT countIf(SeverityText IN ('ERROR', 'FATAL', 'CRITICAL')) AS ec"
+        f" FROM otel_logs {where_clause}",
+        params,
+    ).fetchone()
+    msg_stats: dict = {
+        "top_messages": top_msgs,
+        "unique_count": int(unique_row["u"]) if unique_row else 0,
+        "error_count": int(error_row["ec"]) if error_row else 0,
+    }
+    return level_stats, service_stats, msg_stats
 
 
 # ---------------------------------------------------------------------------
@@ -1620,24 +1661,19 @@ async def view_logs():
     error_msg = ""
     level_stats: dict = {}
     service_stats: dict = {}
+    msg_stats: dict = {}
 
     if sql_where:
         # Allow raw WHERE clause (SQL search)
         try:
-            safe_sql = sql_where.replace(";", "")
-            safe_sql = re.sub(r"\blevel\b", "SeverityText", safe_sql, flags=re.IGNORECASE)
-            safe_sql = re.sub(r"\bservice\b", "ServiceName", safe_sql, flags=re.IGNORECASE)
-            safe_sql = re.sub(r"\btrace_id\b", "TraceId", safe_sql, flags=re.IGNORECASE)
-            safe_sql = re.sub(r"\bspan_id\b", "SpanId", safe_sql, flags=re.IGNORECASE)
-            safe_sql = re.sub(r"\bts\b", "Timestamp", safe_sql, flags=re.IGNORECASE)
-            safe_sql = re.sub(r"\bbody\b", "Body", safe_sql, flags=re.IGNORECASE)
+            safe_sql = _sanitize_sql_where(sql_where)
             query = (
                 f"SELECT Timestamp, SeverityText, ServiceName, Body, TraceId, SpanId FROM otel_logs "
                 f"WHERE {safe_sql} {order_clause} LIMIT ? OFFSET ?"
             )
             rows = db.execute(query, (limit, offset)).fetchall()
             total = db.execute(f"SELECT COUNT(*) FROM otel_logs WHERE {safe_sql}").fetchone()[0]
-            level_stats, service_stats = _compute_log_stats(db, f"WHERE {safe_sql}", [])
+            level_stats, service_stats, msg_stats = _compute_log_stats(db, f"WHERE {safe_sql}", [])
         except Exception as exc:
             error_msg = f"SQL error: {exc}"
             rows = []
@@ -1657,7 +1693,7 @@ async def view_logs():
             f"{order_clause} LIMIT ? OFFSET ?",
             params + [limit, offset],
         ).fetchall()
-        level_stats, service_stats = _compute_log_stats(db, where, params)
+        level_stats, service_stats, msg_stats = _compute_log_stats(db, where, params)
 
     log_rows = []
     grep_pat = re.compile(q, re.IGNORECASE) if q else None
@@ -1703,7 +1739,64 @@ async def view_logs():
         sort_dir=sort_dir,
         level_stats=level_stats,
         service_stats=service_stats,
+        msg_stats=msg_stats,
     )
+
+
+# ---------------------------------------------------------------------------
+# Web UI – Log deep analytics (manually triggered)
+# ---------------------------------------------------------------------------
+@app.route("/logs/analyze")
+@require_basic_auth
+async def logs_analyze():
+    """Return deeper ClickHouse analytics for the current log query as JSON."""
+    db = get_db()
+    sql_where = request.args.get("sql", "").strip()
+    level = request.args.get("level", "").strip().upper()
+    service = request.args.get("service", "").strip()
+
+    if sql_where:
+        try:
+            safe_sql = _sanitize_sql_where(sql_where)
+            where = f"WHERE {safe_sql}"
+            params: list = []
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 400
+    else:
+        conditions = []
+        params = []
+        if level:
+            conditions.append("SeverityText=?")
+            params.append(level)
+        if service:
+            conditions.append("ServiceName=?")
+            params.append(service)
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    try:
+        hourly_rows = db.execute(
+            f"SELECT toStartOfHour(Timestamp) AS hour, COUNT(*) AS cnt"
+            f" FROM otel_logs {where}"
+            " GROUP BY hour ORDER BY hour ASC LIMIT 48",
+            params,
+        ).fetchall()
+        error_cond = ("AND" if where else "WHERE") + " SeverityText IN ('ERROR', 'FATAL', 'CRITICAL')"
+        top_error_rows = db.execute(
+            f"SELECT Body, ServiceName, COUNT(*) AS cnt FROM otel_logs {where} {error_cond}"
+            " GROUP BY Body, ServiceName ORDER BY cnt DESC LIMIT 10",
+            params,
+        ).fetchall()
+        return jsonify(
+            {
+                "hourly": [{"hour": str(r["hour"]), "count": r["cnt"]} for r in hourly_rows],
+                "top_errors": [
+                    {"body": r["Body"], "service": r["ServiceName"], "count": r["cnt"]}
+                    for r in top_error_rows
+                ],
+            }
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 # ---------------------------------------------------------------------------

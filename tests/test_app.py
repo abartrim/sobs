@@ -985,6 +985,90 @@ class TestUIPages:
         data = await r.get_data()
         assert b"Query Statistics" in data
 
+    async def test_logs_stats_panel_message_stats(self, client):
+        """Stats panel should include By Message section with unique count."""
+        await client.post(
+            "/v1/logs",
+            json={
+                "resourceLogs": [
+                    {
+                        "resource": {
+                            "attributes": [{"key": "service.name", "value": {"stringValue": "msg-stats-svc"}}]
+                        },
+                        "scopeLogs": [
+                            {
+                                "logRecords": [
+                                    {
+                                        "timeUnixNano": str(int(time.time() * 1_000_000_000)),
+                                        "severityText": "WARN",
+                                        "body": {"stringValue": "repeated warning message"},
+                                    },
+                                    {
+                                        "timeUnixNano": str(int(time.time() * 1_000_000_000)),
+                                        "severityText": "WARN",
+                                        "body": {"stringValue": "repeated warning message"},
+                                    },
+                                ]
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+        r = await client.get("/logs")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"By Message" in data
+        assert b"unique message" in data
+
+    async def test_logs_analyze_endpoint(self, client):
+        """Deep analysis endpoint should return JSON with hourly and top_errors keys."""
+        r = await client.get("/logs/analyze")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "hourly" in data
+        assert "top_errors" in data
+        assert isinstance(data["hourly"], list)
+        assert isinstance(data["top_errors"], list)
+
+    async def test_logs_analyze_sql_mode(self, client):
+        """Deep analysis endpoint should work with sql= filter parameter."""
+        r = await client.get("/logs/analyze?sql=SeverityText%3D%27ERROR%27")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "hourly" in data
+        assert "top_errors" in data
+
+    async def test_logs_stats_panel_error_rate(self, client):
+        """Stats panel header badge should show error rate percentage when errors exist."""
+        await client.post(
+            "/v1/logs",
+            json={
+                "resourceLogs": [
+                    {
+                        "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "rate-svc"}}]},
+                        "scopeLogs": [
+                            {
+                                "logRecords": [
+                                    {
+                                        "timeUnixNano": str(int(time.time() * 1_000_000_000)),
+                                        "severityText": "ERROR",
+                                        "body": {"stringValue": "error for rate test"},
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+        r = await client.get("/logs?level=ERROR")
+        assert r.status_code == 200
+        data = await r.get_data()
+        # Badge is rendered with bg-danger class and a percentage value
+        assert b"bg-danger" in data
+        assert b"% errors" in data
+
     async def test_logs_invalid_sort_ignored(self, client):
         """An unknown sort_by value should fall back to Timestamp without error."""
         r = await client.get("/logs?sort_by=INVALID_COL&sort_dir=desc")

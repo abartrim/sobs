@@ -71,7 +71,7 @@
 </div>
 
 <!-- Query Statistics Panel -->
-{% if level_stats or service_stats %}
+{% if level_stats or service_stats or msg_stats %}
 <div class="accordion mb-3" id="statsAccordion">
   <div class="accordion-item border-secondary">
     <h2 class="accordion-header" id="statsHeading">
@@ -81,13 +81,16 @@
         <i class="bi bi-bar-chart-line me-2 text-info"></i>
         <span class="fw-semibold">Query Statistics</span>
         <span class="badge bg-secondary ms-2">{{ total }} record{{ 's' if total != 1 else '' }}</span>
+        {% if msg_stats and msg_stats.error_count and total %}
+        <span class="badge bg-danger ms-1">{{ ((msg_stats.error_count / total) * 100) | round(1) }}% errors</span>
+        {% endif %}
       </button>
     </h2>
     <div id="statsPanel" class="accordion-collapse collapse" aria-labelledby="statsHeading" data-bs-parent="#statsAccordion">
       <div class="accordion-body py-3">
         <div class="row g-3">
           {% if level_stats %}
-          <div class="col-md-6">
+          <div class="col-md-4">
             <h6 class="text-secondary small mb-2"><i class="bi bi-tag me-1"></i>By Level</h6>
             <div class="d-flex flex-wrap gap-2">
               {% for lvl, cnt in level_stats.items() %}
@@ -97,7 +100,7 @@
           </div>
           {% endif %}
           {% if service_stats %}
-          <div class="col-md-6">
+          <div class="col-md-4">
             <h6 class="text-secondary small mb-2"><i class="bi bi-server me-1"></i>By Service</h6>
             <div class="d-flex flex-wrap gap-2">
               {% for svc, cnt in service_stats.items() %}
@@ -106,6 +109,45 @@
             </div>
           </div>
           {% endif %}
+          {% if msg_stats %}
+          <div class="col-md-4">
+            <h6 class="text-secondary small mb-2"><i class="bi bi-chat-left-text me-1"></i>By Message</h6>
+            <div class="small text-secondary mb-1">{{ msg_stats.unique_count }} unique message{{ 's' if msg_stats.unique_count != 1 else '' }}</div>
+            {% if msg_stats.top_messages %}
+            <div class="d-flex flex-column gap-1">
+              {% for body, cnt in msg_stats.top_messages %}
+              <div class="d-flex align-items-start gap-1">
+                <span class="badge bg-info text-dark flex-shrink-0">{{ cnt }}×</span>
+                <span class="text-truncate small font-monospace" style="max-width:220px;" title="{{ body }}">{{ body }}</span>
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+          {% endif %}
+        </div>
+        <!-- Deep Analysis -->
+        <div class="mt-3 pt-2 border-top border-secondary">
+          <button id="deepAnalysisBtn" type="button" class="btn btn-sm btn-outline-info">
+            <i class="bi bi-cpu me-1"></i>Run Deep Analysis
+          </button>
+          <span id="deepAnalysisSpinner" class="ms-2 d-none">
+            <span class="spinner-border spinner-border-sm text-info" role="status"></span>
+            <span class="text-secondary small ms-1">Analyzing…</span>
+          </span>
+          <div id="deepAnalysisResults" class="mt-3 d-none">
+            <div class="row g-3">
+              <div class="col-md-7" id="deepHourlySection">
+                <h6 class="text-secondary small mb-2"><i class="bi bi-clock-history me-1"></i>Log Volume by Hour</h6>
+                <div id="deepHourlyChart"></div>
+              </div>
+              <div class="col-md-5" id="deepErrorsSection">
+                <h6 class="text-secondary small mb-2"><i class="bi bi-exclamation-triangle me-1 text-danger"></i>Top Error Messages</h6>
+                <div id="deepErrorsList"></div>
+              </div>
+            </div>
+          </div>
+          <div id="deepAnalysisError" class="alert alert-danger mt-2 py-1 small d-none"></div>
         </div>
       </div>
     </div>
@@ -560,6 +602,101 @@
   } else if (liveRequested) {
     startLive();
   }
+})();
+</script>
+
+<script>
+(() => {
+  const deepBtn = document.getElementById("deepAnalysisBtn");
+  const deepSpinner = document.getElementById("deepAnalysisSpinner");
+  const deepResults = document.getElementById("deepAnalysisResults");
+  const deepError = document.getElementById("deepAnalysisError");
+  const deepHourlyChart = document.getElementById("deepHourlyChart");
+  const deepErrorsList = document.getElementById("deepErrorsList");
+
+  if (!deepBtn) {
+    return;
+  }
+
+  function buildAnalyzeUrl() {
+    const params = new URLSearchParams();
+    const q = {{ sql_where|tojson }};
+    const level = {{ level|tojson }};
+    const service = {{ service|tojson }};
+    if (q) {
+      params.set("sql", q);
+    }
+    if (level) {
+      params.set("level", level);
+    }
+    if (service) {
+      params.set("service", service);
+    }
+    return `/logs/analyze?${params.toString()}`;
+  }
+
+  function renderHourlyChart(hourly) {
+    if (!hourly || !hourly.length) {
+      deepHourlyChart.innerHTML = '<span class="text-secondary small">No hourly data available.</span>';
+      return;
+    }
+    const maxCount = Math.max(...hourly.map((h) => h.count), 1);
+    const bars = hourly.map((h) => {
+      const pct = Math.max(Math.round((h.count / maxCount) * 100), 2);
+      const label = String(h.hour).slice(11, 16) || String(h.hour).slice(0, 13);
+      return `<div class="d-flex align-items-center gap-1 mb-1">
+        <span class="text-secondary small font-monospace" style="width:42px;flex-shrink:0;">${label}</span>
+        <div class="progress flex-grow-1" style="height:14px;" title="${h.count} logs">
+          <div class="progress-bar bg-info" role="progressbar" style="width:${pct}%"></div>
+        </div>
+        <span class="text-secondary small" style="width:36px;text-align:right;flex-shrink:0;">${h.count}</span>
+      </div>`;
+    });
+    deepHourlyChart.innerHTML = bars.join("");
+  }
+
+  function renderTopErrors(topErrors) {
+    if (!topErrors || !topErrors.length) {
+      deepErrorsList.innerHTML = '<span class="text-secondary small">No errors in current filter.</span>';
+      return;
+    }
+    const rows = topErrors.map((e) => {
+      const svc = e.service ? `<span class="badge bg-secondary me-1">${e.service}</span>` : "";
+      const bodyText = String(e.body || "");
+      const body = bodyText.slice(0, 80) + (bodyText.length > 80 ? "…" : "");
+      return `<div class="mb-1 small">
+        <span class="badge bg-danger me-1">${e.count}×</span>${svc}
+        <span class="font-monospace text-wrap">${body}</span>
+      </div>`;
+    });
+    deepErrorsList.innerHTML = rows.join("");
+  }
+
+  deepBtn.addEventListener("click", async () => {
+    deepBtn.disabled = true;
+    deepSpinner.classList.remove("d-none");
+    deepResults.classList.add("d-none");
+    deepError.classList.add("d-none");
+
+    try {
+      const resp = await fetch(buildAnalyzeUrl());
+      const data = await resp.json();
+      if (!resp.ok || data.error) {
+        deepError.textContent = data.error || `HTTP ${resp.status}`;
+        deepError.classList.remove("d-none");
+      } else {
+        renderHourlyChart(data.hourly);
+        renderTopErrors(data.top_errors);
+        deepResults.classList.remove("d-none");
+      }
+    } catch (err) {
+      deepError.textContent = String(err);
+      deepError.classList.remove("d-none");
+    } finally {
+      deepSpinner.classList.add("d-none");
+      deepBtn.disabled = false;
+    }
+  });
 })();
 </script>
 {% endblock %}
