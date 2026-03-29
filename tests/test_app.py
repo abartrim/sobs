@@ -2406,9 +2406,7 @@ class TestMetricsAnomalyDetection:
         return {
             "resourceMetrics": [
                 {
-                    "resource": {
-                        "attributes": [{"key": "service.name", "value": {"stringValue": service}}]
-                    },
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": service}}]},
                     "scopeMetrics": [
                         {
                             "metrics": [
@@ -2437,9 +2435,7 @@ class TestMetricsAnomalyDetection:
         return {
             "resourceMetrics": [
                 {
-                    "resource": {
-                        "attributes": [{"key": "service.name", "value": {"stringValue": service}}]
-                    },
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": service}}]},
                     "scopeMetrics": [
                         {
                             "metrics": [
@@ -2472,9 +2468,7 @@ class TestMetricsAnomalyDetection:
         return {
             "resourceMetrics": [
                 {
-                    "resource": {
-                        "attributes": [{"key": "service.name", "value": {"stringValue": service}}]
-                    },
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": service}}]},
                     "scopeMetrics": [
                         {
                             "metrics": [
@@ -2508,18 +2502,14 @@ class TestMetricsAnomalyDetection:
         """The three typed metric tables must be created by init_db."""
         db = sobs_app.get_db()
         for table in ("otel_metrics_gauge", "otel_metrics_sum", "otel_metrics_histogram"):
-            row = db.execute(
-                "SELECT 1 FROM system.tables WHERE database='default' AND name=?", (table,)
-            ).fetchone()
+            row = db.execute("SELECT 1 FROM system.tables WHERE database='default' AND name=?", (table,)).fetchone()
             assert row is not None, f"Table {table!r} not found in schema"
 
     async def test_anomaly_views_exist(self, client):
         """The two anomaly views must be created by init_db."""
         db = sobs_app.get_db()
         for view in ("v_otel_metrics_1m", "v_otel_metrics_anomaly"):
-            row = db.execute(
-                "SELECT 1 FROM system.tables WHERE database='default' AND name=?", (view,)
-            ).fetchone()
+            row = db.execute("SELECT 1 FROM system.tables WHERE database='default' AND name=?", (view,)).fetchone()
             assert row is not None, f"View {view!r} not found in schema"
 
     # ── gauge ingest ─────────────────────────────────────────────────────────
@@ -2536,10 +2526,14 @@ class TestMetricsAnomalyDetection:
         payload = self._make_gauge_payload("svc-gauge-db", "memory.usage", 77.0, ts_ns)
         r = await client.post("/v1/metrics", json=payload)
         assert r.status_code == 200
-        row = sobs_app.get_db().execute(
-            "SELECT Value, ServiceName FROM otel_metrics_gauge WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
-            ("svc-gauge-db",),
-        ).fetchone()
+        row = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT Value, ServiceName FROM otel_metrics_gauge WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
+                ("svc-gauge-db",),
+            )
+            .fetchone()
+        )
         assert row is not None, "Gauge row not found"
         assert abs(float(row["Value"]) - 77.0) < 1e-6
 
@@ -2556,10 +2550,14 @@ class TestMetricsAnomalyDetection:
         payload = self._make_sum_payload("svc-sum-db", "http.requests", 500.0, ts_ns)
         r = await client.post("/v1/metrics", json=payload)
         assert r.status_code == 200
-        row = sobs_app.get_db().execute(
-            "SELECT Value, IsMonotonic FROM otel_metrics_sum WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
-            ("svc-sum-db",),
-        ).fetchone()
+        row = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT Value, IsMonotonic FROM otel_metrics_sum WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
+                ("svc-sum-db",),
+            )
+            .fetchone()
+        )
         assert row is not None, "Sum row not found"
         assert abs(float(row["Value"]) - 500.0) < 1e-6
         assert int(row["IsMonotonic"]) == 1
@@ -2577,10 +2575,14 @@ class TestMetricsAnomalyDetection:
         payload = self._make_histogram_payload("svc-hist-db", "latency", 200, 10000.0, ts_ns)
         r = await client.post("/v1/metrics", json=payload)
         assert r.status_code == 200
-        row = sobs_app.get_db().execute(
-            "SELECT Count, Sum FROM otel_metrics_histogram WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
-            ("svc-hist-db",),
-        ).fetchone()
+        row = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT Count, Sum FROM otel_metrics_histogram WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
+                ("svc-hist-db",),
+            )
+            .fetchone()
+        )
         assert row is not None, "Histogram row not found"
         assert int(row["Count"]) == 200
         assert abs(float(row["Sum"]) - 10000.0) < 1e-6
@@ -2615,11 +2617,15 @@ class TestMetricsAnomalyDetection:
         r = await client.post("/v1/metrics", json=payload)
         assert r.status_code == 200
 
-        rows = sobs_app.get_db().execute(
-            "SELECT MetricKind, Value FROM v_otel_metrics_1m"
-            " WHERE ServiceName='svc-view-test' AND MetricName='view.metric'"
-            " ORDER BY MinuteBucket DESC LIMIT 1"
-        ).fetchall()
+        rows = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT MetricKind, Value FROM v_otel_metrics_1m"
+                " WHERE ServiceName='svc-view-test' AND MetricName='view.metric'"
+                " ORDER BY MinuteBucket DESC LIMIT 1"
+            )
+            .fetchall()
+        )
         assert rows, "v_otel_metrics_1m returned no rows for ingested gauge"
         assert str(rows[0]["MetricKind"]) == "gauge"
 
@@ -2672,9 +2678,9 @@ class TestMetricsAnomalyDetection:
         data = await r.get_json()
         col_idx = {c: i for i, c in enumerate(data["columns"])}
         states = [row[col_idx["anomaly_state"]] for row in data["rows"]]
-        assert any(s in ("warning", "outlier") for s in states), (
-            f"No anomalous point detected for 10-sigma spike; states={states!r}"
-        )
+        assert any(
+            s in ("warning", "outlier") for s in states
+        ), f"No anomalous point detected for 10-sigma spike; states={states!r}"
 
     async def test_anomaly_api_steady_series_not_over_flagged(self, client):
         """A perfectly steady series should produce only 'normal' anomaly states."""
@@ -2690,9 +2696,7 @@ class TestMetricsAnomalyDetection:
         col_idx = {c: i for i, c in enumerate(data["columns"])}
         if data["rows"]:
             states = [row[col_idx["anomaly_state"]] for row in data["rows"]]
-            assert all(s == "normal" for s in states), (
-                f"Steady series was over-flagged; states={states!r}"
-            )
+            assert all(s == "normal" for s in states), f"Steady series was over-flagged; states={states!r}"
 
     # ── chart templates ───────────────────────────────────────────────────────
 

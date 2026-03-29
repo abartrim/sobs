@@ -362,23 +362,83 @@ SELECT
     Value AS value,
     SampleCount,
     round(avg(Value) OVER w, 6) AS baseline_mean,
-    round(sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))), 6) AS baseline_stddev,
-    round(avg(Value) OVER w - 2.0 * sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))), 6) AS baseline_lower,
-    round(avg(Value) OVER w + 2.0 * sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))), 6) AS baseline_upper,
+    round(
+        sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ),
+        6
+    ) AS baseline_stddev,
+    round(
+        avg(Value) OVER w - 2.0 * sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ),
+        6
+    ) AS baseline_lower,
+    round(
+        avg(Value) OVER w + 2.0 * sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ),
+        6
+    ) AS baseline_upper,
     round(
         if(
-            sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))) > 0,
-            abs(Value - avg(Value) OVER w) / sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))),
+            sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w
+                        * avg(Value) OVER w)
+                )
+            ) > 0,
+            abs(Value - avg(Value) OVER w) / sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w
+                        * avg(Value) OVER w)
+                )
+            ),
             0
         ),
         4
     ) AS anomaly_score,
     multiIf(
-        sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))) > 0
-            AND abs(Value - avg(Value) OVER w) > 3.0 * sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))),
+        sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value)
+                    OVER w)
+            )
+        ) > 0
+            AND abs(Value - avg(Value) OVER w) > 3.0 * sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w
+                        * avg(Value) OVER w)
+                )
+            ),
         'outlier',
-        sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))) > 0
-            AND abs(Value - avg(Value) OVER w) > 2.0 * sqrt(greatest(0.0, avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w))),
+        sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value)
+                    OVER w)
+            )
+        ) > 0
+            AND abs(Value - avg(Value) OVER w) > 2.0 * sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w
+                        * avg(Value) OVER w)
+                )
+            ),
         'warning',
         'normal'
     ) AS anomaly_state
@@ -1096,9 +1156,7 @@ def _attr_fingerprint(attrs: dict) -> str:
     to the first 8 sorted key=value pairs to keep cardinality manageable.
     """
     pairs = sorted(
-        f"{k}={v}"
-        for k, v in attrs.items()
-        if not any(k.startswith(p) for p in _FINGERPRINT_SKIP_PREFIXES)
+        f"{k}={v}" for k, v in attrs.items() if not any(k.startswith(p) for p in _FINGERPRINT_SKIP_PREFIXES)
     )[:8]
     # MD5 is used here for non-cryptographic cardinality reduction only (16-hex fingerprint).
     return hashlib.md5("|".join(pairs).encode()).hexdigest()[:16]
@@ -1408,7 +1466,9 @@ def _insert_typed_metric_events(db, events: list[TypedMetricEvent]) -> int:
         if ev.metric_kind == "gauge":
             gauge_rows.append(base)
         elif ev.metric_kind == "sum":
-            sum_rows.append({**base, "IsMonotonic": ev.is_monotonic, "AggregationTemporality": ev.aggregation_temporality})
+            sum_rows.append(
+                {**base, "IsMonotonic": ev.is_monotonic, "AggregationTemporality": ev.aggregation_temporality}
+            )
         elif ev.metric_kind == "histogram":
             histogram_rows.append(
                 {
@@ -3566,11 +3626,23 @@ async def metrics_anomaly():
             params,
         )
         rows = result.fetchall()
-        columns = list(rows[0].keys()) if rows else [
-            "time", "value", "sample_count", "baseline_mean", "baseline_stddev",
-            "baseline_lower", "baseline_upper", "anomaly_score", "anomaly_state",
-            "metric_kind", "attr_fp",
-        ]
+        columns = (
+            list(rows[0].keys())
+            if rows
+            else [
+                "time",
+                "value",
+                "sample_count",
+                "baseline_mean",
+                "baseline_stddev",
+                "baseline_lower",
+                "baseline_upper",
+                "anomaly_score",
+                "anomaly_state",
+                "metric_kind",
+                "attr_fp",
+            ]
+        )
 
         def _safe(v):  # type: ignore
             if isinstance(v, float) and (v != v):  # IEEE 754: NaN is the only value not equal to itself
