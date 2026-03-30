@@ -13,6 +13,14 @@ This folder contains end-to-end examples for the `custom_echarts` chart mode.
 - `error_rate_option.json`: ECharts option JSON for category bar
 - `payload_error_rate_render.json`: full API payload for `/api/dashboards/spec/render`
 
+## Deterministic Ordering Requirement
+
+For `custom_echarts`, your SQL should explicitly define row order when sequence matters.
+
+- Always include `ORDER BY` for time series, ranked bars, and top-N outputs.
+- Add tie-breaker columns when values can tie (for example: `ORDER BY ts, service`).
+- Do not rely on implicit database row order.
+
 ## Custom Source Button For custom_echarts
 
 In `custom_mapping_json`, add a reserved `_drilldown` object:

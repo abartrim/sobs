@@ -56,6 +56,10 @@
   <div class="card-header">Custom ECharts (Advanced)</div>
   <div class="card-body">
     <p class="mb-2">For <strong>Custom ECharts</strong>, three inputs are authoritative: Raw SQL, Custom Mapping JSON, and Custom Option JSON.</p>
+    <div class="alert alert-warning py-2 small mb-2">
+      <i class="bi bi-exclamation-triangle me-1"></i>
+      Raw SQL <strong>must include an explicit ORDER BY</strong> whenever point sequence matters (time series, ranked bars, top-N lists). Use a deterministic tie-breaker when needed (example: <code>ORDER BY ts, service</code>).
+    </div>
     <p class="small text-secondary mb-2">Placeholders in option JSON can use mapped keys (example: <code>&#123;&#123;points&#125;&#125;</code>) and built-ins (<code>&#123;&#123;rows&#125;&#125;</code>, <code>&#123;&#123;records&#125;&#125;</code>, <code>&#123;&#123;columns&#125;&#125;</code>).</p>
     <div class="row g-3">
       <div class="col-lg-4">
@@ -115,6 +119,6 @@ LIMIT 240</code></pre>
 </div>
 
 <div class="alert alert-secondary mb-0">
-  Full copy/paste payloads are available in <code>examples/custom_echarts</code>.
+  Full copy/paste payloads are available in <code>examples/custom_echarts</code>. Ensure every custom SQL query has explicit ORDER BY for deterministic chart output.
 </div>
 {% endblock %}

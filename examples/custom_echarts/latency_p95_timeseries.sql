@@ -1,3 +1,5 @@
+-- IMPORTANT: keep explicit ORDER BY for deterministic chart point order.
+-- Add tie-breakers when needed (example: ORDER BY ts, service).
 SELECT
   toStartOfMinute(Timestamp) AS ts,
   quantile(0.95)(Duration) AS p95_ms
