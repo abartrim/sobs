@@ -4516,6 +4516,7 @@ async def view_ai():
     db = get_db()
     service = request.args.get("service", "").strip()
     model = request.args.get("model", "").strip()
+    operation_filter = request.args.get("operation", "").strip()
     limit = _parse_limit(50)
     offset = _parse_offset()
     sort_by, sort_col, sort_dir = _parse_sort(
@@ -4532,6 +4533,9 @@ async def view_ai():
     if model:
         conditions.append("SpanAttributes['gen_ai.request.model']=?")
         params.append(model)
+    if operation_filter:
+        conditions.append("SpanAttributes['gen_ai.operation.name']=?")
+        params.append(operation_filter)
     conditions.append("(SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '')")
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
@@ -4549,17 +4553,42 @@ async def view_ai():
         # Coalesce provider: canonical gen_ai.provider.name with legacy gen_ai.system fallback
         provider = str(attrs.get("gen_ai.provider.name") or attrs.get("gen_ai.system", ""))
         req_model = str(attrs.get("gen_ai.request.model", ""))
+        operation = str(attrs.get("gen_ai.operation.name", "chat"))
         # Coalesce prompt/response: OTel standard fields first, sobs legacy fields as fallback
-        prompt = _extract_messages_text(str(attrs.get("gen_ai.input.messages", ""))) or str(
-            attrs.get("sobs.gen_ai.prompt", "")
-        )
-        response = _extract_messages_text(str(attrs.get("gen_ai.output.messages", ""))) or str(
-            attrs.get("sobs.gen_ai.response", "")
-        )
+        input_messages_raw = str(attrs.get("gen_ai.input.messages", ""))
+        output_messages_raw = str(attrs.get("gen_ai.output.messages", ""))
+        prompt = _extract_messages_text(input_messages_raw) or str(attrs.get("sobs.gen_ai.prompt", ""))
+        response = _extract_messages_text(output_messages_raw) or str(attrs.get("sobs.gen_ai.response", ""))
         tokens_in = int(float(attrs.get("gen_ai.usage.input_tokens", "0") or 0))
         tokens_out = int(float(attrs.get("gen_ai.usage.output_tokens", "0") or 0))
         err_type = str(attrs.get("error.type", ""))
         msg = str(attrs.get("exception.message", ""))
+        duration_ms = round(float(r["Duration"]) / 1_000_000, 1)
+        tokens_per_sec = round(tokens_out / (duration_ms / 1000), 1) if duration_ms > 0 and tokens_out > 0 else 0
+        # Additional OTel GenAI attributes
+        finish_reason = str(attrs.get("gen_ai.response.finish_reason", ""))
+        temperature = str(attrs.get("gen_ai.request.temperature", ""))
+        max_tokens = str(attrs.get("gen_ai.request.max_tokens", ""))
+        thinking_tokens = int(float(attrs.get("gen_ai.usage.thinking_tokens", "0") or 0))
+        # Build structured messages for conversation view
+        input_messages = []
+        output_messages = []
+        try:
+            if input_messages_raw:
+                parsed = json.loads(input_messages_raw)
+                if isinstance(parsed, list):
+                    input_messages = parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+        try:
+            if output_messages_raw:
+                parsed = json.loads(output_messages_raw)
+                if isinstance(parsed, list):
+                    output_messages = parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+        # Build raw attributes dict for JSON inspector
+        raw_attrs = dict(attrs)
         row_id = _error_id(ts, r["ServiceName"], provider, req_model + err_type + msg, r["TraceId"], "")
         ai_items.append(
             {
@@ -4568,13 +4597,25 @@ async def view_ai():
                 "service": r["ServiceName"],
                 "provider": provider,
                 "model": req_model,
+                "operation": operation,
                 "prompt": prompt,
                 "response": response,
+                "input_messages": input_messages,
+                "output_messages": output_messages,
+                "input_messages_json": input_messages_raw,
+                "output_messages_json": output_messages_raw,
                 "tokens_in": tokens_in,
                 "tokens_out": tokens_out,
-                "duration_ms": round(float(r["Duration"]) / 1_000_000, 1),
+                "thinking_tokens": thinking_tokens,
+                "duration_ms": duration_ms,
+                "tokens_per_sec": tokens_per_sec,
                 "trace_id": r["TraceId"],
                 "error_type": err_type,
+                "error_message": msg,
+                "finish_reason": finish_reason,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "raw_attrs": json.dumps(raw_attrs, ensure_ascii=False, indent=2),
             }
         )
 
@@ -4594,13 +4635,22 @@ async def view_ai():
             "AND SpanAttributes['gen_ai.request.model'] != '' ORDER BY model"
         ).fetchall()
     ]
+    operations = [
+        row[0]
+        for row in db.execute(
+            "SELECT DISTINCT SpanAttributes['gen_ai.operation.name'] AS op FROM otel_traces "
+            "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
+            "AND SpanAttributes['gen_ai.operation.name'] != '' ORDER BY op"
+        ).fetchall()
+    ]
 
     # Token usage totals
     totals = db.execute(
         "SELECT "
         "SUM(toUInt64OrZero(SpanAttributes['gen_ai.usage.input_tokens'])) ti, "
         "SUM(toUInt64OrZero(SpanAttributes['gen_ai.usage.output_tokens'])) to_, "
-        "COUNT(*) cnt "
+        "COUNT(*) cnt, "
+        "countIf(SpanAttributes['error.type'] != '') errors "
         "FROM otel_traces WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '')"
     ).fetchone()
 
@@ -4612,13 +4662,117 @@ async def view_ai():
         offset=offset,
         service=service,
         model=model,
+        operation=operation_filter,
         services=services,
         models=models,
+        operations=operations,
         total_tokens_in=totals["ti"] or 0,
         total_tokens_out=totals["to_"] or 0,
         total_calls=totals["cnt"] or 0,
+        total_errors=totals["errors"] or 0,
         sort_by=sort_by,
         sort_dir=sort_dir,
+    )
+
+
+# ---------------------------------------------------------------------------
+# AI training data export  GET /api/ai/export
+# ---------------------------------------------------------------------------
+@app.route("/api/ai/export")
+@require_basic_auth
+async def export_ai_training():
+    """Export AI call data as JSONL for training dataset creation."""
+    db = get_db()
+    service = request.args.get("service", "").strip()
+    model = request.args.get("model", "").strip()
+    operation_filter = request.args.get("operation", "").strip()
+    fmt = request.args.get("format", "jsonl").strip().lower()
+    try:
+        max_rows = min(int(request.args.get("limit", 1000)), 5000)
+    except (ValueError, TypeError):
+        max_rows = 1000
+
+    conditions = [
+        "(SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '')",
+    ]
+    params: list = []
+    if service:
+        conditions.append("ServiceName=?")
+        params.append(service)
+    if model:
+        conditions.append("SpanAttributes['gen_ai.request.model']=?")
+        params.append(model)
+    if operation_filter:
+        conditions.append("SpanAttributes['gen_ai.operation.name']=?")
+        params.append(operation_filter)
+    where = "WHERE " + " AND ".join(conditions)
+
+    rows = db.execute(
+        f"SELECT Timestamp, ServiceName, TraceId, Duration, SpanAttributes "
+        f"FROM otel_traces {where} ORDER BY Timestamp DESC LIMIT ?",
+        params + [max_rows],
+    ).fetchall()
+
+    records = []
+    for r in rows:
+        attrs = _map_to_dict(r["SpanAttributes"])
+        provider = str(attrs.get("gen_ai.provider.name") or attrs.get("gen_ai.system", ""))
+        req_model = str(attrs.get("gen_ai.request.model", ""))
+        input_messages_raw = str(attrs.get("gen_ai.input.messages", ""))
+        output_messages_raw = str(attrs.get("gen_ai.output.messages", ""))
+        prompt = _extract_messages_text(input_messages_raw) or str(attrs.get("sobs.gen_ai.prompt", ""))
+        response = _extract_messages_text(output_messages_raw) or str(attrs.get("sobs.gen_ai.response", ""))
+        tokens_in = int(float(attrs.get("gen_ai.usage.input_tokens", "0") or 0))
+        tokens_out = int(float(attrs.get("gen_ai.usage.output_tokens", "0") or 0))
+
+        # Build messages array for training format
+        messages: list = []
+        try:
+            if input_messages_raw:
+                parsed = json.loads(input_messages_raw)
+                if isinstance(parsed, list):
+                    messages.extend(parsed)
+        except (json.JSONDecodeError, TypeError):
+            if prompt:
+                messages.append({"role": "user", "content": prompt})
+        try:
+            if output_messages_raw:
+                parsed = json.loads(output_messages_raw)
+                if isinstance(parsed, list):
+                    messages.extend(parsed)
+        except (json.JSONDecodeError, TypeError):
+            if response:
+                messages.append({"role": "assistant", "content": response})
+
+        record = {
+            "messages": messages,
+            "metadata": {
+                "timestamp": str(r["Timestamp"]),
+                "service": r["ServiceName"],
+                "provider": provider,
+                "model": req_model,
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "duration_ms": round(float(r["Duration"]) / 1_000_000, 1),
+                "trace_id": r["TraceId"],
+            },
+        }
+        records.append(record)
+
+    if fmt == "json":
+        body = json.dumps(records, ensure_ascii=False, indent=2)
+        mime = "application/json"
+        filename = "ai_training_data.json"
+    else:
+        lines = [json.dumps(rec, ensure_ascii=False) for rec in records]
+        body = "\n".join(lines)
+        mime = "application/x-ndjson"
+        filename = "ai_training_data.jsonl"
+
+    return Response(
+        body,
+        mimetype=mime,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

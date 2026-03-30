@@ -2180,6 +2180,189 @@ class TestGenAICompliance:
         body = await r2.get_data(as_text=True)
         assert "RateLimitError" in body
 
+    async def test_ai_view_operation_filter(self, client):
+        """AI view should accept and apply an operation filter."""
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "embed-svc",
+                "provider": "openai",
+                "model": "text-embedding-3-small",
+                "operation": "embeddings",
+                "tokens_in": 20,
+                "tokens_out": 0,
+                "duration_ms": 80,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/ai?operation=embeddings")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert "embed-svc" in body or "text-embedding-3-small" in body
+
+    async def test_ai_view_exposes_operation_field(self, client):
+        """AI view should expose operation field in the rendered page."""
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "op-svc",
+                "provider": "anthropic",
+                "model": "claude-3-5-sonnet",
+                "operation": "chat",
+                "input_messages": [{"role": "user", "content": "Hello operation test"}],
+                "output_messages": [{"role": "assistant", "content": "Hi"}],
+                "tokens_in": 10,
+                "tokens_out": 5,
+                "duration_ms": 200,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/ai")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        # Operation data should be included in the rendered output
+        assert "op-svc" in body
+
+    async def test_ai_view_includes_raw_json_tab(self, client):
+        """AI view should include Raw JSON tab with span attributes."""
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "json-svc",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "input_messages": [{"role": "user", "content": "JSON tab test"}],
+                "output_messages": [{"role": "assistant", "content": "OK"}],
+                "tokens_in": 8,
+                "tokens_out": 2,
+                "duration_ms": 100,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/ai")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        # Raw JSON tab should be present
+        assert "Raw JSON" in body
+        assert "raw_attrs" in body or "Span Attributes" in body
+
+    async def test_ai_view_includes_metrics_tab(self, client):
+        """AI view should include Metrics tab with token and timing info."""
+        r2 = await client.get("/ai")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert "Metrics" in body
+        assert "Tokens/sec" in body or "Duration" in body
+
+    async def test_ai_view_includes_cost_estimation(self, client):
+        """AI view should include cost estimation JavaScript."""
+        r2 = await client.get("/ai")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert "AI_PRICING" in body
+        assert "aiCostEstimate" in body
+        assert "Est. Cost" in body
+
+    async def test_ai_export_jsonl(self, client):
+        """GET /api/ai/export should return JSONL training data."""
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "export-svc",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "input_messages": [{"role": "user", "content": "Export test prompt"}],
+                "output_messages": [{"role": "assistant", "content": "Export test response"}],
+                "tokens_in": 12,
+                "tokens_out": 6,
+                "duration_ms": 150,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/api/ai/export")
+        assert r2.status_code == 200
+        data = await r2.get_data(as_text=True)
+        # Each line should be valid JSON
+        lines = [ln for ln in data.strip().split("\n") if ln.strip()]
+        assert len(lines) > 0
+        record = json.loads(lines[0])
+        assert "messages" in record
+        assert "metadata" in record
+        assert "model" in record["metadata"]
+
+    async def test_ai_export_json_format(self, client):
+        """GET /api/ai/export?format=json should return JSON array."""
+        r2 = await client.get("/api/ai/export?format=json")
+        assert r2.status_code == 200
+        data = await r2.get_data(as_text=True)
+        records = json.loads(data)
+        assert isinstance(records, list)
+
+    async def test_ai_export_filter_by_service(self, client):
+        """Export endpoint should accept service filter."""
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "filtered-export-svc",
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "prompt": "Filtered export test",
+                "response": "OK",
+                "tokens_in": 5,
+                "tokens_out": 1,
+                "duration_ms": 50,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/api/ai/export?service=filtered-export-svc")
+        assert r2.status_code == 200
+        data = await r2.get_data(as_text=True)
+        lines = [ln for ln in data.strip().split("\n") if ln.strip()]
+        assert len(lines) > 0
+        # All exported records should belong to this service
+        for line in lines:
+            record = json.loads(line)
+            assert record["metadata"]["service"] == "filtered-export-svc"
+
+    async def test_ai_view_includes_export_button(self, client):
+        """AI page should include an Export JSONL button."""
+        r = await client.get("/ai")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Export JSONL" in body
+
+    async def test_ai_view_total_errors_shown(self, client):
+        """AI view should display total error count in summary cards."""
+        r = await client.get("/ai")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Errors" in body
+
+    async def test_ai_view_shows_tokens_per_sec(self, client):
+        """AI view should show tokens/sec for calls with duration > 0."""
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "speed-svc",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "tokens_in": 50,
+                "tokens_out": 100,
+                "duration_ms": 1000,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/ai")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert "Tokens/sec" in body
+
 
 # ---------------------------------------------------------------------------
 # Custom Dashboards (eChart)

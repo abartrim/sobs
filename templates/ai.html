@@ -4,7 +4,10 @@
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="fw-semibold mb-0"><i class="bi bi-cpu me-2 text-success"></i>AI Transparency</h4>
   <div class="d-flex align-items-center gap-2">
-    <span class="text-secondary small">{{ total_calls }} calls · {{ total_tokens_in + total_tokens_out }} total tokens</span>
+    <a href="{{ url_for('export_ai_training', service=service, model=model, operation=operation) }}"
+       class="btn btn-sm btn-outline-secondary" title="Export training data as JSONL">
+      <i class="bi bi-download me-1"></i>Export JSONL
+    </a>
     <button id="liveTailBtn" class="btn btn-sm btn-outline-success" onclick="toggleLiveTail()">
       <i class="bi bi-broadcast me-1"></i>Live Tail
     </button>
@@ -25,30 +28,42 @@
   </div>
 </div>
 
-<!-- Token summary -->
+<!-- Summary cards -->
 <div class="row g-3 mb-3">
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-2">
     <div class="stat-card p-3 text-center">
       <div class="fs-4 fw-bold text-success">{{ total_calls }}</div>
       <div class="text-secondary small">Total Calls</div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-2">
     <div class="stat-card p-3 text-center">
       <div class="fs-4 fw-bold text-info">{{ total_tokens_in }}</div>
       <div class="text-secondary small">Tokens In</div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-2">
     <div class="stat-card p-3 text-center">
       <div class="fs-4 fw-bold text-warning">{{ total_tokens_out }}</div>
       <div class="text-secondary small">Tokens Out</div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-2">
     <div class="stat-card p-3 text-center">
       <div class="fs-4 fw-bold text-primary">{{ total_tokens_in + total_tokens_out }}</div>
       <div class="text-secondary small">Total Tokens</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="stat-card p-3 text-center">
+      <div class="fs-4 fw-bold text-danger" id="errorRateDisplay">{{ total_errors }}</div>
+      <div class="text-secondary small">Errors</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="stat-card p-3 text-center">
+      <div class="fs-4 fw-bold text-success" id="estCostDisplay">…</div>
+      <div class="text-secondary small">Est. Cost (USD)</div>
     </div>
   </div>
 </div>
@@ -57,7 +72,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-body">
     <form method="get" class="row g-2 align-items-end">
-      <div class="col-md-3">
+      <div class="col-md-2">
         <label class="form-label small text-secondary">Service</label>
         <select name="service" class="form-select form-select-sm">
           <option value="">All services</option>
@@ -66,12 +81,21 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-3">
+      <div class="col-md-2">
         <label class="form-label small text-secondary">Model</label>
         <select name="model" class="form-select form-select-sm">
           <option value="">All models</option>
           {% for m in models %}
           <option value="{{ m }}" {% if m == model %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Operation</label>
+        <select name="operation" class="form-select form-select-sm">
+          <option value="">All operations</option>
+          {% for op in operations %}
+          <option value="{{ op }}" {% if op == operation %}selected{% endif %}>{{ op }}</option>
           {% endfor %}
         </select>
       </div>
@@ -101,51 +125,244 @@
 {% if ai_items %}
 <div class="accordion" id="aiAccordion">
   {% for item in ai_items %}
-  <div class="accordion-item border-secondary mb-1">
+  <div class="accordion-item border-secondary mb-1" data-tokens-in="{{ item.tokens_in }}" data-tokens-out="{{ item.tokens_out }}" data-model="{{ item.model }}">
     <h2 class="accordion-header">
       <button class="accordion-button collapsed py-2"
               type="button" data-bs-toggle="collapse" data-bs-target="#ai{{ item.id }}">
-        <div class="d-flex gap-3 align-items-center w-100 me-2 flex-wrap">
-          <span class="badge bg-success">{{ item.model }}</span>
-          <span class="badge bg-info text-dark">{{ item.provider }}</span>
-          {% if item.error_type %}
-          <span class="badge bg-danger">{{ item.error_type }}</span>
+        <div class="d-flex gap-2 align-items-center w-100 me-2 flex-wrap">
+          <span class="badge bg-success">{{ item.model or '?' }}</span>
+          <span class="badge bg-info text-dark">{{ item.provider or '?' }}</span>
+          {% if item.operation and item.operation != 'chat' %}
+          <span class="badge bg-secondary">{{ item.operation }}</span>
           {% endif %}
-          <span class="small flex-grow-1 text-truncate text-secondary" style="max-width:300px;" title="{{ item.prompt }}">
+          {% if item.error_type %}
+          <span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>{{ item.error_type }}</span>
+          {% endif %}
+          {% if item.finish_reason and item.finish_reason not in ('stop', '') %}
+          <span class="badge bg-warning text-dark">{{ item.finish_reason }}</span>
+          {% endif %}
+          <span class="small flex-grow-1 text-truncate text-secondary" style="max-width:280px;" title="{{ item.prompt }}">
             {{ item.prompt[:80] }}{% if item.prompt | length > 80 %}…{% endif %}
           </span>
           <span class="small text-warning">{{ item.tokens_in }}↑ {{ item.tokens_out }}↓</span>
+          {% if item.thinking_tokens %}
+          <span class="small text-info" title="Thinking tokens"><i class="bi bi-lightbulb me-1"></i>{{ item.thinking_tokens }}</span>
+          {% endif %}
           <span class="small text-secondary">{{ item.duration_ms }}ms</span>
           <span class="text-secondary small">{{ item.ts[:19] }}</span>
         </div>
       </button>
     </h2>
     <div id="ai{{ item.id }}" class="accordion-collapse collapse">
-      <div class="accordion-body py-2">
-        <div class="row g-2">
-          <div class="col-md-6">
-            <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-left-text me-1"></i>Prompt</div>
-            <div class="prompt-box">{{ item.prompt }}</div>
+      <div class="accordion-body py-2 px-3">
+
+        <!-- Tabs -->
+        <ul class="nav nav-tabs nav-tabs-sm mb-3" id="tabs{{ item.id }}" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active small py-1 px-3" id="conv-tab-{{ item.id }}"
+                    data-bs-toggle="tab" data-bs-target="#conv-{{ item.id }}"
+                    type="button" role="tab">
+              <i class="bi bi-chat-left-dots me-1"></i>Conversation
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link small py-1 px-3" id="metrics-tab-{{ item.id }}"
+                    data-bs-toggle="tab" data-bs-target="#metrics-{{ item.id }}"
+                    type="button" role="tab">
+              <i class="bi bi-speedometer2 me-1"></i>Metrics
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link small py-1 px-3" id="json-tab-{{ item.id }}"
+                    data-bs-toggle="tab" data-bs-target="#json-{{ item.id }}"
+                    type="button" role="tab">
+              <i class="bi bi-braces me-1"></i>Raw JSON
+            </button>
+          </li>
+        </ul>
+
+        <div class="tab-content" id="tabContent{{ item.id }}">
+          <!-- Conversation Tab -->
+          <div class="tab-pane fade show active" id="conv-{{ item.id }}" role="tabpanel">
+            {% if item.error_type %}
+            <!-- Error Troubleshooting -->
+            <div class="alert alert-danger py-2 px-3 mb-2 small">
+              <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle me-1"></i>Error: {{ item.error_type }}</div>
+              {% if item.error_message %}<div class="text-danger-emphasis mb-1">{{ item.error_message }}</div>{% endif %}
+              <div class="text-secondary" id="tip-{{ item.id }}"></div>
+            </div>
+            <script>
+            (function() {
+              var tips = {
+                'RateLimitError': 'Rate limit exceeded. Add retry logic with exponential backoff. Consider batching requests or upgrading your API plan.',
+                'AuthenticationError': 'Authentication failed. Verify your API key is valid and not expired. Check environment variable configuration.',
+                'InvalidRequestError': 'Invalid request parameters. Check prompt length, message format, and model compatibility.',
+                'ContextLengthExceeded': 'Context window exceeded. Reduce prompt length, summarize prior turns, or use a model with a larger context window.',
+                'ServiceUnavailableError': 'API service temporarily unavailable. Implement retry logic with backoff. Check provider status page.',
+                'ContentFilterError': 'Response blocked by content filters. Review prompt content and adjust to comply with usage policies.',
+                'TimeoutError': 'Request timed out. Check network connectivity and consider increasing timeout values.',
+                'InsufficientQuotaError': 'Quota exceeded. Check your usage limits and billing status with the provider.',
+              };
+              var errType = {{ item.error_type | tojson }};
+              var el = document.getElementById('tip-{{ item.id }}');
+              if (el) {
+                var tip = tips[errType] || 'Check the provider documentation for details on this error type.';
+                el.textContent = '💡 ' + tip;
+              }
+            }());
+            </script>
+            {% endif %}
+
+            {% if item.input_messages %}
+            <!-- Multi-turn conversation -->
+            <div class="mb-2">
+              {% for msg in item.input_messages %}
+              <div class="mb-1 d-flex align-items-start gap-2">
+                <span class="badge mt-1 flex-shrink-0
+                  {% if msg.role == 'system' %}bg-secondary
+                  {% elif msg.role == 'user' %}bg-primary
+                  {% elif msg.role == 'assistant' %}bg-success
+                  {% elif msg.role == 'tool' %}bg-warning text-dark
+                  {% else %}bg-dark{% endif %}"
+                  style="min-width:4.5rem;text-align:center;">{{ msg.role or '?' }}</span>
+                <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:200px;">{{ msg.content if msg.content is string else msg.content | tojson }}</div>
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if item.output_messages %}
+            <!-- Output turns -->
+            <div class="fw-semibold small text-secondary mb-1 mt-2"><i class="bi bi-cpu me-1 text-success"></i>Response</div>
+            {% for msg in item.output_messages %}
+            <div class="mb-1 d-flex align-items-start gap-2">
+              <span class="badge mt-1 flex-shrink-0
+                {% if msg.role == 'assistant' %}bg-success
+                {% elif msg.role == 'tool' %}bg-warning text-dark
+                {% else %}bg-dark{% endif %}"
+                style="min-width:4.5rem;text-align:center;">{{ msg.role or '?' }}</span>
+              <!-- Allow slightly more height for responses which are typically longer -->
+              <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:300px;">{{ msg.content if msg.content is string else msg.content | tojson }}</div>
+            </div>
+            {% endfor %}
+            {% elif item.prompt or item.response %}
+            <!-- Fallback plain prompt/response -->
+            <div class="row g-2">
+              <div class="col-md-6">
+                <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-left-text me-1"></i>Prompt</div>
+                <div class="prompt-box ai-md-content">{{ item.prompt }}</div>
+              </div>
+              <div class="col-md-6">
+                <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-right-text me-1"></i>Response</div>
+                <div class="prompt-box ai-md-content">{{ item.response }}</div>
+              </div>
+            </div>
+            {% endif %}
+
+            <!-- Metadata row -->
+            <div class="mt-2 d-flex gap-3 small text-secondary flex-wrap align-items-center">
+              <span><strong>Service:</strong> {{ item.service }}</span>
+              <span><strong>Operation:</strong> {{ item.operation }}</span>
+              {% if item.finish_reason %}
+              <span><strong>Finish:</strong> {{ item.finish_reason }}</span>
+              {% endif %}
+              {% if item.trace_id %}
+              <a href="{{ url_for('view_traces', trace_id=item.trace_id) }}" class="trace-link">
+                Trace {{ item.trace_id[:12] }}…
+              </a>
+              {% endif %}
+              <button class="btn btn-outline-secondary btn-sm py-0 px-2 ms-auto" style="font-size:.75rem;"
+                      onclick="toggleMarkdown(this)" title="Toggle markdown rendering">
+                <i class="bi bi-markdown me-1"></i>MD
+              </button>
+            </div>
           </div>
-          <div class="col-md-6">
-            <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-right-text me-1"></i>Response</div>
-            <div class="prompt-box">{{ item.response }}</div>
+
+          <!-- Metrics Tab -->
+          <div class="tab-pane fade" id="metrics-{{ item.id }}" role="tabpanel">
+            <div class="row g-3">
+              <div class="col-6 col-md-3">
+                <div class="stat-card p-2 text-center">
+                  <div class="fs-5 fw-bold text-info">{{ item.tokens_in }}</div>
+                  <div class="text-secondary" style="font-size:.75rem;">Tokens In</div>
+                </div>
+              </div>
+              <div class="col-6 col-md-3">
+                <div class="stat-card p-2 text-center">
+                  <div class="fs-5 fw-bold text-warning">{{ item.tokens_out }}</div>
+                  <div class="text-secondary" style="font-size:.75rem;">Tokens Out</div>
+                </div>
+              </div>
+              {% if item.thinking_tokens %}
+              <div class="col-6 col-md-3">
+                <div class="stat-card p-2 text-center">
+                  <div class="fs-5 fw-bold text-info">{{ item.thinking_tokens }}</div>
+                  <div class="text-secondary" style="font-size:.75rem;">Thinking Tokens</div>
+                </div>
+              </div>
+              {% endif %}
+              <div class="col-6 col-md-3">
+                <div class="stat-card p-2 text-center">
+                  <div class="fs-5 fw-bold text-primary">{{ item.duration_ms }}ms</div>
+                  <div class="text-secondary" style="font-size:.75rem;">Duration</div>
+                </div>
+              </div>
+              {% if item.tokens_per_sec %}
+              <div class="col-6 col-md-3">
+                <div class="stat-card p-2 text-center">
+                  <div class="fs-5 fw-bold text-success">{{ item.tokens_per_sec }}</div>
+                  <div class="text-secondary" style="font-size:.75rem;">Tokens/sec</div>
+                </div>
+              </div>
+              {% endif %}
+            </div>
+
+            <!-- Request parameters -->
+            <div class="mt-3 small">
+              <div class="fw-semibold text-secondary mb-2">Request Parameters</div>
+              <table class="table table-sm table-borderless mb-0">
+                <tbody>
+                  <tr><td class="text-secondary" style="width:40%;">Model</td><td>{{ item.model or '—' }}</td></tr>
+                  <tr><td class="text-secondary">Provider</td><td>{{ item.provider or '—' }}</td></tr>
+                  <tr><td class="text-secondary">Operation</td><td>{{ item.operation or '—' }}</td></tr>
+                  {% if item.temperature %}<tr><td class="text-secondary">Temperature</td><td>{{ item.temperature }}</td></tr>{% endif %}
+                  {% if item.max_tokens %}<tr><td class="text-secondary">Max Tokens</td><td>{{ item.max_tokens }}</td></tr>{% endif %}
+                  {% if item.finish_reason %}<tr><td class="text-secondary">Finish Reason</td><td>{{ item.finish_reason }}</td></tr>{% endif %}
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Cost estimation -->
+            <div class="mt-3 small">
+              <div class="fw-semibold text-secondary mb-1"><i class="bi bi-currency-dollar me-1"></i>Estimated Cost</div>
+              <div id="cost-{{ item.id }}" class="text-secondary">
+                <span class="spinner-border spinner-border-sm" role="status"></span>
+              </div>
+            </div>
+            <script>
+            (function() {
+              var model = {{ item.model | tojson }};
+              var tokIn = {{ item.tokens_in }};
+              var tokOut = {{ item.tokens_out }};
+              var el = document.getElementById('cost-{{ item.id }}');
+              if (el) el.innerHTML = aiCostEstimate(model, tokIn, tokOut);
+            }());
+            </script>
           </div>
-        </div>
-        <div class="mt-2 d-flex gap-3 small text-secondary flex-wrap">
-          <span><strong>Service:</strong> {{ item.service }}</span>
-          <span><strong>Tokens in:</strong> {{ item.tokens_in }}</span>
-          <span><strong>Tokens out:</strong> {{ item.tokens_out }}</span>
-          <span><strong>Duration:</strong> {{ item.duration_ms }}ms</span>
-          {% if item.error_type %}
-          <span class="text-danger"><strong>Error:</strong> {{ item.error_type }}</span>
-          {% endif %}
-          {% if item.trace_id %}
-          <a href="{{ url_for('view_traces', trace_id=item.trace_id) }}" class="trace-link">
-            Trace {{ item.trace_id[:12] }}…
-          </a>
-          {% endif %}
-        </div>
+
+          <!-- Raw JSON Tab -->
+          <div class="tab-pane fade" id="json-{{ item.id }}" role="tabpanel">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <span class="small text-secondary fw-semibold"><i class="bi bi-braces me-1"></i>Span Attributes</span>
+              <button class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;"
+                      onclick="copyToClipboard(this, {{ item.raw_attrs | tojson }})">
+                <i class="bi bi-clipboard me-1"></i>Copy
+              </button>
+            </div>
+            <pre class="mb-0 p-2 rounded" style="background:var(--bs-tertiary-bg);font-size:.75rem;max-height:400px;overflow:auto;white-space:pre-wrap;">{{ item.raw_attrs }}</pre>
+          </div>
+        </div><!-- /tab-content -->
+
       </div>
     </div>
   </div>
@@ -160,19 +377,19 @@
     <small class="text-secondary">Showing {{ offset + 1 }}–{{ [offset + ai_items | length, total] | min }} of {{ total }}</small>
     <select class="form-select form-select-sm" style="width:auto;" onchange="window.location.href=this.value" aria-label="Rows per page">
       {% for n in [10, 25, 50, 100, 200] %}
-      <option value="{{ url_for('view_ai', service=service, model=model, sort_by=sort_by, sort_dir=sort_dir, limit=n, offset=0) }}" {% if limit == n %}selected{% endif %}>{{ n }} / page</option>
+      <option value="{{ url_for('view_ai', service=service, model=model, operation=operation, sort_by=sort_by, sort_dir=sort_dir, limit=n, offset=0) }}" {% if limit == n %}selected{% endif %}>{{ n }} / page</option>
       {% endfor %}
     </select>
   </div>
   <ul class="pagination pagination-sm mb-0">
     {% if offset > 0 %}
     <li class="page-item">
-      <a class="page-link" href="{{ url_for('view_ai', service=service, model=model, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=prev_offset) }}">← Prev</a>
+      <a class="page-link" href="{{ url_for('view_ai', service=service, model=model, operation=operation, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=prev_offset) }}">← Prev</a>
     </li>
     {% endif %}
     {% if next_offset < total %}
     <li class="page-item">
-      <a class="page-link" href="{{ url_for('view_ai', service=service, model=model, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=next_offset) }}">Next →</a>
+      <a class="page-link" href="{{ url_for('view_ai', service=service, model=model, operation=operation, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=next_offset) }}">Next →</a>
     </li>
     {% endif %}
   </ul>
@@ -214,6 +431,163 @@ def tracked_llm_call(prompt, model="gpt-4o", provider="openai"):
 </div>
 
 <script>
+/* ===== Cost estimation lookup table (USD per 1M tokens, approximate) ===== */
+var AI_PRICING = {
+  /* OpenAI */
+  'gpt-4o':              { in: 2.50,  out: 10.00 },
+  'gpt-4o-mini':         { in: 0.15,  out: 0.60  },
+  'gpt-4-turbo':         { in: 10.00, out: 30.00 },
+  'gpt-4':               { in: 30.00, out: 60.00 },
+  'gpt-3.5-turbo':       { in: 0.50,  out: 1.50  },
+  'o1':                  { in: 15.00, out: 60.00 },
+  'o1-mini':             { in: 3.00,  out: 12.00 },
+  'o3-mini':             { in: 1.10,  out: 4.40  },
+  /* Anthropic */
+  'claude-3-5-sonnet-20241022': { in: 3.00, out: 15.00 },
+  'claude-3-5-sonnet':   { in: 3.00,  out: 15.00 },
+  'claude-3-5-haiku':    { in: 0.80,  out: 4.00  },
+  'claude-3-opus':       { in: 15.00, out: 75.00 },
+  'claude-3-sonnet':     { in: 3.00,  out: 15.00 },
+  'claude-3-haiku':      { in: 0.25,  out: 1.25  },
+  /* Google */
+  'gemini-1.5-pro':      { in: 1.25,  out: 5.00  },
+  'gemini-1.5-flash':    { in: 0.075, out: 0.30  },
+  'gemini-2.0-flash':    { in: 0.10,  out: 0.40  },
+  /* Meta / open source (inference cost estimate) */
+  'llama-3.1-70b':       { in: 0.90,  out: 0.90  },
+  'llama-3.1-8b':        { in: 0.20,  out: 0.20  },
+  /* Mistral */
+  'mistral-large':       { in: 3.00,  out: 9.00  },
+  'mistral-small':       { in: 0.20,  out: 0.60  },
+};
+
+function aiCostEstimate(model, tokIn, tokOut) {
+  var modelLower = (model || '').toLowerCase();
+  var price = null;
+  /* exact match first */
+  if (AI_PRICING[modelLower]) {
+    price = AI_PRICING[modelLower];
+  } else {
+    /* prefix match */
+    for (var key in AI_PRICING) {
+      if (modelLower.indexOf(key) !== -1 || key.indexOf(modelLower) !== -1) {
+        price = AI_PRICING[key];
+        break;
+      }
+    }
+  }
+  if (!price) {
+    return '<span class="text-secondary">Unknown model — pricing not available</span>';
+  }
+  var cost = (tokIn / 1e6) * price.in + (tokOut / 1e6) * price.out;
+  var fmt = cost < 0.001 ? cost.toExponential(2) : cost.toFixed(6);
+  return '<span class="text-success fw-semibold">$' + fmt + '</span>'
+       + '<span class="text-secondary ms-2 small">($' + price.in + '/1M in · $' + price.out + '/1M out)</span>';
+}
+
+/* ===== Compute total estimated cost for summary card ===== */
+(function() {
+  var items = document.querySelectorAll('#aiAccordion .accordion-item[data-model]');
+  var total = 0;
+  var known = 0;
+  items.forEach(function(el) {
+    var model = el.getAttribute('data-model') || '';
+    var tokIn = parseInt(el.getAttribute('data-tokens-in') || '0', 10);
+    var tokOut = parseInt(el.getAttribute('data-tokens-out') || '0', 10);
+    var modelLower = model.toLowerCase();
+    var price = AI_PRICING[modelLower];
+    if (!price) {
+      for (var key in AI_PRICING) {
+        if (modelLower.indexOf(key) !== -1 || key.indexOf(modelLower) !== -1) {
+          price = AI_PRICING[key];
+          break;
+        }
+      }
+    }
+    if (price) {
+      total += (tokIn / 1e6) * price.in + (tokOut / 1e6) * price.out;
+      known++;
+    }
+  });
+  var el = document.getElementById('estCostDisplay');
+  if (el) {
+    if (known > 0) {
+      el.textContent = '$' + (total < 0.001 ? total.toExponential(2) : total.toFixed(4));
+      el.title = 'Estimated cost for visible page only. ' + (items.length - known) + ' unknown model(s) excluded.';
+    } else {
+      el.textContent = 'N/A';
+      el.className = 'fs-4 fw-bold text-secondary';
+    }
+  }
+}());
+
+/* ===== Simple Markdown renderer ===== */
+function renderMarkdown(text) {
+  if (!text) return '';
+  var html = escHtml(text);
+  /* code blocks */
+  html = html.replace(/```([a-z]*)\n?([\s\S]*?)```/g, function(_, lang, code) {
+    return '<pre class="p-1 rounded" style="background:var(--bs-tertiary-bg);font-size:.8em;overflow-x:auto;"><code>' + code + '</code></pre>';
+  });
+  /* inline code */
+  html = html.replace(/`([^`\n]+)`/g, '<code class="px-1 rounded" style="background:var(--bs-tertiary-bg);">$1</code>');
+  /* bold */
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  /* italic */
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  /* headers */
+  html = html.replace(/^### (.+)$/gm, '<h6 class="fw-semibold mt-2 mb-1">$1</h6>');
+  html = html.replace(/^## (.+)$/gm, '<h5 class="fw-semibold mt-2 mb-1">$1</h5>');
+  html = html.replace(/^# (.+)$/gm, '<h5 class="fw-bold mt-2 mb-1">$1</h5>');
+  /* unordered lists */
+  html = html.replace(/((?:^[-*] .+\n?)+)/gm, function(block) {
+    var items = block.trim().split('\n').map(function(line) {
+      return '<li>' + line.replace(/^[-*] /, '') + '</li>';
+    }).join('');
+    return '<ul class="mb-1 ps-3">' + items + '</ul>';
+  });
+  /* line breaks */
+  html = html.replace(/\n\n/g, '</p><p class="mb-1">');
+  html = html.replace(/\n/g, '<br>');
+  return '<p class="mb-1">' + html + '</p>';
+}
+
+var _mdEnabled = false;
+
+function toggleMarkdown(btn) {
+  _mdEnabled = !_mdEnabled;
+  btn.classList.toggle('active', _mdEnabled);
+  btn.title = _mdEnabled ? 'Disable markdown rendering' : 'Enable markdown rendering';
+  document.querySelectorAll('.ai-md-content').forEach(function(el) {
+    var raw = el.getAttribute('data-raw');
+    if (_mdEnabled) {
+      if (raw === null) {
+        // Save the original plain text before first render
+        el.setAttribute('data-raw', el.textContent);
+      }
+      el.innerHTML = renderMarkdown(el.getAttribute('data-raw'));
+      el.style.whiteSpace = 'normal';
+    } else {
+      if (raw !== null) {
+        el.textContent = raw;
+      }
+      el.style.whiteSpace = '';
+    }
+  });
+}
+
+/* ===== Clipboard helper ===== */
+function copyToClipboard(btn, text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function() {
+      var orig = btn.innerHTML;
+      btn.innerHTML = '<i class="bi bi-check me-1"></i>Copied!';
+      setTimeout(function() { btn.innerHTML = orig; }, 1500);
+    });
+  }
+}
+
+/* ===== Live Tail ===== */
 var _liveTailEvt = null;
 
 function toggleLiveTail() {
