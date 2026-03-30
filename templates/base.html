@@ -27,6 +27,38 @@
     .vitals-poor  { color: #dc3545; }
     .prompt-box { background: #1e2329; border-radius: 6px; padding: .5rem; font-size: .82rem; white-space: pre-wrap; max-height: 150px; overflow-y: auto; }
     a.trace-link { font-family: monospace; font-size: .78rem; }
+    .drp-combo .drp-combo-input {
+      border-top-right-radius: 0;
+      border-bottom-right-radius: 0;
+      border-right: 0;
+    }
+    .input-group-sm.drp-combo > .drp-combo-input,
+    .input-group-sm.drp-combo > .drp-combo-trigger {
+      height: calc(1.5em + .5rem + 2px);
+      min-height: calc(1.5em + .5rem + 2px);
+      box-sizing: border-box;
+    }
+    .drp-combo .drp-combo-trigger {
+      min-width: 2.2rem;
+      border-left: 0;
+      border-top-left-radius: 0;
+      border-bottom-left-radius: 0;
+      padding: .25rem .5rem;
+      font-size: .875rem;
+      line-height: 1.5;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    .drp-combo .drp-combo-trigger:hover { color: var(--bs-emphasis-color); }
+    .drp-combo .drp-combo-trigger:focus {
+      outline: 0;
+      box-shadow: 0 0 0 .2rem rgba(13, 110, 253, .25);
+      z-index: 3;
+    }
+    .drp-combo .drp-combo-trigger .bi { font-size: .85rem; }
   </style>
 </head>
 <body>

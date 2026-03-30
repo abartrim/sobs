@@ -66,11 +66,16 @@
       </div>
       <div class="col-md-2">
         <label class="form-label small text-secondary">From</label>
-        <input type="text" name="from_ts" class="form-control form-control-sm font-monospace" value="{{ from_ts }}" placeholder="2026-03-29T12:00:00Z">
+        <input type="text" name="from_ts" id="metrics-anomaly-from-ts" class="form-control form-control-sm" value="{{ from_ts }}" placeholder="2026-03-29 12:00">
       </div>
       <div class="col-md-2">
         <label class="form-label small text-secondary">To</label>
-        <input type="text" name="to_ts" class="form-control form-control-sm font-monospace" value="{{ to_ts }}" placeholder="2026-03-29T12:05:00Z">
+        <div class="input-group input-group-sm drp-combo">
+          <input type="text" name="to_ts" id="metrics-anomaly-to-ts" class="form-control drp-combo-input" value="{{ to_ts }}" placeholder="2026-03-29 12:05">
+          <button type="button" class="input-group-text drp-combo-trigger" data-drp-toggle data-drp-from="metrics-anomaly-from-ts" data-drp-to="metrics-anomaly-to-ts" title="Date/time picker" aria-label="Date/time picker">
+            <i class="bi bi-calendar3"></i>
+          </button>
+        </div>
       </div>
       <div class="col-md-2">
         <label class="form-label small text-secondary">Hours (fallback)</label>

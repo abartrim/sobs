@@ -25,11 +25,19 @@
     { label: '1y',  minutes: 525600 },
   ];
 
+  function pad2(n) {
+    return String(n).padStart(2, '0');
+  }
+
   /**
-   * Format a Date to ISO 8601 UTC string truncated to seconds: YYYY-MM-DDTHH:MM:SSZ
+   * Format a Date to a compact local timestamp string: YYYY-MM-DD HH:MM
    */
-  function toIso(d) {
-    return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  function toHuman(d) {
+    return d.getFullYear() + '-' +
+      pad2(d.getMonth() + 1) + '-' +
+      pad2(d.getDate()) + ' ' +
+      pad2(d.getHours()) + ':' +
+      pad2(d.getMinutes());
   }
 
   /**
@@ -37,8 +45,41 @@
    */
   function parseDate(s) {
     if (!s) return null;
-    var d = new Date(s);
+    var raw = String(s).trim();
+    if (!raw) return null;
+    var m = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?(?:\s?(Z|[+-]\d{2}:?\d{2}))?$/);
+    if (m) {
+      var tz = m[8] || '';
+      if (tz) {
+        var normalizedTz = tz;
+        if (tz !== 'Z' && tz.length === 5) {
+          normalizedTz = tz.slice(0, 3) + ':' + tz.slice(3);
+        }
+        var secText = m[6] ? m[6] : '00';
+        var iso = m[1] + '-' + m[2] + '-' + m[3] + 'T' + m[4] + ':' + m[5] + ':' + secText + normalizedTz;
+        var dTz = new Date(iso);
+        return isNaN(dTz.getTime()) ? null : dTz;
+      }
+      var sec = m[6] ? parseInt(m[6], 10) : 0;
+      var dLocal = new Date(
+        parseInt(m[1], 10),
+        parseInt(m[2], 10) - 1,
+        parseInt(m[3], 10),
+        parseInt(m[4], 10),
+        parseInt(m[5], 10),
+        sec
+      );
+      return isNaN(dLocal.getTime()) ? null : dLocal;
+    }
+    var d = new Date(raw.replace(' ', 'T'));
     return isNaN(d.getTime()) ? null : d;
+  }
+
+  function normalizeInputDisplay(inputEl) {
+    if (!inputEl || !inputEl.value) return;
+    var d = parseDate(inputEl.value);
+    if (!d) return;
+    inputEl.value = toHuman(d);
   }
 
   /**
@@ -47,12 +88,11 @@
    */
   function toDatetimeLocal(d) {
     if (!d) return '';
-    var pad = function (n) { return String(n).padStart(2, '0'); };
     return d.getFullYear() + '-' +
-      pad(d.getMonth() + 1) + '-' +
-      pad(d.getDate()) + 'T' +
-      pad(d.getHours()) + ':' +
-      pad(d.getMinutes());
+      pad2(d.getMonth() + 1) + '-' +
+      pad2(d.getDate()) + 'T' +
+      pad2(d.getHours()) + ':' +
+      pad2(d.getMinutes());
   }
 
   /**
@@ -66,7 +106,7 @@
     });
 
     return '<div id="drp-menu-' + uid + '" class="drp-dropdown-menu card border-secondary shadow" ' +
-      'style="display:none;position:absolute;z-index:1070;min-width:320px;top:100%;right:0;">' +
+      'style="display:none;position:absolute;z-index:1070;min-width:320px;">' +
       '<div class="card-body p-3">' +
       '<p class="mb-2 text-secondary small fw-semibold"><i class="bi bi-lightning-charge me-1"></i>Quick ranges</p>' +
       '<div class="d-flex flex-wrap gap-1 mb-3">' + rows + '</div>' +
@@ -106,21 +146,29 @@
     var toInput = document.getElementById(toInputId);
     if (!fromInput || !toInput) return;
 
+    // Normalize any server-rendered timestamp strings for consistent display.
+    normalizeInputDisplay(fromInput);
+    normalizeInputDisplay(toInput);
+
     _uid += 1;
     var uid = _uid;
 
-    // Wrap toggle button in a relative container for dropdown positioning
-    var wrapper = document.createElement('div');
-    wrapper.className = 'drp-wrapper position-relative d-inline-block';
-    toggleBtn.parentNode.insertBefore(wrapper, toggleBtn);
-    wrapper.appendChild(toggleBtn);
-
-    // Build and insert dropdown HTML
-    wrapper.insertAdjacentHTML('beforeend', buildDropdownHtml(uid));
-    var menu = wrapper.querySelector('#drp-menu-' + uid);
+    // Build and insert dropdown HTML at body level so input-group sizing stays compact.
+    document.body.insertAdjacentHTML('beforeend', buildDropdownHtml(uid));
+    var menu = document.getElementById('drp-menu-' + uid);
 
     // Mark as initialised
     toggleBtn.setAttribute('data-drp-uid', uid);
+
+    function positionMenu() {
+      var rect = toggleBtn.getBoundingClientRect();
+      var menuWidth = menu.offsetWidth || 320;
+      var left = rect.right + window.scrollX - menuWidth;
+      var minLeft = window.scrollX + 8;
+      if (left < minLeft) left = minLeft;
+      menu.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+      menu.style.left = left + 'px';
+    }
 
     // --- Toggle open/close ---
     toggleBtn.addEventListener('click', function (e) {
@@ -139,6 +187,7 @@
         fromCustom.value = dFrom ? toDatetimeLocal(dFrom) : '';
         toCustom.value = dTo ? toDatetimeLocal(dTo) : '';
         menu.style.display = 'block';
+        positionMenu();
       }
     });
 
@@ -148,7 +197,7 @@
         var minutes = parseInt(btn.getAttribute('data-minutes'), 10);
         var now = new Date();
         var from = new Date(now.getTime() - minutes * 60 * 1000);
-        fromInput.value = toIso(from);
+        fromInput.value = toHuman(from);
         toInput.value = '';
         menu.style.display = 'none';
         formEl.submit();
@@ -161,8 +210,8 @@
       var toCustom = menu.querySelector('.drp-custom-to');
       var dFrom = parseDate(fromCustom.value);
       var dTo = parseDate(toCustom.value);
-      fromInput.value = dFrom ? toIso(dFrom) : '';
-      toInput.value = dTo ? toIso(dTo) : '';
+      fromInput.value = dFrom ? toHuman(dFrom) : '';
+      toInput.value = dTo ? toHuman(dTo) : '';
       menu.style.display = 'none';
       formEl.submit();
     });
@@ -177,10 +226,18 @@
 
     // Close when clicking outside
     document.addEventListener('click', function (e) {
-      if (!wrapper.contains(e.target)) {
+      if (!menu.contains(e.target) && !toggleBtn.contains(e.target)) {
         menu.style.display = 'none';
       }
     });
+
+    window.addEventListener('resize', function () {
+      if (menu.style.display !== 'none') positionMenu();
+    });
+
+    window.addEventListener('scroll', function () {
+      if (menu.style.display !== 'none') positionMenu();
+    }, true);
   }
 
   /**
