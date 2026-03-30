@@ -82,7 +82,7 @@
     {% if state == 'outlier' %}{% set badge_cls = 'bg-danger' %}{% set icon = 'bi-exclamation-triangle-fill' %}
     {% elif state == 'warning' %}{% set badge_cls = 'bg-warning text-dark' %}{% set icon = 'bi-exclamation-circle-fill' %}
     {% else %}{% set badge_cls = 'bg-success' %}{% set icon = 'bi-check-circle-fill' %}{% endif %}
-    <a href="{{ url_for('view_metrics', service=item.service) }}" class="text-decoration-none me-2 mb-2 d-inline-flex align-items-center gap-1 badge {{ badge_cls }} fs-6 fw-normal px-2 py-1" title="{{ item.signal_count }} signal(s)">
+    <a href="{{ url_for('view_metrics', service=item.service) }}" class="text-decoration-none badge {{ badge_cls }} me-1 mb-1 d-inline-flex align-items-center gap-1" title="{{ item.signal_count }} signal(s)">
       <i class="bi {{ icon }}"></i> {{ item.service }}
       <span class="opacity-75 small">({{ item.signal_count }})</span>
     </a>

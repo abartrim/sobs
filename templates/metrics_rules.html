@@ -9,7 +9,10 @@
 </div>
 
 <div class="card border-secondary mb-3">
-  <div class="card-header">Auto Make Metric Rules</div>
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span>Auto Make Metric Rules</span>
+    <a href="{{ url_for('auto_metrics_rules_help') }}" target="_blank" class="link-secondary text-decoration-none" title="Auto Rules Help" aria-label="Auto Rules Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
+  </div>
   <div class="card-body">
     <p class="small text-secondary mb-3">Generate baseline threshold rules from recent derived-signal history. Existing rules are skipped automatically. Create is capped at 200 rules per run.</p>
     <form method="post" action="{{ url_for('auto_metrics_rules') }}" class="row g-2 align-items-end">
@@ -55,6 +58,46 @@
     {% endif %}
   </div>
 </div>
+
+{% if auto_preview %}
+<div class="card border-secondary mb-3">
+  <div class="card-header">Preview Candidates ({{ auto_preview|length }})</div>
+  <div class="table-responsive">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Source</th>
+          <th>Signal</th>
+          <th>Service</th>
+          <th>Attr FP</th>
+          <th>Comparator</th>
+          <th>Warning</th>
+          <th>Critical</th>
+          <th>Min Sample</th>
+          <th>Points</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in auto_preview %}
+        <tr>
+          <td>{{ c.name }}</td>
+          <td>{{ c.source }}</td>
+          <td class="font-monospace small">{{ c.signal }}</td>
+          <td>{{ c.service or 'any' }}</td>
+          <td class="font-monospace small">{{ c.attr_fp or '—' }}</td>
+          <td>{{ c.comparator }}</td>
+          <td>{{ c.warning_threshold }}</td>
+          <td>{{ c.critical_threshold }}</td>
+          <td>{{ c.min_sample_count }}</td>
+          <td>{{ c.point_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 
 <div class="card border-secondary mb-3">
   <div class="card-header d-flex align-items-center justify-content-between">
@@ -168,46 +211,6 @@
   </div>
 </div>
 
-{% if auto_preview %}
-<div class="card border-secondary mb-3">
-  <div class="card-header">Preview Candidates ({{ auto_preview|length }})</div>
-  <div class="table-responsive">
-    <table class="table table-dark table-sm align-middle mb-0">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Source</th>
-          <th>Signal</th>
-          <th>Service</th>
-          <th>Attr FP</th>
-          <th>Comparator</th>
-          <th>Warning</th>
-          <th>Critical</th>
-          <th>Min Sample</th>
-          <th>Points</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for c in auto_preview %}
-        <tr>
-          <td>{{ c.name }}</td>
-          <td>{{ c.source }}</td>
-          <td class="font-monospace small">{{ c.signal }}</td>
-          <td>{{ c.service or 'any' }}</td>
-          <td class="font-monospace small">{{ c.attr_fp or '—' }}</td>
-          <td>{{ c.comparator }}</td>
-          <td>{{ c.warning_threshold }}</td>
-          <td>{{ c.critical_threshold }}</td>
-          <td>{{ c.min_sample_count }}</td>
-          <td>{{ c.point_count }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-{% endif %}
-
 <div class="card border-secondary">
   <div class="card-header d-flex justify-content-between align-items-center">
     <span>{{ rules|length }} active rule{{ '' if rules|length == 1 else 's' }}</span>
@@ -221,7 +224,7 @@
         <option value="service">Service</option>
         <option value="sample">Min Sample</option>
       </select>
-      <button id="rulesSortDirBtn" type="button" class="btn btn-sm btn-outline-secondary" title="Toggle sort direction">A-Z</button>
+      <button id="rulesSortDirBtn" type="button" class="btn btn-sm btn-outline-secondary flex-shrink-0 text-nowrap" style="min-width:4rem;" title="Toggle sort direction">A-Z</button>
     </div>
   </div>
   <div class="table-responsive">

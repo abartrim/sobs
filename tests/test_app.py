@@ -1038,6 +1038,13 @@ class TestUIPages:
         assert b"Chart Editor Help" in data
         assert b"Custom ECharts" in data
 
+    async def test_auto_metrics_rules_help_page(self, client):
+        r = await client.get("/metrics/help/rules/auto")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Auto Make Metric Rules Help" in data
+        assert b"Preview First" in data
+
     async def test_rum_js_served(self, client):
         r = await client.get("/static/rum.js")
         assert r.status_code == 200

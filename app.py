@@ -6521,6 +6521,12 @@ async def metrics_rules_help():
     return await render_template("metrics_rules_help.html")
 
 
+@app.route("/metrics/help/rules/auto")
+@require_basic_auth
+async def auto_metrics_rules_help():
+    return await render_template("auto_metrics_rules_help.html")
+
+
 @app.route("/dashboards/<dashboard_id>/delete", methods=["POST"])
 @require_basic_auth
 async def delete_dashboard(dashboard_id: str):
