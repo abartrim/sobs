@@ -9,6 +9,54 @@
 </div>
 
 <div class="card border-secondary mb-3">
+  <div class="card-header">Auto Make Metric Rules</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-3">Generate baseline threshold rules from recent derived-signal history. Existing rules are skipped automatically. Create is capped at 200 rules per run.</p>
+    <form method="post" action="{{ url_for('auto_metrics_rules') }}" class="row g-2 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Window (hours)</label>
+        <input type="number" min="1" max="168" name="hours" class="form-control form-control-sm" value="{{ auto_summary.hours if auto_summary else 24 }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Min points</label>
+        <input type="number" min="1" max="5000" name="min_points" class="form-control form-control-sm" value="{{ auto_summary.min_points if auto_summary else 30 }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small text-secondary">Service scope</label>
+        <select name="service_filter" class="form-select form-select-sm">
+          <option value="">All services</option>
+          {% for s in services %}
+          <option value="{{ s }}" {% if auto_summary and auto_summary.service_filter == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <div class="form-check mt-4">
+          <input class="form-check-input" type="checkbox" value="1" id="includeAttrFp" name="include_attr_fp" {% if auto_summary and auto_summary.include_attr_fp %}checked{% endif %}>
+          <label class="form-check-label small text-secondary" for="includeAttrFp">
+            Include Attr FP scoped rules
+          </label>
+        </div>
+      </div>
+      <div class="col-md-2 d-flex gap-2">
+        <button type="submit" class="btn btn-outline-info btn-sm flex-grow-1" name="action" value="preview">
+          <i class="bi bi-eye me-1"></i>Preview
+        </button>
+        <button type="submit" class="btn btn-info btn-sm flex-grow-1" name="action" value="create">
+          <i class="bi bi-magic me-1"></i>Create
+        </button>
+      </div>
+    </form>
+    {% if auto_summary %}
+    <div class="small text-secondary mt-3">
+      Examined: {{ auto_summary.examined }} · Candidates: {{ auto_summary.candidates }} · Existing skipped: {{ auto_summary.existing }} · Invalid skipped: {{ auto_summary.invalid }}
+      {% if auto_summary.capped %} · Create cap: first {{ auto_summary.create_cap }} only{% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
   <div class="card-header d-flex align-items-center justify-content-between">
     <span>Create Rule</span>
     <a href="{{ url_for('metrics_rules_help') }}" target="_blank" class="link-secondary text-decoration-none" title="Metric Rules Help" aria-label="Metric Rules Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
@@ -120,54 +168,6 @@
   </div>
 </div>
 
-<div class="card border-secondary mb-3">
-  <div class="card-header">Auto Make Metric Rules</div>
-  <div class="card-body">
-    <p class="small text-secondary mb-3">Generate baseline threshold rules from recent derived-signal history. Existing rules are skipped automatically. Create is capped at 200 rules per run.</p>
-    <form method="post" action="{{ url_for('auto_metrics_rules') }}" class="row g-2 align-items-end">
-      <div class="col-md-2">
-        <label class="form-label small text-secondary">Window (hours)</label>
-        <input type="number" min="1" max="168" name="hours" class="form-control form-control-sm" value="{{ auto_summary.hours if auto_summary else 24 }}">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small text-secondary">Min points</label>
-        <input type="number" min="1" max="5000" name="min_points" class="form-control form-control-sm" value="{{ auto_summary.min_points if auto_summary else 30 }}">
-      </div>
-      <div class="col-md-3">
-        <label class="form-label small text-secondary">Service scope</label>
-        <select name="service_filter" class="form-select form-select-sm">
-          <option value="">All services</option>
-          {% for s in services %}
-          <option value="{{ s }}" {% if auto_summary and auto_summary.service_filter == s %}selected{% endif %}>{{ s }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-3">
-        <div class="form-check mt-4">
-          <input class="form-check-input" type="checkbox" value="1" id="includeAttrFp" name="include_attr_fp" {% if auto_summary and auto_summary.include_attr_fp %}checked{% endif %}>
-          <label class="form-check-label small text-secondary" for="includeAttrFp">
-            Include Attr FP scoped rules
-          </label>
-        </div>
-      </div>
-      <div class="col-md-2 d-flex gap-2">
-        <button type="submit" class="btn btn-outline-info btn-sm flex-grow-1" name="action" value="preview">
-          <i class="bi bi-eye me-1"></i>Preview
-        </button>
-        <button type="submit" class="btn btn-info btn-sm flex-grow-1" name="action" value="create">
-          <i class="bi bi-magic me-1"></i>Create
-        </button>
-      </div>
-    </form>
-    {% if auto_summary %}
-    <div class="small text-secondary mt-3">
-      Examined: {{ auto_summary.examined }} · Candidates: {{ auto_summary.candidates }} · Existing skipped: {{ auto_summary.existing }} · Invalid skipped: {{ auto_summary.invalid }}
-      {% if auto_summary.capped %} · Create cap: first {{ auto_summary.create_cap }} only{% endif %}
-    </div>
-    {% endif %}
-  </div>
-</div>
-
 {% if auto_preview %}
 <div class="card border-secondary mb-3">
   <div class="card-header">Preview Candidates ({{ auto_preview|length }})</div>
@@ -211,9 +211,21 @@
 <div class="card border-secondary">
   <div class="card-header d-flex justify-content-between align-items-center">
     <span>{{ rules|length }} active rule{{ '' if rules|length == 1 else 's' }}</span>
+    <div class="d-flex align-items-center gap-2" style="min-width:420px;">
+      <input type="text" id="rulesSearchInput" class="form-control form-control-sm" placeholder="Search rules...">
+      <select id="rulesSortKey" class="form-select form-select-sm" style="width:auto;">
+        <option value="name">Name</option>
+        <option value="type">Type</option>
+        <option value="source">Source</option>
+        <option value="signal">Signal</option>
+        <option value="service">Service</option>
+        <option value="sample">Min Sample</option>
+      </select>
+      <button id="rulesSortDirBtn" type="button" class="btn btn-sm btn-outline-secondary" title="Toggle sort direction">A-Z</button>
+    </div>
   </div>
   <div class="table-responsive">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0" id="activeRulesTable">
       <thead>
         <tr>
           <th>Name</th>
@@ -231,7 +243,13 @@
       <tbody>
         {% if rules %}
           {% for rule in rules %}
-          <tr>
+          <tr class="js-active-rule-row"
+              data-name="{{ rule.name|lower }}"
+              data-type="{{ rule.rule_type|lower }}"
+              data-source="{{ rule.source|lower }}"
+              data-signal="{{ rule.signal|lower }}"
+              data-service="{{ (rule.service or 'any')|lower }}"
+              data-sample="{{ rule.min_sample_count }}">
             <td>{{ rule.name }}</td>
             <td><span class="badge text-bg-secondary text-capitalize">{{ rule.rule_type }}</span></td>
             <td>{{ rule.source }}</td>
@@ -249,7 +267,7 @@
           </tr>
           {% endfor %}
         {% else %}
-          <tr>
+          <tr id="activeRulesEmptyRow">
             <td colspan="11" class="text-center text-secondary py-4">No rules defined yet.</td>
           </tr>
         {% endif %}
@@ -302,6 +320,71 @@
       if (capped) msg += '\n\nNote: only the first ' + cap + ' of ' + total + ' candidates will be created.';
       if (!confirm(msg)) e.preventDefault();
     });
+  }
+
+  /* ── Active rules search + sort ── */
+  var rulesTable = document.getElementById('activeRulesTable');
+  var rulesSearchInput = document.getElementById('rulesSearchInput');
+  var rulesSortKey = document.getElementById('rulesSortKey');
+  var rulesSortDirBtn = document.getElementById('rulesSortDirBtn');
+  if (rulesTable && rulesSearchInput && rulesSortKey && rulesSortDirBtn) {
+    var tbody = rulesTable.querySelector('tbody');
+    var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr.js-active-rule-row'));
+    var emptyRow = document.getElementById('activeRulesEmptyRow');
+    var sortDir = 'asc';
+
+    function ruleValue(row, key) {
+      if (key === 'sample') {
+        return parseInt(row.dataset.sample || '0', 10);
+      }
+      return (row.dataset[key] || '').toLowerCase();
+    }
+
+    function redraw() {
+      if (!rows.length) return;
+
+      var q = (rulesSearchInput.value || '').toLowerCase().trim();
+      var key = rulesSortKey.value || 'name';
+
+      var filtered = rows.filter(function (row) {
+        if (!q) return true;
+        var hay = [
+          row.dataset.name,
+          row.dataset.type,
+          row.dataset.source,
+          row.dataset.signal,
+          row.dataset.service,
+          row.dataset.sample,
+          row.textContent
+        ].join(' ').toLowerCase();
+        return hay.indexOf(q) !== -1;
+      });
+
+      filtered.sort(function (a, b) {
+        var av = ruleValue(a, key);
+        var bv = ruleValue(b, key);
+        if (av < bv) return sortDir === 'asc' ? -1 : 1;
+        if (av > bv) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+
+      tbody.innerHTML = '';
+      filtered.forEach(function (row) { tbody.appendChild(row); });
+
+      if (!filtered.length && emptyRow) {
+        tbody.appendChild(emptyRow);
+      }
+    }
+
+    rulesSearchInput.addEventListener('input', redraw);
+    rulesSortKey.addEventListener('change', redraw);
+    rulesSortDirBtn.addEventListener('click', function () {
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      rulesSortDirBtn.textContent = sortDir === 'asc' ? 'A-Z' : 'Z-A';
+      redraw();
+    });
+
+    redraw();
   }
 })();
 </script>
