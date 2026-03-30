@@ -4,7 +4,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Auto Make Metric Rules Help</h4>
-    <p class="text-secondary mb-0">How the auto-generation flow builds threshold rules from recent derived-signal history.</p>
+    <p class="text-secondary mb-0">How to auto-generate rules and then auto-generate a dashboard from those active rules.</p>
   </div>
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_metrics_rules') }}">
     <i class="bi bi-arrow-left me-1"></i>Back to Rules
@@ -90,6 +90,59 @@
   </div>
 </div>
 
+<div class="card border-secondary mb-3">
+  <div class="card-header">Auto Generate Dashboard from Active Rules</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">This flow builds a dashboard populated with <code>derived_signal_overlay</code> charts, one chart per matching active rule.</p>
+    <ul class="small mb-0">
+      <li><strong>Preview</strong> shows chart candidates only. Nothing is written.</li>
+      <li><strong>Create</strong> creates the dashboard (if missing) and inserts new charts.</li>
+      <li>Charts are capped by your selected <strong>Max charts</strong> value (hard limit: 24).</li>
+      <li>Existing chart titles on that dashboard are skipped, so rerunning is idempotent.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header">Dashboard Panel Controls</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:22%">Control</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace">Dashboard Name</td>
+          <td>Name for the target dashboard. If it already exists, charts are added to it (existing titles are skipped).</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Window (hours)</td>
+          <td>Time range used in generated chart SQL for each rule-derived chart.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Max charts</td>
+          <td>Limits how many preview candidates are used during create. Useful for staged rollout.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Service scope</td>
+          <td>Restricts generated charts to rules for a specific service when selected.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Preview</td>
+          <td>Renders candidate chart rows with title/rule/source/signal before creation.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Create</td>
+          <td>Creates or reuses a dashboard and inserts new rule-mapped charts.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <div class="card border-secondary mb-0">
   <div class="card-header">Recommended Flow</div>
   <div class="card-body">
@@ -97,8 +150,8 @@
       <li>Start with <strong>Window = 24</strong> and <strong>Min points = 30</strong>.</li>
       <li>Run <strong>Preview</strong> and review the candidate table for obvious outliers.</li>
       <li>Tighten with <strong>Service scope</strong> if one team/service needs separate baselines.</li>
-      <li>Run <strong>Create</strong>, then verify in Active Rules and the Metrics anomaly views.</li>
-      <li>Delete or tune any noisy rules manually in the Create/Active Rules panels.</li>
+      <li>Run <strong>Create</strong> for rules, then run dashboard <strong>Preview</strong> with a max chart cap (for example 12).</li>
+      <li>Run dashboard <strong>Create</strong>, then validate cards/charts in the generated dashboard and tune noisy rules.</li>
     </ol>
   </div>
 </div>

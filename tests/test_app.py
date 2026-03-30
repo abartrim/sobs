@@ -1031,6 +1031,13 @@ class TestUIPages:
         r = await client.get("/ai")
         assert r.status_code == 200
 
+    async def test_first_run_tour_modal_present(self, client):
+        r = await client.get("/")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"firstRunTourModal" in data
+        assert b"Quick Tour" in data
+
     async def test_chart_editor_help_page(self, client):
         r = await client.get("/dashboards/help/chart-editor")
         assert r.status_code == 200
@@ -3244,6 +3251,99 @@ class TestMetricsAnomalyDetection:
             .fetchone()["c"]
         )
         assert int(created) == 200
+
+    async def test_auto_dashboard_preview_shows_rule_candidates(self, client):
+        marker = f"auto-dash-preview-svc-{time.time_ns()}"
+        r = await client.post(
+            "/metrics/rules",
+            form={
+                "name": "Auto dashboard preview rule",
+                "source": "errors",
+                "signal": "exception_volume",
+                "service": marker,
+                "attr_fp": "",
+                "comparator": "gt",
+                "warning_threshold": "0.5",
+                "critical_threshold": "1.0",
+                "min_sample_count": "1",
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        r = await client.post(
+            "/metrics/rules/dashboard/auto",
+            form={
+                "action": "preview",
+                "hours": "24",
+                "max_charts": "12",
+                "service_filter": marker,
+                "dashboard_name": f"Auto Preview Dashboard {marker}",
+            },
+        )
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Dashboard Preview Candidates" in body
+        assert "Auto dashboard preview rule" in body
+
+    async def test_auto_dashboard_create_is_idempotent(self, client):
+        marker = f"auto-dash-create-svc-{time.time_ns()}"
+        dashboard_name = f"Auto Dashboard {marker}"
+        r = await client.post(
+            "/metrics/rules",
+            form={
+                "name": "Auto dashboard create rule",
+                "source": "errors",
+                "signal": "exception_volume",
+                "service": marker,
+                "attr_fp": "",
+                "comparator": "gt",
+                "warning_threshold": "0.5",
+                "critical_threshold": "1.0",
+                "min_sample_count": "1",
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        r = await client.post(
+            "/metrics/rules/dashboard/auto",
+            form={
+                "action": "create",
+                "hours": "24",
+                "max_charts": "12",
+                "service_filter": marker,
+                "dashboard_name": dashboard_name,
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        db = sobs_app.get_db()
+        dashboard_id = db.execute(
+            "SELECT Id FROM sobs_dashboards FINAL WHERE IsDeleted = 0 AND Name = ? LIMIT 1",
+            (dashboard_name,),
+        ).fetchone()["Id"]
+        count1 = db.execute(
+            "SELECT count() AS c FROM sobs_chart_configs FINAL WHERE IsDeleted = 0 AND DashboardId = ?",
+            (str(dashboard_id),),
+        ).fetchone()["c"]
+        assert int(count1) >= 1
+
+        r = await client.post(
+            "/metrics/rules/dashboard/auto",
+            form={
+                "action": "create",
+                "hours": "24",
+                "max_charts": "12",
+                "service_filter": marker,
+                "dashboard_name": dashboard_name,
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        count2 = db.execute(
+            "SELECT count() AS c FROM sobs_chart_configs FINAL WHERE IsDeleted = 0 AND DashboardId = ?",
+            (str(dashboard_id),),
+        ).fetchone()["c"]
+        assert int(count2) == int(count1)
 
     async def test_derived_signal_overlay_template_injects_rule_metadata(self, client):
         r = await client.post(

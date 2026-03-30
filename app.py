@@ -2916,6 +2916,7 @@ _AUTO_RULE_GT_HINTS = (
 )
 _AUTO_RULE_LT_HINTS = ("availability", "success", "throughput", "rps", "qps")
 _AUTO_RULE_CREATE_MAX = 200
+_AUTO_DASHBOARD_CREATE_MAX = 24
 
 
 def _infer_auto_rule_comparator(signal_name: str) -> str:
@@ -3051,6 +3052,89 @@ def _build_auto_metric_rule_candidates(
         "existing": skipped_existing,
         "invalid": skipped_invalid,
     }
+
+
+def _default_auto_dashboard_name(service_filter: str) -> str:
+    if service_filter:
+        return f"Auto Metric Rules - {service_filter}"
+    return "Auto Metric Rules Dashboard"
+
+
+def _build_auto_dashboard_chart_candidates(
+    rules: list[dict[str, object]],
+    *,
+    service_filter: str,
+    hours: int,
+) -> list[dict[str, object]]:
+    candidates: list[dict[str, object]] = []
+    title_counts: dict[str, int] = {}
+    for rule in rules:
+        source = str(rule.get("source", "")).strip()
+        signal = str(rule.get("signal", "")).strip()
+        if not source or not signal:
+            continue
+
+        rule_service = str(rule.get("service", "")).strip()
+        if service_filter and rule_service and rule_service != service_filter:
+            continue
+
+        attr_fp = str(rule.get("attr_fp", "")).strip()
+        where_parts = [
+            f"SignalSource = {_sql_literal(source)}",
+            f"SignalName = {_sql_literal(signal)}",
+            f"time >= now() - INTERVAL {hours} HOUR",
+        ]
+        if rule_service:
+            where_parts.append(f"ServiceName = {_sql_literal(rule_service)}")
+        if attr_fp:
+            where_parts.append(f"AttrFingerprint = {_sql_literal(attr_fp)}")
+
+        sql = (
+            "SELECT time, "
+            "ServiceName AS service, "
+            "SignalSource AS source, "
+            "SignalName AS signal, "
+            "AttrFingerprint AS attr_fp, "
+            "value, "
+            "SampleCount AS sample_count, "
+            "baseline_mean, "
+            "baseline_lower, "
+            "baseline_upper, "
+            "anomaly_state, "
+            "anomaly_score "
+            "FROM v_derived_signals_anomaly "
+            f"WHERE {' AND '.join(where_parts)} "
+            "ORDER BY time"
+        )
+
+        base_title = str(rule.get("name", "")).strip() or f"{source}/{signal}"
+        title_index = title_counts.get(base_title, 0)
+        title_counts[base_title] = title_index + 1
+        title = base_title if title_index == 0 else f"{base_title} ({title_index + 1})"
+
+        candidates.append(
+            {
+                "title": title,
+                "rule_name": str(rule.get("name", "")),
+                "rule_type": str(rule.get("rule_type", "threshold")),
+                "source": source,
+                "signal": signal,
+                "service": rule_service,
+                "attr_fp": attr_fp,
+                "chart_type": "derived_signal_overlay",
+                "query": sql,
+            }
+        )
+
+    candidates.sort(
+        key=lambda item: (
+            str(item.get("service", "")),
+            str(item.get("source", "")),
+            str(item.get("signal", "")),
+            str(item.get("title", "")),
+        )
+    )
+    return candidates
 
 
 def _load_anomaly_rules(db: ChDbConnection) -> list[dict[str, object]]:
@@ -3568,6 +3652,9 @@ async def view_metrics():
 @require_basic_auth
 async def view_metrics_rules():
     db = get_db()
+    open_panel = (request.args.get("open_panel") or "").strip().lower()
+    if open_panel not in {"auto-rules", "auto-dashboard"}:
+        open_panel = ""
     services, signals, sources = _list_derived_signal_dimensions(db)
     rules = _load_anomaly_rules(db)
     return await render_template(
@@ -3578,6 +3665,9 @@ async def view_metrics_rules():
         sources=sources,
         auto_preview=[],
         auto_summary=None,
+        auto_dashboard_preview=[],
+        auto_dashboard_summary=None,
+        auto_open_panel=open_panel,
     )
 
 
@@ -3761,7 +3851,7 @@ async def auto_metrics_rules():
             ),
             "success",
         )
-        return redirect(url_for("view_metrics_rules"))
+        return redirect(url_for("view_metrics_rules", open_panel="auto-rules"))
 
     await flash(
         (
@@ -3778,6 +3868,126 @@ async def auto_metrics_rules():
         sources=sources,
         auto_preview=candidates,
         auto_summary=summary,
+        auto_dashboard_preview=[],
+        auto_dashboard_summary=None,
+        auto_open_panel="auto-rules",
+    )
+
+
+@app.route("/metrics/rules/dashboard/auto", methods=["POST"])
+@require_basic_auth
+async def auto_metrics_rules_dashboard():
+    form = await request.form
+    action = (form.get("action") or "preview").strip().lower()
+    service_filter = (form.get("service_filter") or "").strip()
+    hours = _coerce_positive_int(form.get("hours"), default_value=24, min_value=1, max_value=168)
+    max_charts = _coerce_positive_int(
+        form.get("max_charts"),
+        default_value=12,
+        min_value=1,
+        max_value=_AUTO_DASHBOARD_CREATE_MAX,
+    )
+    dashboard_name = (form.get("dashboard_name") or "").strip() or _default_auto_dashboard_name(service_filter)
+
+    db = get_db()
+    services, signals, sources = _list_derived_signal_dimensions(db)
+    rules = _load_anomaly_rules(db)
+    candidates = _build_auto_dashboard_chart_candidates(
+        rules,
+        service_filter=service_filter,
+        hours=hours,
+    )
+    capped_candidates = candidates[:max_charts]
+
+    summary = {
+        "action": action,
+        "hours": hours,
+        "service_filter": service_filter,
+        "max_charts": max_charts,
+        "create_cap": _AUTO_DASHBOARD_CREATE_MAX,
+        "dashboard_name": dashboard_name,
+        "rules_total": len(rules),
+        "candidates": len(candidates),
+        "capped": len(candidates) > max_charts,
+        "created": 0,
+        "existing": 0,
+    }
+
+    if action == "create":
+        if not capped_candidates:
+            await flash("No matching rules found for dashboard generation", "warning")
+            return redirect(url_for("view_metrics_rules", open_panel="auto-dashboard"))
+
+        dashboard_description = (
+            "Auto-generated from active metric rules. "
+            f"window={hours}h, scope={'all services' if not service_filter else service_filter}."
+        )
+        dashboard_id = _seed_dashboard_if_missing(db, dashboard_name, dashboard_description)
+
+        existing_charts = _get_charts(db, dashboard_id)
+        existing_titles = {str(chart["title"]) for chart in existing_charts}
+        next_position = max((int(chart["position"]) for chart in existing_charts), default=-1) + 1
+        next_version = int(time.time() * 1000)
+        rows_to_insert: list[dict[str, object]] = []
+
+        for idx, candidate in enumerate(capped_candidates):
+            title = str(candidate["title"])
+            if title in existing_titles:
+                summary["existing"] += 1
+                continue
+            query = str(candidate["query"])
+            chart_type = str(candidate["chart_type"])
+            rows_to_insert.append(
+                {
+                    "Id": str(uuid.uuid4()),
+                    "DashboardId": dashboard_id,
+                    "Title": title,
+                    "ChartType": chart_type,
+                    "Query": query,
+                    "OptionsJson": json.dumps(
+                        {"chart_spec": _build_raw_chart_spec(chart_type, query)},
+                        ensure_ascii=False,
+                    ),
+                    "Position": next_position + idx,
+                    "IsDeleted": 0,
+                    "Version": next_version + idx,
+                }
+            )
+            existing_titles.add(title)
+
+        if rows_to_insert:
+            _insert_rows_json_each_row(db, "sobs_chart_configs", rows_to_insert)
+        summary["created"] = len(rows_to_insert)
+
+        skipped_by_max = max(0, len(candidates) - len(capped_candidates))
+        cap_note = f", skipped {skipped_by_max} by selected max ({max_charts})" if skipped_by_max else ""
+        await flash(
+            (
+                f"Auto dashboard ready: created {summary['created']} chart(s), "
+                f"skipped {summary['existing']} existing{cap_note}."
+            ),
+            "success",
+        )
+        return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
+
+    await flash(
+        (
+            f"Auto-dashboard preview: {summary['candidates']} candidate chart(s) from "
+            f"{summary['rules_total']} rule(s)."
+        ),
+        "info",
+    )
+    return await render_template(
+        "metrics_rules.html",
+        rules=rules,
+        services=services,
+        signals=signals,
+        sources=sources,
+        auto_preview=[],
+        auto_summary=None,
+        auto_dashboard_preview=candidates,
+        auto_dashboard_summary=summary,
+        auto_open_panel="auto-dashboard",
     )
 
 

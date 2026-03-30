@@ -1,0 +1,221 @@
+<style>
+  .tour-hero {
+    background: radial-gradient(circle at 18% 18%, rgba(13, 202, 240, 0.2), transparent 42%),
+                radial-gradient(circle at 82% 28%, rgba(25, 135, 84, 0.16), transparent 38%),
+                linear-gradient(180deg, #1f242a 0%, #171b20 100%);
+    border: 1px solid #2d3035;
+    border-radius: 12px;
+    padding: .85rem;
+  }
+  .tour-flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: .45rem;
+  }
+  .tour-node {
+    border: 1px solid #3a3f45;
+    background: #22272d;
+    color: #d5d9de;
+    border-radius: 10px;
+    padding: .45rem .6rem;
+    font-size: .78rem;
+    min-width: 86px;
+    text-align: center;
+  }
+  .tour-node i { margin-right: .2rem; }
+  .tour-arrow {
+    color: #6ea8fe;
+    font-size: .95rem;
+    opacity: .9;
+  }
+  .tour-chip-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .45rem;
+  }
+  .tour-chip {
+    border: 1px solid #343a40;
+    border-radius: 10px;
+    background: #22272d;
+    padding: .45rem .45rem;
+    text-align: center;
+    font-size: .78rem;
+    color: #ced4da;
+  }
+  .tour-nav-btn { min-width: 5.5rem; }
+  #firstRunTourModal .modal-body { min-height: 315px; }
+  #firstRunTourCarousel .carousel-inner { min-height: 250px; }
+  #firstRunTourCarousel .carousel-item { min-height: 250px; }
+  #firstRunTourCarousel .carousel-indicators [data-bs-target] {
+    width: 1.4rem;
+    height: .25rem;
+    border: 0;
+    border-radius: 999px;
+    opacity: 1;
+    background-color: #495057;
+  }
+  #firstRunTourCarousel .carousel-indicators .active {
+    background-color: #0dcaf0;
+  }
+  @media (max-width: 767px) {
+    .tour-chip-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tour-node { min-width: 78px; }
+    #firstRunTourModal .modal-body { min-height: 355px; }
+    #firstRunTourCarousel .carousel-inner,
+    #firstRunTourCarousel .carousel-item { min-height: 285px; }
+  }
+</style>
+
+<div class="modal fade" id="firstRunTourModal" tabindex="-1" aria-labelledby="firstRunTourTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content border-secondary">
+      <div class="modal-header">
+        <h5 class="modal-title" id="firstRunTourTitle"><i class="bi bi-stars me-2 text-info"></i>Welcome to SOBS</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body pt-2">
+        <div id="firstRunTourCarousel" class="carousel slide" data-bs-interval="false" data-bs-touch="true">
+          <div class="carousel-indicators position-static mb-2">
+            <button type="button" data-bs-target="#firstRunTourCarousel" data-bs-slide-to="0" class="active" aria-current="true" aria-label="Slide 1"></button>
+            <button type="button" data-bs-target="#firstRunTourCarousel" data-bs-slide-to="1" aria-label="Slide 2"></button>
+            <button type="button" data-bs-target="#firstRunTourCarousel" data-bs-slide-to="2" aria-label="Slide 3"></button>
+          </div>
+
+          <div class="carousel-inner">
+            <div class="carousel-item active">
+              <h6 class="fw-semibold mb-2">1) Ingest</h6>
+              <p class="text-secondary small mb-2">Send telemetry from your stack into one unified stream.</p>
+              <div class="tour-hero">
+                <div class="tour-chip-grid">
+                  <div class="tour-chip"><i class="bi bi-journal-text"></i> Logs API</div>
+                  <div class="tour-chip"><i class="bi bi-diagram-3"></i> Traces API</div>
+                  <div class="tour-chip"><i class="bi bi-bug"></i> Errors API</div>
+                  <div class="tour-chip"><i class="bi bi-globe"></i> RUM API</div>
+                  <div class="tour-chip"><i class="bi bi-cpu"></i> AI API</div>
+                  <div class="tour-chip"><i class="bi bi-box-arrow-in-down"></i> OTLP</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="carousel-item">
+              <h6 class="fw-semibold mb-2">2) Analyze</h6>
+              <p class="text-secondary small mb-2">Signals and rules transform raw events into fast anomaly insight.</p>
+              <div class="tour-hero">
+                <div class="tour-flow">
+                  <div class="tour-node"><i class="bi bi-hdd-network"></i>Ingestion</div>
+                  <span class="tour-arrow"><i class="bi bi-arrow-right"></i></span>
+                  <div class="tour-node"><i class="bi bi-soundwave"></i>Derived Signals</div>
+                  <span class="tour-arrow"><i class="bi bi-arrow-right"></i></span>
+                  <div class="tour-node"><i class="bi bi-sliders"></i>Rules</div>
+                  <span class="tour-arrow"><i class="bi bi-arrow-right"></i></span>
+                  <div class="tour-node"><i class="bi bi-activity"></i>Anomalies</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="carousel-item">
+              <h6 class="fw-semibold mb-2">3) Act</h6>
+              <p class="text-secondary small mb-2">Jump straight to the right view for fast intelligence gathering.</p>
+              <div class="tour-hero">
+                <div class="tour-chip-grid">
+                  <div class="tour-chip"><i class="bi bi-speedometer2"></i> Summary</div>
+                  <div class="tour-chip"><i class="bi bi-graph-up-arrow"></i> Metrics</div>
+                  <div class="tour-chip"><i class="bi bi-bar-chart-line"></i> Dashboards</div>
+                  <div class="tour-chip"><i class="bi bi-journal-text"></i> Logs</div>
+                  <div class="tour-chip"><i class="bi bi-diagram-3"></i> Traces</div>
+                  <div class="tour-chip"><i class="bi bi-bug"></i> Errors</div>
+                  <div class="tour-chip"><i class="bi bi-globe"></i> RUM</div>
+                  <div class="tour-chip"><i class="bi bi-cpu"></i> AI</div>
+                  <div class="tour-chip"><i class="bi bi-lightning"></i> Triage Fast</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer d-flex justify-content-between align-items-center">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Skip for now</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary tour-nav-btn" id="tourPrevBtn">Back</button>
+          <button type="button" class="btn btn-outline-info tour-nav-btn" id="tourNextBtn">Next</button>
+          <button type="button" class="btn btn-info tour-nav-btn" id="firstRunTourDoneBtn" data-bs-dismiss="modal">Got it</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var tourSeenKey = 'sobs.firstRunTourSeen.v1';
+  var tourShownKey = 'sobs.firstRunTourShown.v1';
+  var modalEl = document.getElementById('firstRunTourModal');
+  if (!modalEl || !window.bootstrap) return;
+
+  var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  var reopenBtn = document.getElementById('reopenWelcomeTourBtn');
+  var doneBtn = document.getElementById('firstRunTourDoneBtn');
+  var carouselEl = document.getElementById('firstRunTourCarousel');
+  var carousel = carouselEl ? bootstrap.Carousel.getOrCreateInstance(carouselEl, { interval: false, ride: false }) : null;
+  var prevBtn = document.getElementById('tourPrevBtn');
+  var nextBtn = document.getElementById('tourNextBtn');
+
+  function safeSet(key, value) {
+    try { localStorage.setItem(key, value); } catch (e) { }
+  }
+
+  function safeGet(key) {
+    try { return localStorage.getItem(key) || ''; } catch (e) { return ''; }
+  }
+
+  function markSeen() {
+    safeSet(tourSeenKey, '1');
+  }
+
+  function updateNavButtons() {
+    if (!carouselEl || !prevBtn || !nextBtn || !doneBtn) return;
+    var slides = carouselEl.querySelectorAll('.carousel-item');
+    var active = carouselEl.querySelector('.carousel-item.active');
+    var idx = Array.prototype.indexOf.call(slides, active);
+    var last = slides.length - 1;
+    prevBtn.style.display = idx <= 0 ? 'none' : '';
+    nextBtn.style.display = idx >= last ? 'none' : '';
+    doneBtn.style.display = idx >= last ? '' : 'none';
+  }
+
+  if (prevBtn && carousel) {
+    prevBtn.addEventListener('click', function () { carousel.prev(); });
+  }
+  if (nextBtn && carousel) {
+    nextBtn.addEventListener('click', function () { carousel.next(); });
+  }
+  if (carouselEl) {
+    carouselEl.addEventListener('slid.bs.carousel', updateNavButtons);
+    updateNavButtons();
+  }
+
+  modalEl.addEventListener('shown.bs.modal', function () {
+    window.__sobsFirstRunTourOpen = true;
+  });
+  modalEl.addEventListener('hidden.bs.modal', function () {
+    window.__sobsFirstRunTourOpen = false;
+    markSeen();
+  });
+  if (doneBtn) doneBtn.addEventListener('click', markSeen);
+
+  var seen = safeGet(tourSeenKey) === '1';
+  var shown = safeGet(tourShownKey) === '1';
+  if (!seen && !shown) {
+    safeSet(tourShownKey, '1');
+    modal.show();
+  }
+
+  if (reopenBtn) {
+    reopenBtn.addEventListener('click', function () {
+      modal.show();
+    });
+  }
+})();
+</script>

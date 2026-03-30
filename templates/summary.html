@@ -239,6 +239,9 @@
       countdown.style.display = '';
       _countdownTimer = setInterval(_tick, 1000);
       _refreshTimer = setInterval(function () {
+        if (window.__sobsFirstRunTourOpen) {
+          return;
+        }
         _remaining = sec;
         countdown.textContent = sec >= 60 ? Math.ceil(sec / 60) + 'm' : sec + 's';
         location.reload();
