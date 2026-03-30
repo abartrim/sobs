@@ -3435,7 +3435,6 @@ async def view_metrics():
             "last_value": "last_value",
             "last_anomaly_score": "last_anomaly_score",
             "last_anomaly_state": "last_anomaly_state",
-            "rule_name": "rule_name",
             "last_sample_count": "last_sample_count",
             "point_count": "point_count",
         },
@@ -3495,8 +3494,7 @@ async def view_metrics():
                 "  argMax(anomaly_score, time) AS last_anomaly_score,"
                 "  argMax(anomaly_state, time) AS last_anomaly_state,"
                 "  argMax(SampleCount, time) AS last_sample_count,"
-                "  count() AS point_count,"
-                "  '' AS rule_name"
+                "  count() AS point_count"
                 " FROM v_derived_signals_anomaly"
                 f"{where_clause}"
                 " GROUP BY ServiceName, SignalSource, SignalName, AttrFingerprint"

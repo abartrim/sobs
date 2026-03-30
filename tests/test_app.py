@@ -3051,6 +3051,14 @@ class TestMetricsAnomalyDetection:
         assert "Metrics Rules" in body
         assert "Rule Type" in body
 
+    async def test_metrics_sort_by_signal(self, client):
+        r = await client.get("/metrics?sort_by=signal&sort_dir=asc")
+        assert r.status_code == 200
+
+    async def test_metrics_limit_offset(self, client):
+        r = await client.get("/metrics?limit=25&offset=0")
+        assert r.status_code == 200
+
     async def test_rule_creation_surfaces_on_metrics_index(self, client):
         marker = f"rule-svc-{time.time_ns()}"
         r = await client.post(
