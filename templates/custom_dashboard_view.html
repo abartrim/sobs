@@ -485,8 +485,8 @@
     var hintEl = document.getElementById('chart-hint-' + chartCfg.id);
     var sourceBtn = document.getElementById('chart-source-btn-' + chartCfg.id);
     if (!el) return;
-    var ec = echarts.init(el, 'dark');
-    ec.showLoading({ text: 'Loading…', color: '#0d6efd', textColor: '#adb5bd', maskColor: 'rgba(0,0,0,0.3)' });
+    var ec = echarts.init(el, (window.SOBS && SOBS.echartsTheme) ? SOBS.echartsTheme() : null);
+    ec.showLoading({ text: 'Loading…', color: (window.SOBS && SOBS.cssVar) ? SOBS.cssVar('--bs-primary') : '#0d6efd', textColor: (window.SOBS && SOBS.cssVar) ? SOBS.cssVar('--bs-secondary-color') : '#adb5bd', maskColor: 'rgba(128,128,128,0.2)' });
 
     // Use ChartSpec render endpoint as the single chart model.
     fetch(specRenderUrl, {
@@ -1297,7 +1297,7 @@
           }
           msg.textContent = 'Preview ready';
           var el = document.getElementById('queryPreviewChart');
-          previewChartInst = echarts.init(el, 'dark');
+          previewChartInst = echarts.init(el, (window.SOBS && SOBS.echartsTheme) ? SOBS.echartsTheme() : null);
           previewChartInst.setOption(data.option);
           scrollModalSectionIntoView(area);
           if (queryInput && data.query) queryInput.value = data.query;

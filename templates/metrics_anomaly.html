@@ -214,7 +214,8 @@
     if (!chartEl) return;
 
     var rows = {{ rows | tojson }};
-    var ec = echarts.init(chartEl, 'dark');
+    var isDark = (window.SOBS && SOBS.echartsTheme) ? SOBS.echartsTheme() === 'dark' : document.documentElement.getAttribute('data-bs-theme') === 'dark';
+    var ec = echarts.init(chartEl, isDark ? 'dark' : null);
 
     if (!rows || !rows.length) {
       ec.setOption({
@@ -223,7 +224,7 @@
           text: 'No data for current filters',
           left: 'center',
           top: 'middle',
-          textStyle: { color: '#6c757d', fontSize: 13, fontWeight: 500 }
+          textStyle: { color: (window.SOBS && SOBS.cssVar) ? SOBS.cssVar('--bs-secondary-color') : '#6c757d', fontSize: 13, fontWeight: 500 }
         },
         xAxis: { show: false },
         yAxis: { show: false },
@@ -321,7 +322,7 @@
 
     ec.setOption({
       backgroundColor: 'transparent',
-      textStyle: { color: '#adb5bd' },
+      textStyle: { color: (window.SOBS && SOBS.cssVar) ? SOBS.cssVar('--bs-body-color') : '#adb5bd' },
       tooltip: {
         trigger: 'axis',
         confine: true,
@@ -338,7 +339,7 @@
           lines.push('<b>Stat state</b>: ' + point.anomalyState + ' (z=' + point.anomalyScore + ')');
           if (point.ruleName) {
             lines.push('<b>Rule</b>: ' + point.ruleName + ' [' + point.ruleState + ']');
-            lines.push('<span style="color:#adb5bd">' + point.ruleReason + '</span>');
+            lines.push('<span style="color:var(--bs-secondary-color)">' + point.ruleReason + '</span>');
           }
           lines.push('<b>Effective state</b>: <span style="color:' + (stateColor[point.effectiveState] || '#0d6efd') + '">' + point.effectiveState + '</span>');
           return lines.join('<br/>');
@@ -371,7 +372,7 @@
           xAxisIndex: 0,
           height: 16,
           bottom: 34,
-          borderColor: '#495057',
+          borderColor: (window.SOBS && SOBS.cssVar) ? SOBS.cssVar('--bs-border-color') : '#495057',
           fillerColor: 'rgba(13, 110, 253, 0.20)',
           handleStyle: { color: '#0d6efd' }
         }

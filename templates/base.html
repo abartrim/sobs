@@ -16,10 +16,10 @@
     .nav-link.active { font-weight: 600; }
     /* ===== Sidebar Base ===== */
     :root { --sb-full: 220px; --sb-compact: 56px; }
-    .sidebar { flex-shrink: 0; width: var(--sb-full); min-height: 100vh; padding: 1rem; background: #1a1d21; border-right: 1px solid #2d3035; position: relative; overflow: visible; z-index: 1060; transition: width 0.22s ease; }
-    .sidebar .nav-link { color: #adb5bd; border-radius: 6px; margin: 1px 4px; padding: .4rem .8rem; display: flex; align-items: center; gap: .5rem; white-space: nowrap; }
+    .sidebar { flex-shrink: 0; width: var(--sb-full); min-height: 100vh; padding: 1rem; background: var(--bs-tertiary-bg); border-right: 1px solid var(--bs-border-color); position: relative; overflow: visible; z-index: 1060; transition: width 0.22s ease; }
+    .sidebar .nav-link { color: var(--bs-secondary-color); border-radius: 6px; margin: 1px 4px; padding: .4rem .8rem; display: flex; align-items: center; gap: .5rem; white-space: nowrap; }
     .sidebar .nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-    .sidebar .nav-link:hover, .sidebar .nav-link.active { background: #2d3035; color: #fff; }
+    .sidebar .nav-link:hover, .sidebar .nav-link.active { background: var(--bs-secondary-bg); color: var(--bs-emphasis-color); }
     .sidebar .nav-link i { width: 1.4rem; flex-shrink: 0; }
     /* Sidebar label (text part) */
     .sb-label { overflow: hidden; transition: opacity 0.15s ease, max-width 0.22s ease; max-width: 200px; white-space: nowrap; }
@@ -32,12 +32,12 @@
     .sidebar.sidebar-compact .sb-footer { display: none; }
     /* ===== Sidebar edge toggle button ===== */
     /* Draw border as a right-side half-ring so the menu-side edge stays clean and the icon remains unobstructed. */
-    .sb-toggle-btn { position: absolute; right: -14px; top: 64px; z-index: 1200; width: 28px; height: 28px; border-radius: 50%; border: 0; background: #1a1d21; color: #adb5bd; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: background 0.15s, color 0.15s; }
-    .sb-toggle-btn::after { content: ''; position: absolute; inset: 0; border: 1px solid #2d3035; border-radius: 50%; clip-path: inset(0 0 0 50%); pointer-events: none; }
+    .sb-toggle-btn { position: absolute; right: -14px; top: 64px; z-index: 1200; width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--bs-tertiary-bg); color: var(--bs-secondary-color); display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: background 0.15s, color 0.15s; }
+    .sb-toggle-btn::after { content: ''; position: absolute; inset: 0; border: 1px solid var(--bs-border-color); border-radius: 50%; clip-path: inset(0 0 0 50%); pointer-events: none; }
     .sb-toggle-btn > i { position: relative; z-index: 1; }
-    .sb-toggle-btn:hover { background: #2d3035; color: #fff; }
+    .sb-toggle-btn:hover { background: var(--bs-secondary-bg); color: var(--bs-emphasis-color); }
     /* ===== State 3: Hamburger topbar ===== */
-    .sb-topbar { display: none; background: #1a1d21; border-bottom: 1px solid #2d3035; padding: .5rem 1rem; align-items: center; gap: .75rem; position: sticky; top: 0; z-index: 100; }
+    .sb-topbar { display: none; background: var(--bs-tertiary-bg); border-bottom: 1px solid var(--bs-border-color); padding: .5rem 1rem; align-items: center; gap: .75rem; position: sticky; top: 0; z-index: 100; }
     /* Overlay backdrop */
     .sb-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 1040; }
     .sb-backdrop.show { display: block; }
@@ -62,11 +62,11 @@
     .badge-level-METRIC { background-color: #0dcaf0 !important; color: #000 !important; }
     .log-body { font-family: "SFMono-Regular", Menlo, monospace; font-size: .78rem; word-break: break-all; }
     .stack-trace { font-family: monospace; font-size: .78rem; white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
-    .stat-card { border: 1px solid #2d3035; border-radius: 10px; }
+    .stat-card { border: 1px solid var(--bs-border-color); border-radius: 10px; }
     .vitals-good  { color: #198754; }
     .vitals-needs { color: #ffc107; }
     .vitals-poor  { color: #dc3545; }
-    .prompt-box { background: #1e2329; border-radius: 6px; padding: .5rem; font-size: .82rem; white-space: pre-wrap; max-height: 150px; overflow-y: auto; }
+    .prompt-box { background: var(--bs-tertiary-bg); border-radius: 6px; padding: .5rem; font-size: .82rem; white-space: pre-wrap; max-height: 150px; overflow-y: auto; }
     a.trace-link { font-family: monospace; font-size: .78rem; }
     .drp-combo .drp-combo-input {
       border-top-right-radius: 0;
@@ -100,8 +100,6 @@
       z-index: 3;
     }
     .drp-combo .drp-combo-trigger .bi { font-size: .85rem; }
-    /* ===== Theme toggle ===== */
-    .theme-toggle { position: fixed; top: .6rem; right: 1rem; z-index: 1050; }
   </style>
 </head>
 <body>
@@ -114,8 +112,21 @@
   </button>
   <a href="{{ url_for('summary') }}" class="text-decoration-none d-flex align-items-center gap-2">
     <span>🔭</span>
-    <span class="fw-bold text-white">SOBS</span>
+    <span class="fw-bold text-body-emphasis">SOBS</span>
   </a>
+  <div class="ms-auto">
+    <div class="btn-group btn-group-sm" role="group" aria-label="Theme">
+      <button type="button" class="btn btn-outline-secondary" data-sobs-theme="light" title="Light theme" aria-pressed="false">
+        <i class="bi bi-sun"></i>
+      </button>
+      <button type="button" class="btn btn-outline-secondary" data-sobs-theme="system" title="System theme" aria-pressed="false">
+        <i class="bi bi-circle-half"></i>
+      </button>
+      <button type="button" class="btn btn-outline-secondary" data-sobs-theme="dark" title="Dark theme" aria-pressed="false">
+        <i class="bi bi-moon-stars"></i>
+      </button>
+    </div>
+  </div>
 </div>
 <div class="d-flex">
   <!-- Sidebar -->
@@ -126,7 +137,7 @@
     </button>
     <a href="{{ url_for('summary') }}" class="text-decoration-none mb-4 d-flex align-items-center gap-2 sb-brand">
       <span style="font-size:1.4rem;">🔭</span>
-      <span class="fw-bold fs-5 text-white sb-brand-text">SObS</span>
+      <span class="fw-bold fs-5 text-body-emphasis sb-brand-text">SObS</span>
     </a>
     <ul class="nav flex-column gap-1">
       <li class="nav-item">
@@ -176,6 +187,18 @@
       </li>
     </ul>
     <div class="mt-auto pt-3 border-top border-secondary sb-footer">
+      <div class="btn-group btn-group-sm mb-2" role="group" aria-label="Theme">
+        <button type="button" class="btn btn-outline-secondary" data-sobs-theme="light" title="Light theme" aria-pressed="false">
+          <i class="bi bi-sun"></i>
+        </button>
+        <button type="button" class="btn btn-outline-secondary" data-sobs-theme="system" title="System theme" aria-pressed="false">
+          <i class="bi bi-circle-half"></i>
+        </button>
+        <button type="button" class="btn btn-outline-secondary" data-sobs-theme="dark" title="Dark theme" aria-pressed="false">
+          <i class="bi bi-moon-stars"></i>
+        </button>
+      </div>
+      <br>
       <small class="text-secondary">Simple Observe Stack v1.0</small>
     </div>
   </nav>
@@ -197,20 +220,6 @@
 <script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
 <script src="{{ url_for('static', filename='date-range-picker.js') }}"></script>
 
-<!-- Theme toggle: fixed top-right corner, always visible -->
-<div class="theme-toggle">
-  <div class="btn-group btn-group-sm" role="group" aria-label="Theme">
-    <button type="button" class="btn btn-outline-secondary" data-sobs-theme="light" title="Light theme" aria-pressed="false">
-      <i class="bi bi-sun"></i>
-    </button>
-    <button type="button" class="btn btn-outline-secondary" data-sobs-theme="system" title="System theme" aria-pressed="false">
-      <i class="bi bi-circle-half"></i>
-    </button>
-    <button type="button" class="btn btn-outline-secondary" data-sobs-theme="dark" title="Dark theme" aria-pressed="false">
-      <i class="bi bi-moon-stars"></i>
-    </button>
-  </div>
-</div>
 {% if config.get('ENABLE_FIRST_RUN_TOUR', True) and request.endpoint not in ('chart_editor_help', 'metrics_rules_help', 'auto_metrics_rules_help') %}
   {% include "_first_run_tour.html" %}
 {% endif %}
@@ -257,6 +266,15 @@
       applyTheme('system');
     }
   });
+
+  // Expose a small helper for chart code: returns 'dark' or null matching current BS theme
+  window.SOBS = window.SOBS || {};
+  window.SOBS.echartsTheme = function () {
+    return document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'dark' : null;
+  };
+  window.SOBS.cssVar = function (name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  };
 }());
 
 /* ===== Sidebar ===== */

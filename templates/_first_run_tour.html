@@ -1,9 +1,7 @@
 <style>
   .tour-hero {
-    background: radial-gradient(circle at 18% 18%, rgba(13, 202, 240, 0.2), transparent 42%),
-                radial-gradient(circle at 82% 28%, rgba(25, 135, 84, 0.16), transparent 38%),
-                linear-gradient(180deg, #1f242a 0%, #171b20 100%);
-    border: 1px solid #2d3035;
+    background: var(--bs-secondary-bg);
+    border: 1px solid var(--bs-border-color);
     border-radius: 12px;
     padding: .85rem;
   }
@@ -15,9 +13,9 @@
     gap: .45rem;
   }
   .tour-node {
-    border: 1px solid #3a3f45;
-    background: #22272d;
-    color: #d5d9de;
+    border: 1px solid var(--bs-border-color);
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
     border-radius: 10px;
     padding: .45rem .6rem;
     font-size: .78rem;
@@ -26,7 +24,7 @@
   }
   .tour-node i { margin-right: .2rem; }
   .tour-arrow {
-    color: #6ea8fe;
+    color: var(--bs-info);
     font-size: .95rem;
     opacity: .9;
   }
@@ -36,13 +34,13 @@
     gap: .45rem;
   }
   .tour-chip {
-    border: 1px solid #343a40;
+    border: 1px solid var(--bs-border-color);
     border-radius: 10px;
-    background: #22272d;
+    background: var(--bs-tertiary-bg);
     padding: .45rem .45rem;
     text-align: center;
     font-size: .78rem;
-    color: #ced4da;
+    color: var(--bs-body-color);
   }
   .tour-nav-btn { min-width: 5.5rem; }
   #firstRunTourModal .modal-body { min-height: 315px; }
@@ -54,7 +52,7 @@
     border: 0;
     border-radius: 999px;
     opacity: 1;
-    background-color: #495057;
+    background-color: var(--bs-secondary-bg);
   }
   #firstRunTourCarousel .carousel-indicators .active {
     background-color: #0dcaf0;
