@@ -54,6 +54,13 @@ from quart import (
 app = Quart(__name__)
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _normalize_base_path(value: str) -> str:
     """Normalize base path values to either '' or '/segment[/subsegment]'."""
     if not value:
@@ -82,6 +89,7 @@ def _merge_script_name(script_name: str, base_path: str) -> str:
 BASE_PATH = _normalize_base_path(os.environ.get("SOBS_BASE_PATH", ""))
 app.config["APPLICATION_ROOT"] = BASE_PATH or "/"
 app.config["SECRET_KEY"] = os.environ.get("SOBS_SECRET_KEY", "sobs-dev-secret-key")
+app.config["ENABLE_FIRST_RUN_TOUR"] = _env_flag("SOBS_ENABLE_FIRST_RUN_TOUR", True)
 
 
 class BasePathMiddleware:

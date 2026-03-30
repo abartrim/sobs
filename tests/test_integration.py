@@ -59,6 +59,7 @@ def live_server():
     env = os.environ.copy()
     env["PORT"] = str(SERVER_PORT)
     env["SOBS_DATA_DIR"] = data_dir
+    env["SOBS_ENABLE_FIRST_RUN_TOUR"] = "0"
 
     proc = subprocess.Popen(
         [sys.executable, "app.py"],

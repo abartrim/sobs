@@ -104,7 +104,7 @@
 </div>
 
 <script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
-{% if request.endpoint not in ('chart_editor_help', 'metrics_rules_help', 'auto_metrics_rules_help') %}
+{% if config.get('ENABLE_FIRST_RUN_TOUR', True) and request.endpoint not in ('chart_editor_help', 'metrics_rules_help', 'auto_metrics_rules_help') %}
   {% include "_first_run_tour.html" %}
 {% endif %}
 {% block scripts %}{% endblock %}
