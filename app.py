@@ -6303,6 +6303,39 @@ def _build_custom_drilldown(mapping: dict[str, object], records: list[dict[str, 
     return out
 
 
+def _normalize_custom_series_point_order(option: dict[str, object]) -> None:
+    """Ensure deterministic ordering for tuple-like series points in custom ECharts."""
+    series = option.get("series")
+    if not isinstance(series, list):
+        return
+
+    def _to_sort_key(value: object) -> tuple[int, object]:
+        if isinstance(value, datetime):
+            return (0, value)
+        if isinstance(value, (int, float)):
+            return (1, float(value))
+        if isinstance(value, str):
+            text = value.strip()
+            try:
+                return (0, datetime.fromisoformat(text.replace("Z", "+00:00")))
+            except ValueError:
+                return (2, text)
+        return (3, str(value))
+
+    for entry in series:
+        if not isinstance(entry, dict):
+            continue
+        data = entry.get("data")
+        if not isinstance(data, list) or len(data) < 2:
+            continue
+        if not all(isinstance(point, (list, tuple)) and len(point) >= 2 for point in data):
+            continue
+        try:
+            data.sort(key=lambda point: _to_sort_key(point[0]))
+        except Exception:
+            continue
+
+
 def _render_custom_echarts(
     template: dict[str, object],
     columns: list[str],
@@ -6356,6 +6389,8 @@ def _render_custom_echarts(
         option["backgroundColor"] = "transparent"
     if "textStyle" not in option:
         option["textStyle"] = {"color": "#adb5bd"}
+
+    _normalize_custom_series_point_order(option)
 
     drilldown = _build_custom_drilldown(mapping, records)
     if drilldown:
