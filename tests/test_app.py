@@ -1325,14 +1325,14 @@ class TestUIPages:
         await client.post(
             "/v1/errors",
             json={
-                "service": "pump-err-svc",
+                "service": "example-err-svc",
                 "type": "RuntimeError",
                 "message": "simulated error without family token",
                 "stack": "Traceback line",
             },
         )
 
-        analyzed = await client.get("/logs?service=pump-err-svc&analyze=1&stats=1")
+        analyzed = await client.get("/logs?service=example-err-svc&analyze=1&stats=1")
         assert analyzed.status_code == 200
         data = await analyzed.get_data()
         assert b"Error Families" in data
@@ -2189,8 +2189,17 @@ class TestCustomDashboards:
             f"/dashboards/{dashboard_id}/charts",
             form={
                 "title": "Latency Bands",
-                "template_id": "time_series_percentiles",
-                "query": ("SELECT toDateTime('2024-01-01 00:00:00') AS time, " "1 AS value, 2 AS p95, 3 AS p99"),
+                "chart_spec_json": json.dumps(
+                    {
+                        "template_id": "time_series_percentiles",
+                        "sql": {
+                            "mode": "raw",
+                            "override_sql": (
+                                "SELECT toDateTime('2024-01-01 00:00:00') AS time, " "1 AS value, 2 AS p95, 3 AS p99"
+                            ),
+                        },
+                    }
+                ),
             },
             follow_redirects=False,
         )
@@ -2214,9 +2223,9 @@ class TestCustomDashboards:
         r2 = await client.get(location)
         assert r2.status_code == 200
         body = await r2.get_data(as_text=True)
-        assert "Example SQL" in body
-        assert "Use Example" in body
-        assert "quantile(0.95)(Duration) AS p95" in body
+        assert "SQL Builder" in body
+        assert "Visual Builder" in body
+        assert "Compiled SQL" in body
         assert "Columns: time, value, p95, p99" in body
 
     async def test_remove_chart_from_dashboard(self, client):
@@ -2230,7 +2239,15 @@ class TestCustomDashboards:
         dashboard_id = location.rstrip("/").split("/")[-1]
         await client.post(
             f"/dashboards/{dashboard_id}/charts",
-            form={"title": "Temp Chart", "template_id": "gauge_kpi", "query": "SELECT 1 AS value"},
+            form={
+                "title": "Temp Chart",
+                "chart_spec_json": json.dumps(
+                    {
+                        "template_id": "gauge_kpi",
+                        "sql": {"mode": "raw", "override_sql": "SELECT 1 AS value"},
+                    }
+                ),
+            },
             follow_redirects=False,
         )
 
@@ -2247,6 +2264,108 @@ class TestCustomDashboards:
             follow_redirects=False,
         )
         assert r2.status_code in (302, 303)
+
+    async def test_edit_chart_on_dashboard(self, client):
+        r = await client.post(
+            "/dashboards",
+            form={"name": "Edit Chart Test", "description": ""},
+            follow_redirects=False,
+        )
+        dashboard_id = r.headers.get("Location", "").rstrip("/").split("/")[-1]
+
+        await client.post(
+            f"/dashboards/{dashboard_id}/charts",
+            form={
+                "title": "Original Chart",
+                "chart_spec_json": json.dumps(
+                    {
+                        "template_id": "gauge_kpi",
+                        "sql": {"mode": "raw", "override_sql": "SELECT 1 AS value"},
+                    }
+                ),
+            },
+            follow_redirects=False,
+        )
+
+        from app import _get_charts, get_db  # noqa: PLC0415
+
+        charts = _get_charts(get_db(), dashboard_id)
+        assert charts
+        chart_id = charts[0]["id"]
+
+        r2 = await client.post(
+            f"/dashboards/{dashboard_id}/charts/{chart_id}/edit",
+            form={
+                "title": "Updated Chart",
+                "chart_spec_json": json.dumps(
+                    {
+                        "template_id": "time_series_percentiles",
+                        "sql": {
+                            "mode": "raw",
+                            "override_sql": (
+                                "SELECT toDateTime('2024-01-01 00:00:00') AS time, " "1 AS value, 2 AS p95, 3 AS p99"
+                            ),
+                        },
+                    }
+                ),
+            },
+            follow_redirects=False,
+        )
+        assert r2.status_code in (302, 303)
+
+        charts_after = _get_charts(get_db(), dashboard_id)
+        edited = next(c for c in charts_after if c["id"] == chart_id)
+        assert edited["title"] == "Updated Chart"
+        assert edited["chart_type"] == "time_series_percentiles"
+
+    async def test_clone_chart_on_dashboard(self, client):
+        r = await client.post(
+            "/dashboards",
+            form={"name": "Clone Chart Test", "description": ""},
+            follow_redirects=False,
+        )
+        dashboard_id = r.headers.get("Location", "").rstrip("/").split("/")[-1]
+
+        await client.post(
+            f"/dashboards/{dashboard_id}/charts",
+            form={
+                "title": "Source Chart",
+                "chart_spec_json": json.dumps(
+                    {
+                        "template_id": "gauge_kpi",
+                        "sql": {"mode": "raw", "override_sql": "SELECT 1 AS value"},
+                    }
+                ),
+            },
+            follow_redirects=False,
+        )
+
+        from app import _get_charts, get_db  # noqa: PLC0415
+
+        charts = _get_charts(get_db(), dashboard_id)
+        assert len(charts) == 1
+        source_chart_id = charts[0]["id"]
+
+        r2 = await client.post(
+            f"/dashboards/{dashboard_id}/charts/{source_chart_id}/clone",
+            form={
+                "title": "Source Chart (copy)",
+                "chart_spec_json": json.dumps(
+                    {
+                        "template_id": "gauge_kpi",
+                        "sql": {"mode": "raw", "override_sql": "SELECT 1 AS value"},
+                    }
+                ),
+            },
+            follow_redirects=False,
+        )
+        assert r2.status_code in (302, 303)
+
+        charts_after = _get_charts(get_db(), dashboard_id)
+        assert len(charts_after) == 2
+        titles = [c["title"] for c in charts_after]
+        assert "Source Chart" in titles
+        assert "Source Chart (copy)" in titles
 
     async def test_delete_dashboard(self, client):
         r = await client.post(
@@ -2327,6 +2446,242 @@ class TestCustomDashboards:
         assert "Traceback" not in data["error"]
         assert "/Users/" not in data["error"]
         assert "Check casts and column types" in data["error"]
+
+    async def test_chart_spec_compile_builder_endpoint(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/compile",
+            json={
+                "spec": {
+                    "template_id": "derived_signal_overlay",
+                    "sql": {"mode": "builder"},
+                    "data": {
+                        "source_view": "v_derived_signals_anomaly",
+                        "signal_source": "traces",
+                        "signal_name": "trace_volume",
+                        "window_hours": 6,
+                        "limit": 100,
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["template_id"] == "derived_signal_overlay"
+        assert "FROM v_derived_signals_anomaly" in data["query"]
+
+    async def test_chart_spec_compile_builder_supports_base_table_source(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/compile",
+            json={
+                "spec": {
+                    "template_id": "derived_signal_overlay",
+                    "sql": {"mode": "builder"},
+                    "data": {
+                        "source_view": "otel_logs",
+                        "service": "checkout",
+                        "signal_name": "log_volume",
+                        "window_hours": 6,
+                        "limit": 100,
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "FROM otel_logs" in data["query"]
+        assert "toStartOfMinute(TimestampTime)" in data["query"]
+
+    async def test_chart_spec_compile_builder_supports_metric_base_table_source(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/compile",
+            json={
+                "spec": {
+                    "template_id": "anomaly_overlay",
+                    "sql": {"mode": "builder"},
+                    "data": {
+                        "source_view": "otel_metrics_sum",
+                        "service": "checkout",
+                        "metric_name": "cpu.usage",
+                        "window_hours": 6,
+                        "limit": 100,
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "FROM otel_metrics_sum" in data["query"]
+        assert "avg(toFloat64(Value)) AS value" in data["query"]
+
+    async def test_chart_spec_compile_builder_supports_all_templates(self, client):
+        templates = [
+            "time_series_percentiles",
+            "heatmap",
+            "box_plot",
+            "dual_axis_anomaly",
+            "anomaly_overlay",
+            "derived_signal_overlay",
+            "gauge_kpi",
+        ]
+
+        for template_id in templates:
+            source_view = "v_otel_metrics_anomaly"
+            if template_id == "derived_signal_overlay":
+                source_view = "v_derived_signals_anomaly"
+
+            r = await client.post(
+                "/api/dashboards/spec/compile",
+                json={
+                    "spec": {
+                        "template_id": template_id,
+                        "sql": {"mode": "builder"},
+                        "data": {
+                            "source_view": source_view,
+                            "window_hours": 6,
+                            "limit": 100,
+                        },
+                    }
+                },
+            )
+            assert r.status_code == 200
+
+    async def test_chart_spec_options_endpoint_returns_distinct_lists(self, client):
+        r = await client.get("/api/dashboards/spec/options?source_view=v_derived_signals_anomaly&signal_source=traces")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["source_view"] == "v_derived_signals_anomaly"
+        assert isinstance(data["services"], list)
+        assert isinstance(data["signals"], list)
+        assert isinstance(data["metrics"], list)
+
+    async def test_chart_spec_validate_endpoint(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/validate",
+            json={
+                "spec": {
+                    "template_id": "anomaly_overlay",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT toDateTime('2024-01-01 00:00:00') AS time, "
+                            "1 AS value, 1 AS baseline_mean, 0 AS baseline_lower, "
+                            "2 AS baseline_upper, 'normal' AS anomaly_state"
+                        ),
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["valid"] is True
+        assert data["row_count"] == 1
+
+    async def test_chart_spec_validate_endpoint_with_role_map(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/validate",
+            json={
+                "spec": {
+                    "template_id": "anomaly_overlay",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT toDateTime('2024-01-01 00:00:00') AS t, "
+                            "1 AS v, 1 AS bm, 0 AS bl, 2 AS bu, 'normal' AS st"
+                        ),
+                    },
+                    "visual": {
+                        "role_map": {
+                            "time": "t",
+                            "value": "v",
+                            "baseline_mean": "bm",
+                            "baseline_lower": "bl",
+                            "baseline_upper": "bu",
+                            "anomaly_state": "st",
+                        }
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["valid"] is True
+
+    async def test_chart_spec_validate_endpoint_rejects_unknown_role_column(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/validate",
+            json={
+                "spec": {
+                    "template_id": "anomaly_overlay",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT toDateTime('2024-01-01 00:00:00') AS time, "
+                            "1 AS value, 1 AS baseline_mean, 0 AS baseline_lower, "
+                            "2 AS baseline_upper, 'normal' AS anomaly_state"
+                        ),
+                    },
+                    "visual": {"role_map": {"value": "missing_col"}},
+                }
+            },
+        )
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["valid"] is False
+        assert "unknown column" in data["error"].lower()
+
+    async def test_chart_spec_dry_run_includes_column_types(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/dry-run",
+            json={
+                "spec": {
+                    "template_id": "anomaly_overlay",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT toDateTime('2024-01-01 00:00:00') AS time, "
+                            "1 AS value, 1 AS baseline_mean, 0 AS baseline_lower, "
+                            "2 AS baseline_upper, 'normal' AS anomaly_state"
+                        ),
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["columns"][0] == "time"
+        assert len(data["column_types"]) == len(data["columns"])
+
+    async def test_chart_spec_render_endpoint(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/render",
+            json={
+                "spec": {
+                    "template_id": "anomaly_overlay",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT toDateTime('2024-01-01 00:00:00') AS time, "
+                            "1 AS value, 1 AS baseline_mean, 0 AS baseline_lower, "
+                            "2 AS baseline_upper, 'normal' AS anomaly_state"
+                        ),
+                    },
+                    "visual": {
+                        "zoom_inside": True,
+                        "zoom_slider": True,
+                        "zoom_start_pct": 10,
+                        "zoom_end_pct": 90,
+                        "legend_show": False,
+                        "smooth_line": False,
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "option" in data
+        assert data["template_id"] == "anomaly_overlay"
+        assert data["option"]["legend"]["show"] is False
+        assert len(data["option"]["dataZoom"]) == 2
 
     async def test_chart_render_api_attaches_time_series_drilldown_metadata(self, client):
         r = await client.post(
@@ -2417,8 +2772,12 @@ class TestCustomDashboards:
             f"/dashboards/{dashboard_id}/charts",
             form={
                 "title": "Bad Query",
-                "template_id": "gauge_kpi",
-                "query": "DROP TABLE otel_logs",
+                "chart_spec_json": json.dumps(
+                    {
+                        "template_id": "gauge_kpi",
+                        "sql": {"mode": "raw", "override_sql": "DROP TABLE otel_logs"},
+                    }
+                ),
             },
             follow_redirects=False,
         )

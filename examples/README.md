@@ -45,16 +45,16 @@ node example.js
 bash curl_examples.sh
 ```
 
-### Load pump (repo script)
+### Load example (repo script)
 
 From the repository root:
 
 ```bash
 # Default high-throughput mode
-python scripts/load_pump.py --base http://localhost:4317 --total 420 --workers 28
+python scripts/load_example.py --base http://localhost:4317 --total 420 --workers 28
 
 # Realistic paced mode (useful for observing Logs Live mode)
-python scripts/load_pump.py --base http://localhost:4317 --mode realistic --rps 3 --jitter-ms 250 --total 180 --workers 8
+python scripts/load_example.py --base http://localhost:4317 --mode realistic --rps 3 --jitter-ms 250 --total 180 --workers 8
 ```
 
 ## RUM (Client-side)

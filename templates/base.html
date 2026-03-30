@@ -33,13 +33,13 @@
 <div class="d-flex">
   <!-- Sidebar -->
   <nav class="sidebar d-flex flex-column p-3" style="width:220px;flex-shrink:0;">
-    <a href="{{ url_for('dashboard') }}" class="text-decoration-none mb-4 d-flex align-items-center gap-2">
+    <a href="{{ url_for('summary') }}" class="text-decoration-none mb-4 d-flex align-items-center gap-2">
       <span style="font-size:1.4rem;">🔭</span>
       <span class="fw-bold fs-5 text-white">SOBS</span>
     </a>
     <ul class="nav flex-column gap-1">
       <li class="nav-item">
-        <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
+        <a href="{{ url_for('summary') }}" class="nav-link {% if request.endpoint == 'summary' %}active{% endif %}">
           <i class="bi bi-speedometer2"></i> Summary
         </a>
       </li>

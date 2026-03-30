@@ -82,3 +82,13 @@ Window: 60 rows (`ROWS BETWEEN 59 PRECEDING AND CURRENT ROW`).
 - Derived dimensions beyond service-level (route, operation, error fingerprint).
 - Rule storage and evaluation policy (cooldowns, min sample count).
 - Unified incident timeline that correlates logs/traces/errors around anomalies.
+
+## March 2026 Update
+
+The next implementation phase is editor-first and single-model:
+
+1. No backward-compatibility requirement for chart/dashboard schema during this phase.
+2. SQL builder and visual builder are developed together as one workflow.
+3. Dashboard rendering contracts should be driven by `ChartSpec` compile/dry-run/validate/render APIs.
+
+See the V2 decision section in [CHART_TEMPLATES_DESIGN.md](CHART_TEMPLATES_DESIGN.md) for the detailed authoring model and delivery slices.

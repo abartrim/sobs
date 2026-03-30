@@ -26,7 +26,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import wraps
-from typing import Callable
+from typing import Callable, cast
 
 import chdb.dbapi as chdb_driver
 from google.protobuf.json_format import ParseDict
@@ -907,7 +907,10 @@ def _seed_chart_if_missing(
                 "Title": title,
                 "ChartType": chart_type,
                 "Query": query,
-                "OptionsJson": "{}",
+                "OptionsJson": json.dumps(
+                    {"chart_spec": _build_raw_chart_spec(chart_type, query)},
+                    ensure_ascii=False,
+                ),
                 "Position": position,
                 "IsDeleted": 0,
                 "Version": int(time.time() * 1000),
@@ -951,7 +954,10 @@ def _upsert_seed_chart(
                 "Title": title,
                 "ChartType": chart_type,
                 "Query": query,
-                "OptionsJson": str(existing["OptionsJson"]),
+                "OptionsJson": json.dumps(
+                    {"chart_spec": _build_raw_chart_spec(chart_type, query, str(existing["OptionsJson"]))},
+                    ensure_ascii=False,
+                ),
                 "Position": position,
                 "IsDeleted": 0,
                 "Version": int(time.time() * 1000),
@@ -1077,8 +1083,8 @@ def _seed_example_metrics_content(db: ChDbConnection) -> None:
 
     dashboard_id = _seed_dashboard_if_missing(
         db,
-        "Pump Derived Signals",
-        "Seeded dashboard for load_pump-derived log, trace, and error anomaly signals.",
+        "Example Derived Signals",
+        "Seeded dashboard for load_example-derived log, trace, and error anomaly signals.",
     )
     charts = [
         (
@@ -2476,11 +2482,11 @@ def _get_resolved_error_ids(db) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# Web UI – Dashboard
+# Web UI – Summary
 # ---------------------------------------------------------------------------
 @app.route("/")
 @require_basic_auth
-async def dashboard():
+async def summary():
     db = get_db()
     resolved_ids = _get_resolved_error_ids(db)
     error_items = []
@@ -2549,7 +2555,7 @@ async def dashboard():
         "GROUP BY model"
     ).fetchall()
     return await render_template(
-        "dashboard.html",
+        "summary.html",
         stats=stats,
         recent_errors=recent_errors,
         recent_logs=recent_logs,
@@ -4543,11 +4549,671 @@ def _validate_chart_query(query: str) -> str | None:
     stripped = query.strip()
     if not stripped:
         return "Query cannot be empty"
-    if not stripped.upper().startswith("SELECT"):
+    upper = stripped.upper()
+    if not (upper.startswith("SELECT") or upper.startswith("WITH")):
         return "Only SELECT queries are allowed"
     if _QUERY_DENY_PATTERN.search(stripped):
         return "Query contains a disallowed keyword"
     return None
+
+
+def _sql_literal(value: object) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _coerce_positive_int(raw: object, default_value: int, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int(str(raw))
+    except (TypeError, ValueError):
+        return default_value
+    return max(min_value, min(max_value, parsed))
+
+
+def _default_chart_spec(template_id: str = "derived_signal_overlay") -> dict[str, object]:
+    return {
+        "template_id": template_id,
+        "sql": {"mode": "builder", "override_sql": ""},
+        "data": {
+            "source_view": "v_derived_signals_anomaly",
+            "service": "",
+            "signal_source": "traces",
+            "signal_name": "trace_volume",
+            "metric_name": "",
+            "attr_fp": "",
+            "window_hours": 6,
+            "limit": 1000,
+        },
+        "visual": {
+            "zoom_inside": True,
+            "zoom_slider": False,
+            "zoom_start_pct": 0,
+            "zoom_end_pct": 100,
+            "legend_show": True,
+            "smooth_line": True,
+            "value_color": "",
+            "role_map": {},
+        },
+    }
+
+
+def _build_raw_chart_spec(template_id: str, query: str, options_json: str = "") -> dict[str, object]:
+    try:
+        parsed = json.loads(options_json) if options_json else {}
+        if isinstance(parsed, dict):
+            spec_candidate = parsed.get("chart_spec")
+            if isinstance(spec_candidate, dict):
+                return _normalize_chart_spec(spec_candidate)
+    except Exception:
+        pass
+
+    spec = _default_chart_spec(template_id)
+    spec["template_id"] = template_id
+    spec["sql"] = {"mode": "raw", "override_sql": query}
+    return spec
+
+
+def _normalize_chart_spec(spec_raw: object) -> dict[str, object]:
+    base = _default_chart_spec()
+    raw = spec_raw if isinstance(spec_raw, dict) else {}
+
+    template_id = str(raw.get("template_id") or base.get("template_id") or "time_series_percentiles").strip()
+    if template_id not in CHART_TEMPLATES:
+        raise ValueError(f"Unknown template: {template_id}")
+
+    normalized = _default_chart_spec(template_id)
+    normalized["template_id"] = template_id
+
+    sql_raw = raw.get("sql") if isinstance(raw.get("sql"), dict) else {}
+    sql_mode = str(sql_raw.get("mode") if isinstance(sql_raw, dict) else "builder").strip().lower()
+    if sql_mode not in {"builder", "raw"}:
+        raise ValueError("sql.mode must be 'builder' or 'raw'")
+    normalized["sql"] = {
+        "mode": sql_mode,
+        "override_sql": str(sql_raw.get("override_sql") if isinstance(sql_raw, dict) else ""),
+    }
+
+    data_raw = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+    normalized_data = normalized.get("data")
+    if isinstance(normalized_data, dict) and isinstance(data_raw, dict):
+        merged_data: dict[str, object] = dict(cast(dict[str, object], normalized_data))
+        merged_data.update(data_raw)
+        normalized["data"] = merged_data
+
+    visual_raw = raw.get("visual") if isinstance(raw.get("visual"), dict) else {}
+    normalized_visual = normalized.get("visual")
+    merged_visual: dict[str, object] = (
+        dict(cast(dict[str, object], normalized_visual)) if isinstance(normalized_visual, dict) else {}
+    )
+    if isinstance(visual_raw, dict):
+        merged_visual.update(visual_raw)
+
+    role_map_raw = merged_visual.get("role_map")
+    role_map: dict[str, str] = {}
+    if isinstance(role_map_raw, dict):
+        role_map_raw_dict = cast(dict[object, object], role_map_raw)
+        for role, col_name in role_map_raw_dict.items():
+            role_name = str(role).strip()
+            mapped = str(col_name).strip()
+            if role_name and mapped:
+                role_map[role_name] = mapped
+    merged_visual["role_map"] = role_map
+    normalized["visual"] = merged_visual
+
+    return normalized
+
+
+def _compile_builder_sql(template_id: str, data: dict[str, object]) -> str:
+    source_view = str(data.get("source_view") or "v_derived_signals_anomaly").strip()
+    supported_sources = {
+        "v_derived_signals_anomaly",
+        "v_otel_metrics_anomaly",
+        "otel_metrics_gauge",
+        "otel_metrics_sum",
+        "otel_metrics_histogram",
+        "otel_logs",
+        "otel_traces",
+        "sobs_error_resolutions",
+    }
+    if source_view not in supported_sources:
+        raise ValueError("Unsupported source for builder mode")
+
+    service = str(data.get("service") or "").strip()
+    signal_source = str(data.get("signal_source") or "").strip()
+    signal_name = str(data.get("signal_name") or "").strip()
+    metric_name = str(data.get("metric_name") or "").strip()
+    attr_fp = str(data.get("attr_fp") or "").strip()
+    window_hours = _coerce_positive_int(data.get("window_hours"), 6, 1, 168)
+    limit = _coerce_positive_int(data.get("limit"), 1000, 1, 2000)
+
+    def _default_source_label() -> str:
+        if source_view in {"otel_logs"}:
+            return "logs"
+        if source_view in {"otel_traces"}:
+            return "traces"
+        if source_view in {"sobs_error_resolutions"}:
+            return "errors"
+        if source_view == "v_derived_signals_anomaly":
+            return signal_source or "derived"
+        return "metrics"
+
+    def _default_signal_label() -> str:
+        if signal_name:
+            return signal_name
+        if metric_name:
+            return metric_name
+        if source_view == "otel_logs":
+            return "log_volume"
+        if source_view == "otel_traces":
+            return "trace_volume"
+        if source_view == "sobs_error_resolutions":
+            return "resolved_error_volume"
+        return "value"
+
+    def _build_series_sql() -> str:
+        if source_view == "v_derived_signals_anomaly":
+            where_parts: list[str] = [f"time >= now() - INTERVAL {window_hours} HOUR"]
+            if service:
+                where_parts.append(f"ServiceName = {_sql_literal(service)}")
+            if attr_fp:
+                where_parts.append(f"AttrFingerprint = {_sql_literal(attr_fp)}")
+            if signal_source:
+                where_parts.append(f"SignalSource = {_sql_literal(signal_source)}")
+            if signal_name:
+                where_parts.append(f"SignalName = {_sql_literal(signal_name)}")
+            where_clause = " AND\n    ".join(where_parts)
+            return (
+                "SELECT\n"
+                "  time,\n"
+                "  value,\n"
+                "  baseline_mean,\n"
+                "  baseline_lower,\n"
+                "  baseline_upper,\n"
+                "  anomaly_state,\n"
+                "  anomaly_score\n"
+                "FROM v_derived_signals_anomaly\n"
+                f"WHERE {where_clause}"
+            )
+
+        if source_view == "v_otel_metrics_anomaly":
+            where_parts = [f"time >= now() - INTERVAL {window_hours} HOUR"]
+            if service:
+                where_parts.append(f"ServiceName = {_sql_literal(service)}")
+            if metric_name:
+                where_parts.append(f"MetricName = {_sql_literal(metric_name)}")
+            if attr_fp:
+                where_parts.append(f"AttrFingerprint = {_sql_literal(attr_fp)}")
+            where_clause = " AND\n    ".join(where_parts)
+            return (
+                "SELECT\n"
+                "  time,\n"
+                "  value,\n"
+                "  baseline_mean,\n"
+                "  baseline_lower,\n"
+                "  baseline_upper,\n"
+                "  anomaly_state,\n"
+                "  anomaly_score\n"
+                "FROM v_otel_metrics_anomaly\n"
+                f"WHERE {where_clause}"
+            )
+
+        if source_view in {"otel_metrics_gauge", "otel_metrics_sum", "otel_metrics_histogram"}:
+            if source_view == "otel_metrics_histogram":
+                value_expr = "if(Count = 0, 0.0, Sum / toFloat64(Count))"
+            else:
+                value_expr = "Value"
+            where_parts = [f"TimeUnixMs >= now() - INTERVAL {window_hours} HOUR"]
+            if service:
+                where_parts.append(f"ServiceName = {_sql_literal(service)}")
+            if metric_name:
+                where_parts.append(f"MetricName = {_sql_literal(metric_name)}")
+            if attr_fp:
+                where_parts.append(f"AttrFingerprint = {_sql_literal(attr_fp)}")
+            where_clause = " AND\n    ".join(where_parts)
+            return (
+                "WITH per_minute AS (\n"
+                "  SELECT\n"
+                "    toStartOfMinute(TimeUnixMs) AS time,\n"
+                "    avg(toFloat64(" + value_expr + ")) AS value\n"
+                f"  FROM {source_view}\n"
+                f"  WHERE {where_clause}\n"
+                "  GROUP BY time\n"
+                "), scored AS (\n"
+                "  SELECT\n"
+                "    time,\n"
+                "    value,\n"
+                "    avg(value) OVER (\n"
+                "      ORDER BY time\n"
+                "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+                "    ) AS baseline_mean,\n"
+                "    stddevPop(value) OVER (\n"
+                "      ORDER BY time\n"
+                "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+                "    ) AS baseline_stddev\n"
+                "  FROM per_minute\n"
+                ")\n"
+                "SELECT\n"
+                "  time,\n"
+                "  value,\n"
+                "  baseline_mean,\n"
+                "  greatest(0.0, baseline_mean - (3.0 * ifNull(baseline_stddev, 0.0))) AS baseline_lower,\n"
+                "  baseline_mean + (3.0 * ifNull(baseline_stddev, 0.0)) AS baseline_upper,\n"
+                "  if(\n"
+                "    abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) >= 3.0,\n"
+                "    'outlier',\n"
+                "    'normal'\n"
+                "  ) AS anomaly_state,\n"
+                "  abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) AS anomaly_score\n"
+                "FROM scored"
+            )
+
+        if source_view == "otel_logs":
+            where_parts = [f"TimestampTime >= now() - INTERVAL {window_hours} HOUR"]
+            if service:
+                where_parts.append(f"ServiceName = {_sql_literal(service)}")
+            where_clause = " AND\n    ".join(where_parts)
+            return (
+                "WITH per_minute AS (\n"
+                "  SELECT\n"
+                "    toStartOfMinute(TimestampTime) AS time,\n"
+                "    count() AS value\n"
+                "  FROM otel_logs\n"
+                f"  WHERE {where_clause}\n"
+                "  GROUP BY time\n"
+                "), scored AS (\n"
+                "  SELECT\n"
+                "    time,\n"
+                "    toFloat64(value) AS value,\n"
+                "    avg(toFloat64(value)) OVER (\n"
+                "      ORDER BY time\n"
+                "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+                "    ) AS baseline_mean,\n"
+                "    stddevPop(toFloat64(value)) OVER (\n"
+                "      ORDER BY time\n"
+                "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+                "    ) AS baseline_stddev\n"
+                "  FROM per_minute\n"
+                ")\n"
+                "SELECT\n"
+                "  time,\n"
+                "  value,\n"
+                "  baseline_mean,\n"
+                "  greatest(0.0, baseline_mean - (3.0 * ifNull(baseline_stddev, 0.0))) AS baseline_lower,\n"
+                "  baseline_mean + (3.0 * ifNull(baseline_stddev, 0.0)) AS baseline_upper,\n"
+                "  if(\n"
+                "    abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) >= 3.0,\n"
+                "    'outlier',\n"
+                "    'normal'\n"
+                "  ) AS anomaly_state,\n"
+                "  abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) AS anomaly_score\n"
+                "FROM scored"
+            )
+
+        if source_view == "otel_traces":
+            where_parts = [f"TimestampTime >= now() - INTERVAL {window_hours} HOUR"]
+            if service:
+                where_parts.append(f"ServiceName = {_sql_literal(service)}")
+            where_clause = " AND\n    ".join(where_parts)
+            return (
+                "WITH per_minute AS (\n"
+                "  SELECT\n"
+                "    toStartOfMinute(TimestampTime) AS time,\n"
+                "    count() AS value\n"
+                "  FROM otel_traces\n"
+                f"  WHERE {where_clause}\n"
+                "  GROUP BY time\n"
+                "), scored AS (\n"
+                "  SELECT\n"
+                "    time,\n"
+                "    toFloat64(value) AS value,\n"
+                "    avg(toFloat64(value)) OVER (\n"
+                "      ORDER BY time\n"
+                "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+                "    ) AS baseline_mean,\n"
+                "    stddevPop(toFloat64(value)) OVER (\n"
+                "      ORDER BY time\n"
+                "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+                "    ) AS baseline_stddev\n"
+                "  FROM per_minute\n"
+                ")\n"
+                "SELECT\n"
+                "  time,\n"
+                "  value,\n"
+                "  baseline_mean,\n"
+                "  greatest(0.0, baseline_mean - (3.0 * ifNull(baseline_stddev, 0.0))) AS baseline_lower,\n"
+                "  baseline_mean + (3.0 * ifNull(baseline_stddev, 0.0)) AS baseline_upper,\n"
+                "  if(\n"
+                "    abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) >= 3.0,\n"
+                "    'outlier',\n"
+                "    'normal'\n"
+                "  ) AS anomaly_state,\n"
+                "  abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) AS anomaly_score\n"
+                "FROM scored"
+            )
+
+        where_clause = f"ResolvedAt >= now() - INTERVAL {window_hours} HOUR"
+        return (
+            "WITH per_minute AS (\n"
+            "  SELECT\n"
+            "    toStartOfMinute(ResolvedAt) AS time,\n"
+            "    count() AS value\n"
+            "  FROM sobs_error_resolutions\n"
+            f"  WHERE {where_clause}\n"
+            "  GROUP BY time\n"
+            "), scored AS (\n"
+            "  SELECT\n"
+            "    time,\n"
+            "    toFloat64(value) AS value,\n"
+            "    avg(toFloat64(value)) OVER (\n"
+            "      ORDER BY time\n"
+            "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+            "    ) AS baseline_mean,\n"
+            "    stddevPop(toFloat64(value)) OVER (\n"
+            "      ORDER BY time\n"
+            "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+            "    ) AS baseline_stddev\n"
+            "  FROM per_minute\n"
+            ")\n"
+            "SELECT\n"
+            "  time,\n"
+            "  value,\n"
+            "  baseline_mean,\n"
+            "  greatest(0.0, baseline_mean - (3.0 * ifNull(baseline_stddev, 0.0))) AS baseline_lower,\n"
+            "  baseline_mean + (3.0 * ifNull(baseline_stddev, 0.0)) AS baseline_upper,\n"
+            "  if(\n"
+            "    abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) >= 3.0,\n"
+            "    'outlier',\n"
+            "    'normal'\n"
+            "  ) AS anomaly_state,\n"
+            "  abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) AS anomaly_score\n"
+            "FROM scored"
+        )
+
+    series_sql = _build_series_sql()
+
+    if template_id == "derived_signal_overlay":
+        return (
+            "WITH series AS (\n"
+            f"{series_sql}\n"
+            ")\n"
+            "SELECT\n"
+            "  time,\n"
+            f"  {_sql_literal(service or 'all')} AS service,\n"
+            f"  {_sql_literal(_default_source_label())} AS source,\n"
+            f"  {_sql_literal(_default_signal_label())} AS signal,\n"
+            f"  {_sql_literal(attr_fp)} AS attr_fp,\n"
+            "  value,\n"
+            "  toUInt32(1) AS sample_count,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state,\n"
+            "  anomaly_score\n"
+            "FROM series\n"
+            "ORDER BY time\n"
+            f"LIMIT {limit}"
+        )
+
+    if template_id == "anomaly_overlay":
+        return (
+            "WITH series AS (\n"
+            f"{series_sql}\n"
+            ")\n"
+            "SELECT\n"
+            "  time,\n"
+            "  value,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state\n"
+            "FROM series\n"
+            "ORDER BY time\n"
+            f"LIMIT {limit}"
+        )
+
+    if template_id == "dual_axis_anomaly":
+        return (
+            "WITH series AS (\n"
+            f"{series_sql}\n"
+            ")\n"
+            "SELECT\n"
+            "  time,\n"
+            "  value AS metric,\n"
+            "  anomaly_score\n"
+            "FROM series\n"
+            "ORDER BY time\n"
+            f"LIMIT {limit}"
+        )
+
+    if template_id == "time_series_percentiles":
+        return (
+            "WITH series AS (\n"
+            f"{series_sql}\n"
+            ")\n"
+            "SELECT\n"
+            "  time,\n"
+            "  value,\n"
+            "  baseline_upper AS p95,\n"
+            "  greatest(baseline_upper, value) AS p99\n"
+            "FROM series\n"
+            "ORDER BY time\n"
+            f"LIMIT {limit}"
+        )
+
+    if template_id == "heatmap":
+        return (
+            "WITH series AS (\n"
+            f"{series_sql}\n"
+            ")\n"
+            "SELECT\n"
+            f"  {_sql_literal(service or 'all')} AS x_category,\n"
+            "  toStartOfFiveMinutes(time) AS y_category,\n"
+            "  avg(value) AS value\n"
+            "FROM series\n"
+            "GROUP BY y_category\n"
+            "ORDER BY y_category\n"
+            f"LIMIT {limit}"
+        )
+
+    if template_id == "box_plot":
+        return (
+            "WITH series AS (\n"
+            f"{series_sql}\n"
+            ")\n"
+            "SELECT\n"
+            f"  {_sql_literal(_default_signal_label())} AS dimension,\n"
+            "  min(value) AS min,\n"
+            "  quantile(0.25)(value) AS q1,\n"
+            "  quantile(0.5)(value) AS median,\n"
+            "  quantile(0.75)(value) AS q3,\n"
+            "  max(value) AS max\n"
+            "FROM series"
+        )
+
+    if template_id == "gauge_kpi":
+        return (
+            "WITH series AS (\n"
+            f"{series_sql}\n"
+            ")\n"
+            "SELECT round(100.0 * avg(if(anomaly_state = 'normal', 1.0, 0.0)), 2) AS value\n"
+            "FROM series"
+        )
+
+    raise ValueError(f"Builder mode does not support template: {template_id}")
+
+
+def _compile_chart_spec(spec_raw: object) -> tuple[str, str, dict[str, object]]:
+    spec = _normalize_chart_spec(spec_raw)
+
+    template_id = str(spec.get("template_id") or "time_series_percentiles").strip()
+
+    sql_block = spec.get("sql") if isinstance(spec.get("sql"), dict) else {}
+    sql_mode = str(sql_block.get("mode") if isinstance(sql_block, dict) else "builder").strip().lower()
+
+    if sql_mode == "raw":
+        query = str(sql_block.get("override_sql") if isinstance(sql_block, dict) else "").strip()
+    else:
+        data = spec.get("data") if isinstance(spec.get("data"), dict) else {}
+        query = _compile_builder_sql(template_id, data if isinstance(data, dict) else {})
+
+    err = _validate_chart_query(query)
+    if err:
+        raise ValueError(err)
+
+    return template_id, query, spec
+
+
+def _resolve_template_role_indices(
+    template_id: str,
+    template: dict[str, object],
+    columns: list[str],
+    spec: dict[str, object] | None,
+) -> dict[str, int]:
+    raw_roles_raw = template.get("column_roles") if isinstance(template.get("column_roles"), dict) else {}
+    raw_roles = cast(dict[object, object], raw_roles_raw)
+    role_indices: dict[str, int] = {}
+    for role, idx_raw in raw_roles.items():
+        role_name = str(role)
+        if isinstance(idx_raw, (int, float)):
+            role_indices[role_name] = int(idx_raw)
+
+    if not spec:
+        return role_indices
+
+    visual = spec.get("visual") if isinstance(spec.get("visual"), dict) else {}
+    role_map_raw = visual.get("role_map") if isinstance(visual, dict) else {}
+    if not isinstance(role_map_raw, dict):
+        return role_indices
+    role_map_raw_dict = cast(dict[object, object], role_map_raw)
+
+    col_index_by_name = {name: idx for idx, name in enumerate(columns)}
+    lower_name_to_index: dict[str, int] = {}
+    for idx, name in enumerate(columns):
+        lower = name.lower()
+        if lower not in lower_name_to_index:
+            lower_name_to_index[lower] = idx
+
+    for role, mapped_col in role_map_raw_dict.items():
+        role_name = str(role).strip()
+        col_name = str(mapped_col).strip()
+        if not role_name or not col_name:
+            continue
+        if role_name not in role_indices:
+            raise ValueError(f"Unknown role '{role_name}' for template {template_id}")
+
+        if col_name in col_index_by_name:
+            role_indices[role_name] = col_index_by_name[col_name]
+            continue
+
+        lowered = col_name.lower()
+        if lowered in lower_name_to_index:
+            role_indices[role_name] = lower_name_to_index[lowered]
+            continue
+
+        raise ValueError(f"Role '{role_name}' maps to unknown column '{col_name}'")
+
+    return role_indices
+
+
+def _parse_bool(value: object, default_value: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default_value
+    raw = str(value).strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return default_value
+
+
+def _apply_chart_spec_visual_overrides(template_id: str, option: dict, spec: dict[str, object]) -> dict:
+    visual = spec.get("visual") if isinstance(spec.get("visual"), dict) else {}
+    if not isinstance(visual, dict):
+        return option
+
+    legend_show = _parse_bool(visual.get("legend_show"), True)
+    if isinstance(option.get("legend"), dict):
+        option["legend"]["show"] = legend_show
+
+    zoom_inside = _parse_bool(visual.get("zoom_inside"), True)
+    zoom_slider = _parse_bool(visual.get("zoom_slider"), False)
+    data_zoom = option.get("dataZoom") if isinstance(option.get("dataZoom"), list) else []
+    zoom_start = _coerce_positive_int(visual.get("zoom_start_pct"), 0, 0, 100)
+    zoom_end = _coerce_positive_int(visual.get("zoom_end_pct"), 100, 0, 100)
+    next_data_zoom: list[dict[str, object]] = []
+    if zoom_inside:
+        next_data_zoom.append(
+            {
+                "type": "inside",
+                "xAxisIndex": 0,
+                "filterMode": "none",
+                "start": zoom_start,
+                "end": max(zoom_start, zoom_end),
+            }
+        )
+    if zoom_slider:
+        next_data_zoom.append(
+            {
+                "type": "slider",
+                "xAxisIndex": 0,
+                "start": zoom_start,
+                "end": max(zoom_start, zoom_end),
+                "height": 16,
+                "bottom": 30,
+                "borderColor": "#495057",
+                "fillerColor": "rgba(13, 110, 253, 0.20)",
+                "handleStyle": {"color": "#0d6efd"},
+            }
+        )
+    option["dataZoom"] = next_data_zoom if next_data_zoom else data_zoom
+
+    smooth_line = _parse_bool(visual.get("smooth_line"), True)
+    value_color = str(visual.get("value_color") or "").strip()
+    series = option.get("series")
+    if isinstance(series, list):
+        for s in series:
+            if not isinstance(s, dict):
+                continue
+            if str(s.get("name", "")) != "Value":
+                continue
+            if "type" in s and str(s.get("type")) == "line":
+                s["smooth"] = smooth_line
+            if value_color:
+                line_style: dict[str, object] = {}
+                item_style: dict[str, object] = {}
+                existing_line_style = s.get("lineStyle")
+                existing_item_style = s.get("itemStyle")
+                if isinstance(existing_line_style, dict):
+                    for key, val in existing_line_style.items():
+                        line_style[str(key)] = val
+                if isinstance(existing_item_style, dict):
+                    for key, val in existing_item_style.items():
+                        item_style[str(key)] = val
+                line_style["color"] = value_color
+                item_style["color"] = value_color
+                s["lineStyle"] = line_style
+                s["itemStyle"] = item_style
+
+    # Template guard for future template-specific visual overrides.
+    _ = template_id
+    return option
+
+
+def _infer_column_types(columns: list[str], rows: list[list[object]]) -> list[str]:
+    inferred: list[str] = []
+    for idx, _col in enumerate(columns):
+        detected = "null"
+        for row in rows:
+            if idx >= len(row):
+                continue
+            value = row[idx]
+            if value is None:
+                continue
+            detected = type(value).__name__
+            break
+        inferred.append(detected)
+    return inferred
 
 
 def _public_dashboard_query_error(exc: Exception) -> str:
@@ -4586,9 +5252,14 @@ def _deep_substitute(obj: object, bindings: dict) -> object:
     return obj
 
 
-def _extract_bindings(template: dict, columns: list[str], rows: list) -> dict:  # type: ignore
+def _extract_bindings(
+    template: dict,
+    columns: list[str],
+    rows: list,
+    role_indices: dict[str, int] | None = None,
+) -> dict:  # type: ignore
     """Extract data bindings from query results based on column roles."""
-    column_roles = template.get("column_roles", {})
+    column_roles = role_indices if isinstance(role_indices, dict) else template.get("column_roles", {})
     bindings: dict[str, object] = {}
 
     # Basic extraction: for each role, get the column data
@@ -4980,7 +5651,10 @@ def _attach_drilldown_metadata(template: dict, bindings: dict[str, object], opti
 
 
 def _prepare_template_rows(
-    template_id: str, columns: list[str], rows: list[dict[str, object]]
+    template_id: str,
+    columns: list[str],
+    rows: list[dict[str, object]],
+    role_indices: dict[str, int] | None = None,
 ) -> tuple[list[str], list[dict[str, object]]]:
     if template_id != "derived_signal_overlay":
         return columns, rows
@@ -5002,22 +5676,45 @@ def _prepare_template_rows(
     if len(columns) < len(required_columns):
         return columns, rows
 
+    def _col_for_role(role: str, fallback_idx: int) -> str:
+        idx = fallback_idx
+        if isinstance(role_indices, dict) and role in role_indices:
+            idx = role_indices[role]
+        if 0 <= idx < len(columns):
+            return columns[idx]
+        return columns[fallback_idx]
+
+    role_columns = {
+        "time": _col_for_role("time", 0),
+        "service": _col_for_role("service", 1),
+        "source": _col_for_role("source", 2),
+        "signal": _col_for_role("signal", 3),
+        "attr_fp": _col_for_role("attr_fp", 4),
+        "value": _col_for_role("value", 5),
+        "sample_count": _col_for_role("sample_count", 6),
+        "baseline_mean": _col_for_role("baseline_mean", 7),
+        "baseline_lower": _col_for_role("baseline_lower", 8),
+        "baseline_upper": _col_for_role("baseline_upper", 9),
+        "anomaly_state": _col_for_role("anomaly_state", 10),
+        "anomaly_score": _col_for_role("anomaly_score", 11),
+    }
+
     normalized_rows: list[dict[str, object]] = []
     for raw_row in rows:
         normalized_rows.append(
             {
-                "time": raw_row.get(columns[0]),
-                "service": raw_row.get(columns[1]),
-                "source": raw_row.get(columns[2]),
-                "signal": raw_row.get(columns[3]),
-                "attr_fp": raw_row.get(columns[4]),
-                "value": raw_row.get(columns[5]),
-                "sample_count": raw_row.get(columns[6]),
-                "baseline_mean": raw_row.get(columns[7]),
-                "baseline_lower": raw_row.get(columns[8]),
-                "baseline_upper": raw_row.get(columns[9]),
-                "anomaly_state": raw_row.get(columns[10]),
-                "anomaly_score": raw_row.get(columns[11]),
+                "time": raw_row.get(role_columns["time"]),
+                "service": raw_row.get(role_columns["service"]),
+                "source": raw_row.get(role_columns["source"]),
+                "signal": raw_row.get(role_columns["signal"]),
+                "attr_fp": raw_row.get(role_columns["attr_fp"]),
+                "value": raw_row.get(role_columns["value"]),
+                "sample_count": raw_row.get(role_columns["sample_count"]),
+                "baseline_mean": raw_row.get(role_columns["baseline_mean"]),
+                "baseline_lower": raw_row.get(role_columns["baseline_lower"]),
+                "baseline_upper": raw_row.get(role_columns["baseline_upper"]),
+                "anomaly_state": raw_row.get(role_columns["anomaly_state"]),
+                "anomaly_score": raw_row.get(role_columns["anomaly_score"]),
             }
         )
 
@@ -5038,7 +5735,12 @@ def _prepare_template_rows(
     return prepared_columns, prepared_rows
 
 
-def _render_chart_from_template(template_id: str, columns: list[str], rows: list) -> dict:  # type: ignore
+def _render_chart_from_template(
+    template_id: str,
+    columns: list[str],
+    rows: list,
+    spec: dict[str, object] | None = None,
+) -> dict:  # type: ignore
     """
     Render chart option by substituting query results into template.
 
@@ -5073,11 +5775,13 @@ def _render_chart_from_template(template_id: str, columns: list[str], rows: list
     if max_cols and len(columns) > max_cols:
         raise ValueError(f"Template {template_id} accepts maximum {max_cols} columns, got {len(columns)}")
 
+    role_indices = _resolve_template_role_indices(template_id, template, columns, spec)
+
     if rows and isinstance(rows[0], dict):
-        columns, rows = _prepare_template_rows(template_id, columns, rows)
+        columns, rows = _prepare_template_rows(template_id, columns, rows, role_indices)
 
     # Extract bindings
-    bindings = _extract_bindings(template, columns, rows)
+    bindings = _extract_bindings(template, columns, rows, role_indices)
 
     # Substitute into template and add dark theme styling
     option = _deep_substitute(template["echarts_option_template"], bindings)
@@ -5115,17 +5819,26 @@ def _get_charts(db: ChDbConnection, dashboard_id: str) -> list[dict]:
         "ORDER BY Position, Id",
         [dashboard_id],
     ).fetchall()
-    return [
-        {
-            "id": str(r["Id"]),
-            "title": str(r["Title"]),
-            "chart_type": str(r["ChartType"]),
-            "query": str(r["Query"]),
-            "options_json": str(r["OptionsJson"]),
-            "position": int(r["Position"]),
-        }
-        for r in rows
-    ]
+    charts: list[dict] = []
+    for r in rows:
+        chart_type = str(r["ChartType"])
+        query = str(r["Query"])
+        options_json = str(r["OptionsJson"])
+        chart_spec = _build_raw_chart_spec(chart_type, query, options_json)
+        options_json = json.dumps({"chart_spec": chart_spec}, ensure_ascii=False)
+
+        charts.append(
+            {
+                "id": str(r["Id"]),
+                "title": str(r["Title"]),
+                "chart_type": chart_type,
+                "query": query,
+                "options_json": options_json,
+                "position": int(r["Position"]),
+                "chart_spec": chart_spec,
+            }
+        )
+    return charts
 
 
 @app.route("/dashboards")
@@ -5181,6 +5894,7 @@ async def view_custom_dashboard(dashboard_id: str):
             "query_shape": t.get("query_shape", ""),
             "sample_sql": t.get("sample_sql", ""),
             "drilldown": t.get("drilldown"),
+            "default_spec": _default_chart_spec(tid),
         }
         for tid, t in sorted(CHART_TEMPLATES.items())
     ]
@@ -5246,17 +5960,10 @@ async def add_chart(dashboard_id: str):
         await flash("Dashboard not found", "danger")
         return redirect(url_for("list_dashboards"))
     form = await request.form
-    title = (form.get("title") or "").strip()
-    template_id = (form.get("template_id") or "time_series_percentiles").strip()
-    query = (form.get("query") or "").strip()
-    if not title:
-        await flash("Chart title is required", "warning")
-        return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
-    if template_id not in CHART_TEMPLATES:
-        template_id = "time_series_percentiles"
-    err = _validate_chart_query(query)
-    if err:
-        await flash(f"Invalid query: {err}", "warning")
+    try:
+        title, template_id, query, options_json = _parse_chart_form_submission(form)
+    except ValueError as ve:
+        await flash(str(ve), "warning")
         return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
     existing = _get_charts(db, dashboard_id)
     position = max((c["position"] for c in existing), default=-1) + 1
@@ -5272,7 +5979,113 @@ async def add_chart(dashboard_id: str):
                 "Title": title,
                 "ChartType": template_id,
                 "Query": query,
-                "OptionsJson": "{}",
+                "OptionsJson": options_json,
+                "Position": position,
+                "IsDeleted": 0,
+                "Version": version,
+            }
+        ],
+    )
+    return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
+
+
+def _parse_chart_form_submission(form) -> tuple[str, str, str, str]:
+    title = (form.get("title") or "").strip()
+    chart_spec_json = (form.get("chart_spec_json") or "").strip()
+
+    if not title:
+        raise ValueError("Chart title is required")
+    if not chart_spec_json:
+        raise ValueError("Chart spec is required")
+
+    try:
+        spec_raw = json.loads(chart_spec_json)
+        template_id, query, normalized_spec = _compile_chart_spec(spec_raw)
+    except Exception as exc:
+        raise ValueError(f"Chart spec error: {exc}") from exc
+
+    options_json = json.dumps({"chart_spec": normalized_spec}, ensure_ascii=False)
+    return title, template_id, query, options_json
+
+
+@app.route("/dashboards/<dashboard_id>/charts/<chart_id>/edit", methods=["POST"])
+@require_basic_auth
+async def edit_chart(dashboard_id: str, chart_id: str):
+    db = get_db()
+    dashboard = _get_dashboard(db, dashboard_id)
+    if not dashboard:
+        await flash("Dashboard not found", "danger")
+        return redirect(url_for("list_dashboards"))
+
+    charts = _get_charts(db, dashboard_id)
+    chart = next((c for c in charts if c["id"] == chart_id), None)
+    if not chart:
+        await flash("Chart not found", "warning")
+        return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
+
+    form = await request.form
+    try:
+        title, template_id, query, options_json = _parse_chart_form_submission(form)
+    except ValueError as ve:
+        await flash(str(ve), "warning")
+        return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
+
+    version = int(time.time() * 1000)
+    _insert_rows_json_each_row(
+        db,
+        "sobs_chart_configs",
+        [
+            {
+                "Id": chart_id,
+                "DashboardId": dashboard_id,
+                "Title": title,
+                "ChartType": template_id,
+                "Query": query,
+                "OptionsJson": options_json,
+                "Position": chart["position"],
+                "IsDeleted": 0,
+                "Version": version,
+            }
+        ],
+    )
+    return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
+
+
+@app.route("/dashboards/<dashboard_id>/charts/<chart_id>/clone", methods=["POST"])
+@require_basic_auth
+async def clone_chart(dashboard_id: str, chart_id: str):
+    db = get_db()
+    dashboard = _get_dashboard(db, dashboard_id)
+    if not dashboard:
+        await flash("Dashboard not found", "danger")
+        return redirect(url_for("list_dashboards"))
+
+    charts = _get_charts(db, dashboard_id)
+    source_chart = next((c for c in charts if c["id"] == chart_id), None)
+    if not source_chart:
+        await flash("Chart not found", "warning")
+        return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
+
+    form = await request.form
+    try:
+        title, template_id, query, options_json = _parse_chart_form_submission(form)
+    except ValueError as ve:
+        await flash(str(ve), "warning")
+        return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
+
+    position = max((c["position"] for c in charts), default=-1) + 1
+    version = int(time.time() * 1000)
+    _insert_rows_json_each_row(
+        db,
+        "sobs_chart_configs",
+        [
+            {
+                "Id": str(uuid.uuid4()),
+                "DashboardId": dashboard_id,
+                "Title": title,
+                "ChartType": template_id,
+                "Query": query,
+                "OptionsJson": options_json,
                 "Position": position,
                 "IsDeleted": 0,
                 "Version": version,
@@ -5338,6 +6151,212 @@ async def execute_chart_query():
     except Exception as exc:
         app.logger.exception("Chart query execution failed: %s", query)
         return jsonify({"error": _public_dashboard_query_error(exc)}), 400
+
+
+@app.route("/api/dashboards/spec/templates", methods=["GET"])
+@require_basic_auth
+async def list_chart_spec_templates():
+    templates = [
+        {
+            "id": tid,
+            "name": t["name"],
+            "description": t["description"],
+            "query_shape": t.get("query_shape", ""),
+            "sample_sql": t.get("sample_sql", ""),
+            "default_spec": _default_chart_spec(tid),
+            "min_columns": t.get("min_columns", 0),
+            "max_columns": t.get("max_columns"),
+            "column_roles": t.get("column_roles", {}),
+        }
+        for tid, t in sorted(CHART_TEMPLATES.items())
+    ]
+    return jsonify({"templates": templates})
+
+
+@app.route("/api/dashboards/spec/options", methods=["GET"])
+@require_basic_auth
+async def chart_spec_options_api():
+    source_view = str(request.args.get("source_view") or "v_derived_signals_anomaly").strip()
+    signal_source = str(request.args.get("signal_source") or "").strip()
+    limit = _coerce_positive_int(request.args.get("limit"), 100, 1, 500)
+
+    supported_sources = {
+        "v_derived_signals_anomaly",
+        "v_otel_metrics_anomaly",
+        "otel_metrics_gauge",
+        "otel_metrics_sum",
+        "otel_metrics_histogram",
+        "otel_logs",
+        "otel_traces",
+        "sobs_error_resolutions",
+    }
+    if source_view not in supported_sources:
+        return jsonify({"error": "Unsupported source for options"}), 400
+
+    db = get_db()
+
+    def _distinct_values(query: str) -> list[str]:
+        rows = db.execute(query).fetchall()
+        values: list[str] = []
+        for row in rows:
+            val = str(row["v"] or "").strip()
+            if val:
+                values.append(val)
+        return values
+
+    services: list[str] = []
+    signals: list[str] = []
+    metrics: list[str] = []
+
+    if source_view == "v_derived_signals_anomaly":
+        services = _distinct_values(
+            "SELECT DISTINCT ServiceName AS v " "FROM v_derived_signals_anomaly " "ORDER BY v " f"LIMIT {limit}"
+        )
+        signal_where = ""
+        if signal_source:
+            signal_where = f"WHERE SignalSource = {_sql_literal(signal_source)} "
+        signals = _distinct_values(
+            "SELECT DISTINCT SignalName AS v "
+            "FROM v_derived_signals_anomaly "
+            f"{signal_where}"
+            "ORDER BY v "
+            f"LIMIT {limit}"
+        )
+    elif source_view in {"otel_logs", "otel_traces"}:
+        services = _distinct_values(
+            "SELECT DISTINCT ServiceName AS v " f"FROM {source_view} " "ORDER BY v " f"LIMIT {limit}"
+        )
+        signals = ["log_volume"] if source_view == "otel_logs" else ["trace_volume"]
+    elif source_view == "sobs_error_resolutions":
+        signals = ["resolved_error_volume"]
+    elif source_view in {"v_otel_metrics_anomaly", "otel_metrics_gauge", "otel_metrics_sum", "otel_metrics_histogram"}:
+        services = _distinct_values(
+            "SELECT DISTINCT ServiceName AS v " f"FROM {source_view} " "ORDER BY v " f"LIMIT {limit}"
+        )
+        metrics = _distinct_values(
+            "SELECT DISTINCT MetricName AS v " f"FROM {source_view} " "ORDER BY v " f"LIMIT {limit}"
+        )
+
+    return jsonify(
+        {
+            "source_view": source_view,
+            "services": services,
+            "signals": signals,
+            "metrics": metrics,
+        }
+    )
+
+
+@app.route("/api/dashboards/spec/compile", methods=["POST"])
+@require_basic_auth
+async def compile_chart_spec_api():
+    body = await request.get_json(silent=True) or {}
+    spec = body.get("spec") if isinstance(body, dict) else {}
+    try:
+        template_id, query, normalized_spec = _compile_chart_spec(spec)
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except Exception as exc:
+        app.logger.exception("Chart spec compile failed")
+        return jsonify({"error": _public_dashboard_query_error(exc)}), 400
+    return jsonify({"template_id": template_id, "query": query, "spec": normalized_spec})
+
+
+@app.route("/api/dashboards/spec/dry-run", methods=["POST"])
+@require_basic_auth
+async def dry_run_chart_spec_api():
+    body = await request.get_json(silent=True) or {}
+    spec = body.get("spec") if isinstance(body, dict) else {}
+    try:
+        template_id, query, normalized_spec = _compile_chart_spec(spec)
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+
+    run_query = query
+    if not re.search(r"\bLIMIT\b", run_query, re.IGNORECASE):
+        run_query = run_query.rstrip(";") + " LIMIT 20"
+    db = get_db()
+    try:
+        result = db.execute(run_query)
+        rows = result.fetchall()
+        columns = list(rows[0].keys()) if rows else []
+        data = [[row[col] for col in columns] for row in rows]
+        column_types = _infer_column_types(columns, data)
+    except Exception as exc:
+        app.logger.exception("Chart spec dry-run failed")
+        return jsonify({"error": _public_dashboard_query_error(exc)}), 400
+    return jsonify(
+        {
+            "template_id": template_id,
+            "query": query,
+            "spec": normalized_spec,
+            "columns": columns,
+            "column_types": column_types,
+            "rows": data,
+        }
+    )
+
+
+@app.route("/api/dashboards/spec/validate", methods=["POST"])
+@require_basic_auth
+async def validate_chart_spec_api():
+    body = await request.get_json(silent=True) or {}
+    spec = body.get("spec") if isinstance(body, dict) else {}
+    try:
+        template_id, query, normalized_spec = _compile_chart_spec(spec)
+    except ValueError as ve:
+        return jsonify({"valid": False, "error": str(ve)}), 400
+
+    db = get_db()
+    try:
+        run_query = query
+        if not re.search(r"\bLIMIT\b", run_query, re.IGNORECASE):
+            run_query = run_query.rstrip(";") + " LIMIT 200"
+        result = db.execute(run_query)
+        raw_rows = result.fetchall()
+        columns = list(raw_rows[0].keys()) if raw_rows else []
+        data = [dict(row) for row in raw_rows]
+        _render_chart_from_template(template_id, columns, data, normalized_spec)
+    except Exception as exc:
+        return jsonify({"valid": False, "error": _public_dashboard_query_error(exc)}), 400
+
+    return jsonify(
+        {
+            "valid": True,
+            "template_id": template_id,
+            "query": query,
+            "spec": normalized_spec,
+            "columns": columns,
+            "row_count": len(data),
+        }
+    )
+
+
+@app.route("/api/dashboards/spec/render", methods=["POST"])
+@require_basic_auth
+async def render_chart_spec_api():
+    body = await request.get_json(silent=True) or {}
+    spec = body.get("spec") if isinstance(body, dict) else {}
+    try:
+        template_id, query, normalized_spec = _compile_chart_spec(spec)
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+
+    db = get_db()
+    try:
+        run_query = query
+        if not re.search(r"\bLIMIT\b", run_query, re.IGNORECASE):
+            run_query = run_query.rstrip(";") + " LIMIT 1000"
+        result = db.execute(run_query)
+        raw_rows = result.fetchall()
+        columns = list(raw_rows[0].keys()) if raw_rows else []
+        data = [dict(row) for row in raw_rows]
+        option = _render_chart_from_template(template_id, columns, data, normalized_spec)
+        option = _apply_chart_spec_visual_overrides(template_id, option, normalized_spec)
+    except Exception as exc:
+        app.logger.exception("Chart spec render failed")
+        return jsonify({"error": _public_dashboard_query_error(exc)}), 400
+    return jsonify({"template_id": template_id, "query": query, "spec": normalized_spec, "option": option})
 
 
 @app.route("/api/dashboards/render", methods=["POST"])

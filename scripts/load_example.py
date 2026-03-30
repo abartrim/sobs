@@ -1,9 +1,9 @@
 """
-Load pump for SOBS — fires mixed OTEL/RUM/AI/Error requests against a running instance.
+Load example for SOBS — fires mixed OTEL/RUM/AI/Error requests against a running instance.
 
 Usage:
-    python scripts/load_pump.py [--base URL] [--total N] [--workers N]
-    python scripts/load_pump.py [--mode realistic --rps 4 --jitter-ms 250]
+    python scripts/load_example.py [--base URL] [--total N] [--workers N]
+    python scripts/load_example.py [--mode realistic --rps 4 --jitter-ms 250]
 
 Defaults:
     --base      http://127.0.0.1:4317
@@ -23,7 +23,7 @@ import requests
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="SOBS load pump")
+    p = argparse.ArgumentParser(description="SOBS load example")
     p.add_argument("--base", default="http://127.0.0.1:4317", help="Base URL of the SOBS instance")
     p.add_argument("--total", type=int, default=420, help="Total number of requests to send")
     p.add_argument("--workers", type=int, default=28, help="Number of concurrent sender threads")

@@ -292,16 +292,16 @@ pytest tests/
 ./scripts/benchmark.sh http://127.0.0.1:44318
 ```
 
-## Traffic Pump (including realistic mode)
+## Traffic Example (including realistic mode)
 
-Use `scripts/load_pump.py` directly when you want to drive specific event rates.
+Use `scripts/load_example.py` directly when you want to drive specific event rates.
 
 ```bash
 # High-throughput load mode (default)
-python scripts/load_pump.py --base http://127.0.0.1:4317 --total 420 --workers 28
+python scripts/load_example.py --base http://127.0.0.1:4317 --total 420 --workers 28
 
 # Realistic paced mode for UI demos
-python scripts/load_pump.py --base http://127.0.0.1:4317 --mode realistic --rps 3 --jitter-ms 250 --total 180 --workers 8
+python scripts/load_example.py --base http://127.0.0.1:4317 --mode realistic --rps 3 --jitter-ms 250 --total 180 --workers 8
 ```
 
 Parameters:
