@@ -3424,6 +3424,24 @@ async def view_metrics():
     source = request.args.get("source", "").strip()
     attr_fp = request.args.get("attr_fp", "").strip()
     from_ts, to_ts, time_error = _parse_time_window_args()
+    limit = _parse_limit(100)
+    offset = _parse_offset()
+    sort_by, sort_col, sort_dir = _parse_sort(
+        {
+            "last_time": "last_time",
+            "service": "service",
+            "source": "source",
+            "signal": "signal",
+            "last_value": "last_value",
+            "last_anomaly_score": "last_anomaly_score",
+            "last_anomaly_state": "last_anomaly_state",
+            "rule_name": "rule_name",
+            "last_sample_count": "last_sample_count",
+            "point_count": "point_count",
+        },
+        "last_time",
+    )
+    order_clause = f"ORDER BY {sort_col} {'ASC' if sort_dir == 'asc' else 'DESC'}"
 
     try:
         hours = max(1, min(168, int(request.args.get("hours") or 24)))
@@ -3462,42 +3480,47 @@ async def view_metrics():
         where_clause = f"{where_clause} AND {hour_clause}" if where_clause else f" WHERE {hour_clause}"
 
     rows: list[dict] = []
+    total = 0
     error_msg = time_error
     if not error_msg:
         try:
-            result = db.execute(
+            grouped_sql = (
                 "SELECT"
-                "  ServiceName,"
-                "  SignalSource,"
-                "  SignalName,"
-                "  AttrFingerprint,"
+                "  ServiceName AS service,"
+                "  SignalSource AS source,"
+                "  SignalName AS signal,"
+                "  AttrFingerprint AS attr_fp,"
                 "  max(time) AS last_time,"
                 "  argMax(value, time) AS last_value,"
                 "  argMax(anomaly_score, time) AS last_anomaly_score,"
                 "  argMax(anomaly_state, time) AS last_anomaly_state,"
                 "  argMax(SampleCount, time) AS last_sample_count,"
-                "  count() AS point_count"
+                "  count() AS point_count,"
+                "  '' AS rule_name"
                 " FROM v_derived_signals_anomaly"
                 f"{where_clause}"
                 " GROUP BY ServiceName, SignalSource, SignalName, AttrFingerprint"
-                " ORDER BY last_time DESC"
-                " LIMIT 500",
-                params,
             )
-            fetched = result.fetchall()
+
+            total = db.execute(f"SELECT COUNT(*) FROM ({grouped_sql})", params).fetchone()[0]
+            fetched = db.execute(
+                f"SELECT * FROM ({grouped_sql}) {order_clause} LIMIT ? OFFSET ?",
+                params + [limit, offset],
+            ).fetchall()
             for row in fetched:
                 rows.append(
                     {
-                        "service": str(row["ServiceName"]),
-                        "source": str(row["SignalSource"]),
-                        "signal": str(row["SignalName"]),
-                        "attr_fp": str(row["AttrFingerprint"]),
+                        "service": str(row["service"]),
+                        "source": str(row["source"]),
+                        "signal": str(row["signal"]),
+                        "attr_fp": str(row["attr_fp"]),
                         "last_time": str(row["last_time"]),
                         "last_value": row["last_value"],
                         "last_anomaly_score": row["last_anomaly_score"],
                         "last_anomaly_state": str(row["last_anomaly_state"]),
                         "last_sample_count": row["last_sample_count"],
                         "point_count": row["point_count"],
+                        "rule_name": "",
                     }
                 )
         except Exception as exc:
@@ -3521,7 +3544,9 @@ async def view_metrics():
     return await render_template(
         "metrics.html",
         rows=rows,
-        total=len(rows),
+        total=total,
+        limit=limit,
+        offset=offset,
         service=service,
         signal=signal,
         source=source,
@@ -3533,6 +3558,8 @@ async def view_metrics():
         services=services,
         signals=signals,
         sources=sources,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
 
 
