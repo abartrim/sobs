@@ -64,6 +64,11 @@
         </a>
       </li>
       <li class="nav-item">
+        <a href="{{ url_for('view_metrics') }}" class="nav-link {% if request.endpoint in ('view_metrics', 'view_metrics_anomaly', 'view_metrics_rules') %}active{% endif %}">
+          <i class="bi bi-graph-up-arrow"></i> Metrics
+        </a>
+      </li>
+      <li class="nav-item">
         <a href="{{ url_for('view_rum') }}" class="nav-link {% if request.endpoint == 'view_rum' %}active{% endif %}">
           <i class="bi bi-globe"></i> RUM
         </a>

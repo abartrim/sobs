@@ -77,7 +77,7 @@ Embed in your HTML:
 |------------------|--------|------------------------------------|
 | `/v1/logs`       | POST   | OTLP logs (JSON or protobuf)       |
 | `/v1/traces`     | POST   | OTLP traces (JSON or protobuf)     |
-| `/v1/metrics`    | POST   | OTLP metrics (JSON or protobuf, stored as logs) |
+| `/v1/metrics`    | POST   | OTLP metrics (JSON or protobuf, typed metric tables + anomaly views) |
 | `/v1/rum`        | POST   | RUM events (JSON array)            |
 | `/v1/errors`     | POST   | Direct error submission            |
 | `/v1/ai`         | POST   | AI/LLM call transparency           |

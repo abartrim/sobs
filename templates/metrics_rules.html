@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}Metrics Rules{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-sliders me-2 text-info"></i>Metrics Rules</h4>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Metrics
+  </a>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header">Create Rule</div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('create_metrics_rule') }}" class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small text-secondary">Name</label>
+        <input type="text" name="name" class="form-control form-control-sm" placeholder="High error ratio" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Rule Type</label>
+        <select name="rule_type" id="ruleTypeSelect" class="form-select form-select-sm" required>
+          <option value="threshold">Threshold</option>
+          <option value="composite">Composite</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Source</label>
+        <select name="source" class="form-select form-select-sm" required>
+          <option value="">Select source</option>
+          {% for s in sources %}
+          <option value="{{ s }}">{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small text-secondary">Signal</label>
+        <select name="signal" class="form-select form-select-sm" required>
+          <option value="">Select signal</option>
+          {% for s in signals %}
+          <option value="{{ s }}">{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Service</label>
+        <select name="service" class="form-select form-select-sm">
+          <option value="">Any service</option>
+          {% for s in services %}
+          <option value="{{ s }}">{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Attr FP</label>
+        <input type="text" name="attr_fp" class="form-control form-control-sm font-monospace" placeholder="optional">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Comparator</label>
+        <select name="comparator" class="form-select form-select-sm">
+          <option value="gt">value >= threshold</option>
+          <option value="lt">value <= threshold</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Warning</label>
+        <input type="number" step="any" name="warning_threshold" class="form-control form-control-sm" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Critical</label>
+        <input type="number" step="any" name="critical_threshold" class="form-control form-control-sm" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Min Sample</label>
+        <input type="number" min="1" name="min_sample_count" class="form-control form-control-sm" value="1" required>
+      </div>
+      <div class="col-12"><hr class="my-2 border-secondary-subtle"></div>
+      <div class="col-12 small text-secondary" id="compositeHint" style="display:none;">
+        Composite rules trigger only when the primary condition and the secondary condition are both active.
+      </div>
+      <div class="col-md-2 composite-only" style="display:none;">
+        <label class="form-label small text-secondary">Secondary Source</label>
+        <select name="secondary_source" class="form-select form-select-sm">
+          <option value="">Select source</option>
+          {% for s in sources %}
+          <option value="{{ s }}">{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3 composite-only" style="display:none;">
+        <label class="form-label small text-secondary">Secondary Signal</label>
+        <select name="secondary_signal" class="form-select form-select-sm">
+          <option value="">Select signal</option>
+          {% for s in signals %}
+          <option value="{{ s }}">{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2 composite-only" style="display:none;">
+        <label class="form-label small text-secondary">Secondary Comparator</label>
+        <select name="secondary_comparator" class="form-select form-select-sm">
+          <option value="gt">value >= threshold</option>
+          <option value="lt">value <= threshold</option>
+        </select>
+      </div>
+      <div class="col-md-2 composite-only" style="display:none;">
+        <label class="form-label small text-secondary">Secondary Warning</label>
+        <input type="number" step="any" name="secondary_warning_threshold" class="form-control form-control-sm" value="0">
+      </div>
+      <div class="col-md-2 composite-only" style="display:none;">
+        <label class="form-label small text-secondary">Secondary Critical</label>
+        <input type="number" step="any" name="secondary_critical_threshold" class="form-control form-control-sm" value="0">
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-primary btn-sm w-100"><i class="bi bi-plus-lg me-1"></i>Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card border-secondary">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>{{ rules|length }} active rule{{ '' if rules|length == 1 else 's' }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Source</th>
+          <th>Signal</th>
+          <th>Service</th>
+          <th>Attr FP</th>
+          <th>Primary</th>
+          <th>Secondary</th>
+          <th>Min Sample</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if rules %}
+          {% for rule in rules %}
+          <tr>
+            <td>{{ rule.name }}</td>
+            <td><span class="badge text-bg-secondary text-capitalize">{{ rule.rule_type }}</span></td>
+            <td>{{ rule.source }}</td>
+            <td class="font-monospace small">{{ rule.signal }}</td>
+            <td>{{ rule.service or 'any' }}</td>
+            <td class="font-monospace small">{{ rule.attr_fp or '—' }}</td>
+            <td class="font-monospace small">{{ rule.comparator }} / {{ rule.warning_threshold }} / {{ rule.critical_threshold }}</td>
+            <td class="font-monospace small">{% if rule.rule_type == 'composite' %}{{ rule.secondary_source }}:{{ rule.secondary_signal }} {{ rule.secondary_comparator }} / {{ rule.secondary_warning_threshold }} / {{ rule.secondary_critical_threshold }}{% else %}—{% endif %}</td>
+            <td class="font-monospace small">{{ rule.min_sample_count }}</td>
+            <td>
+              <form method="post" action="{{ url_for('delete_metrics_rule', rule_id=rule.id) }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="11" class="text-center text-secondary py-4">No rules defined yet.</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var ruleType = document.getElementById('ruleTypeSelect');
+  var compositeFields = Array.prototype.slice.call(document.querySelectorAll('.composite-only'));
+  var compositeHint = document.getElementById('compositeHint');
+
+  function updateRuleType() {
+    var show = ruleType && ruleType.value === 'composite';
+    compositeFields.forEach(function (el) { el.style.display = show ? '' : 'none'; });
+    if (compositeHint) compositeHint.style.display = show ? '' : 'none';
+  }
+
+  if (ruleType) {
+    ruleType.addEventListener('change', updateRuleType);
+    updateRuleType();
+  }
+})();
+</script>
+{% endblock %}

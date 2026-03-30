@@ -151,9 +151,17 @@
   TEMPLATES.forEach(function (t) { templatesMap[t.id] = t; });
   var sourceUrls = {
     logs: {{ url_for('view_logs') | tojson }},
+    metrics: {{ url_for('view_metrics_anomaly') | tojson }},
     traces: {{ url_for('view_traces') | tojson }},
     errors: {{ url_for('view_errors') | tojson }}
   };
+
+  function extractWhereLiteral(query, fieldName) {
+    if (!query || !fieldName) return '';
+    var re = new RegExp(fieldName + "\\s*=\\s*'([^']+)'", 'i');
+    var m = String(query).match(re);
+    return m && m[1] ? m[1] : '';
+  }
 
   function axisData(option, axisName) {
     var axis = option[axisName];
@@ -227,6 +235,18 @@
     return parts.join(' ');
   }
 
+  function pointNumericValue(p) {
+    if (!p) return null;
+    var v = p.value;
+    if (Array.isArray(v)) {
+      return v.length > 1 ? v[1] : v[0];
+    }
+    if (p.data && Array.isArray(p.data.value)) {
+      return p.data.value.length > 1 ? p.data.value[1] : p.data.value[0];
+    }
+    return v;
+  }
+
   /* ── Anomaly badge helper ── */
   var _ANOMALY_STATE_COLOR = {
     outlier: '#dc3545',
@@ -288,7 +308,7 @@
         var option = data.option;
 
         // Anomaly overlay: annotate per-point items with tooltip showing why-flagged detail
-        if (chartCfg.chart_type === 'anomaly_overlay' && option && option.series) {
+        if ((chartCfg.chart_type === 'anomaly_overlay' || chartCfg.chart_type === 'derived_signal_overlay') && option && option.series) {
           var valueSeries = null;
           for (var si = 0; si < option.series.length; si++) {
             if (option.series[si].name === 'Value') { valueSeries = option.series[si]; break; }
@@ -296,7 +316,10 @@
           if (valueSeries && Array.isArray(valueSeries.data)) {
             var anomalyStates = [];
             valueSeries.data = valueSeries.data.map(function (pt) {
-              var state = (pt && pt.drilldown && pt.drilldown._anomaly_state) || 'normal';
+              var dd = pt && pt.drilldown ? pt.drilldown : null;
+              var state = (chartCfg.chart_type === 'derived_signal_overlay'
+                ? ((dd && dd._effective_state) || (dd && dd._anomaly_state) || 'normal')
+                : ((dd && dd._anomaly_state) || 'normal'));
               anomalyStates.push(state);
               return pt;
             });
@@ -309,12 +332,28 @@
                 var extra = '';
                 if (p.seriesName === 'Value' && p.data && p.data.drilldown) {
                   var dd = p.data.drilldown;
-                  var st = dd._anomaly_state || 'normal';
+                  var st = (chartCfg.chart_type === 'derived_signal_overlay'
+                    ? (dd._effective_state || dd._anomaly_state || 'normal')
+                    : (dd._anomaly_state || 'normal'));
                   var score = dd._anomaly_score != null ? dd._anomaly_score.toFixed(2) : '—';
                   var stColor = _ANOMALY_STATE_COLOR[st] || '#adb5bd';
                   extra = ' <span style="color:' + stColor + '">● ' + st + ' (z=' + score + ')</span>';
+                  if (chartCfg.chart_type === 'derived_signal_overlay') {
+                    var statState = dd._anomaly_state || 'normal';
+                    var ruleState = dd._rule_state || 'normal';
+                    var ruleName = dd._rule_name || '';
+                    var ruleReason = dd._rule_reason || '';
+                    extra += '<br/><span class="text-secondary">stat=' + statState + ', rule=' + ruleState + '</span>';
+                    if (ruleName) {
+                      extra += '<br/><span class="text-warning">' + ruleName + '</span>';
+                    }
+                    if (ruleReason) {
+                      extra += '<br/><span class="text-secondary">' + ruleReason + '</span>';
+                    }
+                  }
                 }
-                lines.push('<b>' + p.seriesName + '</b>: ' + (p.value != null ? p.value : '—') + extra);
+                var pv = pointNumericValue(p);
+                lines.push('<b>' + p.seriesName + '</b>: ' + (pv != null ? pv : '—') + extra);
               });
               return lines.join('<br/>');
             };
@@ -327,18 +366,32 @@
         var template = templatesMap[chartCfg.chart_type];
         var drilldown = template && template.drilldown;
         if (drilldown) {
-          var baseSourceUrl = buildDrilldownUrl(drilldown, ec);
+          var dd = Object.assign({}, drilldown);
+          dd.extra = Object.assign({}, dd.extra || {});
+          // Populate service/metric defaults so anomaly details can query the view directly.
+          var queryService = extractWhereLiteral(chartCfg.query, 'ServiceName');
+          var queryMetric = extractWhereLiteral(chartCfg.query, 'MetricName');
+          var querySource = extractWhereLiteral(chartCfg.query, 'SignalSource');
+          var querySignal = extractWhereLiteral(chartCfg.query, 'SignalName');
+          var queryAttrFp = extractWhereLiteral(chartCfg.query, 'AttrFingerprint');
+          if (queryService && !dd.extra.service) dd.extra.service = queryService;
+          if (queryMetric && !dd.extra.metric) dd.extra.metric = queryMetric;
+          if (querySource && !dd.extra.source) dd.extra.source = querySource;
+          if (querySignal && !dd.extra.signal) dd.extra.signal = querySignal;
+          if (queryAttrFp && !dd.extra.attr_fp) dd.extra.attr_fp = queryAttrFp;
+
+          var baseSourceUrl = buildDrilldownUrl(dd, ec);
           el.style.cursor = 'pointer';
           if (hintEl) {
-            hintEl.textContent = 'Click chart data to ' + (drilldown.label || 'open source data') + '.';
+            hintEl.textContent = 'Click chart data to ' + (dd.label || 'open source data') + '.';
           }
           if (sourceBtn && baseSourceUrl) {
             sourceBtn.href = baseSourceUrl;
             sourceBtn.classList.remove('d-none');
-            sourceBtn.title = drilldown.label || 'Open source data';
+            sourceBtn.title = dd.label || 'Open source data';
           }
           ec.on('click', function (params) {
-            var targetUrl = buildDrilldownUrl(drilldown, ec, params);
+            var targetUrl = buildDrilldownUrl(dd, ec, params);
             if (targetUrl && sourceBtn) {
               sourceBtn.href = targetUrl;
               sourceBtn.classList.remove('d-none');

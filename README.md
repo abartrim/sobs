@@ -17,6 +17,7 @@
 - 🧠 **Manual advanced log analysis** – on-demand message pattern clustering, keyword signals, and optimization hints
 - 📡 **Live tail** – SSE endpoint (`/tail`) for real-time streaming of logs and traces
 - ⚡ **Live logs mode** – optional in-page streaming on Logs with pause-on-scroll and queued event counter
+- 📈 **Metrics & Signals** – top-level Metrics page with derived telemetry signals and anomaly status
 - 🎨 **Bootstrap 5 dark UI** – served locally, no CDN required
 - 🐳 **Docker ready** – Dockerfile + docker-compose + Kubernetes manifests
 
@@ -98,7 +99,7 @@ bash examples/curl_examples.sh
 |----------------|--------|------------------------------------|
 | `/v1/logs`     | POST   | OTLP/JSON logs                     |
 | `/v1/traces`   | POST   | OTLP/JSON traces                   |
-| `/v1/metrics`  | POST   | OTLP/JSON metrics (stored as logs) |
+| `/v1/metrics`  | POST   | OTLP/JSON metrics (typed metric tables + anomaly views) |
 | `/v1/rum`      | POST   | RUM events (JSON array)            |
 | `/v1/errors`   | POST   | Direct error submission            |
 | `/v1/ai`       | POST   | AI/LLM call transparency           |

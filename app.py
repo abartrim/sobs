@@ -264,6 +264,29 @@ CREATE TABLE IF NOT EXISTS sobs_chart_configs (
 ORDER BY (DashboardId, Id)
 SETTINGS index_granularity = 8192;
 
+CREATE TABLE IF NOT EXISTS sobs_anomaly_rules (
+    Id String CODEC(ZSTD(1)),
+    Name String CODEC(ZSTD(1)),
+    RuleType LowCardinality(String) DEFAULT 'threshold' CODEC(ZSTD(1)),
+    SignalSource LowCardinality(String) CODEC(ZSTD(1)),
+    SignalName LowCardinality(String) CODEC(ZSTD(1)),
+    ServiceName String CODEC(ZSTD(1)),
+    AttrFingerprint String CODEC(ZSTD(1)),
+    Comparator LowCardinality(String) CODEC(ZSTD(1)),
+    WarningThreshold Float64 CODEC(ZSTD(1)),
+    CriticalThreshold Float64 CODEC(ZSTD(1)),
+    SecondarySignalSource LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
+    SecondarySignalName LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
+    SecondaryComparator LowCardinality(String) DEFAULT 'gt' CODEC(ZSTD(1)),
+    SecondaryWarningThreshold Float64 DEFAULT 0 CODEC(ZSTD(1)),
+    SecondaryCriticalThreshold Float64 DEFAULT 0 CODEC(ZSTD(1)),
+    MinSampleCount UInt32 DEFAULT 1 CODEC(T64, ZSTD(1)),
+    IsDeleted UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Version UInt64 DEFAULT 0 CODEC(T64, ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY (SignalSource, SignalName, ServiceName, AttrFingerprint, Id)
+SETTINGS index_granularity = 8192;
+
 CREATE TABLE IF NOT EXISTS otel_metrics_gauge (
     TimeUnix DateTime64(9) CODEC(Delta(8), ZSTD(1)),
     TimeUnixMs DateTime DEFAULT toDateTime(TimeUnix) CODEC(Delta(4), ZSTD(1)),
@@ -448,6 +471,176 @@ WINDOW w AS (
     ORDER BY MinuteBucket
     ROWS BETWEEN 59 PRECEDING AND CURRENT ROW
 );
+
+CREATE VIEW IF NOT EXISTS v_derived_signals_1m AS
+SELECT
+    ServiceName,
+    'logs' AS SignalSource,
+    'log_volume' AS SignalName,
+    substring(lower(hex(MD5(concat(ServiceName, '|', 'log_volume')))), 1, 16) AS AttrFingerprint,
+    toStartOfMinute(Timestamp) AS MinuteBucket,
+    toFloat64(count()) AS Value,
+    count() AS SampleCount
+FROM otel_logs
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    'logs' AS SignalSource,
+    'error_volume' AS SignalName,
+    substring(lower(hex(MD5(concat(ServiceName, '|', 'error_volume')))), 1, 16) AS AttrFingerprint,
+    toStartOfMinute(Timestamp) AS MinuteBucket,
+    toFloat64(countIf(SeverityText IN ('ERROR', 'FATAL', 'CRITICAL'))) AS Value,
+    count() AS SampleCount
+FROM otel_logs
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    'logs' AS SignalSource,
+    'error_ratio' AS SignalName,
+    substring(lower(hex(MD5(concat(ServiceName, '|', 'error_ratio')))), 1, 16) AS AttrFingerprint,
+    toStartOfMinute(Timestamp) AS MinuteBucket,
+    if(count() > 0, toFloat64(countIf(SeverityText IN ('ERROR', 'FATAL', 'CRITICAL'))) / count(), 0.0) AS Value,
+    count() AS SampleCount
+FROM otel_logs
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    'traces' AS SignalSource,
+    'trace_volume' AS SignalName,
+    substring(lower(hex(MD5(concat(ServiceName, '|', 'trace_volume')))), 1, 16) AS AttrFingerprint,
+    toStartOfMinute(Timestamp) AS MinuteBucket,
+    toFloat64(count()) AS Value,
+    count() AS SampleCount
+FROM otel_traces
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    'traces' AS SignalSource,
+    'trace_error_ratio' AS SignalName,
+    substring(lower(hex(MD5(concat(ServiceName, '|', 'trace_error_ratio')))), 1, 16) AS AttrFingerprint,
+    toStartOfMinute(Timestamp) AS MinuteBucket,
+    if(count() > 0, toFloat64(countIf(StatusCode = 'STATUS_CODE_ERROR')) / count(), 0.0) AS Value,
+    count() AS SampleCount
+FROM otel_traces
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    'traces' AS SignalSource,
+    'latency_p95_ms' AS SignalName,
+    substring(lower(hex(MD5(concat(ServiceName, '|', 'latency_p95_ms')))), 1, 16) AS AttrFingerprint,
+    toStartOfMinute(Timestamp) AS MinuteBucket,
+    toFloat64(quantile(0.95)(Duration)) / 1000000.0 AS Value,
+    count() AS SampleCount
+FROM otel_traces
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    'errors' AS SignalSource,
+    'exception_volume' AS SignalName,
+    substring(lower(hex(MD5(concat(ServiceName, '|', 'exception_volume')))), 1, 16) AS AttrFingerprint,
+    toStartOfMinute(Timestamp) AS MinuteBucket,
+    toFloat64(count()) AS Value,
+    count() AS SampleCount
+FROM otel_logs
+WHERE EventName = 'exception'
+GROUP BY ServiceName, MinuteBucket;
+
+CREATE VIEW IF NOT EXISTS v_derived_signals_anomaly AS
+SELECT
+    ServiceName,
+    SignalSource,
+    SignalName,
+    AttrFingerprint,
+    MinuteBucket AS time,
+    Value AS value,
+    SampleCount,
+    round(avg(Value) OVER w, 6) AS baseline_mean,
+    round(
+        sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ),
+        6
+    ) AS baseline_stddev,
+    round(
+        avg(Value) OVER w - 2.0 * sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ),
+        6
+    ) AS baseline_lower,
+    round(
+        avg(Value) OVER w + 2.0 * sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ),
+        6
+    ) AS baseline_upper,
+    round(
+        if(
+            sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+                )
+            ) > 0,
+            abs(Value - avg(Value) OVER w) / sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+                )
+            ),
+            0
+        ),
+        4
+    ) AS anomaly_score,
+    multiIf(
+        sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ) > 0
+            AND abs(Value - avg(Value) OVER w) > 3.0 * sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+                )
+            ),
+        'outlier',
+        sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ) > 0
+            AND abs(Value - avg(Value) OVER w) > 2.0 * sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+                )
+            ),
+        'warning',
+        'normal'
+    ) AS anomaly_state
+FROM v_derived_signals_1m
+WINDOW w AS (
+    PARTITION BY ServiceName, SignalSource, SignalName, AttrFingerprint
+    ORDER BY MinuteBucket
+    ROWS BETWEEN 59 PRECEDING AND CURRENT ROW
+);
 """
 
 
@@ -589,6 +782,7 @@ def get_db() -> ChDbConnection:
                 _global_db = ChDbConnection(DB_PATH)
             if not _schema_ready:
                 _global_db.executescript(SCHEMA)
+                _ensure_post_schema_state(_global_db)
                 _schema_ready = True
     return _global_db
 
@@ -599,6 +793,7 @@ def init_db():
     with _db_init_lock:
         _global_db = ChDbConnection(DB_PATH)
         _global_db.executescript(SCHEMA)
+        _ensure_post_schema_state(_global_db)
         _schema_ready = True
 
 
@@ -618,7 +813,394 @@ def ensure_db_schema():
             has_logs = None
         if has_logs is None:
             _global_db.executescript(SCHEMA)
+        _ensure_post_schema_state(_global_db)
         _schema_ready = True
+
+
+def _ensure_post_schema_state(db: ChDbConnection) -> None:
+    _ensure_anomaly_rule_schema(db)
+    if not app.config.get("TESTING"):
+        _seed_example_metrics_content(db)
+
+
+def _ensure_anomaly_rule_schema(db: ChDbConnection) -> None:
+    migration_statements = [
+        (
+            "ALTER TABLE sobs_anomaly_rules ADD COLUMN IF NOT EXISTS "
+            "RuleType LowCardinality(String) DEFAULT 'threshold'"
+        ),
+        (
+            "ALTER TABLE sobs_anomaly_rules ADD COLUMN IF NOT EXISTS "
+            "SecondarySignalSource LowCardinality(String) DEFAULT ''"
+        ),
+        (
+            "ALTER TABLE sobs_anomaly_rules ADD COLUMN IF NOT EXISTS "
+            "SecondarySignalName LowCardinality(String) DEFAULT ''"
+        ),
+        (
+            "ALTER TABLE sobs_anomaly_rules ADD COLUMN IF NOT EXISTS "
+            "SecondaryComparator LowCardinality(String) DEFAULT 'gt'"
+        ),
+        "ALTER TABLE sobs_anomaly_rules ADD COLUMN IF NOT EXISTS SecondaryWarningThreshold Float64 DEFAULT 0",
+        "ALTER TABLE sobs_anomaly_rules ADD COLUMN IF NOT EXISTS SecondaryCriticalThreshold Float64 DEFAULT 0",
+    ]
+    for statement in migration_statements:
+        db.execute(statement)
+
+
+def _seed_rule_if_missing(db: ChDbConnection, rule: dict[str, object]) -> None:
+    existing = db.execute(
+        "SELECT 1 FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 AND Name = ? LIMIT 1",
+        [str(rule["Name"])],
+    ).fetchone()
+    if existing:
+        return
+    _insert_rows_json_each_row(db, "sobs_anomaly_rules", [rule])
+
+
+def _seed_dashboard_if_missing(db: ChDbConnection, dashboard_name: str, description: str) -> str:
+    existing = db.execute(
+        "SELECT Id FROM sobs_dashboards FINAL WHERE IsDeleted = 0 AND Name = ? LIMIT 1",
+        [dashboard_name],
+    ).fetchone()
+    if existing:
+        return str(existing["Id"])
+
+    dashboard_id = str(uuid.uuid4())
+    _insert_rows_json_each_row(
+        db,
+        "sobs_dashboards",
+        [
+            {
+                "Id": dashboard_id,
+                "Name": dashboard_name,
+                "Description": description,
+                "IsDeleted": 0,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    return dashboard_id
+
+
+def _seed_chart_if_missing(
+    db: ChDbConnection,
+    dashboard_id: str,
+    title: str,
+    chart_type: str,
+    query: str,
+    position: int,
+) -> None:
+    existing = db.execute(
+        "SELECT 1 FROM sobs_chart_configs FINAL WHERE IsDeleted = 0 AND DashboardId = ? AND Title = ? LIMIT 1",
+        [dashboard_id, title],
+    ).fetchone()
+    if existing:
+        return
+    _insert_rows_json_each_row(
+        db,
+        "sobs_chart_configs",
+        [
+            {
+                "Id": str(uuid.uuid4()),
+                "DashboardId": dashboard_id,
+                "Title": title,
+                "ChartType": chart_type,
+                "Query": query,
+                "OptionsJson": "{}",
+                "Position": position,
+                "IsDeleted": 0,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+
+
+def _upsert_seed_chart(
+    db: ChDbConnection,
+    dashboard_id: str,
+    title: str,
+    chart_type: str,
+    query: str,
+    position: int,
+) -> None:
+    existing = db.execute(
+        "SELECT Id, ChartType, Query, OptionsJson, Position "
+        "FROM sobs_chart_configs FINAL "
+        "WHERE IsDeleted = 0 AND DashboardId = ? AND Title = ? LIMIT 1",
+        [dashboard_id, title],
+    ).fetchone()
+    if not existing:
+        _seed_chart_if_missing(db, dashboard_id, title, chart_type, query, position)
+        return
+
+    if (
+        str(existing["ChartType"]) == chart_type
+        and str(existing["Query"]) == query
+        and int(existing["Position"]) == position
+    ):
+        return
+
+    _insert_rows_json_each_row(
+        db,
+        "sobs_chart_configs",
+        [
+            {
+                "Id": str(existing["Id"]),
+                "DashboardId": dashboard_id,
+                "Title": title,
+                "ChartType": chart_type,
+                "Query": query,
+                "OptionsJson": str(existing["OptionsJson"]),
+                "Position": position,
+                "IsDeleted": 0,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+
+
+def _soft_delete_seed_chart_by_title(db: ChDbConnection, dashboard_id: str, title: str) -> None:
+    row = db.execute(
+        "SELECT Id, ChartType, Query, OptionsJson, Position "
+        "FROM sobs_chart_configs FINAL "
+        "WHERE IsDeleted = 0 AND DashboardId = ? AND Title = ? LIMIT 1",
+        [dashboard_id, title],
+    ).fetchone()
+    if not row:
+        return
+    _insert_rows_json_each_row(
+        db,
+        "sobs_chart_configs",
+        [
+            {
+                "Id": str(row["Id"]),
+                "DashboardId": dashboard_id,
+                "Title": title,
+                "ChartType": str(row["ChartType"]),
+                "Query": str(row["Query"]),
+                "OptionsJson": str(row["OptionsJson"]),
+                "Position": int(row["Position"]),
+                "IsDeleted": 1,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+
+
+def _seed_example_metrics_content(db: ChDbConnection) -> None:
+    version = int(time.time() * 1000)
+    example_rules = [
+        {
+            "Id": str(uuid.uuid4()),
+            "Name": "Trace latency elevated",
+            "RuleType": "threshold",
+            "SignalSource": "traces",
+            "SignalName": "latency_p95_ms",
+            "ServiceName": "trace-svc-0",
+            "AttrFingerprint": "",
+            "Comparator": "gt",
+            "WarningThreshold": 250.0,
+            "CriticalThreshold": 450.0,
+            "SecondarySignalSource": "",
+            "SecondarySignalName": "",
+            "SecondaryComparator": "gt",
+            "SecondaryWarningThreshold": 0.0,
+            "SecondaryCriticalThreshold": 0.0,
+            "MinSampleCount": 5,
+            "IsDeleted": 0,
+            "Version": version,
+        },
+        {
+            "Id": str(uuid.uuid4()),
+            "Name": "Trace error ratio elevated",
+            "RuleType": "threshold",
+            "SignalSource": "traces",
+            "SignalName": "trace_error_ratio",
+            "ServiceName": "trace-svc-0",
+            "AttrFingerprint": "",
+            "Comparator": "gt",
+            "WarningThreshold": 0.04,
+            "CriticalThreshold": 0.08,
+            "SecondarySignalSource": "",
+            "SecondarySignalName": "",
+            "SecondaryComparator": "gt",
+            "SecondaryWarningThreshold": 0.0,
+            "SecondaryCriticalThreshold": 0.0,
+            "MinSampleCount": 5,
+            "IsDeleted": 0,
+            "Version": version,
+        },
+        {
+            "Id": str(uuid.uuid4()),
+            "Name": "Exception volume elevated",
+            "RuleType": "threshold",
+            "SignalSource": "errors",
+            "SignalName": "exception_volume",
+            "ServiceName": "err-svc-0",
+            "AttrFingerprint": "",
+            "Comparator": "gt",
+            "WarningThreshold": 1.0,
+            "CriticalThreshold": 3.0,
+            "SecondarySignalSource": "",
+            "SecondarySignalName": "",
+            "SecondaryComparator": "gt",
+            "SecondaryWarningThreshold": 0.0,
+            "SecondaryCriticalThreshold": 0.0,
+            "MinSampleCount": 1,
+            "IsDeleted": 0,
+            "Version": version,
+        },
+        {
+            "Id": str(uuid.uuid4()),
+            "Name": "Composite trace distress",
+            "RuleType": "composite",
+            "SignalSource": "traces",
+            "SignalName": "latency_p95_ms",
+            "ServiceName": "trace-svc-0",
+            "AttrFingerprint": "",
+            "Comparator": "gt",
+            "WarningThreshold": 250.0,
+            "CriticalThreshold": 450.0,
+            "SecondarySignalSource": "traces",
+            "SecondarySignalName": "trace_error_ratio",
+            "SecondaryComparator": "gt",
+            "SecondaryWarningThreshold": 0.04,
+            "SecondaryCriticalThreshold": 0.08,
+            "MinSampleCount": 5,
+            "IsDeleted": 0,
+            "Version": version,
+        },
+    ]
+    for rule in example_rules:
+        _seed_rule_if_missing(db, rule)
+
+    dashboard_id = _seed_dashboard_if_missing(
+        db,
+        "Pump Derived Signals",
+        "Seeded dashboard for load_pump-derived log, trace, and error anomaly signals.",
+    )
+    charts = [
+        (
+            "Trace volume",
+            "derived_signal_overlay",
+            "SELECT\n"
+            "  time,\n"
+            "  ServiceName AS service,\n"
+            "  SignalSource AS source,\n"
+            "  SignalName AS signal,\n"
+            "  AttrFingerprint AS attr_fp,\n"
+            "  value,\n"
+            "  SampleCount AS sample_count,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state,\n"
+            "  anomaly_score\n"
+            "FROM v_derived_signals_anomaly\n"
+            "WHERE ServiceName = (\n"
+            "  SELECT ServiceName\n"
+            "  FROM v_derived_signals_anomaly\n"
+            "  WHERE SignalSource = 'traces' AND SignalName = 'trace_volume'\n"
+            "  ORDER BY time DESC\n"
+            "  LIMIT 1\n"
+            ")\n"
+            "  AND SignalSource = 'traces'\n"
+            "  AND SignalName = 'trace_volume'\n"
+            "  AND time >= now() - INTERVAL 6 HOUR\n"
+            "ORDER BY time",
+        ),
+        (
+            "Trace error ratio",
+            "derived_signal_overlay",
+            "SELECT\n"
+            "  time,\n"
+            "  ServiceName AS service,\n"
+            "  SignalSource AS source,\n"
+            "  SignalName AS signal,\n"
+            "  AttrFingerprint AS attr_fp,\n"
+            "  value,\n"
+            "  SampleCount AS sample_count,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state,\n"
+            "  anomaly_score\n"
+            "FROM v_derived_signals_anomaly\n"
+            "WHERE ServiceName = (\n"
+            "  SELECT ServiceName\n"
+            "  FROM v_derived_signals_anomaly\n"
+            "  WHERE SignalSource = 'traces' AND SignalName = 'trace_error_ratio'\n"
+            "  ORDER BY time DESC\n"
+            "  LIMIT 1\n"
+            ")\n"
+            "  AND SignalSource = 'traces'\n"
+            "  AND SignalName = 'trace_error_ratio'\n"
+            "  AND time >= now() - INTERVAL 6 HOUR\n"
+            "ORDER BY time",
+        ),
+        (
+            "Load log volume",
+            "derived_signal_overlay",
+            "SELECT\n"
+            "  time,\n"
+            "  ServiceName AS service,\n"
+            "  SignalSource AS source,\n"
+            "  SignalName AS signal,\n"
+            "  AttrFingerprint AS attr_fp,\n"
+            "  value,\n"
+            "  SampleCount AS sample_count,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state,\n"
+            "  anomaly_score\n"
+            "FROM v_derived_signals_anomaly\n"
+            "WHERE ServiceName = (\n"
+            "  SELECT ServiceName\n"
+            "  FROM v_derived_signals_anomaly\n"
+            "  WHERE SignalSource = 'logs' AND SignalName = 'log_volume'\n"
+            "  ORDER BY time DESC\n"
+            "  LIMIT 1\n"
+            ")\n"
+            "  AND SignalSource = 'logs'\n"
+            "  AND SignalName = 'log_volume'\n"
+            "  AND time >= now() - INTERVAL 6 HOUR\n"
+            "ORDER BY time",
+        ),
+        (
+            "Exception volume",
+            "derived_signal_overlay",
+            "SELECT\n"
+            "  time,\n"
+            "  ServiceName AS service,\n"
+            "  SignalSource AS source,\n"
+            "  SignalName AS signal,\n"
+            "  AttrFingerprint AS attr_fp,\n"
+            "  value,\n"
+            "  SampleCount AS sample_count,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state,\n"
+            "  anomaly_score\n"
+            "FROM v_derived_signals_anomaly\n"
+            "WHERE ServiceName = (\n"
+            "  SELECT ServiceName\n"
+            "  FROM v_derived_signals_anomaly\n"
+            "  WHERE SignalSource = 'errors' AND SignalName = 'exception_volume'\n"
+            "  ORDER BY time DESC\n"
+            "  LIMIT 1\n"
+            ")\n"
+            "  AND SignalSource = 'errors'\n"
+            "  AND SignalName = 'exception_volume'\n"
+            "  AND time >= now() - INTERVAL 6 HOUR\n"
+            "ORDER BY time",
+        ),
+    ]
+    for position, (title, chart_type, query) in enumerate(charts):
+        _upsert_seed_chart(db, dashboard_id, title, chart_type, query, position)
+    _soft_delete_seed_chart_by_title(db, dashboard_id, "Trace latency")
 
 
 def _run_write_batch(tasks: list[_WriteTask]) -> None:
@@ -2292,6 +2874,792 @@ async def view_logs():
 
 
 # ---------------------------------------------------------------------------
+# Derived Signals / Rules Helpers
+# ---------------------------------------------------------------------------
+_ANOMALY_SEVERITY_RANK = {"normal": 0, "warning": 1, "outlier": 2}
+
+
+def _list_derived_signal_dimensions(db: ChDbConnection) -> tuple[list[str], list[str], list[str]]:
+    services = [
+        row[0]
+        for row in db.execute("SELECT DISTINCT ServiceName FROM v_derived_signals_1m ORDER BY ServiceName").fetchall()
+    ]
+    signals = [
+        row[0]
+        for row in db.execute("SELECT DISTINCT SignalName FROM v_derived_signals_1m ORDER BY SignalName").fetchall()
+    ]
+    sources = [
+        row[0]
+        for row in db.execute("SELECT DISTINCT SignalSource FROM v_derived_signals_1m ORDER BY SignalSource").fetchall()
+    ]
+    return services, signals, sources
+
+
+def _load_anomaly_rules(db: ChDbConnection) -> list[dict[str, object]]:
+    rows = db.execute(
+        "SELECT Id, Name, RuleType, SignalSource, SignalName, ServiceName, AttrFingerprint, Comparator, "
+        "WarningThreshold, CriticalThreshold, SecondarySignalSource, SecondarySignalName, "
+        "SecondaryComparator, SecondaryWarningThreshold, SecondaryCriticalThreshold, MinSampleCount "
+        "FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 ORDER BY Name"
+    ).fetchall()
+    return [
+        {
+            "id": str(row["Id"]),
+            "name": str(row["Name"]),
+            "rule_type": str(row["RuleType"] or "threshold"),
+            "source": str(row["SignalSource"]),
+            "signal": str(row["SignalName"]),
+            "service": str(row["ServiceName"]),
+            "attr_fp": str(row["AttrFingerprint"]),
+            "comparator": str(row["Comparator"]),
+            "warning_threshold": float(row["WarningThreshold"]),
+            "critical_threshold": float(row["CriticalThreshold"]),
+            "secondary_source": str(row["SecondarySignalSource"]),
+            "secondary_signal": str(row["SecondarySignalName"]),
+            "secondary_comparator": str(row["SecondaryComparator"] or "gt"),
+            "secondary_warning_threshold": float(row["SecondaryWarningThreshold"]),
+            "secondary_critical_threshold": float(row["SecondaryCriticalThreshold"]),
+            "min_sample_count": int(row["MinSampleCount"]),
+        }
+        for row in rows
+    ]
+
+
+def _rule_matches_series(rule: dict[str, object], source: str, signal: str, service: str, attr_fp: str) -> bool:
+    if str(rule.get("source", "")) != source:
+        return False
+    if str(rule.get("signal", "")) != signal:
+        return False
+    rule_service = str(rule.get("service", ""))
+    if rule_service and rule_service != service:
+        return False
+    rule_attr_fp = str(rule.get("attr_fp", ""))
+    if rule_attr_fp and rule_attr_fp != attr_fp:
+        return False
+    return True
+
+
+def _evaluate_threshold_condition(
+    name: str,
+    comparator: str,
+    warning_threshold: object,
+    critical_threshold: object,
+    value: object,
+    sample_count: object,
+    min_sample_count: object,
+) -> dict[str, object] | None:
+    try:
+        value_num = float(str(value))
+        sample_count_num = int(str(sample_count))
+    except (TypeError, ValueError):
+        return None
+
+    min_samples = int(str(min_sample_count))
+    if sample_count_num < min_samples:
+        return None
+
+    warning = float(str(warning_threshold))
+    critical = float(str(critical_threshold))
+
+    state = "normal"
+    triggered_threshold = None
+    if comparator == "gt":
+        if value_num >= critical:
+            state = "outlier"
+            triggered_threshold = critical
+        elif value_num >= warning:
+            state = "warning"
+            triggered_threshold = warning
+    elif comparator == "lt":
+        if value_num <= critical:
+            state = "outlier"
+            triggered_threshold = critical
+        elif value_num <= warning:
+            state = "warning"
+            triggered_threshold = warning
+
+    if state == "normal" or triggered_threshold is None:
+        return None
+
+    operator = ">=" if comparator == "gt" else "<="
+    return {
+        "rule_state": state,
+        "rule_reason": f"{name}: value {round(value_num, 4)} {operator} {triggered_threshold}",
+    }
+
+
+def _evaluate_threshold_rule(rule: dict[str, object], value: object, sample_count: object) -> dict[str, object] | None:
+    evaluation = _evaluate_threshold_condition(
+        str(rule.get("name", "")),
+        str(rule.get("comparator", "gt")),
+        rule.get("warning_threshold", 0.0),
+        rule.get("critical_threshold", 0.0),
+        value,
+        sample_count,
+        rule.get("min_sample_count", 1),
+    )
+    if not evaluation:
+        return None
+    return {
+        "rule_id": str(rule.get("id", "")),
+        "rule_name": str(rule.get("name", "")),
+        **evaluation,
+    }
+
+
+def _build_series_rule_lookups(
+    rows: list[dict[str, object]],
+    *,
+    source_key: str,
+    signal_key: str,
+    service_key: str,
+    attr_fp_key: str,
+    time_key: str | None,
+) -> tuple[dict[tuple[str, str, str, str], dict[str, object]], dict[tuple[str, str, str, str, str], dict[str, object]]]:
+    latest_lookup: dict[tuple[str, str, str, str], dict[str, object]] = {}
+    timed_lookup: dict[tuple[str, str, str, str, str], dict[str, object]] = {}
+    for row in rows:
+        base_key = (
+            str(row.get(service_key, "")),
+            str(row.get(attr_fp_key, "")),
+            str(row.get(source_key, "")),
+            str(row.get(signal_key, "")),
+        )
+        latest_lookup[base_key] = row
+        if time_key:
+            timed_lookup[base_key + (str(row.get(time_key, "")),)] = row
+    return latest_lookup, timed_lookup
+
+
+def _combine_rule_states(*states: str) -> str:
+    ranked = max((_ANOMALY_SEVERITY_RANK.get(state, 0), state) for state in states)
+    return ranked[1]
+
+
+def _lookup_secondary_rule_row(
+    service: str,
+    attr_fp: str,
+    secondary_source: str,
+    secondary_signal: str,
+    time_value: str,
+) -> dict[str, object] | None:
+    db = get_db()
+    attr_filter = "AttrFingerprint = ?"
+    params: list[object] = [service, secondary_source, secondary_signal, attr_fp]
+    if time_value:
+        row = db.execute(
+            "SELECT time, value, SampleCount FROM v_derived_signals_anomaly "
+            "WHERE ServiceName = ? AND SignalSource = ? AND SignalName = ? AND "
+            f"{attr_filter} AND time = ? ORDER BY time DESC LIMIT 1",
+            params + [time_value],
+        ).fetchone()
+        if row:
+            return {"time": row["time"], "value": row["value"], "sample_count": row["SampleCount"]}
+    row = db.execute(
+        "SELECT time, value, SampleCount FROM v_derived_signals_anomaly "
+        "WHERE ServiceName = ? AND SignalSource = ? AND SignalName = ? AND "
+        f"{attr_filter} ORDER BY time DESC LIMIT 1",
+        params,
+    ).fetchone()
+    if not row:
+        return None
+    return {"time": row["time"], "value": row["value"], "sample_count": row["SampleCount"]}
+
+
+def _evaluate_composite_rule(
+    rule: dict[str, object],
+    row: dict[str, object],
+    latest_lookup: dict[tuple[str, str, str, str], dict[str, object]],
+    timed_lookup: dict[tuple[str, str, str, str, str], dict[str, object]],
+    *,
+    source_key: str,
+    signal_key: str,
+    service_key: str,
+    attr_fp_key: str,
+    value_key: str,
+    sample_count_key: str,
+    time_key: str | None,
+) -> dict[str, object] | None:
+    primary = _evaluate_threshold_condition(
+        f"{rule.get('name', '')} primary",
+        str(rule.get("comparator", "gt")),
+        rule.get("warning_threshold", 0.0),
+        rule.get("critical_threshold", 0.0),
+        row.get(value_key),
+        row.get(sample_count_key),
+        rule.get("min_sample_count", 1),
+    )
+    if not primary:
+        return None
+
+    secondary_source = str(rule.get("secondary_source", ""))
+    secondary_signal = str(rule.get("secondary_signal", ""))
+    if not secondary_source or not secondary_signal:
+        return None
+
+    service = str(row.get(service_key, ""))
+    attr_fp = str(row.get(attr_fp_key, ""))
+    time_value = str(row.get(time_key, "")) if time_key else ""
+    timed_key = (service, attr_fp, secondary_source, secondary_signal, time_value)
+    secondary_row = timed_lookup.get(timed_key) if time_key else None
+    if secondary_row is None:
+        secondary_row = latest_lookup.get((service, attr_fp, secondary_source, secondary_signal))
+    if secondary_row is None:
+        secondary_row = _lookup_secondary_rule_row(
+            service,
+            attr_fp,
+            secondary_source,
+            secondary_signal,
+            time_value,
+        )
+    if secondary_row is None:
+        return None
+
+    secondary = _evaluate_threshold_condition(
+        f"{rule.get('name', '')} secondary",
+        str(rule.get("secondary_comparator", "gt")),
+        rule.get("secondary_warning_threshold", 0.0),
+        rule.get("secondary_critical_threshold", 0.0),
+        secondary_row.get(value_key, secondary_row.get("value")),
+        secondary_row.get(sample_count_key, secondary_row.get("sample_count")),
+        rule.get("min_sample_count", 1),
+    )
+    if not secondary:
+        return None
+
+    primary_state = str(primary.get("rule_state", "normal"))
+    secondary_state = str(secondary.get("rule_state", "normal"))
+    combined_state = _combine_rule_states(primary_state, secondary_state)
+    secondary_value = secondary_row.get(value_key)
+    return {
+        "rule_id": str(rule.get("id", "")),
+        "rule_name": str(rule.get("name", "")),
+        "rule_state": combined_state,
+        "rule_reason": (
+            f"{rule.get('name', '')}: primary {str(row.get(signal_key, ''))}={row.get(value_key)} and "
+            f"secondary {secondary_signal}={secondary_value} triggered"
+        ),
+    }
+
+
+def _annotate_rows_with_rules(
+    rows: list[dict[str, object]],
+    rules: list[dict[str, object]],
+    *,
+    source_key: str,
+    signal_key: str,
+    service_key: str,
+    attr_fp_key: str,
+    value_key: str,
+    sample_count_key: str,
+    time_key: str | None = None,
+) -> None:
+    latest_lookup, timed_lookup = _build_series_rule_lookups(
+        rows,
+        source_key=source_key,
+        signal_key=signal_key,
+        service_key=service_key,
+        attr_fp_key=attr_fp_key,
+        time_key=time_key,
+    )
+    for row in rows:
+        row["rule_name"] = ""
+        row["rule_state"] = "normal"
+        row["rule_reason"] = ""
+        row["effective_state"] = str(row.get("anomaly_state", "normal"))
+        best_match: dict[str, object] | None = None
+        best_rank = -1
+        row_source = str(row.get(source_key, ""))
+        row_signal = str(row.get(signal_key, ""))
+        row_service = str(row.get(service_key, ""))
+        row_attr_fp = str(row.get(attr_fp_key, ""))
+        for rule in rules:
+            if not _rule_matches_series(rule, row_source, row_signal, row_service, row_attr_fp):
+                continue
+            if str(rule.get("rule_type", "threshold")) == "composite":
+                evaluation = _evaluate_composite_rule(
+                    rule,
+                    row,
+                    latest_lookup,
+                    timed_lookup,
+                    source_key=source_key,
+                    signal_key=signal_key,
+                    service_key=service_key,
+                    attr_fp_key=attr_fp_key,
+                    value_key=value_key,
+                    sample_count_key=sample_count_key,
+                    time_key=time_key,
+                )
+            else:
+                evaluation = _evaluate_threshold_rule(rule, row.get(value_key), row.get(sample_count_key))
+            if not evaluation:
+                continue
+            rank = _ANOMALY_SEVERITY_RANK.get(str(evaluation.get("rule_state", "normal")), 0)
+            if rank > best_rank:
+                best_match = evaluation
+                best_rank = rank
+        if best_match:
+            row.update(best_match)
+        row["effective_state"] = _combine_rule_states(
+            str(row.get("anomaly_state", "normal")),
+            str(row.get("rule_state", "normal")),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Web UI – Metrics (derived signal index)
+# ---------------------------------------------------------------------------
+@app.route("/metrics")
+@require_basic_auth
+async def view_metrics():
+    db = get_db()
+    service = request.args.get("service", "").strip()
+    signal = request.args.get("signal", "").strip()
+    source = request.args.get("source", "").strip()
+    attr_fp = request.args.get("attr_fp", "").strip()
+    from_ts, to_ts, time_error = _parse_time_window_args()
+
+    try:
+        hours = max(1, min(168, int(request.args.get("hours") or 24)))
+    except (TypeError, ValueError):
+        hours = 24
+
+    where_parts: list[str] = []
+    params: list[str] = []
+    if service:
+        where_parts.append("ServiceName = ?")
+        params.append(service)
+    if signal:
+        where_parts.append("SignalName = ?")
+        params.append(signal)
+    if source:
+        where_parts.append("SignalSource = ?")
+        params.append(source)
+    if attr_fp:
+        where_parts.append("AttrFingerprint = ?")
+        params.append(attr_fp)
+
+    if not time_error:
+        time_conditions, time_params = _time_window_conditions("time", from_ts, to_ts)
+        where_parts.extend(time_conditions)
+        params.extend(time_params)
+
+    hour_clause = ""
+    if not from_ts and not to_ts:
+        hour_clause = "time >= now() - INTERVAL ? HOUR"
+        params.append(hours)
+
+    where_clause = ""
+    if where_parts:
+        where_clause = " WHERE " + " AND ".join(where_parts)
+    if hour_clause:
+        where_clause = f"{where_clause} AND {hour_clause}" if where_clause else f" WHERE {hour_clause}"
+
+    rows: list[dict] = []
+    error_msg = time_error
+    if not error_msg:
+        try:
+            result = db.execute(
+                "SELECT"
+                "  ServiceName,"
+                "  SignalSource,"
+                "  SignalName,"
+                "  AttrFingerprint,"
+                "  max(time) AS last_time,"
+                "  argMax(value, time) AS last_value,"
+                "  argMax(anomaly_score, time) AS last_anomaly_score,"
+                "  argMax(anomaly_state, time) AS last_anomaly_state,"
+                "  argMax(SampleCount, time) AS last_sample_count,"
+                "  count() AS point_count"
+                " FROM v_derived_signals_anomaly"
+                f"{where_clause}"
+                " GROUP BY ServiceName, SignalSource, SignalName, AttrFingerprint"
+                " ORDER BY last_time DESC"
+                " LIMIT 500",
+                params,
+            )
+            fetched = result.fetchall()
+            for row in fetched:
+                rows.append(
+                    {
+                        "service": str(row["ServiceName"]),
+                        "source": str(row["SignalSource"]),
+                        "signal": str(row["SignalName"]),
+                        "attr_fp": str(row["AttrFingerprint"]),
+                        "last_time": str(row["last_time"]),
+                        "last_value": row["last_value"],
+                        "last_anomaly_score": row["last_anomaly_score"],
+                        "last_anomaly_state": str(row["last_anomaly_state"]),
+                        "last_sample_count": row["last_sample_count"],
+                        "point_count": row["point_count"],
+                    }
+                )
+        except Exception as exc:
+            app.logger.exception("metrics index query failed")
+            error_msg = _public_dashboard_query_error(exc)
+
+    _annotate_rows_with_rules(
+        rows,
+        _load_anomaly_rules(db),
+        source_key="source",
+        signal_key="signal",
+        service_key="service",
+        attr_fp_key="attr_fp",
+        value_key="last_value",
+        sample_count_key="last_sample_count",
+        time_key="last_time",
+    )
+
+    services, signals, sources = _list_derived_signal_dimensions(db)
+
+    return await render_template(
+        "metrics.html",
+        rows=rows,
+        total=len(rows),
+        service=service,
+        signal=signal,
+        source=source,
+        attr_fp=attr_fp,
+        from_ts=from_ts,
+        to_ts=to_ts,
+        hours=hours,
+        error_msg=error_msg,
+        services=services,
+        signals=signals,
+        sources=sources,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Web UI – Metrics Rules
+# ---------------------------------------------------------------------------
+@app.route("/metrics/rules")
+@require_basic_auth
+async def view_metrics_rules():
+    db = get_db()
+    services, signals, sources = _list_derived_signal_dimensions(db)
+    rules = _load_anomaly_rules(db)
+    return await render_template(
+        "metrics_rules.html",
+        rules=rules,
+        services=services,
+        signals=signals,
+        sources=sources,
+    )
+
+
+@app.route("/metrics/rules", methods=["POST"])
+@require_basic_auth
+async def create_metrics_rule():
+    form = await request.form
+    name = (form.get("name") or "").strip()
+    rule_type = (form.get("rule_type") or "threshold").strip().lower()
+    source = (form.get("source") or "").strip()
+    signal = (form.get("signal") or "").strip()
+    service = (form.get("service") or "").strip()
+    attr_fp = (form.get("attr_fp") or "").strip()
+    comparator = (form.get("comparator") or "gt").strip().lower()
+    secondary_source = (form.get("secondary_source") or "").strip()
+    secondary_signal = (form.get("secondary_signal") or "").strip()
+    secondary_comparator = (form.get("secondary_comparator") or "gt").strip().lower()
+
+    if not name or not source or not signal:
+        await flash("Rule name, source, and signal are required", "warning")
+        return redirect(url_for("view_metrics_rules"))
+
+    if rule_type not in {"threshold", "composite"}:
+        await flash("Rule type must be 'threshold' or 'composite'", "warning")
+        return redirect(url_for("view_metrics_rules"))
+
+    if comparator not in {"gt", "lt"}:
+        await flash("Comparator must be 'gt' or 'lt'", "warning")
+        return redirect(url_for("view_metrics_rules"))
+    if secondary_comparator not in {"gt", "lt"}:
+        await flash("Secondary comparator must be 'gt' or 'lt'", "warning")
+        return redirect(url_for("view_metrics_rules"))
+
+    try:
+        warning_threshold = float(form.get("warning_threshold") or "")
+        critical_threshold = float(form.get("critical_threshold") or "")
+        min_sample_count = max(1, int(form.get("min_sample_count") or 1))
+        secondary_warning_threshold = float(form.get("secondary_warning_threshold") or 0)
+        secondary_critical_threshold = float(form.get("secondary_critical_threshold") or 0)
+    except (TypeError, ValueError):
+        await flash("Thresholds must be numeric and sample count must be an integer", "warning")
+        return redirect(url_for("view_metrics_rules"))
+
+    if comparator == "gt" and critical_threshold < warning_threshold:
+        await flash("For 'gt' rules, critical threshold must be >= warning threshold", "warning")
+        return redirect(url_for("view_metrics_rules"))
+    if comparator == "lt" and critical_threshold > warning_threshold:
+        await flash("For 'lt' rules, critical threshold must be <= warning threshold", "warning")
+        return redirect(url_for("view_metrics_rules"))
+    if rule_type == "composite":
+        if not secondary_source or not secondary_signal:
+            await flash("Composite rules require a secondary source and signal", "warning")
+            return redirect(url_for("view_metrics_rules"))
+        if secondary_comparator == "gt" and secondary_critical_threshold < secondary_warning_threshold:
+            await flash("For secondary 'gt' rules, critical threshold must be >= warning threshold", "warning")
+            return redirect(url_for("view_metrics_rules"))
+        if secondary_comparator == "lt" and secondary_critical_threshold > secondary_warning_threshold:
+            await flash("For secondary 'lt' rules, critical threshold must be <= warning threshold", "warning")
+            return redirect(url_for("view_metrics_rules"))
+    else:
+        secondary_source = ""
+        secondary_signal = ""
+        secondary_comparator = "gt"
+        secondary_warning_threshold = 0.0
+        secondary_critical_threshold = 0.0
+
+    rule_id = str(uuid.uuid4())
+    version = int(time.time() * 1000)
+    _insert_rows_json_each_row(
+        get_db(),
+        "sobs_anomaly_rules",
+        [
+            {
+                "Id": rule_id,
+                "Name": name,
+                "RuleType": rule_type,
+                "SignalSource": source,
+                "SignalName": signal,
+                "ServiceName": service,
+                "AttrFingerprint": attr_fp,
+                "Comparator": comparator,
+                "WarningThreshold": warning_threshold,
+                "CriticalThreshold": critical_threshold,
+                "SecondarySignalSource": secondary_source,
+                "SecondarySignalName": secondary_signal,
+                "SecondaryComparator": secondary_comparator,
+                "SecondaryWarningThreshold": secondary_warning_threshold,
+                "SecondaryCriticalThreshold": secondary_critical_threshold,
+                "MinSampleCount": min_sample_count,
+                "IsDeleted": 0,
+                "Version": version,
+            }
+        ],
+    )
+    await flash(f"Rule '{name}' created", "success")
+    return redirect(url_for("view_metrics_rules"))
+
+
+@app.route("/metrics/rules/<rule_id>/delete", methods=["POST"])
+@require_basic_auth
+async def delete_metrics_rule(rule_id: str):
+    db = get_db()
+    row = db.execute(
+        "SELECT Id, Name, RuleType, SignalSource, SignalName, ServiceName, AttrFingerprint, Comparator, "
+        "WarningThreshold, CriticalThreshold, SecondarySignalSource, SecondarySignalName, "
+        "SecondaryComparator, SecondaryWarningThreshold, SecondaryCriticalThreshold, MinSampleCount "
+        "FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 AND Id = ?",
+        [rule_id],
+    ).fetchone()
+    if not row:
+        await flash("Rule not found", "warning")
+        return redirect(url_for("view_metrics_rules"))
+
+    version = int(time.time() * 1000)
+    _insert_rows_json_each_row(
+        db,
+        "sobs_anomaly_rules",
+        [
+            {
+                "Id": str(row["Id"]),
+                "Name": str(row["Name"]),
+                "RuleType": str(row["RuleType"] or "threshold"),
+                "SignalSource": str(row["SignalSource"]),
+                "SignalName": str(row["SignalName"]),
+                "ServiceName": str(row["ServiceName"]),
+                "AttrFingerprint": str(row["AttrFingerprint"]),
+                "Comparator": str(row["Comparator"]),
+                "WarningThreshold": float(row["WarningThreshold"]),
+                "CriticalThreshold": float(row["CriticalThreshold"]),
+                "SecondarySignalSource": str(row["SecondarySignalSource"]),
+                "SecondarySignalName": str(row["SecondarySignalName"]),
+                "SecondaryComparator": str(row["SecondaryComparator"] or "gt"),
+                "SecondaryWarningThreshold": float(row["SecondaryWarningThreshold"]),
+                "SecondaryCriticalThreshold": float(row["SecondaryCriticalThreshold"]),
+                "MinSampleCount": int(row["MinSampleCount"]),
+                "IsDeleted": 1,
+                "Version": version,
+            }
+        ],
+    )
+    await flash(f"Rule '{str(row['Name'])}' deleted", "success")
+    return redirect(url_for("view_metrics_rules"))
+
+
+# ---------------------------------------------------------------------------
+# Web UI – Metrics Anomaly Details
+# ---------------------------------------------------------------------------
+@app.route("/metrics/anomaly")
+@require_basic_auth
+async def view_metrics_anomaly():
+    db = get_db()
+    service = request.args.get("service", "").strip()
+    metric = request.args.get("metric", "").strip()
+    signal = request.args.get("signal", "").strip()
+    source = request.args.get("source", "").strip()
+    attr_fp = request.args.get("attr_fp", "").strip()
+    from_ts, to_ts, time_error = _parse_time_window_args()
+
+    # Optional metadata passed from chart click for point-level context.
+    point_state = request.args.get("_anomaly_state", "").strip()
+    point_score = request.args.get("_anomaly_score", "").strip()
+
+    try:
+        hours = max(1, min(168, int(request.args.get("hours") or 24)))
+    except (TypeError, ValueError):
+        hours = 24
+
+    where_parts: list[str] = []
+    params: list[str] = []
+    if service:
+        where_parts.append("ServiceName = ?")
+        params.append(service)
+    if metric:
+        where_parts.append("MetricName = ?")
+        params.append(metric)
+    if signal:
+        where_parts.append("SignalName = ?")
+        params.append(signal)
+    if source:
+        where_parts.append("SignalSource = ?")
+        params.append(source)
+    if attr_fp:
+        where_parts.append("AttrFingerprint = ?")
+        params.append(attr_fp)
+
+    if not time_error:
+        time_conditions, time_params = _time_window_conditions("time", from_ts, to_ts)
+        where_parts.extend(time_conditions)
+        params.extend(time_params)
+
+    # Fallback to hour-based window only when explicit time window is not provided.
+    hour_clause = ""
+    if not from_ts and not to_ts:
+        hour_clause = "time >= now() - INTERVAL ? HOUR"
+        params.append(hours)
+
+    where_clause = ""
+    if where_parts:
+        where_clause = " WHERE " + " AND ".join(where_parts)
+    if hour_clause:
+        where_clause = f"{where_clause} AND {hour_clause}" if where_clause else f" WHERE {hour_clause}"
+
+    rows: list[dict] = []
+    error_msg = time_error
+    related_target = source if source in {"logs", "traces", "errors"} else ""
+    active_rules = _load_anomaly_rules(db)
+    use_otel_metrics_view = bool(metric) and not signal and not source
+    if not error_msg:
+        try:
+            # Keep existing metric drilldown behavior and support derived signals.
+            result = db.execute(
+                (
+                    (
+                        "SELECT"
+                        "  time,"
+                        "  ServiceName,"
+                        "  MetricName AS Name,"
+                        "  MetricKind AS Kind,"
+                        "  AttrFingerprint,"
+                        "  value,"
+                        "  SampleCount,"
+                        "  baseline_mean,"
+                        "  baseline_stddev,"
+                        "  baseline_lower,"
+                        "  baseline_upper,"
+                        "  anomaly_score,"
+                        "  anomaly_state"
+                        " FROM v_otel_metrics_anomaly"
+                    )
+                    if use_otel_metrics_view
+                    else (
+                        "SELECT"
+                        "  time,"
+                        "  ServiceName,"
+                        "  SignalName AS Name,"
+                        "  SignalSource AS Kind,"
+                        "  AttrFingerprint,"
+                        "  value,"
+                        "  SampleCount,"
+                        "  baseline_mean,"
+                        "  baseline_stddev,"
+                        "  baseline_lower,"
+                        "  baseline_upper,"
+                        "  anomaly_score,"
+                        "  anomaly_state"
+                        " FROM v_derived_signals_anomaly"
+                    )
+                    + f"{where_clause}"
+                    + " ORDER BY time DESC"
+                    + " LIMIT 500"
+                ),
+                params,
+            )
+            fetched = result.fetchall()
+            for row in fetched:
+                rows.append(
+                    {
+                        "time": str(row["time"]),
+                        "service": str(row["ServiceName"]),
+                        "metric": str(row["Name"]),
+                        "metric_kind": str(row["Kind"]),
+                        "related_target": ("" if use_otel_metrics_view else str(row["Kind"])),
+                        "attr_fp": str(row["AttrFingerprint"]),
+                        "value": row["value"],
+                        "sample_count": row["SampleCount"],
+                        "baseline_mean": row["baseline_mean"],
+                        "baseline_stddev": row["baseline_stddev"],
+                        "baseline_lower": row["baseline_lower"],
+                        "baseline_upper": row["baseline_upper"],
+                        "anomaly_score": row["anomaly_score"],
+                        "anomaly_state": str(row["anomaly_state"]),
+                    }
+                )
+        except Exception as exc:
+            app.logger.exception("metrics anomaly detail query failed")
+            error_msg = _public_dashboard_query_error(exc)
+
+    if not use_otel_metrics_view:
+        _annotate_rows_with_rules(
+            rows,
+            active_rules,
+            source_key="related_target",
+            signal_key="metric",
+            service_key="service",
+            attr_fp_key="attr_fp",
+            value_key="value",
+            sample_count_key="sample_count",
+            time_key="time",
+        )
+
+    services, signals, sources = _list_derived_signal_dimensions(db)
+
+    return await render_template(
+        "metrics_anomaly.html",
+        rows=rows,
+        total=len(rows),
+        service=service,
+        metric=metric,
+        signal=signal,
+        source=source,
+        attr_fp=attr_fp,
+        from_ts=from_ts,
+        to_ts=to_ts,
+        hours=hours,
+        error_msg=error_msg,
+        point_state=point_state,
+        point_score=point_score,
+        related_target=related_target,
+        services=services,
+        signals=signals,
+        sources=sources,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Web UI – Errors
 # ---------------------------------------------------------------------------
 @app.route("/errors")
@@ -2925,8 +4293,8 @@ CHART_TEMPLATES = {
             "ORDER BY time"
         ),
         "drilldown": {
-            "target": "logs",
-            "label": "Open anomaly logs",
+            "target": "metrics",
+            "label": "Open anomaly details",
             "bucket_seconds": 60,
             "time_axis": "x",
         },
@@ -2971,6 +4339,152 @@ CHART_TEMPLATES = {
                     "symbol": "circle",
                     "symbolSize": "{{anomaly_symbol_size}}",
                     "itemStyle": {"color": "{{anomaly_point_color}}"},
+                },
+            ],
+        },
+    },
+    "derived_signal_overlay": {
+        "id": "derived_signal_overlay",
+        "name": "Derived Signal Overlay",
+        "description": "At-a-glance signal health view with recent focus, anomaly windows, and status summary",
+        "icon": "bi-soundwave",
+        "query_shape": (
+            "Columns: time, service, source, signal, attr_fp, value, sample_count, baseline_mean, "
+            "baseline_lower, baseline_upper, anomaly_state, anomaly_score"
+        ),
+        "sample_sql": (
+            "SELECT\n"
+            "  time,\n"
+            "  ServiceName AS service,\n"
+            "  SignalSource AS source,\n"
+            "  SignalName AS signal,\n"
+            "  AttrFingerprint AS attr_fp,\n"
+            "  value,\n"
+            "  SampleCount AS sample_count,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state,\n"
+            "  anomaly_score\n"
+            "FROM v_derived_signals_anomaly\n"
+            "WHERE ServiceName = 'trace-svc-0'\n"
+            "  AND SignalSource = 'traces'\n"
+            "  AND SignalName = 'latency_p95_ms'\n"
+            "  AND time >= now() - INTERVAL 6 HOUR\n"
+            "ORDER BY time"
+        ),
+        "drilldown": {
+            "target": "metrics",
+            "label": "Open signal details",
+            "bucket_seconds": 60,
+            "time_axis": "x",
+        },
+        "min_columns": 12,
+        "max_columns": 16,
+        "column_roles": {
+            "time": 0,
+            "service": 1,
+            "source": 2,
+            "signal": 3,
+            "attr_fp": 4,
+            "value": 5,
+            "sample_count": 6,
+            "baseline_mean": 7,
+            "baseline_lower": 8,
+            "baseline_upper": 9,
+            "anomaly_state": 10,
+            "anomaly_score": 11,
+            "rule_state": 12,
+            "rule_name": 13,
+            "rule_reason": 14,
+            "effective_state": 15,
+        },
+        "echarts_option_template": {
+            "title": {
+                "left": 8,
+                "top": 2,
+                "text": "",
+                "subtext": "{{signal_summary}}",
+                "textStyle": {"fontSize": 11, "color": "#adb5bd"},
+                "subtextStyle": {"fontSize": 11, "color": "#9ca3af"},
+            },
+            "tooltip": {"trigger": "axis"},
+            "legend": {"data": ["Value", "Baseline", "Expected Band"], "bottom": 0},
+            "xAxis": {"type": "time", "axisLabel": {"hideOverlap": True}},
+            "yAxis": {
+                "type": "value",
+                "name": "{{y_axis_name}}",
+                "nameTextStyle": {"color": "#9ca3af", "fontSize": 11},
+                "min": "{{value_axis_min}}",
+                "max": "{{value_axis_max}}",
+            },
+            "dataZoom": [
+                {"type": "inside", "xAxisIndex": 0, "filterMode": "none", "start": "{{zoom_start_pct}}", "end": 100}
+            ],
+            "visualMap": {
+                "show": False,
+                "dimension": 2,
+                "seriesIndex": 3,
+                "pieces": [
+                    {"value": 2, "color": "#dc3545"},
+                    {"value": 1, "color": "#ffc107"},
+                    {"value": 0, "color": "#20c997"},
+                ],
+            },
+            "grid": {"left": "3%", "right": "4%", "bottom": "15%", "containLabel": True},
+            "series": [
+                {
+                    "name": "Band Lower",
+                    "type": "line",
+                    "data": "{{baseline_lower_points}}",
+                    "lineStyle": {"opacity": 0},
+                    "symbol": "none",
+                    "stack": "expected_band",
+                },
+                {
+                    "name": "Expected Band",
+                    "type": "line",
+                    "data": "{{baseline_upper_points}}",
+                    "lineStyle": {"opacity": 0},
+                    "areaStyle": {"color": "rgba(13, 110, 253, 0.12)"},
+                    "symbol": "none",
+                    "stack": "expected_band",
+                },
+                {
+                    "name": "Baseline",
+                    "type": "line",
+                    "data": "{{baseline_mean_points}}",
+                    "lineStyle": {"type": "dashed", "color": "#6c757d"},
+                    "symbol": "none",
+                },
+                {
+                    "name": "Value",
+                    "type": "line",
+                    "smooth": True,
+                    "data": "{{value_points}}",
+                    "encode": {"x": 0, "y": 1},
+                    "lineStyle": {"width": 2, "color": "#20c997"},
+                    "symbol": "circle",
+                    "symbolSize": 4,
+                    "itemStyle": {"color": "#20c997"},
+                    "connectNulls": True,
+                    "markArea": {"silent": True, "label": {"show": False}, "data": "{{anomaly_mark_areas}}"},
+                },
+                {
+                    "name": "Warnings",
+                    "type": "scatter",
+                    "data": "{{warning_points}}",
+                    "symbolSize": 8,
+                    "itemStyle": {"color": "#ffc107"},
+                    "encode": {"x": 0, "y": 1},
+                },
+                {
+                    "name": "Outliers",
+                    "type": "scatter",
+                    "data": "{{outlier_points}}",
+                    "symbolSize": 10,
+                    "itemStyle": {"color": "#dc3545"},
+                    "encode": {"x": 0, "y": 1},
                 },
             ],
         },
@@ -3134,13 +4648,161 @@ def _extract_bindings(template: dict, columns: list[str], rows: list) -> dict:  
         if isinstance(v_list, list) and v_list:
             bindings["value_first"] = v_list[0]
 
-    # For anomaly_overlay: build per-point symbol sizes and colors from anomaly_state
-    if "anomaly_state" in bindings and isinstance(bindings["anomaly_state"], list):
-        states = bindings["anomaly_state"]
+    # For anomaly overlays: build per-point symbol sizes and colors from the effective or statistical state.
+    state_binding = bindings.get("effective_state", bindings.get("anomaly_state"))
+    if isinstance(state_binding, list):
+        states = state_binding
         _state_colors = {"outlier": "#dc3545", "warning": "#ffc107", "normal": "#0d6efd"}
         _state_sizes = {"outlier": 10, "warning": 7, "normal": 4}
         bindings["anomaly_point_color"] = [_state_colors.get(str(s), "#0d6efd") for s in states]
         bindings["anomaly_symbol_size"] = [_state_sizes.get(str(s), 4) for s in states]
+
+    # Derived signal overlays: choose chart style by signal semantics.
+    if str(template.get("id", "")) == "derived_signal_overlay":
+        bindings["value_axis_min"] = "dataMin"
+        bindings["value_axis_max"] = "dataMax"
+        bindings["zoom_start_pct"] = 0
+        bindings["signal_summary"] = ""
+        bindings["y_axis_name"] = "Value"
+
+        signal_binding = bindings.get("signal")
+        signal_name = ""
+        if isinstance(signal_binding, list) and signal_binding:
+            signal_name = str(signal_binding[0]).lower()
+
+        if "ratio" in signal_name:
+            bindings["value_axis_min"] = 0
+            bindings["value_axis_max"] = 1
+        elif any(token in signal_name for token in ("volume", "count", "latency", "duration", "p95", "p99")):
+            bindings["value_axis_min"] = 0
+
+        time_values = bindings.get("time")
+        value_values = bindings.get("value")
+        baseline_mean_values = bindings.get("baseline_mean")
+        baseline_lower_values = bindings.get("baseline_lower")
+        baseline_upper_values = bindings.get("baseline_upper")
+        effective_states = bindings.get("effective_state", bindings.get("anomaly_state"))
+
+        if (
+            isinstance(time_values, list)
+            and isinstance(value_values, list)
+            and isinstance(baseline_mean_values, list)
+            and isinstance(baseline_lower_values, list)
+            and isinstance(baseline_upper_values, list)
+        ):
+            state_to_rank = {"normal": 0, "warning": 1, "outlier": 2}
+            rank_series: list[int] = []
+            if isinstance(effective_states, list):
+                rank_series = [state_to_rank.get(str(s), 0) for s in effective_states]
+            if not rank_series:
+                rank_series = [0 for _ in value_values]
+
+            use_delta_mode = "ratio" not in signal_name
+            plot_values: list[float] = []
+            plot_baseline: list[float] = []
+            plot_lower: list[float] = []
+            plot_upper: list[float] = []
+            if use_delta_mode:
+                bindings["y_axis_name"] = "Delta %"
+                for idx in range(
+                    min(
+                        len(value_values),
+                        len(baseline_mean_values),
+                        len(baseline_lower_values),
+                        len(baseline_upper_values),
+                    )
+                ):
+                    base = float(baseline_mean_values[idx])
+                    val = float(value_values[idx])
+                    low = float(baseline_lower_values[idx])
+                    up = float(baseline_upper_values[idx])
+                    if abs(base) < 1e-9:
+                        plot_values.append(0.0)
+                        plot_baseline.append(0.0)
+                        plot_lower.append(0.0)
+                        plot_upper.append(0.0)
+                    else:
+                        denom = abs(base)
+                        plot_values.append(((val - base) / denom) * 100.0)
+                        plot_baseline.append(0.0)
+                        plot_lower.append(((low - base) / denom) * 100.0)
+                        plot_upper.append(((up - base) / denom) * 100.0)
+                if plot_values:
+                    min_bound = min(plot_lower + plot_values)
+                    max_bound = max(plot_upper + plot_values)
+                    span = max(5.0, (max_bound - min_bound) * 0.15)
+                    bindings["value_axis_min"] = round(min_bound - span, 2)
+                    bindings["value_axis_max"] = round(max_bound + span, 2)
+            else:
+                plot_values = [float(v) for v in value_values]
+                plot_baseline = [float(v) for v in baseline_mean_values]
+                plot_lower = [max(0.0, float(v)) for v in baseline_lower_values]
+                plot_upper = [float(v) for v in baseline_upper_values]
+
+            value_points = [
+                [time_values[idx], plot_values[idx], rank_series[idx] if idx < len(rank_series) else 0]
+                for idx in range(min(len(time_values), len(plot_values)))
+            ]
+            baseline_mean_points = [
+                [time_values[idx], plot_baseline[idx]] for idx in range(min(len(time_values), len(plot_baseline)))
+            ]
+            baseline_lower_points = [
+                [time_values[idx], plot_lower[idx]] for idx in range(min(len(time_values), len(plot_lower)))
+            ]
+            baseline_upper_points = [
+                [
+                    time_values[idx],
+                    max(0.0, float(plot_upper[idx]) - float(plot_lower[idx])),
+                ]
+                for idx in range(min(len(time_values), len(plot_upper), len(plot_lower)))
+            ]
+
+            mark_areas: list[list[dict[str, object]]] = []
+            warning_points = [pt[:2] for pt in value_points if len(pt) >= 3 and int(pt[2]) == 1]
+            outlier_points = [pt[:2] for pt in value_points if len(pt) >= 3 and int(pt[2]) == 2]
+            if isinstance(effective_states, list) and time_values:
+                i = 0
+                while i < min(len(effective_states), len(time_values)):
+                    state = str(effective_states[i])
+                    if state == "normal":
+                        i += 1
+                        continue
+                    start_idx = i
+                    while i + 1 < len(effective_states) and str(effective_states[i + 1]) == state:
+                        i += 1
+                    end_idx = i
+                    shade = "rgba(255, 193, 7, 0.15)" if state == "warning" else "rgba(220, 53, 69, 0.15)"
+                    mark_areas.append(
+                        [
+                            {
+                                "name": state.title(),
+                                "itemStyle": {"color": shade},
+                                "xAxis": time_values[start_idx],
+                            },
+                            {"xAxis": time_values[end_idx]},
+                        ]
+                    )
+                    i += 1
+
+            latest_value = float(value_values[-1]) if value_values else 0.0
+            latest_baseline = float(baseline_mean_values[-1]) if baseline_mean_values else 0.0
+            delta_pct = 0.0
+            if abs(latest_baseline) > 1e-9:
+                delta_pct = ((latest_value - latest_baseline) / abs(latest_baseline)) * 100.0
+            warning_count = len(warning_points)
+            outlier_count = len(outlier_points)
+            bindings["signal_summary"] = (
+                f"now {latest_value:.1f} | baseline {latest_baseline:.1f} | "
+                f"Δ {delta_pct:+.0f}% | warn {warning_count} | outlier {outlier_count}"
+            )
+
+            bindings["value_points"] = value_points
+            bindings["baseline_mean_points"] = baseline_mean_points
+            bindings["baseline_lower_points"] = baseline_lower_points
+            bindings["baseline_upper_points"] = baseline_upper_points
+            bindings["anomaly_mark_areas"] = mark_areas
+            bindings["warning_points"] = warning_points
+            bindings["outlier_points"] = outlier_points
 
     return bindings  # type: ignore
 
@@ -3184,21 +4846,101 @@ def _attach_drilldown_metadata(template: dict, bindings: dict[str, object], opti
     template_id = str(template.get("id", ""))
     bucket_seconds = drilldown.get("bucket_seconds")
 
-    if template_id in {"time_series_percentiles", "dual_axis_anomaly", "anomaly_overlay"}:
+    if template_id in {"time_series_percentiles", "dual_axis_anomaly", "anomaly_overlay", "derived_signal_overlay"}:
         time_values = bindings.get("time")
         if isinstance(time_values, list):
+            # For anomaly_overlay, also inject per-point anomaly state and score
+            is_anomaly_template = template_id in {"anomaly_overlay", "derived_signal_overlay"}
+            anomaly_states = bindings.get("anomaly_state") if is_anomaly_template else None
+            anomaly_scores = bindings.get("anomaly_score") if is_anomaly_template else None
+            rule_states = bindings.get("rule_state") if template_id == "derived_signal_overlay" else None
+            rule_names = bindings.get("rule_name") if template_id == "derived_signal_overlay" else None
+            rule_reasons = bindings.get("rule_reason") if template_id == "derived_signal_overlay" else None
+            effective_states = bindings.get("effective_state") if template_id == "derived_signal_overlay" else None
+            services = bindings.get("service") if template_id == "derived_signal_overlay" else None
+            sources = bindings.get("source") if template_id == "derived_signal_overlay" else None
+            signals = bindings.get("signal") if template_id == "derived_signal_overlay" else None
+            attr_fps = bindings.get("attr_fp") if template_id == "derived_signal_overlay" else None
             for series_entry in series:
                 if not isinstance(series_entry, dict):
                     continue
                 data = series_entry.get("data")
                 if not isinstance(data, list) or len(data) != len(time_values):
                     continue
+                # For anomaly_overlay, inject state/score into Value series only
+                is_value_series = is_anomaly_template and series_entry.get("name") == "Value"
                 series_entry["data"] = [
                     {
                         "value": value,
                         "drilldown": {
                             "from_ts": _format_drilldown_time(time_values[idx]),
                             "window_s": bucket_seconds,
+                            **(  # Inject anomaly metadata for Value series
+                                {
+                                    "_anomaly_state": (
+                                        (
+                                            anomaly_states[idx]  # type: ignore[index]
+                                            if isinstance(anomaly_states, list) and idx < len(anomaly_states)
+                                            else "normal"
+                                        )
+                                    ),
+                                    "_anomaly_score": (
+                                        (
+                                            anomaly_scores[idx]  # type: ignore[index]
+                                            if isinstance(anomaly_scores, list) and idx < len(anomaly_scores)
+                                            else 0
+                                        )
+                                    ),
+                                    **(
+                                        {
+                                            "_rule_state": (
+                                                rule_states[idx]  # type: ignore[index]
+                                                if isinstance(rule_states, list) and idx < len(rule_states)
+                                                else "normal"
+                                            ),
+                                            "_rule_name": (
+                                                rule_names[idx]  # type: ignore[index]
+                                                if isinstance(rule_names, list) and idx < len(rule_names)
+                                                else ""
+                                            ),
+                                            "_rule_reason": (
+                                                rule_reasons[idx]  # type: ignore[index]
+                                                if isinstance(rule_reasons, list) and idx < len(rule_reasons)
+                                                else ""
+                                            ),
+                                            "_effective_state": (
+                                                effective_states[idx]  # type: ignore[index]
+                                                if isinstance(effective_states, list) and idx < len(effective_states)
+                                                else "normal"
+                                            ),
+                                            "service": (
+                                                services[idx]  # type: ignore[index]
+                                                if isinstance(services, list) and idx < len(services)
+                                                else ""
+                                            ),
+                                            "source": (
+                                                sources[idx]  # type: ignore[index]
+                                                if isinstance(sources, list) and idx < len(sources)
+                                                else ""
+                                            ),
+                                            "signal": (
+                                                signals[idx]  # type: ignore[index]
+                                                if isinstance(signals, list) and idx < len(signals)
+                                                else ""
+                                            ),
+                                            "attr_fp": (
+                                                attr_fps[idx]  # type: ignore[index]
+                                                if isinstance(attr_fps, list) and idx < len(attr_fps)
+                                                else ""
+                                            ),
+                                        }
+                                        if template_id == "derived_signal_overlay"
+                                        else {}
+                                    ),
+                                }
+                                if is_value_series
+                                else {}
+                            ),
                         },
                     }
                     for idx, value in enumerate(data)
@@ -3237,6 +4979,65 @@ def _attach_drilldown_metadata(template: dict, bindings: dict[str, object], opti
     return option
 
 
+def _prepare_template_rows(
+    template_id: str, columns: list[str], rows: list[dict[str, object]]
+) -> tuple[list[str], list[dict[str, object]]]:
+    if template_id != "derived_signal_overlay":
+        return columns, rows
+
+    required_columns = [
+        "time",
+        "service",
+        "source",
+        "signal",
+        "attr_fp",
+        "value",
+        "sample_count",
+        "baseline_mean",
+        "baseline_lower",
+        "baseline_upper",
+        "anomaly_state",
+        "anomaly_score",
+    ]
+    if len(columns) < len(required_columns):
+        return columns, rows
+
+    normalized_rows: list[dict[str, object]] = []
+    for raw_row in rows:
+        normalized_rows.append(
+            {
+                "time": raw_row.get(columns[0]),
+                "service": raw_row.get(columns[1]),
+                "source": raw_row.get(columns[2]),
+                "signal": raw_row.get(columns[3]),
+                "attr_fp": raw_row.get(columns[4]),
+                "value": raw_row.get(columns[5]),
+                "sample_count": raw_row.get(columns[6]),
+                "baseline_mean": raw_row.get(columns[7]),
+                "baseline_lower": raw_row.get(columns[8]),
+                "baseline_upper": raw_row.get(columns[9]),
+                "anomaly_state": raw_row.get(columns[10]),
+                "anomaly_score": raw_row.get(columns[11]),
+            }
+        )
+
+    _annotate_rows_with_rules(
+        normalized_rows,
+        _load_anomaly_rules(get_db()),
+        source_key="source",
+        signal_key="signal",
+        service_key="service",
+        attr_fp_key="attr_fp",
+        value_key="value",
+        sample_count_key="sample_count",
+        time_key="time",
+    )
+
+    prepared_columns = required_columns + ["rule_state", "rule_name", "rule_reason", "effective_state"]
+    prepared_rows = [{column: row.get(column, "") for column in prepared_columns} for row in normalized_rows]
+    return prepared_columns, prepared_rows
+
+
 def _render_chart_from_template(template_id: str, columns: list[str], rows: list) -> dict:  # type: ignore
     """
     Render chart option by substituting query results into template.
@@ -3248,7 +5049,19 @@ def _render_chart_from_template(template_id: str, columns: list[str], rows: list
         raise ValueError(f"Unknown template: {template_id}")
 
     if not rows:
-        return {"series": [], "xAxis": {}, "yAxis": {}}
+        return {
+            "backgroundColor": "transparent",
+            "textStyle": {"color": "#adb5bd"},
+            "title": {
+                "text": "No data for selected query/time window",
+                "left": "center",
+                "top": "middle",
+                "textStyle": {"color": "#6c757d", "fontSize": 13, "fontWeight": 500},
+            },
+            "series": [],
+            "xAxis": {"show": False},
+            "yAxis": {"show": False},
+        }
 
     # Validate column count
     min_cols_raw = template.get("min_columns", 0)
@@ -3260,6 +5073,9 @@ def _render_chart_from_template(template_id: str, columns: list[str], rows: list
     if max_cols and len(columns) > max_cols:
         raise ValueError(f"Template {template_id} accepts maximum {max_cols} columns, got {len(columns)}")
 
+    if rows and isinstance(rows[0], dict):
+        columns, rows = _prepare_template_rows(template_id, columns, rows)
+
     # Extract bindings
     bindings = _extract_bindings(template, columns, rows)
 
@@ -3267,8 +5083,11 @@ def _render_chart_from_template(template_id: str, columns: list[str], rows: list
     option = _deep_substitute(template["echarts_option_template"], bindings)
     if isinstance(option, dict):
         option = _attach_drilldown_metadata(template, bindings, option)
-        option.setdefault("backgroundColor", "transparent")
-        option.setdefault("textStyle", {"color": "#adb5bd"})
+        # Ensure consistent transparent background across all templates
+        if "backgroundColor" not in option:
+            option["backgroundColor"] = "transparent"
+        if "textStyle" not in option:
+            option["textStyle"] = {"color": "#adb5bd"}
     return option  # type: ignore
 
 
@@ -3543,11 +5362,9 @@ async def render_chart():
     db = get_db()
     try:
         result = db.execute(query)
-        rows = result.fetchall()
-        columns = list(rows[0].keys()) if rows else []
-
-        # Convert to list of values for template rendering
-        data = [[row[col] for col in columns] for row in rows]
+        raw_rows = result.fetchall()
+        columns = list(raw_rows[0].keys()) if raw_rows else []
+        data = [dict(row) for row in raw_rows]
 
         # Render using template
         option = _render_chart_from_template(template_id, columns, data)

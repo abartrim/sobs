@@ -2359,6 +2359,51 @@ class TestCustomDashboards:
         assert first_cell["drilldown"]["from_ts"] == "2024-01-01T00:05:00Z"
         assert first_cell["drilldown"]["window_s"] == 300
 
+    async def test_derived_signal_overlay_uses_line_with_visual_map(self, client):
+        r = await client.post(
+            "/api/dashboards/render",
+            json={
+                "template_id": "derived_signal_overlay",
+                "query": (
+                    "SELECT toDateTime('2024-01-01 00:00:00') AS time, "
+                    "'svc-a' AS service, 'traces' AS source, 'trace_volume' AS signal, '' AS attr_fp, "
+                    "10.0 AS value, 5 AS sample_count, 8.0 AS baseline_mean, 5.0 AS baseline_lower, "
+                    "11.0 AS baseline_upper, 'normal' AS anomaly_state, 0.2 AS anomaly_score"
+                ),
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["option"]["series"][3]["type"] == "line"
+        assert data["option"]["series"][4]["name"] == "Warnings"
+        assert data["option"]["series"][5]["name"] == "Outliers"
+        assert data["option"]["visualMap"]["dimension"] == 2
+        assert isinstance(data["option"]["dataZoom"], list)
+        assert data["option"]["dataZoom"][0]["start"] == 0
+        assert data["option"]["series"][3]["markArea"]["label"]["show"] is False
+        assert "now" in data["option"]["title"]["subtext"]
+        assert data["option"]["yAxis"]["name"] == "Delta %"
+
+    async def test_derived_signal_overlay_clamps_ratio_axis(self, client):
+        r = await client.post(
+            "/api/dashboards/render",
+            json={
+                "template_id": "derived_signal_overlay",
+                "query": (
+                    "SELECT toDateTime('2024-01-01 00:00:00') AS time, "
+                    "'svc-a' AS service, 'traces' AS source, 'trace_error_ratio' AS signal, '' AS attr_fp, "
+                    "0.33 AS value, 5 AS sample_count, 0.2 AS baseline_mean, 0.1 AS baseline_lower, "
+                    "0.4 AS baseline_upper, 'warning' AS anomaly_state, 1.2 AS anomaly_score"
+                ),
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["option"]["series"][3]["type"] == "line"
+        assert data["option"]["yAxis"]["min"] == 0
+        assert data["option"]["yAxis"]["max"] == 1
+        assert isinstance(data["option"]["series"][3]["markArea"]["data"], list)
+
     async def test_add_chart_rejects_non_select_query(self, client):
         r = await client.post(
             "/dashboards",
@@ -2511,6 +2556,133 @@ class TestMetricsAnomalyDetection:
         for view in ("v_otel_metrics_1m", "v_otel_metrics_anomaly"):
             row = db.execute("SELECT 1 FROM system.tables WHERE database='default' AND name=?", (view,)).fetchone()
             assert row is not None, f"View {view!r} not found in schema"
+
+    async def test_derived_signal_views_exist(self, client):
+        """Derived signal views should exist for Option C anomaly workflows."""
+        db = sobs_app.get_db()
+        for view in ("v_derived_signals_1m", "v_derived_signals_anomaly"):
+            row = db.execute("SELECT 1 FROM system.tables WHERE database='default' AND name=?", (view,)).fetchone()
+            assert row is not None, f"View {view!r} not found in schema"
+
+    async def test_metrics_index_page_renders(self, client):
+        """Top-level metrics page should be accessible without chart drilldown."""
+        r = await client.get("/metrics")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Metrics & Signals" in body
+
+    async def test_metrics_rules_page_renders(self, client):
+        r = await client.get("/metrics/rules")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Metrics Rules" in body
+        assert "Rule Type" in body
+
+    async def test_rule_creation_surfaces_on_metrics_index(self, client):
+        marker = f"rule-svc-{time.time_ns()}"
+        r = await client.post(
+            "/v1/errors",
+            json={"service": marker, "type": "RuntimeError", "message": "rule eval seed", "stack": "x"},
+        )
+        assert r.status_code == 200
+
+        r = await client.post(
+            "/metrics/rules",
+            form={
+                "name": "Exception volume high",
+                "source": "errors",
+                "signal": "exception_volume",
+                "service": marker,
+                "attr_fp": "",
+                "comparator": "gt",
+                "warning_threshold": "0.5",
+                "critical_threshold": "1.0",
+                "min_sample_count": "1",
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        r = await client.get(f"/metrics?service={marker}&source=errors&signal=exception_volume")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Exception volume high" in body
+
+    async def test_composite_rule_creation_renders_in_rules_page(self, client):
+        marker = f"trace-svc-{time.time_ns()}"
+        r = await client.post(
+            "/metrics/rules",
+            form={
+                "name": "Trace distress composite",
+                "rule_type": "composite",
+                "source": "traces",
+                "signal": "latency_p95_ms",
+                "service": marker,
+                "attr_fp": "",
+                "comparator": "gt",
+                "warning_threshold": "250",
+                "critical_threshold": "500",
+                "secondary_source": "traces",
+                "secondary_signal": "trace_error_ratio",
+                "secondary_comparator": "gt",
+                "secondary_warning_threshold": "0.05",
+                "secondary_critical_threshold": "0.1",
+                "min_sample_count": "1",
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        r = await client.get("/metrics/rules")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Trace distress composite" in body
+        assert "trace_error_ratio" in body
+
+    async def test_derived_signal_overlay_template_injects_rule_metadata(self, client):
+        r = await client.post(
+            "/metrics/rules",
+            form={
+                "name": "Overlay latency high",
+                "rule_type": "threshold",
+                "source": "traces",
+                "signal": "latency_p95_ms",
+                "service": "overlay-svc",
+                "attr_fp": "",
+                "comparator": "gt",
+                "warning_threshold": "100",
+                "critical_threshold": "150",
+                "min_sample_count": "1",
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        r = await client.post(
+            "/api/dashboards/render",
+            json={
+                "template_id": "derived_signal_overlay",
+                "query": (
+                    "SELECT toDateTime('2024-01-01 00:00:00') AS time, "
+                    "'overlay-svc' AS service, "
+                    "'traces' AS source, "
+                    "'latency_p95_ms' AS signal, "
+                    "'' AS attr_fp, "
+                    "175.0 AS value, "
+                    "3 AS sample_count, "
+                    "120.0 AS baseline_mean, "
+                    "90.0 AS baseline_lower, "
+                    "140.0 AS baseline_upper, "
+                    "'warning' AS anomaly_state, "
+                    "2.2 AS anomaly_score"
+                ),
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        value_series = next(s for s in data["option"]["series"] if s.get("name") == "Value")
+        first_point = value_series["data"][0]
+        assert first_point["drilldown"]["service"] == "overlay-svc"
+        assert first_point["drilldown"]["signal"] == "latency_p95_ms"
+        assert first_point["drilldown"]["_rule_name"] == "Overlay latency high"
+        assert first_point["drilldown"]["_effective_state"] == "outlier"
 
     # ── gauge ingest ─────────────────────────────────────────────────────────
 
