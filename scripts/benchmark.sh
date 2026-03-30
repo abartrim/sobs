@@ -17,7 +17,7 @@ set -euo pipefail
 
 BASE="${1:-http://127.0.0.1:4317}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PUMP="$SCRIPT_DIR/load_pump.py"
+EXAMPLE="$SCRIPT_DIR/load_example.py"
 PYTHON="${PYTHON:-python}"
 
 # Verify the target is up before starting
@@ -35,7 +35,7 @@ run_scenario() {
   local workers="$3"
 
   echo "--- $label (total=$total workers=$workers) ---"
-  "$PYTHON" "$PUMP" --base "$BASE" --total "$total" --workers "$workers"
+  "$PYTHON" "$EXAMPLE" --base "$BASE" --total "$total" --workers "$workers"
   echo
 }
 

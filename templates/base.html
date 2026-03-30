@@ -33,13 +33,13 @@
 <div class="d-flex">
   <!-- Sidebar -->
   <nav class="sidebar d-flex flex-column p-3" style="width:220px;flex-shrink:0;">
-    <a href="{{ url_for('dashboard') }}" class="text-decoration-none mb-4 d-flex align-items-center gap-2">
+    <a href="{{ url_for('summary') }}" class="text-decoration-none mb-4 d-flex align-items-center gap-2">
       <span style="font-size:1.4rem;">🔭</span>
       <span class="fw-bold fs-5 text-white">SOBS</span>
     </a>
     <ul class="nav flex-column gap-1">
       <li class="nav-item">
-        <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
+        <a href="{{ url_for('summary') }}" class="nav-link {% if request.endpoint == 'summary' %}active{% endif %}">
           <i class="bi bi-speedometer2"></i> Summary
         </a>
       </li>
@@ -64,6 +64,11 @@
         </a>
       </li>
       <li class="nav-item">
+        <a href="{{ url_for('view_metrics') }}" class="nav-link {% if request.endpoint in ('view_metrics', 'view_metrics_anomaly', 'view_metrics_rules') %}active{% endif %}">
+          <i class="bi bi-graph-up-arrow"></i> Metrics
+        </a>
+      </li>
+      <li class="nav-item">
         <a href="{{ url_for('view_rum') }}" class="nav-link {% if request.endpoint == 'view_rum' %}active{% endif %}">
           <i class="bi bi-globe"></i> RUM
         </a>
@@ -73,9 +78,14 @@
           <i class="bi bi-cpu"></i> AI
         </a>
       </li>
+      <li class="nav-item mt-2">
+        <button id="reopenWelcomeTourBtn" type="button" class="nav-link btn btn-link text-start w-100">
+          <i class="bi bi-stars"></i> Quick Tour
+        </button>
+      </li>
     </ul>
     <div class="mt-auto pt-3 border-top border-secondary">
-      <small class="text-secondary">Simple Observe v1.0</small>
+      <small class="text-secondary">Simple Observe Stack v1.0</small>
     </div>
   </nav>
 
@@ -95,6 +105,9 @@
 
 <script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
 <script src="{{ url_for('static', filename='date-range-picker.js') }}"></script>
+{% if config.get('ENABLE_FIRST_RUN_TOUR', True) and request.endpoint not in ('chart_editor_help', 'metrics_rules_help', 'auto_metrics_rules_help') %}
+  {% include "_first_run_tour.html" %}
+{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

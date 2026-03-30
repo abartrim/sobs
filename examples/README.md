@@ -45,16 +45,16 @@ node example.js
 bash curl_examples.sh
 ```
 
-### Load pump (repo script)
+### Load example (repo script)
 
 From the repository root:
 
 ```bash
 # Default high-throughput mode
-python scripts/load_pump.py --base http://localhost:4317 --total 420 --workers 28
+python scripts/load_example.py --base http://localhost:4317 --total 420 --workers 28
 
 # Realistic paced mode (useful for observing Logs Live mode)
-python scripts/load_pump.py --base http://localhost:4317 --mode realistic --rps 3 --jitter-ms 250 --total 180 --workers 8
+python scripts/load_example.py --base http://localhost:4317 --mode realistic --rps 3 --jitter-ms 250 --total 180 --workers 8
 ```
 
 ## RUM (Client-side)
@@ -77,7 +77,7 @@ Embed in your HTML:
 |------------------|--------|------------------------------------|
 | `/v1/logs`       | POST   | OTLP logs (JSON or protobuf)       |
 | `/v1/traces`     | POST   | OTLP traces (JSON or protobuf)     |
-| `/v1/metrics`    | POST   | OTLP metrics (JSON or protobuf, stored as logs) |
+| `/v1/metrics`    | POST   | OTLP metrics (JSON or protobuf, typed metric tables + anomaly views) |
 | `/v1/rum`        | POST   | RUM events (JSON array)            |
 | `/v1/errors`     | POST   | Direct error submission            |
 | `/v1/ai`         | POST   | AI/LLM call transparency           |

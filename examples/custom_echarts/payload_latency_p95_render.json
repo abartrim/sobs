@@ -1,0 +1,13 @@
+{
+  "spec": {
+    "template_id": "custom_echarts",
+    "sql": {
+      "mode": "raw",
+      "override_sql": "SELECT toStartOfMinute(Timestamp) AS ts, quantile(0.95)(Duration) AS p95_ms FROM otel_traces WHERE Timestamp >= now() - INTERVAL 2 HOUR GROUP BY ts ORDER BY ts LIMIT 240"
+    },
+    "visual": {
+      "custom_mapping_json": "{\"points\":{\"from\":\"rows\"},\"timestamps\":{\"from\":\"column\",\"name\":\"ts\"},\"p95_values\":{\"from\":\"column\",\"name\":\"p95_ms\"}}",
+      "custom_option_json": "{\"tooltip\":{\"trigger\":\"axis\"},\"xAxis\":{\"type\":\"time\"},\"yAxis\":{\"type\":\"value\",\"name\":\"p95 ms\"},\"series\":[{\"name\":\"Latency p95\",\"type\":\"line\",\"data\":\"{{points}}\",\"showSymbol\":false,\"smooth\":true,\"lineStyle\":{\"width\":2}}]}"
+    }
+  }
+}

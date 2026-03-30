@@ -59,6 +59,7 @@ def live_server():
     env = os.environ.copy()
     env["PORT"] = str(SERVER_PORT)
     env["SOBS_DATA_DIR"] = data_dir
+    env["SOBS_ENABLE_FIRST_RUN_TOUR"] = "0"
 
     proc = subprocess.Popen(
         [sys.executable, "app.py"],
@@ -446,7 +447,7 @@ class TestDataVisibleInUI:
     def test_dashboard_loads(self, live_server):
         r = requests.get(f"{live_server}/")
         assert r.status_code == 200
-        assert "Dashboard" in r.text
+        assert "Summary" in r.text
         assert "SOBS" in r.text
 
     def test_logs_page_shows_curl_demo_data(self, live_server):
@@ -501,9 +502,9 @@ class TestScreenshots:
         os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
         page.screenshot(path=os.path.join(SCREENSHOTS_DIR, filename), full_page=True)
 
-    def test_screenshot_dashboard(self, page: Page, live_server):
-        self._screenshot(page, "dashboard.png", f"{live_server}/")
-        expect(page.get_by_role("heading", name="Dashboard")).to_be_visible()
+    def test_screenshot_summary(self, page: Page, live_server):
+        self._screenshot(page, "summary.png", f"{live_server}/")
+        expect(page.get_by_role("heading", name="Summary")).to_be_visible()
 
     def test_screenshot_logs(self, page: Page, live_server):
         self._screenshot(page, "logs.png", f"{live_server}/logs")

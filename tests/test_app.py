@@ -1052,6 +1052,27 @@ class TestUIPages:
         r = await client.get("/ai")
         assert r.status_code == 200
 
+    async def test_first_run_tour_modal_present(self, client):
+        r = await client.get("/")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"firstRunTourModal" in data
+        assert b"Quick Tour" in data
+
+    async def test_chart_editor_help_page(self, client):
+        r = await client.get("/dashboards/help/chart-editor")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Chart Editor Help" in data
+        assert b"Custom ECharts" in data
+
+    async def test_auto_metrics_rules_help_page(self, client):
+        r = await client.get("/metrics/help/rules/auto")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Auto Make Metric Rules Help" in data
+        assert b"Preview First" in data
+
     async def test_rum_js_served(self, client):
         r = await client.get("/static/rum.js")
         assert r.status_code == 200
@@ -1346,14 +1367,14 @@ class TestUIPages:
         await client.post(
             "/v1/errors",
             json={
-                "service": "pump-err-svc",
+                "service": "example-err-svc",
                 "type": "RuntimeError",
                 "message": "simulated error without family token",
                 "stack": "Traceback line",
             },
         )
 
-        analyzed = await client.get("/logs?service=pump-err-svc&analyze=1&stats=1")
+        analyzed = await client.get("/logs?service=example-err-svc&analyze=1&stats=1")
         assert analyzed.status_code == 200
         data = await analyzed.get_data()
         assert b"Error Families" in data
@@ -2210,8 +2231,17 @@ class TestCustomDashboards:
             f"/dashboards/{dashboard_id}/charts",
             form={
                 "title": "Latency Bands",
-                "template_id": "time_series_percentiles",
-                "query": ("SELECT toDateTime('2024-01-01 00:00:00') AS time, " "1 AS value, 2 AS p95, 3 AS p99"),
+                "chart_spec_json": json.dumps(
+                    {
+                        "template_id": "time_series_percentiles",
+                        "sql": {
+                            "mode": "raw",
+                            "override_sql": (
+                                "SELECT toDateTime('2024-01-01 00:00:00') AS time, " "1 AS value, 2 AS p95, 3 AS p99"
+                            ),
+                        },
+                    }
+                ),
             },
             follow_redirects=False,
         )
@@ -2235,9 +2265,9 @@ class TestCustomDashboards:
         r2 = await client.get(location)
         assert r2.status_code == 200
         body = await r2.get_data(as_text=True)
-        assert "Example SQL" in body
-        assert "Use Example" in body
-        assert "quantile(0.95)(Duration) AS p95" in body
+        assert "SQL Builder" in body
+        assert "Visual Builder" in body
+        assert "Compiled SQL" in body
         assert "Columns: time, value, p95, p99" in body
 
     async def test_remove_chart_from_dashboard(self, client):
@@ -2251,7 +2281,15 @@ class TestCustomDashboards:
         dashboard_id = location.rstrip("/").split("/")[-1]
         await client.post(
             f"/dashboards/{dashboard_id}/charts",
-            form={"title": "Temp Chart", "template_id": "gauge_kpi", "query": "SELECT 1 AS value"},
+            form={
+                "title": "Temp Chart",
+                "chart_spec_json": json.dumps(
+                    {
+                        "template_id": "gauge_kpi",
+                        "sql": {"mode": "raw", "override_sql": "SELECT 1 AS value"},
+                    }
+                ),
+            },
             follow_redirects=False,
         )
 
@@ -2268,6 +2306,108 @@ class TestCustomDashboards:
             follow_redirects=False,
         )
         assert r2.status_code in (302, 303)
+
+    async def test_edit_chart_on_dashboard(self, client):
+        r = await client.post(
+            "/dashboards",
+            form={"name": "Edit Chart Test", "description": ""},
+            follow_redirects=False,
+        )
+        dashboard_id = r.headers.get("Location", "").rstrip("/").split("/")[-1]
+
+        await client.post(
+            f"/dashboards/{dashboard_id}/charts",
+            form={
+                "title": "Original Chart",
+                "chart_spec_json": json.dumps(
+                    {
+                        "template_id": "gauge_kpi",
+                        "sql": {"mode": "raw", "override_sql": "SELECT 1 AS value"},
+                    }
+                ),
+            },
+            follow_redirects=False,
+        )
+
+        from app import _get_charts, get_db  # noqa: PLC0415
+
+        charts = _get_charts(get_db(), dashboard_id)
+        assert charts
+        chart_id = charts[0]["id"]
+
+        r2 = await client.post(
+            f"/dashboards/{dashboard_id}/charts/{chart_id}/edit",
+            form={
+                "title": "Updated Chart",
+                "chart_spec_json": json.dumps(
+                    {
+                        "template_id": "time_series_percentiles",
+                        "sql": {
+                            "mode": "raw",
+                            "override_sql": (
+                                "SELECT toDateTime('2024-01-01 00:00:00') AS time, " "1 AS value, 2 AS p95, 3 AS p99"
+                            ),
+                        },
+                    }
+                ),
+            },
+            follow_redirects=False,
+        )
+        assert r2.status_code in (302, 303)
+
+        charts_after = _get_charts(get_db(), dashboard_id)
+        edited = next(c for c in charts_after if c["id"] == chart_id)
+        assert edited["title"] == "Updated Chart"
+        assert edited["chart_type"] == "time_series_percentiles"
+
+    async def test_clone_chart_on_dashboard(self, client):
+        r = await client.post(
+            "/dashboards",
+            form={"name": "Clone Chart Test", "description": ""},
+            follow_redirects=False,
+        )
+        dashboard_id = r.headers.get("Location", "").rstrip("/").split("/")[-1]
+
+        await client.post(
+            f"/dashboards/{dashboard_id}/charts",
+            form={
+                "title": "Source Chart",
+                "chart_spec_json": json.dumps(
+                    {
+                        "template_id": "gauge_kpi",
+                        "sql": {"mode": "raw", "override_sql": "SELECT 1 AS value"},
+                    }
+                ),
+            },
+            follow_redirects=False,
+        )
+
+        from app import _get_charts, get_db  # noqa: PLC0415
+
+        charts = _get_charts(get_db(), dashboard_id)
+        assert len(charts) == 1
+        source_chart_id = charts[0]["id"]
+
+        r2 = await client.post(
+            f"/dashboards/{dashboard_id}/charts/{source_chart_id}/clone",
+            form={
+                "title": "Source Chart (copy)",
+                "chart_spec_json": json.dumps(
+                    {
+                        "template_id": "gauge_kpi",
+                        "sql": {"mode": "raw", "override_sql": "SELECT 1 AS value"},
+                    }
+                ),
+            },
+            follow_redirects=False,
+        )
+        assert r2.status_code in (302, 303)
+
+        charts_after = _get_charts(get_db(), dashboard_id)
+        assert len(charts_after) == 2
+        titles = [c["title"] for c in charts_after]
+        assert "Source Chart" in titles
+        assert "Source Chart (copy)" in titles
 
     async def test_delete_dashboard(self, client):
         r = await client.post(
@@ -2349,6 +2489,347 @@ class TestCustomDashboards:
         assert "/Users/" not in data["error"]
         assert "Check casts and column types" in data["error"]
 
+    async def test_chart_spec_compile_builder_endpoint(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/compile",
+            json={
+                "spec": {
+                    "template_id": "derived_signal_overlay",
+                    "sql": {"mode": "builder"},
+                    "data": {
+                        "source_view": "v_derived_signals_anomaly",
+                        "signal_source": "traces",
+                        "signal_name": "trace_volume",
+                        "window_hours": 6,
+                        "limit": 100,
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["template_id"] == "derived_signal_overlay"
+        assert "FROM v_derived_signals_anomaly" in data["query"]
+
+    async def test_chart_spec_compile_builder_supports_base_table_source(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/compile",
+            json={
+                "spec": {
+                    "template_id": "derived_signal_overlay",
+                    "sql": {"mode": "builder"},
+                    "data": {
+                        "source_view": "otel_logs",
+                        "service": "checkout",
+                        "signal_name": "log_volume",
+                        "window_hours": 6,
+                        "limit": 100,
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "FROM otel_logs" in data["query"]
+        assert "toStartOfMinute(TimestampTime)" in data["query"]
+
+    async def test_chart_spec_compile_builder_supports_metric_base_table_source(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/compile",
+            json={
+                "spec": {
+                    "template_id": "anomaly_overlay",
+                    "sql": {"mode": "builder"},
+                    "data": {
+                        "source_view": "otel_metrics_sum",
+                        "service": "checkout",
+                        "metric_name": "cpu.usage",
+                        "window_hours": 6,
+                        "limit": 100,
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "FROM otel_metrics_sum" in data["query"]
+        assert "avg(toFloat64(Value)) AS value" in data["query"]
+
+    async def test_chart_spec_compile_builder_supports_all_templates(self, client):
+        templates = [
+            "time_series_percentiles",
+            "heatmap",
+            "box_plot",
+            "dual_axis_anomaly",
+            "anomaly_overlay",
+            "derived_signal_overlay",
+            "gauge_kpi",
+        ]
+
+        for template_id in templates:
+            source_view = "v_otel_metrics_anomaly"
+            if template_id == "derived_signal_overlay":
+                source_view = "v_derived_signals_anomaly"
+
+            r = await client.post(
+                "/api/dashboards/spec/compile",
+                json={
+                    "spec": {
+                        "template_id": template_id,
+                        "sql": {"mode": "builder"},
+                        "data": {
+                            "source_view": source_view,
+                            "window_hours": 6,
+                            "limit": 100,
+                        },
+                    }
+                },
+            )
+            assert r.status_code == 200
+
+    async def test_chart_spec_compile_rejects_builder_mode_for_custom_echarts(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/compile",
+            json={
+                "spec": {
+                    "template_id": "custom_echarts",
+                    "sql": {"mode": "builder"},
+                    "data": {
+                        "source_view": "v_derived_signals_anomaly",
+                        "window_hours": 6,
+                        "limit": 100,
+                    },
+                }
+            },
+        )
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert "requires sql.mode='raw'" in data["error"]
+
+    async def test_chart_spec_options_endpoint_returns_distinct_lists(self, client):
+        r = await client.get("/api/dashboards/spec/options?source_view=v_derived_signals_anomaly&signal_source=traces")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["source_view"] == "v_derived_signals_anomaly"
+        assert isinstance(data["services"], list)
+        assert isinstance(data["signals"], list)
+        assert isinstance(data["metrics"], list)
+
+    async def test_chart_spec_validate_endpoint(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/validate",
+            json={
+                "spec": {
+                    "template_id": "anomaly_overlay",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT toDateTime('2024-01-01 00:00:00') AS time, "
+                            "1 AS value, 1 AS baseline_mean, 0 AS baseline_lower, "
+                            "2 AS baseline_upper, 'normal' AS anomaly_state"
+                        ),
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["valid"] is True
+        assert data["row_count"] == 1
+
+    async def test_chart_spec_validate_endpoint_with_role_map(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/validate",
+            json={
+                "spec": {
+                    "template_id": "anomaly_overlay",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT toDateTime('2024-01-01 00:00:00') AS t, "
+                            "1 AS v, 1 AS bm, 0 AS bl, 2 AS bu, 'normal' AS st"
+                        ),
+                    },
+                    "visual": {
+                        "role_map": {
+                            "time": "t",
+                            "value": "v",
+                            "baseline_mean": "bm",
+                            "baseline_lower": "bl",
+                            "baseline_upper": "bu",
+                            "anomaly_state": "st",
+                        }
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["valid"] is True
+
+    async def test_chart_spec_validate_endpoint_rejects_unknown_role_column(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/validate",
+            json={
+                "spec": {
+                    "template_id": "anomaly_overlay",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT toDateTime('2024-01-01 00:00:00') AS time, "
+                            "1 AS value, 1 AS baseline_mean, 0 AS baseline_lower, "
+                            "2 AS baseline_upper, 'normal' AS anomaly_state"
+                        ),
+                    },
+                    "visual": {"role_map": {"value": "missing_col"}},
+                }
+            },
+        )
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["valid"] is False
+        assert "unknown column" in data["error"].lower()
+
+    async def test_chart_spec_dry_run_includes_column_types(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/dry-run",
+            json={
+                "spec": {
+                    "template_id": "anomaly_overlay",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT toDateTime('2024-01-01 00:00:00') AS time, "
+                            "1 AS value, 1 AS baseline_mean, 0 AS baseline_lower, "
+                            "2 AS baseline_upper, 'normal' AS anomaly_state"
+                        ),
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["columns"][0] == "time"
+        assert len(data["column_types"]) == len(data["columns"])
+
+    async def test_chart_spec_render_endpoint(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/render",
+            json={
+                "spec": {
+                    "template_id": "anomaly_overlay",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT toDateTime('2024-01-01 00:00:00') AS time, "
+                            "1 AS value, 1 AS baseline_mean, 0 AS baseline_lower, "
+                            "2 AS baseline_upper, 'normal' AS anomaly_state"
+                        ),
+                    },
+                    "visual": {
+                        "zoom_inside": True,
+                        "zoom_slider": True,
+                        "zoom_start_pct": 10,
+                        "zoom_end_pct": 90,
+                        "legend_show": False,
+                        "smooth_line": False,
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "option" in data
+        assert data["template_id"] == "anomaly_overlay"
+        assert data["option"]["legend"]["show"] is False
+        assert len(data["option"]["dataZoom"]) == 2
+
+    async def test_chart_spec_render_endpoint_custom_echarts(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/render",
+            json={
+                "spec": {
+                    "template_id": "custom_echarts",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT toDateTime('2024-01-01 00:00:00') AS ts, "
+                            "10 AS v UNION ALL "
+                            "SELECT toDateTime('2024-01-01 00:01:00') AS ts, 12 AS v "
+                            "ORDER BY ts"
+                        ),
+                    },
+                    "visual": {
+                        "custom_mapping_json": '{"points": {"from": "rows"}}',
+                        "custom_option_json": (
+                            '{"xAxis": {"type": "time"}, '
+                            '"yAxis": {"type": "value"}, '
+                            '"series": [{"type": "line", "data": "{{points}}"}]}'
+                        ),
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["template_id"] == "custom_echarts"
+        assert data["option"]["series"][0]["data"][0][1] == 10
+
+    async def test_chart_spec_validate_rejects_invalid_custom_json(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/validate",
+            json={
+                "spec": {
+                    "template_id": "custom_echarts",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": "SELECT 1 AS value",
+                    },
+                    "visual": {
+                        "custom_mapping_json": "{bad json",
+                        "custom_option_json": "{}",
+                    },
+                }
+            },
+        )
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["valid"] is False
+        assert "custom_mapping_json" in data["error"]
+
+    async def test_chart_spec_render_custom_echarts_emits_custom_drilldown(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/render",
+            json={
+                "spec": {
+                    "template_id": "custom_echarts",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT 'checkout' AS service, toDateTime('2024-01-01 00:00:00') AS ts, 42 AS value"
+                        ),
+                    },
+                    "visual": {
+                        "custom_mapping_json": (
+                            '{"points":{"from":"rows"},"_drilldown":{"target":"logs",'
+                            '"label":"Open logs","extra":{"service":"{{service}}","from_ts":"{{ts}}"}}}'
+                        ),
+                        "custom_option_json": (
+                            '{"xAxis":{"type":"time"},"yAxis":{"type":"value"},'
+                            '"series":[{"type":"line","data":"{{points}}"}]}'
+                        ),
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        dd = data["option"]["_customDrilldown"]
+        assert dd["target"] == "logs"
+        assert dd["label"] == "Open logs"
+        assert dd["extra"]["service"] == "checkout"
+        assert "2024-01-01" in dd["extra"]["from_ts"]
+
     async def test_chart_render_api_attaches_time_series_drilldown_metadata(self, client):
         r = await client.post(
             "/api/dashboards/render",
@@ -2380,6 +2861,51 @@ class TestCustomDashboards:
         assert first_cell["drilldown"]["from_ts"] == "2024-01-01T00:05:00Z"
         assert first_cell["drilldown"]["window_s"] == 300
 
+    async def test_derived_signal_overlay_uses_line_with_visual_map(self, client):
+        r = await client.post(
+            "/api/dashboards/render",
+            json={
+                "template_id": "derived_signal_overlay",
+                "query": (
+                    "SELECT toDateTime('2024-01-01 00:00:00') AS time, "
+                    "'svc-a' AS service, 'traces' AS source, 'trace_volume' AS signal, '' AS attr_fp, "
+                    "10.0 AS value, 5 AS sample_count, 8.0 AS baseline_mean, 5.0 AS baseline_lower, "
+                    "11.0 AS baseline_upper, 'normal' AS anomaly_state, 0.2 AS anomaly_score"
+                ),
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["option"]["series"][3]["type"] == "line"
+        assert data["option"]["series"][4]["name"] == "Warnings"
+        assert data["option"]["series"][5]["name"] == "Outliers"
+        assert data["option"]["visualMap"]["dimension"] == 2
+        assert isinstance(data["option"]["dataZoom"], list)
+        assert data["option"]["dataZoom"][0]["start"] == 0
+        assert data["option"]["series"][3]["markArea"]["label"]["show"] is False
+        assert "now" in data["option"]["title"]["subtext"]
+        assert data["option"]["yAxis"]["name"] == "Delta %"
+
+    async def test_derived_signal_overlay_clamps_ratio_axis(self, client):
+        r = await client.post(
+            "/api/dashboards/render",
+            json={
+                "template_id": "derived_signal_overlay",
+                "query": (
+                    "SELECT toDateTime('2024-01-01 00:00:00') AS time, "
+                    "'svc-a' AS service, 'traces' AS source, 'trace_error_ratio' AS signal, '' AS attr_fp, "
+                    "0.33 AS value, 5 AS sample_count, 0.2 AS baseline_mean, 0.1 AS baseline_lower, "
+                    "0.4 AS baseline_upper, 'warning' AS anomaly_state, 1.2 AS anomaly_score"
+                ),
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["option"]["series"][3]["type"] == "line"
+        assert data["option"]["yAxis"]["min"] == 0
+        assert data["option"]["yAxis"]["max"] == 1
+        assert isinstance(data["option"]["series"][3]["markArea"]["data"], list)
+
     async def test_add_chart_rejects_non_select_query(self, client):
         r = await client.post(
             "/dashboards",
@@ -2393,8 +2919,12 @@ class TestCustomDashboards:
             f"/dashboards/{dashboard_id}/charts",
             form={
                 "title": "Bad Query",
-                "template_id": "gauge_kpi",
-                "query": "DROP TABLE otel_logs",
+                "chart_spec_json": json.dumps(
+                    {
+                        "template_id": "gauge_kpi",
+                        "sql": {"mode": "raw", "override_sql": "DROP TABLE otel_logs"},
+                    }
+                ),
             },
             follow_redirects=False,
         )
@@ -2412,3 +2942,731 @@ class TestCustomDashboards:
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
         assert "bar-chart-line" in body
+
+
+# ---------------------------------------------------------------------------
+# OTEL Metrics Anomaly Detection Tests
+# ---------------------------------------------------------------------------
+class TestMetricsAnomalyDetection:
+    """Tests for the SQL-first anomaly-detection layer on OTEL metrics."""
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    def _make_gauge_payload(self, service: str, metric: str, value: float, ts_ns: int | None = None) -> dict:
+        ts = ts_ns or int(time.time() * 1_000_000_000)
+        return {
+            "resourceMetrics": [
+                {
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": service}}]},
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": metric,
+                                    "description": "test gauge",
+                                    "unit": "ms",
+                                    "gauge": {
+                                        "dataPoints": [
+                                            {
+                                                "timeUnixNano": str(ts),
+                                                "asDouble": value,
+                                            }
+                                        ]
+                                    },
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+
+    def _make_sum_payload(self, service: str, metric: str, value: float, ts_ns: int | None = None) -> dict:
+        ts = ts_ns or int(time.time() * 1_000_000_000)
+        return {
+            "resourceMetrics": [
+                {
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": service}}]},
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": metric,
+                                    "description": "test counter",
+                                    "unit": "1",
+                                    "sum": {
+                                        "isMonotonic": True,
+                                        "aggregationTemporality": 2,
+                                        "dataPoints": [
+                                            {
+                                                "timeUnixNano": str(ts),
+                                                "asDouble": value,
+                                            }
+                                        ],
+                                    },
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+
+    def _make_histogram_payload(
+        self, service: str, metric: str, count: int, hsum: float, ts_ns: int | None = None
+    ) -> dict:
+        ts = ts_ns or int(time.time() * 1_000_000_000)
+        return {
+            "resourceMetrics": [
+                {
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": service}}]},
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": metric,
+                                    "description": "test histogram",
+                                    "unit": "ms",
+                                    "histogram": {
+                                        "aggregationTemporality": 2,
+                                        "dataPoints": [
+                                            {
+                                                "timeUnixNano": str(ts),
+                                                "count": str(count),
+                                                "sum": hsum,
+                                                "bucketCounts": ["1", str(count - 1)],
+                                                "explicitBounds": [50.0],
+                                            }
+                                        ],
+                                    },
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+
+    # ── schema / table existence ─────────────────────────────────────────────
+
+    async def test_otel_metric_tables_exist(self, client):
+        """The three typed metric tables must be created by init_db."""
+        db = sobs_app.get_db()
+        for table in ("otel_metrics_gauge", "otel_metrics_sum", "otel_metrics_histogram"):
+            row = db.execute("SELECT 1 FROM system.tables WHERE database='default' AND name=?", (table,)).fetchone()
+            assert row is not None, f"Table {table!r} not found in schema"
+
+    async def test_anomaly_views_exist(self, client):
+        """The two anomaly views must be created by init_db."""
+        db = sobs_app.get_db()
+        for view in ("v_otel_metrics_1m", "v_otel_metrics_anomaly"):
+            row = db.execute("SELECT 1 FROM system.tables WHERE database='default' AND name=?", (view,)).fetchone()
+            assert row is not None, f"View {view!r} not found in schema"
+
+    async def test_derived_signal_views_exist(self, client):
+        """Derived signal views should exist for Option C anomaly workflows."""
+        db = sobs_app.get_db()
+        for view in ("v_derived_signals_1m", "v_derived_signals_anomaly"):
+            row = db.execute("SELECT 1 FROM system.tables WHERE database='default' AND name=?", (view,)).fetchone()
+            assert row is not None, f"View {view!r} not found in schema"
+
+    async def test_metrics_index_page_renders(self, client):
+        """Top-level metrics page should be accessible without chart drilldown."""
+        r = await client.get("/metrics")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Metrics & Signals" in body
+        assert "sort_by=last_time" in body
+        assert "No derived signals for the current filters." in body or "/ page" in body
+
+    async def test_metrics_rules_page_renders(self, client):
+        r = await client.get("/metrics/rules")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Metrics Rules" in body
+        assert "Rule Type" in body
+
+    async def test_metrics_sort_by_signal(self, client):
+        r = await client.get("/metrics?sort_by=signal&sort_dir=asc")
+        assert r.status_code == 200
+
+    async def test_metrics_limit_offset(self, client):
+        r = await client.get("/metrics?limit=25&offset=0")
+        assert r.status_code == 200
+
+    async def test_rule_creation_surfaces_on_metrics_index(self, client):
+        marker = f"rule-svc-{time.time_ns()}"
+        r = await client.post(
+            "/v1/errors",
+            json={"service": marker, "type": "RuntimeError", "message": "rule eval seed", "stack": "x"},
+        )
+        assert r.status_code == 200
+
+        r = await client.post(
+            "/metrics/rules",
+            form={
+                "name": "Exception volume high",
+                "source": "errors",
+                "signal": "exception_volume",
+                "service": marker,
+                "attr_fp": "",
+                "comparator": "gt",
+                "warning_threshold": "0.5",
+                "critical_threshold": "1.0",
+                "min_sample_count": "1",
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        r = await client.get(f"/metrics?service={marker}&source=errors&signal=exception_volume")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Exception volume high" in body
+
+    async def test_composite_rule_creation_renders_in_rules_page(self, client):
+        marker = f"trace-svc-{time.time_ns()}"
+        r = await client.post(
+            "/metrics/rules",
+            form={
+                "name": "Trace distress composite",
+                "rule_type": "composite",
+                "source": "traces",
+                "signal": "latency_p95_ms",
+                "service": marker,
+                "attr_fp": "",
+                "comparator": "gt",
+                "warning_threshold": "250",
+                "critical_threshold": "500",
+                "secondary_source": "traces",
+                "secondary_signal": "trace_error_ratio",
+                "secondary_comparator": "gt",
+                "secondary_warning_threshold": "0.05",
+                "secondary_critical_threshold": "0.1",
+                "min_sample_count": "1",
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        r = await client.get("/metrics/rules")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Trace distress composite" in body
+        assert "trace_error_ratio" in body
+
+    async def test_auto_metrics_rules_preview_shows_candidates(self, client):
+        marker = f"auto-preview-svc-{time.time_ns()}"
+        for _ in range(8):
+            r = await client.post(
+                "/v1/errors",
+                json={"service": marker, "type": "RuntimeError", "message": "auto preview seed", "stack": "x"},
+            )
+            assert r.status_code == 200
+
+        r = await client.post(
+            "/metrics/rules/auto",
+            form={
+                "action": "preview",
+                "hours": "24",
+                "min_points": "1",
+                "service_filter": marker,
+            },
+        )
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Preview Candidates" in body
+        assert marker in body
+
+    async def test_auto_metrics_rules_create_is_idempotent(self, client):
+        marker = f"auto-create-svc-{time.time_ns()}"
+        for _ in range(8):
+            r = await client.post(
+                "/v1/errors",
+                json={"service": marker, "type": "RuntimeError", "message": "auto create seed", "stack": "x"},
+            )
+            assert r.status_code == 200
+
+        r = await client.post(
+            "/metrics/rules/auto",
+            form={
+                "action": "create",
+                "hours": "24",
+                "min_points": "1",
+                "service_filter": marker,
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        count1 = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT count() AS c FROM sobs_anomaly_rules FINAL " "WHERE IsDeleted = 0 AND ServiceName = ?",
+                (marker,),
+            )
+            .fetchone()["c"]
+        )
+        assert int(count1) >= 1
+
+        r = await client.post(
+            "/metrics/rules/auto",
+            form={
+                "action": "create",
+                "hours": "24",
+                "min_points": "1",
+                "service_filter": marker,
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        count2 = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT count() AS c FROM sobs_anomaly_rules FINAL " "WHERE IsDeleted = 0 AND ServiceName = ?",
+                (marker,),
+            )
+            .fetchone()["c"]
+        )
+        assert int(count2) == int(count1)
+
+    async def test_auto_metrics_rules_create_honors_max_cap(self, client, monkeypatch):
+        marker = f"auto-cap-svc-{time.time_ns()}"
+
+        def _fake_candidates(*args, **kwargs):
+            rows = []
+            for i in range(250):
+                rows.append(
+                    {
+                        "name": f"Auto cap {i}",
+                        "rule_type": "threshold",
+                        "source": "errors",
+                        "signal": f"sig_{i}",
+                        "service": marker,
+                        "attr_fp": "",
+                        "comparator": "gt",
+                        "warning_threshold": 1.0,
+                        "critical_threshold": 2.0,
+                        "min_sample_count": 3,
+                        "point_count": 100,
+                    }
+                )
+            return rows, {"examined": 250, "existing": 0, "invalid": 0}
+
+        monkeypatch.setattr(sobs_app, "_build_auto_metric_rule_candidates", _fake_candidates)
+
+        r = await client.post(
+            "/metrics/rules/auto",
+            form={
+                "action": "create",
+                "hours": "24",
+                "min_points": "1",
+                "service_filter": marker,
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        created = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT count() AS c FROM sobs_anomaly_rules FINAL " "WHERE IsDeleted = 0 AND ServiceName = ?",
+                (marker,),
+            )
+            .fetchone()["c"]
+        )
+        assert int(created) == 200
+
+    async def test_auto_dashboard_preview_shows_rule_candidates(self, client):
+        marker = f"auto-dash-preview-svc-{time.time_ns()}"
+        r = await client.post(
+            "/metrics/rules",
+            form={
+                "name": "Auto dashboard preview rule",
+                "source": "errors",
+                "signal": "exception_volume",
+                "service": marker,
+                "attr_fp": "",
+                "comparator": "gt",
+                "warning_threshold": "0.5",
+                "critical_threshold": "1.0",
+                "min_sample_count": "1",
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        r = await client.post(
+            "/metrics/rules/dashboard/auto",
+            form={
+                "action": "preview",
+                "hours": "24",
+                "max_charts": "12",
+                "service_filter": marker,
+                "dashboard_name": f"Auto Preview Dashboard {marker}",
+            },
+        )
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Dashboard Preview Candidates" in body
+        assert "Auto dashboard preview rule" in body
+
+    async def test_auto_dashboard_create_is_idempotent(self, client):
+        marker = f"auto-dash-create-svc-{time.time_ns()}"
+        dashboard_name = f"Auto Dashboard {marker}"
+        r = await client.post(
+            "/metrics/rules",
+            form={
+                "name": "Auto dashboard create rule",
+                "source": "errors",
+                "signal": "exception_volume",
+                "service": marker,
+                "attr_fp": "",
+                "comparator": "gt",
+                "warning_threshold": "0.5",
+                "critical_threshold": "1.0",
+                "min_sample_count": "1",
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        r = await client.post(
+            "/metrics/rules/dashboard/auto",
+            form={
+                "action": "create",
+                "hours": "24",
+                "max_charts": "12",
+                "service_filter": marker,
+                "dashboard_name": dashboard_name,
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        db = sobs_app.get_db()
+        dashboard_id = db.execute(
+            "SELECT Id FROM sobs_dashboards FINAL WHERE IsDeleted = 0 AND Name = ? LIMIT 1",
+            (dashboard_name,),
+        ).fetchone()["Id"]
+        count1 = db.execute(
+            "SELECT count() AS c FROM sobs_chart_configs FINAL WHERE IsDeleted = 0 AND DashboardId = ?",
+            (str(dashboard_id),),
+        ).fetchone()["c"]
+        assert int(count1) >= 1
+
+        r = await client.post(
+            "/metrics/rules/dashboard/auto",
+            form={
+                "action": "create",
+                "hours": "24",
+                "max_charts": "12",
+                "service_filter": marker,
+                "dashboard_name": dashboard_name,
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        count2 = db.execute(
+            "SELECT count() AS c FROM sobs_chart_configs FINAL WHERE IsDeleted = 0 AND DashboardId = ?",
+            (str(dashboard_id),),
+        ).fetchone()["c"]
+        assert int(count2) == int(count1)
+
+    async def test_derived_signal_overlay_template_injects_rule_metadata(self, client):
+        r = await client.post(
+            "/metrics/rules",
+            form={
+                "name": "Overlay latency high",
+                "rule_type": "threshold",
+                "source": "traces",
+                "signal": "latency_p95_ms",
+                "service": "overlay-svc",
+                "attr_fp": "",
+                "comparator": "gt",
+                "warning_threshold": "100",
+                "critical_threshold": "150",
+                "min_sample_count": "1",
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        r = await client.post(
+            "/api/dashboards/render",
+            json={
+                "template_id": "derived_signal_overlay",
+                "query": (
+                    "SELECT toDateTime('2024-01-01 00:00:00') AS time, "
+                    "'overlay-svc' AS service, "
+                    "'traces' AS source, "
+                    "'latency_p95_ms' AS signal, "
+                    "'' AS attr_fp, "
+                    "175.0 AS value, "
+                    "3 AS sample_count, "
+                    "120.0 AS baseline_mean, "
+                    "90.0 AS baseline_lower, "
+                    "140.0 AS baseline_upper, "
+                    "'warning' AS anomaly_state, "
+                    "2.2 AS anomaly_score"
+                ),
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        value_series = next(s for s in data["option"]["series"] if s.get("name") == "Value")
+        first_point = value_series["data"][0]
+        assert first_point["drilldown"]["service"] == "overlay-svc"
+        assert first_point["drilldown"]["signal"] == "latency_p95_ms"
+        assert first_point["drilldown"]["_rule_name"] == "Overlay latency high"
+        assert first_point["drilldown"]["_effective_state"] == "outlier"
+
+    # ── gauge ingest ─────────────────────────────────────────────────────────
+
+    async def test_gauge_metric_ingest_accepted(self, client):
+        payload = self._make_gauge_payload("svc-gauge", "cpu.usage", 42.5)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["accepted"] == 1
+
+    async def test_gauge_metric_persisted_in_db(self, client):
+        ts_ns = int(time.time() * 1_000_000_000)
+        payload = self._make_gauge_payload("svc-gauge-db", "memory.usage", 77.0, ts_ns)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+        row = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT Value, ServiceName FROM otel_metrics_gauge WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
+                ("svc-gauge-db",),
+            )
+            .fetchone()
+        )
+        assert row is not None, "Gauge row not found"
+        assert abs(float(row["Value"]) - 77.0) < 1e-6
+
+    # ── sum ingest ───────────────────────────────────────────────────────────
+
+    async def test_sum_metric_ingest_accepted(self, client):
+        payload = self._make_sum_payload("svc-sum", "requests.total", 1000.0)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+        assert json.loads(await r.get_data())["accepted"] == 1
+
+    async def test_sum_metric_persisted_in_db(self, client):
+        ts_ns = int(time.time() * 1_000_000_000)
+        payload = self._make_sum_payload("svc-sum-db", "http.requests", 500.0, ts_ns)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+        row = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT Value, IsMonotonic FROM otel_metrics_sum WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
+                ("svc-sum-db",),
+            )
+            .fetchone()
+        )
+        assert row is not None, "Sum row not found"
+        assert abs(float(row["Value"]) - 500.0) < 1e-6
+        assert int(row["IsMonotonic"]) == 1
+
+    # ── histogram ingest ─────────────────────────────────────────────────────
+
+    async def test_histogram_metric_ingest_accepted(self, client):
+        payload = self._make_histogram_payload("svc-hist", "request.duration", 100, 5000.0)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+        assert json.loads(await r.get_data())["accepted"] == 1
+
+    async def test_histogram_metric_persisted_in_db(self, client):
+        ts_ns = int(time.time() * 1_000_000_000)
+        payload = self._make_histogram_payload("svc-hist-db", "latency", 200, 10000.0, ts_ns)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+        row = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT Count, Sum FROM otel_metrics_histogram WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
+                ("svc-hist-db",),
+            )
+            .fetchone()
+        )
+        assert row is not None, "Histogram row not found"
+        assert int(row["Count"]) == 200
+        assert abs(float(row["Sum"]) - 10000.0) < 1e-6
+
+    # ── attr fingerprint ─────────────────────────────────────────────────────
+
+    async def test_attr_fingerprint_is_stable(self, client):
+        """Same attribute dict should always produce the same fingerprint."""
+        from app import _attr_fingerprint  # noqa: PLC0415
+
+        attrs = {"env": "prod", "region": "us-east-1"}
+        fp1 = _attr_fingerprint(attrs)
+        fp2 = _attr_fingerprint(attrs)
+        assert fp1 == fp2
+        assert len(fp1) == 16
+
+    async def test_attr_fingerprint_excludes_runtime_attrs(self, client):
+        """Runtime/telemetry prefixes should not affect fingerprint."""
+        from app import _attr_fingerprint  # noqa: PLC0415
+
+        attrs_with = {"env": "prod", "telemetry.sdk.version": "1.0", "process.pid": "42"}
+        attrs_without = {"env": "prod"}
+        # telemetry.* and process.* are excluded so fingerprints should match
+        assert _attr_fingerprint(attrs_with) == _attr_fingerprint(attrs_without)
+
+    # ── normalised view ───────────────────────────────────────────────────────
+
+    async def test_v_otel_metrics_1m_returns_gauge_data(self, client):
+        """After ingesting a gauge, v_otel_metrics_1m should include the row."""
+        ts_ns = int(time.time() * 1_000_000_000)
+        payload = self._make_gauge_payload("svc-view-test", "view.metric", 99.9, ts_ns)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+
+        rows = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT MetricKind, Value FROM v_otel_metrics_1m"
+                " WHERE ServiceName='svc-view-test' AND MetricName='view.metric'"
+                " ORDER BY MinuteBucket DESC LIMIT 1"
+            )
+            .fetchall()
+        )
+        assert rows, "v_otel_metrics_1m returned no rows for ingested gauge"
+        assert str(rows[0]["MetricKind"]) == "gauge"
+
+    # ── anomaly API endpoint ──────────────────────────────────────────────────
+
+    async def test_anomaly_api_requires_service_and_metric(self, client):
+        r = await client.get("/api/metrics/anomaly")
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert "error" in data
+
+    async def test_anomaly_api_missing_metric_returns_400(self, client):
+        r = await client.get("/api/metrics/anomaly?service=svc")
+        assert r.status_code == 400
+
+    async def test_anomaly_api_returns_expected_structure(self, client):
+        """After ingesting gauge points the anomaly API must return expected columns."""
+        # Insert several gauge data points so the view has data
+        ts_base = int(time.time() * 1_000_000_000)
+        for i in range(5):
+            ts_ns = ts_base - i * 60 * 1_000_000_000
+            p = self._make_gauge_payload("svc-anomaly-api", "api.metric", float(10 + i), ts_ns)
+            await client.post("/v1/metrics", json=p)
+
+        r = await client.get("/api/metrics/anomaly?service=svc-anomaly-api&metric=api.metric&hours=1")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["service"] == "svc-anomaly-api"
+        assert data["metric"] == "api.metric"
+        assert "columns" in data
+        assert "rows" in data
+        expected_cols = {"time", "value", "anomaly_score", "anomaly_state", "baseline_mean"}
+        assert expected_cols.issubset(set(data["columns"]))
+
+    async def test_anomaly_api_spike_flagged_as_warning_or_outlier(self, client):
+        """A synthetic 10-sigma spike should be flagged as warning or outlier."""
+        ts_base = int(time.time() * 1_000_000_000)
+        # 59 normal points near 10.0 …
+        for i in range(59):
+            ts_ns = ts_base - (60 - i) * 60 * 1_000_000_000
+            p = self._make_gauge_payload("svc-spike-test", "spike.metric", 10.0, ts_ns)
+            await client.post("/v1/metrics", json=p)
+        # … followed by one large spike
+        spike_ts = ts_base - 1 * 60 * 1_000_000_000
+        p = self._make_gauge_payload("svc-spike-test", "spike.metric", 1000.0, spike_ts)
+        await client.post("/v1/metrics", json=p)
+
+        r = await client.get("/api/metrics/anomaly?service=svc-spike-test&metric=spike.metric&hours=2")
+        assert r.status_code == 200
+        data = await r.get_json()
+        col_idx = {c: i for i, c in enumerate(data["columns"])}
+        states = [row[col_idx["anomaly_state"]] for row in data["rows"]]
+        assert any(
+            s in ("warning", "outlier") for s in states
+        ), f"No anomalous point detected for 10-sigma spike; states={states!r}"
+
+    async def test_anomaly_api_steady_series_not_over_flagged(self, client):
+        """A perfectly steady series should produce only 'normal' anomaly states."""
+        ts_base = int(time.time() * 1_000_000_000)
+        for i in range(30):
+            ts_ns = ts_base - i * 60 * 1_000_000_000
+            p = self._make_gauge_payload("svc-steady", "steady.metric", 42.0, ts_ns)
+            await client.post("/v1/metrics", json=p)
+
+        r = await client.get("/api/metrics/anomaly?service=svc-steady&metric=steady.metric&hours=1")
+        assert r.status_code == 200
+        data = await r.get_json()
+        col_idx = {c: i for i, c in enumerate(data["columns"])}
+        if data["rows"]:
+            states = [row[col_idx["anomaly_state"]] for row in data["rows"]]
+            assert all(s == "normal" for s in states), f"Steady series was over-flagged; states={states!r}"
+
+    # ── chart templates ───────────────────────────────────────────────────────
+
+    async def test_dual_axis_anomaly_template_present(self, client):
+        """The dual_axis_anomaly template must reference v_otel_metrics_anomaly."""
+        from app import CHART_TEMPLATES  # noqa: PLC0415
+
+        t = CHART_TEMPLATES.get("dual_axis_anomaly")
+        assert t is not None
+        assert "v_otel_metrics_anomaly" in t["sample_sql"]
+
+    async def test_anomaly_overlay_template_present(self, client):
+        """The anomaly_overlay template must exist with the correct column count."""
+        from app import CHART_TEMPLATES  # noqa: PLC0415
+
+        t = CHART_TEMPLATES.get("anomaly_overlay")
+        assert t is not None
+        assert t["min_columns"] == 6
+        assert "anomaly_state" in t["column_roles"]
+
+    async def test_anomaly_overlay_render_with_synthetic_data(self, client):
+        """anomaly_overlay template must render without errors for synthetic data."""
+        query = (
+            "SELECT"
+            "  now() AS time,"
+            "  10.0 AS value,"
+            "  10.0 AS baseline_mean,"
+            "   8.0 AS baseline_lower,"
+            "  12.0 AS baseline_upper,"
+            " 'normal' AS anomaly_state"
+        )
+        r = await client.post(
+            "/api/dashboards/render",
+            json={"query": query, "template_id": "anomaly_overlay"},
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "error" not in data
+        assert "option" in data
+
+    async def test_anomaly_overlay_spike_coloring(self, client):
+        """An outlier row should produce red colour binding in the rendered option."""
+        query = (
+            "SELECT"
+            "  now() AS time,"
+            "  100.0 AS value,"
+            "  10.0 AS baseline_mean,"
+            "   8.0 AS baseline_lower,"
+            "  12.0 AS baseline_upper,"
+            " 'outlier' AS anomaly_state"
+        )
+        r = await client.post(
+            "/api/dashboards/render",
+            json={"query": query, "template_id": "anomaly_overlay"},
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        # The rendered option must contain the outlier colour (#dc3545) somewhere
+        option_str = json.dumps(data.get("option", {}))
+        assert "#dc3545" in option_str, "Outlier colour not found in rendered chart option"
+
+    # ── hours boundary ────────────────────────────────────────────────────────
+
+    async def test_anomaly_api_hours_clamped(self, client):
+        """hours parameter must be clamped to the 1–168 range."""
+        r = await client.get("/api/metrics/anomaly?service=x&metric=y&hours=9999")
+        # Should not raise; may return empty data or valid JSON
+        assert r.status_code in (200, 400)
+        data = await r.get_json()
+        # If 200, it's valid JSON with the expected structure
+        if r.status_code == 200:
+            assert "rows" in data

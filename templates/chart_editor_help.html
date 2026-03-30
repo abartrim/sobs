@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Chart Editor Help{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1">Chart Editor Help</h4>
+    <p class="text-secondary mb-0">Step-by-step setup for template charts and custom ECharts mode.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('list_dashboards') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Dashboards
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Choose A Mode</h6>
+        <p class="small text-secondary mb-0">Use Builder mode for guided filters and SQL generation. Use Raw SQL when you need full query control.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Validate Quickly</h6>
+        <p class="small text-secondary mb-0">Use Compile, Dry Run, and Preview before saving to confirm SQL, columns, and chart shape.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Save Reusable Charts</h6>
+        <p class="small text-secondary mb-0">After save, use Edit and Clone to iterate quickly from a working chart definition.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header">Template Charts (Fast Path)</div>
+  <div class="card-body">
+    <ol class="mb-0">
+      <li>Select a chart template in Visual Builder.</li>
+      <li>Choose Builder or Raw SQL mode.</li>
+      <li>If Raw SQL is selected, paste query and click Compile.</li>
+      <li>Click Dry Run to inspect columns and sample rows.</li>
+      <li>Use Preview to confirm final rendering.</li>
+      <li>Click Add Chart.</li>
+    </ol>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header">Custom ECharts (Advanced)</div>
+  <div class="card-body">
+    <p class="mb-2">For <strong>Custom ECharts</strong>, three inputs are authoritative: Raw SQL, Custom Mapping JSON, and Custom Option JSON.</p>
+    <div class="alert alert-warning py-2 small mb-2">
+      <i class="bi bi-exclamation-triangle me-1"></i>
+      Raw SQL <strong>must include an explicit ORDER BY</strong> whenever point sequence matters (time series, ranked bars, top-N lists). Use a deterministic tie-breaker when needed (example: <code>ORDER BY ts, service</code>).
+    </div>
+    <p class="small text-secondary mb-2">Placeholders in option JSON can use mapped keys (example: <code>&#123;&#123;points&#125;&#125;</code>) and built-ins (<code>&#123;&#123;rows&#125;&#125;</code>, <code>&#123;&#123;records&#125;&#125;</code>, <code>&#123;&#123;columns&#125;&#125;</code>).</p>
+    <div class="row g-3">
+      <div class="col-lg-4">
+        <h6 class="small text-uppercase text-secondary">Raw SQL</h6>
+<pre class="small p-2 bg-dark rounded mb-0"><code>SELECT
+  toStartOfMinute(Timestamp) AS ts,
+  quantile(0.95)(Duration) AS p95_ms
+FROM otel_traces
+WHERE Timestamp &gt;= now() - INTERVAL 2 HOUR
+GROUP BY ts
+ORDER BY ts
+LIMIT 240</code></pre>
+      </div>
+      <div class="col-lg-4">
+        <h6 class="small text-uppercase text-secondary">Mapping JSON</h6>
+<pre class="small p-2 bg-dark rounded mb-0"><code>{
+  "points": { "from": "rows" },
+  "_drilldown": {
+    "target": "traces",
+    "label": "Open source traces",
+    "extra": { "service": "&#123;&#123;service&#125;&#125;" }
+  }
+}</code></pre>
+      </div>
+      <div class="col-lg-4">
+        <h6 class="small text-uppercase text-secondary">Option JSON</h6>
+<pre class="small p-2 bg-dark rounded mb-0"><code>{
+  "xAxis": { "type": "time" },
+  "yAxis": { "type": "value" },
+  "series": [
+    { "type": "line", "data": "&#123;&#123;points&#125;&#125;", "smooth": true }
+  ]
+}</code></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header">Visual References</div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-4">
+        <img src="{{ url_for('static', filename='help/dashboard.png') }}" class="img-fluid rounded border border-secondary" alt="Dashboard view screenshot">
+        <div class="small text-secondary mt-1">Dashboard overview</div>
+      </div>
+      <div class="col-lg-4">
+        <img src="{{ url_for('static', filename='help/logs.png') }}" class="img-fluid rounded border border-secondary" alt="Logs view screenshot">
+        <div class="small text-secondary mt-1">Logs drilldown target</div>
+      </div>
+      <div class="col-lg-4">
+        <img src="{{ url_for('static', filename='help/traces.png') }}" class="img-fluid rounded border border-secondary" alt="Traces view screenshot">
+        <div class="small text-secondary mt-1">Traces drilldown target</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="alert alert-secondary mb-0">
+  Full copy/paste payloads are available in <code>examples/custom_echarts</code>. Ensure every custom SQL query has explicit ORDER BY for deterministic chart output.
+</div>
+{% endblock %}

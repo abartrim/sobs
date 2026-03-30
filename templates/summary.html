@@ -1,7 +1,23 @@
 {% extends "base.html" %}
-{% block title %}Dashboard{% endblock %}
+{% block title %}Summary{% endblock %}
 {% block content %}
-<h4 class="mb-4 fw-semibold">Dashboard</h4>
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h4 class="fw-semibold mb-0">Summary</h4>
+  <div class="d-flex align-items-center gap-2" title="Auto-refresh interval">
+    <span id="summaryCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
+    <div class="input-group input-group-sm" style="width:auto;">
+      <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
+      <select id="summaryRefreshSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="0">Off</option>
+        <option value="10">10s</option>
+        <option value="30">30s</option>
+        <option value="60">1m</option>
+        <option value="120">2m</option>
+        <option value="300">5m</option>
+      </select>
+    </div>
+  </div>
+</div>
 
 <!-- Stats row -->
 <div class="row g-3 mb-4">
@@ -52,6 +68,28 @@
     </div>
   </div>
 </div>
+
+{% if signal_health %}
+<!-- Signal Health -->
+<div class="card border-secondary mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-activity me-1 text-warning"></i>Signal Health <span class="text-secondary fw-normal small">(last 24 h)</span></span>
+    <a href="{{ url_for('view_metrics') }}" class="btn btn-sm btn-outline-secondary">View metrics</a>
+  </div>
+  <div class="card-body py-2">
+    {% for item in signal_health %}
+    {% set state = item.worst_state %}
+    {% if state == 'outlier' %}{% set badge_cls = 'bg-danger' %}{% set icon = 'bi-exclamation-triangle-fill' %}
+    {% elif state == 'warning' %}{% set badge_cls = 'bg-warning text-dark' %}{% set icon = 'bi-exclamation-circle-fill' %}
+    {% else %}{% set badge_cls = 'bg-success' %}{% set icon = 'bi-check-circle-fill' %}{% endif %}
+    <a href="{{ url_for('view_metrics', service=item.service) }}" class="text-decoration-none badge {{ badge_cls }} me-1 mb-1 d-inline-flex align-items-center gap-1" title="{{ item.signal_count }} signal(s)">
+      <i class="bi {{ icon }}"></i> {{ item.service }}
+      <span class="opacity-75 small">({{ item.signal_count }})</span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 
 <div class="row g-3">
   <!-- Recent Errors -->
@@ -174,4 +212,57 @@
   </div>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var select = document.getElementById('summaryRefreshSelect');
+  var countdown = document.getElementById('summaryCountdown');
+  var _refreshTimer = null;
+  var _countdownTimer = null;
+  var _remaining = 0;
+
+  function _tick() {
+    _remaining -= 1;
+    if (_remaining <= 0) _remaining = parseInt(select.value, 10);
+    countdown.textContent = _remaining >= 60 ? Math.ceil(_remaining / 60) + 'm' : _remaining + 's';
+  }
+
+  function apply() {
+    if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+    if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
+    var sec = parseInt(select.value, 10);
+    if (sec > 0) {
+      _remaining = sec;
+      countdown.textContent = sec >= 60 ? Math.ceil(sec / 60) + 'm' : sec + 's';
+      countdown.style.display = '';
+      _countdownTimer = setInterval(_tick, 1000);
+      _refreshTimer = setInterval(function () {
+        if (window.__sobsFirstRunTourOpen) {
+          return;
+        }
+        _remaining = sec;
+        countdown.textContent = sec >= 60 ? Math.ceil(sec / 60) + 'm' : sec + 's';
+        location.reload();
+      }, sec * 1000);
+    } else {
+      countdown.style.display = 'none';
+      countdown.textContent = '';
+    }
+  }
+
+  select.addEventListener('change', function () {
+    localStorage.setItem('sobs_summary_refresh', select.value);
+    apply();
+  });
+
+  /* Restore saved interval across reloads */
+  var saved = localStorage.getItem('sobs_summary_refresh');
+  if (saved && saved !== '0') {
+    select.value = saved;
+    apply();
+  }
+})();
+</script>
 {% endblock %}

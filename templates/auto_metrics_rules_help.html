@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}Auto Make Metric Rules Help{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1">Auto Make Metric Rules Help</h4>
+    <p class="text-secondary mb-0">How to auto-generate rules and then auto-generate a dashboard from those active rules.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_metrics_rules') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Rules
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Set Scope</h6>
+        <p class="small text-secondary mb-0">Choose a recent time window, minimum data points, optional service filter, and whether to include Attr FP scoped candidates.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Preview First</h6>
+        <p class="small text-secondary mb-0">Use Preview to inspect candidates before creating anything. Existing rules are skipped and reported in the summary line.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Create Safely</h6>
+        <p class="small text-secondary mb-0">Create writes only the current preview set and is capped at 200 new rules per run to avoid accidental bulk creation.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header">Panel Controls</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:22%">Control</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace">Window (hours)</td>
+          <td>How far back to scan for signal values. Typical values: 24 for day-scale baselines, 72-168 for slower-moving services.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Min points</td>
+          <td>Minimum number of points required for a candidate. Higher values reduce noisy rules for sparse signals.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Service scope</td>
+          <td>Limit candidate discovery to one service, or leave as All services for global generation.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Include Attr FP</td>
+          <td>When enabled, candidates can be generated per attribute fingerprint (for example route-level or method-level slices).</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Preview</td>
+          <td>Shows candidate rows and summary counts only. No rules are written.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Create</td>
+          <td>Creates new rules from the current candidate set, skipping any rule names that already exist.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header">Threshold Heuristics</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">Auto-generated thresholds are derived from recent quantiles of each signal:</p>
+    <ul class="small mb-0">
+      <li>Comparator is inferred from signal naming hints: signals like latency/error typically use <code>value &gt;= threshold</code>, while availability/throughput style signals typically use <code>value &lt;= threshold</code>.</li>
+      <li>Warning and critical thresholds are computed from distribution quantiles so the generated values are data-aware, not fixed constants.</li>
+      <li>Rule names include source, signal, and scope so duplicates can be safely detected and skipped.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header">Auto Generate Dashboard from Active Rules</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">This flow builds a dashboard populated with <code>derived_signal_overlay</code> charts, one chart per matching active rule.</p>
+    <ul class="small mb-0">
+      <li><strong>Preview</strong> shows chart candidates only. Nothing is written.</li>
+      <li><strong>Create</strong> creates the dashboard (if missing) and inserts new charts.</li>
+      <li>Charts are capped by your selected <strong>Max charts</strong> value (hard limit: 24).</li>
+      <li>Existing chart titles on that dashboard are skipped, so rerunning is idempotent.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header">Dashboard Panel Controls</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:22%">Control</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace">Dashboard Name</td>
+          <td>Name for the target dashboard. If it already exists, charts are added to it (existing titles are skipped).</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Window (hours)</td>
+          <td>Time range used in generated chart SQL for each rule-derived chart.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Max charts</td>
+          <td>Limits how many preview candidates are used during create. Useful for staged rollout.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Service scope</td>
+          <td>Restricts generated charts to rules for a specific service when selected.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Preview</td>
+          <td>Renders candidate chart rows with title/rule/source/signal before creation.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Create</td>
+          <td>Creates or reuses a dashboard and inserts new rule-mapped charts.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card border-secondary mb-0">
+  <div class="card-header">Recommended Flow</div>
+  <div class="card-body">
+    <ol class="small mb-0">
+      <li>Start with <strong>Window = 24</strong> and <strong>Min points = 30</strong>.</li>
+      <li>Run <strong>Preview</strong> and review the candidate table for obvious outliers.</li>
+      <li>Tighten with <strong>Service scope</strong> if one team/service needs separate baselines.</li>
+      <li>Run <strong>Create</strong> for rules, then run dashboard <strong>Preview</strong> with a max chart cap (for example 12).</li>
+      <li>Run dashboard <strong>Create</strong>, then validate cards/charts in the generated dashboard and tune noisy rules.</li>
+    </ol>
+  </div>
+</div>
+{% endblock %}

@@ -7,6 +7,7 @@ RUM, Logs, Errors, Traces, and AI transparency.
 import ast
 import asyncio
 import base64
+import copy
 import hashlib
 import inspect
 import json
@@ -23,10 +24,10 @@ import urllib.request
 import uuid
 import zlib
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import wraps
-from typing import Callable
+from typing import Callable, cast
 
 import chdb.dbapi as chdb_driver
 from google.protobuf.json_format import ParseDict
@@ -51,6 +52,13 @@ from quart import (
 # App setup
 # ---------------------------------------------------------------------------
 app = Quart(__name__)
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _normalize_base_path(value: str) -> str:
@@ -81,6 +89,7 @@ def _merge_script_name(script_name: str, base_path: str) -> str:
 BASE_PATH = _normalize_base_path(os.environ.get("SOBS_BASE_PATH", ""))
 app.config["APPLICATION_ROOT"] = BASE_PATH or "/"
 app.config["SECRET_KEY"] = os.environ.get("SOBS_SECRET_KEY", "sobs-dev-secret-key")
+app.config["ENABLE_FIRST_RUN_TOUR"] = _env_flag("SOBS_ENABLE_FIRST_RUN_TOUR", True)
 
 
 class BasePathMiddleware:
@@ -263,6 +272,384 @@ CREATE TABLE IF NOT EXISTS sobs_chart_configs (
 ) ENGINE = ReplacingMergeTree(Version)
 ORDER BY (DashboardId, Id)
 SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS sobs_anomaly_rules (
+    Id String CODEC(ZSTD(1)),
+    Name String CODEC(ZSTD(1)),
+    RuleType LowCardinality(String) DEFAULT 'threshold' CODEC(ZSTD(1)),
+    SignalSource LowCardinality(String) CODEC(ZSTD(1)),
+    SignalName LowCardinality(String) CODEC(ZSTD(1)),
+    ServiceName String CODEC(ZSTD(1)),
+    AttrFingerprint String CODEC(ZSTD(1)),
+    Comparator LowCardinality(String) CODEC(ZSTD(1)),
+    WarningThreshold Float64 CODEC(ZSTD(1)),
+    CriticalThreshold Float64 CODEC(ZSTD(1)),
+    SecondarySignalSource LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
+    SecondarySignalName LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
+    SecondaryComparator LowCardinality(String) DEFAULT 'gt' CODEC(ZSTD(1)),
+    SecondaryWarningThreshold Float64 DEFAULT 0 CODEC(ZSTD(1)),
+    SecondaryCriticalThreshold Float64 DEFAULT 0 CODEC(ZSTD(1)),
+    MinSampleCount UInt32 DEFAULT 1 CODEC(T64, ZSTD(1)),
+    IsDeleted UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Version UInt64 DEFAULT 0 CODEC(T64, ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY (SignalSource, SignalName, ServiceName, AttrFingerprint, Id)
+SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS otel_metrics_gauge (
+    TimeUnix DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    TimeUnixMs DateTime DEFAULT toDateTime(TimeUnix) CODEC(Delta(4), ZSTD(1)),
+    ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricDescription String CODEC(ZSTD(1)),
+    MetricUnit LowCardinality(String) CODEC(ZSTD(1)),
+    Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    Value Float64 CODEC(ZSTD(1)),
+    Flags UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AttrFingerprint String CODEC(ZSTD(1))
+) ENGINE = MergeTree()
+PARTITION BY toDate(TimeUnixMs)
+ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
+CREATE TABLE IF NOT EXISTS otel_metrics_sum (
+    TimeUnix DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    TimeUnixMs DateTime DEFAULT toDateTime(TimeUnix) CODEC(Delta(4), ZSTD(1)),
+    ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricDescription String CODEC(ZSTD(1)),
+    MetricUnit LowCardinality(String) CODEC(ZSTD(1)),
+    Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    Value Float64 CODEC(ZSTD(1)),
+    Flags UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    IsMonotonic UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AggregationTemporality Int32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AttrFingerprint String CODEC(ZSTD(1))
+) ENGINE = MergeTree()
+PARTITION BY toDate(TimeUnixMs)
+ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
+CREATE TABLE IF NOT EXISTS otel_metrics_histogram (
+    TimeUnix DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    TimeUnixMs DateTime DEFAULT toDateTime(TimeUnix) CODEC(Delta(4), ZSTD(1)),
+    ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricDescription String CODEC(ZSTD(1)),
+    MetricUnit LowCardinality(String) CODEC(ZSTD(1)),
+    Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    Count UInt64 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Sum Float64 CODEC(ZSTD(1)),
+    BucketCounts Array(UInt64) CODEC(ZSTD(1)),
+    ExplicitBounds Array(Float64) CODEC(ZSTD(1)),
+    Flags UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AggregationTemporality Int32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AttrFingerprint String CODEC(ZSTD(1))
+) ENGINE = MergeTree()
+PARTITION BY toDate(TimeUnixMs)
+ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
+CREATE VIEW IF NOT EXISTS v_otel_metrics_1m AS
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    'gauge' AS MetricKind,
+    toStartOfMinute(TimeUnix) AS MinuteBucket,
+    avg(Value) AS Value,
+    count() AS SampleCount
+FROM otel_metrics_gauge
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    'sum' AS MetricKind,
+    toStartOfMinute(TimeUnix) AS MinuteBucket,
+    avg(Value) AS Value,
+    count() AS SampleCount
+FROM otel_metrics_sum
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    'histogram' AS MetricKind,
+    toStartOfMinute(TimeUnix) AS MinuteBucket,
+    avg(if(Count > 0, Sum / Count, 0)) AS Value,
+    sum(Count) AS SampleCount
+FROM otel_metrics_histogram
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
+
+CREATE VIEW IF NOT EXISTS v_otel_metrics_anomaly AS
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    MetricKind,
+    MinuteBucket AS time,
+    Value AS value,
+    SampleCount,
+    round(avg(Value) OVER w, 6) AS baseline_mean,
+    round(
+        sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ),
+        6
+    ) AS baseline_stddev,
+    round(
+        avg(Value) OVER w - 2.0 * sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ),
+        6
+    ) AS baseline_lower,
+    round(
+        avg(Value) OVER w + 2.0 * sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ),
+        6
+    ) AS baseline_upper,
+    round(
+        if(
+            sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w
+                        * avg(Value) OVER w)
+                )
+            ) > 0,
+            abs(Value - avg(Value) OVER w) / sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w
+                        * avg(Value) OVER w)
+                )
+            ),
+            0
+        ),
+        4
+    ) AS anomaly_score,
+    multiIf(
+        sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value)
+                    OVER w)
+            )
+        ) > 0
+            AND abs(Value - avg(Value) OVER w) > 3.0 * sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w
+                        * avg(Value) OVER w)
+                )
+            ),
+        'outlier',
+        sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value)
+                    OVER w)
+            )
+        ) > 0
+            AND abs(Value - avg(Value) OVER w) > 2.0 * sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w
+                        * avg(Value) OVER w)
+                )
+            ),
+        'warning',
+        'normal'
+    ) AS anomaly_state
+FROM v_otel_metrics_1m
+WINDOW w AS (
+    PARTITION BY ServiceName, MetricName, AttrFingerprint
+    ORDER BY MinuteBucket
+    ROWS BETWEEN 59 PRECEDING AND CURRENT ROW
+);
+
+CREATE VIEW IF NOT EXISTS v_derived_signals_1m AS
+SELECT
+    ServiceName,
+    'logs' AS SignalSource,
+    'log_volume' AS SignalName,
+    substring(lower(hex(MD5(concat(ServiceName, '|', 'log_volume')))), 1, 16) AS AttrFingerprint,
+    toStartOfMinute(Timestamp) AS MinuteBucket,
+    toFloat64(count()) AS Value,
+    count() AS SampleCount
+FROM otel_logs
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    'logs' AS SignalSource,
+    'error_volume' AS SignalName,
+    substring(lower(hex(MD5(concat(ServiceName, '|', 'error_volume')))), 1, 16) AS AttrFingerprint,
+    toStartOfMinute(Timestamp) AS MinuteBucket,
+    toFloat64(countIf(SeverityText IN ('ERROR', 'FATAL', 'CRITICAL'))) AS Value,
+    count() AS SampleCount
+FROM otel_logs
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    'logs' AS SignalSource,
+    'error_ratio' AS SignalName,
+    substring(lower(hex(MD5(concat(ServiceName, '|', 'error_ratio')))), 1, 16) AS AttrFingerprint,
+    toStartOfMinute(Timestamp) AS MinuteBucket,
+    if(count() > 0, toFloat64(countIf(SeverityText IN ('ERROR', 'FATAL', 'CRITICAL'))) / count(), 0.0) AS Value,
+    count() AS SampleCount
+FROM otel_logs
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    'traces' AS SignalSource,
+    'trace_volume' AS SignalName,
+    substring(lower(hex(MD5(concat(ServiceName, '|', 'trace_volume')))), 1, 16) AS AttrFingerprint,
+    toStartOfMinute(Timestamp) AS MinuteBucket,
+    toFloat64(count()) AS Value,
+    count() AS SampleCount
+FROM otel_traces
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    'traces' AS SignalSource,
+    'trace_error_ratio' AS SignalName,
+    substring(lower(hex(MD5(concat(ServiceName, '|', 'trace_error_ratio')))), 1, 16) AS AttrFingerprint,
+    toStartOfMinute(Timestamp) AS MinuteBucket,
+    if(count() > 0, toFloat64(countIf(StatusCode = 'STATUS_CODE_ERROR')) / count(), 0.0) AS Value,
+    count() AS SampleCount
+FROM otel_traces
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    'traces' AS SignalSource,
+    'latency_p95_ms' AS SignalName,
+    substring(lower(hex(MD5(concat(ServiceName, '|', 'latency_p95_ms')))), 1, 16) AS AttrFingerprint,
+    toStartOfMinute(Timestamp) AS MinuteBucket,
+    toFloat64(quantile(0.95)(Duration)) / 1000000.0 AS Value,
+    count() AS SampleCount
+FROM otel_traces
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    'errors' AS SignalSource,
+    'exception_volume' AS SignalName,
+    substring(lower(hex(MD5(concat(ServiceName, '|', 'exception_volume')))), 1, 16) AS AttrFingerprint,
+    toStartOfMinute(Timestamp) AS MinuteBucket,
+    toFloat64(count()) AS Value,
+    count() AS SampleCount
+FROM otel_logs
+WHERE EventName = 'exception'
+GROUP BY ServiceName, MinuteBucket;
+
+CREATE VIEW IF NOT EXISTS v_derived_signals_anomaly AS
+SELECT
+    ServiceName,
+    SignalSource,
+    SignalName,
+    AttrFingerprint,
+    MinuteBucket AS time,
+    Value AS value,
+    SampleCount,
+    round(avg(Value) OVER w, 6) AS baseline_mean,
+    round(
+        sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ),
+        6
+    ) AS baseline_stddev,
+    round(
+        avg(Value) OVER w - 2.0 * sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ),
+        6
+    ) AS baseline_lower,
+    round(
+        avg(Value) OVER w + 2.0 * sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ),
+        6
+    ) AS baseline_upper,
+    round(
+        if(
+            sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+                )
+            ) > 0,
+            abs(Value - avg(Value) OVER w) / sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+                )
+            ),
+            0
+        ),
+        4
+    ) AS anomaly_score,
+    multiIf(
+        sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ) > 0
+            AND abs(Value - avg(Value) OVER w) > 3.0 * sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+                )
+            ),
+        'outlier',
+        sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ) > 0
+            AND abs(Value - avg(Value) OVER w) > 2.0 * sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+                )
+            ),
+        'warning',
+        'normal'
+    ) AS anomaly_state
+FROM v_derived_signals_1m
+WINDOW w AS (
+    PARTITION BY ServiceName, SignalSource, SignalName, AttrFingerprint
+    ORDER BY MinuteBucket
+    ROWS BETWEEN 59 PRECEDING AND CURRENT ROW
+);
 """
 
 
@@ -404,6 +791,7 @@ def get_db() -> ChDbConnection:
                 _global_db = ChDbConnection(DB_PATH)
             if not _schema_ready:
                 _global_db.executescript(SCHEMA)
+                _ensure_post_schema_state(_global_db)
                 _schema_ready = True
     return _global_db
 
@@ -414,6 +802,7 @@ def init_db():
     with _db_init_lock:
         _global_db = ChDbConnection(DB_PATH)
         _global_db.executescript(SCHEMA)
+        _ensure_post_schema_state(_global_db)
         _schema_ready = True
 
 
@@ -433,7 +822,400 @@ def ensure_db_schema():
             has_logs = None
         if has_logs is None:
             _global_db.executescript(SCHEMA)
+        _ensure_post_schema_state(_global_db)
         _schema_ready = True
+
+
+def _ensure_post_schema_state(db: ChDbConnection) -> None:
+    _ensure_anomaly_rule_schema(db)
+    if not app.config.get("TESTING"):
+        _seed_example_metrics_content(db)
+
+
+def _ensure_anomaly_rule_schema(db: ChDbConnection) -> None:
+    migration_statements = [
+        (
+            "ALTER TABLE sobs_anomaly_rules ADD COLUMN IF NOT EXISTS "
+            "RuleType LowCardinality(String) DEFAULT 'threshold'"
+        ),
+        (
+            "ALTER TABLE sobs_anomaly_rules ADD COLUMN IF NOT EXISTS "
+            "SecondarySignalSource LowCardinality(String) DEFAULT ''"
+        ),
+        (
+            "ALTER TABLE sobs_anomaly_rules ADD COLUMN IF NOT EXISTS "
+            "SecondarySignalName LowCardinality(String) DEFAULT ''"
+        ),
+        (
+            "ALTER TABLE sobs_anomaly_rules ADD COLUMN IF NOT EXISTS "
+            "SecondaryComparator LowCardinality(String) DEFAULT 'gt'"
+        ),
+        "ALTER TABLE sobs_anomaly_rules ADD COLUMN IF NOT EXISTS SecondaryWarningThreshold Float64 DEFAULT 0",
+        "ALTER TABLE sobs_anomaly_rules ADD COLUMN IF NOT EXISTS SecondaryCriticalThreshold Float64 DEFAULT 0",
+    ]
+    for statement in migration_statements:
+        db.execute(statement)
+
+
+def _seed_rule_if_missing(db: ChDbConnection, rule: dict[str, object]) -> None:
+    existing = db.execute(
+        "SELECT 1 FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 AND Name = ? LIMIT 1",
+        [str(rule["Name"])],
+    ).fetchone()
+    if existing:
+        return
+    _insert_rows_json_each_row(db, "sobs_anomaly_rules", [rule])
+
+
+def _seed_dashboard_if_missing(db: ChDbConnection, dashboard_name: str, description: str) -> str:
+    existing = db.execute(
+        "SELECT Id FROM sobs_dashboards FINAL WHERE IsDeleted = 0 AND Name = ? LIMIT 1",
+        [dashboard_name],
+    ).fetchone()
+    if existing:
+        return str(existing["Id"])
+
+    dashboard_id = str(uuid.uuid4())
+    _insert_rows_json_each_row(
+        db,
+        "sobs_dashboards",
+        [
+            {
+                "Id": dashboard_id,
+                "Name": dashboard_name,
+                "Description": description,
+                "IsDeleted": 0,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    return dashboard_id
+
+
+def _seed_chart_if_missing(
+    db: ChDbConnection,
+    dashboard_id: str,
+    title: str,
+    chart_type: str,
+    query: str,
+    position: int,
+) -> None:
+    existing = db.execute(
+        "SELECT 1 FROM sobs_chart_configs FINAL WHERE IsDeleted = 0 AND DashboardId = ? AND Title = ? LIMIT 1",
+        [dashboard_id, title],
+    ).fetchone()
+    if existing:
+        return
+    _insert_rows_json_each_row(
+        db,
+        "sobs_chart_configs",
+        [
+            {
+                "Id": str(uuid.uuid4()),
+                "DashboardId": dashboard_id,
+                "Title": title,
+                "ChartType": chart_type,
+                "Query": query,
+                "OptionsJson": json.dumps(
+                    {"chart_spec": _build_raw_chart_spec(chart_type, query)},
+                    ensure_ascii=False,
+                ),
+                "Position": position,
+                "IsDeleted": 0,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+
+
+def _upsert_seed_chart(
+    db: ChDbConnection,
+    dashboard_id: str,
+    title: str,
+    chart_type: str,
+    query: str,
+    position: int,
+) -> None:
+    existing = db.execute(
+        "SELECT Id, ChartType, Query, OptionsJson, Position "
+        "FROM sobs_chart_configs FINAL "
+        "WHERE IsDeleted = 0 AND DashboardId = ? AND Title = ? LIMIT 1",
+        [dashboard_id, title],
+    ).fetchone()
+    if not existing:
+        _seed_chart_if_missing(db, dashboard_id, title, chart_type, query, position)
+        return
+
+    if (
+        str(existing["ChartType"]) == chart_type
+        and str(existing["Query"]) == query
+        and int(existing["Position"]) == position
+    ):
+        return
+
+    _insert_rows_json_each_row(
+        db,
+        "sobs_chart_configs",
+        [
+            {
+                "Id": str(existing["Id"]),
+                "DashboardId": dashboard_id,
+                "Title": title,
+                "ChartType": chart_type,
+                "Query": query,
+                "OptionsJson": json.dumps(
+                    {"chart_spec": _build_raw_chart_spec(chart_type, query, str(existing["OptionsJson"]))},
+                    ensure_ascii=False,
+                ),
+                "Position": position,
+                "IsDeleted": 0,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+
+
+def _soft_delete_seed_chart_by_title(db: ChDbConnection, dashboard_id: str, title: str) -> None:
+    row = db.execute(
+        "SELECT Id, ChartType, Query, OptionsJson, Position "
+        "FROM sobs_chart_configs FINAL "
+        "WHERE IsDeleted = 0 AND DashboardId = ? AND Title = ? LIMIT 1",
+        [dashboard_id, title],
+    ).fetchone()
+    if not row:
+        return
+    _insert_rows_json_each_row(
+        db,
+        "sobs_chart_configs",
+        [
+            {
+                "Id": str(row["Id"]),
+                "DashboardId": dashboard_id,
+                "Title": title,
+                "ChartType": str(row["ChartType"]),
+                "Query": str(row["Query"]),
+                "OptionsJson": str(row["OptionsJson"]),
+                "Position": int(row["Position"]),
+                "IsDeleted": 1,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+
+
+def _seed_example_metrics_content(db: ChDbConnection) -> None:
+    version = int(time.time() * 1000)
+    example_rules = [
+        {
+            "Id": str(uuid.uuid4()),
+            "Name": "Trace latency elevated",
+            "RuleType": "threshold",
+            "SignalSource": "traces",
+            "SignalName": "latency_p95_ms",
+            "ServiceName": "trace-svc-0",
+            "AttrFingerprint": "",
+            "Comparator": "gt",
+            "WarningThreshold": 250.0,
+            "CriticalThreshold": 450.0,
+            "SecondarySignalSource": "",
+            "SecondarySignalName": "",
+            "SecondaryComparator": "gt",
+            "SecondaryWarningThreshold": 0.0,
+            "SecondaryCriticalThreshold": 0.0,
+            "MinSampleCount": 5,
+            "IsDeleted": 0,
+            "Version": version,
+        },
+        {
+            "Id": str(uuid.uuid4()),
+            "Name": "Trace error ratio elevated",
+            "RuleType": "threshold",
+            "SignalSource": "traces",
+            "SignalName": "trace_error_ratio",
+            "ServiceName": "trace-svc-0",
+            "AttrFingerprint": "",
+            "Comparator": "gt",
+            "WarningThreshold": 0.04,
+            "CriticalThreshold": 0.08,
+            "SecondarySignalSource": "",
+            "SecondarySignalName": "",
+            "SecondaryComparator": "gt",
+            "SecondaryWarningThreshold": 0.0,
+            "SecondaryCriticalThreshold": 0.0,
+            "MinSampleCount": 5,
+            "IsDeleted": 0,
+            "Version": version,
+        },
+        {
+            "Id": str(uuid.uuid4()),
+            "Name": "Exception volume elevated",
+            "RuleType": "threshold",
+            "SignalSource": "errors",
+            "SignalName": "exception_volume",
+            "ServiceName": "err-svc-0",
+            "AttrFingerprint": "",
+            "Comparator": "gt",
+            "WarningThreshold": 1.0,
+            "CriticalThreshold": 3.0,
+            "SecondarySignalSource": "",
+            "SecondarySignalName": "",
+            "SecondaryComparator": "gt",
+            "SecondaryWarningThreshold": 0.0,
+            "SecondaryCriticalThreshold": 0.0,
+            "MinSampleCount": 1,
+            "IsDeleted": 0,
+            "Version": version,
+        },
+        {
+            "Id": str(uuid.uuid4()),
+            "Name": "Composite trace distress",
+            "RuleType": "composite",
+            "SignalSource": "traces",
+            "SignalName": "latency_p95_ms",
+            "ServiceName": "trace-svc-0",
+            "AttrFingerprint": "",
+            "Comparator": "gt",
+            "WarningThreshold": 250.0,
+            "CriticalThreshold": 450.0,
+            "SecondarySignalSource": "traces",
+            "SecondarySignalName": "trace_error_ratio",
+            "SecondaryComparator": "gt",
+            "SecondaryWarningThreshold": 0.04,
+            "SecondaryCriticalThreshold": 0.08,
+            "MinSampleCount": 5,
+            "IsDeleted": 0,
+            "Version": version,
+        },
+    ]
+    for rule in example_rules:
+        _seed_rule_if_missing(db, rule)
+
+    dashboard_id = _seed_dashboard_if_missing(
+        db,
+        "Example Derived Signals",
+        "Seeded dashboard for load_example-derived log, trace, and error anomaly signals.",
+    )
+    charts = [
+        (
+            "Trace volume",
+            "derived_signal_overlay",
+            "SELECT\n"
+            "  time,\n"
+            "  ServiceName AS service,\n"
+            "  SignalSource AS source,\n"
+            "  SignalName AS signal,\n"
+            "  AttrFingerprint AS attr_fp,\n"
+            "  value,\n"
+            "  SampleCount AS sample_count,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state,\n"
+            "  anomaly_score\n"
+            "FROM v_derived_signals_anomaly\n"
+            "WHERE ServiceName = (\n"
+            "  SELECT ServiceName\n"
+            "  FROM v_derived_signals_anomaly\n"
+            "  WHERE SignalSource = 'traces' AND SignalName = 'trace_volume'\n"
+            "  ORDER BY time DESC\n"
+            "  LIMIT 1\n"
+            ")\n"
+            "  AND SignalSource = 'traces'\n"
+            "  AND SignalName = 'trace_volume'\n"
+            "  AND time >= now() - INTERVAL 6 HOUR\n"
+            "ORDER BY time",
+        ),
+        (
+            "Trace error ratio",
+            "derived_signal_overlay",
+            "SELECT\n"
+            "  time,\n"
+            "  ServiceName AS service,\n"
+            "  SignalSource AS source,\n"
+            "  SignalName AS signal,\n"
+            "  AttrFingerprint AS attr_fp,\n"
+            "  value,\n"
+            "  SampleCount AS sample_count,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state,\n"
+            "  anomaly_score\n"
+            "FROM v_derived_signals_anomaly\n"
+            "WHERE ServiceName = (\n"
+            "  SELECT ServiceName\n"
+            "  FROM v_derived_signals_anomaly\n"
+            "  WHERE SignalSource = 'traces' AND SignalName = 'trace_error_ratio'\n"
+            "  ORDER BY time DESC\n"
+            "  LIMIT 1\n"
+            ")\n"
+            "  AND SignalSource = 'traces'\n"
+            "  AND SignalName = 'trace_error_ratio'\n"
+            "  AND time >= now() - INTERVAL 6 HOUR\n"
+            "ORDER BY time",
+        ),
+        (
+            "Load log volume",
+            "derived_signal_overlay",
+            "SELECT\n"
+            "  time,\n"
+            "  ServiceName AS service,\n"
+            "  SignalSource AS source,\n"
+            "  SignalName AS signal,\n"
+            "  AttrFingerprint AS attr_fp,\n"
+            "  value,\n"
+            "  SampleCount AS sample_count,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state,\n"
+            "  anomaly_score\n"
+            "FROM v_derived_signals_anomaly\n"
+            "WHERE ServiceName = (\n"
+            "  SELECT ServiceName\n"
+            "  FROM v_derived_signals_anomaly\n"
+            "  WHERE SignalSource = 'logs' AND SignalName = 'log_volume'\n"
+            "  ORDER BY time DESC\n"
+            "  LIMIT 1\n"
+            ")\n"
+            "  AND SignalSource = 'logs'\n"
+            "  AND SignalName = 'log_volume'\n"
+            "  AND time >= now() - INTERVAL 6 HOUR\n"
+            "ORDER BY time",
+        ),
+        (
+            "Exception volume",
+            "derived_signal_overlay",
+            "SELECT\n"
+            "  time,\n"
+            "  ServiceName AS service,\n"
+            "  SignalSource AS source,\n"
+            "  SignalName AS signal,\n"
+            "  AttrFingerprint AS attr_fp,\n"
+            "  value,\n"
+            "  SampleCount AS sample_count,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state,\n"
+            "  anomaly_score\n"
+            "FROM v_derived_signals_anomaly\n"
+            "WHERE ServiceName = (\n"
+            "  SELECT ServiceName\n"
+            "  FROM v_derived_signals_anomaly\n"
+            "  WHERE SignalSource = 'errors' AND SignalName = 'exception_volume'\n"
+            "  ORDER BY time DESC\n"
+            "  LIMIT 1\n"
+            ")\n"
+            "  AND SignalSource = 'errors'\n"
+            "  AND SignalName = 'exception_volume'\n"
+            "  AND time >= now() - INTERVAL 6 HOUR\n"
+            "ORDER BY time",
+        ),
+    ]
+    for position, (title, chart_type, query) in enumerate(charts):
+        _upsert_seed_chart(db, dashboard_id, title, chart_type, query, position)
+    _soft_delete_seed_chart_by_title(db, dashboard_id, "Trace latency")
 
 
 def _run_write_batch(tasks: list[_WriteTask]) -> None:
@@ -848,6 +1630,8 @@ def _insert_rows_json_each_row(db, table_name: str, rows: list[dict]) -> int:
         item = dict(row)
         if "Timestamp" in item:
             item["Timestamp"] = _normalize_ch_timestamp(item["Timestamp"])
+        if "TimeUnix" in item:
+            item["TimeUnix"] = _normalize_ch_timestamp(item["TimeUnix"])
         if "Events" in item and isinstance(item["Events"], dict) and "Timestamp" in item["Events"]:
             item["Events"]["Timestamp"] = [_normalize_ch_timestamp(v) for v in item["Events"]["Timestamp"]]
         normalized_rows.append(item)
@@ -957,6 +1741,45 @@ class MetricEvent:
     attrs: dict
 
 
+# Attribute key prefixes excluded from the metric series fingerprint (high-cardinality
+# resource attributes that do not differentiate metric series).
+_FINGERPRINT_SKIP_PREFIXES = ("telemetry.", "process.", "os.", "runtime.")
+
+
+def _attr_fingerprint(attrs: dict) -> str:
+    """Compute a stable, low-cardinality fingerprint of data-point attributes.
+
+    Excludes high-cardinality resource/runtime attribute prefixes and limits
+    to the first 8 sorted key=value pairs to keep cardinality manageable.
+    """
+    pairs = sorted(
+        f"{k}={v}" for k, v in attrs.items() if not any(k.startswith(p) for p in _FINGERPRINT_SKIP_PREFIXES)
+    )[:8]
+    # MD5 is used here for non-cryptographic cardinality reduction only (16-hex fingerprint).
+    return hashlib.md5("|".join(pairs).encode()).hexdigest()[:16]
+
+
+@dataclass
+class TypedMetricEvent:
+    """A single OTEL metric data point with type information and value extracted."""
+
+    ts: str
+    service: str
+    metric_name: str
+    metric_description: str
+    metric_unit: str
+    metric_kind: str  # 'gauge', 'sum', or 'histogram'
+    value: float
+    attrs: dict  # data-point-level attributes
+    attr_fp: str  # stable fingerprint for series identity
+    is_monotonic: int = 0
+    aggregation_temporality: int = 0
+    histogram_count: int = 0
+    histogram_sum: float = 0.0
+    histogram_buckets: list = field(default_factory=list)
+    histogram_bounds: list = field(default_factory=list)
+
+
 def _proto_logs_to_events(msg: ExportLogsServiceRequest) -> list[LogEvent]:
     events: list[LogEvent] = []
     for resource_log in msg.resource_logs:
@@ -1026,21 +1849,107 @@ def _proto_traces_to_events(msg: ExportTraceServiceRequest) -> tuple[list[SpanEv
     return span_events, error_events
 
 
-def _proto_metrics_to_events(msg: ExportMetricsServiceRequest) -> list[MetricEvent]:
-    events: list[MetricEvent] = []
+def _proto_metrics_to_events(msg: ExportMetricsServiceRequest) -> list[TypedMetricEvent]:
+    """Parse OTLP ExportMetricsServiceRequest into typed data-point events.
+
+    Supports gauge, sum, and histogram metric types with actual numeric values.
+    """
+    events: list[TypedMetricEvent] = []
     for resource_metric in msg.resource_metrics:
         resource_attrs = _proto_kvlist_to_dict(resource_metric.resource.attributes)
         service = str(resource_attrs.get("service.name", "metrics"))
         for scope_metric in resource_metric.scope_metrics:
             for metric in scope_metric.metrics:
-                events.append(
-                    MetricEvent(
-                        ts=_now_iso(),
-                        service=service,
-                        name=metric.name,
-                        attrs={**resource_attrs, "metric": metric.name},
+                name = metric.name
+                desc = metric.description
+                unit = metric.unit
+                which = metric.WhichOneof("data")
+
+                if which == "gauge":
+                    for dp in metric.gauge.data_points:
+                        dp_attrs = _proto_kvlist_to_dict(dp.attributes)
+                        vfield = dp.WhichOneof("value")
+                        value = float(dp.as_int) if vfield == "as_int" else dp.as_double
+                        ts = _ns_to_iso(int(dp.time_unix_nano)) if dp.time_unix_nano else _now_iso()
+                        events.append(
+                            TypedMetricEvent(
+                                ts=ts,
+                                service=service,
+                                metric_name=name,
+                                metric_description=desc,
+                                metric_unit=unit,
+                                metric_kind="gauge",
+                                value=value,
+                                attrs=dp_attrs,
+                                attr_fp=_attr_fingerprint(dp_attrs),
+                            )
+                        )
+
+                elif which == "sum":
+                    for dp in metric.sum.data_points:
+                        dp_attrs = _proto_kvlist_to_dict(dp.attributes)
+                        vfield = dp.WhichOneof("value")
+                        value = float(dp.as_int) if vfield == "as_int" else dp.as_double
+                        ts = _ns_to_iso(int(dp.time_unix_nano)) if dp.time_unix_nano else _now_iso()
+                        events.append(
+                            TypedMetricEvent(
+                                ts=ts,
+                                service=service,
+                                metric_name=name,
+                                metric_description=desc,
+                                metric_unit=unit,
+                                metric_kind="sum",
+                                value=value,
+                                attrs=dp_attrs,
+                                attr_fp=_attr_fingerprint(dp_attrs),
+                                is_monotonic=1 if metric.sum.is_monotonic else 0,
+                                aggregation_temporality=int(metric.sum.aggregation_temporality),
+                            )
+                        )
+
+                elif which == "histogram":
+                    for dp in metric.histogram.data_points:
+                        dp_attrs = _proto_kvlist_to_dict(dp.attributes)
+                        count = int(dp.count)
+                        hist_sum = float(dp.sum)
+                        mean_val = hist_sum / count if count > 0 else 0.0
+                        ts = _ns_to_iso(int(dp.time_unix_nano)) if dp.time_unix_nano else _now_iso()
+                        events.append(
+                            TypedMetricEvent(
+                                ts=ts,
+                                service=service,
+                                metric_name=name,
+                                metric_description=desc,
+                                metric_unit=unit,
+                                metric_kind="histogram",
+                                value=mean_val,
+                                attrs=dp_attrs,
+                                attr_fp=_attr_fingerprint(dp_attrs),
+                                aggregation_temporality=int(metric.histogram.aggregation_temporality),
+                                histogram_count=count,
+                                histogram_sum=hist_sum,
+                                histogram_buckets=list(dp.bucket_counts),
+                                histogram_bounds=list(dp.explicit_bounds),
+                            )
+                        )
+
+                else:
+                    # Unsupported metric type (exponential histogram, summary):
+                    # fall back to a minimal gauge-like entry at current time.
+                    events.append(
+                        TypedMetricEvent(
+                            ts=_now_iso(),
+                            service=service,
+                            metric_name=name,
+                            metric_description=desc,
+                            metric_unit=unit,
+                            metric_kind="gauge",
+                            value=0.0,
+                            attrs={},
+                            attr_fp=_attr_fingerprint({}),
+                        )
                     )
-                )
+
     return events
 
 
@@ -1128,32 +2037,55 @@ def _insert_error_events(db, error_events: list[ErrorEvent]):
     _insert_rows_json_each_row(db, "otel_logs", rows)
 
 
-def _insert_metric_events(db, events: list[MetricEvent]) -> int:
-    rows = []
-    for event in events:
-        attrs = _stringify_attrs(event.attrs)
-        attrs["metric.name"] = event.name
-        rows.append(
-            {
-                "Timestamp": event.ts,
-                "TraceId": "",
-                "SpanId": "",
-                "TraceFlags": 0,
-                "SeverityText": "INFO",
-                "SeverityNumber": _severity_number("INFO"),
-                "ServiceName": event.service,
-                "Body": f"METRIC {event.name}",
-                "ResourceSchemaUrl": "",
-                "ResourceAttributes": {},
-                "ScopeSchemaUrl": "",
-                "ScopeName": "",
-                "ScopeVersion": "",
-                "ScopeAttributes": {},
-                "LogAttributes": attrs,
-                "EventName": "metric",
-            }
-        )
-    return _insert_rows_json_each_row(db, "otel_logs", rows)
+def _insert_metric_events(db, events: list[TypedMetricEvent]) -> int:
+    """Insert typed OTEL metric data points into the appropriate metric tables."""
+    return _insert_typed_metric_events(db, events)
+
+
+def _insert_typed_metric_events(db, events: list[TypedMetricEvent]) -> int:
+    """Route typed metric events to their respective OTEL metric tables."""
+    gauge_rows: list[dict] = []
+    sum_rows: list[dict] = []
+    histogram_rows: list[dict] = []
+
+    for ev in events:
+        base = {
+            "TimeUnix": ev.ts,
+            "ServiceName": ev.service,
+            "MetricName": ev.metric_name,
+            "MetricDescription": ev.metric_description,
+            "MetricUnit": ev.metric_unit,
+            "Attributes": _stringify_attrs(ev.attrs),
+            "Value": float(ev.value),
+            "Flags": 0,
+            "AttrFingerprint": ev.attr_fp,
+        }
+        if ev.metric_kind == "gauge":
+            gauge_rows.append(base)
+        elif ev.metric_kind == "sum":
+            sum_rows.append(
+                {**base, "IsMonotonic": ev.is_monotonic, "AggregationTemporality": ev.aggregation_temporality}
+            )
+        elif ev.metric_kind == "histogram":
+            histogram_rows.append(
+                {
+                    **{k: v for k, v in base.items() if k != "Value"},
+                    "Count": ev.histogram_count,
+                    "Sum": float(ev.histogram_sum),
+                    "BucketCounts": ev.histogram_buckets or [],
+                    "ExplicitBounds": ev.histogram_bounds or [],
+                    "AggregationTemporality": ev.aggregation_temporality,
+                }
+            )
+
+    inserted = 0
+    if gauge_rows:
+        inserted += _insert_rows_json_each_row(db, "otel_metrics_gauge", gauge_rows)
+    if sum_rows:
+        inserted += _insert_rows_json_each_row(db, "otel_metrics_sum", sum_rows)
+    if histogram_rows:
+        inserted += _insert_rows_json_each_row(db, "otel_metrics_histogram", histogram_rows)
+    return inserted
 
 
 _PROTOBUF_CONTENT_TYPE = "application/x-protobuf"
@@ -1283,7 +2215,7 @@ async def ingest_traces():
 
 
 # ---------------------------------------------------------------------------
-# OTLP Ingest – Metrics  POST /v1/metrics  (stored as logs for simplicity)
+# OTLP Ingest – Metrics  POST /v1/metrics
 # ---------------------------------------------------------------------------
 @app.route("/v1/metrics", methods=["POST"])
 @require_api_key
@@ -1559,11 +2491,11 @@ def _get_resolved_error_ids(db) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# Web UI – Dashboard
+# Web UI – Summary
 # ---------------------------------------------------------------------------
 @app.route("/")
 @require_basic_auth
-async def dashboard():
+async def summary():
     db = get_db()
     resolved_ids = _get_resolved_error_ids(db)
     error_items = []
@@ -1632,12 +2564,13 @@ async def dashboard():
         "GROUP BY model"
     ).fetchall()
     return await render_template(
-        "dashboard.html",
+        "summary.html",
         stats=stats,
         recent_errors=recent_errors,
         recent_logs=recent_logs,
         rum_summary=rum_summary,
         ai_summary=ai_summary,
+        signal_health=_get_signal_health_by_service(db),
     )
 
 
@@ -1953,6 +2886,1332 @@ async def view_logs():
         stats_generated_at_iso=stats_generated_at_iso,
         stats_generated_at_display=stats_generated_at_display,
         stats_generated_age_s=stats_generated_age_s,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Derived Signals / Rules Helpers
+# ---------------------------------------------------------------------------
+_ANOMALY_SEVERITY_RANK = {"normal": 0, "warning": 1, "outlier": 2}
+
+
+def _list_derived_signal_dimensions(db: ChDbConnection) -> tuple[list[str], list[str], list[str]]:
+    services = [
+        row[0]
+        for row in db.execute("SELECT DISTINCT ServiceName FROM v_derived_signals_1m ORDER BY ServiceName").fetchall()
+    ]
+    signals = [
+        row[0]
+        for row in db.execute("SELECT DISTINCT SignalName FROM v_derived_signals_1m ORDER BY SignalName").fetchall()
+    ]
+    sources = [
+        row[0]
+        for row in db.execute("SELECT DISTINCT SignalSource FROM v_derived_signals_1m ORDER BY SignalSource").fetchall()
+    ]
+    return services, signals, sources
+
+
+_AUTO_RULE_GT_HINTS = (
+    "error",
+    "latency",
+    "duration",
+    "timeout",
+    "p95",
+    "p99",
+    "failure",
+    "fail",
+    "retry",
+)
+_AUTO_RULE_LT_HINTS = ("availability", "success", "throughput", "rps", "qps")
+_AUTO_RULE_CREATE_MAX = 200
+_AUTO_DASHBOARD_CREATE_MAX = 24
+
+
+def _infer_auto_rule_comparator(signal_name: str) -> str:
+    name = signal_name.lower()
+    if any(token in name for token in _AUTO_RULE_LT_HINTS):
+        return "lt"
+    if any(token in name for token in _AUTO_RULE_GT_HINTS):
+        return "gt"
+    return "gt"
+
+
+def _auto_rule_thresholds(
+    comparator: str, q05: float, q20: float, q50: float, q80: float, q95: float
+) -> tuple[float, float]:
+    if comparator == "lt":
+        warning = q20
+        critical = q05
+        if critical > warning:
+            critical = min(warning, q50)
+        if critical == warning:
+            critical = warning * 0.9 if warning != 0 else -0.1
+        return warning, critical
+
+    warning = q80
+    critical = q95
+    if critical < warning:
+        critical = max(warning, q50)
+    if critical == warning:
+        critical = warning * 1.1 if warning != 0 else 0.1
+    return warning, critical
+
+
+def _format_auto_rule_name(source: str, signal: str, service: str, attr_fp: str) -> str:
+    suffix = service or "any"
+    if attr_fp:
+        suffix = f"{suffix} / {attr_fp}"
+    return f"Auto {source}/{signal} [{suffix}]"
+
+
+def _build_auto_metric_rule_candidates(
+    db: ChDbConnection,
+    *,
+    hours: int,
+    min_points: int,
+    service_filter: str = "",
+    include_attr_fp: bool = False,
+) -> tuple[list[dict[str, object]], dict[str, int]]:
+    where_parts: list[str] = ["time >= now() - INTERVAL ? HOUR"]
+    params: list[object] = [hours]
+    if service_filter:
+        where_parts.append("ServiceName = ?")
+        params.append(service_filter)
+
+    where_sql = " WHERE " + " AND ".join(where_parts)
+    attr_select = "AttrFingerprint" if include_attr_fp else "''"
+    attr_group = ", AttrFingerprint" if include_attr_fp else ""
+    stats_rows = db.execute(
+        "SELECT ServiceName, SignalSource, SignalName, "
+        f"{attr_select} AS AttrFingerprint, "
+        "count() AS point_count, "
+        "quantile(0.05)(toFloat64(value)) AS q05, "
+        "quantile(0.20)(toFloat64(value)) AS q20, "
+        "quantile(0.50)(toFloat64(value)) AS q50, "
+        "quantile(0.80)(toFloat64(value)) AS q80, "
+        "quantile(0.95)(toFloat64(value)) AS q95 "
+        "FROM v_derived_signals_anomaly"
+        f"{where_sql}"
+        " GROUP BY ServiceName, SignalSource, SignalName"
+        f"{attr_group}"
+        " HAVING point_count >= ?"
+        " ORDER BY point_count DESC",
+        params + [min_points],
+    ).fetchall()
+
+    active_rules = _load_anomaly_rules(db)
+    existing_series = {
+        (
+            str(rule.get("source", "")),
+            str(rule.get("signal", "")),
+            str(rule.get("service", "")),
+            str(rule.get("attr_fp", "")),
+        )
+        for rule in active_rules
+    }
+
+    created_candidates: list[dict[str, object]] = []
+    skipped_existing = 0
+    skipped_invalid = 0
+    for row in stats_rows:
+        service = str(row["ServiceName"])
+        source = str(row["SignalSource"])
+        signal = str(row["SignalName"])
+        attr_fp = str(row["AttrFingerprint"])
+        key = (source, signal, service, attr_fp)
+        if key in existing_series:
+            skipped_existing += 1
+            continue
+
+        point_count = int(row["point_count"])
+        q05 = float(row["q05"])
+        q20 = float(row["q20"])
+        q50 = float(row["q50"])
+        q80 = float(row["q80"])
+        q95 = float(row["q95"])
+        comparator = _infer_auto_rule_comparator(signal)
+        warning, critical = _auto_rule_thresholds(comparator, q05, q20, q50, q80, q95)
+
+        if comparator == "gt" and critical < warning:
+            skipped_invalid += 1
+            continue
+        if comparator == "lt" and critical > warning:
+            skipped_invalid += 1
+            continue
+
+        created_candidates.append(
+            {
+                "name": _format_auto_rule_name(source, signal, service, attr_fp),
+                "rule_type": "threshold",
+                "source": source,
+                "signal": signal,
+                "service": service,
+                "attr_fp": attr_fp,
+                "comparator": comparator,
+                "warning_threshold": warning,
+                "critical_threshold": critical,
+                "min_sample_count": 3,
+                "point_count": point_count,
+            }
+        )
+
+    return created_candidates, {
+        "examined": len(stats_rows),
+        "existing": skipped_existing,
+        "invalid": skipped_invalid,
+    }
+
+
+def _default_auto_dashboard_name(service_filter: str) -> str:
+    if service_filter:
+        return f"Auto Metric Rules - {service_filter}"
+    return "Auto Metric Rules Dashboard"
+
+
+def _build_auto_dashboard_chart_candidates(
+    rules: list[dict[str, object]],
+    *,
+    service_filter: str,
+    hours: int,
+) -> list[dict[str, object]]:
+    candidates: list[dict[str, object]] = []
+    title_counts: dict[str, int] = {}
+    for rule in rules:
+        source = str(rule.get("source", "")).strip()
+        signal = str(rule.get("signal", "")).strip()
+        if not source or not signal:
+            continue
+
+        rule_service = str(rule.get("service", "")).strip()
+        if service_filter and rule_service and rule_service != service_filter:
+            continue
+
+        attr_fp = str(rule.get("attr_fp", "")).strip()
+        where_parts = [
+            f"SignalSource = {_sql_literal(source)}",
+            f"SignalName = {_sql_literal(signal)}",
+            f"time >= now() - INTERVAL {hours} HOUR",
+        ]
+        if rule_service:
+            where_parts.append(f"ServiceName = {_sql_literal(rule_service)}")
+        if attr_fp:
+            where_parts.append(f"AttrFingerprint = {_sql_literal(attr_fp)}")
+
+        sql = (
+            "SELECT time, "
+            "ServiceName AS service, "
+            "SignalSource AS source, "
+            "SignalName AS signal, "
+            "AttrFingerprint AS attr_fp, "
+            "value, "
+            "SampleCount AS sample_count, "
+            "baseline_mean, "
+            "baseline_lower, "
+            "baseline_upper, "
+            "anomaly_state, "
+            "anomaly_score "
+            "FROM v_derived_signals_anomaly "
+            f"WHERE {' AND '.join(where_parts)} "
+            "ORDER BY time"
+        )
+
+        base_title = str(rule.get("name", "")).strip() or f"{source}/{signal}"
+        title_index = title_counts.get(base_title, 0)
+        title_counts[base_title] = title_index + 1
+        title = base_title if title_index == 0 else f"{base_title} ({title_index + 1})"
+
+        candidates.append(
+            {
+                "title": title,
+                "rule_name": str(rule.get("name", "")),
+                "rule_type": str(rule.get("rule_type", "threshold")),
+                "source": source,
+                "signal": signal,
+                "service": rule_service,
+                "attr_fp": attr_fp,
+                "chart_type": "derived_signal_overlay",
+                "query": sql,
+            }
+        )
+
+    candidates.sort(
+        key=lambda item: (
+            str(item.get("service", "")),
+            str(item.get("source", "")),
+            str(item.get("signal", "")),
+            str(item.get("title", "")),
+        )
+    )
+    return candidates
+
+
+def _load_anomaly_rules(db: ChDbConnection) -> list[dict[str, object]]:
+    rows = db.execute(
+        "SELECT Id, Name, RuleType, SignalSource, SignalName, ServiceName, AttrFingerprint, Comparator, "
+        "WarningThreshold, CriticalThreshold, SecondarySignalSource, SecondarySignalName, "
+        "SecondaryComparator, SecondaryWarningThreshold, SecondaryCriticalThreshold, MinSampleCount "
+        "FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 ORDER BY Name"
+    ).fetchall()
+    return [
+        {
+            "id": str(row["Id"]),
+            "name": str(row["Name"]),
+            "rule_type": str(row["RuleType"] or "threshold"),
+            "source": str(row["SignalSource"]),
+            "signal": str(row["SignalName"]),
+            "service": str(row["ServiceName"]),
+            "attr_fp": str(row["AttrFingerprint"]),
+            "comparator": str(row["Comparator"]),
+            "warning_threshold": float(row["WarningThreshold"]),
+            "critical_threshold": float(row["CriticalThreshold"]),
+            "secondary_source": str(row["SecondarySignalSource"]),
+            "secondary_signal": str(row["SecondarySignalName"]),
+            "secondary_comparator": str(row["SecondaryComparator"] or "gt"),
+            "secondary_warning_threshold": float(row["SecondaryWarningThreshold"]),
+            "secondary_critical_threshold": float(row["SecondaryCriticalThreshold"]),
+            "min_sample_count": int(row["MinSampleCount"]),
+        }
+        for row in rows
+    ]
+
+
+def _get_signal_health_by_service(db: ChDbConnection, hours: int = 24) -> list[dict[str, object]]:
+    """Return worst effective_state per service for derived signals in the last `hours` hours."""
+    try:
+        rows = db.execute(
+            "SELECT ServiceName, SignalSource, SignalName, AttrFingerprint, "
+            "argMax(value, time) AS value, argMax(SampleCount, time) AS SampleCount "
+            "FROM v_derived_signals_anomaly "
+            "WHERE time >= now() - INTERVAL ? HOUR "
+            "GROUP BY ServiceName, SignalSource, SignalName, AttrFingerprint",
+            [hours],
+        ).fetchall()
+    except Exception:
+        return []
+    if not rows:
+        return []
+    dicts = [dict(r) for r in rows]
+    rules = _load_anomaly_rules(db)
+    _annotate_rows_with_rules(
+        dicts,
+        rules,
+        source_key="SignalSource",
+        signal_key="SignalName",
+        service_key="ServiceName",
+        attr_fp_key="AttrFingerprint",
+        value_key="value",
+        sample_count_key="SampleCount",
+    )
+    service_worst: dict[str, int] = {}
+    service_count: dict[str, int] = {}
+    for row in dicts:
+        svc = str(row["ServiceName"])
+        rank = _ANOMALY_SEVERITY_RANK.get(str(row.get("effective_state", "normal")), 0)
+        service_worst[svc] = max(service_worst.get(svc, 0), rank)
+        service_count[svc] = service_count.get(svc, 0) + 1
+    rank_to_state = {v: k for k, v in _ANOMALY_SEVERITY_RANK.items()}
+    return sorted(
+        [
+            {
+                "service": svc,
+                "worst_state": rank_to_state.get(service_worst[svc], "normal"),
+                "signal_count": service_count[svc],
+            }
+            for svc in service_worst
+        ],
+        key=lambda x: (-_ANOMALY_SEVERITY_RANK.get(str(x["worst_state"]), 0), str(x["service"])),
+    )
+
+
+def _rule_matches_series(rule: dict[str, object], source: str, signal: str, service: str, attr_fp: str) -> bool:
+    if str(rule.get("source", "")) != source:
+        return False
+    if str(rule.get("signal", "")) != signal:
+        return False
+    rule_service = str(rule.get("service", ""))
+    if rule_service and rule_service != service:
+        return False
+    rule_attr_fp = str(rule.get("attr_fp", ""))
+    if rule_attr_fp and rule_attr_fp != attr_fp:
+        return False
+    return True
+
+
+def _evaluate_threshold_condition(
+    name: str,
+    comparator: str,
+    warning_threshold: object,
+    critical_threshold: object,
+    value: object,
+    sample_count: object,
+    min_sample_count: object,
+) -> dict[str, object] | None:
+    try:
+        value_num = float(str(value))
+        sample_count_num = int(str(sample_count))
+    except (TypeError, ValueError):
+        return None
+
+    min_samples = int(str(min_sample_count))
+    if sample_count_num < min_samples:
+        return None
+
+    warning = float(str(warning_threshold))
+    critical = float(str(critical_threshold))
+
+    state = "normal"
+    triggered_threshold = None
+    if comparator == "gt":
+        if value_num >= critical:
+            state = "outlier"
+            triggered_threshold = critical
+        elif value_num >= warning:
+            state = "warning"
+            triggered_threshold = warning
+    elif comparator == "lt":
+        if value_num <= critical:
+            state = "outlier"
+            triggered_threshold = critical
+        elif value_num <= warning:
+            state = "warning"
+            triggered_threshold = warning
+
+    if state == "normal" or triggered_threshold is None:
+        return None
+
+    operator = ">=" if comparator == "gt" else "<="
+    return {
+        "rule_state": state,
+        "rule_reason": f"{name}: value {round(value_num, 4)} {operator} {triggered_threshold}",
+    }
+
+
+def _evaluate_threshold_rule(rule: dict[str, object], value: object, sample_count: object) -> dict[str, object] | None:
+    evaluation = _evaluate_threshold_condition(
+        str(rule.get("name", "")),
+        str(rule.get("comparator", "gt")),
+        rule.get("warning_threshold", 0.0),
+        rule.get("critical_threshold", 0.0),
+        value,
+        sample_count,
+        rule.get("min_sample_count", 1),
+    )
+    if not evaluation:
+        return None
+    return {
+        "rule_id": str(rule.get("id", "")),
+        "rule_name": str(rule.get("name", "")),
+        **evaluation,
+    }
+
+
+def _build_series_rule_lookups(
+    rows: list[dict[str, object]],
+    *,
+    source_key: str,
+    signal_key: str,
+    service_key: str,
+    attr_fp_key: str,
+    time_key: str | None,
+) -> tuple[dict[tuple[str, str, str, str], dict[str, object]], dict[tuple[str, str, str, str, str], dict[str, object]]]:
+    latest_lookup: dict[tuple[str, str, str, str], dict[str, object]] = {}
+    timed_lookup: dict[tuple[str, str, str, str, str], dict[str, object]] = {}
+    for row in rows:
+        base_key = (
+            str(row.get(service_key, "")),
+            str(row.get(attr_fp_key, "")),
+            str(row.get(source_key, "")),
+            str(row.get(signal_key, "")),
+        )
+        latest_lookup[base_key] = row
+        if time_key:
+            timed_lookup[base_key + (str(row.get(time_key, "")),)] = row
+    return latest_lookup, timed_lookup
+
+
+def _combine_rule_states(*states: str) -> str:
+    ranked = max((_ANOMALY_SEVERITY_RANK.get(state, 0), state) for state in states)
+    return ranked[1]
+
+
+def _lookup_secondary_rule_row(
+    service: str,
+    attr_fp: str,
+    secondary_source: str,
+    secondary_signal: str,
+    time_value: str,
+) -> dict[str, object] | None:
+    db = get_db()
+    attr_filter = "AttrFingerprint = ?"
+    params: list[object] = [service, secondary_source, secondary_signal, attr_fp]
+    if time_value:
+        row = db.execute(
+            "SELECT time, value, SampleCount FROM v_derived_signals_anomaly "
+            "WHERE ServiceName = ? AND SignalSource = ? AND SignalName = ? AND "
+            f"{attr_filter} AND time = ? ORDER BY time DESC LIMIT 1",
+            params + [time_value],
+        ).fetchone()
+        if row:
+            return {"time": row["time"], "value": row["value"], "sample_count": row["SampleCount"]}
+    row = db.execute(
+        "SELECT time, value, SampleCount FROM v_derived_signals_anomaly "
+        "WHERE ServiceName = ? AND SignalSource = ? AND SignalName = ? AND "
+        f"{attr_filter} ORDER BY time DESC LIMIT 1",
+        params,
+    ).fetchone()
+    if not row:
+        return None
+    return {"time": row["time"], "value": row["value"], "sample_count": row["SampleCount"]}
+
+
+def _evaluate_composite_rule(
+    rule: dict[str, object],
+    row: dict[str, object],
+    latest_lookup: dict[tuple[str, str, str, str], dict[str, object]],
+    timed_lookup: dict[tuple[str, str, str, str, str], dict[str, object]],
+    *,
+    source_key: str,
+    signal_key: str,
+    service_key: str,
+    attr_fp_key: str,
+    value_key: str,
+    sample_count_key: str,
+    time_key: str | None,
+) -> dict[str, object] | None:
+    primary = _evaluate_threshold_condition(
+        f"{rule.get('name', '')} primary",
+        str(rule.get("comparator", "gt")),
+        rule.get("warning_threshold", 0.0),
+        rule.get("critical_threshold", 0.0),
+        row.get(value_key),
+        row.get(sample_count_key),
+        rule.get("min_sample_count", 1),
+    )
+    if not primary:
+        return None
+
+    secondary_source = str(rule.get("secondary_source", ""))
+    secondary_signal = str(rule.get("secondary_signal", ""))
+    if not secondary_source or not secondary_signal:
+        return None
+
+    service = str(row.get(service_key, ""))
+    attr_fp = str(row.get(attr_fp_key, ""))
+    time_value = str(row.get(time_key, "")) if time_key else ""
+    timed_key = (service, attr_fp, secondary_source, secondary_signal, time_value)
+    secondary_row = timed_lookup.get(timed_key) if time_key else None
+    if secondary_row is None:
+        secondary_row = latest_lookup.get((service, attr_fp, secondary_source, secondary_signal))
+    if secondary_row is None:
+        secondary_row = _lookup_secondary_rule_row(
+            service,
+            attr_fp,
+            secondary_source,
+            secondary_signal,
+            time_value,
+        )
+    if secondary_row is None:
+        return None
+
+    secondary = _evaluate_threshold_condition(
+        f"{rule.get('name', '')} secondary",
+        str(rule.get("secondary_comparator", "gt")),
+        rule.get("secondary_warning_threshold", 0.0),
+        rule.get("secondary_critical_threshold", 0.0),
+        secondary_row.get(value_key, secondary_row.get("value")),
+        secondary_row.get(sample_count_key, secondary_row.get("sample_count")),
+        rule.get("min_sample_count", 1),
+    )
+    if not secondary:
+        return None
+
+    primary_state = str(primary.get("rule_state", "normal"))
+    secondary_state = str(secondary.get("rule_state", "normal"))
+    combined_state = _combine_rule_states(primary_state, secondary_state)
+    secondary_value = secondary_row.get(value_key)
+    return {
+        "rule_id": str(rule.get("id", "")),
+        "rule_name": str(rule.get("name", "")),
+        "rule_state": combined_state,
+        "rule_reason": (
+            f"{rule.get('name', '')}: primary {str(row.get(signal_key, ''))}={row.get(value_key)} and "
+            f"secondary {secondary_signal}={secondary_value} triggered"
+        ),
+    }
+
+
+def _annotate_rows_with_rules(
+    rows: list[dict[str, object]],
+    rules: list[dict[str, object]],
+    *,
+    source_key: str,
+    signal_key: str,
+    service_key: str,
+    attr_fp_key: str,
+    value_key: str,
+    sample_count_key: str,
+    time_key: str | None = None,
+) -> None:
+    latest_lookup, timed_lookup = _build_series_rule_lookups(
+        rows,
+        source_key=source_key,
+        signal_key=signal_key,
+        service_key=service_key,
+        attr_fp_key=attr_fp_key,
+        time_key=time_key,
+    )
+    for row in rows:
+        row["rule_name"] = ""
+        row["rule_state"] = "normal"
+        row["rule_reason"] = ""
+        row["effective_state"] = str(row.get("anomaly_state", "normal"))
+        best_match: dict[str, object] | None = None
+        best_rank = -1
+        row_source = str(row.get(source_key, ""))
+        row_signal = str(row.get(signal_key, ""))
+        row_service = str(row.get(service_key, ""))
+        row_attr_fp = str(row.get(attr_fp_key, ""))
+        for rule in rules:
+            if not _rule_matches_series(rule, row_source, row_signal, row_service, row_attr_fp):
+                continue
+            if str(rule.get("rule_type", "threshold")) == "composite":
+                evaluation = _evaluate_composite_rule(
+                    rule,
+                    row,
+                    latest_lookup,
+                    timed_lookup,
+                    source_key=source_key,
+                    signal_key=signal_key,
+                    service_key=service_key,
+                    attr_fp_key=attr_fp_key,
+                    value_key=value_key,
+                    sample_count_key=sample_count_key,
+                    time_key=time_key,
+                )
+            else:
+                evaluation = _evaluate_threshold_rule(rule, row.get(value_key), row.get(sample_count_key))
+            if not evaluation:
+                continue
+            rank = _ANOMALY_SEVERITY_RANK.get(str(evaluation.get("rule_state", "normal")), 0)
+            if rank > best_rank:
+                best_match = evaluation
+                best_rank = rank
+        if best_match:
+            row.update(best_match)
+        row["effective_state"] = _combine_rule_states(
+            str(row.get("anomaly_state", "normal")),
+            str(row.get("rule_state", "normal")),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Web UI – Metrics (derived signal index)
+# ---------------------------------------------------------------------------
+@app.route("/metrics")
+@require_basic_auth
+async def view_metrics():
+    db = get_db()
+    service = request.args.get("service", "").strip()
+    signal = request.args.get("signal", "").strip()
+    source = request.args.get("source", "").strip()
+    attr_fp = request.args.get("attr_fp", "").strip()
+    from_ts, to_ts, time_error = _parse_time_window_args()
+    limit = _parse_limit(100)
+    offset = _parse_offset()
+    sort_by, sort_col, sort_dir = _parse_sort(
+        {
+            "last_time": "last_time",
+            "service": "service",
+            "source": "source",
+            "signal": "signal",
+            "last_value": "last_value",
+            "last_anomaly_score": "last_anomaly_score",
+            "last_anomaly_state": "last_anomaly_state",
+            "last_sample_count": "last_sample_count",
+            "point_count": "point_count",
+        },
+        "last_time",
+    )
+    order_clause = f"ORDER BY {sort_col} {'ASC' if sort_dir == 'asc' else 'DESC'}"
+
+    try:
+        hours = max(1, min(168, int(request.args.get("hours") or 24)))
+    except (TypeError, ValueError):
+        hours = 24
+
+    where_parts: list[str] = []
+    params: list[str] = []
+    if service:
+        where_parts.append("ServiceName = ?")
+        params.append(service)
+    if signal:
+        where_parts.append("SignalName = ?")
+        params.append(signal)
+    if source:
+        where_parts.append("SignalSource = ?")
+        params.append(source)
+    if attr_fp:
+        where_parts.append("AttrFingerprint = ?")
+        params.append(attr_fp)
+
+    if not time_error:
+        time_conditions, time_params = _time_window_conditions("time", from_ts, to_ts)
+        where_parts.extend(time_conditions)
+        params.extend(time_params)
+
+    hour_clause = ""
+    if not from_ts and not to_ts:
+        hour_clause = "time >= now() - INTERVAL ? HOUR"
+        params.append(hours)
+
+    where_clause = ""
+    if where_parts:
+        where_clause = " WHERE " + " AND ".join(where_parts)
+    if hour_clause:
+        where_clause = f"{where_clause} AND {hour_clause}" if where_clause else f" WHERE {hour_clause}"
+
+    rows: list[dict] = []
+    total = 0
+    error_msg = time_error
+    if not error_msg:
+        try:
+            grouped_sql = (
+                "SELECT"
+                "  ServiceName AS service,"
+                "  SignalSource AS source,"
+                "  SignalName AS signal,"
+                "  AttrFingerprint AS attr_fp,"
+                "  max(time) AS last_time,"
+                "  argMax(value, time) AS last_value,"
+                "  argMax(anomaly_score, time) AS last_anomaly_score,"
+                "  argMax(anomaly_state, time) AS last_anomaly_state,"
+                "  argMax(SampleCount, time) AS last_sample_count,"
+                "  count() AS point_count"
+                " FROM v_derived_signals_anomaly"
+                f"{where_clause}"
+                " GROUP BY ServiceName, SignalSource, SignalName, AttrFingerprint"
+            )
+
+            total = db.execute(f"SELECT COUNT(*) FROM ({grouped_sql})", params).fetchone()[0]
+            fetched = db.execute(
+                f"SELECT * FROM ({grouped_sql}) {order_clause} LIMIT ? OFFSET ?",
+                params + [limit, offset],
+            ).fetchall()
+            for row in fetched:
+                rows.append(
+                    {
+                        "service": str(row["service"]),
+                        "source": str(row["source"]),
+                        "signal": str(row["signal"]),
+                        "attr_fp": str(row["attr_fp"]),
+                        "last_time": str(row["last_time"]),
+                        "last_value": row["last_value"],
+                        "last_anomaly_score": row["last_anomaly_score"],
+                        "last_anomaly_state": str(row["last_anomaly_state"]),
+                        "last_sample_count": row["last_sample_count"],
+                        "point_count": row["point_count"],
+                        "rule_name": "",
+                    }
+                )
+        except Exception as exc:
+            app.logger.exception("metrics index query failed")
+            error_msg = _public_dashboard_query_error(exc)
+
+    _annotate_rows_with_rules(
+        rows,
+        _load_anomaly_rules(db),
+        source_key="source",
+        signal_key="signal",
+        service_key="service",
+        attr_fp_key="attr_fp",
+        value_key="last_value",
+        sample_count_key="last_sample_count",
+        time_key="last_time",
+    )
+
+    services, signals, sources = _list_derived_signal_dimensions(db)
+
+    return await render_template(
+        "metrics.html",
+        rows=rows,
+        total=total,
+        limit=limit,
+        offset=offset,
+        service=service,
+        signal=signal,
+        source=source,
+        attr_fp=attr_fp,
+        from_ts=from_ts,
+        to_ts=to_ts,
+        hours=hours,
+        error_msg=error_msg,
+        services=services,
+        signals=signals,
+        sources=sources,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Web UI – Metrics Rules
+# ---------------------------------------------------------------------------
+@app.route("/metrics/rules")
+@require_basic_auth
+async def view_metrics_rules():
+    db = get_db()
+    open_panel = (request.args.get("open_panel") or "").strip().lower()
+    if open_panel not in {"auto-rules", "auto-dashboard"}:
+        open_panel = ""
+    services, signals, sources = _list_derived_signal_dimensions(db)
+    rules = _load_anomaly_rules(db)
+    return await render_template(
+        "metrics_rules.html",
+        rules=rules,
+        services=services,
+        signals=signals,
+        sources=sources,
+        auto_preview=[],
+        auto_summary=None,
+        auto_dashboard_preview=[],
+        auto_dashboard_summary=None,
+        auto_open_panel=open_panel,
+    )
+
+
+@app.route("/metrics/rules", methods=["POST"])
+@require_basic_auth
+async def create_metrics_rule():
+    form = await request.form
+    name = (form.get("name") or "").strip()
+    rule_type = (form.get("rule_type") or "threshold").strip().lower()
+    source = (form.get("source") or "").strip()
+    signal = (form.get("signal") or "").strip()
+    service = (form.get("service") or "").strip()
+    attr_fp = (form.get("attr_fp") or "").strip()
+    comparator = (form.get("comparator") or "gt").strip().lower()
+    secondary_source = (form.get("secondary_source") or "").strip()
+    secondary_signal = (form.get("secondary_signal") or "").strip()
+    secondary_comparator = (form.get("secondary_comparator") or "gt").strip().lower()
+
+    if not name or not source or not signal:
+        await flash("Rule name, source, and signal are required", "warning")
+        return redirect(url_for("view_metrics_rules"))
+
+    if rule_type not in {"threshold", "composite"}:
+        await flash("Rule type must be 'threshold' or 'composite'", "warning")
+        return redirect(url_for("view_metrics_rules"))
+
+    if comparator not in {"gt", "lt"}:
+        await flash("Comparator must be 'gt' or 'lt'", "warning")
+        return redirect(url_for("view_metrics_rules"))
+    if secondary_comparator not in {"gt", "lt"}:
+        await flash("Secondary comparator must be 'gt' or 'lt'", "warning")
+        return redirect(url_for("view_metrics_rules"))
+
+    try:
+        warning_threshold = float(form.get("warning_threshold") or "")
+        critical_threshold = float(form.get("critical_threshold") or "")
+        min_sample_count = max(1, int(form.get("min_sample_count") or 1))
+        secondary_warning_threshold = float(form.get("secondary_warning_threshold") or 0)
+        secondary_critical_threshold = float(form.get("secondary_critical_threshold") or 0)
+    except (TypeError, ValueError):
+        await flash("Thresholds must be numeric and sample count must be an integer", "warning")
+        return redirect(url_for("view_metrics_rules"))
+
+    if comparator == "gt" and critical_threshold < warning_threshold:
+        await flash("For 'gt' rules, critical threshold must be >= warning threshold", "warning")
+        return redirect(url_for("view_metrics_rules"))
+    if comparator == "lt" and critical_threshold > warning_threshold:
+        await flash("For 'lt' rules, critical threshold must be <= warning threshold", "warning")
+        return redirect(url_for("view_metrics_rules"))
+    if rule_type == "composite":
+        if not secondary_source or not secondary_signal:
+            await flash("Composite rules require a secondary source and signal", "warning")
+            return redirect(url_for("view_metrics_rules"))
+        if secondary_comparator == "gt" and secondary_critical_threshold < secondary_warning_threshold:
+            await flash("For secondary 'gt' rules, critical threshold must be >= warning threshold", "warning")
+            return redirect(url_for("view_metrics_rules"))
+        if secondary_comparator == "lt" and secondary_critical_threshold > secondary_warning_threshold:
+            await flash("For secondary 'lt' rules, critical threshold must be <= warning threshold", "warning")
+            return redirect(url_for("view_metrics_rules"))
+    else:
+        secondary_source = ""
+        secondary_signal = ""
+        secondary_comparator = "gt"
+        secondary_warning_threshold = 0.0
+        secondary_critical_threshold = 0.0
+
+    rule_id = str(uuid.uuid4())
+    version = int(time.time() * 1000)
+    _insert_rows_json_each_row(
+        get_db(),
+        "sobs_anomaly_rules",
+        [
+            {
+                "Id": rule_id,
+                "Name": name,
+                "RuleType": rule_type,
+                "SignalSource": source,
+                "SignalName": signal,
+                "ServiceName": service,
+                "AttrFingerprint": attr_fp,
+                "Comparator": comparator,
+                "WarningThreshold": warning_threshold,
+                "CriticalThreshold": critical_threshold,
+                "SecondarySignalSource": secondary_source,
+                "SecondarySignalName": secondary_signal,
+                "SecondaryComparator": secondary_comparator,
+                "SecondaryWarningThreshold": secondary_warning_threshold,
+                "SecondaryCriticalThreshold": secondary_critical_threshold,
+                "MinSampleCount": min_sample_count,
+                "IsDeleted": 0,
+                "Version": version,
+            }
+        ],
+    )
+    await flash(f"Rule '{name}' created", "success")
+    return redirect(url_for("view_metrics_rules"))
+
+
+@app.route("/metrics/rules/auto", methods=["POST"])
+@require_basic_auth
+async def auto_metrics_rules():
+    form = await request.form
+    action = (form.get("action") or "preview").strip().lower()
+    try:
+        hours = max(1, min(168, int(form.get("hours") or 24)))
+    except (TypeError, ValueError):
+        hours = 24
+    try:
+        min_points = max(1, min(5000, int(form.get("min_points") or 30)))
+    except (TypeError, ValueError):
+        min_points = 30
+
+    service_filter = (form.get("service_filter") or "").strip()
+    include_attr_fp = (form.get("include_attr_fp") or "") in {"1", "true", "on", "yes"}
+
+    db = get_db()
+    services, signals, sources = _list_derived_signal_dimensions(db)
+    existing_rules = _load_anomaly_rules(db)
+
+    candidates, stats = _build_auto_metric_rule_candidates(
+        db,
+        hours=hours,
+        min_points=min_points,
+        service_filter=service_filter,
+        include_attr_fp=include_attr_fp,
+    )
+
+    summary = {
+        "action": action,
+        "hours": hours,
+        "min_points": min_points,
+        "service_filter": service_filter,
+        "include_attr_fp": include_attr_fp,
+        "examined": stats["examined"],
+        "existing": stats["existing"],
+        "invalid": stats["invalid"],
+        "candidates": len(candidates),
+        "create_cap": _AUTO_RULE_CREATE_MAX,
+        "capped": len(candidates) > _AUTO_RULE_CREATE_MAX,
+        "created": 0,
+    }
+
+    if action == "create":
+        limited_candidates = candidates[:_AUTO_RULE_CREATE_MAX]
+        now_version = int(time.time() * 1000)
+        rows_to_insert: list[dict[str, object]] = []
+        for idx, candidate in enumerate(limited_candidates):
+            rows_to_insert.append(
+                {
+                    "Id": str(uuid.uuid4()),
+                    "Name": str(candidate["name"]),
+                    "RuleType": "threshold",
+                    "SignalSource": str(candidate["source"]),
+                    "SignalName": str(candidate["signal"]),
+                    "ServiceName": str(candidate["service"]),
+                    "AttrFingerprint": str(candidate["attr_fp"]),
+                    "Comparator": str(candidate["comparator"]),
+                    "WarningThreshold": float(candidate["warning_threshold"]),
+                    "CriticalThreshold": float(candidate["critical_threshold"]),
+                    "SecondarySignalSource": "",
+                    "SecondarySignalName": "",
+                    "SecondaryComparator": "gt",
+                    "SecondaryWarningThreshold": 0.0,
+                    "SecondaryCriticalThreshold": 0.0,
+                    "MinSampleCount": int(candidate["min_sample_count"]),
+                    "IsDeleted": 0,
+                    "Version": now_version + idx,
+                }
+            )
+
+        if rows_to_insert:
+            _insert_rows_json_each_row(db, "sobs_anomaly_rules", rows_to_insert)
+        summary["created"] = len(rows_to_insert)
+        skipped_by_cap = max(0, len(candidates) - len(limited_candidates))
+        cap_suffix = f", skipped {skipped_by_cap} by max cap ({_AUTO_RULE_CREATE_MAX})." if skipped_by_cap else "."
+        await flash(
+            (
+                f"Auto rule generation complete: created {summary['created']} rule(s), "
+                f"skipped {summary['existing']} existing, {summary['invalid']} invalid"
+                f"{cap_suffix}"
+            ),
+            "success",
+        )
+        return redirect(url_for("view_metrics_rules", open_panel="auto-rules"))
+
+    await flash(
+        (
+            f"Auto-rule preview: {summary['candidates']} candidate(s), "
+            f"{summary['existing']} existing skipped, {summary['invalid']} invalid."
+        ),
+        "info",
+    )
+    return await render_template(
+        "metrics_rules.html",
+        rules=existing_rules,
+        services=services,
+        signals=signals,
+        sources=sources,
+        auto_preview=candidates,
+        auto_summary=summary,
+        auto_dashboard_preview=[],
+        auto_dashboard_summary=None,
+        auto_open_panel="auto-rules",
+    )
+
+
+@app.route("/metrics/rules/dashboard/auto", methods=["POST"])
+@require_basic_auth
+async def auto_metrics_rules_dashboard():
+    form = await request.form
+    action = (form.get("action") or "preview").strip().lower()
+    service_filter = (form.get("service_filter") or "").strip()
+    hours = _coerce_positive_int(form.get("hours"), default_value=24, min_value=1, max_value=168)
+    max_charts = _coerce_positive_int(
+        form.get("max_charts"),
+        default_value=12,
+        min_value=1,
+        max_value=_AUTO_DASHBOARD_CREATE_MAX,
+    )
+    dashboard_name = (form.get("dashboard_name") or "").strip() or _default_auto_dashboard_name(service_filter)
+
+    db = get_db()
+    services, signals, sources = _list_derived_signal_dimensions(db)
+    rules = _load_anomaly_rules(db)
+    candidates = _build_auto_dashboard_chart_candidates(
+        rules,
+        service_filter=service_filter,
+        hours=hours,
+    )
+    capped_candidates = candidates[:max_charts]
+
+    summary = {
+        "action": action,
+        "hours": hours,
+        "service_filter": service_filter,
+        "max_charts": max_charts,
+        "create_cap": _AUTO_DASHBOARD_CREATE_MAX,
+        "dashboard_name": dashboard_name,
+        "rules_total": len(rules),
+        "candidates": len(candidates),
+        "capped": len(candidates) > max_charts,
+        "created": 0,
+        "existing": 0,
+    }
+
+    if action == "create":
+        if not capped_candidates:
+            await flash("No matching rules found for dashboard generation", "warning")
+            return redirect(url_for("view_metrics_rules", open_panel="auto-dashboard"))
+
+        dashboard_description = (
+            "Auto-generated from active metric rules. "
+            f"window={hours}h, scope={'all services' if not service_filter else service_filter}."
+        )
+        dashboard_id = _seed_dashboard_if_missing(db, dashboard_name, dashboard_description)
+
+        existing_charts = _get_charts(db, dashboard_id)
+        existing_titles = {str(chart["title"]) for chart in existing_charts}
+        next_position = max((int(chart["position"]) for chart in existing_charts), default=-1) + 1
+        next_version = int(time.time() * 1000)
+        rows_to_insert: list[dict[str, object]] = []
+
+        for idx, candidate in enumerate(capped_candidates):
+            title = str(candidate["title"])
+            if title in existing_titles:
+                summary["existing"] += 1
+                continue
+            query = str(candidate["query"])
+            chart_type = str(candidate["chart_type"])
+            rows_to_insert.append(
+                {
+                    "Id": str(uuid.uuid4()),
+                    "DashboardId": dashboard_id,
+                    "Title": title,
+                    "ChartType": chart_type,
+                    "Query": query,
+                    "OptionsJson": json.dumps(
+                        {"chart_spec": _build_raw_chart_spec(chart_type, query)},
+                        ensure_ascii=False,
+                    ),
+                    "Position": next_position + idx,
+                    "IsDeleted": 0,
+                    "Version": next_version + idx,
+                }
+            )
+            existing_titles.add(title)
+
+        if rows_to_insert:
+            _insert_rows_json_each_row(db, "sobs_chart_configs", rows_to_insert)
+        summary["created"] = len(rows_to_insert)
+
+        skipped_by_max = max(0, len(candidates) - len(capped_candidates))
+        cap_note = f", skipped {skipped_by_max} by selected max ({max_charts})" if skipped_by_max else ""
+        await flash(
+            (
+                f"Auto dashboard ready: created {summary['created']} chart(s), "
+                f"skipped {summary['existing']} existing{cap_note}."
+            ),
+            "success",
+        )
+        return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
+
+    await flash(
+        (
+            f"Auto-dashboard preview: {summary['candidates']} candidate chart(s) from "
+            f"{summary['rules_total']} rule(s)."
+        ),
+        "info",
+    )
+    return await render_template(
+        "metrics_rules.html",
+        rules=rules,
+        services=services,
+        signals=signals,
+        sources=sources,
+        auto_preview=[],
+        auto_summary=None,
+        auto_dashboard_preview=candidates,
+        auto_dashboard_summary=summary,
+        auto_open_panel="auto-dashboard",
+    )
+
+
+@app.route("/metrics/rules/<rule_id>/delete", methods=["POST"])
+@require_basic_auth
+async def delete_metrics_rule(rule_id: str):
+    db = get_db()
+    row = db.execute(
+        "SELECT Id, Name, RuleType, SignalSource, SignalName, ServiceName, AttrFingerprint, Comparator, "
+        "WarningThreshold, CriticalThreshold, SecondarySignalSource, SecondarySignalName, "
+        "SecondaryComparator, SecondaryWarningThreshold, SecondaryCriticalThreshold, MinSampleCount "
+        "FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 AND Id = ?",
+        [rule_id],
+    ).fetchone()
+    if not row:
+        await flash("Rule not found", "warning")
+        return redirect(url_for("view_metrics_rules"))
+
+    version = int(time.time() * 1000)
+    _insert_rows_json_each_row(
+        db,
+        "sobs_anomaly_rules",
+        [
+            {
+                "Id": str(row["Id"]),
+                "Name": str(row["Name"]),
+                "RuleType": str(row["RuleType"] or "threshold"),
+                "SignalSource": str(row["SignalSource"]),
+                "SignalName": str(row["SignalName"]),
+                "ServiceName": str(row["ServiceName"]),
+                "AttrFingerprint": str(row["AttrFingerprint"]),
+                "Comparator": str(row["Comparator"]),
+                "WarningThreshold": float(row["WarningThreshold"]),
+                "CriticalThreshold": float(row["CriticalThreshold"]),
+                "SecondarySignalSource": str(row["SecondarySignalSource"]),
+                "SecondarySignalName": str(row["SecondarySignalName"]),
+                "SecondaryComparator": str(row["SecondaryComparator"] or "gt"),
+                "SecondaryWarningThreshold": float(row["SecondaryWarningThreshold"]),
+                "SecondaryCriticalThreshold": float(row["SecondaryCriticalThreshold"]),
+                "MinSampleCount": int(row["MinSampleCount"]),
+                "IsDeleted": 1,
+                "Version": version,
+            }
+        ],
+    )
+    await flash(f"Rule '{str(row['Name'])}' deleted", "success")
+    return redirect(url_for("view_metrics_rules"))
+
+
+# ---------------------------------------------------------------------------
+# Web UI – Metrics Anomaly Details
+# ---------------------------------------------------------------------------
+@app.route("/metrics/anomaly")
+@require_basic_auth
+async def view_metrics_anomaly():
+    db = get_db()
+    service = request.args.get("service", "").strip()
+    metric = request.args.get("metric", "").strip()
+    signal = request.args.get("signal", "").strip()
+    source = request.args.get("source", "").strip()
+    attr_fp = request.args.get("attr_fp", "").strip()
+    from_ts, to_ts, time_error = _parse_time_window_args()
+
+    # Optional metadata passed from chart click for point-level context.
+    point_state = request.args.get("_anomaly_state", "").strip()
+    point_score = request.args.get("_anomaly_score", "").strip()
+
+    try:
+        hours = max(1, min(168, int(request.args.get("hours") or 24)))
+    except (TypeError, ValueError):
+        hours = 24
+
+    where_parts: list[str] = []
+    params: list[str] = []
+    if service:
+        where_parts.append("ServiceName = ?")
+        params.append(service)
+    if metric:
+        where_parts.append("MetricName = ?")
+        params.append(metric)
+    if signal:
+        where_parts.append("SignalName = ?")
+        params.append(signal)
+    if source:
+        where_parts.append("SignalSource = ?")
+        params.append(source)
+    if attr_fp:
+        where_parts.append("AttrFingerprint = ?")
+        params.append(attr_fp)
+
+    if not time_error:
+        time_conditions, time_params = _time_window_conditions("time", from_ts, to_ts)
+        where_parts.extend(time_conditions)
+        params.extend(time_params)
+
+    # Fallback to hour-based window only when explicit time window is not provided.
+    hour_clause = ""
+    if not from_ts and not to_ts:
+        hour_clause = "time >= now() - INTERVAL ? HOUR"
+        params.append(hours)
+
+    where_clause = ""
+    if where_parts:
+        where_clause = " WHERE " + " AND ".join(where_parts)
+    if hour_clause:
+        where_clause = f"{where_clause} AND {hour_clause}" if where_clause else f" WHERE {hour_clause}"
+
+    rows: list[dict] = []
+    error_msg = time_error
+    related_target = source if source in {"logs", "traces", "errors"} else ""
+    active_rules = _load_anomaly_rules(db)
+    use_otel_metrics_view = bool(metric) and not signal and not source
+    if not error_msg:
+        try:
+            # Keep existing metric drilldown behavior and support derived signals.
+            result = db.execute(
+                (
+                    (
+                        "SELECT"
+                        "  time,"
+                        "  ServiceName,"
+                        "  MetricName AS Name,"
+                        "  MetricKind AS Kind,"
+                        "  AttrFingerprint,"
+                        "  value,"
+                        "  SampleCount,"
+                        "  baseline_mean,"
+                        "  baseline_stddev,"
+                        "  baseline_lower,"
+                        "  baseline_upper,"
+                        "  anomaly_score,"
+                        "  anomaly_state"
+                        " FROM v_otel_metrics_anomaly"
+                    )
+                    if use_otel_metrics_view
+                    else (
+                        "SELECT"
+                        "  time,"
+                        "  ServiceName,"
+                        "  SignalName AS Name,"
+                        "  SignalSource AS Kind,"
+                        "  AttrFingerprint,"
+                        "  value,"
+                        "  SampleCount,"
+                        "  baseline_mean,"
+                        "  baseline_stddev,"
+                        "  baseline_lower,"
+                        "  baseline_upper,"
+                        "  anomaly_score,"
+                        "  anomaly_state"
+                        " FROM v_derived_signals_anomaly"
+                    )
+                    + f"{where_clause}"
+                    + " ORDER BY time DESC"
+                    + " LIMIT 500"
+                ),
+                params,
+            )
+            fetched = result.fetchall()
+            for row in fetched:
+                rows.append(
+                    {
+                        "time": str(row["time"]),
+                        "service": str(row["ServiceName"]),
+                        "metric": str(row["Name"]),
+                        "metric_kind": str(row["Kind"]),
+                        "related_target": ("" if use_otel_metrics_view else str(row["Kind"])),
+                        "attr_fp": str(row["AttrFingerprint"]),
+                        "value": row["value"],
+                        "sample_count": row["SampleCount"],
+                        "baseline_mean": row["baseline_mean"],
+                        "baseline_stddev": row["baseline_stddev"],
+                        "baseline_lower": row["baseline_lower"],
+                        "baseline_upper": row["baseline_upper"],
+                        "anomaly_score": row["anomaly_score"],
+                        "anomaly_state": str(row["anomaly_state"]),
+                    }
+                )
+        except Exception as exc:
+            app.logger.exception("metrics anomaly detail query failed")
+            error_msg = _public_dashboard_query_error(exc)
+
+    if not use_otel_metrics_view:
+        _annotate_rows_with_rules(
+            rows,
+            active_rules,
+            source_key="related_target",
+            signal_key="metric",
+            service_key="service",
+            attr_fp_key="attr_fp",
+            value_key="value",
+            sample_count_key="sample_count",
+            time_key="time",
+        )
+
+    services, signals, sources = _list_derived_signal_dimensions(db)
+
+    return await render_template(
+        "metrics_anomaly.html",
+        rows=rows,
+        total=len(rows),
+        service=service,
+        metric=metric,
+        signal=signal,
+        source=source,
+        attr_fp=attr_fp,
+        from_ts=from_ts,
+        to_ts=to_ts,
+        hours=hours,
+        error_msg=error_msg,
+        point_state=point_state,
+        point_score=point_score,
+        related_target=related_target,
+        services=services,
+        signals=signals,
+        sources=sources,
     )
 
 
@@ -2519,11 +4778,13 @@ CHART_TEMPLATES = {
         "query_shape": "Columns: time, metric, anomaly_score",
         "sample_sql": (
             "SELECT\n"
-            "  toStartOfMinute(Timestamp) AS time,\n"
-            "  avg(Duration) AS metric,\n"
-            "  max(AnomalyScore) AS anomaly_score\n"
-            "FROM otel_traces_with_anomalies\n"
-            "GROUP BY time\n"
+            "  time,\n"
+            "  value AS metric,\n"
+            "  anomaly_score\n"
+            "FROM v_otel_metrics_anomaly\n"
+            "WHERE ServiceName = 'my-service'\n"
+            "  AND MetricName = 'my.metric'\n"
+            "  AND time >= now() - INTERVAL 1 HOUR\n"
             "ORDER BY time"
         ),
         "drilldown": {
@@ -2574,6 +4835,223 @@ CHART_TEMPLATES = {
             ],
         },
     },
+    "anomaly_overlay": {
+        "id": "anomaly_overlay",
+        "name": "Anomaly Overlay",
+        "description": "Metric with baseline band and per-point anomaly state markers (normal/warning/outlier)",
+        "icon": "bi-activity",
+        "query_shape": "Columns: time, value, baseline_mean, baseline_lower, baseline_upper, anomaly_state",
+        "sample_sql": (
+            "SELECT\n"
+            "  time,\n"
+            "  value,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state\n"
+            "FROM v_otel_metrics_anomaly\n"
+            "WHERE ServiceName = 'my-service'\n"
+            "  AND MetricName = 'my.metric'\n"
+            "  AND time >= now() - INTERVAL 6 HOUR\n"
+            "ORDER BY time"
+        ),
+        "drilldown": {
+            "target": "metrics",
+            "label": "Open anomaly details",
+            "bucket_seconds": 60,
+            "time_axis": "x",
+        },
+        "min_columns": 6,
+        "max_columns": 6,
+        "column_roles": {
+            "time": 0,
+            "value": 1,
+            "baseline_mean": 2,
+            "baseline_lower": 3,
+            "baseline_upper": 4,
+            "anomaly_state": 5,
+        },
+        "echarts_option_template": {
+            "tooltip": {"trigger": "axis"},
+            "legend": {"data": ["Value", "Baseline", "Normal Band"], "bottom": 0},
+            "xAxis": {"type": "time", "data": "{{time}}"},
+            "yAxis": {"type": "value"},
+            "grid": {"left": "3%", "right": "4%", "bottom": "15%", "containLabel": True},
+            "series": [
+                {
+                    "name": "Normal Band",
+                    "type": "line",
+                    "data": "{{baseline_upper}}",
+                    "lineStyle": {"opacity": 0},
+                    "areaStyle": {"color": "rgba(13, 110, 253, 0.08)"},
+                    "symbol": "none",
+                    "stack": "band",
+                },
+                {
+                    "name": "Baseline",
+                    "type": "line",
+                    "data": "{{baseline_mean}}",
+                    "lineStyle": {"type": "dashed", "color": "#6c757d"},
+                    "symbol": "none",
+                },
+                {
+                    "name": "Value",
+                    "type": "line",
+                    "data": "{{value}}",
+                    "lineStyle": {"color": "#0d6efd"},
+                    "symbol": "circle",
+                    "symbolSize": "{{anomaly_symbol_size}}",
+                    "itemStyle": {"color": "{{anomaly_point_color}}"},
+                },
+            ],
+        },
+    },
+    "derived_signal_overlay": {
+        "id": "derived_signal_overlay",
+        "name": "Derived Signal Overlay",
+        "description": "At-a-glance signal health view with recent focus, anomaly windows, and status summary",
+        "icon": "bi-soundwave",
+        "query_shape": (
+            "Columns: time, service, source, signal, attr_fp, value, sample_count, baseline_mean, "
+            "baseline_lower, baseline_upper, anomaly_state, anomaly_score"
+        ),
+        "sample_sql": (
+            "SELECT\n"
+            "  time,\n"
+            "  ServiceName AS service,\n"
+            "  SignalSource AS source,\n"
+            "  SignalName AS signal,\n"
+            "  AttrFingerprint AS attr_fp,\n"
+            "  value,\n"
+            "  SampleCount AS sample_count,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state,\n"
+            "  anomaly_score\n"
+            "FROM v_derived_signals_anomaly\n"
+            "WHERE ServiceName = 'trace-svc-0'\n"
+            "  AND SignalSource = 'traces'\n"
+            "  AND SignalName = 'latency_p95_ms'\n"
+            "  AND time >= now() - INTERVAL 6 HOUR\n"
+            "ORDER BY time"
+        ),
+        "drilldown": {
+            "target": "metrics",
+            "label": "Open signal details",
+            "bucket_seconds": 60,
+            "time_axis": "x",
+        },
+        "min_columns": 12,
+        "max_columns": 16,
+        "column_roles": {
+            "time": 0,
+            "service": 1,
+            "source": 2,
+            "signal": 3,
+            "attr_fp": 4,
+            "value": 5,
+            "sample_count": 6,
+            "baseline_mean": 7,
+            "baseline_lower": 8,
+            "baseline_upper": 9,
+            "anomaly_state": 10,
+            "anomaly_score": 11,
+            "rule_state": 12,
+            "rule_name": 13,
+            "rule_reason": 14,
+            "effective_state": 15,
+        },
+        "echarts_option_template": {
+            "title": {
+                "left": 8,
+                "top": 2,
+                "text": "",
+                "subtext": "{{signal_summary}}",
+                "textStyle": {"fontSize": 11, "color": "#adb5bd"},
+                "subtextStyle": {"fontSize": 11, "color": "#9ca3af"},
+            },
+            "tooltip": {"trigger": "axis"},
+            "legend": {"data": ["Value", "Baseline", "Expected Band"], "bottom": 0},
+            "xAxis": {"type": "time", "axisLabel": {"hideOverlap": True}},
+            "yAxis": {
+                "type": "value",
+                "name": "{{y_axis_name}}",
+                "nameTextStyle": {"color": "#9ca3af", "fontSize": 11},
+                "min": "{{value_axis_min}}",
+                "max": "{{value_axis_max}}",
+            },
+            "dataZoom": [
+                {"type": "inside", "xAxisIndex": 0, "filterMode": "none", "start": "{{zoom_start_pct}}", "end": 100}
+            ],
+            "visualMap": {
+                "show": False,
+                "dimension": 2,
+                "seriesIndex": 3,
+                "pieces": [
+                    {"value": 2, "color": "#dc3545"},
+                    {"value": 1, "color": "#ffc107"},
+                    {"value": 0, "color": "#20c997"},
+                ],
+            },
+            "grid": {"left": "3%", "right": "4%", "bottom": "15%", "containLabel": True},
+            "series": [
+                {
+                    "name": "Band Lower",
+                    "type": "line",
+                    "data": "{{baseline_lower_points}}",
+                    "lineStyle": {"opacity": 0},
+                    "symbol": "none",
+                    "stack": "expected_band",
+                },
+                {
+                    "name": "Expected Band",
+                    "type": "line",
+                    "data": "{{baseline_upper_points}}",
+                    "lineStyle": {"opacity": 0},
+                    "areaStyle": {"color": "rgba(13, 110, 253, 0.12)"},
+                    "symbol": "none",
+                    "stack": "expected_band",
+                },
+                {
+                    "name": "Baseline",
+                    "type": "line",
+                    "data": "{{baseline_mean_points}}",
+                    "lineStyle": {"type": "dashed", "color": "#6c757d"},
+                    "symbol": "none",
+                },
+                {
+                    "name": "Value",
+                    "type": "line",
+                    "smooth": True,
+                    "data": "{{value_points}}",
+                    "encode": {"x": 0, "y": 1},
+                    "lineStyle": {"width": 2, "color": "#20c997"},
+                    "symbol": "circle",
+                    "symbolSize": 4,
+                    "itemStyle": {"color": "#20c997"},
+                    "connectNulls": True,
+                    "markArea": {"silent": True, "label": {"show": False}, "data": "{{anomaly_mark_areas}}"},
+                },
+                {
+                    "name": "Warnings",
+                    "type": "scatter",
+                    "data": "{{warning_points}}",
+                    "symbolSize": 8,
+                    "itemStyle": {"color": "#ffc107"},
+                    "encode": {"x": 0, "y": 1},
+                },
+                {
+                    "name": "Outliers",
+                    "type": "scatter",
+                    "data": "{{outlier_points}}",
+                    "symbolSize": 10,
+                    "itemStyle": {"color": "#dc3545"},
+                    "encode": {"x": 0, "y": 1},
+                },
+            ],
+        },
+    },
     "gauge_kpi": {
         "id": "gauge_kpi",
         "name": "KPI Gauge",
@@ -2615,6 +5093,30 @@ CHART_TEMPLATES = {
             ]
         },
     },
+    "custom_echarts": {
+        "id": "custom_echarts",
+        "name": "Custom ECharts",
+        "description": "Bring your own SQL, mapping JSON, and raw ECharts option JSON.",
+        "icon": "bi-code-slash",
+        "query_shape": "Any SELECT result set",
+        "sample_sql": "SELECT toDateTime('2024-01-01 00:00:00') AS time, 1 AS value",
+        "min_columns": 0,
+        "column_roles": {},
+        "echarts_option_template": {
+            "tooltip": {"trigger": "axis"},
+            "xAxis": {"type": "time"},
+            "yAxis": {"type": "value"},
+            "series": [
+                {
+                    "name": "Value",
+                    "type": "line",
+                    "data": "{{points}}",
+                    "showSymbol": False,
+                    "smooth": True,
+                }
+            ],
+        },
+    },
 }
 
 _QUERY_DENY_PATTERN = re.compile(
@@ -2628,11 +5130,726 @@ def _validate_chart_query(query: str) -> str | None:
     stripped = query.strip()
     if not stripped:
         return "Query cannot be empty"
-    if not stripped.upper().startswith("SELECT"):
+    upper = stripped.upper()
+    if not (upper.startswith("SELECT") or upper.startswith("WITH")):
         return "Only SELECT queries are allowed"
     if _QUERY_DENY_PATTERN.search(stripped):
         return "Query contains a disallowed keyword"
     return None
+
+
+def _sql_literal(value: object) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _coerce_positive_int(raw: object, default_value: int, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int(str(raw))
+    except (TypeError, ValueError):
+        return default_value
+    return max(min_value, min(max_value, parsed))
+
+
+def _default_chart_spec(template_id: str = "derived_signal_overlay") -> dict[str, object]:
+    if template_id == "custom_echarts":
+        return {
+            "template_id": template_id,
+            "sql": {
+                "mode": "raw",
+                "override_sql": "SELECT toDateTime('2024-01-01 00:00:00') AS time, 1 AS value",
+            },
+            "data": {
+                "source_view": "v_derived_signals_anomaly",
+                "service": "",
+                "signal_source": "traces",
+                "signal_name": "trace_volume",
+                "metric_name": "",
+                "attr_fp": "",
+                "window_hours": 6,
+                "limit": 1000,
+            },
+            "visual": {
+                "zoom_inside": True,
+                "zoom_slider": False,
+                "zoom_start_pct": 0,
+                "zoom_end_pct": 100,
+                "legend_show": True,
+                "smooth_line": True,
+                "value_color": "",
+                "role_map": {},
+                "custom_mapping_json": json.dumps({"points": {"from": "rows"}}, ensure_ascii=False),
+                "custom_option_json": json.dumps(
+                    {
+                        "tooltip": {"trigger": "axis"},
+                        "xAxis": {"type": "time"},
+                        "yAxis": {"type": "value"},
+                        "series": [
+                            {
+                                "name": "Value",
+                                "type": "line",
+                                "data": "{{points}}",
+                                "showSymbol": False,
+                                "smooth": True,
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        }
+
+    return {
+        "template_id": template_id,
+        "sql": {"mode": "builder", "override_sql": ""},
+        "data": {
+            "source_view": "v_derived_signals_anomaly",
+            "service": "",
+            "signal_source": "traces",
+            "signal_name": "trace_volume",
+            "metric_name": "",
+            "attr_fp": "",
+            "window_hours": 6,
+            "limit": 1000,
+        },
+        "visual": {
+            "zoom_inside": True,
+            "zoom_slider": False,
+            "zoom_start_pct": 0,
+            "zoom_end_pct": 100,
+            "legend_show": True,
+            "smooth_line": True,
+            "value_color": "",
+            "role_map": {},
+        },
+    }
+
+
+def _build_raw_chart_spec(template_id: str, query: str, options_json: str = "") -> dict[str, object]:
+    try:
+        parsed = json.loads(options_json) if options_json else {}
+        if isinstance(parsed, dict):
+            spec_candidate = parsed.get("chart_spec")
+            if isinstance(spec_candidate, dict):
+                return _normalize_chart_spec(spec_candidate)
+    except Exception:
+        pass
+
+    spec = _default_chart_spec(template_id)
+    spec["template_id"] = template_id
+    spec["sql"] = {"mode": "raw", "override_sql": query}
+    return spec
+
+
+def _normalize_chart_spec(spec_raw: object) -> dict[str, object]:
+    base = _default_chart_spec()
+    raw = spec_raw if isinstance(spec_raw, dict) else {}
+
+    template_id = str(raw.get("template_id") or base.get("template_id") or "time_series_percentiles").strip()
+    if template_id not in CHART_TEMPLATES:
+        raise ValueError(f"Unknown template: {template_id}")
+
+    normalized = _default_chart_spec(template_id)
+    normalized["template_id"] = template_id
+
+    sql_raw = raw.get("sql") if isinstance(raw.get("sql"), dict) else {}
+    sql_mode = str(sql_raw.get("mode") if isinstance(sql_raw, dict) else "builder").strip().lower()
+    if sql_mode not in {"builder", "raw"}:
+        raise ValueError("sql.mode must be 'builder' or 'raw'")
+    normalized["sql"] = {
+        "mode": sql_mode,
+        "override_sql": str(sql_raw.get("override_sql") if isinstance(sql_raw, dict) else ""),
+    }
+
+    data_raw = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+    normalized_data = normalized.get("data")
+    if isinstance(normalized_data, dict) and isinstance(data_raw, dict):
+        merged_data: dict[str, object] = dict(cast(dict[str, object], normalized_data))
+        merged_data.update(data_raw)
+        normalized["data"] = merged_data
+
+    visual_raw = raw.get("visual") if isinstance(raw.get("visual"), dict) else {}
+    normalized_visual = normalized.get("visual")
+    merged_visual: dict[str, object] = (
+        dict(cast(dict[str, object], normalized_visual)) if isinstance(normalized_visual, dict) else {}
+    )
+    if isinstance(visual_raw, dict):
+        merged_visual.update(visual_raw)
+
+    role_map_raw = merged_visual.get("role_map")
+    role_map: dict[str, str] = {}
+    if isinstance(role_map_raw, dict):
+        role_map_raw_dict = cast(dict[object, object], role_map_raw)
+        for role, col_name in role_map_raw_dict.items():
+            role_name = str(role).strip()
+            mapped = str(col_name).strip()
+            if role_name and mapped:
+                role_map[role_name] = mapped
+    merged_visual["role_map"] = role_map
+    normalized["visual"] = merged_visual
+
+    return normalized
+
+
+def _compile_builder_sql(template_id: str, data: dict[str, object]) -> str:
+    if template_id == "custom_echarts":
+        raise ValueError("custom_echarts requires sql.mode='raw'")
+
+    source_view = str(data.get("source_view") or "v_derived_signals_anomaly").strip()
+    supported_sources = {
+        "v_derived_signals_anomaly",
+        "v_otel_metrics_anomaly",
+        "otel_metrics_gauge",
+        "otel_metrics_sum",
+        "otel_metrics_histogram",
+        "otel_logs",
+        "otel_traces",
+        "sobs_error_resolutions",
+    }
+    if source_view not in supported_sources:
+        raise ValueError("Unsupported source for builder mode")
+
+    service = str(data.get("service") or "").strip()
+    signal_source = str(data.get("signal_source") or "").strip()
+    signal_name = str(data.get("signal_name") or "").strip()
+    metric_name = str(data.get("metric_name") or "").strip()
+    attr_fp = str(data.get("attr_fp") or "").strip()
+    window_hours = _coerce_positive_int(data.get("window_hours"), 6, 1, 168)
+    limit = _coerce_positive_int(data.get("limit"), 1000, 1, 2000)
+
+    def _default_source_label() -> str:
+        if source_view in {"otel_logs"}:
+            return "logs"
+        if source_view in {"otel_traces"}:
+            return "traces"
+        if source_view in {"sobs_error_resolutions"}:
+            return "errors"
+        if source_view == "v_derived_signals_anomaly":
+            return signal_source or "derived"
+        return "metrics"
+
+    def _default_signal_label() -> str:
+        if signal_name:
+            return signal_name
+        if metric_name:
+            return metric_name
+        if source_view == "otel_logs":
+            return "log_volume"
+        if source_view == "otel_traces":
+            return "trace_volume"
+        if source_view == "sobs_error_resolutions":
+            return "resolved_error_volume"
+        return "value"
+
+    def _build_series_sql() -> str:
+        if source_view == "v_derived_signals_anomaly":
+            where_parts: list[str] = [f"time >= now() - INTERVAL {window_hours} HOUR"]
+            if service:
+                where_parts.append(f"ServiceName = {_sql_literal(service)}")
+            if attr_fp:
+                where_parts.append(f"AttrFingerprint = {_sql_literal(attr_fp)}")
+            if signal_source:
+                where_parts.append(f"SignalSource = {_sql_literal(signal_source)}")
+            if signal_name:
+                where_parts.append(f"SignalName = {_sql_literal(signal_name)}")
+            where_clause = " AND\n    ".join(where_parts)
+            return (
+                "SELECT\n"
+                "  time,\n"
+                "  value,\n"
+                "  baseline_mean,\n"
+                "  baseline_lower,\n"
+                "  baseline_upper,\n"
+                "  anomaly_state,\n"
+                "  anomaly_score\n"
+                "FROM v_derived_signals_anomaly\n"
+                f"WHERE {where_clause}"
+            )
+
+        if source_view == "v_otel_metrics_anomaly":
+            where_parts = [f"time >= now() - INTERVAL {window_hours} HOUR"]
+            if service:
+                where_parts.append(f"ServiceName = {_sql_literal(service)}")
+            if metric_name:
+                where_parts.append(f"MetricName = {_sql_literal(metric_name)}")
+            if attr_fp:
+                where_parts.append(f"AttrFingerprint = {_sql_literal(attr_fp)}")
+            where_clause = " AND\n    ".join(where_parts)
+            return (
+                "SELECT\n"
+                "  time,\n"
+                "  value,\n"
+                "  baseline_mean,\n"
+                "  baseline_lower,\n"
+                "  baseline_upper,\n"
+                "  anomaly_state,\n"
+                "  anomaly_score\n"
+                "FROM v_otel_metrics_anomaly\n"
+                f"WHERE {where_clause}"
+            )
+
+        if source_view in {"otel_metrics_gauge", "otel_metrics_sum", "otel_metrics_histogram"}:
+            if source_view == "otel_metrics_histogram":
+                value_expr = "if(Count = 0, 0.0, Sum / toFloat64(Count))"
+            else:
+                value_expr = "Value"
+            where_parts = [f"TimeUnixMs >= now() - INTERVAL {window_hours} HOUR"]
+            if service:
+                where_parts.append(f"ServiceName = {_sql_literal(service)}")
+            if metric_name:
+                where_parts.append(f"MetricName = {_sql_literal(metric_name)}")
+            if attr_fp:
+                where_parts.append(f"AttrFingerprint = {_sql_literal(attr_fp)}")
+            where_clause = " AND\n    ".join(where_parts)
+            return (
+                "WITH per_minute AS (\n"
+                "  SELECT\n"
+                "    toStartOfMinute(TimeUnixMs) AS time,\n"
+                "    avg(toFloat64(" + value_expr + ")) AS value\n"
+                f"  FROM {source_view}\n"
+                f"  WHERE {where_clause}\n"
+                "  GROUP BY time\n"
+                "), scored AS (\n"
+                "  SELECT\n"
+                "    time,\n"
+                "    value,\n"
+                "    avg(value) OVER (\n"
+                "      ORDER BY time\n"
+                "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+                "    ) AS baseline_mean,\n"
+                "    stddevPop(value) OVER (\n"
+                "      ORDER BY time\n"
+                "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+                "    ) AS baseline_stddev\n"
+                "  FROM per_minute\n"
+                ")\n"
+                "SELECT\n"
+                "  time,\n"
+                "  value,\n"
+                "  baseline_mean,\n"
+                "  greatest(0.0, baseline_mean - (3.0 * ifNull(baseline_stddev, 0.0))) AS baseline_lower,\n"
+                "  baseline_mean + (3.0 * ifNull(baseline_stddev, 0.0)) AS baseline_upper,\n"
+                "  if(\n"
+                "    abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) >= 3.0,\n"
+                "    'outlier',\n"
+                "    'normal'\n"
+                "  ) AS anomaly_state,\n"
+                "  abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) AS anomaly_score\n"
+                "FROM scored"
+            )
+
+        if source_view == "otel_logs":
+            where_parts = [f"TimestampTime >= now() - INTERVAL {window_hours} HOUR"]
+            if service:
+                where_parts.append(f"ServiceName = {_sql_literal(service)}")
+            where_clause = " AND\n    ".join(where_parts)
+            return (
+                "WITH per_minute AS (\n"
+                "  SELECT\n"
+                "    toStartOfMinute(TimestampTime) AS time,\n"
+                "    count() AS value\n"
+                "  FROM otel_logs\n"
+                f"  WHERE {where_clause}\n"
+                "  GROUP BY time\n"
+                "), scored AS (\n"
+                "  SELECT\n"
+                "    time,\n"
+                "    toFloat64(value) AS value,\n"
+                "    avg(toFloat64(value)) OVER (\n"
+                "      ORDER BY time\n"
+                "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+                "    ) AS baseline_mean,\n"
+                "    stddevPop(toFloat64(value)) OVER (\n"
+                "      ORDER BY time\n"
+                "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+                "    ) AS baseline_stddev\n"
+                "  FROM per_minute\n"
+                ")\n"
+                "SELECT\n"
+                "  time,\n"
+                "  value,\n"
+                "  baseline_mean,\n"
+                "  greatest(0.0, baseline_mean - (3.0 * ifNull(baseline_stddev, 0.0))) AS baseline_lower,\n"
+                "  baseline_mean + (3.0 * ifNull(baseline_stddev, 0.0)) AS baseline_upper,\n"
+                "  if(\n"
+                "    abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) >= 3.0,\n"
+                "    'outlier',\n"
+                "    'normal'\n"
+                "  ) AS anomaly_state,\n"
+                "  abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) AS anomaly_score\n"
+                "FROM scored"
+            )
+
+        if source_view == "otel_traces":
+            where_parts = [f"TimestampTime >= now() - INTERVAL {window_hours} HOUR"]
+            if service:
+                where_parts.append(f"ServiceName = {_sql_literal(service)}")
+            where_clause = " AND\n    ".join(where_parts)
+            return (
+                "WITH per_minute AS (\n"
+                "  SELECT\n"
+                "    toStartOfMinute(TimestampTime) AS time,\n"
+                "    count() AS value\n"
+                "  FROM otel_traces\n"
+                f"  WHERE {where_clause}\n"
+                "  GROUP BY time\n"
+                "), scored AS (\n"
+                "  SELECT\n"
+                "    time,\n"
+                "    toFloat64(value) AS value,\n"
+                "    avg(toFloat64(value)) OVER (\n"
+                "      ORDER BY time\n"
+                "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+                "    ) AS baseline_mean,\n"
+                "    stddevPop(toFloat64(value)) OVER (\n"
+                "      ORDER BY time\n"
+                "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+                "    ) AS baseline_stddev\n"
+                "  FROM per_minute\n"
+                ")\n"
+                "SELECT\n"
+                "  time,\n"
+                "  value,\n"
+                "  baseline_mean,\n"
+                "  greatest(0.0, baseline_mean - (3.0 * ifNull(baseline_stddev, 0.0))) AS baseline_lower,\n"
+                "  baseline_mean + (3.0 * ifNull(baseline_stddev, 0.0)) AS baseline_upper,\n"
+                "  if(\n"
+                "    abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) >= 3.0,\n"
+                "    'outlier',\n"
+                "    'normal'\n"
+                "  ) AS anomaly_state,\n"
+                "  abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) AS anomaly_score\n"
+                "FROM scored"
+            )
+
+        where_clause = f"ResolvedAt >= now() - INTERVAL {window_hours} HOUR"
+        return (
+            "WITH per_minute AS (\n"
+            "  SELECT\n"
+            "    toStartOfMinute(ResolvedAt) AS time,\n"
+            "    count() AS value\n"
+            "  FROM sobs_error_resolutions\n"
+            f"  WHERE {where_clause}\n"
+            "  GROUP BY time\n"
+            "), scored AS (\n"
+            "  SELECT\n"
+            "    time,\n"
+            "    toFloat64(value) AS value,\n"
+            "    avg(toFloat64(value)) OVER (\n"
+            "      ORDER BY time\n"
+            "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+            "    ) AS baseline_mean,\n"
+            "    stddevPop(toFloat64(value)) OVER (\n"
+            "      ORDER BY time\n"
+            "      ROWS BETWEEN 59 PRECEDING AND CURRENT ROW\n"
+            "    ) AS baseline_stddev\n"
+            "  FROM per_minute\n"
+            ")\n"
+            "SELECT\n"
+            "  time,\n"
+            "  value,\n"
+            "  baseline_mean,\n"
+            "  greatest(0.0, baseline_mean - (3.0 * ifNull(baseline_stddev, 0.0))) AS baseline_lower,\n"
+            "  baseline_mean + (3.0 * ifNull(baseline_stddev, 0.0)) AS baseline_upper,\n"
+            "  if(\n"
+            "    abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) >= 3.0,\n"
+            "    'outlier',\n"
+            "    'normal'\n"
+            "  ) AS anomaly_state,\n"
+            "  abs(value - baseline_mean) / greatest(ifNull(baseline_stddev, 0.0), 1.0) AS anomaly_score\n"
+            "FROM scored"
+        )
+
+    series_sql = _build_series_sql()
+
+    if template_id == "derived_signal_overlay":
+        return (
+            "WITH series AS (\n"
+            f"{series_sql}\n"
+            ")\n"
+            "SELECT\n"
+            "  time,\n"
+            f"  {_sql_literal(service or 'all')} AS service,\n"
+            f"  {_sql_literal(_default_source_label())} AS source,\n"
+            f"  {_sql_literal(_default_signal_label())} AS signal,\n"
+            f"  {_sql_literal(attr_fp)} AS attr_fp,\n"
+            "  value,\n"
+            "  toUInt32(1) AS sample_count,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state,\n"
+            "  anomaly_score\n"
+            "FROM series\n"
+            "ORDER BY time\n"
+            f"LIMIT {limit}"
+        )
+
+    if template_id == "anomaly_overlay":
+        return (
+            "WITH series AS (\n"
+            f"{series_sql}\n"
+            ")\n"
+            "SELECT\n"
+            "  time,\n"
+            "  value,\n"
+            "  baseline_mean,\n"
+            "  baseline_lower,\n"
+            "  baseline_upper,\n"
+            "  anomaly_state\n"
+            "FROM series\n"
+            "ORDER BY time\n"
+            f"LIMIT {limit}"
+        )
+
+    if template_id == "dual_axis_anomaly":
+        return (
+            "WITH series AS (\n"
+            f"{series_sql}\n"
+            ")\n"
+            "SELECT\n"
+            "  time,\n"
+            "  value AS metric,\n"
+            "  anomaly_score\n"
+            "FROM series\n"
+            "ORDER BY time\n"
+            f"LIMIT {limit}"
+        )
+
+    if template_id == "time_series_percentiles":
+        return (
+            "WITH series AS (\n"
+            f"{series_sql}\n"
+            ")\n"
+            "SELECT\n"
+            "  time,\n"
+            "  value,\n"
+            "  baseline_upper AS p95,\n"
+            "  greatest(baseline_upper, value) AS p99\n"
+            "FROM series\n"
+            "ORDER BY time\n"
+            f"LIMIT {limit}"
+        )
+
+    if template_id == "heatmap":
+        return (
+            "WITH series AS (\n"
+            f"{series_sql}\n"
+            ")\n"
+            "SELECT\n"
+            f"  {_sql_literal(service or 'all')} AS x_category,\n"
+            "  toStartOfFiveMinutes(time) AS y_category,\n"
+            "  avg(value) AS value\n"
+            "FROM series\n"
+            "GROUP BY y_category\n"
+            "ORDER BY y_category\n"
+            f"LIMIT {limit}"
+        )
+
+    if template_id == "box_plot":
+        return (
+            "WITH series AS (\n"
+            f"{series_sql}\n"
+            ")\n"
+            "SELECT\n"
+            f"  {_sql_literal(_default_signal_label())} AS dimension,\n"
+            "  min(value) AS min,\n"
+            "  quantile(0.25)(value) AS q1,\n"
+            "  quantile(0.5)(value) AS median,\n"
+            "  quantile(0.75)(value) AS q3,\n"
+            "  max(value) AS max\n"
+            "FROM series"
+        )
+
+    if template_id == "gauge_kpi":
+        return (
+            "WITH series AS (\n"
+            f"{series_sql}\n"
+            ")\n"
+            "SELECT round(100.0 * avg(if(anomaly_state = 'normal', 1.0, 0.0)), 2) AS value\n"
+            "FROM series"
+        )
+
+    raise ValueError(f"Builder mode does not support template: {template_id}")
+
+
+def _compile_chart_spec(spec_raw: object) -> tuple[str, str, dict[str, object]]:
+    spec = _normalize_chart_spec(spec_raw)
+
+    template_id = str(spec.get("template_id") or "time_series_percentiles").strip()
+
+    sql_block = spec.get("sql") if isinstance(spec.get("sql"), dict) else {}
+    sql_mode = str(sql_block.get("mode") if isinstance(sql_block, dict) else "builder").strip().lower()
+
+    if sql_mode == "raw":
+        query = str(sql_block.get("override_sql") if isinstance(sql_block, dict) else "").strip()
+    else:
+        if template_id == "custom_echarts":
+            raise ValueError("custom_echarts requires sql.mode='raw'")
+        data = spec.get("data") if isinstance(spec.get("data"), dict) else {}
+        query = _compile_builder_sql(template_id, data if isinstance(data, dict) else {})
+
+    err = _validate_chart_query(query)
+    if err:
+        raise ValueError(err)
+
+    return template_id, query, spec
+
+
+def _resolve_template_role_indices(
+    template_id: str,
+    template: dict[str, object],
+    columns: list[str],
+    spec: dict[str, object] | None,
+) -> dict[str, int]:
+    raw_roles_raw = template.get("column_roles") if isinstance(template.get("column_roles"), dict) else {}
+    raw_roles = cast(dict[object, object], raw_roles_raw)
+    role_indices: dict[str, int] = {}
+    for role, idx_raw in raw_roles.items():
+        role_name = str(role)
+        if isinstance(idx_raw, (int, float)):
+            role_indices[role_name] = int(idx_raw)
+
+    if not spec:
+        return role_indices
+
+    visual = spec.get("visual") if isinstance(spec.get("visual"), dict) else {}
+    role_map_raw = visual.get("role_map") if isinstance(visual, dict) else {}
+    if not isinstance(role_map_raw, dict):
+        return role_indices
+    role_map_raw_dict = cast(dict[object, object], role_map_raw)
+
+    col_index_by_name = {name: idx for idx, name in enumerate(columns)}
+    lower_name_to_index: dict[str, int] = {}
+    for idx, name in enumerate(columns):
+        lower = name.lower()
+        if lower not in lower_name_to_index:
+            lower_name_to_index[lower] = idx
+
+    for role, mapped_col in role_map_raw_dict.items():
+        role_name = str(role).strip()
+        col_name = str(mapped_col).strip()
+        if not role_name or not col_name:
+            continue
+        if role_name not in role_indices:
+            raise ValueError(f"Unknown role '{role_name}' for template {template_id}")
+
+        if col_name in col_index_by_name:
+            role_indices[role_name] = col_index_by_name[col_name]
+            continue
+
+        lowered = col_name.lower()
+        if lowered in lower_name_to_index:
+            role_indices[role_name] = lower_name_to_index[lowered]
+            continue
+
+        raise ValueError(f"Role '{role_name}' maps to unknown column '{col_name}'")
+
+    return role_indices
+
+
+def _parse_bool(value: object, default_value: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default_value
+    raw = str(value).strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return default_value
+
+
+def _apply_chart_spec_visual_overrides(template_id: str, option: dict, spec: dict[str, object]) -> dict:
+    if template_id == "custom_echarts":
+        return option
+
+    visual = spec.get("visual") if isinstance(spec.get("visual"), dict) else {}
+    if not isinstance(visual, dict):
+        return option
+
+    legend_show = _parse_bool(visual.get("legend_show"), True)
+    if isinstance(option.get("legend"), dict):
+        option["legend"]["show"] = legend_show
+
+    zoom_inside = _parse_bool(visual.get("zoom_inside"), True)
+    zoom_slider = _parse_bool(visual.get("zoom_slider"), False)
+    data_zoom = option.get("dataZoom") if isinstance(option.get("dataZoom"), list) else []
+    zoom_start = _coerce_positive_int(visual.get("zoom_start_pct"), 0, 0, 100)
+    zoom_end = _coerce_positive_int(visual.get("zoom_end_pct"), 100, 0, 100)
+    next_data_zoom: list[dict[str, object]] = []
+    if zoom_inside:
+        next_data_zoom.append(
+            {
+                "type": "inside",
+                "xAxisIndex": 0,
+                "filterMode": "none",
+                "start": zoom_start,
+                "end": max(zoom_start, zoom_end),
+            }
+        )
+    if zoom_slider:
+        next_data_zoom.append(
+            {
+                "type": "slider",
+                "xAxisIndex": 0,
+                "start": zoom_start,
+                "end": max(zoom_start, zoom_end),
+                "height": 16,
+                "bottom": 30,
+                "borderColor": "#495057",
+                "fillerColor": "rgba(13, 110, 253, 0.20)",
+                "handleStyle": {"color": "#0d6efd"},
+            }
+        )
+    option["dataZoom"] = next_data_zoom if next_data_zoom else data_zoom
+
+    smooth_line = _parse_bool(visual.get("smooth_line"), True)
+    value_color = str(visual.get("value_color") or "").strip()
+    series = option.get("series")
+    if isinstance(series, list):
+        for s in series:
+            if not isinstance(s, dict):
+                continue
+            if str(s.get("name", "")) != "Value":
+                continue
+            if "type" in s and str(s.get("type")) == "line":
+                s["smooth"] = smooth_line
+            if value_color:
+                line_style: dict[str, object] = {}
+                item_style: dict[str, object] = {}
+                existing_line_style = s.get("lineStyle")
+                existing_item_style = s.get("itemStyle")
+                if isinstance(existing_line_style, dict):
+                    for key, val in existing_line_style.items():
+                        line_style[str(key)] = val
+                if isinstance(existing_item_style, dict):
+                    for key, val in existing_item_style.items():
+                        item_style[str(key)] = val
+                line_style["color"] = value_color
+                item_style["color"] = value_color
+                s["lineStyle"] = line_style
+                s["itemStyle"] = item_style
+
+    # Template guard for future template-specific visual overrides.
+    _ = template_id
+    return option
+
+
+def _infer_column_types(columns: list[str], rows: list[list[object]]) -> list[str]:
+    inferred: list[str] = []
+    for idx, _col in enumerate(columns):
+        detected = "null"
+        for row in rows:
+            if idx >= len(row):
+                continue
+            value = row[idx]
+            if value is None:
+                continue
+            detected = type(value).__name__
+            break
+        inferred.append(detected)
+    return inferred
 
 
 def _public_dashboard_query_error(exc: Exception) -> str:
@@ -2671,9 +5888,14 @@ def _deep_substitute(obj: object, bindings: dict) -> object:
     return obj
 
 
-def _extract_bindings(template: dict, columns: list[str], rows: list) -> dict:  # type: ignore
+def _extract_bindings(
+    template: dict,
+    columns: list[str],
+    rows: list,
+    role_indices: dict[str, int] | None = None,
+) -> dict:  # type: ignore
     """Extract data bindings from query results based on column roles."""
-    column_roles = template.get("column_roles", {})
+    column_roles = role_indices if isinstance(role_indices, dict) else template.get("column_roles", {})
     bindings: dict[str, object] = {}
 
     # Basic extraction: for each role, get the column data
@@ -2733,6 +5955,162 @@ def _extract_bindings(template: dict, columns: list[str], rows: list) -> dict:  
         if isinstance(v_list, list) and v_list:
             bindings["value_first"] = v_list[0]
 
+    # For anomaly overlays: build per-point symbol sizes and colors from the effective or statistical state.
+    state_binding = bindings.get("effective_state", bindings.get("anomaly_state"))
+    if isinstance(state_binding, list):
+        states = state_binding
+        _state_colors = {"outlier": "#dc3545", "warning": "#ffc107", "normal": "#0d6efd"}
+        _state_sizes = {"outlier": 10, "warning": 7, "normal": 4}
+        bindings["anomaly_point_color"] = [_state_colors.get(str(s), "#0d6efd") for s in states]
+        bindings["anomaly_symbol_size"] = [_state_sizes.get(str(s), 4) for s in states]
+
+    # Derived signal overlays: choose chart style by signal semantics.
+    if str(template.get("id", "")) == "derived_signal_overlay":
+        bindings["value_axis_min"] = "dataMin"
+        bindings["value_axis_max"] = "dataMax"
+        bindings["zoom_start_pct"] = 0
+        bindings["signal_summary"] = ""
+        bindings["y_axis_name"] = "Value"
+
+        signal_binding = bindings.get("signal")
+        signal_name = ""
+        if isinstance(signal_binding, list) and signal_binding:
+            signal_name = str(signal_binding[0]).lower()
+
+        if "ratio" in signal_name:
+            bindings["value_axis_min"] = 0
+            bindings["value_axis_max"] = 1
+        elif any(token in signal_name for token in ("volume", "count", "latency", "duration", "p95", "p99")):
+            bindings["value_axis_min"] = 0
+
+        time_values = bindings.get("time")
+        value_values = bindings.get("value")
+        baseline_mean_values = bindings.get("baseline_mean")
+        baseline_lower_values = bindings.get("baseline_lower")
+        baseline_upper_values = bindings.get("baseline_upper")
+        effective_states = bindings.get("effective_state", bindings.get("anomaly_state"))
+
+        if (
+            isinstance(time_values, list)
+            and isinstance(value_values, list)
+            and isinstance(baseline_mean_values, list)
+            and isinstance(baseline_lower_values, list)
+            and isinstance(baseline_upper_values, list)
+        ):
+            state_to_rank = {"normal": 0, "warning": 1, "outlier": 2}
+            rank_series: list[int] = []
+            if isinstance(effective_states, list):
+                rank_series = [state_to_rank.get(str(s), 0) for s in effective_states]
+            if not rank_series:
+                rank_series = [0 for _ in value_values]
+
+            use_delta_mode = "ratio" not in signal_name
+            plot_values: list[float] = []
+            plot_baseline: list[float] = []
+            plot_lower: list[float] = []
+            plot_upper: list[float] = []
+            if use_delta_mode:
+                bindings["y_axis_name"] = "Delta %"
+                for idx in range(
+                    min(
+                        len(value_values),
+                        len(baseline_mean_values),
+                        len(baseline_lower_values),
+                        len(baseline_upper_values),
+                    )
+                ):
+                    base = float(baseline_mean_values[idx])
+                    val = float(value_values[idx])
+                    low = float(baseline_lower_values[idx])
+                    up = float(baseline_upper_values[idx])
+                    if abs(base) < 1e-9:
+                        plot_values.append(0.0)
+                        plot_baseline.append(0.0)
+                        plot_lower.append(0.0)
+                        plot_upper.append(0.0)
+                    else:
+                        denom = abs(base)
+                        plot_values.append(((val - base) / denom) * 100.0)
+                        plot_baseline.append(0.0)
+                        plot_lower.append(((low - base) / denom) * 100.0)
+                        plot_upper.append(((up - base) / denom) * 100.0)
+                if plot_values:
+                    min_bound = min(plot_lower + plot_values)
+                    max_bound = max(plot_upper + plot_values)
+                    span = max(5.0, (max_bound - min_bound) * 0.15)
+                    bindings["value_axis_min"] = round(min_bound - span, 2)
+                    bindings["value_axis_max"] = round(max_bound + span, 2)
+            else:
+                plot_values = [float(v) for v in value_values]
+                plot_baseline = [float(v) for v in baseline_mean_values]
+                plot_lower = [max(0.0, float(v)) for v in baseline_lower_values]
+                plot_upper = [float(v) for v in baseline_upper_values]
+
+            value_points = [
+                [time_values[idx], plot_values[idx], rank_series[idx] if idx < len(rank_series) else 0]
+                for idx in range(min(len(time_values), len(plot_values)))
+            ]
+            baseline_mean_points = [
+                [time_values[idx], plot_baseline[idx]] for idx in range(min(len(time_values), len(plot_baseline)))
+            ]
+            baseline_lower_points = [
+                [time_values[idx], plot_lower[idx]] for idx in range(min(len(time_values), len(plot_lower)))
+            ]
+            baseline_upper_points = [
+                [
+                    time_values[idx],
+                    max(0.0, float(plot_upper[idx]) - float(plot_lower[idx])),
+                ]
+                for idx in range(min(len(time_values), len(plot_upper), len(plot_lower)))
+            ]
+
+            mark_areas: list[list[dict[str, object]]] = []
+            warning_points = [pt[:2] for pt in value_points if len(pt) >= 3 and int(pt[2]) == 1]
+            outlier_points = [pt[:2] for pt in value_points if len(pt) >= 3 and int(pt[2]) == 2]
+            if isinstance(effective_states, list) and time_values:
+                i = 0
+                while i < min(len(effective_states), len(time_values)):
+                    state = str(effective_states[i])
+                    if state == "normal":
+                        i += 1
+                        continue
+                    start_idx = i
+                    while i + 1 < len(effective_states) and str(effective_states[i + 1]) == state:
+                        i += 1
+                    end_idx = i
+                    shade = "rgba(255, 193, 7, 0.15)" if state == "warning" else "rgba(220, 53, 69, 0.15)"
+                    mark_areas.append(
+                        [
+                            {
+                                "name": state.title(),
+                                "itemStyle": {"color": shade},
+                                "xAxis": time_values[start_idx],
+                            },
+                            {"xAxis": time_values[end_idx]},
+                        ]
+                    )
+                    i += 1
+
+            latest_value = float(value_values[-1]) if value_values else 0.0
+            latest_baseline = float(baseline_mean_values[-1]) if baseline_mean_values else 0.0
+            delta_pct = 0.0
+            if abs(latest_baseline) > 1e-9:
+                delta_pct = ((latest_value - latest_baseline) / abs(latest_baseline)) * 100.0
+            warning_count = len(warning_points)
+            outlier_count = len(outlier_points)
+            bindings["signal_summary"] = (
+                f"now {latest_value:.1f} | baseline {latest_baseline:.1f} | "
+                f"Δ {delta_pct:+.0f}% | warn {warning_count} | outlier {outlier_count}"
+            )
+
+            bindings["value_points"] = value_points
+            bindings["baseline_mean_points"] = baseline_mean_points
+            bindings["baseline_lower_points"] = baseline_lower_points
+            bindings["baseline_upper_points"] = baseline_upper_points
+            bindings["anomaly_mark_areas"] = mark_areas
+            bindings["warning_points"] = warning_points
+            bindings["outlier_points"] = outlier_points
+
     return bindings  # type: ignore
 
 
@@ -2775,21 +6153,101 @@ def _attach_drilldown_metadata(template: dict, bindings: dict[str, object], opti
     template_id = str(template.get("id", ""))
     bucket_seconds = drilldown.get("bucket_seconds")
 
-    if template_id in {"time_series_percentiles", "dual_axis_anomaly"}:
+    if template_id in {"time_series_percentiles", "dual_axis_anomaly", "anomaly_overlay", "derived_signal_overlay"}:
         time_values = bindings.get("time")
         if isinstance(time_values, list):
+            # For anomaly_overlay, also inject per-point anomaly state and score
+            is_anomaly_template = template_id in {"anomaly_overlay", "derived_signal_overlay"}
+            anomaly_states = bindings.get("anomaly_state") if is_anomaly_template else None
+            anomaly_scores = bindings.get("anomaly_score") if is_anomaly_template else None
+            rule_states = bindings.get("rule_state") if template_id == "derived_signal_overlay" else None
+            rule_names = bindings.get("rule_name") if template_id == "derived_signal_overlay" else None
+            rule_reasons = bindings.get("rule_reason") if template_id == "derived_signal_overlay" else None
+            effective_states = bindings.get("effective_state") if template_id == "derived_signal_overlay" else None
+            services = bindings.get("service") if template_id == "derived_signal_overlay" else None
+            sources = bindings.get("source") if template_id == "derived_signal_overlay" else None
+            signals = bindings.get("signal") if template_id == "derived_signal_overlay" else None
+            attr_fps = bindings.get("attr_fp") if template_id == "derived_signal_overlay" else None
             for series_entry in series:
                 if not isinstance(series_entry, dict):
                     continue
                 data = series_entry.get("data")
                 if not isinstance(data, list) or len(data) != len(time_values):
                     continue
+                # For anomaly_overlay, inject state/score into Value series only
+                is_value_series = is_anomaly_template and series_entry.get("name") == "Value"
                 series_entry["data"] = [
                     {
                         "value": value,
                         "drilldown": {
                             "from_ts": _format_drilldown_time(time_values[idx]),
                             "window_s": bucket_seconds,
+                            **(  # Inject anomaly metadata for Value series
+                                {
+                                    "_anomaly_state": (
+                                        (
+                                            anomaly_states[idx]  # type: ignore[index]
+                                            if isinstance(anomaly_states, list) and idx < len(anomaly_states)
+                                            else "normal"
+                                        )
+                                    ),
+                                    "_anomaly_score": (
+                                        (
+                                            anomaly_scores[idx]  # type: ignore[index]
+                                            if isinstance(anomaly_scores, list) and idx < len(anomaly_scores)
+                                            else 0
+                                        )
+                                    ),
+                                    **(
+                                        {
+                                            "_rule_state": (
+                                                rule_states[idx]  # type: ignore[index]
+                                                if isinstance(rule_states, list) and idx < len(rule_states)
+                                                else "normal"
+                                            ),
+                                            "_rule_name": (
+                                                rule_names[idx]  # type: ignore[index]
+                                                if isinstance(rule_names, list) and idx < len(rule_names)
+                                                else ""
+                                            ),
+                                            "_rule_reason": (
+                                                rule_reasons[idx]  # type: ignore[index]
+                                                if isinstance(rule_reasons, list) and idx < len(rule_reasons)
+                                                else ""
+                                            ),
+                                            "_effective_state": (
+                                                effective_states[idx]  # type: ignore[index]
+                                                if isinstance(effective_states, list) and idx < len(effective_states)
+                                                else "normal"
+                                            ),
+                                            "service": (
+                                                services[idx]  # type: ignore[index]
+                                                if isinstance(services, list) and idx < len(services)
+                                                else ""
+                                            ),
+                                            "source": (
+                                                sources[idx]  # type: ignore[index]
+                                                if isinstance(sources, list) and idx < len(sources)
+                                                else ""
+                                            ),
+                                            "signal": (
+                                                signals[idx]  # type: ignore[index]
+                                                if isinstance(signals, list) and idx < len(signals)
+                                                else ""
+                                            ),
+                                            "attr_fp": (
+                                                attr_fps[idx]  # type: ignore[index]
+                                                if isinstance(attr_fps, list) and idx < len(attr_fps)
+                                                else ""
+                                            ),
+                                        }
+                                        if template_id == "derived_signal_overlay"
+                                        else {}
+                                    ),
+                                }
+                                if is_value_series
+                                else {}
+                            ),
                         },
                     }
                     for idx, value in enumerate(data)
@@ -2828,7 +6286,97 @@ def _attach_drilldown_metadata(template: dict, bindings: dict[str, object], opti
     return option
 
 
-def _render_chart_from_template(template_id: str, columns: list[str], rows: list) -> dict:  # type: ignore
+def _prepare_template_rows(
+    template_id: str,
+    columns: list[str],
+    rows: list[dict[str, object]],
+    role_indices: dict[str, int] | None = None,
+) -> tuple[list[str], list[dict[str, object]]]:
+    if template_id != "derived_signal_overlay":
+        return columns, rows
+
+    required_columns = [
+        "time",
+        "service",
+        "source",
+        "signal",
+        "attr_fp",
+        "value",
+        "sample_count",
+        "baseline_mean",
+        "baseline_lower",
+        "baseline_upper",
+        "anomaly_state",
+        "anomaly_score",
+    ]
+    if len(columns) < len(required_columns):
+        return columns, rows
+
+    def _col_for_role(role: str, fallback_idx: int) -> str:
+        idx = fallback_idx
+        if isinstance(role_indices, dict) and role in role_indices:
+            idx = role_indices[role]
+        if 0 <= idx < len(columns):
+            return columns[idx]
+        return columns[fallback_idx]
+
+    role_columns = {
+        "time": _col_for_role("time", 0),
+        "service": _col_for_role("service", 1),
+        "source": _col_for_role("source", 2),
+        "signal": _col_for_role("signal", 3),
+        "attr_fp": _col_for_role("attr_fp", 4),
+        "value": _col_for_role("value", 5),
+        "sample_count": _col_for_role("sample_count", 6),
+        "baseline_mean": _col_for_role("baseline_mean", 7),
+        "baseline_lower": _col_for_role("baseline_lower", 8),
+        "baseline_upper": _col_for_role("baseline_upper", 9),
+        "anomaly_state": _col_for_role("anomaly_state", 10),
+        "anomaly_score": _col_for_role("anomaly_score", 11),
+    }
+
+    normalized_rows: list[dict[str, object]] = []
+    for raw_row in rows:
+        normalized_rows.append(
+            {
+                "time": raw_row.get(role_columns["time"]),
+                "service": raw_row.get(role_columns["service"]),
+                "source": raw_row.get(role_columns["source"]),
+                "signal": raw_row.get(role_columns["signal"]),
+                "attr_fp": raw_row.get(role_columns["attr_fp"]),
+                "value": raw_row.get(role_columns["value"]),
+                "sample_count": raw_row.get(role_columns["sample_count"]),
+                "baseline_mean": raw_row.get(role_columns["baseline_mean"]),
+                "baseline_lower": raw_row.get(role_columns["baseline_lower"]),
+                "baseline_upper": raw_row.get(role_columns["baseline_upper"]),
+                "anomaly_state": raw_row.get(role_columns["anomaly_state"]),
+                "anomaly_score": raw_row.get(role_columns["anomaly_score"]),
+            }
+        )
+
+    _annotate_rows_with_rules(
+        normalized_rows,
+        _load_anomaly_rules(get_db()),
+        source_key="source",
+        signal_key="signal",
+        service_key="service",
+        attr_fp_key="attr_fp",
+        value_key="value",
+        sample_count_key="sample_count",
+        time_key="time",
+    )
+
+    prepared_columns = required_columns + ["rule_state", "rule_name", "rule_reason", "effective_state"]
+    prepared_rows = [{column: row.get(column, "") for column in prepared_columns} for row in normalized_rows]
+    return prepared_columns, prepared_rows
+
+
+def _render_chart_from_template(
+    template_id: str,
+    columns: list[str],
+    rows: list,
+    spec: dict[str, object] | None = None,
+) -> dict:  # type: ignore
     """
     Render chart option by substituting query results into template.
 
@@ -2838,8 +6386,23 @@ def _render_chart_from_template(template_id: str, columns: list[str], rows: list
     if not template:
         raise ValueError(f"Unknown template: {template_id}")
 
+    if template_id == "custom_echarts":
+        return _render_custom_echarts(template, columns, rows, spec)
+
     if not rows:
-        return {"series": [], "xAxis": {}, "yAxis": {}}
+        return {
+            "backgroundColor": "transparent",
+            "textStyle": {"color": "#adb5bd"},
+            "title": {
+                "text": "No data for selected query/time window",
+                "left": "center",
+                "top": "middle",
+                "textStyle": {"color": "#6c757d", "fontSize": 13, "fontWeight": 500},
+            },
+            "series": [],
+            "xAxis": {"show": False},
+            "yAxis": {"show": False},
+        }
 
     # Validate column count
     min_cols_raw = template.get("min_columns", 0)
@@ -2851,16 +6414,213 @@ def _render_chart_from_template(template_id: str, columns: list[str], rows: list
     if max_cols and len(columns) > max_cols:
         raise ValueError(f"Template {template_id} accepts maximum {max_cols} columns, got {len(columns)}")
 
+    role_indices = _resolve_template_role_indices(template_id, template, columns, spec)
+
+    if rows and isinstance(rows[0], dict):
+        columns, rows = _prepare_template_rows(template_id, columns, rows, role_indices)
+
     # Extract bindings
-    bindings = _extract_bindings(template, columns, rows)
+    bindings = _extract_bindings(template, columns, rows, role_indices)
 
     # Substitute into template and add dark theme styling
     option = _deep_substitute(template["echarts_option_template"], bindings)
     if isinstance(option, dict):
         option = _attach_drilldown_metadata(template, bindings, option)
-        option.setdefault("backgroundColor", "transparent")
-        option.setdefault("textStyle", {"color": "#adb5bd"})
+        # Ensure consistent transparent background across all templates
+        if "backgroundColor" not in option:
+            option["backgroundColor"] = "transparent"
+        if "textStyle" not in option:
+            option["textStyle"] = {"color": "#adb5bd"}
     return option  # type: ignore
+
+
+def _parse_custom_json_config(raw: object, field_name: str) -> object:
+    if isinstance(raw, (dict, list)):
+        return raw
+    if raw is None:
+        return {}
+    text = str(raw).strip()
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except Exception as exc:
+        raise ValueError(f"{field_name} must be valid JSON") from exc
+
+
+def _resolve_custom_binding_expr(
+    expr: object, columns: list[str], records: list[dict[str, object]], rows: list[list]
+) -> object:
+    if isinstance(expr, str):
+        key = expr.strip()
+        if not key:
+            return None
+        if key == "columns":
+            return columns
+        if key == "rows":
+            return rows
+        if key == "records":
+            return records
+        return [record.get(key) for record in records]
+
+    if not isinstance(expr, dict):
+        raise ValueError("custom_mapping_json values must be strings or objects")
+
+    mode = str(expr.get("from") or "column").strip().lower()
+    if mode == "columns":
+        return columns
+    if mode == "rows":
+        return rows
+    if mode == "records":
+        return records
+    if mode == "literal":
+        return expr.get("value")
+    if mode == "column":
+        name = str(expr.get("name") or "").strip()
+        if not name:
+            raise ValueError("custom_mapping_json column mapping requires a non-empty 'name'")
+        return [record.get(name) for record in records]
+
+    raise ValueError(f"Unsupported custom mapping mode: {mode}")
+
+
+def _resolve_template_string(value: str, record: dict[str, object]) -> str:
+    def _replace(match: re.Match[str]) -> str:
+        key = match.group(1).strip()
+        resolved = record.get(key)
+        if resolved is None:
+            return ""
+        return str(resolved)
+
+    return re.sub(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}", _replace, value)
+
+
+def _build_custom_drilldown(mapping: dict[str, object], records: list[dict[str, object]]) -> dict[str, object] | None:
+    drilldown_raw = mapping.get("_drilldown")
+    if not isinstance(drilldown_raw, dict):
+        return None
+
+    target = str(drilldown_raw.get("target") or "").strip()
+    if target not in {"logs", "metrics", "traces", "errors"}:
+        return None
+
+    first_record = records[0] if records else {}
+    label = str(drilldown_raw.get("label") or "Open Source View").strip() or "Open Source View"
+
+    extra_raw = drilldown_raw.get("extra")
+    extra: dict[str, object] = {}
+    if isinstance(extra_raw, dict):
+        for k, v in cast(dict[object, object], extra_raw).items():
+            key = str(k).strip()
+            if not key:
+                continue
+            if isinstance(v, str):
+                extra[key] = _resolve_template_string(v, first_record)
+            else:
+                extra[key] = v
+
+    out: dict[str, object] = {"target": target, "label": label}
+    for optional_key in ["bucket_seconds", "time_axis", "service_axis"]:
+        if optional_key in drilldown_raw:
+            out[optional_key] = cast(dict[str, object], drilldown_raw)[optional_key]
+    if extra:
+        out["extra"] = extra
+    return out
+
+
+def _normalize_custom_series_point_order(option: dict[str, object]) -> None:
+    """Ensure deterministic ordering for tuple-like series points in custom ECharts."""
+    series = option.get("series")
+    if not isinstance(series, list):
+        return
+
+    def _to_sort_key(value: object) -> tuple[int, object]:
+        if isinstance(value, datetime):
+            return (0, value)
+        if isinstance(value, (int, float)):
+            return (1, float(value))
+        if isinstance(value, str):
+            text = value.strip()
+            try:
+                return (0, datetime.fromisoformat(text.replace("Z", "+00:00")))
+            except ValueError:
+                return (2, text)
+        return (3, str(value))
+
+    for entry in series:
+        if not isinstance(entry, dict):
+            continue
+        data = entry.get("data")
+        if not isinstance(data, list) or len(data) < 2:
+            continue
+        if not all(isinstance(point, (list, tuple)) and len(point) >= 2 for point in data):
+            continue
+        try:
+            data.sort(key=lambda point: _to_sort_key(point[0]))
+        except Exception:
+            continue
+
+
+def _render_custom_echarts(
+    template: dict[str, object],
+    columns: list[str],
+    rows: list,
+    spec: dict[str, object] | None,
+) -> dict:
+    visual = spec.get("visual") if isinstance(spec, dict) and isinstance(spec.get("visual"), dict) else {}
+    visual_dict = cast(dict[str, object], visual) if isinstance(visual, dict) else {}
+
+    mapping_raw = _parse_custom_json_config(visual_dict.get("custom_mapping_json"), "visual.custom_mapping_json")
+    mapping = cast(dict[str, object], mapping_raw) if isinstance(mapping_raw, dict) else {}
+    if not isinstance(mapping_raw, dict):
+        raise ValueError("visual.custom_mapping_json must be a JSON object")
+
+    option_raw_cfg = visual_dict.get("custom_option_json")
+    if option_raw_cfg is None or (isinstance(option_raw_cfg, str) and not option_raw_cfg.strip()):
+        option_template = copy.deepcopy(template.get("echarts_option_template", {}))
+    else:
+        option_template = _parse_custom_json_config(option_raw_cfg, "visual.custom_option_json")
+    if not isinstance(option_template, dict):
+        raise ValueError("visual.custom_option_json must be a JSON object")
+
+    records: list[dict[str, object]] = []
+    for row in rows:
+        if isinstance(row, dict):
+            records.append({str(k): row.get(k) for k in columns})
+            continue
+        if isinstance(row, (list, tuple)):
+            records.append({col: row[idx] if idx < len(row) else None for idx, col in enumerate(columns)})
+
+    rows_2d = [[record.get(col) for col in columns] for record in records]
+
+    bindings: dict[str, object] = {
+        "columns": columns,
+        "records": records,
+        "rows": rows_2d,
+    }
+    for key, expr in mapping.items():
+        binding_key = str(key).strip()
+        if not binding_key:
+            continue
+        if binding_key.startswith("_"):
+            continue
+        bindings[binding_key] = _resolve_custom_binding_expr(expr, columns, records, rows_2d)
+
+    option = _deep_substitute(option_template, bindings)
+    if not isinstance(option, dict):
+        raise ValueError("Custom ECharts option must resolve to a JSON object")
+
+    if "backgroundColor" not in option:
+        option["backgroundColor"] = "transparent"
+    if "textStyle" not in option:
+        option["textStyle"] = {"color": "#adb5bd"}
+
+    _normalize_custom_series_point_order(option)
+
+    drilldown = _build_custom_drilldown(mapping, records)
+    if drilldown:
+        option["_customDrilldown"] = drilldown
+    return option
 
 
 def _get_dashboards(db: ChDbConnection) -> list[dict]:
@@ -2887,17 +6647,26 @@ def _get_charts(db: ChDbConnection, dashboard_id: str) -> list[dict]:
         "ORDER BY Position, Id",
         [dashboard_id],
     ).fetchall()
-    return [
-        {
-            "id": str(r["Id"]),
-            "title": str(r["Title"]),
-            "chart_type": str(r["ChartType"]),
-            "query": str(r["Query"]),
-            "options_json": str(r["OptionsJson"]),
-            "position": int(r["Position"]),
-        }
-        for r in rows
-    ]
+    charts: list[dict] = []
+    for r in rows:
+        chart_type = str(r["ChartType"])
+        query = str(r["Query"])
+        options_json = str(r["OptionsJson"])
+        chart_spec = _build_raw_chart_spec(chart_type, query, options_json)
+        options_json = json.dumps({"chart_spec": chart_spec}, ensure_ascii=False)
+
+        charts.append(
+            {
+                "id": str(r["Id"]),
+                "title": str(r["Title"]),
+                "chart_type": chart_type,
+                "query": query,
+                "options_json": options_json,
+                "position": int(r["Position"]),
+                "chart_spec": chart_spec,
+            }
+        )
+    return charts
 
 
 @app.route("/dashboards")
@@ -2953,6 +6722,7 @@ async def view_custom_dashboard(dashboard_id: str):
             "query_shape": t.get("query_shape", ""),
             "sample_sql": t.get("sample_sql", ""),
             "drilldown": t.get("drilldown"),
+            "default_spec": _default_chart_spec(tid),
         }
         for tid, t in sorted(CHART_TEMPLATES.items())
     ]
@@ -2962,6 +6732,24 @@ async def view_custom_dashboard(dashboard_id: str):
         charts=charts,
         templates=templates,
     )
+
+
+@app.route("/dashboards/help/chart-editor")
+@require_basic_auth
+async def chart_editor_help():
+    return await render_template("chart_editor_help.html")
+
+
+@app.route("/metrics/help/rules")
+@require_basic_auth
+async def metrics_rules_help():
+    return await render_template("metrics_rules_help.html")
+
+
+@app.route("/metrics/help/rules/auto")
+@require_basic_auth
+async def auto_metrics_rules_help():
+    return await render_template("auto_metrics_rules_help.html")
 
 
 @app.route("/dashboards/<dashboard_id>/delete", methods=["POST"])
@@ -3018,17 +6806,10 @@ async def add_chart(dashboard_id: str):
         await flash("Dashboard not found", "danger")
         return redirect(url_for("list_dashboards"))
     form = await request.form
-    title = (form.get("title") or "").strip()
-    template_id = (form.get("template_id") or "time_series_percentiles").strip()
-    query = (form.get("query") or "").strip()
-    if not title:
-        await flash("Chart title is required", "warning")
-        return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
-    if template_id not in CHART_TEMPLATES:
-        template_id = "time_series_percentiles"
-    err = _validate_chart_query(query)
-    if err:
-        await flash(f"Invalid query: {err}", "warning")
+    try:
+        title, template_id, query, options_json = _parse_chart_form_submission(form)
+    except ValueError as ve:
+        await flash(str(ve), "warning")
         return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
     existing = _get_charts(db, dashboard_id)
     position = max((c["position"] for c in existing), default=-1) + 1
@@ -3044,7 +6825,113 @@ async def add_chart(dashboard_id: str):
                 "Title": title,
                 "ChartType": template_id,
                 "Query": query,
-                "OptionsJson": "{}",
+                "OptionsJson": options_json,
+                "Position": position,
+                "IsDeleted": 0,
+                "Version": version,
+            }
+        ],
+    )
+    return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
+
+
+def _parse_chart_form_submission(form) -> tuple[str, str, str, str]:
+    title = (form.get("title") or "").strip()
+    chart_spec_json = (form.get("chart_spec_json") or "").strip()
+
+    if not title:
+        raise ValueError("Chart title is required")
+    if not chart_spec_json:
+        raise ValueError("Chart spec is required")
+
+    try:
+        spec_raw = json.loads(chart_spec_json)
+        template_id, query, normalized_spec = _compile_chart_spec(spec_raw)
+    except Exception as exc:
+        raise ValueError(f"Chart spec error: {exc}") from exc
+
+    options_json = json.dumps({"chart_spec": normalized_spec}, ensure_ascii=False)
+    return title, template_id, query, options_json
+
+
+@app.route("/dashboards/<dashboard_id>/charts/<chart_id>/edit", methods=["POST"])
+@require_basic_auth
+async def edit_chart(dashboard_id: str, chart_id: str):
+    db = get_db()
+    dashboard = _get_dashboard(db, dashboard_id)
+    if not dashboard:
+        await flash("Dashboard not found", "danger")
+        return redirect(url_for("list_dashboards"))
+
+    charts = _get_charts(db, dashboard_id)
+    chart = next((c for c in charts if c["id"] == chart_id), None)
+    if not chart:
+        await flash("Chart not found", "warning")
+        return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
+
+    form = await request.form
+    try:
+        title, template_id, query, options_json = _parse_chart_form_submission(form)
+    except ValueError as ve:
+        await flash(str(ve), "warning")
+        return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
+
+    version = int(time.time() * 1000)
+    _insert_rows_json_each_row(
+        db,
+        "sobs_chart_configs",
+        [
+            {
+                "Id": chart_id,
+                "DashboardId": dashboard_id,
+                "Title": title,
+                "ChartType": template_id,
+                "Query": query,
+                "OptionsJson": options_json,
+                "Position": chart["position"],
+                "IsDeleted": 0,
+                "Version": version,
+            }
+        ],
+    )
+    return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
+
+
+@app.route("/dashboards/<dashboard_id>/charts/<chart_id>/clone", methods=["POST"])
+@require_basic_auth
+async def clone_chart(dashboard_id: str, chart_id: str):
+    db = get_db()
+    dashboard = _get_dashboard(db, dashboard_id)
+    if not dashboard:
+        await flash("Dashboard not found", "danger")
+        return redirect(url_for("list_dashboards"))
+
+    charts = _get_charts(db, dashboard_id)
+    source_chart = next((c for c in charts if c["id"] == chart_id), None)
+    if not source_chart:
+        await flash("Chart not found", "warning")
+        return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
+
+    form = await request.form
+    try:
+        title, template_id, query, options_json = _parse_chart_form_submission(form)
+    except ValueError as ve:
+        await flash(str(ve), "warning")
+        return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
+
+    position = max((c["position"] for c in charts), default=-1) + 1
+    version = int(time.time() * 1000)
+    _insert_rows_json_each_row(
+        db,
+        "sobs_chart_configs",
+        [
+            {
+                "Id": str(uuid.uuid4()),
+                "DashboardId": dashboard_id,
+                "Title": title,
+                "ChartType": template_id,
+                "Query": query,
+                "OptionsJson": options_json,
                 "Position": position,
                 "IsDeleted": 0,
                 "Version": version,
@@ -3112,6 +6999,212 @@ async def execute_chart_query():
         return jsonify({"error": _public_dashboard_query_error(exc)}), 400
 
 
+@app.route("/api/dashboards/spec/templates", methods=["GET"])
+@require_basic_auth
+async def list_chart_spec_templates():
+    templates = [
+        {
+            "id": tid,
+            "name": t["name"],
+            "description": t["description"],
+            "query_shape": t.get("query_shape", ""),
+            "sample_sql": t.get("sample_sql", ""),
+            "default_spec": _default_chart_spec(tid),
+            "min_columns": t.get("min_columns", 0),
+            "max_columns": t.get("max_columns"),
+            "column_roles": t.get("column_roles", {}),
+        }
+        for tid, t in sorted(CHART_TEMPLATES.items())
+    ]
+    return jsonify({"templates": templates})
+
+
+@app.route("/api/dashboards/spec/options", methods=["GET"])
+@require_basic_auth
+async def chart_spec_options_api():
+    source_view = str(request.args.get("source_view") or "v_derived_signals_anomaly").strip()
+    signal_source = str(request.args.get("signal_source") or "").strip()
+    limit = _coerce_positive_int(request.args.get("limit"), 100, 1, 500)
+
+    supported_sources = {
+        "v_derived_signals_anomaly",
+        "v_otel_metrics_anomaly",
+        "otel_metrics_gauge",
+        "otel_metrics_sum",
+        "otel_metrics_histogram",
+        "otel_logs",
+        "otel_traces",
+        "sobs_error_resolutions",
+    }
+    if source_view not in supported_sources:
+        return jsonify({"error": "Unsupported source for options"}), 400
+
+    db = get_db()
+
+    def _distinct_values(query: str) -> list[str]:
+        rows = db.execute(query).fetchall()
+        values: list[str] = []
+        for row in rows:
+            val = str(row["v"] or "").strip()
+            if val:
+                values.append(val)
+        return values
+
+    services: list[str] = []
+    signals: list[str] = []
+    metrics: list[str] = []
+
+    if source_view == "v_derived_signals_anomaly":
+        services = _distinct_values(
+            "SELECT DISTINCT ServiceName AS v " "FROM v_derived_signals_anomaly " "ORDER BY v " f"LIMIT {limit}"
+        )
+        signal_where = ""
+        if signal_source:
+            signal_where = f"WHERE SignalSource = {_sql_literal(signal_source)} "
+        signals = _distinct_values(
+            "SELECT DISTINCT SignalName AS v "
+            "FROM v_derived_signals_anomaly "
+            f"{signal_where}"
+            "ORDER BY v "
+            f"LIMIT {limit}"
+        )
+    elif source_view in {"otel_logs", "otel_traces"}:
+        services = _distinct_values(
+            "SELECT DISTINCT ServiceName AS v " f"FROM {source_view} " "ORDER BY v " f"LIMIT {limit}"
+        )
+        signals = ["log_volume"] if source_view == "otel_logs" else ["trace_volume"]
+    elif source_view == "sobs_error_resolutions":
+        signals = ["resolved_error_volume"]
+    elif source_view in {"v_otel_metrics_anomaly", "otel_metrics_gauge", "otel_metrics_sum", "otel_metrics_histogram"}:
+        services = _distinct_values(
+            "SELECT DISTINCT ServiceName AS v " f"FROM {source_view} " "ORDER BY v " f"LIMIT {limit}"
+        )
+        metrics = _distinct_values(
+            "SELECT DISTINCT MetricName AS v " f"FROM {source_view} " "ORDER BY v " f"LIMIT {limit}"
+        )
+
+    return jsonify(
+        {
+            "source_view": source_view,
+            "services": services,
+            "signals": signals,
+            "metrics": metrics,
+        }
+    )
+
+
+@app.route("/api/dashboards/spec/compile", methods=["POST"])
+@require_basic_auth
+async def compile_chart_spec_api():
+    body = await request.get_json(silent=True) or {}
+    spec = body.get("spec") if isinstance(body, dict) else {}
+    try:
+        template_id, query, normalized_spec = _compile_chart_spec(spec)
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except Exception as exc:
+        app.logger.exception("Chart spec compile failed")
+        return jsonify({"error": _public_dashboard_query_error(exc)}), 400
+    return jsonify({"template_id": template_id, "query": query, "spec": normalized_spec})
+
+
+@app.route("/api/dashboards/spec/dry-run", methods=["POST"])
+@require_basic_auth
+async def dry_run_chart_spec_api():
+    body = await request.get_json(silent=True) or {}
+    spec = body.get("spec") if isinstance(body, dict) else {}
+    try:
+        template_id, query, normalized_spec = _compile_chart_spec(spec)
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+
+    run_query = query
+    if not re.search(r"\bLIMIT\b", run_query, re.IGNORECASE):
+        run_query = run_query.rstrip(";") + " LIMIT 20"
+    db = get_db()
+    try:
+        result = db.execute(run_query)
+        rows = result.fetchall()
+        columns = list(rows[0].keys()) if rows else []
+        data = [[row[col] for col in columns] for row in rows]
+        column_types = _infer_column_types(columns, data)
+    except Exception as exc:
+        app.logger.exception("Chart spec dry-run failed")
+        return jsonify({"error": _public_dashboard_query_error(exc)}), 400
+    return jsonify(
+        {
+            "template_id": template_id,
+            "query": query,
+            "spec": normalized_spec,
+            "columns": columns,
+            "column_types": column_types,
+            "rows": data,
+        }
+    )
+
+
+@app.route("/api/dashboards/spec/validate", methods=["POST"])
+@require_basic_auth
+async def validate_chart_spec_api():
+    body = await request.get_json(silent=True) or {}
+    spec = body.get("spec") if isinstance(body, dict) else {}
+    try:
+        template_id, query, normalized_spec = _compile_chart_spec(spec)
+    except ValueError as ve:
+        return jsonify({"valid": False, "error": str(ve)}), 400
+
+    db = get_db()
+    try:
+        run_query = query
+        if not re.search(r"\bLIMIT\b", run_query, re.IGNORECASE):
+            run_query = run_query.rstrip(";") + " LIMIT 200"
+        result = db.execute(run_query)
+        raw_rows = result.fetchall()
+        columns = list(raw_rows[0].keys()) if raw_rows else []
+        data = [dict(row) for row in raw_rows]
+        _render_chart_from_template(template_id, columns, data, normalized_spec)
+    except Exception as exc:
+        return jsonify({"valid": False, "error": _public_dashboard_query_error(exc)}), 400
+
+    return jsonify(
+        {
+            "valid": True,
+            "template_id": template_id,
+            "query": query,
+            "spec": normalized_spec,
+            "columns": columns,
+            "row_count": len(data),
+        }
+    )
+
+
+@app.route("/api/dashboards/spec/render", methods=["POST"])
+@require_basic_auth
+async def render_chart_spec_api():
+    body = await request.get_json(silent=True) or {}
+    spec = body.get("spec") if isinstance(body, dict) else {}
+    try:
+        template_id, query, normalized_spec = _compile_chart_spec(spec)
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+
+    db = get_db()
+    try:
+        run_query = query
+        if not re.search(r"\bLIMIT\b", run_query, re.IGNORECASE):
+            run_query = run_query.rstrip(";") + " LIMIT 1000"
+        result = db.execute(run_query)
+        raw_rows = result.fetchall()
+        columns = list(raw_rows[0].keys()) if raw_rows else []
+        data = [dict(row) for row in raw_rows]
+        option = _render_chart_from_template(template_id, columns, data, normalized_spec)
+        option = _apply_chart_spec_visual_overrides(template_id, option, normalized_spec)
+    except Exception as exc:
+        app.logger.exception("Chart spec render failed")
+        return jsonify({"error": _public_dashboard_query_error(exc)}), 400
+    return jsonify({"template_id": template_id, "query": query, "spec": normalized_spec, "option": option})
+
+
 @app.route("/api/dashboards/render", methods=["POST"])
 @require_basic_auth
 async def render_chart():
@@ -3134,11 +7227,9 @@ async def render_chart():
     db = get_db()
     try:
         result = db.execute(query)
-        rows = result.fetchall()
-        columns = list(rows[0].keys()) if rows else []
-
-        # Convert to list of values for template rendering
-        data = [[row[col] for col in columns] for row in rows]
+        raw_rows = result.fetchall()
+        columns = list(raw_rows[0].keys()) if raw_rows else []
+        data = [dict(row) for row in raw_rows]
 
         # Render using template
         option = _render_chart_from_template(template_id, columns, data)
@@ -3148,6 +7239,102 @@ async def render_chart():
         return jsonify({"error": str(ve)}), 400
     except Exception as exc:
         app.logger.exception("Chart render failed: template=%s query=%s", template_id, query)
+        return jsonify({"error": _public_dashboard_query_error(exc)}), 400
+
+
+# ---------------------------------------------------------------------------
+# Metrics Anomaly API  GET /api/metrics/anomaly
+# ---------------------------------------------------------------------------
+@app.route("/api/metrics/anomaly", methods=["GET"])
+@require_basic_auth
+async def metrics_anomaly():
+    """Return per-minute anomaly detection data for a specific metric series.
+
+    Query parameters:
+    - ``service``: ServiceName (required)
+    - ``metric``: MetricName (required)
+    - ``hours``: look-back window in hours, 1–168 (default: 24)
+    - ``attr_fp``: optional AttrFingerprint to select a single series
+
+    Response JSON::
+
+        {
+          "service": "...",
+          "metric": "...",
+          "columns": ["time", "value", "sample_count", "baseline_mean",
+                      "baseline_stddev", "baseline_lower", "baseline_upper",
+                      "anomaly_score", "anomaly_state", "metric_kind", "attr_fp"],
+          "rows": [[...], ...]
+        }
+    """
+    service = (request.args.get("service") or "").strip()
+    metric = (request.args.get("metric") or "").strip()
+    if not service or not metric:
+        return jsonify({"error": "service and metric query parameters are required"}), 400
+
+    try:
+        hours = max(1, min(168, int(request.args.get("hours") or 24)))
+    except (TypeError, ValueError):
+        hours = 24
+
+    attr_fp = (request.args.get("attr_fp") or "").strip()
+
+    db = get_db()
+    try:
+        fp_clause = " AND AttrFingerprint = ?" if attr_fp else ""
+        params: list = [service, metric, hours]
+        if attr_fp:
+            params.append(attr_fp)
+        result = db.execute(
+            "SELECT"
+            "  time,"
+            "  value,"
+            "  SampleCount AS sample_count,"
+            "  baseline_mean,"
+            "  baseline_stddev,"
+            "  baseline_lower,"
+            "  baseline_upper,"
+            "  anomaly_score,"
+            "  anomaly_state,"
+            "  MetricKind AS metric_kind,"
+            "  AttrFingerprint AS attr_fp"
+            " FROM v_otel_metrics_anomaly"
+            " WHERE ServiceName = ?"
+            "   AND MetricName = ?"
+            f"   AND time >= now() - INTERVAL ? HOUR"
+            f"{fp_clause}"
+            " ORDER BY time"
+            " LIMIT 1440",
+            params,
+        )
+        rows = result.fetchall()
+        columns = (
+            list(rows[0].keys())
+            if rows
+            else [
+                "time",
+                "value",
+                "sample_count",
+                "baseline_mean",
+                "baseline_stddev",
+                "baseline_lower",
+                "baseline_upper",
+                "anomaly_score",
+                "anomaly_state",
+                "metric_kind",
+                "attr_fp",
+            ]
+        )
+
+        def _safe(v):  # type: ignore
+            if isinstance(v, float) and (v != v):  # IEEE 754: NaN is the only value not equal to itself
+                return None
+            return v
+
+        data = [[_safe(row[col]) for col in columns] for row in rows]
+        return jsonify({"service": service, "metric": metric, "columns": columns, "rows": data})
+    except Exception as exc:
+        app.logger.exception("metrics_anomaly query failed: service=%s metric=%s", service, metric)
         return jsonify({"error": _public_dashboard_query_error(exc)}), 400
 
 

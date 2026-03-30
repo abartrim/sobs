@@ -17,6 +17,10 @@
 - 🧠 **Manual advanced log analysis** – on-demand message pattern clustering, keyword signals, and optimization hints
 - 📡 **Live tail** – SSE endpoint (`/tail`) for real-time streaming of logs and traces
 - ⚡ **Live logs mode** – optional in-page streaming on Logs with pause-on-scroll and queued event counter
+- 📈 **Metrics & Signals** – top-level Metrics page with derived telemetry signals and anomaly status
+- 🧩 **Auto rule generation** – preview/create metric anomaly rules from recent derived-signal history
+- 🗂️ **Auto dashboard generation** – build a derived-signal dashboard directly from active metric rules
+- ✨ **First-run visual tour** – one-time onboarding modal with flow overview and quick-tour reopen entry
 - 🎨 **Bootstrap 5 dark UI** – served locally, no CDN required
 - 🐳 **Docker ready** – Dockerfile + docker-compose + Kubernetes manifests
 
@@ -37,6 +41,8 @@ python app.py
 Note: `python app.py` runs Hypercorn with a Quart ASGI app in single-process mode.
 
 Open `http://localhost:4317` in your browser.
+
+On first open, SOBS shows a lightweight visual onboarding tour (ingest → analyze → act). You can reopen it any time from the left nav via **Quick Tour**.
 
 Prebuilt image published by CI:
 
@@ -98,7 +104,7 @@ bash examples/curl_examples.sh
 |----------------|--------|------------------------------------|
 | `/v1/logs`     | POST   | OTLP/JSON logs                     |
 | `/v1/traces`   | POST   | OTLP/JSON traces                   |
-| `/v1/metrics`  | POST   | OTLP/JSON metrics (stored as logs) |
+| `/v1/metrics`  | POST   | OTLP/JSON metrics (typed metric tables + anomaly views) |
 | `/v1/rum`      | POST   | RUM events (JSON array)            |
 | `/v1/errors`   | POST   | Direct error submission            |
 | `/v1/ai`       | POST   | AI/LLM call transparency           |
@@ -112,6 +118,15 @@ Ingest writes are queued and flushed by a single background DB writer thread.
 - If the queue is saturated, ingest returns `503` so clients can retry/backoff.
 
 This model favors client latency under burst traffic. It does not guarantee synchronous commit-per-request in normal runtime.
+
+## Metrics Rules Automation
+
+SOBS includes two automation flows under **Metrics → Metrics Rules**:
+
+- **Auto Make Metric Rules**: generates threshold rules from recent derived-signal history with a preview-first workflow and capped create.
+- **Auto Generate Dashboard from Active Rules**: creates/updates a dashboard with one derived-signal overlay chart per matching active rule (preview-first, max chart cap, skip-existing by title).
+
+Both auto panels include contextual help and retain their open/collapsed scope across preview/create interactions.
 
 Fresh chDB databases are created with schema compression tuned using ZSTD plus selective Delta/T64 codecs. For encrypted local-disk testing in the container image, set `SOBS_CHDB_ENCRYPTION_KEY` and SOBS will render an internal ClickHouse config at startup and pass it to chDB automatically.
 
@@ -291,16 +306,16 @@ pytest tests/
 ./scripts/benchmark.sh http://127.0.0.1:44318
 ```
 
-## Traffic Pump (including realistic mode)
+## Traffic Example (including realistic mode)
 
-Use `scripts/load_pump.py` directly when you want to drive specific event rates.
+Use `scripts/load_example.py` directly when you want to drive specific event rates.
 
 ```bash
 # High-throughput load mode (default)
-python scripts/load_pump.py --base http://127.0.0.1:4317 --total 420 --workers 28
+python scripts/load_example.py --base http://127.0.0.1:4317 --total 420 --workers 28
 
 # Realistic paced mode for UI demos
-python scripts/load_pump.py --base http://127.0.0.1:4317 --mode realistic --rps 3 --jitter-ms 250 --total 180 --workers 8
+python scripts/load_example.py --base http://127.0.0.1:4317 --mode realistic --rps 3 --jitter-ms 250 --total 180 --workers 8
 ```
 
 Parameters:

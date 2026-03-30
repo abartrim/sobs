@@ -1,6 +1,37 @@
 {% extends "base.html" %}
 {% block title %}{{ dashboard.name }}{% endblock %}
 {% block content %}
+<style>
+  #addChartModal .modal-dialog {
+    margin: 0.5rem auto;
+    height: calc(100vh - 1rem);
+    height: calc(100dvh - 1rem);
+  }
+
+  #addChartModal .modal-content {
+    height: 100%;
+    max-height: none;
+  }
+
+  #addChartModal #chartEditorForm {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+  }
+
+  #addChartModal .modal-body {
+    overflow-y: auto;
+    min-height: 0;
+    overscroll-behavior: contain;
+    scroll-behavior: smooth;
+  }
+
+  #addChartModal .modal-header,
+  #addChartModal .modal-footer {
+    flex: 0 0 auto;
+  }
+</style>
 <div class="d-flex justify-content-between align-items-center mb-4">
   <div>
     <nav aria-label="breadcrumb">
@@ -14,8 +45,22 @@
     <p class="text-secondary small mb-0">{{ dashboard.description }}</p>
     {% endif %}
   </div>
-  <div class="d-flex gap-2">
-    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addChartModal">
+  <div class="d-flex gap-2 align-items-center">
+    <div class="d-flex align-items-center gap-2" title="Auto-refresh interval">
+      <span id="refreshCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
+      <div class="input-group input-group-sm" style="width:auto;">
+        <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
+        <select id="refreshIntervalSelect" class="form-select form-select-sm" style="width:auto;">
+          <option value="0">Off</option>
+          <option value="10">10s</option>
+          <option value="30">30s</option>
+          <option value="60">1m</option>
+          <option value="120">2m</option>
+          <option value="300">5m</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm js-add-chart-btn" data-bs-toggle="modal" data-bs-target="#addChartModal">
       <i class="bi bi-plus-lg me-1"></i>Add Chart
     </button>
     <form method="post" action="{{ url_for('delete_dashboard', dashboard_id=dashboard.id) }}"
@@ -35,7 +80,22 @@
       <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-bar-chart me-1 text-primary"></i>{{ chart.title }}</span>
         <div class="d-flex gap-2 align-items-center">
+          <span id="anomaly-badge-{{ chart.id }}" class="badge d-none"></span>
           <span class="badge bg-secondary text-capitalize">{{ chart.chart_type }}</span>
+          <button type="button"
+                  class="btn btn-sm btn-outline-secondary py-0 px-1 js-edit-chart"
+                  data-chart-id="{{ chart.id }}"
+                  data-edit-url="{{ url_for('edit_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
+                  title="Edit chart">
+            <i class="bi bi-pencil"></i>
+          </button>
+          <button type="button"
+                  class="btn btn-sm btn-outline-info py-0 px-1 js-clone-chart"
+                  data-chart-id="{{ chart.id }}"
+                  data-clone-url="{{ url_for('clone_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
+                  title="Clone chart">
+            <i class="bi bi-files"></i>
+          </button>
           <form method="post"
                 action="{{ url_for('remove_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
                 onsubmit="return confirm('Remove this chart?')">
@@ -66,7 +126,7 @@
 <div class="text-center py-5 text-secondary">
   <i class="bi bi-bar-chart fs-1 d-block mb-3"></i>
   <p class="mb-3">No charts yet. Add your first chart to this dashboard.</p>
-  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addChartModal">
+  <button class="btn btn-primary js-add-chart-btn" data-bs-toggle="modal" data-bs-target="#addChartModal">
     <i class="bi bi-plus-lg me-1"></i>Add Chart
   </button>
 </div>
@@ -74,62 +134,196 @@
 
 <!-- Add Chart Modal -->
 <div class="modal fade" id="addChartModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable" style="max-width:min(96vw, 1480px);">
     <div class="modal-content">
-      <form method="post" action="{{ url_for('add_chart', dashboard_id=dashboard.id) }}">
+      <form method="post" action="{{ url_for('add_chart', dashboard_id=dashboard.id) }}" id="chartEditorForm">
         <div class="modal-header">
-          <h5 class="modal-title">Add Chart</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          <h5 class="modal-title" id="chartEditorModalTitle">Add Chart</h5>
+          <div class="d-flex gap-2 align-items-center ms-auto">
+            <a href="{{ url_for('chart_editor_help') }}" target="_blank" class="link-secondary text-decoration-none" title="Chart Help" aria-label="Chart Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
         </div>
         <div class="modal-body">
+          <input type="hidden" id="chartSpecJson" name="chart_spec_json" value="">
           <div class="mb-3">
             <label class="form-label">Title <span class="text-danger">*</span></label>
-            <input type="text" name="title" class="form-control" placeholder="e.g. Request Latency" required>
+            <input type="text" id="chartTitleInput" name="title" class="form-control" placeholder="e.g. Request Latency" required>
           </div>
-          <div class="mb-3">
-            <label class="form-label">Chart Template</label>
-            <select name="template_id" class="form-select" id="templateSelect">
-              {% for t in templates %}
-              <option value="{{ t.id }}" title="{{ t.description }}">
-                <i class="{{ t.icon }}"></i> {{ t.name }}
-              </option>
-              {% endfor %}
-            </select>
-            <div class="form-text" id="templateDesc"></div>
-            <div class="form-text mt-1" id="columnHint"></div>
-          </div>
-          <div class="mb-3">
-            <div class="d-flex justify-content-between align-items-center mb-1">
-              <label class="form-label mb-0">Example SQL</label>
-              <button type="button" class="btn btn-sm btn-outline-secondary" id="useExampleBtn">
-                <i class="bi bi-arrow-down-square me-1"></i>Use Example
-              </button>
+          <div class="row g-3">
+            <div class="col-lg-6">
+              <div class="card border-secondary h-100">
+                <div class="card-header py-2 small text-secondary">SQL Builder</div>
+                <div class="card-body p-2">
+                  <div class="mb-2">
+                    <label class="form-label small">SQL Mode</label>
+                    <select id="sqlModeSelect" class="form-select form-select-sm">
+                      <option value="builder" selected>Builder</option>
+                      <option value="raw">Raw SQL</option>
+                    </select>
+                  </div>
+                  <div id="builderFieldsWrap">
+                  <div class="mb-2">
+                    <label class="form-label small">Source (View or Base Table)</label>
+                    <select id="sourceViewInput" class="form-select form-select-sm">
+                      <option value="v_derived_signals_anomaly" selected>v_derived_signals_anomaly</option>
+                      <option value="v_otel_metrics_anomaly">v_otel_metrics_anomaly</option>
+                      <option value="otel_metrics_gauge">otel_metrics_gauge</option>
+                      <option value="otel_metrics_sum">otel_metrics_sum</option>
+                      <option value="otel_metrics_histogram">otel_metrics_histogram</option>
+                      <option value="otel_traces">otel_traces</option>
+                      <option value="otel_logs">otel_logs</option>
+                      <option value="sobs_error_resolutions">sobs_error_resolutions</option>
+                    </select>
+                  </div>
+                  <div class="row g-2 mb-2">
+                    <div class="col-6">
+                      <label class="form-label small">Service</label>
+                      <input id="serviceInput" list="serviceOptionsList" class="form-control form-control-sm" placeholder="optional">
+                      <datalist id="serviceOptionsList"></datalist>
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label small">Attr FP</label>
+                      <input id="attrFpInput" class="form-control form-control-sm font-monospace" placeholder="optional">
+                    </div>
+                  </div>
+                  <div class="row g-2 mb-2" id="derivedSignalBuilderFields">
+                    <div class="col-6">
+                      <label class="form-label small">Signal Source</label>
+                      <select id="signalSourceInput" class="form-select form-select-sm">
+                        <option value="traces" selected>traces</option>
+                        <option value="logs">logs</option>
+                        <option value="errors">errors</option>
+                      </select>
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label small">Signal Name</label>
+                      <input id="signalNameInput" list="signalOptionsList" class="form-control form-control-sm" value="trace_volume">
+                      <datalist id="signalOptionsList"></datalist>
+                    </div>
+                  </div>
+                  <div class="row g-2 mb-2 d-none" id="metricBuilderFields">
+                    <div class="col-12">
+                      <label class="form-label small">Metric Name</label>
+                      <input id="metricNameInput" list="metricOptionsList" class="form-control form-control-sm" placeholder="http.server.duration">
+                      <datalist id="metricOptionsList"></datalist>
+                    </div>
+                  </div>
+                  <div class="row g-2 mb-2">
+                    <div class="col-6">
+                      <label class="form-label small">Window (hours)</label>
+                      <input id="windowHoursInput" type="number" min="1" max="168" value="6" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label small">Limit</label>
+                      <input id="limitInput" type="number" min="1" max="2000" value="1000" class="form-control form-control-sm">
+                    </div>
+                  </div>
+                  </div>
+                  <div class="small text-secondary mb-2 d-none" id="rawSqlModeHint">Builder filters are hidden in Raw SQL mode. Your query text is used as-is.</div>
+                  <div class="mb-2">
+                    <label class="form-label small">Raw SQL Override</label>
+                    <textarea id="queryInput" name="query" class="form-control font-monospace" rows="5" placeholder="SELECT ..."></textarea>
+                  </div>
+                </div>
+              </div>
             </div>
-            <pre id="templateExampleSql" class="small mt-1 p-2 bg-dark rounded text-secondary" style="max-height:160px;overflow:auto;white-space:pre-wrap;"></pre>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">
-              ClickHouse SQL Query <span class="text-danger">*</span>
-              <small class="text-secondary ms-1">(SELECT only · max 1000 rows)</small>
-            </label>
-            <textarea id="queryInput" name="query" class="form-control font-monospace" rows="6"
-                      placeholder="SELECT toStartOfMinute(Timestamp) AS time, avg(Duration) AS value, quantile(0.95)(Duration) AS p95, quantile(0.99)(Duration) AS p99 FROM otel_traces GROUP BY time ORDER BY time"
-                      required></textarea>
+            <div class="col-lg-6">
+              <div class="card border-secondary h-100">
+                <div class="card-header py-2 small text-secondary">Visual Builder</div>
+                <div class="card-body p-2">
+                  <div class="mb-2">
+                    <label class="form-label small">Chart Template</label>
+                    <select name="template_id" class="form-select form-select-sm" id="templateSelect">
+                      {% for t in templates %}
+                      <option value="{{ t.id }}" title="{{ t.description }}">{{ t.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="small text-secondary mb-2" id="templateDesc"></div>
+                  <div class="small text-secondary mb-2" id="columnHint"></div>
+                  <div class="mb-2" id="roleMapEditorWrap" style="display:none;">
+                    <label class="form-label small mb-1">Column Role Mapping</label>
+                    <div id="roleMapEditor" class="d-grid gap-1"></div>
+                    <div id="roleMapHelp" class="small text-secondary mt-1"></div>
+                  </div>
+                  <div class="mb-2 d-none" id="customEchartsFields">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <label class="form-label small mb-0">Custom Mapping JSON</label>
+                      <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" id="customDrilldownPresetBtn">Insert Source Button Preset</button>
+                    </div>
+                    <textarea id="customMappingJsonInput" class="form-control form-control-sm font-monospace" rows="4" placeholder='{"points":{"from":"rows"}}'></textarea>
+                    <label class="form-label small mt-2 mb-1">Custom ECharts Option JSON</label>
+                    <textarea id="customOptionJsonInput" class="form-control form-control-sm font-monospace" rows="8" placeholder='{"series":[{"type":"line","data":"POINTS_PLACEHOLDER"}]}'></textarea>
+                    <div class="small text-secondary mt-1">Supports placeholders like &#123;&#123;rows&#125;&#125;, &#123;&#123;records&#125;&#125;, &#123;&#123;columns&#125;&#125;, and mapped keys such as &#123;&#123;points&#125;&#125;. Optional source button config: <code>"_drilldown": {"target": "logs|metrics|traces|errors", "extra": {"service": "&#123;&#123;service&#125;&#125;"}}</code>.</div>
+                  </div>
+                  <div id="standardVisualControls">
+                  <div class="row g-2 mb-2">
+                    <div class="col-6 form-check ps-4">
+                      <input class="form-check-input" type="checkbox" id="legendShowInput" checked>
+                      <label class="form-check-label small" for="legendShowInput">Show legend</label>
+                    </div>
+                    <div class="col-6 form-check ps-4">
+                      <input class="form-check-input" type="checkbox" id="smoothLineInput" checked>
+                      <label class="form-check-label small" for="smoothLineInput">Smooth line</label>
+                    </div>
+                    <div class="col-6 form-check ps-4">
+                      <input class="form-check-input" type="checkbox" id="zoomInsideInput" checked>
+                      <label class="form-check-label small" for="zoomInsideInput">Inside zoom</label>
+                    </div>
+                    <div class="col-6 form-check ps-4">
+                      <input class="form-check-input" type="checkbox" id="zoomSliderInput">
+                      <label class="form-check-label small" for="zoomSliderInput">Slider zoom</label>
+                    </div>
+                  </div>
+                  <div class="row g-2 mb-2">
+                    <div class="col-6">
+                      <label class="form-label small">Zoom Start %</label>
+                      <input id="zoomStartInput" type="number" min="0" max="100" value="0" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label small">Zoom End %</label>
+                      <input id="zoomEndInput" type="number" min="0" max="100" value="100" class="form-control form-control-sm">
+                    </div>
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label small">Value Color (optional)</label>
+                    <input id="valueColorInput" class="form-control form-control-sm" placeholder="#20c997">
+                  </div>
+                  </div>
+                  <div class="d-flex justify-content-between align-items-center mb-1">
+                    <label class="form-label small mb-0">Compiled SQL</label>
+                    <div class="d-flex gap-1">
+                      <button type="button" class="btn btn-sm btn-outline-secondary" id="previewBtn">
+                        <i class="bi bi-eye me-1"></i>Preview
+                      </button>
+                      <button type="button" class="btn btn-sm btn-outline-secondary" id="dryRunSpecBtn">
+                        <i class="bi bi-table me-1"></i>Dry Run
+                      </button>
+                      <button type="button" class="btn btn-sm btn-outline-secondary" id="compileSpecBtn">
+                        <i class="bi bi-gear me-1"></i>Compile
+                      </button>
+                    </div>
+                  </div>
+                  <pre id="compiledSql" class="small mt-1 p-2 bg-dark rounded text-secondary" style="max-height:170px;overflow:auto;white-space:pre-wrap;"></pre>
+                  <div id="specValidationMsg" class="small text-secondary"></div>
+                  <div id="dryRunMeta" class="small text-secondary mt-2"></div>
+                  <div class="table-responsive mt-2" id="dryRunTableWrap" style="display:none;max-height:160px;overflow:auto;">
+                    <table class="table table-dark table-sm mb-0" id="dryRunTable"></table>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="mb-3" id="queryPreviewArea" style="display:none;">
             <label class="form-label">Query Preview</label>
             <div id="queryPreviewMsg" class="text-secondary small mb-2"></div>
             <div id="queryPreviewChart" style="height:250px;"></div>
           </div>
-          <div class="d-flex gap-2">
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="previewBtn">
-              <i class="bi bi-eye me-1"></i>Preview
-            </button>
-          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary">Add Chart</button>
+          <button type="submit" class="btn btn-primary" id="chartEditorSubmitBtn">Add Chart</button>
         </div>
       </form>
     </div>
@@ -146,13 +340,26 @@
   var CHART_DATA = {{ charts | tojson }};
   var TEMPLATES = {{ templates | tojson }};
   var queryRenderUrl = {{ url_for('render_chart') | tojson }};
+  var specCompileUrl = {{ url_for('compile_chart_spec_api') | tojson }};
+  var specDryRunUrl = {{ url_for('dry_run_chart_spec_api') | tojson }};
+  var specValidateUrl = {{ url_for('validate_chart_spec_api') | tojson }};
+  var specRenderUrl = {{ url_for('render_chart_spec_api') | tojson }};
+  var specOptionsUrl = {{ url_for('chart_spec_options_api') | tojson }};
   var templatesMap = {};
   TEMPLATES.forEach(function (t) { templatesMap[t.id] = t; });
   var sourceUrls = {
     logs: {{ url_for('view_logs') | tojson }},
+    metrics: {{ url_for('view_metrics_anomaly') | tojson }},
     traces: {{ url_for('view_traces') | tojson }},
     errors: {{ url_for('view_errors') | tojson }}
   };
+
+  function extractWhereLiteral(query, fieldName) {
+    if (!query || !fieldName) return '';
+    var re = new RegExp(fieldName + "\\s*=\\s*'([^']+)'", 'i');
+    var m = String(query).match(re);
+    return m && m[1] ? m[1] : '';
+  }
 
   function axisData(option, axisName) {
     var axis = option[axisName];
@@ -226,6 +433,52 @@
     return parts.join(' ');
   }
 
+  function pointNumericValue(p) {
+    if (!p) return null;
+    var v = p.value;
+    if (Array.isArray(v)) {
+      return v.length > 1 ? v[1] : v[0];
+    }
+    if (p.data && Array.isArray(p.data.value)) {
+      return p.data.value.length > 1 ? p.data.value[1] : p.data.value[0];
+    }
+    return v;
+  }
+
+  /* ── Anomaly badge helper ── */
+  var _ANOMALY_STATE_COLOR = {
+    outlier: '#dc3545',
+    warning: '#ffc107',
+    normal:  '#28a745',
+  };
+  var _ANOMALY_BADGE = {
+    outlier: { cls: 'bg-danger',  label: '⚠ Outlier' },
+    warning: { cls: 'bg-warning text-dark', label: '⚡ Warning' },
+    normal:  { cls: 'bg-success', label: '✓ Normal' },
+  };
+
+  function updateAnomalyBadge(chartId, states) {
+    var badge = document.getElementById('anomaly-badge-' + chartId);
+    if (!badge || !states || !states.length) return;
+    var worst = 'normal';
+    for (var i = 0; i < states.length; i++) {
+      var s = states[i];
+      if (s === 'outlier') { worst = 'outlier'; break; }
+      if (s === 'warning') worst = 'warning';
+    }
+    var info = _ANOMALY_BADGE[worst] || _ANOMALY_BADGE['normal'];
+    badge.className = 'badge ' + info.cls;
+    badge.textContent = info.label;
+    badge.title = 'Latest anomaly state: ' + worst + ' (' + states.filter(function (s) { return s !== 'normal'; }).length + ' flagged points)';
+    badge.classList.remove('d-none');
+  }
+
+  function extractAnomalyStates(option) {
+    // For anomaly_overlay: the value series carries per-point itemStyle color info.
+    // Look for an anomaly_state list stored in option._anomalyStates (injected below).
+    return option._anomalyStates || null;
+  }
+
   /* ── Render existing charts ── */
   function renderChart(chartCfg) {
     var el = document.getElementById('chart-' + chartCfg.id);
@@ -235,11 +488,11 @@
     var ec = echarts.init(el, 'dark');
     ec.showLoading({ text: 'Loading…', color: '#0d6efd', textColor: '#adb5bd', maskColor: 'rgba(0,0,0,0.3)' });
 
-    // Use /api/dashboards/render to get full eCharts option with template
-    fetch(queryRenderUrl, {
+    // Use ChartSpec render endpoint as the single chart model.
+    fetch(specRenderUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: chartCfg.query, template_id: chartCfg.chart_type })
+      body: JSON.stringify({ spec: chartCfg.chart_spec })
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -249,23 +502,97 @@
           if (hintEl) { hintEl.textContent = ''; }
           return;
         }
-        ec.setOption(data.option);
+
+        var option = data.option;
+        if (data.query) {
+          chartCfg.query = data.query;
+        }
+
+        // Anomaly overlay: annotate per-point items with tooltip showing why-flagged detail
+        if ((chartCfg.chart_type === 'anomaly_overlay' || chartCfg.chart_type === 'derived_signal_overlay') && option && option.series) {
+          var valueSeries = null;
+          for (var si = 0; si < option.series.length; si++) {
+            if (option.series[si].name === 'Value') { valueSeries = option.series[si]; break; }
+          }
+          if (valueSeries && Array.isArray(valueSeries.data)) {
+            var anomalyStates = [];
+            valueSeries.data = valueSeries.data.map(function (pt) {
+              var dd = pt && pt.drilldown ? pt.drilldown : null;
+              var state = (chartCfg.chart_type === 'derived_signal_overlay'
+                ? ((dd && dd._effective_state) || (dd && dd._anomaly_state) || 'normal')
+                : ((dd && dd._anomaly_state) || 'normal'));
+              anomalyStates.push(state);
+              return pt;
+            });
+            // Store states for badge computation; also expose via tooltip
+            option._anomalyStates = anomalyStates;
+            option.tooltip = option.tooltip || {};
+            option.tooltip.formatter = function (params) {
+              var lines = [params[0] && params[0].axisValueLabel || ''];
+              params.forEach(function (p) {
+                var extra = '';
+                if (p.seriesName === 'Value' && p.data && p.data.drilldown) {
+                  var dd = p.data.drilldown;
+                  var st = (chartCfg.chart_type === 'derived_signal_overlay'
+                    ? (dd._effective_state || dd._anomaly_state || 'normal')
+                    : (dd._anomaly_state || 'normal'));
+                  var score = dd._anomaly_score != null ? dd._anomaly_score.toFixed(2) : '—';
+                  var stColor = _ANOMALY_STATE_COLOR[st] || '#adb5bd';
+                  extra = ' <span style="color:' + stColor + '">● ' + st + ' (z=' + score + ')</span>';
+                  if (chartCfg.chart_type === 'derived_signal_overlay') {
+                    var statState = dd._anomaly_state || 'normal';
+                    var ruleState = dd._rule_state || 'normal';
+                    var ruleName = dd._rule_name || '';
+                    var ruleReason = dd._rule_reason || '';
+                    extra += '<br/><span class="text-secondary">stat=' + statState + ', rule=' + ruleState + '</span>';
+                    if (ruleName) {
+                      extra += '<br/><span class="text-warning">' + ruleName + '</span>';
+                    }
+                    if (ruleReason) {
+                      extra += '<br/><span class="text-secondary">' + ruleReason + '</span>';
+                    }
+                  }
+                }
+                var pv = pointNumericValue(p);
+                lines.push('<b>' + p.seriesName + '</b>: ' + (pv != null ? pv : '—') + extra);
+              });
+              return lines.join('<br/>');
+            };
+            updateAnomalyBadge(chartCfg.id, anomalyStates);
+          }
+        }
+
+        ec.setOption(option);
 
         var template = templatesMap[chartCfg.chart_type];
-        var drilldown = template && template.drilldown;
+        var drilldown = template && template.drilldown ? template.drilldown : (option && option._customDrilldown ? option._customDrilldown : null);
         if (drilldown) {
-          var baseSourceUrl = buildDrilldownUrl(drilldown, ec);
+          var dd = Object.assign({}, drilldown);
+          dd.extra = Object.assign({}, dd.extra || {});
+          // Populate service/metric defaults so anomaly details can query the view directly.
+          var queryService = extractWhereLiteral(chartCfg.query, 'ServiceName');
+          var queryMetric = extractWhereLiteral(chartCfg.query, 'MetricName');
+          var querySource = extractWhereLiteral(chartCfg.query, 'SignalSource');
+          var querySignal = extractWhereLiteral(chartCfg.query, 'SignalName');
+          var queryAttrFp = extractWhereLiteral(chartCfg.query, 'AttrFingerprint');
+          if (queryService && !dd.extra.service) dd.extra.service = queryService;
+          if (queryMetric && !dd.extra.metric) dd.extra.metric = queryMetric;
+          if (querySource && !dd.extra.source) dd.extra.source = querySource;
+          if (querySignal && !dd.extra.signal) dd.extra.signal = querySignal;
+          if (queryAttrFp && !dd.extra.attr_fp) dd.extra.attr_fp = queryAttrFp;
+
+          var baseSourceUrl = buildDrilldownUrl(dd, ec);
           el.style.cursor = 'pointer';
           if (hintEl) {
-            hintEl.textContent = 'Click chart data to ' + (drilldown.label || 'open source data') + '.';
+            hintEl.textContent = 'Click chart data to ' + (dd.label || 'open source data') + '.';
           }
           if (sourceBtn && baseSourceUrl) {
             sourceBtn.href = baseSourceUrl;
             sourceBtn.classList.remove('d-none');
-            sourceBtn.title = drilldown.label || 'Open source data';
+            sourceBtn.title = dd.label || 'Open source data';
           }
           ec.on('click', function (params) {
-            var targetUrl = buildDrilldownUrl(drilldown, ec, params);
+            var targetUrl = buildDrilldownUrl(dd, ec, params);
             if (targetUrl && sourceBtn) {
               sourceBtn.href = targetUrl;
               sourceBtn.classList.remove('d-none');
@@ -295,39 +622,653 @@
 
   CHART_DATA.forEach(renderChart);
 
+  /* ── Auto-refresh interval ── */
+  var _refreshTimer = null;
+  var _countdownTimer = null;
+  var _countdownRemaining = 0;
+  var refreshIntervalSelect = document.getElementById('refreshIntervalSelect');
+  var refreshCountdown = document.getElementById('refreshCountdown');
+
+  function refreshAllCharts() {
+    CHART_DATA.forEach(function (cfg) {
+      var el = document.getElementById('chart-' + cfg.id);
+      if (el) {
+        var existing = echarts.getInstanceByDom(el);
+        if (existing) existing.dispose();
+      }
+    });
+    CHART_DATA.forEach(renderChart);
+  }
+
+  function _tickCountdown() {
+    _countdownRemaining -= 1;
+    if (_countdownRemaining <= 0) {
+      _countdownRemaining = parseInt(refreshIntervalSelect.value, 10);
+    }
+    if (refreshCountdown) {
+      var s = _countdownRemaining;
+      refreshCountdown.textContent = s >= 60 ? Math.ceil(s / 60) + 'm' : s + 's';
+    }
+  }
+
+  function applyRefreshInterval() {
+    if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+    if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
+    var sec = parseInt(refreshIntervalSelect.value, 10);
+    if (refreshCountdown) {
+      if (sec > 0) {
+        _countdownRemaining = sec;
+        refreshCountdown.textContent = sec >= 60 ? Math.ceil(sec / 60) + 'm' : sec + 's';
+        refreshCountdown.style.display = '';
+      } else {
+        refreshCountdown.style.display = 'none';
+        refreshCountdown.textContent = '';
+      }
+    }
+    if (sec > 0) {
+      _countdownTimer = setInterval(_tickCountdown, 1000);
+      _refreshTimer = setInterval(function () {
+        _countdownRemaining = sec;
+        if (refreshCountdown) refreshCountdown.textContent = sec >= 60 ? Math.ceil(sec / 60) + 'm' : sec + 's';
+        refreshAllCharts();
+      }, sec * 1000);
+    }
+  }
+
+  if (refreshIntervalSelect) {
+    var _storageKey = 'sobs_dash_refresh_{{ dashboard.id }}';
+    refreshIntervalSelect.addEventListener('change', function () {
+      localStorage.setItem(_storageKey, refreshIntervalSelect.value);
+      applyRefreshInterval();
+    });
+    var _savedInterval = localStorage.getItem(_storageKey);
+    if (_savedInterval && _savedInterval !== '0') {
+      refreshIntervalSelect.value = _savedInterval;
+      applyRefreshInterval();
+    }
+  }
+
   /* ── Template selector: update description ── */
   var templateSelect = document.getElementById('templateSelect');
   var templateDesc = document.getElementById('templateDesc');
   var columnHint = document.getElementById('columnHint');
-  var templateExampleSql = document.getElementById('templateExampleSql');
-  var useExampleBtn = document.getElementById('useExampleBtn');
+  var addChartModal = document.getElementById('addChartModal');
+  var addChartForm = document.getElementById('chartEditorForm');
+  var chartEditorModalTitle = document.getElementById('chartEditorModalTitle');
+  var chartEditorSubmitBtn = document.getElementById('chartEditorSubmitBtn');
+  var chartTitleInput = document.getElementById('chartTitleInput');
+  var defaultChartFormAction = addChartForm ? addChartForm.getAttribute('action') : '';
   var queryInput = document.getElementById('queryInput');
+  var chartSpecJson = document.getElementById('chartSpecJson');
+  var sqlModeSelect = document.getElementById('sqlModeSelect');
+  var sourceViewInput = document.getElementById('sourceViewInput');
+  var builderFieldsWrap = document.getElementById('builderFieldsWrap');
+  var rawSqlModeHint = document.getElementById('rawSqlModeHint');
+  var serviceInput = document.getElementById('serviceInput');
+  var serviceOptionsList = document.getElementById('serviceOptionsList');
+  var signalSourceInput = document.getElementById('signalSourceInput');
+  var signalNameInput = document.getElementById('signalNameInput');
+  var signalOptionsList = document.getElementById('signalOptionsList');
+  var metricNameInput = document.getElementById('metricNameInput');
+  var metricOptionsList = document.getElementById('metricOptionsList');
+  var attrFpInput = document.getElementById('attrFpInput');
+  var windowHoursInput = document.getElementById('windowHoursInput');
+  var limitInput = document.getElementById('limitInput');
+  var compileSpecBtn = document.getElementById('compileSpecBtn');
+  var dryRunSpecBtn = document.getElementById('dryRunSpecBtn');
+  var compiledSql = document.getElementById('compiledSql');
+  var specValidationMsg = document.getElementById('specValidationMsg');
+  var dryRunMeta = document.getElementById('dryRunMeta');
+  var dryRunTableWrap = document.getElementById('dryRunTableWrap');
+  var dryRunTable = document.getElementById('dryRunTable');
+  var roleMapEditorWrap = document.getElementById('roleMapEditorWrap');
+  var roleMapEditor = document.getElementById('roleMapEditor');
+  var roleMapHelp = document.getElementById('roleMapHelp');
+  var customEchartsFields = document.getElementById('customEchartsFields');
+  var customMappingJsonInput = document.getElementById('customMappingJsonInput');
+  var customOptionJsonInput = document.getElementById('customOptionJsonInput');
+  var customDrilldownPresetBtn = document.getElementById('customDrilldownPresetBtn');
+  var standardVisualControls = document.getElementById('standardVisualControls');
+  var derivedSignalBuilderFields = document.getElementById('derivedSignalBuilderFields');
+  var metricBuilderFields = document.getElementById('metricBuilderFields');
+  var legendShowInput = document.getElementById('legendShowInput');
+  var smoothLineInput = document.getElementById('smoothLineInput');
+  var zoomInsideInput = document.getElementById('zoomInsideInput');
+  var zoomSliderInput = document.getElementById('zoomSliderInput');
+  var zoomStartInput = document.getElementById('zoomStartInput');
+  var zoomEndInput = document.getElementById('zoomEndInput');
+  var valueColorInput = document.getElementById('valueColorInput');
+  var lastDryRunColumns = [];
+  var lastDryRunColumnTypes = [];
+  var roleMapState = {};
+  var suppressRoleMapReset = false;
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function readRoleMapInputs() {
+    var next = {};
+    if (!roleMapEditor) return next;
+    var selects = roleMapEditor.querySelectorAll('select[data-role]');
+    selects.forEach(function (sel) {
+      var role = sel.getAttribute('data-role') || '';
+      var mapped = sel.value || '';
+      if (role && mapped) next[role] = mapped;
+    });
+    roleMapState = next;
+    return next;
+  }
+
+  function pickDefaultRoleColumn(role, roleIndex, columns) {
+    if (roleMapState && roleMapState[role]) {
+      return roleMapState[role];
+    }
+    if (!columns || !columns.length) {
+      return '';
+    }
+    for (var i = 0; i < columns.length; i++) {
+      if (String(columns[i]).toLowerCase() === String(role).toLowerCase()) {
+        return columns[i];
+      }
+    }
+    if (typeof roleIndex === 'number' && roleIndex >= 0 && roleIndex < columns.length) {
+      return columns[roleIndex];
+    }
+    return '';
+  }
+
+  function renderRoleMapEditor(columns, columnTypes) {
+    if (!roleMapEditorWrap || !roleMapEditor) return;
+    var t = templatesMap[templateSelect && templateSelect.value ? templateSelect.value : ''];
+    if (t && t.id === 'custom_echarts') {
+      roleMapEditorWrap.style.display = 'none';
+      roleMapEditor.innerHTML = '';
+      if (roleMapHelp) roleMapHelp.textContent = '';
+      return;
+    }
+    var roleDefs = t && t.column_roles ? t.column_roles : null;
+    var colList = Array.isArray(columns) ? columns : [];
+    var typeList = Array.isArray(columnTypes) ? columnTypes : [];
+
+    if (!roleDefs || !Object.keys(roleDefs).length || !colList.length) {
+      roleMapEditorWrap.style.display = 'none';
+      roleMapEditor.innerHTML = '';
+      if (roleMapHelp) roleMapHelp.textContent = '';
+      return;
+    }
+
+    var html = '';
+    Object.keys(roleDefs).forEach(function (role) {
+      var expectedIdx = Number(roleDefs[role]);
+      var selected = pickDefaultRoleColumn(role, expectedIdx, colList);
+      var optionsHtml = '<option value="">(unmapped)</option>' + colList.map(function (colName, idx) {
+        var selectedAttr = selected === colName ? ' selected' : '';
+        var typeLabel = typeList[idx] ? ' [' + String(typeList[idx]) + ']' : '';
+        return '<option value="' + escapeHtml(colName) + '"' + selectedAttr + '>' + escapeHtml(colName + typeLabel) + '</option>';
+      }).join('');
+      html += '<div class="row g-2 align-items-center">'
+        + '<div class="col-4 small text-secondary">' + escapeHtml(role) + '</div>'
+        + '<div class="col-8"><select class="form-select form-select-sm" data-role="' + escapeHtml(role) + '">' + optionsHtml + '</select></div>'
+        + '</div>';
+    });
+    roleMapEditor.innerHTML = html;
+    roleMapEditorWrap.style.display = '';
+    if (roleMapHelp) roleMapHelp.textContent = 'Map each template role to a query column before save.';
+    roleMapEditor.querySelectorAll('select[data-role]').forEach(function (sel) {
+      sel.addEventListener('change', function () {
+        readRoleMapInputs();
+      });
+    });
+    readRoleMapInputs();
+  }
+
+  function setSpecMessage(text, isError) {
+    if (!specValidationMsg) return;
+    specValidationMsg.textContent = text || '';
+    specValidationMsg.className = isError ? 'small text-danger' : 'small text-secondary';
+  }
+
+  function scrollModalSectionIntoView(el) {
+    if (!el) return;
+    var modalBody = el.closest('.modal-body');
+    if (!modalBody) return;
+    var bodyRect = modalBody.getBoundingClientRect();
+    var targetRect = el.getBoundingClientRect();
+    var currentTop = modalBody.scrollTop;
+    var pad = 12;
+
+    if (targetRect.top < bodyRect.top) {
+      modalBody.scrollTo({ top: Math.max(0, currentTop + (targetRect.top - bodyRect.top) - pad), behavior: 'smooth' });
+      return;
+    }
+
+    if (targetRect.bottom > bodyRect.bottom) {
+      modalBody.scrollTo({ top: currentTop + (targetRect.bottom - bodyRect.bottom) + pad, behavior: 'smooth' });
+    }
+  }
+
+  function insertCustomDrilldownPreset() {
+    if (!customMappingJsonInput) return;
+    var current = customMappingJsonInput.value ? customMappingJsonInput.value.trim() : '';
+    var mapping = {};
+    if (current) {
+      try {
+        var parsed = JSON.parse(current);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          mapping = parsed;
+        }
+      } catch (err) {
+        setSpecMessage('Fix Custom Mapping JSON before inserting preset.', true);
+        return;
+      }
+    }
+
+    if (!mapping._drilldown || typeof mapping._drilldown !== 'object') {
+      mapping._drilldown = {
+        target: 'traces',
+        label: 'Open source traces',
+        extra: {
+          service: '{{service}}',
+          from_ts: '{{ts}}'
+        }
+      };
+    }
+
+    customMappingJsonInput.value = JSON.stringify(mapping, null, 2);
+    setSpecMessage('Inserted _drilldown preset into Custom Mapping JSON.', false);
+  }
+
+  function setDatalistOptions(listEl, values) {
+    if (!listEl) return;
+    var vals = Array.isArray(values) ? values : [];
+    listEl.innerHTML = vals.map(function (v) {
+      return '<option value="' + escapeHtml(String(v)) + '"></option>';
+    }).join('');
+  }
+
+  function refreshDistinctBuilderOptions() {
+    if (!sourceViewInput) return Promise.resolve();
+    var params = new URLSearchParams({ source_view: sourceViewInput.value || 'v_derived_signals_anomaly' });
+    if (signalSourceInput && signalSourceInput.value) {
+      params.set('signal_source', signalSourceInput.value);
+    }
+    return fetch(specOptionsUrl + '?' + params.toString())
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+      .then(function (res) {
+        if (!res.ok) return;
+        setDatalistOptions(serviceOptionsList, res.body.services || []);
+        setDatalistOptions(signalOptionsList, res.body.signals || []);
+        setDatalistOptions(metricOptionsList, res.body.metrics || []);
+      })
+      .catch(function () {
+        // Ignore autocomplete failures; free text remains available.
+      });
+  }
+
+  function resetEditorForm(mode) {
+    if (chartEditorModalTitle) chartEditorModalTitle.textContent = mode === 'clone' ? 'Clone Chart' : (mode === 'edit' ? 'Edit Chart' : 'Add Chart');
+    if (chartEditorSubmitBtn) chartEditorSubmitBtn.textContent = mode === 'clone' ? 'Clone Chart' : (mode === 'edit' ? 'Save Changes' : 'Add Chart');
+    if (addChartForm && defaultChartFormAction) addChartForm.setAttribute('action', defaultChartFormAction);
+    if (chartTitleInput) chartTitleInput.value = '';
+    if (templateSelect) templateSelect.value = 'time_series_percentiles';
+    if (sqlModeSelect) sqlModeSelect.value = 'builder';
+    if (sourceViewInput) sourceViewInput.value = 'v_derived_signals_anomaly';
+    if (serviceInput) serviceInput.value = '';
+    if (signalSourceInput) signalSourceInput.value = 'traces';
+    if (signalNameInput) signalNameInput.value = 'trace_volume';
+    if (metricNameInput) metricNameInput.value = '';
+    if (attrFpInput) attrFpInput.value = '';
+    if (windowHoursInput) windowHoursInput.value = '6';
+    if (limitInput) limitInput.value = '1000';
+    if (queryInput) queryInput.value = '';
+    if (legendShowInput) legendShowInput.checked = true;
+    if (smoothLineInput) smoothLineInput.checked = true;
+    if (zoomInsideInput) zoomInsideInput.checked = true;
+    if (zoomSliderInput) zoomSliderInput.checked = false;
+    if (zoomStartInput) zoomStartInput.value = '0';
+    if (zoomEndInput) zoomEndInput.value = '100';
+    if (valueColorInput) valueColorInput.value = '';
+    if (customMappingJsonInput) customMappingJsonInput.value = '{"points":{"from":"rows"}}';
+    if (customOptionJsonInput) {
+      customOptionJsonInput.value = JSON.stringify({
+        tooltip: { trigger: 'axis' },
+        xAxis: { type: 'time' },
+        yAxis: { type: 'value' },
+        series: [{ name: 'Value', type: 'line', data: '\\u007B\\u007Bpoints\\u007D\\u007D', showSymbol: false, smooth: true }]
+      }, null, 2);
+    }
+    roleMapState = {};
+    if (chartSpecJson) chartSpecJson.value = '';
+    if (compiledSql) compiledSql.textContent = '';
+    if (dryRunMeta) dryRunMeta.textContent = '';
+    renderDryRunTable([], [], []);
+    setSpecMessage('', false);
+    suppressRoleMapReset = true;
+    updateTemplateInfo();
+    suppressRoleMapReset = false;
+    refreshBuilderVisibility();
+    refreshDistinctBuilderOptions();
+  }
+
+  function applySpecToEditor(title, spec, formAction, mode) {
+    var nextSpec = spec || {};
+    var sql = nextSpec.sql || {};
+    var data = nextSpec.data || {};
+    var visual = nextSpec.visual || {};
+
+    if (addChartForm && formAction) {
+      addChartForm.setAttribute('action', formAction);
+    }
+    if (chartEditorModalTitle) chartEditorModalTitle.textContent = mode === 'clone' ? 'Clone Chart' : 'Edit Chart';
+    if (chartEditorSubmitBtn) chartEditorSubmitBtn.textContent = mode === 'clone' ? 'Clone Chart' : 'Save Changes';
+    if (chartTitleInput) chartTitleInput.value = title || '';
+    if (templateSelect && nextSpec.template_id) templateSelect.value = nextSpec.template_id;
+    if (sqlModeSelect && sql.mode) sqlModeSelect.value = String(sql.mode);
+    if (queryInput) queryInput.value = sql.override_sql ? String(sql.override_sql) : '';
+    if (sourceViewInput && data.source_view) sourceViewInput.value = String(data.source_view);
+    if (serviceInput) serviceInput.value = data.service ? String(data.service) : '';
+    if (signalSourceInput) signalSourceInput.value = data.signal_source ? String(data.signal_source) : 'traces';
+    if (signalNameInput) signalNameInput.value = data.signal_name ? String(data.signal_name) : '';
+    if (metricNameInput) metricNameInput.value = data.metric_name ? String(data.metric_name) : '';
+    if (attrFpInput) attrFpInput.value = data.attr_fp ? String(data.attr_fp) : '';
+    if (windowHoursInput) windowHoursInput.value = data.window_hours != null ? String(data.window_hours) : '6';
+    if (limitInput) limitInput.value = data.limit != null ? String(data.limit) : '1000';
+
+    if (legendShowInput) legendShowInput.checked = visual.legend_show !== false;
+    if (smoothLineInput) smoothLineInput.checked = visual.smooth_line !== false;
+    if (zoomInsideInput) zoomInsideInput.checked = visual.zoom_inside !== false;
+    if (zoomSliderInput) zoomSliderInput.checked = visual.zoom_slider === true;
+    if (zoomStartInput) zoomStartInput.value = visual.zoom_start_pct != null ? String(visual.zoom_start_pct) : '0';
+    if (zoomEndInput) zoomEndInput.value = visual.zoom_end_pct != null ? String(visual.zoom_end_pct) : '100';
+    if (valueColorInput) valueColorInput.value = visual.value_color ? String(visual.value_color) : '';
+    if (customMappingJsonInput) {
+      customMappingJsonInput.value = visual.custom_mapping_json
+        ? String(visual.custom_mapping_json)
+        : '{"points":{"from":"rows"}}';
+    }
+    if (customOptionJsonInput) {
+      customOptionJsonInput.value = visual.custom_option_json
+        ? String(visual.custom_option_json)
+        : '';
+    }
+    roleMapState = (visual.role_map && typeof visual.role_map === 'object') ? visual.role_map : {};
+
+    if (chartSpecJson) chartSpecJson.value = JSON.stringify(nextSpec);
+    if (compiledSql) compiledSql.textContent = '';
+    if (dryRunMeta) dryRunMeta.textContent = '';
+    renderDryRunTable([], [], []);
+    setSpecMessage('', false);
+    suppressRoleMapReset = true;
+    updateTemplateInfo();
+    suppressRoleMapReset = false;
+    refreshBuilderVisibility();
+    refreshDistinctBuilderOptions();
+  }
+
+  function currentChartSpec() {
+    return {
+      template_id: templateSelect && templateSelect.value ? templateSelect.value : 'time_series_percentiles',
+      sql: {
+        mode: sqlModeSelect && sqlModeSelect.value ? sqlModeSelect.value : 'builder',
+        override_sql: queryInput && queryInput.value ? queryInput.value : ''
+      },
+      data: {
+        source_view: sourceViewInput && sourceViewInput.value ? sourceViewInput.value : 'v_derived_signals_anomaly',
+        service: serviceInput && serviceInput.value ? serviceInput.value.trim() : '',
+        signal_source: signalSourceInput && signalSourceInput.value ? signalSourceInput.value.trim() : '',
+        signal_name: signalNameInput && signalNameInput.value ? signalNameInput.value.trim() : '',
+        metric_name: metricNameInput && metricNameInput.value ? metricNameInput.value.trim() : '',
+        attr_fp: attrFpInput && attrFpInput.value ? attrFpInput.value.trim() : '',
+        window_hours: windowHoursInput && windowHoursInput.value ? Number(windowHoursInput.value) : 6,
+        limit: limitInput && limitInput.value ? Number(limitInput.value) : 1000
+      },
+      visual: {
+        zoom_inside: true,
+        zoom_slider: false,
+        custom_mapping_json: customMappingJsonInput && customMappingJsonInput.value ? customMappingJsonInput.value : '',
+        custom_option_json: customOptionJsonInput && customOptionJsonInput.value ? customOptionJsonInput.value : ''
+      }
+    };
+  }
+
+  function applyVisualSettings(spec) {
+    if (!spec.visual) spec.visual = {};
+    spec.visual.legend_show = !!(legendShowInput && legendShowInput.checked);
+    spec.visual.smooth_line = !!(smoothLineInput && smoothLineInput.checked);
+    spec.visual.zoom_inside = !!(zoomInsideInput && zoomInsideInput.checked);
+    spec.visual.zoom_slider = !!(zoomSliderInput && zoomSliderInput.checked);
+    spec.visual.zoom_start_pct = zoomStartInput && zoomStartInput.value ? Number(zoomStartInput.value) : 0;
+    spec.visual.zoom_end_pct = zoomEndInput && zoomEndInput.value ? Number(zoomEndInput.value) : 100;
+    spec.visual.value_color = valueColorInput && valueColorInput.value ? valueColorInput.value.trim() : '';
+    spec.visual.role_map = readRoleMapInputs();
+    spec.visual.custom_mapping_json = customMappingJsonInput && customMappingJsonInput.value
+      ? customMappingJsonInput.value
+      : '';
+    spec.visual.custom_option_json = customOptionJsonInput && customOptionJsonInput.value
+      ? customOptionJsonInput.value
+      : '';
+    return spec;
+  }
+
+  function renderDryRunTable(columns, columnTypes, rows) {
+    if (!dryRunTable || !dryRunTableWrap) return;
+    if (!columns || !columns.length) {
+      dryRunTableWrap.style.display = 'none';
+      dryRunTable.innerHTML = '';
+      return;
+    }
+    var head = '<thead><tr>' + columns.map(function (c, idx) {
+      var t = columnTypes && columnTypes[idx] ? String(columnTypes[idx]) : 'unknown';
+      return '<th>' + c + '<div class="small text-secondary">' + t + '</div></th>';
+    }).join('') + '</tr></thead>';
+    var sampleRows = (rows || []).slice(0, 8);
+    var body = '<tbody>' + sampleRows.map(function (r) {
+      return '<tr>' + columns.map(function (_c, idx) {
+        var v = r && r[idx] !== undefined && r[idx] !== null ? String(r[idx]) : '—';
+        return '<td class="small font-monospace">' + v + '</td>';
+      }).join('') + '</tr>';
+    }).join('') + '</tbody>';
+    dryRunTable.innerHTML = head + body;
+    dryRunTableWrap.style.display = '';
+  }
+
+  function runDryRun() {
+    var spec = applyVisualSettings(currentChartSpec());
+    if (dryRunMeta) dryRunMeta.textContent = 'Running dry-run…';
+    return fetch(specDryRunUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spec: spec })
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          throw new Error(res.body && res.body.error ? res.body.error : 'Dry-run failed');
+        }
+        if (queryInput && res.body.query) queryInput.value = res.body.query;
+        if (chartSpecJson) chartSpecJson.value = JSON.stringify(res.body.spec || spec);
+        lastDryRunColumns = Array.isArray(res.body.columns) ? res.body.columns : [];
+        lastDryRunColumnTypes = Array.isArray(res.body.column_types) ? res.body.column_types : [];
+        if (res.body.spec && res.body.spec.visual && res.body.spec.visual.role_map) {
+          roleMapState = res.body.spec.visual.role_map;
+        }
+        renderRoleMapEditor(lastDryRunColumns, lastDryRunColumnTypes);
+        if (dryRunMeta) {
+          dryRunMeta.textContent = 'Columns: ' + (res.body.columns || []).length + ' · Rows: ' + (res.body.rows || []).length;
+        }
+        renderDryRunTable(res.body.columns || [], res.body.column_types || [], res.body.rows || []);
+        if (dryRunTableWrap && dryRunTableWrap.style.display !== 'none') {
+          scrollModalSectionIntoView(dryRunTableWrap);
+        }
+        return res.body;
+      })
+      .catch(function (err) {
+        if (dryRunMeta) dryRunMeta.textContent = String(err.message || err);
+        renderDryRunTable([], [], []);
+        throw err;
+      });
+  }
+
+  function refreshBuilderVisibility() {
+    var selectedTemplate = templateSelect && templateSelect.value ? templateSelect.value : '';
+    var isCustomEcharts = selectedTemplate === 'custom_echarts';
+    if (selectedTemplate === 'custom_echarts' && sqlModeSelect) {
+      sqlModeSelect.value = 'raw';
+    }
+
+    var useBuilder = !sqlModeSelect || sqlModeSelect.value !== 'raw';
+    if (builderFieldsWrap) builderFieldsWrap.classList.toggle('d-none', !useBuilder);
+    if (rawSqlModeHint) rawSqlModeHint.classList.toggle('d-none', useBuilder);
+    if (sourceViewInput) sourceViewInput.disabled = !useBuilder;
+    if (serviceInput) serviceInput.disabled = !useBuilder;
+    if (attrFpInput) attrFpInput.disabled = !useBuilder;
+    if (windowHoursInput) windowHoursInput.disabled = !useBuilder;
+    if (limitInput) limitInput.disabled = !useBuilder;
+
+    var source = sourceViewInput ? sourceViewInput.value : 'v_derived_signals_anomaly';
+    var isMetricSource = source === 'v_otel_metrics_anomaly'
+      || source === 'otel_metrics_gauge'
+      || source === 'otel_metrics_sum'
+      || source === 'otel_metrics_histogram';
+    var showDerivedFields = useBuilder && !isMetricSource;
+    if (derivedSignalBuilderFields) derivedSignalBuilderFields.classList.toggle('d-none', !showDerivedFields);
+    if (metricBuilderFields) metricBuilderFields.classList.toggle('d-none', !useBuilder || !isMetricSource);
+    if (customEchartsFields) customEchartsFields.classList.toggle('d-none', !isCustomEcharts);
+    if (standardVisualControls) standardVisualControls.classList.toggle('d-none', isCustomEcharts);
+    if (roleMapEditorWrap) roleMapEditorWrap.style.display = isCustomEcharts ? 'none' : roleMapEditorWrap.style.display;
+    if (queryInput) queryInput.rows = useBuilder ? 5 : 11;
+  }
+
+  function compileSpec() {
+    var spec = applyVisualSettings(currentChartSpec());
+    if (compiledSql) compiledSql.textContent = 'Compiling…';
+    setSpecMessage('Compiling chart spec…', false);
+    return fetch(specCompileUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spec: spec })
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          throw new Error(res.body && res.body.error ? res.body.error : 'Compile failed');
+        }
+        var returnedSpec = res.body.spec || spec;
+        returnedSpec = applyVisualSettings(returnedSpec);
+        if (returnedSpec.visual && returnedSpec.visual.role_map) {
+          roleMapState = returnedSpec.visual.role_map;
+        }
+        renderRoleMapEditor(lastDryRunColumns, lastDryRunColumnTypes);
+        if (queryInput) queryInput.value = res.body.query || '';
+        if (compiledSql) compiledSql.textContent = res.body.query || '';
+        if (chartSpecJson) chartSpecJson.value = JSON.stringify(returnedSpec);
+        setSpecMessage('Compiled successfully.', false);
+        return Object.assign({}, res.body, { spec: returnedSpec });
+      })
+      .catch(function (err) {
+        if (compiledSql) compiledSql.textContent = '';
+        setSpecMessage(err.message || String(err), true);
+        throw err;
+      });
+  }
+
+  function validateSpec() {
+    var spec = applyVisualSettings(currentChartSpec());
+    return fetch(specValidateUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spec: spec })
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.body.valid) {
+          throw new Error((res.body && res.body.error) || 'Spec validation failed');
+        }
+        setSpecMessage('Valid mapping: ' + res.body.columns.length + ' columns, ' + res.body.row_count + ' rows.', false);
+        return res.body;
+      });
+  }
 
   function updateTemplateInfo() {
     var t = templatesMap[templateSelect.value];
     if (!t) {
       templateDesc.textContent = '';
       columnHint.textContent = '';
-      templateExampleSql.textContent = '';
       return;
     }
 
     templateDesc.textContent = t.description || '';
     columnHint.textContent = buildTemplateExample(t);
-    templateExampleSql.textContent = t.sample_sql || '';
-    useExampleBtn.disabled = !t.sample_sql;
+    if (customEchartsFields) {
+      customEchartsFields.classList.toggle('d-none', t.id !== 'custom_echarts');
+    }
+    if (!suppressRoleMapReset) roleMapState = {};
+    renderRoleMapEditor(lastDryRunColumns, lastDryRunColumnTypes);
+    if (t.id === 'custom_echarts' && sqlModeSelect) {
+      sqlModeSelect.value = 'raw';
+    }
+    if (sqlModeSelect && sqlModeSelect.value === 'raw' && queryInput && !queryInput.value.trim()) {
+      queryInput.value = t.sample_sql || '';
+    }
+    refreshBuilderVisibility();
   }
   updateTemplateInfo();
   templateSelect.addEventListener('change', updateTemplateInfo);
-  if (useExampleBtn) {
-    useExampleBtn.addEventListener('click', function () {
-      var t = templatesMap[templateSelect.value];
-      if (t && t.sample_sql && queryInput) {
-        queryInput.value = t.sample_sql;
-        queryInput.focus();
-      }
+  if (sqlModeSelect) sqlModeSelect.addEventListener('change', refreshBuilderVisibility);
+  if (sourceViewInput) {
+    sourceViewInput.addEventListener('change', function () {
+      refreshBuilderVisibility();
+      refreshDistinctBuilderOptions();
     });
   }
+  if (signalSourceInput) {
+    signalSourceInput.addEventListener('change', function () {
+      refreshDistinctBuilderOptions();
+    });
+  }
+  if (compileSpecBtn) compileSpecBtn.addEventListener('click', function () { compileSpec(); });
+  if (dryRunSpecBtn) dryRunSpecBtn.addEventListener('click', function () { runDryRun(); });
+  if (customDrilldownPresetBtn) {
+    customDrilldownPresetBtn.addEventListener('click', function () {
+      insertCustomDrilldownPreset();
+    });
+  }
+  refreshBuilderVisibility();
+  refreshDistinctBuilderOptions();
+
+  document.querySelectorAll('.js-add-chart-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      resetEditorForm('add');
+    });
+  });
+
+  document.querySelectorAll('.js-edit-chart').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var chartId = btn.getAttribute('data-chart-id');
+      var formAction = btn.getAttribute('data-edit-url') || '';
+      var chartCfg = CHART_DATA.find(function (c) { return c.id === chartId; });
+      if (!chartCfg) return;
+      applySpecToEditor(chartCfg.title || '', chartCfg.chart_spec || {}, formAction, 'edit');
+      bootstrap.Modal.getOrCreateInstance(addChartModal).show();
+    });
+  });
+
+  document.querySelectorAll('.js-clone-chart').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var chartId = btn.getAttribute('data-chart-id');
+      var formAction = btn.getAttribute('data-clone-url') || '';
+      var chartCfg = CHART_DATA.find(function (c) { return c.id === chartId; });
+      if (!chartCfg) return;
+      applySpecToEditor((chartCfg.title || 'Chart') + ' (copy)', chartCfg.chart_spec || {}, formAction, 'clone');
+      bootstrap.Modal.getOrCreateInstance(addChartModal).show();
+    });
+  });
 
   /* ── Preview in modal ── */
   var previewBtn = document.getElementById('previewBtn');
@@ -335,25 +1276,18 @@
   if (previewBtn) {
     previewBtn.addEventListener('click', function () {
       var modal = document.getElementById('addChartModal');
-      var query = modal.querySelector('[name="query"]').value.trim();
-      var templateId = modal.querySelector('[name="template_id"]').value;
       var area = document.getElementById('queryPreviewArea');
       var msg = document.getElementById('queryPreviewMsg');
 
-      if (!query) {
-        msg.textContent = 'Please enter a query';
-        area.style.display = 'block';
-        return;
-      }
-
       area.style.display = 'block';
       msg.textContent = 'Rendering…';
+      scrollModalSectionIntoView(area);
       if (previewChartInst) { previewChartInst.dispose(); previewChartInst = null; }
 
-      fetch(queryRenderUrl, {
+      fetch(specRenderUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: query, template_id: templateId })
+        body: JSON.stringify({ spec: applyVisualSettings(currentChartSpec()) })
       })
         .then(function (r) { return r.json(); })
         .then(function (data) {
@@ -365,9 +1299,27 @@
           var el = document.getElementById('queryPreviewChart');
           previewChartInst = echarts.init(el, 'dark');
           previewChartInst.setOption(data.option);
+          scrollModalSectionIntoView(area);
+          if (queryInput && data.query) queryInput.value = data.query;
+          var previewSpec = applyVisualSettings(data.spec || currentChartSpec());
+          if (chartSpecJson) chartSpecJson.value = JSON.stringify(previewSpec);
+          validateSpec();
+          runDryRun();
         })
         .catch(function (err) {
           msg.textContent = 'Network error: ' + err;
+        });
+    });
+  }
+
+  if (addChartForm) {
+    addChartForm.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      compileSpec()
+        .then(function () { return validateSpec(); })
+        .then(function () { addChartForm.submit(); })
+        .catch(function () {
+          // Validation message already set by helpers.
         });
     });
   }

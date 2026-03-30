@@ -1,0 +1,546 @@
+{% extends "base.html" %}
+{% block title %}Metrics Rules{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-sliders me-2 text-info"></i>Metrics Rules</h4>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Metrics
+  </a>
+</div>
+
+<div class="accordion mb-3" id="metricsRulesAutoAccordion">
+  <div class="accordion-item bg-dark border border-secondary">
+    <h2 class="accordion-header" id="autoRulesHeading">
+      <button class="accordion-button collapsed bg-dark text-light" type="button" data-bs-toggle="collapse" data-bs-target="#autoRulesCollapse" aria-expanded="false" aria-controls="autoRulesCollapse">
+        Auto Make Metric Rules
+      </button>
+    </h2>
+    <div id="autoRulesCollapse" class="accordion-collapse collapse" aria-labelledby="autoRulesHeading" data-bs-parent="#metricsRulesAutoAccordion">
+      <div class="accordion-body">
+        <div class="d-flex justify-content-end mb-2">
+          <a href="{{ url_for('auto_metrics_rules_help') }}" target="_blank" class="link-secondary text-decoration-none" title="Auto Rules Help" aria-label="Auto Rules Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
+        </div>
+        <p class="small text-secondary mb-3">Generate baseline threshold rules from recent derived-signal history. Existing rules are skipped automatically. Create is capped at 200 rules per run.</p>
+        <form method="post" action="{{ url_for('auto_metrics_rules') }}" class="row g-2 align-items-end">
+          <div class="col-md-2">
+            <label class="form-label small text-secondary">Window (hours)</label>
+            <input type="number" min="1" max="168" name="hours" class="form-control form-control-sm" value="{{ auto_summary.hours if auto_summary else 24 }}">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-secondary">Min points</label>
+            <input type="number" min="1" max="5000" name="min_points" class="form-control form-control-sm" value="{{ auto_summary.min_points if auto_summary else 30 }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small text-secondary">Service scope</label>
+            <select name="service_filter" class="form-select form-select-sm">
+              <option value="">All services</option>
+              {% for s in services %}
+              <option value="{{ s }}" {% if auto_summary and auto_summary.service_filter == s %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <div class="form-check mt-4">
+              <input class="form-check-input" type="checkbox" value="1" id="includeAttrFp" name="include_attr_fp" {% if auto_summary and auto_summary.include_attr_fp %}checked{% endif %}>
+              <label class="form-check-label small text-secondary" for="includeAttrFp">
+                Include Attr FP scoped rules
+              </label>
+            </div>
+          </div>
+          <div class="col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-outline-info btn-sm flex-grow-1" name="action" value="preview">
+              <i class="bi bi-eye me-1"></i>Preview
+            </button>
+            <button type="submit" class="btn btn-info btn-sm flex-grow-1" name="action" value="create">
+              <i class="bi bi-magic me-1"></i>Create
+            </button>
+          </div>
+        </form>
+        {% if auto_summary %}
+        <div class="small text-secondary mt-3">
+          Examined: {{ auto_summary.examined }} · Candidates: {{ auto_summary.candidates }} · Existing skipped: {{ auto_summary.existing }} · Invalid skipped: {{ auto_summary.invalid }}
+          {% if auto_summary.capped %} · Create cap: first {{ auto_summary.create_cap }} only{% endif %}
+        </div>
+        {% endif %}
+
+        {% if auto_preview %}
+        <div class="card border-secondary mt-3 mb-0">
+          <div class="card-header">Preview Candidates ({{ auto_preview|length }})</div>
+          <div class="table-responsive">
+            <table class="table table-dark table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Source</th>
+                  <th>Signal</th>
+                  <th>Service</th>
+                  <th>Attr FP</th>
+                  <th>Comparator</th>
+                  <th>Warning</th>
+                  <th>Critical</th>
+                  <th>Min Sample</th>
+                  <th>Points</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for c in auto_preview %}
+                <tr>
+                  <td>{{ c.name }}</td>
+                  <td>{{ c.source }}</td>
+                  <td class="font-monospace small">{{ c.signal }}</td>
+                  <td>{{ c.service or 'any' }}</td>
+                  <td class="font-monospace small">{{ c.attr_fp or '—' }}</td>
+                  <td>{{ c.comparator }}</td>
+                  <td>{{ c.warning_threshold }}</td>
+                  <td>{{ c.critical_threshold }}</td>
+                  <td>{{ c.min_sample_count }}</td>
+                  <td>{{ c.point_count }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="accordion-item bg-dark border border-secondary border-top-0">
+    <h2 class="accordion-header" id="autoDashboardHeading">
+      <button class="accordion-button collapsed bg-dark text-light" type="button" data-bs-toggle="collapse" data-bs-target="#autoDashboardCollapse" aria-expanded="false" aria-controls="autoDashboardCollapse">
+        Auto Generate Dashboard from Active Rules
+      </button>
+    </h2>
+    <div id="autoDashboardCollapse" class="accordion-collapse collapse" aria-labelledby="autoDashboardHeading" data-bs-parent="#metricsRulesAutoAccordion">
+      <div class="accordion-body">
+        <div class="d-flex justify-content-end mb-2">
+          <a href="{{ url_for('auto_metrics_rules_help') }}" target="_blank" class="link-secondary text-decoration-none" title="Auto Rules Help" aria-label="Auto Rules Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
+        </div>
+        <p class="small text-secondary mb-3">Build a derived-signal dashboard directly from your active rules. Existing chart titles are skipped automatically.</p>
+        <form id="autoDashboardForm" method="post" action="{{ url_for('auto_metrics_rules_dashboard') }}" class="row g-2 align-items-end">
+          <div class="col-md-3">
+            <label class="form-label small text-secondary">Dashboard Name</label>
+            <input type="text" name="dashboard_name" class="form-control form-control-sm" value="{{ auto_dashboard_summary.dashboard_name if auto_dashboard_summary else 'Auto Metric Rules Dashboard' }}">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-secondary">Window (hours)</label>
+            <input type="number" min="1" max="168" name="hours" class="form-control form-control-sm" value="{{ auto_dashboard_summary.hours if auto_dashboard_summary else 24 }}">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-secondary">Max charts</label>
+            <input type="number" min="1" max="24" name="max_charts" class="form-control form-control-sm" value="{{ auto_dashboard_summary.max_charts if auto_dashboard_summary else 12 }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small text-secondary">Service scope</label>
+            <select name="service_filter" class="form-select form-select-sm">
+              <option value="">All services</option>
+              {% for s in services %}
+              <option value="{{ s }}" {% if auto_dashboard_summary and auto_dashboard_summary.service_filter == s %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-outline-info btn-sm flex-grow-1" name="action" value="preview">
+              <i class="bi bi-eye me-1"></i>Preview
+            </button>
+            <button type="submit" class="btn btn-info btn-sm flex-grow-1" name="action" value="create">
+              <i class="bi bi-layout-text-window-reverse me-1"></i>Create
+            </button>
+          </div>
+        </form>
+        {% if auto_dashboard_summary %}
+        <div class="small text-secondary mt-3">
+          Rules: {{ auto_dashboard_summary.rules_total }} · Candidates: {{ auto_dashboard_summary.candidates }} · Max charts: {{ auto_dashboard_summary.max_charts }}
+          {% if auto_dashboard_summary.capped %} · Preview capped by selected max{% endif %}
+        </div>
+        {% endif %}
+
+        {% if auto_dashboard_preview %}
+        <div class="card border-secondary mt-3 mb-0">
+          <div class="card-header">Dashboard Preview Candidates ({{ auto_dashboard_preview|length }})</div>
+          <div class="table-responsive">
+            <table class="table table-dark table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Chart Title</th>
+                  <th>Rule</th>
+                  <th>Type</th>
+                  <th>Source</th>
+                  <th>Signal</th>
+                  <th>Service</th>
+                  <th>Attr FP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for c in auto_dashboard_preview %}
+                <tr>
+                  <td>{{ c.title }}</td>
+                  <td>{{ c.rule_name }}</td>
+                  <td><span class="badge text-bg-secondary text-capitalize">{{ c.rule_type }}</span></td>
+                  <td>{{ c.source }}</td>
+                  <td class="font-monospace small">{{ c.signal }}</td>
+                  <td>{{ c.service or 'any' }}</td>
+                  <td class="font-monospace small">{{ c.attr_fp or '—' }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span>Create Rule</span>
+    <a href="{{ url_for('metrics_rules_help') }}" target="_blank" class="link-secondary text-decoration-none" title="Metric Rules Help" aria-label="Metric Rules Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('create_metrics_rule') }}" class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small text-secondary">Name</label>
+        <input type="text" name="name" class="form-control form-control-sm" placeholder="High error ratio" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Rule Type</label>
+        <select name="rule_type" id="ruleTypeSelect" class="form-select form-select-sm" required>
+          <option value="threshold">Threshold</option>
+          <option value="composite">Composite</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Source</label>
+        <select name="source" class="form-select form-select-sm" required>
+          <option value="">Select source</option>
+          {% for s in sources %}
+          <option value="{{ s }}">{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small text-secondary">Signal</label>
+        <select name="signal" class="form-select form-select-sm" required>
+          <option value="">Select signal</option>
+          {% for s in signals %}
+          <option value="{{ s }}">{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Service</label>
+        <select name="service" class="form-select form-select-sm">
+          <option value="">Any service</option>
+          {% for s in services %}
+          <option value="{{ s }}">{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Attr FP</label>
+        <input type="text" name="attr_fp" class="form-control form-control-sm font-monospace" placeholder="optional">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Comparator</label>
+        <select name="comparator" class="form-select form-select-sm">
+          <option value="gt">value >= threshold</option>
+          <option value="lt">value <= threshold</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Warning</label>
+        <input type="number" step="any" name="warning_threshold" class="form-control form-control-sm" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Critical</label>
+        <input type="number" step="any" name="critical_threshold" class="form-control form-control-sm" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Min Sample</label>
+        <input type="number" min="1" name="min_sample_count" class="form-control form-control-sm" value="1" required>
+      </div>
+      <div class="col-12"><hr class="my-2 border-secondary-subtle"></div>
+      <div class="col-12 small text-secondary" id="compositeHint" style="display:none;">
+        Composite rules trigger only when the primary condition and the secondary condition are both active.
+      </div>
+      <div class="col-md-2 composite-only" style="display:none;">
+        <label class="form-label small text-secondary">Secondary Source</label>
+        <select name="secondary_source" class="form-select form-select-sm">
+          <option value="">Select source</option>
+          {% for s in sources %}
+          <option value="{{ s }}">{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3 composite-only" style="display:none;">
+        <label class="form-label small text-secondary">Secondary Signal</label>
+        <select name="secondary_signal" class="form-select form-select-sm">
+          <option value="">Select signal</option>
+          {% for s in signals %}
+          <option value="{{ s }}">{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2 composite-only" style="display:none;">
+        <label class="form-label small text-secondary">Secondary Comparator</label>
+        <select name="secondary_comparator" class="form-select form-select-sm">
+          <option value="gt">value >= threshold</option>
+          <option value="lt">value <= threshold</option>
+        </select>
+      </div>
+      <div class="col-md-2 composite-only" style="display:none;">
+        <label class="form-label small text-secondary">Secondary Warning</label>
+        <input type="number" step="any" name="secondary_warning_threshold" class="form-control form-control-sm" value="0">
+      </div>
+      <div class="col-md-2 composite-only" style="display:none;">
+        <label class="form-label small text-secondary">Secondary Critical</label>
+        <input type="number" step="any" name="secondary_critical_threshold" class="form-control form-control-sm" value="0">
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-primary btn-sm w-100"><i class="bi bi-plus-lg me-1"></i>Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card border-secondary">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>{{ rules|length }} active rule{{ '' if rules|length == 1 else 's' }}</span>
+    <div class="d-flex align-items-center gap-2" style="min-width:420px;">
+      <input type="text" id="rulesSearchInput" class="form-control form-control-sm" placeholder="Search rules...">
+      <select id="rulesSortKey" class="form-select form-select-sm" style="width:auto;">
+        <option value="name">Name</option>
+        <option value="type">Type</option>
+        <option value="source">Source</option>
+        <option value="signal">Signal</option>
+        <option value="service">Service</option>
+        <option value="sample">Min Sample</option>
+      </select>
+      <button id="rulesSortDirBtn" type="button" class="btn btn-sm btn-outline-secondary flex-shrink-0 text-nowrap" style="min-width:4rem;" title="Toggle sort direction">A-Z</button>
+    </div>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-dark table-sm align-middle mb-0" id="activeRulesTable">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Source</th>
+          <th>Signal</th>
+          <th>Service</th>
+          <th>Attr FP</th>
+          <th>Primary</th>
+          <th>Secondary</th>
+          <th>Min Sample</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if rules %}
+          {% for rule in rules %}
+          <tr class="js-active-rule-row"
+              data-name="{{ rule.name|lower }}"
+              data-type="{{ rule.rule_type|lower }}"
+              data-source="{{ rule.source|lower }}"
+              data-signal="{{ rule.signal|lower }}"
+              data-service="{{ (rule.service or 'any')|lower }}"
+              data-sample="{{ rule.min_sample_count }}">
+            <td>{{ rule.name }}</td>
+            <td><span class="badge text-bg-secondary text-capitalize">{{ rule.rule_type }}</span></td>
+            <td>{{ rule.source }}</td>
+            <td class="font-monospace small">{{ rule.signal }}</td>
+            <td>{{ rule.service or 'any' }}</td>
+            <td class="font-monospace small">{{ rule.attr_fp or '—' }}</td>
+            <td class="font-monospace small">{{ rule.comparator }} / {{ rule.warning_threshold }} / {{ rule.critical_threshold }}</td>
+            <td class="font-monospace small">{% if rule.rule_type == 'composite' %}{{ rule.secondary_source }}:{{ rule.secondary_signal }} {{ rule.secondary_comparator }} / {{ rule.secondary_warning_threshold }} / {{ rule.secondary_critical_threshold }}{% else %}—{% endif %}</td>
+            <td class="font-monospace small">{{ rule.min_sample_count }}</td>
+            <td>
+              <form method="post" action="{{ url_for('delete_metrics_rule', rule_id=rule.id) }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger js-delete-rule" data-rule-name="{{ rule.name }}">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr id="activeRulesEmptyRow">
+            <td colspan="11" class="text-center text-secondary py-4">No rules defined yet.</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var ruleType = document.getElementById('ruleTypeSelect');
+  var compositeFields = Array.prototype.slice.call(document.querySelectorAll('.composite-only'));
+  var compositeHint = document.getElementById('compositeHint');
+
+  function updateRuleType() {
+    var show = ruleType && ruleType.value === 'composite';
+    compositeFields.forEach(function (el) { el.style.display = show ? '' : 'none'; });
+    if (compositeHint) compositeHint.style.display = show ? '' : 'none';
+  }
+
+  if (ruleType) {
+    ruleType.addEventListener('change', updateRuleType);
+    updateRuleType();
+  }
+
+  /* ── Delete confirmation ── */
+  document.querySelectorAll('.js-delete-rule').forEach(function (btn) {
+    btn.addEventListener('click', function (e) {
+      var name = btn.getAttribute('data-rule-name') || 'this rule';
+      if (!confirm('Delete rule "' + name + '"?\n\nThis cannot be undone.')) {
+        e.preventDefault();
+      }
+    });
+  });
+
+  /* ── Auto-create confirmation ── */
+  var autoForm = document.querySelector('form[action="{{ url_for("auto_metrics_rules") }}"]');
+  if (autoForm) {
+    autoForm.addEventListener('submit', function (e) {
+      var btn = e.submitter;
+      if (!btn || btn.value !== 'create') return;
+      var total = {{ auto_preview|length if auto_preview else 0 }};
+      var cap = {{ auto_summary.create_cap if auto_summary and auto_summary.create_cap else 200 }};
+      var capped = {{ 'true' if auto_summary and auto_summary.capped else 'false' }};
+      if (total === 0) return;
+      var toCreate = capped ? cap : total;
+      var msg = 'Create ' + toCreate + ' rule(s)?';
+      if (capped) msg += '\n\nNote: only the first ' + cap + ' of ' + total + ' candidates will be created.';
+      if (!confirm(msg)) e.preventDefault();
+    });
+  }
+
+  /* ── Auto-dashboard confirmation ── */
+  var autoDashboardForm = document.getElementById('autoDashboardForm');
+  if (autoDashboardForm) {
+    autoDashboardForm.addEventListener('submit', function (e) {
+      var btn = e.submitter;
+      if (!btn || btn.value !== 'create') return;
+      var total = {{ auto_dashboard_preview|length if auto_dashboard_preview else 0 }};
+      var maxCharts = {{ auto_dashboard_summary.max_charts if auto_dashboard_summary and auto_dashboard_summary.max_charts else 12 }};
+      if (total === 0) return;
+      var msg = 'Create dashboard with up to ' + maxCharts + ' chart(s)?';
+      if (!confirm(msg)) e.preventDefault();
+    });
+  }
+
+  /* ── Auto accordion state persistence ── */
+  var autoRulesCollapse = document.getElementById('autoRulesCollapse');
+  var autoDashboardCollapse = document.getElementById('autoDashboardCollapse');
+  var panelToId = {
+    'auto-rules': 'autoRulesCollapse',
+    'auto-dashboard': 'autoDashboardCollapse'
+  };
+  var idToPanel = {
+    'autoRulesCollapse': 'auto-rules',
+    'autoDashboardCollapse': 'auto-dashboard'
+  };
+  var accordionStorageKey = 'metricsRulesAutoAccordion.openPanel';
+
+  function showPanel(panelKey) {
+    if (!window.bootstrap || !panelToId[panelKey]) return;
+    var el = document.getElementById(panelToId[panelKey]);
+    if (!el) return;
+    window.bootstrap.Collapse.getOrCreateInstance(el, { toggle: false }).show();
+  }
+
+  if (autoRulesCollapse && autoDashboardCollapse) {
+    var explicitPanel = {{ (auto_open_panel or '')|tojson }};
+    var queryPanel = new URLSearchParams(window.location.search).get('open_panel') || '';
+    var storedPanel = localStorage.getItem(accordionStorageKey) || '';
+    var initialPanel = explicitPanel || queryPanel || storedPanel;
+
+    if (panelToId[initialPanel]) {
+      showPanel(initialPanel);
+    }
+
+    [autoRulesCollapse, autoDashboardCollapse].forEach(function (el) {
+      el.addEventListener('shown.bs.collapse', function () {
+        var panel = idToPanel[el.id] || '';
+        if (panel) localStorage.setItem(accordionStorageKey, panel);
+      });
+      el.addEventListener('hidden.bs.collapse', function () {
+        if (!autoRulesCollapse.classList.contains('show') && !autoDashboardCollapse.classList.contains('show')) {
+          localStorage.setItem(accordionStorageKey, '');
+        }
+      });
+    });
+  }
+
+  /* ── Active rules search + sort ── */
+  var rulesTable = document.getElementById('activeRulesTable');
+  var rulesSearchInput = document.getElementById('rulesSearchInput');
+  var rulesSortKey = document.getElementById('rulesSortKey');
+  var rulesSortDirBtn = document.getElementById('rulesSortDirBtn');
+  if (rulesTable && rulesSearchInput && rulesSortKey && rulesSortDirBtn) {
+    var tbody = rulesTable.querySelector('tbody');
+    var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr.js-active-rule-row'));
+    var emptyRow = document.getElementById('activeRulesEmptyRow');
+    var sortDir = 'asc';
+
+    function ruleValue(row, key) {
+      if (key === 'sample') {
+        return parseInt(row.dataset.sample || '0', 10);
+      }
+      return (row.dataset[key] || '').toLowerCase();
+    }
+
+    function redraw() {
+      if (!rows.length) return;
+
+      var q = (rulesSearchInput.value || '').toLowerCase().trim();
+      var key = rulesSortKey.value || 'name';
+
+      var filtered = rows.filter(function (row) {
+        if (!q) return true;
+        var hay = [
+          row.dataset.name,
+          row.dataset.type,
+          row.dataset.source,
+          row.dataset.signal,
+          row.dataset.service,
+          row.dataset.sample,
+          row.textContent
+        ].join(' ').toLowerCase();
+        return hay.indexOf(q) !== -1;
+      });
+
+      filtered.sort(function (a, b) {
+        var av = ruleValue(a, key);
+        var bv = ruleValue(b, key);
+        if (av < bv) return sortDir === 'asc' ? -1 : 1;
+        if (av > bv) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+
+      tbody.innerHTML = '';
+      filtered.forEach(function (row) { tbody.appendChild(row); });
+
+      if (!filtered.length && emptyRow) {
+        tbody.appendChild(emptyRow);
+      }
+    }
+
+    rulesSearchInput.addEventListener('input', redraw);
+    rulesSortKey.addEventListener('change', redraw);
+    rulesSortDirBtn.addEventListener('click', function () {
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      rulesSortDirBtn.textContent = sortDir === 'asc' ? 'A-Z' : 'Z-A';
+      redraw();
+    });
+
+    redraw();
+  }
+})();
+</script>
+{% endblock %}

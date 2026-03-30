@@ -1,0 +1,424 @@
+{% extends "base.html" %}
+{% block title %}Metrics Anomaly Details{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-activity me-2 text-info"></i>Metrics Anomaly Details</h4>
+  <div class="d-flex gap-2">
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics') }}">
+      <i class="bi bi-arrow-left me-1"></i>Back to Metrics
+    </a>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics_rules') }}">
+      <i class="bi bi-sliders me-1"></i>Rules
+    </a>
+    {% if related_target == 'logs' %}
+    <a class="btn btn-sm btn-outline-info"
+       href="{{ url_for('view_logs', service=service, from_ts=from_ts, to_ts=to_ts, stats='1') }}">
+      <i class="bi bi-journal-text me-1"></i>Open Related Logs
+    </a>
+    {% elif related_target == 'traces' %}
+    <a class="btn btn-sm btn-outline-info"
+       href="{{ url_for('view_traces', service=service, from_ts=from_ts, to_ts=to_ts) }}">
+      <i class="bi bi-diagram-3 me-1"></i>Open Related Traces
+    </a>
+    {% elif related_target == 'errors' %}
+    <a class="btn btn-sm btn-outline-info"
+       href="{{ url_for('view_errors', service=service, from_ts=from_ts, to_ts=to_ts) }}">
+      <i class="bi bi-bug me-1"></i>Open Related Errors
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-body py-2">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Source</label>
+        <select name="source" class="form-select form-select-sm">
+          <option value="">All sources</option>
+          {% for s in sources %}
+          <option value="{{ s }}" {% if s == source %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small text-secondary">Service</label>
+        <select name="service" class="form-select form-select-sm">
+          <option value="">All services</option>
+          {% for s in services %}
+          <option value="{{ s }}" {% if s == service %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small text-secondary">Signal</label>
+        <select name="signal" class="form-select form-select-sm">
+          <option value="">All signals</option>
+          {% for s in signals %}
+          <option value="{{ s }}" {% if s == signal %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <input type="hidden" name="metric" value="{{ metric }}">
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Attr FP</label>
+        <input type="text" name="attr_fp" class="form-control form-control-sm font-monospace" value="{{ attr_fp }}" placeholder="optional">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">From</label>
+        <input type="text" name="from_ts" class="form-control form-control-sm font-monospace" value="{{ from_ts }}" placeholder="2026-03-29T12:00:00Z">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">To</label>
+        <input type="text" name="to_ts" class="form-control form-control-sm font-monospace" value="{{ to_ts }}" placeholder="2026-03-29T12:05:00Z">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Hours (fallback)</label>
+        <input type="number" min="1" max="168" name="hours" class="form-control form-control-sm" value="{{ hours }}">
+      </div>
+      <div class="col-md-2 d-flex gap-1">
+        <button type="submit" class="btn btn-primary btn-sm flex-grow-1"><i class="bi bi-search"></i></button>
+        <a href="{{ url_for('view_metrics_anomaly') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
+      </div>
+    </form>
+    {% if error_msg %}
+    <div class="alert alert-danger mt-2 mb-0 py-1 small">{{ error_msg }}</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if point_state or point_score %}
+<div class="card border-secondary mb-3">
+  <div class="card-body py-2 d-flex flex-wrap gap-3 align-items-center">
+    <span class="small text-secondary">Clicked Point Context:</span>
+    {% if point_state %}
+    <span class="badge {% if point_state == 'outlier' %}bg-danger{% elif point_state == 'warning' %}bg-warning text-dark{% else %}bg-success{% endif %}">
+      {{ point_state }}
+    </span>
+    {% endif %}
+    {% if point_score %}
+    <span class="small font-monospace">z={{ point_score }}</span>
+    {% endif %}
+    {% if from_ts %}
+    <span class="small text-secondary">from {{ from_ts }}</span>
+    {% endif %}
+    {% if to_ts %}
+    <span class="small text-secondary">to {{ to_ts }}</span>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card border-secondary mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span class="small text-secondary">Signal Timeline</span>
+    <span class="small text-secondary">Rule-aware markers over baseline band</span>
+  </div>
+  <div class="card-body">
+    <div id="metricsAnomalyChart" style="height: 320px;"></div>
+  </div>
+</div>
+
+<div class="card border-secondary">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span class="small text-secondary">{{ total }} row{{ 's' if total != 1 else '' }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Service</th>
+          <th>Metric</th>
+          <th>Kind</th>
+          <th>Value</th>
+          <th>Baseline</th>
+          <th>Band</th>
+          <th>Z</th>
+          <th>State</th>
+          <th>Rule</th>
+          <th>Sample</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if rows %}
+          {% for r in rows %}
+          <tr>
+            <td class="font-monospace small">{{ r.time }}</td>
+            <td class="small">{{ r.service }}</td>
+            <td class="small font-monospace">{{ r.metric }}</td>
+            <td class="small">{{ r.metric_kind }}</td>
+            <td class="small font-monospace">{{ r.value }}</td>
+            <td class="small font-monospace">{{ r.baseline_mean }}</td>
+            <td class="small font-monospace">{{ r.baseline_lower }} .. {{ r.baseline_upper }}</td>
+            <td class="small font-monospace">{{ r.anomaly_score }}</td>
+            <td>
+              <span class="badge {% if r.anomaly_state == 'outlier' %}bg-danger{% elif r.anomaly_state == 'warning' %}bg-warning text-dark{% else %}bg-success{% endif %}">
+                {{ r.anomaly_state }}
+              </span>
+            </td>
+            <td class="small">
+              {% if r.rule_name %}
+              <span class="badge {% if r.rule_state == 'outlier' %}bg-danger{% elif r.rule_state == 'warning' %}bg-warning text-dark{% else %}bg-secondary{% endif %}" title="{{ r.rule_reason }}">
+                {{ r.rule_name }}
+              </span>
+              {% else %}
+              <span class="text-secondary">—</span>
+              {% endif %}
+            </td>
+            <td class="small font-monospace">{{ r.sample_count }}</td>
+            <td>
+              {% if r.related_target == 'logs' %}
+              <a class="btn btn-sm btn-outline-info"
+                 href="{{ url_for('view_logs', service=r.service, from_ts=r.time, window_s=60, stats='1') }}">
+                Logs
+              </a>
+              {% elif r.related_target == 'traces' %}
+              <a class="btn btn-sm btn-outline-info"
+                 href="{{ url_for('view_traces', service=r.service, from_ts=r.time, window_s=60) }}">
+                Traces
+              </a>
+              {% elif r.related_target == 'errors' %}
+              <a class="btn btn-sm btn-outline-info"
+                 href="{{ url_for('view_errors', service=r.service, from_ts=r.time, window_s=60) }}">
+                Errors
+              </a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="12" class="text-center text-secondary py-4">
+              No anomaly rows for the current filters.
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='echarts.min.js') }}"></script>
+<script>
+  (function () {
+    var chartEl = document.getElementById('metricsAnomalyChart');
+    if (!chartEl) return;
+
+    var rows = {{ rows | tojson }};
+    var ec = echarts.init(chartEl, 'dark');
+
+    if (!rows || !rows.length) {
+      ec.setOption({
+        backgroundColor: 'transparent',
+        title: {
+          text: 'No data for current filters',
+          left: 'center',
+          top: 'middle',
+          textStyle: { color: '#6c757d', fontSize: 13, fontWeight: 500 }
+        },
+        xAxis: { show: false },
+        yAxis: { show: false },
+        series: []
+      });
+      return;
+    }
+
+    rows = rows.slice().sort(function (a, b) {
+      return new Date(a.time).getTime() - new Date(b.time).getTime();
+    });
+    var signal = {{ signal | tojson }};
+    var signalLower = (signal || '').toLowerCase();
+    var nonNegativeSignal = (
+      signalLower.indexOf('volume') >= 0 ||
+      signalLower.indexOf('count') >= 0 ||
+      signalLower.indexOf('latency') >= 0 ||
+      signalLower.indexOf('duration') >= 0 ||
+      signalLower.indexOf('p95') >= 0 ||
+      signalLower.indexOf('p99') >= 0
+    );
+
+    var severityRank = { normal: 0, warning: 1, outlier: 2 };
+    var stateColor = {
+      normal: '#0d6efd',
+      warning: '#ffc107',
+      outlier: '#dc3545'
+    };
+    var stateSize = {
+      normal: 5,
+      warning: 8,
+      outlier: 11
+    };
+
+    function effectiveState(row) {
+      var statsState = row.anomaly_state || 'normal';
+      var ruleState = row.rule_state || 'normal';
+      return severityRank[ruleState] > severityRank[statsState] ? ruleState : statsState;
+    }
+
+    var lowerBand = rows.map(function (row) {
+      var low = Number(row.baseline_lower || 0);
+      return [row.time, nonNegativeSignal ? Math.max(0, low) : low];
+    });
+    var upperBand = rows.map(function (row) {
+      var up = Number(row.baseline_upper || 0);
+      var low = Number(row.baseline_lower || 0);
+      if (nonNegativeSignal) low = Math.max(0, low);
+      return [row.time, Math.max(0, up - low)];
+    });
+    var baseline = rows.map(function (row) {
+      return [row.time, row.baseline_mean];
+    });
+    var markAreas = [];
+    var i = 0;
+    while (i < rows.length) {
+      var st = effectiveState(rows[i]);
+      if (st === 'normal') {
+        i += 1;
+        continue;
+      }
+      var start = rows[i].time;
+      var end = start;
+      while (i + 1 < rows.length && effectiveState(rows[i + 1]) === st) {
+        i += 1;
+        end = rows[i].time;
+      }
+      markAreas.push([
+        {
+          name: st,
+          xAxis: start,
+          itemStyle: { color: st === 'warning' ? 'rgba(255, 193, 7, 0.15)' : 'rgba(220, 53, 69, 0.15)' }
+        },
+        { xAxis: end }
+      ]);
+      i += 1;
+    }
+    var valueSeries = rows.map(function (row) {
+      var state = effectiveState(row);
+      return {
+        value: [row.time, row.value, severityRank[state] || 0],
+        itemStyle: { color: stateColor[state] || '#0d6efd' },
+        symbolSize: stateSize[state] || 5,
+        anomalyState: row.anomaly_state || 'normal',
+        ruleState: row.rule_state || 'normal',
+        ruleName: row.rule_name || '',
+        ruleReason: row.rule_reason || '',
+        baselineMean: row.baseline_mean,
+        baselineLower: row.baseline_lower,
+        baselineUpper: row.baseline_upper,
+        anomalyScore: row.anomaly_score,
+        effectiveState: state
+      };
+    });
+
+    ec.setOption({
+      backgroundColor: 'transparent',
+      textStyle: { color: '#adb5bd' },
+      tooltip: {
+        trigger: 'axis',
+        confine: true,
+        formatter: function (params) {
+          var point = null;
+          params.forEach(function (p) {
+            if (p.seriesName === 'Value') point = p.data;
+          });
+          if (!point) return '';
+          var lines = [String(point.value[0])];
+          lines.push('<b>Value</b>: ' + point.value[1]);
+          lines.push('<b>Baseline</b>: ' + point.baselineMean);
+          lines.push('<b>Band</b>: ' + point.baselineLower + ' .. ' + point.baselineUpper);
+          lines.push('<b>Stat state</b>: ' + point.anomalyState + ' (z=' + point.anomalyScore + ')');
+          if (point.ruleName) {
+            lines.push('<b>Rule</b>: ' + point.ruleName + ' [' + point.ruleState + ']');
+            lines.push('<span style="color:#adb5bd">' + point.ruleReason + '</span>');
+          }
+          lines.push('<b>Effective state</b>: <span style="color:' + (stateColor[point.effectiveState] || '#0d6efd') + '">' + point.effectiveState + '</span>');
+          return lines.join('<br/>');
+        }
+      },
+      legend: {
+        data: ['Value', 'Baseline', 'Expected Band'],
+        bottom: 0
+      },
+      visualMap: {
+        show: false,
+        dimension: 2,
+        seriesIndex: 3,
+        pieces: [
+          { value: 2, color: '#dc3545' },
+          { value: 1, color: '#ffc107' },
+          { value: 0, color: '#20c997' }
+        ]
+      },
+      grid: {
+        left: '3%',
+        right: '4%',
+        bottom: '22%',
+        containLabel: true
+      },
+      dataZoom: [
+        { type: 'inside', xAxisIndex: 0, filterMode: 'none' },
+        {
+          type: 'slider',
+          xAxisIndex: 0,
+          height: 16,
+          bottom: 34,
+          borderColor: '#495057',
+          fillerColor: 'rgba(13, 110, 253, 0.20)',
+          handleStyle: { color: '#0d6efd' }
+        }
+      ],
+      xAxis: {
+        type: 'time',
+        axisLabel: { hideOverlap: true }
+      },
+      yAxis: {
+        type: 'value',
+        min: (signalLower.indexOf('ratio') >= 0 || nonNegativeSignal) ? 0 : 'dataMin',
+        max: (signalLower.indexOf('ratio') >= 0) ? 1 : 'dataMax'
+      },
+      series: [
+        {
+          name: 'Band Lower',
+          type: 'line',
+          data: lowerBand,
+          lineStyle: { opacity: 0 },
+          symbol: 'none',
+          stack: 'expected_band'
+        },
+        {
+          name: 'Expected Band',
+          type: 'line',
+          data: upperBand,
+          lineStyle: { opacity: 0 },
+          areaStyle: { color: 'rgba(13, 110, 253, 0.12)' },
+          symbol: 'none',
+          stack: 'expected_band'
+        },
+        {
+          name: 'Baseline',
+          type: 'line',
+          data: baseline,
+          lineStyle: { type: 'dashed', color: '#6c757d' },
+          symbol: 'none'
+        },
+        {
+          name: 'Value',
+          type: 'line',
+          smooth: true,
+          encode: { x: 0, y: 1 },
+          data: valueSeries,
+          lineStyle: { color: '#20c997', width: 2 },
+          symbol: 'circle',
+          markArea: { silent: true, label: { show: false }, data: markAreas }
+        }
+      ]
+    });
+
+    window.addEventListener('resize', function () { ec.resize(); });
+  })();
+</script>
+{% endblock %}

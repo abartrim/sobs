@@ -1,0 +1,13 @@
+{
+  "points": {
+    "from": "rows"
+  },
+  "timestamps": {
+    "from": "column",
+    "name": "ts"
+  },
+  "p95_values": {
+    "from": "column",
+    "name": "p95_ms"
+  }
+}

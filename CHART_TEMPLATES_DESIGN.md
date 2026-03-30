@@ -1,5 +1,92 @@
 # Chart Templates Design — Phase 1
 
+## Decision Update (March 2026): Editor-First Single Model
+
+This design is now superseded by an editor-first V2 plan with **no backward-compatibility requirement**.
+
+### Product Decision
+
+1. We can reset DB/history during this phase.
+2. SQL authoring and visual authoring are equally important and must be built together.
+3. Dashboard UX should optimize for fast state understanding, while deep analysis remains available in detail views.
+
+### Why this change
+
+- Iterating chart visuals without a first-class editor led to circular frontend tweaks.
+- Backend contracts are clearer when driven by editor workflows (compile, dry-run, validate, render).
+- The chart system should converge on one spec-first model with no compatibility shims.
+
+### V2 Architecture (authoring and rendering)
+
+Use one canonical `ChartSpec` object as the source of truth for both SQL and visual configuration.
+
+```json
+{
+  "id": "uuid",
+  "name": "Trace Volume",
+  "template_id": "derived_signal_overlay",
+  "data": {
+    "source": "v_derived_signals_anomaly",
+    "time_column": "time",
+    "filters": [{"field": "SignalName", "op": "=", "value": "trace_volume"}],
+    "window": "6h"
+  },
+  "sql": {
+    "mode": "builder",
+    "generated_sql": "SELECT ...",
+    "override_sql": ""
+  },
+  "visual": {
+    "series_type": "line",
+    "encodings": {"x": "time", "y": "value", "state": "effective_state"},
+    "show_band": true,
+    "zoom": {"inside": true, "slider": false}
+  }
+}
+```
+
+### Required backend workflow endpoints
+
+1. `compile_spec` -> build SQL from editor model.
+2. `dry_run_sql` -> return column names/types/sample rows.
+3. `validate_spec` -> mapping and semantic checks (roles, required columns, unsafe query checks).
+4. `render_spec` -> produce final eCharts option.
+
+These endpoints should be treated as editor APIs first, dashboard APIs second.
+
+### Editor UX model (build SQL + visual simultaneously)
+
+Dual-pane layout:
+
+- Left pane: SQL builder + optional raw SQL override.
+- Right pane: visual mappings (roles, template options, anomaly layers, zoom).
+- Bottom panel: preview chart + result sample + validation messages.
+
+Round-trip requirements:
+
+1. SQL/data changes re-validate visual mappings immediately.
+2. Visual role changes update required SQL columns and validation hints.
+3. Save is blocked until both SQL and visual validation pass.
+
+### V2 data model guidance
+
+- Persist full `ChartSpec` JSON as the canonical chart representation.
+- Keep denormalized lookup columns only when they are generated from `ChartSpec`.
+- Do not carry compatibility shims during this phase.
+
+### Delivery slices
+
+1. Vertical Slice A: `ChartSpec` model + compile/dry-run/validate/render APIs.
+2. Vertical Slice B: dual-pane editor skeleton wired to those APIs.
+3. Vertical Slice C: role-mapping UX + save/apply to dashboard cards.
+4. Vertical Slice D: visual polish and additional template capabilities.
+
+### Non-goals during this phase
+
+- Migrating old chart configs.
+- Maintaining compatibility with legacy schema structures.
+- Over-optimizing chart aesthetics before editor contracts stabilize.
+
 ## Overview
 
 Implement a **template-driven chart system** that decouples chart configuration from code, enabling non-developers to create new chart types via visual editor in Phase 2.
