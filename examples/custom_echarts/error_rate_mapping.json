@@ -1,0 +1,17 @@
+{
+  "service_names": {
+    "from": "column",
+    "name": "service"
+  },
+  "error_rates": {
+    "from": "column",
+    "name": "error_rate"
+  },
+  "_drilldown": {
+    "target": "traces",
+    "label": "Open source traces",
+    "extra": {
+      "service": "{{service}}"
+    }
+  }
+}

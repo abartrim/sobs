@@ -1031,6 +1031,13 @@ class TestUIPages:
         r = await client.get("/ai")
         assert r.status_code == 200
 
+    async def test_chart_editor_help_page(self, client):
+        r = await client.get("/dashboards/help/chart-editor")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Chart Editor Help" in data
+        assert b"Custom ECharts" in data
+
     async def test_rum_js_served(self, client):
         r = await client.get("/static/rum.js")
         assert r.status_code == 200
@@ -2545,6 +2552,25 @@ class TestCustomDashboards:
             )
             assert r.status_code == 200
 
+    async def test_chart_spec_compile_rejects_builder_mode_for_custom_echarts(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/compile",
+            json={
+                "spec": {
+                    "template_id": "custom_echarts",
+                    "sql": {"mode": "builder"},
+                    "data": {
+                        "source_view": "v_derived_signals_anomaly",
+                        "window_hours": 6,
+                        "limit": 100,
+                    },
+                }
+            },
+        )
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert "requires sql.mode='raw'" in data["error"]
+
     async def test_chart_spec_options_endpoint_returns_distinct_lists(self, client):
         r = await client.get("/api/dashboards/spec/options?source_view=v_derived_signals_anomaly&signal_source=traces")
         assert r.status_code == 200
@@ -2682,6 +2708,92 @@ class TestCustomDashboards:
         assert data["template_id"] == "anomaly_overlay"
         assert data["option"]["legend"]["show"] is False
         assert len(data["option"]["dataZoom"]) == 2
+
+    async def test_chart_spec_render_endpoint_custom_echarts(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/render",
+            json={
+                "spec": {
+                    "template_id": "custom_echarts",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT toDateTime('2024-01-01 00:00:00') AS ts, "
+                            "10 AS v UNION ALL "
+                            "SELECT toDateTime('2024-01-01 00:01:00') AS ts, 12 AS v "
+                            "ORDER BY ts"
+                        ),
+                    },
+                    "visual": {
+                        "custom_mapping_json": '{"points": {"from": "rows"}}',
+                        "custom_option_json": (
+                            '{"xAxis": {"type": "time"}, '
+                            '"yAxis": {"type": "value"}, '
+                            '"series": [{"type": "line", "data": "{{points}}"}]}'
+                        ),
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["template_id"] == "custom_echarts"
+        assert data["option"]["series"][0]["data"][0][1] == 10
+
+    async def test_chart_spec_validate_rejects_invalid_custom_json(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/validate",
+            json={
+                "spec": {
+                    "template_id": "custom_echarts",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": "SELECT 1 AS value",
+                    },
+                    "visual": {
+                        "custom_mapping_json": "{bad json",
+                        "custom_option_json": "{}",
+                    },
+                }
+            },
+        )
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["valid"] is False
+        assert "custom_mapping_json" in data["error"]
+
+    async def test_chart_spec_render_custom_echarts_emits_custom_drilldown(self, client):
+        r = await client.post(
+            "/api/dashboards/spec/render",
+            json={
+                "spec": {
+                    "template_id": "custom_echarts",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT 'checkout' AS service, toDateTime('2024-01-01 00:00:00') AS ts, 42 AS value"
+                        ),
+                    },
+                    "visual": {
+                        "custom_mapping_json": (
+                            '{"points":{"from":"rows"},"_drilldown":{"target":"logs",'
+                            '"label":"Open logs","extra":{"service":"{{service}}","from_ts":"{{ts}}"}}}'
+                        ),
+                        "custom_option_json": (
+                            '{"xAxis":{"type":"time"},"yAxis":{"type":"value"},'
+                            '"series":[{"type":"line","data":"{{points}}"}]}'
+                        ),
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        dd = data["option"]["_customDrilldown"]
+        assert dd["target"] == "logs"
+        assert dd["label"] == "Open logs"
+        assert dd["extra"]["service"] == "checkout"
+        assert "2024-01-01" in dd["extra"]["from_ts"]
 
     async def test_chart_render_api_attaches_time_series_drilldown_metadata(self, client):
         r = await client.post(
@@ -2995,6 +3107,126 @@ class TestMetricsAnomalyDetection:
         body = await r.get_data(as_text=True)
         assert "Trace distress composite" in body
         assert "trace_error_ratio" in body
+
+    async def test_auto_metrics_rules_preview_shows_candidates(self, client):
+        marker = f"auto-preview-svc-{time.time_ns()}"
+        for _ in range(8):
+            r = await client.post(
+                "/v1/errors",
+                json={"service": marker, "type": "RuntimeError", "message": "auto preview seed", "stack": "x"},
+            )
+            assert r.status_code == 200
+
+        r = await client.post(
+            "/metrics/rules/auto",
+            form={
+                "action": "preview",
+                "hours": "24",
+                "min_points": "1",
+                "service_filter": marker,
+            },
+        )
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Preview Candidates" in body
+        assert marker in body
+
+    async def test_auto_metrics_rules_create_is_idempotent(self, client):
+        marker = f"auto-create-svc-{time.time_ns()}"
+        for _ in range(8):
+            r = await client.post(
+                "/v1/errors",
+                json={"service": marker, "type": "RuntimeError", "message": "auto create seed", "stack": "x"},
+            )
+            assert r.status_code == 200
+
+        r = await client.post(
+            "/metrics/rules/auto",
+            form={
+                "action": "create",
+                "hours": "24",
+                "min_points": "1",
+                "service_filter": marker,
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        count1 = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT count() AS c FROM sobs_anomaly_rules FINAL " "WHERE IsDeleted = 0 AND ServiceName = ?",
+                (marker,),
+            )
+            .fetchone()["c"]
+        )
+        assert int(count1) >= 1
+
+        r = await client.post(
+            "/metrics/rules/auto",
+            form={
+                "action": "create",
+                "hours": "24",
+                "min_points": "1",
+                "service_filter": marker,
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        count2 = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT count() AS c FROM sobs_anomaly_rules FINAL " "WHERE IsDeleted = 0 AND ServiceName = ?",
+                (marker,),
+            )
+            .fetchone()["c"]
+        )
+        assert int(count2) == int(count1)
+
+    async def test_auto_metrics_rules_create_honors_max_cap(self, client, monkeypatch):
+        marker = f"auto-cap-svc-{time.time_ns()}"
+
+        def _fake_candidates(*args, **kwargs):
+            rows = []
+            for i in range(250):
+                rows.append(
+                    {
+                        "name": f"Auto cap {i}",
+                        "rule_type": "threshold",
+                        "source": "errors",
+                        "signal": f"sig_{i}",
+                        "service": marker,
+                        "attr_fp": "",
+                        "comparator": "gt",
+                        "warning_threshold": 1.0,
+                        "critical_threshold": 2.0,
+                        "min_sample_count": 3,
+                        "point_count": 100,
+                    }
+                )
+            return rows, {"examined": 250, "existing": 0, "invalid": 0}
+
+        monkeypatch.setattr(sobs_app, "_build_auto_metric_rule_candidates", _fake_candidates)
+
+        r = await client.post(
+            "/metrics/rules/auto",
+            form={
+                "action": "create",
+                "hours": "24",
+                "min_points": "1",
+                "service_filter": marker,
+            },
+        )
+        assert r.status_code in (302, 303)
+
+        created = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT count() AS c FROM sobs_anomaly_rules FINAL " "WHERE IsDeleted = 0 AND ServiceName = ?",
+                (marker,),
+            )
+            .fetchone()["c"]
+        )
+        assert int(created) == 200
 
     async def test_derived_signal_overlay_template_injects_rule_metadata(self, client):
         r = await client.post(

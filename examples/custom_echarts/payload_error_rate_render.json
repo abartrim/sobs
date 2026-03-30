@@ -1,0 +1,13 @@
+{
+  "spec": {
+    "template_id": "custom_echarts",
+    "sql": {
+      "mode": "raw",
+      "override_sql": "SELECT ServiceName AS service, round(100.0 * countIf(StatusCode = 'STATUS_CODE_ERROR') / greatest(count(), 1), 2) AS error_rate FROM otel_traces WHERE Timestamp >= now() - INTERVAL 1 HOUR GROUP BY service ORDER BY error_rate DESC LIMIT 20"
+    },
+    "visual": {
+      "custom_mapping_json": "{\"service_names\":{\"from\":\"column\",\"name\":\"service\"},\"error_rates\":{\"from\":\"column\",\"name\":\"error_rate\"}}",
+      "custom_option_json": "{\"tooltip\":{\"trigger\":\"axis\"},\"xAxis\":{\"type\":\"category\",\"data\":\"{{service_names}}\",\"axisLabel\":{\"interval\":0,\"rotate\":35}},\"yAxis\":{\"type\":\"value\",\"name\":\"Error Rate %\"},\"series\":[{\"name\":\"Error Rate\",\"type\":\"bar\",\"data\":\"{{error_rates}}\"}]}"
+    }
+  }
+}

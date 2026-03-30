@@ -1,0 +1,24 @@
+{
+  "tooltip": {
+    "trigger": "axis"
+  },
+  "xAxis": {
+    "type": "category",
+    "data": "{{service_names}}",
+    "axisLabel": {
+      "interval": 0,
+      "rotate": 35
+    }
+  },
+  "yAxis": {
+    "type": "value",
+    "name": "Error Rate %"
+  },
+  "series": [
+    {
+      "name": "Error Rate",
+      "type": "bar",
+      "data": "{{error_rates}}"
+    }
+  ]
+}

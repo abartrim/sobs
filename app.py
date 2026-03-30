@@ -7,6 +7,7 @@ RUM, Logs, Errors, Traces, and AI transparency.
 import ast
 import asyncio
 import base64
+import copy
 import hashlib
 import inspect
 import json
@@ -2561,6 +2562,7 @@ async def summary():
         recent_logs=recent_logs,
         rum_summary=rum_summary,
         ai_summary=ai_summary,
+        signal_health=_get_signal_health_by_service(db),
     )
 
 
@@ -2901,6 +2903,156 @@ def _list_derived_signal_dimensions(db: ChDbConnection) -> tuple[list[str], list
     return services, signals, sources
 
 
+_AUTO_RULE_GT_HINTS = (
+    "error",
+    "latency",
+    "duration",
+    "timeout",
+    "p95",
+    "p99",
+    "failure",
+    "fail",
+    "retry",
+)
+_AUTO_RULE_LT_HINTS = ("availability", "success", "throughput", "rps", "qps")
+_AUTO_RULE_CREATE_MAX = 200
+
+
+def _infer_auto_rule_comparator(signal_name: str) -> str:
+    name = signal_name.lower()
+    if any(token in name for token in _AUTO_RULE_LT_HINTS):
+        return "lt"
+    if any(token in name for token in _AUTO_RULE_GT_HINTS):
+        return "gt"
+    return "gt"
+
+
+def _auto_rule_thresholds(
+    comparator: str, q05: float, q20: float, q50: float, q80: float, q95: float
+) -> tuple[float, float]:
+    if comparator == "lt":
+        warning = q20
+        critical = q05
+        if critical > warning:
+            critical = min(warning, q50)
+        if critical == warning:
+            critical = warning * 0.9 if warning != 0 else -0.1
+        return warning, critical
+
+    warning = q80
+    critical = q95
+    if critical < warning:
+        critical = max(warning, q50)
+    if critical == warning:
+        critical = warning * 1.1 if warning != 0 else 0.1
+    return warning, critical
+
+
+def _format_auto_rule_name(source: str, signal: str, service: str, attr_fp: str) -> str:
+    suffix = service or "any"
+    if attr_fp:
+        suffix = f"{suffix} / {attr_fp}"
+    return f"Auto {source}/{signal} [{suffix}]"
+
+
+def _build_auto_metric_rule_candidates(
+    db: ChDbConnection,
+    *,
+    hours: int,
+    min_points: int,
+    service_filter: str = "",
+    include_attr_fp: bool = False,
+) -> tuple[list[dict[str, object]], dict[str, int]]:
+    where_parts: list[str] = ["time >= now() - INTERVAL ? HOUR"]
+    params: list[object] = [hours]
+    if service_filter:
+        where_parts.append("ServiceName = ?")
+        params.append(service_filter)
+
+    where_sql = " WHERE " + " AND ".join(where_parts)
+    attr_select = "AttrFingerprint" if include_attr_fp else "''"
+    attr_group = ", AttrFingerprint" if include_attr_fp else ""
+    stats_rows = db.execute(
+        "SELECT ServiceName, SignalSource, SignalName, "
+        f"{attr_select} AS AttrFingerprint, "
+        "count() AS point_count, "
+        "quantile(0.05)(toFloat64(value)) AS q05, "
+        "quantile(0.20)(toFloat64(value)) AS q20, "
+        "quantile(0.50)(toFloat64(value)) AS q50, "
+        "quantile(0.80)(toFloat64(value)) AS q80, "
+        "quantile(0.95)(toFloat64(value)) AS q95 "
+        "FROM v_derived_signals_anomaly"
+        f"{where_sql}"
+        " GROUP BY ServiceName, SignalSource, SignalName"
+        f"{attr_group}"
+        " HAVING point_count >= ?"
+        " ORDER BY point_count DESC",
+        params + [min_points],
+    ).fetchall()
+
+    active_rules = _load_anomaly_rules(db)
+    existing_series = {
+        (
+            str(rule.get("source", "")),
+            str(rule.get("signal", "")),
+            str(rule.get("service", "")),
+            str(rule.get("attr_fp", "")),
+        )
+        for rule in active_rules
+    }
+
+    created_candidates: list[dict[str, object]] = []
+    skipped_existing = 0
+    skipped_invalid = 0
+    for row in stats_rows:
+        service = str(row["ServiceName"])
+        source = str(row["SignalSource"])
+        signal = str(row["SignalName"])
+        attr_fp = str(row["AttrFingerprint"])
+        key = (source, signal, service, attr_fp)
+        if key in existing_series:
+            skipped_existing += 1
+            continue
+
+        point_count = int(row["point_count"])
+        q05 = float(row["q05"])
+        q20 = float(row["q20"])
+        q50 = float(row["q50"])
+        q80 = float(row["q80"])
+        q95 = float(row["q95"])
+        comparator = _infer_auto_rule_comparator(signal)
+        warning, critical = _auto_rule_thresholds(comparator, q05, q20, q50, q80, q95)
+
+        if comparator == "gt" and critical < warning:
+            skipped_invalid += 1
+            continue
+        if comparator == "lt" and critical > warning:
+            skipped_invalid += 1
+            continue
+
+        created_candidates.append(
+            {
+                "name": _format_auto_rule_name(source, signal, service, attr_fp),
+                "rule_type": "threshold",
+                "source": source,
+                "signal": signal,
+                "service": service,
+                "attr_fp": attr_fp,
+                "comparator": comparator,
+                "warning_threshold": warning,
+                "critical_threshold": critical,
+                "min_sample_count": 3,
+                "point_count": point_count,
+            }
+        )
+
+    return created_candidates, {
+        "examined": len(stats_rows),
+        "existing": skipped_existing,
+        "invalid": skipped_invalid,
+    }
+
+
 def _load_anomaly_rules(db: ChDbConnection) -> list[dict[str, object]]:
     rows = db.execute(
         "SELECT Id, Name, RuleType, SignalSource, SignalName, ServiceName, AttrFingerprint, Comparator, "
@@ -2929,6 +3081,54 @@ def _load_anomaly_rules(db: ChDbConnection) -> list[dict[str, object]]:
         }
         for row in rows
     ]
+
+
+def _get_signal_health_by_service(db: ChDbConnection, hours: int = 24) -> list[dict[str, object]]:
+    """Return worst effective_state per service for derived signals in the last `hours` hours."""
+    try:
+        rows = db.execute(
+            "SELECT ServiceName, SignalSource, SignalName, AttrFingerprint, "
+            "argMax(value, time) AS value, argMax(SampleCount, time) AS SampleCount "
+            "FROM v_derived_signals_anomaly "
+            "WHERE time >= now() - INTERVAL ? HOUR "
+            "GROUP BY ServiceName, SignalSource, SignalName, AttrFingerprint",
+            [hours],
+        ).fetchall()
+    except Exception:
+        return []
+    if not rows:
+        return []
+    dicts = [dict(r) for r in rows]
+    rules = _load_anomaly_rules(db)
+    _annotate_rows_with_rules(
+        dicts,
+        rules,
+        source_key="SignalSource",
+        signal_key="SignalName",
+        service_key="ServiceName",
+        attr_fp_key="AttrFingerprint",
+        value_key="value",
+        sample_count_key="SampleCount",
+    )
+    service_worst: dict[str, int] = {}
+    service_count: dict[str, int] = {}
+    for row in dicts:
+        svc = str(row["ServiceName"])
+        rank = _ANOMALY_SEVERITY_RANK.get(str(row.get("effective_state", "normal")), 0)
+        service_worst[svc] = max(service_worst.get(svc, 0), rank)
+        service_count[svc] = service_count.get(svc, 0) + 1
+    rank_to_state = {v: k for k, v in _ANOMALY_SEVERITY_RANK.items()}
+    return sorted(
+        [
+            {
+                "service": svc,
+                "worst_state": rank_to_state.get(service_worst[svc], "normal"),
+                "signal_count": service_count[svc],
+            }
+            for svc in service_worst
+        ],
+        key=lambda x: (-_ANOMALY_SEVERITY_RANK.get(str(x["worst_state"]), 0), str(x["service"])),
+    )
 
 
 def _rule_matches_series(rule: dict[str, object], source: str, signal: str, service: str, attr_fp: str) -> bool:
@@ -3351,6 +3551,8 @@ async def view_metrics_rules():
         services=services,
         signals=signals,
         sources=sources,
+        auto_preview=[],
+        auto_summary=None,
     )
 
 
@@ -3447,6 +3649,111 @@ async def create_metrics_rule():
     )
     await flash(f"Rule '{name}' created", "success")
     return redirect(url_for("view_metrics_rules"))
+
+
+@app.route("/metrics/rules/auto", methods=["POST"])
+@require_basic_auth
+async def auto_metrics_rules():
+    form = await request.form
+    action = (form.get("action") or "preview").strip().lower()
+    try:
+        hours = max(1, min(168, int(form.get("hours") or 24)))
+    except (TypeError, ValueError):
+        hours = 24
+    try:
+        min_points = max(1, min(5000, int(form.get("min_points") or 30)))
+    except (TypeError, ValueError):
+        min_points = 30
+
+    service_filter = (form.get("service_filter") or "").strip()
+    include_attr_fp = (form.get("include_attr_fp") or "") in {"1", "true", "on", "yes"}
+
+    db = get_db()
+    services, signals, sources = _list_derived_signal_dimensions(db)
+    existing_rules = _load_anomaly_rules(db)
+
+    candidates, stats = _build_auto_metric_rule_candidates(
+        db,
+        hours=hours,
+        min_points=min_points,
+        service_filter=service_filter,
+        include_attr_fp=include_attr_fp,
+    )
+
+    summary = {
+        "action": action,
+        "hours": hours,
+        "min_points": min_points,
+        "service_filter": service_filter,
+        "include_attr_fp": include_attr_fp,
+        "examined": stats["examined"],
+        "existing": stats["existing"],
+        "invalid": stats["invalid"],
+        "candidates": len(candidates),
+        "create_cap": _AUTO_RULE_CREATE_MAX,
+        "capped": len(candidates) > _AUTO_RULE_CREATE_MAX,
+        "created": 0,
+    }
+
+    if action == "create":
+        limited_candidates = candidates[:_AUTO_RULE_CREATE_MAX]
+        now_version = int(time.time() * 1000)
+        rows_to_insert: list[dict[str, object]] = []
+        for idx, candidate in enumerate(limited_candidates):
+            rows_to_insert.append(
+                {
+                    "Id": str(uuid.uuid4()),
+                    "Name": str(candidate["name"]),
+                    "RuleType": "threshold",
+                    "SignalSource": str(candidate["source"]),
+                    "SignalName": str(candidate["signal"]),
+                    "ServiceName": str(candidate["service"]),
+                    "AttrFingerprint": str(candidate["attr_fp"]),
+                    "Comparator": str(candidate["comparator"]),
+                    "WarningThreshold": float(candidate["warning_threshold"]),
+                    "CriticalThreshold": float(candidate["critical_threshold"]),
+                    "SecondarySignalSource": "",
+                    "SecondarySignalName": "",
+                    "SecondaryComparator": "gt",
+                    "SecondaryWarningThreshold": 0.0,
+                    "SecondaryCriticalThreshold": 0.0,
+                    "MinSampleCount": int(candidate["min_sample_count"]),
+                    "IsDeleted": 0,
+                    "Version": now_version + idx,
+                }
+            )
+
+        if rows_to_insert:
+            _insert_rows_json_each_row(db, "sobs_anomaly_rules", rows_to_insert)
+        summary["created"] = len(rows_to_insert)
+        skipped_by_cap = max(0, len(candidates) - len(limited_candidates))
+        cap_suffix = f", skipped {skipped_by_cap} by max cap ({_AUTO_RULE_CREATE_MAX})." if skipped_by_cap else "."
+        await flash(
+            (
+                f"Auto rule generation complete: created {summary['created']} rule(s), "
+                f"skipped {summary['existing']} existing, {summary['invalid']} invalid"
+                f"{cap_suffix}"
+            ),
+            "success",
+        )
+        return redirect(url_for("view_metrics_rules"))
+
+    await flash(
+        (
+            f"Auto-rule preview: {summary['candidates']} candidate(s), "
+            f"{summary['existing']} existing skipped, {summary['invalid']} invalid."
+        ),
+        "info",
+    )
+    return await render_template(
+        "metrics_rules.html",
+        rules=existing_rules,
+        services=services,
+        signals=signals,
+        sources=sources,
+        auto_preview=candidates,
+        auto_summary=summary,
+    )
 
 
 @app.route("/metrics/rules/<rule_id>/delete", methods=["POST"])
@@ -4536,6 +4843,30 @@ CHART_TEMPLATES = {
             ]
         },
     },
+    "custom_echarts": {
+        "id": "custom_echarts",
+        "name": "Custom ECharts",
+        "description": "Bring your own SQL, mapping JSON, and raw ECharts option JSON.",
+        "icon": "bi-code-slash",
+        "query_shape": "Any SELECT result set",
+        "sample_sql": "SELECT toDateTime('2024-01-01 00:00:00') AS time, 1 AS value",
+        "min_columns": 0,
+        "column_roles": {},
+        "echarts_option_template": {
+            "tooltip": {"trigger": "axis"},
+            "xAxis": {"type": "time"},
+            "yAxis": {"type": "value"},
+            "series": [
+                {
+                    "name": "Value",
+                    "type": "line",
+                    "data": "{{points}}",
+                    "showSymbol": False,
+                    "smooth": True,
+                }
+            ],
+        },
+    },
 }
 
 _QUERY_DENY_PATTERN = re.compile(
@@ -4570,6 +4901,53 @@ def _coerce_positive_int(raw: object, default_value: int, min_value: int, max_va
 
 
 def _default_chart_spec(template_id: str = "derived_signal_overlay") -> dict[str, object]:
+    if template_id == "custom_echarts":
+        return {
+            "template_id": template_id,
+            "sql": {
+                "mode": "raw",
+                "override_sql": "SELECT toDateTime('2024-01-01 00:00:00') AS time, 1 AS value",
+            },
+            "data": {
+                "source_view": "v_derived_signals_anomaly",
+                "service": "",
+                "signal_source": "traces",
+                "signal_name": "trace_volume",
+                "metric_name": "",
+                "attr_fp": "",
+                "window_hours": 6,
+                "limit": 1000,
+            },
+            "visual": {
+                "zoom_inside": True,
+                "zoom_slider": False,
+                "zoom_start_pct": 0,
+                "zoom_end_pct": 100,
+                "legend_show": True,
+                "smooth_line": True,
+                "value_color": "",
+                "role_map": {},
+                "custom_mapping_json": json.dumps({"points": {"from": "rows"}}, ensure_ascii=False),
+                "custom_option_json": json.dumps(
+                    {
+                        "tooltip": {"trigger": "axis"},
+                        "xAxis": {"type": "time"},
+                        "yAxis": {"type": "value"},
+                        "series": [
+                            {
+                                "name": "Value",
+                                "type": "line",
+                                "data": "{{points}}",
+                                "showSymbol": False,
+                                "smooth": True,
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        }
+
     return {
         "template_id": template_id,
         "sql": {"mode": "builder", "override_sql": ""},
@@ -4663,6 +5041,9 @@ def _normalize_chart_spec(spec_raw: object) -> dict[str, object]:
 
 
 def _compile_builder_sql(template_id: str, data: dict[str, object]) -> str:
+    if template_id == "custom_echarts":
+        raise ValueError("custom_echarts requires sql.mode='raw'")
+
     source_view = str(data.get("source_view") or "v_derived_signals_anomaly").strip()
     supported_sources = {
         "v_derived_signals_anomaly",
@@ -5052,6 +5433,8 @@ def _compile_chart_spec(spec_raw: object) -> tuple[str, str, dict[str, object]]:
     if sql_mode == "raw":
         query = str(sql_block.get("override_sql") if isinstance(sql_block, dict) else "").strip()
     else:
+        if template_id == "custom_echarts":
+            raise ValueError("custom_echarts requires sql.mode='raw'")
         data = spec.get("data") if isinstance(spec.get("data"), dict) else {}
         query = _compile_builder_sql(template_id, data if isinstance(data, dict) else {})
 
@@ -5128,6 +5511,9 @@ def _parse_bool(value: object, default_value: bool) -> bool:
 
 
 def _apply_chart_spec_visual_overrides(template_id: str, option: dict, spec: dict[str, object]) -> dict:
+    if template_id == "custom_echarts":
+        return option
+
     visual = spec.get("visual") if isinstance(spec.get("visual"), dict) else {}
     if not isinstance(visual, dict):
         return option
@@ -5750,6 +6136,9 @@ def _render_chart_from_template(
     if not template:
         raise ValueError(f"Unknown template: {template_id}")
 
+    if template_id == "custom_echarts":
+        return _render_custom_echarts(template, columns, rows, spec)
+
     if not rows:
         return {
             "backgroundColor": "transparent",
@@ -5793,6 +6182,160 @@ def _render_chart_from_template(
         if "textStyle" not in option:
             option["textStyle"] = {"color": "#adb5bd"}
     return option  # type: ignore
+
+
+def _parse_custom_json_config(raw: object, field_name: str) -> object:
+    if isinstance(raw, (dict, list)):
+        return raw
+    if raw is None:
+        return {}
+    text = str(raw).strip()
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except Exception as exc:
+        raise ValueError(f"{field_name} must be valid JSON") from exc
+
+
+def _resolve_custom_binding_expr(
+    expr: object, columns: list[str], records: list[dict[str, object]], rows: list[list]
+) -> object:
+    if isinstance(expr, str):
+        key = expr.strip()
+        if not key:
+            return None
+        if key == "columns":
+            return columns
+        if key == "rows":
+            return rows
+        if key == "records":
+            return records
+        return [record.get(key) for record in records]
+
+    if not isinstance(expr, dict):
+        raise ValueError("custom_mapping_json values must be strings or objects")
+
+    mode = str(expr.get("from") or "column").strip().lower()
+    if mode == "columns":
+        return columns
+    if mode == "rows":
+        return rows
+    if mode == "records":
+        return records
+    if mode == "literal":
+        return expr.get("value")
+    if mode == "column":
+        name = str(expr.get("name") or "").strip()
+        if not name:
+            raise ValueError("custom_mapping_json column mapping requires a non-empty 'name'")
+        return [record.get(name) for record in records]
+
+    raise ValueError(f"Unsupported custom mapping mode: {mode}")
+
+
+def _resolve_template_string(value: str, record: dict[str, object]) -> str:
+    def _replace(match: re.Match[str]) -> str:
+        key = match.group(1).strip()
+        resolved = record.get(key)
+        if resolved is None:
+            return ""
+        return str(resolved)
+
+    return re.sub(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}", _replace, value)
+
+
+def _build_custom_drilldown(mapping: dict[str, object], records: list[dict[str, object]]) -> dict[str, object] | None:
+    drilldown_raw = mapping.get("_drilldown")
+    if not isinstance(drilldown_raw, dict):
+        return None
+
+    target = str(drilldown_raw.get("target") or "").strip()
+    if target not in {"logs", "metrics", "traces", "errors"}:
+        return None
+
+    first_record = records[0] if records else {}
+    label = str(drilldown_raw.get("label") or "Open Source View").strip() or "Open Source View"
+
+    extra_raw = drilldown_raw.get("extra")
+    extra: dict[str, object] = {}
+    if isinstance(extra_raw, dict):
+        for k, v in cast(dict[object, object], extra_raw).items():
+            key = str(k).strip()
+            if not key:
+                continue
+            if isinstance(v, str):
+                extra[key] = _resolve_template_string(v, first_record)
+            else:
+                extra[key] = v
+
+    out: dict[str, object] = {"target": target, "label": label}
+    for optional_key in ["bucket_seconds", "time_axis", "service_axis"]:
+        if optional_key in drilldown_raw:
+            out[optional_key] = cast(dict[str, object], drilldown_raw)[optional_key]
+    if extra:
+        out["extra"] = extra
+    return out
+
+
+def _render_custom_echarts(
+    template: dict[str, object],
+    columns: list[str],
+    rows: list,
+    spec: dict[str, object] | None,
+) -> dict:
+    visual = spec.get("visual") if isinstance(spec, dict) and isinstance(spec.get("visual"), dict) else {}
+    visual_dict = cast(dict[str, object], visual) if isinstance(visual, dict) else {}
+
+    mapping_raw = _parse_custom_json_config(visual_dict.get("custom_mapping_json"), "visual.custom_mapping_json")
+    mapping = cast(dict[str, object], mapping_raw) if isinstance(mapping_raw, dict) else {}
+    if not isinstance(mapping_raw, dict):
+        raise ValueError("visual.custom_mapping_json must be a JSON object")
+
+    option_raw_cfg = visual_dict.get("custom_option_json")
+    if option_raw_cfg is None or (isinstance(option_raw_cfg, str) and not option_raw_cfg.strip()):
+        option_template = copy.deepcopy(template.get("echarts_option_template", {}))
+    else:
+        option_template = _parse_custom_json_config(option_raw_cfg, "visual.custom_option_json")
+    if not isinstance(option_template, dict):
+        raise ValueError("visual.custom_option_json must be a JSON object")
+
+    records: list[dict[str, object]] = []
+    for row in rows:
+        if isinstance(row, dict):
+            records.append({str(k): row.get(k) for k in columns})
+            continue
+        if isinstance(row, (list, tuple)):
+            records.append({col: row[idx] if idx < len(row) else None for idx, col in enumerate(columns)})
+
+    rows_2d = [[record.get(col) for col in columns] for record in records]
+
+    bindings: dict[str, object] = {
+        "columns": columns,
+        "records": records,
+        "rows": rows_2d,
+    }
+    for key, expr in mapping.items():
+        binding_key = str(key).strip()
+        if not binding_key:
+            continue
+        if binding_key.startswith("_"):
+            continue
+        bindings[binding_key] = _resolve_custom_binding_expr(expr, columns, records, rows_2d)
+
+    option = _deep_substitute(option_template, bindings)
+    if not isinstance(option, dict):
+        raise ValueError("Custom ECharts option must resolve to a JSON object")
+
+    if "backgroundColor" not in option:
+        option["backgroundColor"] = "transparent"
+    if "textStyle" not in option:
+        option["textStyle"] = {"color": "#adb5bd"}
+
+    drilldown = _build_custom_drilldown(mapping, records)
+    if drilldown:
+        option["_customDrilldown"] = drilldown
+    return option
 
 
 def _get_dashboards(db: ChDbConnection) -> list[dict]:
@@ -5904,6 +6447,18 @@ async def view_custom_dashboard(dashboard_id: str):
         charts=charts,
         templates=templates,
     )
+
+
+@app.route("/dashboards/help/chart-editor")
+@require_basic_auth
+async def chart_editor_help():
+    return await render_template("chart_editor_help.html")
+
+
+@app.route("/metrics/help/rules")
+@require_basic_auth
+async def metrics_rules_help():
+    return await render_template("metrics_rules_help.html")
 
 
 @app.route("/dashboards/<dashboard_id>/delete", methods=["POST"])

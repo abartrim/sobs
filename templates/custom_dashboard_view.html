@@ -1,6 +1,37 @@
 {% extends "base.html" %}
 {% block title %}{{ dashboard.name }}{% endblock %}
 {% block content %}
+<style>
+  #addChartModal .modal-dialog {
+    margin: 0.5rem auto;
+    height: calc(100vh - 1rem);
+    height: calc(100dvh - 1rem);
+  }
+
+  #addChartModal .modal-content {
+    height: 100%;
+    max-height: none;
+  }
+
+  #addChartModal #chartEditorForm {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+  }
+
+  #addChartModal .modal-body {
+    overflow-y: auto;
+    min-height: 0;
+    overscroll-behavior: contain;
+    scroll-behavior: smooth;
+  }
+
+  #addChartModal .modal-header,
+  #addChartModal .modal-footer {
+    flex: 0 0 auto;
+  }
+</style>
 <div class="d-flex justify-content-between align-items-center mb-4">
   <div>
     <nav aria-label="breadcrumb">
@@ -14,7 +45,21 @@
     <p class="text-secondary small mb-0">{{ dashboard.description }}</p>
     {% endif %}
   </div>
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 align-items-center">
+    <div class="d-flex align-items-center gap-2" title="Auto-refresh interval">
+      <span id="refreshCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
+      <div class="input-group input-group-sm" style="width:auto;">
+        <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
+        <select id="refreshIntervalSelect" class="form-select form-select-sm" style="width:auto;">
+          <option value="0">Off</option>
+          <option value="10">10s</option>
+          <option value="30">30s</option>
+          <option value="60">1m</option>
+          <option value="120">2m</option>
+          <option value="300">5m</option>
+        </select>
+      </div>
+    </div>
     <button class="btn btn-primary btn-sm js-add-chart-btn" data-bs-toggle="modal" data-bs-target="#addChartModal">
       <i class="bi bi-plus-lg me-1"></i>Add Chart
     </button>
@@ -89,12 +134,15 @@
 
 <!-- Add Chart Modal -->
 <div class="modal fade" id="addChartModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable" style="max-width:min(96vw, 1480px);">
     <div class="modal-content">
       <form method="post" action="{{ url_for('add_chart', dashboard_id=dashboard.id) }}" id="chartEditorForm">
         <div class="modal-header">
           <h5 class="modal-title" id="chartEditorModalTitle">Add Chart</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          <div class="d-flex gap-2 align-items-center ms-auto">
+            <a href="{{ url_for('chart_editor_help') }}" target="_blank" class="link-secondary text-decoration-none" title="Chart Help" aria-label="Chart Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
         </div>
         <div class="modal-body">
           <input type="hidden" id="chartSpecJson" name="chart_spec_json" value="">
@@ -114,6 +162,7 @@
                       <option value="raw">Raw SQL</option>
                     </select>
                   </div>
+                  <div id="builderFieldsWrap">
                   <div class="mb-2">
                     <label class="form-label small">Source (View or Base Table)</label>
                     <select id="sourceViewInput" class="form-select form-select-sm">
@@ -170,6 +219,8 @@
                       <input id="limitInput" type="number" min="1" max="2000" value="1000" class="form-control form-control-sm">
                     </div>
                   </div>
+                  </div>
+                  <div class="small text-secondary mb-2 d-none" id="rawSqlModeHint">Builder filters are hidden in Raw SQL mode. Your query text is used as-is.</div>
                   <div class="mb-2">
                     <label class="form-label small">Raw SQL Override</label>
                     <textarea id="queryInput" name="query" class="form-control font-monospace" rows="5" placeholder="SELECT ..."></textarea>
@@ -196,6 +247,17 @@
                     <div id="roleMapEditor" class="d-grid gap-1"></div>
                     <div id="roleMapHelp" class="small text-secondary mt-1"></div>
                   </div>
+                  <div class="mb-2 d-none" id="customEchartsFields">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <label class="form-label small mb-0">Custom Mapping JSON</label>
+                      <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" id="customDrilldownPresetBtn">Insert Source Button Preset</button>
+                    </div>
+                    <textarea id="customMappingJsonInput" class="form-control form-control-sm font-monospace" rows="4" placeholder='{"points":{"from":"rows"}}'></textarea>
+                    <label class="form-label small mt-2 mb-1">Custom ECharts Option JSON</label>
+                    <textarea id="customOptionJsonInput" class="form-control form-control-sm font-monospace" rows="8" placeholder='{"series":[{"type":"line","data":"POINTS_PLACEHOLDER"}]}'></textarea>
+                    <div class="small text-secondary mt-1">Supports placeholders like &#123;&#123;rows&#125;&#125;, &#123;&#123;records&#125;&#125;, &#123;&#123;columns&#125;&#125;, and mapped keys such as &#123;&#123;points&#125;&#125;. Optional source button config: <code>"_drilldown": {"target": "logs|metrics|traces|errors", "extra": {"service": "&#123;&#123;service&#125;&#125;"}}</code>.</div>
+                  </div>
+                  <div id="standardVisualControls">
                   <div class="row g-2 mb-2">
                     <div class="col-6 form-check ps-4">
                       <input class="form-check-input" type="checkbox" id="legendShowInput" checked>
@@ -228,9 +290,13 @@
                     <label class="form-label small">Value Color (optional)</label>
                     <input id="valueColorInput" class="form-control form-control-sm" placeholder="#20c997">
                   </div>
+                  </div>
                   <div class="d-flex justify-content-between align-items-center mb-1">
                     <label class="form-label small mb-0">Compiled SQL</label>
                     <div class="d-flex gap-1">
+                      <button type="button" class="btn btn-sm btn-outline-secondary" id="previewBtn">
+                        <i class="bi bi-eye me-1"></i>Preview
+                      </button>
                       <button type="button" class="btn btn-sm btn-outline-secondary" id="dryRunSpecBtn">
                         <i class="bi bi-table me-1"></i>Dry Run
                       </button>
@@ -253,11 +319,6 @@
             <label class="form-label">Query Preview</label>
             <div id="queryPreviewMsg" class="text-secondary small mb-2"></div>
             <div id="queryPreviewChart" style="height:250px;"></div>
-          </div>
-          <div class="d-flex gap-2">
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="previewBtn">
-              <i class="bi bi-eye me-1"></i>Preview
-            </button>
           </div>
         </div>
         <div class="modal-footer">
@@ -504,7 +565,7 @@
         ec.setOption(option);
 
         var template = templatesMap[chartCfg.chart_type];
-        var drilldown = template && template.drilldown;
+        var drilldown = template && template.drilldown ? template.drilldown : (option && option._customDrilldown ? option._customDrilldown : null);
         if (drilldown) {
           var dd = Object.assign({}, drilldown);
           dd.extra = Object.assign({}, dd.extra || {});
@@ -561,6 +622,72 @@
 
   CHART_DATA.forEach(renderChart);
 
+  /* ── Auto-refresh interval ── */
+  var _refreshTimer = null;
+  var _countdownTimer = null;
+  var _countdownRemaining = 0;
+  var refreshIntervalSelect = document.getElementById('refreshIntervalSelect');
+  var refreshCountdown = document.getElementById('refreshCountdown');
+
+  function refreshAllCharts() {
+    CHART_DATA.forEach(function (cfg) {
+      var el = document.getElementById('chart-' + cfg.id);
+      if (el) {
+        var existing = echarts.getInstanceByDom(el);
+        if (existing) existing.dispose();
+      }
+    });
+    CHART_DATA.forEach(renderChart);
+  }
+
+  function _tickCountdown() {
+    _countdownRemaining -= 1;
+    if (_countdownRemaining <= 0) {
+      _countdownRemaining = parseInt(refreshIntervalSelect.value, 10);
+    }
+    if (refreshCountdown) {
+      var s = _countdownRemaining;
+      refreshCountdown.textContent = s >= 60 ? Math.ceil(s / 60) + 'm' : s + 's';
+    }
+  }
+
+  function applyRefreshInterval() {
+    if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+    if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
+    var sec = parseInt(refreshIntervalSelect.value, 10);
+    if (refreshCountdown) {
+      if (sec > 0) {
+        _countdownRemaining = sec;
+        refreshCountdown.textContent = sec >= 60 ? Math.ceil(sec / 60) + 'm' : sec + 's';
+        refreshCountdown.style.display = '';
+      } else {
+        refreshCountdown.style.display = 'none';
+        refreshCountdown.textContent = '';
+      }
+    }
+    if (sec > 0) {
+      _countdownTimer = setInterval(_tickCountdown, 1000);
+      _refreshTimer = setInterval(function () {
+        _countdownRemaining = sec;
+        if (refreshCountdown) refreshCountdown.textContent = sec >= 60 ? Math.ceil(sec / 60) + 'm' : sec + 's';
+        refreshAllCharts();
+      }, sec * 1000);
+    }
+  }
+
+  if (refreshIntervalSelect) {
+    var _storageKey = 'sobs_dash_refresh_{{ dashboard.id }}';
+    refreshIntervalSelect.addEventListener('change', function () {
+      localStorage.setItem(_storageKey, refreshIntervalSelect.value);
+      applyRefreshInterval();
+    });
+    var _savedInterval = localStorage.getItem(_storageKey);
+    if (_savedInterval && _savedInterval !== '0') {
+      refreshIntervalSelect.value = _savedInterval;
+      applyRefreshInterval();
+    }
+  }
+
   /* ── Template selector: update description ── */
   var templateSelect = document.getElementById('templateSelect');
   var templateDesc = document.getElementById('templateDesc');
@@ -575,6 +702,8 @@
   var chartSpecJson = document.getElementById('chartSpecJson');
   var sqlModeSelect = document.getElementById('sqlModeSelect');
   var sourceViewInput = document.getElementById('sourceViewInput');
+  var builderFieldsWrap = document.getElementById('builderFieldsWrap');
+  var rawSqlModeHint = document.getElementById('rawSqlModeHint');
   var serviceInput = document.getElementById('serviceInput');
   var serviceOptionsList = document.getElementById('serviceOptionsList');
   var signalSourceInput = document.getElementById('signalSourceInput');
@@ -595,6 +724,11 @@
   var roleMapEditorWrap = document.getElementById('roleMapEditorWrap');
   var roleMapEditor = document.getElementById('roleMapEditor');
   var roleMapHelp = document.getElementById('roleMapHelp');
+  var customEchartsFields = document.getElementById('customEchartsFields');
+  var customMappingJsonInput = document.getElementById('customMappingJsonInput');
+  var customOptionJsonInput = document.getElementById('customOptionJsonInput');
+  var customDrilldownPresetBtn = document.getElementById('customDrilldownPresetBtn');
+  var standardVisualControls = document.getElementById('standardVisualControls');
   var derivedSignalBuilderFields = document.getElementById('derivedSignalBuilderFields');
   var metricBuilderFields = document.getElementById('metricBuilderFields');
   var legendShowInput = document.getElementById('legendShowInput');
@@ -652,6 +786,12 @@
   function renderRoleMapEditor(columns, columnTypes) {
     if (!roleMapEditorWrap || !roleMapEditor) return;
     var t = templatesMap[templateSelect && templateSelect.value ? templateSelect.value : ''];
+    if (t && t.id === 'custom_echarts') {
+      roleMapEditorWrap.style.display = 'none';
+      roleMapEditor.innerHTML = '';
+      if (roleMapHelp) roleMapHelp.textContent = '';
+      return;
+    }
     var roleDefs = t && t.column_roles ? t.column_roles : null;
     var colList = Array.isArray(columns) ? columns : [];
     var typeList = Array.isArray(columnTypes) ? columnTypes : [];
@@ -692,6 +832,56 @@
     if (!specValidationMsg) return;
     specValidationMsg.textContent = text || '';
     specValidationMsg.className = isError ? 'small text-danger' : 'small text-secondary';
+  }
+
+  function scrollModalSectionIntoView(el) {
+    if (!el) return;
+    var modalBody = el.closest('.modal-body');
+    if (!modalBody) return;
+    var bodyRect = modalBody.getBoundingClientRect();
+    var targetRect = el.getBoundingClientRect();
+    var currentTop = modalBody.scrollTop;
+    var pad = 12;
+
+    if (targetRect.top < bodyRect.top) {
+      modalBody.scrollTo({ top: Math.max(0, currentTop + (targetRect.top - bodyRect.top) - pad), behavior: 'smooth' });
+      return;
+    }
+
+    if (targetRect.bottom > bodyRect.bottom) {
+      modalBody.scrollTo({ top: currentTop + (targetRect.bottom - bodyRect.bottom) + pad, behavior: 'smooth' });
+    }
+  }
+
+  function insertCustomDrilldownPreset() {
+    if (!customMappingJsonInput) return;
+    var current = customMappingJsonInput.value ? customMappingJsonInput.value.trim() : '';
+    var mapping = {};
+    if (current) {
+      try {
+        var parsed = JSON.parse(current);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          mapping = parsed;
+        }
+      } catch (err) {
+        setSpecMessage('Fix Custom Mapping JSON before inserting preset.', true);
+        return;
+      }
+    }
+
+    if (!mapping._drilldown || typeof mapping._drilldown !== 'object') {
+      mapping._drilldown = {
+        target: 'traces',
+        label: 'Open source traces',
+        extra: {
+          service: '{{service}}',
+          from_ts: '{{ts}}'
+        }
+      };
+    }
+
+    customMappingJsonInput.value = JSON.stringify(mapping, null, 2);
+    setSpecMessage('Inserted _drilldown preset into Custom Mapping JSON.', false);
   }
 
   function setDatalistOptions(listEl, values) {
@@ -744,6 +934,15 @@
     if (zoomStartInput) zoomStartInput.value = '0';
     if (zoomEndInput) zoomEndInput.value = '100';
     if (valueColorInput) valueColorInput.value = '';
+    if (customMappingJsonInput) customMappingJsonInput.value = '{"points":{"from":"rows"}}';
+    if (customOptionJsonInput) {
+      customOptionJsonInput.value = JSON.stringify({
+        tooltip: { trigger: 'axis' },
+        xAxis: { type: 'time' },
+        yAxis: { type: 'value' },
+        series: [{ name: 'Value', type: 'line', data: '\\u007B\\u007Bpoints\\u007D\\u007D', showSymbol: false, smooth: true }]
+      }, null, 2);
+    }
     roleMapState = {};
     if (chartSpecJson) chartSpecJson.value = '';
     if (compiledSql) compiledSql.textContent = '';
@@ -788,6 +987,16 @@
     if (zoomStartInput) zoomStartInput.value = visual.zoom_start_pct != null ? String(visual.zoom_start_pct) : '0';
     if (zoomEndInput) zoomEndInput.value = visual.zoom_end_pct != null ? String(visual.zoom_end_pct) : '100';
     if (valueColorInput) valueColorInput.value = visual.value_color ? String(visual.value_color) : '';
+    if (customMappingJsonInput) {
+      customMappingJsonInput.value = visual.custom_mapping_json
+        ? String(visual.custom_mapping_json)
+        : '{"points":{"from":"rows"}}';
+    }
+    if (customOptionJsonInput) {
+      customOptionJsonInput.value = visual.custom_option_json
+        ? String(visual.custom_option_json)
+        : '';
+    }
     roleMapState = (visual.role_map && typeof visual.role_map === 'object') ? visual.role_map : {};
 
     if (chartSpecJson) chartSpecJson.value = JSON.stringify(nextSpec);
@@ -819,7 +1028,12 @@
         window_hours: windowHoursInput && windowHoursInput.value ? Number(windowHoursInput.value) : 6,
         limit: limitInput && limitInput.value ? Number(limitInput.value) : 1000
       },
-      visual: { zoom_inside: true, zoom_slider: false }
+      visual: {
+        zoom_inside: true,
+        zoom_slider: false,
+        custom_mapping_json: customMappingJsonInput && customMappingJsonInput.value ? customMappingJsonInput.value : '',
+        custom_option_json: customOptionJsonInput && customOptionJsonInput.value ? customOptionJsonInput.value : ''
+      }
     };
   }
 
@@ -833,6 +1047,12 @@
     spec.visual.zoom_end_pct = zoomEndInput && zoomEndInput.value ? Number(zoomEndInput.value) : 100;
     spec.visual.value_color = valueColorInput && valueColorInput.value ? valueColorInput.value.trim() : '';
     spec.visual.role_map = readRoleMapInputs();
+    spec.visual.custom_mapping_json = customMappingJsonInput && customMappingJsonInput.value
+      ? customMappingJsonInput.value
+      : '';
+    spec.visual.custom_option_json = customOptionJsonInput && customOptionJsonInput.value
+      ? customOptionJsonInput.value
+      : '';
     return spec;
   }
 
@@ -883,6 +1103,9 @@
           dryRunMeta.textContent = 'Columns: ' + (res.body.columns || []).length + ' · Rows: ' + (res.body.rows || []).length;
         }
         renderDryRunTable(res.body.columns || [], res.body.column_types || [], res.body.rows || []);
+        if (dryRunTableWrap && dryRunTableWrap.style.display !== 'none') {
+          scrollModalSectionIntoView(dryRunTableWrap);
+        }
         return res.body;
       })
       .catch(function (err) {
@@ -893,7 +1116,15 @@
   }
 
   function refreshBuilderVisibility() {
+    var selectedTemplate = templateSelect && templateSelect.value ? templateSelect.value : '';
+    var isCustomEcharts = selectedTemplate === 'custom_echarts';
+    if (selectedTemplate === 'custom_echarts' && sqlModeSelect) {
+      sqlModeSelect.value = 'raw';
+    }
+
     var useBuilder = !sqlModeSelect || sqlModeSelect.value !== 'raw';
+    if (builderFieldsWrap) builderFieldsWrap.classList.toggle('d-none', !useBuilder);
+    if (rawSqlModeHint) rawSqlModeHint.classList.toggle('d-none', useBuilder);
     if (sourceViewInput) sourceViewInput.disabled = !useBuilder;
     if (serviceInput) serviceInput.disabled = !useBuilder;
     if (attrFpInput) attrFpInput.disabled = !useBuilder;
@@ -908,6 +1139,10 @@
     var showDerivedFields = useBuilder && !isMetricSource;
     if (derivedSignalBuilderFields) derivedSignalBuilderFields.classList.toggle('d-none', !showDerivedFields);
     if (metricBuilderFields) metricBuilderFields.classList.toggle('d-none', !useBuilder || !isMetricSource);
+    if (customEchartsFields) customEchartsFields.classList.toggle('d-none', !isCustomEcharts);
+    if (standardVisualControls) standardVisualControls.classList.toggle('d-none', isCustomEcharts);
+    if (roleMapEditorWrap) roleMapEditorWrap.style.display = isCustomEcharts ? 'none' : roleMapEditorWrap.style.display;
+    if (queryInput) queryInput.rows = useBuilder ? 5 : 11;
   }
 
   function compileSpec() {
@@ -970,11 +1205,18 @@
 
     templateDesc.textContent = t.description || '';
     columnHint.textContent = buildTemplateExample(t);
+    if (customEchartsFields) {
+      customEchartsFields.classList.toggle('d-none', t.id !== 'custom_echarts');
+    }
     if (!suppressRoleMapReset) roleMapState = {};
     renderRoleMapEditor(lastDryRunColumns, lastDryRunColumnTypes);
+    if (t.id === 'custom_echarts' && sqlModeSelect) {
+      sqlModeSelect.value = 'raw';
+    }
     if (sqlModeSelect && sqlModeSelect.value === 'raw' && queryInput && !queryInput.value.trim()) {
       queryInput.value = t.sample_sql || '';
     }
+    refreshBuilderVisibility();
   }
   updateTemplateInfo();
   templateSelect.addEventListener('change', updateTemplateInfo);
@@ -992,6 +1234,11 @@
   }
   if (compileSpecBtn) compileSpecBtn.addEventListener('click', function () { compileSpec(); });
   if (dryRunSpecBtn) dryRunSpecBtn.addEventListener('click', function () { runDryRun(); });
+  if (customDrilldownPresetBtn) {
+    customDrilldownPresetBtn.addEventListener('click', function () {
+      insertCustomDrilldownPreset();
+    });
+  }
   refreshBuilderVisibility();
   refreshDistinctBuilderOptions();
 
@@ -1034,6 +1281,7 @@
 
       area.style.display = 'block';
       msg.textContent = 'Rendering…';
+      scrollModalSectionIntoView(area);
       if (previewChartInst) { previewChartInst.dispose(); previewChartInst = null; }
 
       fetch(specRenderUrl, {
@@ -1051,6 +1299,7 @@
           var el = document.getElementById('queryPreviewChart');
           previewChartInst = echarts.init(el, 'dark');
           previewChartInst.setOption(data.option);
+          scrollModalSectionIntoView(area);
           if (queryInput && data.query) queryInput.value = data.query;
           var previewSpec = applyVisualSettings(data.spec || currentChartSpec());
           if (chartSpecJson) chartSpecJson.value = JSON.stringify(previewSpec);

@@ -1,0 +1,24 @@
+{
+  "tooltip": {
+    "trigger": "axis"
+  },
+  "xAxis": {
+    "type": "time"
+  },
+  "yAxis": {
+    "type": "value",
+    "name": "p95 ms"
+  },
+  "series": [
+    {
+      "name": "Latency p95",
+      "type": "line",
+      "data": "{{points}}",
+      "showSymbol": false,
+      "smooth": true,
+      "lineStyle": {
+        "width": 2
+      }
+    }
+  ]
+}
