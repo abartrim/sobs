@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}SOBS{% endblock %} — Simple Observe</title>
   <script>(function () {
-    var t = localStorage.getItem('sobs-theme') || 'system';
+    function normalizeTheme(value) {
+      return (value === 'light' || value === 'dark' || value === 'system') ? value : 'system';
+    }
+    var t = normalizeTheme(localStorage.getItem('sobs-theme'));
     document.documentElement.setAttribute('data-bs-theme',
       t === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : t);
   }());</script>
@@ -228,12 +231,18 @@
 (function () {
   /* ===== Theme management ===== */
   var THEME_KEY = 'sobs-theme';
+  var VALID_THEMES = { light: true, dark: true, system: true };
+
+  function normalizeTheme(value) {
+    return VALID_THEMES[value] ? value : 'system';
+  }
 
   function getStoredTheme() {
-    return localStorage.getItem(THEME_KEY) || 'system';
+    return normalizeTheme(localStorage.getItem(THEME_KEY));
   }
 
   function applyTheme(stored) {
+    stored = normalizeTheme(stored);
     var effective = stored === 'system'
       ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
       : stored;
@@ -249,6 +258,7 @@
   }
 
   var currentTheme = getStoredTheme();
+  localStorage.setItem(THEME_KEY, currentTheme);
   updateThemeUI(currentTheme);
 
   document.querySelectorAll('[data-sobs-theme]').forEach(function (btn) {
