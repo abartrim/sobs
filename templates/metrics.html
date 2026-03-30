@@ -71,28 +71,50 @@
 <div class="card border-secondary">
   <div class="card-header d-flex justify-content-between align-items-center">
     <span class="small text-secondary">{{ total }} series</span>
+    <div class="d-flex align-items-center gap-2 small">
+      <span id="metricsRangeLabel" class="text-secondary"></span>
+      <select id="metricsPageSizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="25">25 / page</option>
+        <option value="50" selected>50 / page</option>
+        <option value="100">100 / page</option>
+        <option value="200">200 / page</option>
+      </select>
+      <button id="metricsPrevBtn" type="button" class="btn btn-sm btn-outline-secondary">Prev</button>
+      <span id="metricsPageLabel" class="text-secondary"></span>
+      <button id="metricsNextBtn" type="button" class="btn btn-sm btn-outline-secondary">Next</button>
+    </div>
   </div>
   <div class="table-responsive">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table id="metricsTable" class="table table-dark table-sm align-middle mb-0">
       <thead>
         <tr>
-          <th>Last Seen</th>
-          <th>Service</th>
-          <th>Source</th>
-          <th>Signal</th>
-          <th>Value</th>
-          <th>Z</th>
-          <th>State</th>
-          <th>Rule</th>
-          <th>Sample</th>
-          <th>Points</th>
+          <th><button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-sort-header" data-sort-key="last_time">Last Seen <span class="text-secondary">↕</span></button></th>
+          <th><button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-sort-header" data-sort-key="service">Service <span class="text-secondary">↕</span></button></th>
+          <th><button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-sort-header" data-sort-key="source">Source <span class="text-secondary">↕</span></button></th>
+          <th><button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-sort-header" data-sort-key="signal">Signal <span class="text-secondary">↕</span></button></th>
+          <th><button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-sort-header" data-sort-key="value">Value <span class="text-secondary">↕</span></button></th>
+          <th><button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-sort-header" data-sort-key="z">Z <span class="text-secondary">↕</span></button></th>
+          <th><button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-sort-header" data-sort-key="state">State <span class="text-secondary">↕</span></button></th>
+          <th><button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-sort-header" data-sort-key="rule">Rule <span class="text-secondary">↕</span></button></th>
+          <th><button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-sort-header" data-sort-key="sample">Sample <span class="text-secondary">↕</span></button></th>
+          <th><button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-sort-header" data-sort-key="points">Points <span class="text-secondary">↕</span></button></th>
           <th></th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="metricsTbody">
         {% if rows %}
           {% for r in rows %}
-          <tr>
+          <tr class="js-metrics-row"
+              data-last-time="{{ r.last_time }}"
+              data-service="{{ r.service }}"
+              data-source="{{ r.source }}"
+              data-signal="{{ r.signal }}"
+              data-value="{{ r.last_value }}"
+              data-z="{{ r.last_anomaly_score }}"
+              data-state-rank="{% if r.effective_state == 'outlier' %}2{% elif r.effective_state == 'warning' %}1{% else %}0{% endif %}"
+              data-rule="{{ r.rule_name }}"
+              data-sample="{{ r.last_sample_count }}"
+              data-points="{{ r.point_count }}">
             <td class="small font-monospace">{{ r.last_time }}</td>
             <td class="small">{{ r.service }}</td>
             <td class="small">{{ r.source }}</td>
@@ -124,7 +146,7 @@
           </tr>
           {% endfor %}
         {% else %}
-          <tr>
+          <tr id="metricsEmptyRow">
             <td colspan="11" class="text-center text-secondary py-4">No derived signals for the current filters.</td>
           </tr>
         {% endif %}
@@ -132,4 +154,130 @@
     </table>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var tbody = document.getElementById('metricsTbody');
+  var pageSizeSelect = document.getElementById('metricsPageSizeSelect');
+  var prevBtn = document.getElementById('metricsPrevBtn');
+  var nextBtn = document.getElementById('metricsNextBtn');
+  var pageLabel = document.getElementById('metricsPageLabel');
+  var rangeLabel = document.getElementById('metricsRangeLabel');
+  var sortHeaders = Array.prototype.slice.call(document.querySelectorAll('.js-sort-header'));
+  if (!tbody || !pageSizeSelect || !prevBtn || !nextBtn || !pageLabel || !rangeLabel) {
+    return;
+  }
+
+  var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr.js-metrics-row'));
+  var emptyRow = document.getElementById('metricsEmptyRow');
+  if (!rows.length) {
+    pageSizeSelect.disabled = true;
+    prevBtn.disabled = true;
+    nextBtn.disabled = true;
+    pageLabel.textContent = '';
+    rangeLabel.textContent = 'Showing 0 of 0';
+    return;
+  }
+
+  var sortKey = 'last_time';
+  var sortDir = 'desc';
+  var currentPage = 1;
+
+  function _valueFor(row, key) {
+    if (key === 'last_time') {
+      return Date.parse(row.dataset.lastTime || '') || 0;
+    }
+    if (key === 'value' || key === 'z' || key === 'sample' || key === 'points' || key === 'state') {
+      if (key === 'state') {
+        return parseInt(row.dataset.stateRank || '0', 10);
+      }
+      var n = parseFloat(row.dataset[key] || '0');
+      return isNaN(n) ? -1e99 : n;
+    }
+    return (row.dataset[key] || '').toLowerCase();
+  }
+
+  function _sortRows() {
+    rows.sort(function (a, b) {
+      var av = _valueFor(a, sortKey);
+      var bv = _valueFor(b, sortKey);
+      if (av < bv) return sortDir === 'asc' ? -1 : 1;
+      if (av > bv) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }
+
+  function _render() {
+    var pageSize = parseInt(pageSizeSelect.value, 10) || 50;
+    var total = rows.length;
+    var pageCount = Math.max(1, Math.ceil(total / pageSize));
+    if (currentPage > pageCount) currentPage = pageCount;
+    if (currentPage < 1) currentPage = 1;
+
+    var startIdx = (currentPage - 1) * pageSize;
+    var endIdx = Math.min(startIdx + pageSize, total);
+
+    tbody.innerHTML = '';
+    for (var i = startIdx; i < endIdx; i += 1) {
+      tbody.appendChild(rows[i]);
+    }
+    if (!total && emptyRow) {
+      tbody.appendChild(emptyRow);
+    }
+
+    var startDisplay = total ? startIdx + 1 : 0;
+    rangeLabel.textContent = 'Showing ' + startDisplay + '-' + endIdx + ' of ' + total;
+    pageLabel.textContent = 'Page ' + currentPage + '/' + pageCount;
+    prevBtn.disabled = currentPage <= 1;
+    nextBtn.disabled = currentPage >= pageCount;
+
+    sortHeaders.forEach(function (h) {
+      var key = h.getAttribute('data-sort-key');
+      var marker = ' ↕';
+      if (key === sortKey) {
+        marker = sortDir === 'asc' ? ' ↑' : ' ↓';
+      }
+      var base = h.textContent.replace(/[\s][↕↑↓]$/, '');
+      h.textContent = base + marker;
+    });
+  }
+
+  sortHeaders.forEach(function (h) {
+    h.addEventListener('click', function () {
+      var key = h.getAttribute('data-sort-key') || 'last_time';
+      if (sortKey === key) {
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortKey = key;
+        sortDir = (key === 'last_time' || key === 'value' || key === 'z' || key === 'sample' || key === 'points' || key === 'state')
+          ? 'desc'
+          : 'asc';
+      }
+      currentPage = 1;
+      _sortRows();
+      _render();
+    });
+  });
+
+  pageSizeSelect.addEventListener('change', function () {
+    currentPage = 1;
+    _render();
+  });
+
+  prevBtn.addEventListener('click', function () {
+    currentPage -= 1;
+    _render();
+  });
+
+  nextBtn.addEventListener('click', function () {
+    currentPage += 1;
+    _render();
+  });
+
+  _sortRows();
+  _render();
+})();
+</script>
 {% endblock %}

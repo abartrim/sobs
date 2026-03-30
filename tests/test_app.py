@@ -3041,6 +3041,8 @@ class TestMetricsAnomalyDetection:
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
         assert "Metrics & Signals" in body
+        assert "metricsPageSizeSelect" in body
+        assert "js-sort-header" in body
 
     async def test_metrics_rules_page_renders(self, client):
         r = await client.get("/metrics/rules")
