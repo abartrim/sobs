@@ -1,9 +1,14 @@
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}SOBS{% endblock %} — Simple Observe</title>
+  <script>(function () {
+    var t = localStorage.getItem('sobs-theme') || 'system';
+    document.documentElement.setAttribute('data-bs-theme',
+      t === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : t);
+  }());</script>
   <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap-icons.min.css') }}">
   <style>
@@ -95,6 +100,8 @@
       z-index: 3;
     }
     .drp-combo .drp-combo-trigger .bi { font-size: .85rem; }
+    /* ===== Theme toggle ===== */
+    .theme-toggle { position: fixed; top: .6rem; right: 1rem; z-index: 1050; }
   </style>
 </head>
 <body>
@@ -189,11 +196,70 @@
 
 <script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
 <script src="{{ url_for('static', filename='date-range-picker.js') }}"></script>
+
+<!-- Theme toggle: fixed top-right corner, always visible -->
+<div class="theme-toggle">
+  <div class="btn-group btn-group-sm" role="group" aria-label="Theme">
+    <button type="button" class="btn btn-outline-secondary" data-sobs-theme="light" title="Light theme" aria-pressed="false">
+      <i class="bi bi-sun"></i>
+    </button>
+    <button type="button" class="btn btn-outline-secondary" data-sobs-theme="system" title="System theme" aria-pressed="false">
+      <i class="bi bi-circle-half"></i>
+    </button>
+    <button type="button" class="btn btn-outline-secondary" data-sobs-theme="dark" title="Dark theme" aria-pressed="false">
+      <i class="bi bi-moon-stars"></i>
+    </button>
+  </div>
+</div>
 {% if config.get('ENABLE_FIRST_RUN_TOUR', True) and request.endpoint not in ('chart_editor_help', 'metrics_rules_help', 'auto_metrics_rules_help') %}
   {% include "_first_run_tour.html" %}
 {% endif %}
 {% block scripts %}{% endblock %}
 <script>
+(function () {
+  /* ===== Theme management ===== */
+  var THEME_KEY = 'sobs-theme';
+
+  function getStoredTheme() {
+    return localStorage.getItem(THEME_KEY) || 'system';
+  }
+
+  function applyTheme(stored) {
+    var effective = stored === 'system'
+      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      : stored;
+    document.documentElement.setAttribute('data-bs-theme', effective);
+  }
+
+  function updateThemeUI(stored) {
+    document.querySelectorAll('[data-sobs-theme]').forEach(function (btn) {
+      var active = btn.getAttribute('data-sobs-theme') === stored;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
+  var currentTheme = getStoredTheme();
+  updateThemeUI(currentTheme);
+
+  document.querySelectorAll('[data-sobs-theme]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var t = this.getAttribute('data-sobs-theme');
+      localStorage.setItem(THEME_KEY, t);
+      applyTheme(t);
+      updateThemeUI(t);
+    });
+  });
+
+  // Follow OS preference changes when in system mode
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
+    if (getStoredTheme() === 'system') {
+      applyTheme('system');
+    }
+  });
+}());
+
+/* ===== Sidebar ===== */
 (function () {
   var sidebar = document.getElementById('sbSidebar');
   var toggleBtn = document.getElementById('sbToggleBtn');
