@@ -730,6 +730,13 @@ CREATE TABLE IF NOT EXISTS sobs_notification_log (
 PARTITION BY toDate(FiredAt)
 ORDER BY (RuleId, FiredAt)
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
+CREATE TABLE IF NOT EXISTS sobs_app_settings (
+    Key String,
+    Value String CODEC(ZSTD(1)),
+    UpdatedAt DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1))
+) ENGINE = ReplacingMergeTree(UpdatedAt)
+ORDER BY Key;
 """
 
 
@@ -9052,6 +9059,8 @@ _NOTIFICATION_LOGIC_OPERATORS = ("any", "all")  # any=OR, all=AND
 
 # VAPID JWT expiry window (12 hours)
 _VAPID_JWT_EXPIRY_SECONDS = 43200
+# DB setting key for the VAPID private key
+_VAPID_PRIVATE_KEY_SETTING = "vapid_private_key"
 # Web Push AES-128-GCM record size per RFC 8291
 _PUSH_RECORD_SIZE = 4096
 
@@ -9255,10 +9264,10 @@ def _dispatch_browser_push_channel(config: dict, payload: dict) -> None:
     if not endpoint or not p256dh or not auth:
         raise ValueError("browser_push channel is missing endpoint, p256dh, or auth")
 
-    vapid_private_key_b64 = os.environ.get("SOBS_VAPID_PRIVATE_KEY", "").strip()
+    vapid_private_key_b64, _key_source = _get_vapid_private_key_b64()
     vapid_subject = os.environ.get("SOBS_VAPID_SUBJECT", "mailto:sobs@localhost").strip()
     if not vapid_private_key_b64:
-        raise ValueError("SOBS_VAPID_PRIVATE_KEY environment variable is required for browser push notifications")
+        raise ValueError("VAPID private key is not configured — generate one on the Notifications settings page")
 
     try:
         from cryptography.hazmat.backends import default_backend
@@ -9375,7 +9384,9 @@ def _encrypt_push_payload(
     subscriber_pub_key = load_der_public_key(subscriber_pub_der, backend=backend)  # type: ignore[call-arg]
 
     # ECDH shared secret
-    shared_secret = server_private.exchange(ECDH(), subscriber_pub_key)
+    from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey as _ECPubKey
+
+    shared_secret = server_private.exchange(ECDH(), cast(_ECPubKey, subscriber_pub_key))
 
     # Salt
     salt = secrets.token_bytes(16)
@@ -9629,21 +9640,71 @@ def _generate_vapid_keys() -> tuple[str, str]:
     return private_b64, public_b64
 
 
-def _get_vapid_public_key() -> str | None:
-    """Derive VAPID public key from private key env var. Returns base64url-encoded point or None."""
-    vapid_private_key_b64 = os.environ.get("SOBS_VAPID_PRIVATE_KEY", "").strip()
-    if not vapid_private_key_b64:
-        return None
+# ---------------------------------------------------------------------------
+# App-settings DB helpers  (simple key-value store backed by sobs_app_settings)
+# ---------------------------------------------------------------------------
+
+
+def _get_app_setting(db: "ChDbConnection", key: str) -> str | None:
+    """Return a value from sobs_app_settings, or None if the key is absent/empty."""
+    row = db.execute(
+        "SELECT Value FROM sobs_app_settings FINAL WHERE Key = ? LIMIT 1",
+        (key,),
+    ).fetchone()
+    value = str(row[0]).strip() if row else ""
+    return value if value else None
+
+
+def _set_app_setting(db: "ChDbConnection", key: str, value: str) -> None:
+    """Upsert a value in sobs_app_settings."""
+    _insert_rows_json_each_row(
+        db,
+        "sobs_app_settings",
+        [{"Key": key, "Value": value, "UpdatedAt": int(time.time() * 1000)}],
+    )
+
+
+def _del_app_setting(db: "ChDbConnection", key: str) -> None:
+    """Clear a setting from sobs_app_settings by writing an empty value (tombstone)."""
+    _insert_rows_json_each_row(
+        db,
+        "sobs_app_settings",
+        [{"Key": key, "Value": "", "UpdatedAt": int(time.time() * 1000)}],
+    )
+
+
+# ---------------------------------------------------------------------------
+# VAPID key resolution  (env var takes precedence over DB)
+# ---------------------------------------------------------------------------
+
+
+def _get_vapid_private_key_b64(db: "ChDbConnection | None" = None) -> tuple[str, str] | tuple[None, None]:
+    """Return (private_key_b64url, source) where source is 'env' or 'db', or (None, None)."""
+    env_key = os.environ.get("SOBS_VAPID_PRIVATE_KEY", "").strip()
+    if env_key:
+        return env_key, "env"
+    resolved_db = db if db is not None else get_db()
+    db_key = _get_app_setting(resolved_db, _VAPID_PRIVATE_KEY_SETTING)
+    if db_key:
+        return db_key, "db"
+    return None, None
+
+
+def _get_vapid_public_key(db: "ChDbConnection | None" = None) -> tuple[str, str] | tuple[None, None]:
+    """Return (public_key_b64url, source) or (None, None)."""
+    private_b64, source = _get_vapid_private_key_b64(db)
+    if not private_b64 or not source:
+        return None, None
     try:
         from cryptography.hazmat.backends import default_backend
         from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, load_der_private_key
 
-        key_bytes = base64.urlsafe_b64decode(_pad_base64(vapid_private_key_b64))
+        key_bytes = base64.urlsafe_b64decode(_pad_base64(private_b64))
         private_key = load_der_private_key(key_bytes, password=None, backend=default_backend())
         pub_bytes = private_key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
-        return base64.urlsafe_b64encode(pub_bytes).rstrip(b"=").decode()
+        return base64.urlsafe_b64encode(pub_bytes).rstrip(b"=").decode(), source
     except Exception:
-        return None
+        return None, None
 
 
 # ---------------------------------------------------------------------------
@@ -9659,7 +9720,7 @@ async def view_notifications():
     channels = _load_notification_channels(db)
     rules = _load_notification_rules(db)
     notification_log = _load_notification_log(db, limit=50)
-    vapid_public_key = _get_vapid_public_key()
+    vapid_public_key, vapid_key_source = _get_vapid_public_key(db)
     return await render_template(
         "settings_notifications.html",
         channels=channels,
@@ -9671,6 +9732,7 @@ async def view_notifications():
         logic_operators=_NOTIFICATION_LOGIC_OPERATORS,
         signal_sources=_NOTIFICATION_SIGNAL_SOURCES,
         vapid_public_key=vapid_public_key,
+        vapid_key_source=vapid_key_source,
     )
 
 
@@ -10051,9 +10113,9 @@ async def check_notifications():
 @require_basic_auth
 async def get_vapid_public_key():
     """Return the VAPID public key for browser push subscription setup."""
-    pub_key = _get_vapid_public_key()
+    pub_key, _source = _get_vapid_public_key()
     if not pub_key:
-        return jsonify({"ok": False, "error": "SOBS_VAPID_PRIVATE_KEY is not configured"}), 404
+        return jsonify({"ok": False, "error": "VAPID key not configured"}), 404
     return jsonify({"ok": True, "public_key": pub_key})
 
 
@@ -10137,26 +10199,62 @@ async def subscribe_browser_push():
 @app.route("/api/notifications/vapid-keygen", methods=["POST"])
 @require_basic_auth
 async def generate_vapid_key():
-    """Generate a new VAPID key pair for Web Push.
+    """Generate a new VAPID key pair and save the private key to the DB.
 
-    Returns the private key (store as SOBS_VAPID_PRIVATE_KEY env var) and
-    the public key (use in browser pushManager.subscribe applicationServerKey).
+    The env var SOBS_VAPID_PRIVATE_KEY takes precedence at dispatch time if set,
+    but this endpoint always persists the new private key in sobs_app_settings so
+    that self-hosted deployments work without env var management.
     """
     try:
         private_b64, public_b64 = _generate_vapid_keys()
+        db = get_db()
+        _set_app_setting(db, _VAPID_PRIVATE_KEY_SETTING, private_b64)
+        env_override = bool(os.environ.get("SOBS_VAPID_PRIVATE_KEY", "").strip())
         return jsonify(
             {
                 "ok": True,
-                "private_key": private_b64,
                 "public_key": public_b64,
-                "instructions": (
-                    "Set SOBS_VAPID_PRIVATE_KEY=<private_key> in your environment "
-                    "and restart SOBS. Use public_key in browser pushManager.subscribe()."
+                "saved_to_db": True,
+                "env_override": env_override,
+                "note": (
+                    "New VAPID keys saved to the database. "
+                    + (
+                        "WARNING: SOBS_VAPID_PRIVATE_KEY env var is set and takes precedence \u2014 "
+                        "remove it or update it to use the new DB key."
+                        if env_override
+                        else "Keys are active immediately. Existing browser subscriptions will need to re-subscribe."
+                    )
                 ),
             }
         )
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/notifications/vapid-keys", methods=["DELETE"])
+@require_basic_auth
+async def delete_vapid_keys():
+    """Remove the DB-stored VAPID private key.
+
+    Does not affect SOBS_VAPID_PRIVATE_KEY if set as an env var.
+    """
+    db = get_db()
+    _del_app_setting(db, _VAPID_PRIVATE_KEY_SETTING)
+    env_override = bool(os.environ.get("SOBS_VAPID_PRIVATE_KEY", "").strip())
+    return jsonify(
+        {
+            "ok": True,
+            "env_override": env_override,
+            "note": (
+                "DB VAPID key cleared. "
+                + (
+                    "The SOBS_VAPID_PRIVATE_KEY env var is still set and will continue to be used."
+                    if env_override
+                    else "Browser push is now unconfigured until new keys are generated."
+                )
+            ),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------

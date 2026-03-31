@@ -112,21 +112,41 @@
         <!-- Browser Push fields -->
         <div id="fields-browser_push" class="channel-fields d-none row g-3 mb-3">
           <div class="col-12">
-            <div class="alert alert-info small mb-2 py-2">
-              <i class="bi bi-info-circle me-1"></i>
-              Use the <strong>Subscribe Browser</strong> button below to automatically register
-              this browser for push notifications. Manual entry is also supported.
-              Requires <code>SOBS_VAPID_PRIVATE_KEY</code> to be set in the environment.
-              {% if vapid_public_key %}
-              <br><strong>VAPID public key:</strong>
+            {% if vapid_key_source == 'env' %}
+            <div class="alert alert-success small mb-2 py-2">
+              <i class="bi bi-check-circle me-1"></i>
+              VAPID key active via <code>SOBS_VAPID_PRIVATE_KEY</code> environment variable.
+              <br><strong>Public key:</strong>
               <code class="user-select-all small">{{ vapid_public_key }}</code>
-              {% else %}
-              <br><span class="text-danger">VAPID private key not configured — set <code>SOBS_VAPID_PRIVATE_KEY</code>.</span>
-              {% endif %}
             </div>
+            {% elif vapid_key_source == 'db' %}
+            <div class="alert alert-success small mb-2 py-2">
+              <i class="bi bi-check-circle me-1"></i>
+              VAPID key active (stored in database).
+              <br><strong>Public key:</strong>
+              <code class="user-select-all small">{{ vapid_public_key }}</code>
+              <br>
+              <button type="button" class="btn btn-sm btn-outline-warning mt-1 me-1" id="regenerateVapidBtn">
+                <i class="bi bi-arrow-clockwise me-1"></i>Regenerate Keys
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-danger mt-1" id="removeVapidBtn">
+                <i class="bi bi-trash me-1"></i>Remove Keys
+              </button>
+              <small class="text-secondary d-block mt-1">Regenerating invalidates all existing browser subscriptions.</small>
+            </div>
+            {% else %}
+            <div class="alert alert-warning small mb-2 py-2">
+              <i class="bi bi-exclamation-triangle me-1"></i>
+              No VAPID keys configured. Generate keys first to enable browser push notifications.
+              <br>
+              <button type="button" class="btn btn-sm btn-primary mt-1" id="generateVapidBtn">
+                <i class="bi bi-key me-1"></i>Generate &amp; Save Keys
+              </button>
+            </div>
+            {% endif %}
           </div>
           <div class="col-12">
-            <button type="button" class="btn btn-sm btn-outline-info" id="subscribeBrowserBtn">
+            <button type="button" class="btn btn-sm btn-outline-info{% if not vapid_public_key %} disabled{% endif %}" id="subscribeBrowserBtn"{% if not vapid_public_key %} aria-disabled="true"{% endif %}>
               <i class="bi bi-browser-safari me-1"></i>Subscribe This Browser
             </button>
             <small class="text-secondary ms-2">Registers this browser's push subscription automatically.</small>
@@ -156,17 +176,17 @@
   <table class="table table-sm align-middle">
     <thead class="table-secondary">
       <tr>
-        <th>Name</th>
+        <th style="white-space: nowrap;">Name</th>
         <th>Type</th>
         <th>Status</th>
         <th>Config Preview</th>
-        <th class="text-end">Actions</th>
+        <th class="text-end" style="white-space: nowrap;">Actions</th>
       </tr>
     </thead>
     <tbody>
       {% for ch in channels %}
       <tr>
-        <td class="fw-medium">{{ ch.name }}</td>
+        <td class="fw-medium text-nowrap">{{ ch.name }}</td>
         <td><span class="badge text-bg-secondary">{{ ch.channel_type }}</span></td>
         <td>
           {% if ch.enabled %}
@@ -175,25 +195,27 @@
           <span class="badge text-bg-secondary">Disabled</span>
           {% endif %}
         </td>
-        <td class="font-monospace small text-secondary">
-          {% if ch.channel_type == 'webhook' %}{{ ch.config.get('url','') | truncate(60) }}
-          {% elif ch.channel_type == 'slack' %}{{ ch.config.get('webhook_url','') | truncate(60) }}
-          {% elif ch.channel_type == 'email' %}{{ ch.config.get('to_addr','') }}
-          {% elif ch.channel_type == 'browser_push' %}{{ ch.config.get('endpoint','') | truncate(60) }}
-          {% endif %}
+        <td>
+          <div class="font-monospace small text-secondary text-truncate" style="max-width: 320px;">
+            {% if ch.channel_type == 'webhook' %}{{ ch.config.get('url','') | truncate(80) }}
+            {% elif ch.channel_type == 'slack' %}{{ ch.config.get('webhook_url','') | truncate(80) }}
+            {% elif ch.channel_type == 'email' %}{{ ch.config.get('to_addr','') }}
+            {% elif ch.channel_type == 'browser_push' %}{{ ch.config.get('endpoint','') | truncate(80) }}
+            {% endif %}
+          </div>
         </td>
-        <td class="text-end">
-          <div class="btn-group btn-group-sm">
-            <button class="btn btn-outline-secondary test-channel-btn" data-channel-id="{{ ch.id }}" data-channel-name="{{ ch.name }}" title="Test channel">
+        <td class="text-end" style="white-space: nowrap;">
+          <div class="d-flex gap-2 justify-content-end">
+            <button class="btn btn-sm btn-outline-secondary test-channel-btn" data-channel-id="{{ ch.id }}" data-channel-name="{{ ch.name }}" title="Test channel">
               <i class="bi bi-send"></i>
             </button>
             <form method="post" action="{{ url_for('toggle_notification_channel', channel_id=ch.id) }}" class="d-inline">
-              <button type="submit" class="btn btn-outline-secondary" title="{{ 'Disable' if ch.enabled else 'Enable' }}">
+              <button type="submit" class="btn btn-sm btn-outline-secondary" title="{{ 'Disable' if ch.enabled else 'Enable' }}">
                 <i class="bi bi-{{ 'pause-circle' if ch.enabled else 'play-circle' }}"></i>
               </button>
             </form>
             <form method="post" action="{{ url_for('delete_notification_channel', channel_id=ch.id) }}" class="d-inline" onsubmit="return confirm('Delete channel \'{{ ch.name }}\'?')">
-              <button type="submit" class="btn btn-outline-danger" title="Delete">
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
                 <i class="bi bi-trash"></i>
               </button>
             </form>
@@ -294,20 +316,20 @@
   <table class="table table-sm align-middle">
     <thead class="table-secondary">
       <tr>
-        <th>Name</th>
+        <th style="white-space: nowrap;">Name</th>
         <th>Logic</th>
         <th>Severity</th>
         <th>Conditions</th>
         <th>Channels</th>
         <th>Cooldown</th>
         <th>Status</th>
-        <th class="text-end">Actions</th>
+        <th class="text-end" style="white-space: nowrap;">Actions</th>
       </tr>
     </thead>
     <tbody>
       {% for rule in rules %}
       <tr>
-        <td class="fw-medium">{{ rule.name }}</td>
+        <td class="fw-medium text-nowrap">{{ rule.name }}</td>
         <td><span class="badge text-bg-secondary">{{ rule.logic_operator.upper() }}</span></td>
         <td>
           {% if rule.severity == 'critical' %}
@@ -334,15 +356,15 @@
           <span class="badge text-bg-secondary">Disabled</span>
           {% endif %}
         </td>
-        <td class="text-end">
-          <div class="btn-group btn-group-sm">
+        <td class="text-end" style="white-space: nowrap;">
+          <div class="d-flex gap-2 justify-content-end">
             <form method="post" action="{{ url_for('toggle_notification_rule', rule_id=rule.id) }}" class="d-inline">
-              <button type="submit" class="btn btn-outline-secondary" title="{{ 'Disable' if rule.enabled else 'Enable' }}">
+              <button type="submit" class="btn btn-sm btn-outline-secondary" title="{{ 'Disable' if rule.enabled else 'Enable' }}">
                 <i class="bi bi-{{ 'pause-circle' if rule.enabled else 'play-circle' }}"></i>
               </button>
             </form>
             <form method="post" action="{{ url_for('delete_notification_rule', rule_id=rule.id) }}" class="d-inline" onsubmit="return confirm('Delete rule \'{{ rule.name }}\'?')">
-              <button type="submit" class="btn btn-outline-danger" title="Delete">
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
                 <i class="bi bi-trash"></i>
               </button>
             </form>
@@ -418,7 +440,7 @@
       <li><strong>webhook</strong> — HTTP POST to any URL with optional custom headers and body template. Use <code>{{summary}}</code> in the body template for the alert message.</li>
       <li><strong>slack</strong> — Post to a Slack <a href="https://api.slack.com/messaging/webhooks" target="_blank" rel="noopener" class="link-secondary">Incoming Webhook</a> URL.</li>
       <li><strong>email</strong> — Send via SMTP. Supports STARTTLS. Credentials are stored in the database; use environment-level secrets management for production deployments.</li>
-      <li><strong>browser_push</strong> — Web Push notifications to browsers. Requires <code>SOBS_VAPID_PRIVATE_KEY</code> (base64url-encoded DER PKCS#8 P-256 private key) set as an environment variable. Generate a key pair with <code>POST /api/notifications/vapid-keygen</code>.</li>
+      <li><strong>browser_push</strong> — Web Push notifications to browsers. Click <strong>Generate &amp; Save Keys</strong> in the browser_push channel form to create VAPID keys stored in the database. Alternatively set <code>SOBS_VAPID_PRIVATE_KEY</code> as an environment variable (takes precedence). Use the <strong>Subscribe This Browser</strong> button to register the current browser automatically.</li>
     </ul>
     <p class="mb-2">
       <strong>Rules</strong> define when to send notifications. Each rule has one or more conditions
@@ -431,10 +453,11 @@
       (e.g., every minute via cron) to evaluate all enabled rules and dispatch notifications.
     </p>
     <p class="mb-0">
-      <strong>Browser Push Key Generation:</strong> Call <code>POST /api/notifications/vapid-keygen</code>
-      to generate a new VAPID key pair. Copy the <code>private_key</code> value and set it as
-      <code>SOBS_VAPID_PRIVATE_KEY</code> in your environment, then restart SOBS.
-      The <code>public_key</code> is used by the browser's <code>pushManager.subscribe()</code>.
+      <strong>Browser Push Key Management:</strong> Use the <strong>Generate &amp; Save Keys</strong> button
+      in the browser_push channel form to create a VAPID key pair and persist it in the database
+      automatically. Use <strong>Regenerate</strong> to rotate keys (existing subscriptions must
+      re-subscribe). Set <code>SOBS_VAPID_PRIVATE_KEY</code> in your environment to override the
+      DB key (useful for production secret management).
     </p>
   </div>
 </div>
@@ -602,14 +625,88 @@
     if (swRegistrationPromise) {
       return swRegistrationPromise;
     }
-
-    swRegistrationPromise = navigator.serviceWorker.getRegistration().then(function (existingRegistration) {
-      if (existingRegistration) {
-        return existingRegistration;
-      }
-      return navigator.serviceWorker.register('{{ url_for("service_worker_js") }}');
+    // register() resolves as soon as the SW is parsed, but the SW may still be
+    // in the installing/waiting state — pushManager.subscribe() requires an
+    // *active* SW.  Chaining navigator.serviceWorker.ready guarantees we only
+    // resolve once the SW is controlling the page and is fully active.
+    swRegistrationPromise = navigator.serviceWorker.register('{{ url_for("service_worker_js") }}').then(function () {
+      return navigator.serviceWorker.ready;
     });
     return swRegistrationPromise;
+  }
+
+  // ===== VAPID key generation / removal =====
+  var generateVapidBtn = document.getElementById('generateVapidBtn');
+  if (generateVapidBtn) {
+    generateVapidBtn.addEventListener('click', function () {
+      generateVapidBtn.disabled = true;
+      generateVapidBtn.textContent = 'Generating…';
+      fetch('{{ url_for("generate_vapid_key") }}', { method: 'POST', credentials: 'same-origin' })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (data.ok) {
+            alert('VAPID keys generated and saved. The page will reload.');
+            window.location.reload();
+          } else {
+            alert('Key generation failed: ' + (data.error || 'unknown error'));
+            generateVapidBtn.disabled = false;
+            generateVapidBtn.innerHTML = '<i class="bi bi-key me-1"></i>Generate & Save Keys';
+          }
+        })
+        .catch(function (err) {
+          alert('Error: ' + err);
+          generateVapidBtn.disabled = false;
+          generateVapidBtn.innerHTML = '<i class="bi bi-key me-1"></i>Generate & Save Keys';
+        });
+    });
+  }
+
+  var regenerateVapidBtn = document.getElementById('regenerateVapidBtn');
+  if (regenerateVapidBtn) {
+    regenerateVapidBtn.addEventListener('click', function () {
+      if (!confirm('Regenerating VAPID keys will invalidate ALL existing browser push subscriptions. Browsers will need to re-subscribe.\n\nContinue?')) {
+        return;
+      }
+      regenerateVapidBtn.disabled = true;
+      regenerateVapidBtn.textContent = 'Regenerating…';
+      fetch('{{ url_for("generate_vapid_key") }}', { method: 'POST', credentials: 'same-origin' })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (data.ok) {
+            alert('New VAPID keys saved. Existing browser subscriptions are now invalid — browsers must re-subscribe. The page will reload.');
+            window.location.reload();
+          } else {
+            alert('Regeneration failed: ' + (data.error || 'unknown error'));
+            regenerateVapidBtn.disabled = false;
+            regenerateVapidBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Regenerate Keys';
+          }
+        })
+        .catch(function (err) {
+          alert('Error: ' + err);
+          regenerateVapidBtn.disabled = false;
+          regenerateVapidBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Regenerate Keys';
+        });
+    });
+  }
+
+  var removeVapidBtn = document.getElementById('removeVapidBtn');
+  if (removeVapidBtn) {
+    removeVapidBtn.addEventListener('click', function () {
+      if (!confirm('This will remove the stored VAPID keys. Browser push notifications will stop working until new keys are generated.\n\nContinue?')) {
+        return;
+      }
+      fetch('{{ url_for("delete_vapid_keys") }}', { method: 'DELETE', credentials: 'same-origin' })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (data.ok) {
+            alert('VAPID keys removed. The page will reload.');
+            window.location.reload();
+          } else {
+            alert('Removal failed: ' + (data.error || 'unknown error'));
+          }
+        })
+        .catch(function (err) { alert('Error: ' + err); });
+    });
   }
 
   var subscribeBrowserBtn = document.getElementById('subscribeBrowserBtn');
