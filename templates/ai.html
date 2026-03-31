@@ -164,36 +164,240 @@
     </h2>
     <div id="trace{{ group.id }}" class="accordion-collapse collapse">
       <div class="accordion-body py-2 px-3">
+          <div class="accordion" id="traceItems{{ group.id }}">
         {% for item in group.spans %}
-        <div class="border border-secondary-subtle rounded p-2 mb-2" data-ai-call="1" data-tokens-in="{{ item.tokens_in }}" data-tokens-out="{{ item.tokens_out }}" data-model="{{ item.model }}">
-          <div class="d-flex gap-2 align-items-center flex-wrap mb-1">
-            <span class="badge bg-success">{{ item.model or '?' }}</span>
-            <span class="badge bg-info text-dark">{{ item.provider or '?' }}</span>
-            {% if item.operation and item.operation != 'chat' %}
-            <span class="badge bg-secondary">{{ item.operation }}</span>
-            {% endif %}
-            {% if item.error_type %}
-            <span class="badge bg-danger">{{ item.error_type }}</span>
-            {% endif %}
-            <span class="small text-warning ms-auto">{{ item.tokens_in }}↑ {{ item.tokens_out }}↓</span>
-            <span class="small text-secondary">{{ item.duration_ms }}ms</span>
-            <span class="small text-secondary">{{ item.ts[:19] }}</span>
-          </div>
-          <div class="small text-secondary mb-1"><strong>Service:</strong> {{ item.service }}</div>
-          {% if item.prompt or item.response %}
-          <div class="row g-2">
-            <div class="col-md-6">
-              <div class="fw-semibold small text-secondary mb-1">Prompt</div>
-              <div class="prompt-box ai-md-content">{{ item.prompt }}</div>
+          {% set ui_id = 'g' ~ group.id ~ '-' ~ item.id %}
+          <div class="accordion-item border-secondary mb-1" data-ai-call="1" data-tokens-in="{{ item.tokens_in }}" data-tokens-out="{{ item.tokens_out }}" data-model="{{ item.model }}">
+            <h2 class="accordion-header">
+              <button class="accordion-button collapsed py-2"
+                      type="button" data-bs-toggle="collapse" data-bs-target="#ai{{ ui_id }}">
+                <div class="d-flex gap-2 align-items-center w-100 me-2 flex-wrap">
+                  <span class="badge bg-success">{{ item.model or '?' }}</span>
+                  <span class="badge bg-info text-dark">{{ item.provider or '?' }}</span>
+                  {% if item.operation and item.operation != 'chat' %}
+                  <span class="badge bg-secondary">{{ item.operation }}</span>
+                  {% endif %}
+                  {% if item.error_type %}
+                  <span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>{{ item.error_type }}</span>
+                  {% endif %}
+                  {% if item.finish_reason and item.finish_reason not in ('stop', '') %}
+                  <span class="badge bg-warning text-dark">{{ item.finish_reason }}</span>
+                  {% endif %}
+                  <span class="small flex-grow-1 text-truncate text-secondary" style="max-width:280px;" title="{{ item.prompt }}">
+                    {{ item.prompt[:80] }}{% if item.prompt | length > 80 %}…{% endif %}
+                  </span>
+                  <span class="small text-warning">{{ item.tokens_in }}↑ {{ item.tokens_out }}↓</span>
+                  {% if item.thinking_tokens %}
+                  <span class="small text-info" title="Thinking tokens"><i class="bi bi-lightbulb me-1"></i>{{ item.thinking_tokens }}</span>
+                  {% endif %}
+                  <span class="small text-secondary">{{ item.duration_ms }}ms</span>
+                  <span class="text-secondary small">{{ item.ts[:19] }}</span>
+                </div>
+              </button>
+            </h2>
+            <div id="ai{{ ui_id }}" class="accordion-collapse collapse">
+              <div class="accordion-body py-2 px-3">
+
+                <ul class="nav nav-tabs nav-tabs-sm mb-3" id="tabs{{ ui_id }}" role="tablist">
+                  <li class="nav-item" role="presentation">
+                    <button class="nav-link active small py-1 px-3" id="conv-tab-{{ ui_id }}"
+                            data-bs-toggle="tab" data-bs-target="#conv-{{ ui_id }}"
+                            type="button" role="tab">
+                      <i class="bi bi-chat-left-dots me-1"></i>Conversation
+                    </button>
+                  </li>
+                  <li class="nav-item" role="presentation">
+                    <button class="nav-link small py-1 px-3" id="metrics-tab-{{ ui_id }}"
+                            data-bs-toggle="tab" data-bs-target="#metrics-{{ ui_id }}"
+                            type="button" role="tab">
+                      <i class="bi bi-speedometer2 me-1"></i>Metrics
+                    </button>
+                  </li>
+                  <li class="nav-item" role="presentation">
+                    <button class="nav-link small py-1 px-3" id="json-tab-{{ ui_id }}"
+                            data-bs-toggle="tab" data-bs-target="#json-{{ ui_id }}"
+                            type="button" role="tab">
+                      <i class="bi bi-braces me-1"></i>Raw JSON
+                    </button>
+                  </li>
+                </ul>
+
+                <div class="tab-content" id="tabContent{{ ui_id }}">
+                  <div class="tab-pane fade show active" id="conv-{{ ui_id }}" role="tabpanel">
+                    {% if item.error_type %}
+                    <div class="alert alert-danger py-2 px-3 mb-2 small">
+                      <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle me-1"></i>Error: {{ item.error_type }}</div>
+                      {% if item.error_message %}<div class="text-danger-emphasis mb-1">{{ item.error_message }}</div>{% endif %}
+                      <div class="text-secondary" id="tip-{{ ui_id }}"></div>
+                    </div>
+                    <script>
+                    (function() {
+                      var tips = {
+                        'RateLimitError': 'Rate limit exceeded. Add retry logic with exponential backoff. Consider batching requests or upgrading your API plan.',
+                        'AuthenticationError': 'Authentication failed. Verify your API key is valid and not expired. Check environment variable configuration.',
+                        'InvalidRequestError': 'Invalid request parameters. Check prompt length, message format, and model compatibility.',
+                        'ContextLengthExceeded': 'Context window exceeded. Reduce prompt length, summarize prior turns, or use a model with a larger context window.',
+                        'ServiceUnavailableError': 'API service temporarily unavailable. Implement retry logic with backoff. Check provider status page.',
+                        'ContentFilterError': 'Response blocked by content filters. Review prompt content and adjust to comply with usage policies.',
+                        'TimeoutError': 'Request timed out. Check network connectivity and consider increasing timeout values.',
+                        'InsufficientQuotaError': 'Quota exceeded. Check your usage limits and billing status with the provider.',
+                      };
+                      var errType = {{ item.error_type | tojson }};
+                      var el = document.getElementById('tip-{{ ui_id }}');
+                      if (el) {
+                        var tip = tips[errType] || 'Check the provider documentation for details on this error type.';
+                        el.textContent = '💡 ' + tip;
+                      }
+                    }());
+                    </script>
+                    {% endif %}
+
+                    {% if item.input_messages %}
+                    <div class="mb-2">
+                      {% for msg in item.input_messages %}
+                      <div class="mb-1 d-flex align-items-start gap-2">
+                        <span class="badge mt-1 flex-shrink-0
+                          {% if msg.role == 'system' %}bg-secondary
+                          {% elif msg.role == 'user' %}bg-primary
+                          {% elif msg.role == 'assistant' %}bg-success
+                          {% elif msg.role == 'tool' %}bg-warning text-dark
+                          {% else %}bg-dark{% endif %}"
+                          style="min-width:4.5rem;text-align:center;">{{ msg.role or '?' }}</span>
+                        <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:200px;">{{ msg.content if msg.content is string else msg.content | tojson }}</div>
+                      </div>
+                      {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    {% if item.output_messages %}
+                    <div class="fw-semibold small text-secondary mb-1 mt-2"><i class="bi bi-cpu me-1 text-success"></i>Response</div>
+                    {% for msg in item.output_messages %}
+                    <div class="mb-1 d-flex align-items-start gap-2">
+                      <span class="badge mt-1 flex-shrink-0
+                        {% if msg.role == 'assistant' %}bg-success
+                        {% elif msg.role == 'tool' %}bg-warning text-dark
+                        {% else %}bg-dark{% endif %}"
+                        style="min-width:4.5rem;text-align:center;">{{ msg.role or '?' }}</span>
+                      <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:300px;">{{ msg.content if msg.content is string else msg.content | tojson }}</div>
+                    </div>
+                    {% endfor %}
+                    {% elif item.prompt or item.response %}
+                    <div class="row g-2">
+                      <div class="col-md-6">
+                        <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-left-text me-1"></i>Prompt</div>
+                        <div class="prompt-box ai-md-content">{{ item.prompt }}</div>
+                      </div>
+                      <div class="col-md-6">
+                        <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-right-text me-1"></i>Response</div>
+                        <div class="prompt-box ai-md-content">{{ item.response }}</div>
+                      </div>
+                    </div>
+                    {% endif %}
+
+                    <div class="mt-2 d-flex gap-3 small text-secondary flex-wrap align-items-center">
+                      <span><strong>Service:</strong> {{ item.service }}</span>
+                      <span><strong>Operation:</strong> {{ item.operation or '—' }}</span>
+                      {% if item.finish_reason %}
+                      <span><strong>Finish:</strong> {{ item.finish_reason }}</span>
+                      {% endif %}
+                      {% if item.trace_id %}
+                      <a href="{{ url_for('view_traces', trace_id=item.trace_id) }}" class="trace-link">
+                        Trace {{ item.trace_id[:12] }}…
+                      </a>
+                      {% endif %}
+                      <button class="btn btn-outline-secondary btn-sm py-0 px-2 ms-auto" style="font-size:.75rem;"
+                              onclick="toggleMarkdown(this)" title="Toggle markdown rendering">
+                        <i class="bi bi-markdown me-1"></i>MD
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="tab-pane fade" id="metrics-{{ ui_id }}" role="tabpanel">
+                    <div class="row g-3">
+                      <div class="col-6 col-md-3">
+                        <div class="stat-card p-2 text-center">
+                          <div class="fs-5 fw-bold text-info">{{ item.tokens_in }}</div>
+                          <div class="text-secondary" style="font-size:.75rem;">Tokens In</div>
+                        </div>
+                      </div>
+                      <div class="col-6 col-md-3">
+                        <div class="stat-card p-2 text-center">
+                          <div class="fs-5 fw-bold text-warning">{{ item.tokens_out }}</div>
+                          <div class="text-secondary" style="font-size:.75rem;">Tokens Out</div>
+                        </div>
+                      </div>
+                      {% if item.thinking_tokens %}
+                      <div class="col-6 col-md-3">
+                        <div class="stat-card p-2 text-center">
+                          <div class="fs-5 fw-bold text-info">{{ item.thinking_tokens }}</div>
+                          <div class="text-secondary" style="font-size:.75rem;">Thinking Tokens</div>
+                        </div>
+                      </div>
+                      {% endif %}
+                      <div class="col-6 col-md-3">
+                        <div class="stat-card p-2 text-center">
+                          <div class="fs-5 fw-bold text-primary">{{ item.duration_ms }}ms</div>
+                          <div class="text-secondary" style="font-size:.75rem;">Duration</div>
+                        </div>
+                      </div>
+                      {% if item.tokens_per_sec %}
+                      <div class="col-6 col-md-3">
+                        <div class="stat-card p-2 text-center">
+                          <div class="fs-5 fw-bold text-success">{{ item.tokens_per_sec }}</div>
+                          <div class="text-secondary" style="font-size:.75rem;">Tokens/sec</div>
+                        </div>
+                      </div>
+                      {% endif %}
+                    </div>
+
+                    <div class="mt-3 small">
+                      <div class="fw-semibold text-secondary mb-2">Request Parameters</div>
+                      <table class="table table-sm table-borderless mb-0">
+                        <tbody>
+                          <tr><td class="text-secondary" style="width:40%;">Model</td><td>{{ item.model or '—' }}</td></tr>
+                          <tr><td class="text-secondary">Provider</td><td>{{ item.provider or '—' }}</td></tr>
+                          <tr><td class="text-secondary">Operation</td><td>{{ item.operation or '—' }}</td></tr>
+                          {% if item.temperature %}<tr><td class="text-secondary">Temperature</td><td>{{ item.temperature }}</td></tr>{% endif %}
+                          {% if item.max_tokens %}<tr><td class="text-secondary">Max Tokens</td><td>{{ item.max_tokens }}</td></tr>{% endif %}
+                          {% if item.finish_reason %}<tr><td class="text-secondary">Finish Reason</td><td>{{ item.finish_reason }}</td></tr>{% endif %}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div class="mt-3 small">
+                      <div class="fw-semibold text-secondary mb-1"><i class="bi bi-currency-dollar me-1"></i>Estimated Cost</div>
+                      <div id="cost-{{ ui_id }}" class="text-secondary">
+                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                      </div>
+                    </div>
+                    <script>
+                    (function() {
+                      var model = {{ item.model | tojson }};
+                      var tokIn = {{ item.tokens_in }};
+                      var tokOut = {{ item.tokens_out }};
+                      var el = document.getElementById('cost-{{ ui_id }}');
+                      if (el) el.innerHTML = aiCostEstimate(model, tokIn, tokOut);
+                    }());
+                    </script>
+                  </div>
+
+                  <div class="tab-pane fade" id="json-{{ ui_id }}" role="tabpanel">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <span class="small text-secondary fw-semibold"><i class="bi bi-braces me-1"></i>Span Attributes</span>
+                      <button class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;"
+                              onclick="copyToClipboard(this, {{ item.raw_attrs | tojson }})">
+                        <i class="bi bi-clipboard me-1"></i>Copy
+                      </button>
+                    </div>
+                    <pre class="mb-0 p-2 rounded" style="background:var(--bs-tertiary-bg);font-size:.75rem;max-height:400px;overflow:auto;white-space:pre-wrap;">{{ item.raw_attrs }}</pre>
+                  </div>
+                </div>
+
+              </div>
             </div>
-            <div class="col-md-6">
-              <div class="fw-semibold small text-secondary mb-1">Response</div>
-              <div class="prompt-box ai-md-content">{{ item.response }}</div>
-            </div>
-          </div>
-          {% endif %}
         </div>
         {% endfor %}
+          </div>
       </div>
     </div>
   </div>

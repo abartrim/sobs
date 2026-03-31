@@ -2348,6 +2348,33 @@ class TestGenAICompliance:
         assert "trace-chat-svc" in body
         assert "trace-embed-svc" in body
 
+    async def test_ai_view_trace_mode_has_full_detail_tabs(self, client):
+        """Trace group mode should preserve full per-call detail tabs."""
+        trace_id = "trace-detail-tabs-123"
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "trace_id": trace_id,
+                "service": "trace-detail-svc",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "operation": "chat",
+                "input_messages": [{"role": "user", "content": "show details"}],
+                "output_messages": [{"role": "assistant", "content": "ok"}],
+                "tokens_in": 11,
+                "tokens_out": 5,
+                "duration_ms": 110,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/ai?view=trace")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert "Conversation" in body
+        assert "Metrics" in body
+        assert "Raw JSON" in body
+
     async def test_ai_view_includes_raw_json_tab(self, client):
         """AI view should include Raw JSON tab with span attributes."""
         r = await client.post(
