@@ -50,7 +50,161 @@
   </div>
 </div>
 
-{% if spans %}
+{% if trace_detail %}
+<!-- ===== Trace Detail: Hierarchical Timeline View ===== -->
+<div class="mb-3">
+  <!-- Trace header summary -->
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <span class="font-monospace small text-secondary" title="Trace ID">{{ trace_id }}</span>
+    <span class="badge bg-secondary">{{ trace_detail.span_tree | length }} span(s)</span>
+    <span class="badge bg-info text-dark">{{ trace_detail.total_ms }}ms total</span>
+    {% if trace_detail.errors %}
+    <span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>{{ trace_detail.errors | length }} error(s)</span>
+    {% endif %}
+    {% if trace_detail.anomaly_state == 'critical' %}
+    <span class="badge bg-danger" title="Service anomaly state"><i class="bi bi-exclamation-circle me-1"></i>critical</span>
+    {% elif trace_detail.anomaly_state == 'warning' %}
+    <span class="badge bg-warning text-dark" title="Service anomaly state"><i class="bi bi-exclamation-triangle me-1"></i>warning</span>
+    {% elif trace_detail.anomaly_state == 'normal' %}
+    <span class="badge bg-success" title="Service anomaly state"><i class="bi bi-check-circle me-1"></i>normal</span>
+    {% endif %}
+    <a href="{{ url_for('view_traces') }}" class="btn btn-sm btn-outline-secondary ms-auto">← All Traces</a>
+  </div>
+
+  <!-- Timeline header ruler -->
+  <div class="d-flex align-items-center mb-1 px-2" style="padding-left:8px;">
+    <div style="min-width:320px; max-width:380px; flex-shrink:0;"></div>
+    <div class="flex-grow-1 position-relative" style="height:16px; font-size:.68rem; color:var(--bs-secondary-color);">
+      <span style="position:absolute; left:0;">0ms</span>
+      <span style="position:absolute; left:25%;">{{ (trace_detail.total_ms * 0.25) | round(1) }}ms</span>
+      <span style="position:absolute; left:50%;">{{ (trace_detail.total_ms * 0.5) | round(1) }}ms</span>
+      <span style="position:absolute; left:75%;">{{ (trace_detail.total_ms * 0.75) | round(1) }}ms</span>
+      <span style="position:absolute; right:0;">{{ trace_detail.total_ms }}ms</span>
+    </div>
+    <div style="min-width:310px; flex-shrink:0;"></div>
+  </div>
+
+  <!-- Span tree rows -->
+  <div id="traceTree">
+    {% for span in trace_detail.span_tree %}
+    {% set is_error = span.status and 'ERROR' in span.status %}
+    {% set has_span_error = span.span_id in trace_detail.error_span_ids %}
+    {% set log_count = trace_detail.log_counts.get(span.span_id, 0) %}
+    {% set row_id = 'span-' ~ loop.index %}
+    <div class="trace-tree-row d-flex align-items-center py-1 border-bottom"
+         data-depth="{{ span.depth }}"
+         data-span-id="{{ span.span_id }}"
+         style="padding-left:{{ span.depth * 20 + 8 }}px;">
+
+      <!-- Expand/collapse toggle -->
+      {% if span.has_children %}
+      <button class="btn btn-link btn-sm p-0 me-1 tree-toggle text-secondary" style="min-width:16px; line-height:1;" aria-label="Toggle children">
+        <i class="bi bi-chevron-down" style="font-size:.75rem;"></i>
+      </button>
+      {% else %}
+      <span style="min-width:16px; display:inline-block;"></span>
+      {% endif %}
+
+      <!-- Service badge -->
+      <span class="badge bg-secondary me-1 text-truncate" style="font-size:.65rem; max-width:90px;" title="{{ span.service }}">{{ span.service or '—' }}</span>
+
+      <!-- Span name + timeline bar -->
+      <div style="min-width:200px; max-width:260px; flex-shrink:0;" class="me-2">
+        <div class="small text-truncate {% if is_error or has_span_error %}text-danger{% endif %}" title="{{ span.name }}{% if span.http_url %} — {{ span.http_url }}{% endif %}">
+          {% if is_error or has_span_error %}<i class="bi bi-exclamation-circle me-1" style="font-size:.7rem;"></i>{% endif %}{{ span.name }}{% if span.http_method %} <span class="text-secondary">{{ span.http_method }}</span>{% endif %}
+        </div>
+      </div>
+
+      <!-- Timeline bar -->
+      <div class="flex-grow-1 position-relative" style="height:10px; background:var(--bs-tertiary-bg); border-radius:5px; min-width:80px;">
+        <div style="position:absolute; left:{{ span.offset_pct }}%; width:{{ span.width_pct }}%; height:100%; border-radius:4px;
+                    background:{% if is_error or has_span_error %}#dc3545{% elif span.duration_ms >= 1000 %}#fd7e14{% else %}#0d6efd{% endif %};"
+             title="{{ span.name }}: {{ span.duration_ms }}ms"></div>
+      </div>
+
+      <!-- Duration -->
+      <span class="small ms-2 font-monospace {% if span.duration_ms >= 1000 %}text-danger{% elif span.duration_ms >= 100 %}text-warning{% else %}text-success{% endif %}"
+            style="min-width:64px; text-align:right;">
+        {{ span.duration_ms }}ms
+      </span>
+
+      <!-- Status badge -->
+      <span class="badge ms-1 {% if is_error %}bg-danger{% elif span.status == 'UNSET' %}bg-secondary{% else %}bg-success{% endif %}" style="font-size:.65rem;">
+        {{ span.status }}
+      </span>
+
+      <!-- HTTP status -->
+      {% if span.http_status %}
+      <span class="badge ms-1 {% if span.http_status|int >= 500 %}bg-danger{% elif span.http_status|int >= 400 %}bg-warning text-dark{% else %}bg-success{% endif %}" style="font-size:.65rem;">
+        {{ span.http_status }}
+      </span>
+      {% endif %}
+
+      <!-- Anomaly / metrics tag -->
+      {% if is_error or has_span_error %}
+      <span class="badge bg-danger ms-1" style="font-size:.6rem;" title="Error detected on this span">error</span>
+      {% elif span.duration_ms >= 1000 %}
+      <span class="badge bg-warning text-dark ms-1" style="font-size:.6rem;" title="Span duration exceeds 1s">outlier</span>
+      {% else %}
+      <span class="badge bg-success ms-1" style="font-size:.6rem;">normal</span>
+      {% endif %}
+
+      <!-- Logs link -->
+      {% if log_count > 0 %}
+      <a href="{{ url_for('view_logs', trace_id=span.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+         class="btn btn-link btn-sm p-0 ms-1 text-info" style="font-size:.75rem; line-height:1;"
+         title="{{ log_count }} associated log record(s)">
+        <i class="bi bi-journal-text"></i><span class="ms-1">{{ log_count }}</span>
+      </a>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if trace_detail.errors %}
+  <!-- Related errors accordion -->
+  <div class="mt-4">
+    <h6 class="text-danger fw-semibold"><i class="bi bi-bug me-1"></i>Related Errors ({{ trace_detail.errors | length }})</h6>
+    <div class="accordion" id="traceErrAccordion">
+      {% for err in trace_detail.errors %}
+      <div class="accordion-item border-secondary mb-1">
+        <h2 class="accordion-header">
+          <button class="accordion-button {% if not loop.first %}collapsed{% endif %} py-2"
+                  type="button" data-bs-toggle="collapse" data-bs-target="#terr{{ loop.index }}">
+            <div class="d-flex gap-3 align-items-center w-100 me-2">
+              <span class="badge {% if err.resolved %}bg-success{% else %}bg-danger{% endif %}">
+                {{ 'Resolved' if err.resolved else 'Open' }}
+              </span>
+              <code class="small text-warning">{{ err.err_type }}</code>
+              <span class="small flex-grow-1 text-truncate">{{ err.message }}</span>
+              <span class="badge bg-secondary">{{ err.service or '—' }}</span>
+              {% if err.span_id %}
+              <span class="font-monospace text-secondary" style="font-size:.68rem;" title="Span: {{ err.span_id }}">{{ err.span_id | truncate(8, True, '') }}…</span>
+              {% endif %}
+            </div>
+          </button>
+        </h2>
+        <div id="terr{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}">
+          <div class="accordion-body py-2">
+            {% if err.stack %}
+            <pre class="stack-trace text-danger-emphasis bg-dark rounded p-2">{{ err.stack }}</pre>
+            {% endif %}
+            {% if err.span_id %}
+            <a href="{{ url_for('view_logs', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info mt-1">
+              <i class="bi bi-journal-text me-1"></i>View Logs
+            </a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{% elif spans %}
+<!-- ===== Flat span list (no specific trace selected) ===== -->
 <div class="table-responsive">
   <table class="table table-sm table-hover align-middle">
     <thead>
@@ -149,4 +303,26 @@
   <p class="mt-2">No spans found</p>
 </div>
 {% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+/* Tree expand/collapse for trace detail view */
+document.querySelectorAll('.tree-toggle').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var row = btn.closest('.trace-tree-row');
+    var depth = parseInt(row.dataset.depth, 10);
+    var icon = btn.querySelector('i');
+    var isExpanded = icon.classList.contains('bi-chevron-down');
+    icon.classList.toggle('bi-chevron-down', !isExpanded);
+    icon.classList.toggle('bi-chevron-right', isExpanded);
+
+    var next = row.nextElementSibling;
+    while (next && next.classList.contains('trace-tree-row') &&
+           parseInt(next.dataset.depth, 10) > depth) {
+      next.style.display = isExpanded ? 'none' : '';
+      next = next.nextElementSibling;
+    }
+  });
+});
+</script>
 {% endblock %}

@@ -1405,6 +1405,145 @@ class TestUIPages:
         r = await client.get("/traces?limit=50&offset=0")
         assert r.status_code == 200
 
+    async def test_trace_detail_hierarchical_view(self, client):
+        """When a trace_id filter is provided the response renders the hierarchical tree view."""
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        trace_id_bytes = bytes.fromhex("aabbccddeeff00112233445566778800")
+        parent_span_bytes = bytes.fromhex("1111111111111100")
+        child_span_bytes = bytes.fromhex("2222222222222200")
+        start_ns = 1704067200_000_000_000
+
+        parent_span = Span(
+            trace_id=trace_id_bytes,
+            span_id=parent_span_bytes,
+            name="root-span",
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 2_000_000_000,
+            status=Status(code=1),
+        )
+        child_span = Span(
+            trace_id=trace_id_bytes,
+            span_id=child_span_bytes,
+            parent_span_id=parent_span_bytes,
+            name="child-span",
+            start_time_unix_nano=start_ns + 500_000_000,
+            end_time_unix_nano=start_ns + 1_500_000_000,
+            status=Status(code=1),
+        )
+        resource = Resource(
+            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="detail-svc"))]
+        )
+        msg = ExportTraceServiceRequest(
+            resource_spans=[
+                ResourceSpans(
+                    resource=resource,
+                    scope_spans=[ScopeSpans(spans=[parent_span, child_span])],
+                )
+            ]
+        )
+        r = await client.post(
+            "/v1/traces", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        trace_id_hex = trace_id_bytes.hex()
+        r = await client.get(f"/traces?trace_id={trace_id_hex}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        # Tree rows and span names rendered
+        assert "trace-tree-row" in body
+        assert "root-span" in body
+        assert "child-span" in body
+        # Anomaly/metrics tags present
+        assert "normal" in body or "outlier" in body or "error" in body
+        # JavaScript for tree toggle included
+        assert "traceTree" in body
+
+    async def test_trace_detail_with_error_span(self, client):
+        """An ERROR span is highlighted with an error tag in the trace detail view."""
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        trace_id_bytes = bytes.fromhex("ffee00112233445566778899aabbcc00")
+        span_bytes = bytes.fromhex("aaaa111100000000")
+        start_ns = 1704067200_000_000_000
+
+        err_span = Span(
+            trace_id=trace_id_bytes,
+            span_id=span_bytes,
+            name="failing-span",
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 1_000_000_000,
+            status=Status(code=2, message="something went wrong"),
+            attributes=[
+                KeyValue(key="exception.type", value=AnyValue(string_value="ValueError")),
+                KeyValue(key="exception.message", value=AnyValue(string_value="bad value")),
+            ],
+        )
+        resource = Resource(
+            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="err-trace-svc"))]
+        )
+        msg = ExportTraceServiceRequest(
+            resource_spans=[
+                ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[err_span])])
+            ]
+        )
+        r = await client.post(
+            "/v1/traces", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        trace_id_hex = trace_id_bytes.hex()
+        r = await client.get(f"/traces?trace_id={trace_id_hex}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "failing-span" in body
+        assert "error" in body.lower()
+
+    async def test_trace_detail_back_link(self, client):
+        """The detail view includes a link back to the full traces list."""
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        trace_id_bytes = bytes.fromhex("deadbeefdeadbeef0011223344550000")
+        span_bytes = bytes.fromhex("cccc222200000000")
+        start_ns = 1704067200_000_000_000
+
+        span = Span(
+            trace_id=trace_id_bytes,
+            span_id=span_bytes,
+            name="some-op",
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 1_000_000_000,
+            status=Status(code=1),
+        )
+        resource = Resource(
+            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="back-link-svc"))]
+        )
+        msg = ExportTraceServiceRequest(
+            resource_spans=[
+                ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])
+            ]
+        )
+        r = await client.post(
+            "/v1/traces", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        trace_id_hex = trace_id_bytes.hex()
+        r = await client.get(f"/traces?trace_id={trace_id_hex}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "All Traces" in body
+
     async def test_rum_sort_by_type(self, client):
         r = await client.get("/rum?sort_by=EventName&sort_dir=asc")
         assert r.status_code == 200

@@ -4322,6 +4322,49 @@ async def resolve_error(error_id: str):
 # ---------------------------------------------------------------------------
 # Web UI – Traces
 # ---------------------------------------------------------------------------
+
+
+def _ts_str_to_epoch_ms(ts: str) -> float:
+    """Parse a DateTime64 timestamp string to epoch milliseconds."""
+    ts = ts.strip()
+    if "." in ts:
+        base, frac = ts.split(".", 1)
+        frac = frac[:6].ljust(6, "0")
+        ts = f"{base}.{frac}"
+    try:
+        dt = datetime.fromisoformat(ts.replace(" ", "T"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp() * 1000.0
+    except Exception:
+        return 0.0
+
+
+def _build_span_tree(spans: list[dict]) -> list[dict]:
+    """Return spans ordered depth-first with ``depth`` and ``has_children`` fields."""
+    by_id = {s["span_id"]: s for s in spans}
+    children: dict[str, list[dict]] = {}
+    roots: list[dict] = []
+    for span in spans:
+        pid = span.get("parent_span_id", "")
+        if pid and pid in by_id:
+            children.setdefault(pid, []).append(span)
+        else:
+            roots.append(span)
+    for clist in children.values():
+        clist.sort(key=lambda s: s["ts"])
+    roots.sort(key=lambda s: s["ts"])
+    result: list[dict] = []
+    stack = [(root, 0) for root in reversed(roots)]
+    while stack:
+        span, depth = stack.pop()
+        has_children = span["span_id"] in children
+        result.append({**span, "depth": depth, "has_children": has_children})
+        for child in reversed(children.get(span["span_id"], [])):
+            stack.append((child, depth + 1))
+    return result
+
+
 @app.route("/traces")
 @require_basic_auth
 async def view_traces():
@@ -4387,6 +4430,110 @@ async def view_traces():
         ).fetchall()
     ]
 
+    # When a specific trace is selected build an enriched detail view.
+    trace_detail: dict | None = None
+    if trace_id and not time_error:
+        detail_rows = db.execute(
+            "SELECT Timestamp, TraceId, SpanId, ParentSpanId, SpanName, ServiceName, "
+            "Duration, StatusCode, SpanAttributes "
+            "FROM otel_traces WHERE TraceId=? ORDER BY Timestamp ASC",
+            [trace_id],
+        ).fetchall()
+        if detail_rows:
+            all_trace_spans = []
+            for r in detail_rows:
+                attrs = _map_to_dict(r["SpanAttributes"])
+                ts_str = str(r["Timestamp"])
+                start_ms = _ts_str_to_epoch_ms(ts_str)
+                dur_ms = round(float(r["Duration"]) / 1_000_000, 2)
+                all_trace_spans.append(
+                    {
+                        "ts": ts_str,
+                        "trace_id": r["TraceId"],
+                        "span_id": r["SpanId"],
+                        "parent_span_id": r["ParentSpanId"],
+                        "name": r["SpanName"],
+                        "service": r["ServiceName"],
+                        "start_ms": start_ms,
+                        "duration_ms": dur_ms,
+                        "status": r["StatusCode"],
+                        "http_method": attrs.get("http.method", attrs.get("http.request.method", "")),
+                        "http_url": attrs.get("http.url", attrs.get("url.full", "")),
+                        "http_status": attrs.get(
+                            "http.status_code", attrs.get("http.response.status_code", "")
+                        ),
+                    }
+                )
+
+            # Compute relative timeline positions.
+            trace_start_ms = min(s["start_ms"] for s in all_trace_spans)
+            trace_end_ms = max(s["start_ms"] + s["duration_ms"] for s in all_trace_spans)
+            trace_total_ms = max(trace_end_ms - trace_start_ms, 1.0)
+            for span in all_trace_spans:
+                span["offset_pct"] = round(
+                    (span["start_ms"] - trace_start_ms) / trace_total_ms * 100, 2
+                )
+                # 0.5 minimum keeps very short spans visible in the timeline bar
+                span["width_pct"] = round(
+                    max(0.5, span["duration_ms"] / trace_total_ms * 100), 2
+                )
+
+            # Fetch related errors for this trace.
+            trace_errors: list[dict] = []
+            try:
+                err_rows = db.execute(
+                    "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes "
+                    f"FROM ({ERROR_SOURCES_SQL}) WHERE TraceId=? LIMIT 50",
+                    [trace_id],
+                ).fetchall()
+                resolved_ids = _get_resolved_error_ids(db)
+                for row in err_rows:
+                    item = _build_error_item(dict(row))
+                    item["resolved"] = item["id"] in resolved_ids
+                    trace_errors.append(item)
+            except Exception:
+                pass
+
+            error_span_ids = {e["span_id"] for e in trace_errors if e.get("span_id")}
+
+            # Fetch log counts per span for this trace.
+            log_counts: dict[str, int] = {}
+            try:
+                log_rows = db.execute(
+                    "SELECT SpanId, count() AS cnt FROM otel_logs "
+                    "WHERE TraceId=? AND SpanId!='' GROUP BY SpanId",
+                    [trace_id],
+                ).fetchall()
+                for r in log_rows:
+                    log_counts[str(r["SpanId"])] = int(r["cnt"])
+            except Exception:
+                pass
+
+            # Fetch anomaly state for the primary service.
+            trace_anomaly_state: str | None = None
+            try:
+                svc = all_trace_spans[0]["service"] if all_trace_spans else ""
+                if svc:
+                    anomaly_row = db.execute(
+                        "SELECT anomaly_state FROM v_derived_signals_anomaly "
+                        "WHERE ServiceName=? AND SignalSource='traces' "
+                        "ORDER BY time DESC LIMIT 1",
+                        [svc],
+                    ).fetchone()
+                    if anomaly_row:
+                        trace_anomaly_state = str(anomaly_row["anomaly_state"])
+            except Exception:
+                pass
+
+            trace_detail = {
+                "span_tree": _build_span_tree(all_trace_spans),
+                "errors": trace_errors,
+                "error_span_ids": error_span_ids,
+                "log_counts": log_counts,
+                "anomaly_state": trace_anomaly_state,
+                "total_ms": round(trace_total_ms, 2),
+            }
+
     return await render_template(
         "traces.html",
         spans=spans,
@@ -4401,6 +4548,7 @@ async def view_traces():
         services=services,
         sort_by=sort_by,
         sort_dir=sort_dir,
+        trace_detail=trace_detail,
     )
 
 
