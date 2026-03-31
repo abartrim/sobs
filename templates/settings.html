@@ -17,7 +17,8 @@
         <p class="card-text text-secondary small flex-grow-1">
           Create auto-tagging rules to automatically label logs, traces, errors, AI, and RUM records
           based on content, severity, service name, or attribute values. Tags are stored alongside
-          records and can be used for filtering, grouping, and anomaly detection.
+          records and can be used for filtering, grouping, and anomaly detection. For consistency,
+          each record keeps one effective value per tag key.
         </p>
         <div class="d-flex align-items-center justify-content-between mt-2">
           <span class="badge text-bg-secondary">{{ tag_rule_count }} rule{{ 's' if tag_rule_count != 1 else '' }}</span>
@@ -98,7 +99,7 @@
         Tags are stored out-of-band in <code>sobs_record_tags</code>, keeping the core OTEL tables
         schema-compatible with upstream tooling. The stable <em>RecordId</em> is an MD5 of
         (ServiceName, Timestamp, TraceId, SpanId) for log-type records, and (TraceId, SpanId) for
-        trace spans — ensuring deterministic join keys across migrations.
+        trace spans (including AI spans) — ensuring deterministic join keys across migrations.
       </p>
     </div>
   </div>

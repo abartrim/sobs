@@ -4182,6 +4182,99 @@ class TestTagRules:
         assert "Tag Rules" in text
         assert "Create Tag Rule" in text
 
+    async def test_auto_tag_rules_preview(self, client):
+        ts_ns = int(time.time() * 1_000_000_000)
+        payload = {
+            "resourceLogs": [
+                {
+                    "resource": {
+                        "attributes": [{"key": "service.name", "value": {"stringValue": f"auto-preview-{ts_ns}"}}]
+                    },
+                    "scopeLogs": [
+                        {
+                            "logRecords": [
+                                {
+                                    "timeUnixNano": str(ts_ns),
+                                    "severityText": "ERROR",
+                                    "severityNumber": 17,
+                                    "body": {"stringValue": "preview seed"},
+                                    "traceId": "",
+                                    "spanId": "",
+                                    "attributes": [],
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+        r_seed = await client.post("/v1/logs", json=payload)
+        assert r_seed.status_code == 200
+
+        r = await client.post(
+            "/settings/tags/auto",
+            form={
+                "action": "preview",
+                "hours": "24",
+                "min_count": "1",
+                "service_filter": f"auto-preview-{ts_ns}",
+                "auto_record_types": ["log"],
+            },
+        )
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Preview Candidates" in text
+
+    async def test_auto_tag_rules_create(self, client):
+        ts_ns = int(time.time() * 1_000_000_000)
+        service_name = f"auto-create-{ts_ns}"
+        payload = {
+            "resourceLogs": [
+                {
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": service_name}}]},
+                    "scopeLogs": [
+                        {
+                            "logRecords": [
+                                {
+                                    "timeUnixNano": str(ts_ns),
+                                    "severityText": "INFO",
+                                    "severityNumber": 9,
+                                    "body": {"stringValue": "create seed"},
+                                    "traceId": "",
+                                    "spanId": "",
+                                    "attributes": [],
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+        r_seed = await client.post("/v1/logs", json=payload)
+        assert r_seed.status_code == 200
+
+        r = await client.post(
+            "/settings/tags/auto",
+            form={
+                "action": "create",
+                "hours": "24",
+                "min_count": "1",
+                "service_filter": service_name,
+                "auto_record_types": ["log"],
+            },
+        )
+        assert r.status_code in (200, 302)
+
+        from app import get_db
+
+        db = get_db()
+        created = db.execute(
+            "SELECT count() FROM sobs_tag_rules FINAL "
+            "WHERE MatchField='service_name' AND MatchValue=? AND TagKey='service' AND IsDeleted=0",
+            [service_name],
+        ).fetchone()[0]
+        assert created >= 1
+
     # ── Tag rule CRUD ─────────────────────────────────────────────────────────
 
     async def test_create_tag_rule_and_list(self, client):
@@ -4238,6 +4331,7 @@ class TestTagRules:
         )
         # Look up the rule ID
         from app import get_db
+
         db = get_db()
         row = db.execute(
             "SELECT Id FROM sobs_tag_rules FINAL WHERE Name='to-be-deleted' AND IsDeleted=0 LIMIT 1"
@@ -4303,6 +4397,7 @@ class TestTagRules:
 
         # Check that a tag was created in sobs_record_tags
         from app import get_db
+
         db = get_db()
         count = db.execute(
             "SELECT count() FROM sobs_record_tags FINAL "
@@ -4355,7 +4450,8 @@ class TestTagRules:
         r = await client.post("/v1/logs", json=payload)
         assert r.status_code == 200
 
-        from app import get_db, _record_id_for_log
+        from app import _record_id_for_log, get_db
+
         db = get_db()
         # The log row's record ID
         row = db.execute(
@@ -4370,6 +4466,173 @@ class TestTagRules:
                 [rid],
             ).fetchone()
             assert tag_row[0] == 0, "WARN rule incorrectly tagged a DEBUG log"
+
+    async def test_auto_tag_applied_on_trace_ingest(self, client):
+        tag_key = f"trace-auto-{time.time_ns()}"
+        await client.post(
+            "/settings/tags",
+            form={
+                "name": f"trace-rule-{time.time_ns()}",
+                "record_types": ["trace"],
+                "match_field": "span_name",
+                "match_operator": "contains",
+                "match_value": "checkout",
+                "match_attr_key": "",
+                "tag_key": tag_key,
+                "tag_value": "yes",
+            },
+        )
+
+        trace_payload = {
+            "resourceSpans": [
+                {
+                    "resource": {
+                        "attributes": [
+                            {"key": "service.name", "value": {"stringValue": "trace-tag-svc"}},
+                        ]
+                    },
+                    "scopeSpans": [
+                        {
+                            "spans": [
+                                {
+                                    "traceId": "0123456789abcdef0123456789abcdef",
+                                    "spanId": "0123456789abcdef",
+                                    "name": "checkout request",
+                                    "kind": 2,
+                                    "startTimeUnixNano": str(time.time_ns()),
+                                    "endTimeUnixNano": str(time.time_ns() + 1_000_000),
+                                    "attributes": [],
+                                    "status": {"code": 1},
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+        r = await client.post("/v1/traces", json=trace_payload)
+        assert r.status_code == 200
+
+        from app import get_db
+
+        db = get_db()
+        count = db.execute(
+            "SELECT count() FROM sobs_record_tags FINAL "
+            "WHERE RecordType='trace' AND TagKey=? AND TagValue='yes' AND IsAuto=1 AND IsDeleted=0",
+            [tag_key],
+        ).fetchone()[0]
+        assert count >= 1
+
+    async def test_auto_tag_applied_on_direct_error_ingest(self, client):
+        tag_key = f"error-auto-{time.time_ns()}"
+        await client.post(
+            "/settings/tags",
+            form={
+                "name": f"error-rule-{time.time_ns()}",
+                "record_types": ["error"],
+                "match_field": "severity",
+                "match_operator": "eq",
+                "match_value": "ERROR",
+                "match_attr_key": "",
+                "tag_key": tag_key,
+                "tag_value": "yes",
+            },
+        )
+
+        r = await client.post(
+            "/v1/errors",
+            json={"service": "err-tag-svc", "type": "ValueError", "message": "boom"},
+        )
+        assert r.status_code == 200
+
+        from app import get_db
+
+        db = get_db()
+        count = db.execute(
+            "SELECT count() FROM sobs_record_tags FINAL "
+            "WHERE RecordType='error' AND TagKey=? AND TagValue='yes' AND IsAuto=1 AND IsDeleted=0",
+            [tag_key],
+        ).fetchone()[0]
+        assert count >= 1
+
+    async def test_auto_tag_applied_on_ai_ingest(self, client):
+        tag_key = f"ai-auto-{time.time_ns()}"
+        await client.post(
+            "/settings/tags",
+            form={
+                "name": f"ai-rule-{time.time_ns()}",
+                "record_types": ["ai"],
+                "match_field": "span_name",
+                "match_operator": "contains",
+                "match_value": "chat",
+                "match_attr_key": "",
+                "tag_key": tag_key,
+                "tag_value": "yes",
+            },
+        )
+
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "ai-tag-svc",
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "operation": "chat",
+                "trace_id": "fedcba9876543210fedcba9876543210",
+                "span_id": "89abcdef01234567",
+            },
+        )
+        assert r.status_code == 200
+
+        from app import get_db
+
+        db = get_db()
+        count = db.execute(
+            "SELECT count() FROM sobs_record_tags FINAL "
+            "WHERE RecordType='ai' AND TagKey=? AND TagValue='yes' AND IsAuto=1 AND IsDeleted=0",
+            [tag_key],
+        ).fetchone()[0]
+        assert count >= 1
+
+    async def test_auto_tag_applied_on_rum_ingest(self, client):
+        tag_key = f"rum-auto-{time.time_ns()}"
+        await client.post(
+            "/settings/tags",
+            form={
+                "name": f"rum-rule-{time.time_ns()}",
+                "record_types": ["rum"],
+                "match_field": "event_type",
+                "match_operator": "eq",
+                "match_value": "pageview",
+                "match_attr_key": "",
+                "tag_key": tag_key,
+                "tag_value": "yes",
+            },
+        )
+
+        r = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "sessionId": "tag-rum-001",
+                    "url": "https://example.com/",
+                    "service": "browser",
+                }
+            ],
+        )
+        assert r.status_code == 200
+
+        from app import get_db
+
+        db = get_db()
+        count = db.execute(
+            "SELECT count() FROM sobs_record_tags FINAL "
+            "WHERE RecordType='rum' AND TagKey=? AND TagValue='yes' AND IsAuto=1 AND IsDeleted=0",
+            [tag_key],
+        ).fetchone()[0]
+        assert count >= 1
 
     # ── Record tag API ────────────────────────────────────────────────────────
 
@@ -4413,10 +4676,24 @@ class TestTagRules:
         r = await client.delete("/api/tags/log/nonexistentid/no-such-key")
         assert r.status_code == 404
 
+    async def test_api_delete_tag_removes_all_values_for_key(self, client):
+        record_id = "facefeedfacefeedfacefeedfacefeed"
+        await client.post(f"/api/tags/log/{record_id}", json={"key": "env", "value": "staging"})
+        await client.post(f"/api/tags/log/{record_id}", json={"key": "env", "value": "prod"})
+
+        r = await client.delete(f"/api/tags/log/{record_id}/env")
+        assert r.status_code == 200
+
+        r2 = await client.get(f"/api/tags/log/{record_id}")
+        assert r2.status_code == 200
+        data = await r2.get_json()
+        assert not any(t["key"] == "env" for t in data["tags"])
+
     # ── Helper functions ──────────────────────────────────────────────────────
 
     def test_record_id_for_log_stable(self):
         from app import _record_id_for_log
+
         rid1 = _record_id_for_log("2026-01-01T00:00:00", "svc", "traceid", "spanid")
         rid2 = _record_id_for_log("2026-01-01T00:00:00", "svc", "traceid", "spanid")
         assert rid1 == rid2
@@ -4424,6 +4701,7 @@ class TestTagRules:
 
     def test_record_id_for_span_stable(self):
         from app import _record_id_for_span
+
         rid1 = _record_id_for_span("traceid", "spanid")
         rid2 = _record_id_for_span("traceid", "spanid")
         assert rid1 == rid2
@@ -4431,12 +4709,14 @@ class TestTagRules:
 
     def test_record_id_for_log_differs_by_fields(self):
         from app import _record_id_for_log
+
         rid1 = _record_id_for_log("2026-01-01T00:00:00", "svc-a", "t1", "s1")
         rid2 = _record_id_for_log("2026-01-01T00:00:00", "svc-b", "t1", "s1")
         assert rid1 != rid2
 
     def test_match_tag_rule_eq_severity(self):
         from app import _match_tag_rule
+
         rule = {
             "record_types": ["log"],
             "match_field": "severity",
@@ -4451,6 +4731,7 @@ class TestTagRules:
 
     def test_match_tag_rule_contains_body(self):
         from app import _match_tag_rule
+
         rule = {
             "record_types": ["all"],
             "match_field": "body",
@@ -4465,6 +4746,7 @@ class TestTagRules:
 
     def test_match_tag_rule_regex(self):
         from app import _match_tag_rule
+
         rule = {
             "record_types": ["all"],
             "match_field": "service_name",
@@ -4479,6 +4761,7 @@ class TestTagRules:
 
     def test_match_tag_rule_attribute(self):
         from app import _match_tag_rule
+
         rule = {
             "record_types": ["trace"],
             "match_field": "attribute",
@@ -4495,6 +4778,7 @@ class TestTagRules:
 
     def test_match_tag_rule_wrong_record_type(self):
         from app import _match_tag_rule
+
         rule = {
             "record_types": ["trace"],
             "match_field": "severity",
@@ -4510,6 +4794,7 @@ class TestTagRules:
 
     def test_match_tag_rule_invalid_regex_returns_false(self):
         from app import _match_tag_rule
+
         rule = {
             "record_types": ["all"],
             "match_field": "body",
