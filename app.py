@@ -650,6 +650,34 @@ WINDOW w AS (
     ORDER BY MinuteBucket
     ROWS BETWEEN 59 PRECEDING AND CURRENT ROW
 );
+
+CREATE TABLE IF NOT EXISTS sobs_tag_rules (
+    Id String CODEC(ZSTD(1)),
+    Name String CODEC(ZSTD(1)),
+    RecordTypes String CODEC(ZSTD(1)),
+    MatchField LowCardinality(String) CODEC(ZSTD(1)),
+    MatchOperator LowCardinality(String) CODEC(ZSTD(1)),
+    MatchValue String CODEC(ZSTD(1)),
+    MatchAttrKey String CODEC(ZSTD(1)),
+    TagKey String CODEC(ZSTD(1)),
+    TagValue String CODEC(ZSTD(1)),
+    IsDeleted UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Version UInt64 DEFAULT 0 CODEC(T64, ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY Id
+SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS sobs_record_tags (
+    RecordType LowCardinality(String) CODEC(ZSTD(1)),
+    RecordId String CODEC(ZSTD(1)),
+    TagKey LowCardinality(String) CODEC(ZSTD(1)),
+    TagValue String CODEC(ZSTD(1)),
+    IsAuto UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    IsDeleted UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Version UInt64 DEFAULT 0 CODEC(T64, ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY (RecordType, RecordId, TagKey)
+SETTINGS index_granularity = 8192;
 """
 
 
@@ -1976,7 +2004,14 @@ def _insert_log_events(db, events: list[LogEvent]) -> int:
                 "EventName": str(event.attrs.get("event.name", "")),
             }
         )
-    return _insert_rows_json_each_row(db, "otel_logs", rows)
+    count = _insert_rows_json_each_row(db, "otel_logs", rows)
+    try:
+        rules = _load_tag_rules(db)
+        if rules:
+            _apply_tag_rules(db, "log", rows, rules)
+    except Exception:
+        app.logger.exception("auto-tag application failed for logs")
+    return count
 
 
 def _insert_span_events(db, span_events: list[SpanEvent]) -> int:
@@ -2003,7 +2038,14 @@ def _insert_span_events(db, span_events: list[SpanEvent]) -> int:
                 "Links": {"TraceId": [], "SpanId": [], "TraceState": [], "Attributes": []},
             }
         )
-    return _insert_rows_json_each_row(db, "otel_traces", rows)
+    count = _insert_rows_json_each_row(db, "otel_traces", rows)
+    try:
+        rules = _load_tag_rules(db)
+        if rules:
+            _apply_tag_rules(db, "trace", rows, rules)
+    except Exception:
+        app.logger.exception("auto-tag application failed for traces")
+    return count
 
 
 def _insert_error_events(db, error_events: list[ErrorEvent]):
@@ -3173,6 +3215,198 @@ def _load_anomaly_rules(db: ChDbConnection) -> list[dict[str, object]]:
         }
         for row in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Tag rules helpers
+# ---------------------------------------------------------------------------
+
+_TAG_RULE_FIELDS = ("service_name", "severity", "body", "span_name", "event_type", "attribute")
+_TAG_RULE_OPERATORS = ("eq", "contains", "regex")
+_TAG_RULE_RECORD_TYPES = ("log", "trace", "error", "ai", "rum", "all")
+
+
+def _record_id_for_log(ts: str, service: str, trace_id: str, span_id: str) -> str:
+    """Compute a stable record ID for a log/rum/error event."""
+    key = f"{service}|{ts}|{trace_id}|{span_id}"
+    return hashlib.md5(key.encode()).hexdigest()
+
+
+def _record_id_for_span(trace_id: str, span_id: str) -> str:
+    """Compute a stable record ID for a trace span."""
+    key = f"{trace_id}|{span_id}"
+    return hashlib.md5(key.encode()).hexdigest()
+
+
+def _load_tag_rules(db: ChDbConnection) -> list[dict]:
+    """Load all active tag rules."""
+    rows = db.execute(
+        "SELECT Id, Name, RecordTypes, MatchField, MatchOperator, MatchValue, "
+        "MatchAttrKey, TagKey, TagValue "
+        "FROM sobs_tag_rules FINAL WHERE IsDeleted = 0 ORDER BY Name"
+    ).fetchall()
+    return [
+        {
+            "id": str(row["Id"]),
+            "name": str(row["Name"]),
+            "record_types": [t.strip() for t in str(row["RecordTypes"]).split(",") if t.strip()],
+            "match_field": str(row["MatchField"]),
+            "match_operator": str(row["MatchOperator"]),
+            "match_value": str(row["MatchValue"]),
+            "match_attr_key": str(row["MatchAttrKey"]),
+            "tag_key": str(row["TagKey"]),
+            "tag_value": str(row["TagValue"]),
+        }
+        for row in rows
+    ]
+
+
+def _match_tag_rule(
+    rule: dict,
+    record_type: str,
+    service: str,
+    severity: str,
+    body: str,
+    attrs: dict,
+    span_name: str = "",
+    event_type: str = "",
+) -> bool:
+    """Return True if the tag rule matches the given record fields."""
+    rule_types = rule["record_types"]
+    if rule_types and "all" not in rule_types and record_type not in rule_types:
+        return False
+
+    field = rule["match_field"]
+    if field == "service_name":
+        value = service
+    elif field == "severity":
+        value = severity
+    elif field == "body":
+        value = body
+    elif field == "span_name":
+        value = span_name
+    elif field == "event_type":
+        value = event_type
+    elif field == "attribute":
+        value = str(attrs.get(rule["match_attr_key"], "")) if isinstance(attrs, dict) else ""
+    else:
+        value = ""
+
+    operator = rule["match_operator"]
+    match_value = rule["match_value"]
+    if operator == "eq":
+        return value == match_value
+    if operator == "contains":
+        return match_value.lower() in value.lower()
+    if operator == "regex":
+        try:
+            return bool(re.search(match_value, value))
+        except re.error:
+            return False
+    return False
+
+
+def _apply_tag_rules(
+    db: ChDbConnection,
+    record_type: str,
+    rows_data: list[dict],
+    rules: list[dict],
+) -> None:
+    """Apply tag rules to ingested rows and write matching tags to sobs_record_tags."""
+    if not rules or not rows_data:
+        return
+    tag_rows = []
+    version = int(time.time() * 1000)
+    for row in rows_data:
+        service = str(row.get("ServiceName", "") or "")
+        severity = str(row.get("SeverityText", "") or "")
+        body = str(row.get("Body", "") or "")
+        attrs = row.get("LogAttributes") or row.get("SpanAttributes") or {}
+        if not isinstance(attrs, dict):
+            attrs = {}
+        span_name = str(row.get("SpanName", "") or "")
+        event_type = str(row.get("EventName", "") or "")
+        trace_id = str(row.get("TraceId", "") or "")
+        span_id = str(row.get("SpanId", "") or "")
+        ts = str(row.get("Timestamp", "") or "")
+
+        if record_type == "trace":
+            record_id = _record_id_for_span(trace_id, span_id)
+        else:
+            record_id = _record_id_for_log(ts, service, trace_id, span_id)
+
+        for rule in rules:
+            if _match_tag_rule(rule, record_type, service, severity, body, attrs, span_name, event_type):
+                tag_rows.append(
+                    {
+                        "RecordType": record_type,
+                        "RecordId": record_id,
+                        "TagKey": rule["tag_key"],
+                        "TagValue": rule["tag_value"],
+                        "IsAuto": 1,
+                        "IsDeleted": 0,
+                        "Version": version,
+                    }
+                )
+    if tag_rows:
+        _insert_rows_json_each_row(db, "sobs_record_tags", tag_rows)
+
+
+def _get_record_tags(db: ChDbConnection, record_type: str, record_id: str) -> list[dict]:
+    """Return all active tags for a given record."""
+    rows = db.execute(
+        "SELECT TagKey, TagValue, IsAuto "
+        "FROM sobs_record_tags FINAL "
+        "WHERE RecordType = ? AND RecordId = ? AND IsDeleted = 0 "
+        "ORDER BY TagKey",
+        [record_type, record_id],
+    ).fetchall()
+    return [
+        {
+            "key": str(row["TagKey"]),
+            "value": str(row["TagValue"]),
+            "is_auto": bool(row["IsAuto"]),
+        }
+        for row in rows
+    ]
+
+
+def _get_service_tags(db: ChDbConnection, record_type: str, service: str, hours: int = 24) -> list[str]:
+    """Return distinct tag values applied to a service's records in the last N hours."""
+    try:
+        rows = db.execute(
+            "SELECT DISTINCT concat(rt.TagKey, ':', rt.TagValue) AS tag "
+            "FROM sobs_record_tags rt FINAL "
+            "WHERE rt.RecordType = ? AND rt.IsDeleted = 0 "
+            "AND rt.RecordId IN ("
+            "  SELECT MD5(concat(ServiceName,'|',toString(Timestamp),'|',TraceId,'|',SpanId)) "
+            "  FROM otel_logs "
+            "  WHERE ServiceName = ? AND Timestamp >= now() - INTERVAL ? HOUR "
+            ") "
+            "ORDER BY tag",
+            [record_type, service, hours],
+        ).fetchall()
+        return [str(r["tag"]) for r in rows]
+    except Exception:
+        return []
+
+
+def _get_def_tags_for_service(db: ChDbConnection, service: str) -> list[str]:
+    """Return distinct auto-tags for a service from all record types (last 24 h)."""
+    try:
+        rows = db.execute(
+            "SELECT DISTINCT concat(TagKey,'=',TagValue) AS tag "
+            "FROM sobs_record_tags FINAL "
+            "WHERE IsDeleted = 0 "
+            "AND RecordId IN ("
+            "  SELECT MD5(concat(ServiceName,'|',toString(Timestamp),'|',TraceId,'|',SpanId)) "
+            "  FROM otel_logs WHERE ServiceName = ? AND Timestamp >= now() - INTERVAL 24 HOUR"
+            ") ORDER BY tag",
+            [service],
+        ).fetchall()
+        return [str(r["tag"]) for r in rows]
+    except Exception:
+        return []
 
 
 def _get_signal_health_by_service(db: ChDbConnection, hours: int = 24) -> list[dict[str, object]]:
@@ -7744,6 +7978,204 @@ async def rum_js():
     return await send_from_directory(
         os.path.join(os.path.dirname(__file__), "static"), "rum.js", mimetype="application/javascript"
     )
+
+
+# ---------------------------------------------------------------------------
+# Settings / Config  GET /settings
+# ---------------------------------------------------------------------------
+@app.route("/settings")
+@require_basic_auth
+async def view_settings():
+    """Settings/config hub page linking to tag rules, metrics rules, and other config."""
+    db = get_db()
+    tag_rules = _load_tag_rules(db)
+    anomaly_rules = _load_anomaly_rules(db)
+    return await render_template(
+        "settings.html",
+        tag_rule_count=len(tag_rules),
+        anomaly_rule_count=len(anomaly_rules),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tag Rules  GET/POST /settings/tags
+# ---------------------------------------------------------------------------
+@app.route("/settings/tags")
+@require_basic_auth
+async def view_tag_rules():
+    db = get_db()
+    rules = _load_tag_rules(db)
+    return await render_template(
+        "settings_tags.html",
+        rules=rules,
+        record_types=_TAG_RULE_RECORD_TYPES,
+        match_fields=_TAG_RULE_FIELDS,
+        match_operators=_TAG_RULE_OPERATORS,
+    )
+
+
+@app.route("/settings/tags", methods=["POST"])
+@require_basic_auth
+async def create_tag_rule():
+    form = await request.form
+    name = (form.get("name") or "").strip()
+    record_types_list = form.getlist("record_types")
+    match_field = (form.get("match_field") or "").strip().lower()
+    match_operator = (form.get("match_operator") or "eq").strip().lower()
+    match_value = (form.get("match_value") or "").strip()
+    match_attr_key = (form.get("match_attr_key") or "").strip()
+    tag_key = (form.get("tag_key") or "").strip()
+    tag_value = (form.get("tag_value") or "").strip()
+
+    if not name or not match_field or not tag_key or not tag_value:
+        await flash("Name, match field, tag key, and tag value are required", "warning")
+        return redirect(url_for("view_tag_rules"))
+    if match_field not in _TAG_RULE_FIELDS:
+        await flash(f"Invalid match field: {match_field}", "warning")
+        return redirect(url_for("view_tag_rules"))
+    if match_operator not in _TAG_RULE_OPERATORS:
+        await flash(f"Invalid match operator: {match_operator}", "warning")
+        return redirect(url_for("view_tag_rules"))
+    if match_field == "attribute" and not match_attr_key:
+        await flash("Attribute key is required when match field is 'attribute'", "warning")
+        return redirect(url_for("view_tag_rules"))
+    if match_operator == "regex":
+        try:
+            re.compile(match_value)
+        except re.error as exc:
+            await flash(f"Invalid regex pattern: {exc}", "warning")
+            return redirect(url_for("view_tag_rules"))
+
+    # Normalise record types
+    valid_types = set(_TAG_RULE_RECORD_TYPES)
+    chosen = [t.strip() for t in record_types_list if t.strip() in valid_types]
+    record_types_str = ",".join(chosen) if chosen else "all"
+
+    rule_id = str(uuid.uuid4())
+    _insert_rows_json_each_row(
+        get_db(),
+        "sobs_tag_rules",
+        [
+            {
+                "Id": rule_id,
+                "Name": name,
+                "RecordTypes": record_types_str,
+                "MatchField": match_field,
+                "MatchOperator": match_operator,
+                "MatchValue": match_value,
+                "MatchAttrKey": match_attr_key,
+                "TagKey": tag_key,
+                "TagValue": tag_value,
+                "IsDeleted": 0,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    await flash(f"Tag rule '{name}' created", "success")
+    return redirect(url_for("view_tag_rules"))
+
+
+@app.route("/settings/tags/<rule_id>/delete", methods=["POST"])
+@require_basic_auth
+async def delete_tag_rule(rule_id: str):
+    db = get_db()
+    row = db.execute(
+        "SELECT Id, Name FROM sobs_tag_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
+        [rule_id],
+    ).fetchone()
+    if not row:
+        await flash("Tag rule not found", "warning")
+        return redirect(url_for("view_tag_rules"))
+    _insert_rows_json_each_row(
+        db,
+        "sobs_tag_rules",
+        [
+            {
+                "Id": rule_id,
+                "Name": str(row["Name"]),
+                "RecordTypes": "",
+                "MatchField": "",
+                "MatchOperator": "eq",
+                "MatchValue": "",
+                "MatchAttrKey": "",
+                "TagKey": "",
+                "TagValue": "",
+                "IsDeleted": 1,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    await flash(f"Tag rule '{row['Name']}' deleted", "success")
+    return redirect(url_for("view_tag_rules"))
+
+
+# ---------------------------------------------------------------------------
+# Record Tags API  GET/POST /api/tags/<record_type>/<record_id>
+#                  DELETE /api/tags/<record_type>/<record_id>/<tag_key>
+# ---------------------------------------------------------------------------
+@app.route("/api/tags/<record_type>/<record_id>", methods=["GET"])
+@require_api_key
+async def api_get_tags(record_type: str, record_id: str):
+    db = get_db()
+    tags = _get_record_tags(db, record_type, record_id)
+    return jsonify({"tags": tags})
+
+
+@app.route("/api/tags/<record_type>/<record_id>", methods=["POST"])
+@require_api_key
+async def api_add_tag(record_type: str, record_id: str):
+    payload = await request.get_json(force=True, silent=True) or {}
+    tag_key = str(payload.get("key", "")).strip()
+    tag_value = str(payload.get("value", "")).strip()
+    if not tag_key:
+        return jsonify({"error": "key is required"}), 400
+    if len(tag_key) > 128 or len(tag_value) > 512:
+        return jsonify({"error": "tag key or value too long"}), 400
+    _insert_rows_json_each_row(
+        get_db(),
+        "sobs_record_tags",
+        [
+            {
+                "RecordType": record_type,
+                "RecordId": record_id,
+                "TagKey": tag_key,
+                "TagValue": tag_value,
+                "IsAuto": 0,
+                "IsDeleted": 0,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    return jsonify({"ok": True}), 201
+
+
+@app.route("/api/tags/<record_type>/<record_id>/<tag_key>", methods=["DELETE"])
+@require_api_key
+async def api_delete_tag(record_type: str, record_id: str, tag_key: str):
+    db = get_db()
+    row = db.execute(
+        "SELECT TagKey, TagValue FROM sobs_record_tags FINAL "
+        "WHERE RecordType = ? AND RecordId = ? AND TagKey = ? AND IsDeleted = 0 LIMIT 1",
+        [record_type, record_id, tag_key],
+    ).fetchone()
+    if not row:
+        return jsonify({"error": "tag not found"}), 404
+    _insert_rows_json_each_row(
+        db,
+        "sobs_record_tags",
+        [
+            {
+                "RecordType": record_type,
+                "RecordId": record_id,
+                "TagKey": tag_key,
+                "TagValue": str(row["TagValue"]),
+                "IsAuto": 0,
+                "IsDeleted": 1,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    return jsonify({"ok": True}), 200
 
 
 # ---------------------------------------------------------------------------

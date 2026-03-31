@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-gear me-2 text-secondary"></i>Settings &amp; Configuration</h4>
+</div>
+
+<div class="row g-3">
+  <!-- Tag Rules -->
+  <div class="col-md-6 col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body d-flex flex-column">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-tags fs-4 text-info"></i>
+          <h5 class="card-title mb-0">Tag Rules</h5>
+        </div>
+        <p class="card-text text-secondary small flex-grow-1">
+          Create auto-tagging rules to automatically label logs, traces, errors, AI, and RUM records
+          based on content, severity, service name, or attribute values. Tags are stored alongside
+          records and can be used for filtering, grouping, and anomaly detection.
+        </p>
+        <div class="d-flex align-items-center justify-content-between mt-2">
+          <span class="badge text-bg-secondary">{{ tag_rule_count }} rule{{ 's' if tag_rule_count != 1 else '' }}</span>
+          <a href="{{ url_for('view_tag_rules') }}" class="btn btn-sm btn-outline-info">
+            <i class="bi bi-pencil-square me-1"></i>Manage Tag Rules
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Metrics / Anomaly Rules -->
+  <div class="col-md-6 col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body d-flex flex-column">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-sliders fs-4 text-warning"></i>
+          <h5 class="card-title mb-0">Metrics Anomaly Rules</h5>
+        </div>
+        <p class="card-text text-secondary small flex-grow-1">
+          Configure threshold and composite anomaly detection rules for derived signals and OTEL
+          metrics. Rules fire warning or critical states that surface in the Metrics view and can be
+          correlated with tag-based filtering.
+        </p>
+        <div class="d-flex align-items-center justify-content-between mt-2">
+          <span class="badge text-bg-secondary">{{ anomaly_rule_count }} rule{{ 's' if anomaly_rule_count != 1 else '' }}</span>
+          <a href="{{ url_for('view_metrics_rules') }}" class="btn btn-sm btn-outline-warning">
+            <i class="bi bi-pencil-square me-1"></i>Manage Anomaly Rules
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Dashboards -->
+  <div class="col-md-6 col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body d-flex flex-column">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-bar-chart-line fs-4 text-success"></i>
+          <h5 class="card-title mb-0">Custom Dashboards</h5>
+        </div>
+        <p class="card-text text-secondary small flex-grow-1">
+          Build and manage custom dashboards using the chart editor. Dashboards support time series,
+          heatmaps, box plots, anomaly overlays, and more — all powered by SQL queries against your
+          telemetry data.
+        </p>
+        <div class="d-flex align-items-center justify-content-between mt-2">
+          <span></span>
+          <a href="{{ url_for('list_dashboards') }}" class="btn btn-sm btn-outline-success">
+            <i class="bi bi-columns-gap me-1"></i>Manage Dashboards
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mt-4">
+  <h5 class="text-secondary fw-semibold"><i class="bi bi-info-circle me-2"></i>Data Model &amp; OTEL Compatibility</h5>
+  <div class="card border-secondary">
+    <div class="card-body small text-secondary">
+      <p class="mb-2">
+        SOBS stores all telemetry in ClickHouse-compatible tables that align with the
+        <strong>OpenTelemetry (OTEL) semantic conventions</strong> and are designed to support
+        future migration to <strong>Clickstack</strong> without data loss.
+      </p>
+      <ul class="mb-2">
+        <li><code>otel_logs</code> — Logs and log-derived events (errors, RUM exceptions)</li>
+        <li><code>otel_traces</code> — Distributed trace spans (including AI transparency spans)</li>
+        <li><code>otel_metrics_gauge / sum / histogram</code> — OTEL metric data points</li>
+        <li><code>hyperdx_sessions</code> — Real User Monitoring (RUM) session events</li>
+        <li><code>sobs_record_tags</code> — Record-level tags (manual and auto-tagged), keyed by stable record ID</li>
+        <li><code>sobs_tag_rules</code> — Auto-tagging rules evaluated at ingest time</li>
+        <li><code>sobs_anomaly_rules</code> — Anomaly detection threshold/composite rules</li>
+      </ul>
+      <p class="mb-0">
+        Tags are stored out-of-band in <code>sobs_record_tags</code>, keeping the core OTEL tables
+        schema-compatible with upstream tooling. The stable <em>RecordId</em> is an MD5 of
+        (ServiceName, Timestamp, TraceId, SpanId) for log-type records, and (TraceId, SpanId) for
+        trace spans — ensuring deterministic join keys across migrations.
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}

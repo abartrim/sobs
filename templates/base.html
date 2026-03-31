@@ -183,6 +183,11 @@
           <i class="bi bi-cpu"></i><span class="sb-label">AI</span>
         </a>
       </li>
+      <li class="nav-item">
+        <a href="{{ url_for('view_settings') }}" class="nav-link {% if request.endpoint in ('view_settings', 'view_tag_rules') %}active{% endif %}" title="Settings">
+          <i class="bi bi-gear"></i><span class="sb-label">Settings</span>
+        </a>
+      </li>
       <li class="nav-item mt-2">
         <button id="reopenWelcomeTourBtn" type="button" class="nav-link btn btn-link text-start w-100" title="Quick Tour">
           <i class="bi bi-stars"></i><span class="sb-label">Quick Tour</span>

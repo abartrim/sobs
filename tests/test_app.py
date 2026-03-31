@@ -4157,3 +4157,367 @@ class TestMetricsAnomalyDetection:
         # If 200, it's valid JSON with the expected structure
         if r.status_code == 200:
             assert "rows" in data
+
+
+# ---------------------------------------------------------------------------
+# Tag Rules & Record Tags
+# ---------------------------------------------------------------------------
+class TestTagRules:
+    """Tests for auto-tagging, tag rule CRUD, and the record tag API."""
+
+    # ── Settings pages ────────────────────────────────────────────────────────
+
+    async def test_settings_page_loads(self, client):
+        r = await client.get("/settings")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Settings" in text
+        assert "Tag Rules" in text
+        assert "Anomaly Rules" in text
+
+    async def test_settings_tags_page_loads(self, client):
+        r = await client.get("/settings/tags")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Tag Rules" in text
+        assert "Create Tag Rule" in text
+
+    # ── Tag rule CRUD ─────────────────────────────────────────────────────────
+
+    async def test_create_tag_rule_and_list(self, client):
+        r = await client.post(
+            "/settings/tags",
+            form={
+                "name": "tag-test-rule",
+                "record_types": ["log"],
+                "match_field": "severity",
+                "match_operator": "eq",
+                "match_value": "ERROR",
+                "match_attr_key": "",
+                "tag_key": "priority",
+                "tag_value": "high",
+            },
+        )
+        # Should redirect back to the tag rules page
+        assert r.status_code in (200, 302)
+        r2 = await client.get("/settings/tags")
+        text = (await r2.get_data()).decode()
+        assert "tag-test-rule" in text
+        assert "priority" in text
+        assert "high" in text
+
+    async def test_create_tag_rule_missing_fields_rejected(self, client):
+        r = await client.post(
+            "/settings/tags",
+            form={
+                "name": "",  # missing
+                "match_field": "severity",
+                "match_operator": "eq",
+                "match_value": "ERROR",
+                "tag_key": "k",
+                "tag_value": "v",
+            },
+        )
+        # Should redirect with a warning flash (302 → 200 with flash)
+        assert r.status_code in (200, 302)
+
+    async def test_delete_tag_rule(self, client):
+        # Create a rule to delete
+        await client.post(
+            "/settings/tags",
+            form={
+                "name": "to-be-deleted",
+                "record_types": ["all"],
+                "match_field": "service_name",
+                "match_operator": "eq",
+                "match_value": "test-svc",
+                "match_attr_key": "",
+                "tag_key": "delete-me",
+                "tag_value": "yes",
+            },
+        )
+        # Look up the rule ID
+        from app import get_db
+        db = get_db()
+        row = db.execute(
+            "SELECT Id FROM sobs_tag_rules FINAL WHERE Name='to-be-deleted' AND IsDeleted=0 LIMIT 1"
+        ).fetchone()
+        assert row is not None, "Rule was not created"
+        rule_id = str(row["Id"])
+
+        r = await client.post(f"/settings/tags/{rule_id}/delete")
+        assert r.status_code in (200, 302)
+
+        # Verify it's soft-deleted
+        row2 = db.execute(
+            "SELECT Id FROM sobs_tag_rules FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1",
+            [rule_id],
+        ).fetchone()
+        assert row2 is None, "Rule was not deleted"
+
+    # ── Auto-tagging at ingest ────────────────────────────────────────────────
+
+    async def test_auto_tag_applied_on_log_ingest(self, client):
+        """A tag rule matching ERROR severity should tag ingested error logs."""
+        # Create a tag rule
+        await client.post(
+            "/settings/tags",
+            form={
+                "name": "auto-tag-errors",
+                "record_types": ["log"],
+                "match_field": "severity",
+                "match_operator": "eq",
+                "match_value": "ERROR",
+                "match_attr_key": "",
+                "tag_key": "auto-env",
+                "tag_value": "test",
+            },
+        )
+
+        # Ingest an ERROR log
+        ts_ns = int(time.time() * 1_000_000_000)
+        payload = {
+            "resourceLogs": [
+                {
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "tag-svc"}}]},
+                    "scopeLogs": [
+                        {
+                            "logRecords": [
+                                {
+                                    "timeUnixNano": str(ts_ns),
+                                    "severityText": "ERROR",
+                                    "severityNumber": 17,
+                                    "body": {"stringValue": "auto-tag test log"},
+                                    "traceId": "",
+                                    "spanId": "",
+                                    "attributes": [],
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+        r = await client.post("/v1/logs", json=payload)
+        assert r.status_code == 200
+
+        # Check that a tag was created in sobs_record_tags
+        from app import get_db
+        db = get_db()
+        count = db.execute(
+            "SELECT count() FROM sobs_record_tags FINAL "
+            "WHERE TagKey='auto-env' AND TagValue='test' AND IsAuto=1 AND IsDeleted=0"
+        ).fetchone()[0]
+        assert count >= 1, "Auto-tag not written to sobs_record_tags"
+
+    async def test_auto_tag_not_applied_for_non_matching_rule(self, client):
+        """A tag rule for WARN should NOT tag DEBUG logs."""
+        # Ensure there's a rule only for WARN
+        await client.post(
+            "/settings/tags",
+            form={
+                "name": "warn-only-rule",
+                "record_types": ["log"],
+                "match_field": "severity",
+                "match_operator": "eq",
+                "match_value": "WARN",
+                "match_attr_key": "",
+                "tag_key": "warn-tagged",
+                "tag_value": "yes",
+            },
+        )
+
+        # Ingest a DEBUG log with a unique service name so we can find it
+        ts_ns = int(time.time() * 1_000_000_000)
+        unique_service = f"no-warn-svc-{ts_ns}"
+        payload = {
+            "resourceLogs": [
+                {
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": unique_service}}]},
+                    "scopeLogs": [
+                        {
+                            "logRecords": [
+                                {
+                                    "timeUnixNano": str(ts_ns),
+                                    "severityText": "DEBUG",
+                                    "severityNumber": 5,
+                                    "body": {"stringValue": "debug log no warn"},
+                                    "traceId": "",
+                                    "spanId": "",
+                                    "attributes": [],
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+        r = await client.post("/v1/logs", json=payload)
+        assert r.status_code == 200
+
+        from app import get_db, _record_id_for_log
+        db = get_db()
+        # The log row's record ID
+        row = db.execute(
+            "SELECT Timestamp, TraceId, SpanId FROM otel_logs WHERE ServiceName=? LIMIT 1",
+            [unique_service],
+        ).fetchone()
+        if row:
+            rid = _record_id_for_log(str(row["Timestamp"]), unique_service, str(row["TraceId"]), str(row["SpanId"]))
+            tag_row = db.execute(
+                "SELECT count() FROM sobs_record_tags FINAL "
+                "WHERE RecordId=? AND TagKey='warn-tagged' AND IsDeleted=0",
+                [rid],
+            ).fetchone()
+            assert tag_row[0] == 0, "WARN rule incorrectly tagged a DEBUG log"
+
+    # ── Record tag API ────────────────────────────────────────────────────────
+
+    async def test_api_add_and_get_tag(self, client):
+        record_id = "deadbeef01234567deadbeef01234567"
+        # Add a manual tag
+        r = await client.post(
+            f"/api/tags/log/{record_id}",
+            json={"key": "env", "value": "staging"},
+        )
+        assert r.status_code == 201
+
+        # Retrieve tags
+        r2 = await client.get(f"/api/tags/log/{record_id}")
+        assert r2.status_code == 200
+        data = await r2.get_json()
+        tags = data["tags"]
+        assert any(t["key"] == "env" and t["value"] == "staging" for t in tags)
+
+    async def test_api_add_tag_missing_key_returns_400(self, client):
+        r = await client.post(
+            "/api/tags/log/someid",
+            json={"value": "no-key"},
+        )
+        assert r.status_code == 400
+
+    async def test_api_delete_tag(self, client):
+        record_id = "cafebabe00000000cafebabe00000000"
+        await client.post(
+            f"/api/tags/trace/{record_id}",
+            json={"key": "temp-tag", "value": "remove-me"},
+        )
+        r = await client.delete(f"/api/tags/trace/{record_id}/temp-tag")
+        assert r.status_code == 200
+
+        r2 = await client.get(f"/api/tags/trace/{record_id}")
+        data = await r2.get_json()
+        assert not any(t["key"] == "temp-tag" for t in data["tags"])
+
+    async def test_api_delete_nonexistent_tag_returns_404(self, client):
+        r = await client.delete("/api/tags/log/nonexistentid/no-such-key")
+        assert r.status_code == 404
+
+    # ── Helper functions ──────────────────────────────────────────────────────
+
+    def test_record_id_for_log_stable(self):
+        from app import _record_id_for_log
+        rid1 = _record_id_for_log("2026-01-01T00:00:00", "svc", "traceid", "spanid")
+        rid2 = _record_id_for_log("2026-01-01T00:00:00", "svc", "traceid", "spanid")
+        assert rid1 == rid2
+        assert len(rid1) == 32
+
+    def test_record_id_for_span_stable(self):
+        from app import _record_id_for_span
+        rid1 = _record_id_for_span("traceid", "spanid")
+        rid2 = _record_id_for_span("traceid", "spanid")
+        assert rid1 == rid2
+        assert len(rid1) == 32
+
+    def test_record_id_for_log_differs_by_fields(self):
+        from app import _record_id_for_log
+        rid1 = _record_id_for_log("2026-01-01T00:00:00", "svc-a", "t1", "s1")
+        rid2 = _record_id_for_log("2026-01-01T00:00:00", "svc-b", "t1", "s1")
+        assert rid1 != rid2
+
+    def test_match_tag_rule_eq_severity(self):
+        from app import _match_tag_rule
+        rule = {
+            "record_types": ["log"],
+            "match_field": "severity",
+            "match_operator": "eq",
+            "match_value": "ERROR",
+            "match_attr_key": "",
+            "tag_key": "k",
+            "tag_value": "v",
+        }
+        assert _match_tag_rule(rule, "log", "svc", "ERROR", "body", {}) is True
+        assert _match_tag_rule(rule, "log", "svc", "WARN", "body", {}) is False
+
+    def test_match_tag_rule_contains_body(self):
+        from app import _match_tag_rule
+        rule = {
+            "record_types": ["all"],
+            "match_field": "body",
+            "match_operator": "contains",
+            "match_value": "timeout",
+            "match_attr_key": "",
+            "tag_key": "k",
+            "tag_value": "v",
+        }
+        assert _match_tag_rule(rule, "log", "svc", "ERROR", "connection timeout error", {}) is True
+        assert _match_tag_rule(rule, "log", "svc", "ERROR", "success", {}) is False
+
+    def test_match_tag_rule_regex(self):
+        from app import _match_tag_rule
+        rule = {
+            "record_types": ["all"],
+            "match_field": "service_name",
+            "match_operator": "regex",
+            "match_value": r"^prod-",
+            "match_attr_key": "",
+            "tag_key": "k",
+            "tag_value": "v",
+        }
+        assert _match_tag_rule(rule, "log", "prod-api", "", "", {}) is True
+        assert _match_tag_rule(rule, "log", "staging-api", "", "", {}) is False
+
+    def test_match_tag_rule_attribute(self):
+        from app import _match_tag_rule
+        rule = {
+            "record_types": ["trace"],
+            "match_field": "attribute",
+            "match_operator": "eq",
+            "match_value": "500",
+            "match_attr_key": "http.status_code",
+            "tag_key": "k",
+            "tag_value": "v",
+        }
+        attrs = {"http.status_code": "500"}
+        assert _match_tag_rule(rule, "trace", "svc", "", "", attrs) is True
+        attrs2 = {"http.status_code": "200"}
+        assert _match_tag_rule(rule, "trace", "svc", "", "", attrs2) is False
+
+    def test_match_tag_rule_wrong_record_type(self):
+        from app import _match_tag_rule
+        rule = {
+            "record_types": ["trace"],
+            "match_field": "severity",
+            "match_operator": "eq",
+            "match_value": "ERROR",
+            "match_attr_key": "",
+            "tag_key": "k",
+            "tag_value": "v",
+        }
+        # Rule only applies to traces, not logs
+        assert _match_tag_rule(rule, "log", "svc", "ERROR", "", {}) is False
+        assert _match_tag_rule(rule, "trace", "svc", "ERROR", "", {}) is True
+
+    def test_match_tag_rule_invalid_regex_returns_false(self):
+        from app import _match_tag_rule
+        rule = {
+            "record_types": ["all"],
+            "match_field": "body",
+            "match_operator": "regex",
+            "match_value": "[invalid",
+            "match_attr_key": "",
+            "tag_key": "k",
+            "tag_value": "v",
+        }
+        # Invalid regex must not raise, just return False
+        assert _match_tag_rule(rule, "log", "svc", "ERROR", "any body", {}) is False

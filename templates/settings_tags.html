@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}Tag Rules{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-tags me-2 text-info"></i>Tag Rules</h4>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Settings
+  </a>
+</div>
+
+<p class="text-secondary small mb-3">
+  Tag rules are evaluated at ingest time. Matching records automatically receive the configured
+  tag, stored in <code>sobs_record_tags</code> for use in filtering and anomaly correlation.
+  Tags follow <strong>OTEL attribute</strong> conventions: <code>key=value</code> pairs.
+</p>
+
+<!-- Create Rule Form -->
+<div class="card border-secondary mb-4">
+  <div class="card-header">
+    <h6 class="mb-0"><i class="bi bi-plus-circle me-2 text-success"></i>Create Tag Rule</h6>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('create_tag_rule') }}" class="row g-3">
+      <!-- Rule name -->
+      <div class="col-md-4">
+        <label class="form-label small text-secondary">Rule Name <span class="text-danger">*</span></label>
+        <input type="text" name="name" class="form-control form-control-sm" placeholder="e.g. Tag production errors" required>
+      </div>
+
+      <!-- Record types -->
+      <div class="col-md-8">
+        <label class="form-label small text-secondary">Apply to Record Types</label>
+        <div class="d-flex flex-wrap gap-3">
+          {% for rt in record_types %}
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="record_types" value="{{ rt }}" id="rt_{{ rt }}"
+                   {% if rt == 'all' %}checked{% endif %}>
+            <label class="form-check-label small" for="rt_{{ rt }}">{{ rt }}</label>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="form-text small">Leave all unchecked or check <em>all</em> to match every record type.</div>
+      </div>
+
+      <!-- Match field -->
+      <div class="col-md-3">
+        <label class="form-label small text-secondary">Match Field <span class="text-danger">*</span></label>
+        <select name="match_field" id="matchFieldSelect" class="form-select form-select-sm" required>
+          {% for f in match_fields %}
+          <option value="{{ f }}">{{ f.replace('_', ' ').title() }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Attribute key (shown only when match field = attribute) -->
+      <div class="col-md-3" id="attrKeyGroup" style="display:none">
+        <label class="form-label small text-secondary">Attribute Key</label>
+        <input type="text" name="match_attr_key" id="matchAttrKey" class="form-control form-control-sm"
+               placeholder="e.g. http.status_code">
+      </div>
+
+      <!-- Match operator -->
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Operator <span class="text-danger">*</span></label>
+        <select name="match_operator" class="form-select form-select-sm" required>
+          {% for op in match_operators %}
+          <option value="{{ op }}">{{ op }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Match value -->
+      <div class="col-md-4">
+        <label class="form-label small text-secondary">Match Value <span class="text-danger">*</span></label>
+        <input type="text" name="match_value" class="form-control form-control-sm"
+               placeholder="e.g. ERROR or ^timeout.*" required>
+      </div>
+
+      <!-- Tag key -->
+      <div class="col-md-3">
+        <label class="form-label small text-secondary">Tag Key <span class="text-danger">*</span></label>
+        <input type="text" name="tag_key" class="form-control form-control-sm"
+               placeholder="e.g. env" required>
+      </div>
+
+      <!-- Tag value -->
+      <div class="col-md-3">
+        <label class="form-label small text-secondary">Tag Value <span class="text-danger">*</span></label>
+        <input type="text" name="tag_value" class="form-control form-control-sm"
+               placeholder="e.g. production" required>
+      </div>
+
+      <div class="col-12">
+        <button type="submit" class="btn btn-success btn-sm">
+          <i class="bi bi-plus-circle me-1"></i>Create Rule
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Existing Rules -->
+{% if rules %}
+<div class="card border-secondary">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <h6 class="mb-0">Active Tag Rules ({{ rules|length }})</h6>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead class="table-secondary">
+        <tr>
+          <th>Name</th>
+          <th>Record Types</th>
+          <th>Match Field</th>
+          <th>Attr Key</th>
+          <th>Operator</th>
+          <th>Match Value</th>
+          <th>Tag Key</th>
+          <th>Tag Value</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rule in rules %}
+        <tr>
+          <td class="fw-semibold">{{ rule.name }}</td>
+          <td>
+            {% for rt in rule.record_types %}
+            <span class="badge text-bg-secondary me-1">{{ rt }}</span>
+            {% endfor %}
+          </td>
+          <td><code>{{ rule.match_field }}</code></td>
+          <td class="font-monospace small">{{ rule.match_attr_key or '—' }}</td>
+          <td>{{ rule.match_operator }}</td>
+          <td class="font-monospace small text-truncate" style="max-width:180px" title="{{ rule.match_value }}">{{ rule.match_value }}</td>
+          <td><span class="badge text-bg-info text-dark">{{ rule.tag_key }}</span></td>
+          <td><span class="badge text-bg-light border">{{ rule.tag_value }}</span></td>
+          <td>
+            <form method="post" action="{{ url_for('delete_tag_rule', rule_id=rule.id) }}"
+                  onsubmit="return confirm('Delete tag rule \'{{ rule.name }}\'?')">
+              <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete rule">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="text-secondary text-center py-4">
+  <i class="bi bi-tags fs-2 d-block mb-2"></i>
+  No tag rules yet. Use the form above to create your first rule.
+</div>
+{% endif %}
+
+<!-- How It Works -->
+<div class="card border-secondary mt-4">
+  <div class="card-header">
+    <h6 class="mb-0"><i class="bi bi-question-circle me-1"></i>How Auto-Tagging Works</h6>
+  </div>
+  <div class="card-body small text-secondary">
+    <p class="mb-2">
+      When a new record is ingested (log, trace span, error, AI call, or RUM event), all active tag
+      rules are evaluated against it. Each matching rule writes a tag row into
+      <code>sobs_record_tags</code> with <code>IsAuto=1</code>.
+    </p>
+    <ul class="mb-2">
+      <li><strong>service_name</strong> — matches against the record's service name.</li>
+      <li><strong>severity</strong> — matches against the log severity level (e.g. <code>ERROR</code>, <code>WARN</code>).</li>
+      <li><strong>body</strong> — matches against the log body or span name text.</li>
+      <li><strong>span_name</strong> — matches against the OTEL span name (trace records only).</li>
+      <li><strong>event_type</strong> — matches against the event/log type name.</li>
+      <li><strong>attribute</strong> — matches against a specific OTEL attribute key's value.</li>
+    </ul>
+    <p class="mb-0">
+      You can also add tags <em>manually</em> to individual records via the
+      <code>POST /api/tags/&lt;type&gt;/&lt;record_id&gt;</code> API. Record IDs are MD5 hashes
+      of key fields and are shown in the record detail views.
+    </p>
+  </div>
+</div>
+
+<script>
+(function () {
+  var matchFieldSelect = document.getElementById('matchFieldSelect');
+  var attrKeyGroup = document.getElementById('attrKeyGroup');
+  var matchAttrKey = document.getElementById('matchAttrKey');
+
+  function toggleAttrKey() {
+    var show = matchFieldSelect.value === 'attribute';
+    attrKeyGroup.style.display = show ? '' : 'none';
+    matchAttrKey.required = show;
+  }
+
+  matchFieldSelect.addEventListener('change', toggleAttrKey);
+  toggleAttrKey();
+}());
+</script>
+{% endblock %}
