@@ -63,7 +63,7 @@
           </div>
           <div class="col-12">
             <label class="form-label small text-secondary">Body Template (leave blank for default JSON)</label>
-            <textarea name="webhook_body_template" class="form-control form-control-sm font-monospace" rows="2" placeholder="Use {{summary}} for the notification summary text"></textarea>
+            <textarea name="webhook_body_template" class="form-control form-control-sm font-monospace" rows="2" placeholder="Use &#123;&#123;summary&#125;&#125; for the notification summary text"></textarea>
           </div>
         </div>
 
@@ -596,6 +596,22 @@
   }
 
   // ===== Browser Push subscription =====
+  var swRegistrationPromise = null;
+
+  function ensureServiceWorkerRegistration() {
+    if (swRegistrationPromise) {
+      return swRegistrationPromise;
+    }
+
+    swRegistrationPromise = navigator.serviceWorker.getRegistration().then(function (existingRegistration) {
+      if (existingRegistration) {
+        return existingRegistration;
+      }
+      return navigator.serviceWorker.register('{{ url_for("service_worker_js") }}');
+    });
+    return swRegistrationPromise;
+  }
+
   var subscribeBrowserBtn = document.getElementById('subscribeBrowserBtn');
   if (subscribeBrowserBtn) {
     subscribeBrowserBtn.addEventListener('click', function () {
@@ -611,7 +627,7 @@
             return;
           }
           var applicationServerKey = urlBase64ToUint8Array(data.public_key);
-          return navigator.serviceWorker.ready.then(function (reg) {
+          return ensureServiceWorkerRegistration().then(function (reg) {
             return reg.pushManager.subscribe({
               userVisibleOnly: true,
               applicationServerKey: applicationServerKey,

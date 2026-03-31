@@ -27,7 +27,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import wraps
-from typing import Callable, cast
+from typing import Any, Callable, cast
 
 import chdb.dbapi as chdb_driver
 from google.protobuf.json_format import ParseDict
@@ -1021,10 +1021,7 @@ def _ensure_anomaly_rule_schema(db: ChDbConnection) -> None:
 def _ensure_notification_schema(db: ChDbConnection) -> None:
     """Run additive migrations to ensure notification tables have all expected columns."""
     migration_statements = [
-        (
-            "ALTER TABLE sobs_notification_channels ADD COLUMN IF NOT EXISTS "
-            "Enabled UInt8 DEFAULT 1"
-        ),
+        ("ALTER TABLE sobs_notification_channels ADD COLUMN IF NOT EXISTS " "Enabled UInt8 DEFAULT 1"),
     ]
     for statement in migration_statements:
         try:
@@ -9149,7 +9146,7 @@ def _build_notification_payload(rule: dict, fired_conditions: list[dict]) -> dic
         svc = cond.get("service", "")
         service_str = f" [{svc}]" if svc else ""
         condition_summaries.append(
-            f"{cond.get('source','')}/{cond.get('signal','')}{service_str} {comp} "
+            f"{cond.get('source', '')}/{cond.get('signal', '')}{service_str} {comp} "
             f"{cond.get('threshold', 0)} (value={cond.get('_value', 'n/a')})"
         )
     summary = f"[SOBS] Rule '{rule['name']}' triggered ({rule['severity'].upper()}): " + "; ".join(condition_summaries)
@@ -9261,22 +9258,16 @@ def _dispatch_browser_push_channel(config: dict, payload: dict) -> None:
     vapid_private_key_b64 = os.environ.get("SOBS_VAPID_PRIVATE_KEY", "").strip()
     vapid_subject = os.environ.get("SOBS_VAPID_SUBJECT", "mailto:sobs@localhost").strip()
     if not vapid_private_key_b64:
-        raise ValueError(
-            "SOBS_VAPID_PRIVATE_KEY environment variable is required for browser push notifications"
-        )
+        raise ValueError("SOBS_VAPID_PRIVATE_KEY environment variable is required for browser push notifications")
 
     try:
-        from cryptography.hazmat.primitives.asymmetric.ec import (
-            ECDH,
-            SECP256R1,
-            EllipticCurvePublicKey,
-            generate_private_key,
-        )
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-        from cryptography.hazmat.primitives.hashes import SHA256
-        from cryptography.hazmat.primitives.hmac import HMAC as CryptoHMAC
-        from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PublicFormat, load_der_private_key
         from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives.asymmetric.ec import SECP256R1
+        from cryptography.hazmat.primitives.serialization import (
+            Encoding,
+            PublicFormat,
+            load_der_private_key,
+        )
     except ImportError as exc:
         raise RuntimeError("The `cryptography` package is required for browser push notifications") from exc
 
@@ -9301,6 +9292,7 @@ def _dispatch_browser_push_channel(config: dict, payload: dict) -> None:
     except Exception:
         # Try as raw 32-byte scalar
         from cryptography.hazmat.primitives.asymmetric.ec import derive_private_key
+
         scalar = int.from_bytes(vapid_key_bytes[:32], "big")
         vapid_private_key = derive_private_key(scalar, SECP256R1(), default_backend())
 
@@ -9338,7 +9330,7 @@ def _pad_base64(s: str) -> str:
     return s
 
 
-def _build_vapid_jwt(claims: dict, private_key: object) -> str:
+def _build_vapid_jwt(claims: dict, private_key: Any) -> str:
     """Build a signed JWT for VAPID authentication."""
     from cryptography.hazmat.primitives.asymmetric.ec import ECDSA
     from cryptography.hazmat.primitives.hashes import SHA256
@@ -9346,9 +9338,10 @@ def _build_vapid_jwt(claims: dict, private_key: object) -> str:
     header = base64.urlsafe_b64encode(json.dumps({"typ": "JWT", "alg": "ES256"}).encode()).rstrip(b"=")
     body = base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=")
     signing_input = header + b"." + body
-    signature = private_key.sign(signing_input, ECDSA(SHA256()))  # type: ignore[arg-type]
+    signature = private_key.sign(signing_input, ECDSA(SHA256()))
     # DER-encode to raw r||s (64 bytes)
     from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+
     r, s = decode_dss_signature(signature)
     raw_sig = r.to_bytes(32, "big") + s.to_bytes(32, "big")
     sig_b64 = base64.urlsafe_b64encode(raw_sig).rstrip(b"=")
@@ -9359,7 +9352,11 @@ def _encrypt_push_payload(
     plaintext: bytes, subscriber_pub_key_bytes: bytes, auth_bytes: bytes, backend: object
 ) -> tuple[bytes, bytes, bytes]:
     """Encrypt a Web Push payload using AES-128-GCM (RFC 8291 / RFC 8188)."""
-    from cryptography.hazmat.primitives.asymmetric.ec import ECDH, SECP256R1, EllipticCurvePublicNumbers, generate_private_key
+    from cryptography.hazmat.primitives.asymmetric.ec import (
+        ECDH,
+        SECP256R1,
+        generate_private_key,
+    )
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     from cryptography.hazmat.primitives.hashes import SHA256
     from cryptography.hazmat.primitives.hmac import HMAC as CryptoHMAC
@@ -9370,8 +9367,8 @@ def _encrypt_push_payload(
     server_pub_bytes = server_private.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
 
     # Load subscriber public key (uncompressed P-256 point, 65 bytes)
-    from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
     from cryptography.hazmat.primitives.serialization import load_der_public_key
+
     # Build DER-encoded SubjectPublicKeyInfo for P-256 uncompressed point
     oid_prefix = bytes.fromhex("3059301306072a8648ce3d020106082a8648ce3d030107034200")
     subscriber_pub_der = oid_prefix + subscriber_pub_key_bytes
@@ -9496,16 +9493,18 @@ def _check_notification_rule(db: ChDbConnection, rule: dict, channels_by_id: dic
         return {"rule_id": rule["id"], "fired": False, "reason": "disabled"}
 
     # Cooldown check
-    last_fired_at_str = str(rule.get("last_fired_at", "1970-01-01"))
     try:
-        last_fired_ts = float(
-            db.execute(
-                "SELECT toUnixTimestamp64Milli(LastFiredAt) AS ts "
-                "FROM sobs_notification_rules FINAL WHERE Id = ? LIMIT 1",
-                [rule["id"]],
-            ).fetchone()["ts"]
-            or 0
-        ) / 1000.0
+        last_fired_ts = (
+            float(
+                db.execute(
+                    "SELECT toUnixTimestamp64Milli(LastFiredAt) AS ts "
+                    "FROM sobs_notification_rules FINAL WHERE Id = ? LIMIT 1",
+                    [rule["id"]],
+                ).fetchone()["ts"]
+                or 0
+            )
+            / 1000.0
+        )
     except Exception:
         last_fired_ts = 0.0
     cooldown = int(rule.get("cooldown_seconds", 300))
@@ -9561,8 +9560,7 @@ def _check_notification_rule(db: ChDbConnection, rule: dict, channels_by_id: dic
         )
 
     # Write notification log entries
-    log_version = int(time.time() * 1000)
-    for idx, dr in enumerate(dispatch_results):
+    for dr in dispatch_results:
         _insert_rows_json_each_row(
             db,
             "sobs_notification_log",
@@ -9613,6 +9611,7 @@ def _check_notification_rule(db: ChDbConnection, rule: dict, channels_by_id: dic
 
 def _generate_vapid_keys() -> tuple[str, str]:
     """Generate a new VAPID key pair. Returns (private_key_b64url, public_key_b64url)."""
+    from cryptography.hazmat.backends import default_backend
     from cryptography.hazmat.primitives.asymmetric.ec import SECP256R1, generate_private_key
     from cryptography.hazmat.primitives.serialization import (
         Encoding,
@@ -9620,7 +9619,6 @@ def _generate_vapid_keys() -> tuple[str, str]:
         PrivateFormat,
         PublicFormat,
     )
-    from cryptography.hazmat.backends import default_backend
 
     private_key = generate_private_key(SECP256R1(), default_backend())
     private_bytes = private_key.private_bytes(Encoding.DER, PrivateFormat.PKCS8, NoEncryption())
@@ -9637,8 +9635,8 @@ def _get_vapid_public_key() -> str | None:
     if not vapid_private_key_b64:
         return None
     try:
-        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, load_der_private_key
         from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, load_der_private_key
 
         key_bytes = base64.urlsafe_b64decode(_pad_base64(vapid_private_key_b64))
         private_key = load_der_private_key(key_bytes, password=None, backend=default_backend())
@@ -9651,6 +9649,7 @@ def _get_vapid_public_key() -> str | None:
 # ---------------------------------------------------------------------------
 # Notification Routes  GET /settings/notifications  POST /settings/notifications/*
 # ---------------------------------------------------------------------------
+
 
 @app.route("/settings/notifications")
 @require_basic_auth
@@ -9910,9 +9909,10 @@ async def create_notification_rule():
 
     # Validate channel IDs exist
     db = get_db()
-    valid_channel_ids = {str(r["Id"]) for r in db.execute(
-        "SELECT Id FROM sobs_notification_channels FINAL WHERE IsDeleted = 0"
-    ).fetchall()}
+    valid_channel_ids = {
+        str(r["Id"])
+        for r in db.execute("SELECT Id FROM sobs_notification_channels FINAL WHERE IsDeleted = 0").fetchall()
+    }
     channel_ids = [c.strip() for c in channel_ids_raw if c.strip() in valid_channel_ids]
 
     rule_id = str(uuid.uuid4())
@@ -10055,6 +10055,41 @@ async def get_vapid_public_key():
     if not pub_key:
         return jsonify({"ok": False, "error": "SOBS_VAPID_PRIVATE_KEY is not configured"}), 404
     return jsonify({"ok": True, "public_key": pub_key})
+
+
+@app.route("/service-worker.js", methods=["GET"])
+async def service_worker_js():
+    """Serve a minimal service worker needed for browser push notifications."""
+    sw_source = """
+self.addEventListener('push', function (event) {
+    var data = {};
+    try {
+        data = event.data ? event.data.json() : {};
+    } catch (_err) {
+        data = { title: 'SOBS Alert', body: event.data ? event.data.text() : 'Notification received' };
+    }
+
+    var title = (data && data.title) || 'SOBS Alert';
+    var options = {
+        body: (data && data.body) || 'Notification received',
+    };
+
+    event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', function (event) {
+    event.notification.close();
+    event.waitUntil(clients.openWindow(self.registration.scope));
+});
+""".lstrip()
+    return Response(
+        sw_source,
+        mimetype="application/javascript",
+        headers={
+            "Cache-Control": "no-cache",
+            "Service-Worker-Allowed": "/",
+        },
+    )
 
 
 @app.route("/api/notifications/subscribe", methods=["POST"])

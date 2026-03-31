@@ -5052,6 +5052,21 @@ class TestNotifications:
         assert "Notification Channels" in text
         assert "Notification Rules" in text
 
+    async def test_notifications_page_registers_service_worker(self, client):
+        r = await client.get("/settings/notifications")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "/service-worker.js" in text
+        assert "navigator.serviceWorker.register" in text
+
+    async def test_service_worker_js_route_serves_push_handlers(self, client):
+        r = await client.get("/service-worker.js")
+        assert r.status_code == 200
+        assert r.content_type.startswith("application/javascript")
+        body = (await r.get_data()).decode()
+        assert "addEventListener('push'" in body
+        assert "showNotification" in body
+
     async def test_create_webhook_channel(self, client):
         r = await client.post(
             "/settings/notifications/channels",
