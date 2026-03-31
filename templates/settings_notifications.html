@@ -1,0 +1,649 @@
+{% extends "base.html" %}
+{% block title %}Notifications & Webhooks{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-bell me-2 text-warning"></i>Notifications &amp; Webhooks</h4>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Settings
+  </a>
+</div>
+
+<p class="text-secondary small mb-3">
+  Configure outbound notification channels (Slack, webhook, email, browser push) and define rules
+  that trigger notifications based on signal thresholds and anomaly conditions.
+  Rules are evaluated on demand via <code>POST /api/notifications/check</code> — call this endpoint
+  periodically with a scheduler or cron job.
+</p>
+
+<!-- ====================== NOTIFICATION CHANNELS ====================== -->
+<div class="d-flex align-items-center justify-content-between mb-2">
+  <h5 class="fw-semibold mb-0"><i class="bi bi-plug me-2 text-info"></i>Notification Channels</h5>
+  <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#addChannelCollapse" aria-expanded="false" aria-controls="addChannelCollapse">
+    <i class="bi bi-plus-circle me-1"></i>Add Channel
+  </button>
+</div>
+
+<div class="collapse mb-3" id="addChannelCollapse">
+  <div class="card border-secondary">
+    <div class="card-body">
+      <h6 class="card-title mb-3">New Notification Channel</h6>
+      <form method="post" action="{{ url_for('create_notification_channel') }}" id="addChannelForm">
+        <div class="row g-3 mb-3">
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">Channel Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control form-control-sm" placeholder="e.g. Ops Slack" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small text-secondary">Channel Type <span class="text-danger">*</span></label>
+            <select name="channel_type" id="channelTypeSelect" class="form-select form-select-sm" required>
+              <option value="">Select type…</option>
+              {% for ct in channel_types %}
+              <option value="{{ ct }}">{{ ct | capitalize | replace('_', ' ') }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <!-- Webhook fields -->
+        <div id="fields-webhook" class="channel-fields d-none row g-3 mb-3">
+          <div class="col-md-6">
+            <label class="form-label small text-secondary">Webhook URL <span class="text-danger">*</span></label>
+            <input type="url" name="webhook_url" class="form-control form-control-sm" placeholder="https://example.com/hook">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-secondary">Method</label>
+            <select name="webhook_method" class="form-select form-select-sm">
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">Custom Headers (JSON)</label>
+            <input type="text" name="webhook_headers" class="form-control form-control-sm font-monospace" placeholder='{"X-Token": "secret"}' value="{}">
+          </div>
+          <div class="col-12">
+            <label class="form-label small text-secondary">Body Template (leave blank for default JSON)</label>
+            <textarea name="webhook_body_template" class="form-control form-control-sm font-monospace" rows="2" placeholder="Use {{summary}} for the notification summary text"></textarea>
+          </div>
+        </div>
+
+        <!-- Slack fields -->
+        <div id="fields-slack" class="channel-fields d-none row g-3 mb-3">
+          <div class="col-md-8">
+            <label class="form-label small text-secondary">Slack Incoming Webhook URL <span class="text-danger">*</span></label>
+            <input type="url" name="slack_webhook_url" class="form-control form-control-sm" placeholder="https://hooks.slack.com/services/...">
+          </div>
+        </div>
+
+        <!-- Email fields -->
+        <div id="fields-email" class="channel-fields d-none row g-3 mb-3">
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">SMTP Host</label>
+            <input type="text" name="smtp_host" class="form-control form-control-sm" value="localhost">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-secondary">Port</label>
+            <input type="number" name="smtp_port" class="form-control form-control-sm" value="587">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small text-secondary">SMTP User</label>
+            <input type="text" name="smtp_user" class="form-control form-control-sm" placeholder="user@example.com">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small text-secondary">SMTP Password</label>
+            <input type="password" name="smtp_password" class="form-control form-control-sm" autocomplete="new-password">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">From Address</label>
+            <input type="email" name="from_addr" class="form-control form-control-sm" value="sobs@localhost">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">To Address <span class="text-danger">*</span></label>
+            <input type="email" name="to_addr" class="form-control form-control-sm" placeholder="admin@example.com">
+          </div>
+          <div class="col-md-4 d-flex align-items-end">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="use_tls" value="1" id="useTlsCheck" checked>
+              <label class="form-check-label small text-secondary" for="useTlsCheck">Use STARTTLS</label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Browser Push fields -->
+        <div id="fields-browser_push" class="channel-fields d-none row g-3 mb-3">
+          <div class="col-12">
+            <div class="alert alert-info small mb-2 py-2">
+              <i class="bi bi-info-circle me-1"></i>
+              Use the <strong>Subscribe Browser</strong> button below to automatically register
+              this browser for push notifications. Manual entry is also supported.
+              Requires <code>SOBS_VAPID_PRIVATE_KEY</code> to be set in the environment.
+              {% if vapid_public_key %}
+              <br><strong>VAPID public key:</strong>
+              <code class="user-select-all small">{{ vapid_public_key }}</code>
+              {% else %}
+              <br><span class="text-danger">VAPID private key not configured — set <code>SOBS_VAPID_PRIVATE_KEY</code>.</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="col-12">
+            <button type="button" class="btn btn-sm btn-outline-info" id="subscribeBrowserBtn">
+              <i class="bi bi-browser-safari me-1"></i>Subscribe This Browser
+            </button>
+            <small class="text-secondary ms-2">Registers this browser's push subscription automatically.</small>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label small text-secondary">Push Endpoint <span class="text-danger">*</span></label>
+            <input type="url" name="push_endpoint" id="pushEndpoint" class="form-control form-control-sm font-monospace" placeholder="https://fcm.googleapis.com/...">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">p256dh Key</label>
+            <input type="text" name="push_p256dh" id="pushP256dh" class="form-control form-control-sm font-monospace" placeholder="Base64url-encoded">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">Auth Secret</label>
+            <input type="text" name="push_auth" id="pushAuth" class="form-control form-control-sm font-monospace" placeholder="Base64url-encoded">
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-info btn-sm"><i class="bi bi-plus-circle me-1"></i>Create Channel</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% if channels %}
+<div class="table-responsive mb-4">
+  <table class="table table-sm align-middle">
+    <thead class="table-secondary">
+      <tr>
+        <th>Name</th>
+        <th>Type</th>
+        <th>Status</th>
+        <th>Config Preview</th>
+        <th class="text-end">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ch in channels %}
+      <tr>
+        <td class="fw-medium">{{ ch.name }}</td>
+        <td><span class="badge text-bg-secondary">{{ ch.channel_type }}</span></td>
+        <td>
+          {% if ch.enabled %}
+          <span class="badge text-bg-success">Enabled</span>
+          {% else %}
+          <span class="badge text-bg-secondary">Disabled</span>
+          {% endif %}
+        </td>
+        <td class="font-monospace small text-secondary">
+          {% if ch.channel_type == 'webhook' %}{{ ch.config.get('url','') | truncate(60) }}
+          {% elif ch.channel_type == 'slack' %}{{ ch.config.get('webhook_url','') | truncate(60) }}
+          {% elif ch.channel_type == 'email' %}{{ ch.config.get('to_addr','') }}
+          {% elif ch.channel_type == 'browser_push' %}{{ ch.config.get('endpoint','') | truncate(60) }}
+          {% endif %}
+        </td>
+        <td class="text-end">
+          <div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-secondary test-channel-btn" data-channel-id="{{ ch.id }}" data-channel-name="{{ ch.name }}" title="Test channel">
+              <i class="bi bi-send"></i>
+            </button>
+            <form method="post" action="{{ url_for('toggle_notification_channel', channel_id=ch.id) }}" class="d-inline">
+              <button type="submit" class="btn btn-outline-secondary" title="{{ 'Disable' if ch.enabled else 'Enable' }}">
+                <i class="bi bi-{{ 'pause-circle' if ch.enabled else 'play-circle' }}"></i>
+              </button>
+            </form>
+            <form method="post" action="{{ url_for('delete_notification_channel', channel_id=ch.id) }}" class="d-inline" onsubmit="return confirm('Delete channel \'{{ ch.name }}\'?')">
+              <button type="submit" class="btn btn-outline-danger" title="Delete">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-secondary small mb-4"><em>No notification channels configured yet.</em></p>
+{% endif %}
+
+<!-- ====================== NOTIFICATION RULES ====================== -->
+<div class="d-flex align-items-center justify-content-between mb-2">
+  <h5 class="fw-semibold mb-0"><i class="bi bi-diagram-3 me-2 text-warning"></i>Notification Rules</h5>
+  {% if channels %}
+  <button class="btn btn-sm btn-outline-warning" type="button" data-bs-toggle="collapse" data-bs-target="#addRuleCollapse" aria-expanded="false" aria-controls="addRuleCollapse">
+    <i class="bi bi-plus-circle me-1"></i>Add Rule
+  </button>
+  {% endif %}
+</div>
+
+{% if not channels %}
+<div class="alert alert-info small py-2 mb-4">
+  <i class="bi bi-info-circle me-1"></i>Add at least one notification channel before creating rules.
+</div>
+{% else %}
+
+<div class="collapse mb-3" id="addRuleCollapse">
+  <div class="card border-secondary">
+    <div class="card-body">
+      <h6 class="card-title mb-3">New Notification Rule</h6>
+      <form method="post" action="{{ url_for('create_notification_rule') }}" id="addRuleForm">
+        <div class="row g-3 mb-3">
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">Rule Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control form-control-sm" placeholder="e.g. High Error Rate Alert" required>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-secondary">Logic</label>
+            <select name="logic_operator" class="form-select form-select-sm">
+              <option value="any">ANY condition (OR)</option>
+              <option value="all">ALL conditions (AND)</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-secondary">Severity</label>
+            <select name="severity" class="form-select form-select-sm">
+              <option value="warning">Warning</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-secondary">Cooldown (sec)</label>
+            <input type="number" name="cooldown_seconds" class="form-control form-control-sm" value="300" min="0" max="86400">
+          </div>
+        </div>
+
+        <!-- Channels selection -->
+        <div class="mb-3">
+          <label class="form-label small text-secondary">Notify Channels</label>
+          <div class="d-flex flex-wrap gap-3">
+            {% for ch in channels %}
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="channel_ids" value="{{ ch.id }}" id="rule_ch_{{ ch.id }}">
+              <label class="form-check-label small" for="rule_ch_{{ ch.id }}">
+                {{ ch.name }} <span class="text-secondary">({{ ch.channel_type }})</span>
+              </label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Conditions -->
+        <div class="mb-2">
+          <label class="form-label small text-secondary fw-semibold">Conditions</label>
+          <div id="conditionsContainer">
+            <!-- Condition rows injected by JS -->
+          </div>
+          <button type="button" class="btn btn-outline-secondary btn-sm mt-2" id="addConditionBtn">
+            <i class="bi bi-plus me-1"></i>Add Condition
+          </button>
+        </div>
+
+        <div class="mt-3">
+          <button type="submit" class="btn btn-warning btn-sm"><i class="bi bi-plus-circle me-1"></i>Create Rule</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if rules %}
+<div class="table-responsive mb-4">
+  <table class="table table-sm align-middle">
+    <thead class="table-secondary">
+      <tr>
+        <th>Name</th>
+        <th>Logic</th>
+        <th>Severity</th>
+        <th>Conditions</th>
+        <th>Channels</th>
+        <th>Cooldown</th>
+        <th>Status</th>
+        <th class="text-end">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for rule in rules %}
+      <tr>
+        <td class="fw-medium">{{ rule.name }}</td>
+        <td><span class="badge text-bg-secondary">{{ rule.logic_operator.upper() }}</span></td>
+        <td>
+          {% if rule.severity == 'critical' %}
+          <span class="badge text-bg-danger">Critical</span>
+          {% else %}
+          <span class="badge text-bg-warning text-dark">Warning</span>
+          {% endif %}
+        </td>
+        <td>
+          <small class="text-secondary">
+            {% for cond in rule.conditions %}
+            <span class="badge text-bg-secondary me-1">{{ cond.source }}/{{ cond.signal }}{% if cond.service %} [{{ cond.service }}]{% endif %} {{ cond.comparator }} {{ cond.threshold }}</span>
+            {% endfor %}
+          </small>
+        </td>
+        <td>
+          <small class="text-secondary">{{ rule.channel_ids | length }} channel{{ 's' if rule.channel_ids | length != 1 else '' }}</small>
+        </td>
+        <td><small class="text-secondary">{{ rule.cooldown_seconds }}s</small></td>
+        <td>
+          {% if rule.enabled %}
+          <span class="badge text-bg-success">Enabled</span>
+          {% else %}
+          <span class="badge text-bg-secondary">Disabled</span>
+          {% endif %}
+        </td>
+        <td class="text-end">
+          <div class="btn-group btn-group-sm">
+            <form method="post" action="{{ url_for('toggle_notification_rule', rule_id=rule.id) }}" class="d-inline">
+              <button type="submit" class="btn btn-outline-secondary" title="{{ 'Disable' if rule.enabled else 'Enable' }}">
+                <i class="bi bi-{{ 'pause-circle' if rule.enabled else 'play-circle' }}"></i>
+              </button>
+            </form>
+            <form method="post" action="{{ url_for('delete_notification_rule', rule_id=rule.id) }}" class="d-inline" onsubmit="return confirm('Delete rule \'{{ rule.name }}\'?')">
+              <button type="submit" class="btn btn-outline-danger" title="Delete">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-secondary small mb-4"><em>No notification rules configured yet.</em></p>
+{% endif %}
+
+<!-- ====================== NOTIFICATION LOG ====================== -->
+<div class="d-flex align-items-center justify-content-between mb-2">
+  <h5 class="fw-semibold mb-0"><i class="bi bi-clock-history me-2 text-secondary"></i>Recent Notification Log</h5>
+  <button class="btn btn-sm btn-outline-secondary" id="checkNowBtn" title="Evaluate all rules now">
+    <i class="bi bi-arrow-clockwise me-1"></i>Check Rules Now
+  </button>
+</div>
+<div id="checkNowResult" class="small mb-2"></div>
+
+{% if notification_log %}
+<div class="table-responsive mb-4">
+  <table class="table table-sm align-middle">
+    <thead class="table-secondary">
+      <tr>
+        <th>Fired At</th>
+        <th>Rule</th>
+        <th>Channel</th>
+        <th>Status</th>
+        <th>Summary / Error</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in notification_log %}
+      <tr>
+        <td class="font-monospace small text-secondary">{{ entry.fired_at }}</td>
+        <td class="small">{{ entry.rule_name }}</td>
+        <td class="small">{{ entry.channel_name }}</td>
+        <td>
+          {% if entry.status == 'ok' %}
+          <span class="badge text-bg-success">OK</span>
+          {% else %}
+          <span class="badge text-bg-danger">Error</span>
+          {% endif %}
+        </td>
+        <td class="small text-secondary">
+          {% if entry.status == 'ok' %}
+          {{ entry.summary | truncate(80) }}
+          {% else %}
+          {{ entry.error_message | truncate(80) }}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-secondary small mb-4"><em>No notification history yet.</em></p>
+{% endif %}
+
+<!-- ====================== SETUP GUIDE ====================== -->
+<div class="card border-secondary mt-2">
+  <div class="card-header small text-secondary"><i class="bi bi-book me-1"></i>Setup Guide</div>
+  <div class="card-body small text-secondary">
+    <p class="mb-2">
+      <strong>Channels</strong> define where notifications are sent. Supported types:
+    </p>
+    <ul class="mb-2">
+      <li><strong>webhook</strong> — HTTP POST to any URL with optional custom headers and body template. Use <code>{{summary}}</code> in the body template for the alert message.</li>
+      <li><strong>slack</strong> — Post to a Slack <a href="https://api.slack.com/messaging/webhooks" target="_blank" rel="noopener" class="link-secondary">Incoming Webhook</a> URL.</li>
+      <li><strong>email</strong> — Send via SMTP. Supports STARTTLS. Credentials are stored in the database; use environment-level secrets management for production deployments.</li>
+      <li><strong>browser_push</strong> — Web Push notifications to browsers. Requires <code>SOBS_VAPID_PRIVATE_KEY</code> (base64url-encoded DER PKCS#8 P-256 private key) set as an environment variable. Generate a key pair with <code>POST /api/notifications/vapid-keygen</code>.</li>
+    </ul>
+    <p class="mb-2">
+      <strong>Rules</strong> define when to send notifications. Each rule has one or more conditions
+      matched against recent signal averages from <code>v_derived_signals_1m</code>. Use <em>ANY</em>
+      (OR) or <em>ALL</em> (AND) logic to combine conditions. A cooldown prevents re-firing
+      until the configured interval has elapsed.
+    </p>
+    <p class="mb-2">
+      <strong>Triggering:</strong> Call <code>POST /api/notifications/check</code> periodically
+      (e.g., every minute via cron) to evaluate all enabled rules and dispatch notifications.
+    </p>
+    <p class="mb-0">
+      <strong>Browser Push Key Generation:</strong> Call <code>POST /api/notifications/vapid-keygen</code>
+      to generate a new VAPID key pair. Copy the <code>private_key</code> value and set it as
+      <code>SOBS_VAPID_PRIVATE_KEY</code> in your environment, then restart SOBS.
+      The <code>public_key</code> is used by the browser's <code>pushManager.subscribe()</code>.
+    </p>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  // ===== Channel type field switcher =====
+  var channelTypeSelect = document.getElementById('channelTypeSelect');
+  if (channelTypeSelect) {
+    channelTypeSelect.addEventListener('change', function () {
+      document.querySelectorAll('.channel-fields').forEach(function (el) {
+        el.classList.add('d-none');
+      });
+      var selected = this.value;
+      if (selected) {
+        var fields = document.getElementById('fields-' + selected);
+        if (fields) fields.classList.remove('d-none');
+      }
+    });
+  }
+
+  // ===== Condition builder =====
+  var signalSources = {{ signal_sources | tojson }};
+  var comparators = {{ comparators | tojson }};
+  var conditionCount = 0;
+
+  function addConditionRow() {
+    conditionCount++;
+    var idx = conditionCount;
+    var container = document.getElementById('conditionsContainer');
+
+    var sourceOptions = Object.keys(signalSources).map(function (src) {
+      return '<option value="' + src + '">' + src + '</option>';
+    }).join('');
+
+    var comparatorOptions = comparators.map(function (c) {
+      return '<option value="' + c + '">' + c + '</option>';
+    }).join('');
+
+    var row = document.createElement('div');
+    row.className = 'row g-2 align-items-end mb-2 condition-row';
+    row.dataset.condIdx = idx;
+    row.innerHTML =
+      '<div class="col-md-2">' +
+        '<label class="form-label small text-secondary">Source</label>' +
+        '<select name="cond_source" class="form-select form-select-sm cond-source-select">' + sourceOptions + '</select>' +
+      '</div>' +
+      '<div class="col-md-2">' +
+        '<label class="form-label small text-secondary">Signal</label>' +
+        '<select name="cond_signal" class="form-select form-select-sm cond-signal-select"></select>' +
+      '</div>' +
+      '<div class="col-md-2">' +
+        '<label class="form-label small text-secondary">Service (optional)</label>' +
+        '<input type="text" name="cond_service" class="form-control form-control-sm" placeholder="any">' +
+      '</div>' +
+      '<div class="col-md-1">' +
+        '<label class="form-label small text-secondary">Comparator</label>' +
+        '<select name="cond_comparator" class="form-select form-select-sm">' + comparatorOptions + '</select>' +
+      '</div>' +
+      '<div class="col-md-2">' +
+        '<label class="form-label small text-secondary">Threshold</label>' +
+        '<input type="number" step="any" name="cond_threshold" class="form-control form-control-sm" value="0" required>' +
+      '</div>' +
+      '<div class="col-md-1">' +
+        '<label class="form-label small text-secondary">Window (min)</label>' +
+        '<input type="number" min="1" max="60" name="cond_window_minutes" class="form-control form-control-sm" value="5">' +
+      '</div>' +
+      '<div class="col-md-1 d-flex align-items-end">' +
+        '<button type="button" class="btn btn-outline-danger btn-sm remove-condition-btn"><i class="bi bi-trash"></i></button>' +
+      '</div>';
+
+    container.appendChild(row);
+
+    // Populate signal options based on initial source
+    var sourceSelect = row.querySelector('.cond-source-select');
+    var signalSelect = row.querySelector('.cond-signal-select');
+    populateSignals(sourceSelect.value, signalSelect);
+
+    sourceSelect.addEventListener('change', function () {
+      populateSignals(this.value, row.querySelector('.cond-signal-select'));
+    });
+    row.querySelector('.remove-condition-btn').addEventListener('click', function () {
+      container.removeChild(row);
+    });
+  }
+
+  function populateSignals(source, signalSelect) {
+    var signals = signalSources[source] || [];
+    signalSelect.innerHTML = signals.map(function (s) {
+      return '<option value="' + s + '">' + s + '</option>';
+    }).join('');
+  }
+
+  var addConditionBtn = document.getElementById('addConditionBtn');
+  if (addConditionBtn) {
+    addConditionBtn.addEventListener('click', addConditionRow);
+    // Add a default condition row
+    addConditionRow();
+  }
+
+  // ===== Test channel button =====
+  document.querySelectorAll('.test-channel-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var channelId = this.dataset.channelId;
+      var channelName = this.dataset.channelName;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+      fetch('{{ url_for("test_notification_channel", channel_id="__CHANNEL_ID__") }}'.replace('__CHANNEL_ID__', channelId), {
+        method: 'POST',
+        credentials: 'same-origin',
+      }).then(function (res) {
+        return res.json().then(function (data) { return { status: res.status, data: data }; });
+      }).then(function (result) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-send"></i>';
+        if (result.data.ok) {
+          alert('Test notification sent to "' + channelName + '" successfully.');
+        } else {
+          alert('Test failed for "' + channelName + '": ' + (result.data.error || 'Unknown error'));
+        }
+      }).catch(function (err) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-send"></i>';
+        alert('Request error: ' + err);
+      });
+    });
+  });
+
+  // ===== Check Rules Now button =====
+  var checkNowBtn = document.getElementById('checkNowBtn');
+  var checkNowResult = document.getElementById('checkNowResult');
+  if (checkNowBtn) {
+    checkNowBtn.addEventListener('click', function () {
+      checkNowBtn.disabled = true;
+      checkNowBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Checking…';
+      checkNowResult.textContent = '';
+      fetch('{{ url_for("check_notifications") }}', {
+        method: 'POST',
+        credentials: 'same-origin',
+      }).then(function (res) { return res.json(); }).then(function (data) {
+        checkNowBtn.disabled = false;
+        checkNowBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Check Rules Now';
+        checkNowResult.innerHTML =
+          '<span class="text-secondary">Evaluated ' + data.evaluated + ' rule(s), ' +
+          data.fired + ' fired. ' +
+          (data.fired > 0 ? '<span class="text-warning">Reload to see updated log.</span>' : '') +
+          '</span>';
+      }).catch(function (err) {
+        checkNowBtn.disabled = false;
+        checkNowBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Check Rules Now';
+        checkNowResult.textContent = 'Error: ' + err;
+      });
+    });
+  }
+
+  // ===== Browser Push subscription =====
+  var subscribeBrowserBtn = document.getElementById('subscribeBrowserBtn');
+  if (subscribeBrowserBtn) {
+    subscribeBrowserBtn.addEventListener('click', function () {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        alert('This browser does not support Web Push notifications.');
+        return;
+      }
+      fetch('{{ url_for("get_vapid_public_key") }}', { credentials: 'same-origin' })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (!data.ok) {
+            alert('Cannot subscribe: ' + (data.error || 'VAPID key not available'));
+            return;
+          }
+          var applicationServerKey = urlBase64ToUint8Array(data.public_key);
+          return navigator.serviceWorker.ready.then(function (reg) {
+            return reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: applicationServerKey,
+            });
+          }).then(function (sub) {
+            var json = sub.toJSON();
+            var endpoint = json.endpoint;
+            var p256dh = json.keys.p256dh;
+            var auth = json.keys.auth;
+            document.getElementById('pushEndpoint').value = endpoint;
+            document.getElementById('pushP256dh').value = p256dh;
+            document.getElementById('pushAuth').value = auth;
+            var nameInput = document.querySelector('[name="name"]');
+            if (nameInput && !nameInput.value) {
+              nameInput.value = 'Browser Push (' + navigator.userAgent.substring(0, 30) + ')';
+            }
+            alert('Browser push subscription captured. Click "Create Channel" to save.');
+          });
+        })
+        .catch(function (err) {
+          alert('Subscription error: ' + err);
+        });
+    });
+  }
+
+  function urlBase64ToUint8Array(base64String) {
+    var padding = '='.repeat((4 - base64String.length % 4) % 4);
+    var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    var raw = atob(base64);
+    var output = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) {
+      output[i] = raw.charCodeAt(i);
+    }
+    return output;
+  }
+}());
+</script>
+{% endblock %}

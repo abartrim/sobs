@@ -75,6 +75,29 @@
       </div>
     </div>
   </div>
+
+  <!-- Notifications & Webhooks -->
+  <div class="col-md-6 col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body d-flex flex-column">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-bell fs-4 text-warning"></i>
+          <h5 class="card-title mb-0">Notifications &amp; Webhooks</h5>
+        </div>
+        <p class="card-text text-secondary small flex-grow-1">
+          Configure outbound notification channels (Slack, webhook, email, browser push) and define
+          custom alerting rules based on signal thresholds and anomaly conditions. Rules support
+          AND/OR composition and configurable cooldowns to prevent alert fatigue.
+        </p>
+        <div class="d-flex align-items-center justify-content-between mt-2">
+          <span class="badge text-bg-secondary">{{ notification_channel_count }} channel{{ 's' if notification_channel_count != 1 else '' }} · {{ notification_rule_count }} rule{{ 's' if notification_rule_count != 1 else '' }}</span>
+          <a href="{{ url_for('view_notifications') }}" class="btn btn-sm btn-outline-warning">
+            <i class="bi bi-bell me-1"></i>Manage Notifications
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="mt-4">
