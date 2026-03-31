@@ -95,7 +95,7 @@
             <div class="form-check form-check-inline">
               <input class="form-check-input" type="checkbox" name="actions" value="github_issue" id="actGithub">
               <label class="form-check-label small" for="actGithub">
-                <i class="bi bi-github me-1"></i>Create GitHub Issue (assign to Copilot)
+                <i class="bi bi-github me-1"></i>Create GitHub Issue (mention Copilot for suggestions)
               </label>
             </div>
           </div>
@@ -157,15 +157,15 @@
           <td class="small text-secondary">{{ r.rate_limit_minutes }}m</td>
           <td class="text-end">
             <button type="button"
-                    class="btn btn-sm btn-outline-primary me-1"
-                    data-rule-id="{{ r.id }}"
-                    data-rule-name="{{ r.name }}"
-                    onclick="triggerAgentRun('{{ r.id }}', '{{ r.name | replace("'", "\\'") }}')">
+                    class="btn btn-sm btn-outline-primary me-1 sobs-run-btn"
+                    data-rule-id="{{ r.id | e }}"
+                    data-rule-name="{{ r.name | e }}">
               <i class="bi bi-play me-1"></i>Run
             </button>
             <form method="post" action="{{ url_for('delete_agent_rule', rule_id=r.id) }}"
                   style="display:inline;"
-                  onsubmit="return confirm('Delete agent rule \'{{ r.name | replace("'", "\\'") }}\'?')">
+                  class="sobs-delete-rule-form"
+                  data-rule-name="{{ r.name | e }}">
               <button type="submit" class="btn btn-sm btn-outline-danger">
                 <i class="bi bi-trash"></i>
               </button>
@@ -250,8 +250,8 @@
             {% endif %}
           </td>
           <td>
-            <button type="button" class="btn btn-sm btn-outline-secondary"
-                    onclick="dismissRun('{{ run.id }}')" title="Dismiss">
+            <button type="button" class="btn btn-sm btn-outline-secondary sobs-dismiss-btn"
+                    data-run-id="{{ run.id | e }}" title="Dismiss">
               <i class="bi bi-x"></i>
             </button>
           </td>
@@ -281,35 +281,60 @@
 
 {% block scripts %}
 <script>
-function triggerAgentRun(ruleId, ruleName) {
-  var extra = prompt('Optional extra context for the agent (leave blank for none):') || '';
-  fetch('{{ url_for("trigger_agent_run") }}', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({rule_id: ruleId, extra_context: extra})
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
-    var toastEl = document.getElementById('agentRunToast');
-    var toastBody = document.getElementById('agentRunToastBody');
-    if (data.ok) {
-      toastBody.textContent = 'Agent run completed for "' + ruleName + '". Status: ' + (data.result && data.result.status || 'done');
-    } else {
-      toastBody.textContent = 'Error: ' + (data.error || 'unknown error');
-    }
-    var toast = new bootstrap.Toast(toastEl);
-    toast.show();
-    setTimeout(function() { location.reload(); }, 3000);
-  })
-  .catch(function(err) {
-    alert('Failed to trigger agent run: ' + err);
-  });
-}
+(function () {
+  var triggerUrl = '{{ url_for("trigger_agent_run") }}';
 
-function dismissRun(runId) {
-  fetch('/api/agent/runs/' + runId + '/dismiss', {method: 'POST'})
-    .then(function() { location.reload(); })
-    .catch(function(err) { console.error('dismiss failed', err); });
-}
+  function triggerAgentRun(ruleId, ruleName) {
+    var extra = prompt('Optional extra context for the agent (leave blank for none):') || '';
+    fetch(triggerUrl, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({rule_id: ruleId, extra_context: extra})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var toastEl = document.getElementById('agentRunToast');
+      var toastBody = document.getElementById('agentRunToastBody');
+      if (data.ok) {
+        toastBody.textContent = 'Agent run completed for "' + ruleName + '". Status: ' + (data.result && data.result.status || 'done');
+      } else {
+        toastBody.textContent = 'Error: ' + (data.error || 'unknown error');
+      }
+      var toast = new bootstrap.Toast(toastEl);
+      toast.show();
+      setTimeout(function() { location.reload(); }, 3000);
+    })
+    .catch(function(err) {
+      alert('Failed to trigger agent run: ' + err);
+    });
+  }
+
+  function dismissRun(runId) {
+    fetch('/api/agent/runs/' + runId + '/dismiss', {method: 'POST'})
+      .then(function() { location.reload(); })
+      .catch(function(err) { console.error('dismiss failed', err); });
+  }
+
+  // Use event delegation to avoid inline handlers (XSS prevention)
+  document.addEventListener('click', function (e) {
+    var runBtn = e.target.closest('.sobs-run-btn');
+    if (runBtn) {
+      triggerAgentRun(runBtn.dataset.ruleId, runBtn.dataset.ruleName);
+      return;
+    }
+    var dismissBtn = e.target.closest('.sobs-dismiss-btn');
+    if (dismissBtn) {
+      dismissRun(dismissBtn.dataset.runId);
+      return;
+    }
+    var deleteForm = e.target.closest('.sobs-delete-rule-form');
+    if (deleteForm && e.target.closest('button[type="submit"]')) {
+      var ruleName = deleteForm.dataset.ruleName;
+      if (!confirm('Delete agent rule \u201c' + ruleName + '\u201d?')) {
+        e.preventDefault();
+      }
+    }
+  });
+}());
 </script>
 {% endblock %}

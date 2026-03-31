@@ -1225,17 +1225,21 @@ def _create_github_issue(
             result = json.loads(resp.read().decode("utf-8"))
         issue_url = str(result.get("html_url", ""))
         issue_number = int(result.get("number", 0))
-        # Attempt to assign to Copilot (best-effort)
+        # Best-effort: mention Copilot in a comment to request a suggested fix
         if issue_number:
-            _assign_github_issue_to_copilot(github_token, owner, repo, issue_number)
+            _mention_copilot_in_issue(github_token, owner, repo, issue_number)
         return issue_url
     except Exception as exc:
         log.warning("GitHub issue creation failed: %s", exc)
         return ""
 
 
-def _assign_github_issue_to_copilot(github_token: str, owner: str, repo: str, issue_number: int) -> None:
-    """Best-effort: add Copilot as assignee by posting a comment that triggers it."""
+def _mention_copilot_in_issue(github_token: str, owner: str, repo: str, issue_number: int) -> None:
+    """Best-effort: post a comment mentioning @github-copilot to request a suggested fix.
+
+    This is not a formal GitHub assignee action; it triggers Copilot via the mention
+    mechanism in the comment thread.
+    """
     comment_body = "@github-copilot Please review this issue and suggest a fix."
     data = json.dumps({"body": comment_body}).encode("utf-8")
     req = urllib.request.Request(
@@ -1253,7 +1257,7 @@ def _assign_github_issue_to_copilot(github_token: str, owner: str, repo: str, is
         with urllib.request.urlopen(req, timeout=10):
             pass
     except Exception as exc:
-        log.warning("GitHub Copilot assignment comment failed: %s", exc)
+        log.warning("GitHub Copilot mention comment failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -9624,7 +9628,7 @@ async def save_ai_settings():
     db = get_db()
     for key in _AI_SETTING_KEYS:
         # Strip key prefix for form field name: "ai.endpoint_url" → "endpoint_url"
-        field = key[3:]  # remove "ai."
+        field = key.removeprefix("ai.")
         value = (form.get(field) or "").strip()
         _save_ai_setting(db, key, value)
     await flash("AI settings saved", "success")
