@@ -9053,6 +9053,11 @@ _NOTIFICATION_COMPARATORS = ("gt", "lt", "gte", "lte", "eq")
 _NOTIFICATION_SEVERITIES = ("warning", "critical")
 _NOTIFICATION_LOGIC_OPERATORS = ("any", "all")  # any=OR, all=AND
 
+# VAPID JWT expiry window (12 hours)
+_VAPID_JWT_EXPIRY_SECONDS = 43200
+# Web Push AES-128-GCM record size per RFC 8291
+_PUSH_RECORD_SIZE = 4096
+
 # Available signal sources for condition building (mirrors v_derived_signals_1m signals)
 _NOTIFICATION_SIGNAL_SOURCES: dict[str, list[str]] = {
     "logs": ["log_volume", "error_volume", "error_ratio"],
@@ -9285,7 +9290,7 @@ def _dispatch_browser_push_channel(config: dict, payload: dict) -> None:
     now_ts = int(time.time())
     jwt_payload = {
         "aud": audience,
-        "exp": now_ts + 43200,
+        "exp": now_ts + _VAPID_JWT_EXPIRY_SECONDS,
         "sub": vapid_subject,
     }
 
@@ -9404,13 +9409,13 @@ def _encrypt_push_payload(
     cek = hkdf_expand(prk, b"Content-Encoding: aes128gcm\x00", 16)
     nonce = hkdf_expand(prk, b"Content-Encoding: nonce\x00", 12)
 
-    # Encrypt (record size = 4096, single record)
+    # Encrypt (record size = _PUSH_RECORD_SIZE, single record)
     padded = plaintext + b"\x02"  # delimiter = 0x02 for last record
     aesgcm = AESGCM(cek)
     ciphertext_raw = aesgcm.encrypt(nonce, padded, None)
 
     # Build aes128gcm content-encoding header
-    rs = (4096).to_bytes(4, "big")
+    rs = _PUSH_RECORD_SIZE.to_bytes(4, "big")
     idlen = bytes([len(server_pub_bytes)])
     header = salt + rs + idlen + server_pub_bytes
     return header + ciphertext_raw, salt, server_pub_bytes

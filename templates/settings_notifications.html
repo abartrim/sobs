@@ -443,6 +443,9 @@
 {% block scripts %}
 <script>
 (function () {
+  // ===== Constants =====
+  var BROWSER_UA_PREVIEW_LENGTH = 30;
+
   // ===== Channel type field switcher =====
   var channelTypeSelect = document.getElementById('channelTypeSelect');
   if (channelTypeSelect) {
@@ -623,7 +626,7 @@
             document.getElementById('pushAuth').value = auth;
             var nameInput = document.querySelector('[name="name"]');
             if (nameInput && !nameInput.value) {
-              nameInput.value = 'Browser Push (' + navigator.userAgent.substring(0, 30) + ')';
+              nameInput.value = 'Browser Push (' + navigator.userAgent.substring(0, BROWSER_UA_PREVIEW_LENGTH) + ')';
             }
             alert('Browser push subscription captured. Click "Create Channel" to save.');
           });
