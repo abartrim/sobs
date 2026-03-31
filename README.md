@@ -147,6 +147,8 @@ Use `/health/db` for readiness checks in orchestrated deployments when you need 
 | `SOBS_WRITE_QUEUE_MAX`      | `5000`         | Max buffered write operations before ingest returns `503` |
 | `SOBS_WRITE_BATCH_MAX`      | `200`          | Max writes processed per DB batch |
 | `SOBS_WRITE_BATCH_WAIT_MS`  | `20`           | Max milliseconds to wait for filling a write batch |
+| `SOBS_SETTINGS_ENCRYPTION_KEY` | _(empty)_   | Optional app-settings encryption key (base64 URL-safe Fernet key) |
+| `SOBS_SETTINGS_ENCRYPTION_KEY_FILE` | _(empty)_ | Optional absolute file path containing the app-settings encryption key |
 | `SOBS_CHDB_ENCRYPTION_KEY`  | _(empty)_      | Hex key for runtime-generated encrypted disk config in container startup |
 | `SOBS_CHDB_BASE_DISK_PATH`  | `/data/chdb-disks/plain` | Base local disk path for runtime-generated storage configuration |
 | `SOBS_CHDB_ENCRYPTED_DISK_PATH` | `/data/chdb-disks/encrypted` | Encrypted disk path for runtime-generated storage configuration |
@@ -166,6 +168,26 @@ When `SOBS_CHDB_ENCRYPTION_KEY` is set in the container image runtime:
 - Default startup assertions are set (`SOBS_CHDB_EXPECT_DISK` and `SOBS_CHDB_EXPECT_STORAGE_POLICY`) unless already provided.
 
 This keeps encryption keys injected at runtime through environment/secret management, without baking secrets into the image.
+
+### Settings Secret Storage
+
+SOBS can optionally encrypt sensitive values stored in app settings tables.
+
+- If `SOBS_SETTINGS_ENCRYPTION_KEY` (or `SOBS_SETTINGS_ENCRYPTION_KEY_FILE`) is present, sensitive setting values are encrypted before persistence.
+- If no settings encryption key is configured, values are stored in plaintext (backward-compatible behavior).
+- Existing plaintext values remain readable; after saving a setting while encryption is enabled, the new value is persisted encrypted.
+
+Sensitive values include AI and notification secrets such as API keys, tokens, webhook URLs, SMTP passwords, and the VAPID private key setting.
+
+### AI Guard Behavior
+
+AI helper guard checks are fail-closed.
+
+- If guard endpoint/model settings are missing, requests are blocked.
+- If the guard call fails or returns an invalid response, requests are blocked.
+- Only an explicit `ALLOWED` guard response permits execution.
+
+Configure guard settings in **Settings -> AI** before enabling AI helper flows.
 
 Authentication details and setup examples are documented in [AUTHENTICATION.md](AUTHENTICATION.md).
 

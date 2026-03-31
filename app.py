@@ -92,6 +92,68 @@ app.config["SECRET_KEY"] = os.environ.get("SOBS_SECRET_KEY", "sobs-dev-secret-ke
 app.config["SESSION_COOKIE_NAME"] = os.environ.get("SOBS_SESSION_COOKIE_NAME", "sobs_session")
 app.config["ENABLE_FIRST_RUN_TOUR"] = _env_flag("SOBS_ENABLE_FIRST_RUN_TOUR", True)
 
+_SETTINGS_ENCRYPTION_PREFIX = "enc:v1:"
+_SETTINGS_ENCRYPTION_KEY_ENV = "SOBS_SETTINGS_ENCRYPTION_KEY"
+_SETTINGS_ENCRYPTION_KEY_FILE_ENV = "SOBS_SETTINGS_ENCRYPTION_KEY_FILE"
+
+
+def _load_settings_encryption_secret() -> str:
+    secret = os.environ.get(_SETTINGS_ENCRYPTION_KEY_ENV, "").strip()
+    if secret:
+        return secret
+    secret_file = os.environ.get(_SETTINGS_ENCRYPTION_KEY_FILE_ENV, "").strip()
+    if not secret_file:
+        return ""
+    try:
+        with open(secret_file, encoding="utf-8") as handle:
+            return handle.read().strip()
+    except Exception as exc:
+        logging.getLogger("sobs").warning("Failed to read settings encryption key file: %s", exc)
+        return ""
+
+
+_SETTINGS_ENCRYPTION_SECRET = _load_settings_encryption_secret()
+
+
+def _encrypt_secret_value(value: str) -> str:
+    if not value or not _SETTINGS_ENCRYPTION_SECRET:
+        return value
+    if value.startswith(_SETTINGS_ENCRYPTION_PREFIX):
+        return value
+    try:
+        from cryptography.fernet import Fernet
+
+        digest = hashlib.sha256(_SETTINGS_ENCRYPTION_SECRET.encode("utf-8")).digest()
+        key = base64.urlsafe_b64encode(digest)
+        token = Fernet(key).encrypt(value.encode("utf-8")).decode("utf-8")
+        return _SETTINGS_ENCRYPTION_PREFIX + token
+    except Exception as exc:
+        logging.getLogger("sobs").warning("Failed to encrypt secret setting: %s", exc)
+        return value
+
+
+def _decrypt_secret_value(value: str) -> str:
+    if not value:
+        return value
+    if not value.startswith(_SETTINGS_ENCRYPTION_PREFIX):
+        return value
+    if not _SETTINGS_ENCRYPTION_SECRET:
+        logging.getLogger("sobs").warning("Encrypted setting found but no decryption key is configured")
+        return ""
+    token = value[len(_SETTINGS_ENCRYPTION_PREFIX) :]
+    try:
+        from cryptography.fernet import Fernet, InvalidToken
+
+        digest = hashlib.sha256(_SETTINGS_ENCRYPTION_SECRET.encode("utf-8")).digest()
+        key = base64.urlsafe_b64encode(digest)
+        return Fernet(key).decrypt(token.encode("utf-8")).decode("utf-8")
+    except InvalidToken:
+        logging.getLogger("sobs").warning("Failed to decrypt setting value: invalid encryption key")
+        return ""
+    except Exception as exc:
+        logging.getLogger("sobs").warning("Failed to decrypt secret setting: %s", exc)
+        return ""
+
 
 class BasePathMiddleware:
     """ASGI middleware for deployment behind a path prefix and proxy prefix headers."""
@@ -1088,6 +1150,7 @@ _AI_SETTING_KEYS = (
     "ai.agent_max_issues_per_hour",
     "ai.system_prompt",
 )
+_AI_SENSITIVE_SETTING_KEYS = frozenset(("ai.api_key", "ai.github_token"))
 
 _AI_AGENT_MAX_ISSUES_DEFAULT = 5
 _AI_GUARD_BLOCK_KEYWORDS = frozenset(
@@ -1108,15 +1171,21 @@ def _load_ai_setting(db: ChDbConnection, key: str, default: str = "") -> str:
         "SELECT Value FROM sobs_ai_settings FINAL WHERE Key=? AND IsDeleted=0 LIMIT 1",
         [key],
     ).fetchone()
-    return str(row["Value"]) if row else default
+    if not row:
+        return default
+    value = str(row["Value"])
+    if key in _AI_SENSITIVE_SETTING_KEYS:
+        return _decrypt_secret_value(value)
+    return value
 
 
 def _save_ai_setting(db: ChDbConnection, key: str, value: str) -> None:
     version = int(time.time() * 1000)
+    stored_value = _encrypt_secret_value(value) if key in _AI_SENSITIVE_SETTING_KEYS else value
     _insert_rows_json_each_row(
         db,
         "sobs_ai_settings",
-        [{"Key": key, "Value": value, "IsDeleted": 0, "Version": version}],
+        [{"Key": key, "Value": stored_value, "IsDeleted": 0, "Version": version}],
     )
 
 
@@ -1126,7 +1195,8 @@ def _load_all_ai_settings(db: ChDbConnection) -> dict[str, str]:
     for row in rows:
         k = str(row["Key"])
         if k in result:
-            result[k] = str(row["Value"])
+            raw_value = str(row["Value"])
+            result[k] = _decrypt_secret_value(raw_value) if k in _AI_SENSITIVE_SETTING_KEYS else raw_value
     return result
 
 
@@ -1185,10 +1255,7 @@ def _check_guard_model(
     user_input: str,
     context: str = "",
 ) -> tuple[bool, str]:
-    """Check user_input against the guard model. Returns (allowed, reason).
-
-    Falls back to heuristic check when no guard endpoint is configured.
-    """
+    """Check user_input against the guard model. Returns (allowed, reason)."""
     if not _heuristic_guard_check(user_input):
         return False, "Blocked by heuristic safety check"
 
@@ -1197,7 +1264,7 @@ def _check_guard_model(
     api_key = settings.get("ai.api_key", "").strip()
 
     if not guard_url or not guard_model:
-        return True, "allowed"
+        return False, "guard_not_configured"
 
     system_msg = (
         "You are a safety guard. Evaluate whether the following user message is safe, "
@@ -1211,11 +1278,13 @@ def _check_guard_model(
     ]
     reply = _call_llm_endpoint(guard_url, guard_model, api_key, messages, max_tokens=64, timeout=10)
     if not reply:
-        return True, "guard_unavailable"
+        return False, "guard_unavailable"
     upper = reply.strip().upper()
+    if upper == "ALLOWED":
+        return True, "allowed"
     if upper.startswith("BLOCKED"):
         return False, reply.strip()
-    return True, "allowed"
+    return False, f"guard_invalid_reply: {reply.strip()[:120]}"
 
 
 def _check_dlp_endpoint(dlp_url: str, text: str, api_key: str = "") -> tuple[bool, str]:
@@ -1399,10 +1468,10 @@ def _load_agent_runs(db: ChDbConnection, limit: int = 50) -> list[dict]:
 
 
 def _agent_rule_last_run_ts(db: ChDbConnection, rule_id: str) -> float:
-    """Return the Unix timestamp of the most recent completed agent run for rule_id, or 0."""
+    """Return the Unix timestamp of the most recent agent run for rule_id, or 0."""
     row = db.execute(
         "SELECT max(toUnixTimestamp64Milli(CreatedAt)) AS t "
-        "FROM sobs_agent_runs FINAL WHERE IsDeleted=0 AND RuleId=? AND Status='completed'",
+        "FROM sobs_agent_runs FINAL WHERE IsDeleted=0 AND RuleId=?",
         [rule_id],
     ).fetchone()
     return float(row["t"]) / 1000.0 if row and row["t"] else 0.0
@@ -1487,8 +1556,10 @@ def _run_agent_flow(
     dlp_url = settings.get("ai.dlp_endpoint_url", "").strip()
     github_token = settings.get("ai.github_token", "").strip()
     github_repo = settings.get("ai.github_repo", "").strip()
+    actions = set(rule.get("actions", []))
     try:
-        max_issues = int(settings.get("ai.agent_max_issues_per_hour", "") or _AI_AGENT_MAX_ISSUES_DEFAULT)
+        parsed_max = int(settings.get("ai.agent_max_issues_per_hour", "") or _AI_AGENT_MAX_ISSUES_DEFAULT)
+        max_issues = max(1, min(20, parsed_max))
     except (TypeError, ValueError):
         max_issues = _AI_AGENT_MAX_ISSUES_DEFAULT
 
@@ -1510,7 +1581,7 @@ def _run_agent_flow(
     # 2. LLM root-cause analysis
     analysis = ""
     suggestion = ""
-    if endpoint_url and model:
+    if "analyze" in actions and endpoint_url and model:
         system_prompt = settings.get("ai.system_prompt", "").strip() or (
             "You are an expert SRE and observability engineer. "
             "Analyse the provided telemetry context and provide a concise root cause analysis "
@@ -1532,7 +1603,6 @@ def _run_agent_flow(
     # 3. Optional DLP check before GitHub issue creation
     dlp_result = "skipped"
     github_issue_url = ""
-    actions = rule.get("actions", [])
 
     if "github_issue" in actions and github_token and github_repo:
         issue_text = f"{context_summary}\n\nAnalysis: {analysis}\n\nSuggestion: {suggestion}"
@@ -9653,6 +9723,30 @@ _NOTIFICATION_SIGNAL_SOURCES: dict[str, list[str]] = {
     "errors": ["exception_volume"],
 }
 
+_NOTIFICATION_SENSITIVE_CONFIG_KEYS = frozenset(
+    {"smtp_password", "auth_token", "api_key", "webhook_url", "url", "auth"}
+)
+
+
+def _encrypt_notification_config(config: dict) -> dict:
+    encrypted: dict = {}
+    for key, value in config.items():
+        if key in _NOTIFICATION_SENSITIVE_CONFIG_KEYS and isinstance(value, str):
+            encrypted[key] = _encrypt_secret_value(value)
+        else:
+            encrypted[key] = value
+    return encrypted
+
+
+def _decrypt_notification_config(config: dict) -> dict:
+    decrypted: dict = {}
+    for key, value in config.items():
+        if key in _NOTIFICATION_SENSITIVE_CONFIG_KEYS and isinstance(value, str):
+            decrypted[key] = _decrypt_secret_value(value)
+        else:
+            decrypted[key] = value
+    return decrypted
+
 
 def _load_notification_channels(db: ChDbConnection) -> list[dict]:
     """Return all active notification channels."""
@@ -9665,7 +9759,7 @@ def _load_notification_channels(db: ChDbConnection) -> list[dict]:
             "id": str(row["Id"]),
             "name": str(row["Name"]),
             "channel_type": str(row["ChannelType"]),
-            "config": json.loads(str(row["ConfigJson"]) or "{}"),
+            "config": _decrypt_notification_config(json.loads(str(row["ConfigJson"]) or "{}")),
             "enabled": bool(int(row["Enabled"])),
         }
         for row in rows
@@ -10202,6 +10296,159 @@ def _check_notification_rule(db: ChDbConnection, rule: dict, channels_by_id: dic
     }
 
 
+def _normalize_agent_trigger_state(raw_state: str) -> str:
+    state = str(raw_state or "").strip().lower()
+    if state == "outlier":
+        return "critical"
+    if state in {"warning", "critical"}:
+        return state
+    return "normal"
+
+
+def _agent_rule_trigger_state_matches(trigger_state: str, event_state: str) -> bool:
+    requested = str(trigger_state or "any").strip().lower()
+    if requested == "any":
+        return event_state in {"warning", "critical"}
+    return requested == event_state
+
+
+def _collect_anomaly_agent_events(db: ChDbConnection) -> dict[str, dict[str, object]]:
+    rows = db.execute(
+        "SELECT ServiceName, SignalSource, SignalName, AttrFingerprint, "
+        "argMax(value, time) AS value, argMax(SampleCount, time) AS SampleCount "
+        "FROM v_derived_signals_anomaly "
+        "GROUP BY ServiceName, SignalSource, SignalName, AttrFingerprint"
+    ).fetchall()
+    if not rows:
+        return {}
+
+    annotated = [dict(r) for r in rows]
+    _annotate_rows_with_rules(
+        annotated,
+        _load_anomaly_rules(db),
+        source_key="SignalSource",
+        signal_key="SignalName",
+        service_key="ServiceName",
+        attr_fp_key="AttrFingerprint",
+        value_key="value",
+        sample_count_key="SampleCount",
+    )
+
+    events_by_rule: dict[str, dict[str, object]] = {}
+    severity_rank = {"warning": 1, "critical": 2}
+    for row in annotated:
+        rule_id = str(row.get("rule_id", "")).strip()
+        if not rule_id:
+            continue
+        state = _normalize_agent_trigger_state(str(row.get("effective_state", "normal")))
+        if state not in severity_rank:
+            continue
+        event = {
+            "state": state,
+            "service": str(row.get("ServiceName", "")),
+            "source": str(row.get("SignalSource", "")),
+            "signal": str(row.get("SignalName", "")),
+            "value": row.get("value"),
+        }
+        current = events_by_rule.get(rule_id)
+        if not current or severity_rank[state] > severity_rank.get(str(current.get("state", "normal")), 0):
+            events_by_rule[rule_id] = event
+    return events_by_rule
+
+
+def _collect_tag_rule_agent_events(db: ChDbConnection, lookback_minutes: int = 5) -> dict[str, dict[str, object]]:
+    tag_rules = _load_tag_rules(db)
+    if not tag_rules:
+        return {}
+    lookup = {(str(rule.get("tag_key", "")), str(rule.get("tag_value", ""))): rule for rule in tag_rules}
+    min_version = int((time.time() - (lookback_minutes * 60)) * 1000)
+    rows = db.execute(
+        "SELECT TagKey, TagValue, count() AS c FROM sobs_record_tags FINAL "
+        "WHERE IsDeleted = 0 AND IsAuto = 1 AND Version >= ? "
+        "GROUP BY TagKey, TagValue",
+        [min_version],
+    ).fetchall()
+    events: dict[str, dict[str, object]] = {}
+    for row in rows:
+        key = (str(row["TagKey"]), str(row["TagValue"]))
+        rule = lookup.get(key)
+        if not rule:
+            continue
+        rule_id = str(rule.get("id", ""))
+        events[rule_id] = {
+            "state": "warning",
+            "tag_key": key[0],
+            "tag_value": key[1],
+            "matches": int(row["c"] or 0),
+        }
+    return events
+
+
+def _run_agent_rule_instance(
+    db: ChDbConnection,
+    rule: dict,
+    settings: dict[str, str],
+    trigger_context: dict[str, object],
+) -> dict[str, object]:
+    run_id = str(uuid.uuid4())
+    now_ts = _normalize_ch_timestamp(datetime.now(timezone.utc))
+    _insert_rows_json_each_row(
+        db,
+        "sobs_agent_runs",
+        [
+            {
+                "Id": run_id,
+                "RuleId": rule["id"],
+                "RuleName": rule["name"],
+                "TriggerContext": json.dumps(trigger_context, ensure_ascii=False),
+                "Status": "pending",
+                "GuardDecision": "",
+                "DlpResult": "",
+                "Analysis": "",
+                "Suggestion": "",
+                "GithubIssueUrl": "",
+                "ErrorMessage": "",
+                "CreatedAt": now_ts,
+                "CompletedAt": now_ts,
+                "IsDismissed": 0,
+                "IsDeleted": 0,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    try:
+        result = _run_agent_flow(db, rule, settings, trigger_context, run_id)
+        return {"ok": True, "rule_id": rule["id"], "run_id": run_id, "result": result}
+    except Exception as exc:
+        app.logger.exception("agent flow error")
+        error_msg = str(exc)
+        _insert_rows_json_each_row(
+            db,
+            "sobs_agent_runs",
+            [
+                {
+                    "Id": run_id,
+                    "RuleId": rule["id"],
+                    "RuleName": rule["name"],
+                    "TriggerContext": json.dumps(trigger_context, ensure_ascii=False),
+                    "Status": "failed",
+                    "GuardDecision": "",
+                    "DlpResult": "",
+                    "Analysis": "",
+                    "Suggestion": "",
+                    "GithubIssueUrl": "",
+                    "ErrorMessage": error_msg,
+                    "CreatedAt": now_ts,
+                    "CompletedAt": _normalize_ch_timestamp(datetime.now(timezone.utc)),
+                    "IsDismissed": 0,
+                    "IsDeleted": 0,
+                    "Version": int(time.time() * 1000),
+                }
+            ],
+        )
+        return {"ok": False, "rule_id": rule["id"], "run_id": run_id, "error": error_msg}
+
+
 def _generate_vapid_keys() -> tuple[str, str]:
     """Generate a new VAPID key pair. Returns (private_key_b64url, public_key_b64url)."""
     from cryptography.hazmat.backends import default_backend
@@ -10234,15 +10481,18 @@ def _get_app_setting(db: "ChDbConnection", key: str) -> str | None:
         (key,),
     ).fetchone()
     value = str(row[0]).strip() if row else ""
+    if key in {"vapid_private_key"}:
+        value = _decrypt_secret_value(value)
     return value if value else None
 
 
 def _set_app_setting(db: "ChDbConnection", key: str, value: str) -> None:
     """Upsert a value in sobs_app_settings."""
+    stored = _encrypt_secret_value(value) if key in {"vapid_private_key"} else value
     _insert_rows_json_each_row(
         db,
         "sobs_app_settings",
-        [{"Key": key, "Value": value, "UpdatedAt": int(time.time() * 1000)}],
+        [{"Key": key, "Value": stored, "UpdatedAt": int(time.time() * 1000)}],
     )
 
 
@@ -10370,6 +10620,7 @@ async def create_notification_channel():
             return redirect(url_for("view_notifications"))
 
     channel_id = str(uuid.uuid4())
+    stored_config = _encrypt_notification_config(config)
     _insert_rows_json_each_row(
         get_db(),
         "sobs_notification_channels",
@@ -10378,7 +10629,7 @@ async def create_notification_channel():
                 "Id": channel_id,
                 "Name": name,
                 "ChannelType": channel_type,
-                "ConfigJson": json.dumps(config, ensure_ascii=False),
+                "ConfigJson": json.dumps(stored_config, ensure_ascii=False),
                 "Enabled": 1,
                 "IsDeleted": 0,
                 "Version": int(time.time() * 1000),
@@ -10471,7 +10722,7 @@ async def test_notification_channel(channel_id: str):
         "id": str(row["Id"]),
         "name": str(row["Name"]),
         "channel_type": str(row["ChannelType"]),
-        "config": json.loads(str(row["ConfigJson"]) or "{}"),
+        "config": _decrypt_notification_config(json.loads(str(row["ConfigJson"]) or "{}")),
         "enabled": bool(int(row["Enabled"])),
     }
     test_payload = {
@@ -10857,12 +11108,77 @@ async def check_notifications():
             results.append({"rule_id": rule.get("id"), "fired": False, "error": str(exc)})
 
     fired = [r for r in results if r.get("fired")]
+
+    # Also evaluate automatic agent rule triggers from anomaly/tag events.
+    agent_results: list[dict[str, object]] = []
+    settings = _load_all_ai_settings(db)
+    if settings.get("ai.endpoint_url") and settings.get("ai.model"):
+        anomaly_events = _collect_anomaly_agent_events(db)
+        tag_events = _collect_tag_rule_agent_events(db)
+        all_anomaly_events = list(anomaly_events.values())
+        all_tag_events = list(tag_events.values())
+
+        for agent_rule in _load_agent_rules(db):
+            if not agent_rule.get("is_enabled"):
+                continue
+
+            trigger_type = str(agent_rule.get("trigger_type", "")).strip().lower()
+            trigger_ref_id = str(agent_rule.get("trigger_ref_id", "")).strip()
+            trigger_state = str(agent_rule.get("trigger_state", "any")).strip().lower()
+
+            event: dict[str, object] | None = None
+            if trigger_type == "anomaly_rule":
+                if trigger_ref_id:
+                    event = anomaly_events.get(trigger_ref_id)
+                elif all_anomaly_events:
+                    event = max(
+                        all_anomaly_events,
+                        key=lambda e: 2 if str(e.get("state")) == "critical" else 1,
+                    )
+            elif trigger_type == "tag_rule":
+                if trigger_ref_id:
+                    event = tag_events.get(trigger_ref_id)
+                elif all_tag_events:
+                    event = all_tag_events[0]
+            else:
+                continue
+
+            if not event:
+                continue
+
+            event_state = _normalize_agent_trigger_state(str(event.get("state", "normal")))
+            if not _agent_rule_trigger_state_matches(trigger_state, event_state):
+                continue
+
+            rate_limit_minutes = int(agent_rule.get("rate_limit_minutes", 60) or 60)
+            last_run_ts = _agent_rule_last_run_ts(db, str(agent_rule["id"]))
+            elapsed_minutes = (time.time() - last_run_ts) / 60.0
+            if elapsed_minutes < rate_limit_minutes and last_run_ts > 0:
+                agent_results.append(
+                    {
+                        "rule_id": agent_rule["id"],
+                        "status": "skipped_rate_limited",
+                        "elapsed_minutes": round(elapsed_minutes, 2),
+                    }
+                )
+                continue
+
+            trigger_context = {
+                "rule_name": agent_rule["name"],
+                "trigger_state": event_state,
+                "trigger_type": trigger_type,
+                "trigger_ref_id": trigger_ref_id,
+                "extra": json.dumps(event, ensure_ascii=False),
+            }
+            agent_results.append(_run_agent_rule_instance(db, agent_rule, settings, trigger_context))
+
     return jsonify(
         {
             "ok": True,
             "evaluated": len(results),
             "fired": len(fired),
             "results": results,
+            "agent_runs": agent_results,
         }
     )
 
@@ -10936,6 +11252,7 @@ async def subscribe_browser_push():
             return jsonify({"ok": True, "channel_id": ch["id"], "existing": True})
 
     channel_id = str(uuid.uuid4())
+    stored_config = _encrypt_notification_config({"endpoint": endpoint, "p256dh": p256dh, "auth": auth})
     _insert_rows_json_each_row(
         db,
         "sobs_notification_channels",
@@ -10944,7 +11261,7 @@ async def subscribe_browser_push():
                 "Id": channel_id,
                 "Name": name,
                 "ChannelType": "browser_push",
-                "ConfigJson": json.dumps({"endpoint": endpoint, "p256dh": p256dh, "auth": auth}),
+                "ConfigJson": json.dumps(stored_config),
                 "Enabled": 1,
                 "IsDeleted": 0,
                 "Version": int(time.time() * 1000),
@@ -11330,68 +11647,18 @@ async def trigger_agent_run():
     trigger_context = {
         "rule_name": rule["name"],
         "trigger_state": "manual",
+        "trigger_type": "manual",
+        "trigger_ref_id": "",
         "extra": extra_context,
     }
-    run_id = str(uuid.uuid4())
-    now_ts = _normalize_ch_timestamp(datetime.now(timezone.utc))
-    _insert_rows_json_each_row(
-        db,
-        "sobs_agent_runs",
-        [
-            {
-                "Id": run_id,
-                "RuleId": rule_id,
-                "RuleName": rule["name"],
-                "TriggerContext": json.dumps(trigger_context, ensure_ascii=False),
-                "Status": "pending",
-                "GuardDecision": "",
-                "DlpResult": "",
-                "Analysis": "",
-                "Suggestion": "",
-                "GithubIssueUrl": "",
-                "ErrorMessage": "",
-                "CreatedAt": now_ts,
-                "CompletedAt": now_ts,
-                "IsDismissed": 0,
-                "IsDeleted": 0,
-                "Version": int(time.time() * 1000),
-            }
-        ],
-    )
-
-    # Run synchronously (short-lived; async task would be ideal in production)
-    try:
-        result = _run_agent_flow(db, rule, settings, trigger_context, run_id)
-    except Exception as exc:
-        app.logger.exception("agent flow error")
-        error_msg = str(exc)
-        _insert_rows_json_each_row(
-            db,
-            "sobs_agent_runs",
-            [
-                {
-                    "Id": run_id,
-                    "RuleId": rule_id,
-                    "RuleName": rule["name"],
-                    "TriggerContext": json.dumps(trigger_context),
-                    "Status": "failed",
-                    "GuardDecision": "",
-                    "DlpResult": "",
-                    "Analysis": "",
-                    "Suggestion": "",
-                    "GithubIssueUrl": "",
-                    "ErrorMessage": error_msg,
-                    "CreatedAt": now_ts,
-                    "CompletedAt": _normalize_ch_timestamp(datetime.now(timezone.utc)),
-                    "IsDismissed": 0,
-                    "IsDeleted": 0,
-                    "Version": int(time.time() * 1000),
-                }
-            ],
+    outcome = _run_agent_rule_instance(db, rule, settings, trigger_context)
+    if not outcome.get("ok"):
+        return (
+            jsonify({"ok": False, "error": outcome.get("error", "agent flow failed"), "run_id": outcome["run_id"]}),
+            500,
         )
-        return jsonify({"ok": False, "error": error_msg, "run_id": run_id}), 500
 
-    return jsonify({"ok": True, "run_id": run_id, "result": result})
+    return jsonify({"ok": True, "run_id": outcome["run_id"], "result": outcome["result"]})
 
 
 @app.route("/api/agent/runs/<run_id>/dismiss", methods=["POST"])

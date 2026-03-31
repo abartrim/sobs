@@ -406,6 +406,20 @@
 
 <!-- ===== AI Contextual Helper Widget ===== -->
 <style>
+  :root {
+    --sobs-ai-btn-bg: rgba(13, 110, 253, 0.12);
+    --sobs-ai-btn-hover-bg: rgba(13, 110, 253, 0.18);
+    --sobs-ai-btn-border: rgba(13, 110, 253, 0.2);
+    --sobs-ai-btn-color: #0d6efd;
+    --sobs-ai-btn-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  }
+  [data-bs-theme='dark'] {
+    --sobs-ai-btn-bg: rgba(110, 168, 254, 0.18);
+    --sobs-ai-btn-hover-bg: rgba(110, 168, 254, 0.26);
+    --sobs-ai-btn-border: rgba(110, 168, 254, 0.28);
+    --sobs-ai-btn-color: #9ec5fe;
+    --sobs-ai-btn-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  }
   #sobsAiBtn {
     position: fixed;
     bottom: 1.5rem;
@@ -414,17 +428,23 @@
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    border: 0;
-    background: var(--bs-primary);
-    color: #fff;
+    border: 1px solid var(--sobs-ai-btn-border);
+    background: var(--sobs-ai-btn-bg);
+    color: var(--sobs-ai-btn-color);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    box-shadow: 0 4px 12px rgba(0,0,0,.4);
-    transition: background 0.15s, transform 0.15s;
+    box-shadow: var(--sobs-ai-btn-shadow);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: background 0.15s, border-color 0.15s, transform 0.15s, box-shadow 0.15s;
   }
-  #sobsAiBtn:hover { background: #0b5ed7; transform: scale(1.08); }
+  #sobsAiBtn:hover {
+    background: var(--sobs-ai-btn-hover-bg);
+    border-color: var(--sobs-ai-btn-color);
+    transform: scale(1.08);
+  }
   #sobsAiPanel {
     position: fixed;
     bottom: 4.5rem;

@@ -5198,6 +5198,85 @@ class TestAISettingsAndAgentFlows:
         assert data["ok"] is False
         assert "guard" in data["error"].lower() or "block" in data["error"].lower()
 
+    async def test_ai_helper_guard_requires_config(self, client):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://api.example.com/v1")
+        _save_ai_setting(db, "ai.model", "gpt-test")
+        _save_ai_setting(db, "ai.guard_endpoint_url", "")
+        _save_ai_setting(db, "ai.guard_model", "")
+
+        r = await client.post(
+            "/api/ai/helper",
+            json={
+                "question": "Summarize current error trends",
+                "page": "/errors",
+            },
+        )
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["ok"] is False
+        assert "guard" in data["error"].lower()
+
+    def test_secret_settings_roundtrip_with_optional_encryption(self, monkeypatch):
+        from app import _load_ai_setting, _save_ai_setting, get_db
+
+        db = get_db()
+        monkeypatch.setattr(sobs_app, "_SETTINGS_ENCRYPTION_SECRET", "unit-test-secret-key")
+        _save_ai_setting(db, "ai.api_key", "sk-unit-test")
+
+        raw = db.execute(
+            "SELECT Value FROM sobs_ai_settings FINAL WHERE Key=? AND IsDeleted=0 LIMIT 1",
+            ["ai.api_key"],
+        ).fetchone()
+        assert raw is not None
+        assert str(raw["Value"]).startswith("enc:v1:")
+        assert _load_ai_setting(db, "ai.api_key") == "sk-unit-test"
+
+    async def test_agent_rule_actions_respect_analyze_flag(self, client, monkeypatch):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://analysis.example.com/v1")
+        _save_ai_setting(db, "ai.model", "analysis-model")
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "guard-model")
+
+        rule_id = f"no-analyze-{time.time_ns()}"
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "sobs_agent_rules",
+            [
+                {
+                    "Id": rule_id,
+                    "Name": "No Analyze Rule",
+                    "Description": "",
+                    "TriggerType": "manual",
+                    "TriggerRefId": "",
+                    "TriggerState": "any",
+                    "Actions": "github_issue",
+                    "RateLimitMinutes": 1,
+                    "IsEnabled": 1,
+                    "IsDeleted": 0,
+                    "Version": int(time.time() * 1000),
+                }
+            ],
+        )
+
+        called_urls: list[str] = []
+
+        def _fake_llm(endpoint_url, *_args, **_kwargs):
+            called_urls.append(endpoint_url)
+            return "ALLOWED"
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_llm)
+
+        r = await client.post("/api/agent/runs", json={"rule_id": rule_id})
+        assert r.status_code == 200
+        assert "https://guard.example.com/v1" in called_urls
+        assert "https://analysis.example.com/v1" not in called_urls
+
     # ── Agent Runs API ────────────────────────────────────────────────────────
 
     async def test_list_agent_runs_empty(self, client):
@@ -5317,7 +5396,6 @@ class TestAISettingsAndAgentFlows:
         assert "analyze" in match["actions"]
         assert "github_issue" in match["actions"]
         assert match["rate_limit_minutes"] == 45
-
 
 
 # ---------------------------------------------------------------------------
@@ -5555,6 +5633,86 @@ class TestNotifications:
         assert "evaluated" in data
         assert "fired" in data
         assert isinstance(data["results"], list)
+        assert "agent_runs" in data
+
+    async def test_notifications_check_auto_triggers_anomaly_agent_rule(self, client, monkeypatch):
+        await client.post(
+            "/settings/agents",
+            form={
+                "name": "Auto Trigger Rule",
+                "description": "",
+                "trigger_type": "anomaly_rule",
+                "trigger_ref_id": "anom-123",
+                "trigger_state": "warning",
+                "actions": ["analyze"],
+                "rate_limit_minutes": "1",
+            },
+        )
+
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://analysis.example.com/v1")
+        _save_ai_setting(db, "ai.model", "analysis-model")
+
+        monkeypatch.setattr(
+            sobs_app,
+            "_collect_anomaly_agent_events",
+            lambda _db: {"anom-123": {"state": "warning", "service": "svc-a"}},
+        )
+        monkeypatch.setattr(sobs_app, "_collect_tag_rule_agent_events", lambda _db: {})
+        monkeypatch.setattr(
+            sobs_app,
+            "_run_agent_rule_instance",
+            lambda _db, rule, _settings, _ctx: {
+                "ok": True,
+                "rule_id": rule["id"],
+                "run_id": "test-run-id",
+                "result": {"status": "completed"},
+            },
+        )
+
+        r = await client.post("/api/notifications/check")
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["ok"] is True
+        assert any(ar.get("run_id") == "test-run-id" for ar in data.get("agent_runs", []))
+
+    def test_notification_channel_config_encryption_roundtrip(self, monkeypatch):
+        db = sobs_app.get_db()
+        monkeypatch.setattr(sobs_app, "_SETTINGS_ENCRYPTION_SECRET", "unit-test-secret-key")
+
+        cfg = sobs_app._encrypt_notification_config(
+            {
+                "webhook_url": "https://hooks.slack.com/services/SECRET",
+                "smtp_password": "top-secret",
+                "plain": "ok",
+            }
+        )
+        assert str(cfg["webhook_url"]).startswith("enc:v1:")
+        assert str(cfg["smtp_password"]).startswith("enc:v1:")
+
+        channel_id = f"enc-{time.time_ns()}"
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "sobs_notification_channels",
+            [
+                {
+                    "Id": channel_id,
+                    "Name": "Encrypted Channel",
+                    "ChannelType": "webhook",
+                    "ConfigJson": json.dumps(cfg),
+                    "Enabled": 1,
+                    "IsDeleted": 0,
+                    "Version": int(time.time() * 1000),
+                }
+            ],
+        )
+        loaded = sobs_app._load_notification_channels(db)
+        ch = next((c for c in loaded if c["id"] == channel_id), None)
+        assert ch is not None
+        assert ch["config"]["webhook_url"] == "https://hooks.slack.com/services/SECRET"
+        assert ch["config"]["smtp_password"] == "top-secret"
 
     async def test_subscribe_browser_push_requires_fields(self, client):
         r = await client.post(
