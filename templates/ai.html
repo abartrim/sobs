@@ -262,7 +262,7 @@
             <!-- Metadata row -->
             <div class="mt-2 d-flex gap-3 small text-secondary flex-wrap align-items-center">
               <span><strong>Service:</strong> {{ item.service }}</span>
-              <span><strong>Operation:</strong> {{ item.operation }}</span>
+              <span><strong>Operation:</strong> {{ item.operation or '—' }}</span>
               {% if item.finish_reason %}
               <span><strong>Finish:</strong> {{ item.finish_reason }}</span>
               {% endif %}
@@ -324,7 +324,7 @@
                 <tbody>
                   <tr><td class="text-secondary" style="width:40%;">Model</td><td>{{ item.model or '—' }}</td></tr>
                   <tr><td class="text-secondary">Provider</td><td>{{ item.provider or '—' }}</td></tr>
-                  <tr><td class="text-secondary">Operation</td><td>{{ item.operation or '—' }}</td></tr>
+                    <tr><td class="text-secondary">Operation</td><td>{{ item.operation or '—' }}</td></tr>
                   {% if item.temperature %}<tr><td class="text-secondary">Temperature</td><td>{{ item.temperature }}</td></tr>{% endif %}
                   {% if item.max_tokens %}<tr><td class="text-secondary">Max Tokens</td><td>{{ item.max_tokens }}</td></tr>{% endif %}
                   {% if item.finish_reason %}<tr><td class="text-secondary">Finish Reason</td><td>{{ item.finish_reason }}</td></tr>{% endif %}
@@ -552,15 +552,16 @@ function renderMarkdown(text) {
   return '<p class="mb-1">' + html + '</p>';
 }
 
-var _mdEnabled = false;
-
 function toggleMarkdown(btn) {
-  _mdEnabled = !_mdEnabled;
-  btn.classList.toggle('active', _mdEnabled);
-  btn.title = _mdEnabled ? 'Disable markdown rendering' : 'Enable markdown rendering';
-  document.querySelectorAll('.ai-md-content').forEach(function(el) {
+  var enabled = btn.getAttribute('data-md-enabled') === 'true';
+  var next = !enabled;
+  btn.setAttribute('data-md-enabled', next ? 'true' : 'false');
+  btn.classList.toggle('active', next);
+  btn.title = next ? 'Disable markdown rendering' : 'Enable markdown rendering';
+  var scope = btn.closest('.tab-pane') || document;
+  scope.querySelectorAll('.ai-md-content').forEach(function(el) {
     var raw = el.getAttribute('data-raw');
-    if (_mdEnabled) {
+    if (next) {
       if (raw === null) {
         // Save the original plain text before first render
         el.setAttribute('data-raw', el.textContent);

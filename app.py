@@ -4534,8 +4534,14 @@ async def view_ai():
         conditions.append("SpanAttributes['gen_ai.request.model']=?")
         params.append(model)
     if operation_filter:
-        conditions.append("SpanAttributes['gen_ai.operation.name']=?")
-        params.append(operation_filter)
+        if operation_filter.lower() == "chat":
+            conditions.append(
+                "(SpanAttributes['gen_ai.operation.name']=? OR SpanAttributes['gen_ai.operation.name']='')"
+            )
+            params.append("chat")
+        else:
+            conditions.append("SpanAttributes['gen_ai.operation.name']=?")
+            params.append(operation_filter)
     conditions.append("(SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '')")
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
@@ -4688,7 +4694,7 @@ async def export_ai_training():
     operation_filter = request.args.get("operation", "").strip()
     fmt = request.args.get("format", "jsonl").strip().lower()
     try:
-        max_rows = min(int(request.args.get("limit", 1000)), 5000)
+        max_rows = max(1, min(int(request.args.get("limit", 1000)), 5000))
     except (ValueError, TypeError):
         max_rows = 1000
 
@@ -4703,8 +4709,14 @@ async def export_ai_training():
         conditions.append("SpanAttributes['gen_ai.request.model']=?")
         params.append(model)
     if operation_filter:
-        conditions.append("SpanAttributes['gen_ai.operation.name']=?")
-        params.append(operation_filter)
+        if operation_filter.lower() == "chat":
+            conditions.append(
+                "(SpanAttributes['gen_ai.operation.name']=? OR SpanAttributes['gen_ai.operation.name']='')"
+            )
+            params.append("chat")
+        else:
+            conditions.append("SpanAttributes['gen_ai.operation.name']=?")
+            params.append(operation_filter)
     where = "WHERE " + " AND ".join(conditions)
 
     rows = db.execute(

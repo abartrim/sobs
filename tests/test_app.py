@@ -2224,6 +2224,45 @@ class TestGenAICompliance:
         body = await r2.get_data(as_text=True)
         # Operation data should be included in the rendered output
         assert "op-svc" in body
+        assert "Operation:</strong> chat" in body
+
+    async def test_ai_view_chat_operation_filter(self, client):
+        """AI view chat filter should include chat calls and exclude non-chat calls."""
+        r_chat = await client.post(
+            "/v1/ai",
+            json={
+                "service": "chat-filter-svc",
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "operation": "chat",
+                "prompt": "chat op",
+                "response": "ok",
+                "tokens_in": 6,
+                "tokens_out": 2,
+                "duration_ms": 70,
+            },
+        )
+        assert r_chat.status_code == 200
+
+        r_embed = await client.post(
+            "/v1/ai",
+            json={
+                "service": "embed-filter-svc",
+                "provider": "openai",
+                "model": "text-embedding-3-small",
+                "operation": "embeddings",
+                "tokens_in": 20,
+                "tokens_out": 0,
+                "duration_ms": 80,
+            },
+        )
+        assert r_embed.status_code == 200
+
+        r2 = await client.get("/ai?operation=chat")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert "<strong>Service:</strong> chat-filter-svc" in body
+        assert "<strong>Service:</strong> embed-filter-svc" not in body
 
     async def test_ai_view_includes_raw_json_tab(self, client):
         """AI view should include Raw JSON tab with span attributes."""
@@ -2298,9 +2337,34 @@ class TestGenAICompliance:
         """GET /api/ai/export?format=json should return JSON array."""
         r2 = await client.get("/api/ai/export?format=json")
         assert r2.status_code == 200
+        assert r2.mimetype == "application/json"
         data = await r2.get_data(as_text=True)
         records = json.loads(data)
         assert isinstance(records, list)
+
+    async def test_ai_export_negative_limit_is_clamped(self, client):
+        """Export endpoint should clamp negative limit values to a safe minimum."""
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "clamp-svc",
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "prompt": "Clamp test",
+                "response": "OK",
+                "tokens_in": 3,
+                "tokens_out": 1,
+                "duration_ms": 30,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/api/ai/export?service=clamp-svc&limit=-50")
+        assert r2.status_code == 200
+        assert r2.mimetype == "application/x-ndjson"
+        data = await r2.get_data(as_text=True)
+        lines = [ln for ln in data.strip().split("\n") if ln.strip()]
+        assert len(lines) == 1
 
     async def test_ai_export_filter_by_service(self, client):
         """Export endpoint should accept service filter."""
