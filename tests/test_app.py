@@ -1434,9 +1434,7 @@ class TestUIPages:
             end_time_unix_nano=start_ns + 1_500_000_000,
             status=Status(code=1),
         )
-        resource = Resource(
-            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="detail-svc"))]
-        )
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value="detail-svc"))])
         msg = ExportTraceServiceRequest(
             resource_spans=[
                 ResourceSpans(
@@ -1486,13 +1484,9 @@ class TestUIPages:
                 KeyValue(key="exception.message", value=AnyValue(string_value="bad value")),
             ],
         )
-        resource = Resource(
-            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="err-trace-svc"))]
-        )
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value="err-trace-svc"))])
         msg = ExportTraceServiceRequest(
-            resource_spans=[
-                ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[err_span])])
-            ]
+            resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[err_span])])]
         )
         r = await client.post(
             "/v1/traces", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
@@ -1525,13 +1519,9 @@ class TestUIPages:
             end_time_unix_nano=start_ns + 1_000_000_000,
             status=Status(code=1),
         )
-        resource = Resource(
-            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="back-link-svc"))]
-        )
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value="back-link-svc"))])
         msg = ExportTraceServiceRequest(
-            resource_spans=[
-                ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])
-            ]
+            resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])]
         )
         r = await client.post(
             "/v1/traces", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}

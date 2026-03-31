@@ -4459,9 +4459,7 @@ async def view_traces():
                         "status": r["StatusCode"],
                         "http_method": attrs.get("http.method", attrs.get("http.request.method", "")),
                         "http_url": attrs.get("http.url", attrs.get("url.full", "")),
-                        "http_status": attrs.get(
-                            "http.status_code", attrs.get("http.response.status_code", "")
-                        ),
+                        "http_status": attrs.get("http.status_code", attrs.get("http.response.status_code", "")),
                     }
                 )
 
@@ -4470,13 +4468,9 @@ async def view_traces():
             trace_end_ms = max(s["start_ms"] + s["duration_ms"] for s in all_trace_spans)
             trace_total_ms = max(trace_end_ms - trace_start_ms, 1.0)
             for span in all_trace_spans:
-                span["offset_pct"] = round(
-                    (span["start_ms"] - trace_start_ms) / trace_total_ms * 100, 2
-                )
+                span["offset_pct"] = round((span["start_ms"] - trace_start_ms) / trace_total_ms * 100, 2)
                 # 0.5 minimum keeps very short spans visible in the timeline bar
-                span["width_pct"] = round(
-                    max(0.5, span["duration_ms"] / trace_total_ms * 100), 2
-                )
+                span["width_pct"] = round(max(0.5, span["duration_ms"] / trace_total_ms * 100), 2)
 
             # Fetch related errors for this trace.
             trace_errors: list[dict] = []
@@ -4500,8 +4494,7 @@ async def view_traces():
             log_counts: dict[str, int] = {}
             try:
                 log_rows = db.execute(
-                    "SELECT SpanId, count() AS cnt FROM otel_logs "
-                    "WHERE TraceId=? AND SpanId!='' GROUP BY SpanId",
+                    "SELECT SpanId, count() AS cnt FROM otel_logs " "WHERE TraceId=? AND SpanId!='' GROUP BY SpanId",
                     [trace_id],
                 ).fetchall()
                 for r in log_rows:
