@@ -75,6 +75,58 @@
       </div>
     </div>
   </div>
+
+  <!-- AI Contextual Helper -->
+  <div class="col-md-6 col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body d-flex flex-column">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-robot fs-4 text-primary"></i>
+          <h5 class="card-title mb-0">AI Contextual Helper</h5>
+        </div>
+        <p class="card-text text-secondary small flex-grow-1">
+          Configure an OpenAI-compatible LLM endpoint to power the in-app AI helper widget.
+          The helper is contextually aware of the page you are viewing and can answer questions,
+          suggest SQL queries, and help troubleshoot observability data. Supports custom
+          system prompts, a configurable guard model for safety, and any OpenAI-compatible API.
+        </p>
+        <div class="d-flex align-items-center justify-content-between mt-2">
+          {% if ai_configured %}
+          <span class="badge text-bg-success"><i class="bi bi-check-circle me-1"></i>Configured</span>
+          {% else %}
+          <span class="badge text-bg-secondary">Not configured</span>
+          {% endif %}
+          <a href="{{ url_for('view_ai_settings') }}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-pencil-square me-1"></i>Configure AI
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Automated Agent Flows -->
+  <div class="col-md-6 col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body d-flex flex-column">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-lightning-charge fs-4 text-warning"></i>
+          <h5 class="card-title mb-0">Automated Agent Flows</h5>
+        </div>
+        <p class="card-text text-secondary small flex-grow-1">
+          Set up rules that automatically trigger an AI agent flow when anomaly rules fire or
+          tag rules match. The agent performs root-cause analysis, suggests fixes, and can
+          optionally create a GitHub issue assigned to Copilot. Rate-limiting, guard model
+          checks, and optional DLP scanning ensure safe and controlled automation.
+        </p>
+        <div class="d-flex align-items-center justify-content-between mt-2">
+          <span class="badge text-bg-secondary">{{ agent_rule_count }} rule{{ 's' if agent_rule_count != 1 else '' }}</span>
+          <a href="{{ url_for('view_agent_rules') }}" class="btn btn-sm btn-outline-warning">
+            <i class="bi bi-pencil-square me-1"></i>Manage Agent Rules
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="mt-4">
@@ -94,6 +146,9 @@
         <li><code>sobs_record_tags</code> — Record-level tags (manual and auto-tagged), keyed by stable record ID</li>
         <li><code>sobs_tag_rules</code> — Auto-tagging rules evaluated at ingest time</li>
         <li><code>sobs_anomaly_rules</code> — Anomaly detection threshold/composite rules</li>
+        <li><code>sobs_ai_settings</code> — AI/LLM endpoint and safety configuration</li>
+        <li><code>sobs_agent_rules</code> — Automated agent flow trigger rules</li>
+        <li><code>sobs_agent_runs</code> — History of agent flow executions and results</li>
       </ul>
       <p class="mb-0">
         Tags are stored out-of-band in <code>sobs_record_tags</code>, keeping the core OTEL tables
@@ -105,3 +160,4 @@
   </div>
 </div>
 {% endblock %}
+

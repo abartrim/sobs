@@ -184,7 +184,7 @@
         </a>
       </li>
       <li class="nav-item">
-        <a href="{{ url_for('view_settings') }}" class="nav-link {% if request.endpoint in ('view_settings', 'view_tag_rules') %}active{% endif %}" title="Settings">
+        <a href="{{ url_for('view_settings') }}" class="nav-link {% if request.endpoint in ('view_settings', 'view_tag_rules', 'view_ai_settings', 'view_agent_rules') %}active{% endif %}" title="Settings">
           <i class="bi bi-gear"></i><span class="sb-label">Settings</span>
         </a>
       </li>
@@ -375,6 +375,217 @@
         toggleIcon.className = 'bi bi-chevron-left';
       }
     }
+  });
+}());
+</script>
+
+<!-- ===== AI Contextual Helper Widget ===== -->
+<style>
+  #sobsAiBtn {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    z-index: 1080;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 0;
+    background: var(--bs-primary);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,.4);
+    transition: background 0.15s, transform 0.15s;
+  }
+  #sobsAiBtn:hover { background: #0b5ed7; transform: scale(1.08); }
+  #sobsAiPanel {
+    position: fixed;
+    bottom: 4.5rem;
+    right: 1.5rem;
+    z-index: 1075;
+    width: min(420px, calc(100vw - 2rem));
+    max-height: 70vh;
+    display: none;
+    flex-direction: column;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.4);
+    overflow: hidden;
+  }
+  #sobsAiPanel.open { display: flex; }
+  #sobsAiPanelHeader {
+    padding: .6rem 1rem;
+    background: var(--bs-tertiary-bg);
+    border-bottom: 1px solid var(--bs-border-color);
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    flex-shrink: 0;
+  }
+  #sobsAiMessages {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: .75rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+    font-size: .85rem;
+  }
+  .sobs-ai-msg {
+    padding: .45rem .75rem;
+    border-radius: 10px;
+    max-width: 90%;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.5;
+  }
+  .sobs-ai-msg.user {
+    background: var(--bs-primary);
+    color: #fff;
+    align-self: flex-end;
+    border-bottom-right-radius: 3px;
+  }
+  .sobs-ai-msg.assistant {
+    background: var(--bs-secondary-bg);
+    color: var(--bs-body-color);
+    align-self: flex-start;
+    border-bottom-left-radius: 3px;
+  }
+  .sobs-ai-msg.error-msg { background: #dc354522; color: #dc3545; }
+  #sobsAiInputRow {
+    display: flex;
+    gap: .4rem;
+    padding: .6rem;
+    border-top: 1px solid var(--bs-border-color);
+    flex-shrink: 0;
+  }
+  #sobsAiInput {
+    flex: 1;
+    font-size: .85rem;
+    resize: none;
+    border-radius: 8px;
+    padding: .4rem .6rem;
+    border: 1px solid var(--bs-border-color);
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    min-height: 38px;
+    max-height: 120px;
+  }
+  #sobsAiSendBtn {
+    flex-shrink: 0;
+    height: 38px;
+    padding: 0 .75rem;
+    font-size: .85rem;
+  }
+</style>
+
+<button id="sobsAiBtn" title="AI Contextual Helper" aria-label="Open AI helper">
+  <i class="bi bi-robot fs-5"></i>
+</button>
+
+<div id="sobsAiPanel" role="dialog" aria-label="AI Contextual Helper" aria-modal="false">
+  <div id="sobsAiPanelHeader">
+    <i class="bi bi-robot text-primary"></i>
+    <span class="fw-semibold small flex-grow-1">AI Contextual Helper</span>
+    <button type="button" class="btn-close btn-close-sm" id="sobsAiClose" aria-label="Close"></button>
+  </div>
+  <div id="sobsAiMessages" aria-live="polite" aria-relevant="additions"></div>
+  <div id="sobsAiInputRow">
+    <textarea id="sobsAiInput" rows="1" placeholder="Ask a question about this page…" aria-label="Your question"></textarea>
+    <button id="sobsAiSendBtn" class="btn btn-primary btn-sm" type="button">
+      <i class="bi bi-send"></i>
+    </button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('sobsAiBtn');
+  var panel = document.getElementById('sobsAiPanel');
+  var closeBtn = document.getElementById('sobsAiClose');
+  var messagesEl = document.getElementById('sobsAiMessages');
+  var inputEl = document.getElementById('sobsAiInput');
+  var sendBtn = document.getElementById('sobsAiSendBtn');
+
+  function togglePanel() {
+    panel.classList.toggle('open');
+    if (panel.classList.contains('open')) {
+      inputEl.focus();
+      if (!messagesEl.hasChildNodes()) {
+        addMsg('assistant', 'Hi! I\'m your SOBS observability assistant. I can help you understand logs, traces, metrics, errors, and more on this page. What would you like to know?');
+      }
+    }
+  }
+
+  btn.addEventListener('click', togglePanel);
+  closeBtn.addEventListener('click', function () { panel.classList.remove('open'); });
+
+  function addMsg(role, text) {
+    var el = document.createElement('div');
+    el.className = 'sobs-ai-msg ' + role;
+    el.textContent = text;
+    messagesEl.appendChild(el);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return el;
+  }
+
+  function gatherContext() {
+    var ctx = {};
+    // Gather URL params as lightweight context
+    var params = new URLSearchParams(window.location.search);
+    params.forEach(function(v, k) { if (v) ctx[k] = v; });
+    return ctx;
+  }
+
+  function sendQuestion() {
+    var q = inputEl.value.trim();
+    if (!q) return;
+    addMsg('user', q);
+    inputEl.value = '';
+    inputEl.style.height = '';
+
+    var thinking = addMsg('assistant', '…');
+    thinking.style.opacity = '0.5';
+
+    fetch('{{ url_for("ai_helper") }}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        question: q,
+        page: window.location.pathname,
+        context: gatherContext()
+      })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      messagesEl.removeChild(thinking);
+      if (data.ok) {
+        addMsg('assistant', data.answer);
+      } else {
+        addMsg('error-msg', 'Error: ' + (data.error || 'unknown'));
+      }
+    })
+    .catch(function (err) {
+      messagesEl.removeChild(thinking);
+      addMsg('error-msg', 'Network error: ' + err);
+    });
+  }
+
+  sendBtn.addEventListener('click', sendQuestion);
+  inputEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendQuestion();
+    }
+  });
+
+  // Auto-resize textarea
+  inputEl.addEventListener('input', function () {
+    this.style.height = '';
+    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
   });
 }());
 </script>
