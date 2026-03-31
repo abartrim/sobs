@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SOBS curl examples – send telemetry data without any SDK.
-# Replace http://localhost:4317 with your SOBS instance URL.
+# Replace http://localhost:44317 with your SOBS instance URL.
 
-SOBS="http://localhost:4317"
+SOBS="http://localhost:44317"
 
 # ---- 1. Send a log (OTLP/JSON format) ----
 curl -s -X POST "$SOBS/v1/logs" \

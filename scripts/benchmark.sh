@@ -5,7 +5,7 @@
 #   ./scripts/benchmark.sh [BASE_URL]
 #
 # Examples:
-#   ./scripts/benchmark.sh                         # default: http://127.0.0.1:4317
+#   ./scripts/benchmark.sh                         # default: http://127.0.0.1:44317
 #   ./scripts/benchmark.sh http://127.0.0.1:44318  # custom port
 #
 # The script runs three scenarios and prints a summary table:
@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-BASE="${1:-http://127.0.0.1:4317}"
+BASE="${1:-http://127.0.0.1:44317}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EXAMPLE="$SCRIPT_DIR/load_example.py"
 PYTHON="${PYTHON:-python}"

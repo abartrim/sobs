@@ -51,10 +51,10 @@ From the repository root:
 
 ```bash
 # Default high-throughput mode
-python scripts/load_example.py --base http://localhost:4317 --total 420 --workers 28
+python scripts/load_example.py --base http://localhost:44317 --total 420 --workers 28
 
 # Realistic paced mode (useful for observing Logs Live mode)
-python scripts/load_example.py --base http://localhost:4317 --mode realistic --rps 3 --jitter-ms 250 --total 180 --workers 8
+python scripts/load_example.py --base http://localhost:44317 --mode realistic --rps 3 --jitter-ms 250 --total 180 --workers 8
 ```
 
 ## RUM (Client-side)
@@ -62,10 +62,10 @@ python scripts/load_example.py --base http://localhost:4317 --mode realistic --r
 Embed in your HTML:
 
 ```html
-<script src="http://localhost:4317/static/rum.js"></script>
+<script src="http://localhost:44317/static/rum.js"></script>
 <script>
   SOBS.init({
-    endpoint: 'http://localhost:4317/v1/rum',
+    endpoint: 'http://localhost:44317/v1/rum',
     appName: 'my-app'
   });
 </script>

@@ -6,7 +6,7 @@ Usage:
     python scripts/load_example.py [--mode realistic --rps 4 --jitter-ms 250]
 
 Defaults:
-    --base      http://127.0.0.1:4317
+    --base      http://127.0.0.1:44317
     --total     420
     --workers   28
     --mode      load
@@ -24,7 +24,7 @@ import requests
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="SOBS load example")
-    p.add_argument("--base", default="http://127.0.0.1:4317", help="Base URL of the SOBS instance")
+    p.add_argument("--base", default="http://127.0.0.1:44317", help="Base URL of the SOBS instance")
     p.add_argument("--total", type=int, default=420, help="Total number of requests to send")
     p.add_argument("--workers", type=int, default=28, help="Number of concurrent sender threads")
     p.add_argument(

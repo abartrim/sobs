@@ -23,17 +23,60 @@ spec:
           ports:
             - containerPort: 4317
           env:
+            - name: PORT
+              value: "4317"
             - name: SOBS_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: sobs-secret
                   key: api-key
                   optional: true
+            - name: SOBS_AI_ENDPOINT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sobs-config
+                  key: ai-endpoint-url
+                  optional: true
+            - name: SOBS_AI_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: sobs-config
+                  key: ai-model
+                  optional: true
+            - name: SOBS_AI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sobs-secret
+                  key: ai-api-key
+                  optional: true
+            - name: SOBS_AI_GUARD_ENDPOINT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sobs-config
+                  key: ai-guard-endpoint-url
+                  optional: true
+            - name: SOBS_AI_GUARD_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: sobs-config
+                  key: ai-guard-model
+                  optional: true
+            - name: SOBS_AI_DLP_ENDPOINT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sobs-config
+                  key: ai-dlp-endpoint-url
+                  optional: true
+            - name: SOBS_AI_API_KEY_FILE
+              value: /var/run/secrets/sobs/ai-api-key
             - name: SOBS_DATA_DIR
               value: /data
           volumeMounts:
             - name: sobs-data
               mountPath: /data
+            - name: sobs-secret-files
+              mountPath: /var/run/secrets/sobs
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /health
@@ -51,6 +94,10 @@ spec:
         - name: sobs-data
           persistentVolumeClaim:
             claimName: sobs-pvc
+        - name: sobs-secret-files
+          secret:
+            secretName: sobs-secret-files
+            optional: true
 ---
 apiVersion: v1
 kind: Service

@@ -9,6 +9,8 @@
 - Advanced analysis includes repeated message pattern fingerprints, error-family clustering, top keywords, and optimization hints.
 - Added optional settings-at-rest encryption for sensitive app settings values via `SOBS_SETTINGS_ENCRYPTION_KEY` or `SOBS_SETTINGS_ENCRYPTION_KEY_FILE`.
 - Added automated agent trigger execution from notification/anomaly rule checks for matching `anomaly_rule` and `tag_rule` agent rules.
+- Added cluster-managed AI configuration overrides via env or file inputs for LLM, guard, and DLP settings (`SOBS_AI_*` and `SOBS_AI_*_FILE`).
+- Added an Ollama-first local AI startup script (`scripts/start_ollama_ai_test.sh`) and updated docs to make local Ollama the default manual testing path.
 
 ### Changed
 
@@ -21,3 +23,4 @@
 
 - Added UI tests for query-scoped statistics behavior and manual advanced-analysis rendering.
 - Added backend tests for guard fail-closed behavior, settings encryption/decryption, action gating, and automated agent trigger execution.
+- Added backend tests validating AI settings env/file override precedence over DB-stored values.

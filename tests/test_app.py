@@ -1990,80 +1990,77 @@ class TestExternalAuth:
 
     async def test_check_external_auth_makes_correct_request(self, monkeypatch):
         """_check_external_auth should POST to /internal/auth/validate with the Authorization header."""
-        import urllib.request
-
         import app as app_module
 
         monkeypatch.setattr(app_module, "EXTERNAL_AUTH_URL", self._EXT_AUTH_URL)
 
         captured = {}
 
-        class _FakeResponse:
-            status = 200
+        class _FakeClient:
+            async def post(self, url, headers=None, timeout=None):
+                captured["url"] = url
+                captured["auth"] = headers.get("Authorization") if headers else None
+                captured["timeout"] = timeout
 
-            def __enter__(self):
-                return self
+                class _Response:
+                    status_code = 200
 
-            def __exit__(self, *_):
-                pass
+                return _Response()
 
-        def fake_urlopen(req, timeout=None):
-            captured["url"] = req.full_url
-            captured["method"] = req.method
-            captured["auth"] = req.get_header("Authorization")
-            return _FakeResponse()
+        async def _fake_get_client():
+            return _FakeClient()
 
-        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+        monkeypatch.setattr(app_module, "_get_async_http_client", _fake_get_client)
 
-        result = app_module._check_external_auth("Bearer my-token")
+        result = await app_module._check_external_auth("Bearer my-token")
 
         assert result is True
         assert captured["url"] == self._EXT_AUTH_URL + "/internal/auth/validate"
-        assert captured["method"] == "POST"
         assert captured["auth"] == "Bearer my-token"
+        assert captured["timeout"] == 5
 
     async def test_check_external_auth_returns_false_on_non_200(self, monkeypatch):
         """_check_external_auth should return False when the external service returns non-200."""
-        import urllib.request
-
         import app as app_module
 
         monkeypatch.setattr(app_module, "EXTERNAL_AUTH_URL", self._EXT_AUTH_URL)
 
-        class _FakeResponse:
-            status = 401
+        class _FakeClient:
+            async def post(self, *_args, **_kwargs):
+                class _Response:
+                    status_code = 401
 
-            def __enter__(self):
-                return self
+                return _Response()
 
-            def __exit__(self, *_):
-                pass
+        async def _fake_get_client():
+            return _FakeClient()
 
-        monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: _FakeResponse())
+        monkeypatch.setattr(app_module, "_get_async_http_client", _fake_get_client)
 
-        assert app_module._check_external_auth("Bearer bad-token") is False
+        assert await app_module._check_external_auth("Bearer bad-token") is False
 
     async def test_check_external_auth_returns_false_on_network_error(self, monkeypatch):
         """_check_external_auth should return False when the external service is unreachable."""
-        import urllib.request
-
         import app as app_module
 
         monkeypatch.setattr(app_module, "EXTERNAL_AUTH_URL", self._EXT_AUTH_URL)
 
-        def _raise_network_error(req, timeout=None):
-            raise OSError("unreachable")
+        class _FakeClient:
+            async def post(self, *_args, **_kwargs):
+                raise OSError("unreachable")
 
-        monkeypatch.setattr(urllib.request, "urlopen", _raise_network_error)
+        async def _fake_get_client():
+            return _FakeClient()
 
-        assert app_module._check_external_auth("Bearer any-token") is False
+        monkeypatch.setattr(app_module, "_get_async_http_client", _fake_get_client)
+
+        assert await app_module._check_external_auth("Bearer any-token") is False
 
     async def test_check_external_auth_returns_false_when_url_not_configured(self):
         """_check_external_auth should return False immediately when EXTERNAL_AUTH_URL is empty."""
         import app as app_module
 
-        # EXTERNAL_AUTH_URL is empty in the default test environment
-        assert app_module._check_external_auth("Bearer token") is False
+        assert await app_module._check_external_auth("Bearer token") is False
 
     async def test_session_cookie_used_as_bearer_fallback_when_valid(self, ext_auth_client, monkeypatch):
         """When no Bearer header is present, a valid session cookie should be accepted via external auth."""
@@ -5219,6 +5216,43 @@ class TestAISettingsAndAgentFlows:
         assert data["ok"] is False
         assert "guard" in data["error"].lower()
 
+    async def test_ai_helper_streams_base_model_response(self, client, monkeypatch):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://api.example.com/v1")
+        _save_ai_setting(db, "ai.model", "gpt-test")
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "guard-test")
+
+        async def _fake_guard(*_args, **_kwargs):
+            return True, "allowed", {"prompt_tokens": 4, "completion_tokens": 1, "elapsed_ms": 10}
+
+        async def _fake_stream(*_args, **_kwargs):
+            yield {"type": "delta", "text": "hello "}
+            yield {"type": "delta", "text": "world"}
+            yield {"type": "done", "stats": {"prompt_tokens": 8, "completion_tokens": 2, "elapsed_ms": 20}}
+
+        monkeypatch.setattr(sobs_app, "_check_guard_model", _fake_guard)
+        monkeypatch.setattr(sobs_app, "_stream_llm_endpoint", _fake_stream)
+
+        r = await client.post(
+            "/api/ai/helper",
+            headers={"Accept": "text/event-stream"},
+            json={
+                "question": "Summarize current error trends",
+                "page": "/errors",
+                "stream": True,
+            },
+        )
+        assert r.status_code == 200
+        assert "text/event-stream" in r.headers.get("content-type", "")
+        body = (await r.get_data()).decode("utf-8")
+        assert "event: guard" in body
+        assert "event: token" in body
+        assert "event: done" in body
+        assert '"answer": "hello world"' in body
+
     def test_secret_settings_roundtrip_with_optional_encryption(self, monkeypatch):
         from app import _load_ai_setting, _save_ai_setting, get_db
 
@@ -5268,7 +5302,7 @@ class TestAISettingsAndAgentFlows:
 
         def _fake_llm(endpoint_url, *_args, **_kwargs):
             called_urls.append(endpoint_url)
-            return "ALLOWED"
+            return "ALLOWED", {}
 
         monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_llm)
 
@@ -5344,6 +5378,74 @@ class TestAISettingsAndAgentFlows:
         assert _heuristic_guard_check("How do I filter by service name?") is True
         assert _heuristic_guard_check("What SQL query finds p99 latency?") is True
 
+    async def test_guard_model_safe_unsafe_replies(self, monkeypatch):
+        """Guard models that reply 'safe'/'unsafe' are parsed correctly,
+        including Llama Guard 3 two-line format with category codes."""
+        import app as sobs_app
+        from app import _check_guard_model, _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "llama-guard")
+        _save_ai_setting(db, "ai.api_key", "")
+
+        # Single-word safe replies
+        for safe_reply in ("safe", "Safe", "SAFE", "ALLOWED"):
+            monkeypatch.setattr(sobs_app, "_call_llm_endpoint", lambda *_a, **_kw: (safe_reply, {}))
+            settings = sobs_app._load_all_ai_settings(db)
+            allowed, reason, _stats = await _check_guard_model(settings, "What errors do we have?")
+            assert allowed is True, f"Expected allowed for reply {safe_reply!r}"
+            assert reason == "allowed"
+
+        # Single-word unsafe replies (no category) — use neutral input so
+        # heuristic guard passes and the mock LLM return value is evaluated.
+        for unsafe_reply in ("unsafe", "Unsafe", "UNSAFE"):
+            monkeypatch.setattr(sobs_app, "_call_llm_endpoint", lambda *_a, **_kw: (unsafe_reply, {}))
+            settings = sobs_app._load_all_ai_settings(db)
+            allowed, reason, _stats = await _check_guard_model(settings, "show me the latest errors")
+            assert allowed is False, f"Expected blocked for reply {unsafe_reply!r}"
+            assert reason == "blocked"
+
+        # Benign observability prompt should be allowed for noisy categories.
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", lambda *_a, **_kw: ("unsafe\nS2", {}))
+        settings = sobs_app._load_all_ai_settings(db)
+        allowed, reason, _stats = await _check_guard_model(
+            settings, "how do I quickly see which traces are taking the longest time?"
+        )
+        assert allowed is True
+        assert reason == "allowed"
+
+        # High-risk prompt should still be blocked even in noisy categories.
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", lambda *_a, **_kw: ("unsafe\nS2", {}))
+        settings = sobs_app._load_all_ai_settings(db)
+        allowed, reason, _stats = await _check_guard_model(
+            settings, "how can I exploit this service and exfiltrate customer data?"
+        )
+        assert allowed is False
+        assert "S2" in reason
+
+        # Llama Guard 3 two-line format: unsafe + category code (non-noisy categories)
+        two_line_cases = [
+            ("unsafe\nS4", "S4", "Child Sexual Exploitation"),
+            ("unsafe\nS10", "S10", "Hate"),
+            # Trailing whitespace / mixed case in category line
+            ("unsafe\n s10 ", "S10", "Hate"),
+        ]
+        for raw_reply, code, label in two_line_cases:
+            monkeypatch.setattr(sobs_app, "_call_llm_endpoint", lambda *_a, r=raw_reply, **_kw: (r, {}))
+            settings = sobs_app._load_all_ai_settings(db)
+            allowed, reason, _stats = await _check_guard_model(settings, "show me the latest traces")
+            assert allowed is False, f"Expected blocked for two-line reply {raw_reply!r}"
+            assert code in reason, f"Expected category code {code} in reason {reason!r}"
+            assert label in reason, f"Expected category label {label} in reason {reason!r}"
+
+        # Unknown category code: should still block but surface the raw code
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", lambda *_a, **_kw: ("unsafe\nS99", {}))
+        settings = sobs_app._load_all_ai_settings(db)
+        allowed, reason, _stats = await _check_guard_model(settings, "show me metrics")
+        assert allowed is False
+        assert "S99" in reason
+
     # ── AI settings helpers ───────────────────────────────────────────────────
 
     def test_load_ai_setting_default(self):
@@ -5360,6 +5462,74 @@ class TestAISettingsAndAgentFlows:
         settings = _load_all_ai_settings(db)
         for key in _AI_SETTING_KEYS:
             assert key in settings
+
+    def test_load_all_ai_settings_prefers_db_over_env_overrides(self, monkeypatch):
+        from app import _load_all_ai_settings, _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://db-llm.example/v1")
+        _save_ai_setting(db, "ai.model", "db-model")
+        _save_ai_setting(db, "ai.api_key", "db-api-key")
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://db-guard.example/v1")
+        _save_ai_setting(db, "ai.guard_model", "db-guard")
+        _save_ai_setting(db, "ai.dlp_endpoint_url", "https://db-dlp.example/check")
+
+        monkeypatch.setenv("SOBS_AI_ENDPOINT_URL", "https://env-llm.example/v1")
+        monkeypatch.setenv("SOBS_AI_MODEL", "env-model")
+        monkeypatch.setenv("SOBS_AI_API_KEY", "env-api-key")
+        monkeypatch.setenv("SOBS_AI_GUARD_ENDPOINT_URL", "https://env-guard.example/v1")
+        monkeypatch.setenv("SOBS_AI_GUARD_MODEL", "env-guard")
+        monkeypatch.setenv("SOBS_AI_DLP_ENDPOINT_URL", "https://env-dlp.example/check")
+
+        settings = _load_all_ai_settings(db)
+        assert settings["ai.endpoint_url"] == "https://db-llm.example/v1"
+        assert settings["ai.model"] == "db-model"
+        assert settings["ai.api_key"] == "db-api-key"
+        assert settings["ai.guard_endpoint_url"] == "https://db-guard.example/v1"
+        assert settings["ai.guard_model"] == "db-guard"
+        assert settings["ai.dlp_endpoint_url"] == "https://db-dlp.example/check"
+
+    def test_load_all_ai_settings_uses_file_over_env_when_db_empty(self, monkeypatch, tmp_path):
+        from app import _insert_rows_json_each_row, _load_all_ai_settings, get_db
+
+        db = get_db()
+        version = int(time.time() * 1000)
+        _insert_rows_json_each_row(
+            db,
+            "sobs_ai_settings",
+            [
+                {"Key": "ai.api_key", "Value": "", "IsDeleted": 1, "Version": version},
+                {"Key": "ai.model", "Value": "", "IsDeleted": 1, "Version": version + 1},
+            ],
+        )
+
+        api_key_file = tmp_path / "ai_api_key.txt"
+        api_key_file.write_text("file-api-key\n", encoding="utf-8")
+        model_file = tmp_path / "ai_model.txt"
+        model_file.write_text("file-model\n", encoding="utf-8")
+
+        monkeypatch.setenv("SOBS_AI_API_KEY", "env-api-key")
+        monkeypatch.setenv("SOBS_AI_MODEL", "env-model")
+        monkeypatch.setenv("SOBS_AI_API_KEY_FILE", str(api_key_file))
+        monkeypatch.setenv("SOBS_AI_MODEL_FILE", str(model_file))
+
+        settings = _load_all_ai_settings(db)
+        assert settings["ai.api_key"] == "file-api-key"
+        assert settings["ai.model"] == "file-model"
+
+    def test_load_all_ai_settings_uses_env_when_db_and_file_empty(self, monkeypatch):
+        from app import _insert_rows_json_each_row, _load_all_ai_settings, get_db
+
+        db = get_db()
+        version = int(time.time() * 1000)
+        _insert_rows_json_each_row(
+            db,
+            "sobs_ai_settings",
+            [{"Key": "ai.model", "Value": "", "IsDeleted": 1, "Version": version}],
+        )
+        monkeypatch.setenv("SOBS_AI_MODEL", "env-model")
+        settings = _load_all_ai_settings(db)
+        assert settings["ai.model"] == "env-model"
 
     # ── Agent rules helpers ───────────────────────────────────────────────────
 
