@@ -233,12 +233,40 @@
 <!-- ====================== NOTIFICATION RULES ====================== -->
 <div class="d-flex align-items-center justify-content-between mb-2">
   <h5 class="fw-semibold mb-0"><i class="bi bi-diagram-3 me-2 text-warning"></i>Notification Rules</h5>
-  {% if channels %}
-  <button class="btn btn-sm btn-outline-warning" type="button" data-bs-toggle="collapse" data-bs-target="#addRuleCollapse" aria-expanded="false" aria-controls="addRuleCollapse">
-    <i class="bi bi-plus-circle me-1"></i>Add Rule
-  </button>
-  {% endif %}
+  <div class="d-flex gap-2">
+    {% if channels and metric_rules %}
+    <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#autoNotifCollapse" aria-expanded="false" aria-controls="autoNotifCollapse">
+      <i class="bi bi-magic me-1"></i>Auto Make
+    </button>
+    {% endif %}
+    {% if channels %}
+    <button class="btn btn-sm btn-outline-warning" type="button" data-bs-toggle="collapse" data-bs-target="#addRuleCollapse" aria-expanded="false" aria-controls="addRuleCollapse">
+      <i class="bi bi-plus-circle me-1"></i>Add Rule
+    </button>
+    {% endif %}
+  </div>
 </div>
+
+{% if channels and metric_rules %}
+<div class="collapse mb-3" id="autoNotifCollapse">
+  <div class="card border-secondary">
+    <div class="card-body">
+      <h6 class="card-title mb-1"><i class="bi bi-magic me-1 text-info"></i>Auto Make Notification Rules</h6>
+      <p class="small text-secondary mb-3">Generate notification rules from your active metric rules. Each rule pre-selects all enabled channels. Signals already covered by an existing rule are skipped automatically.</p>
+      <div class="d-flex gap-2 mb-3">
+        <button class="btn btn-outline-info btn-sm" id="autoNotifPreviewBtn">
+          <i class="bi bi-eye me-1"></i>Preview
+        </button>
+        <button class="btn btn-info btn-sm d-none" id="autoNotifCreateBtn">
+          <i class="bi bi-magic me-1"></i>Create All
+        </button>
+      </div>
+      <div id="autoNotifSummary" class="small text-secondary mb-2"></div>
+      <div id="autoNotifPreviewContainer"></div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {% if not channels %}
 <div class="alert alert-info small py-2 mb-4">
@@ -465,6 +493,11 @@
 {% endblock %}
 {% block scripts %}
 <script>
+// ===== Shared utility =====
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 (function () {
   // ===== Constants =====
   var BROWSER_UA_PREVIEW_LENGTH = 30;
@@ -760,6 +793,85 @@
     }
     return output;
   }
+}());
+
+// ===== Auto Make Notification Rules =====
+(function () {
+  var previewBtn = document.getElementById('autoNotifPreviewBtn');
+  var createBtn = document.getElementById('autoNotifCreateBtn');
+  var summaryEl = document.getElementById('autoNotifSummary');
+  var previewContainer = document.getElementById('autoNotifPreviewContainer');
+  if (!previewBtn) return;
+
+  previewBtn.addEventListener('click', async function () {
+    previewBtn.disabled = true;
+    summaryEl.textContent = 'Loading\u2026';
+    previewContainer.innerHTML = '';
+    createBtn.classList.add('d-none');
+    try {
+      var resp = await fetch('/api/notifications/rules/auto-generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'action=preview'
+      });
+      var data = await resp.json();
+      summaryEl.textContent = 'Examined: ' + data.examined + ' \u00b7 Candidates: ' + data.candidates.length + ' \u00b7 Already covered (skipped): ' + data.skipped;
+      if (data.candidates.length === 0) {
+        previewContainer.innerHTML = '<p class="small text-success mt-2"><i class="bi bi-check-circle me-1"></i>All metric rules are already covered by existing notification rules.</p>';
+      } else {
+        createBtn.classList.remove('d-none');
+        var html = '<div class="card border-secondary mt-2"><div class="table-responsive"><table class="table table-dark table-sm align-middle mb-0"><thead><tr>' +
+          '<th>Rule Name</th><th>Source</th><th>Signal</th><th>Service</th><th>Comparator</th><th>Threshold</th><th>Severity</th><th>Channels</th>' +
+          '</tr></thead><tbody>';
+        data.candidates.forEach(function (c) {
+          var sevBadge = c.severity === 'critical'
+            ? '<span class="badge text-bg-danger">Critical</span>'
+            : '<span class="badge text-bg-warning text-dark">Warning</span>';
+          html += '<tr>' +
+            '<td class="fw-medium">' + escHtml(c.name) + '</td>' +
+            '<td>' + escHtml(c.source) + '</td>' +
+            '<td class="font-monospace small">' + escHtml(c.signal) + '</td>' +
+            '<td>' + escHtml(c.service || 'any') + '</td>' +
+            '<td>' + escHtml(c.comparator) + '</td>' +
+            '<td class="font-monospace small">' + escHtml(String(c.threshold)) + '</td>' +
+            '<td>' + sevBadge + '</td>' +
+            '<td class="small text-secondary">' + c.channel_names.map(escHtml).join(', ') + '</td>' +
+            '</tr>';
+        });
+        html += '</tbody></table></div></div>';
+        previewContainer.innerHTML = html;
+      }
+    } catch (e) {
+      summaryEl.textContent = 'Error loading preview: ' + e.message;
+    } finally {
+      previewBtn.disabled = false;
+    }
+  });
+
+  createBtn.addEventListener('click', async function () {
+    if (!confirm('Create all candidate notification rules now?')) return;
+    createBtn.disabled = true;
+    createBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating\u2026';
+    try {
+      var resp = await fetch('/api/notifications/rules/auto-generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'action=create'
+      });
+      var data = await resp.json();
+      if (data.ok) {
+        window.location.reload();
+      } else {
+        alert('Error creating rules: ' + (data.error || 'unknown error'));
+        createBtn.disabled = false;
+        createBtn.innerHTML = '<i class="bi bi-magic me-1"></i>Create All';
+      }
+    } catch (e) {
+      alert('Error: ' + e.message);
+      createBtn.disabled = false;
+      createBtn.innerHTML = '<i class="bi bi-magic me-1"></i>Create All';
+    }
+  });
 }());
 </script>
 {% endblock %}

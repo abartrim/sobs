@@ -9721,6 +9721,7 @@ async def view_notifications():
     rules = _load_notification_rules(db)
     notification_log = _load_notification_log(db, limit=50)
     vapid_public_key, vapid_key_source = _get_vapid_public_key(db)
+    metric_rules = _load_anomaly_rules(db)
     return await render_template(
         "settings_notifications.html",
         channels=channels,
@@ -9733,6 +9734,7 @@ async def view_notifications():
         signal_sources=_NOTIFICATION_SIGNAL_SOURCES,
         vapid_public_key=vapid_public_key,
         vapid_key_source=vapid_key_source,
+        metric_rules=metric_rules,
     )
 
 
@@ -10074,6 +10076,180 @@ async def delete_notification_rule(rule_id: str):
     )
     await flash(f"Notification rule '{row['Name']}' deleted", "success")
     return redirect(url_for("view_notifications"))
+
+
+def _get_notification_auto_candidates(
+    db: ChDbConnection,
+    metric_rule_id: str | None = None,
+) -> dict:
+    """Return auto-generate candidates from active metric rules.
+
+    Skips any metric rule whose (source, signal) pair is already covered by an
+    existing notification rule condition.  Returns all enabled channel IDs
+    pre-selected as the default target for each candidate.
+    """
+    if metric_rule_id:
+        rows = db.execute(
+            "SELECT Id, Name, SignalSource, SignalName, ServiceName, Comparator, "
+            "WarningThreshold, CriticalThreshold "
+            "FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 AND Id = ? LIMIT 1",
+            [metric_rule_id],
+        ).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT Id, Name, SignalSource, SignalName, ServiceName, Comparator, "
+            "WarningThreshold, CriticalThreshold "
+            "FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 ORDER BY Name",
+        ).fetchall()
+    metric_rules = [
+        {
+            "id": str(r["Id"]),
+            "name": str(r["Name"]),
+            "source": str(r["SignalSource"]),
+            "signal": str(r["SignalName"]),
+            "service": str(r["ServiceName"]),
+            "comparator": str(r["Comparator"]),
+            "warning_threshold": float(r["WarningThreshold"]),
+            "critical_threshold": float(r["CriticalThreshold"]),
+        }
+        for r in rows
+    ]
+
+    # Build set of already-covered (source, signal) keys from existing rules
+    existing_rules = _load_notification_rules(db)
+    covered: set[tuple[str, str]] = set()
+    for nr in existing_rules:
+        for cond in nr.get("conditions", []):
+            covered.add((cond.get("source", ""), cond.get("signal", "")))
+
+    # All currently enabled channels are the default selection
+    channel_rows = db.execute(
+        "SELECT Id, Name FROM sobs_notification_channels FINAL WHERE IsDeleted = 0 AND Enabled = 1"
+    ).fetchall()
+    all_channel_ids = [str(r["Id"]) for r in channel_rows]
+    channel_names = {str(r["Id"]): str(r["Name"]) for r in channel_rows}
+
+    candidates = []
+    skipped = 0
+    for mr in metric_rules:
+        key = (mr["source"], mr["signal"])
+        if key in covered:
+            skipped += 1
+            continue
+        # Prefer critical threshold; fall back to warning
+        crit = cast(float, mr["critical_threshold"])
+        warn = cast(float, mr["warning_threshold"])
+        if crit > 0:
+            threshold = crit
+            severity = "critical"
+        elif warn > 0:
+            threshold = warn
+            severity = "warning"
+        else:
+            threshold = 0.0
+            severity = "warning"
+        candidates.append(
+            {
+                "metric_rule_id": mr["id"],
+                "name": f"Auto: {mr['name']}",
+                "source": mr["source"],
+                "signal": mr["signal"],
+                "service": mr["service"],
+                "comparator": mr["comparator"],
+                "threshold": threshold,
+                "severity": severity,
+                "channel_ids": all_channel_ids,
+                "channel_names": [channel_names.get(cid, cid) for cid in all_channel_ids],
+            }
+        )
+    return {
+        "examined": len(metric_rules),
+        "skipped": skipped,
+        "candidates": candidates,
+    }
+
+
+@app.route("/api/notifications/rules/auto-generate", methods=["POST"])
+@require_basic_auth
+async def auto_generate_notification_rules():
+    """Preview or create notification rules auto-generated from active metric rules.
+
+    POST params:
+      action          - "preview" (default) or "create"
+      metric_rule_id  - optional; if given, process only that one metric rule
+    """
+    form = await request.form
+    action = (form.get("action") or "preview").strip().lower()
+    metric_rule_id = (form.get("metric_rule_id") or "").strip() or None
+
+    db = get_db()
+    result = _get_notification_auto_candidates(db, metric_rule_id)
+    candidates = result["candidates"]
+
+    if action == "create":
+        # Re-derive the covered set to guard against race conditions between
+        # preview and create calls.
+        existing_rules_now = _load_notification_rules(db)
+        covered_now: set[tuple[str, str]] = set()
+        for nr in existing_rules_now:
+            for cond in nr.get("conditions", []):
+                covered_now.add((cond.get("source", ""), cond.get("signal", "")))
+
+        created = 0
+        for cand in candidates:
+            key = (cand["source"], cand["signal"])
+            if key in covered_now:
+                result["skipped"] = result.get("skipped", 0) + 1
+                continue
+            covered_now.add(key)  # prevent duplicates within this batch
+            conditions = [
+                {
+                    "source": cand["source"],
+                    "signal": cand["signal"],
+                    "service": cand["service"],
+                    "comparator": cand["comparator"],
+                    "threshold": cand["threshold"],
+                    "window_minutes": 5,
+                }
+            ]
+            _insert_rows_json_each_row(
+                db,
+                "sobs_notification_rules",
+                [
+                    {
+                        "Id": str(uuid.uuid4()),
+                        "Name": cand["name"],
+                        "Enabled": 1,
+                        "LogicOperator": "any",
+                        "ConditionsJson": json.dumps(conditions, ensure_ascii=False),
+                        "ChannelIds": ",".join(cand["channel_ids"]),
+                        "Severity": cand["severity"],
+                        "CooldownSeconds": 300,
+                        "LastFiredAt": "1970-01-01 00:00:00.000",
+                        "IsDeleted": 0,
+                        "Version": int(time.time() * 1000),
+                    }
+                ],
+            )
+            created += 1
+        return jsonify(
+            {
+                "ok": True,
+                "created": created,
+                "skipped": result.get("skipped", 0),
+                "examined": result["examined"],
+            }
+        )
+
+    # action == "preview"
+    return jsonify(
+        {
+            "ok": True,
+            "examined": result["examined"],
+            "skipped": result["skipped"],
+            "candidates": candidates,
+        }
+    )
 
 
 @app.route("/api/notifications/check", methods=["POST"])
