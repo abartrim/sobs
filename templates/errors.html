@@ -88,7 +88,7 @@
     <div id="err{{ err.id }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}">
       <div class="accordion-body py-2">
         {% if err.stack %}
-        <pre id="stack-{{ err.id }}" class="stack-trace text-danger-emphasis bg-dark rounded p-2">{{ err.stack }}</pre>
+        <pre id="stack-{{ err.id }}" class="stack-trace rounded p-2">{{ err.stack }}</pre>
         {% endif %}
         <div class="d-flex gap-2 mt-2">
           {% if err.trace_id %}

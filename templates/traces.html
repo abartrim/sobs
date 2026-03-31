@@ -192,7 +192,7 @@
         <div id="terr{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}">
           <div class="accordion-body py-2">
             {% if err.stack %}
-            <pre class="stack-trace text-danger-emphasis bg-dark rounded p-2">{{ err.stack }}</pre>
+            <pre class="stack-trace rounded p-2">{{ err.stack }}</pre>
             {% endif %}
             {% if err.span_id %}
             <a href="{{ url_for('view_logs', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info mt-1">
