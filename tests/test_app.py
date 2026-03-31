@@ -2264,6 +2264,90 @@ class TestGenAICompliance:
         assert "<strong>Service:</strong> chat-filter-svc" in body
         assert "<strong>Service:</strong> embed-filter-svc" not in body
 
+    async def test_ai_view_trace_group_mode_groups_calls(self, client):
+        """AI view trace mode should group multiple calls sharing a trace id."""
+        trace_id = "trace-group-abc123"
+        r1 = await client.post(
+            "/v1/ai",
+            json={
+                "trace_id": trace_id,
+                "service": "trace-svc-a",
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "operation": "chat",
+                "prompt": "turn 1",
+                "response": "ok 1",
+                "tokens_in": 10,
+                "tokens_out": 4,
+                "duration_ms": 120,
+            },
+        )
+        assert r1.status_code == 200
+
+        r2 = await client.post(
+            "/v1/ai",
+            json={
+                "trace_id": trace_id,
+                "service": "trace-svc-b",
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "operation": "embeddings",
+                "tokens_in": 20,
+                "tokens_out": 0,
+                "duration_ms": 80,
+            },
+        )
+        assert r2.status_code == 200
+
+        r3 = await client.get("/ai?view=trace")
+        assert r3.status_code == 200
+        body = await r3.get_data(as_text=True)
+        assert "Trace Groups" in body
+        assert "trace-svc-a" in body
+        assert "trace-svc-b" in body
+        assert "2 calls" in body
+
+    async def test_ai_view_trace_mode_operation_filter_keeps_trace_context(self, client):
+        """Trace mode operation filter should still show other GenAI calls within matching traces."""
+        trace_id = "trace-group-filter-xyz"
+        r1 = await client.post(
+            "/v1/ai",
+            json={
+                "trace_id": trace_id,
+                "service": "trace-chat-svc",
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "operation": "chat",
+                "prompt": "chat turn",
+                "response": "ok",
+                "tokens_in": 8,
+                "tokens_out": 3,
+                "duration_ms": 90,
+            },
+        )
+        assert r1.status_code == 200
+
+        r2 = await client.post(
+            "/v1/ai",
+            json={
+                "trace_id": trace_id,
+                "service": "trace-embed-svc",
+                "provider": "openai",
+                "model": "text-embedding-3-small",
+                "operation": "embeddings",
+                "tokens_in": 22,
+                "tokens_out": 0,
+                "duration_ms": 75,
+            },
+        )
+        assert r2.status_code == 200
+
+        r3 = await client.get("/ai?view=trace&operation=chat")
+        assert r3.status_code == 200
+        body = await r3.get_data(as_text=True)
+        assert "trace-chat-svc" in body
+        assert "trace-embed-svc" in body
+
     async def test_ai_view_includes_raw_json_tab(self, client):
         """AI view should include Raw JSON tab with span attributes."""
         r = await client.post(

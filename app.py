@@ -4517,6 +4517,9 @@ async def view_ai():
     service = request.args.get("service", "").strip()
     model = request.args.get("model", "").strip()
     operation_filter = request.args.get("operation", "").strip()
+    view_mode = request.args.get("view", "flat").strip().lower()
+    if view_mode not in ("flat", "trace"):
+        view_mode = "flat"
     limit = _parse_limit(50)
     offset = _parse_offset()
     sort_by, sort_col, sort_dir = _parse_sort(
@@ -4545,12 +4548,36 @@ async def view_ai():
     conditions.append("(SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '')")
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-    total = db.execute(f"SELECT COUNT(*) FROM otel_traces {where}", params).fetchone()[0]
-    rows = db.execute(
-        f"SELECT Timestamp, ServiceName, TraceId, Duration, SpanAttributes "
-        f"FROM otel_traces {where} {order_clause} LIMIT ? OFFSET ?",
-        params + [limit, offset],
-    ).fetchall()
+    trace_ids: list[str] = []
+    if view_mode == "trace":
+        trace_conditions = list(conditions)
+        trace_conditions.append("TraceId != ''")
+        trace_where = "WHERE " + " AND ".join(trace_conditions)
+        total = db.execute(f"SELECT COUNT(DISTINCT TraceId) FROM otel_traces {trace_where}", params).fetchone()[0]
+        trace_rows = db.execute(
+            f"SELECT TraceId, MAX(Timestamp) AS LastTs FROM otel_traces "
+            f"{trace_where} GROUP BY TraceId ORDER BY LastTs {'ASC' if sort_dir == 'asc' else 'DESC'} LIMIT ? OFFSET ?",
+            params + [limit, offset],
+        ).fetchall()
+        trace_ids = [str(r["TraceId"]) for r in trace_rows if str(r["TraceId"])]
+        if trace_ids:
+            placeholders = ",".join(["?"] * len(trace_ids))
+            rows = db.execute(
+                f"SELECT Timestamp, ServiceName, TraceId, Duration, SpanAttributes "
+                f"FROM otel_traces WHERE TraceId IN ({placeholders}) "
+                "AND (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
+                "ORDER BY Timestamp ASC",
+                trace_ids,
+            ).fetchall()
+        else:
+            rows = []
+    else:
+        total = db.execute(f"SELECT COUNT(*) FROM otel_traces {where}", params).fetchone()[0]
+        rows = db.execute(
+            f"SELECT Timestamp, ServiceName, TraceId, Duration, SpanAttributes "
+            f"FROM otel_traces {where} {order_clause} LIMIT ? OFFSET ?",
+            params + [limit, offset],
+        ).fetchall()
 
     ai_items = []
     for r in rows:
@@ -4625,6 +4652,61 @@ async def view_ai():
             }
         )
 
+    trace_groups = []
+    if view_mode == "trace":
+        by_trace: dict[str, dict] = {
+            tid: {
+                "id": _error_id("", "", "trace", tid, tid, ""),
+                "trace_id": tid,
+                "spans": [],
+                "calls": 0,
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "errors": 0,
+                "services": set(),
+                "models": set(),
+                "operations": set(),
+                "first_ts": "",
+                "last_ts": "",
+            }
+            for tid in trace_ids
+        }
+        for item in ai_items:
+            tid = str(item.get("trace_id", ""))
+            if not tid or tid not in by_trace:
+                continue
+            grp = by_trace[tid]
+            grp["spans"].append(item)
+            grp["calls"] += 1
+            grp["tokens_in"] += int(item.get("tokens_in", 0) or 0)
+            grp["tokens_out"] += int(item.get("tokens_out", 0) or 0)
+            if item.get("error_type"):
+                grp["errors"] += 1
+            svc = str(item.get("service", ""))
+            mdl = str(item.get("model", ""))
+            op = str(item.get("operation", ""))
+            if svc:
+                grp["services"].add(svc)
+            if mdl:
+                grp["models"].add(mdl)
+            if op:
+                grp["operations"].add(op)
+            ts = str(item.get("ts", ""))
+            if ts:
+                if not grp["first_ts"] or ts < grp["first_ts"]:
+                    grp["first_ts"] = ts
+                if not grp["last_ts"] or ts > grp["last_ts"]:
+                    grp["last_ts"] = ts
+
+        for tid in trace_ids:
+            grp = by_trace[tid]
+            if not grp["spans"]:
+                continue
+            grp["services"] = sorted(grp["services"])
+            grp["models"] = sorted(grp["models"])
+            grp["operations"] = sorted(grp["operations"])
+            trace_groups.append(grp)
+
     services = [
         row[0]
         for row in db.execute(
@@ -4669,9 +4751,11 @@ async def view_ai():
         service=service,
         model=model,
         operation=operation_filter,
+        view_mode=view_mode,
         services=services,
         models=models,
         operations=operations,
+        trace_groups=trace_groups,
         total_tokens_in=totals["ti"] or 0,
         total_tokens_out=totals["to_"] or 0,
         total_calls=totals["cnt"] or 0,
