@@ -4336,7 +4336,8 @@ def _ts_str_to_epoch_ms(ts: str) -> float:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.timestamp() * 1000.0
-    except Exception:
+    except (ValueError, OverflowError) as exc:
+        log.warning("_ts_str_to_epoch_ms: could not parse %r: %s", ts, exc)
         return 0.0
 
 
@@ -4449,17 +4450,17 @@ async def view_traces():
                 all_trace_spans.append(
                     {
                         "ts": ts_str,
-                        "trace_id": r["TraceId"],
-                        "span_id": r["SpanId"],
-                        "parent_span_id": r["ParentSpanId"],
-                        "name": r["SpanName"],
-                        "service": r["ServiceName"],
+                        "trace_id": str(r["TraceId"]),
+                        "span_id": str(r["SpanId"]),
+                        "parent_span_id": str(r["ParentSpanId"]),
+                        "name": str(r["SpanName"]),
+                        "service": str(r["ServiceName"]),
                         "start_ms": start_ms,
                         "duration_ms": dur_ms,
-                        "status": r["StatusCode"],
-                        "http_method": attrs.get("http.method", attrs.get("http.request.method", "")),
-                        "http_url": attrs.get("http.url", attrs.get("url.full", "")),
-                        "http_status": attrs.get("http.status_code", attrs.get("http.response.status_code", "")),
+                        "status": str(r["StatusCode"]),
+                        "http_method": str(attrs.get("http.method", attrs.get("http.request.method", ""))),
+                        "http_url": str(attrs.get("http.url", attrs.get("url.full", ""))),
+                        "http_status": str(attrs.get("http.status_code", attrs.get("http.response.status_code", ""))),
                     }
                 )
 
@@ -4472,21 +4473,26 @@ async def view_traces():
                 # 0.5 minimum keeps very short spans visible in the timeline bar
                 span["width_pct"] = round(max(0.5, span["duration_ms"] / trace_total_ms * 100), 2)
 
-            # Fetch related errors for this trace.
+            # Fetch related errors for this trace (capped at 50; flag truncation for the UI).
+            _TRACE_ERROR_LIMIT = 50
             trace_errors: list[dict] = []
+            errors_truncated = False
             try:
                 err_rows = db.execute(
                     "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes "
-                    f"FROM ({ERROR_SOURCES_SQL}) WHERE TraceId=? LIMIT 50",
-                    [trace_id],
+                    f"FROM ({ERROR_SOURCES_SQL}) WHERE TraceId=? LIMIT ?",
+                    [trace_id, _TRACE_ERROR_LIMIT + 1],
                 ).fetchall()
                 resolved_ids = _get_resolved_error_ids(db)
+                if len(err_rows) > _TRACE_ERROR_LIMIT:
+                    errors_truncated = True
+                    err_rows = err_rows[:_TRACE_ERROR_LIMIT]
                 for row in err_rows:
                     item = _build_error_item(dict(row))
                     item["resolved"] = item["id"] in resolved_ids
                     trace_errors.append(item)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("view_traces: failed to fetch errors for trace %s: %s", trace_id, exc)
 
             error_span_ids = {e["span_id"] for e in trace_errors if e.get("span_id")}
 
@@ -4499,8 +4505,8 @@ async def view_traces():
                 ).fetchall()
                 for r in log_rows:
                     log_counts[str(r["SpanId"])] = int(r["cnt"])
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("view_traces: failed to fetch log counts for trace %s: %s", trace_id, exc)
 
             # Fetch anomaly state for the primary service.
             trace_anomaly_state: str | None = None
@@ -4515,12 +4521,13 @@ async def view_traces():
                     ).fetchone()
                     if anomaly_row:
                         trace_anomaly_state = str(anomaly_row["anomaly_state"])
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("view_traces: failed to fetch anomaly state for trace %s: %s", trace_id, exc)
 
             trace_detail = {
                 "span_tree": _build_span_tree(all_trace_spans),
                 "errors": trace_errors,
+                "errors_truncated": errors_truncated,
                 "error_span_ids": error_span_ids,
                 "log_counts": log_counts,
                 "anomaly_state": trace_anomaly_state,

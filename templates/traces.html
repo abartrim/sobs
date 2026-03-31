@@ -164,7 +164,12 @@
   {% if trace_detail.errors %}
   <!-- Related errors accordion -->
   <div class="mt-4">
-    <h6 class="text-danger fw-semibold"><i class="bi bi-bug me-1"></i>Related Errors ({{ trace_detail.errors | length }})</h6>
+    <h6 class="text-danger fw-semibold">
+      <i class="bi bi-bug me-1"></i>Related Errors ({{ trace_detail.errors | length }}{% if trace_detail.errors_truncated %}, showing first 50{% endif %})
+    </h6>
+    {% if trace_detail.errors_truncated %}
+    <div class="alert alert-warning py-1 px-2 mb-2 small">Showing the first 50 errors. Filter by trace ID in the Errors view to see all.</div>
+    {% endif %}
     <div class="accordion" id="traceErrAccordion">
       {% for err in trace_detail.errors %}
       <div class="accordion-item border-secondary mb-1">
