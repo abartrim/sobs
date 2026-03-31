@@ -9,9 +9,9 @@
 </div>
 
 <div class="accordion mb-3" id="metricsRulesAutoAccordion">
-  <div class="accordion-item bg-dark border border-secondary">
+  <div class="accordion-item bg-body-tertiary border border-secondary">
     <h2 class="accordion-header" id="autoRulesHeading">
-      <button class="accordion-button collapsed bg-dark text-light" type="button" data-bs-toggle="collapse" data-bs-target="#autoRulesCollapse" aria-expanded="false" aria-controls="autoRulesCollapse">
+      <button class="accordion-button collapsed bg-body-tertiary text-body" type="button" data-bs-toggle="collapse" data-bs-target="#autoRulesCollapse" aria-expanded="false" aria-controls="autoRulesCollapse">
         Auto Make Metric Rules
       </button>
     </h2>
@@ -106,9 +106,9 @@
     </div>
   </div>
 
-  <div class="accordion-item bg-dark border border-secondary border-top-0">
+  <div class="accordion-item bg-body-tertiary border border-secondary border-top-0">
     <h2 class="accordion-header" id="autoDashboardHeading">
-      <button class="accordion-button collapsed bg-dark text-light" type="button" data-bs-toggle="collapse" data-bs-target="#autoDashboardCollapse" aria-expanded="false" aria-controls="autoDashboardCollapse">
+      <button class="accordion-button collapsed bg-body-tertiary text-body" type="button" data-bs-toggle="collapse" data-bs-target="#autoDashboardCollapse" aria-expanded="false" aria-controls="autoDashboardCollapse">
         Auto Generate Dashboard from Active Rules
       </button>
     </h2>
@@ -358,9 +358,16 @@
             <td class="font-monospace small">{% if rule.rule_type == 'composite' %}{{ rule.secondary_source }}:{{ rule.secondary_signal }} {{ rule.secondary_comparator }} / {{ rule.secondary_warning_threshold }} / {{ rule.secondary_critical_threshold }}{% else %}—{% endif %}</td>
             <td class="font-monospace small">{{ rule.min_sample_count }}</td>
             <td>
-              <form method="post" action="{{ url_for('delete_metrics_rule', rule_id=rule.id) }}">
-                <button type="submit" class="btn btn-sm btn-outline-danger js-delete-rule" data-rule-name="{{ rule.name }}">Delete</button>
-              </form>
+              <div class="d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-outline-warning js-notify-rule"
+                        data-rule-id="{{ rule.id }}" data-rule-name="{{ rule.name }}"
+                        title="Create notification rule for this signal">
+                  <i class="bi bi-bell"></i>
+                </button>
+                <form method="post" action="{{ url_for('delete_metrics_rule', rule_id=rule.id) }}">
+                  <button type="submit" class="btn btn-sm btn-outline-danger js-delete-rule" data-rule-name="{{ rule.name }}">Delete</button>
+                </form>
+              </div>
             </td>
           </tr>
           {% endfor %}
@@ -400,6 +407,46 @@
       if (!confirm('Delete rule "' + name + '"?\n\nThis cannot be undone.')) {
         e.preventDefault();
       }
+    });
+    /* ── Bell: create single notification rule for a metric rule ── */
+    document.querySelectorAll('.js-notify-rule').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        var ruleId = btn.getAttribute('data-rule-id');
+        var ruleName = btn.getAttribute('data-rule-name') || 'this rule';
+        btn.disabled = true;
+        var origHTML = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        try {
+          var resp = await fetch('/api/notifications/rules/auto-generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'action=create&metric_rule_id=' + encodeURIComponent(ruleId)
+          });
+          var data = await resp.json();
+          if (data.ok) {
+            if (data.created > 0) {
+              btn.innerHTML = '<i class="bi bi-bell-fill"></i>';
+              btn.classList.remove('btn-outline-warning');
+              btn.classList.add('btn-success');
+              btn.title = 'Notification rule created for \u201c' + ruleName + '\u201d';
+            } else {
+              btn.innerHTML = '<i class="bi bi-bell-slash"></i>';
+              btn.classList.remove('btn-outline-warning');
+              btn.classList.add('btn-outline-secondary');
+              btn.title = 'Already covered \u2014 a notification rule for this signal exists';
+              btn.disabled = false;
+            }
+          } else {
+            btn.innerHTML = origHTML;
+            btn.disabled = false;
+            alert('Error: ' + (data.error || 'unknown error'));
+          }
+        } catch (e) {
+          btn.innerHTML = origHTML;
+          btn.disabled = false;
+          alert('Error: ' + e.message);
+        }
+      });
     });
   });
 

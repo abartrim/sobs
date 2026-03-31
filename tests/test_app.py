@@ -5317,3 +5317,364 @@ class TestAISettingsAndAgentFlows:
         assert "analyze" in match["actions"]
         assert "github_issue" in match["actions"]
         assert match["rate_limit_minutes"] == 45
+
+
+
+# ---------------------------------------------------------------------------
+# Notifications & Webhooks
+# ---------------------------------------------------------------------------
+class TestNotifications:
+    async def test_notifications_page_loads(self, client):
+        r = await client.get("/settings/notifications")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Notifications" in text
+        assert "Notification Channels" in text
+        assert "Notification Rules" in text
+
+    async def test_notifications_page_registers_service_worker(self, client):
+        r = await client.get("/settings/notifications")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "/service-worker.js" in text
+        assert "navigator.serviceWorker.register" in text
+
+    async def test_service_worker_js_route_serves_push_handlers(self, client):
+        r = await client.get("/service-worker.js")
+        assert r.status_code == 200
+        assert r.content_type.startswith("application/javascript")
+        body = (await r.get_data()).decode()
+        assert "addEventListener('push'" in body
+        assert "showNotification" in body
+
+    async def test_create_webhook_channel(self, client):
+        r = await client.post(
+            "/settings/notifications/channels",
+            form={
+                "name": "Test Webhook",
+                "channel_type": "webhook",
+                "webhook_url": "https://example.com/hook",
+                "webhook_method": "POST",
+                "webhook_headers": "{}",
+                "webhook_body_template": "",
+            },
+        )
+        assert r.status_code in (200, 302)
+        # Check it appears in the notifications page
+        r2 = await client.get("/settings/notifications")
+        text = (await r2.get_data()).decode()
+        assert "Test Webhook" in text
+
+    async def test_create_slack_channel(self, client):
+        r = await client.post(
+            "/settings/notifications/channels",
+            form={
+                "name": "Slack Ops",
+                "channel_type": "slack",
+                "slack_webhook_url": "https://hooks.slack.com/services/TEST",
+            },
+        )
+        assert r.status_code in (200, 302)
+        r2 = await client.get("/settings/notifications")
+        text = (await r2.get_data()).decode()
+        assert "Slack Ops" in text
+
+    async def test_create_channel_missing_name_rejected(self, client):
+        r = await client.post(
+            "/settings/notifications/channels",
+            form={
+                "name": "",
+                "channel_type": "webhook",
+                "webhook_url": "https://example.com/hook",
+            },
+        )
+        assert r.status_code in (200, 302)
+        # Should not have added a channel
+        r2 = await client.get("/settings/notifications")
+        text = (await r2.get_data()).decode()
+        # No empty-named channel should exist
+        assert "channel not found" not in text.lower()
+
+    async def test_create_channel_invalid_type_rejected(self, client):
+        r = await client.post(
+            "/settings/notifications/channels",
+            form={
+                "name": "Bad Type",
+                "channel_type": "invalid_type",
+            },
+        )
+        assert r.status_code in (200, 302)
+
+    async def test_toggle_and_delete_channel(self, client):
+        # Create a channel first
+        await client.post(
+            "/settings/notifications/channels",
+            form={
+                "name": "Toggle Test Channel",
+                "channel_type": "slack",
+                "slack_webhook_url": "https://hooks.slack.com/services/TOGGLE",
+            },
+        )
+        # Find the channel ID
+        channels = sobs_app._load_notification_channels(sobs_app.get_db())
+        ch = next((c for c in channels if c["name"] == "Toggle Test Channel"), None)
+        assert ch is not None
+        ch_id = ch["id"]
+
+        # Toggle
+        r = await client.post(f"/settings/notifications/channels/{ch_id}/toggle")
+        assert r.status_code in (200, 302)
+
+        # Delete
+        r = await client.post(f"/settings/notifications/channels/{ch_id}/delete")
+        assert r.status_code in (200, 302)
+        channels = sobs_app._load_notification_channels(sobs_app.get_db())
+        assert all(c["id"] != ch_id for c in channels)
+
+    async def test_create_notification_rule(self, client):
+        # Create a channel first
+        await client.post(
+            "/settings/notifications/channels",
+            form={
+                "name": "Rule Test Channel",
+                "channel_type": "slack",
+                "slack_webhook_url": "https://hooks.slack.com/services/RULE_TEST",
+            },
+        )
+        channels = sobs_app._load_notification_channels(sobs_app.get_db())
+        ch = next((c for c in channels if c["name"] == "Rule Test Channel"), None)
+        assert ch is not None
+
+        r = await client.post(
+            "/settings/notifications/rules",
+            form={
+                "name": "High Error Rate",
+                "logic_operator": "any",
+                "severity": "warning",
+                "cooldown_seconds": "60",
+                "channel_ids": ch["id"],
+                "cond_source": "logs",
+                "cond_signal": "error_volume",
+                "cond_service": "",
+                "cond_comparator": "gt",
+                "cond_threshold": "10",
+                "cond_window_minutes": "5",
+            },
+        )
+        assert r.status_code in (200, 302)
+
+        rules = sobs_app._load_notification_rules(sobs_app.get_db())
+        rule = next((r for r in rules if r["name"] == "High Error Rate"), None)
+        assert rule is not None
+        assert rule["severity"] == "warning"
+        assert rule["logic_operator"] == "any"
+        assert len(rule["conditions"]) == 1
+        assert rule["conditions"][0]["signal"] == "error_volume"
+
+    async def test_create_rule_missing_name_rejected(self, client):
+        r = await client.post(
+            "/settings/notifications/rules",
+            form={
+                "name": "",
+                "logic_operator": "any",
+                "severity": "warning",
+                "cooldown_seconds": "60",
+                "cond_source": "logs",
+                "cond_signal": "error_volume",
+                "cond_comparator": "gt",
+                "cond_threshold": "10",
+                "cond_window_minutes": "5",
+            },
+        )
+        assert r.status_code in (200, 302)
+
+    async def test_create_rule_no_conditions_rejected(self, client):
+        r = await client.post(
+            "/settings/notifications/rules",
+            form={
+                "name": "No Conditions Rule",
+                "logic_operator": "any",
+                "severity": "warning",
+                "cooldown_seconds": "60",
+            },
+        )
+        assert r.status_code in (200, 302)
+        rules = sobs_app._load_notification_rules(sobs_app.get_db())
+        assert all(r["name"] != "No Conditions Rule" for r in rules)
+
+    async def test_toggle_and_delete_rule(self, client):
+        # Create a channel and rule first
+        await client.post(
+            "/settings/notifications/channels",
+            form={
+                "name": "Toggle Rule Channel",
+                "channel_type": "slack",
+                "slack_webhook_url": "https://hooks.slack.com/services/TOGGLE_RULE",
+            },
+        )
+        channels = sobs_app._load_notification_channels(sobs_app.get_db())
+        ch = next((c for c in channels if c["name"] == "Toggle Rule Channel"), None)
+        assert ch is not None
+
+        await client.post(
+            "/settings/notifications/rules",
+            form={
+                "name": "Toggle Test Rule",
+                "logic_operator": "all",
+                "severity": "critical",
+                "cooldown_seconds": "120",
+                "channel_ids": ch["id"],
+                "cond_source": "traces",
+                "cond_signal": "trace_error_ratio",
+                "cond_service": "",
+                "cond_comparator": "gt",
+                "cond_threshold": "0.5",
+                "cond_window_minutes": "10",
+            },
+        )
+        rules = sobs_app._load_notification_rules(sobs_app.get_db())
+        rule = next((r for r in rules if r["name"] == "Toggle Test Rule"), None)
+        assert rule is not None
+        rule_id = rule["id"]
+
+        # Toggle
+        r = await client.post(f"/settings/notifications/rules/{rule_id}/toggle")
+        assert r.status_code in (200, 302)
+
+        # Delete
+        r = await client.post(f"/settings/notifications/rules/{rule_id}/delete")
+        assert r.status_code in (200, 302)
+        rules = sobs_app._load_notification_rules(sobs_app.get_db())
+        assert all(r["id"] != rule_id for r in rules)
+
+    async def test_check_notifications_api_returns_json(self, client):
+        r = await client.post("/api/notifications/check")
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["ok"] is True
+        assert "evaluated" in data
+        assert "fired" in data
+        assert isinstance(data["results"], list)
+
+    async def test_subscribe_browser_push_requires_fields(self, client):
+        r = await client.post(
+            "/api/notifications/subscribe",
+            json={"name": "My Browser"},
+        )
+        assert r.status_code == 400
+        data = json.loads(await r.get_data())
+        assert data["ok"] is False
+
+    async def test_subscribe_browser_push_valid(self, client):
+        r = await client.post(
+            "/api/notifications/subscribe",
+            json={
+                "name": "Test Browser",
+                "endpoint": "https://push.example.com/test-endpoint",
+                "p256dh": "BPUT=",
+                "auth": "AUTH=",
+            },
+        )
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["ok"] is True
+        assert "channel_id" in data
+
+    async def test_subscribe_browser_push_deduplication(self, client):
+        endpoint = "https://push.example.com/dedup-endpoint"
+        # First subscription
+        r1 = await client.post(
+            "/api/notifications/subscribe",
+            json={
+                "name": "Browser Dedup",
+                "endpoint": endpoint,
+                "p256dh": "BPUT=",
+                "auth": "AUTH=",
+            },
+        )
+        data1 = json.loads(await r1.get_data())
+        assert data1["ok"] is True
+        assert data1["existing"] is False
+
+        # Second subscription with same endpoint
+        r2 = await client.post(
+            "/api/notifications/subscribe",
+            json={
+                "name": "Browser Dedup Again",
+                "endpoint": endpoint,
+                "p256dh": "BPUT=",
+                "auth": "AUTH=",
+            },
+        )
+        data2 = json.loads(await r2.get_data())
+        assert data2["ok"] is True
+        assert data2["existing"] is True
+        assert data2["channel_id"] == data1["channel_id"]
+
+    async def test_vapid_public_key_not_configured(self, client):
+        """Without SOBS_VAPID_PRIVATE_KEY set, endpoint returns 404."""
+        r = await client.get("/api/notifications/vapid-public-key")
+        assert r.status_code == 404
+        data = json.loads(await r.get_data())
+        assert data["ok"] is False
+
+    async def test_settings_page_shows_notification_counts(self, client):
+        r = await client.get("/settings")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Notifications" in text
+        assert "channel" in text.lower()
+
+    def test_build_notification_payload(self):
+        from app import _build_notification_payload
+
+        rule = {"name": "Test Rule", "severity": "warning"}
+        conditions = [
+            {
+                "source": "logs",
+                "signal": "error_volume",
+                "service": "api",
+                "comparator": "gt",
+                "threshold": 10,
+                "_value": 15.0,
+            }
+        ]
+        payload = _build_notification_payload(rule, conditions)
+        assert payload["rule_name"] == "Test Rule"
+        assert payload["severity"] == "warning"
+        assert "Test Rule" in payload["summary"]
+        assert "error_volume" in payload["summary"]
+
+    def test_mask_channel_config_hides_password(self):
+        from app import _mask_channel_config
+
+        config = {
+            "smtp_host": "mail.example.com",
+            "smtp_password": "supersecret",
+            "to_addr": "admin@example.com",
+        }
+        masked = _mask_channel_config("email", config)
+        assert masked["smtp_password"] == "••••••••"
+        assert masked["smtp_host"] == "mail.example.com"
+        assert masked["to_addr"] == "admin@example.com"
+
+    def test_mask_channel_config_empty_password_unchanged(self):
+        from app import _mask_channel_config
+
+        config = {"smtp_host": "mail.example.com", "smtp_password": ""}
+        masked = _mask_channel_config("email", config)
+        assert masked["smtp_password"] == ""
+
+    def test_notification_tables_exist(self, client):
+        tables = {
+            row[0]
+            for row in sobs_app.get_db()
+            .execute(
+                "SELECT name FROM system.tables WHERE database='default' "
+                "AND name IN ('sobs_notification_channels', 'sobs_notification_rules', 'sobs_notification_log')"
+            )
+            .fetchall()
+        }
+        assert "sobs_notification_channels" in tables
+        assert "sobs_notification_rules" in tables
+        assert "sobs_notification_log" in tables

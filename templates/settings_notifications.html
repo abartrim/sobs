@@ -1,0 +1,877 @@
+{% extends "base.html" %}
+{% block title %}Notifications & Webhooks{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-bell me-2 text-warning"></i>Notifications &amp; Webhooks</h4>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Settings
+  </a>
+</div>
+
+<p class="text-secondary small mb-3">
+  Configure outbound notification channels (Slack, webhook, email, browser push) and define rules
+  that trigger notifications based on signal thresholds and anomaly conditions.
+  Rules are evaluated on demand via <code>POST /api/notifications/check</code> — call this endpoint
+  periodically with a scheduler or cron job.
+</p>
+
+<!-- ====================== NOTIFICATION CHANNELS ====================== -->
+<div class="d-flex align-items-center justify-content-between mb-2">
+  <h5 class="fw-semibold mb-0"><i class="bi bi-plug me-2 text-info"></i>Notification Channels</h5>
+  <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#addChannelCollapse" aria-expanded="false" aria-controls="addChannelCollapse">
+    <i class="bi bi-plus-circle me-1"></i>Add Channel
+  </button>
+</div>
+
+<div class="collapse mb-3" id="addChannelCollapse">
+  <div class="card border-secondary">
+    <div class="card-body">
+      <h6 class="card-title mb-3">New Notification Channel</h6>
+      <form method="post" action="{{ url_for('create_notification_channel') }}" id="addChannelForm">
+        <div class="row g-3 mb-3">
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">Channel Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control form-control-sm" placeholder="e.g. Ops Slack" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small text-secondary">Channel Type <span class="text-danger">*</span></label>
+            <select name="channel_type" id="channelTypeSelect" class="form-select form-select-sm" required>
+              <option value="">Select type…</option>
+              {% for ct in channel_types %}
+              <option value="{{ ct }}">{{ ct | capitalize | replace('_', ' ') }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <!-- Webhook fields -->
+        <div id="fields-webhook" class="channel-fields d-none row g-3 mb-3">
+          <div class="col-md-6">
+            <label class="form-label small text-secondary">Webhook URL <span class="text-danger">*</span></label>
+            <input type="url" name="webhook_url" class="form-control form-control-sm" placeholder="https://example.com/hook">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-secondary">Method</label>
+            <select name="webhook_method" class="form-select form-select-sm">
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">Custom Headers (JSON)</label>
+            <input type="text" name="webhook_headers" class="form-control form-control-sm font-monospace" placeholder='{"X-Token": "secret"}' value="{}">
+          </div>
+          <div class="col-12">
+            <label class="form-label small text-secondary">Body Template (leave blank for default JSON)</label>
+            <textarea name="webhook_body_template" class="form-control form-control-sm font-monospace" rows="2" placeholder="Use &#123;&#123;summary&#125;&#125; for the notification summary text"></textarea>
+          </div>
+        </div>
+
+        <!-- Slack fields -->
+        <div id="fields-slack" class="channel-fields d-none row g-3 mb-3">
+          <div class="col-md-8">
+            <label class="form-label small text-secondary">Slack Incoming Webhook URL <span class="text-danger">*</span></label>
+            <input type="url" name="slack_webhook_url" class="form-control form-control-sm" placeholder="https://hooks.slack.com/services/...">
+          </div>
+        </div>
+
+        <!-- Email fields -->
+        <div id="fields-email" class="channel-fields d-none row g-3 mb-3">
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">SMTP Host</label>
+            <input type="text" name="smtp_host" class="form-control form-control-sm" value="localhost">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-secondary">Port</label>
+            <input type="number" name="smtp_port" class="form-control form-control-sm" value="587">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small text-secondary">SMTP User</label>
+            <input type="text" name="smtp_user" class="form-control form-control-sm" placeholder="user@example.com">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small text-secondary">SMTP Password</label>
+            <input type="password" name="smtp_password" class="form-control form-control-sm" autocomplete="new-password">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">From Address</label>
+            <input type="email" name="from_addr" class="form-control form-control-sm" value="sobs@localhost">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">To Address <span class="text-danger">*</span></label>
+            <input type="email" name="to_addr" class="form-control form-control-sm" placeholder="admin@example.com">
+          </div>
+          <div class="col-md-4 d-flex align-items-end">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="use_tls" value="1" id="useTlsCheck" checked>
+              <label class="form-check-label small text-secondary" for="useTlsCheck">Use STARTTLS</label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Browser Push fields -->
+        <div id="fields-browser_push" class="channel-fields d-none row g-3 mb-3">
+          <div class="col-12">
+            {% if vapid_key_source == 'env' %}
+            <div class="alert alert-success small mb-2 py-2">
+              <i class="bi bi-check-circle me-1"></i>
+              VAPID key active via <code>SOBS_VAPID_PRIVATE_KEY</code> environment variable.
+              <br><strong>Public key:</strong>
+              <code class="user-select-all small">{{ vapid_public_key }}</code>
+            </div>
+            {% elif vapid_key_source == 'db' %}
+            <div class="alert alert-success small mb-2 py-2">
+              <i class="bi bi-check-circle me-1"></i>
+              VAPID key active (stored in database).
+              <br><strong>Public key:</strong>
+              <code class="user-select-all small">{{ vapid_public_key }}</code>
+              <br>
+              <button type="button" class="btn btn-sm btn-outline-warning mt-1 me-1" id="regenerateVapidBtn">
+                <i class="bi bi-arrow-clockwise me-1"></i>Regenerate Keys
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-danger mt-1" id="removeVapidBtn">
+                <i class="bi bi-trash me-1"></i>Remove Keys
+              </button>
+              <small class="text-secondary d-block mt-1">Regenerating invalidates all existing browser subscriptions.</small>
+            </div>
+            {% else %}
+            <div class="alert alert-warning small mb-2 py-2">
+              <i class="bi bi-exclamation-triangle me-1"></i>
+              No VAPID keys configured. Generate keys first to enable browser push notifications.
+              <br>
+              <button type="button" class="btn btn-sm btn-primary mt-1" id="generateVapidBtn">
+                <i class="bi bi-key me-1"></i>Generate &amp; Save Keys
+              </button>
+            </div>
+            {% endif %}
+          </div>
+          <div class="col-12">
+            <button type="button" class="btn btn-sm btn-outline-info{% if not vapid_public_key %} disabled{% endif %}" id="subscribeBrowserBtn"{% if not vapid_public_key %} aria-disabled="true"{% endif %}>
+              <i class="bi bi-browser-safari me-1"></i>Subscribe This Browser
+            </button>
+            <small class="text-secondary ms-2">Registers this browser's push subscription automatically.</small>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label small text-secondary">Push Endpoint <span class="text-danger">*</span></label>
+            <input type="url" name="push_endpoint" id="pushEndpoint" class="form-control form-control-sm font-monospace" placeholder="https://fcm.googleapis.com/...">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">p256dh Key</label>
+            <input type="text" name="push_p256dh" id="pushP256dh" class="form-control form-control-sm font-monospace" placeholder="Base64url-encoded">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">Auth Secret</label>
+            <input type="text" name="push_auth" id="pushAuth" class="form-control form-control-sm font-monospace" placeholder="Base64url-encoded">
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-info btn-sm"><i class="bi bi-plus-circle me-1"></i>Create Channel</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% if channels %}
+<div class="table-responsive mb-4">
+  <table class="table table-sm align-middle">
+    <thead class="table-secondary">
+      <tr>
+        <th style="white-space: nowrap;">Name</th>
+        <th>Type</th>
+        <th>Status</th>
+        <th>Config Preview</th>
+        <th class="text-end" style="white-space: nowrap;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ch in channels %}
+      <tr>
+        <td class="fw-medium text-nowrap">{{ ch.name }}</td>
+        <td><span class="badge text-bg-secondary">{{ ch.channel_type }}</span></td>
+        <td>
+          {% if ch.enabled %}
+          <span class="badge text-bg-success">Enabled</span>
+          {% else %}
+          <span class="badge text-bg-secondary">Disabled</span>
+          {% endif %}
+        </td>
+        <td>
+          <div class="font-monospace small text-secondary text-truncate" style="max-width: 320px;">
+            {% if ch.channel_type == 'webhook' %}{{ ch.config.get('url','') | truncate(80) }}
+            {% elif ch.channel_type == 'slack' %}{{ ch.config.get('webhook_url','') | truncate(80) }}
+            {% elif ch.channel_type == 'email' %}{{ ch.config.get('to_addr','') }}
+            {% elif ch.channel_type == 'browser_push' %}{{ ch.config.get('endpoint','') | truncate(80) }}
+            {% endif %}
+          </div>
+        </td>
+        <td class="text-end" style="white-space: nowrap;">
+          <div class="d-flex gap-2 justify-content-end">
+            <button class="btn btn-sm btn-outline-secondary test-channel-btn" data-channel-id="{{ ch.id }}" data-channel-name="{{ ch.name }}" title="Test channel">
+              <i class="bi bi-send"></i>
+            </button>
+            <form method="post" action="{{ url_for('toggle_notification_channel', channel_id=ch.id) }}" class="d-inline">
+              <button type="submit" class="btn btn-sm btn-outline-secondary" title="{{ 'Disable' if ch.enabled else 'Enable' }}">
+                <i class="bi bi-{{ 'pause-circle' if ch.enabled else 'play-circle' }}"></i>
+              </button>
+            </form>
+            <form method="post" action="{{ url_for('delete_notification_channel', channel_id=ch.id) }}" class="d-inline" onsubmit="return confirm('Delete channel \'{{ ch.name }}\'?')">
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-secondary small mb-4"><em>No notification channels configured yet.</em></p>
+{% endif %}
+
+<!-- ====================== NOTIFICATION RULES ====================== -->
+<div class="d-flex align-items-center justify-content-between mb-2">
+  <h5 class="fw-semibold mb-0"><i class="bi bi-diagram-3 me-2 text-warning"></i>Notification Rules</h5>
+  <div class="d-flex gap-2">
+    {% if channels and metric_rules %}
+    <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#autoNotifCollapse" aria-expanded="false" aria-controls="autoNotifCollapse">
+      <i class="bi bi-magic me-1"></i>Auto Make
+    </button>
+    {% endif %}
+    {% if channels %}
+    <button class="btn btn-sm btn-outline-warning" type="button" data-bs-toggle="collapse" data-bs-target="#addRuleCollapse" aria-expanded="false" aria-controls="addRuleCollapse">
+      <i class="bi bi-plus-circle me-1"></i>Add Rule
+    </button>
+    {% endif %}
+  </div>
+</div>
+
+{% if channels and metric_rules %}
+<div class="collapse mb-3" id="autoNotifCollapse">
+  <div class="card border-secondary">
+    <div class="card-body">
+      <h6 class="card-title mb-1"><i class="bi bi-magic me-1 text-info"></i>Auto Make Notification Rules</h6>
+      <p class="small text-secondary mb-3">Generate notification rules from your active metric rules. Each rule pre-selects all enabled channels. Signals already covered by an existing rule are skipped automatically.</p>
+      <div class="d-flex gap-2 mb-3">
+        <button class="btn btn-outline-info btn-sm" id="autoNotifPreviewBtn">
+          <i class="bi bi-eye me-1"></i>Preview
+        </button>
+        <button class="btn btn-info btn-sm d-none" id="autoNotifCreateBtn">
+          <i class="bi bi-magic me-1"></i>Create All
+        </button>
+      </div>
+      <div id="autoNotifSummary" class="small text-secondary mb-2"></div>
+      <div id="autoNotifPreviewContainer"></div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if not channels %}
+<div class="alert alert-info small py-2 mb-4">
+  <i class="bi bi-info-circle me-1"></i>Add at least one notification channel before creating rules.
+</div>
+{% else %}
+
+<div class="collapse mb-3" id="addRuleCollapse">
+  <div class="card border-secondary">
+    <div class="card-body">
+      <h6 class="card-title mb-3">New Notification Rule</h6>
+      <form method="post" action="{{ url_for('create_notification_rule') }}" id="addRuleForm">
+        <div class="row g-3 mb-3">
+          <div class="col-md-4">
+            <label class="form-label small text-secondary">Rule Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control form-control-sm" placeholder="e.g. High Error Rate Alert" required>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-secondary">Logic</label>
+            <select name="logic_operator" class="form-select form-select-sm">
+              <option value="any">ANY condition (OR)</option>
+              <option value="all">ALL conditions (AND)</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-secondary">Severity</label>
+            <select name="severity" class="form-select form-select-sm">
+              <option value="warning">Warning</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-secondary">Cooldown (sec)</label>
+            <input type="number" name="cooldown_seconds" class="form-control form-control-sm" value="300" min="0" max="86400">
+          </div>
+        </div>
+
+        <!-- Channels selection -->
+        <div class="mb-3">
+          <label class="form-label small text-secondary">Notify Channels</label>
+          <div class="d-flex flex-wrap gap-3">
+            {% for ch in channels %}
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="channel_ids" value="{{ ch.id }}" id="rule_ch_{{ ch.id }}">
+              <label class="form-check-label small" for="rule_ch_{{ ch.id }}">
+                {{ ch.name }} <span class="text-secondary">({{ ch.channel_type }})</span>
+              </label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Conditions -->
+        <div class="mb-2">
+          <label class="form-label small text-secondary fw-semibold">Conditions</label>
+          <div id="conditionsContainer">
+            <!-- Condition rows injected by JS -->
+          </div>
+          <button type="button" class="btn btn-outline-secondary btn-sm mt-2" id="addConditionBtn">
+            <i class="bi bi-plus me-1"></i>Add Condition
+          </button>
+        </div>
+
+        <div class="mt-3">
+          <button type="submit" class="btn btn-warning btn-sm"><i class="bi bi-plus-circle me-1"></i>Create Rule</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if rules %}
+<div class="table-responsive mb-4">
+  <table class="table table-sm align-middle">
+    <thead class="table-secondary">
+      <tr>
+        <th style="white-space: nowrap;">Name</th>
+        <th>Logic</th>
+        <th>Severity</th>
+        <th>Conditions</th>
+        <th>Channels</th>
+        <th>Cooldown</th>
+        <th>Status</th>
+        <th class="text-end" style="white-space: nowrap;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for rule in rules %}
+      <tr>
+        <td class="fw-medium text-nowrap">{{ rule.name }}</td>
+        <td><span class="badge text-bg-secondary">{{ rule.logic_operator.upper() }}</span></td>
+        <td>
+          {% if rule.severity == 'critical' %}
+          <span class="badge text-bg-danger">Critical</span>
+          {% else %}
+          <span class="badge text-bg-warning text-dark">Warning</span>
+          {% endif %}
+        </td>
+        <td>
+          <small class="text-secondary">
+            {% for cond in rule.conditions %}
+            <span class="badge text-bg-secondary me-1">{{ cond.source }}/{{ cond.signal }}{% if cond.service %} [{{ cond.service }}]{% endif %} {{ cond.comparator }} {{ cond.threshold }}</span>
+            {% endfor %}
+          </small>
+        </td>
+        <td>
+          <small class="text-secondary">{{ rule.channel_ids | length }} channel{{ 's' if rule.channel_ids | length != 1 else '' }}</small>
+        </td>
+        <td><small class="text-secondary">{{ rule.cooldown_seconds }}s</small></td>
+        <td>
+          {% if rule.enabled %}
+          <span class="badge text-bg-success">Enabled</span>
+          {% else %}
+          <span class="badge text-bg-secondary">Disabled</span>
+          {% endif %}
+        </td>
+        <td class="text-end" style="white-space: nowrap;">
+          <div class="d-flex gap-2 justify-content-end">
+            <form method="post" action="{{ url_for('toggle_notification_rule', rule_id=rule.id) }}" class="d-inline">
+              <button type="submit" class="btn btn-sm btn-outline-secondary" title="{{ 'Disable' if rule.enabled else 'Enable' }}">
+                <i class="bi bi-{{ 'pause-circle' if rule.enabled else 'play-circle' }}"></i>
+              </button>
+            </form>
+            <form method="post" action="{{ url_for('delete_notification_rule', rule_id=rule.id) }}" class="d-inline" onsubmit="return confirm('Delete rule \'{{ rule.name }}\'?')">
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-secondary small mb-4"><em>No notification rules configured yet.</em></p>
+{% endif %}
+
+<!-- ====================== NOTIFICATION LOG ====================== -->
+<div class="d-flex align-items-center justify-content-between mb-2">
+  <h5 class="fw-semibold mb-0"><i class="bi bi-clock-history me-2 text-secondary"></i>Recent Notification Log</h5>
+  <button class="btn btn-sm btn-outline-secondary" id="checkNowBtn" title="Evaluate all rules now">
+    <i class="bi bi-arrow-clockwise me-1"></i>Check Rules Now
+  </button>
+</div>
+<div id="checkNowResult" class="small mb-2"></div>
+
+{% if notification_log %}
+<div class="table-responsive mb-4">
+  <table class="table table-sm align-middle">
+    <thead class="table-secondary">
+      <tr>
+        <th>Fired At</th>
+        <th>Rule</th>
+        <th>Channel</th>
+        <th>Status</th>
+        <th>Summary / Error</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in notification_log %}
+      <tr>
+        <td class="font-monospace small text-secondary">{{ entry.fired_at }}</td>
+        <td class="small">{{ entry.rule_name }}</td>
+        <td class="small">{{ entry.channel_name }}</td>
+        <td>
+          {% if entry.status == 'ok' %}
+          <span class="badge text-bg-success">OK</span>
+          {% else %}
+          <span class="badge text-bg-danger">Error</span>
+          {% endif %}
+        </td>
+        <td class="small text-secondary">
+          {% if entry.status == 'ok' %}
+          {{ entry.summary | truncate(80) }}
+          {% else %}
+          {{ entry.error_message | truncate(80) }}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-secondary small mb-4"><em>No notification history yet.</em></p>
+{% endif %}
+
+<!-- ====================== SETUP GUIDE ====================== -->
+<div class="card border-secondary mt-2">
+  <div class="card-header small text-secondary"><i class="bi bi-book me-1"></i>Setup Guide</div>
+  <div class="card-body small text-secondary">
+    <p class="mb-2">
+      <strong>Channels</strong> define where notifications are sent. Supported types:
+    </p>
+    <ul class="mb-2">
+      <li><strong>webhook</strong> — HTTP POST to any URL with optional custom headers and body template. Use <code>{{summary}}</code> in the body template for the alert message.</li>
+      <li><strong>slack</strong> — Post to a Slack <a href="https://api.slack.com/messaging/webhooks" target="_blank" rel="noopener" class="link-secondary">Incoming Webhook</a> URL.</li>
+      <li><strong>email</strong> — Send via SMTP. Supports STARTTLS. Credentials are stored in the database; use environment-level secrets management for production deployments.</li>
+      <li><strong>browser_push</strong> — Web Push notifications to browsers. Click <strong>Generate &amp; Save Keys</strong> in the browser_push channel form to create VAPID keys stored in the database. Alternatively set <code>SOBS_VAPID_PRIVATE_KEY</code> as an environment variable (takes precedence). Use the <strong>Subscribe This Browser</strong> button to register the current browser automatically.</li>
+    </ul>
+    <p class="mb-2">
+      <strong>Rules</strong> define when to send notifications. Each rule has one or more conditions
+      matched against recent signal averages from <code>v_derived_signals_1m</code>. Use <em>ANY</em>
+      (OR) or <em>ALL</em> (AND) logic to combine conditions. A cooldown prevents re-firing
+      until the configured interval has elapsed.
+    </p>
+    <p class="mb-2">
+      <strong>Triggering:</strong> Call <code>POST /api/notifications/check</code> periodically
+      (e.g., every minute via cron) to evaluate all enabled rules and dispatch notifications.
+    </p>
+    <p class="mb-0">
+      <strong>Browser Push Key Management:</strong> Use the <strong>Generate &amp; Save Keys</strong> button
+      in the browser_push channel form to create a VAPID key pair and persist it in the database
+      automatically. Use <strong>Regenerate</strong> to rotate keys (existing subscriptions must
+      re-subscribe). Set <code>SOBS_VAPID_PRIVATE_KEY</code> in your environment to override the
+      DB key (useful for production secret management).
+    </p>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+// ===== Shared utility =====
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+(function () {
+  // ===== Constants =====
+  var BROWSER_UA_PREVIEW_LENGTH = 30;
+
+  // ===== Channel type field switcher =====
+  var channelTypeSelect = document.getElementById('channelTypeSelect');
+  if (channelTypeSelect) {
+    channelTypeSelect.addEventListener('change', function () {
+      document.querySelectorAll('.channel-fields').forEach(function (el) {
+        el.classList.add('d-none');
+      });
+      var selected = this.value;
+      if (selected) {
+        var fields = document.getElementById('fields-' + selected);
+        if (fields) fields.classList.remove('d-none');
+      }
+    });
+  }
+
+  // ===== Condition builder =====
+  var signalSources = {{ signal_sources | tojson }};
+  var comparators = {{ comparators | tojson }};
+  var conditionCount = 0;
+
+  function addConditionRow() {
+    conditionCount++;
+    var idx = conditionCount;
+    var container = document.getElementById('conditionsContainer');
+
+    var sourceOptions = Object.keys(signalSources).map(function (src) {
+      return '<option value="' + src + '">' + src + '</option>';
+    }).join('');
+
+    var comparatorOptions = comparators.map(function (c) {
+      return '<option value="' + c + '">' + c + '</option>';
+    }).join('');
+
+    var row = document.createElement('div');
+    row.className = 'row g-2 align-items-end mb-2 condition-row';
+    row.dataset.condIdx = idx;
+    row.innerHTML =
+      '<div class="col-md-2">' +
+        '<label class="form-label small text-secondary">Source</label>' +
+        '<select name="cond_source" class="form-select form-select-sm cond-source-select">' + sourceOptions + '</select>' +
+      '</div>' +
+      '<div class="col-md-2">' +
+        '<label class="form-label small text-secondary">Signal</label>' +
+        '<select name="cond_signal" class="form-select form-select-sm cond-signal-select"></select>' +
+      '</div>' +
+      '<div class="col-md-2">' +
+        '<label class="form-label small text-secondary">Service (optional)</label>' +
+        '<input type="text" name="cond_service" class="form-control form-control-sm" placeholder="any">' +
+      '</div>' +
+      '<div class="col-md-1">' +
+        '<label class="form-label small text-secondary">Comparator</label>' +
+        '<select name="cond_comparator" class="form-select form-select-sm">' + comparatorOptions + '</select>' +
+      '</div>' +
+      '<div class="col-md-2">' +
+        '<label class="form-label small text-secondary">Threshold</label>' +
+        '<input type="number" step="any" name="cond_threshold" class="form-control form-control-sm" value="0" required>' +
+      '</div>' +
+      '<div class="col-md-1">' +
+        '<label class="form-label small text-secondary">Window (min)</label>' +
+        '<input type="number" min="1" max="60" name="cond_window_minutes" class="form-control form-control-sm" value="5">' +
+      '</div>' +
+      '<div class="col-md-1 d-flex align-items-end">' +
+        '<button type="button" class="btn btn-outline-danger btn-sm remove-condition-btn"><i class="bi bi-trash"></i></button>' +
+      '</div>';
+
+    container.appendChild(row);
+
+    // Populate signal options based on initial source
+    var sourceSelect = row.querySelector('.cond-source-select');
+    var signalSelect = row.querySelector('.cond-signal-select');
+    populateSignals(sourceSelect.value, signalSelect);
+
+    sourceSelect.addEventListener('change', function () {
+      populateSignals(this.value, row.querySelector('.cond-signal-select'));
+    });
+    row.querySelector('.remove-condition-btn').addEventListener('click', function () {
+      container.removeChild(row);
+    });
+  }
+
+  function populateSignals(source, signalSelect) {
+    var signals = signalSources[source] || [];
+    signalSelect.innerHTML = signals.map(function (s) {
+      return '<option value="' + s + '">' + s + '</option>';
+    }).join('');
+  }
+
+  var addConditionBtn = document.getElementById('addConditionBtn');
+  if (addConditionBtn) {
+    addConditionBtn.addEventListener('click', addConditionRow);
+    // Add a default condition row
+    addConditionRow();
+  }
+
+  // ===== Test channel button =====
+  document.querySelectorAll('.test-channel-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var channelId = this.dataset.channelId;
+      var channelName = this.dataset.channelName;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+      fetch('{{ url_for("test_notification_channel", channel_id="__CHANNEL_ID__") }}'.replace('__CHANNEL_ID__', channelId), {
+        method: 'POST',
+        credentials: 'same-origin',
+      }).then(function (res) {
+        return res.json().then(function (data) { return { status: res.status, data: data }; });
+      }).then(function (result) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-send"></i>';
+        if (result.data.ok) {
+          alert('Test notification sent to "' + channelName + '" successfully.');
+        } else {
+          alert('Test failed for "' + channelName + '": ' + (result.data.error || 'Unknown error'));
+        }
+      }).catch(function (err) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-send"></i>';
+        alert('Request error: ' + err);
+      });
+    });
+  });
+
+  // ===== Check Rules Now button =====
+  var checkNowBtn = document.getElementById('checkNowBtn');
+  var checkNowResult = document.getElementById('checkNowResult');
+  if (checkNowBtn) {
+    checkNowBtn.addEventListener('click', function () {
+      checkNowBtn.disabled = true;
+      checkNowBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Checking…';
+      checkNowResult.textContent = '';
+      fetch('{{ url_for("check_notifications") }}', {
+        method: 'POST',
+        credentials: 'same-origin',
+      }).then(function (res) { return res.json(); }).then(function (data) {
+        checkNowBtn.disabled = false;
+        checkNowBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Check Rules Now';
+        checkNowResult.innerHTML =
+          '<span class="text-secondary">Evaluated ' + data.evaluated + ' rule(s), ' +
+          data.fired + ' fired. ' +
+          (data.fired > 0 ? '<span class="text-warning">Reload to see updated log.</span>' : '') +
+          '</span>';
+      }).catch(function (err) {
+        checkNowBtn.disabled = false;
+        checkNowBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Check Rules Now';
+        checkNowResult.textContent = 'Error: ' + err;
+      });
+    });
+  }
+
+  // ===== Browser Push subscription =====
+  var swRegistrationPromise = null;
+
+  function ensureServiceWorkerRegistration() {
+    if (swRegistrationPromise) {
+      return swRegistrationPromise;
+    }
+    // register() resolves as soon as the SW is parsed, but the SW may still be
+    // in the installing/waiting state — pushManager.subscribe() requires an
+    // *active* SW.  Chaining navigator.serviceWorker.ready guarantees we only
+    // resolve once the SW is controlling the page and is fully active.
+    swRegistrationPromise = navigator.serviceWorker.register('{{ url_for("service_worker_js") }}').then(function () {
+      return navigator.serviceWorker.ready;
+    });
+    return swRegistrationPromise;
+  }
+
+  // ===== VAPID key generation / removal =====
+  var generateVapidBtn = document.getElementById('generateVapidBtn');
+  if (generateVapidBtn) {
+    generateVapidBtn.addEventListener('click', function () {
+      generateVapidBtn.disabled = true;
+      generateVapidBtn.textContent = 'Generating…';
+      fetch('{{ url_for("generate_vapid_key") }}', { method: 'POST', credentials: 'same-origin' })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (data.ok) {
+            alert('VAPID keys generated and saved. The page will reload.');
+            window.location.reload();
+          } else {
+            alert('Key generation failed: ' + (data.error || 'unknown error'));
+            generateVapidBtn.disabled = false;
+            generateVapidBtn.innerHTML = '<i class="bi bi-key me-1"></i>Generate & Save Keys';
+          }
+        })
+        .catch(function (err) {
+          alert('Error: ' + err);
+          generateVapidBtn.disabled = false;
+          generateVapidBtn.innerHTML = '<i class="bi bi-key me-1"></i>Generate & Save Keys';
+        });
+    });
+  }
+
+  var regenerateVapidBtn = document.getElementById('regenerateVapidBtn');
+  if (regenerateVapidBtn) {
+    regenerateVapidBtn.addEventListener('click', function () {
+      if (!confirm('Regenerating VAPID keys will invalidate ALL existing browser push subscriptions. Browsers will need to re-subscribe.\n\nContinue?')) {
+        return;
+      }
+      regenerateVapidBtn.disabled = true;
+      regenerateVapidBtn.textContent = 'Regenerating…';
+      fetch('{{ url_for("generate_vapid_key") }}', { method: 'POST', credentials: 'same-origin' })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (data.ok) {
+            alert('New VAPID keys saved. Existing browser subscriptions are now invalid — browsers must re-subscribe. The page will reload.');
+            window.location.reload();
+          } else {
+            alert('Regeneration failed: ' + (data.error || 'unknown error'));
+            regenerateVapidBtn.disabled = false;
+            regenerateVapidBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Regenerate Keys';
+          }
+        })
+        .catch(function (err) {
+          alert('Error: ' + err);
+          regenerateVapidBtn.disabled = false;
+          regenerateVapidBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Regenerate Keys';
+        });
+    });
+  }
+
+  var removeVapidBtn = document.getElementById('removeVapidBtn');
+  if (removeVapidBtn) {
+    removeVapidBtn.addEventListener('click', function () {
+      if (!confirm('This will remove the stored VAPID keys. Browser push notifications will stop working until new keys are generated.\n\nContinue?')) {
+        return;
+      }
+      fetch('{{ url_for("delete_vapid_keys") }}', { method: 'DELETE', credentials: 'same-origin' })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (data.ok) {
+            alert('VAPID keys removed. The page will reload.');
+            window.location.reload();
+          } else {
+            alert('Removal failed: ' + (data.error || 'unknown error'));
+          }
+        })
+        .catch(function (err) { alert('Error: ' + err); });
+    });
+  }
+
+  var subscribeBrowserBtn = document.getElementById('subscribeBrowserBtn');
+  if (subscribeBrowserBtn) {
+    subscribeBrowserBtn.addEventListener('click', function () {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        alert('This browser does not support Web Push notifications.');
+        return;
+      }
+      fetch('{{ url_for("get_vapid_public_key") }}', { credentials: 'same-origin' })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (!data.ok) {
+            alert('Cannot subscribe: ' + (data.error || 'VAPID key not available'));
+            return;
+          }
+          var applicationServerKey = urlBase64ToUint8Array(data.public_key);
+          return ensureServiceWorkerRegistration().then(function (reg) {
+            return reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: applicationServerKey,
+            });
+          }).then(function (sub) {
+            var json = sub.toJSON();
+            var endpoint = json.endpoint;
+            var p256dh = json.keys.p256dh;
+            var auth = json.keys.auth;
+            document.getElementById('pushEndpoint').value = endpoint;
+            document.getElementById('pushP256dh').value = p256dh;
+            document.getElementById('pushAuth').value = auth;
+            var nameInput = document.querySelector('[name="name"]');
+            if (nameInput && !nameInput.value) {
+              nameInput.value = 'Browser Push (' + navigator.userAgent.substring(0, BROWSER_UA_PREVIEW_LENGTH) + ')';
+            }
+            alert('Browser push subscription captured. Click "Create Channel" to save.');
+          });
+        })
+        .catch(function (err) {
+          alert('Subscription error: ' + err);
+        });
+    });
+  }
+
+  function urlBase64ToUint8Array(base64String) {
+    var padding = '='.repeat((4 - base64String.length % 4) % 4);
+    var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    var raw = atob(base64);
+    var output = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) {
+      output[i] = raw.charCodeAt(i);
+    }
+    return output;
+  }
+}());
+
+// ===== Auto Make Notification Rules =====
+(function () {
+  var previewBtn = document.getElementById('autoNotifPreviewBtn');
+  var createBtn = document.getElementById('autoNotifCreateBtn');
+  var summaryEl = document.getElementById('autoNotifSummary');
+  var previewContainer = document.getElementById('autoNotifPreviewContainer');
+  if (!previewBtn) return;
+
+  previewBtn.addEventListener('click', async function () {
+    previewBtn.disabled = true;
+    summaryEl.textContent = 'Loading\u2026';
+    previewContainer.innerHTML = '';
+    createBtn.classList.add('d-none');
+    try {
+      var resp = await fetch('/api/notifications/rules/auto-generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'action=preview'
+      });
+      var data = await resp.json();
+      summaryEl.textContent = 'Examined: ' + data.examined + ' \u00b7 Candidates: ' + data.candidates.length + ' \u00b7 Already covered (skipped): ' + data.skipped;
+      if (data.candidates.length === 0) {
+        previewContainer.innerHTML = '<p class="small text-success mt-2"><i class="bi bi-check-circle me-1"></i>All metric rules are already covered by existing notification rules.</p>';
+      } else {
+        createBtn.classList.remove('d-none');
+        var html = '<div class="card border-secondary mt-2"><div class="table-responsive"><table class="table table-dark table-sm align-middle mb-0"><thead><tr>' +
+          '<th>Rule Name</th><th>Source</th><th>Signal</th><th>Service</th><th>Comparator</th><th>Threshold</th><th>Severity</th><th>Channels</th>' +
+          '</tr></thead><tbody>';
+        data.candidates.forEach(function (c) {
+          var sevBadge = c.severity === 'critical'
+            ? '<span class="badge text-bg-danger">Critical</span>'
+            : '<span class="badge text-bg-warning text-dark">Warning</span>';
+          html += '<tr>' +
+            '<td class="fw-medium">' + escHtml(c.name) + '</td>' +
+            '<td>' + escHtml(c.source) + '</td>' +
+            '<td class="font-monospace small">' + escHtml(c.signal) + '</td>' +
+            '<td>' + escHtml(c.service || 'any') + '</td>' +
+            '<td>' + escHtml(c.comparator) + '</td>' +
+            '<td class="font-monospace small">' + escHtml(String(c.threshold)) + '</td>' +
+            '<td>' + sevBadge + '</td>' +
+            '<td class="small text-secondary">' + c.channel_names.map(escHtml).join(', ') + '</td>' +
+            '</tr>';
+        });
+        html += '</tbody></table></div></div>';
+        previewContainer.innerHTML = html;
+      }
+    } catch (e) {
+      summaryEl.textContent = 'Error loading preview: ' + e.message;
+    } finally {
+      previewBtn.disabled = false;
+    }
+  });
+
+  createBtn.addEventListener('click', async function () {
+    if (!confirm('Create all candidate notification rules now?')) return;
+    createBtn.disabled = true;
+    createBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating\u2026';
+    try {
+      var resp = await fetch('/api/notifications/rules/auto-generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'action=create'
+      });
+      var data = await resp.json();
+      if (data.ok) {
+        window.location.reload();
+      } else {
+        alert('Error creating rules: ' + (data.error || 'unknown error'));
+        createBtn.disabled = false;
+        createBtn.innerHTML = '<i class="bi bi-magic me-1"></i>Create All';
+      }
+    } catch (e) {
+      alert('Error: ' + e.message);
+      createBtn.disabled = false;
+      createBtn.innerHTML = '<i class="bi bi-magic me-1"></i>Create All';
+    }
+  });
+}());
+</script>
+{% endblock %}

@@ -64,7 +64,7 @@
     <div class="row g-3">
       <div class="col-lg-4">
         <h6 class="small text-uppercase text-secondary">Raw SQL</h6>
-<pre class="small p-2 bg-dark rounded mb-0"><code>SELECT
+<pre class="small p-2 theme-panel rounded mb-0"><code>SELECT
   toStartOfMinute(Timestamp) AS ts,
   quantile(0.95)(Duration) AS p95_ms
 FROM otel_traces
@@ -75,7 +75,7 @@ LIMIT 240</code></pre>
       </div>
       <div class="col-lg-4">
         <h6 class="small text-uppercase text-secondary">Mapping JSON</h6>
-<pre class="small p-2 bg-dark rounded mb-0"><code>{
+<pre class="small p-2 theme-panel rounded mb-0"><code>{
   "points": { "from": "rows" },
   "_drilldown": {
     "target": "traces",
@@ -86,7 +86,7 @@ LIMIT 240</code></pre>
       </div>
       <div class="col-lg-4">
         <h6 class="small text-uppercase text-secondary">Option JSON</h6>
-<pre class="small p-2 bg-dark rounded mb-0"><code>{
+<pre class="small p-2 theme-panel rounded mb-0"><code>{
   "xAxis": { "type": "time" },
   "yAxis": { "type": "value" },
   "series": [

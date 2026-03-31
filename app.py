@@ -27,7 +27,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import wraps
-from typing import Callable, cast
+from typing import Any, Callable, cast
 
 import chdb.dbapi as chdb_driver
 from google.protobuf.json_format import ParseDict
@@ -89,6 +89,7 @@ def _merge_script_name(script_name: str, base_path: str) -> str:
 BASE_PATH = _normalize_base_path(os.environ.get("SOBS_BASE_PATH", ""))
 app.config["APPLICATION_ROOT"] = BASE_PATH or "/"
 app.config["SECRET_KEY"] = os.environ.get("SOBS_SECRET_KEY", "sobs-dev-secret-key")
+app.config["SESSION_COOKIE_NAME"] = os.environ.get("SOBS_SESSION_COOKIE_NAME", "sobs_session")
 app.config["ENABLE_FIRST_RUN_TOUR"] = _env_flag("SOBS_ENABLE_FIRST_RUN_TOUR", True)
 
 
@@ -713,6 +714,18 @@ CREATE TABLE IF NOT EXISTS sobs_agent_rules (
 ORDER BY Id
 SETTINGS index_granularity = 8192;
 
+CREATE TABLE IF NOT EXISTS sobs_notification_channels (
+    Id String CODEC(ZSTD(1)),
+    Name String CODEC(ZSTD(1)),
+    ChannelType LowCardinality(String) CODEC(ZSTD(1)),
+    ConfigJson String CODEC(ZSTD(1)),
+    Enabled UInt8 DEFAULT 1 CODEC(T64, ZSTD(1)),
+    IsDeleted UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Version UInt64 DEFAULT 0 CODEC(T64, ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY Id
+SETTINGS index_granularity = 8192;
+
 CREATE TABLE IF NOT EXISTS sobs_agent_runs (
     Id String CODEC(ZSTD(1)),
     RuleId String CODEC(ZSTD(1)),
@@ -733,6 +746,44 @@ CREATE TABLE IF NOT EXISTS sobs_agent_runs (
 ) ENGINE = ReplacingMergeTree(Version)
 ORDER BY Id
 SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS sobs_notification_rules (
+    Id String CODEC(ZSTD(1)),
+    Name String CODEC(ZSTD(1)),
+    Enabled UInt8 DEFAULT 1 CODEC(T64, ZSTD(1)),
+    LogicOperator LowCardinality(String) DEFAULT 'any' CODEC(ZSTD(1)),
+    ConditionsJson String CODEC(ZSTD(1)),
+    ChannelIds String CODEC(ZSTD(1)),
+    Severity LowCardinality(String) DEFAULT 'warning' CODEC(ZSTD(1)),
+    CooldownSeconds UInt32 DEFAULT 300 CODEC(T64, ZSTD(1)),
+    LastFiredAt DateTime64(3) DEFAULT toDateTime64(0, 3) CODEC(Delta(8), ZSTD(1)),
+    IsDeleted UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Version UInt64 DEFAULT 0 CODEC(T64, ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY Id
+SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS sobs_notification_log (
+    Id String CODEC(ZSTD(1)),
+    RuleId String CODEC(ZSTD(1)),
+    RuleName String CODEC(ZSTD(1)),
+    ChannelId String CODEC(ZSTD(1)),
+    ChannelName String CODEC(ZSTD(1)),
+    FiredAt DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1)),
+    Status LowCardinality(String) CODEC(ZSTD(1)),
+    ErrorMessage String CODEC(ZSTD(1)),
+    Summary String CODEC(ZSTD(1))
+) ENGINE = MergeTree()
+PARTITION BY toDate(FiredAt)
+ORDER BY (RuleId, FiredAt)
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
+CREATE TABLE IF NOT EXISTS sobs_app_settings (
+    Key String,
+    Value String CODEC(ZSTD(1)),
+    UpdatedAt DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1))
+) ENGINE = ReplacingMergeTree(UpdatedAt)
+ORDER BY Key;
 """
 
 
@@ -915,6 +966,7 @@ def ensure_db_schema():
 
 def _ensure_post_schema_state(db: ChDbConnection) -> None:
     _ensure_anomaly_rule_schema(db)
+    _ensure_notification_schema(db)
     _prime_log_attr_key_cache(db)
     if not app.config.get("TESTING"):
         _seed_example_metrics_content(db)
@@ -1549,6 +1601,18 @@ def _run_agent_flow(
         "suggestion": suggestion,
         "github_issue_url": github_issue_url,
     }
+
+
+def _ensure_notification_schema(db: ChDbConnection) -> None:
+    """Run additive migrations to ensure notification tables have all expected columns."""
+    migration_statements = [
+        ("ALTER TABLE sobs_notification_channels ADD COLUMN IF NOT EXISTS " "Enabled UInt8 DEFAULT 1"),
+    ]
+    for statement in migration_statements:
+        try:
+            db.execute(statement)
+        except Exception:
+            pass  # table may not exist yet (will be created by CREATE IF NOT EXISTS in SCHEMA)
 
 
 def _seed_rule_if_missing(db: ChDbConnection, rule: dict[str, object]) -> None:
@@ -9043,12 +9107,16 @@ async def view_settings():
     anomaly_rules = _load_anomaly_rules(db)
     agent_rules = _load_agent_rules(db)
     ai_settings = _load_all_ai_settings(db)
+    notification_channels = _load_notification_channels(db)
+    notification_rules = _load_notification_rules(db)
     return await render_template(
         "settings.html",
         tag_rule_count=len(tag_rules),
         anomaly_rule_count=len(anomaly_rules),
         agent_rule_count=len(agent_rules),
         ai_configured=bool(ai_settings.get("ai.endpoint_url") and ai_settings.get("ai.model")),
+        notification_channel_count=len(notification_channels),
+        notification_rule_count=len(notification_rules),
     )
 
 
@@ -9559,6 +9627,1391 @@ async def tail_stream():
         _generate(),
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Notifications / Webhooks — constants & helpers
+# ---------------------------------------------------------------------------
+
+_NOTIFICATION_CHANNEL_TYPES = ("webhook", "slack", "email", "browser_push")
+_NOTIFICATION_COMPARATORS = ("gt", "lt", "gte", "lte", "eq")
+_NOTIFICATION_SEVERITIES = ("warning", "critical")
+_NOTIFICATION_LOGIC_OPERATORS = ("any", "all")  # any=OR, all=AND
+
+# VAPID JWT expiry window (12 hours)
+_VAPID_JWT_EXPIRY_SECONDS = 43200
+# DB setting key for the VAPID private key
+_VAPID_PRIVATE_KEY_SETTING = "vapid_private_key"
+# Web Push AES-128-GCM record size per RFC 8291
+_PUSH_RECORD_SIZE = 4096
+
+# Available signal sources for condition building (mirrors v_derived_signals_1m signals)
+_NOTIFICATION_SIGNAL_SOURCES: dict[str, list[str]] = {
+    "logs": ["log_volume", "error_volume", "error_ratio"],
+    "traces": ["trace_volume", "trace_error_ratio", "latency_p95_ms"],
+    "errors": ["exception_volume"],
+}
+
+
+def _load_notification_channels(db: ChDbConnection) -> list[dict]:
+    """Return all active notification channels."""
+    rows = db.execute(
+        "SELECT Id, Name, ChannelType, ConfigJson, Enabled "
+        "FROM sobs_notification_channels FINAL WHERE IsDeleted = 0 ORDER BY Name"
+    ).fetchall()
+    return [
+        {
+            "id": str(row["Id"]),
+            "name": str(row["Name"]),
+            "channel_type": str(row["ChannelType"]),
+            "config": json.loads(str(row["ConfigJson"]) or "{}"),
+            "enabled": bool(int(row["Enabled"])),
+        }
+        for row in rows
+    ]
+
+
+def _load_notification_rules(db: ChDbConnection) -> list[dict]:
+    """Return all active notification rules."""
+    rows = db.execute(
+        "SELECT Id, Name, Enabled, LogicOperator, ConditionsJson, ChannelIds, "
+        "Severity, CooldownSeconds, LastFiredAt "
+        "FROM sobs_notification_rules FINAL WHERE IsDeleted = 0 ORDER BY Name"
+    ).fetchall()
+    return [
+        {
+            "id": str(row["Id"]),
+            "name": str(row["Name"]),
+            "enabled": bool(int(row["Enabled"])),
+            "logic_operator": str(row["LogicOperator"] or "any"),
+            "conditions": json.loads(str(row["ConditionsJson"]) or "[]"),
+            "channel_ids": [c.strip() for c in str(row["ChannelIds"]).split(",") if c.strip()],
+            "severity": str(row["Severity"] or "warning"),
+            "cooldown_seconds": int(row["CooldownSeconds"]),
+            "last_fired_at": str(row["LastFiredAt"]),
+        }
+        for row in rows
+    ]
+
+
+def _load_notification_log(db: ChDbConnection, limit: int = 50) -> list[dict]:
+    """Return recent notification delivery log entries."""
+    rows = db.execute(
+        "SELECT Id, RuleId, RuleName, ChannelId, ChannelName, FiredAt, Status, ErrorMessage, Summary "
+        "FROM sobs_notification_log ORDER BY FiredAt DESC LIMIT ?",
+        [limit],
+    ).fetchall()
+    return [
+        {
+            "id": str(row["Id"]),
+            "rule_id": str(row["RuleId"]),
+            "rule_name": str(row["RuleName"]),
+            "channel_id": str(row["ChannelId"]),
+            "channel_name": str(row["ChannelName"]),
+            "fired_at": str(row["FiredAt"]),
+            "status": str(row["Status"]),
+            "error_message": str(row["ErrorMessage"]),
+            "summary": str(row["Summary"]),
+        }
+        for row in rows
+    ]
+
+
+def _mask_channel_config(channel_type: str, config: dict) -> dict:
+    """Return config with sensitive fields masked for display in the UI."""
+    masked = dict(config)
+    sensitive_keys = {"smtp_password", "auth_token", "api_key"}
+    for key in sensitive_keys:
+        if key in masked and masked[key]:
+            masked[key] = "••••••••"
+    return masked
+
+
+def _build_notification_payload(rule: dict, fired_conditions: list[dict]) -> dict:
+    """Build a notification payload dict from a triggered rule and its matched conditions."""
+    condition_summaries = []
+    for cond in fired_conditions:
+        comparator_labels = {"gt": ">", "lt": "<", "gte": "≥", "lte": "≤", "eq": "="}
+        comp = comparator_labels.get(str(cond.get("comparator", "gt")), ">")
+        svc = cond.get("service", "")
+        service_str = f" [{svc}]" if svc else ""
+        condition_summaries.append(
+            f"{cond.get('source', '')}/{cond.get('signal', '')}{service_str} {comp} "
+            f"{cond.get('threshold', 0)} (value={cond.get('_value', 'n/a')})"
+        )
+    summary = f"[SOBS] Rule '{rule['name']}' triggered ({rule['severity'].upper()}): " + "; ".join(condition_summaries)
+    return {
+        "rule_name": rule["name"],
+        "severity": rule["severity"],
+        "conditions": fired_conditions,
+        "summary": summary,
+        "fired_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _dispatch_webhook_channel(config: dict, payload: dict) -> None:
+    """Dispatch notification via generic HTTP webhook."""
+    url = str(config.get("url", "")).strip()
+    if not url:
+        raise ValueError("Webhook URL is not configured")
+    method = str(config.get("method", "POST")).strip().upper()
+    headers_raw = config.get("headers", {})
+    if isinstance(headers_raw, str):
+        try:
+            headers_raw = json.loads(headers_raw)
+        except Exception:
+            headers_raw = {}
+    headers: dict[str, str] = {str(k): str(v) for k, v in (headers_raw or {}).items()}
+    headers.setdefault("Content-Type", "application/json")
+
+    body_template = str(config.get("body_template", "")).strip()
+    if body_template:
+        body = body_template.replace("{{summary}}", payload.get("summary", ""))
+        body_bytes = body.encode("utf-8")
+    else:
+        body_bytes = json.dumps(payload).encode("utf-8")
+
+    req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+        if resp.status >= 400:
+            raise RuntimeError(f"Webhook returned HTTP {resp.status}")
+
+
+def _dispatch_slack_channel(config: dict, payload: dict) -> None:
+    """Dispatch notification via Slack Incoming Webhook."""
+    webhook_url = str(config.get("webhook_url", "")).strip()
+    if not webhook_url:
+        raise ValueError("Slack webhook_url is not configured")
+    text = payload.get("summary", "SOBS notification triggered")
+    body = json.dumps({"text": text}).encode("utf-8")
+    req = urllib.request.Request(
+        webhook_url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+        if resp.status >= 400:
+            raise RuntimeError(f"Slack webhook returned HTTP {resp.status}")
+
+
+def _dispatch_email_channel(config: dict, payload: dict) -> None:
+    """Dispatch notification via SMTP email."""
+    import smtplib
+    from email.mime.text import MIMEText
+
+    smtp_host = str(config.get("smtp_host", "localhost")).strip()
+    smtp_port = int(config.get("smtp_port", 587))
+    smtp_user = str(config.get("smtp_user", "")).strip()
+    smtp_password = str(config.get("smtp_password", "")).strip()
+    from_addr = str(config.get("from_addr", "sobs@localhost")).strip()
+    to_addr = str(config.get("to_addr", "")).strip()
+    use_tls = str(config.get("use_tls", "1")).strip() in {"1", "true", "yes"}
+
+    if not to_addr:
+        raise ValueError("Email to_addr is not configured")
+
+    subject = payload.get("summary", "SOBS Notification")[:200]
+    body_text = json.dumps(payload, indent=2)
+
+    msg = MIMEText(body_text, "plain")
+    msg["Subject"] = subject
+    msg["From"] = from_addr
+    msg["To"] = to_addr
+
+    if use_tls:
+        server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
+        server.starttls()
+    else:
+        server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
+    try:
+        if smtp_user and smtp_password:
+            server.login(smtp_user, smtp_password)
+        server.sendmail(from_addr, [to_addr], msg.as_string())
+    finally:
+        server.quit()
+
+
+def _dispatch_browser_push_channel(config: dict, payload: dict) -> None:
+    """Dispatch notification via Web Push (VAPID).
+
+    Requires VAPID private key in app config (SOBS_VAPID_PRIVATE_KEY env var).
+    The `cryptography` package must be installed for ECDSA P-256 signing.
+    """
+    endpoint = str(config.get("endpoint", "")).strip()
+    p256dh = str(config.get("p256dh", "")).strip()
+    auth = str(config.get("auth", "")).strip()
+
+    if not endpoint or not p256dh or not auth:
+        raise ValueError("browser_push channel is missing endpoint, p256dh, or auth")
+
+    vapid_private_key_b64, _key_source = _get_vapid_private_key_b64()
+    vapid_subject = os.environ.get("SOBS_VAPID_SUBJECT", "mailto:sobs@localhost").strip()
+    if not vapid_private_key_b64:
+        raise ValueError("VAPID private key is not configured — generate one on the Notifications settings page")
+
+    try:
+        from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives.asymmetric.ec import SECP256R1
+        from cryptography.hazmat.primitives.serialization import (
+            Encoding,
+            PublicFormat,
+            load_der_private_key,
+        )
+    except ImportError as exc:
+        raise RuntimeError("The `cryptography` package is required for browser push notifications") from exc
+
+    # ----- Decrypt / parse subscriber keys -----
+    p256dh_bytes = base64.urlsafe_b64decode(_pad_base64(p256dh))
+    auth_bytes = base64.urlsafe_b64decode(_pad_base64(auth))
+
+    # ----- Build VAPID JWT -----
+    from_parse = urllib.parse.urlparse(endpoint)
+    audience = f"{from_parse.scheme}://{from_parse.netloc}"
+    now_ts = int(time.time())
+    jwt_payload = {
+        "aud": audience,
+        "exp": now_ts + _VAPID_JWT_EXPIRY_SECONDS,
+        "sub": vapid_subject,
+    }
+
+    # Load VAPID private key (raw uncompressed P-256 scalar, base64url-encoded)
+    try:
+        vapid_key_bytes = base64.urlsafe_b64decode(_pad_base64(vapid_private_key_b64))
+        vapid_private_key = load_der_private_key(vapid_key_bytes, password=None, backend=default_backend())
+    except Exception:
+        # Try as raw 32-byte scalar
+        from cryptography.hazmat.primitives.asymmetric.ec import derive_private_key
+
+        scalar = int.from_bytes(vapid_key_bytes[:32], "big")
+        vapid_private_key = derive_private_key(scalar, SECP256R1(), default_backend())
+
+    vapid_public_key_bytes = vapid_private_key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+    vapid_public_b64 = base64.urlsafe_b64encode(vapid_public_key_bytes).rstrip(b"=").decode()
+
+    jwt_token = _build_vapid_jwt(jwt_payload, vapid_private_key)
+
+    # ----- Encrypt message (RFC 8291) -----
+    message_bytes = json.dumps({"title": "SOBS Alert", "body": payload.get("summary", "")}).encode("utf-8")
+    ciphertext, salt, server_pub_key_bytes = _encrypt_push_payload(
+        message_bytes, p256dh_bytes, auth_bytes, default_backend()
+    )
+
+    # ----- Build HTTP request -----
+    auth_header = f"vapid t={jwt_token},k={vapid_public_b64}"
+    headers = {
+        "Authorization": auth_header,
+        "Content-Type": "application/octet-stream",
+        "Content-Encoding": "aes128gcm",
+        "TTL": "86400",
+    }
+    req = urllib.request.Request(endpoint, data=ciphertext, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+        if resp.status not in (200, 201, 202):
+            raise RuntimeError(f"Push service returned HTTP {resp.status}")
+
+
+def _pad_base64(s: str) -> str:
+    """Add base64 padding as needed."""
+    s = s.replace("-", "+").replace("_", "/")
+    padding = 4 - len(s) % 4
+    if padding != 4:
+        s += "=" * padding
+    return s
+
+
+def _build_vapid_jwt(claims: dict, private_key: Any) -> str:
+    """Build a signed JWT for VAPID authentication."""
+    from cryptography.hazmat.primitives.asymmetric.ec import ECDSA
+    from cryptography.hazmat.primitives.hashes import SHA256
+
+    header = base64.urlsafe_b64encode(json.dumps({"typ": "JWT", "alg": "ES256"}).encode()).rstrip(b"=")
+    body = base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=")
+    signing_input = header + b"." + body
+    signature = private_key.sign(signing_input, ECDSA(SHA256()))
+    # DER-encode to raw r||s (64 bytes)
+    from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+
+    r, s = decode_dss_signature(signature)
+    raw_sig = r.to_bytes(32, "big") + s.to_bytes(32, "big")
+    sig_b64 = base64.urlsafe_b64encode(raw_sig).rstrip(b"=")
+    return (signing_input + b"." + sig_b64).decode()
+
+
+def _encrypt_push_payload(
+    plaintext: bytes, subscriber_pub_key_bytes: bytes, auth_bytes: bytes, backend: object
+) -> tuple[bytes, bytes, bytes]:
+    """Encrypt a Web Push payload using AES-128-GCM (RFC 8291 / RFC 8188)."""
+    from cryptography.hazmat.primitives.asymmetric.ec import (
+        ECDH,
+        SECP256R1,
+        generate_private_key,
+    )
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.hashes import SHA256
+    from cryptography.hazmat.primitives.hmac import HMAC as CryptoHMAC
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+    # Generate ephemeral server key pair
+    server_private = generate_private_key(SECP256R1(), backend)  # type: ignore[call-arg]
+    server_pub_bytes = server_private.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+
+    # Load subscriber public key (uncompressed P-256 point, 65 bytes)
+    from cryptography.hazmat.primitives.serialization import load_der_public_key
+
+    # Build DER-encoded SubjectPublicKeyInfo for P-256 uncompressed point
+    oid_prefix = bytes.fromhex("3059301306072a8648ce3d020106082a8648ce3d030107034200")
+    subscriber_pub_der = oid_prefix + subscriber_pub_key_bytes
+    subscriber_pub_key = load_der_public_key(subscriber_pub_der, backend=backend)  # type: ignore[call-arg]
+
+    # ECDH shared secret
+    from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey as _ECPubKey
+
+    shared_secret = server_private.exchange(ECDH(), cast(_ECPubKey, subscriber_pub_key))
+
+    # Salt
+    salt = secrets.token_bytes(16)
+
+    # PRK (RFC 8291 §3.4)
+    def hkdf_extract(salt_bytes: bytes, ikm: bytes) -> bytes:
+        h = CryptoHMAC(salt_bytes, SHA256(), backend=backend)  # type: ignore[call-arg]
+        h.update(ikm)
+        return h.finalize()
+
+    def hkdf_expand(prk: bytes, info: bytes, length: int) -> bytes:
+        output = b""
+        t = b""
+        counter = 1
+        while len(output) < length:
+            h = CryptoHMAC(prk, SHA256(), backend=backend)  # type: ignore[call-arg]
+            h.update(t + info + bytes([counter]))
+            t = h.finalize()
+            output += t
+            counter += 1
+        return output[:length]
+
+    auth_info = b"WebPush: info\x00" + subscriber_pub_key_bytes + server_pub_bytes
+    prk_combine = hkdf_extract(auth_bytes, shared_secret)
+    ikm = hkdf_expand(prk_combine, auth_info, 32)
+
+    prk = hkdf_extract(salt, ikm)
+    cek = hkdf_expand(prk, b"Content-Encoding: aes128gcm\x00", 16)
+    nonce = hkdf_expand(prk, b"Content-Encoding: nonce\x00", 12)
+
+    # Encrypt (record size = _PUSH_RECORD_SIZE, single record)
+    padded = plaintext + b"\x02"  # delimiter = 0x02 for last record
+    aesgcm = AESGCM(cek)
+    ciphertext_raw = aesgcm.encrypt(nonce, padded, None)
+
+    # Build aes128gcm content-encoding header
+    rs = _PUSH_RECORD_SIZE.to_bytes(4, "big")
+    idlen = bytes([len(server_pub_bytes)])
+    header = salt + rs + idlen + server_pub_bytes
+    return header + ciphertext_raw, salt, server_pub_bytes
+
+
+def _dispatch_notification_channel(channel: dict, payload: dict) -> str:
+    """Dispatch a notification to one channel. Returns 'ok' or error message."""
+    channel_type = channel.get("channel_type", "")
+    config = channel.get("config", {})
+    try:
+        if channel_type == "webhook":
+            _dispatch_webhook_channel(config, payload)
+        elif channel_type == "slack":
+            _dispatch_slack_channel(config, payload)
+        elif channel_type == "email":
+            _dispatch_email_channel(config, payload)
+        elif channel_type == "browser_push":
+            _dispatch_browser_push_channel(config, payload)
+        else:
+            return f"Unknown channel type: {channel_type}"
+        return "ok"
+    except Exception as exc:
+        return str(exc)
+
+
+def _evaluate_signal_condition(db: ChDbConnection, cond: dict) -> tuple[bool, float]:
+    """Evaluate a single notification rule condition against recent signal data.
+
+    Returns (matched, current_value).
+    """
+    source = str(cond.get("source", "")).strip()
+    signal = str(cond.get("signal", "")).strip()
+    service = str(cond.get("service", "")).strip()
+    comparator = str(cond.get("comparator", "gt")).strip()
+    threshold = float(cond.get("threshold", 0))
+    window_minutes = max(1, min(60, int(cond.get("window_minutes", 5))))
+
+    if not source or not signal:
+        return False, 0.0
+
+    # Build query against v_derived_signals_1m
+    service_filter = " AND ServiceName = ?" if service else ""
+    params: list[object] = [window_minutes, source, signal]
+    if service:
+        params.append(service)
+    params.append(1)  # SampleCount >= 1
+
+    try:
+        row = db.execute(
+            "SELECT avg(Value) AS v FROM v_derived_signals_1m "
+            "WHERE MinuteBucket >= now() - INTERVAL ? MINUTE "
+            "AND SignalSource = ? AND SignalName = ?"
+            f"{service_filter} "
+            "HAVING count() >= ?",
+            params,
+        ).fetchone()
+    except Exception:
+        return False, 0.0
+
+    if row is None:
+        return False, 0.0
+
+    current_value = float(row["v"] or 0)
+    comp_map = {
+        "gt": current_value > threshold,
+        "lt": current_value < threshold,
+        "gte": current_value >= threshold,
+        "lte": current_value <= threshold,
+        "eq": abs(current_value - threshold) < 1e-9,
+    }
+    matched = comp_map.get(comparator, False)
+    return matched, current_value
+
+
+def _check_notification_rule(db: ChDbConnection, rule: dict, channels_by_id: dict) -> dict:
+    """Evaluate one notification rule. Dispatches if triggered. Returns status dict."""
+    if not rule.get("enabled"):
+        return {"rule_id": rule["id"], "fired": False, "reason": "disabled"}
+
+    # Cooldown check
+    try:
+        last_fired_ts = (
+            float(
+                db.execute(
+                    "SELECT toUnixTimestamp64Milli(LastFiredAt) AS ts "
+                    "FROM sobs_notification_rules FINAL WHERE Id = ? LIMIT 1",
+                    [rule["id"]],
+                ).fetchone()["ts"]
+                or 0
+            )
+            / 1000.0
+        )
+    except Exception:
+        last_fired_ts = 0.0
+    cooldown = int(rule.get("cooldown_seconds", 300))
+    now_ts = time.time()
+    if now_ts - last_fired_ts < cooldown:
+        return {"rule_id": rule["id"], "fired": False, "reason": "cooldown"}
+
+    # Evaluate conditions
+    conditions = rule.get("conditions", [])
+    logic = rule.get("logic_operator", "any")
+    fired_conditions: list[dict] = []
+    not_fired: list[dict] = []
+
+    for cond in conditions:
+        matched, value = _evaluate_signal_condition(db, cond)
+        annotated = dict(cond)
+        annotated["_value"] = round(value, 4)
+        if matched:
+            fired_conditions.append(annotated)
+        else:
+            not_fired.append(annotated)
+
+    # Logic: 'any' = OR (at least one), 'all' = AND (all must match)
+    if logic == "all":
+        should_fire = len(conditions) > 0 and len(not_fired) == 0
+    else:
+        should_fire = len(fired_conditions) > 0
+
+    if not should_fire:
+        return {"rule_id": rule["id"], "fired": False, "reason": "conditions not met"}
+
+    payload = _build_notification_payload(rule, fired_conditions)
+
+    # Dispatch to each configured channel
+    channel_ids = rule.get("channel_ids", [])
+    dispatch_results: list[dict] = []
+    for ch_id in channel_ids:
+        channel = channels_by_id.get(ch_id)
+        if not channel:
+            dispatch_results.append({"channel_id": ch_id, "status": "error", "error": "channel not found"})
+            continue
+        if not channel.get("enabled"):
+            dispatch_results.append({"channel_id": ch_id, "status": "skipped", "error": "channel disabled"})
+            continue
+        status = _dispatch_notification_channel(channel, payload)
+        dispatch_results.append(
+            {
+                "channel_id": ch_id,
+                "channel_name": channel.get("name", ""),
+                "status": "ok" if status == "ok" else "error",
+                "error": "" if status == "ok" else status,
+            }
+        )
+
+    # Write notification log entries
+    for dr in dispatch_results:
+        _insert_rows_json_each_row(
+            db,
+            "sobs_notification_log",
+            [
+                {
+                    "Id": str(uuid.uuid4()),
+                    "RuleId": rule["id"],
+                    "RuleName": rule["name"],
+                    "ChannelId": dr.get("channel_id", ""),
+                    "ChannelName": dr.get("channel_name", ""),
+                    "FiredAt": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                    "Status": dr.get("status", "error"),
+                    "ErrorMessage": dr.get("error", ""),
+                    "Summary": payload.get("summary", ""),
+                }
+            ],
+        )
+
+    # Update LastFiredAt on rule
+    _insert_rows_json_each_row(
+        db,
+        "sobs_notification_rules",
+        [
+            {
+                "Id": rule["id"],
+                "Name": rule["name"],
+                "Enabled": 1 if rule.get("enabled") else 0,
+                "LogicOperator": rule.get("logic_operator", "any"),
+                "ConditionsJson": json.dumps(rule.get("conditions", [])),
+                "ChannelIds": ",".join(rule.get("channel_ids", [])),
+                "Severity": rule.get("severity", "warning"),
+                "CooldownSeconds": int(rule.get("cooldown_seconds", 300)),
+                "LastFiredAt": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                "IsDeleted": 0,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+
+    return {
+        "rule_id": rule["id"],
+        "rule_name": rule["name"],
+        "fired": True,
+        "summary": payload.get("summary", ""),
+        "dispatch_results": dispatch_results,
+    }
+
+
+def _generate_vapid_keys() -> tuple[str, str]:
+    """Generate a new VAPID key pair. Returns (private_key_b64url, public_key_b64url)."""
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives.asymmetric.ec import SECP256R1, generate_private_key
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding,
+        NoEncryption,
+        PrivateFormat,
+        PublicFormat,
+    )
+
+    private_key = generate_private_key(SECP256R1(), default_backend())
+    private_bytes = private_key.private_bytes(Encoding.DER, PrivateFormat.PKCS8, NoEncryption())
+    public_bytes = private_key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+
+    private_b64 = base64.urlsafe_b64encode(private_bytes).rstrip(b"=").decode()
+    public_b64 = base64.urlsafe_b64encode(public_bytes).rstrip(b"=").decode()
+    return private_b64, public_b64
+
+
+# ---------------------------------------------------------------------------
+# App-settings DB helpers  (simple key-value store backed by sobs_app_settings)
+# ---------------------------------------------------------------------------
+
+
+def _get_app_setting(db: "ChDbConnection", key: str) -> str | None:
+    """Return a value from sobs_app_settings, or None if the key is absent/empty."""
+    row = db.execute(
+        "SELECT Value FROM sobs_app_settings FINAL WHERE Key = ? LIMIT 1",
+        (key,),
+    ).fetchone()
+    value = str(row[0]).strip() if row else ""
+    return value if value else None
+
+
+def _set_app_setting(db: "ChDbConnection", key: str, value: str) -> None:
+    """Upsert a value in sobs_app_settings."""
+    _insert_rows_json_each_row(
+        db,
+        "sobs_app_settings",
+        [{"Key": key, "Value": value, "UpdatedAt": int(time.time() * 1000)}],
+    )
+
+
+def _del_app_setting(db: "ChDbConnection", key: str) -> None:
+    """Clear a setting from sobs_app_settings by writing an empty value (tombstone)."""
+    _insert_rows_json_each_row(
+        db,
+        "sobs_app_settings",
+        [{"Key": key, "Value": "", "UpdatedAt": int(time.time() * 1000)}],
+    )
+
+
+# ---------------------------------------------------------------------------
+# VAPID key resolution  (env var takes precedence over DB)
+# ---------------------------------------------------------------------------
+
+
+def _get_vapid_private_key_b64(db: "ChDbConnection | None" = None) -> tuple[str, str] | tuple[None, None]:
+    """Return (private_key_b64url, source) where source is 'env' or 'db', or (None, None)."""
+    env_key = os.environ.get("SOBS_VAPID_PRIVATE_KEY", "").strip()
+    if env_key:
+        return env_key, "env"
+    resolved_db = db if db is not None else get_db()
+    db_key = _get_app_setting(resolved_db, _VAPID_PRIVATE_KEY_SETTING)
+    if db_key:
+        return db_key, "db"
+    return None, None
+
+
+def _get_vapid_public_key(db: "ChDbConnection | None" = None) -> tuple[str, str] | tuple[None, None]:
+    """Return (public_key_b64url, source) or (None, None)."""
+    private_b64, source = _get_vapid_private_key_b64(db)
+    if not private_b64 or not source:
+        return None, None
+    try:
+        from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, load_der_private_key
+
+        key_bytes = base64.urlsafe_b64decode(_pad_base64(private_b64))
+        private_key = load_der_private_key(key_bytes, password=None, backend=default_backend())
+        pub_bytes = private_key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+        return base64.urlsafe_b64encode(pub_bytes).rstrip(b"=").decode(), source
+    except Exception:
+        return None, None
+
+
+# ---------------------------------------------------------------------------
+# Notification Routes  GET /settings/notifications  POST /settings/notifications/*
+# ---------------------------------------------------------------------------
+
+
+@app.route("/settings/notifications")
+@require_basic_auth
+async def view_notifications():
+    """Notification channels and rules management page."""
+    db = get_db()
+    channels = _load_notification_channels(db)
+    rules = _load_notification_rules(db)
+    notification_log = _load_notification_log(db, limit=50)
+    vapid_public_key, vapid_key_source = _get_vapid_public_key(db)
+    metric_rules = _load_anomaly_rules(db)
+    return await render_template(
+        "settings_notifications.html",
+        channels=channels,
+        rules=rules,
+        notification_log=notification_log,
+        channel_types=_NOTIFICATION_CHANNEL_TYPES,
+        comparators=_NOTIFICATION_COMPARATORS,
+        severities=_NOTIFICATION_SEVERITIES,
+        logic_operators=_NOTIFICATION_LOGIC_OPERATORS,
+        signal_sources=_NOTIFICATION_SIGNAL_SOURCES,
+        vapid_public_key=vapid_public_key,
+        vapid_key_source=vapid_key_source,
+        metric_rules=metric_rules,
+    )
+
+
+@app.route("/settings/notifications/channels", methods=["POST"])
+@require_basic_auth
+async def create_notification_channel():
+    """Create a new notification channel."""
+    form = await request.form
+    name = (form.get("name") or "").strip()
+    channel_type = (form.get("channel_type") or "").strip().lower()
+
+    if not name:
+        await flash("Channel name is required", "warning")
+        return redirect(url_for("view_notifications"))
+    if channel_type not in _NOTIFICATION_CHANNEL_TYPES:
+        await flash(f"Invalid channel type: {channel_type}", "warning")
+        return redirect(url_for("view_notifications"))
+
+    # Build config dict from form fields for the selected channel type
+    config: dict[str, str] = {}
+    if channel_type == "webhook":
+        config["url"] = (form.get("webhook_url") or "").strip()
+        config["method"] = (form.get("webhook_method") or "POST").strip().upper()
+        config["headers"] = (form.get("webhook_headers") or "{}").strip()
+        config["body_template"] = (form.get("webhook_body_template") or "").strip()
+        if not config["url"]:
+            await flash("Webhook URL is required", "warning")
+            return redirect(url_for("view_notifications"))
+    elif channel_type == "slack":
+        config["webhook_url"] = (form.get("slack_webhook_url") or "").strip()
+        if not config["webhook_url"]:
+            await flash("Slack webhook URL is required", "warning")
+            return redirect(url_for("view_notifications"))
+    elif channel_type == "email":
+        config["smtp_host"] = (form.get("smtp_host") or "localhost").strip()
+        config["smtp_port"] = (form.get("smtp_port") or "587").strip()
+        config["smtp_user"] = (form.get("smtp_user") or "").strip()
+        config["smtp_password"] = (form.get("smtp_password") or "").strip()
+        config["from_addr"] = (form.get("from_addr") or "sobs@localhost").strip()
+        config["to_addr"] = (form.get("to_addr") or "").strip()
+        config["use_tls"] = (form.get("use_tls") or "1").strip()
+        if not config["to_addr"]:
+            await flash("Email recipient (to_addr) is required", "warning")
+            return redirect(url_for("view_notifications"))
+    elif channel_type == "browser_push":
+        config["endpoint"] = (form.get("push_endpoint") or "").strip()
+        config["p256dh"] = (form.get("push_p256dh") or "").strip()
+        config["auth"] = (form.get("push_auth") or "").strip()
+        if not config["endpoint"]:
+            await flash("Push endpoint is required", "warning")
+            return redirect(url_for("view_notifications"))
+
+    channel_id = str(uuid.uuid4())
+    _insert_rows_json_each_row(
+        get_db(),
+        "sobs_notification_channels",
+        [
+            {
+                "Id": channel_id,
+                "Name": name,
+                "ChannelType": channel_type,
+                "ConfigJson": json.dumps(config, ensure_ascii=False),
+                "Enabled": 1,
+                "IsDeleted": 0,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    await flash(f"Notification channel '{name}' created", "success")
+    return redirect(url_for("view_notifications"))
+
+
+@app.route("/settings/notifications/channels/<channel_id>/delete", methods=["POST"])
+@require_basic_auth
+async def delete_notification_channel(channel_id: str):
+    """Soft-delete a notification channel."""
+    db = get_db()
+    row = db.execute(
+        "SELECT Id, Name, ChannelType, ConfigJson, Enabled "
+        "FROM sobs_notification_channels FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
+        [channel_id],
+    ).fetchone()
+    if not row:
+        await flash("Notification channel not found", "warning")
+        return redirect(url_for("view_notifications"))
+    _insert_rows_json_each_row(
+        db,
+        "sobs_notification_channels",
+        [
+            {
+                "Id": channel_id,
+                "Name": str(row["Name"]),
+                "ChannelType": str(row["ChannelType"]),
+                "ConfigJson": str(row["ConfigJson"]),
+                "Enabled": int(row["Enabled"]),
+                "IsDeleted": 1,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    await flash(f"Notification channel '{row['Name']}' deleted", "success")
+    return redirect(url_for("view_notifications"))
+
+
+@app.route("/settings/notifications/channels/<channel_id>/toggle", methods=["POST"])
+@require_basic_auth
+async def toggle_notification_channel(channel_id: str):
+    """Toggle enabled/disabled state of a notification channel."""
+    db = get_db()
+    row = db.execute(
+        "SELECT Id, Name, ChannelType, ConfigJson, Enabled "
+        "FROM sobs_notification_channels FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
+        [channel_id],
+    ).fetchone()
+    if not row:
+        await flash("Notification channel not found", "warning")
+        return redirect(url_for("view_notifications"))
+    new_enabled = 0 if int(row["Enabled"]) else 1
+    _insert_rows_json_each_row(
+        db,
+        "sobs_notification_channels",
+        [
+            {
+                "Id": channel_id,
+                "Name": str(row["Name"]),
+                "ChannelType": str(row["ChannelType"]),
+                "ConfigJson": str(row["ConfigJson"]),
+                "Enabled": new_enabled,
+                "IsDeleted": 0,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    state = "enabled" if new_enabled else "disabled"
+    await flash(f"Notification channel '{row['Name']}' {state}", "success")
+    return redirect(url_for("view_notifications"))
+
+
+@app.route("/api/notifications/channels/<channel_id>/test", methods=["POST"])
+@require_basic_auth
+async def test_notification_channel(channel_id: str):
+    """Send a test notification through the given channel."""
+    db = get_db()
+    row = db.execute(
+        "SELECT Id, Name, ChannelType, ConfigJson, Enabled "
+        "FROM sobs_notification_channels FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
+        [channel_id],
+    ).fetchone()
+    if not row:
+        return jsonify({"ok": False, "error": "channel not found"}), 404
+    channel = {
+        "id": str(row["Id"]),
+        "name": str(row["Name"]),
+        "channel_type": str(row["ChannelType"]),
+        "config": json.loads(str(row["ConfigJson"]) or "{}"),
+        "enabled": bool(int(row["Enabled"])),
+    }
+    test_payload = {
+        "rule_name": "Test",
+        "severity": "info",
+        "conditions": [],
+        "summary": f"[SOBS] Test notification from channel '{channel['name']}'",
+        "fired_at": datetime.now(timezone.utc).isoformat(),
+    }
+    result = _dispatch_notification_channel(channel, test_payload)
+    if result == "ok":
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": result}), 500
+
+
+@app.route("/settings/notifications/rules", methods=["POST"])
+@require_basic_auth
+async def create_notification_rule():
+    """Create a new notification rule."""
+    form = await request.form
+    name = (form.get("name") or "").strip()
+    logic_operator = (form.get("logic_operator") or "any").strip().lower()
+    severity = (form.get("severity") or "warning").strip().lower()
+    try:
+        cooldown_seconds = max(0, min(86400, int(form.get("cooldown_seconds") or 300)))
+    except (TypeError, ValueError):
+        cooldown_seconds = 300
+    channel_ids_raw = form.getlist("channel_ids")
+
+    # Parse conditions from repeated form fields
+    sources = form.getlist("cond_source")
+    signals = form.getlist("cond_signal")
+    services = form.getlist("cond_service")
+    comparators = form.getlist("cond_comparator")
+    thresholds = form.getlist("cond_threshold")
+    windows = form.getlist("cond_window_minutes")
+
+    if not name:
+        await flash("Rule name is required", "warning")
+        return redirect(url_for("view_notifications"))
+    if logic_operator not in _NOTIFICATION_LOGIC_OPERATORS:
+        await flash(f"Invalid logic operator: {logic_operator}", "warning")
+        return redirect(url_for("view_notifications"))
+    if severity not in _NOTIFICATION_SEVERITIES:
+        await flash(f"Invalid severity: {severity}", "warning")
+        return redirect(url_for("view_notifications"))
+
+    conditions = []
+    for i, source in enumerate(sources):
+        source = (source or "").strip()
+        signal = (signals[i] if i < len(signals) else "").strip()
+        service = (services[i] if i < len(services) else "").strip()
+        comparator = (comparators[i] if i < len(comparators) else "gt").strip()
+        try:
+            threshold = float(thresholds[i] if i < len(thresholds) else 0)
+        except (TypeError, ValueError):
+            threshold = 0.0
+        try:
+            window_minutes = max(1, min(60, int(windows[i] if i < len(windows) else 5)))
+        except (TypeError, ValueError):
+            window_minutes = 5
+
+        if not source or not signal:
+            continue
+        if comparator not in _NOTIFICATION_COMPARATORS:
+            comparator = "gt"
+        conditions.append(
+            {
+                "source": source,
+                "signal": signal,
+                "service": service,
+                "comparator": comparator,
+                "threshold": threshold,
+                "window_minutes": window_minutes,
+            }
+        )
+
+    if not conditions:
+        await flash("At least one condition is required", "warning")
+        return redirect(url_for("view_notifications"))
+
+    # Validate channel IDs exist
+    db = get_db()
+    valid_channel_ids = {
+        str(r["Id"])
+        for r in db.execute("SELECT Id FROM sobs_notification_channels FINAL WHERE IsDeleted = 0").fetchall()
+    }
+    channel_ids = [c.strip() for c in channel_ids_raw if c.strip() in valid_channel_ids]
+
+    rule_id = str(uuid.uuid4())
+    _insert_rows_json_each_row(
+        db,
+        "sobs_notification_rules",
+        [
+            {
+                "Id": rule_id,
+                "Name": name,
+                "Enabled": 1,
+                "LogicOperator": logic_operator,
+                "ConditionsJson": json.dumps(conditions, ensure_ascii=False),
+                "ChannelIds": ",".join(channel_ids),
+                "Severity": severity,
+                "CooldownSeconds": cooldown_seconds,
+                "LastFiredAt": "1970-01-01 00:00:00.000",
+                "IsDeleted": 0,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    await flash(f"Notification rule '{name}' created", "success")
+    return redirect(url_for("view_notifications"))
+
+
+@app.route("/settings/notifications/rules/<rule_id>/toggle", methods=["POST"])
+@require_basic_auth
+async def toggle_notification_rule(rule_id: str):
+    """Toggle enabled/disabled state of a notification rule."""
+    db = get_db()
+    row = db.execute(
+        "SELECT Id, Name, Enabled, LogicOperator, ConditionsJson, ChannelIds, "
+        "Severity, CooldownSeconds "
+        "FROM sobs_notification_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
+        [rule_id],
+    ).fetchone()
+    if not row:
+        await flash("Notification rule not found", "warning")
+        return redirect(url_for("view_notifications"))
+    new_enabled = 0 if int(row["Enabled"]) else 1
+    _insert_rows_json_each_row(
+        db,
+        "sobs_notification_rules",
+        [
+            {
+                "Id": rule_id,
+                "Name": str(row["Name"]),
+                "Enabled": new_enabled,
+                "LogicOperator": str(row["LogicOperator"]),
+                "ConditionsJson": str(row["ConditionsJson"]),
+                "ChannelIds": str(row["ChannelIds"]),
+                "Severity": str(row["Severity"]),
+                "CooldownSeconds": int(row["CooldownSeconds"]),
+                "LastFiredAt": "1970-01-01 00:00:00.000",
+                "IsDeleted": 0,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    state = "enabled" if new_enabled else "disabled"
+    await flash(f"Notification rule '{row['Name']}' {state}", "success")
+    return redirect(url_for("view_notifications"))
+
+
+@app.route("/settings/notifications/rules/<rule_id>/delete", methods=["POST"])
+@require_basic_auth
+async def delete_notification_rule(rule_id: str):
+    """Soft-delete a notification rule."""
+    db = get_db()
+    row = db.execute(
+        "SELECT Id, Name, LogicOperator, ConditionsJson, ChannelIds, Severity, CooldownSeconds, Enabled "
+        "FROM sobs_notification_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
+        [rule_id],
+    ).fetchone()
+    if not row:
+        await flash("Notification rule not found", "warning")
+        return redirect(url_for("view_notifications"))
+    _insert_rows_json_each_row(
+        db,
+        "sobs_notification_rules",
+        [
+            {
+                "Id": rule_id,
+                "Name": str(row["Name"]),
+                "Enabled": int(row["Enabled"]),
+                "LogicOperator": str(row["LogicOperator"]),
+                "ConditionsJson": str(row["ConditionsJson"]),
+                "ChannelIds": str(row["ChannelIds"]),
+                "Severity": str(row["Severity"]),
+                "CooldownSeconds": int(row["CooldownSeconds"]),
+                "LastFiredAt": "1970-01-01 00:00:00.000",
+                "IsDeleted": 1,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    await flash(f"Notification rule '{row['Name']}' deleted", "success")
+    return redirect(url_for("view_notifications"))
+
+
+def _get_notification_auto_candidates(
+    db: ChDbConnection,
+    metric_rule_id: str | None = None,
+) -> dict:
+    """Return auto-generate candidates from active metric rules.
+
+    Skips any metric rule whose (source, signal) pair is already covered by an
+    existing notification rule condition.  Returns all enabled channel IDs
+    pre-selected as the default target for each candidate.
+    """
+    if metric_rule_id:
+        rows = db.execute(
+            "SELECT Id, Name, SignalSource, SignalName, ServiceName, Comparator, "
+            "WarningThreshold, CriticalThreshold "
+            "FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 AND Id = ? LIMIT 1",
+            [metric_rule_id],
+        ).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT Id, Name, SignalSource, SignalName, ServiceName, Comparator, "
+            "WarningThreshold, CriticalThreshold "
+            "FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 ORDER BY Name",
+        ).fetchall()
+    metric_rules = [
+        {
+            "id": str(r["Id"]),
+            "name": str(r["Name"]),
+            "source": str(r["SignalSource"]),
+            "signal": str(r["SignalName"]),
+            "service": str(r["ServiceName"]),
+            "comparator": str(r["Comparator"]),
+            "warning_threshold": float(r["WarningThreshold"]),
+            "critical_threshold": float(r["CriticalThreshold"]),
+        }
+        for r in rows
+    ]
+
+    # Build set of already-covered (source, signal) keys from existing rules
+    existing_rules = _load_notification_rules(db)
+    covered: set[tuple[str, str]] = set()
+    for nr in existing_rules:
+        for cond in nr.get("conditions", []):
+            covered.add((cond.get("source", ""), cond.get("signal", "")))
+
+    # All currently enabled channels are the default selection
+    channel_rows = db.execute(
+        "SELECT Id, Name FROM sobs_notification_channels FINAL WHERE IsDeleted = 0 AND Enabled = 1"
+    ).fetchall()
+    all_channel_ids = [str(r["Id"]) for r in channel_rows]
+    channel_names = {str(r["Id"]): str(r["Name"]) for r in channel_rows}
+
+    candidates = []
+    skipped = 0
+    for mr in metric_rules:
+        key = (mr["source"], mr["signal"])
+        if key in covered:
+            skipped += 1
+            continue
+        # Prefer critical threshold; fall back to warning
+        crit = cast(float, mr["critical_threshold"])
+        warn = cast(float, mr["warning_threshold"])
+        if crit > 0:
+            threshold = crit
+            severity = "critical"
+        elif warn > 0:
+            threshold = warn
+            severity = "warning"
+        else:
+            threshold = 0.0
+            severity = "warning"
+        candidates.append(
+            {
+                "metric_rule_id": mr["id"],
+                "name": f"Auto: {mr['name']}",
+                "source": mr["source"],
+                "signal": mr["signal"],
+                "service": mr["service"],
+                "comparator": mr["comparator"],
+                "threshold": threshold,
+                "severity": severity,
+                "channel_ids": all_channel_ids,
+                "channel_names": [channel_names.get(cid, cid) for cid in all_channel_ids],
+            }
+        )
+    return {
+        "examined": len(metric_rules),
+        "skipped": skipped,
+        "candidates": candidates,
+    }
+
+
+@app.route("/api/notifications/rules/auto-generate", methods=["POST"])
+@require_basic_auth
+async def auto_generate_notification_rules():
+    """Preview or create notification rules auto-generated from active metric rules.
+
+    POST params:
+      action          - "preview" (default) or "create"
+      metric_rule_id  - optional; if given, process only that one metric rule
+    """
+    form = await request.form
+    action = (form.get("action") or "preview").strip().lower()
+    metric_rule_id = (form.get("metric_rule_id") or "").strip() or None
+
+    db = get_db()
+    result = _get_notification_auto_candidates(db, metric_rule_id)
+    candidates = result["candidates"]
+
+    if action == "create":
+        # Re-derive the covered set to guard against race conditions between
+        # preview and create calls.
+        existing_rules_now = _load_notification_rules(db)
+        covered_now: set[tuple[str, str]] = set()
+        for nr in existing_rules_now:
+            for cond in nr.get("conditions", []):
+                covered_now.add((cond.get("source", ""), cond.get("signal", "")))
+
+        created = 0
+        for cand in candidates:
+            key = (cand["source"], cand["signal"])
+            if key in covered_now:
+                result["skipped"] = result.get("skipped", 0) + 1
+                continue
+            covered_now.add(key)  # prevent duplicates within this batch
+            conditions = [
+                {
+                    "source": cand["source"],
+                    "signal": cand["signal"],
+                    "service": cand["service"],
+                    "comparator": cand["comparator"],
+                    "threshold": cand["threshold"],
+                    "window_minutes": 5,
+                }
+            ]
+            _insert_rows_json_each_row(
+                db,
+                "sobs_notification_rules",
+                [
+                    {
+                        "Id": str(uuid.uuid4()),
+                        "Name": cand["name"],
+                        "Enabled": 1,
+                        "LogicOperator": "any",
+                        "ConditionsJson": json.dumps(conditions, ensure_ascii=False),
+                        "ChannelIds": ",".join(cand["channel_ids"]),
+                        "Severity": cand["severity"],
+                        "CooldownSeconds": 300,
+                        "LastFiredAt": "1970-01-01 00:00:00.000",
+                        "IsDeleted": 0,
+                        "Version": int(time.time() * 1000),
+                    }
+                ],
+            )
+            created += 1
+        return jsonify(
+            {
+                "ok": True,
+                "created": created,
+                "skipped": result.get("skipped", 0),
+                "examined": result["examined"],
+            }
+        )
+
+    # action == "preview"
+    return jsonify(
+        {
+            "ok": True,
+            "examined": result["examined"],
+            "skipped": result["skipped"],
+            "candidates": candidates,
+        }
+    )
+
+
+@app.route("/api/notifications/check", methods=["POST"])
+@require_basic_auth
+async def check_notifications():
+    """Evaluate all enabled notification rules and fire any that match.
+
+    Designed to be called periodically (e.g., via cron or external scheduler).
+    Returns a JSON summary of rule evaluations.
+    """
+    db = get_db()
+    rules = _load_notification_rules(db)
+    channels = _load_notification_channels(db)
+    channels_by_id = {c["id"]: c for c in channels}
+
+    results = []
+    for rule in rules:
+        try:
+            result = _check_notification_rule(db, rule, channels_by_id)
+            results.append(result)
+        except Exception as exc:
+            app.logger.exception("Error evaluating notification rule %s", rule.get("id"))
+            results.append({"rule_id": rule.get("id"), "fired": False, "error": str(exc)})
+
+    fired = [r for r in results if r.get("fired")]
+    return jsonify(
+        {
+            "ok": True,
+            "evaluated": len(results),
+            "fired": len(fired),
+            "results": results,
+        }
+    )
+
+
+@app.route("/api/notifications/vapid-public-key", methods=["GET"])
+@require_basic_auth
+async def get_vapid_public_key():
+    """Return the VAPID public key for browser push subscription setup."""
+    pub_key, _source = _get_vapid_public_key()
+    if not pub_key:
+        return jsonify({"ok": False, "error": "VAPID key not configured"}), 404
+    return jsonify({"ok": True, "public_key": pub_key})
+
+
+@app.route("/service-worker.js", methods=["GET"])
+async def service_worker_js():
+    """Serve a minimal service worker needed for browser push notifications."""
+    sw_source = """
+self.addEventListener('push', function (event) {
+    var data = {};
+    try {
+        data = event.data ? event.data.json() : {};
+    } catch (_err) {
+        data = { title: 'SOBS Alert', body: event.data ? event.data.text() : 'Notification received' };
+    }
+
+    var title = (data && data.title) || 'SOBS Alert';
+    var options = {
+        body: (data && data.body) || 'Notification received',
+    };
+
+    event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', function (event) {
+    event.notification.close();
+    event.waitUntil(clients.openWindow(self.registration.scope));
+});
+""".lstrip()
+    return Response(
+        sw_source,
+        mimetype="application/javascript",
+        headers={
+            "Cache-Control": "no-cache",
+            "Service-Worker-Allowed": "/",
+        },
+    )
+
+
+@app.route("/api/notifications/subscribe", methods=["POST"])
+@require_basic_auth
+async def subscribe_browser_push():
+    """Register a browser push subscription as a notification channel.
+
+    Expects JSON body: {"name": "...", "endpoint": "...", "p256dh": "...", "auth": "..."}
+    """
+    data = await request.get_json(silent=True) or {}
+    name = str(data.get("name") or "Browser Push").strip()
+    endpoint = str(data.get("endpoint") or "").strip()
+    p256dh = str(data.get("p256dh") or "").strip()
+    auth = str(data.get("auth") or "").strip()
+
+    if not endpoint or not p256dh or not auth:
+        return jsonify({"ok": False, "error": "endpoint, p256dh, and auth are required"}), 400
+
+    db = get_db()
+    # Dedup: check if this endpoint is already registered
+    existing_channels = _load_notification_channels(db)
+    for ch in existing_channels:
+        if ch.get("channel_type") == "browser_push" and ch.get("config", {}).get("endpoint") == endpoint:
+            return jsonify({"ok": True, "channel_id": ch["id"], "existing": True})
+
+    channel_id = str(uuid.uuid4())
+    _insert_rows_json_each_row(
+        db,
+        "sobs_notification_channels",
+        [
+            {
+                "Id": channel_id,
+                "Name": name,
+                "ChannelType": "browser_push",
+                "ConfigJson": json.dumps({"endpoint": endpoint, "p256dh": p256dh, "auth": auth}),
+                "Enabled": 1,
+                "IsDeleted": 0,
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    return jsonify({"ok": True, "channel_id": channel_id, "existing": False})
+
+
+@app.route("/api/notifications/vapid-keygen", methods=["POST"])
+@require_basic_auth
+async def generate_vapid_key():
+    """Generate a new VAPID key pair and save the private key to the DB.
+
+    The env var SOBS_VAPID_PRIVATE_KEY takes precedence at dispatch time if set,
+    but this endpoint always persists the new private key in sobs_app_settings so
+    that self-hosted deployments work without env var management.
+    """
+    try:
+        private_b64, public_b64 = _generate_vapid_keys()
+        db = get_db()
+        _set_app_setting(db, _VAPID_PRIVATE_KEY_SETTING, private_b64)
+        env_override = bool(os.environ.get("SOBS_VAPID_PRIVATE_KEY", "").strip())
+        return jsonify(
+            {
+                "ok": True,
+                "public_key": public_b64,
+                "saved_to_db": True,
+                "env_override": env_override,
+                "note": (
+                    "New VAPID keys saved to the database. "
+                    + (
+                        "WARNING: SOBS_VAPID_PRIVATE_KEY env var is set and takes precedence \u2014 "
+                        "remove it or update it to use the new DB key."
+                        if env_override
+                        else "Keys are active immediately. Existing browser subscriptions will need to re-subscribe."
+                    )
+                ),
+            }
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/notifications/vapid-keys", methods=["DELETE"])
+@require_basic_auth
+async def delete_vapid_keys():
+    """Remove the DB-stored VAPID private key.
+
+    Does not affect SOBS_VAPID_PRIVATE_KEY if set as an env var.
+    """
+    db = get_db()
+    _del_app_setting(db, _VAPID_PRIVATE_KEY_SETTING)
+    env_override = bool(os.environ.get("SOBS_VAPID_PRIVATE_KEY", "").strip())
+    return jsonify(
+        {
+            "ok": True,
+            "env_override": env_override,
+            "note": (
+                "DB VAPID key cleared. "
+                + (
+                    "The SOBS_VAPID_PRIVATE_KEY env var is still set and will continue to be used."
+                    if env_override
+                    else "Browser push is now unconfigured until new keys are generated."
+                )
+            ),
+        }
     )
 
 
