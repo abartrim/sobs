@@ -5,7 +5,7 @@ version: "3.9"
 # Usage:
 #   docker compose -f examples/prometheus/docker-compose.yml up -d
 #
-# Then open http://localhost:4317/metrics in your browser.
+# Then open http://localhost:44317/metrics in your browser.
 
 services:
   # --------------------------------------------------------------------------
@@ -15,7 +15,7 @@ services:
     image: ghcr.io/abartrim/sobs:latest
     container_name: sobs
     ports:
-      - "4317:4317"
+      - "44317:4317"
     volumes:
       - sobs_data:/data
     environment:

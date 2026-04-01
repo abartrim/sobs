@@ -5,7 +5,7 @@ Install:
     pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
 
 Run SOBS first:
-    docker run -p 4317:4317 sobs:latest
+    docker run -p 44317:4317 sobs:latest
 """
 
 import logging

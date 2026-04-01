@@ -8,7 +8,7 @@ Start SOBS:
 
 ```bash
 # Docker
-docker run -p 4317:4317 ghcr.io/abartrim/sobs:latest
+docker run -p 44317:4317 ghcr.io/abartrim/sobs:latest
 
 # or docker-compose
 docker-compose up -d

@@ -16,7 +16,7 @@ Install:
     pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-http prometheus_client
 
 Run SOBS first:
-    docker run -p 4317:4317 ghcr.io/abartrim/sobs:latest
+    docker run -p 44317:4317 ghcr.io/abartrim/sobs:latest
 
 Push metrics directly to SOBS:
     python python_metrics_example.py --mode push
@@ -30,7 +30,7 @@ import math
 import random
 import time
 
-SOBS_ENDPOINT = "http://localhost:4317"
+SOBS_ENDPOINT = "http://localhost:44317"
 SERVICE_NAME = "prometheus-demo"
 
 

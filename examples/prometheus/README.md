@@ -43,11 +43,11 @@ application.
 docker compose -f examples/prometheus/docker-compose.yml up -d
 
 # 2. Open SOBS
-open http://localhost:4317/metrics
+open http://localhost:44317/metrics
 ```
 
 The demo stack:
-1. Runs SOBS on `localhost:4317`.
+1. Runs SOBS on `localhost:44317`.
 2. Runs the OpenTelemetry Collector, which scrapes the demo app's `/metrics` endpoint
    every 15 seconds and forwards data to `http://sobs:4317`.
 3. Runs a tiny Python app that exposes synthetic Prometheus metrics on port `8000`.
@@ -99,7 +99,7 @@ pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
 
 ```bash
 # Start SOBS first
-docker run -p 4317:4317 ghcr.io/abartrim/sobs:latest
+docker run -p 44317:4317 ghcr.io/abartrim/sobs:latest
 
 python examples/prometheus/python_metrics_example.py
 ```
@@ -165,7 +165,7 @@ script.
 
 After data starts flowing:
 
-1. Open **http://localhost:4317/metrics** to see all ingested metric series.
+1. Open **http://localhost:44317/metrics** to see all ingested metric series.
 2. Use **Metrics → Metrics Rules** to define alert thresholds or derived signals.
 3. Use **Metrics → Anomaly** to explore automatically detected outliers.
 4. Create custom dashboards with the Auto Generate Dashboard feature.

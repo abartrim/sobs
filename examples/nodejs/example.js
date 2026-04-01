@@ -10,7 +10,7 @@
  *               express axios
  *
  * Run SOBS first:
- *   docker run -p 4317:4317 sobs:latest
+ *   docker run -p 44317:4317 sobs:latest
  *
  * Then:
  *   node example.js
