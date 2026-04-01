@@ -30,8 +30,8 @@
 <!-- Filter bar -->
 <div class="card border-secondary mb-3">
   <div class="card-body">
-    <form method="get" class="row g-2 align-items-end">
-      <div class="col-md-3">
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+      <div style="flex: 1 0 140px">
         <label class="form-label small text-secondary">Event type</label>
         <select name="type" class="form-select form-select-sm">
           <option value="">All types</option>
@@ -40,22 +40,33 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-2">
-        <label class="form-label small text-secondary">From</label>
-        <input type="text" name="from_ts" id="rum-from-ts" class="form-control form-control-sm" placeholder="2026-03-29 12:00" value="{{ from_ts }}">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small text-secondary">To</label>
-        <div class="input-group input-group-sm drp-combo">
-          <input type="text" name="to_ts" id="rum-to-ts" class="form-control drp-combo-input" placeholder="2026-03-29 12:05" value="{{ to_ts }}">
-          <button type="button" class="input-group-text drp-combo-trigger" data-drp-toggle data-drp-from="rum-from-ts" data-drp-to="rum-to-ts" title="Date/time picker" aria-label="Date/time picker">
-            <i class="bi bi-calendar3"></i>
-          </button>
+      <div class="filter-date-group">
+        <div class="filter-date-fields">
+          <div class="filter-date-field">
+            <label class="form-label small text-secondary">From</label>
+            <input type="text" name="from_ts" id="rum-from-ts" class="form-control form-control-sm" placeholder="2026-03-29 12:00" value="{{ from_ts }}">
+          </div>
+          <div class="filter-date-field">
+            <label class="form-label small text-secondary">To</label>
+            <div class="input-group input-group-sm drp-combo">
+              <input type="text" name="to_ts" id="rum-to-ts" class="form-control drp-combo-input" placeholder="2026-03-29 12:05" value="{{ to_ts }}">
+              <button type="button" class="input-group-text drp-combo-trigger" data-drp-toggle data-drp-from="rum-from-ts" data-drp-to="rum-to-ts" title="Date/time picker" aria-label="Date/time picker">
+                <i class="bi bi-calendar3"></i>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="col-md-2 d-flex gap-1">
-        <button type="submit" class="btn btn-primary btn-sm">Filter</button>
-        <a href="{{ url_for('view_rum') }}" class="btn btn-outline-secondary btn-sm">Reset</a>
+      <div class="d-flex gap-1" style="flex: 0 0 auto">
+        <button type="submit" class="btn btn-primary btn-sm"
+          data-ai-action-id="rum.filter.apply"
+          data-ai-action-type="apply_form_filters"
+          data-ai-handler="applyFormFilters"
+          data-ai-label="Apply RUM filters"
+          data-ai-risk="low"
+          data-ai-confirm="false"
+          data-ai-action-role="filter-submit"><i class="bi bi-search"></i></button>
+        <a href="{{ url_for('view_rum') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
       </div>
     </form>
     {% if error_msg %}

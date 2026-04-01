@@ -16,9 +16,50 @@
 #         env:
 #           - name: SOBS_DATA_DIR
 #             value: /data
+#           - name: SOBS_AI_ENDPOINT_URL
+#             valueFrom:
+#               configMapKeyRef:
+#                 name: sobs-config
+#                 key: ai-endpoint-url
+#                 optional: true
+#           - name: SOBS_AI_MODEL
+#             valueFrom:
+#               configMapKeyRef:
+#                 name: sobs-config
+#                 key: ai-model
+#                 optional: true
+#           - name: SOBS_AI_API_KEY
+#             valueFrom:
+#               secretKeyRef:
+#                 name: sobs-secret
+#                 key: ai-api-key
+#                 optional: true
+#           - name: SOBS_AI_GUARD_ENDPOINT_URL
+#             valueFrom:
+#               configMapKeyRef:
+#                 name: sobs-config
+#                 key: ai-guard-endpoint-url
+#                 optional: true
+#           - name: SOBS_AI_GUARD_MODEL
+#             valueFrom:
+#               configMapKeyRef:
+#                 name: sobs-config
+#                 key: ai-guard-model
+#                 optional: true
+#           - name: SOBS_AI_DLP_ENDPOINT_URL
+#             valueFrom:
+#               configMapKeyRef:
+#                 name: sobs-config
+#                 key: ai-dlp-endpoint-url
+#                 optional: true
+#           - name: SOBS_AI_API_KEY_FILE
+#             value: /var/run/secrets/sobs/ai-api-key
 #         volumeMounts:
 #           - name: sobs-data
 #             mountPath: /data
+#           - name: sobs-secret-files
+#             mountPath: /var/run/secrets/sobs
+#             readOnly: true
 #         resources:
 #           requests:
 #             memory: "32Mi"
@@ -29,7 +70,11 @@
 #     volumes:
 #       - name: sobs-data
 #         emptyDir: {}
+#       - name: sobs-secret-files
+#         secret:
+#           secretName: sobs-secret-files
+#           optional: true
 #
 # Your app can send OTLP data to http://localhost:4317/v1/logs etc.
-# Access the SOBS UI by port-forwarding:
-#   kubectl port-forward pod/<pod-name> 4317:4317
+# Access the SOBS UI by port-forwarding to a non-default local port:
+#   kubectl port-forward pod/<pod-name> 44317:4317

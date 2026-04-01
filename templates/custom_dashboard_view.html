@@ -31,6 +31,17 @@
   #addChartModal .modal-footer {
     flex: 0 0 auto;
   }
+
+  #chartSqlModal .modal-header-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  #chartSqlModal .modal-header-actions .btn-close {
+    margin: 0;
+  }
 </style>
 <div class="d-flex justify-content-between align-items-center mb-4">
   <div>
@@ -60,12 +71,26 @@
         </select>
       </div>
     </div>
-    <button class="btn btn-primary btn-sm js-add-chart-btn" data-bs-toggle="modal" data-bs-target="#addChartModal">
+    <button class="btn btn-primary btn-sm js-add-chart-btn" data-bs-toggle="modal" data-bs-target="#addChartModal"
+            data-ai-action-id="dashboard.chart.modal.open"
+            data-ai-action-type="open_modal"
+            data-ai-handler="openModal"
+            data-ai-args='{"modal_id":"addChartModal"}'
+            data-ai-label="Open add chart modal"
+            data-ai-risk="low"
+            data-ai-confirm="false">
       <i class="bi bi-plus-lg me-1"></i>Add Chart
     </button>
     <form method="post" action="{{ url_for('delete_dashboard', dashboard_id=dashboard.id) }}"
           onsubmit="return confirm('Delete this dashboard and all its charts?')">
-      <button type="submit" class="btn btn-outline-danger btn-sm">
+      <button type="submit" class="btn btn-outline-danger btn-sm"
+              data-ai-action-id="dashboard.delete"
+              data-ai-action-type="submit_form"
+              data-ai-handler="submitForm"
+              data-ai-label="Delete dashboard"
+              data-ai-risk="high"
+              data-ai-confirm="true"
+              data-ai-action-role="delete-dashboard-submit">
         <i class="bi bi-trash me-1"></i>Delete
       </button>
     </form>
@@ -99,7 +124,14 @@
           <form method="post"
                 action="{{ url_for('remove_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
                 onsubmit="return confirm('Remove this chart?')">
-            <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">
+            <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"
+                    data-ai-action-id="dashboard.chart.remove"
+                    data-ai-action-type="submit_form"
+                    data-ai-handler="submitForm"
+                    data-ai-label="Remove chart"
+                    data-ai-risk="high"
+                    data-ai-confirm="true"
+                    data-ai-action-role="remove-chart-submit">
               <i class="bi bi-x"></i>
             </button>
           </form>
@@ -109,14 +141,17 @@
         <div id="chart-{{ chart.id }}" style="height:300px;width:100%;"></div>
         <div class="d-flex justify-content-between align-items-center gap-2 mt-2">
           <div id="chart-hint-{{ chart.id }}" class="small text-secondary"></div>
-          <a id="chart-source-btn-{{ chart.id }}" class="btn btn-sm btn-outline-info d-none" href="#">
-            <i class="bi bi-box-arrow-up-right me-1"></i>Open Source View
-          </a>
+          <div class="d-flex gap-2 align-items-center">
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary js-view-chart-sql"
+                  data-chart-id="{{ chart.id }}">
+              <i class="bi bi-code-slash me-1"></i>SQL Query
+            </button>
+            <a id="chart-source-btn-{{ chart.id }}" class="btn btn-sm btn-outline-info d-none" href="#">
+              <i class="bi bi-box-arrow-up-right me-1"></i>Data Source
+            </a>
+          </div>
         </div>
-        <details class="mt-2">
-          <summary class="text-secondary small" style="cursor:pointer;">SQL Query</summary>
-          <pre class="small mt-1 p-2 theme-panel rounded text-body-secondary" style="max-height:120px;overflow:auto;">{{ chart.query }}</pre>
-        </details>
       </div>
     </div>
   </div>
@@ -126,11 +161,42 @@
 <div class="text-center py-5 text-secondary">
   <i class="bi bi-bar-chart fs-1 d-block mb-3"></i>
   <p class="mb-3">No charts yet. Add your first chart to this dashboard.</p>
-  <button class="btn btn-primary js-add-chart-btn" data-bs-toggle="modal" data-bs-target="#addChartModal">
+  <button class="btn btn-primary js-add-chart-btn" data-bs-toggle="modal" data-bs-target="#addChartModal"
+          data-ai-action-id="dashboard.chart.modal.open.empty"
+          data-ai-action-type="open_modal"
+          data-ai-handler="openModal"
+          data-ai-args='{"modal_id":"addChartModal"}'
+          data-ai-label="Open add chart modal"
+          data-ai-risk="low"
+          data-ai-confirm="false">
     <i class="bi bi-plus-lg me-1"></i>Add Chart
   </button>
 </div>
 {% endif %}
+
+<div class="modal fade" id="chartSqlModal" tabindex="-1" aria-labelledby="chartSqlModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="chartSqlModalTitle">Chart SQL</h5>
+        <div class="modal-header-actions">
+          <button type="button"
+                  class="btn btn-sm btn-outline-secondary"
+                  id="chartSqlCopyBtn"
+                  title="Copy SQL"
+                  aria-label="Copy SQL">
+            <i class="bi bi-clipboard"></i>
+          </button>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="chartSqlModalMeta" class="small text-secondary mb-2"></div>
+        <pre id="chartSqlModalBody" class="small p-3 theme-panel rounded text-body-secondary mb-0" style="white-space:pre-wrap;word-break:break-word;max-height:65vh;overflow:auto;"></pre>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Add Chart Modal -->
 <div class="modal fade" id="addChartModal" tabindex="-1">
@@ -323,7 +389,14 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="chartEditorSubmitBtn">Add Chart</button>
+          <button type="submit" class="btn btn-primary" id="chartEditorSubmitBtn"
+                  data-ai-action-id="dashboard.chart.create.submit"
+                  data-ai-action-type="submit_form"
+                  data-ai-handler="submitForm"
+                  data-ai-label="Create or update chart"
+                  data-ai-risk="high"
+                  data-ai-confirm="true"
+                  data-ai-action-role="add-chart-submit">Add Chart</button>
         </div>
       </form>
     </div>
@@ -697,6 +770,11 @@
   var chartEditorModalTitle = document.getElementById('chartEditorModalTitle');
   var chartEditorSubmitBtn = document.getElementById('chartEditorSubmitBtn');
   var chartTitleInput = document.getElementById('chartTitleInput');
+  var chartSqlCopyBtn = document.getElementById('chartSqlCopyBtn');
+  var chartSqlModal = document.getElementById('chartSqlModal');
+  var chartSqlModalTitle = document.getElementById('chartSqlModalTitle');
+  var chartSqlModalMeta = document.getElementById('chartSqlModalMeta');
+  var chartSqlModalBody = document.getElementById('chartSqlModalBody');
   var defaultChartFormAction = addChartForm ? addChartForm.getAttribute('action') : '';
   var queryInput = document.getElementById('queryInput');
   var chartSpecJson = document.getElementById('chartSpecJson');
@@ -750,6 +828,27 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  function formatSql(sql) {
+    var raw = String(sql || '').replace(/\r\n/g, '\n').trim();
+    if (!raw) return '';
+    var normalized = raw.replace(/\s+/g, ' ');
+    var clauseKeywords = [
+      'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT', 'OFFSET',
+      'WITH', 'UNION ALL', 'UNION', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'FULL JOIN',
+      'CROSS JOIN', 'JOIN'
+    ];
+    clauseKeywords.forEach(function (keyword) {
+      var pattern = new RegExp('\\s+' + keyword.replace(/ /g, '\\s+') + '\\b', 'gi');
+      normalized = normalized.replace(pattern, '\n' + keyword);
+    });
+    normalized = normalized
+      .replace(/\b(AND|OR)\b/gi, '\n  $1')
+      .replace(/,\s*(?![^()]*\))/g, ',\n  ')
+      .replace(/\n{2,}/g, '\n')
+      .trim();
+    return normalized;
   }
 
   function readRoleMapInputs() {
@@ -1218,6 +1317,43 @@
     }
     refreshBuilderVisibility();
   }
+
+  function openChartSqlModal(chartId) {
+    var chartCfg = CHART_DATA.find(function (c) { return c.id === chartId; });
+    if (!chartCfg) return;
+    if (chartSqlModalTitle) {
+      chartSqlModalTitle.textContent = (chartCfg.title || 'Chart') + ' SQL';
+    }
+    if (chartSqlModalMeta) {
+      chartSqlModalMeta.textContent = (chartCfg.chart_type || 'chart') + ' chart';
+    }
+    if (chartSqlModalBody) {
+      chartSqlModalBody.textContent = formatSql(chartCfg.query || '');
+    }
+    if (chartSqlModal) {
+      bootstrap.Modal.getOrCreateInstance(chartSqlModal).show();
+    }
+  }
+
+  function copyChartSqlToClipboard() {
+    if (!chartSqlModalBody) return Promise.resolve();
+    var text = chartSqlModalBody.textContent || '';
+    if (!text.trim()) return Promise.resolve();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    var temp = document.createElement('textarea');
+    temp.value = text;
+    temp.setAttribute('readonly', 'readonly');
+    temp.style.position = 'absolute';
+    temp.style.left = '-9999px';
+    document.body.appendChild(temp);
+    temp.select();
+    document.execCommand('copy');
+    document.body.removeChild(temp);
+    return Promise.resolve();
+  }
+
   updateTemplateInfo();
   templateSelect.addEventListener('change', updateTemplateInfo);
   if (sqlModeSelect) sqlModeSelect.addEventListener('change', refreshBuilderVisibility);
@@ -1247,6 +1383,34 @@
       resetEditorForm('add');
     });
   });
+
+  document.querySelectorAll('.js-view-chart-sql').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var chartId = btn.getAttribute('data-chart-id');
+      if (!chartId) return;
+      openChartSqlModal(chartId);
+    });
+  });
+
+  if (chartSqlCopyBtn) {
+    chartSqlCopyBtn.addEventListener('click', function () {
+      var iconEl = chartSqlCopyBtn.querySelector('i');
+      var originalClass = iconEl ? iconEl.className : '';
+      copyChartSqlToClipboard()
+        .then(function () {
+          if (iconEl) iconEl.className = 'bi bi-check2';
+          window.setTimeout(function () {
+            if (iconEl) iconEl.className = originalClass;
+          }, 1200);
+        })
+        .catch(function () {
+          if (iconEl) iconEl.className = 'bi bi-exclamation-triangle';
+          window.setTimeout(function () {
+            if (iconEl) iconEl.className = originalClass;
+          }, 1600);
+        });
+    });
+  }
 
   document.querySelectorAll('.js-edit-chart').forEach(function (btn) {
     btn.addEventListener('click', function () {

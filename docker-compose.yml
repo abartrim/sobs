@@ -6,12 +6,27 @@ services:
     image: ghcr.io/abartrim/sobs:latest
     container_name: sobs
     ports:
-      - "4317:4317"
+      - "44317:4317"
     volumes:
       - sobs_data:/data
     environment:
+      - PORT=4317
       # Optional API key – leave empty to disable auth
       - SOBS_API_KEY=
+      # Optional AI settings managed by env/secret providers
+      - SOBS_AI_ENDPOINT_URL=
+      - SOBS_AI_MODEL=
+      - SOBS_AI_API_KEY=
+      - SOBS_AI_GUARD_ENDPOINT_URL=
+      - SOBS_AI_GUARD_MODEL=
+      - SOBS_AI_DLP_ENDPOINT_URL=
+      # Optional file-based secret/config values (for mounted Docker/K8s secrets)
+      # - SOBS_AI_ENDPOINT_URL_FILE=/run/secrets/sobs_ai_endpoint_url
+      # - SOBS_AI_MODEL_FILE=/run/secrets/sobs_ai_model
+      # - SOBS_AI_API_KEY_FILE=/run/secrets/sobs_ai_api_key
+      # - SOBS_AI_GUARD_ENDPOINT_URL_FILE=/run/secrets/sobs_ai_guard_endpoint_url
+      # - SOBS_AI_GUARD_MODEL_FILE=/run/secrets/sobs_ai_guard_model
+      # - SOBS_AI_DLP_ENDPOINT_URL_FILE=/run/secrets/sobs_ai_dlp_endpoint_url
       # Optional encrypted disk setup generated inside container at startup
       # - SOBS_CHDB_ENCRYPTION_KEY=00112233445566778899aabbccddeeff
       # - SOBS_CHDB_BASE_DISK_PATH=/data/chdb-disks/plain

@@ -1,24 +1,99 @@
 {% extends "base.html" %}
 {% block title %}AI Transparency{% endblock %}
+{% macro fmt_num(n) %}{% if n >= 1000000 %}{{ "%.1f" | format(n / 1000000) }}M{% elif n >= 1000 %}{{ "%.1f" | format(n / 1000) }}K{% else %}{{ n }}{% endif %}{% endmacro %}
 {% block content %}
+<style>
+  .ai-row-grid {
+    display: grid;
+    grid-template-columns: minmax(96px, 1.2fr) minmax(70px, .7fr) minmax(110px, 1fr) minmax(0, 2.3fr) minmax(90px, .8fr) minmax(72px, .6fr) minmax(132px, 1fr);
+    gap: .55rem;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+  }
+  .ai-row-cell {
+    min-width: 0;
+  }
+  .ai-row-cell.tokens,
+  .ai-row-cell.duration,
+  .ai-row-cell.timestamp {
+    text-align: right;
+    white-space: nowrap;
+  }
+  .ai-row-cell.summary {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ai-system-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    font-size: .68rem;
+    color: var(--bs-secondary-color);
+  }
+  .ai-event-row {
+    display: grid;
+    grid-template-columns: minmax(96px, 1.1fr) minmax(70px, .7fr) minmax(110px, 1fr) minmax(0, 2fr) minmax(72px, .6fr) minmax(132px, .9fr);
+    gap: .55rem;
+    align-items: center;
+    padding: .42rem .55rem;
+    border-bottom: 1px solid var(--bs-border-color);
+    opacity: .68;
+    font-size: .72rem;
+  }
+  @media (max-width: 991.98px) {
+    .ai-row-grid,
+    .ai-event-row {
+      grid-template-columns: 1fr;
+      gap: .3rem;
+    }
+    .ai-row-cell.tokens,
+    .ai-row-cell.duration,
+    .ai-row-cell.timestamp {
+      text-align: left;
+    }
+  }
+</style>
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="fw-semibold mb-0"><i class="bi bi-cpu me-2 text-success"></i>AI Transparency</h4>
   <div class="d-flex align-items-center gap-2">
     <div class="btn-group" role="group" aria-label="View mode">
-      <a href="{{ url_for('view_ai', view='flat', service=service, model=model, operation=operation, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0) }}"
-         class="btn btn-sm {% if view_mode == 'flat' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+      <a href="{{ url_for('view_ai', view='flat', service=service, model=model, operation=operation, span_name=span_name, row_type=row_type, sql=sql_where, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0) }}"
+        class="btn btn-sm {% if view_mode == 'flat' %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+        data-ai-action-id="ai.view.flat"
+        data-ai-action-type="navigate"
+        data-ai-handler="navigate"
+        data-ai-args='{"target_page":"/ai","query":{"view":"flat"}}'
+        data-ai-label="Switch AI view to flat"
+        data-ai-risk="low"
+        data-ai-confirm="false">
         Flat
       </a>
-      <a href="{{ url_for('view_ai', view='trace', service=service, model=model, operation=operation, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0) }}"
-         class="btn btn-sm {% if view_mode == 'trace' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+      <a href="{{ url_for('view_ai', view='trace', service=service, model=model, operation=operation, span_name=span_name, row_type=row_type, sql=sql_where, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0) }}"
+        class="btn btn-sm {% if view_mode == 'trace' %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+        data-ai-action-id="ai.view.trace"
+        data-ai-action-type="navigate"
+        data-ai-handler="navigate"
+        data-ai-args='{"target_page":"/ai","query":{"view":"trace"}}'
+        data-ai-label="Switch AI view to trace"
+        data-ai-risk="low"
+        data-ai-confirm="false">
         Group by Trace
       </a>
     </div>
-    <a href="{{ url_for('export_ai_training', service=service, model=model, operation=operation) }}"
+    <a href="{{ url_for('export_ai_training', service=service, model=model, operation=operation, from_ts=from_ts, to_ts=to_ts) }}"
        class="btn btn-sm btn-outline-secondary" title="Export training data as JSONL">
       <i class="bi bi-download me-1"></i>Export JSONL
     </a>
-    <button id="liveTailBtn" class="btn btn-sm btn-outline-success" onclick="toggleLiveTail()">
+    <button id="liveTailBtn" class="btn btn-sm btn-outline-success" onclick="toggleLiveTail()"
+            data-ai-action-id="ai.live_tail.toggle"
+            data-ai-action-type="invoke_click"
+            data-ai-handler="invokeClick"
+            data-ai-label="Toggle AI live tail"
+            data-ai-risk="low"
+            data-ai-confirm="false"
+            data-ai-args='{"element_id":"liveTailBtn"}'>
       <i class="bi bi-broadcast me-1"></i>Live Tail
     </button>
   </div>
@@ -42,31 +117,31 @@
 <div class="row g-3 mb-3">
   <div class="col-6 col-md-2">
     <div class="stat-card p-3 text-center">
-      <div class="fs-4 fw-bold text-success">{{ total_calls }}</div>
+      <div class="fs-4 fw-bold text-success">{{ fmt_num(total_calls) }}</div>
       <div class="text-secondary small">Total Calls</div>
     </div>
   </div>
   <div class="col-6 col-md-2">
     <div class="stat-card p-3 text-center">
-      <div class="fs-4 fw-bold text-info">{{ total_tokens_in }}</div>
+      <div class="fs-4 fw-bold text-info">{{ fmt_num(total_tokens_in) }}</div>
       <div class="text-secondary small">Tokens In</div>
     </div>
   </div>
   <div class="col-6 col-md-2">
     <div class="stat-card p-3 text-center">
-      <div class="fs-4 fw-bold text-warning">{{ total_tokens_out }}</div>
+      <div class="fs-4 fw-bold text-warning">{{ fmt_num(total_tokens_out) }}</div>
       <div class="text-secondary small">Tokens Out</div>
     </div>
   </div>
   <div class="col-6 col-md-2">
     <div class="stat-card p-3 text-center">
-      <div class="fs-4 fw-bold text-primary">{{ total_tokens_in + total_tokens_out }}</div>
+      <div class="fs-4 fw-bold text-primary">{{ fmt_num(total_tokens_in + total_tokens_out) }}</div>
       <div class="text-secondary small">Total Tokens</div>
     </div>
   </div>
   <div class="col-6 col-md-2">
     <div class="stat-card p-3 text-center">
-      <div class="fs-4 fw-bold text-danger" id="errorRateDisplay">{{ total_errors }}</div>
+      <div class="fs-4 fw-bold text-danger" id="errorRateDisplay">{{ fmt_num(total_errors) }}</div>
       <div class="text-secondary small">Errors</div>
     </div>
   </div>
@@ -81,9 +156,9 @@
 <!-- Filter bar -->
 <div class="card border-secondary mb-3">
   <div class="card-body">
-    <form method="get" class="row g-2 align-items-end">
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
       <input type="hidden" name="view" value="{{ view_mode }}">
-      <div class="col-md-2">
+      <div style="flex: 1 0 140px">
         <label class="form-label small text-secondary">Service</label>
         <select name="service" class="form-select form-select-sm">
           <option value="">All services</option>
@@ -92,7 +167,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-2">
+      <div style="flex: 1 0 140px">
         <label class="form-label small text-secondary">Model</label>
         <select name="model" class="form-select form-select-sm">
           <option value="">All models</option>
@@ -101,7 +176,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-2">
+      <div style="flex: 1 0 140px">
         <label class="form-label small text-secondary">Operation</label>
         <select name="operation" class="form-select form-select-sm">
           <option value="">All operations</option>
@@ -110,7 +185,24 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-2">
+      <div style="flex: 1 0 130px">
+        <label class="form-label small text-secondary">Row Type</label>
+        <select name="row_type" class="form-select form-select-sm">
+          <option value="" {% if not row_type %}selected{% endif %}>All rows</option>
+          <option value="llm" {% if row_type == 'llm' %}selected{% endif %}>LLM calls</option>
+          <option value="system" {% if row_type == 'system' %}selected{% endif %}>System events</option>
+        </select>
+      </div>
+      <div style="flex: 1 0 130px">
+        <label class="form-label small text-secondary">Span / Event</label>
+        <select name="span_name" class="form-select form-select-sm">
+          <option value="">All spans</option>
+          {% for sn in span_names %}
+          <option value="{{ sn }}" {% if sn == span_name %}selected{% endif %}>{{ sn }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="flex: 1 0 120px">
         <label class="form-label small text-secondary">Sort by</label>
         <select name="sort_by" class="form-select form-select-sm">
           <option value="Timestamp" {% if sort_by == 'Timestamp' %}selected{% endif %}>Timestamp</option>
@@ -118,18 +210,75 @@
           <option value="ServiceName" {% if sort_by == 'ServiceName' %}selected{% endif %}>Service</option>
         </select>
       </div>
-      <div class="col-md-2">
+      <div style="flex: 1 0 120px">
         <label class="form-label small text-secondary">Order</label>
         <select name="sort_dir" class="form-select form-select-sm">
           <option value="desc" {% if sort_dir == 'desc' %}selected{% endif %}>Descending</option>
           <option value="asc" {% if sort_dir == 'asc' %}selected{% endif %}>Ascending</option>
         </select>
       </div>
-      <div class="col-md-2 d-flex gap-1">
-        <button type="submit" class="btn btn-primary btn-sm">Filter</button>
-        <a href="{{ url_for('view_ai') }}" class="btn btn-outline-secondary btn-sm">Reset</a>
+      <div class="filter-date-group">
+        <div class="filter-date-fields">
+          <div class="filter-date-field">
+            <label class="form-label small text-secondary">From</label>
+            <input type="text" name="from_ts" id="ai-from-ts" class="form-control form-control-sm" placeholder="2026-03-29 12:00" value="{{ from_ts }}">
+          </div>
+          <div class="filter-date-field">
+            <label class="form-label small text-secondary">To</label>
+            <div class="input-group input-group-sm drp-combo">
+              <input type="text" name="to_ts" id="ai-to-ts" class="form-control drp-combo-input" placeholder="2026-03-29 12:05" value="{{ to_ts }}">
+              <button type="button" class="input-group-text drp-combo-trigger" data-drp-toggle data-drp-from="ai-from-ts" data-drp-to="ai-to-ts" title="Date/time picker" aria-label="Date/time picker">
+                <i class="bi bi-calendar3"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="flex: 2 0 200px">
+        <label class="form-label small text-secondary">SQL WHERE <span class="text-muted">(overrides above)</span></label>
+        <div class="position-relative">
+          <input
+            type="text"
+            name="sql"
+            id="sql-filter-input"
+            class="form-control form-control-sm font-monospace"
+            data-ai-action-id="ai.filter.apply_sql"
+            data-ai-action-type="apply_sql_filter"
+            data-ai-handler="applySqlFilter"
+            data-ai-label="Apply AI SQL filter"
+            data-ai-risk="low"
+            data-ai-confirm="false"
+            data-ai-action-role="sql-where-input"
+            placeholder="row_type='system', span_name='ai.tool.executed', tokens_out > 1000"
+            value="{{ sql_where }}"
+            autocomplete="off"
+            aria-autocomplete="list"
+            aria-haspopup="listbox"
+            aria-describedby="ai-sql-filter-feedback">
+          <ul id="sql-ac-dropdown" role="listbox"
+              class="dropdown-menu p-0 font-monospace small"
+              style="display:none;position:absolute;top:100%;left:0;right:0;z-index:1060;max-height:220px;overflow-y:auto;"></ul>
+        </div>
+      </div>
+      <div class="d-flex gap-1" style="flex: 0 0 auto">
+        <button type="submit" class="btn btn-primary btn-sm"
+          data-ai-action-id="ai.filter.apply"
+          data-ai-action-type="apply_form_filters"
+          data-ai-handler="applyFormFilters"
+          data-ai-args='{"target_page":"/ai","submit":true,"filter_fields":["view","service","model","operation","row_type","span_name","from_ts","to_ts","sql","sort_by","sort_dir"]}'
+          data-ai-label="Apply AI transparency filters"
+          data-ai-risk="low"
+          data-ai-confirm="false"
+          data-ai-action-role="filter-submit"><i class="bi bi-search"></i></button>
+        <a href="{{ url_for('view_ai') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
       </div>
     </form>
+    <div id="ai-sql-filter-feedback" class="form-text small text-secondary mt-1" title="{{ error_msg if (error_msg and sql_where) else '' }}">
+      {{ (error_msg if (error_msg and sql_where) else "Aliases: service, model, provider, operation, prompt, response, span_name, row_type, trace_id, tokens_in, tokens_out, thinking_tokens, duration_ms, error_type, status. LogAttributes[...] is auto-mapped to SpanAttributes[...] for compatibility.") }}
+    </div>
+    {% if error_msg and not sql_where %}
+    <div class="alert alert-danger mt-2 mb-0 py-1 small">{{ error_msg }}</div>
+    {% endif %}
   </div>
 </div>
 
@@ -166,32 +315,52 @@
       <div class="accordion-body py-2 px-3">
           <div class="accordion" id="traceItems{{ group.id }}">
         {% for item in group.spans %}
-          {% set ui_id = 'g' ~ group.id ~ '-' ~ item.id %}
+          {# Use loop.index for guaranteed-unique IDs — hash collisions on 0-token spans cause Bootstrap to open wrong item #}
+          {% set ui_id = 'g' ~ group.id ~ 'i' ~ loop.index %}
+          {% if not item.is_llm_call %}
+          {# Non-LLM call: sobs internal event span (turn.start, guard.result, tool.proposed, etc.) — render as compact chip #}
+          <div class="ai-event-row">
+            <div class="ai-row-cell"><span class="badge bg-secondary" style="font-size:.65rem;">System Event</span></div>
+            <div class="ai-row-cell"><span class="badge bg-info text-dark">{{ item.provider or 'sobs' }}</span></div>
+            <div class="ai-row-cell"><span class="badge bg-secondary">{{ item.span_name or item.operation or 'event' }}</span></div>
+            <div class="ai-row-cell summary text-secondary">{{ item.prompt or item.response or item.error_message or item.service }}</div>
+            <div class="ai-row-cell duration text-secondary font-monospace">{{ item.duration_ms }}ms</div>
+            <div class="ai-row-cell timestamp text-secondary">{{ item.ts[:19] }}</div>
+          </div>
+          {% else %}
+          {# LLM call span — full accordion #}
           <div class="accordion-item border-secondary mb-1" data-ai-call="1" data-tokens-in="{{ item.tokens_in }}" data-tokens-out="{{ item.tokens_out }}" data-model="{{ item.model }}">
             <h2 class="accordion-header">
               <button class="accordion-button collapsed py-2"
-                      type="button" data-bs-toggle="collapse" data-bs-target="#ai{{ ui_id }}">
-                <div class="d-flex gap-2 align-items-center w-100 me-2 flex-wrap">
-                  <span class="badge bg-success">{{ item.model or '?' }}</span>
-                  <span class="badge bg-info text-dark">{{ item.provider or '?' }}</span>
-                  {% if item.operation and item.operation != 'chat' %}
-                  <span class="badge bg-secondary">{{ item.operation }}</span>
-                  {% endif %}
-                  {% if item.error_type %}
-                  <span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>{{ item.error_type }}</span>
-                  {% endif %}
-                  {% if item.finish_reason and item.finish_reason not in ('stop', '') %}
-                  <span class="badge bg-warning text-dark">{{ item.finish_reason }}</span>
-                  {% endif %}
-                  <span class="small flex-grow-1 text-truncate text-secondary" style="max-width:280px;" title="{{ item.prompt }}">
+                      type="button" data-bs-toggle="collapse" data-bs-target="#ai{{ ui_id }}" aria-controls="ai{{ ui_id }}">
+                <div class="ai-row-grid me-2">
+                  <div class="ai-row-cell">
+                    <span class="badge bg-success">{{ item.model or 'Unknown Model' }}</span>
+                  </div>
+                  <div class="ai-row-cell">
+                    <span class="badge bg-info text-dark">{{ item.provider or 'Unknown Provider' }}</span>
+                  </div>
+                  <div class="ai-row-cell">
+                    {% if item.operation and item.operation != 'chat' %}
+                    <span class="badge bg-secondary">{{ item.operation }}</span>
+                    {% else %}
+                    <span class="ai-system-chip">{{ item.span_name or 'chat' }}</span>
+                    {% endif %}
+                    {% if item.error_type %}
+                    <span class="badge bg-danger ms-1"><i class="bi bi-exclamation-triangle me-1"></i>{{ item.error_type }}</span>
+                    {% endif %}
+                    {% if item.finish_reason and item.finish_reason not in ('stop', '') %}
+                    <span class="badge bg-warning text-dark ms-1">{{ item.finish_reason }}</span>
+                    {% endif %}
+                  </div>
+                  <div class="ai-row-cell summary small text-secondary" title="{{ item.prompt }}">
                     {{ item.prompt[:80] }}{% if item.prompt | length > 80 %}…{% endif %}
-                  </span>
-                  <span class="small text-warning">{{ item.tokens_in }}↑ {{ item.tokens_out }}↓</span>
-                  {% if item.thinking_tokens %}
-                  <span class="small text-info" title="Thinking tokens"><i class="bi bi-lightbulb me-1"></i>{{ item.thinking_tokens }}</span>
-                  {% endif %}
-                  <span class="small text-secondary">{{ item.duration_ms }}ms</span>
-                  <span class="text-secondary small">{{ item.ts[:19] }}</span>
+                  </div>
+                  <div class="ai-row-cell tokens small text-warning">
+                    {{ item.tokens_in }}↑ {{ item.tokens_out }}↓{% if item.thinking_tokens %} <span class="text-info" title="Thinking tokens"><i class="bi bi-lightbulb ms-1 me-1"></i>{{ item.thinking_tokens }}</span>{% endif %}
+                  </div>
+                  <div class="ai-row-cell duration small text-secondary">{{ item.duration_ms }}ms</div>
+                  <div class="ai-row-cell timestamp text-secondary small">{{ item.ts[:19] }}</div>
                 </div>
               </button>
             </h2>
@@ -376,7 +545,11 @@
                       var tokIn = {{ item.tokens_in }};
                       var tokOut = {{ item.tokens_out }};
                       var el = document.getElementById('cost-{{ ui_id }}');
-                      if (el) el.innerHTML = aiCostEstimate(model, tokIn, tokOut);
+                      if (el) {
+                        el.innerHTML = (typeof window.aiCostEstimate === 'function')
+                          ? window.aiCostEstimate(model, tokIn, tokOut)
+                          : '<span class="text-secondary">Pricing unavailable</span>';
+                      }
                     }());
                     </script>
                   </div>
@@ -395,7 +568,8 @@
 
               </div>
             </div>
-        </div>
+          </div>
+          {% endif %}
         {% endfor %}
           </div>
       </div>
@@ -409,32 +583,41 @@
   <div class="accordion-item border-secondary mb-1" data-ai-call="1" data-tokens-in="{{ item.tokens_in }}" data-tokens-out="{{ item.tokens_out }}" data-model="{{ item.model }}">
     <h2 class="accordion-header">
       <button class="accordion-button collapsed py-2"
-              type="button" data-bs-toggle="collapse" data-bs-target="#ai{{ item.id }}">
-        <div class="d-flex gap-2 align-items-center w-100 me-2 flex-wrap">
-          <span class="badge bg-success">{{ item.model or '?' }}</span>
-          <span class="badge bg-info text-dark">{{ item.provider or '?' }}</span>
-          {% if item.operation and item.operation != 'chat' %}
-          <span class="badge bg-secondary">{{ item.operation }}</span>
-          {% endif %}
-          {% if item.error_type %}
-          <span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>{{ item.error_type }}</span>
-          {% endif %}
-          {% if item.finish_reason and item.finish_reason not in ('stop', '') %}
-          <span class="badge bg-warning text-dark">{{ item.finish_reason }}</span>
-          {% endif %}
-          <span class="small flex-grow-1 text-truncate text-secondary" style="max-width:280px;" title="{{ item.prompt }}">
+              type="button" data-bs-toggle="collapse" data-bs-target="#aiflat{{ loop.index }}" aria-controls="aiflat{{ loop.index }}">
+        <div class="ai-row-grid me-2">
+          <div class="ai-row-cell">
+            <span class="badge {% if item.is_llm_call %}bg-success{% else %}bg-secondary{% endif %}">{{ item.model or ('System Event' if not item.is_llm_call else 'Unknown Model') }}</span>
+          </div>
+          <div class="ai-row-cell">
+            <span class="badge bg-info text-dark">{{ item.provider or 'sobs' }}</span>
+          </div>
+          <div class="ai-row-cell">
+            {% if not item.is_llm_call and item.span_name %}
+            <span class="badge bg-secondary" title="Internal telemetry span">{{ item.span_name }}</span>
+            {% elif item.operation and item.operation != 'chat' %}
+            <span class="badge bg-secondary">{{ item.operation }}</span>
+            {% else %}
+            <span class="ai-system-chip">{{ item.span_name or item.operation or 'chat' }}</span>
+            {% endif %}
+            {% if item.error_type %}
+            <span class="badge bg-danger ms-1"><i class="bi bi-exclamation-triangle me-1"></i>{{ item.error_type }}</span>
+            {% endif %}
+            {% if item.finish_reason and item.finish_reason not in ('stop', '') %}
+            <span class="badge bg-warning text-dark ms-1">{{ item.finish_reason }}</span>
+            {% endif %}
+          </div>
+          <div class="ai-row-cell summary small text-secondary" title="{{ item.prompt }}">
             {{ item.prompt[:80] }}{% if item.prompt | length > 80 %}…{% endif %}
-          </span>
-          <span class="small text-warning">{{ item.tokens_in }}↑ {{ item.tokens_out }}↓</span>
-          {% if item.thinking_tokens %}
-          <span class="small text-info" title="Thinking tokens"><i class="bi bi-lightbulb me-1"></i>{{ item.thinking_tokens }}</span>
-          {% endif %}
-          <span class="small text-secondary">{{ item.duration_ms }}ms</span>
-          <span class="text-secondary small">{{ item.ts[:19] }}</span>
+          </div>
+          <div class="ai-row-cell tokens small text-warning">
+            {{ item.tokens_in }}↑ {{ item.tokens_out }}↓{% if item.thinking_tokens %} <span class="text-info" title="Thinking tokens"><i class="bi bi-lightbulb ms-1 me-1"></i>{{ item.thinking_tokens }}</span>{% endif %}
+          </div>
+          <div class="ai-row-cell duration small text-secondary">{{ item.duration_ms }}ms</div>
+          <div class="ai-row-cell timestamp text-secondary small">{{ item.ts[:19] }}</div>
         </div>
       </button>
     </h2>
-    <div id="ai{{ item.id }}" class="accordion-collapse collapse">
+    <div id="aiflat{{ loop.index }}" class="accordion-collapse collapse">
       <div class="accordion-body py-2 px-3">
 
         <!-- Tabs -->
@@ -626,7 +809,11 @@
               var tokIn = {{ item.tokens_in }};
               var tokOut = {{ item.tokens_out }};
               var el = document.getElementById('cost-{{ item.id }}');
-              if (el) el.innerHTML = aiCostEstimate(model, tokIn, tokOut);
+              if (el) {
+                el.innerHTML = (typeof window.aiCostEstimate === 'function')
+                  ? window.aiCostEstimate(model, tokIn, tokOut)
+                  : '<span class="text-secondary">Pricing unavailable</span>';
+              }
             }());
             </script>
           </div>
@@ -660,19 +847,19 @@
       <small class="text-secondary">Showing {{ offset + 1 }}–{{ [offset + visible_count, total] | min }} of {{ total }}</small>
     <select class="form-select form-select-sm" style="width:auto;" onchange="window.location.href=this.value" aria-label="Rows per page">
       {% for n in [10, 25, 50, 100, 200] %}
-        <option value="{{ url_for('view_ai', view=view_mode, service=service, model=model, operation=operation, sort_by=sort_by, sort_dir=sort_dir, limit=n, offset=0) }}" {% if limit == n %}selected{% endif %}>{{ n }} / page</option>
+        <option value="{{ url_for('view_ai', view=view_mode, service=service, model=model, operation=operation, span_name=span_name, row_type=row_type, sql=sql_where, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=n, offset=0) }}" {% if limit == n %}selected{% endif %}>{{ n }} / page</option>
       {% endfor %}
     </select>
   </div>
   <ul class="pagination pagination-sm mb-0">
     {% if offset > 0 %}
     <li class="page-item">
-        <a class="page-link" href="{{ url_for('view_ai', view=view_mode, service=service, model=model, operation=operation, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=prev_offset) }}">← Prev</a>
+        <a class="page-link" href="{{ url_for('view_ai', view=view_mode, service=service, model=model, operation=operation, span_name=span_name, row_type=row_type, sql=sql_where, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=prev_offset) }}">← Prev</a>
     </li>
     {% endif %}
     {% if next_offset < total %}
     <li class="page-item">
-        <a class="page-link" href="{{ url_for('view_ai', view=view_mode, service=service, model=model, operation=operation, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=next_offset) }}">Next →</a>
+        <a class="page-link" href="{{ url_for('view_ai', view=view_mode, service=service, model=model, operation=operation, span_name=span_name, row_type=row_type, sql=sql_where, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=next_offset) }}">Next →</a>
     </li>
     {% endif %}
   </ul>
@@ -952,5 +1139,363 @@ function appendLiveTailEvent(ev) {
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+</script>
+
+<script>
+// SQL Filter Autocomplete (AI traces)
+(() => {
+  const input = document.getElementById("sql-filter-input");
+  const dropdown = document.getElementById("sql-ac-dropdown");
+  const feedback = document.getElementById("ai-sql-filter-feedback");
+  if (!input || !dropdown) return;
+
+  let hints = null;
+  let activeIdx = -1;
+  let lastItems = [];
+  let validateTimer = null;
+  let validateSeq = 0;
+  let validateController = null;
+
+  const fieldHintsUrl = {{ url_for('api_ai_field_hints')|tojson }};
+  const validateUrl = {{ url_for('api_ai_validate_filter')|tojson }};
+  const localOperators = ["=", "!=", "LIKE", "NOT LIKE", "ILIKE", "NOT ILIKE", "IN", "NOT IN", ">", "<", ">=", "<="];
+
+  function compactSqlMessage(message) {
+    const text = String(message || "").trim();
+    if (!text) return "Invalid SQL filter.";
+    const firstLine = text.split(/\r?\n/, 1)[0].trim();
+    const simplified = firstLine
+      .replace(/^SQL\s+error:\s*/i, "")
+      .replace(/^DB::Exception:\s*/i, "")
+      .replace(/\s*\(SYNTAX_ERROR\)\s*$/i, "")
+      .replace(/\s+Expected one of:.*$/i, "")
+      .trim();
+    if (simplified.length <= 160) return simplified;
+    return `${simplified.slice(0, 157).trim()}...`;
+  }
+
+  function setFeedback(level, message) {
+    if (!feedback) return;
+    feedback.classList.remove("text-secondary", "text-danger", "text-warning", "text-success");
+    if (level === "error") {
+      feedback.classList.add("text-danger");
+    } else if (level === "warning") {
+      feedback.classList.add("text-warning");
+    } else if (level === "success") {
+      feedback.classList.add("text-success");
+    } else {
+      feedback.classList.add("text-secondary");
+    }
+    const compact = compactSqlMessage(message);
+    feedback.textContent = compact;
+    feedback.title = String(message || compact);
+  }
+
+  function localValidate(text) {
+    const sql = String(text || "").trim();
+    if (!sql) {
+      return { ok: true, level: "info", message: "Use fields, SQL operators, or functions for AI traces." };
+    }
+    let quoteOpen = false;
+    let parenDepth = 0;
+    for (let i = 0; i < sql.length; i += 1) {
+      const ch = sql[i];
+      if (ch === "'") {
+        if (i + 1 < sql.length && sql[i + 1] === "'") {
+          i += 1;
+          continue;
+        }
+        quoteOpen = !quoteOpen;
+      } else if (!quoteOpen) {
+        if (ch === "(") parenDepth += 1;
+        if (ch === ")") {
+          parenDepth -= 1;
+          if (parenDepth < 0) {
+            return { ok: false, level: "error", message: "Unexpected ')' in filter." };
+          }
+        }
+      }
+    }
+    if (quoteOpen) return { ok: false, level: "error", message: "Unclosed single quote in filter." };
+    if (parenDepth > 0) return { ok: false, level: "error", message: "Unclosed '(' in filter." };
+    if (/(AND|OR|NOT|IN|LIKE|ILIKE)\s*$/i.test(sql)) {
+      return { ok: false, level: "warning", message: "Filter ends with an operator or keyword." };
+    }
+    return { ok: true, level: "success", message: "Filter syntax looks good so far." };
+  }
+
+  async function validateServerSide() {
+    const requestSeq = ++validateSeq;
+    const sqlSnapshot = input.value;
+
+    const local = localValidate(input.value);
+    setFeedback(local.level, local.message);
+    if (!local.ok || !input.value.trim()) return;
+
+    if (validateController) validateController.abort();
+    validateController = new AbortController();
+
+    try {
+      const res = await fetch(validateUrl, {
+        method: "POST",
+        credentials: "same-origin",
+        signal: validateController.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sql: sqlSnapshot }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (requestSeq !== validateSeq || input.value !== sqlSnapshot) return;
+      if (!data.ok) {
+        const first = (data.issues || [])[0];
+        setFeedback(first && first.level ? first.level : "error", first && first.message ? first.message : "Invalid SQL filter.");
+        return;
+      }
+      const warn = (data.issues || []).find((i) => i.level === "warning");
+      if (warn) setFeedback("warning", warn.message);
+      else setFeedback("success", "Filter is valid.");
+    } catch (_err) {
+      if (_err && _err.name === "AbortError") return;
+    } finally {
+      if (requestSeq === validateSeq) validateController = null;
+    }
+  }
+
+  async function loadHints() {
+    if (hints) return hints;
+    try {
+      const r = await fetch(fieldHintsUrl, { credentials: "same-origin" });
+      if (r.ok) hints = await r.json();
+    } catch (_) {}
+    return hints;
+  }
+
+  function closeDropdown() {
+    dropdown.style.display = "none";
+    dropdown.innerHTML = "";
+    activeIdx = -1;
+    lastItems = [];
+  }
+
+  function openDropdown(items) {
+    if (!items.length) {
+      closeDropdown();
+      return;
+    }
+    lastItems = items;
+    activeIdx = -1;
+    dropdown.innerHTML = "";
+    items.forEach((item) => {
+      const li = document.createElement("li");
+      li.setAttribute("role", "option");
+      li.setAttribute("aria-selected", "false");
+      li.className = "dropdown-item py-1 px-2 cursor-pointer";
+      li.style.cursor = "pointer";
+      li.innerHTML = `<span class="me-1 text-secondary small">${_esc(item.prefix || "")}</span><strong>${_esc(item.label)}</strong>` +
+        (item.hint ? ` <small class="text-muted ms-1">${_esc(item.hint)}</small>` : "");
+      li.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        applyItem(item);
+      });
+      dropdown.appendChild(li);
+    });
+    dropdown.style.display = "block";
+  }
+
+  function setActive(idx) {
+    const lis = dropdown.querySelectorAll("li");
+    lis.forEach((li, i) => {
+      li.classList.toggle("active", i === idx);
+      li.setAttribute("aria-selected", i === idx ? "true" : "false");
+    });
+    activeIdx = idx;
+  }
+
+  function _esc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function _sqlQuote(s) {
+    return String(s).replace(/'/g, "''");
+  }
+
+  function fieldByName(name) {
+    if (!hints || !hints.fields) return null;
+    const needle = String(name || "").toLowerCase();
+    return hints.fields.find((f) => f.name.toLowerCase() === needle || f.column.toLowerCase() === needle) || null;
+  }
+
+  function parseContext(val, cursor) {
+    const text = val.slice(0, cursor);
+
+    const inQuotedVal = text.match(/(\w+)\s*(IN|NOT\s+IN)\s*\(\s*'((?:[^']|'')*)$/i);
+    if (inQuotedVal) {
+      return { type: "field_value", field: inQuotedVal[1].toLowerCase(), prefix: inQuotedVal[3].replace(/''/g, "'") };
+    }
+
+    const fieldVal = text.match(/(\w+)\s*(=|!=|LIKE|NOT\s+LIKE|ILIKE|NOT\s+ILIKE|>|<|>=|<=)\s*'((?:[^']|'')*)$/i);
+    if (fieldVal) {
+      return { type: "field_value", field: fieldVal[1].toLowerCase(), prefix: fieldVal[3].replace(/''/g, "'") };
+    }
+
+    const afterFieldOpWord = text.match(/(\w+)\s+([A-Za-z]*)$/);
+    if (afterFieldOpWord && fieldByName(afterFieldOpWord[1])) {
+      return { type: "field_operator", field: afterFieldOpWord[1].toLowerCase(), prefix: afterFieldOpWord[2] || "" };
+    }
+
+    const afterFieldOpSymbol = text.match(/(\w+)\s*([<>!=]{1,2})$/);
+    if (afterFieldOpSymbol && fieldByName(afterFieldOpSymbol[1])) {
+      return { type: "field_operator", field: afterFieldOpSymbol[1].toLowerCase(), prefix: afterFieldOpSymbol[2] || "" };
+    }
+
+    const fieldName = text.match(/(?:^|[\s(](?:AND|OR)\s+|^\s*)(\w*)$/i);
+    if (fieldName !== null) {
+      return { type: "field_name", prefix: fieldName[1] };
+    }
+    return null;
+  }
+
+  function applyItem(item) {
+    const val = input.value;
+    const cursor = input.selectionStart;
+    const before = val.slice(0, cursor);
+    const after = val.slice(cursor);
+
+    let newBefore;
+    if (item.type === "field_name") {
+      newBefore = before.replace(/(\w*)$/, item.insert);
+    } else if (item.type === "field_operator") {
+      newBefore = before.replace(/(\w+)\s+([A-Za-z<>!=]*)$/, `$1 ${item.insert}`);
+    } else if (item.type === "keyword" || item.type === "function" || item.type === "snippet") {
+      newBefore = before.replace(/(\w*)$/, item.insert);
+    } else if (item.type === "field_value") {
+      newBefore = before.replace(/([^']*)'((?:[^']|'')*)$/, `$1'${_sqlQuote(item.insert)}`);
+    } else {
+      newBefore = before;
+    }
+    input.value = newBefore + after;
+    const newCursor = newBefore.length;
+    input.setSelectionRange(newCursor, newCursor);
+    closeDropdown();
+    input.focus();
+    suggest();
+  }
+
+  async function suggest() {
+    const h = await loadHints();
+    if (!h) return;
+    const cursor = input.selectionStart;
+    const ctx = parseContext(input.value, cursor);
+    if (!ctx) {
+      closeDropdown();
+      return;
+    }
+
+    let items = [];
+    const pfx = (ctx.prefix || "").toLowerCase();
+
+    if (ctx.type === "field_name") {
+      const fieldAliases = h.fields.map((f) => ({
+        type: "field_name",
+        label: f.name,
+        hint: `(${f.type})`,
+        insert: f.name,
+        prefix: "",
+      }));
+      const keywords = (h.keywords || []).map((kw) => ({
+        type: "keyword",
+        label: kw,
+        hint: "keyword",
+        insert: kw,
+        prefix: "",
+      }));
+      const functions = (h.functions || []).map((fn) => ({
+        type: "function",
+        label: fn.name,
+        hint: fn.signature || "function",
+        insert: `${fn.name}(`,
+        prefix: "",
+      }));
+      const snippets = (h.snippets || []).map((sn) => ({
+        type: "snippet",
+        label: sn.label,
+        hint: sn.kind || "snippet",
+        insert: sn.insert,
+        prefix: "",
+      }));
+      const matchesPrefix = (item) => {
+        const label = String(item.label || "").toLowerCase();
+        const insert = String(item.insert || "").toLowerCase();
+        const hint = String(item.hint || "").toLowerCase();
+        return !pfx || label.startsWith(pfx) || insert.startsWith(pfx) || hint.includes(pfx);
+      };
+      items = [...fieldAliases, ...functions, ...keywords, ...snippets].filter(matchesPrefix);
+    } else if (ctx.type === "field_operator") {
+      const operators = [...(h.operators || localOperators), "IS NULL", "IS NOT NULL"].map((op) => ({
+        type: "field_operator",
+        label: op,
+        hint: "operator",
+        insert: op,
+        prefix: `${ctx.field} `,
+      }));
+      items = operators.filter((op) => op.label.toLowerCase().startsWith(pfx));
+    } else if (ctx.type === "field_value") {
+      const field = h.fields.find((f) => f.name.toLowerCase() === ctx.field || f.column.toLowerCase() === ctx.field);
+      if (field && field.values.length) {
+        items = field.values
+          .filter((v) => v.toLowerCase().startsWith(pfx))
+          .slice(0, 20)
+          .map((v) => ({ type: "field_value", label: v, insert: v, prefix: "" }));
+      } else {
+        items = [{ type: "field_value", label: "example", hint: "quoted value", insert: "example", prefix: "" }]
+          .filter((v) => v.label.startsWith(pfx));
+      }
+    }
+
+    openDropdown(items.slice(0, 100));
+  }
+
+  input.addEventListener("input", () => {
+    suggest();
+    const local = localValidate(input.value);
+    setFeedback(local.level, local.message);
+    if (validateTimer) window.clearTimeout(validateTimer);
+    validateTimer = window.setTimeout(validateServerSide, 350);
+  });
+  input.addEventListener("focus", suggest);
+  input.addEventListener("blur", () => {
+    if (validateTimer) window.clearTimeout(validateTimer);
+    validateTimer = window.setTimeout(validateServerSide, 50);
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (dropdown.style.display === "none") return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActive(Math.min(activeIdx + 1, lastItems.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActive(Math.max(activeIdx - 1, -1));
+    } else if (e.key === "Enter" || e.key === "Tab") {
+      if (activeIdx >= 0 && lastItems[activeIdx]) {
+        e.preventDefault();
+        applyItem(lastItems[activeIdx]);
+      } else {
+        closeDropdown();
+      }
+    } else if (e.key === "Escape") {
+      closeDropdown();
+    }
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+      closeDropdown();
+    }
+  });
+
+  const initial = localValidate(input.value);
+  setFeedback(initial.level, initial.message);
+})();
 </script>
 {% endblock %}

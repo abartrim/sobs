@@ -12,16 +12,37 @@
     </a>
     {% if related_target == 'logs' %}
     <a class="btn btn-sm btn-outline-info"
+       data-ai-action-id="metrics.anomaly.nav.logs"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/logs"}'
+       data-ai-label="Open related logs"
+       data-ai-risk="low"
+       data-ai-confirm="false"
        href="{{ url_for('view_logs', service=service, from_ts=from_ts, to_ts=to_ts, stats='1') }}">
       <i class="bi bi-journal-text me-1"></i>Open Related Logs
     </a>
     {% elif related_target == 'traces' %}
     <a class="btn btn-sm btn-outline-info"
+       data-ai-action-id="metrics.anomaly.nav.traces"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/traces"}'
+       data-ai-label="Open related traces"
+       data-ai-risk="low"
+       data-ai-confirm="false"
        href="{{ url_for('view_traces', service=service, from_ts=from_ts, to_ts=to_ts) }}">
       <i class="bi bi-diagram-3 me-1"></i>Open Related Traces
     </a>
     {% elif related_target == 'errors' %}
     <a class="btn btn-sm btn-outline-info"
+       data-ai-action-id="metrics.anomaly.nav.errors"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/errors"}'
+       data-ai-label="Open related errors"
+       data-ai-risk="low"
+       data-ai-confirm="false"
        href="{{ url_for('view_errors', service=service, from_ts=from_ts, to_ts=to_ts) }}">
       <i class="bi bi-bug me-1"></i>Open Related Errors
     </a>
@@ -31,8 +52,8 @@
 
 <div class="card border-secondary mb-3">
   <div class="card-body py-2">
-    <form method="get" class="row g-2 align-items-end">
-      <div class="col-md-2">
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+      <div style="flex: 1 0 120px">
         <label class="form-label small text-secondary">Source</label>
         <select name="source" class="form-select form-select-sm">
           <option value="">All sources</option>
@@ -41,7 +62,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-3">
+      <div style="flex: 1 0 140px">
         <label class="form-label small text-secondary">Service</label>
         <select name="service" class="form-select form-select-sm">
           <option value="">All services</option>
@@ -50,7 +71,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-3">
+      <div style="flex: 1 0 140px">
         <label class="form-label small text-secondary">Signal</label>
         <select name="signal" class="form-select form-select-sm">
           <option value="">All signals</option>
@@ -60,29 +81,40 @@
         </select>
       </div>
       <input type="hidden" name="metric" value="{{ metric }}">
-      <div class="col-md-2">
+      <div style="flex: 1 0 130px">
         <label class="form-label small text-secondary">Attr FP</label>
         <input type="text" name="attr_fp" class="form-control form-control-sm font-monospace" value="{{ attr_fp }}" placeholder="optional">
       </div>
-      <div class="col-md-2">
-        <label class="form-label small text-secondary">From</label>
-        <input type="text" name="from_ts" id="metrics-anomaly-from-ts" class="form-control form-control-sm" value="{{ from_ts }}" placeholder="2026-03-29 12:00">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small text-secondary">To</label>
-        <div class="input-group input-group-sm drp-combo">
-          <input type="text" name="to_ts" id="metrics-anomaly-to-ts" class="form-control drp-combo-input" value="{{ to_ts }}" placeholder="2026-03-29 12:05">
-          <button type="button" class="input-group-text drp-combo-trigger" data-drp-toggle data-drp-from="metrics-anomaly-from-ts" data-drp-to="metrics-anomaly-to-ts" title="Date/time picker" aria-label="Date/time picker">
-            <i class="bi bi-calendar3"></i>
-          </button>
+      <div class="filter-date-group">
+        <div class="filter-date-fields">
+          <div class="filter-date-field">
+            <label class="form-label small text-secondary">From</label>
+            <input type="text" name="from_ts" id="metrics-anomaly-from-ts" class="form-control form-control-sm" value="{{ from_ts }}" placeholder="2026-03-29 12:00">
+          </div>
+          <div class="filter-date-field">
+            <label class="form-label small text-secondary">To</label>
+            <div class="input-group input-group-sm drp-combo">
+              <input type="text" name="to_ts" id="metrics-anomaly-to-ts" class="form-control drp-combo-input" value="{{ to_ts }}" placeholder="2026-03-29 12:05">
+              <button type="button" class="input-group-text drp-combo-trigger" data-drp-toggle data-drp-from="metrics-anomaly-from-ts" data-drp-to="metrics-anomaly-to-ts" title="Date/time picker" aria-label="Date/time picker">
+                <i class="bi bi-calendar3"></i>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="col-md-2">
+      <div style="flex: 1 0 130px">
         <label class="form-label small text-secondary">Hours (fallback)</label>
         <input type="number" min="1" max="168" name="hours" class="form-control form-control-sm" value="{{ hours }}">
       </div>
-      <div class="col-md-2 d-flex gap-1">
-        <button type="submit" class="btn btn-primary btn-sm flex-grow-1"><i class="bi bi-search"></i></button>
+      <div class="d-flex gap-1" style="flex: 0 0 auto">
+        <button type="submit" class="btn btn-primary btn-sm"
+          data-ai-action-id="metrics.anomaly.filter.apply"
+          data-ai-action-type="apply_form_filters"
+          data-ai-handler="applyFormFilters"
+          data-ai-label="Apply metrics anomaly filters"
+          data-ai-risk="low"
+          data-ai-confirm="false"
+          data-ai-action-role="filter-submit"><i class="bi bi-search"></i></button>
         <a href="{{ url_for('view_metrics_anomaly') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
       </div>
     </form>

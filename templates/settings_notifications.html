@@ -165,7 +165,13 @@
           </div>
         </div>
 
-        <button type="submit" class="btn btn-info btn-sm"><i class="bi bi-plus-circle me-1"></i>Create Channel</button>
+        <button type="submit" class="btn btn-info btn-sm"
+          data-ai-action-id="settings.notifications.channel.create"
+          data-ai-action-type="submit_form"
+          data-ai-handler="submitForm"
+          data-ai-label="Create notification channel"
+          data-ai-risk="high"
+          data-ai-confirm="true"><i class="bi bi-plus-circle me-1"></i>Create Channel</button>
       </form>
     </div>
   </div>
@@ -210,12 +216,24 @@
               <i class="bi bi-send"></i>
             </button>
             <form method="post" action="{{ url_for('toggle_notification_channel', channel_id=ch.id) }}" class="d-inline">
-              <button type="submit" class="btn btn-sm btn-outline-secondary" title="{{ 'Disable' if ch.enabled else 'Enable' }}">
+              <button type="submit" class="btn btn-sm btn-outline-secondary" title="{{ 'Disable' if ch.enabled else 'Enable' }}"
+                      data-ai-action-id="settings.notifications.channel.toggle"
+                      data-ai-action-type="submit_form"
+                      data-ai-handler="submitForm"
+                      data-ai-label="Toggle notification channel"
+                      data-ai-risk="high"
+                      data-ai-confirm="true">
                 <i class="bi bi-{{ 'pause-circle' if ch.enabled else 'play-circle' }}"></i>
               </button>
             </form>
             <form method="post" action="{{ url_for('delete_notification_channel', channel_id=ch.id) }}" class="d-inline" onsubmit="return confirm('Delete channel \'{{ ch.name }}\'?')">
-              <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"
+                      data-ai-action-id="settings.notifications.channel.delete"
+                      data-ai-action-type="submit_form"
+                      data-ai-handler="submitForm"
+                      data-ai-label="Delete notification channel"
+                      data-ai-risk="high"
+                      data-ai-confirm="true">
                 <i class="bi bi-trash"></i>
               </button>
             </form>
@@ -331,7 +349,13 @@
         </div>
 
         <div class="mt-3">
-          <button type="submit" class="btn btn-warning btn-sm"><i class="bi bi-plus-circle me-1"></i>Create Rule</button>
+            <button type="submit" class="btn btn-warning btn-sm"
+              data-ai-action-id="settings.notifications.rule.create"
+              data-ai-action-type="submit_form"
+              data-ai-handler="submitForm"
+              data-ai-label="Create notification rule"
+              data-ai-risk="high"
+              data-ai-confirm="true"><i class="bi bi-plus-circle me-1"></i>Create Rule</button>
         </div>
       </form>
     </div>
@@ -387,12 +411,24 @@
         <td class="text-end" style="white-space: nowrap;">
           <div class="d-flex gap-2 justify-content-end">
             <form method="post" action="{{ url_for('toggle_notification_rule', rule_id=rule.id) }}" class="d-inline">
-              <button type="submit" class="btn btn-sm btn-outline-secondary" title="{{ 'Disable' if rule.enabled else 'Enable' }}">
+              <button type="submit" class="btn btn-sm btn-outline-secondary" title="{{ 'Disable' if rule.enabled else 'Enable' }}"
+                      data-ai-action-id="settings.notifications.rule.toggle"
+                      data-ai-action-type="submit_form"
+                      data-ai-handler="submitForm"
+                      data-ai-label="Toggle notification rule"
+                      data-ai-risk="high"
+                      data-ai-confirm="true">
                 <i class="bi bi-{{ 'pause-circle' if rule.enabled else 'play-circle' }}"></i>
               </button>
             </form>
             <form method="post" action="{{ url_for('delete_notification_rule', rule_id=rule.id) }}" class="d-inline" onsubmit="return confirm('Delete rule \'{{ rule.name }}\'?')">
-              <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"
+                      data-ai-action-id="settings.notifications.rule.delete"
+                      data-ai-action-type="submit_form"
+                      data-ai-handler="submitForm"
+                      data-ai-label="Delete notification rule"
+                      data-ai-risk="high"
+                      data-ai-confirm="true">
                 <i class="bi bi-trash"></i>
               </button>
             </form>

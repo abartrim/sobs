@@ -34,7 +34,18 @@
   <h4 class="fw-semibold mb-0"><i class="bi bi-journal-text me-2 text-info"></i>Logs</h4>
   <div class="d-flex align-items-center gap-2">
     <span id="liveModeStatus" class="badge text-bg-secondary">Live off</span>
-    <button id="liveModeToggle" type="button" class="btn btn-sm btn-outline-success">
+    <button
+      id="liveModeToggle"
+      type="button"
+      class="btn btn-sm btn-outline-success"
+      data-ai-action-id="logs.live_mode.start"
+      data-ai-action-type="start_live_mode"
+      data-ai-handler="startLiveMode"
+      data-ai-label="Start logs live mode"
+      data-ai-risk="low"
+      data-ai-confirm="false"
+      data-ai-action-role="toggle-live-mode"
+    >
       <i class="bi bi-broadcast-pin me-1"></i>Live mode
     </button>
     <button id="liveNewCountBtn" type="button" class="btn btn-sm btn-outline-info d-none">
@@ -47,15 +58,15 @@
 <!-- Search / Filter bar -->
 <div class="card border-secondary mb-3">
   <div class="card-body">
-    <form method="get" class="row g-2 align-items-end">
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
       <input type="hidden" name="live" id="liveModeInput" value="{{ '1' if live == '1' else '' }}">
       <input type="hidden" name="analyze" value="{{ analyze }}">
       <input type="hidden" name="stats" value="{{ '1' if stats_open else '' }}">
-      <div class="col-md-4">
+      <div style="flex: 2 0 200px">
         <label class="form-label small text-secondary">Grep pattern</label>
         <input type="text" name="q" class="form-control form-control-sm" placeholder="regex search…" value="{{ q }}">
       </div>
-      <div class="col-md-2">
+      <div style="flex: 1 0 120px">
         <label class="form-label small text-secondary">Level</label>
         <select name="level" class="form-select form-select-sm">
           <option value="">All levels</option>
@@ -64,7 +75,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-2">
+      <div style="flex: 1 0 140px">
         <label class="form-label small text-secondary">Service</label>
         <select name="service" class="form-select form-select-sm">
           <option value="">All services</option>
@@ -73,10 +84,32 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-3">
+      {% if event_names %}
+      <div style="flex: 1 0 130px">
+        <label class="form-label small text-secondary">Event</label>
+        <select name="event_name" class="form-select form-select-sm">
+          <option value="">All events</option>
+          {% for e in event_names %}
+          <option value="{{ e }}" {% if e == event_name %}selected{% endif %}>{{ e }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div style="flex: 2 0 200px">
         <label class="form-label small text-secondary">SQL WHERE <span class="text-muted">(overrides above)</span></label>
         <div class="position-relative">
-          <input type="text" name="sql" id="sql-filter-input" class="form-control form-control-sm font-monospace"
+             <input
+               type="text"
+               name="sql"
+               id="sql-filter-input"
+               class="form-control form-control-sm font-monospace"
+               data-ai-action-id="logs.filter.apply_sql"
+               data-ai-action-type="apply_sql_filter"
+               data-ai-handler="applySqlFilter"
+               data-ai-label="Apply logs SQL filter"
+               data-ai-risk="low"
+               data-ai-confirm="false"
+               data-ai-action-role="sql-where-input"
                  placeholder="level='ERROR' AND service='api'" value="{{ sql_where }}"
                  autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox" aria-describedby="sql-filter-feedback">
           <ul id="sql-ac-dropdown" role="listbox"
@@ -84,21 +117,25 @@
               style="display:none;position:absolute;top:100%;left:0;right:0;z-index:1060;max-height:220px;overflow-y:auto;"></ul>
         </div>
       </div>
-      <div class="col-md-2">
-        <label class="form-label small text-secondary">From</label>
-        <input type="text" name="from_ts" id="logs-from-ts" class="form-control form-control-sm" placeholder="2026-03-29 12:00" value="{{ from_ts }}">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small text-secondary">To</label>
-        <div class="input-group input-group-sm drp-combo">
-          <input type="text" name="to_ts" id="logs-to-ts" class="form-control drp-combo-input" placeholder="2026-03-29 12:05" value="{{ to_ts }}">
-          <button type="button" class="input-group-text drp-combo-trigger" data-drp-toggle data-drp-from="logs-from-ts" data-drp-to="logs-to-ts" title="Date/time picker" aria-label="Date/time picker">
-            <i class="bi bi-calendar3"></i>
-          </button>
+      <div class="filter-date-group">
+        <div class="filter-date-fields">
+          <div class="filter-date-field">
+            <label class="form-label small text-secondary">From</label>
+            <input type="text" name="from_ts" id="logs-from-ts" class="form-control form-control-sm" placeholder="2026-03-29 12:00" value="{{ from_ts }}">
+          </div>
+          <div class="filter-date-field">
+            <label class="form-label small text-secondary">To</label>
+            <div class="input-group input-group-sm drp-combo">
+              <input type="text" name="to_ts" id="logs-to-ts" class="form-control drp-combo-input" placeholder="2026-03-29 12:05" value="{{ to_ts }}">
+              <button type="button" class="input-group-text drp-combo-trigger" data-drp-toggle data-drp-from="logs-from-ts" data-drp-to="logs-to-ts" title="Date/time picker" aria-label="Date/time picker">
+                <i class="bi bi-calendar3"></i>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="col-md-1 d-flex gap-1">
-        <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+      <div class="d-flex gap-1" style="flex: 0 0 auto">
+        <button type="submit" class="btn btn-primary btn-sm">
           <i class="bi bi-search"></i>
         </button>
         <a href="{{ url_for('view_logs') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>

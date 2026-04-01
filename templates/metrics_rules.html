@@ -48,10 +48,22 @@
             </div>
           </div>
           <div class="col-md-2 d-flex gap-2">
-            <button type="submit" class="btn btn-outline-info btn-sm flex-grow-1" name="action" value="preview">
+            <button type="submit" class="btn btn-outline-info btn-sm flex-grow-1" name="action" value="preview"
+                    data-ai-action-id="metrics.rules.auto.preview"
+                    data-ai-action-type="submit_form"
+                    data-ai-handler="submitForm"
+                    data-ai-label="Preview auto metric rules"
+                    data-ai-risk="high"
+                    data-ai-confirm="true">
               <i class="bi bi-eye me-1"></i>Preview
             </button>
-            <button type="submit" class="btn btn-info btn-sm flex-grow-1" name="action" value="create">
+            <button type="submit" class="btn btn-info btn-sm flex-grow-1" name="action" value="create"
+                    data-ai-action-id="metrics.rules.auto.create"
+                    data-ai-action-type="submit_form"
+                    data-ai-handler="submitForm"
+                    data-ai-label="Create auto metric rules"
+                    data-ai-risk="high"
+                    data-ai-confirm="true">
               <i class="bi bi-magic me-1"></i>Create
             </button>
           </div>
@@ -141,10 +153,22 @@
             </select>
           </div>
           <div class="col-md-2 d-flex gap-2">
-            <button type="submit" class="btn btn-outline-info btn-sm flex-grow-1" name="action" value="preview">
+            <button type="submit" class="btn btn-outline-info btn-sm flex-grow-1" name="action" value="preview"
+                    data-ai-action-id="metrics.rules.dashboard.preview"
+                    data-ai-action-type="submit_form"
+                    data-ai-handler="submitForm"
+                    data-ai-label="Preview auto dashboard from rules"
+                    data-ai-risk="high"
+                    data-ai-confirm="true">
               <i class="bi bi-eye me-1"></i>Preview
             </button>
-            <button type="submit" class="btn btn-info btn-sm flex-grow-1" name="action" value="create">
+            <button type="submit" class="btn btn-info btn-sm flex-grow-1" name="action" value="create"
+                    data-ai-action-id="metrics.rules.dashboard.create"
+                    data-ai-action-type="submit_form"
+                    data-ai-handler="submitForm"
+                    data-ai-label="Create dashboard from rules"
+                    data-ai-risk="high"
+                    data-ai-confirm="true">
               <i class="bi bi-layout-text-window-reverse me-1"></i>Create
             </button>
           </div>
@@ -300,7 +324,13 @@
         <input type="number" step="any" name="secondary_critical_threshold" class="form-control form-control-sm" value="0">
       </div>
       <div class="col-md-2">
-        <button type="submit" class="btn btn-primary btn-sm w-100"><i class="bi bi-plus-lg me-1"></i>Create</button>
+        <button type="submit" class="btn btn-primary btn-sm w-100"
+          data-ai-action-id="metrics.rules.create"
+          data-ai-action-type="submit_form"
+          data-ai-handler="submitForm"
+          data-ai-label="Create metric rule"
+          data-ai-risk="high"
+          data-ai-confirm="true"><i class="bi bi-plus-lg me-1"></i>Create</button>
       </div>
     </form>
   </div>
@@ -365,7 +395,13 @@
                   <i class="bi bi-bell"></i>
                 </button>
                 <form method="post" action="{{ url_for('delete_metrics_rule', rule_id=rule.id) }}">
-                  <button type="submit" class="btn btn-sm btn-outline-danger js-delete-rule" data-rule-name="{{ rule.name }}">Delete</button>
+                    <button type="submit" class="btn btn-sm btn-outline-danger js-delete-rule" data-rule-name="{{ rule.name }}"
+                      data-ai-action-id="metrics.rules.delete"
+                      data-ai-action-type="submit_form"
+                      data-ai-handler="submitForm"
+                      data-ai-label="Delete metric rule"
+                      data-ai-risk="high"
+                      data-ai-confirm="true">Delete</button>
                 </form>
               </div>
             </td>

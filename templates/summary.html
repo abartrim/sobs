@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Summary{% endblock %}
+{% macro fmt_num(n) %}{% if n >= 1000000 %}{{ "%.1f" | format(n / 1000000) }}M{% elif n >= 1000 %}{{ "%.1f" | format(n / 1000) }}K{% else %}{{ n }}{% endif %}{% endmacro %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-4">
   <h4 class="fw-semibold mb-0">Summary</h4>
@@ -22,41 +23,76 @@
 <!-- Stats row -->
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-4 col-lg-2">
-    <a href="{{ url_for('view_logs') }}" class="text-decoration-none">
+     <a href="{{ url_for('view_logs') }}" class="text-decoration-none"
+       data-ai-action-id="summary.nav.logs"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/logs"}'
+       data-ai-label="Open Logs page"
+       data-ai-risk="low"
+       data-ai-confirm="false">
       <div class="stat-card p-3 text-center">
-        <div class="fs-2 fw-bold text-info">{{ stats.logs }}</div>
+        <div class="fs-2 fw-bold text-info">{{ fmt_num(stats.logs) }}</div>
         <div class="text-secondary small">Logs</div>
       </div>
     </a>
   </div>
   <div class="col-6 col-md-4 col-lg-2">
-    <a href="{{ url_for('view_errors') }}" class="text-decoration-none">
+     <a href="{{ url_for('view_errors') }}" class="text-decoration-none"
+       data-ai-action-id="summary.nav.errors"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/errors"}'
+       data-ai-label="Open Errors page"
+       data-ai-risk="low"
+       data-ai-confirm="false">
       <div class="stat-card p-3 text-center">
-        <div class="fs-2 fw-bold {% if stats.errors > 0 %}text-danger{% else %}text-success{% endif %}">{{ stats.errors }}</div>
+        <div class="fs-2 fw-bold {% if stats.errors > 0 %}text-danger{% else %}text-success{% endif %}">{{ fmt_num(stats.errors) }}</div>
         <div class="text-secondary small">Open Errors</div>
       </div>
     </a>
   </div>
   <div class="col-6 col-md-4 col-lg-2">
-    <a href="{{ url_for('view_traces') }}" class="text-decoration-none">
+     <a href="{{ url_for('view_traces') }}" class="text-decoration-none"
+       data-ai-action-id="summary.nav.traces"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/traces"}'
+       data-ai-label="Open Traces page"
+       data-ai-risk="low"
+       data-ai-confirm="false">
       <div class="stat-card p-3 text-center">
-        <div class="fs-2 fw-bold text-warning">{{ stats.spans }}</div>
+        <div class="fs-2 fw-bold text-warning">{{ fmt_num(stats.spans) }}</div>
         <div class="text-secondary small">Spans</div>
       </div>
     </a>
   </div>
   <div class="col-6 col-md-4 col-lg-2">
-    <a href="{{ url_for('view_rum') }}" class="text-decoration-none">
+     <a href="{{ url_for('view_rum') }}" class="text-decoration-none"
+       data-ai-action-id="summary.nav.rum"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/rum"}'
+       data-ai-label="Open RUM page"
+       data-ai-risk="low"
+       data-ai-confirm="false">
       <div class="stat-card p-3 text-center">
-        <div class="fs-2 fw-bold text-primary">{{ stats.rum }}</div>
+        <div class="fs-2 fw-bold text-primary">{{ fmt_num(stats.rum) }}</div>
         <div class="text-secondary small">RUM Events</div>
       </div>
     </a>
   </div>
   <div class="col-6 col-md-4 col-lg-2">
-    <a href="{{ url_for('view_ai') }}" class="text-decoration-none">
+     <a href="{{ url_for('view_ai') }}" class="text-decoration-none"
+       data-ai-action-id="summary.nav.ai"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/ai"}'
+       data-ai-label="Open AI page"
+       data-ai-risk="low"
+       data-ai-confirm="false">
       <div class="stat-card p-3 text-center">
-        <div class="fs-2 fw-bold text-success">{{ stats.ai }}</div>
+        <div class="fs-2 fw-bold text-success">{{ fmt_num(stats.ai) }}</div>
         <div class="text-secondary small">AI Calls</div>
       </div>
     </a>

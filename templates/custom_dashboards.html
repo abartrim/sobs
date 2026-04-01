@@ -3,7 +3,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h4 class="fw-semibold mb-0"><i class="bi bi-bar-chart-line me-2"></i>Custom Dashboards</h4>
-  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newDashboardModal">
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newDashboardModal"
+      data-ai-action-id="dashboards.modal.new.open"
+      data-ai-action-type="open_modal"
+      data-ai-handler="openModal"
+      data-ai-args='{"modal_id":"newDashboardModal"}'
+      data-ai-label="Open new dashboard modal"
+      data-ai-risk="low"
+      data-ai-confirm="false">
     <i class="bi bi-plus-lg me-1"></i>New Dashboard
   </button>
 </div>
@@ -20,12 +27,25 @@
         {% endif %}
       </div>
       <div class="card-footer d-flex justify-content-between align-items-center">
-        <a href="{{ url_for('view_custom_dashboard', dashboard_id=dash.id) }}" class="btn btn-sm btn-outline-primary">
+          <a href="{{ url_for('view_custom_dashboard', dashboard_id=dash.id) }}" class="btn btn-sm btn-outline-primary"
+            data-ai-action-id="dashboards.open.detail"
+            data-ai-action-type="navigate"
+            data-ai-handler="navigate"
+            data-ai-label="Open dashboard"
+            data-ai-risk="low"
+            data-ai-confirm="false">
           <i class="bi bi-eye me-1"></i>Open
         </a>
         <form method="post" action="{{ url_for('delete_dashboard', dashboard_id=dash.id) }}"
               onsubmit="return confirm('Delete dashboard \'{{ dash.name }}\'?')">
-          <button type="submit" class="btn btn-sm btn-outline-danger">
+          <button type="submit" class="btn btn-sm btn-outline-danger"
+                  data-ai-action-id="dashboards.delete"
+                  data-ai-action-type="submit_form"
+                  data-ai-handler="submitForm"
+                  data-ai-label="Delete dashboard"
+                  data-ai-risk="high"
+                  data-ai-confirm="true"
+                  data-ai-action-role="delete-dashboard-submit">
             <i class="bi bi-trash"></i>
           </button>
         </form>
@@ -38,7 +58,14 @@
 <div class="text-center py-5 text-secondary">
   <i class="bi bi-bar-chart-line fs-1 d-block mb-3"></i>
   <p class="mb-3">No custom dashboards yet.</p>
-  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newDashboardModal">
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newDashboardModal"
+      data-ai-action-id="dashboards.modal.new.open.empty"
+      data-ai-action-type="open_modal"
+      data-ai-handler="openModal"
+      data-ai-args='{"modal_id":"newDashboardModal"}'
+      data-ai-label="Open new dashboard modal"
+      data-ai-risk="low"
+      data-ai-confirm="false">
     <i class="bi bi-plus-lg me-1"></i>Create your first dashboard
   </button>
 </div>
@@ -65,7 +92,14 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary">Create</button>
+          <button type="submit" class="btn btn-primary"
+                  data-ai-action-id="dashboards.create.submit"
+                  data-ai-action-type="submit_form"
+                  data-ai-handler="submitForm"
+                  data-ai-label="Create dashboard"
+                  data-ai-risk="medium"
+                  data-ai-confirm="true"
+                  data-ai-action-role="create-dashboard-submit">Create</button>
         </div>
       </form>
     </div>

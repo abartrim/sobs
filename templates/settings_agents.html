@@ -1,0 +1,358 @@
+{% extends "base.html" %}
+{% block title %}Agent Rules{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-lightning-charge me-2 text-warning"></i>Automated Agent Flows</h4>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('view_ai_settings') }}" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-gear me-1"></i>AI Settings
+    </a>
+    <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Back to Settings
+    </a>
+  </div>
+</div>
+
+<p class="text-secondary small mb-4">
+  Agent rules automatically invoke an AI flow when specific anomaly rules or tag rules are
+  matched, or on manual trigger. The agent performs root-cause analysis and can optionally
+  create a GitHub issue with sanitised details assigned to Copilot.
+  All flows are safety-gated via the configured guard model.
+</p>
+
+<!-- Create Agent Rule -->
+<div class="card border-secondary mb-4">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-plus-circle me-1 text-success"></i>Create Agent Rule
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('create_agent_rule') }}">
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">Rule Name <span class="text-danger">*</span></label>
+          <input type="text" name="name" class="form-control form-control-sm"
+                 placeholder="High error rate investigation" required>
+        </div>
+        <div class="col-md-8">
+          <label class="form-label small fw-semibold">Description</label>
+          <input type="text" name="description" class="form-control form-control-sm"
+                 placeholder="Optional description of what this rule investigates">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold">Trigger Type</label>
+          <select name="trigger_type" class="form-select form-select-sm" id="triggerTypeSelect">
+            {% for tt in trigger_types %}
+            <option value="{{ tt }}">{{ tt | replace('_', ' ') | title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4" id="triggerRefRow">
+          <label class="form-label small fw-semibold">Trigger Rule Reference</label>
+          <select name="trigger_ref_id" class="form-select form-select-sm" id="triggerRefSelect">
+            <option value="">— none (manual only) —</option>
+            <optgroup label="Anomaly Rules">
+              {% for r in anomaly_rules %}
+              <option value="{{ r.id }}" data-type="anomaly_rule">{{ r.name }}</option>
+              {% endfor %}
+            </optgroup>
+            <optgroup label="Tag Rules">
+              {% for r in tag_rules %}
+              <option value="{{ r.id }}" data-type="tag_rule">{{ r.id[:8] }}… {{ r.name }}</option>
+              {% endfor %}
+            </optgroup>
+          </select>
+          <div class="form-text">Which rule must fire to trigger this agent flow.</div>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-semibold">Trigger State</label>
+          <select name="trigger_state" class="form-select form-select-sm">
+            {% for ts in trigger_states %}
+            <option value="{{ ts }}">{{ ts | title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold">Rate Limit (minutes)</label>
+          <input type="number" name="rate_limit_minutes" class="form-control form-control-sm"
+                 min="1" max="10080" value="60">
+          <div class="form-text">Minimum minutes between automatic runs.</div>
+        </div>
+        <div class="col-12">
+          <label class="form-label small fw-semibold">Actions</label>
+          <div class="d-flex flex-wrap gap-3">
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="checkbox" name="actions" value="analyze" id="actAnalyze" checked>
+              <label class="form-check-label small" for="actAnalyze">
+                <i class="bi bi-search me-1"></i>LLM Analysis &amp; Suggestion
+              </label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="checkbox" name="actions" value="dlp_check" id="actDlp">
+              <label class="form-check-label small" for="actDlp">
+                <i class="bi bi-lock me-1"></i>DLP Check (before GitHub issue)
+              </label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="checkbox" name="actions" value="github_issue" id="actGithub">
+              <label class="form-check-label small" for="actGithub">
+                <i class="bi bi-github me-1"></i>Create GitHub Issue (mention Copilot for suggestions)
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="mt-3">
+        <button type="submit" class="btn btn-sm btn-success"
+          data-ai-action-id="settings.agents.create"
+          data-ai-action-type="submit_form"
+          data-ai-handler="submitForm"
+          data-ai-label="Create agent rule"
+          data-ai-risk="high"
+          data-ai-confirm="true">
+          <i class="bi bi-plus me-1"></i>Create Rule
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Active Rules -->
+<div class="card border-secondary mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span class="fw-semibold"><i class="bi bi-list-check me-1"></i>Agent Rules ({{ rules | length }})</span>
+  </div>
+  {% if rules %}
+  <div class="table-responsive">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Trigger</th>
+          <th>State</th>
+          <th>Actions</th>
+          <th>Rate Limit</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rules %}
+        <tr>
+          <td>
+            <span class="fw-semibold small">{{ r.name }}</span>
+            {% if r.description %}
+            <br><span class="text-secondary" style="font-size:.78rem;">{{ r.description }}</span>
+            {% endif %}
+          </td>
+          <td class="small font-monospace">
+            {{ r.trigger_type | replace('_', ' ') | title }}
+            {% if r.trigger_ref_id %}
+            <br><span class="text-secondary" style="font-size:.78rem;">{{ r.trigger_ref_id[:12] }}…</span>
+            {% endif %}
+          </td>
+          <td><span class="badge bg-secondary">{{ r.trigger_state }}</span></td>
+          <td class="small">
+            {% for a in r.actions %}
+            <span class="badge
+              {% if a == 'analyze' %}text-bg-info
+              {% elif a == 'github_issue' %}text-bg-dark border border-secondary
+              {% elif a == 'dlp_check' %}text-bg-warning text-dark
+              {% else %}text-bg-secondary{% endif %}
+              me-1">{{ a | replace('_', ' ') }}</span>
+            {% endfor %}
+          </td>
+          <td class="small text-secondary">{{ r.rate_limit_minutes }}m</td>
+          <td class="text-end">
+            <button type="button"
+                    class="btn btn-sm btn-outline-primary me-1 sobs-run-btn"
+                    data-rule-id="{{ r.id | e }}"
+                  data-rule-name="{{ r.name | e }}"
+                  data-ai-action-id="settings.agents.run"
+                  data-ai-action-type="invoke_click"
+                  data-ai-handler="invokeClick"
+                  data-ai-label="Run agent rule"
+                  data-ai-risk="high"
+                  data-ai-confirm="true">
+              <i class="bi bi-play me-1"></i>Run
+            </button>
+            <form method="post" action="{{ url_for('delete_agent_rule', rule_id=r.id) }}"
+                  style="display:inline;"
+                  class="sobs-delete-rule-form"
+                  data-rule-name="{{ r.name | e }}">
+              <button type="submit" class="btn btn-sm btn-outline-danger"
+                      data-ai-action-id="settings.agents.delete"
+                      data-ai-action-type="submit_form"
+                      data-ai-handler="submitForm"
+                      data-ai-label="Delete agent rule"
+                      data-ai-risk="high"
+                      data-ai-confirm="true">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-secondary small text-center py-4">
+    No agent rules yet. Create one above to get started.
+  </div>
+  {% endif %}
+</div>
+
+<!-- Recent Runs -->
+<div class="card border-secondary">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span class="fw-semibold"><i class="bi bi-clock-history me-1"></i>Recent Agent Runs (last 20)</span>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="location.reload()">
+      <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+    </button>
+  </div>
+  {% if runs %}
+  <div class="table-responsive">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Rule</th>
+          <th>Status</th>
+          <th>Guard</th>
+          <th>DLP</th>
+          <th>Analysis</th>
+          <th>GitHub Issue</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in runs %}
+        {% if not run.is_dismissed %}
+        <tr>
+          <td class="small font-monospace text-secondary" style="white-space:nowrap;">{{ run.created_at[:19] }}</td>
+          <td class="small">{{ run.rule_name }}</td>
+          <td>
+            <span class="badge
+              {% if run.status == 'completed' %}text-bg-success
+              {% elif run.status == 'failed' %}text-bg-danger
+              {% elif run.status == 'blocked_by_guard' %}text-bg-warning text-dark
+              {% elif run.status == 'running' %}text-bg-info
+              {% else %}text-bg-secondary{% endif %}">
+              {{ run.status | replace('_', ' ') }}
+            </span>
+          </td>
+          <td class="small text-secondary">{{ run.guard_decision or '—' }}</td>
+          <td class="small text-secondary">{{ run.dlp_result or '—' }}</td>
+          <td class="small" style="max-width:300px;">
+            {% if run.analysis %}
+            <details>
+              <summary class="text-info" style="cursor:pointer;">View analysis</summary>
+              <pre class="mt-1" style="font-size:.75rem;white-space:pre-wrap;">{{ run.analysis }}</pre>
+              {% if run.suggestion %}
+              <strong class="small">Suggestion:</strong>
+              <pre style="font-size:.75rem;white-space:pre-wrap;">{{ run.suggestion }}</pre>
+              {% endif %}
+            </details>
+            {% elif run.error_message %}
+            <span class="text-danger small">{{ run.error_message[:80] }}</span>
+            {% else %}
+            <span class="text-secondary">—</span>
+            {% endif %}
+          </td>
+          <td class="small">
+            {% if run.github_issue_url %}
+            <a href="{{ run.github_issue_url }}" target="_blank" rel="noopener" class="text-info">
+              <i class="bi bi-github me-1"></i>View
+            </a>
+            {% else %}
+            <span class="text-secondary">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <button type="button" class="btn btn-sm btn-outline-secondary sobs-dismiss-btn"
+                    data-run-id="{{ run.id | e }}" title="Dismiss">
+              <i class="bi bi-x"></i>
+            </button>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-secondary small text-center py-4">No agent runs yet.</div>
+  {% endif %}
+</div>
+
+<!-- Run result toast -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:9999;">
+  <div id="agentRunToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+    <div class="toast-header">
+      <i class="bi bi-lightning-charge me-2 text-warning"></i>
+      <strong class="me-auto">Agent Flow</strong>
+      <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+    <div class="toast-body" id="agentRunToastBody"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var triggerUrl = '{{ url_for("trigger_agent_run") }}';
+
+  function triggerAgentRun(ruleId, ruleName) {
+    var extra = prompt('Optional extra context for the agent (leave blank for none):') || '';
+    fetch(triggerUrl, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({rule_id: ruleId, extra_context: extra})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var toastEl = document.getElementById('agentRunToast');
+      var toastBody = document.getElementById('agentRunToastBody');
+      if (data.ok) {
+        toastBody.textContent = 'Agent run completed for "' + ruleName + '". Status: ' + (data.result && data.result.status || 'done');
+      } else {
+        toastBody.textContent = 'Error: ' + (data.error || 'unknown error');
+      }
+      var toast = new bootstrap.Toast(toastEl);
+      toast.show();
+      setTimeout(function() { location.reload(); }, 3000);
+    })
+    .catch(function(err) {
+      alert('Failed to trigger agent run: ' + err);
+    });
+  }
+
+  function dismissRun(runId) {
+    fetch('/api/agent/runs/' + runId + '/dismiss', {method: 'POST'})
+      .then(function() { location.reload(); })
+      .catch(function(err) { console.error('dismiss failed', err); });
+  }
+
+  // Use event delegation to avoid inline handlers (XSS prevention)
+  document.addEventListener('click', function (e) {
+    var runBtn = e.target.closest('.sobs-run-btn');
+    if (runBtn) {
+      triggerAgentRun(runBtn.dataset.ruleId, runBtn.dataset.ruleName);
+      return;
+    }
+    var dismissBtn = e.target.closest('.sobs-dismiss-btn');
+    if (dismissBtn) {
+      dismissRun(dismissBtn.dataset.runId);
+      return;
+    }
+    var deleteForm = e.target.closest('.sobs-delete-rule-form');
+    if (deleteForm && e.target.closest('button[type="submit"]')) {
+      var ruleName = deleteForm.dataset.ruleName;
+      if (!confirm('Delete agent rule \u201c' + ruleName + '\u201d?')) {
+        e.preventDefault();
+      }
+    }
+  });
+}());
+</script>
+{% endblock %}

@@ -29,7 +29,7 @@ Send data with header:
 
 Example request:
 
-    curl -X POST http://localhost:4317/v1/logs \
+    curl -X POST http://localhost:44317/v1/logs \
       -H "Content-Type: application/json" \
       -H "X-API-Key: my-ingest-key" \
       -d '{}'
@@ -61,7 +61,7 @@ Result:
 
 Example (generates Basic header using base64):
 
-    curl -i http://localhost:4317/ \
+    curl -i http://localhost:44317/ \
       -H "Authorization: Basic $(printf 'admin:secret' | base64)"
 
 ## 4) Web UI mode: external
@@ -85,7 +85,7 @@ Result:
 
 Example request:
 
-    curl -i http://localhost:4317/ \
+    curl -i http://localhost:44317/ \
       -H "Authorization: Bearer eyJhbGciOi..."
 
 ### Same-origin session-cookie fallback
@@ -115,7 +115,7 @@ Basic mode:
       sobs:
         image: ghcr.io/abartrim/sobs:latest
         ports:
-          - "4317:4317"
+          - "44317:4317"
         environment:
           - SOBS_API_KEY=my-ingest-key
           - SOBS_BASIC_AUTH_USERNAME=admin
@@ -127,7 +127,7 @@ External mode:
       sobs:
         image: ghcr.io/abartrim/sobs:latest
         ports:
-          - "4317:4317"
+          - "44317:4317"
         environment:
           - SOBS_API_KEY=my-ingest-key
           - SOBS_EXTERNAL_AUTH_URL=http://auth-service

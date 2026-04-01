@@ -27,7 +27,7 @@ const { ExpressInstrumentation } = require('@opentelemetry/instrumentation-expre
 const { Resource } = require('@opentelemetry/resources');
 const { ATTR_SERVICE_NAME } = require('@opentelemetry/semantic-conventions');
 
-const SOBS_ENDPOINT = 'http://localhost:4317';
+const SOBS_ENDPOINT = 'http://localhost:44317';
 const SERVICE_NAME  = 'node-demo';
 
 const sdk = new NodeSDK({
@@ -85,7 +85,7 @@ app.get('/ai-demo', async (req, res) => {
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Demo app listening on http://localhost:${PORT}`);
-  console.log(`SOBS UI: http://localhost:4317`);
+  console.log(`SOBS UI: http://localhost:44317`);
 });
 
 process.on('SIGTERM', () => sdk.shutdown().finally(() => process.exit(0)));

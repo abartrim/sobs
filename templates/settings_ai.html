@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}AI Configuration{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-robot me-2 text-primary"></i>AI &amp; Agent Configuration</h4>
+  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Back to Settings
+  </a>
+</div>
+
+<form method="post" action="{{ url_for('save_ai_settings') }}">
+  <!-- LLM Endpoint -->
+  <div class="card border-secondary mb-3">
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="bi bi-plug text-info"></i>
+      <span class="fw-semibold">LLM Endpoint (OpenAI-compatible)</span>
+    </div>
+    <div class="card-body">
+      <p class="small text-secondary mb-3">
+        Configure any OpenAI-compatible endpoint. This is used by both the contextual helper widget
+        and agent flow analysis. Leave blank to disable AI features.
+      </p>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">Endpoint URL</label>
+          <input type="url" name="endpoint_url" class="form-control form-control-sm font-monospace"
+                 placeholder="https://api.openai.com/v1"
+                 value="{{ settings.get('ai.endpoint_url', '') }}">
+          <div class="form-text">Base URL of your OpenAI-compatible API. The path
+            <code>/chat/completions</code> will be appended automatically.</div>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-semibold">Model</label>
+          <input type="text" name="model" class="form-control form-control-sm font-monospace"
+                 placeholder="gpt-4o-mini"
+                 value="{{ settings.get('ai.model', '') }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold">Default Thinking Level</label>
+          <select name="thinking_level" class="form-select form-select-sm">
+            {% set thinking = settings.get('ai.thinking_level', 'off') %}
+            <option value="off" {% if thinking == 'off' %}selected{% endif %}>Off</option>
+            <option value="low" {% if thinking == 'low' %}selected{% endif %}>Low</option>
+            <option value="medium" {% if thinking == 'medium' %}selected{% endif %}>Medium</option>
+            <option value="high" {% if thinking == 'high' %}selected{% endif %}>High</option>
+          </select>
+          <div class="form-text">Applied only when the selected model supports thinking/reasoning controls.</div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold">API Key</label>
+          <input type="password" name="api_key" class="form-control form-control-sm font-monospace"
+                 autocomplete="off"
+                 placeholder="sk-…"
+                 value="{{ settings.get('ai.api_key', '') }}">
+          <div class="form-text">Stored locally. Never sent to SOBS servers.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Guard Model -->
+  <div class="card border-secondary mb-3">
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="bi bi-shield-check text-warning"></i>
+      <span class="fw-semibold">Safety Guard Model</span>
+    </div>
+    <div class="card-body">
+      <p class="small text-secondary mb-3">
+        Every LLM request (helper and agent flows) is first passed through a guard model to
+        block unsafe, off-topic, or prompt-injection content. Guard endpoint and model are
+        required; when unavailable, requests are blocked (fail-closed).
+      </p>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">Guard Endpoint URL</label>
+          <input type="url" name="guard_endpoint_url" class="form-control form-control-sm font-monospace"
+                 placeholder="https://api.openai.com/v1"
+                 value="{{ settings.get('ai.guard_endpoint_url', '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">Guard Model</label>
+          <input type="text" name="guard_model" class="form-control form-control-sm font-monospace"
+                 placeholder="gpt-4o-mini"
+                 value="{{ settings.get('ai.guard_model', '') }}">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DLP -->
+  <div class="card border-secondary mb-3">
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="bi bi-lock text-danger"></i>
+      <span class="fw-semibold">Data Loss Prevention (DLP) Endpoint</span>
+    </div>
+    <div class="card-body">
+      <p class="small text-secondary mb-3">
+        Optional. When agent flows are about to create a GitHub issue, SOBS can first POST the
+        issue text to a DLP endpoint to scan for PII or secrets. The DLP service must accept
+        <code>{"text": "…"}</code> and return <code>{"flagged": true|false}</code>.
+        Leave blank to skip DLP scanning.
+      </p>
+      <div class="col-md-8">
+        <label class="form-label small fw-semibold">DLP Endpoint URL</label>
+        <input type="url" name="dlp_endpoint_url" class="form-control form-control-sm font-monospace"
+               placeholder="https://your-dlp-service.example.com/scan"
+               value="{{ settings.get('ai.dlp_endpoint_url', '') }}">
+      </div>
+    </div>
+  </div>
+
+  <!-- GitHub Integration -->
+  <div class="card border-secondary mb-3">
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="bi bi-github text-info"></i>
+      <span class="fw-semibold">GitHub Integration (Agent Flows)</span>
+    </div>
+    <div class="card-body">
+      <p class="small text-secondary mb-3">
+        Agent flows can optionally create a GitHub issue with sanitised details and
+        mention <code>@github-copilot</code> in a comment to request a suggested fix. Requires a
+        <strong>fine-grained personal access token</strong> with
+        <em>Issues: Read and write</em> permission on the target repository.
+        A hard cap of <em>max issues per hour</em> prevents flooding.
+      </p>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">GitHub Token</label>
+          <input type="password" name="github_token" class="form-control form-control-sm font-monospace"
+                 autocomplete="off"
+                 placeholder="github_pat_…"
+                 value="{{ settings.get('ai.github_token', '') }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">Repository (<code>owner/repo</code>)</label>
+          <input type="text" name="github_repo" class="form-control form-control-sm font-monospace"
+                 placeholder="myorg/myrepo"
+                 value="{{ settings.get('ai.github_repo', '') }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">Max Issues per Hour</label>
+          <input type="number" name="agent_max_issues_per_hour" class="form-control form-control-sm"
+                 min="1" max="20"
+                 value="{{ settings.get('ai.agent_max_issues_per_hour', '5') or '5' }}">
+          <div class="form-text">Hard ceiling to prevent issue flooding (max 20).</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom System Prompt -->
+  <div class="card border-secondary mb-3">
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="bi bi-chat-dots text-secondary"></i>
+      <span class="fw-semibold">Custom System Prompt (optional)</span>
+    </div>
+    <div class="card-body">
+      <p class="small text-secondary mb-2">
+        Override the default system prompt used for both the contextual helper and agent
+        analysis calls. Leave blank to use the built-in SOBS observability expert prompt.
+      </p>
+      <textarea name="system_prompt" rows="4" class="form-control form-control-sm font-monospace"
+                placeholder="You are an expert SRE…">{{ settings.get('ai.system_prompt', '') }}</textarea>
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-primary"
+          data-ai-action-id="settings.ai.save"
+          data-ai-action-type="submit_form"
+          data-ai-handler="submitForm"
+          data-ai-label="Save AI settings"
+          data-ai-risk="high"
+          data-ai-confirm="true"
+          data-ai-action-role="save-settings-submit">
+    <i class="bi bi-floppy me-1"></i>Save AI Settings
+  </button>
+</form>
+
+<div class="mt-4">
+  <h5 class="text-secondary fw-semibold"><i class="bi bi-info-circle me-2"></i>How It Works</h5>
+  <div class="card border-secondary">
+    <div class="card-body small text-secondary">
+      <ul class="mb-2">
+        <li><strong>Contextual Helper Widget</strong> — A chat panel available on every page (click the
+          <i class="bi bi-robot"></i> button in the navigation). It is aware of your current page and
+          recent observability context, and calls the configured LLM endpoint.</li>
+        <li><strong>Guard Model</strong> — Before any LLM call, the input is first sent to the guard
+          model and must return <code>safe</code> (or <code>ALLOWED</code>); otherwise the request is blocked.</li>
+        <li><strong>Agent Flows</strong> — Configurable rules that automatically invoke the LLM when
+          anomaly rules fire or tag rules match. Results appear in
+          <a href="{{ url_for('view_agent_rules') }}">Agent Rules</a> and can optionally create
+          GitHub issues.</li>
+        <li><strong>DLP</strong> — When enabled, issue text is scanned for PII/secrets before
+          being posted to GitHub.</li>
+        <li><strong>Tools/Thinking Models</strong> — AI helper tool actions and thinking controls are
+          intended for instruct/tools-capable models.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

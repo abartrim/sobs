@@ -30,7 +30,7 @@
     .sidebar.sidebar-compact { width: var(--sb-compact); padding-left: 0; padding-right: 0; }
     .sidebar.sidebar-compact .sb-label { opacity: 0; max-width: 0; pointer-events: none; }
     .sidebar.sidebar-compact .sb-brand-text { display: none; }
-    .sidebar.sidebar-compact .nav-link { margin: 1px 2px; padding: .5rem .4rem; justify-content: center; }
+    .sidebar.sidebar-compact .nav-link { margin: 1px 2px; padding: .5rem .4rem; justify-content: center; gap: 0; }
     .sidebar.sidebar-compact .sb-brand { padding: 0 .6rem; justify-content: center; }
     .sidebar.sidebar-compact .sb-footer { display: none; }
     /* ===== Sidebar edge toggle button ===== */
@@ -57,7 +57,13 @@
       .sidebar.sidebar-compact .sb-brand { padding: 0; justify-content: flex-start; }
       .sidebar.sidebar-compact .sb-footer { display: block; }
     }
-    .main-content { min-height: 100vh; }
+    .main-content { min-height: 100vh; transition: margin-left 0.22s ease; }
+    /* ===== Desktop: sidebar fixed to viewport ===== */
+    @media (min-width: 576px) {
+      .sidebar { position: fixed; top: 0; left: 0; height: 100vh; }
+      .main-content { margin-left: var(--sb-full); }
+      .sidebar.sidebar-compact + .main-content { margin-left: var(--sb-compact); }
+    }
     .badge-level-ERROR, .badge-level-FATAL, .badge-level-CRITICAL { background-color: #dc3545 !important; }
     .badge-level-WARN, .badge-level-WARNING { background-color: #fd7e14 !important; }
     .badge-level-INFO { background-color: #0d6efd !important; }
@@ -128,6 +134,22 @@
       z-index: 3;
     }
     .drp-combo .drp-combo-trigger .bi { font-size: .85rem; }
+    .filter-date-group {
+      flex: 2 1 300px;
+      min-width: min(300px, 100%);
+      max-width: 100%;
+    }
+    .filter-date-fields {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem;
+      align-items: end;
+      max-width: 100%;
+    }
+    .filter-date-field {
+      flex: 1 1 140px;
+      min-width: 0;
+    }
   </style>
 </head>
 <body>
@@ -209,7 +231,7 @@
         </a>
       </li>
       <li class="nav-item">
-        <a href="{{ url_for('view_settings') }}" class="nav-link {% if request.endpoint in ('view_settings', 'view_tag_rules', 'view_notifications') %}active{% endif %}" title="Settings">
+        <a href="{{ url_for('view_settings') }}" class="nav-link {% if request.endpoint in ('view_settings', 'view_tag_rules', 'view_ai_settings', 'view_agent_rules', 'view_notifications') %}active{% endif %}" title="Settings">
           <i class="bi bi-gear"></i><span class="sb-label">Settings</span>
         </a>
       </li>
@@ -400,6 +422,2503 @@
         toggleIcon.className = 'bi bi-chevron-left';
       }
     }
+  });
+}());
+</script>
+
+<!-- ===== AI Assistant Widget ===== -->
+<style>
+  :root {
+    --sobs-ai-btn-bg: rgba(13, 110, 253, 0.12);
+    --sobs-ai-btn-hover-bg: rgba(13, 110, 253, 0.18);
+    --sobs-ai-btn-border: rgba(13, 110, 253, 0.2);
+    --sobs-ai-btn-color: #0d6efd;
+    --sobs-ai-btn-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  }
+  [data-bs-theme='dark'] {
+    --sobs-ai-btn-bg: rgba(110, 168, 254, 0.18);
+    --sobs-ai-btn-hover-bg: rgba(110, 168, 254, 0.26);
+    --sobs-ai-btn-border: rgba(110, 168, 254, 0.28);
+    --sobs-ai-btn-color: #9ec5fe;
+    --sobs-ai-btn-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  }
+  #sobsAiBtn {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    z-index: 1080;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 1px solid var(--sobs-ai-btn-border);
+    background: var(--sobs-ai-btn-bg);
+    color: var(--sobs-ai-btn-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: var(--sobs-ai-btn-shadow);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: background 0.15s, border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  }
+  #sobsAiBtn:hover {
+    background: var(--sobs-ai-btn-hover-bg);
+    border-color: var(--sobs-ai-btn-color);
+    transform: scale(1.08);
+  }
+  #sobsAiPanel {
+    position: fixed;
+    bottom: 4.5rem;
+    right: 1.5rem;
+    z-index: 1075;
+    width: min(420px, calc(100vw - 2rem));
+    min-height: 320px;
+    min-width: 320px;
+    max-height: 70vh;
+    max-width: calc(100vw - 1rem);
+    display: none;
+    flex-direction: column;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.4);
+    resize: both;
+    overflow: hidden;
+    transition: width 0.2s ease, height 0.2s ease, max-height 0.2s ease, right 0.2s ease, bottom 0.2s ease;
+  }
+  #sobsAiPanel.behind-modal {
+    z-index: 1040;
+  }
+  #sobsAiBtn.behind-modal {
+    z-index: 1040;
+    opacity: .7;
+  }
+  #sobsAiPanel.open { display: flex; }
+  #sobsAiPanel.expanded {
+    max-height: none;
+  }
+  #sobsAiPanelHeader {
+    padding: .6rem 1rem;
+    background: var(--bs-tertiary-bg);
+    border-bottom: 1px solid var(--bs-border-color);
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    flex-shrink: 0;
+    cursor: move;
+    user-select: none;
+    overflow: hidden;
+  }
+  #sobsAiPanelHeader > .fw-semibold {
+    min-width: 0;
+  }
+  #sobsAiPanel.dragging {
+    transition: none;
+  }
+  #sobsAiToggleHistory {
+    border: 0;
+    background: transparent;
+    color: var(--bs-secondary-color);
+    padding: .15rem .28rem;
+    opacity: .72;
+  }
+  #sobsAiToggleHistory:hover {
+    opacity: 1;
+    color: var(--bs-body-color);
+    background: color-mix(in srgb, var(--bs-secondary-bg) 72%, transparent);
+  }
+  #sobsAiPanel:not(.history-collapsed) #sobsAiToggleHistory {
+    color: var(--bs-primary);
+    opacity: .92;
+  }
+  #sobsAiActiveChat {
+    display: none;
+    align-items: center;
+    gap: .25rem;
+    max-width: 180px;
+    min-width: 0;
+    flex-shrink: 1;
+    font-size: .64rem;
+    color: var(--bs-secondary-color);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 999px;
+    padding: .08rem .4rem;
+    background: color-mix(in srgb, var(--bs-tertiary-bg) 65%, transparent);
+  }
+  #sobsAiActiveChat.visible {
+    display: inline-flex;
+  }
+  #sobsAiActiveChatLabel {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 132px;
+  }
+  #sobsAiThinkingWrap {
+    display: none;
+    align-items: center;
+    gap: .35rem;
+    font-size: .72rem;
+    color: var(--bs-secondary-color);
+    flex-shrink: 0;
+  }
+  #sobsAiThinkingWrap.active {
+    display: inline-flex;
+  }
+  #sobsAiPanel.header-tight .sobs-ai-thinking-text {
+    display: none;
+  }
+  #sobsAiPanel.header-tight #sobsAiActiveChat {
+    max-width: 120px;
+  }
+  #sobsAiPanel.header-very-tight #sobsAiActiveChat {
+    display: none;
+  }
+  #sobsAiThinkingLevel {
+    width: 84px;
+    padding: .12rem .3rem;
+    font-size: .72rem;
+  }
+  #sobsAiMessages {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: .75rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+    font-size: .85rem;
+  }
+  #sobsAiBody {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  #sobsAiHistoryPanel {
+    width: 210px;
+    min-width: 160px;
+    border-right: 1px solid var(--bs-border-color);
+    background: color-mix(in srgb, var(--bs-secondary-bg) 52%, transparent);
+    display: flex;
+    flex-direction: column;
+    transition: width .18s ease;
+  }
+  #sobsAiPanel.history-collapsed #sobsAiHistoryPanel {
+    width: 0;
+    min-width: 0;
+    border-right: 0;
+    overflow: hidden;
+  }
+  #sobsAiHistoryHeader {
+    padding: .5rem .55rem;
+    border-bottom: 1px solid var(--bs-border-color);
+    color: var(--bs-secondary-color);
+    font-size: .7rem;
+    font-weight: 600;
+  }
+  #sobsAiHistoryList {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: .3rem;
+    display: flex;
+    flex-direction: column;
+    gap: .28rem;
+  }
+  #sobsAiHistorySentinel {
+    height: 1px;
+    flex-shrink: 0;
+  }
+  #sobsAiHistorySearch {
+    flex-shrink: 0;
+    padding: .3rem .35rem;
+    border-top: 1px solid var(--bs-border-color);
+  }
+  #sobsAiHistorySearchInput {
+    width: 100%;
+    font-size: .7rem;
+    padding: .22rem .4rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 5px;
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    outline: none;
+  }
+  #sobsAiHistorySearchInput:focus {
+    border-color: color-mix(in srgb, var(--bs-primary) 55%, var(--bs-border-color));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--bs-primary) 15%, transparent);
+  }
+  .sobs-ai-history-loading {
+    text-align: center;
+    font-size: .68rem;
+    color: var(--bs-secondary-color);
+    padding: .3rem 0;
+  }
+  .sobs-ai-history-item {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 8px;
+    background: var(--bs-body-bg);
+    padding: .35rem .4rem;
+    cursor: pointer;
+  }
+  .sobs-ai-history-item.active {
+    border-color: color-mix(in srgb, var(--bs-primary) 65%, var(--bs-border-color));
+    background: color-mix(in srgb, var(--bs-primary-bg-subtle) 58%, var(--bs-body-bg));
+  }
+  .sobs-ai-history-title {
+    font-size: .72rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sobs-ai-history-meta {
+    margin-top: .16rem;
+    font-size: .62rem;
+    color: var(--bs-secondary-color);
+  }
+  #sobsAiConversation {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .sobs-ai-msg {
+    padding: .45rem .75rem;
+    border-radius: 10px;
+    max-width: 90%;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.5;
+  }
+  .sobs-ai-msg.user {
+    background: var(--bs-primary);
+    color: #fff;
+    align-self: flex-end;
+    border-bottom-right-radius: 3px;
+  }
+  .sobs-ai-msg.assistant {
+    background: var(--bs-secondary-bg);
+    color: var(--bs-body-color);
+    align-self: flex-start;
+    border-bottom-left-radius: 3px;
+    white-space: normal;
+  }
+  .sobs-ai-msg-time {
+    font-size: .6rem;
+    line-height: 1;
+    opacity: .7;
+    white-space: nowrap;
+  }
+  .sobs-ai-msg-meta {
+    margin-top: .28rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .45rem;
+    flex-wrap: wrap;
+  }
+  .sobs-ai-msg-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: .15rem;
+    flex-wrap: wrap;
+  }
+  .sobs-ai-msg-action {
+    --bs-btn-padding-y: .08rem;
+    --bs-btn-padding-x: .28rem;
+    --bs-btn-font-size: .68rem;
+    display: inline-flex;
+    align-items: center;
+    gap: .2rem;
+    color: var(--bs-secondary-color);
+    text-decoration: none;
+  }
+  .sobs-ai-msg-action:hover,
+  .sobs-ai-msg-action:focus {
+    color: var(--bs-body-color);
+  }
+  .sobs-ai-msg-action[disabled] {
+    opacity: .72;
+    pointer-events: none;
+  }
+  .sobs-ai-msg.assistant p { margin: 0 0 .45rem 0; }
+  .sobs-ai-msg.assistant p:last-child { margin-bottom: 0; }
+  .sobs-ai-msg.assistant ul,
+  .sobs-ai-msg.assistant ol {
+    margin: 0 0 .45rem 1.15rem;
+    padding-left: .6rem;
+  }
+  .sobs-ai-msg.assistant li { margin: .15rem 0; }
+  .sobs-ai-msg.assistant pre {
+    margin: .35rem 0;
+    padding: .45rem .55rem;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--bs-body-color) 8%, transparent);
+    overflow-x: auto;
+  }
+  .sobs-ai-msg.assistant code {
+    font-size: .82em;
+    border-radius: 4px;
+    padding: .05rem .3rem;
+    background: color-mix(in srgb, var(--bs-body-color) 10%, transparent);
+  }
+  .sobs-ai-msg.assistant pre code {
+    padding: 0;
+    background: transparent;
+  }
+  .sobs-ai-msg.assistant a {
+    color: var(--bs-link-color);
+    text-decoration: underline;
+    word-break: break-all;
+  }
+  .sobs-markdown-block {
+    display: block;
+  }
+  .sobs-markdown-tail {
+    display: block;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--bs-body-color);
+    line-height: 1.5;
+  }
+  .sobs-ai-msg.assistant .ai-md-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: .35rem 0;
+  }
+  .sobs-ai-msg.assistant table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .82rem;
+  }
+  .sobs-ai-msg.assistant th,
+  .sobs-ai-msg.assistant td {
+    border: 1px solid var(--bs-border-color);
+    padding: .35rem .45rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  .sobs-ai-msg.assistant th {
+    background: var(--bs-tertiary-bg);
+    font-weight: 600;
+  }
+  .sobs-ai-msg.assistant tr:nth-child(even) td {
+    background: color-mix(in srgb, var(--bs-body-color) 3%, transparent);
+  }
+  .sobs-ai-msg.error-msg { background: #dc354522; color: #dc3545; }
+  .sobs-ai-msg.info-msg { background: #0d6efd22; color: #0d6efd; }
+  .sobs-ai-tool-card {
+    align-self: flex-start;
+    max-width: 90%;
+    border: 1px solid var(--bs-border-color);
+    background: var(--bs-tertiary-bg);
+    border-radius: 10px;
+    padding: .5rem .6rem;
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+    font-size: .78rem;
+  }
+  .sobs-ai-tool-title {
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+  }
+  .sobs-ai-tool-code {
+    font-family: var(--bs-font-monospace);
+    font-size: .74rem;
+    background: color-mix(in srgb, var(--bs-body-color) 7%, transparent);
+    border-radius: 6px;
+    padding: .35rem .45rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .sobs-ai-tool-actions {
+    display: flex;
+    gap: .4rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .sobs-ai-tool-status {
+    color: var(--bs-secondary-color);
+    font-size: .72rem;
+  }
+  .sobs-ai-tool-card.historical {
+    background: color-mix(in srgb, var(--bs-tertiary-bg) 78%, transparent);
+  }
+  .sobs-ai-thinking-trace {
+    margin-top: .35rem;
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    font-size: .72rem;
+    color: var(--bs-secondary-color);
+    text-decoration: none;
+    opacity: .9;
+  }
+  .sobs-ai-thinking-trace:hover {
+    color: var(--bs-info-text-emphasis, var(--bs-info));
+    opacity: 1;
+  }
+  .sobs-ai-msg.thinking-msg {
+    background: color-mix(in srgb, var(--bs-secondary-bg) 78%, transparent);
+    color: var(--bs-secondary-color);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 92px;
+    padding: .5rem .7rem;
+  }
+  .sobs-ai-thinking-wrap {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    align-self: flex-start;
+    gap: .25rem;
+    max-width: 90%;
+  }
+  .sobs-ai-thinking {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .sobs-ai-thinking-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    min-height: 14px;
+  }
+  .sobs-ai-thinking-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: .35;
+    animation: sobsAiThinkingPulse 1.1s ease-in-out infinite;
+  }
+  .sobs-ai-thinking-dot:nth-child(2) { animation-delay: .16s; }
+  .sobs-ai-thinking-dot:nth-child(3) { animation-delay: .32s; }
+  .sobs-ai-thinking-label {
+    font-size: .64rem;
+    line-height: 1;
+    letter-spacing: .04em;
+    color: var(--bs-secondary-color);
+  }
+  @keyframes sobsAiThinkingPulse {
+    0%, 80%, 100% {
+      transform: translateY(0) scale(.85);
+      opacity: .3;
+    }
+    40% {
+      transform: translateY(-1px) scale(1);
+      opacity: .85;
+    }
+  }
+  #sobsAiInputRow {
+    display: flex;
+    gap: .4rem;
+    padding: .6rem;
+    border-top: 1px solid var(--bs-border-color);
+    flex-shrink: 0;
+  }
+  #sobsAiStatus {
+    display: none;
+    font-size: .7rem;
+    color: var(--bs-secondary-color);
+    padding: .25rem .6rem;
+    border-top: 1px solid var(--bs-border-color);
+    gap: .75rem;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.4;
+  }
+  #sobsAiStatus.visible { display: flex; }
+  #sobsAiStatus .stat-group { display: flex; gap: .3rem; align-items: center; }
+  #sobsAiStatus .stat-label { font-weight: 600; opacity: .75; }
+  #sobsAiStatus .stat-sep { opacity: .35; }
+  #sobsAiInput {
+    flex: 1;
+    font-size: .85rem;
+    resize: none;
+    border-radius: 8px;
+    padding: .4rem .6rem;
+    border: 1px solid var(--bs-border-color);
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    min-height: 38px;
+    max-height: 120px;
+  }
+  #sobsAiSendBtn {
+    flex-shrink: 0;
+    height: 38px;
+    padding: 0 .75rem;
+    font-size: .85rem;
+  }
+  @media (max-width: 768px) {
+    #sobsAiPanel {
+      right: 1rem;
+      bottom: 4.25rem;
+      width: calc(100vw - 2rem);
+    }
+    #sobsAiPanel.expanded {
+      right: .5rem;
+      bottom: .5rem;
+      width: calc(100vw - 1rem);
+      height: calc(100vh - 1rem);
+      max-height: calc(100vh - 1rem);
+    }
+    #sobsAiHistoryPanel {
+      width: 150px;
+      min-width: 130px;
+    }
+  }
+</style>
+
+<button id="sobsAiBtn" title="AI Assistant (beta)" aria-label="Open AI assistant (beta)">
+  <i class="bi bi-robot fs-5"></i>
+</button>
+
+<div id="sobsAiPanel" class="history-collapsed" role="dialog" aria-label="AI Assistant (beta)" aria-modal="false">
+  <div id="sobsAiPanelHeader">
+    <i class="bi bi-robot text-primary"></i>
+    <span class="fw-semibold small flex-grow-1">AI Assistant (beta)</span>
+    <span id="sobsAiActiveChat" aria-label="Active chat">
+      <i class="bi bi-pin-angle"></i>
+      <span id="sobsAiActiveChatLabel"></span>
+    </span>
+    <button type="button" id="sobsAiToggleHistory" aria-label="Toggle chat history" title="Toggle history">
+      <i class="bi bi-layout-sidebar"></i>
+    </button>
+    <div id="sobsAiThinkingWrap" aria-label="Thinking level">
+      <span class="sobs-ai-thinking-text">Thinking</span>
+      <select id="sobsAiThinkingLevel" class="form-select form-select-sm" title="Model thinking level">
+        <option value="off">Off</option>
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+      </select>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="sobsAiNewChat" aria-label="New chat" title="New chat">
+      <i class="bi bi-plus-lg"></i>
+    </button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="sobsAiExpand" aria-label="Expand AI helper" aria-expanded="false" title="Expand">
+      <i class="bi bi-arrows-angle-expand"></i>
+    </button>
+    <button type="button" class="btn-close btn-close-sm" id="sobsAiClose" aria-label="Close"></button>
+  </div>
+  <div id="sobsAiBody">
+    <aside id="sobsAiHistoryPanel" aria-label="Chat history">
+      <div id="sobsAiHistoryHeader">Chats</div>
+      <div id="sobsAiHistoryList">
+        <div id="sobsAiHistorySentinel"></div>
+      </div>
+      <div id="sobsAiHistorySearch">
+        <input type="search" id="sobsAiHistorySearchInput" placeholder="Filter chats…" autocomplete="off" aria-label="Filter chat history">
+      </div>
+    </aside>
+    <div id="sobsAiConversation">
+      <div id="sobsAiMessages" aria-live="polite" aria-relevant="additions"></div>
+      <div id="sobsAiStatus" role="status" aria-label="Token usage"></div>
+      <div id="sobsAiInputRow">
+        <textarea id="sobsAiInput" rows="1" placeholder="Ask a question about this page…" aria-label="Your question"></textarea>
+        <button id="sobsAiSendBtn" class="btn btn-primary btn-sm" type="button">
+          <i class="bi bi-send"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
+<script>
+(function () {
+  var btn = document.getElementById('sobsAiBtn');
+  var panel = document.getElementById('sobsAiPanel');
+  var closeBtn = document.getElementById('sobsAiClose');
+  var expandBtn = document.getElementById('sobsAiExpand');
+  var newChatBtn = document.getElementById('sobsAiNewChat');
+  var toggleHistoryBtn = document.getElementById('sobsAiToggleHistory');
+  var historyListEl = document.getElementById('sobsAiHistoryList');
+  var activeChatEl = document.getElementById('sobsAiActiveChat');
+  var activeChatLabelEl = document.getElementById('sobsAiActiveChatLabel');
+  var messagesEl = document.getElementById('sobsAiMessages');
+  var statusEl = document.getElementById('sobsAiStatus');
+  var inputEl = document.getElementById('sobsAiInput');
+  var sendBtn = document.getElementById('sobsAiSendBtn');
+  var thinkingWrapEl = document.getElementById('sobsAiThinkingWrap');
+  var thinkingLevelEl = document.getElementById('sobsAiThinkingLevel');
+  var currentAbortController = null;
+  var currentChatId = '';
+  var supportsThinking = false;
+  var historyLoaded = false;
+  var chatStateKey = 'sobs-ai-chat-state-v1';
+  var headerResizeObserver = null;
+  var mdRenderer = (window.markdownit && window.DOMPurify)
+    ? window.markdownit({
+      html: false,
+      linkify: true,
+      breaks: true,
+      typographer: true
+    })
+    : null;
+
+  if (mdRenderer) {
+    mdRenderer.renderer.rules.table_open = function () {
+      return '<div class="ai-md-table-wrap"><table>';
+    };
+    mdRenderer.renderer.rules.table_close = function () {
+      return '</table></div>';
+    };
+  }
+
+  function formatRelativeTime(ts) {
+    if (!ts) return '';
+    var d = new Date(String(ts).replace(' ', 'T') + 'Z');
+    if (isNaN(d.getTime())) {
+      d = new Date(ts);
+    }
+    if (isNaN(d.getTime())) return '';
+    var diffSec = Math.max(1, Math.floor((Date.now() - d.getTime()) / 1000));
+    if (diffSec < 60) return diffSec + 's ago';
+    var diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return diffMin + 'm ago';
+    var diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return diffHr + 'h ago';
+    var diffDay = Math.floor(diffHr / 24);
+    if (diffDay < 365) return diffDay + 'd ago';
+    return Math.floor(diffDay / 365) + 'y ago';
+  }
+
+  function setActiveChatLabel(label) {
+    var text = String(label || '').trim();
+    if (!activeChatEl || !activeChatLabelEl) return;
+    if (!text) {
+      activeChatLabelEl.textContent = '';
+      activeChatEl.classList.remove('visible');
+      return;
+    }
+    activeChatLabelEl.textContent = text;
+    activeChatEl.classList.add('visible');
+  }
+
+  function syncPanelHeaderDensity() {
+    if (!panel) return;
+    var width = panel.offsetWidth || panel.getBoundingClientRect().width || 0;
+    panel.classList.toggle('header-tight', width > 0 && width < 560);
+    panel.classList.toggle('header-very-tight', width > 0 && width < 470);
+  }
+
+  if (window.ResizeObserver && panel) {
+    headerResizeObserver = new window.ResizeObserver(function () {
+      syncPanelHeaderDensity();
+    });
+    headerResizeObserver.observe(panel);
+  }
+
+  function snapshotPanelGeometryForRestore() {
+    var rect = panel.getBoundingClientRect();
+    var computed = window.getComputedStyle(panel);
+    panel.dataset.sobsPrevWidth = Math.max(320, Math.round(rect.width)) + 'px';
+    panel.dataset.sobsPrevHeight = Math.max(280, Math.round(rect.height)) + 'px';
+
+    if (panel.style.left && panel.style.top) {
+      panel.dataset.sobsPrevMode = 'floating';
+      panel.dataset.sobsPrevLeft = Math.round(rect.left) + 'px';
+      panel.dataset.sobsPrevTop = Math.round(rect.top) + 'px';
+      panel.dataset.sobsPrevRight = 'auto';
+      panel.dataset.sobsPrevBottom = 'auto';
+    } else {
+      panel.dataset.sobsPrevMode = 'anchored';
+      panel.dataset.sobsPrevLeft = '';
+      panel.dataset.sobsPrevTop = '';
+      panel.dataset.sobsPrevRight = panel.style.right || computed.right || '';
+      panel.dataset.sobsPrevBottom = panel.style.bottom || computed.bottom || '';
+    }
+  }
+
+  function setExpandedState(expanded) {
+    var wasExpanded = panel.classList.contains('expanded');
+    if (expanded === wasExpanded) {
+      return;
+    }
+
+    panel.classList.toggle('expanded', expanded);
+
+    if (expanded) {
+      snapshotPanelGeometryForRestore();
+      applyExpandedBounds();
+    } else {
+      panel.style.width = panel.dataset.sobsPrevWidth || '';
+      panel.style.height = panel.dataset.sobsPrevHeight || '';
+      var mode = String(panel.dataset.sobsPrevMode || 'anchored');
+      if (mode === 'floating') {
+        panel.style.left = panel.dataset.sobsPrevLeft || '';
+        panel.style.top = panel.dataset.sobsPrevTop || '';
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+      } else {
+        panel.style.left = '';
+        panel.style.top = '';
+        panel.style.right = panel.dataset.sobsPrevRight || '';
+        panel.style.bottom = panel.dataset.sobsPrevBottom || '';
+      }
+      clampPanelSize(true);
+      if (mode === 'floating' && panel.style.left && panel.style.top) {
+        clampPanelPosition(true);
+      }
+    }
+    if (!expandBtn) {
+      return;
+    }
+    expandBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    expandBtn.setAttribute('aria-label', expanded ? 'Collapse AI helper' : 'Expand AI helper');
+    expandBtn.setAttribute('title', expanded ? 'Collapse' : 'Expand');
+    var icon = expandBtn.querySelector('i');
+    if (icon) {
+      icon.className = expanded ? 'bi bi-arrows-angle-contract' : 'bi bi-arrows-angle-expand';
+    }
+    if (expanded) {
+      applyExpandedBounds();
+    }
+  }
+
+  function toggleExpanded() {
+    setExpandedState(!panel.classList.contains('expanded'));
+  }
+
+  function toggleHistory() {
+    panel.classList.toggle('history-collapsed');
+    syncPanelHeaderDensity();
+  }
+
+  function togglePanel() {
+    panel.classList.toggle('open');
+    if (panel.classList.contains('open')) {
+      if (panel.style.left && panel.style.top) {
+        clampPanelPosition();
+      }
+      syncPanelHeaderDensity();
+      inputEl.focus();
+      if (!messagesEl.hasChildNodes()) {
+        addMsg('assistant', 'Hi! I\'m your SOBS observability assistant. I can help you understand logs, traces, metrics, errors, and more on this page. What would you like to know?', null);
+      }
+      if (!historyLoaded) {
+        loadChatHistory();
+      }
+      syncActiveChatLabelFromHistory();
+    }
+  }
+
+  // ===== Paged history state =====
+  var historySearchEl = document.getElementById('sobsAiHistorySearchInput');
+  var historySentinelEl = document.getElementById('sobsAiHistorySentinel');
+  var historyState = { offset: 0, q: '', loading: false, hasMore: true };
+  var historyIntersectionObserver = null;
+  var historySearchTimer = null;
+
+  function _historyPageSize() {
+    // Estimate how many items fit in the visible list height.
+    // Each item is ~54px (2-line title+meta + padding + gap).
+    var listH = historyListEl ? historyListEl.clientHeight : 0;
+    var itemH = 54;
+    // Try to measure an existing item for accuracy.
+    var existing = historyListEl && historyListEl.querySelector('.sobs-ai-history-item');
+    if (existing && existing.offsetHeight > 0) {
+      itemH = existing.offsetHeight + 4; // +4 for gap
+    }
+    var visible = listH > 0 ? Math.floor(listH / itemH) : 10;
+    // Fetch 1.5x what's visible so the list fills without an immediate second request, min 5 max 100.
+    return Math.max(5, Math.min(Math.ceil(visible * 1.5), 100));
+  }
+
+  function _buildHistoryItem(chat) {
+    var item = document.createElement('button');
+    item.type = 'button';
+    item.dataset.chatId = String(chat.chat_id || '');
+    item.className = 'sobs-ai-history-item' + (String(chat.chat_id || '') === currentChatId ? ' active' : '');
+    var title = document.createElement('div');
+    title.className = 'sobs-ai-history-title';
+    title.textContent = String(chat.label || 'Chat');
+    var meta = document.createElement('div');
+    meta.className = 'sobs-ai-history-meta';
+    meta.textContent = formatRelativeTime(chat.last_ts) + ' • ' + String(chat.turn_count || 0) + ' turns';
+    item.appendChild(title);
+    item.appendChild(meta);
+    item.addEventListener('click', function () {
+      loadChatConversation(String(chat.chat_id || ''));
+    });
+    return item;
+  }
+
+  function _appendHistoryItems(chats) {
+    if (!historyListEl || !historySentinelEl) return;
+    (chats || []).forEach(function (chat) {
+      // insert before sentinel so new items appear above it
+      historyListEl.insertBefore(_buildHistoryItem(chat), historySentinelEl);
+      // accumulate into cache for label sync
+      if (!historyListEl._cachedChats) historyListEl._cachedChats = [];
+      historyListEl._cachedChats.push(chat);
+    });
+  }
+
+  function refreshHistoryActiveState() {
+    if (!historyListEl) return;
+    historyListEl.querySelectorAll('.sobs-ai-history-item').forEach(function (el) {
+      el.classList.toggle('active', el.dataset.chatId === currentChatId);
+    });
+  }
+
+  async function _fetchHistoryPage() {
+    if (historyState.loading || !historyState.hasMore) return;
+    historyState.loading = true;
+    // show a loading indicator inside sentinel
+    var loadingEl = document.createElement('div');
+    loadingEl.className = 'sobs-ai-history-loading';
+    loadingEl.textContent = '…';
+    if (historySentinelEl) historySentinelEl.appendChild(loadingEl);
+    try {
+      var url = new URL('{{ url_for("ai_helper_chats") }}', window.location.origin);
+      url.searchParams.set('page', window.location.pathname || '/');
+      url.searchParams.set('offset', String(historyState.offset));
+      url.searchParams.set('limit', String(_historyPageSize()));
+      if (historyState.q) url.searchParams.set('q', historyState.q);
+      var resp = await fetch(url.toString());
+      var data = await resp.json();
+      if (!resp.ok || !data.ok) return;
+      historyLoaded = true;
+      _appendHistoryItems(data.chats || []);
+      historyState.offset += (data.chats || []).length;
+      historyState.hasMore = !!data.has_more;
+      syncActiveChatLabelFromHistory();
+    } catch (_err) {
+      // ignore
+    } finally {
+      if (loadingEl.parentNode) loadingEl.parentNode.removeChild(loadingEl);
+      historyState.loading = false;
+    }
+  }
+
+  function _resetAndLoadHistory() {
+    if (!historyListEl || !historySentinelEl) return;
+    // remove all history items (keep sentinel)
+    Array.from(historyListEl.querySelectorAll('.sobs-ai-history-item')).forEach(function (el) {
+      el.parentNode.removeChild(el);
+    });
+    historyListEl._cachedChats = [];
+    historyState.offset = 0;
+    historyState.hasMore = true;
+    historyState.loading = false;
+    _fetchHistoryPage();
+  }
+
+  function loadChatHistory() {
+    _resetAndLoadHistory();
+  }
+
+  // IntersectionObserver: load next page when sentinel scrolls into view
+  if (window.IntersectionObserver && historySentinelEl && historyListEl) {
+    historyIntersectionObserver = new IntersectionObserver(function (entries) {
+      if (entries[0].isIntersecting && historyState.hasMore && !historyState.loading) {
+        _fetchHistoryPage();
+      }
+    }, { root: historyListEl, threshold: 0.1 });
+    historyIntersectionObserver.observe(historySentinelEl);
+  }
+
+  // Debounced search
+  if (historySearchEl) {
+    historySearchEl.addEventListener('input', function () {
+      clearTimeout(historySearchTimer);
+      historySearchTimer = setTimeout(function () {
+        historyState.q = (historySearchEl.value || '').trim().toLowerCase();
+        _resetAndLoadHistory();
+      }, 300);
+    });
+  }
+
+  function syncActiveChatLabelFromHistory() {
+    var chats = (historyListEl && historyListEl._cachedChats) || [];
+    var found = null;
+    for (var i = 0; i < chats.length; i += 1) {
+      if (String(chats[i].chat_id || '') === currentChatId) {
+        found = chats[i];
+        break;
+      }
+    }
+    if (found) {
+      setActiveChatLabel(String(found.label || 'Chat'));
+    } else if (currentChatId) {
+      setActiveChatLabel('Chat');
+    } else {
+      setActiveChatLabel('');
+    }
+  }
+
+  async function loadChatConversation(chatId) {
+    if (!chatId) return;
+    try {
+      var url = new URL('{{ url_for("ai_helper_chats") }}' + '/' + encodeURIComponent(chatId), window.location.origin);
+      var resp = await fetch(url.toString());
+      var data = await resp.json();
+      if (!resp.ok || !data.ok) return;
+      while (messagesEl.firstChild) { messagesEl.removeChild(messagesEl.firstChild); }
+      (data.messages || []).forEach(function (msg) {
+        if (String(msg.kind || 'message') === 'tool') {
+          addToolCard(msg, {historical: true});
+          return;
+        }
+        addMsg(String(msg.role || 'assistant'), String(msg.text || ''), String(msg.ts || ''), {
+          turnId: String(msg.turn_id || ''),
+          chatId: String(data.chat_id || chatId),
+          retryQuestion: String(msg.question || ''),
+          copyText: String(msg.role || '') === 'assistant' ? String(msg.text || '') : ''
+        });
+      });
+      currentChatId = String(data.chat_id || chatId);
+      refreshHistoryActiveState();
+      syncActiveChatLabelFromHistory();
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      syncPanelHeaderDensity();
+      inputEl.focus();
+    } catch (_err) {
+      // ignore load failures
+    }
+  }
+
+  async function loadCapabilities() {
+    try {
+      var capUrl = new URL('{{ url_for("ai_helper_capabilities") }}', window.location.origin);
+      capUrl.searchParams.set('page', window.location.pathname || '/logs');
+      var r = await fetch(capUrl.toString());
+      var data = await r.json();
+      if (!data || !data.ok) {
+        return;
+      }
+      supportsThinking = !!data.supports_thinking;
+      if (thinkingWrapEl) {
+        thinkingWrapEl.classList.toggle('active', supportsThinking);
+      }
+      if (supportsThinking && thinkingLevelEl) {
+        thinkingLevelEl.value = String(data.default_thinking_level || 'off');
+      }
+    } catch (_err) {
+      if (thinkingWrapEl) {
+        thinkingWrapEl.classList.remove('active');
+      }
+    }
+  }
+
+  function saveChatState() {
+    try {
+      var hasCustomPosition = !!(panel.style.left && panel.style.top);
+      var hasCustomSize = !!(panel.style.width || panel.style.height);
+      var state = {
+        path: window.location.pathname,
+        query: window.location.search,
+        isOpen: panel.classList.contains('open'),
+        isExpanded: panel.classList.contains('expanded'),
+        messagesHtml: stripAssistantMeta(messagesEl.innerHTML),
+        statusHtml: statusEl ? statusEl.innerHTML : '',
+        statusVisible: statusEl ? statusEl.classList.contains('visible') : false,
+        isHistoryCollapsed: panel.classList.contains('history-collapsed'),
+        chatId: currentChatId,
+        thinkingLevel: thinkingLevelEl ? thinkingLevelEl.value : 'off',
+        hasCustomPosition: hasCustomPosition,
+        panelLeft: hasCustomPosition ? panel.style.left : '',
+        panelTop: hasCustomPosition ? panel.style.top : '',
+        hasCustomSize: hasCustomSize,
+        panelWidth: hasCustomSize ? panel.style.width : '',
+        panelHeight: hasCustomSize ? panel.style.height : '',
+        savedAt: Date.now()
+      };
+      window.sessionStorage.setItem(chatStateKey, JSON.stringify(state));
+    } catch (_err) {
+      // Ignore storage errors in constrained browser modes.
+    }
+  }
+
+  function setAiLayerBehindModal(behind) {
+    panel.classList.toggle('behind-modal', !!behind);
+    btn.classList.toggle('behind-modal', !!behind);
+  }
+
+  function syncAiLayerWithModals() {
+    setAiLayerBehindModal(!!document.querySelector('.modal.show'));
+  }
+
+  function shouldPersistAiState() {
+    return panel.classList.contains('open');
+  }
+
+  function saveAiStateForNavigation() {
+    if (!shouldPersistAiState()) {
+      return;
+    }
+    saveChatState();
+  }
+
+  function restoreChatState() {
+    try {
+      var raw = window.sessionStorage.getItem(chatStateKey);
+      if (!raw) return;
+      var state = JSON.parse(raw);
+      window.sessionStorage.removeItem(chatStateKey);
+      if (!state || !state.messagesHtml) return;
+      if (Date.now() - Number(state.savedAt || 0) > 5 * 60 * 1000) return;
+
+      messagesEl.innerHTML = stripAssistantMeta(String(state.messagesHtml || ''));
+      if (statusEl) {
+        statusEl.innerHTML = String(state.statusHtml || '');
+        statusEl.classList.toggle('visible', !!state.statusVisible && !!state.statusHtml);
+      }
+      panel.classList.toggle('open', !!state.isOpen);
+      setExpandedState(!!state.isExpanded);
+      panel.classList.toggle('history-collapsed', !!state.isHistoryCollapsed);
+      if (state.hasCustomSize) {
+        if (state.panelWidth) {
+          panel.style.width = String(state.panelWidth);
+        }
+        if (state.panelHeight) {
+          panel.style.height = String(state.panelHeight);
+        }
+        clampPanelSize();
+      }
+      if (state.hasCustomPosition && state.panelLeft && state.panelTop) {
+        panel.style.left = String(state.panelLeft);
+        panel.style.top = String(state.panelTop);
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+        clampPanelPosition();
+      }
+      currentChatId = String(state.chatId || '');
+      syncActiveChatLabelFromHistory();
+      if (thinkingLevelEl && state.thinkingLevel) {
+        thinkingLevelEl.value = String(state.thinkingLevel);
+      }
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      syncPanelHeaderDensity();
+    } catch (_err) {
+      // Ignore malformed state.
+    }
+  }
+
+  function clearChat() {
+    if (currentAbortController) {
+      currentAbortController.abort();
+      currentAbortController = null;
+    }
+    while (messagesEl.firstChild) { messagesEl.removeChild(messagesEl.firstChild); }
+    if (statusEl) { statusEl.textContent = ''; statusEl.classList.remove('visible'); }
+    currentChatId = '';
+    setActiveChatLabel('');
+    inputEl.value = '';
+    inputEl.style.height = '';
+    addMsg('assistant', 'Hi! I\'m your SOBS observability assistant. I can help you understand logs, traces, metrics, errors, and more on this page. What would you like to know?', null);
+    loadChatHistory();
+    inputEl.focus();
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function clampPanelSize(preferInlineSize) {
+    if (panel.classList.contains('expanded')) {
+      applyExpandedBounds();
+      return;
+    }
+    var minW = 320;
+    var minH = 280;
+    var maxW = Math.max(minW, window.innerWidth - 8);
+    var maxH = Math.max(minH, window.innerHeight - 8);
+
+    var width = panel.offsetWidth;
+    var height = panel.offsetHeight;
+    if (preferInlineSize) {
+      var inlineW = Number.parseFloat(panel.style.width || '');
+      var inlineH = Number.parseFloat(panel.style.height || '');
+      if (!Number.isNaN(inlineW) && inlineW > 0) {
+        width = inlineW;
+      }
+      if (!Number.isNaN(inlineH) && inlineH > 0) {
+        height = inlineH;
+      }
+    }
+
+    var nextW = clamp(width, minW, maxW);
+    var nextH = clamp(height, minH, maxH);
+    panel.style.width = nextW + 'px';
+    panel.style.height = nextH + 'px';
+    syncPanelHeaderDensity();
+  }
+
+  function applyExpandedBounds() {
+    var margin = 10;
+    var left = margin;
+    var top = margin;
+    var rightEdge = window.innerWidth - margin;
+    var bottomEdge = window.innerHeight - margin;
+    var sidebar = document.getElementById('sbSidebar');
+
+    if (sidebar) {
+      var sbRect = sidebar.getBoundingClientRect();
+      var sidebarVisible = sbRect.width > 1 && sbRect.right > 0 && sbRect.left < window.innerWidth;
+      if (sidebarVisible) {
+        left = Math.max(left, Math.floor(sbRect.right + margin));
+      }
+    }
+
+    var width = Math.max(320, rightEdge - left);
+    var height = Math.max(280, bottomEdge - top);
+
+    panel.style.left = left + 'px';
+    panel.style.top = top + 'px';
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    panel.style.width = width + 'px';
+    panel.style.height = height + 'px';
+    syncPanelHeaderDensity();
+  }
+
+  function clampPanelPosition(preferInlineSize) {
+    if (!(panel.style.left && panel.style.top)) {
+      return;
+    }
+    var rect = panel.getBoundingClientRect();
+    var width = rect.width;
+    var height = rect.height;
+    if (preferInlineSize) {
+      var inlineW = Number.parseFloat(panel.style.width || '');
+      var inlineH = Number.parseFloat(panel.style.height || '');
+      if (!Number.isNaN(inlineW) && inlineW > 0) {
+        width = inlineW;
+      }
+      if (!Number.isNaN(inlineH) && inlineH > 0) {
+        height = inlineH;
+      }
+    }
+    var margin = 8;
+    var maxLeft = Math.max(margin, window.innerWidth - width - margin);
+    var maxTop = Math.max(margin, window.innerHeight - height - margin);
+    var currentLeft = Number.parseFloat(panel.style.left) || margin;
+    var currentTop = Number.parseFloat(panel.style.top) || margin;
+    panel.style.left = clamp(currentLeft, margin, maxLeft) + 'px';
+    panel.style.top = clamp(currentTop, margin, maxTop) + 'px';
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    syncPanelHeaderDensity();
+  }
+
+  function initPanelDrag() {
+    var header = document.getElementById('sobsAiPanelHeader');
+    if (!header) {
+      return;
+    }
+    var dragState = {
+      active: false,
+      pointerId: null,
+      offsetX: 0,
+      offsetY: 0,
+    };
+
+    function endDrag() {
+      dragState.active = false;
+      dragState.pointerId = null;
+      panel.classList.remove('dragging');
+    }
+
+    header.addEventListener('pointerdown', function (event) {
+      if (!panel.classList.contains('open')) {
+        return;
+      }
+      if (event.button !== 0) {
+        return;
+      }
+      var target = event.target;
+      if (target && target.closest('button,select,input,textarea,a,label')) {
+        return;
+      }
+      var rect = panel.getBoundingClientRect();
+      dragState.active = true;
+      dragState.pointerId = event.pointerId;
+      dragState.offsetX = event.clientX - rect.left;
+      dragState.offsetY = event.clientY - rect.top;
+      panel.classList.add('dragging');
+      if (typeof header.setPointerCapture === 'function') {
+        header.setPointerCapture(event.pointerId);
+      }
+      event.preventDefault();
+    });
+
+    header.addEventListener('pointermove', function (event) {
+      if (!dragState.active || event.pointerId !== dragState.pointerId) {
+        return;
+      }
+      var rect = panel.getBoundingClientRect();
+      var margin = 8;
+      var maxLeft = Math.max(margin, window.innerWidth - rect.width - margin);
+      var maxTop = Math.max(margin, window.innerHeight - rect.height - margin);
+      var left = clamp(event.clientX - dragState.offsetX, margin, maxLeft);
+      var top = clamp(event.clientY - dragState.offsetY, margin, maxTop);
+      panel.style.left = left + 'px';
+      panel.style.top = top + 'px';
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+    });
+
+    header.addEventListener('pointerup', function (event) {
+      if (dragState.active && event.pointerId === dragState.pointerId) {
+        endDrag();
+      }
+    });
+
+    header.addEventListener('pointercancel', endDrag);
+  }
+
+  function applyClientAction(clientAction, statusElRef) {
+    if (!clientAction || !clientAction.type) {
+      if (statusElRef) {
+        statusElRef.textContent = 'No executable action returned';
+      }
+      return;
+    }
+
+    if (clientAction.type === 'navigate') {
+      var navTarget = String(clientAction.target_page || window.location.pathname || '/logs');
+      var navQuery = clientAction.query && typeof clientAction.query === 'object' ? clientAction.query : {};
+      var navUrl = new URL(navTarget, window.location.origin);
+      Object.keys(navQuery).forEach(function (key) {
+        var value = String(navQuery[key] == null ? '' : navQuery[key]).trim();
+        if (value) {
+          navUrl.searchParams.set(String(key), value);
+        } else {
+          navUrl.searchParams.delete(String(key));
+        }
+      });
+      if (statusElRef) {
+        statusElRef.textContent = 'Navigating to ' + navTarget + '...';
+      }
+      saveChatState();
+      window.location.href = navUrl.toString();
+      return;
+    }
+
+    if (clientAction.type === 'open_modal') {
+      var modalTarget = String(clientAction.target_page || window.location.pathname || '');
+      if (modalTarget && modalTarget !== window.location.pathname) {
+        if (statusElRef) {
+          statusElRef.textContent = 'Navigating to ' + modalTarget + '...';
+        }
+        saveChatState();
+        window.location.href = new URL(modalTarget, window.location.origin).toString();
+        return;
+      }
+      var modalId = String(clientAction.modal_id || clientAction.modalId || '').replace(/^#/, '');
+      var modalEl = modalId ? document.getElementById(modalId) : null;
+      if (!modalEl || !window.bootstrap || !window.bootstrap.Modal) {
+        if (statusElRef) {
+          statusElRef.textContent = 'Modal not found: ' + (modalId || 'unknown');
+        }
+        return;
+      }
+      var modal = window.bootstrap.Modal.getOrCreateInstance(modalEl);
+      setAiLayerBehindModal(true);
+      modal.show();
+      if (statusElRef) {
+        statusElRef.textContent = 'Opened modal';
+      }
+      return;
+    }
+
+    if (clientAction.type === 'invoke_click') {
+      var clickTarget = String(clientAction.target_page || window.location.pathname || '');
+      if (clickTarget && clickTarget !== window.location.pathname) {
+        if (statusElRef) {
+          statusElRef.textContent = 'Navigating to ' + clickTarget + '...';
+        }
+        saveChatState();
+        window.location.href = new URL(clickTarget, window.location.origin).toString();
+        return;
+      }
+      var selector = String(clientAction.selector || '').trim();
+      var elementId = String(clientAction.element_id || '').trim();
+      var clickEl = null;
+      if (selector) {
+        clickEl = document.querySelector(selector);
+      }
+      if (!clickEl && elementId) {
+        clickEl = document.getElementById(elementId);
+      }
+      if (!clickEl || typeof clickEl.click !== 'function') {
+        if (statusElRef) {
+          statusElRef.textContent = 'Clickable element not found';
+        }
+        return;
+      }
+      clickEl.click();
+      if (statusElRef) {
+        statusElRef.textContent = 'Action clicked';
+      }
+      return;
+    }
+
+    if (clientAction.type === 'submit_form') {
+      var submitTarget = String(clientAction.target_page || window.location.pathname || '');
+      if (submitTarget && submitTarget !== window.location.pathname) {
+        if (statusElRef) {
+          statusElRef.textContent = 'Navigating to ' + submitTarget + '...';
+        }
+        saveChatState();
+        window.location.href = new URL(submitTarget, window.location.origin).toString();
+        return;
+      }
+      var actionId = String(clientAction.action_id || '');
+      var actionButton = actionId ? document.querySelector('[data-ai-action-id="' + actionId.replace(/"/g, '\\"') + '"]') : null;
+      var formSelector = String(clientAction.form_selector || '').trim();
+      var formId = String(clientAction.form_id || '').trim();
+      var form = null;
+      if (actionButton) {
+        form = actionButton.closest('form');
+      }
+      if (!form && formSelector) {
+        form = document.querySelector(formSelector);
+      }
+      if (!form && formId) {
+        form = document.getElementById(formId);
+      }
+      if (!form && actionButton) {
+        var actionModal = actionButton.closest('.modal');
+        form = actionModal ? actionModal.querySelector('form') : null;
+      }
+      if (!form) {
+        var openModal = document.querySelector('.modal.show');
+        form = openModal ? openModal.querySelector('form') : null;
+      }
+      if (!form && actionId.indexOf('dashboard.chart.create') !== -1) {
+        form = document.getElementById('chartEditorForm');
+      }
+      if (!form) {
+        if (statusElRef) {
+          statusElRef.textContent = 'Form not found for submit action';
+        }
+        return;
+      }
+      var fields = clientAction.fields && typeof clientAction.fields === 'object' ? clientAction.fields : {};
+      Object.keys(fields).forEach(function (name) {
+        var value = String(fields[name] == null ? '' : fields[name]);
+        var field = form.querySelector('[name="' + String(name).replace(/"/g, '\\"') + '"]');
+        if (!field) {
+          return;
+        }
+        field.value = value;
+        field.dispatchEvent(new Event('input', {bubbles: true}));
+        field.dispatchEvent(new Event('change', {bubbles: true}));
+      });
+      if (statusElRef) {
+        statusElRef.textContent = 'Submitting form...';
+      }
+      saveChatState();
+      if (typeof form.requestSubmit === 'function') {
+        form.requestSubmit();
+      } else {
+        form.submit();
+      }
+      return;
+    }
+
+    if (clientAction.type === 'apply_sql_filter') {
+      var sqlWhere = String(clientAction.sql_where || '').trim();
+      if (!sqlWhere) {
+        var altSql = [
+          clientAction.sql,
+          clientAction.where,
+          clientAction.filter,
+          clientAction.expression,
+          clientAction.query
+        ];
+        for (var si = 0; si < altSql.length; si += 1) {
+          var candidate = altSql[si];
+          if (typeof candidate === 'string' && candidate.trim()) {
+            sqlWhere = candidate.trim();
+            break;
+          }
+          if (candidate && typeof candidate === 'object') {
+            var nested = String(candidate.sql_where || candidate.sql || candidate.where || '').trim();
+            if (nested) {
+              sqlWhere = nested;
+              break;
+            }
+          }
+        }
+      }
+      var targetPage = String(clientAction.target_page || window.location.pathname || '/logs');
+      if (!sqlWhere) {
+        if (statusElRef) {
+          statusElRef.textContent = 'Skipped: empty SQL filter';
+        }
+        return;
+      }
+
+      if (targetPage === window.location.pathname) {
+        var sqlInput = document.getElementById('sql-filter-input') || document.querySelector('input[name="sql"]');
+        if (!sqlInput) {
+          if (statusElRef) {
+            statusElRef.textContent = 'No SQL filter input found on this page';
+          }
+          return;
+        }
+        sqlInput.value = sqlWhere;
+        sqlInput.dispatchEvent(new Event('input', {bubbles: true}));
+        sqlInput.dispatchEvent(new Event('change', {bubbles: true}));
+        if (clientAction.submit) {
+          var filterForm = sqlInput.form || document.querySelector('form[method="get"]');
+          if (filterForm) {
+            if (statusElRef) {
+              statusElRef.textContent = 'Applying filter...';
+            }
+            saveChatState();
+            if (typeof filterForm.requestSubmit === 'function') {
+              filterForm.requestSubmit();
+            } else {
+              filterForm.submit();
+            }
+            return;
+          }
+        }
+        if (statusElRef) {
+          statusElRef.textContent = 'Filter updated in SQL input';
+        }
+        return;
+      }
+
+      var next = new URL(targetPage, window.location.origin);
+      next.searchParams.set('sql', sqlWhere);
+      if (statusElRef) {
+        statusElRef.textContent = 'Navigating to ' + targetPage + ' with filter...';
+      }
+      saveChatState();
+      window.location.href = next.toString();
+      return;
+    }
+
+    if (clientAction.type === 'start_live_mode') {
+      var liveTarget = String(clientAction.target_page || '/logs');
+      if (liveTarget === window.location.pathname) {
+        var liveBtn = document.querySelector('[data-ai-action-id="logs.live_mode.start"]');
+        if (liveBtn && typeof liveBtn.click === 'function') {
+          if (statusElRef) {
+            statusElRef.textContent = 'Starting live mode...';
+          }
+          liveBtn.click();
+          return;
+        }
+      }
+      var liveUrl = new URL(liveTarget, window.location.origin);
+      liveUrl.searchParams.set('live', '1');
+      if (statusElRef) {
+        statusElRef.textContent = 'Navigating to live mode...';
+      }
+      saveChatState();
+      window.location.href = liveUrl.toString();
+      return;
+    }
+
+    if (clientAction.type === 'apply_form_filters') {
+      var filterTarget = String(clientAction.target_page || '');
+      var filters = clientAction.filters && typeof clientAction.filters === 'object' ? clientAction.filters : {};
+      var submit = !!clientAction.submit;
+
+      if (!filterTarget) {
+        if (statusElRef) {
+          statusElRef.textContent = 'Missing target page for filter action';
+        }
+        return;
+      }
+
+      if (filterTarget === window.location.pathname) {
+        var actionId = String(clientAction.action_id || '');
+        var actionButton = actionId ? document.querySelector('[data-ai-action-id="' + actionId.replace(/"/g, '\\"') + '"]') : null;
+        var filterForm = actionButton ? actionButton.closest('form') : document.querySelector('form[method="get"]');
+        var appliedCount = 0;
+        Object.keys(filters).forEach(function (name) {
+          var value = String(filters[name] == null ? '' : filters[name]);
+          var selector = '[name="' + String(name).replace(/"/g, '\\"') + '"]';
+          var field = filterForm ? filterForm.querySelector(selector) : null;
+          if (!field) {
+            field = document.querySelector(selector);
+          }
+          if (!field) {
+            return;
+          }
+          field.value = value;
+          field.dispatchEvent(new Event('input', {bubbles: true}));
+          field.dispatchEvent(new Event('change', {bubbles: true}));
+          appliedCount += 1;
+        });
+
+        if (appliedCount === 0) {
+          if (statusElRef) {
+            statusElRef.textContent = 'No matching filter inputs found on this page';
+          }
+          return;
+        }
+
+        if (submit && filterForm) {
+          if (statusElRef) {
+            statusElRef.textContent = 'Applying filters...';
+          }
+          saveChatState();
+          if (typeof filterForm.requestSubmit === 'function') {
+            filterForm.requestSubmit();
+          } else {
+            filterForm.submit();
+          }
+          return;
+        }
+
+        if (statusElRef) {
+          statusElRef.textContent = 'Updated filter inputs';
+        }
+        return;
+      }
+
+      var filterUrl = new URL(filterTarget, window.location.origin);
+      Object.keys(filters).forEach(function (name) {
+        var value = String(filters[name] == null ? '' : filters[name]).trim();
+        if (value) {
+          filterUrl.searchParams.set(String(name), value);
+        } else {
+          filterUrl.searchParams.delete(String(name));
+        }
+      });
+      if (statusElRef) {
+        statusElRef.textContent = 'Navigating to ' + filterTarget + ' with filters...';
+      }
+      saveChatState();
+      window.location.href = filterUrl.toString();
+      return;
+    }
+
+    if (statusElRef) {
+      statusElRef.textContent = 'Unsupported action type: ' + String(clientAction.type);
+    }
+  }
+
+  async function executeToolAction(tool, statusElRef, confirmed) {
+    if (!tool || !tool.action_token) {
+      if (statusElRef) {
+        statusElRef.textContent = 'Action token unavailable';
+      }
+      return;
+    }
+    if (statusElRef) {
+      statusElRef.textContent = 'Authorizing action...';
+    }
+
+    try {
+      var execResp = await fetch('{{ url_for("ai_helper_execute_action") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          action_token: String(tool.action_token || ''),
+          confirm: !!confirmed
+        })
+      });
+      var execData = await execResp.json();
+      if (!execResp.ok || !execData.ok) {
+        if (statusElRef) {
+          statusElRef.textContent = String(execData.error || 'Action execution failed');
+        }
+        return;
+      }
+      applyClientAction(execData.client_action || null, statusElRef);
+    } catch (err) {
+      if (statusElRef) {
+        statusElRef.textContent = 'Action execution failed: ' + String(err);
+      }
+    }
+  }
+
+  function addToolCard(tool, options) {
+    var opts = options || {};
+    var card = document.createElement('div');
+    card.className = 'sobs-ai-tool-card' + (opts.historical ? ' historical' : '');
+    card.dataset.toolPayload = encodeDatasetJson(tool);
+
+    var title = document.createElement('div');
+    title.className = 'sobs-ai-tool-title';
+    title.innerHTML = '<i class="bi bi-sliders"></i><span>AI Action</span>';
+    card.appendChild(title);
+
+    var summary = document.createElement('div');
+    summary.textContent = String(tool.summary || 'Proposed action');
+    card.appendChild(summary);
+
+    if (tool.action && tool.action.type === 'apply_sql_filter') {
+      var code = document.createElement('div');
+      code.className = 'sobs-ai-tool-code';
+      code.textContent = String(tool.action.sql_where || '');
+      card.appendChild(code);
+    }
+
+    var status = document.createElement('div');
+    status.className = 'sobs-ai-tool-status';
+    status.textContent = String(tool.status_label || (tool.unsupported
+      ? 'Not available in this page action manifest'
+      : (tool.requires_confirmation ? 'Awaiting confirmation' : 'Queued')));
+
+    var actions = document.createElement('div');
+    actions.className = 'sobs-ai-tool-actions';
+
+    if (!opts.historical && !tool.unsupported && tool.requires_confirmation) {
+      var confirmBtn = document.createElement('button');
+      confirmBtn.className = 'btn btn-sm btn-primary';
+      confirmBtn.type = 'button';
+      confirmBtn.textContent = 'Confirm';
+      confirmBtn.setAttribute('data-sobs-ai-tool-action', 'confirm');
+
+      var cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn btn-sm btn-outline-secondary';
+      cancelBtn.type = 'button';
+      cancelBtn.textContent = 'Dismiss';
+      cancelBtn.setAttribute('data-sobs-ai-tool-action', 'dismiss');
+
+      actions.appendChild(confirmBtn);
+      actions.appendChild(cancelBtn);
+    }
+
+    actions.appendChild(status);
+    card.appendChild(actions);
+    messagesEl.appendChild(card);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return {card: card, status: status};
+  }
+
+  btn.addEventListener('click', togglePanel);
+  closeBtn.addEventListener('click', function () { panel.classList.remove('open'); });
+  if (newChatBtn) {
+    newChatBtn.addEventListener('click', clearChat);
+  }
+  if (toggleHistoryBtn) {
+    toggleHistoryBtn.addEventListener('click', toggleHistory);
+  }
+  if (expandBtn) {
+    expandBtn.addEventListener('click', toggleExpanded);
+  }
+  document.addEventListener('click', function (event) {
+    var target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    var link = target.closest('a[href]');
+    if (!link) {
+      return;
+    }
+    if (link.hasAttribute('download')) {
+      return;
+    }
+    var rel = String(link.getAttribute('rel') || '').toLowerCase();
+    if (rel.indexOf('external') !== -1) {
+      return;
+    }
+    var href = String(link.getAttribute('href') || '').trim();
+    if (!href || href.charAt(0) === '#') {
+      return;
+    }
+    if (href.toLowerCase().indexOf('javascript:') === 0) {
+      return;
+    }
+    var targetAttr = String(link.getAttribute('target') || '').trim().toLowerCase();
+    if (targetAttr && targetAttr !== '_self') {
+      return;
+    }
+    saveAiStateForNavigation();
+  }, true);
+  document.addEventListener('submit', function (_event) {
+    saveAiStateForNavigation();
+  }, true);
+  window.addEventListener('pagehide', function () {
+    saveAiStateForNavigation();
+  });
+  document.addEventListener('show.bs.modal', function (_evt) {
+    setAiLayerBehindModal(true);
+  });
+  document.addEventListener('hidden.bs.modal', function (_evt) {
+    syncAiLayerWithModals();
+  });
+  messagesEl.addEventListener('click', async function (event) {
+    var target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    var msgButton = target.closest('[data-sobs-ai-msg-action]');
+    if (msgButton) {
+      var msgEl = msgButton.closest('.sobs-ai-msg');
+      if (!msgEl) {
+        return;
+      }
+      var msgAction = String(msgButton.getAttribute('data-sobs-ai-msg-action') || '');
+      if (msgAction === 'retry') {
+        await sendQuestionText(String(msgEl.dataset.retryQuestion || ''));
+      } else if (msgAction === 'copy') {
+        var copyText = String(msgEl.dataset.copyText || '').trim();
+        if (!copyText) {
+          return;
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(copyText);
+          flashMessageActionButton(msgButton, 'Copied');
+        } else {
+          window.prompt('Copy response:', copyText);
+        }
+      } else if (msgAction === 'feedback') {
+        await submitAssistantFeedback(msgEl, msgButton);
+      }
+      return;
+    }
+
+    var toolButton = target.closest('[data-sobs-ai-tool-action]');
+    if (!toolButton) {
+      return;
+    }
+    var card = toolButton.closest('.sobs-ai-tool-card');
+    if (!card) {
+      return;
+    }
+    var toolPayload = decodeDatasetJson(card.dataset.toolPayload || '');
+    var statusNode = card.querySelector('.sobs-ai-tool-status');
+    if (!toolPayload) {
+      if (statusNode) {
+        statusNode.textContent = 'Action details unavailable';
+      }
+      return;
+    }
+    var toolAction = String(toolButton.getAttribute('data-sobs-ai-tool-action') || '');
+    if (toolAction === 'dismiss') {
+      removeNode(card);
+      return;
+    }
+    if (toolAction === 'confirm') {
+      executeToolAction(toolPayload, statusNode, true);
+    }
+  });
+  initPanelDrag();
+  window.addEventListener('resize', function () {
+    clampPanelSize();
+    clampPanelPosition();
+    syncPanelHeaderDensity();
+  });
+  restoreChatState();
+  loadCapabilities();
+  loadChatHistory();
+  syncPanelHeaderDensity();
+
+  function addMsg(role, text, ts, options) {
+    var el = document.createElement('div');
+    el.className = 'sobs-ai-msg ' + role;
+    if (role === 'assistant') {
+      el.innerHTML = renderAssistantMarkdown(text);
+    } else {
+      el.textContent = text;
+    }
+    syncMessageMeta(el, ts, Object.assign({
+      role: role,
+      copyText: role === 'assistant' ? stripAssistantMeta(text) : ''
+    }, options || {}));
+    messagesEl.appendChild(el);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return el;
+  }
+
+  function addThinkingMsg() {
+    var wrap = document.createElement('div');
+    wrap.className = 'sobs-ai-thinking-wrap';
+    wrap.setAttribute('aria-label', 'Assistant is thinking');
+    wrap.innerHTML = ''
+      + '<div class="sobs-ai-msg assistant thinking-msg" aria-hidden="true">'
+      + '<div class="sobs-ai-thinking">'
+      + '<div class="sobs-ai-thinking-dots">'
+      + '<span class="sobs-ai-thinking-dot"></span>'
+      + '<span class="sobs-ai-thinking-dot"></span>'
+      + '<span class="sobs-ai-thinking-dot"></span>'
+      + '</div>'
+      + '</div>'
+      + '</div>'
+      + '<div class="sobs-ai-thinking-label">Thinking</div>';
+    messagesEl.appendChild(wrap);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return wrap;
+  }
+
+  function sanitizeAssistantHtml(html) {
+    if (!window.DOMPurify) {
+      return '';
+    }
+    return window.DOMPurify.sanitize(html, {
+      ALLOWED_URI_REGEXP: /^(?:(?:https?):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
+      FORBID_TAGS: [
+        'style',
+        'script',
+        'iframe',
+        'object',
+        'embed',
+        'form',
+        'input',
+        'button',
+        'select',
+        'textarea',
+        'label'
+      ]
+    });
+  }
+
+  function hardenRenderedLinks(container) {
+    var links = container.querySelectorAll('a[href]');
+    links.forEach(function (link) {
+      var href = (link.getAttribute('href') || '').trim();
+      if (!/^https?:\/\//i.test(href)) {
+        link.removeAttribute('href');
+        return;
+      }
+      link.setAttribute('target', '_blank');
+      link.setAttribute('rel', 'noopener noreferrer');
+    });
+  }
+
+  function renderAssistantMarkdown(text) {
+    var source = stripAssistantMeta(String(text || ''));
+    if (!mdRenderer || !window.DOMPurify) {
+      var fallback = document.createElement('div');
+      fallback.textContent = source;
+      return fallback.innerHTML;
+    }
+    var rawHtml = mdRenderer.render(source);
+    var sanitized = sanitizeAssistantHtml(rawHtml);
+    var probe = document.createElement('div');
+    probe.innerHTML = sanitized;
+    hardenRenderedLinks(probe);
+    return probe.innerHTML;
+  }
+
+  function addThinkingTraceLink(msgEl, donePayload) {
+    if (!msgEl || !donePayload) return;
+    var modelStats = donePayload.model_stats || {};
+    var thinkingTokens = Number(modelStats.thinking_tokens || 0);
+    var logsUrl = String(donePayload.turn_logs_url || '');
+    if (!(thinkingTokens > 0) || !logsUrl) {
+      return;
+    }
+    var existing = msgEl.querySelector('.sobs-ai-thinking-trace');
+    if (existing) {
+      return;
+    }
+    var link = document.createElement('a');
+    link.className = 'sobs-ai-thinking-trace';
+    link.href = logsUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.title = 'View model thinking telemetry for this turn';
+    link.innerHTML = '<i class="bi bi-lightbulb"></i><span>Thinking trace</span>';
+    msgEl.appendChild(link);
+  }
+
+  function appendMsgTimestamp(msgEl, ts) {
+    if (!msgEl || !ts) return;
+    syncMessageMeta(msgEl, ts, {
+      role: getMessageRole(msgEl),
+      turnId: msgEl.dataset.turnId,
+      chatId: msgEl.dataset.chatId,
+      retryQuestion: msgEl.dataset.retryQuestion,
+      copyText: msgEl.dataset.copyText,
+      feedbackSaved: msgEl.dataset.feedbackSaved === '1'
+    });
+  }
+
+  function tps(stats) {
+    if (!stats || !stats.elapsed_ms || stats.elapsed_ms <= 0) return '—';
+    var t = (stats.completion_tokens / (stats.elapsed_ms / 1000)).toFixed(1);
+    return t + ' t/s';
+  }
+
+  function updateStatus(guardStats, modelStats) {
+    if (!statusEl) return;
+    var parts = [];
+    if (guardStats && (guardStats.prompt_tokens || guardStats.completion_tokens || guardStats.elapsed_ms)) {
+      parts.push(
+        '<span class="stat-group">'
+        + '<span class="stat-label">Guard</span>'
+        + '<span title="tokens in">' + (guardStats.prompt_tokens || 0) + '↑</span>'
+        + '<span title="tokens out">' + (guardStats.completion_tokens || 0) + '↓</span>'
+        + '<span title="tokens per second">' + tps(guardStats) + '</span>'
+        + '</span>'
+      );
+    }
+    if (modelStats && (modelStats.prompt_tokens || modelStats.completion_tokens || modelStats.elapsed_ms)) {
+      if (parts.length) parts.push('<span class="stat-sep">·</span>');
+      parts.push(
+        '<span class="stat-group">'
+        + '<span class="stat-label">Model</span>'
+        + '<span title="tokens in">' + (modelStats.prompt_tokens || 0) + '↑</span>'
+        + '<span title="tokens out">' + (modelStats.completion_tokens || 0) + '↓</span>'
+        + '<span title="tokens per second">' + tps(modelStats) + '</span>'
+        + '</span>'
+      );
+    }
+    if (parts.length) {
+      statusEl.innerHTML = parts.join('');
+      statusEl.classList.add('visible');
+    }
+  }
+
+  function gatherContext() {
+    var ctx = {};
+    var params = new URLSearchParams(window.location.search);
+    params.forEach(function(v, k) { if (v) ctx[k] = v; });
+    return ctx;
+  }
+
+  function removeNode(node) {
+    if (node && node.parentNode) {
+      node.parentNode.removeChild(node);
+    }
+  }
+
+  function getMessageRole(msgEl) {
+    if (!msgEl || !msgEl.classList) {
+      return 'assistant';
+    }
+    if (msgEl.classList.contains('user')) {
+      return 'user';
+    }
+    if (msgEl.classList.contains('assistant')) {
+      return 'assistant';
+    }
+    return 'assistant';
+  }
+
+  function buildMessageActionButton(label, iconClass, actionName) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn btn-sm btn-link sobs-ai-msg-action';
+    button.setAttribute('data-sobs-ai-msg-action', actionName);
+    button.setAttribute('aria-label', label);
+    button.setAttribute('title', label);
+    button.innerHTML = '<i class="' + iconClass + '"></i><span>' + label + '</span>';
+    return button;
+  }
+
+  function setMessageActionButtonLabel(button, label) {
+    if (!button) return;
+    var labelEl = button.querySelector('span');
+    if (labelEl) {
+      labelEl.textContent = label;
+    }
+  }
+
+  function flashMessageActionButton(button, label) {
+    if (!button) return;
+    var original = button.dataset.originalLabel;
+    if (!original) {
+      var labelEl = button.querySelector('span');
+      original = labelEl ? labelEl.textContent : '';
+      button.dataset.originalLabel = original;
+    }
+    setMessageActionButtonLabel(button, label);
+    window.setTimeout(function () {
+      setMessageActionButtonLabel(button, button.dataset.originalLabel || original || '');
+    }, 1200);
+  }
+
+  function syncMessageMeta(msgEl, ts, options) {
+    if (!msgEl) return;
+    var opts = options || {};
+    var role = String(opts.role || getMessageRole(msgEl));
+    if (opts.turnId !== undefined) {
+      msgEl.dataset.turnId = String(opts.turnId || '');
+    }
+    if (opts.chatId !== undefined) {
+      msgEl.dataset.chatId = String(opts.chatId || '');
+    }
+    if (opts.retryQuestion !== undefined) {
+      msgEl.dataset.retryQuestion = String(opts.retryQuestion || '');
+    }
+    if (opts.copyText !== undefined) {
+      msgEl.dataset.copyText = String(opts.copyText || '');
+    }
+    if (opts.feedbackSaved) {
+      msgEl.dataset.feedbackSaved = '1';
+    }
+
+    var metaEl = msgEl.querySelector('.sobs-ai-msg-meta');
+    if (!metaEl) {
+      metaEl = document.createElement('div');
+      metaEl.className = 'sobs-ai-msg-meta';
+      msgEl.appendChild(metaEl);
+    }
+    metaEl.innerHTML = '';
+
+    if (role === 'assistant') {
+      var actionsEl = document.createElement('div');
+      actionsEl.className = 'sobs-ai-msg-actions';
+      if (msgEl.dataset.retryQuestion) {
+        actionsEl.appendChild(buildMessageActionButton('Retry', 'bi bi-arrow-clockwise', 'retry'));
+      }
+      if (msgEl.dataset.copyText || String(msgEl.textContent || '').trim()) {
+        actionsEl.appendChild(buildMessageActionButton('Copy', 'bi bi-clipboard', 'copy'));
+      }
+      if (msgEl.dataset.turnId) {
+        var feedbackBtn = buildMessageActionButton('Feedback', 'bi bi-chat-left-text', 'feedback');
+        if (msgEl.dataset.feedbackSaved === '1') {
+          feedbackBtn.disabled = true;
+          setMessageActionButtonLabel(feedbackBtn, 'Saved');
+        }
+        actionsEl.appendChild(feedbackBtn);
+      }
+      if (actionsEl.childNodes.length) {
+        metaEl.appendChild(actionsEl);
+      }
+    }
+
+    var rel = formatRelativeTime(ts);
+    if (rel) {
+      var timeEl = document.createElement('span');
+      timeEl.className = 'sobs-ai-msg-time';
+      timeEl.textContent = rel;
+      metaEl.appendChild(timeEl);
+    }
+  }
+
+  function encodeDatasetJson(value) {
+    try {
+      return encodeURIComponent(JSON.stringify(value || {}));
+    } catch (_err) {
+      return '';
+    }
+  }
+
+  function decodeDatasetJson(value) {
+    if (!value) return null;
+    try {
+      return JSON.parse(decodeURIComponent(String(value)));
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  async function submitAssistantFeedback(msgEl, button) {
+    if (!msgEl || !button) return;
+    var note = window.prompt('Add feedback for this assistant response:', '');
+    if (note == null) {
+      return;
+    }
+    note = String(note).trim();
+    if (!note) {
+      return;
+    }
+
+    button.disabled = true;
+    setMessageActionButtonLabel(button, 'Saving');
+    try {
+      var resp = await fetch('{{ url_for("ai_helper_feedback") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          chat_id: String(msgEl.dataset.chatId || currentChatId || ''),
+          turn_id: String(msgEl.dataset.turnId || ''),
+          note: note,
+          page: window.location.pathname || '/logs'
+        })
+      });
+      var data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        throw new Error(String(data.error || 'Feedback could not be saved'));
+      }
+      msgEl.dataset.feedbackSaved = '1';
+      setMessageActionButtonLabel(button, 'Saved');
+    } catch (err) {
+      button.disabled = false;
+      setMessageActionButtonLabel(button, 'Feedback');
+      addMsg('error-msg', 'Feedback error: ' + String(err), new Date().toISOString());
+    }
+  }
+
+  function addStreamingAssistantMsg() {
+    var el = document.createElement('div');
+    el.className = 'sobs-ai-msg assistant';
+    el.textContent = '';
+    messagesEl.appendChild(el);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return el;
+  }
+
+  function stripAssistantMeta(text) {
+    var cleaned = String(text || '')
+      .replace(/<assistant_meta\b[^>]*>[\s\S]*?<\/assistant_meta>/gi, '')
+      .replace(/&lt;\s*assistant_meta\b(?:[\s\S]*?)&gt;[\s\S]*?&lt;\s*\/assistant_meta\s*&gt;/gi, '');
+    var rawOpenIndex = cleaned.search(/<assistant_meta\b[^>]*>/i);
+    var escapedOpenIndex = cleaned.search(/&lt;\s*assistant_meta\b(?:[\s\S]*?)&gt;/i);
+    var cutIndex = -1;
+    if (rawOpenIndex >= 0) {
+      cutIndex = rawOpenIndex;
+    }
+    if (escapedOpenIndex >= 0 && (cutIndex === -1 || escapedOpenIndex < cutIndex)) {
+      cutIndex = escapedOpenIndex;
+    }
+    if (cutIndex >= 0) {
+      cleaned = cleaned.slice(0, cutIndex);
+    }
+    return cleaned.trim();
+  }
+
+  function stripAssistantMetaPreview(text) {
+    return stripAssistantMeta(text).trimEnd();
+  }
+
+  function setStreamingText(el, text, finalize) {
+    if (!el) return;
+    var cleaned = stripAssistantMeta(text);
+    if (finalize) {
+      el.innerHTML = renderAssistantMarkdown(cleaned);
+    } else {
+      el.textContent = cleaned;
+    }
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function detectCompleteBlocks(text) {
+    var blocks = [];
+    var idx = 0;
+    var buffer = String(text || '');
+
+    // Render complete code fences as blocks as soon as the closing fence arrives.
+    while (true) {
+      var startFence = buffer.indexOf('```', idx);
+      if (startFence === -1) {
+        break;
+      }
+      var endFence = buffer.indexOf('```', startFence + 3);
+      if (endFence === -1) {
+        break;
+      }
+      var afterFence = endFence + 3;
+      if (startFence > idx) {
+        blocks.push(buffer.slice(idx, startFence));
+      }
+      blocks.push(buffer.slice(startFence, afterFence));
+      idx = afterFence;
+      if (buffer.charAt(idx) === '\n') {
+        idx += 1;
+      }
+    }
+
+    var remainder = buffer.slice(idx);
+    var paraCut = remainder.lastIndexOf('\n\n');
+    if (paraCut !== -1) {
+      blocks.push(remainder.slice(0, paraCut + 2));
+      remainder = remainder.slice(paraCut + 2);
+    }
+
+    return { blocks: blocks, tail: remainder };
+  }
+
+  function appendRenderedMarkdownBlock(el, text) {
+    if (!el || !text || !text.trim()) return;
+    var html = renderAssistantMarkdown(text);
+    if (!html) return;
+    var blockEl = document.createElement('div');
+    blockEl.className = 'sobs-markdown-block';
+    blockEl.innerHTML = html;
+    el.appendChild(blockEl);
+  }
+
+  function isMarkdownTableTail(text) {
+    var s = String(text || '');
+    if (!s || s.indexOf('|') === -1) {
+      return false;
+    }
+    var lines = s.split('\n').filter(function (line) {
+      return line.trim() !== '';
+    });
+    if (lines.length < 2) {
+      return false;
+    }
+    var header = lines[0].trim();
+    var sep = lines[1].trim();
+    var sepPattern = /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?$/;
+    if (header.indexOf('|') === -1 || !sepPattern.test(sep)) {
+      return false;
+    }
+    return true;
+  }
+
+  function setTailText(el, text) {
+    if (!el) return;
+    var tailEl = el.querySelector('.sobs-markdown-tail');
+    var tailText = stripAssistantMetaPreview(String(text || ''));
+    if (!tailText) {
+      if (tailEl) {
+        removeNode(tailEl);
+      }
+      return;
+    }
+    if (!tailEl) {
+      tailEl = document.createElement('div');
+      tailEl.className = 'sobs-markdown-tail';
+      el.appendChild(tailEl);
+    }
+    if (isMarkdownTableTail(tailText)) {
+      tailEl.innerHTML = renderAssistantMarkdown(tailText);
+    } else {
+      tailEl.textContent = tailText;
+    }
+  }
+
+  function parseSseChunk(block) {
+    var lines = block.split('\n');
+    var eventName = 'message';
+    var dataLines = [];
+    lines.forEach(function (line) {
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim();
+      } else if (line.startsWith('data:')) {
+        var dataPart = line.slice(5);
+        if (dataPart.startsWith(' ')) {
+          dataPart = dataPart.slice(1);
+        }
+        dataLines.push(dataPart);
+      }
+    });
+    var payload = {};
+    if (dataLines.length) {
+      try {
+        payload = JSON.parse(dataLines.join('\n'));
+      } catch (_err) {
+        payload = {error: dataLines.join('\n')};
+      }
+    }
+    return {event: eventName, payload: payload};
+  }
+
+  async function consumeAiStream(response, thinking, questionText) {
+    var reader = response.body && response.body.getReader ? response.body.getReader() : null;
+    if (!reader) {
+      throw new Error('Streaming not supported by this browser');
+    }
+    var decoder = new TextDecoder();
+    var buffer = '';
+    var fullAnswer = '';
+    var pendingAnswer = '';
+    var answerEl = null;
+    var guardStats = null;
+    var modelStats = null;
+    var queuedAutoTools = [];
+    var finalDonePayload = null;
+
+    try {
+      while (true) {
+        var result = await reader.read();
+        if (result.done) {
+          break;
+        }
+        buffer += decoder.decode(result.value, {stream: true});
+        var parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+        for (var i = 0; i < parts.length; i += 1) {
+          var parsed = parseSseChunk(parts[i]);
+          if (parsed.event === 'meta') {
+            if (parsed.payload.chat_id) {
+              currentChatId = String(parsed.payload.chat_id);
+              syncActiveChatLabelFromHistory();
+            }
+            if (parsed.payload.supports_thinking !== undefined) {
+              supportsThinking = !!parsed.payload.supports_thinking;
+              if (thinkingWrapEl) {
+                thinkingWrapEl.classList.toggle('active', supportsThinking);
+              }
+            }
+            if (supportsThinking && thinkingLevelEl && parsed.payload.thinking_level) {
+              thinkingLevelEl.value = String(parsed.payload.thinking_level);
+            }
+          } else if (parsed.event === 'guard') {
+            guardStats = parsed.payload.guard_stats || null;
+            updateStatus(guardStats, modelStats);
+          } else if (parsed.event === 'token') {
+            if (!answerEl) {
+              removeNode(thinking);
+              answerEl = addStreamingAssistantMsg();
+            }
+            var piece = String(parsed.payload.text || '');
+            fullAnswer += piece;
+            pendingAnswer += piece;
+            var batches = detectCompleteBlocks(pendingAnswer);
+            batches.blocks.forEach(function (block) {
+              appendRenderedMarkdownBlock(answerEl, block);
+            });
+            pendingAnswer = batches.tail;
+            setTailText(answerEl, pendingAnswer);
+          } else if (parsed.event === 'tool') {
+            var toolPayload = parsed.payload || {};
+            var toolUi = addToolCard(toolPayload);
+            if (!toolPayload.requires_confirmation) {
+              queuedAutoTools.push({tool: toolPayload, ui: toolUi});
+              toolUi.status.textContent = 'Will apply after response';
+            }
+          } else if (parsed.event === 'done') {
+            removeNode(thinking);
+            if (!answerEl) {
+              answerEl = addStreamingAssistantMsg();
+            }
+            finalDonePayload = parsed.payload || {};
+            fullAnswer = String(parsed.payload.answer || fullAnswer);
+            modelStats = parsed.payload.model_stats || null;
+            if (parsed.payload.chat_id) {
+              currentChatId = String(parsed.payload.chat_id);
+              syncActiveChatLabelFromHistory();
+            }
+            updateStatus(parsed.payload.guard_stats || guardStats, modelStats);
+            setStreamingText(answerEl, fullAnswer, true);
+            syncMessageMeta(answerEl, new Date().toISOString(), {
+              role: 'assistant',
+              turnId: String(parsed.payload.turn_id || ''),
+              chatId: currentChatId,
+              retryQuestion: questionText,
+              copyText: stripAssistantMeta(fullAnswer)
+            });
+            addThinkingTraceLink(answerEl, parsed.payload);
+            queuedAutoTools.forEach(function (item) {
+              executeToolAction(item.tool, item.ui.status, false);
+            });
+            queuedAutoTools = [];
+            loadChatHistory();
+          } else if (parsed.event === 'error') {
+            removeNode(thinking);
+            addMsg('error-msg', 'Error: ' + (parsed.payload.error || 'unknown'));
+            return;
+          }
+        }
+      }
+
+      removeNode(thinking);
+      if (answerEl && fullAnswer) {
+        setStreamingText(answerEl, fullAnswer, true);
+        syncMessageMeta(answerEl, new Date().toISOString(), {
+          role: 'assistant',
+          turnId: String((finalDonePayload && finalDonePayload.turn_id) || ''),
+          chatId: currentChatId,
+          retryQuestion: questionText,
+          copyText: stripAssistantMeta(fullAnswer)
+        });
+        addThinkingTraceLink(answerEl, finalDonePayload);
+      } else if (answerEl && pendingAnswer) {
+        setStreamingText(answerEl, pendingAnswer, true);
+        syncMessageMeta(answerEl, new Date().toISOString(), {
+          role: 'assistant',
+          turnId: String((finalDonePayload && finalDonePayload.turn_id) || ''),
+          chatId: currentChatId,
+          retryQuestion: questionText,
+          copyText: stripAssistantMeta(pendingAnswer)
+        });
+        addThinkingTraceLink(answerEl, finalDonePayload);
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        removeNode(thinking);
+        addMsg('info-msg', 'Request cancelled');
+      } else {
+        throw err;
+      }
+    } finally {
+      reader.cancel();
+      currentAbortController = null;
+    }
+  }
+
+  async function sendQuestionText(questionText) {
+    var q = String(questionText || '').trim();
+    if (!q) return;
+    
+    if (currentAbortController) {
+      currentAbortController.abort();
+      currentAbortController = null;
+    }
+    
+    addMsg('user', q, new Date().toISOString(), {chatId: currentChatId});
+    inputEl.value = '';
+    inputEl.style.height = '';
+
+    var thinking = addThinkingMsg();
+
+    try {
+      currentAbortController = new AbortController();
+      var response = await fetch('{{ url_for("ai_helper") }}', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream'
+        },
+        signal: currentAbortController.signal,
+        body: JSON.stringify({
+          question: q,
+          page: window.location.pathname,
+          context: gatherContext(),
+          chat_id: currentChatId,
+          thinking_level: (thinkingLevelEl && supportsThinking) ? thinkingLevelEl.value : 'off',
+          stream: true
+        })
+      });
+
+      var contentType = response.headers.get('content-type') || '';
+      if (contentType.indexOf('text/event-stream') !== -1) {
+        await consumeAiStream(response, thinking, q);
+        return;
+      }
+
+      var data = await response.json();
+      removeNode(thinking);
+      if (data.ok) {
+        if (data.chat_id) {
+          currentChatId = String(data.chat_id);
+          syncActiveChatLabelFromHistory();
+        }
+        var msgEl = addMsg('assistant', data.answer, new Date().toISOString(), {
+          turnId: String(data.turn_id || ''),
+          chatId: currentChatId,
+          retryQuestion: q,
+          copyText: String(data.answer || '')
+        });
+        addThinkingTraceLink(msgEl, data);
+        updateStatus(data.guard_stats || null, data.model_stats || null);
+        loadChatHistory();
+      } else {
+        addMsg('error-msg', 'Error: ' + (data.error || 'unknown'), new Date().toISOString());
+      }
+    } catch (err) {
+      removeNode(thinking);
+      addMsg('error-msg', 'Network error: ' + err, new Date().toISOString());
+    }
+  }
+
+  async function sendQuestion() {
+    await sendQuestionText(inputEl.value.trim());
+  }
+
+  sendBtn.addEventListener('click', sendQuestion);
+  inputEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendQuestion();
+    }
+  });
+
+  // Auto-resize textarea
+  inputEl.addEventListener('input', function () {
+    this.style.height = '';
+    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
   });
 }());
 </script>

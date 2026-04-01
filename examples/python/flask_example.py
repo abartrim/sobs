@@ -31,7 +31,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-SOBS_ENDPOINT = "http://localhost:4317"
+SOBS_ENDPOINT = "http://localhost:44317"
 SERVICE_NAME = "flask-demo"
 
 resource = Resource.create({"service.name": SERVICE_NAME})

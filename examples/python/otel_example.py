@@ -24,7 +24,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-SOBS_ENDPOINT = "http://localhost:4317"
+SOBS_ENDPOINT = "http://localhost:44317"
 SERVICE_NAME = "my-python-app"
 
 resource = Resource.create({"service.name": SERVICE_NAME})
@@ -71,4 +71,4 @@ if __name__ == "__main__":
     # Flush before exit
     tracer_provider.shutdown()
     logger_provider.shutdown()
-    print("Done – check SOBS at http://localhost:4317")
+    print("Done – check SOBS at http://localhost:44317")

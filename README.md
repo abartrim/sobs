@@ -28,7 +28,7 @@
 
 ```bash
 # Docker
-docker run -p 4317:4317 -v sobs_data:/data ghcr.io/abartrim/sobs:latest
+docker run -p 44317:4317 -v sobs_data:/data ghcr.io/abartrim/sobs:latest
 
 # docker-compose
 docker-compose up -d
@@ -40,7 +40,7 @@ python app.py
 
 Note: `python app.py` runs Hypercorn with a Quart ASGI app in single-process mode.
 
-Open `http://localhost:4317` in your browser.
+Open `http://localhost:44317` in your browser.
 
 On first open, SOBS shows a lightweight visual onboarding tour (ingest → analyze → act). You can reopen it any time from the left nav via **Quick Tour**.
 
@@ -56,7 +56,7 @@ Prebuilt image published by CI:
   - Equivalent explicit command:
 
 ```bash
-hypercorn --workers 1 --bind 0.0.0.0:${PORT:-4317} app:app
+hypercorn --workers 1 --bind 0.0.0.0:${PORT:-44317} app:app
 ```
 
 Why: embedded chDB is process-sensitive. Multiple process workers can trigger DB lock/stall behavior in embedded mode.
@@ -163,10 +163,24 @@ Use `/health/db` for readiness checks in orchestrated deployments when you need 
 | `SOBS_EXTERNAL_AUTH_URL`    | _(empty)_      | Optional external Bearer validator for the Web UI |
 | `SOBS_BASE_PATH`            | _(empty)_      | Optional URL prefix (for example `/sobs`) for UI/API routing and generated links |
 | `SOBS_SECRET_KEY`           | `sobs-dev-secret-key` | Secret key used by Quart session handling (set explicitly in production) |
-| `PORT`                      | `4317`         | Listen port                                      |
+| `PORT`                      | `44317`        | Listen port                                      |
 | `SOBS_WRITE_QUEUE_MAX`      | `5000`         | Max buffered write operations before ingest returns `503` |
 | `SOBS_WRITE_BATCH_MAX`      | `200`          | Max writes processed per DB batch |
 | `SOBS_WRITE_BATCH_WAIT_MS`  | `20`           | Max milliseconds to wait for filling a write batch |
+| `SOBS_SETTINGS_ENCRYPTION_KEY` | _(empty)_   | Optional app-settings encryption key (base64 URL-safe Fernet key) |
+| `SOBS_SETTINGS_ENCRYPTION_KEY_FILE` | _(empty)_ | Optional absolute file path containing the app-settings encryption key |
+| `SOBS_AI_ENDPOINT_URL`      | _(empty)_      | Optional fallback for AI endpoint URL when not configured in Settings -> AI |
+| `SOBS_AI_ENDPOINT_URL_FILE` | _(empty)_      | Optional file path with AI endpoint URL override |
+| `SOBS_AI_MODEL`             | _(empty)_      | Optional fallback for AI model when not configured in Settings -> AI |
+| `SOBS_AI_MODEL_FILE`        | _(empty)_      | Optional file path with AI model override |
+| `SOBS_AI_API_KEY`           | _(empty)_      | Optional fallback for AI API key when not configured in Settings -> AI |
+| `SOBS_AI_API_KEY_FILE`      | _(empty)_      | Optional file path with AI API key override |
+| `SOBS_AI_GUARD_ENDPOINT_URL` | _(empty)_     | Optional runtime override for guard endpoint URL |
+| `SOBS_AI_GUARD_ENDPOINT_URL_FILE` | _(empty)_ | Optional file path with guard endpoint URL override |
+| `SOBS_AI_GUARD_MODEL`       | _(empty)_      | Optional runtime override for guard model |
+| `SOBS_AI_GUARD_MODEL_FILE`  | _(empty)_      | Optional file path with guard model override |
+| `SOBS_AI_DLP_ENDPOINT_URL`  | _(empty)_      | Optional runtime override for DLP endpoint URL |
+| `SOBS_AI_DLP_ENDPOINT_URL_FILE` | _(empty)_  | Optional file path with DLP endpoint URL override |
 | `SOBS_CHDB_ENCRYPTION_KEY`  | _(empty)_      | Hex key for runtime-generated encrypted disk config in container startup |
 | `SOBS_CHDB_BASE_DISK_PATH`  | `/data/chdb-disks/plain` | Base local disk path for runtime-generated storage configuration |
 | `SOBS_CHDB_ENCRYPTED_DISK_PATH` | `/data/chdb-disks/encrypted` | Encrypted disk path for runtime-generated storage configuration |
@@ -186,6 +200,44 @@ When `SOBS_CHDB_ENCRYPTION_KEY` is set in the container image runtime:
 - Default startup assertions are set (`SOBS_CHDB_EXPECT_DISK` and `SOBS_CHDB_EXPECT_STORAGE_POLICY`) unless already provided.
 
 This keeps encryption keys injected at runtime through environment/secret management, without baking secrets into the image.
+
+### Settings Secret Storage
+
+SOBS can optionally encrypt sensitive values stored in app settings tables.
+
+- If `SOBS_SETTINGS_ENCRYPTION_KEY` (or `SOBS_SETTINGS_ENCRYPTION_KEY_FILE`) is present, sensitive setting values are encrypted before persistence.
+- If no settings encryption key is configured, values are stored in plaintext (backward-compatible behavior).
+- Existing plaintext values remain readable; after saving a setting while encryption is enabled, the new value is persisted encrypted.
+
+Sensitive values include AI and notification secrets such as API keys, tokens, webhook URLs, SMTP passwords, and the VAPID private key setting.
+
+### AI Guard Behavior
+
+AI helper guard checks are fail-closed.
+
+- If guard endpoint/model settings are missing, requests are blocked.
+- If the guard call fails or returns an invalid response, requests are blocked.
+- The guard model must reply `safe` (allowed) or `unsafe` (blocked) on the first line.
+- [Llama Guard 3](https://ollama.com/library/llama-guard3) is the recommended guard model.
+  It uses the MLCommons hazard taxonomy and returns a two-line response when blocking:
+  ```
+  unsafe
+  S2
+  ```
+  The category code (S1–S14) is surfaced in the blocked error message shown to the user,
+  e.g. `blocked (S2: Non-Violent Crimes)`.
+
+Configure guard settings in **Settings -> AI** before enabling AI helper flows.
+
+The contextual AI helper keeps guard-first enforcement, then streams the base-model response back to the browser once the prompt is allowed. Guard calls are not streamed.
+
+### AI Settings from Env and Secrets
+
+AI, guard, and DLP settings can be managed in Settings -> AI and/or externally with environment variables or mounted secret files.
+
+- Runtime precedence is: DB settings from **Settings -> AI**, then `*_FILE` values, then direct env values.
+- This allows cluster-managed config in Docker/Kubernetes using ConfigMaps, Secrets, or mounted files.
+- File-based variants (`*_FILE`) are useful for mounted secret volumes.
 
 Authentication details and setup examples are documented in [AUTHENTICATION.md](AUTHENTICATION.md).
 
@@ -207,19 +259,19 @@ SOBS exposes a Server-Sent Events endpoint at `/tail` for real-time streaming of
 
 ```bash
 # Stream all events (logs + traces)
-curl -N http://localhost:4317/tail
+curl -N http://localhost:44317/tail
 
 # Stream logs only
-curl -N "http://localhost:4317/tail?source=logs"
+curl -N "http://localhost:44317/tail?source=logs"
 
 # Stream traces only
-curl -N "http://localhost:4317/tail?source=traces"
+curl -N "http://localhost:44317/tail?source=traces"
 
 # Filter by service
-curl -N "http://localhost:4317/tail?service=myapp"
+curl -N "http://localhost:44317/tail?service=myapp"
 
 # Combine source and service filter
-curl -N "http://localhost:4317/tail?source=logs&service=myapp"
+curl -N "http://localhost:44317/tail?source=logs&service=myapp"
 ```
 
 ### Query parameters
@@ -251,11 +303,11 @@ The stream sends a `retry: 5000` directive on connect and a `: keepalive` commen
 
 ```bash
 # Basic auth
-curl -N http://localhost:4317/tail \
+curl -N http://localhost:44317/tail \
   -H "Authorization: Basic $(printf 'admin:secret' | base64)"
 
 # Bearer token (external auth)
-curl -N http://localhost:4317/tail \
+curl -N http://localhost:44317/tail \
   -H "Authorization: Bearer eyJhbGciOi..."
 ```
 
@@ -303,6 +355,69 @@ kubectl apply -f k8s/deployment.yaml
 
 Or as a **sidecar** – see `k8s/sidecar.yaml` for instructions.
 
+## Local AI Quickstart (Ollama Recommended)
+
+For most users, the easiest manual AI setup is local Ollama.
+
+1. Start Ollama (separate terminal):
+
+```bash
+ollama serve
+```
+
+2. Pull at least one model (example):
+
+```bash
+ollama pull llama3.1:8b
+```
+
+3. Start SOBS with Ollama-backed AI/guard settings:
+
+```bash
+./scripts/start_ollama_ai_test.sh
+```
+
+Optional model overrides:
+
+```bash
+SOBS_AI_MODEL=qwen2.5:7b-instruct \
+SOBS_AI_GUARD_MODEL=qwen2.5:7b-instruct \
+./scripts/start_ollama_ai_test.sh -- .venv/bin/python app.py
+```
+
+The script validates Ollama availability at `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`), exports `SOBS_AI_*` env vars, and runs your command (default: `python app.py`).
+
+This local Ollama path does not use Kubernetes and does not require `kubectl`.
+
+## Spark Cluster AI Test Script (Advanced)
+
+For local manual testing against cluster-hosted LLM/guard/DLP services, use:
+
+```bash
+./scripts/start_spark_ai_test.sh
+```
+
+By default the script uses:
+
+- `kubectl --kubeconfig ~/.kube/microk8s.config`
+- namespace `default`
+- service resources `svc/vllm-llm`, `svc/vllm-embeddings`, `svc/dlp`
+- DLP shared secret `infra-secrets` key `dlp-shared-secret`
+
+You can override any of these via environment variables before running the script, for example:
+
+```bash
+KUBE_NAMESPACE=ml \
+INFRA_NAMESPACE=infra \
+LLM_RESOURCE=svc/my-vllm \
+DLP_RESOURCE=svc/my-dlp \
+DLP_SECRET_NAME=my-infra-secrets \
+DLP_SECRET_KEY=dlp-token \
+./scripts/start_spark_ai_test.sh -- .venv/bin/python app.py
+```
+
+The script starts local port-forwards for LLM, embeddings, and DLP, exports `SOBS_AI_*` endpoint/model/key env vars for SOBS, and then runs the command you pass (default: `python app.py`).
+
 ## Screenshots
 
 | Logs (grep + SQL search) | AI Transparency |
@@ -332,10 +447,10 @@ Use `scripts/load_example.py` directly when you want to drive specific event rat
 
 ```bash
 # High-throughput load mode (default)
-python scripts/load_example.py --base http://127.0.0.1:4317 --total 420 --workers 28
+python scripts/load_example.py --base http://127.0.0.1:44317 --total 420 --workers 28
 
 # Realistic paced mode for UI demos
-python scripts/load_example.py --base http://127.0.0.1:4317 --mode realistic --rps 3 --jitter-ms 250 --total 180 --workers 8
+python scripts/load_example.py --base http://127.0.0.1:44317 --mode realistic --rps 3 --jitter-ms 250 --total 180 --workers 8
 ```
 
 Parameters:

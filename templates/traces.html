@@ -11,8 +11,8 @@
 <!-- Filter bar -->
 <div class="card border-secondary mb-3">
   <div class="card-body">
-    <form method="get" class="row g-2 align-items-end">
-      <div class="col-md-3">
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+      <div style="flex: 1 0 140px">
         <label class="form-label small text-secondary">Service</label>
         <select name="service" class="form-select form-select-sm">
           <option value="">All services</option>
@@ -21,27 +21,41 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-5">
+      <div style="flex: 2 0 200px">
         <label class="form-label small text-secondary">Trace ID</label>
         <input type="text" name="trace_id" class="form-control form-control-sm font-monospace"
                placeholder="Paste trace ID…" value="{{ trace_id }}">
       </div>
-      <div class="col-md-2">
-        <label class="form-label small text-secondary">From</label>
-        <input type="text" name="from_ts" id="traces-from-ts" class="form-control form-control-sm" placeholder="2026-03-29 12:00" value="{{ from_ts }}">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small text-secondary">To</label>
-        <div class="input-group input-group-sm drp-combo">
-          <input type="text" name="to_ts" id="traces-to-ts" class="form-control drp-combo-input" placeholder="2026-03-29 12:05" value="{{ to_ts }}">
-          <button type="button" class="input-group-text drp-combo-trigger" data-drp-toggle data-drp-from="traces-from-ts" data-drp-to="traces-to-ts" title="Date/time picker" aria-label="Date/time picker">
-            <i class="bi bi-calendar3"></i>
-          </button>
+      <div class="filter-date-group">
+        <div class="filter-date-fields">
+          <div class="filter-date-field">
+            <label class="form-label small text-secondary">From</label>
+            <input type="text" name="from_ts" id="traces-from-ts" class="form-control form-control-sm" placeholder="2026-03-29 12:00" value="{{ from_ts }}">
+          </div>
+          <div class="filter-date-field">
+            <label class="form-label small text-secondary">To</label>
+            <div class="input-group input-group-sm drp-combo">
+              <input type="text" name="to_ts" id="traces-to-ts" class="form-control drp-combo-input" placeholder="2026-03-29 12:05" value="{{ to_ts }}">
+              <button type="button" class="input-group-text drp-combo-trigger" data-drp-toggle data-drp-from="traces-from-ts" data-drp-to="traces-to-ts" title="Date/time picker" aria-label="Date/time picker">
+                <i class="bi bi-calendar3"></i>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="col-md-2 d-flex gap-1">
-        <button type="submit" class="btn btn-primary btn-sm">Filter</button>
-        <a href="{{ url_for('view_traces') }}" class="btn btn-outline-secondary btn-sm">Reset</a>
+      <div class="d-flex gap-1" style="flex: 0 0 auto">
+        <button
+          type="submit"
+          class="btn btn-primary btn-sm"
+          data-ai-action-id="traces.filter.apply"
+          data-ai-action-type="apply_form_filters"
+          data-ai-handler="applyFormFilters"
+          data-ai-label="Apply traces filters"
+          data-ai-risk="low"
+          data-ai-confirm="false"
+          data-ai-action-role="filter-submit"
+        ><i class="bi bi-search"></i></button>
+        <a href="{{ url_for('view_traces') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
       </div>
     </form>
     {% if error_msg %}
@@ -50,6 +64,7 @@
   </div>
 </div>
 
+{% macro fmt_ms(ms) %}{%- set ms = ms | float -%}{%- if ms >= 3600000 -%}{{ (ms / 3600000) | round(2) }}h{%- elif ms >= 60000 -%}{{ (ms / 60000) | round(1) }}m{%- elif ms >= 10000 -%}{{ (ms / 1000) | round(1) }}s{%- else -%}{{ ms | round(1) }}ms{%- endif -%}{% endmacro %}
 {% if trace_detail %}
 <!-- ===== Trace Detail: Hierarchical Timeline View ===== -->
 <div class="mb-3">
@@ -57,7 +72,7 @@
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
     <span class="font-monospace small text-secondary" title="Trace ID">{{ trace_id }}</span>
     <span class="badge bg-secondary">{{ trace_detail.span_tree | length }} span(s)</span>
-    <span class="badge bg-info text-dark">{{ trace_detail.total_ms }}ms total</span>
+    <span class="badge bg-info text-dark">{{ fmt_ms(trace_detail.total_ms) }} total</span>
     {% if trace_detail.errors %}
     <span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>{{ trace_detail.errors | length }} error(s)</span>
     {% endif %}
@@ -75,11 +90,11 @@
   <div class="d-flex align-items-center mb-1 px-2" style="padding-left:8px;">
     <div style="min-width:320px; max-width:380px; flex-shrink:0;"></div>
     <div class="flex-grow-1 position-relative" style="height:16px; font-size:.68rem; color:var(--bs-secondary-color);">
-      <span style="position:absolute; left:0;">0ms</span>
-      <span style="position:absolute; left:25%;">{{ (trace_detail.total_ms * 0.25) | round(1) }}ms</span>
-      <span style="position:absolute; left:50%;">{{ (trace_detail.total_ms * 0.5) | round(1) }}ms</span>
-      <span style="position:absolute; left:75%;">{{ (trace_detail.total_ms * 0.75) | round(1) }}ms</span>
-      <span style="position:absolute; right:0;">{{ trace_detail.total_ms }}ms</span>
+      <span style="position:absolute; left:0;">0</span>
+      <span style="position:absolute; left:25%;">{{ fmt_ms(trace_detail.total_ms * 0.25) }}</span>
+      <span style="position:absolute; left:50%;">{{ fmt_ms(trace_detail.total_ms * 0.5) }}</span>
+      <span style="position:absolute; left:75%;">{{ fmt_ms(trace_detail.total_ms * 0.75) }}</span>
+      <span style="position:absolute; right:0;">{{ fmt_ms(trace_detail.total_ms) }}</span>
     </div>
     <div style="min-width:310px; flex-shrink:0;"></div>
   </div>
@@ -119,13 +134,13 @@
       <div class="flex-grow-1 position-relative" style="height:10px; background:var(--bs-tertiary-bg); border-radius:5px; min-width:80px;">
         <div style="position:absolute; left:{{ span.offset_pct }}%; width:{{ span.width_pct }}%; height:100%; border-radius:4px;
                     background:{% if is_error or has_span_error %}#dc3545{% elif span.duration_ms >= 1000 %}#fd7e14{% else %}#0d6efd{% endif %};"
-             title="{{ span.name }}: {{ span.duration_ms }}ms"></div>
+             title="{{ span.name }}: {{ fmt_ms(span.duration_ms) }}"></div>
       </div>
 
       <!-- Duration -->
       <span class="small ms-2 font-monospace {% if span.duration_ms >= 1000 %}text-danger{% elif span.duration_ms >= 100 %}text-warning{% else %}text-success{% endif %}"
             style="min-width:64px; text-align:right;">
-        {{ span.duration_ms }}ms
+        {{ fmt_ms(span.duration_ms) }}
       </span>
 
       <!-- Status badge -->
@@ -312,22 +327,39 @@
 {% block scripts %}
 <script>
 /* Tree expand/collapse for trace detail view */
-document.querySelectorAll('.tree-toggle').forEach(function (btn) {
-  btn.addEventListener('click', function () {
-    var row = btn.closest('.trace-tree-row');
-    var depth = parseInt(row.dataset.depth, 10);
-    var icon = btn.querySelector('i');
-    var isExpanded = icon.classList.contains('bi-chevron-down');
-    icon.classList.toggle('bi-chevron-down', !isExpanded);
-    icon.classList.toggle('bi-chevron-right', isExpanded);
+(function () {
+  /* Bootstrap d-flex uses !important, so we need our own !important hide class */
+  var style = document.createElement('style');
+  style.textContent = '.trace-tree-row.tree-hidden { display: none !important; }';
+  document.head.appendChild(style);
 
-    var next = row.nextElementSibling;
-    while (next && next.classList.contains('trace-tree-row') &&
-           parseInt(next.dataset.depth, 10) > depth) {
-      next.style.display = isExpanded ? 'none' : '';
-      next = next.nextElementSibling;
-    }
+  document.querySelectorAll('.tree-toggle').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var row = btn.closest('.trace-tree-row');
+      var depth = parseInt(row.dataset.depth, 10);
+      var icon = btn.querySelector('i');
+      var isExpanded = icon.classList.contains('bi-chevron-down');
+      icon.classList.toggle('bi-chevron-down', !isExpanded);
+      icon.classList.toggle('bi-chevron-right', isExpanded);
+
+      var next = row.nextElementSibling;
+      while (next && next.classList.contains('trace-tree-row') &&
+             parseInt(next.dataset.depth, 10) > depth) {
+        var childDepth = parseInt(next.dataset.depth, 10);
+        if (isExpanded) {
+          // Collapsing: hide ALL descendants
+          next.classList.add('tree-hidden');
+        } else {
+          // Expanding: only reveal direct children; leave deeper rows as-is
+          // so their own collapsed state is preserved
+          if (childDepth === depth + 1) {
+            next.classList.remove('tree-hidden');
+          }
+        }
+        next = next.nextElementSibling;
+      }
+    });
   });
-});
+}());
 </script>
 {% endblock %}

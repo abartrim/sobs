@@ -11,8 +11,8 @@
 <!-- Filter bar -->
 <div class="card border-secondary mb-3">
   <div class="card-body">
-    <form method="get" class="row g-2 align-items-end">
-      <div class="col-md-3">
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+      <div style="flex: 1 0 140px">
         <label class="form-label small text-secondary">Service</label>
         <select name="service" class="form-select form-select-sm">
           <option value="">All services</option>
@@ -21,7 +21,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-3">
+      <div style="flex: 1 0 120px">
         <label class="form-label small text-secondary">Status</label>
         <select name="resolved" class="form-select form-select-sm">
           <option value="0" {% if resolved == '0' %}selected{% endif %}>Open</option>
@@ -29,36 +29,47 @@
           <option value=""  {% if resolved == ''  %}selected{% endif %}>All</option>
         </select>
       </div>
-      <div class="col-md-2">
+      <div style="flex: 1 0 120px">
         <label class="form-label small text-secondary">Sort by</label>
         <select name="sort_by" class="form-select form-select-sm">
           <option value="Timestamp" {% if sort_by == 'Timestamp' %}selected{% endif %}>Timestamp</option>
           <option value="ServiceName" {% if sort_by == 'ServiceName' %}selected{% endif %}>Service</option>
         </select>
       </div>
-      <div class="col-md-2">
+      <div style="flex: 1 0 120px">
         <label class="form-label small text-secondary">Order</label>
         <select name="sort_dir" class="form-select form-select-sm">
           <option value="desc" {% if sort_dir == 'desc' %}selected{% endif %}>Descending</option>
           <option value="asc" {% if sort_dir == 'asc' %}selected{% endif %}>Ascending</option>
         </select>
       </div>
-      <div class="col-md-2">
-        <label class="form-label small text-secondary">From</label>
-        <input type="text" name="from_ts" id="errors-from-ts" class="form-control form-control-sm" placeholder="2026-03-29 12:00" value="{{ from_ts }}">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small text-secondary">To</label>
-        <div class="input-group input-group-sm drp-combo">
-          <input type="text" name="to_ts" id="errors-to-ts" class="form-control drp-combo-input" placeholder="2026-03-29 12:05" value="{{ to_ts }}">
-          <button type="button" class="input-group-text drp-combo-trigger" data-drp-toggle data-drp-from="errors-from-ts" data-drp-to="errors-to-ts" title="Date/time picker" aria-label="Date/time picker">
-            <i class="bi bi-calendar3"></i>
-          </button>
+      <div class="filter-date-group">
+        <div class="filter-date-fields">
+          <div class="filter-date-field">
+            <label class="form-label small text-secondary">From</label>
+            <input type="text" name="from_ts" id="errors-from-ts" class="form-control form-control-sm" placeholder="2026-03-29 12:00" value="{{ from_ts }}">
+          </div>
+          <div class="filter-date-field">
+            <label class="form-label small text-secondary">To</label>
+            <div class="input-group input-group-sm drp-combo">
+              <input type="text" name="to_ts" id="errors-to-ts" class="form-control drp-combo-input" placeholder="2026-03-29 12:05" value="{{ to_ts }}">
+              <button type="button" class="input-group-text drp-combo-trigger" data-drp-toggle data-drp-from="errors-from-ts" data-drp-to="errors-to-ts" title="Date/time picker" aria-label="Date/time picker">
+                <i class="bi bi-calendar3"></i>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="col-md-2 d-flex gap-1">
-        <button type="submit" class="btn btn-primary btn-sm">Filter</button>
-        <a href="{{ url_for('view_errors') }}" class="btn btn-outline-secondary btn-sm">Reset</a>
+      <div class="d-flex gap-1" style="flex: 0 0 auto">
+        <button type="submit" class="btn btn-primary btn-sm"
+          data-ai-action-id="errors.filter.apply"
+          data-ai-action-type="apply_form_filters"
+          data-ai-handler="applyFormFilters"
+          data-ai-label="Apply errors filters"
+          data-ai-risk="low"
+          data-ai-confirm="false"
+          data-ai-action-role="filter-submit"><i class="bi bi-search"></i></button>
+        <a href="{{ url_for('view_errors') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
       </div>
     </form>
     {% if error_msg %}
@@ -97,7 +108,14 @@
           </a>
           {% endif %}
           {% if not err.resolved %}
-          <button class="btn btn-sm btn-outline-success resolve-btn" data-resolve-url="{{ url_for('resolve_error', error_id=err.id) }}">
+          <button class="btn btn-sm btn-outline-success resolve-btn" data-resolve-url="{{ url_for('resolve_error', error_id=err.id) }}"
+                  data-ai-action-id="errors.resolve.mark"
+                  data-ai-action-type="invoke_click"
+                  data-ai-handler="invokeClick"
+                  data-ai-label="Mark error resolved"
+                  data-ai-risk="medium"
+                  data-ai-confirm="true"
+                  data-ai-action-role="resolve-error-btn">
             <i class="bi bi-check2 me-1"></i>Resolve
           </button>
           {% endif %}
