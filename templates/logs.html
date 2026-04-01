@@ -1292,12 +1292,13 @@
 
 // ── Saved Reports: logs page ──────────────────────────────────────────────
 (function () {
-  const menu = document.getElementById('logs-reports-menu');
+  const group = document.getElementById('logs-reports-group');
   const saveBtn = document.getElementById('logs-save-report-btn');
+  if (!group || !saveBtn) return;
+  const menu = group.querySelector('ul');
   const pageBaseUrl = {{ url_for('view_logs') | tojson }};
 
-  // Populate dropdown when opened
-  document.getElementById('logs-reports-group').addEventListener('show.bs.dropdown', function () {
+  group.addEventListener('show.bs.dropdown', function () {
     fetch('/api/reports?page_type=logs')
       .then(r => r.json())
       .then(reports => {
@@ -1318,16 +1319,15 @@
       });
   });
 
-  // Save as report
   saveBtn.addEventListener('click', function () {
     const name = prompt('Report name:');
     if (!name || !name.trim()) return;
     const description = prompt('Description (optional):') || '';
-    // Collect current filter params from the form
     const form = document.querySelector('form[method="get"]');
     const data = new FormData(form);
     const filters = {};
     for (const [k, v] of data.entries()) {
+      // Exclude transient UI state params that should not be part of a saved filter set
       if (v && k !== 'live' && k !== 'analyze' && k !== 'stats') filters[k] = v;
     }
     fetch('/api/reports', {

@@ -248,13 +248,13 @@ document.querySelectorAll('.ai-help-btn').forEach(btn => {
 
 // ── Saved Reports: errors page ────────────────────────────────────────────
 (function () {
-  const menu = document.getElementById('errors-reports-menu');
+  const group = document.getElementById('errors-reports-group');
   const saveBtn = document.getElementById('errors-save-report-btn');
+  if (!group || !saveBtn) return;
+  const menu = group.querySelector('ul');
   const pageBaseUrl = {{ url_for('view_errors') | tojson }};
 
-  if (!menu || !saveBtn) return;
-
-  document.getElementById('errors-reports-group').addEventListener('show.bs.dropdown', function () {
+  group.addEventListener('show.bs.dropdown', function () {
     fetch('/api/reports?page_type=errors')
       .then(r => r.json())
       .then(reports => {

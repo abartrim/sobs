@@ -375,13 +375,13 @@
 
 // ── Saved Reports: traces page ────────────────────────────────────────────
 (function () {
-  const menu = document.getElementById('traces-reports-menu');
+  const group = document.getElementById('traces-reports-group');
   const saveBtn = document.getElementById('traces-save-report-btn');
+  if (!group || !saveBtn) return;
+  const menu = group.querySelector('ul');
   const pageBaseUrl = {{ url_for('view_traces') | tojson }};
 
-  if (!menu || !saveBtn) return;
-
-  document.getElementById('traces-reports-group').addEventListener('show.bs.dropdown', function () {
+  group.addEventListener('show.bs.dropdown', function () {
     fetch('/api/reports?page_type=traces')
       .then(r => r.json())
       .then(reports => {
