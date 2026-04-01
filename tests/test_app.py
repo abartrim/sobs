@@ -5524,6 +5524,191 @@ class TestAISettingsAndAgentFlows:
         assert '"action_id": "logs.filter.apply_sql"' in body
         assert "ServiceName = 'api'" in body
 
+    def test_ai_memory_helpers_extract_meta_candidates_and_embeddings(self):
+        from app import _extract_assistant_meta, _extract_memory_candidates, _semantic_memory_matches, _text_embedding
+
+        answer = (
+            "All good."
+            '<assistant_meta>{"turn_summary":{"request":"show api errors","action":"filter logs",'
+            '"result":"applied"},"memory_candidates":["pref-a","pref-a","pref-b","pref-c","pref-d"]}'
+            "</assistant_meta>"
+        )
+        cleaned, meta = _extract_assistant_meta(answer)
+        assert cleaned == "All good."
+        assert isinstance(meta, dict)
+
+        candidates = _extract_memory_candidates(meta)
+        assert candidates == ["pref-a", "pref-b", "pref-c"]
+
+        emb_1 = _text_embedding("api errors by service")
+        emb_2 = _text_embedding("api errors by service")
+        assert emb_1 == emb_2
+
+        memories = [
+            {"id": "m1", "text": "api errors spike", "embedding": _text_embedding("api errors spike")},
+            {"id": "m2", "text": "deploy pipeline status", "embedding": _text_embedding("deploy pipeline status")},
+        ]
+        matches = _semantic_memory_matches(memories, "show api error spike", max_results=2, min_score=0.0)
+        assert len(matches) >= 1
+        assert str(matches[0]["id"]) == "m1"
+
+    def test_ai_memory_upsert_persists_without_datetime_parse_error(self):
+        import uuid as _uuid
+
+        from app import _upsert_ai_memory, get_db
+
+        db = get_db()
+        chat_id = f"mem-chat-{time.time_ns()}"
+        memory_id = str(_uuid.uuid4())
+        source_turn_id = str(_uuid.uuid4())
+        memory_text = "User prefers p95 latency charts by service"
+
+        _upsert_ai_memory(
+            db,
+            memory_id=memory_id,
+            chat_id=chat_id,
+            memory_text=memory_text,
+            source_turn_id=source_turn_id,
+            is_deleted=False,
+        )
+
+        row = db.execute(
+            "SELECT MemoryText, IsDeleted FROM sobs_ai_memories FINAL WHERE Id=? AND ChatId=? LIMIT 1",
+            [memory_id, chat_id],
+        ).fetchone()
+        assert row is not None
+        assert str(row["MemoryText"] or "") == memory_text
+        assert int(row["IsDeleted"] or 0) == 0
+
+    async def test_ai_helper_non_stream_multi_round_tool_loop(self, client, monkeypatch):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://api.example.com/v1")
+        _save_ai_setting(db, "ai.model", "gpt-test")
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "guard-test")
+
+        state = {"calls": 0, "messages": []}
+
+        async def _fake_guard(*_args, **_kwargs):
+            return True, "allowed", {"prompt_tokens": 2, "completion_tokens": 1, "elapsed_ms": 5}
+
+        async def _fake_stream(*args, **_kwargs):
+            state["calls"] = int(state["calls"]) + 1
+            round_messages = list(args[3]) if len(args) > 3 else []
+            state["messages"].append(round_messages)
+            if int(state["calls"]) == 1:
+                yield {
+                    "type": "tool",
+                    "tool_call": {
+                        "name": "propose_ui_action",
+                        "arguments": {
+                            "action_id": "logs.filter.apply_sql",
+                            "arguments": {"sql_where": "SeverityText = 'ERROR'"},
+                            "target_page": "/logs",
+                            "notes": "Filter to errors",
+                        },
+                    },
+                }
+                yield {"type": "done", "stats": {"prompt_tokens": 8, "completion_tokens": 2, "elapsed_ms": 20}}
+                return
+
+            yield {"type": "delta", "text": "Final answer after tool."}
+            yield {"type": "done", "stats": {"prompt_tokens": 9, "completion_tokens": 3, "elapsed_ms": 21}}
+
+        monkeypatch.setattr(sobs_app, "_check_guard_model", _fake_guard)
+        monkeypatch.setattr(sobs_app, "_stream_llm_endpoint", _fake_stream)
+
+        r = await client.post(
+            "/api/ai/helper",
+            json={
+                "question": "show error logs",
+                "page": "/logs",
+                "stream": False,
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert "Final answer after tool." in str(data.get("answer") or "")
+        assert int(state["calls"]) == 2
+        assert len(data.get("tool_proposals") or []) == 1
+
+        second_round_messages = state["messages"][1]
+        assert any(
+            str(msg.get("role") or "") == "system"
+            and "Tool execution results for this turn" in str(msg.get("content") or "")
+            for msg in second_round_messages
+            if isinstance(msg, dict)
+        )
+
+    async def test_ai_helper_chat_history_endpoints_sanitize_and_preserve_turns(self, client, monkeypatch):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://api.example.com/v1")
+        _save_ai_setting(db, "ai.model", "gpt-test")
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "guard-test")
+
+        chat_id = f"chat-history-{time.time_ns()}"
+        question = "List all gpt-oss calls"
+
+        async def _fake_guard(*_args, **_kwargs):
+            return True, "allowed", {"prompt_tokens": 2, "completion_tokens": 1, "elapsed_ms": 5}
+
+        async def _fake_stream(*_args, **_kwargs):
+            yield {
+                "type": "delta",
+                "text": (
+                    "Here are the latest calls."
+                    '<assistant_meta>{"turn_summary":{"request":"User wrote \\"next\\" on AI page, '
+                    'unclear intent","action":"asked clarifying question","result":"awaiting clarification"},'
+                    '"memory_candidates":[]}</assistant_meta>'
+                ),
+            }
+            yield {"type": "done", "stats": {"prompt_tokens": 8, "completion_tokens": 2, "elapsed_ms": 20}}
+
+        monkeypatch.setattr(sobs_app, "_check_guard_model", _fake_guard)
+        monkeypatch.setattr(sobs_app, "_stream_llm_endpoint", _fake_stream)
+
+        r = await client.post(
+            "/api/ai/helper",
+            json={
+                "question": question,
+                "page": "/ai",
+                "chat_id": chat_id,
+                "stream": False,
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert "assistant_meta" not in str(data.get("answer") or "").lower()
+
+        r_chats = await client.get("/api/ai/helper/chats?page=/ai")
+        assert r_chats.status_code == 200
+        chats_data = await r_chats.get_json()
+        assert chats_data["ok"] is True
+        chats = chats_data.get("chats") or []
+        chat_row = next((c for c in chats if str(c.get("chat_id") or "") == chat_id), None)
+        assert chat_row is not None
+        assert "unclear intent" not in str(chat_row.get("label") or "").lower()
+        assert str(chat_row.get("label") or "") != "New chat"
+
+        r_detail = await client.get(f"/api/ai/helper/chats/{chat_id}")
+        assert r_detail.status_code == 200
+        detail = await r_detail.get_json()
+        assert detail["ok"] is True
+        messages = detail.get("messages") or []
+        user_msg = next((m for m in messages if str(m.get("role") or "") == "user"), None)
+        assistant_msg = next((m for m in messages if str(m.get("role") or "") == "assistant"), None)
+        assert user_msg is not None
+        assert assistant_msg is not None
+        assert str(user_msg.get("text") or "") == question
+        assert "assistant_meta" not in str(assistant_msg.get("text") or "").lower()
+
     def test_secret_settings_roundtrip_with_optional_encryption(self, monkeypatch):
         from app import _load_ai_setting, _save_ai_setting, get_db
 

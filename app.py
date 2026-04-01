@@ -3631,13 +3631,13 @@ def _error_id(ts: str, service: str, err_type: str, message: str, trace_id: str,
 def _insert_rows_json_each_row(db, table_name: str, rows: list[dict]) -> int:
     if not rows:
         return 0
+    dt_keys = {"Timestamp", "TimeUnix", "UpdatedAt", "CreatedAt", "CompletedAt"}
     normalized_rows = []
     for row in rows:
         item = dict(row)
-        if "Timestamp" in item:
-            item["Timestamp"] = _normalize_ch_timestamp(item["Timestamp"])
-        if "TimeUnix" in item:
-            item["TimeUnix"] = _normalize_ch_timestamp(item["TimeUnix"])
+        for key in dt_keys:
+            if key in item:
+                item[key] = _normalize_ch_timestamp(item[key])
         if "Events" in item and isinstance(item["Events"], dict) and "Timestamp" in item["Events"]:
             item["Events"]["Timestamp"] = [_normalize_ch_timestamp(v) for v in item["Events"]["Timestamp"]]
         normalized_rows.append(item)
