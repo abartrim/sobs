@@ -3067,7 +3067,7 @@ class TestCustomDashboards:
         assert r3.status_code == 200
         body = await r3.get_data(as_text=True)
         assert "Latency Bands" in body
-        assert "Open Source View" in body
+        assert "Data Source" in body
 
     async def test_dashboard_view_includes_template_guidance(self, client):
         r = await client.post(
