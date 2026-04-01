@@ -1,0 +1,69 @@
+version: "3.9"
+
+# Full local stack: SOBS + OpenTelemetry Collector + demo Prometheus app.
+#
+# Usage:
+#   docker compose -f examples/prometheus/docker-compose.yml up -d
+#
+# Then open http://localhost:4317/metrics in your browser.
+
+services:
+  # --------------------------------------------------------------------------
+  # SOBS – unified observability backend
+  # --------------------------------------------------------------------------
+  sobs:
+    image: ghcr.io/abartrim/sobs:latest
+    container_name: sobs
+    ports:
+      - "4317:4317"
+    volumes:
+      - sobs_data:/data
+    environment:
+      # Set an API key to enable authentication.
+      # If set, also uncomment the X-API-Key header in otel-collector-config.yaml.
+      - SOBS_API_KEY=
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:4317/health')"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # --------------------------------------------------------------------------
+  # OpenTelemetry Collector – scrapes Prometheus targets and forwards to SOBS
+  # --------------------------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on:
+      sobs:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # Demo app – exposes synthetic Prometheus metrics on :8000/metrics
+  #
+  # This container runs the python_metrics_example.py script in "expose" mode.
+  # Replace this with your own application that exposes a /metrics endpoint.
+  # --------------------------------------------------------------------------
+  demo-app:
+    image: python:3.12-slim
+    container_name: demo-app
+    working_dir: /app
+    volumes:
+      - ./python_metrics_example.py:/app/python_metrics_example.py:ro
+    command: >
+      sh -c "pip install --quiet prometheus_client &&
+             python python_metrics_example.py --mode expose --port 8000"
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+volumes:
+  sobs_data:

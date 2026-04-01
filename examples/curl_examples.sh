@@ -86,4 +86,66 @@ curl -s -X POST "$SOBS/v1/ai" \
   }'
 echo ""
 
+# ---- 6. Send a gauge metric (OTLP/JSON) ----
+# Gauge: an instantaneous value that can go up or down (e.g. CPU %, memory).
+curl -s -X POST "$SOBS/v1/metrics" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceMetrics": [{
+      "resource": {
+        "attributes": [{"key":"service.name","value":{"stringValue":"curl-demo"}}]
+      },
+      "scopeMetrics": [{
+        "metrics": [{
+          "name": "system.cpu.utilization",
+          "description": "CPU utilisation",
+          "unit": "%",
+          "gauge": {
+            "dataPoints": [{
+              "timeUnixNano": "'"$(date +%s%N)"'",
+              "asDouble": 23.5,
+              "attributes": [
+                {"key":"core","value":{"stringValue":"0"}}
+              ]
+            }]
+          }
+        }]
+      }]
+    }]
+  }'
+echo ""
+
+# ---- 7. Send a counter metric (OTLP/JSON) ----
+# Sum (monotonic counter): a value that only increases (e.g. total request count).
+# aggregationTemporality 2 = CUMULATIVE
+curl -s -X POST "$SOBS/v1/metrics" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceMetrics": [{
+      "resource": {
+        "attributes": [{"key":"service.name","value":{"stringValue":"curl-demo"}}]
+      },
+      "scopeMetrics": [{
+        "metrics": [{
+          "name": "http.server.requests",
+          "description": "Total HTTP requests",
+          "unit": "1",
+          "sum": {
+            "isMonotonic": true,
+            "aggregationTemporality": 2,
+            "dataPoints": [{
+              "timeUnixNano": "'"$(date +%s%N)"'",
+              "asDouble": 142,
+              "attributes": [
+                {"key":"http.route","value":{"stringValue":"/api/users"}},
+                {"key":"http.status_code","value":{"stringValue":"200"}}
+              ]
+            }]
+          }
+        }]
+      }]
+    }]
+  }'
+echo ""
+
 echo "All events sent. Open $SOBS in your browser."

@@ -1,0 +1,79 @@
+# OpenTelemetry Collector configuration: Prometheus scrape → SOBS
+#
+# This pipeline scrapes one or more Prometheus /metrics endpoints and forwards
+# the data to SOBS via OTLP/HTTP.
+#
+# Usage:
+#   docker run --rm \
+#     -v $(pwd)/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml \
+#     otel/opentelemetry-collector-contrib:latest
+#
+# Or use the docker-compose.yml in this directory for a full local stack.
+
+receivers:
+  prometheus:
+    config:
+      scrape_configs:
+        # -----------------------------------------------------------------------
+        # Scrape the demo Python app (see docker-compose.yml).
+        # Replace or add entries here to point at your own Prometheus targets.
+        # -----------------------------------------------------------------------
+        - job_name: "demo-app"
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["demo-app:8000"]
+
+        # Example: scrape a second service
+        # - job_name: "my-service"
+        #   scrape_interval: 30s
+        #   static_configs:
+        #     - targets: ["my-service:9090"]
+
+        # Example: scrape with basic auth
+        # - job_name: "secure-service"
+        #   scrape_interval: 15s
+        #   static_configs:
+        #     - targets: ["secure-service:9090"]
+        #   basic_auth:
+        #     username: "metrics"
+        #     password: "secret"
+
+processors:
+  # Batch metrics before sending to reduce request overhead.
+  batch:
+    timeout: 10s
+    send_batch_size: 1000
+
+exporters:
+  otlphttp:
+    # SOBS base URL. The collector appends /v1/metrics automatically.
+    endpoint: http://sobs:4317
+
+    # Uncomment and set if SOBS_API_KEY is configured on the SOBS instance.
+    # headers:
+    #   X-API-Key: "your-api-key"
+
+    # Required for plain HTTP (non-TLS) connections.
+    tls:
+      insecure: true
+
+    # Retry on transient failures (collector default behaviour).
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 120s
+
+  # Optional: log forwarded metrics to stdout for debugging.
+  # To enable, uncomment both this block and 'debug' in the exporters list below.
+  # debug:
+  #   verbosity: detailed
+
+service:
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      processors: [batch]
+      exporters: [otlphttp]
+      # To also log metrics to stdout, add 'debug' to exporters:
+      # exporters: [otlphttp, debug]

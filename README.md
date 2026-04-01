@@ -89,6 +89,26 @@ cd examples/nodejs && npm install && node example.js
 bash examples/curl_examples.sh
 ```
 
+### Prometheus / OTEL metrics (OTel Collector bridge)
+
+Forward existing Prometheus `/metrics` endpoints into SOBS using the OpenTelemetry
+Collector as a bridge.  No changes are required to the instrumented application.
+
+```bash
+# Full local stack: SOBS + OTel Collector + demo app
+docker compose -f examples/prometheus/docker-compose.yml up -d
+```
+
+Or push OTLP metrics directly from Python without a scrape endpoint:
+
+```bash
+pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-http prometheus_client
+python examples/prometheus/python_metrics_example.py --mode push
+```
+
+See [`examples/prometheus/README.md`](examples/prometheus/README.md) for full configuration
+details, security considerations, and limitations.
+
 ### Client-side RUM
 
 ```html
