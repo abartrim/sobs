@@ -6,11 +6,25 @@
   <div class="d-flex align-items-center gap-2">
     <div class="btn-group" role="group" aria-label="View mode">
       <a href="{{ url_for('view_ai', view='flat', service=service, model=model, operation=operation, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0) }}"
-         class="btn btn-sm {% if view_mode == 'flat' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+        class="btn btn-sm {% if view_mode == 'flat' %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+        data-ai-action-id="ai.view.flat"
+        data-ai-action-type="navigate"
+        data-ai-handler="navigate"
+        data-ai-args='{"target_page":"/ai","query":{"view":"flat"}}'
+        data-ai-label="Switch AI view to flat"
+        data-ai-risk="low"
+        data-ai-confirm="false">
         Flat
       </a>
       <a href="{{ url_for('view_ai', view='trace', service=service, model=model, operation=operation, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0) }}"
-         class="btn btn-sm {% if view_mode == 'trace' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+        class="btn btn-sm {% if view_mode == 'trace' %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+        data-ai-action-id="ai.view.trace"
+        data-ai-action-type="navigate"
+        data-ai-handler="navigate"
+        data-ai-args='{"target_page":"/ai","query":{"view":"trace"}}'
+        data-ai-label="Switch AI view to trace"
+        data-ai-risk="low"
+        data-ai-confirm="false">
         Group by Trace
       </a>
     </div>
@@ -18,7 +32,14 @@
        class="btn btn-sm btn-outline-secondary" title="Export training data as JSONL">
       <i class="bi bi-download me-1"></i>Export JSONL
     </a>
-    <button id="liveTailBtn" class="btn btn-sm btn-outline-success" onclick="toggleLiveTail()">
+    <button id="liveTailBtn" class="btn btn-sm btn-outline-success" onclick="toggleLiveTail()"
+            data-ai-action-id="ai.live_tail.toggle"
+            data-ai-action-type="invoke_click"
+            data-ai-handler="invokeClick"
+            data-ai-label="Toggle AI live tail"
+            data-ai-risk="low"
+            data-ai-confirm="false"
+            data-ai-args='{"element_id":"liveTailBtn"}'>
       <i class="bi bi-broadcast me-1"></i>Live Tail
     </button>
   </div>
@@ -126,7 +147,15 @@
         </select>
       </div>
       <div class="col-md-2 d-flex gap-1">
-        <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+        <button type="submit" class="btn btn-primary btn-sm"
+          data-ai-action-id="ai.filter.apply"
+          data-ai-action-type="apply_form_filters"
+          data-ai-handler="applyFormFilters"
+          data-ai-args='{"target_page":"/ai","submit":true,"filter_fields":["view","service","model","operation","sort_by","sort_dir"]}'
+          data-ai-label="Apply AI transparency filters"
+          data-ai-risk="low"
+          data-ai-confirm="false"
+          data-ai-action-role="filter-submit">Filter</button>
         <a href="{{ url_for('view_ai') }}" class="btn btn-outline-secondary btn-sm">Reset</a>
       </div>
     </form>

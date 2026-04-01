@@ -102,7 +102,13 @@
         </div>
       </div>
       <div class="mt-3">
-        <button type="submit" class="btn btn-sm btn-success">
+        <button type="submit" class="btn btn-sm btn-success"
+          data-ai-action-id="settings.agents.create"
+          data-ai-action-type="submit_form"
+          data-ai-handler="submitForm"
+          data-ai-label="Create agent rule"
+          data-ai-risk="high"
+          data-ai-confirm="true">
           <i class="bi bi-plus me-1"></i>Create Rule
         </button>
       </div>
@@ -159,14 +165,26 @@
             <button type="button"
                     class="btn btn-sm btn-outline-primary me-1 sobs-run-btn"
                     data-rule-id="{{ r.id | e }}"
-                    data-rule-name="{{ r.name | e }}">
+                  data-rule-name="{{ r.name | e }}"
+                  data-ai-action-id="settings.agents.run"
+                  data-ai-action-type="invoke_click"
+                  data-ai-handler="invokeClick"
+                  data-ai-label="Run agent rule"
+                  data-ai-risk="high"
+                  data-ai-confirm="true">
               <i class="bi bi-play me-1"></i>Run
             </button>
             <form method="post" action="{{ url_for('delete_agent_rule', rule_id=r.id) }}"
                   style="display:inline;"
                   class="sobs-delete-rule-form"
                   data-rule-name="{{ r.name | e }}">
-              <button type="submit" class="btn btn-sm btn-outline-danger">
+              <button type="submit" class="btn btn-sm btn-outline-danger"
+                      data-ai-action-id="settings.agents.delete"
+                      data-ai-action-type="submit_form"
+                      data-ai-handler="submitForm"
+                      data-ai-label="Delete agent rule"
+                      data-ai-risk="high"
+                      data-ai-confirm="true">
                 <i class="bi bi-trash"></i>
               </button>
             </form>

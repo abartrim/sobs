@@ -452,15 +452,25 @@
     z-index: 1075;
     width: min(420px, calc(100vw - 2rem));
     min-height: 320px;
+    min-width: 320px;
     max-height: 70vh;
+    max-width: calc(100vw - 1rem);
     display: none;
     flex-direction: column;
     background: var(--bs-body-bg);
     border: 1px solid var(--bs-border-color);
     border-radius: 12px;
     box-shadow: 0 8px 32px rgba(0,0,0,.4);
+    resize: both;
     overflow: hidden;
     transition: width 0.2s ease, height 0.2s ease, max-height 0.2s ease, right 0.2s ease, bottom 0.2s ease;
+  }
+  #sobsAiPanel.behind-modal {
+    z-index: 1040;
+  }
+  #sobsAiBtn.behind-modal {
+    z-index: 1040;
+    opacity: .7;
   }
   #sobsAiPanel.open { display: flex; }
   #sobsAiPanel.expanded {
@@ -1008,6 +1018,23 @@
   }
 
   function setExpandedState(expanded) {
+    if (expanded) {
+      if (panel.style.width) {
+        panel.dataset.sobsPrevWidth = panel.style.width;
+      }
+      if (panel.style.height) {
+        panel.dataset.sobsPrevHeight = panel.style.height;
+      }
+      panel.style.width = '';
+      panel.style.height = '';
+    } else {
+      if (panel.dataset.sobsPrevWidth) {
+        panel.style.width = panel.dataset.sobsPrevWidth;
+      }
+      if (panel.dataset.sobsPrevHeight) {
+        panel.style.height = panel.dataset.sobsPrevHeight;
+      }
+    }
     panel.classList.toggle('expanded', expanded);
     if (!expandBtn) {
       return;
@@ -1019,6 +1046,7 @@
     if (icon) {
       icon.className = expanded ? 'bi bi-arrows-angle-contract' : 'bi bi-arrows-angle-expand';
     }
+    clampPanelSize();
     if (panel.style.left && panel.style.top) {
       clampPanelPosition();
     }
@@ -1134,12 +1162,13 @@
   function saveChatState() {
     try {
       var hasCustomPosition = !!(panel.style.left && panel.style.top);
+      var hasCustomSize = !!(panel.style.width || panel.style.height);
       var state = {
         path: window.location.pathname,
         query: window.location.search,
         isOpen: panel.classList.contains('open'),
         isExpanded: panel.classList.contains('expanded'),
-        messagesHtml: messagesEl.innerHTML,
+        messagesHtml: stripAssistantMeta(messagesEl.innerHTML),
         statusHtml: statusEl ? statusEl.innerHTML : '',
         statusVisible: statusEl ? statusEl.classList.contains('visible') : false,
         isHistoryCollapsed: panel.classList.contains('history-collapsed'),
@@ -1148,12 +1177,24 @@
         hasCustomPosition: hasCustomPosition,
         panelLeft: hasCustomPosition ? panel.style.left : '',
         panelTop: hasCustomPosition ? panel.style.top : '',
+        hasCustomSize: hasCustomSize,
+        panelWidth: hasCustomSize ? panel.style.width : '',
+        panelHeight: hasCustomSize ? panel.style.height : '',
         savedAt: Date.now()
       };
       window.sessionStorage.setItem(chatStateKey, JSON.stringify(state));
     } catch (_err) {
       // Ignore storage errors in constrained browser modes.
     }
+  }
+
+  function setAiLayerBehindModal(behind) {
+    panel.classList.toggle('behind-modal', !!behind);
+    btn.classList.toggle('behind-modal', !!behind);
+  }
+
+  function syncAiLayerWithModals() {
+    setAiLayerBehindModal(!!document.querySelector('.modal.show'));
   }
 
   function restoreChatState() {
@@ -1165,7 +1206,7 @@
       if (!state || !state.messagesHtml) return;
       if (Date.now() - Number(state.savedAt || 0) > 5 * 60 * 1000) return;
 
-      messagesEl.innerHTML = String(state.messagesHtml || '');
+      messagesEl.innerHTML = stripAssistantMeta(String(state.messagesHtml || ''));
       if (statusEl) {
         statusEl.innerHTML = String(state.statusHtml || '');
         statusEl.classList.toggle('visible', !!state.statusVisible && !!state.statusHtml);
@@ -1173,6 +1214,15 @@
       panel.classList.toggle('open', !!state.isOpen);
       setExpandedState(!!state.isExpanded);
       panel.classList.toggle('history-collapsed', !!state.isHistoryCollapsed);
+      if (state.hasCustomSize) {
+        if (state.panelWidth) {
+          panel.style.width = String(state.panelWidth);
+        }
+        if (state.panelHeight) {
+          panel.style.height = String(state.panelHeight);
+        }
+        clampPanelSize();
+      }
       if (state.hasCustomPosition && state.panelLeft && state.panelTop) {
         panel.style.left = String(state.panelLeft);
         panel.style.top = String(state.panelTop);
@@ -1209,6 +1259,21 @@
 
   function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
+  }
+
+  function clampPanelSize() {
+    var minW = 320;
+    var minH = 280;
+    var maxW = Math.max(minW, window.innerWidth - 8);
+    var maxH = Math.max(minH, window.innerHeight - 8);
+
+    var width = panel.offsetWidth;
+    var height = panel.offsetHeight;
+
+    var nextW = clamp(width, minW, maxW);
+    var nextH = clamp(height, minH, maxH);
+    panel.style.width = nextW + 'px';
+    panel.style.height = nextH + 'px';
   }
 
   function clampPanelPosition() {
@@ -1297,6 +1362,149 @@
     if (!clientAction || !clientAction.type) {
       if (statusElRef) {
         statusElRef.textContent = 'No executable action returned';
+      }
+      return;
+    }
+
+    if (clientAction.type === 'navigate') {
+      var navTarget = String(clientAction.target_page || window.location.pathname || '/logs');
+      var navQuery = clientAction.query && typeof clientAction.query === 'object' ? clientAction.query : {};
+      var navUrl = new URL(navTarget, window.location.origin);
+      Object.keys(navQuery).forEach(function (key) {
+        var value = String(navQuery[key] == null ? '' : navQuery[key]).trim();
+        if (value) {
+          navUrl.searchParams.set(String(key), value);
+        } else {
+          navUrl.searchParams.delete(String(key));
+        }
+      });
+      if (statusElRef) {
+        statusElRef.textContent = 'Navigating to ' + navTarget + '...';
+      }
+      saveChatState();
+      window.location.href = navUrl.toString();
+      return;
+    }
+
+    if (clientAction.type === 'open_modal') {
+      var modalTarget = String(clientAction.target_page || window.location.pathname || '');
+      if (modalTarget && modalTarget !== window.location.pathname) {
+        if (statusElRef) {
+          statusElRef.textContent = 'Navigating to ' + modalTarget + '...';
+        }
+        saveChatState();
+        window.location.href = new URL(modalTarget, window.location.origin).toString();
+        return;
+      }
+      var modalId = String(clientAction.modal_id || clientAction.modalId || '').replace(/^#/, '');
+      var modalEl = modalId ? document.getElementById(modalId) : null;
+      if (!modalEl || !window.bootstrap || !window.bootstrap.Modal) {
+        if (statusElRef) {
+          statusElRef.textContent = 'Modal not found: ' + (modalId || 'unknown');
+        }
+        return;
+      }
+      var modal = window.bootstrap.Modal.getOrCreateInstance(modalEl);
+      setAiLayerBehindModal(true);
+      modal.show();
+      if (statusElRef) {
+        statusElRef.textContent = 'Opened modal';
+      }
+      return;
+    }
+
+    if (clientAction.type === 'invoke_click') {
+      var clickTarget = String(clientAction.target_page || window.location.pathname || '');
+      if (clickTarget && clickTarget !== window.location.pathname) {
+        if (statusElRef) {
+          statusElRef.textContent = 'Navigating to ' + clickTarget + '...';
+        }
+        saveChatState();
+        window.location.href = new URL(clickTarget, window.location.origin).toString();
+        return;
+      }
+      var selector = String(clientAction.selector || '').trim();
+      var elementId = String(clientAction.element_id || '').trim();
+      var clickEl = null;
+      if (selector) {
+        clickEl = document.querySelector(selector);
+      }
+      if (!clickEl && elementId) {
+        clickEl = document.getElementById(elementId);
+      }
+      if (!clickEl || typeof clickEl.click !== 'function') {
+        if (statusElRef) {
+          statusElRef.textContent = 'Clickable element not found';
+        }
+        return;
+      }
+      clickEl.click();
+      if (statusElRef) {
+        statusElRef.textContent = 'Action clicked';
+      }
+      return;
+    }
+
+    if (clientAction.type === 'submit_form') {
+      var submitTarget = String(clientAction.target_page || window.location.pathname || '');
+      if (submitTarget && submitTarget !== window.location.pathname) {
+        if (statusElRef) {
+          statusElRef.textContent = 'Navigating to ' + submitTarget + '...';
+        }
+        saveChatState();
+        window.location.href = new URL(submitTarget, window.location.origin).toString();
+        return;
+      }
+      var actionId = String(clientAction.action_id || '');
+      var actionButton = actionId ? document.querySelector('[data-ai-action-id="' + actionId.replace(/"/g, '\\"') + '"]') : null;
+      var formSelector = String(clientAction.form_selector || '').trim();
+      var formId = String(clientAction.form_id || '').trim();
+      var form = null;
+      if (actionButton) {
+        form = actionButton.closest('form');
+      }
+      if (!form && formSelector) {
+        form = document.querySelector(formSelector);
+      }
+      if (!form && formId) {
+        form = document.getElementById(formId);
+      }
+      if (!form && actionButton) {
+        var actionModal = actionButton.closest('.modal');
+        form = actionModal ? actionModal.querySelector('form') : null;
+      }
+      if (!form) {
+        var openModal = document.querySelector('.modal.show');
+        form = openModal ? openModal.querySelector('form') : null;
+      }
+      if (!form && actionId.indexOf('dashboard.chart.create') !== -1) {
+        form = document.getElementById('chartEditorForm');
+      }
+      if (!form) {
+        if (statusElRef) {
+          statusElRef.textContent = 'Form not found for submit action';
+        }
+        return;
+      }
+      var fields = clientAction.fields && typeof clientAction.fields === 'object' ? clientAction.fields : {};
+      Object.keys(fields).forEach(function (name) {
+        var value = String(fields[name] == null ? '' : fields[name]);
+        var field = form.querySelector('[name="' + String(name).replace(/"/g, '\\"') + '"]');
+        if (!field) {
+          return;
+        }
+        field.value = value;
+        field.dispatchEvent(new Event('input', {bubbles: true}));
+        field.dispatchEvent(new Event('change', {bubbles: true}));
+      });
+      if (statusElRef) {
+        statusElRef.textContent = 'Submitting form...';
+      }
+      saveChatState();
+      if (typeof form.requestSubmit === 'function') {
+        form.requestSubmit();
+      } else {
+        form.submit();
       }
       return;
     }
@@ -1561,8 +1769,17 @@
   if (expandBtn) {
     expandBtn.addEventListener('click', toggleExpanded);
   }
+  document.addEventListener('show.bs.modal', function (_evt) {
+    setAiLayerBehindModal(true);
+  });
+  document.addEventListener('hidden.bs.modal', function (_evt) {
+    syncAiLayerWithModals();
+  });
   initPanelDrag();
-  window.addEventListener('resize', clampPanelPosition);
+  window.addEventListener('resize', function () {
+    clampPanelSize();
+    clampPanelPosition();
+  });
   restoreChatState();
   loadCapabilities();
   loadChatHistory();
@@ -1749,7 +1966,26 @@
   }
 
   function stripAssistantMeta(text) {
-    return String(text || '').replace(/<assistant_meta>[\s\S]*?<\/assistant_meta>/gi, '').trim();
+    var cleaned = String(text || '')
+      .replace(/<assistant_meta\b[^>]*>[\s\S]*?<\/assistant_meta>/gi, '')
+      .replace(/&lt;\s*assistant_meta\b(?:[\s\S]*?)&gt;[\s\S]*?&lt;\s*\/assistant_meta\s*&gt;/gi, '');
+    var rawOpenIndex = cleaned.search(/<assistant_meta\b[^>]*>/i);
+    var escapedOpenIndex = cleaned.search(/&lt;\s*assistant_meta\b(?:[\s\S]*?)&gt;/i);
+    var cutIndex = -1;
+    if (rawOpenIndex >= 0) {
+      cutIndex = rawOpenIndex;
+    }
+    if (escapedOpenIndex >= 0 && (cutIndex === -1 || escapedOpenIndex < cutIndex)) {
+      cutIndex = escapedOpenIndex;
+    }
+    if (cutIndex >= 0) {
+      cleaned = cleaned.slice(0, cutIndex);
+    }
+    return cleaned.trim();
+  }
+
+  function stripAssistantMetaPreview(text) {
+    return stripAssistantMeta(text).trimEnd();
   }
 
   function setStreamingText(el, text, finalize) {
@@ -1832,7 +2068,7 @@
   function setTailText(el, text) {
     if (!el) return;
     var tailEl = el.querySelector('.sobs-markdown-tail');
-    var tailText = String(text || '');
+    var tailText = stripAssistantMetaPreview(String(text || ''));
     if (!tailText) {
       if (tailEl) {
         removeNode(tailEl);

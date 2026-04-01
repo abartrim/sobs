@@ -56,10 +56,22 @@
             </div>
           </div>
           <div class="col-md-2 d-flex gap-2">
-            <button type="submit" class="btn btn-outline-info btn-sm flex-grow-1" name="action" value="preview">
+            <button type="submit" class="btn btn-outline-info btn-sm flex-grow-1" name="action" value="preview"
+                    data-ai-action-id="settings.tags.auto.preview"
+                    data-ai-action-type="submit_form"
+                    data-ai-handler="submitForm"
+                    data-ai-label="Preview auto tag rules"
+                    data-ai-risk="high"
+                    data-ai-confirm="true">
               <i class="bi bi-eye me-1"></i>Preview
             </button>
-            <button type="submit" class="btn btn-info btn-sm flex-grow-1" name="action" value="create">
+            <button type="submit" class="btn btn-info btn-sm flex-grow-1" name="action" value="create"
+                    data-ai-action-id="settings.tags.auto.create"
+                    data-ai-action-type="submit_form"
+                    data-ai-handler="submitForm"
+                    data-ai-label="Create auto tag rules"
+                    data-ai-risk="high"
+                    data-ai-confirm="true">
               <i class="bi bi-magic me-1"></i>Create
             </button>
           </div>
@@ -186,7 +198,13 @@
       </div>
 
       <div class="col-12">
-        <button type="submit" class="btn btn-success btn-sm">
+        <button type="submit" class="btn btn-success btn-sm"
+          data-ai-action-id="settings.tags.create"
+          data-ai-action-type="submit_form"
+          data-ai-handler="submitForm"
+          data-ai-label="Create tag rule"
+          data-ai-risk="high"
+          data-ai-confirm="true">
           <i class="bi bi-plus-circle me-1"></i>Create Rule
         </button>
       </div>
@@ -233,7 +251,13 @@
           <td>
             <form method="post" action="{{ url_for('delete_tag_rule', rule_id=rule.id) }}"
                   onsubmit="return confirm('Delete tag rule \'{{ rule.name }}\'?')">
-              <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete rule">
+              <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete rule"
+                      data-ai-action-id="settings.tags.delete"
+                      data-ai-action-type="submit_form"
+                      data-ai-handler="submitForm"
+                      data-ai-label="Delete tag rule"
+                      data-ai-risk="high"
+                      data-ai-confirm="true">
                 <i class="bi bi-trash"></i>
               </button>
             </form>

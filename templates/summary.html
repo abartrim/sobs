@@ -22,7 +22,14 @@
 <!-- Stats row -->
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-4 col-lg-2">
-    <a href="{{ url_for('view_logs') }}" class="text-decoration-none">
+     <a href="{{ url_for('view_logs') }}" class="text-decoration-none"
+       data-ai-action-id="summary.nav.logs"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/logs"}'
+       data-ai-label="Open Logs page"
+       data-ai-risk="low"
+       data-ai-confirm="false">
       <div class="stat-card p-3 text-center">
         <div class="fs-2 fw-bold text-info">{{ stats.logs }}</div>
         <div class="text-secondary small">Logs</div>
@@ -30,7 +37,14 @@
     </a>
   </div>
   <div class="col-6 col-md-4 col-lg-2">
-    <a href="{{ url_for('view_errors') }}" class="text-decoration-none">
+     <a href="{{ url_for('view_errors') }}" class="text-decoration-none"
+       data-ai-action-id="summary.nav.errors"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/errors"}'
+       data-ai-label="Open Errors page"
+       data-ai-risk="low"
+       data-ai-confirm="false">
       <div class="stat-card p-3 text-center">
         <div class="fs-2 fw-bold {% if stats.errors > 0 %}text-danger{% else %}text-success{% endif %}">{{ stats.errors }}</div>
         <div class="text-secondary small">Open Errors</div>
@@ -38,7 +52,14 @@
     </a>
   </div>
   <div class="col-6 col-md-4 col-lg-2">
-    <a href="{{ url_for('view_traces') }}" class="text-decoration-none">
+     <a href="{{ url_for('view_traces') }}" class="text-decoration-none"
+       data-ai-action-id="summary.nav.traces"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/traces"}'
+       data-ai-label="Open Traces page"
+       data-ai-risk="low"
+       data-ai-confirm="false">
       <div class="stat-card p-3 text-center">
         <div class="fs-2 fw-bold text-warning">{{ stats.spans }}</div>
         <div class="text-secondary small">Spans</div>
@@ -46,7 +67,14 @@
     </a>
   </div>
   <div class="col-6 col-md-4 col-lg-2">
-    <a href="{{ url_for('view_rum') }}" class="text-decoration-none">
+     <a href="{{ url_for('view_rum') }}" class="text-decoration-none"
+       data-ai-action-id="summary.nav.rum"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/rum"}'
+       data-ai-label="Open RUM page"
+       data-ai-risk="low"
+       data-ai-confirm="false">
       <div class="stat-card p-3 text-center">
         <div class="fs-2 fw-bold text-primary">{{ stats.rum }}</div>
         <div class="text-secondary small">RUM Events</div>
@@ -54,7 +82,14 @@
     </a>
   </div>
   <div class="col-6 col-md-4 col-lg-2">
-    <a href="{{ url_for('view_ai') }}" class="text-decoration-none">
+     <a href="{{ url_for('view_ai') }}" class="text-decoration-none"
+       data-ai-action-id="summary.nav.ai"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/ai"}'
+       data-ai-label="Open AI page"
+       data-ai-risk="low"
+       data-ai-confirm="false">
       <div class="stat-card p-3 text-center">
         <div class="fs-2 fw-bold text-success">{{ stats.ai }}</div>
         <div class="text-secondary small">AI Calls</div>

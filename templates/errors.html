@@ -57,7 +57,14 @@
         </div>
       </div>
       <div class="col-md-2 d-flex gap-1">
-        <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+        <button type="submit" class="btn btn-primary btn-sm"
+          data-ai-action-id="errors.filter.apply"
+          data-ai-action-type="apply_form_filters"
+          data-ai-handler="applyFormFilters"
+          data-ai-label="Apply errors filters"
+          data-ai-risk="low"
+          data-ai-confirm="false"
+          data-ai-action-role="filter-submit">Filter</button>
         <a href="{{ url_for('view_errors') }}" class="btn btn-outline-secondary btn-sm">Reset</a>
       </div>
     </form>
@@ -97,7 +104,14 @@
           </a>
           {% endif %}
           {% if not err.resolved %}
-          <button class="btn btn-sm btn-outline-success resolve-btn" data-resolve-url="{{ url_for('resolve_error', error_id=err.id) }}">
+          <button class="btn btn-sm btn-outline-success resolve-btn" data-resolve-url="{{ url_for('resolve_error', error_id=err.id) }}"
+                  data-ai-action-id="errors.resolve.mark"
+                  data-ai-action-type="invoke_click"
+                  data-ai-handler="invokeClick"
+                  data-ai-label="Mark error resolved"
+                  data-ai-risk="medium"
+                  data-ai-confirm="true"
+                  data-ai-action-role="resolve-error-btn">
             <i class="bi bi-check2 me-1"></i>Resolve
           </button>
           {% endif %}

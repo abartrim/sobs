@@ -60,12 +60,26 @@
         </select>
       </div>
     </div>
-    <button class="btn btn-primary btn-sm js-add-chart-btn" data-bs-toggle="modal" data-bs-target="#addChartModal">
+    <button class="btn btn-primary btn-sm js-add-chart-btn" data-bs-toggle="modal" data-bs-target="#addChartModal"
+            data-ai-action-id="dashboard.chart.modal.open"
+            data-ai-action-type="open_modal"
+            data-ai-handler="openModal"
+            data-ai-args='{"modal_id":"addChartModal"}'
+            data-ai-label="Open add chart modal"
+            data-ai-risk="low"
+            data-ai-confirm="false">
       <i class="bi bi-plus-lg me-1"></i>Add Chart
     </button>
     <form method="post" action="{{ url_for('delete_dashboard', dashboard_id=dashboard.id) }}"
           onsubmit="return confirm('Delete this dashboard and all its charts?')">
-      <button type="submit" class="btn btn-outline-danger btn-sm">
+      <button type="submit" class="btn btn-outline-danger btn-sm"
+              data-ai-action-id="dashboard.delete"
+              data-ai-action-type="submit_form"
+              data-ai-handler="submitForm"
+              data-ai-label="Delete dashboard"
+              data-ai-risk="high"
+              data-ai-confirm="true"
+              data-ai-action-role="delete-dashboard-submit">
         <i class="bi bi-trash me-1"></i>Delete
       </button>
     </form>
@@ -99,7 +113,14 @@
           <form method="post"
                 action="{{ url_for('remove_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
                 onsubmit="return confirm('Remove this chart?')">
-            <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">
+            <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"
+                    data-ai-action-id="dashboard.chart.remove"
+                    data-ai-action-type="submit_form"
+                    data-ai-handler="submitForm"
+                    data-ai-label="Remove chart"
+                    data-ai-risk="high"
+                    data-ai-confirm="true"
+                    data-ai-action-role="remove-chart-submit">
               <i class="bi bi-x"></i>
             </button>
           </form>
@@ -126,7 +147,14 @@
 <div class="text-center py-5 text-secondary">
   <i class="bi bi-bar-chart fs-1 d-block mb-3"></i>
   <p class="mb-3">No charts yet. Add your first chart to this dashboard.</p>
-  <button class="btn btn-primary js-add-chart-btn" data-bs-toggle="modal" data-bs-target="#addChartModal">
+  <button class="btn btn-primary js-add-chart-btn" data-bs-toggle="modal" data-bs-target="#addChartModal"
+          data-ai-action-id="dashboard.chart.modal.open.empty"
+          data-ai-action-type="open_modal"
+          data-ai-handler="openModal"
+          data-ai-args='{"modal_id":"addChartModal"}'
+          data-ai-label="Open add chart modal"
+          data-ai-risk="low"
+          data-ai-confirm="false">
     <i class="bi bi-plus-lg me-1"></i>Add Chart
   </button>
 </div>
@@ -323,7 +351,14 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="chartEditorSubmitBtn">Add Chart</button>
+          <button type="submit" class="btn btn-primary" id="chartEditorSubmitBtn"
+                  data-ai-action-id="dashboard.chart.create.submit"
+                  data-ai-action-type="submit_form"
+                  data-ai-handler="submitForm"
+                  data-ai-label="Create or update chart"
+                  data-ai-risk="high"
+                  data-ai-confirm="true"
+                  data-ai-action-role="add-chart-submit">Add Chart</button>
         </div>
       </form>
     </div>

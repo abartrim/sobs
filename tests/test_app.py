@@ -1367,6 +1367,29 @@ class TestUIPages:
         assert data["client_action"]["target_page"] == "/traces"
         assert data["client_action"]["filters"]["service"] == "api"
 
+    async def test_ai_helper_execute_action_navigation_cross_page(self, client):
+        from app import _issue_ai_action_token
+
+        token = _issue_ai_action_token(
+            action_id="summary.nav.ai",
+            target_page="/ai",
+            action={
+                "type": "navigate",
+                "target_page": "/ai",
+                "query": {},
+            },
+            requires_confirmation=False,
+            chat_id="chat-nav-1",
+            turn_id="turn-nav-1",
+        )
+        r = await client.post("/api/ai/helper/actions/execute", json={"action_token": token})
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert data["action_id"] == "summary.nav.ai"
+        assert data["client_action"]["type"] == "navigate"
+        assert data["client_action"]["target_page"] == "/ai"
+
     async def test_chart_editor_help_page(self, client):
         r = await client.get("/dashboards/help/chart-editor")
         assert r.status_code == 200
@@ -5313,6 +5336,48 @@ class TestAISettingsAndAgentFlows:
         assert allowed is True
         assert reason == "allowed"
 
+    async def test_guard_allows_benign_ui_navigation_false_positive(self, monkeypatch):
+        settings = {
+            "ai.guard_endpoint_url": "https://guard.example.com/v1",
+            "ai.guard_model": "guard-test",
+            "ai.api_key": "",
+        }
+
+        async def _fake_guard_llm(*_args, **_kwargs):
+            return "unsafe\nS1", {"prompt_tokens": 1, "completion_tokens": 1, "elapsed_ms": 5}
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_guard_llm)
+
+        allowed, reason, _stats = await sobs_app._check_guard_model(
+            settings,
+            "navigate me to the airport page pls",
+            "/",
+        )
+
+        assert allowed is True
+        assert reason == "allowed"
+
+    async def test_guard_blocks_high_risk_navigation_phrase(self, monkeypatch):
+        settings = {
+            "ai.guard_endpoint_url": "https://guard.example.com/v1",
+            "ai.guard_model": "guard-test",
+            "ai.api_key": "",
+        }
+
+        async def _fake_guard_llm(*_args, **_kwargs):
+            return "unsafe\nS2", {"prompt_tokens": 1, "completion_tokens": 1, "elapsed_ms": 5}
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_guard_llm)
+
+        allowed, reason, _stats = await sobs_app._check_guard_model(
+            settings,
+            "navigate me to the weapon page",
+            "/",
+        )
+
+        assert allowed is False
+        assert "S2" in reason
+
     async def test_ai_helper_streams_base_model_response(self, client, monkeypatch):
         from app import _save_ai_setting, get_db
 
@@ -5375,6 +5440,52 @@ class TestAISettingsAndAgentFlows:
         assert data["page"] == "/logs"
         assert any(a.get("action_id") == "logs.live_mode.start" for a in data["actions"])
 
+    async def test_ai_helper_action_manifest_endpoint_summary_root_path(self, client):
+        r = await client.get("/api/ai/helper/actions/manifest?page=/")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert data["page"] == "/"
+        assert any(a.get("action_id") == "summary.nav.ai" for a in data["actions"])
+
+    def test_normalize_action_allows_cross_page_nav_from_current_manifest(self):
+        normalized = sobs_app._normalize_generic_ui_action_tool_call(
+            {
+                "action_id": "summary.nav.ai",
+                "target_page": "/ai",
+                "arguments": {},
+                "notes": "Navigate to AI page",
+            },
+            "/",
+        )
+        assert normalized is not None
+        assert normalized.get("unsupported") is False
+        action = normalized.get("action") or {}
+        assert action.get("type") == "navigate"
+        assert action.get("target_page") == "/ai"
+
+    def test_normalize_action_rejects_unknown_ai_filter_fields(self):
+        normalized = sobs_app._normalize_generic_ui_action_tool_call(
+            {
+                "action_id": "ai.filter.apply",
+                "target_page": "/ai",
+                "arguments": {
+                    "filters": {
+                        "hours": "1",
+                        "chart": "response_time",
+                    },
+                    "submit": True,
+                },
+                "notes": "Set time range to last hour and show AI model response times",
+            },
+            "/ai",
+        )
+        assert normalized is not None
+        assert normalized.get("unsupported") is True
+        assert normalized.get("requires_confirmation") is False
+        action = normalized.get("action") or {}
+        assert action.get("type") == "unsupported"
+
     async def test_ai_helper_action_manifest_endpoint_annotation_pages(self, client):
         r_traces = await client.get("/api/ai/helper/actions/manifest?page=/traces")
         assert r_traces.status_code == 200
@@ -5427,6 +5538,63 @@ class TestAISettingsAndAgentFlows:
         )
         assert r.status_code == 200
         assert captured.get("thinking_level") == "high"
+
+    async def test_ai_helper_includes_recent_chat_continuity_in_prompt(self, client, monkeypatch):
+        from app import _emit_ai_helper_log_event, _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://api.example.com/v1")
+        _save_ai_setting(db, "ai.model", "gpt-test")
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "guard-test")
+
+        chat_id = f"chat-continuity-{time.time_ns()}"
+        _emit_ai_helper_log_event(
+            event_name="turn.summary",
+            chat_id=chat_id,
+            turn_id="turn-1",
+            page="/dashboards/abc",
+            model="gpt-test",
+            guard_model="guard-test",
+            thinking_level="off",
+            body="seed continuity",
+            attrs={
+                "gen_ai.turn.summary.request": (
+                    "add a chart that shows ai response times and highlights outliers and warnings"
+                ),
+                "gen_ai.turn.summary.action": "asked for table details",
+                "gen_ai.turn.summary.result": "awaiting follow-up",
+            },
+        )
+
+        captured: dict[str, str] = {}
+
+        async def _fake_guard(*_args, **_kwargs):
+            return True, "allowed", {"prompt_tokens": 1, "completion_tokens": 1, "elapsed_ms": 1}
+
+        async def _fake_stream(*_args, **kwargs):
+            msgs = _args[3] if len(_args) > 3 else kwargs.get("messages") or []
+            if msgs:
+                captured["system"] = str(msgs[0].get("content") or "")
+            yield {"type": "done", "stats": {"prompt_tokens": 1, "completion_tokens": 1, "elapsed_ms": 1}}
+
+        monkeypatch.setattr(sobs_app, "_check_guard_model", _fake_guard)
+        monkeypatch.setattr(sobs_app, "_stream_llm_endpoint", _fake_stream)
+
+        r = await client.post(
+            "/api/ai/helper",
+            headers={"Accept": "text/event-stream"},
+            json={
+                "question": "can you make it?",
+                "page": "/dashboards/abc",
+                "chat_id": chat_id,
+                "stream": True,
+            },
+        )
+        assert r.status_code == 200
+        system_prompt = captured.get("system") or ""
+        assert "Current chat continuity (recent turns):" in system_prompt
+        assert "add a chart that shows ai response times and highlights outliers and warnings" in system_prompt
 
     async def test_ai_helper_streams_sql_tool_event(self, client, monkeypatch):
         from app import _save_ai_setting, get_db
@@ -5524,6 +5692,89 @@ class TestAISettingsAndAgentFlows:
         assert '"action_id": "logs.filter.apply_sql"' in body
         assert "ServiceName = 'api'" in body
 
+    async def test_ai_helper_stream_stops_after_confirm_required_tool(self, client, monkeypatch):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://api.example.com/v1")
+        _save_ai_setting(db, "ai.model", "gpt-test")
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "guard-test")
+
+        calls = {"count": 0}
+
+        async def _fake_guard(*_args, **_kwargs):
+            return True, "allowed", {"prompt_tokens": 4, "completion_tokens": 1, "elapsed_ms": 10}
+
+        async def _fake_stream(*_args, **_kwargs):
+            calls["count"] += 1
+            yield {
+                "type": "tool",
+                "tool_call": {
+                    "name": "propose_ui_action",
+                    "arguments": {
+                        "action_id": "summary.nav.ai",
+                        "target_page": "/ai",
+                        "arguments": {},
+                        "notes": "Navigate to AI page",
+                    },
+                },
+            }
+            yield {"type": "done", "stats": {"prompt_tokens": 8, "completion_tokens": 2, "elapsed_ms": 20}}
+
+        monkeypatch.setattr(sobs_app, "_check_guard_model", _fake_guard)
+        monkeypatch.setattr(sobs_app, "_stream_llm_endpoint", _fake_stream)
+
+        r = await client.post(
+            "/api/ai/helper",
+            headers={"Accept": "text/event-stream"},
+            json={
+                "question": "navigate me to the AI page",
+                "page": "/",
+                "stream": True,
+            },
+        )
+        assert r.status_code == 200
+        body = (await r.get_data()).decode("utf-8")
+        assert body.count("event: tool") == 1
+        assert calls["count"] == 1
+
+    async def test_ai_helper_stream_infers_dashboard_pivot_tool_for_graph_request(self, client, monkeypatch):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://api.example.com/v1")
+        _save_ai_setting(db, "ai.model", "gpt-test")
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "guard-test")
+
+        async def _fake_guard(*_args, **_kwargs):
+            return True, "allowed", {"prompt_tokens": 4, "completion_tokens": 1, "elapsed_ms": 10}
+
+        async def _fake_stream(*_args, **_kwargs):
+            yield {
+                "type": "delta",
+                "text": "I'll open the new dashboard modal so you can add the chart.",
+            }
+            yield {"type": "done", "stats": {"prompt_tokens": 8, "completion_tokens": 2, "elapsed_ms": 20}}
+
+        monkeypatch.setattr(sobs_app, "_check_guard_model", _fake_guard)
+        monkeypatch.setattr(sobs_app, "_stream_llm_endpoint", _fake_stream)
+
+        r = await client.post(
+            "/api/ai/helper",
+            headers={"Accept": "text/event-stream"},
+            json={
+                "question": "make a response-time graph over the last hour for ai traces",
+                "page": "/ai",
+                "stream": True,
+            },
+        )
+        assert r.status_code == 200
+        body = (await r.get_data()).decode("utf-8")
+        assert "event: tool" in body
+        assert '"action_id": "dashboards.modal.new.open"' in body
+
     def test_ai_memory_helpers_extract_meta_candidates_and_embeddings(self):
         from app import _extract_assistant_meta, _extract_memory_candidates, _semantic_memory_matches, _text_embedding
 
@@ -5551,6 +5802,49 @@ class TestAISettingsAndAgentFlows:
         matches = _semantic_memory_matches(memories, "show api error spike", max_results=2, min_score=0.0)
         assert len(matches) >= 1
         assert str(matches[0]["id"]) == "m1"
+
+    def test_extract_assistant_meta_handles_smart_quotes_and_tag_spacing(self):
+        from app import _extract_assistant_meta
+
+        answer = (
+            "Could you specify which type of telemetry you need? "
+            "<assistant_meta >{“turn_summary”:{“request”:“help me”,“action”:“ask clarification”,"
+            "“result”:“requested more detail”},“memory_candidates”:[]}</assistant_meta>"
+        )
+        cleaned, meta = _extract_assistant_meta(answer)
+        assert "assistant_meta" not in cleaned.lower()
+        assert cleaned.startswith("Could you specify")
+        assert isinstance(meta, dict)
+        assert isinstance(meta.get("turn_summary"), dict)
+        summary = meta.get("turn_summary") or {}
+        assert str(summary.get("request") or "") == "help me"
+
+    def test_extract_assistant_meta_handles_html_escaped_tag_block(self):
+        from app import _extract_assistant_meta
+
+        answer = (
+            "Which page are you referring to? "
+            '&lt;assistant_meta&gt;{"turn_summary":{"request":"navigate me to the airport page",'
+            '"action":"clarification asked","result":"asked which page"},'
+            '"memory_candidates":[]}&lt;/assistant_meta&gt;'
+        )
+        cleaned, meta = _extract_assistant_meta(answer)
+        assert "assistant_meta" not in cleaned.lower()
+        assert cleaned == "Which page are you referring to?"
+        assert isinstance(meta, dict)
+        summary = meta.get("turn_summary") or {}
+        assert str(summary.get("request") or "") == "navigate me to the airport page"
+
+    def test_extract_assistant_meta_strips_malformed_open_tag_without_close(self):
+        from app import _extract_assistant_meta
+
+        answer = (
+            "I will open the dashboard modal for you. " '<assistant_meta>{"turn_summary":{"request":"graph ai latency"}'
+        )
+        cleaned, meta = _extract_assistant_meta(answer)
+        assert "assistant_meta" not in cleaned.lower()
+        assert cleaned == "I will open the dashboard modal for you."
+        assert meta == {}
 
     def test_ai_memory_upsert_persists_without_datetime_parse_error(self):
         import uuid as _uuid

@@ -12,16 +12,37 @@
     </a>
     {% if related_target == 'logs' %}
     <a class="btn btn-sm btn-outline-info"
+       data-ai-action-id="metrics.anomaly.nav.logs"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/logs"}'
+       data-ai-label="Open related logs"
+       data-ai-risk="low"
+       data-ai-confirm="false"
        href="{{ url_for('view_logs', service=service, from_ts=from_ts, to_ts=to_ts, stats='1') }}">
       <i class="bi bi-journal-text me-1"></i>Open Related Logs
     </a>
     {% elif related_target == 'traces' %}
     <a class="btn btn-sm btn-outline-info"
+       data-ai-action-id="metrics.anomaly.nav.traces"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/traces"}'
+       data-ai-label="Open related traces"
+       data-ai-risk="low"
+       data-ai-confirm="false"
        href="{{ url_for('view_traces', service=service, from_ts=from_ts, to_ts=to_ts) }}">
       <i class="bi bi-diagram-3 me-1"></i>Open Related Traces
     </a>
     {% elif related_target == 'errors' %}
     <a class="btn btn-sm btn-outline-info"
+       data-ai-action-id="metrics.anomaly.nav.errors"
+       data-ai-action-type="navigate"
+       data-ai-handler="navigate"
+       data-ai-args='{"target_page":"/errors"}'
+       data-ai-label="Open related errors"
+       data-ai-risk="low"
+       data-ai-confirm="false"
        href="{{ url_for('view_errors', service=service, from_ts=from_ts, to_ts=to_ts) }}">
       <i class="bi bi-bug me-1"></i>Open Related Errors
     </a>
@@ -82,7 +103,14 @@
         <input type="number" min="1" max="168" name="hours" class="form-control form-control-sm" value="{{ hours }}">
       </div>
       <div class="col-md-2 d-flex gap-1">
-        <button type="submit" class="btn btn-primary btn-sm flex-grow-1"><i class="bi bi-search"></i></button>
+        <button type="submit" class="btn btn-primary btn-sm flex-grow-1"
+          data-ai-action-id="metrics.anomaly.filter.apply"
+          data-ai-action-type="apply_form_filters"
+          data-ai-handler="applyFormFilters"
+          data-ai-label="Apply metrics anomaly filters"
+          data-ai-risk="low"
+          data-ai-confirm="false"
+          data-ai-action-role="filter-submit"><i class="bi bi-search"></i></button>
         <a href="{{ url_for('view_metrics_anomaly') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
       </div>
     </form>
