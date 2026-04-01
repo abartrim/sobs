@@ -38,6 +38,7 @@ SERVICE_NAME = "prometheus-demo"
 # Mode 1 – Direct OTLP push via OpenTelemetry Python SDK
 # ---------------------------------------------------------------------------
 
+
 def run_push_mode(sobs_endpoint: str, iterations: int = 10, interval: float = 2.0) -> None:
     """Push gauge, counter, and histogram metrics directly to SOBS via OTLP/HTTP."""
 
@@ -106,6 +107,7 @@ def run_push_mode(sobs_endpoint: str, iterations: int = 10, interval: float = 2.
 # Mode 2 – Expose Prometheus /metrics endpoint for collector scraping
 # ---------------------------------------------------------------------------
 
+
 def run_expose_mode(port: int, duration: float = 300.0) -> None:
     """
     Expose synthetic metrics on a Prometheus /metrics HTTP endpoint.
@@ -142,8 +144,8 @@ def run_expose_mode(port: int, duration: float = 300.0) -> None:
     start_http_server(port)
     print(f"[expose] Prometheus /metrics endpoint running on :{port}")
     print(f"  Scrape with: curl http://localhost:{port}/metrics")
-    print(f"  Or let the OTel Collector forward data to SOBS (see otel-collector-config.yaml).")
-    print(f"  Ctrl-C to stop.\n")
+    print("  Or let the OTel Collector forward data to SOBS (see otel-collector-config.yaml).")
+    print("  Ctrl-C to stop.\n")
 
     deadline = time.time() + duration
     while time.time() < deadline:
@@ -166,6 +168,7 @@ def run_expose_mode(port: int, duration: float = 300.0) -> None:
 # ---------------------------------------------------------------------------
 # CLI entry-point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="SOBS Prometheus / OTEL metrics demo")
