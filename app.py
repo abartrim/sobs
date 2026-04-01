@@ -33,6 +33,7 @@ from typing import Any, Callable, cast
 
 import chdb.dbapi as chdb_driver
 import httpx
+import pandas as pd
 from google.protobuf.json_format import ParseDict
 from hypercorn.asyncio import serve as hypercorn_serve
 from hypercorn.config import Config as HypercornConfig
@@ -126,6 +127,7 @@ app.config["APPLICATION_ROOT"] = BASE_PATH or "/"
 app.config["SECRET_KEY"] = os.environ.get("SOBS_SECRET_KEY", "sobs-dev-secret-key")
 app.config["SESSION_COOKIE_NAME"] = os.environ.get("SOBS_SESSION_COOKIE_NAME", "sobs_session")
 app.config["ENABLE_FIRST_RUN_TOUR"] = _env_flag("SOBS_ENABLE_FIRST_RUN_TOUR", True)
+app.config["ENABLE_QUERY_PAGE"] = _env_flag("SOBS_ENABLE_QUERY", False)
 
 _SETTINGS_ENCRYPTION_PREFIX = "enc:v1:"
 _SETTINGS_ENCRYPTION_KEY_ENV = "SOBS_SETTINGS_ENCRYPTION_KEY"
@@ -14662,8 +14664,377 @@ async def dismiss_agent_run(run_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Entrypoint
+# ChdbSqlRunner – minimal Vanna-style chDB adapter
 # ---------------------------------------------------------------------------
+
+# SQL statements that are safe to execute (read-only)
+_SAFE_SQL_PREFIXES = frozenset(["select", "explain", "show", "describe", "desc", "with"])
+
+# Patterns that indicate write operations (blocked regardless of prefix)
+_UNSAFE_SQL_PATTERNS = re.compile(
+    r"\b(insert|update|delete|drop|truncate|alter|create|replace|rename|attach|detach|"
+    r"grant|revoke|system\s+stop|system\s+start|system\s+reload|kill|optimize|exchange)\b",
+    re.IGNORECASE,
+)
+
+
+class ChdbSqlRunner:
+    """Vanna-style chDB adapter for read-only SQL execution via chDB's DB-API 2.0 interface.
+
+    This adapter:
+    - Validates SQL is read-only before execution (SELECT, EXPLAIN, SHOW, DESCRIBE, WITH).
+    - Executes queries through the shared ChDbConnection so the chDB lock is respected.
+    - Returns results as pandas DataFrames.
+    - Provides schema introspection helpers for building LLM prompt context.
+    """
+
+    def __init__(self, db: "ChDbConnection") -> None:
+        self._db = db
+
+    # ------------------------------------------------------------------
+    # SQL safety validation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def validate_sql(sql: str) -> None:
+        """Raise ValueError if *sql* is not a safe, read-only statement.
+
+        Checks:
+        1. The first non-whitespace keyword must be in ``_SAFE_SQL_PREFIXES``.
+        2. The statement must not contain write/DDL keywords.
+
+        Raises:
+            ValueError: with an explicit error message describing the violation.
+        """
+        stripped = sql.strip()
+        if not stripped:
+            raise ValueError("SQL statement is empty.")
+
+        first_token = stripped.split()[0].lower()
+        if first_token not in _SAFE_SQL_PREFIXES:
+            raise ValueError(
+                f"Only read-only SQL is allowed (SELECT, EXPLAIN, SHOW, DESCRIBE, WITH). "
+                f"Got: '{first_token.upper()}'."
+            )
+
+        if _UNSAFE_SQL_PATTERNS.search(stripped):
+            raise ValueError(
+                "SQL statement contains a disallowed write or DDL keyword "
+                "(INSERT, UPDATE, DELETE, DROP, CREATE, TRUNCATE, …)."
+            )
+
+    # ------------------------------------------------------------------
+    # Query execution
+    # ------------------------------------------------------------------
+
+    def run_sql(self, sql: str) -> "pd.DataFrame":
+        """Validate and execute *sql*, returning a pandas DataFrame.
+
+        Raises:
+            ValueError: if the SQL is not safe/read-only.
+            Exception: propagates chDB execution errors unchanged.
+        """
+        self.validate_sql(sql)
+        result = self._db.execute(sql)
+        rows = result.fetchall()
+        if not rows:
+            return pd.DataFrame()
+        columns = list(rows[0].keys())
+        return pd.DataFrame([dict(r) for r in rows], columns=columns)
+
+    # ------------------------------------------------------------------
+    # Schema introspection
+    # ------------------------------------------------------------------
+
+    def get_tables(self, database: str = "default") -> list[str]:
+        """Return a list of table names in *database*."""
+        result = self._db.execute(
+            "SELECT name FROM system.tables WHERE database=? ORDER BY name", [database]
+        )
+        return [str(row[0]) for row in result.fetchall()]
+
+    def describe_table(self, table: str, database: str = "default") -> "pd.DataFrame":
+        """Return column metadata for *table* as a DataFrame."""
+        result = self._db.execute(
+            "SELECT name, type, default_kind, comment "
+            "FROM system.columns WHERE database=? AND table=? ORDER BY position",
+            [database, table],
+        )
+        rows = result.fetchall()
+        if not rows:
+            return pd.DataFrame(columns=["name", "type", "default_kind", "comment"])
+        return pd.DataFrame([dict(r) for r in rows])
+
+    def get_schema_context(self, database: str = "default", max_tables: int = 30) -> str:
+        """Build a concise schema description string suitable for embedding in LLM prompts.
+
+        Returns a formatted string listing every table and its columns/types, e.g.::
+
+            Database: default
+            Table: otel_logs
+              - Timestamp: DateTime64(9)
+              - ServiceName: LowCardinality(String)
+              ...
+
+        Only the first *max_tables* tables are included to keep prompts manageable.
+        """
+        tables = self.get_tables(database)[:max_tables]
+        if not tables:
+            return f"Database: {database}\n(no tables found)"
+
+        lines: list[str] = [f"Database: {database}"]
+        for table in tables:
+            lines.append(f"\nTable: {table}")
+            try:
+                df = self.describe_table(table, database)
+                for _, col_row in df.iterrows():
+                    comment = str(col_row.get("comment", "") or "").strip()
+                    comment_str = f"  -- {comment}" if comment else ""
+                    lines.append(f"  - {col_row['name']}: {col_row['type']}{comment_str}")
+            except Exception as exc:
+                lines.append(f"  (describe error: {exc})")
+        return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Vanna Query Service – async helpers for NL → SQL → DataFrame
+# ---------------------------------------------------------------------------
+
+_QUERY_SQL_SYSTEM_PROMPT = """You are a ClickHouse SQL expert. Your job is to write correct, \
+read-only ClickHouse SELECT queries based on natural-language questions.
+
+Rules:
+- Output ONLY raw SQL. No markdown, no backticks, no explanation.
+- Use only SELECT statements (or WITH … SELECT). Never use INSERT, UPDATE, DELETE, DROP, CREATE, or any DDL.
+- The database name is "default". Always qualify table names as `default.<table>` or omit the database when unambiguous.
+- Use ClickHouse-compatible syntax (e.g. toDate(), now(), formatDateTime(), arrayJoin(), etc.).
+- When the question asks for a chart or visualisation, still return only the SQL that produces the data.
+- Limit results to at most 1000 rows unless the user explicitly asks for more (add LIMIT 1000 unless already present).
+
+Schema context:
+{schema}
+"""
+
+_QUERY_CHART_SYSTEM_PROMPT = """You are a data-visualisation expert. \
+Given a ClickHouse SQL result set described as column names and sample rows, \
+produce an Apache ECharts option object (JSON) that best visualises the data.
+
+Guidelines:
+- Output ONLY a valid JSON object — the value to assign to `chart.setOption(...)`.
+- Use Bootstrap 5 colours where possible (primary: #0d6efd, success: #198754, danger: #dc3545, \
+warning: #ffc107, info: #0dcaf0).
+- Choose the most appropriate chart type from the full ECharts library \
+(bar, line, pie, scatter, heatmap, radar, funnel, gauge, candlestick, tree, treemap, sunburst, etc.).
+- Titles, tooltips, legends, and axes should be concise and readable.
+- Set `backgroundColor: 'transparent'` to inherit the page background.
+- If the data is tabular with no obvious chart form, use a simple bar chart.
+- The JSON must be parseable by JSON.parse() with no trailing commas or comments.
+"""
+
+
+async def _vanna_generate_sql(
+    question: str,
+    schema_context: str,
+    settings: dict[str, str],
+) -> tuple[str, str]:
+    """Ask the configured LLM to generate SQL for *question*.
+
+    Returns ``(sql, error)`` where *error* is empty on success.
+    """
+    endpoint_url = settings.get("ai.endpoint_url", "").strip()
+    model = settings.get("ai.model", "").strip()
+    api_key = settings.get("ai.api_key", "").strip()
+
+    if not endpoint_url or not model:
+        return "", "AI endpoint not configured. Visit Settings → AI Configuration."
+
+    system_prompt = _QUERY_SQL_SYSTEM_PROMPT.format(schema=schema_context)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": question},
+    ]
+
+    sql_raw, _stats = await _call_llm_endpoint(
+        endpoint_url, model, api_key, messages, max_tokens=512
+    )
+    if not sql_raw:
+        return "", "LLM did not return a response. Check AI settings."
+
+    # Strip markdown fences if the model included them despite instructions.
+    sql = sql_raw.strip()
+    if sql.startswith("```"):
+        sql = re.sub(r"^```[a-zA-Z]*\n?", "", sql)
+        sql = re.sub(r"\n?```$", "", sql)
+    sql = sql.strip()
+    if not sql:
+        return "", "LLM returned an empty SQL statement."
+    return sql, ""
+
+
+async def _vanna_generate_chart_spec(
+    columns: list[str],
+    sample_rows: list[dict],
+    question: str,
+    settings: dict[str, str],
+) -> tuple[str, str]:
+    """Ask the LLM to produce an ECharts option JSON for the result set.
+
+    Returns ``(json_spec, error)`` where *json_spec* is the raw JSON string.
+    """
+    endpoint_url = settings.get("ai.endpoint_url", "").strip()
+    model = settings.get("ai.model", "").strip()
+    api_key = settings.get("ai.api_key", "").strip()
+
+    if not endpoint_url or not model:
+        return "", "AI endpoint not configured."
+
+    sample_str = json.dumps({"columns": columns, "rows": sample_rows[:20]}, ensure_ascii=False)
+    user_message = (
+        f"Original question: {question}\n\n"
+        f"Result set (columns + up to 20 sample rows):\n{sample_str}\n\n"
+        "Produce an ECharts option JSON object for this data."
+    )
+    messages = [
+        {"role": "system", "content": _QUERY_CHART_SYSTEM_PROMPT},
+        {"role": "user", "content": user_message},
+    ]
+
+    spec_raw, _stats = await _call_llm_endpoint(
+        endpoint_url, model, api_key, messages, max_tokens=1024
+    )
+    if not spec_raw:
+        return "", "LLM did not return a chart spec."
+
+    spec = spec_raw.strip()
+    if spec.startswith("```"):
+        spec = re.sub(r"^```[a-zA-Z]*\n?", "", spec)
+        spec = re.sub(r"\n?```$", "", spec)
+    spec = spec.strip()
+    return spec, ""
+
+
+_QUERY_MAX_ROWS = int(os.environ.get("SOBS_QUERY_MAX_ROWS", 1000))
+
+
+def _vanna_run_query(db: "ChDbConnection", sql: str) -> tuple["pd.DataFrame | None", str]:
+    """Synchronously validate and execute *sql* using a ChdbSqlRunner.
+
+    Applies a hard row cap (``SOBS_QUERY_MAX_ROWS``, default 1000) by truncating
+    the resulting DataFrame to prevent memory exhaustion regardless of what the
+    LLM generated.
+
+    Returns ``(dataframe, error)`` – on success *error* is empty, on failure
+    *dataframe* is ``None``.  This is a thin synchronous helper; callers in
+    async routes should dispatch it via ``asyncio.to_thread``.
+    """
+    runner = ChdbSqlRunner(db)
+    try:
+        df = runner.run_sql(sql)
+        # Hard row cap applied after execution to avoid memory issues.
+        if len(df) > _QUERY_MAX_ROWS:
+            df = df.iloc[:_QUERY_MAX_ROWS]
+        return df, ""
+    except ValueError as exc:
+        return None, f"SQL validation error: {exc}"
+    except Exception as exc:
+        return None, f"Query execution error: {exc}"
+
+
+# ---------------------------------------------------------------------------
+# Query page  GET /query   POST /api/query/ask
+# ---------------------------------------------------------------------------
+
+
+def _query_page_enabled() -> bool:
+    return bool(app.config.get("ENABLE_QUERY_PAGE"))
+
+
+@app.route("/query")
+@require_basic_auth
+async def view_query():
+    if not _query_page_enabled():
+        return ("Query page is disabled. Set SOBS_ENABLE_QUERY=1 to enable.", 404)
+    return await render_template("query.html")
+
+
+@app.route("/api/query/ask", methods=["POST"])
+@require_basic_auth
+async def api_query_ask():
+    """Natural-language → SQL → DataFrame endpoint.
+
+    Accepts JSON ``{question, execute, chart}`` and returns::
+
+        {
+          ok: bool,
+          sql: str,
+          columns: [...],
+          rows: [[...], ...],
+          chart_spec: str,   # ECharts option JSON, may be empty
+          error: str
+        }
+    """
+    if not _query_page_enabled():
+        return jsonify({"ok": False, "error": "Query page is disabled."}), 404
+
+    payload = await request.get_json(force=True, silent=True) or {}
+    question = str(payload.get("question") or "").strip()
+    do_execute = bool(payload.get("execute", True))
+    do_chart = bool(payload.get("chart", False))
+
+    if not question:
+        return jsonify({"ok": False, "error": "question is required"}), 400
+
+    db = get_db()
+    settings = _load_all_ai_settings(db)
+
+    # Build schema context (run synchronously in a thread so we don't block the event loop)
+    runner = ChdbSqlRunner(db)
+    schema_context = await asyncio.to_thread(runner.get_schema_context)
+
+    # Generate SQL
+    sql, sql_err = await _vanna_generate_sql(question, schema_context, settings)
+    if sql_err:
+        return jsonify({"ok": False, "error": sql_err, "sql": "", "columns": [], "rows": []}), 503
+
+    # Optionally execute
+    columns: list[str] = []
+    rows: list[list] = []
+    exec_error = ""
+    if do_execute:
+        df, exec_error = await asyncio.to_thread(_vanna_run_query, db, sql)
+        if df is not None and not df.empty:
+            columns = list(df.columns)
+            rows = df.values.tolist()
+
+    # Optionally generate chart spec
+    chart_spec = ""
+    chart_error = ""
+    if do_chart and not exec_error and columns:
+        sample = [dict(zip(columns, r)) for r in rows[:20]]
+        chart_spec, chart_error = await _vanna_generate_chart_spec(columns, sample, question, settings)
+
+    return jsonify(
+        {
+            "ok": True,
+            "sql": sql,
+            "columns": columns,
+            "rows": rows,
+            "chart_spec": chart_spec,
+            "error": exec_error or chart_error,
+        }
+    )
+
+
+@app.route("/api/query/schema", methods=["GET"])
+@require_basic_auth
+async def api_query_schema():
+    """Return the schema context string used for LLM prompts."""
+    if not _query_page_enabled():
+        return jsonify({"ok": False, "error": "Query page is disabled."}), 404
+    db = get_db()
+    runner = ChdbSqlRunner(db)
+    schema = await asyncio.to_thread(runner.get_schema_context)
+    return jsonify({"ok": True, "schema": schema})
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 44317))
     requested_workers = max(

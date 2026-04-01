@@ -6870,3 +6870,349 @@ class TestNotifications:
         assert "sobs_notification_channels" in tables
         assert "sobs_notification_rules" in tables
         assert "sobs_notification_log" in tables
+
+
+# ---------------------------------------------------------------------------
+# ChdbSqlRunner & Vanna Query Service
+# ---------------------------------------------------------------------------
+class TestChdbSqlRunner:
+    """Unit tests for the ChdbSqlRunner adapter (chDB connection + SQL safety)."""
+
+    def test_runner_connects_to_chdb(self):
+        """ChdbSqlRunner wraps the shared ChDbConnection without error."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        assert runner is not None
+        assert runner._db is db
+
+    def test_run_sql_select_returns_dataframe(self):
+        """run_sql executes a SELECT and returns a pandas DataFrame."""
+        import pandas as pd
+
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        df = runner.run_sql("SELECT 1 AS n")
+        assert isinstance(df, pd.DataFrame)
+        assert list(df.columns) == ["n"]
+        assert df.iloc[0]["n"] == 1
+
+    def test_run_sql_with_select_returns_correct_data(self):
+        """run_sql can query real SOBS tables."""
+        import pandas as pd
+
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        df = runner.run_sql(
+            "SELECT name FROM system.tables WHERE database='default' ORDER BY name LIMIT 5"
+        )
+        assert isinstance(df, pd.DataFrame)
+        assert "name" in df.columns
+
+    def test_run_sql_empty_result_returns_empty_dataframe(self):
+        """run_sql returns an empty DataFrame for a query with no rows."""
+        import pandas as pd
+
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        df = runner.run_sql(
+            "SELECT name FROM system.tables WHERE database='nonexistent_db_xyz' LIMIT 1"
+        )
+        assert isinstance(df, pd.DataFrame)
+
+    # ------------------------------------------------------------------
+    # SQL validation – safe statements
+    # ------------------------------------------------------------------
+
+    def test_validate_sql_select_is_allowed(self):
+        sobs_app.ChdbSqlRunner.validate_sql("SELECT 1")
+
+    def test_validate_sql_with_cte_is_allowed(self):
+        sobs_app.ChdbSqlRunner.validate_sql("WITH t AS (SELECT 1) SELECT * FROM t")
+
+    def test_validate_sql_explain_is_allowed(self):
+        sobs_app.ChdbSqlRunner.validate_sql("EXPLAIN SELECT 1")
+
+    def test_validate_sql_show_is_allowed(self):
+        sobs_app.ChdbSqlRunner.validate_sql("SHOW TABLES")
+
+    def test_validate_sql_describe_is_allowed(self):
+        sobs_app.ChdbSqlRunner.validate_sql("DESCRIBE system.tables")
+
+    # ------------------------------------------------------------------
+    # SQL validation – unsafe statements must raise ValueError
+    # ------------------------------------------------------------------
+
+    def test_validate_sql_insert_raises(self):
+        with pytest.raises(ValueError, match="read-only"):
+            sobs_app.ChdbSqlRunner.validate_sql("INSERT INTO t VALUES (1)")
+
+    def test_validate_sql_update_raises(self):
+        with pytest.raises(ValueError, match="read-only"):
+            sobs_app.ChdbSqlRunner.validate_sql("UPDATE t SET x=1")
+
+    def test_validate_sql_delete_raises(self):
+        with pytest.raises(ValueError, match="read-only"):
+            sobs_app.ChdbSqlRunner.validate_sql("DELETE FROM t WHERE id=1")
+
+    def test_validate_sql_drop_raises(self):
+        with pytest.raises(ValueError, match="read-only"):
+            sobs_app.ChdbSqlRunner.validate_sql("DROP TABLE t")
+
+    def test_validate_sql_create_raises(self):
+        with pytest.raises(ValueError, match="read-only"):
+            sobs_app.ChdbSqlRunner.validate_sql("CREATE TABLE t (id Int32) ENGINE=Memory")
+
+    def test_validate_sql_truncate_raises(self):
+        with pytest.raises(ValueError, match="read-only"):
+            sobs_app.ChdbSqlRunner.validate_sql("TRUNCATE TABLE t")
+
+    def test_validate_sql_empty_raises(self):
+        with pytest.raises(ValueError, match="empty"):
+            sobs_app.ChdbSqlRunner.validate_sql("   ")
+
+    def test_run_sql_blocks_insert(self):
+        """run_sql raises ValueError (not a silent failure) for write SQL."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        with pytest.raises(ValueError):
+            runner.run_sql("INSERT INTO otel_logs VALUES ()")
+
+    def test_run_sql_blocks_drop(self):
+        """run_sql raises ValueError for DDL."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        with pytest.raises(ValueError):
+            runner.run_sql("DROP TABLE otel_logs")
+
+    # ------------------------------------------------------------------
+    # Schema introspection
+    # ------------------------------------------------------------------
+
+    def test_get_tables_returns_list(self):
+        """get_tables returns a non-empty list for the default database."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        tables = runner.get_tables()
+        assert isinstance(tables, list)
+        assert len(tables) > 0
+        assert all(isinstance(t, str) for t in tables)
+
+    def test_get_tables_includes_otel_logs(self):
+        """get_tables includes the otel_logs table that SOBS creates."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        tables = runner.get_tables()
+        assert "otel_logs" in tables
+
+    def test_describe_table_returns_dataframe(self):
+        """describe_table returns a DataFrame with expected columns."""
+        import pandas as pd
+
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        df = runner.describe_table("otel_logs")
+        assert isinstance(df, pd.DataFrame)
+        assert "name" in df.columns
+        assert "type" in df.columns
+        assert len(df) > 0
+
+    def test_describe_nonexistent_table_returns_empty_df(self):
+        """describe_table returns an empty DataFrame for a nonexistent table."""
+        import pandas as pd
+
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        df = runner.describe_table("this_table_does_not_exist_xyz")
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 0
+
+    def test_get_schema_context_returns_string(self):
+        """get_schema_context returns a non-empty string."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        ctx = runner.get_schema_context()
+        assert isinstance(ctx, str)
+        assert "Database: default" in ctx
+        assert "otel_logs" in ctx
+
+    def test_get_schema_context_includes_column_info(self):
+        """get_schema_context includes at least one column description."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        ctx = runner.get_schema_context()
+        # Should contain lines like "  - Timestamp: DateTime64(9)"
+        assert "  - " in ctx
+
+
+class TestVannaRunQuery:
+    """Tests for the _vanna_run_query synchronous helper."""
+
+    def test_valid_select_returns_dataframe(self):
+        import pandas as pd
+
+        db = sobs_app.get_db()
+        df, err = sobs_app._vanna_run_query(db, "SELECT 1 AS x")
+        assert err == ""
+        assert isinstance(df, pd.DataFrame)
+
+    def test_write_sql_returns_error_string(self):
+        db = sobs_app.get_db()
+        df, err = sobs_app._vanna_run_query(db, "INSERT INTO otel_logs VALUES ()")
+        assert df is None
+        assert "SQL validation error" in err
+
+    def test_invalid_sql_returns_error_string(self):
+        db = sobs_app.get_db()
+        df, err = sobs_app._vanna_run_query(
+            db, "SELECT * FROM definitely_nonexistent_table_abc_xyz LIMIT 1"
+        )
+        # Should either succeed with empty df or return a query execution error.
+        # Either way the function should not raise.
+        if df is None:
+            assert err != ""
+        else:
+            import pandas as pd
+
+            assert isinstance(df, pd.DataFrame)
+
+
+class TestQueryRoutes:
+    """Integration tests for /query and /api/query/* routes."""
+
+    async def test_query_page_disabled_by_default(self, client):
+        """The /query page returns 404 when SOBS_ENABLE_QUERY is False."""
+        app.config["ENABLE_QUERY_PAGE"] = False
+        r = await client.get("/query")
+        assert r.status_code == 404
+
+    async def test_query_api_disabled_by_default(self, client):
+        app.config["ENABLE_QUERY_PAGE"] = False
+        r = await client.post("/api/query/ask", json={"question": "test"})
+        assert r.status_code == 404
+
+    async def test_query_schema_disabled_by_default(self, client):
+        app.config["ENABLE_QUERY_PAGE"] = False
+        r = await client.get("/api/query/schema")
+        assert r.status_code == 404
+
+    async def test_query_page_enabled(self, client):
+        """When feature flag is set, /query renders HTML."""
+        app.config["ENABLE_QUERY_PAGE"] = True
+        try:
+            r = await client.get("/query")
+            assert r.status_code == 200
+            text = (await r.get_data()).decode()
+            assert "Natural-Language Query" in text
+            assert "questionInput" in text
+        finally:
+            app.config["ENABLE_QUERY_PAGE"] = False
+
+    async def test_query_api_missing_question(self, client):
+        app.config["ENABLE_QUERY_PAGE"] = True
+        try:
+            r = await client.post("/api/query/ask", json={})
+            assert r.status_code == 400
+            data = json.loads(await r.get_data())
+            assert data["ok"] is False
+            assert "question" in data["error"]
+        finally:
+            app.config["ENABLE_QUERY_PAGE"] = False
+
+    async def test_query_api_no_ai_configured(self, client, monkeypatch):
+        """Returns 503 when AI endpoint is not configured."""
+        app.config["ENABLE_QUERY_PAGE"] = True
+        # Ensure no AI settings are visible regardless of what other tests persisted.
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: {})
+        try:
+            r = await client.post(
+                "/api/query/ask",
+                json={"question": "How many logs?", "execute": False},
+            )
+            assert r.status_code == 503
+            data = json.loads(await r.get_data())
+            assert data["ok"] is False
+            assert "AI endpoint" in data["error"]
+        finally:
+            app.config["ENABLE_QUERY_PAGE"] = False
+
+    async def test_query_schema_endpoint_enabled(self, client):
+        """When enabled, /api/query/schema returns the schema string."""
+        app.config["ENABLE_QUERY_PAGE"] = True
+        try:
+            r = await client.get("/api/query/schema")
+            assert r.status_code == 200
+            data = json.loads(await r.get_data())
+            assert data["ok"] is True
+            assert "Database: default" in data["schema"]
+        finally:
+            app.config["ENABLE_QUERY_PAGE"] = False
+
+    async def test_query_api_with_mocked_llm(self, client, monkeypatch):
+        """With a mocked LLM, /api/query/ask returns SQL and executes it."""
+        import pandas as pd
+
+        app.config["ENABLE_QUERY_PAGE"] = True
+        # Provide fake AI settings
+        monkeypatch.setattr(
+            sobs_app,
+            "_load_all_ai_settings",
+            lambda _db: {
+                "ai.endpoint_url": "https://fake.llm/v1",
+                "ai.model": "test-model",
+                "ai.api_key": "",
+            },
+        )
+        # Mock LLM to return a safe SELECT
+        async def _fake_llm(*_a, **_kw):
+            return "SELECT 1 AS answer", {}
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_llm)
+
+        try:
+            r = await client.post(
+                "/api/query/ask",
+                json={"question": "What is 1?", "execute": True, "chart": False},
+            )
+            assert r.status_code == 200
+            data = json.loads(await r.get_data())
+            assert data["ok"] is True
+            assert "SELECT 1" in data["sql"]
+            assert data["columns"] == ["answer"]
+            assert data["rows"] == [[1]]
+            assert data["error"] == ""
+        finally:
+            app.config["ENABLE_QUERY_PAGE"] = False
+
+    async def test_query_api_with_mocked_llm_bad_sql(self, client, monkeypatch):
+        """When LLM returns write SQL, execute returns an error in the response."""
+        app.config["ENABLE_QUERY_PAGE"] = True
+        monkeypatch.setattr(
+            sobs_app,
+            "_load_all_ai_settings",
+            lambda _db: {
+                "ai.endpoint_url": "https://fake.llm/v1",
+                "ai.model": "test-model",
+                "ai.api_key": "",
+            },
+        )
+
+        async def _fake_llm_bad(*_a, **_kw):
+            return "DROP TABLE otel_logs", {}
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_llm_bad)
+
+        try:
+            r = await client.post(
+                "/api/query/ask",
+                json={"question": "Delete everything", "execute": True, "chart": False},
+            )
+            assert r.status_code == 200
+            data = json.loads(await r.get_data())
+            assert data["ok"] is True
+            assert "DROP TABLE" in data["sql"]
+            # Execution should have failed safely with a descriptive error.
+            assert data["error"] != ""
+            error_lower = data["error"].lower()
+            assert any(kw in error_lower for kw in ("validation", "read-only", "disallowed", "sql"))
+        finally:
+            app.config["ENABLE_QUERY_PAGE"] = False
