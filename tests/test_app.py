@@ -1341,6 +1341,32 @@ class TestUIPages:
         assert data["action_id"] == "logs.live_mode.start"
         assert data["client_action"]["type"] == "start_live_mode"
 
+    async def test_ai_helper_execute_action_form_filters(self, client):
+        from app import _issue_ai_action_token
+
+        token = _issue_ai_action_token(
+            action_id="traces.filter.apply",
+            target_page="/traces",
+            action={
+                "type": "apply_form_filters",
+                "target_page": "/traces",
+                "filters": {"service": "api", "trace_id": "abc123"},
+                "submit": True,
+                "action_id": "traces.filter.apply",
+            },
+            requires_confirmation=False,
+            chat_id="chat-3",
+            turn_id="turn-3",
+        )
+        r = await client.post("/api/ai/helper/actions/execute", json={"action_token": token})
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert data["action_id"] == "traces.filter.apply"
+        assert data["client_action"]["type"] == "apply_form_filters"
+        assert data["client_action"]["target_page"] == "/traces"
+        assert data["client_action"]["filters"]["service"] == "api"
+
     async def test_chart_editor_help_page(self, client):
         r = await client.get("/dashboards/help/chart-editor")
         assert r.status_code == 200
@@ -5266,6 +5292,27 @@ class TestAISettingsAndAgentFlows:
         assert data["ok"] is False
         assert "guard" in data["error"].lower()
 
+    async def test_guard_allows_benign_model_usage_query_on_s8(self, monkeypatch):
+        settings = {
+            "ai.guard_endpoint_url": "https://guard.example.com/v1",
+            "ai.guard_model": "guard-test",
+            "ai.api_key": "",
+        }
+
+        async def _fake_guard_llm(*_args, **_kwargs):
+            return "unsafe\nS8", {"prompt_tokens": 1, "completion_tokens": 1, "elapsed_ms": 5}
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_guard_llm)
+
+        allowed, reason, _stats = await sobs_app._check_guard_model(
+            settings,
+            "List all the calls to the gpt-oss model",
+            "/ai",
+        )
+
+        assert allowed is True
+        assert reason == "allowed"
+
     async def test_ai_helper_streams_base_model_response(self, client, monkeypatch):
         from app import _save_ai_setting, get_db
 
@@ -5335,7 +5382,8 @@ class TestAISettingsAndAgentFlows:
         assert traces_data["ok"] is True
         assert any(a.get("action_id") == "traces.filter.apply" for a in traces_data["actions"])
         traces_action = next(a for a in traces_data["actions"] if a.get("action_id") == "traces.filter.apply")
-        assert traces_action.get("implemented") is False
+        assert traces_action.get("implemented") is True
+        assert traces_action.get("action_type") == "apply_form_filters"
 
         r_metrics = await client.get("/api/ai/helper/actions/manifest?page=/metrics")
         assert r_metrics.status_code == 200
@@ -5343,7 +5391,8 @@ class TestAISettingsAndAgentFlows:
         assert metrics_data["ok"] is True
         assert any(a.get("action_id") == "metrics.filter.apply" for a in metrics_data["actions"])
         metrics_action = next(a for a in metrics_data["actions"] if a.get("action_id") == "metrics.filter.apply")
-        assert metrics_action.get("implemented") is False
+        assert metrics_action.get("implemented") is True
+        assert metrics_action.get("action_type") == "apply_form_filters"
 
     async def test_ai_helper_forwards_thinking_level_to_stream(self, client, monkeypatch):
         from app import _save_ai_setting, get_db
@@ -5395,9 +5444,12 @@ class TestAISettingsAndAgentFlows:
             yield {
                 "type": "tool",
                 "tool_call": {
-                    "name": "apply_sql_filter",
+                    "name": "propose_ui_action",
                     "arguments": {
-                        "sql_where": "SeverityText = 'ERROR'",
+                        "action_id": "logs.filter.apply_sql",
+                        "arguments": {
+                            "sql_where": "SeverityText = 'ERROR'",
+                        },
                         "target_page": "/logs",
                         "notes": "Limit logs to errors",
                     },
@@ -5420,7 +5472,8 @@ class TestAISettingsAndAgentFlows:
         assert r.status_code == 200
         body = (await r.get_data()).decode("utf-8")
         assert "event: tool" in body
-        assert '"tool": "apply_sql_filter"' in body
+        assert '"tool": "propose_ui_action"' in body
+        assert '"action_id": "logs.filter.apply_sql"' in body
         assert "SeverityText = 'ERROR'" in body
 
     async def test_ai_helper_streams_generic_ui_action_tool_event(self, client, monkeypatch):

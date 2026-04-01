@@ -376,7 +376,11 @@
                       var tokIn = {{ item.tokens_in }};
                       var tokOut = {{ item.tokens_out }};
                       var el = document.getElementById('cost-{{ ui_id }}');
-                      if (el) el.innerHTML = aiCostEstimate(model, tokIn, tokOut);
+                      if (el) {
+                        el.innerHTML = (typeof window.aiCostEstimate === 'function')
+                          ? window.aiCostEstimate(model, tokIn, tokOut)
+                          : '<span class="text-secondary">Pricing unavailable</span>';
+                      }
                     }());
                     </script>
                   </div>
@@ -626,7 +630,11 @@
               var tokIn = {{ item.tokens_in }};
               var tokOut = {{ item.tokens_out }};
               var el = document.getElementById('cost-{{ item.id }}');
-              if (el) el.innerHTML = aiCostEstimate(model, tokIn, tokOut);
+              if (el) {
+                el.innerHTML = (typeof window.aiCostEstimate === 'function')
+                  ? window.aiCostEstimate(model, tokIn, tokOut)
+                  : '<span class="text-secondary">Pricing unavailable</span>';
+              }
             }());
             </script>
           </div>

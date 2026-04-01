@@ -820,6 +820,19 @@ CREATE TABLE IF NOT EXISTS sobs_ai_settings (
 ORDER BY Key
 SETTINGS index_granularity = 8192;
 
+CREATE TABLE IF NOT EXISTS sobs_ai_memories (
+    Id String CODEC(ZSTD(1)),
+    ChatId String CODEC(ZSTD(1)),
+    MemoryText String CODEC(ZSTD(1)),
+    EmbeddingJson String CODEC(ZSTD(1)),
+    SourceTurnId String CODEC(ZSTD(1)),
+    IsDeleted UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Version UInt64 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    UpdatedAt DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY (ChatId, Id)
+SETTINGS index_granularity = 8192;
+
 CREATE TABLE IF NOT EXISTS sobs_agent_rules (
     Id String CODEC(ZSTD(1)),
     Name String CODEC(ZSTD(1)),
@@ -1089,6 +1102,7 @@ def ensure_db_schema():
 def _ensure_post_schema_state(db: ChDbConnection) -> None:
     _ensure_anomaly_rule_schema(db)
     _ensure_notification_schema(db)
+    _ensure_ai_memory_schema(db)
     _prime_log_attr_key_cache(db)
     if not app.config.get("TESTING"):
         _seed_example_metrics_content(db)
@@ -1194,6 +1208,16 @@ def _ensure_anomaly_rule_schema(db: ChDbConnection) -> None:
         db.execute(statement)
 
 
+def _ensure_ai_memory_schema(db: ChDbConnection) -> None:
+    migration_statements = [
+        "ALTER TABLE sobs_ai_memories ADD COLUMN IF NOT EXISTS EmbeddingJson String DEFAULT ''",
+        "ALTER TABLE sobs_ai_memories ADD COLUMN IF NOT EXISTS SourceTurnId String DEFAULT ''",
+        "ALTER TABLE sobs_ai_memories ADD COLUMN IF NOT EXISTS UpdatedAt DateTime64(3) DEFAULT now64(3)",
+    ]
+    for statement in migration_statements:
+        db.execute(statement)
+
+
 # ---------------------------------------------------------------------------
 # AI Settings helpers
 # ---------------------------------------------------------------------------
@@ -1277,6 +1301,34 @@ _AI_OBSERVABILITY_HIGH_RISK_KEYWORDS = frozenset(
         "illegal",
         "break into",
         "unauthorized",
+    ]
+)
+_AI_USAGE_QUERY_INTENT_KEYWORDS = frozenset(
+    [
+        "list",
+        "show",
+        "count",
+        "how many",
+        "what",
+        "which",
+        "summarize",
+    ]
+)
+_AI_USAGE_ANALYTICS_KEYWORDS = frozenset(
+    [
+        "model",
+        "models",
+        "gpt",
+        "llm",
+        "calls",
+        "call",
+        "requests",
+        "request",
+        "usage",
+        "token",
+        "tokens",
+        "cost",
+        "latency",
     ]
 )
 
@@ -1380,6 +1432,10 @@ def _llm_reasoning_payload(model: str, thinking_level: str) -> dict[str, Any]:
 
 
 _AI_HELPER_SERVICE_NAME = "sobs-ai-helper"
+_AI_ASSISTANT_META_RE = re.compile(r"<assistant_meta>\s*(\{.*?\})\s*</assistant_meta>", re.DOTALL | re.IGNORECASE)
+_AI_MEMORY_DIMENSIONS = 128
+_AI_MEMORY_SEMANTIC_MIN_SCORE = 0.26
+_AI_MEMORY_CONSOLIDATION_SCORE = 0.72
 
 
 def _llm_usage_stats(usage: dict[str, Any] | None, elapsed_ms: int) -> dict[str, int]:
@@ -1398,43 +1454,336 @@ def _llm_usage_stats(usage: dict[str, Any] | None, elapsed_ms: int) -> dict[str,
     }
 
 
-_AI_HELPER_SQL_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "apply_sql_filter",
-        "description": (
-            "Apply a SQL WHERE filter to telemetry pages. Use this when users ask to filter logs "
-            "or narrow results by error/service/latency conditions. Prefer expressive WHERE clauses "
-            "that can include subqueries, grouping, and ordering inside IN (...) when needed."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "sql_where": {
-                    "type": "string",
-                    "description": (
-                        "SQL WHERE expression without the 'WHERE' keyword. "
-                        "Use short aliases where helpful (level, service, trace_id, span_id, ts, body). "
-                        "For 'longest traces' style asks, prefer a subquery pattern like: "
-                        "trace_id IN (SELECT TraceId FROM otel_traces WHERE TraceId != '' "
-                        "GROUP BY TraceId ORDER BY sum(Duration) DESC LIMIT 50)."
-                    ),
-                },
-                "target_page": {
-                    "type": "string",
-                    "enum": ["/logs"],
-                    "description": "Target page for the filter. Defaults to the current page.",
-                },
-                "notes": {
-                    "type": "string",
-                    "description": "Short plain-language summary of the intended filter.",
-                },
-            },
-            "required": ["sql_where"],
-            "additionalProperties": False,
+def _tokenize_for_embedding(text: str) -> list[str]:
+    if not text:
+        return []
+    return re.findall(r"[a-z0-9_./:-]+", text.lower())
+
+
+def _text_embedding(text: str, dims: int = _AI_MEMORY_DIMENSIONS) -> list[float]:
+    vector = [0.0] * dims
+    tokens = _tokenize_for_embedding(text)
+    if not tokens:
+        return vector
+    for token in tokens:
+        index = int(hashlib.sha256(token.encode("utf-8")).hexdigest(), 16) % dims
+        vector[index] += 1.0
+    norm = sum(v * v for v in vector) ** 0.5
+    if norm <= 0:
+        return vector
+    return [v / norm for v in vector]
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    if not a or not b:
+        return 0.0
+    n = min(len(a), len(b))
+    if n == 0:
+        return 0.0
+    return sum(a[i] * b[i] for i in range(n))
+
+
+def _embedding_to_json(vector: list[float]) -> str:
+    return json.dumps(vector, separators=(",", ":"), ensure_ascii=False)
+
+
+def _embedding_from_json(raw: str) -> list[float]:
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    values: list[float] = []
+    for item in parsed:
+        try:
+            values.append(float(item))
+        except Exception:
+            values.append(0.0)
+    return values
+
+
+def _extract_assistant_meta(answer_text: str) -> tuple[str, dict[str, Any]]:
+    text = str(answer_text or "")
+    match = _AI_ASSISTANT_META_RE.search(text)
+    if not match:
+        return text.strip(), {}
+    meta_raw = match.group(1)
+    meta: dict[str, Any] = {}
+    try:
+        parsed = json.loads(meta_raw)
+        if isinstance(parsed, dict):
+            meta = cast(dict[str, Any], parsed)
+    except Exception:
+        meta = {}
+    cleaned = (text[: match.start()] + text[match.end() :]).strip()
+    return cleaned, meta
+
+
+def _coerce_summary_value(value: Any, max_len: int = 240) -> str:
+    text = str(value or "").strip()
+    if len(text) > max_len:
+        return text[:max_len]
+    return text
+
+
+def _sanitize_chat_label_candidate(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text, _meta = _extract_assistant_meta(text)
+    lower = text.lower()
+    # Unwrap synthetic summary phrasing into a concise user-like label.
+    quoted_match = re.match(r'^\s*user\s+(?:wrote|said)\s+"([^"]+)".*$', text, flags=re.IGNORECASE)
+    if quoted_match:
+        text = quoted_match.group(1).strip()
+        lower = text.lower()
+    noisy_markers = (
+        "unclear intent",
+        "without a clear request",
+        "awaiting clarification",
+    )
+    if any(marker in lower for marker in noisy_markers):
+        return ""
+    return text
+
+
+def _chat_label_from_first_turn(first_question: Any, first_request: Any) -> str:
+    question_label = _sanitize_chat_label_candidate(first_question)
+    if question_label:
+        return _coerce_summary_value(question_label, 80)
+    request_label = _sanitize_chat_label_candidate(first_request)
+    if request_label:
+        return _coerce_summary_value(request_label, 80)
+    return "New chat"
+
+
+def _derive_turn_summary(
+    *,
+    question: str,
+    answer: str,
+    tool_summary: str,
+    meta_summary: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    summary = cast(dict[str, Any], meta_summary or {})
+    request_text = _coerce_summary_value(summary.get("request") or question, 180)
+    action_text = _coerce_summary_value(summary.get("action") or tool_summary or "answer_only", 180)
+    result_text = _coerce_summary_value(summary.get("result") or answer, 280)
+    return {
+        "request": request_text,
+        "action": action_text,
+        "result": result_text,
+    }
+
+
+def _load_chat_memories(db: ChDbConnection, chat_id: str) -> list[dict[str, Any]]:
+    rows = db.execute(
+        "SELECT Id, MemoryText, EmbeddingJson, SourceTurnId, UpdatedAt "
+        "FROM sobs_ai_memories FINAL WHERE ChatId=? AND IsDeleted=0 ORDER BY UpdatedAt DESC LIMIT 200",
+        [chat_id],
+    ).fetchall()
+    memories: list[dict[str, Any]] = []
+    for row in rows:
+        memories.append(
+            {
+                "id": str(row["Id"] or ""),
+                "text": str(row["MemoryText"] or "").strip(),
+                "embedding": _embedding_from_json(str(row["EmbeddingJson"] or "")),
+                "source_turn_id": str(row["SourceTurnId"] or ""),
+                "updated_at": str(row["UpdatedAt"] or ""),
+            }
+        )
+    return memories
+
+
+def _semantic_memory_matches(
+    memories: list[dict[str, Any]],
+    query_text: str,
+    *,
+    max_results: int = 5,
+    min_score: float = _AI_MEMORY_SEMANTIC_MIN_SCORE,
+) -> list[dict[str, Any]]:
+    query_emb = _text_embedding(query_text)
+    scored: list[dict[str, Any]] = []
+    for item in memories:
+        emb = cast(list[float], item.get("embedding") or [])
+        if not emb:
+            emb = _text_embedding(str(item.get("text") or ""))
+        score = _cosine_similarity(query_emb, emb)
+        if score < min_score:
+            continue
+        scored.append(
+            {
+                "id": str(item.get("id") or ""),
+                "text": str(item.get("text") or ""),
+                "score": round(score, 4),
+                "source_turn_id": str(item.get("source_turn_id") or ""),
+            }
+        )
+    scored.sort(key=lambda x: float(x.get("score") or 0), reverse=True)
+    return scored[:max_results]
+
+
+def _upsert_ai_memory(
+    db: ChDbConnection,
+    *,
+    memory_id: str,
+    chat_id: str,
+    memory_text: str,
+    source_turn_id: str,
+    is_deleted: bool,
+) -> None:
+    version = int(time.time() * 1000)
+    row = {
+        "Id": memory_id,
+        "ChatId": chat_id,
+        "MemoryText": memory_text,
+        "EmbeddingJson": _embedding_to_json(_text_embedding(memory_text)) if memory_text else "",
+        "SourceTurnId": source_turn_id,
+        "IsDeleted": 1 if is_deleted else 0,
+        "Version": version,
+        "UpdatedAt": _now_iso(),
+    }
+    _insert_rows_json_each_row(db, "sobs_ai_memories", [row])
+
+
+async def _consolidate_memory_candidates(
+    settings: dict[str, str],
+    *,
+    new_memory: str,
+    related: list[dict[str, Any]],
+) -> dict[str, Any]:
+    endpoint_url = str(settings.get("ai.endpoint_url") or "").strip()
+    model = str(settings.get("ai.model") or "").strip()
+    api_key = str(settings.get("ai.api_key") or "").strip()
+    if not endpoint_url or not model:
+        return {"action": "keep_new", "memory": new_memory, "drop_ids": []}
+    related_payload = [
+        {
+            "id": str(item.get("id") or ""),
+            "text": str(item.get("text") or ""),
+            "score": float(item.get("score") or 0),
+        }
+        for item in related
+    ]
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You reconcile short AI memories. Return ONLY strict JSON with keys: "
+                "action (merge|keep_new|ignore), memory (string), drop_ids (array of ids). "
+                "Merge overlapping/conflicting memories into one concise, current fact. "
+                "If new memory is noise/duplicate, use ignore."
+            ),
         },
-    },
-}
+        {
+            "role": "user",
+            "content": json.dumps({"new_memory": new_memory, "related": related_payload}, ensure_ascii=False),
+        },
+    ]
+    answer, _stats = await _call_llm_endpoint(
+        endpoint_url,
+        model,
+        api_key,
+        messages,
+        thinking_level="off",
+        max_tokens=220,
+        timeout=20,
+    )
+    if not answer:
+        return {"action": "keep_new", "memory": new_memory, "drop_ids": []}
+    try:
+        parsed = json.loads(answer)
+    except Exception:
+        parsed = {}
+    if not isinstance(parsed, dict):
+        return {"action": "keep_new", "memory": new_memory, "drop_ids": []}
+    action = str(parsed.get("action") or "keep_new").strip().lower()
+    if action not in {"merge", "keep_new", "ignore"}:
+        action = "keep_new"
+    memory_text = _coerce_summary_value(parsed.get("memory") or new_memory, 280)
+    raw_drop = parsed.get("drop_ids")
+    drop_ids: list[str] = []
+    if isinstance(raw_drop, list):
+        for item in raw_drop:
+            memory_id = str(item or "").strip()
+            if memory_id:
+                drop_ids.append(memory_id)
+    return {"action": action, "memory": memory_text, "drop_ids": drop_ids}
+
+
+def _extract_memory_candidates(meta: dict[str, Any]) -> list[str]:
+    candidates: list[str] = []
+    raw = meta.get("memory_candidates")
+    if isinstance(raw, list):
+        for item in raw:
+            text = _coerce_summary_value(item, 280)
+            if text:
+                candidates.append(text)
+    elif isinstance(raw, str):
+        text = _coerce_summary_value(raw, 280)
+        if text:
+            candidates.append(text)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for text in candidates:
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(text)
+        if len(deduped) >= 3:
+            break
+    return deduped
+
+
+def _load_recent_turn_summaries(db: ChDbConnection, chat_id: str, query: str, limit: int = 4) -> list[dict[str, str]]:
+    # Query only turn.summary events and rank in-process using semantic similarity.
+    where = "ServiceName=? AND EventName='turn.summary' AND LogAttributes['gen_ai.chat_id']=?"
+    rows = db.execute(
+        "SELECT Timestamp, LogAttributes['gen_ai.turn.summary.request'] AS request, "
+        "LogAttributes['gen_ai.turn.summary.action'] AS action, "
+        "LogAttributes['gen_ai.turn.summary.result'] AS result, "
+        "LogAttributes['gen_ai.turn_id'] AS turn_id "
+        f"FROM otel_logs WHERE {where} ORDER BY Timestamp DESC LIMIT 100",
+        [_AI_HELPER_SERVICE_NAME, chat_id],
+    ).fetchall()
+    scored: list[dict[str, Any]] = []
+    query_emb = _text_embedding(query)
+    for row in rows:
+        request = str(row["request"] or "").strip()
+        action = str(row["action"] or "").strip()
+        result = str(row["result"] or "").strip()
+        if not request and not result:
+            continue
+        candidate_text = f"{request} {action} {result}".strip()
+        score = _cosine_similarity(query_emb, _text_embedding(candidate_text))
+        if score < 0.2:
+            continue
+        scored.append(
+            {
+                "turn_id": str(row["turn_id"] or ""),
+                "request": _coerce_summary_value(request, 180),
+                "action": _coerce_summary_value(action, 180),
+                "result": _coerce_summary_value(result, 220),
+                "score": score,
+            }
+        )
+    scored.sort(key=lambda x: float(x.get("score") or 0), reverse=True)
+    output: list[dict[str, str]] = []
+    for item in scored[:limit]:
+        output.append(
+            {
+                "turn_id": str(item.get("turn_id") or ""),
+                "request": str(item.get("request") or ""),
+                "action": str(item.get("action") or ""),
+                "result": str(item.get("result") or ""),
+            }
+        )
+    return output
 
 
 _AI_HELPER_GENERIC_UI_ACTION_TOOL = {
@@ -1478,25 +1827,9 @@ _AI_ACTION_PAGE_TEMPLATES: dict[str, tuple[str, ...]] = {
     "/metrics": ("metrics.html",),
 }
 
-_AI_SUPPORTED_ACTION_TYPES: dict[str, dict[str, Any]] = {
-    "apply_sql_filter": {
-        "arguments": {
-            "sql_where": "SQL WHERE clause fragment (without WHERE keyword)",
-        },
-        "default_risk": "low",
-        "default_requires_confirmation": False,
-    },
-    "start_live_mode": {
-        "arguments": {},
-        "default_risk": "low",
-        "default_requires_confirmation": False,
-    },
-}
+# Action types are now defined entirely via template annotations with data-ai-action-type
+# and data-ai-handler attributes. Backend marks all annotated actions as implemented.
 
-_AI_ACTION_ID_TYPE_FALLBACK: dict[str, str] = {
-    "logs.filter.apply_sql": "apply_sql_filter",
-    "logs.live_mode.start": "start_live_mode",
-}
 
 _AI_ACTION_TAG_RE = re.compile(r"<[^>]*\bdata-ai-action-id\s*=\s*['\"][^'\"]+['\"][^>]*>", re.IGNORECASE)
 _AI_ACTION_ATTR_RE = re.compile(
@@ -1546,20 +1879,20 @@ def _helper_action_manifest_for_page(page: str) -> list[dict[str, Any]]:
                 continue
             action_type = str(attrs.get("data-ai-action-type") or "").strip().lower()
             if not action_type:
-                action_type = _AI_ACTION_ID_TYPE_FALLBACK.get(action_id, "")
-            type_meta = _AI_SUPPORTED_ACTION_TYPES.get(action_type, {})
-            risk = str(attrs.get("data-ai-risk") or type_meta.get("default_risk") or "medium").strip().lower()
+                continue
+            handler_name = str(attrs.get("data-ai-handler") or "").strip()
+            risk = str(attrs.get("data-ai-risk") or "medium").strip().lower()
             if risk not in {"low", "medium", "high"}:
                 risk = "medium"
             requires_confirmation = _parse_bool_attr(
                 attrs.get("data-ai-confirm", ""),
-                bool(type_meta.get("default_requires_confirmation", True)),
+                True,  # Default to confirmation required
             )
-            arguments: dict[str, Any] = cast(dict[str, Any], copy.deepcopy(type_meta.get("arguments") or {}))
-            args_attr = str(attrs.get("data-ai-args") or "").strip()
-            if args_attr:
+            arguments_attr = str(attrs.get("data-ai-args") or "").strip()
+            arguments: dict[str, Any] = {}
+            if arguments_attr:
                 try:
-                    parsed_args = json.loads(args_attr)
+                    parsed_args = json.loads(arguments_attr)
                     if isinstance(parsed_args, dict):
                         arguments = parsed_args
                 except json.JSONDecodeError:
@@ -1571,7 +1904,8 @@ def _helper_action_manifest_for_page(page: str) -> list[dict[str, Any]]:
                 "label": str(attrs.get("data-ai-label") or action_id),
                 "risk": risk,
                 "requires_confirmation": requires_confirmation,
-                "implemented": action_type in _AI_SUPPORTED_ACTION_TYPES,
+                "implemented": bool(handler_name),
+                "handler": handler_name,
                 "arguments": arguments,
                 "role": str(attrs.get("data-ai-action-role") or ""),
             }
@@ -1587,6 +1921,7 @@ def _helper_action_manifest_for_page(page: str) -> list[dict[str, Any]]:
                 "risk": str(action.get("risk") or "medium"),
                 "requires_confirmation": bool(action.get("requires_confirmation", True)),
                 "implemented": bool(action.get("implemented", False)),
+                "handler": str(action.get("handler") or ""),
                 "arguments": cast(dict[str, Any], action.get("arguments") or {}),
                 "role": str(action.get("role") or ""),
             }
@@ -1595,29 +1930,26 @@ def _helper_action_manifest_for_page(page: str) -> list[dict[str, Any]]:
 
 
 def _helper_tools_for_page(page: str) -> list[dict[str, Any]]:
+    """Return LLM tools for a given page; only generic proposal tool if actions are available."""
     manifest = _helper_action_manifest_for_page(page)
     if not manifest:
         return []
     if not any(bool(item.get("implemented", False)) for item in manifest):
         return []
-    tools: list[dict[str, Any]] = [_AI_HELPER_GENERIC_UI_ACTION_TOOL]
-    if any(str(item.get("action_type") or "") == "apply_sql_filter" for item in manifest):
-        tools.append(_AI_HELPER_SQL_TOOL)
-    return tools
+    return [_AI_HELPER_GENERIC_UI_ACTION_TOOL]
 
 
 def _warn_unimplemented_ai_action_annotations() -> None:
     missing: list[tuple[str, str, str]] = []
     for page in sorted(_AI_ACTION_PAGE_TEMPLATES):
         for action in _helper_action_manifest_for_page(page):
-            action_type = str(action.get("action_type") or "").strip()
-            if action_type and action_type not in _AI_SUPPORTED_ACTION_TYPES:
-                missing.append((page, str(action.get("action_id") or ""), action_type))
+            if not bool(action.get("implemented", False)):
+                missing.append((page, str(action.get("action_id") or ""), str(action.get("action_type") or "")))
     if not missing:
         return
     for page, action_id, action_type in missing:
         log.warning(
-            "AI action annotation has unsupported action_type (page=%s action_id=%s action_type=%s)",
+            "AI action annotation missing handler (page=%s action_id=%s action_type=%s)",
             page,
             action_id,
             action_type,
@@ -1689,69 +2021,82 @@ def _issue_ai_action_token(
 
 
 def _build_client_action(action_type: str, action_payload: dict[str, Any]) -> dict[str, Any] | None:
-    if action_type == "apply_sql_filter":
-        sql_where = str(action_payload.get("sql_where") or "").strip()
-        if not sql_where:
+    """
+    Generic client action builder. Sanitizes payload and returns it with type.
+    Specific action validation is handled by frontend handlers.
+    """
+    if not action_type:
+        return None
+    if not isinstance(action_payload, dict):
+        return None
+
+    # Build sanitized action by recursively cleaning the payload to prevent
+    # oversized nested structures from model errors.
+    def _sanitize_value(value: Any, depth: int = 0, max_depth: int = 3) -> Any:
+        if depth > max_depth:
             return None
-        target_page = str(action_payload.get("target_page") or "/logs").strip() or "/logs"
-        submit = bool(action_payload.get("submit", True))
-        return {
-            "type": "apply_sql_filter",
-            "target_page": target_page,
-            "sql_where": sql_where,
-            "submit": submit,
-        }
-    if action_type == "start_live_mode":
-        target_page = str(action_payload.get("target_page") or "/logs").strip() or "/logs"
-        return {
-            "type": "start_live_mode",
-            "target_page": target_page,
-            "submit": True,
-        }
-    return None
-
-
-def _normalize_sql_filter_tool_call(args: dict[str, Any], current_page: str) -> dict[str, Any] | None:
-    raw_sql = str(args.get("sql_where") or "").strip()
-    if not raw_sql:
+        if value is None or isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value
+        if isinstance(value, str):
+            s = str(value).strip()
+            if len(s) > 4096:
+                return s[:4096]
+            return s
+        if isinstance(value, dict):
+            cleaned: dict[str, Any] = {}
+            for k, v in value.items():
+                if len(cleaned) >= 50:
+                    break
+                key = str(k or "").strip()
+                if not key:
+                    continue
+                cleaned[key] = _sanitize_value(v, depth + 1, max_depth)
+            return cleaned
+        if isinstance(value, (list, tuple)):
+            sanitized: list[Any] = []
+            for item in value:
+                if len(sanitized) >= 100:
+                    break
+                sanitized.append(_sanitize_value(item, depth + 1, max_depth))
+            return sanitized
         return None
-    # Basic hard limit prevents oversized accidental payloads from the model.
-    if len(raw_sql) > 2000:
-        raw_sql = raw_sql[:2000]
-    sql_where = raw_sql.replace(";", "").strip()
-    if not sql_where:
-        return None
-    target_page = str(args.get("target_page") or current_page or "").strip() or current_page
-    if target_page != "/logs":
-        target_page = "/logs"
-    notes = str(args.get("notes") or "").strip()
-    requires_confirmation = target_page != current_page
+
+    sanitized_payload: dict[str, Any] = {}
+    for key, value in action_payload.items():
+        if len(sanitized_payload) >= 50:
+            break
+        clean_key = str(key or "").strip()
+        if not clean_key:
+            continue
+        sanitized_payload[clean_key] = _sanitize_value(value)
+
     return {
-        "tool": "apply_sql_filter",
-        "action_id": "logs.filter.apply_sql",
-        "summary": notes or f"Apply SQL filter on {target_page}",
-        "requires_confirmation": requires_confirmation,
-        "action": {
-            "type": "apply_sql_filter",
-            "target_page": target_page,
-            "sql_where": sql_where,
-            # Auto-submit low-risk local updates, confirm cross-page updates.
-            "submit": not requires_confirmation,
-        },
+        "type": action_type,
+        **sanitized_payload,
     }
 
 
 def _normalize_generic_ui_action_tool_call(args: dict[str, Any], current_page: str) -> dict[str, Any] | None:
+    """
+    Normalize generic UI action tool call. Generic builder that validates action exists
+    in manifest, then delegates to _build_client_action for type-neutral sanitization.
+    Specific action validation (e.g., field allowlists) handled by frontend.
+    """
     action_id = str(args.get("action_id") or "").strip()
     if not action_id:
         return None
 
     target_page = str(args.get("target_page") or current_page or "").strip() or current_page
-    action_args = cast(dict[str, Any], args.get("arguments") or {})
+    action_arguments = cast(dict[str, Any], args.get("arguments") or {})
     notes = str(args.get("notes") or "").strip()
 
+    # Look up action in manifest for this target page
     manifest = {item.get("action_id"): item for item in _helper_action_manifest_for_page(target_page)}
     action_meta = cast(dict[str, Any] | None, manifest.get(action_id))
+
+    # Return unsupported if action not in manifest
     if not action_meta:
         return {
             "tool": "propose_ui_action",
@@ -1767,32 +2112,32 @@ def _normalize_generic_ui_action_tool_call(args: dict[str, Any], current_page: s
         }
 
     action_type = str(action_meta.get("action_type") or "").strip().lower()
+    requires_confirmation = target_page != current_page or bool(action_meta.get("requires_confirmation", True))
 
-    if action_type == "apply_sql_filter":
-        mapped = {
-            "sql_where": action_args.get("sql_where") or args.get("sql_where"),
-            "target_page": target_page,
-            "notes": notes,
-        }
-        normalized = _normalize_sql_filter_tool_call(cast(dict[str, Any], mapped), current_page)
-        if not normalized:
-            return None
-        normalized["tool"] = "propose_ui_action"
-        normalized["action_id"] = action_id
-        return normalized
+    # Build action payload: merge arguments with defaults from template annotation
+    action_payload = {
+        "target_page": target_page,
+        **action_arguments,
+    }
+    # Apply any template-defined default arguments
+    template_args = cast(dict[str, Any], action_meta.get("arguments") or {})
+    for key, default_value in template_args.items():
+        if key not in action_payload:
+            action_payload[key] = default_value
 
-    if action_type == "start_live_mode":
-        requires_confirmation = target_page != current_page
+    # Generic sanitization and assembly
+    client_action = _build_client_action(action_type, action_payload)
+    if not client_action:
         return {
             "tool": "propose_ui_action",
             "action_id": action_id,
-            "summary": notes or str(action_meta.get("label") or "Start logs live mode"),
-            "requires_confirmation": requires_confirmation,
-            "unsupported": not bool(action_meta.get("implemented", False)),
+            "summary": notes or f"Invalid arguments for action: {action_id}",
+            "requires_confirmation": True,
+            "unsupported": True,
             "action": {
-                "type": "start_live_mode",
+                "type": "unsupported",
+                "action_id": action_id,
                 "target_page": target_page,
-                "submit": True,
             },
         }
 
@@ -1800,13 +2145,9 @@ def _normalize_generic_ui_action_tool_call(args: dict[str, Any], current_page: s
         "tool": "propose_ui_action",
         "action_id": action_id,
         "summary": notes or str(action_meta.get("label") or action_id),
-        "requires_confirmation": True,
+        "requires_confirmation": requires_confirmation,
         "unsupported": not bool(action_meta.get("implemented", False)),
-        "action": {
-            "type": "unsupported",
-            "action_id": action_id,
-            "target_page": target_page,
-        },
+        "action": client_action,
     }
 
 
@@ -2026,6 +2367,15 @@ def _is_benign_observability_question(text: str) -> bool:
     return False
 
 
+def _is_benign_ai_usage_question(text: str) -> bool:
+    lower = text.lower()
+    if any(kw in lower for kw in _AI_OBSERVABILITY_HIGH_RISK_KEYWORDS):
+        return False
+    has_intent = any(kw in lower for kw in _AI_USAGE_QUERY_INTENT_KEYWORDS)
+    has_usage_signal = any(kw in lower for kw in _AI_USAGE_ANALYTICS_KEYWORDS)
+    return has_intent and has_usage_signal
+
+
 async def _check_guard_model(
     settings: dict[str, str],
     user_input: str,
@@ -2091,10 +2441,18 @@ async def _check_guard_model(
     if verdict in ("SAFE", "ALLOWED"):
         return True, "allowed", guard_stats
     if verdict in ("UNSAFE", "BLOCKED") or verdict.startswith("BLOCKED"):
-        if category_code in _AI_GUARD_NOISY_CATEGORIES and _is_benign_observability_question(user_input):
+        benign_observability = _is_benign_observability_question(user_input)
+        benign_ai_usage = _is_benign_ai_usage_question(user_input)
+        if category_code in _AI_GUARD_NOISY_CATEGORIES and (benign_observability or benign_ai_usage):
             log.info(
                 "Guard override applied for benign observability prompt (category=%s)",
                 category_code or "unknown",
+            )
+            return True, "allowed", guard_stats
+        if category_code == "S8" and benign_ai_usage:
+            log.info(
+                "Guard override applied for benign AI usage analytics prompt (category=%s)",
+                category_code,
             )
             return True, "allowed", guard_stats
         if category_code and category_label:
@@ -12394,10 +12752,43 @@ def _emit_ai_helper_log_event(
         "EventName": event_name,
     }
 
+    trace_span_id = (
+        turn_id
+        if event_name == "turn.start"
+        else hashlib.md5(f"{turn_id}|{event_name}|{time.time_ns()}".encode("utf-8")).hexdigest()[:16]
+    )
+    trace_parent_span_id = "" if event_name == "turn.start" else turn_id
+    duration_ns = 0
+    if attrs:
+        try:
+            duration_ns = max(0, int(float(attrs.get("gen_ai.response.latency_ms", 0)) * 1_000_000))
+        except (TypeError, ValueError):
+            duration_ns = 0
+    trace_row = {
+        "Timestamp": _now_iso(),
+        "TraceId": chat_id,
+        "SpanId": trace_span_id,
+        "ParentSpanId": trace_parent_span_id,
+        "TraceState": "",
+        "SpanName": f"ai.{event_name}",
+        "SpanKind": "INTERNAL",
+        "ServiceName": _AI_HELPER_SERVICE_NAME,
+        "ResourceAttributes": {"service.name": _AI_HELPER_SERVICE_NAME, "telemetry.sdk.name": "sobs"},
+        "ScopeName": "sobs.gen_ai.helper",
+        "ScopeVersion": "1",
+        "SpanAttributes": _stringify_attrs(attr_map),
+        "Duration": duration_ns,
+        "StatusCode": "STATUS_CODE_OK" if severity.upper() != "ERROR" else "STATUS_CODE_ERROR",
+        "StatusMessage": str(body or ""),
+        "Events": {"Timestamp": [], "Name": [], "Attributes": []},
+        "Links": {"TraceId": [], "SpanId": [], "TraceState": [], "Attributes": []},
+    }
+
     wait = bool(app.config.get("TESTING", False))
 
     def _op(db: ChDbConnection) -> None:
         _insert_rows_json_each_row(db, "otel_logs", [row])
+        _insert_rows_json_each_row(db, "otel_traces", [trace_row])
         _remember_log_attr_keys(db, _extract_log_attr_maps([row]), record_type="log")
 
     try:
@@ -12443,6 +12834,114 @@ async def ai_helper_action_manifest():
             "actions": _helper_action_manifest_for_page(page),
         }
     )
+
+
+@app.route("/api/ai/helper/chats", methods=["GET"])
+@require_basic_auth
+async def ai_helper_chats():
+    db = get_db()
+    page = str(request.args.get("page") or "").strip()
+    where = ["ServiceName=?", "EventName='turn.summary'", "LogAttributes['gen_ai.chat_id'] != ''"]
+    params: list[Any] = [_AI_HELPER_SERVICE_NAME]
+    if page:
+        where.append("LogAttributes['sobs.ai.page'] = ?")
+        params.append(page)
+    where_sql = " AND ".join(where)
+    rows = db.execute(
+        "SELECT "
+        "  LogAttributes['gen_ai.chat_id'] AS chat_id, "
+        "  min(Timestamp) AS first_ts, "
+        "  max(Timestamp) AS last_ts, "
+        "  argMin(LogAttributes['gen_ai.input.question'], Timestamp) AS first_question, "
+        "  argMin(LogAttributes['gen_ai.turn.summary.request'], Timestamp) AS first_request, "
+        "  count() AS turn_count "
+        f"FROM otel_logs WHERE {where_sql} "
+        "GROUP BY chat_id "
+        "ORDER BY last_ts DESC LIMIT 200",
+        params,
+    ).fetchall()
+
+    chats: list[dict[str, Any]] = []
+    for row in rows:
+        chat_id = str(row["chat_id"] or "").strip()
+        if not chat_id:
+            continue
+        chats.append(
+            {
+                "chat_id": chat_id,
+                "first_ts": str(row["first_ts"] or ""),
+                "last_ts": str(row["last_ts"] or ""),
+                "label": _chat_label_from_first_turn(row["first_question"], row["first_request"]),
+                "turn_count": int(row["turn_count"] or 0),
+            }
+        )
+    return jsonify({"ok": True, "chats": chats})
+
+
+@app.route("/api/ai/helper/chats/<chat_id>", methods=["GET"])
+@require_basic_auth
+async def ai_helper_chat_detail(chat_id: str):
+    safe_chat_id = str(chat_id or "").strip()
+    if not safe_chat_id:
+        return jsonify({"ok": False, "error": "chat_id is required"}), 400
+
+    db = get_db()
+    rows = db.execute(
+        "SELECT "
+        "  Timestamp, "
+        "  LogAttributes['gen_ai.turn_id'] AS turn_id, "
+        "  LogAttributes['gen_ai.input.question'] AS input_question, "
+        "  LogAttributes['gen_ai.turn.summary.request'] AS request, "
+        "  LogAttributes['gen_ai.output.messages'] AS output_messages "
+        "FROM otel_logs "
+        "WHERE ServiceName=? AND EventName='turn.complete' AND LogAttributes['gen_ai.chat_id']=? "
+        "ORDER BY Timestamp ASC LIMIT 300",
+        [_AI_HELPER_SERVICE_NAME, safe_chat_id],
+    ).fetchall()
+
+    messages: list[dict[str, Any]] = []
+    for row in rows:
+        ts = str(row["Timestamp"] or "")
+        turn_id = str(row["turn_id"] or "")
+        request_text = str(row["input_question"] or "").strip()
+        if request_text:
+            messages.append(
+                {
+                    "role": "user",
+                    "text": request_text,
+                    "ts": ts,
+                    "turn_id": turn_id,
+                }
+            )
+
+        assistant_text = ""
+        raw_output = str(row["output_messages"] or "")
+        if raw_output:
+            try:
+                parsed = json.loads(raw_output)
+                if isinstance(parsed, list):
+                    parts: list[str] = []
+                    for item in parsed:
+                        if isinstance(item, dict):
+                            content = str(item.get("content") or "").strip()
+                            if content:
+                                parts.append(content)
+                    assistant_text = "\n\n".join(parts).strip()
+            except (json.JSONDecodeError, TypeError):
+                assistant_text = ""
+        if assistant_text:
+            assistant_text, _assistant_meta = _extract_assistant_meta(assistant_text)
+        if assistant_text:
+            messages.append(
+                {
+                    "role": "assistant",
+                    "text": assistant_text,
+                    "ts": ts,
+                    "turn_id": turn_id,
+                }
+            )
+
+    return jsonify({"ok": True, "chat_id": safe_chat_id, "messages": messages})
 
 
 @app.route("/api/ai/helper", methods=["POST"])
@@ -12547,6 +13046,24 @@ async def ai_helper():
 
     action_manifest = _helper_action_manifest_for_page(page)
     action_manifest_json = json.dumps(action_manifest, ensure_ascii=False)
+    chat_memories = _load_chat_memories(db, chat_id)
+    relevant_memories = _semantic_memory_matches(chat_memories, question, max_results=5)
+    recent_history = _load_recent_turn_summaries(db, chat_id, question, limit=4)
+
+    memory_lines: list[str] = []
+    for item in relevant_memories:
+        text = str(item.get("text") or "").strip()
+        if text:
+            memory_lines.append(f"- {text}")
+    memory_block = "\n".join(memory_lines)
+
+    history_lines: list[str] = []
+    for item in recent_history:
+        request_s = str(item.get("request") or "")
+        action_s = str(item.get("action") or "")
+        result_s = str(item.get("result") or "")
+        history_lines.append(f"- request={request_s}; action={action_s}; result={result_s}")
+    history_block = "\n".join(history_lines)
 
     system_prompt = system_prompt_override or (
         "You are an expert observability assistant for SOBS (Simple Observe Stack). "
@@ -12558,12 +13075,22 @@ async def ai_helper():
         "Try higher-quality solutions before simplistic ones, especially for grouping/ranking asks. "
         "Only propose UI actions that exist in the action manifest for this page. "
         "Do not claim any UI action was executed unless a tool is called and execution is confirmed by the app. "
-        "If tools are available and the user asks to apply a logs SQL filter, call either "
-        "propose_ui_action with action_id logs.filter.apply_sql, or call apply_sql_filter for compatibility. "
+        "If tools are available and the user asks to apply a logs SQL filter, call "
+        "propose_ui_action with action_id logs.filter.apply_sql. "
         "For requests like 'longest traces' or 'highest total duration by trace', generate a "
         "richer WHERE clause using an IN subquery with GROUP BY trace id and ORDER BY sum(Duration) DESC. "
+        "At the very end of every response, append a single compact metadata block in this exact format: "
+        '<assistant_meta>{"turn_summary":{"request":"...","action":"...","result":"..."},'
+        '"memory_candidates":["optional memory 1","optional memory 2"]}</assistant_meta>. '
+        "Keep memory_candidates empty when no durable memory is needed. "
+        "Do not include any additional text after </assistant_meta>. "
         "Page action manifest: " + action_manifest_json
     )
+
+    if memory_block:
+        system_prompt += "\n\nRelevant persistent memories:\n" + memory_block
+    if history_block:
+        system_prompt += "\n\nSemantically relevant prior turn summaries:\n" + history_block
 
     context_lines: list[str] = [f"Current page: {page}" if page else ""]
     if isinstance(context_data, dict):
@@ -12586,6 +13113,9 @@ async def ai_helper():
         async def _generate() -> AsyncIterator[str]:
             answer_parts: list[str] = []
             thinking_tokens = 0
+            last_tool_summary = ""
+            loop_messages: list[dict[str, Any]] = list(messages)
+            max_tool_rounds = 3
             yield _sse_json_event(
                 "meta",
                 {
@@ -12598,102 +13128,218 @@ async def ai_helper():
             )
             yield _sse_json_event("guard", {"guard_stats": guard_stats})
             try:
-                async for event in _stream_llm_endpoint(
-                    endpoint_url,
-                    model,
-                    api_key,
-                    messages,
-                    tools=tools,
-                    thinking_level=thinking_level,
-                    max_tokens=768,
-                ):
-                    event_type = str(event.get("type") or "")
-                    if event_type == "delta":
-                        chunk = str(event.get("text") or "")
-                        if chunk:
-                            answer_parts.append(chunk)
-                            yield _sse_json_event("token", {"text": chunk})
-                    elif event_type == "tool":
-                        tool_call = event.get("tool_call") or {}
-                        tool_name = str(tool_call.get("name") or "")
-                        tool_args = tool_call.get("arguments") or {}
-                        if isinstance(tool_args, dict):
-                            normalized_tool: dict[str, Any] | None = None
-                            if tool_name == "apply_sql_filter":
-                                normalized_tool = _normalize_sql_filter_tool_call(tool_args, page)
-                            elif tool_name == "propose_ui_action":
-                                normalized_tool = _normalize_generic_ui_action_tool_call(tool_args, page)
-                            if normalized_tool:
-                                action_id = str(normalized_tool.get("action_id") or "")
-                                unsupported = bool(normalized_tool.get("unsupported"))
-                                action_payload = cast(dict[str, Any], normalized_tool.get("action") or {})
-                                if action_id and not unsupported and action_payload:
-                                    normalized_tool["action_token"] = _issue_ai_action_token(
-                                        action_id=action_id,
-                                        target_page=str(action_payload.get("target_page") or page or "/logs"),
-                                        action=action_payload,
-                                        requires_confirmation=bool(normalized_tool.get("requires_confirmation", True)),
+                model_stats: dict[str, Any] = {}
+                for loop_round in range(max_tool_rounds + 1):
+                    round_text_parts: list[str] = []
+                    round_tool_feedback: list[dict[str, Any]] = []
+                    async for event in _stream_llm_endpoint(
+                        endpoint_url,
+                        model,
+                        api_key,
+                        loop_messages,
+                        tools=tools,
+                        thinking_level=thinking_level,
+                        max_tokens=768,
+                    ):
+                        event_type = str(event.get("type") or "")
+                        if event_type == "delta":
+                            chunk = str(event.get("text") or "")
+                            if chunk:
+                                round_text_parts.append(chunk)
+                                answer_parts.append(chunk)
+                                yield _sse_json_event("token", {"text": chunk})
+                        elif event_type == "tool":
+                            tool_call = event.get("tool_call") or {}
+                            tool_name = str(tool_call.get("name") or "")
+                            tool_args = tool_call.get("arguments") or {}
+                            if isinstance(tool_args, dict):
+                                normalized_tool: dict[str, Any] | None = None
+                                if tool_name == "propose_ui_action":
+                                    normalized_tool = _normalize_generic_ui_action_tool_call(tool_args, page)
+                                if normalized_tool:
+                                    action_id = str(normalized_tool.get("action_id") or "")
+                                    unsupported = bool(normalized_tool.get("unsupported"))
+                                    action_payload = cast(dict[str, Any], normalized_tool.get("action") or {})
+                                    last_tool_summary = str(normalized_tool.get("summary") or "").strip()
+                                    if action_id and not unsupported and action_payload:
+                                        normalized_tool["action_token"] = _issue_ai_action_token(
+                                            action_id=action_id,
+                                            target_page=str(action_payload.get("target_page") or page or "/logs"),
+                                            action=action_payload,
+                                            requires_confirmation=bool(
+                                                normalized_tool.get("requires_confirmation", True)
+                                            ),
+                                            chat_id=chat_id,
+                                            turn_id=turn_id,
+                                        )
+                                    _emit_ai_helper_log_event(
+                                        event_name="tool.proposed",
                                         chat_id=chat_id,
                                         turn_id=turn_id,
+                                        page=page,
+                                        model=model,
+                                        guard_model=guard_model,
+                                        thinking_level=thinking_level,
+                                        body=f"Tool proposed: {tool_name}",
+                                        attrs={
+                                            "gen_ai.tool.name": tool_name,
+                                            "sobs.ai.action_id": action_id,
+                                            "sobs.ai.tool.summary": normalized_tool.get("summary", ""),
+                                            "sobs.ai.tool.action": json.dumps(
+                                                normalized_tool.get("action") or {}, ensure_ascii=False
+                                            ),
+                                            "sobs.ai.action.status": ("unsupported" if unsupported else "proposed"),
+                                        },
                                     )
-                                _emit_ai_helper_log_event(
-                                    event_name="tool.proposed",
-                                    chat_id=chat_id,
-                                    turn_id=turn_id,
-                                    page=page,
-                                    model=model,
-                                    guard_model=guard_model,
-                                    thinking_level=thinking_level,
-                                    body=f"Tool proposed: {tool_name}",
-                                    attrs={
-                                        "gen_ai.tool.name": tool_name,
-                                        "sobs.ai.action_id": action_id,
-                                        "sobs.ai.tool.summary": normalized_tool.get("summary", ""),
-                                        "sobs.ai.tool.action": json.dumps(
-                                            normalized_tool.get("action") or {}, ensure_ascii=False
-                                        ),
-                                        "sobs.ai.action.status": ("unsupported" if unsupported else "proposed"),
-                                    },
-                                )
-                                yield _sse_json_event("tool", normalized_tool)
-                    elif event_type == "done":
-                        model_stats = cast(dict[str, Any], event.get("stats") or {})
-                        thinking_tokens = int(model_stats.get("thinking_tokens") or 0)
-                        _emit_ai_helper_log_event(
-                            event_name="turn.complete",
-                            chat_id=chat_id,
-                            turn_id=turn_id,
-                            page=page,
-                            model=model,
-                            guard_model=guard_model,
-                            thinking_level=thinking_level,
-                            body="AI helper turn completed",
-                            attrs={
-                                "gen_ai.response.id": turn_id,
-                                "gen_ai.usage.input_tokens": model_stats.get("prompt_tokens", 0),
-                                "gen_ai.usage.output_tokens": model_stats.get("completion_tokens", 0),
-                                "gen_ai.usage.thinking_tokens": thinking_tokens,
-                                "gen_ai.response.latency_ms": model_stats.get("elapsed_ms", 0),
-                                "gen_ai.output.messages": json.dumps(
-                                    [{"role": "assistant", "content": "".join(answer_parts)}],
-                                    ensure_ascii=False,
-                                ),
-                            },
-                        )
-                        yield _sse_json_event(
-                            "done",
+                                    round_tool_feedback.append(
+                                        {
+                                            "tool": tool_name,
+                                            "ok": not unsupported,
+                                            "action_id": action_id,
+                                            "summary": str(normalized_tool.get("summary") or ""),
+                                            "action": cast(dict[str, Any], normalized_tool.get("action") or {}),
+                                            "requires_confirmation": bool(
+                                                normalized_tool.get("requires_confirmation", True)
+                                            ),
+                                        }
+                                    )
+                                    yield _sse_json_event("tool", normalized_tool)
+                        elif event_type == "done":
+                            model_stats = cast(dict[str, Any], event.get("stats") or {})
+
+                    # Continue loop only if tool calls were made this round and rounds remain.
+                    if not round_tool_feedback or loop_round >= max_tool_rounds:
+                        break
+
+                    assistant_round_text = "".join(round_text_parts).strip()
+                    if assistant_round_text:
+                        loop_messages.append({"role": "assistant", "content": assistant_round_text})
+                    else:
+                        loop_messages.append(
                             {
-                                "ok": True,
-                                "answer": "".join(answer_parts),
-                                "model": model,
-                                "chat_id": chat_id,
-                                "turn_id": turn_id,
-                                "thinking_level": thinking_level,
-                                "turn_logs_url": turn_logs_url,
-                                "guard_stats": guard_stats,
-                                "model_stats": model_stats,
-                            },
+                                "role": "assistant",
+                                "content": "Requested tool calls for the current turn.",
+                            }
                         )
+
+                    tool_feedback_text = json.dumps(round_tool_feedback, ensure_ascii=False)
+                    loop_messages.append(
+                        {
+                            "role": "system",
+                            "content": (
+                                "Tool execution results for this turn (JSON). Use these results to continue reasoning "
+                                "and produce the final answer when ready: " + tool_feedback_text
+                            ),
+                        }
+                    )
+
+                thinking_tokens = int(model_stats.get("thinking_tokens") or 0)
+                final_answer, assistant_meta = _extract_assistant_meta("".join(answer_parts))
+                meta_summary = cast(dict[str, Any], assistant_meta.get("turn_summary") or {})
+                summary = _derive_turn_summary(
+                    question=question,
+                    answer=final_answer,
+                    tool_summary=last_tool_summary,
+                    meta_summary=meta_summary,
+                )
+
+                memory_candidates = _extract_memory_candidates(assistant_meta)
+                saved_memory_ids: list[str] = []
+                for candidate in memory_candidates:
+                    memories_now = _load_chat_memories(db, chat_id)
+                    related = _semantic_memory_matches(
+                        memories_now,
+                        candidate,
+                        max_results=4,
+                        min_score=_AI_MEMORY_CONSOLIDATION_SCORE,
+                    )
+                    consolidation = await _consolidate_memory_candidates(
+                        settings,
+                        new_memory=candidate,
+                        related=related,
+                    )
+                    action = str(consolidation.get("action") or "keep_new")
+                    if action == "ignore":
+                        continue
+                    merged_text = _coerce_summary_value(consolidation.get("memory") or candidate, 280)
+                    drop_ids = cast(list[str], consolidation.get("drop_ids") or [])
+                    for memory_id in drop_ids:
+                        _upsert_ai_memory(
+                            db,
+                            memory_id=memory_id,
+                            chat_id=chat_id,
+                            memory_text="",
+                            source_turn_id=turn_id,
+                            is_deleted=True,
+                        )
+                    new_id = str(uuid.uuid4())
+                    _upsert_ai_memory(
+                        db,
+                        memory_id=new_id,
+                        chat_id=chat_id,
+                        memory_text=merged_text,
+                        source_turn_id=turn_id,
+                        is_deleted=False,
+                    )
+                    saved_memory_ids.append(new_id)
+
+                _emit_ai_helper_log_event(
+                    event_name="turn.complete",
+                    chat_id=chat_id,
+                    turn_id=turn_id,
+                    page=page,
+                    model=model,
+                    guard_model=guard_model,
+                    thinking_level=thinking_level,
+                    body="AI helper turn completed",
+                    attrs={
+                        "gen_ai.response.id": turn_id,
+                        "gen_ai.input.question": question,
+                        "gen_ai.usage.input_tokens": model_stats.get("prompt_tokens", 0),
+                        "gen_ai.usage.output_tokens": model_stats.get("completion_tokens", 0),
+                        "gen_ai.usage.thinking_tokens": thinking_tokens,
+                        "gen_ai.response.latency_ms": model_stats.get("elapsed_ms", 0),
+                        "gen_ai.output.messages": json.dumps(
+                            [{"role": "assistant", "content": final_answer}],
+                            ensure_ascii=False,
+                        ),
+                        "gen_ai.turn.summary.request": summary.get("request", ""),
+                        "gen_ai.turn.summary.action": summary.get("action", ""),
+                        "gen_ai.turn.summary.result": summary.get("result", ""),
+                        "gen_ai.memory.saved_ids": json.dumps(saved_memory_ids, ensure_ascii=False),
+                    },
+                )
+                _emit_ai_helper_log_event(
+                    event_name="turn.summary",
+                    chat_id=chat_id,
+                    turn_id=turn_id,
+                    page=page,
+                    model=model,
+                    guard_model=guard_model,
+                    thinking_level=thinking_level,
+                    body="AI helper turn summary",
+                    attrs={
+                        "gen_ai.turn.summary.request": summary.get("request", ""),
+                        "gen_ai.turn.summary.action": summary.get("action", ""),
+                        "gen_ai.turn.summary.result": summary.get("result", ""),
+                    },
+                )
+                yield _sse_json_event(
+                    "done",
+                    {
+                        "ok": True,
+                        "answer": final_answer,
+                        "model": model,
+                        "chat_id": chat_id,
+                        "turn_id": turn_id,
+                        "thinking_level": thinking_level,
+                        "turn_logs_url": turn_logs_url,
+                        "guard_stats": guard_stats,
+                        "model_stats": model_stats,
+                        "turn_summary": summary,
+                        "saved_memory_ids": saved_memory_ids,
+                    },
+                )
             except asyncio.CancelledError:
                 _emit_ai_helper_log_event(
                     event_name="turn.cancelled",
@@ -12728,9 +13374,105 @@ async def ai_helper():
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    answer, model_stats = await _maybe_await(
-        _call_llm_endpoint(endpoint_url, model, api_key, messages, thinking_level=thinking_level, max_tokens=768)
-    )
+    loop_messages: list[dict[str, Any]] = list(messages)
+    answer_parts: list[str] = []
+    model_stats: dict[str, Any] = {}
+    proposed_tools: list[dict[str, Any]] = []
+    max_tool_rounds = 3
+
+    for loop_round in range(max_tool_rounds + 1):
+        round_text_parts: list[str] = []
+        round_tool_feedback: list[dict[str, Any]] = []
+        async for event in _stream_llm_endpoint(
+            endpoint_url,
+            model,
+            api_key,
+            loop_messages,
+            tools=tools,
+            thinking_level=thinking_level,
+            max_tokens=768,
+        ):
+            event_type = str(event.get("type") or "")
+            if event_type == "delta":
+                chunk = str(event.get("text") or "")
+                if chunk:
+                    round_text_parts.append(chunk)
+                    answer_parts.append(chunk)
+            elif event_type == "tool":
+                tool_call = event.get("tool_call") or {}
+                tool_name = str(tool_call.get("name") or "")
+                tool_args = tool_call.get("arguments") or {}
+                if isinstance(tool_args, dict):
+                    normalized_tool: dict[str, Any] | None = None
+                    if tool_name == "propose_ui_action":
+                        normalized_tool = _normalize_generic_ui_action_tool_call(tool_args, page)
+                    if normalized_tool:
+                        action_id = str(normalized_tool.get("action_id") or "")
+                        unsupported = bool(normalized_tool.get("unsupported"))
+                        action_payload = cast(dict[str, Any], normalized_tool.get("action") or {})
+                        if action_id and not unsupported and action_payload:
+                            normalized_tool["action_token"] = _issue_ai_action_token(
+                                action_id=action_id,
+                                target_page=str(action_payload.get("target_page") or page or "/logs"),
+                                action=action_payload,
+                                requires_confirmation=bool(normalized_tool.get("requires_confirmation", True)),
+                                chat_id=chat_id,
+                                turn_id=turn_id,
+                            )
+                        _emit_ai_helper_log_event(
+                            event_name="tool.proposed",
+                            chat_id=chat_id,
+                            turn_id=turn_id,
+                            page=page,
+                            model=model,
+                            guard_model=guard_model,
+                            thinking_level=thinking_level,
+                            body=f"Tool proposed: {tool_name}",
+                            attrs={
+                                "gen_ai.tool.name": tool_name,
+                                "sobs.ai.action_id": action_id,
+                                "sobs.ai.tool.summary": normalized_tool.get("summary", ""),
+                                "sobs.ai.tool.action": json.dumps(
+                                    normalized_tool.get("action") or {}, ensure_ascii=False
+                                ),
+                                "sobs.ai.action.status": ("unsupported" if unsupported else "proposed"),
+                            },
+                        )
+                        proposed_tools.append(normalized_tool)
+                        round_tool_feedback.append(
+                            {
+                                "tool": tool_name,
+                                "ok": not unsupported,
+                                "action_id": action_id,
+                                "summary": str(normalized_tool.get("summary") or ""),
+                                "action": cast(dict[str, Any], normalized_tool.get("action") or {}),
+                                "requires_confirmation": bool(normalized_tool.get("requires_confirmation", True)),
+                            }
+                        )
+            elif event_type == "done":
+                model_stats = cast(dict[str, Any], event.get("stats") or {})
+
+        if not round_tool_feedback or loop_round >= max_tool_rounds:
+            break
+
+        assistant_round_text = "".join(round_text_parts).strip()
+        if assistant_round_text:
+            loop_messages.append({"role": "assistant", "content": assistant_round_text})
+        else:
+            loop_messages.append({"role": "assistant", "content": "Requested tool calls for the current turn."})
+
+        tool_feedback_text = json.dumps(round_tool_feedback, ensure_ascii=False)
+        loop_messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Tool execution results for this turn (JSON). Use these results to continue reasoning "
+                    "and produce the final answer when ready: " + tool_feedback_text
+                ),
+            }
+        )
+
+    answer = "".join(answer_parts).strip()
     if not answer:
         _emit_ai_helper_log_event(
             event_name="turn.error",
@@ -12745,6 +13487,51 @@ async def ai_helper():
         )
         return jsonify({"ok": False, "error": "LLM endpoint returned no response"}), 502
 
+    final_answer, assistant_meta = _extract_assistant_meta(answer)
+    meta_summary = cast(dict[str, Any], assistant_meta.get("turn_summary") or {})
+    summary = _derive_turn_summary(
+        question=question,
+        answer=final_answer,
+        tool_summary="",
+        meta_summary=meta_summary,
+    )
+
+    saved_memory_ids: list[str] = []
+    memory_candidates = _extract_memory_candidates(assistant_meta)
+    for candidate in memory_candidates:
+        memories_now = _load_chat_memories(db, chat_id)
+        related = _semantic_memory_matches(
+            memories_now,
+            candidate,
+            max_results=4,
+            min_score=_AI_MEMORY_CONSOLIDATION_SCORE,
+        )
+        consolidation = await _consolidate_memory_candidates(settings, new_memory=candidate, related=related)
+        action = str(consolidation.get("action") or "keep_new")
+        if action == "ignore":
+            continue
+        merged_text = _coerce_summary_value(consolidation.get("memory") or candidate, 280)
+        drop_ids = cast(list[str], consolidation.get("drop_ids") or [])
+        for memory_id in drop_ids:
+            _upsert_ai_memory(
+                db,
+                memory_id=memory_id,
+                chat_id=chat_id,
+                memory_text="",
+                source_turn_id=turn_id,
+                is_deleted=True,
+            )
+        new_id = str(uuid.uuid4())
+        _upsert_ai_memory(
+            db,
+            memory_id=new_id,
+            chat_id=chat_id,
+            memory_text=merged_text,
+            source_turn_id=turn_id,
+            is_deleted=False,
+        )
+        saved_memory_ids.append(new_id)
+
     _emit_ai_helper_log_event(
         event_name="turn.complete",
         chat_id=chat_id,
@@ -12756,18 +13543,38 @@ async def ai_helper():
         body="AI helper turn completed",
         attrs={
             "gen_ai.response.id": turn_id,
+            "gen_ai.input.question": question,
             "gen_ai.usage.input_tokens": model_stats.get("prompt_tokens", 0),
             "gen_ai.usage.output_tokens": model_stats.get("completion_tokens", 0),
             "gen_ai.usage.thinking_tokens": model_stats.get("thinking_tokens", 0),
             "gen_ai.response.latency_ms": model_stats.get("elapsed_ms", 0),
-            "gen_ai.output.messages": json.dumps([{"role": "assistant", "content": answer}], ensure_ascii=False),
+            "gen_ai.output.messages": json.dumps([{"role": "assistant", "content": final_answer}], ensure_ascii=False),
+            "gen_ai.turn.summary.request": summary.get("request", ""),
+            "gen_ai.turn.summary.action": summary.get("action", ""),
+            "gen_ai.turn.summary.result": summary.get("result", ""),
+            "gen_ai.memory.saved_ids": json.dumps(saved_memory_ids, ensure_ascii=False),
+        },
+    )
+    _emit_ai_helper_log_event(
+        event_name="turn.summary",
+        chat_id=chat_id,
+        turn_id=turn_id,
+        page=page,
+        model=model,
+        guard_model=guard_model,
+        thinking_level=thinking_level,
+        body="AI helper turn summary",
+        attrs={
+            "gen_ai.turn.summary.request": summary.get("request", ""),
+            "gen_ai.turn.summary.action": summary.get("action", ""),
+            "gen_ai.turn.summary.result": summary.get("result", ""),
         },
     )
 
     return jsonify(
         {
             "ok": True,
-            "answer": answer,
+            "answer": final_answer,
             "model": model,
             "chat_id": chat_id,
             "turn_id": turn_id,
@@ -12775,6 +13582,9 @@ async def ai_helper():
             "turn_logs_url": turn_logs_url,
             "guard_stats": guard_stats,
             "model_stats": model_stats,
+            "turn_summary": summary,
+            "saved_memory_ids": saved_memory_ids,
+            "tool_proposals": proposed_tools,
         }
     )
 
