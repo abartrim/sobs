@@ -34,7 +34,17 @@
   <h4 class="fw-semibold mb-0"><i class="bi bi-journal-text me-2 text-info"></i>Logs</h4>
   <div class="d-flex align-items-center gap-2">
     <span id="liveModeStatus" class="badge text-bg-secondary">Live off</span>
-    <button id="liveModeToggle" type="button" class="btn btn-sm btn-outline-success">
+    <button
+      id="liveModeToggle"
+      type="button"
+      class="btn btn-sm btn-outline-success"
+      data-ai-action-id="logs.live_mode.start"
+      data-ai-action-type="start_live_mode"
+      data-ai-label="Start logs live mode"
+      data-ai-risk="low"
+      data-ai-confirm="false"
+      data-ai-action-role="toggle-live-mode"
+    >
       <i class="bi bi-broadcast-pin me-1"></i>Live mode
     </button>
     <button id="liveNewCountBtn" type="button" class="btn btn-sm btn-outline-info d-none">
@@ -76,7 +86,17 @@
       <div class="col-md-3">
         <label class="form-label small text-secondary">SQL WHERE <span class="text-muted">(overrides above)</span></label>
         <div class="position-relative">
-          <input type="text" name="sql" id="sql-filter-input" class="form-control form-control-sm font-monospace"
+             <input
+               type="text"
+               name="sql"
+               id="sql-filter-input"
+               class="form-control form-control-sm font-monospace"
+               data-ai-action-id="logs.filter.apply_sql"
+               data-ai-action-type="apply_sql_filter"
+               data-ai-label="Apply logs SQL filter"
+               data-ai-risk="low"
+               data-ai-confirm="false"
+               data-ai-action-role="sql-where-input"
                  placeholder="level='ERROR' AND service='api'" value="{{ sql_where }}"
                  autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox" aria-describedby="sql-filter-feedback">
           <ul id="sql-ac-dropdown" role="listbox"

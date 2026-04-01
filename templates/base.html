@@ -404,7 +404,7 @@
 }());
 </script>
 
-<!-- ===== AI Contextual Helper Widget ===== -->
+<!-- ===== AI Assistant Widget ===== -->
 <style>
   :root {
     --sobs-ai-btn-bg: rgba(13, 110, 253, 0.12);
@@ -476,6 +476,21 @@
     align-items: center;
     gap: .5rem;
     flex-shrink: 0;
+  }
+  #sobsAiThinkingWrap {
+    display: none;
+    align-items: center;
+    gap: .35rem;
+    font-size: .72rem;
+    color: var(--bs-secondary-color);
+  }
+  #sobsAiThinkingWrap.active {
+    display: inline-flex;
+  }
+  #sobsAiThinkingLevel {
+    width: 84px;
+    padding: .12rem .3rem;
+    font-size: .72rem;
   }
   #sobsAiMessages {
     flex: 1 1 auto;
@@ -573,6 +588,56 @@
   }
   .sobs-ai-msg.error-msg { background: #dc354522; color: #dc3545; }
   .sobs-ai-msg.info-msg { background: #0d6efd22; color: #0d6efd; }
+  .sobs-ai-tool-card {
+    align-self: flex-start;
+    max-width: 90%;
+    border: 1px solid var(--bs-border-color);
+    background: var(--bs-tertiary-bg);
+    border-radius: 10px;
+    padding: .5rem .6rem;
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+    font-size: .78rem;
+  }
+  .sobs-ai-tool-title {
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+  }
+  .sobs-ai-tool-code {
+    font-family: var(--bs-font-monospace);
+    font-size: .74rem;
+    background: color-mix(in srgb, var(--bs-body-color) 7%, transparent);
+    border-radius: 6px;
+    padding: .35rem .45rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .sobs-ai-tool-actions {
+    display: flex;
+    gap: .4rem;
+    align-items: center;
+  }
+  .sobs-ai-tool-status {
+    color: var(--bs-secondary-color);
+    font-size: .72rem;
+  }
+  .sobs-ai-thinking-trace {
+    margin-top: .35rem;
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    font-size: .72rem;
+    color: var(--bs-secondary-color);
+    text-decoration: none;
+    opacity: .9;
+  }
+  .sobs-ai-thinking-trace:hover {
+    color: var(--bs-info-text-emphasis, var(--bs-info));
+    opacity: 1;
+  }
   .sobs-ai-msg.thinking-msg {
     background: color-mix(in srgb, var(--bs-secondary-bg) 78%, transparent);
     color: var(--bs-secondary-color);
@@ -684,14 +749,23 @@
   }
 </style>
 
-<button id="sobsAiBtn" title="AI Contextual Helper" aria-label="Open AI helper">
+<button id="sobsAiBtn" title="AI Assistant" aria-label="Open AI assistant">
   <i class="bi bi-robot fs-5"></i>
 </button>
 
-<div id="sobsAiPanel" role="dialog" aria-label="AI Contextual Helper" aria-modal="false">
+<div id="sobsAiPanel" role="dialog" aria-label="AI Assistant" aria-modal="false">
   <div id="sobsAiPanelHeader">
     <i class="bi bi-robot text-primary"></i>
-    <span class="fw-semibold small flex-grow-1">AI Contextual Helper</span>
+    <span class="fw-semibold small flex-grow-1">AI Assistant</span>
+    <div id="sobsAiThinkingWrap" aria-label="Thinking level">
+      <span>Thinking</span>
+      <select id="sobsAiThinkingLevel" class="form-select form-select-sm" title="Model thinking level">
+        <option value="off">Off</option>
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+      </select>
+    </div>
     <button type="button" class="btn btn-sm btn-outline-secondary" id="sobsAiNewChat" aria-label="New chat" title="New chat">
       <i class="bi bi-plus-lg"></i>
     </button>
@@ -723,7 +797,12 @@
   var statusEl = document.getElementById('sobsAiStatus');
   var inputEl = document.getElementById('sobsAiInput');
   var sendBtn = document.getElementById('sobsAiSendBtn');
+  var thinkingWrapEl = document.getElementById('sobsAiThinkingWrap');
+  var thinkingLevelEl = document.getElementById('sobsAiThinkingLevel');
   var currentAbortController = null;
+  var currentChatId = '';
+  var supportsThinking = false;
+  var chatStateKey = 'sobs-ai-chat-state-v1';
   var mdRenderer = (window.markdownit && window.DOMPurify)
     ? window.markdownit({
       html: false,
@@ -770,6 +849,75 @@
     }
   }
 
+  async function loadCapabilities() {
+    try {
+      var capUrl = new URL('{{ url_for("ai_helper_capabilities") }}', window.location.origin);
+      capUrl.searchParams.set('page', window.location.pathname || '/logs');
+      var r = await fetch(capUrl.toString());
+      var data = await r.json();
+      if (!data || !data.ok) {
+        return;
+      }
+      supportsThinking = !!data.supports_thinking;
+      if (thinkingWrapEl) {
+        thinkingWrapEl.classList.toggle('active', supportsThinking);
+      }
+      if (supportsThinking && thinkingLevelEl) {
+        thinkingLevelEl.value = String(data.default_thinking_level || 'off');
+      }
+    } catch (_err) {
+      if (thinkingWrapEl) {
+        thinkingWrapEl.classList.remove('active');
+      }
+    }
+  }
+
+  function saveChatState() {
+    try {
+      var state = {
+        path: window.location.pathname,
+        query: window.location.search,
+        isOpen: panel.classList.contains('open'),
+        isExpanded: panel.classList.contains('expanded'),
+        messagesHtml: messagesEl.innerHTML,
+        statusHtml: statusEl ? statusEl.innerHTML : '',
+        statusVisible: statusEl ? statusEl.classList.contains('visible') : false,
+        chatId: currentChatId,
+        thinkingLevel: thinkingLevelEl ? thinkingLevelEl.value : 'off',
+        savedAt: Date.now()
+      };
+      window.sessionStorage.setItem(chatStateKey, JSON.stringify(state));
+    } catch (_err) {
+      // Ignore storage errors in constrained browser modes.
+    }
+  }
+
+  function restoreChatState() {
+    try {
+      var raw = window.sessionStorage.getItem(chatStateKey);
+      if (!raw) return;
+      var state = JSON.parse(raw);
+      window.sessionStorage.removeItem(chatStateKey);
+      if (!state || !state.messagesHtml) return;
+      if (Date.now() - Number(state.savedAt || 0) > 5 * 60 * 1000) return;
+
+      messagesEl.innerHTML = String(state.messagesHtml || '');
+      if (statusEl) {
+        statusEl.innerHTML = String(state.statusHtml || '');
+        statusEl.classList.toggle('visible', !!state.statusVisible && !!state.statusHtml);
+      }
+      panel.classList.toggle('open', !!state.isOpen);
+      setExpandedState(!!state.isExpanded);
+      currentChatId = String(state.chatId || '');
+      if (thinkingLevelEl && state.thinkingLevel) {
+        thinkingLevelEl.value = String(state.thinkingLevel);
+      }
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    } catch (_err) {
+      // Ignore malformed state.
+    }
+  }
+
   function clearChat() {
     if (currentAbortController) {
       currentAbortController.abort();
@@ -777,10 +925,192 @@
     }
     while (messagesEl.firstChild) { messagesEl.removeChild(messagesEl.firstChild); }
     if (statusEl) { statusEl.textContent = ''; statusEl.classList.remove('visible'); }
+    currentChatId = '';
     inputEl.value = '';
     inputEl.style.height = '';
     addMsg('assistant', 'Hi! I\'m your SOBS observability assistant. I can help you understand logs, traces, metrics, errors, and more on this page. What would you like to know?');
     inputEl.focus();
+  }
+
+  function applyClientAction(clientAction, statusElRef) {
+    if (!clientAction || !clientAction.type) {
+      if (statusElRef) {
+        statusElRef.textContent = 'No executable action returned';
+      }
+      return;
+    }
+
+    if (clientAction.type === 'apply_sql_filter') {
+      var sqlWhere = String(clientAction.sql_where || '').trim();
+      var targetPage = String(clientAction.target_page || window.location.pathname || '/logs');
+      if (!sqlWhere) {
+        if (statusElRef) {
+          statusElRef.textContent = 'Skipped: empty SQL filter';
+        }
+        return;
+      }
+
+      if (targetPage === window.location.pathname) {
+        var sqlInput = document.getElementById('sql-filter-input') || document.querySelector('input[name="sql"]');
+        if (!sqlInput) {
+          if (statusElRef) {
+            statusElRef.textContent = 'No SQL filter input found on this page';
+          }
+          return;
+        }
+        sqlInput.value = sqlWhere;
+        sqlInput.dispatchEvent(new Event('input', {bubbles: true}));
+        sqlInput.dispatchEvent(new Event('change', {bubbles: true}));
+        if (clientAction.submit) {
+          var filterForm = sqlInput.form || document.querySelector('form[method="get"]');
+          if (filterForm) {
+            if (statusElRef) {
+              statusElRef.textContent = 'Applying filter...';
+            }
+            saveChatState();
+            if (typeof filterForm.requestSubmit === 'function') {
+              filterForm.requestSubmit();
+            } else {
+              filterForm.submit();
+            }
+            return;
+          }
+        }
+        if (statusElRef) {
+          statusElRef.textContent = 'Filter updated in SQL input';
+        }
+        return;
+      }
+
+      var next = new URL(targetPage, window.location.origin);
+      next.searchParams.set('sql', sqlWhere);
+      if (statusElRef) {
+        statusElRef.textContent = 'Navigating to ' + targetPage + ' with filter...';
+      }
+      saveChatState();
+      window.location.href = next.toString();
+      return;
+    }
+
+    if (clientAction.type === 'start_live_mode') {
+      var liveTarget = String(clientAction.target_page || '/logs');
+      if (liveTarget === window.location.pathname) {
+        var liveBtn = document.querySelector('[data-ai-action-id="logs.live_mode.start"]');
+        if (liveBtn && typeof liveBtn.click === 'function') {
+          if (statusElRef) {
+            statusElRef.textContent = 'Starting live mode...';
+          }
+          liveBtn.click();
+          return;
+        }
+      }
+      var liveUrl = new URL(liveTarget, window.location.origin);
+      liveUrl.searchParams.set('live', '1');
+      if (statusElRef) {
+        statusElRef.textContent = 'Navigating to live mode...';
+      }
+      saveChatState();
+      window.location.href = liveUrl.toString();
+      return;
+    }
+
+    if (statusElRef) {
+      statusElRef.textContent = 'Unsupported action type: ' + String(clientAction.type);
+    }
+  }
+
+  async function executeToolAction(tool, statusElRef, confirmed) {
+    if (!tool || !tool.action_token) {
+      if (statusElRef) {
+        statusElRef.textContent = 'Action token unavailable';
+      }
+      return;
+    }
+    if (statusElRef) {
+      statusElRef.textContent = 'Authorizing action...';
+    }
+
+    try {
+      var execResp = await fetch('{{ url_for("ai_helper_execute_action") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          action_token: String(tool.action_token || ''),
+          confirm: !!confirmed
+        })
+      });
+      var execData = await execResp.json();
+      if (!execResp.ok || !execData.ok) {
+        if (statusElRef) {
+          statusElRef.textContent = String(execData.error || 'Action execution failed');
+        }
+        return;
+      }
+      applyClientAction(execData.client_action || null, statusElRef);
+    } catch (err) {
+      if (statusElRef) {
+        statusElRef.textContent = 'Action execution failed: ' + String(err);
+      }
+    }
+  }
+
+  function addToolCard(tool) {
+    var card = document.createElement('div');
+    card.className = 'sobs-ai-tool-card';
+
+    var title = document.createElement('div');
+    title.className = 'sobs-ai-tool-title';
+    title.innerHTML = '<i class="bi bi-sliders"></i><span>AI Action</span>';
+    card.appendChild(title);
+
+    var summary = document.createElement('div');
+    summary.textContent = String(tool.summary || 'Proposed action');
+    card.appendChild(summary);
+
+    if (tool.action && tool.action.type === 'apply_sql_filter') {
+      var code = document.createElement('div');
+      code.className = 'sobs-ai-tool-code';
+      code.textContent = String(tool.action.sql_where || '');
+      card.appendChild(code);
+    }
+
+    var status = document.createElement('div');
+    status.className = 'sobs-ai-tool-status';
+    if (tool.unsupported) {
+      status.textContent = 'Not available in this page action manifest';
+    } else {
+      status.textContent = tool.requires_confirmation ? 'Awaiting confirmation' : 'Queued';
+    }
+
+    var actions = document.createElement('div');
+    actions.className = 'sobs-ai-tool-actions';
+
+    if (!tool.unsupported && tool.requires_confirmation) {
+      var confirmBtn = document.createElement('button');
+      confirmBtn.className = 'btn btn-sm btn-primary';
+      confirmBtn.type = 'button';
+      confirmBtn.textContent = 'Confirm';
+      confirmBtn.addEventListener('click', function () {
+        executeToolAction(tool, status, true);
+      });
+
+      var cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn btn-sm btn-outline-secondary';
+      cancelBtn.type = 'button';
+      cancelBtn.textContent = 'Dismiss';
+      cancelBtn.addEventListener('click', function () {
+        status.textContent = 'Dismissed';
+      });
+
+      actions.appendChild(confirmBtn);
+      actions.appendChild(cancelBtn);
+    }
+
+    actions.appendChild(status);
+    card.appendChild(actions);
+    messagesEl.appendChild(card);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return {card: card, status: status};
   }
 
   btn.addEventListener('click', togglePanel);
@@ -791,6 +1121,8 @@
   if (expandBtn) {
     expandBtn.addEventListener('click', toggleExpanded);
   }
+  restoreChatState();
+  loadCapabilities();
 
   function addMsg(role, text) {
     var el = document.createElement('div');
@@ -831,7 +1163,19 @@
     }
     return window.DOMPurify.sanitize(html, {
       ALLOWED_URI_REGEXP: /^(?:(?:https?):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
-      FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed', 'form']
+      FORBID_TAGS: [
+        'style',
+        'script',
+        'iframe',
+        'object',
+        'embed',
+        'form',
+        'input',
+        'button',
+        'select',
+        'textarea',
+        'label'
+      ]
     });
   }
 
@@ -861,6 +1205,28 @@
     probe.innerHTML = sanitized;
     hardenRenderedLinks(probe);
     return probe.innerHTML;
+  }
+
+  function addThinkingTraceLink(msgEl, donePayload) {
+    if (!msgEl || !donePayload) return;
+    var modelStats = donePayload.model_stats || {};
+    var thinkingTokens = Number(modelStats.thinking_tokens || 0);
+    var logsUrl = String(donePayload.turn_logs_url || '');
+    if (!(thinkingTokens > 0) || !logsUrl) {
+      return;
+    }
+    var existing = msgEl.querySelector('.sobs-ai-thinking-trace');
+    if (existing) {
+      return;
+    }
+    var link = document.createElement('a');
+    link.className = 'sobs-ai-thinking-trace';
+    link.href = logsUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.title = 'View model thinking telemetry for this turn';
+    link.innerHTML = '<i class="bi bi-lightbulb"></i><span>Thinking trace</span>';
+    msgEl.appendChild(link);
   }
 
   function tps(stats) {
@@ -1057,6 +1423,8 @@
     var answerEl = null;
     var guardStats = null;
     var modelStats = null;
+    var queuedAutoTools = [];
+    var finalDonePayload = null;
 
     try {
       while (true) {
@@ -1069,7 +1437,20 @@
         buffer = parts.pop() || '';
         for (var i = 0; i < parts.length; i += 1) {
           var parsed = parseSseChunk(parts[i]);
-          if (parsed.event === 'guard') {
+          if (parsed.event === 'meta') {
+            if (parsed.payload.chat_id) {
+              currentChatId = String(parsed.payload.chat_id);
+            }
+            if (parsed.payload.supports_thinking !== undefined) {
+              supportsThinking = !!parsed.payload.supports_thinking;
+              if (thinkingWrapEl) {
+                thinkingWrapEl.classList.toggle('active', supportsThinking);
+              }
+            }
+            if (supportsThinking && thinkingLevelEl && parsed.payload.thinking_level) {
+              thinkingLevelEl.value = String(parsed.payload.thinking_level);
+            }
+          } else if (parsed.event === 'guard') {
             guardStats = parsed.payload.guard_stats || null;
             updateStatus(guardStats, modelStats);
           } else if (parsed.event === 'token') {
@@ -1086,15 +1467,31 @@
             });
             pendingAnswer = batches.tail;
             setTailText(answerEl, pendingAnswer);
+          } else if (parsed.event === 'tool') {
+            var toolPayload = parsed.payload || {};
+            var toolUi = addToolCard(toolPayload);
+            if (!toolPayload.requires_confirmation) {
+              queuedAutoTools.push({tool: toolPayload, ui: toolUi});
+              toolUi.status.textContent = 'Will apply after response';
+            }
           } else if (parsed.event === 'done') {
             removeNode(thinking);
             if (!answerEl) {
               answerEl = addStreamingAssistantMsg();
             }
+            finalDonePayload = parsed.payload || {};
             fullAnswer = String(parsed.payload.answer || fullAnswer);
             modelStats = parsed.payload.model_stats || null;
+            if (parsed.payload.chat_id) {
+              currentChatId = String(parsed.payload.chat_id);
+            }
             updateStatus(parsed.payload.guard_stats || guardStats, modelStats);
             setStreamingText(answerEl, fullAnswer, true);
+            addThinkingTraceLink(answerEl, parsed.payload);
+            queuedAutoTools.forEach(function (item) {
+              executeToolAction(item.tool, item.ui.status, false);
+            });
+            queuedAutoTools = [];
           } else if (parsed.event === 'error') {
             removeNode(thinking);
             addMsg('error-msg', 'Error: ' + (parsed.payload.error || 'unknown'));
@@ -1106,8 +1503,10 @@
       removeNode(thinking);
       if (answerEl && fullAnswer) {
         setStreamingText(answerEl, fullAnswer, true);
+        addThinkingTraceLink(answerEl, finalDonePayload);
       } else if (answerEl && pendingAnswer) {
         setStreamingText(answerEl, pendingAnswer, true);
+        addThinkingTraceLink(answerEl, finalDonePayload);
       }
     } catch (err) {
       if (err.name === 'AbortError') {
@@ -1150,6 +1549,8 @@
           question: q,
           page: window.location.pathname,
           context: gatherContext(),
+          chat_id: currentChatId,
+          thinking_level: (thinkingLevelEl && supportsThinking) ? thinkingLevelEl.value : 'off',
           stream: true
         })
       });
@@ -1163,7 +1564,11 @@
       var data = await response.json();
       removeNode(thinking);
       if (data.ok) {
-        addMsg('assistant', data.answer);
+        var msgEl = addMsg('assistant', data.answer);
+        if (data.chat_id) {
+          currentChatId = String(data.chat_id);
+        }
+        addThinkingTraceLink(msgEl, data);
         updateStatus(data.guard_stats || null, data.model_stats || null);
       } else {
         addMsg('error-msg', 'Error: ' + (data.error || 'unknown'));

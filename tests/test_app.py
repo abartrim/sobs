@@ -1289,7 +1289,57 @@ class TestUIPages:
         assert r.status_code == 200
         data = await r.get_data()
         assert b"firstRunTourModal" in data
-        assert b"Quick Tour" in data
+
+    async def test_ai_helper_execute_action_requires_valid_token(self, client):
+        r = await client.post("/api/ai/helper/actions/execute", json={"action_token": "invalid"})
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["ok"] is False
+
+    async def test_ai_helper_execute_action_sql_filter(self, client):
+        from app import _issue_ai_action_token
+
+        token = _issue_ai_action_token(
+            action_id="logs.filter.apply_sql",
+            target_page="/logs",
+            action={
+                "type": "apply_sql_filter",
+                "target_page": "/logs",
+                "sql_where": "ServiceName = 'api'",
+                "submit": True,
+            },
+            requires_confirmation=False,
+            chat_id="chat-1",
+            turn_id="turn-1",
+        )
+        r = await client.post("/api/ai/helper/actions/execute", json={"action_token": token})
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert data["action_id"] == "logs.filter.apply_sql"
+        assert data["client_action"]["type"] == "apply_sql_filter"
+
+    async def test_ai_helper_execute_action_live_mode(self, client):
+        from app import _issue_ai_action_token
+
+        token = _issue_ai_action_token(
+            action_id="logs.live_mode.start",
+            target_page="/logs",
+            action={
+                "type": "start_live_mode",
+                "target_page": "/logs",
+                "submit": True,
+            },
+            requires_confirmation=False,
+            chat_id="chat-2",
+            turn_id="turn-2",
+        )
+        r = await client.post("/api/ai/helper/actions/execute", json={"action_token": token})
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert data["action_id"] == "logs.live_mode.start"
+        assert data["client_action"]["type"] == "start_live_mode"
 
     async def test_chart_editor_help_page(self, client):
         r = await client.get("/dashboards/help/chart-editor")
@@ -5049,7 +5099,7 @@ class TestAISettingsAndAgentFlows:
         r = await client.get("/settings")
         assert r.status_code == 200
         text = (await r.get_data()).decode()
-        assert "AI Contextual Helper" in text
+        assert "AI Assistant" in text
         assert "Automated Agent Flows" in text
 
     async def test_settings_ai_page_loads(self, client):
@@ -5252,6 +5302,174 @@ class TestAISettingsAndAgentFlows:
         assert "event: token" in body
         assert "event: done" in body
         assert '"answer": "hello world"' in body
+
+    async def test_ai_helper_capabilities_exposes_thinking_support(self, client):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.model", "gpt-oss-120b")
+        _save_ai_setting(db, "ai.thinking_level", "medium")
+
+        r = await client.get("/api/ai/helper/capabilities?page=/logs")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert data["supports_thinking"] is True
+        assert data["default_thinking_level"] == "medium"
+        assert data["page"] == "/logs"
+        assert isinstance(data["action_manifest"], list)
+        assert any(a.get("action_id") == "logs.filter.apply_sql" for a in data["action_manifest"])
+
+    async def test_ai_helper_action_manifest_endpoint(self, client):
+        r = await client.get("/api/ai/helper/actions/manifest?page=/logs")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert data["page"] == "/logs"
+        assert any(a.get("action_id") == "logs.live_mode.start" for a in data["actions"])
+
+    async def test_ai_helper_action_manifest_endpoint_annotation_pages(self, client):
+        r_traces = await client.get("/api/ai/helper/actions/manifest?page=/traces")
+        assert r_traces.status_code == 200
+        traces_data = await r_traces.get_json()
+        assert traces_data["ok"] is True
+        assert any(a.get("action_id") == "traces.filter.apply" for a in traces_data["actions"])
+        traces_action = next(a for a in traces_data["actions"] if a.get("action_id") == "traces.filter.apply")
+        assert traces_action.get("implemented") is False
+
+        r_metrics = await client.get("/api/ai/helper/actions/manifest?page=/metrics")
+        assert r_metrics.status_code == 200
+        metrics_data = await r_metrics.get_json()
+        assert metrics_data["ok"] is True
+        assert any(a.get("action_id") == "metrics.filter.apply" for a in metrics_data["actions"])
+        metrics_action = next(a for a in metrics_data["actions"] if a.get("action_id") == "metrics.filter.apply")
+        assert metrics_action.get("implemented") is False
+
+    async def test_ai_helper_forwards_thinking_level_to_stream(self, client, monkeypatch):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://api.example.com/v1")
+        _save_ai_setting(db, "ai.model", "gpt-oss-120b")
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "guard-test")
+
+        captured: dict[str, str] = {}
+
+        async def _fake_guard(*_args, **_kwargs):
+            return True, "allowed", {"prompt_tokens": 1, "completion_tokens": 1, "elapsed_ms": 1}
+
+        async def _fake_stream(*_args, **kwargs):
+            captured["thinking_level"] = str(kwargs.get("thinking_level") or "")
+            yield {"type": "done", "stats": {"prompt_tokens": 1, "completion_tokens": 1, "elapsed_ms": 1}}
+
+        monkeypatch.setattr(sobs_app, "_check_guard_model", _fake_guard)
+        monkeypatch.setattr(sobs_app, "_stream_llm_endpoint", _fake_stream)
+
+        r = await client.post(
+            "/api/ai/helper",
+            headers={"Accept": "text/event-stream"},
+            json={
+                "question": "Summarize current error trends",
+                "page": "/logs",
+                "stream": True,
+                "thinking_level": "high",
+            },
+        )
+        assert r.status_code == 200
+        assert captured.get("thinking_level") == "high"
+
+    async def test_ai_helper_streams_sql_tool_event(self, client, monkeypatch):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://api.example.com/v1")
+        _save_ai_setting(db, "ai.model", "gpt-test")
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "guard-test")
+
+        async def _fake_guard(*_args, **_kwargs):
+            return True, "allowed", {"prompt_tokens": 4, "completion_tokens": 1, "elapsed_ms": 10}
+
+        async def _fake_stream(*_args, **_kwargs):
+            yield {
+                "type": "tool",
+                "tool_call": {
+                    "name": "apply_sql_filter",
+                    "arguments": {
+                        "sql_where": "SeverityText = 'ERROR'",
+                        "target_page": "/logs",
+                        "notes": "Limit logs to errors",
+                    },
+                },
+            }
+            yield {"type": "done", "stats": {"prompt_tokens": 8, "completion_tokens": 2, "elapsed_ms": 20}}
+
+        monkeypatch.setattr(sobs_app, "_check_guard_model", _fake_guard)
+        monkeypatch.setattr(sobs_app, "_stream_llm_endpoint", _fake_stream)
+
+        r = await client.post(
+            "/api/ai/helper",
+            headers={"Accept": "text/event-stream"},
+            json={
+                "question": "show only error logs",
+                "page": "/logs",
+                "stream": True,
+            },
+        )
+        assert r.status_code == 200
+        body = (await r.get_data()).decode("utf-8")
+        assert "event: tool" in body
+        assert '"tool": "apply_sql_filter"' in body
+        assert "SeverityText = 'ERROR'" in body
+
+    async def test_ai_helper_streams_generic_ui_action_tool_event(self, client, monkeypatch):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://api.example.com/v1")
+        _save_ai_setting(db, "ai.model", "gpt-test")
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "guard-test")
+
+        async def _fake_guard(*_args, **_kwargs):
+            return True, "allowed", {"prompt_tokens": 4, "completion_tokens": 1, "elapsed_ms": 10}
+
+        async def _fake_stream(*_args, **_kwargs):
+            yield {
+                "type": "tool",
+                "tool_call": {
+                    "name": "propose_ui_action",
+                    "arguments": {
+                        "action_id": "logs.filter.apply_sql",
+                        "arguments": {
+                            "sql_where": "ServiceName = 'api'",
+                        },
+                        "target_page": "/logs",
+                        "notes": "Only API service logs",
+                    },
+                },
+            }
+            yield {"type": "done", "stats": {"prompt_tokens": 8, "completion_tokens": 2, "elapsed_ms": 20}}
+
+        monkeypatch.setattr(sobs_app, "_check_guard_model", _fake_guard)
+        monkeypatch.setattr(sobs_app, "_stream_llm_endpoint", _fake_stream)
+
+        r = await client.post(
+            "/api/ai/helper",
+            headers={"Accept": "text/event-stream"},
+            json={
+                "question": "show only api logs",
+                "page": "/logs",
+                "stream": True,
+            },
+        )
+        assert r.status_code == 200
+        body = (await r.get_data()).decode("utf-8")
+        assert "event: tool" in body
+        assert '"tool": "propose_ui_action"' in body
+        assert '"action_id": "logs.filter.apply_sql"' in body
+        assert "ServiceName = 'api'" in body
 
     def test_secret_settings_roundtrip_with_optional_encryption(self, monkeypatch):
         from app import _load_ai_setting, _save_ai_setting, get_db

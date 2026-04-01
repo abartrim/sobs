@@ -21,7 +21,7 @@
         and agent flow analysis. Leave blank to disable AI features.
       </p>
       <div class="row g-3">
-        <div class="col-md-6">
+        <div class="col-md-4">
           <label class="form-label small fw-semibold">Endpoint URL</label>
           <input type="url" name="endpoint_url" class="form-control form-control-sm font-monospace"
                  placeholder="https://api.openai.com/v1"
@@ -29,11 +29,22 @@
           <div class="form-text">Base URL of your OpenAI-compatible API. The path
             <code>/chat/completions</code> will be appended automatically.</div>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-2">
           <label class="form-label small fw-semibold">Model</label>
           <input type="text" name="model" class="form-control form-control-sm font-monospace"
                  placeholder="gpt-4o-mini"
                  value="{{ settings.get('ai.model', '') }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold">Default Thinking Level</label>
+          <select name="thinking_level" class="form-select form-select-sm">
+            {% set thinking = settings.get('ai.thinking_level', 'off') %}
+            <option value="off" {% if thinking == 'off' %}selected{% endif %}>Off</option>
+            <option value="low" {% if thinking == 'low' %}selected{% endif %}>Low</option>
+            <option value="medium" {% if thinking == 'medium' %}selected{% endif %}>Medium</option>
+            <option value="high" {% if thinking == 'high' %}selected{% endif %}>High</option>
+          </select>
+          <div class="form-text">Applied only when the selected model supports thinking/reasoning controls.</div>
         </div>
         <div class="col-md-3">
           <label class="form-label small fw-semibold">API Key</label>
@@ -167,13 +178,15 @@
           <i class="bi bi-robot"></i> button in the navigation). It is aware of your current page and
           recent observability context, and calls the configured LLM endpoint.</li>
         <li><strong>Guard Model</strong> — Before any LLM call, the input is first sent to the guard
-          model and must return <code>ALLOWED</code>; otherwise the request is blocked.</li>
+          model and must return <code>safe</code> (or <code>ALLOWED</code>); otherwise the request is blocked.</li>
         <li><strong>Agent Flows</strong> — Configurable rules that automatically invoke the LLM when
           anomaly rules fire or tag rules match. Results appear in
           <a href="{{ url_for('view_agent_rules') }}">Agent Rules</a> and can optionally create
           GitHub issues.</li>
         <li><strong>DLP</strong> — When enabled, issue text is scanned for PII/secrets before
           being posted to GitHub.</li>
+        <li><strong>Tools/Thinking Models</strong> — AI helper tool actions and thinking controls are
+          intended for instruct/tools-capable models.</li>
       </ul>
     </div>
   </div>
