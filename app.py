@@ -1881,6 +1881,79 @@ def _load_recent_chat_turns(db: ChDbConnection, chat_id: str, limit: int = 8) ->
     return output
 
 
+def _tool_status_label(status: str, requires_confirmation: bool) -> str:
+    normalized = str(status or "").strip().lower()
+    if normalized == "executed":
+        return "Executed"
+    if normalized == "unsupported":
+        return "Not available in this page action manifest"
+    if requires_confirmation:
+        return "Awaiting confirmation"
+    return "Queued"
+
+
+def _load_chat_tool_history(db: ChDbConnection, chat_id: str) -> dict[str, list[dict[str, Any]]]:
+    rows = db.execute(
+        "SELECT Timestamp, EventName, LogAttributes['gen_ai.turn_id'] AS turn_id, "
+        "LogAttributes['sobs.ai.action_id'] AS action_id, "
+        "LogAttributes['sobs.ai.tool.summary'] AS summary, "
+        "LogAttributes['sobs.ai.tool.action'] AS action_json, "
+        "LogAttributes['sobs.ai.action.status'] AS action_status, "
+        "LogAttributes['sobs.ai.action.requires_confirmation'] AS requires_confirmation "
+        "FROM otel_logs "
+        "WHERE ServiceName=? AND EventName IN ('tool.proposed', 'tool.executed') "
+        "AND LogAttributes['gen_ai.chat_id']=? "
+        "ORDER BY Timestamp ASC LIMIT 500",
+        [_AI_HELPER_SERVICE_NAME, chat_id],
+    ).fetchall()
+
+    grouped: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in rows:
+        turn_id = str(row["turn_id"] or "").strip()
+        if not turn_id:
+            continue
+        action_id = str(row["action_id"] or "").strip() or f"anon-{row['Timestamp']}"
+        turn_actions = grouped.setdefault(turn_id, {})
+        action_entry = turn_actions.get(action_id)
+        if not action_entry:
+            action_payload: dict[str, Any] = {}
+            raw_action = str(row["action_json"] or "").strip()
+            if raw_action:
+                try:
+                    parsed_action = json.loads(raw_action)
+                    if isinstance(parsed_action, dict):
+                        action_payload = cast(dict[str, Any], parsed_action)
+                except (TypeError, json.JSONDecodeError):
+                    action_payload = {}
+            action_entry = {
+                "kind": "tool",
+                "turn_id": turn_id,
+                "action_id": action_id,
+                "summary": str(row["summary"] or "").strip(),
+                "action": action_payload,
+                "status": str(row["action_status"] or "proposed").strip().lower() or "proposed",
+                "requires_confirmation": str(row["requires_confirmation"] or "").strip().lower()
+                in {"1", "true", "yes", "on"},
+                "ts": str(row["Timestamp"] or ""),
+            }
+            turn_actions[action_id] = action_entry
+
+        if str(row["EventName"] or "") == "tool.executed":
+            action_entry["status"] = "executed"
+
+    output: dict[str, list[dict[str, Any]]] = {}
+    for turn_id, action_map in grouped.items():
+        turn_items = list(action_map.values())
+        turn_items.sort(key=lambda item: str(item.get("ts") or ""))
+        for item in turn_items:
+            item["status_label"] = _tool_status_label(
+                str(item.get("status") or ""),
+                bool(item.get("requires_confirmation")),
+            )
+        output[turn_id] = turn_items
+    return output
+
+
 _AI_HELPER_GENERIC_UI_ACTION_TOOL = {
     "type": "function",
     "function": {
@@ -4973,6 +5046,7 @@ async def view_logs():
     q = request.args.get("q", "").strip()
     level = request.args.get("level", "").strip().upper()
     service = request.args.get("service", "").strip()
+    event_name = request.args.get("event_name", "").strip()
     from_ts, to_ts, time_error = _parse_time_window_args()
     sql_where = request.args.get("sql", "").strip()
     run_advanced_analysis = request.args.get("analyze", "").strip() == "1"
@@ -5053,6 +5127,9 @@ async def view_logs():
         if service:
             conditions.append("ServiceName=?")
             params.append(service)
+        if event_name:
+            conditions.append("EventName=?")
+            params.append(event_name)
         time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
         conditions.extend(time_conditions)
         params.extend(time_params)
@@ -5170,6 +5247,12 @@ async def view_logs():
     levels = [
         row[0] for row in db.execute("SELECT DISTINCT SeverityText FROM otel_logs ORDER BY SeverityText").fetchall()
     ]
+    event_names = [
+        row[0]
+        for row in db.execute(
+            "SELECT DISTINCT EventName FROM otel_logs WHERE EventName!='' ORDER BY EventName"
+        ).fetchall()
+    ]
 
     return await render_template(
         "logs.html",
@@ -5185,6 +5268,8 @@ async def view_logs():
         to_ts=to_ts,
         services=services,
         levels=levels,
+        event_names=event_names,
+        event_name=event_name,
         error_msg=error_msg,
         sort_by=sort_by,
         sort_dir=sort_dir,
@@ -13094,6 +13179,7 @@ async def ai_helper_chat_detail(chat_id: str):
         [_AI_HELPER_SERVICE_NAME, safe_chat_id],
     ).fetchall()
 
+    tools_by_turn = _load_chat_tool_history(db, safe_chat_id)
     messages: list[dict[str, Any]] = []
     for row in rows:
         ts = str(row["Timestamp"] or "")
@@ -13102,6 +13188,7 @@ async def ai_helper_chat_detail(chat_id: str):
         if request_text:
             messages.append(
                 {
+                    "kind": "message",
                     "role": "user",
                     "text": request_text,
                     "ts": ts,
@@ -13129,14 +13216,46 @@ async def ai_helper_chat_detail(chat_id: str):
         if assistant_text:
             messages.append(
                 {
+                    "kind": "message",
                     "role": "assistant",
                     "text": assistant_text,
                     "ts": ts,
                     "turn_id": turn_id,
+                    "question": request_text,
                 }
             )
+        for tool_item in tools_by_turn.get(turn_id, []):
+            messages.append(dict(tool_item))
 
     return jsonify({"ok": True, "chat_id": safe_chat_id, "messages": messages})
+
+
+@app.route("/api/ai/helper/feedback", methods=["POST"])
+@require_basic_auth
+async def ai_helper_feedback():
+    payload = await request.get_json(force=True, silent=True) or {}
+    chat_id = str(payload.get("chat_id") or "").strip()
+    turn_id = str(payload.get("turn_id") or "").strip()
+    note = str(payload.get("note") or "").strip()
+    page = str(payload.get("page") or "").strip() or "/logs"
+    if not chat_id or not turn_id or not note:
+        return jsonify({"ok": False, "error": "chat_id, turn_id, and note are required"}), 400
+
+    _emit_ai_helper_log_event(
+        event_name="turn.feedback",
+        chat_id=chat_id,
+        turn_id=turn_id,
+        page=page,
+        model="",
+        guard_model="",
+        thinking_level="off",
+        body=note,
+        attrs={
+            "gen_ai.feedback.note": note,
+            "gen_ai.feedback.kind": "user_note",
+        },
+    )
+    return jsonify({"ok": True})
 
 
 @app.route("/api/ai/helper", methods=["POST"])
@@ -13290,6 +13409,13 @@ async def ai_helper():
         "available dashboard actions. "
         "If tools are available and the user asks to apply a logs SQL filter, call "
         "propose_ui_action with action_id logs.filter.apply_sql. "
+        "The otel_logs table has an EventName column for structured event types. "
+        "To filter by event name use: EventName = 'turn.feedback' "
+        "To access log attributes use: LogAttributes['gen_ai.feedback.note'] "
+        "Examples: EventName = 'turn.feedback' finds AI assistant feedback records; "
+        "EventName = 'turn.complete' finds completed AI turns; "
+        "EventName = 'turn.feedback' AND TraceId = '<chat_id>' scopes to one conversation. "
+        "All AI assistant telemetry lives in otel_logs under ServiceName = 'sobs-ai-helper'. "
         "For requests like 'longest traces' or 'highest total duration by trace', generate a "
         "richer WHERE clause using an IN subquery with GROUP BY trace id and ORDER BY sum(Duration) DESC. "
         "At the very end of every response, append a single compact metadata block in this exact format: "
@@ -13406,6 +13532,9 @@ async def ai_helper():
                                             "sobs.ai.tool.action": json.dumps(
                                                 normalized_tool.get("action") or {}, ensure_ascii=False
                                             ),
+                                            "sobs.ai.action.requires_confirmation": bool(
+                                                normalized_tool.get("requires_confirmation", True)
+                                            ),
                                             "sobs.ai.action.status": ("unsupported" if unsupported else "proposed"),
                                         },
                                     )
@@ -13456,6 +13585,9 @@ async def ai_helper():
                                     "sobs.ai.tool.summary": fallback_tool.get("summary", ""),
                                     "sobs.ai.tool.action": json.dumps(
                                         fallback_tool.get("action") or {}, ensure_ascii=False
+                                    ),
+                                    "sobs.ai.action.requires_confirmation": bool(
+                                        fallback_tool.get("requires_confirmation", True)
                                     ),
                                     "sobs.ai.action.status": ("unsupported" if unsupported else "proposed"),
                                 },
@@ -13707,6 +13839,9 @@ async def ai_helper():
                                 "sobs.ai.tool.action": json.dumps(
                                     normalized_tool.get("action") or {}, ensure_ascii=False
                                 ),
+                                "sobs.ai.action.requires_confirmation": bool(
+                                    normalized_tool.get("requires_confirmation", True)
+                                ),
                                 "sobs.ai.action.status": ("unsupported" if unsupported else "proposed"),
                             },
                         )
@@ -13753,6 +13888,7 @@ async def ai_helper():
                         "sobs.ai.action_id": action_id,
                         "sobs.ai.tool.summary": fallback_tool.get("summary", ""),
                         "sobs.ai.tool.action": json.dumps(fallback_tool.get("action") or {}, ensure_ascii=False),
+                        "sobs.ai.action.requires_confirmation": bool(fallback_tool.get("requires_confirmation", True)),
                         "sobs.ai.action.status": ("unsupported" if unsupported else "proposed"),
                     },
                 )

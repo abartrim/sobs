@@ -474,9 +474,7 @@
   }
   #sobsAiPanel.open { display: flex; }
   #sobsAiPanel.expanded {
-    width: min(920px, calc(100vw - 2rem));
-    height: min(82vh, 860px);
-    max-height: min(82vh, 860px);
+    max-height: none;
   }
   #sobsAiPanelHeader {
     padding: .6rem 1rem;
@@ -488,6 +486,10 @@
     flex-shrink: 0;
     cursor: move;
     user-select: none;
+    overflow: hidden;
+  }
+  #sobsAiPanelHeader > .fw-semibold {
+    min-width: 0;
   }
   #sobsAiPanel.dragging {
     transition: none;
@@ -513,6 +515,8 @@
     align-items: center;
     gap: .25rem;
     max-width: 180px;
+    min-width: 0;
+    flex-shrink: 1;
     font-size: .64rem;
     color: var(--bs-secondary-color);
     border: 1px solid var(--bs-border-color);
@@ -535,9 +539,19 @@
     gap: .35rem;
     font-size: .72rem;
     color: var(--bs-secondary-color);
+    flex-shrink: 0;
   }
   #sobsAiThinkingWrap.active {
     display: inline-flex;
+  }
+  #sobsAiPanel.header-tight .sobs-ai-thinking-text {
+    display: none;
+  }
+  #sobsAiPanel.header-tight #sobsAiActiveChat {
+    max-width: 120px;
+  }
+  #sobsAiPanel.header-very-tight #sobsAiActiveChat {
+    display: none;
   }
   #sobsAiThinkingLevel {
     width: 84px;
@@ -640,11 +654,42 @@
     white-space: normal;
   }
   .sobs-ai-msg-time {
-    display: block;
-    margin-top: .18rem;
     font-size: .6rem;
     line-height: 1;
     opacity: .7;
+    white-space: nowrap;
+  }
+  .sobs-ai-msg-meta {
+    margin-top: .28rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .45rem;
+    flex-wrap: wrap;
+  }
+  .sobs-ai-msg-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: .15rem;
+    flex-wrap: wrap;
+  }
+  .sobs-ai-msg-action {
+    --bs-btn-padding-y: .08rem;
+    --bs-btn-padding-x: .28rem;
+    --bs-btn-font-size: .68rem;
+    display: inline-flex;
+    align-items: center;
+    gap: .2rem;
+    color: var(--bs-secondary-color);
+    text-decoration: none;
+  }
+  .sobs-ai-msg-action:hover,
+  .sobs-ai-msg-action:focus {
+    color: var(--bs-body-color);
+  }
+  .sobs-ai-msg-action[disabled] {
+    opacity: .72;
+    pointer-events: none;
   }
   .sobs-ai-msg.assistant p { margin: 0 0 .45rem 0; }
   .sobs-ai-msg.assistant p:last-child { margin-bottom: 0; }
@@ -743,10 +788,14 @@
     display: flex;
     gap: .4rem;
     align-items: center;
+    flex-wrap: wrap;
   }
   .sobs-ai-tool-status {
     color: var(--bs-secondary-color);
     font-size: .72rem;
+  }
+  .sobs-ai-tool-card.historical {
+    background: color-mix(in srgb, var(--bs-tertiary-bg) 78%, transparent);
   }
   .sobs-ai-thinking-trace {
     margin-top: .35rem;
@@ -877,14 +926,14 @@
   }
 </style>
 
-<button id="sobsAiBtn" title="AI Assistant" aria-label="Open AI assistant">
+<button id="sobsAiBtn" title="AI Assistant (beta)" aria-label="Open AI assistant (beta)">
   <i class="bi bi-robot fs-5"></i>
 </button>
 
-<div id="sobsAiPanel" class="history-collapsed" role="dialog" aria-label="AI Assistant" aria-modal="false">
+<div id="sobsAiPanel" class="history-collapsed" role="dialog" aria-label="AI Assistant (beta)" aria-modal="false">
   <div id="sobsAiPanelHeader">
     <i class="bi bi-robot text-primary"></i>
-    <span class="fw-semibold small flex-grow-1">AI Assistant</span>
+    <span class="fw-semibold small flex-grow-1">AI Assistant (beta)</span>
     <span id="sobsAiActiveChat" aria-label="Active chat">
       <i class="bi bi-pin-angle"></i>
       <span id="sobsAiActiveChatLabel"></span>
@@ -893,7 +942,7 @@
       <i class="bi bi-layout-sidebar"></i>
     </button>
     <div id="sobsAiThinkingWrap" aria-label="Thinking level">
-      <span>Thinking</span>
+      <span class="sobs-ai-thinking-text">Thinking</span>
       <select id="sobsAiThinkingLevel" class="form-select form-select-sm" title="Model thinking level">
         <option value="off">Off</option>
         <option value="low">Low</option>
@@ -951,6 +1000,7 @@
   var supportsThinking = false;
   var historyLoaded = false;
   var chatStateKey = 'sobs-ai-chat-state-v1';
+  var headerResizeObserver = null;
   var mdRenderer = (window.markdownit && window.DOMPurify)
     ? window.markdownit({
       html: false,
@@ -1017,25 +1067,72 @@
     }
   }
 
-  function setExpandedState(expanded) {
-    if (expanded) {
-      if (panel.style.width) {
-        panel.dataset.sobsPrevWidth = panel.style.width;
-      }
-      if (panel.style.height) {
-        panel.dataset.sobsPrevHeight = panel.style.height;
-      }
-      panel.style.width = '';
-      panel.style.height = '';
+  function syncPanelHeaderDensity() {
+    if (!panel) return;
+    var width = panel.offsetWidth || panel.getBoundingClientRect().width || 0;
+    panel.classList.toggle('header-tight', width > 0 && width < 560);
+    panel.classList.toggle('header-very-tight', width > 0 && width < 470);
+  }
+
+  if (window.ResizeObserver && panel) {
+    headerResizeObserver = new window.ResizeObserver(function () {
+      syncPanelHeaderDensity();
+    });
+    headerResizeObserver.observe(panel);
+  }
+
+  function snapshotPanelGeometryForRestore() {
+    var rect = panel.getBoundingClientRect();
+    var computed = window.getComputedStyle(panel);
+    panel.dataset.sobsPrevWidth = Math.max(320, Math.round(rect.width)) + 'px';
+    panel.dataset.sobsPrevHeight = Math.max(280, Math.round(rect.height)) + 'px';
+
+    if (panel.style.left && panel.style.top) {
+      panel.dataset.sobsPrevMode = 'floating';
+      panel.dataset.sobsPrevLeft = Math.round(rect.left) + 'px';
+      panel.dataset.sobsPrevTop = Math.round(rect.top) + 'px';
+      panel.dataset.sobsPrevRight = 'auto';
+      panel.dataset.sobsPrevBottom = 'auto';
     } else {
-      if (panel.dataset.sobsPrevWidth) {
-        panel.style.width = panel.dataset.sobsPrevWidth;
+      panel.dataset.sobsPrevMode = 'anchored';
+      panel.dataset.sobsPrevLeft = '';
+      panel.dataset.sobsPrevTop = '';
+      panel.dataset.sobsPrevRight = panel.style.right || computed.right || '';
+      panel.dataset.sobsPrevBottom = panel.style.bottom || computed.bottom || '';
+    }
+  }
+
+  function setExpandedState(expanded) {
+    var wasExpanded = panel.classList.contains('expanded');
+    if (expanded === wasExpanded) {
+      return;
+    }
+
+    panel.classList.toggle('expanded', expanded);
+
+    if (expanded) {
+      snapshotPanelGeometryForRestore();
+      applyExpandedBounds();
+    } else {
+      panel.style.width = panel.dataset.sobsPrevWidth || '';
+      panel.style.height = panel.dataset.sobsPrevHeight || '';
+      var mode = String(panel.dataset.sobsPrevMode || 'anchored');
+      if (mode === 'floating') {
+        panel.style.left = panel.dataset.sobsPrevLeft || '';
+        panel.style.top = panel.dataset.sobsPrevTop || '';
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+      } else {
+        panel.style.left = '';
+        panel.style.top = '';
+        panel.style.right = panel.dataset.sobsPrevRight || '';
+        panel.style.bottom = panel.dataset.sobsPrevBottom || '';
       }
-      if (panel.dataset.sobsPrevHeight) {
-        panel.style.height = panel.dataset.sobsPrevHeight;
+      clampPanelSize(true);
+      if (mode === 'floating' && panel.style.left && panel.style.top) {
+        clampPanelPosition(true);
       }
     }
-    panel.classList.toggle('expanded', expanded);
     if (!expandBtn) {
       return;
     }
@@ -1046,9 +1143,8 @@
     if (icon) {
       icon.className = expanded ? 'bi bi-arrows-angle-contract' : 'bi bi-arrows-angle-expand';
     }
-    clampPanelSize();
-    if (panel.style.left && panel.style.top) {
-      clampPanelPosition();
+    if (expanded) {
+      applyExpandedBounds();
     }
   }
 
@@ -1058,6 +1154,7 @@
 
   function toggleHistory() {
     panel.classList.toggle('history-collapsed');
+    syncPanelHeaderDensity();
   }
 
   function togglePanel() {
@@ -1066,6 +1163,7 @@
       if (panel.style.left && panel.style.top) {
         clampPanelPosition();
       }
+      syncPanelHeaderDensity();
       inputEl.focus();
       if (!messagesEl.hasChildNodes()) {
         addMsg('assistant', 'Hi! I\'m your SOBS observability assistant. I can help you understand logs, traces, metrics, errors, and more on this page. What would you like to know?', null);
@@ -1124,12 +1222,22 @@
       if (!resp.ok || !data.ok) return;
       while (messagesEl.firstChild) { messagesEl.removeChild(messagesEl.firstChild); }
       (data.messages || []).forEach(function (msg) {
-        addMsg(String(msg.role || 'assistant'), String(msg.text || ''), String(msg.ts || ''));
+        if (String(msg.kind || 'message') === 'tool') {
+          addToolCard(msg, {historical: true});
+          return;
+        }
+        addMsg(String(msg.role || 'assistant'), String(msg.text || ''), String(msg.ts || ''), {
+          turnId: String(msg.turn_id || ''),
+          chatId: String(data.chat_id || chatId),
+          retryQuestion: String(msg.question || ''),
+          copyText: String(msg.role || '') === 'assistant' ? String(msg.text || '') : ''
+        });
       });
       currentChatId = String(data.chat_id || chatId);
       renderHistoryItems((historyListEl && historyListEl._cachedChats) || []);
       syncActiveChatLabelFromHistory();
       messagesEl.scrollTop = messagesEl.scrollHeight;
+      syncPanelHeaderDensity();
       inputEl.focus();
     } catch (_err) {
       // ignore load failures
@@ -1197,6 +1305,17 @@
     setAiLayerBehindModal(!!document.querySelector('.modal.show'));
   }
 
+  function shouldPersistAiState() {
+    return panel.classList.contains('open');
+  }
+
+  function saveAiStateForNavigation() {
+    if (!shouldPersistAiState()) {
+      return;
+    }
+    saveChatState();
+  }
+
   function restoreChatState() {
     try {
       var raw = window.sessionStorage.getItem(chatStateKey);
@@ -1236,6 +1355,7 @@
         thinkingLevelEl.value = String(state.thinkingLevel);
       }
       messagesEl.scrollTop = messagesEl.scrollHeight;
+      syncPanelHeaderDensity();
     } catch (_err) {
       // Ignore malformed state.
     }
@@ -1261,7 +1381,11 @@
     return Math.min(Math.max(value, min), max);
   }
 
-  function clampPanelSize() {
+  function clampPanelSize(preferInlineSize) {
+    if (panel.classList.contains('expanded')) {
+      applyExpandedBounds();
+      return;
+    }
     var minW = 320;
     var minH = 280;
     var maxW = Math.max(minW, window.innerWidth - 8);
@@ -1269,27 +1393,79 @@
 
     var width = panel.offsetWidth;
     var height = panel.offsetHeight;
+    if (preferInlineSize) {
+      var inlineW = Number.parseFloat(panel.style.width || '');
+      var inlineH = Number.parseFloat(panel.style.height || '');
+      if (!Number.isNaN(inlineW) && inlineW > 0) {
+        width = inlineW;
+      }
+      if (!Number.isNaN(inlineH) && inlineH > 0) {
+        height = inlineH;
+      }
+    }
 
     var nextW = clamp(width, minW, maxW);
     var nextH = clamp(height, minH, maxH);
     panel.style.width = nextW + 'px';
     panel.style.height = nextH + 'px';
+    syncPanelHeaderDensity();
   }
 
-  function clampPanelPosition() {
+  function applyExpandedBounds() {
+    var margin = 10;
+    var left = margin;
+    var top = margin;
+    var rightEdge = window.innerWidth - margin;
+    var bottomEdge = window.innerHeight - margin;
+    var sidebar = document.getElementById('sbSidebar');
+
+    if (sidebar) {
+      var sbRect = sidebar.getBoundingClientRect();
+      var sidebarVisible = sbRect.width > 1 && sbRect.right > 0 && sbRect.left < window.innerWidth;
+      if (sidebarVisible) {
+        left = Math.max(left, Math.floor(sbRect.right + margin));
+      }
+    }
+
+    var width = Math.max(320, rightEdge - left);
+    var height = Math.max(280, bottomEdge - top);
+
+    panel.style.left = left + 'px';
+    panel.style.top = top + 'px';
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    panel.style.width = width + 'px';
+    panel.style.height = height + 'px';
+    syncPanelHeaderDensity();
+  }
+
+  function clampPanelPosition(preferInlineSize) {
     if (!(panel.style.left && panel.style.top)) {
       return;
     }
     var rect = panel.getBoundingClientRect();
+    var width = rect.width;
+    var height = rect.height;
+    if (preferInlineSize) {
+      var inlineW = Number.parseFloat(panel.style.width || '');
+      var inlineH = Number.parseFloat(panel.style.height || '');
+      if (!Number.isNaN(inlineW) && inlineW > 0) {
+        width = inlineW;
+      }
+      if (!Number.isNaN(inlineH) && inlineH > 0) {
+        height = inlineH;
+      }
+    }
     var margin = 8;
-    var maxLeft = Math.max(margin, window.innerWidth - rect.width - margin);
-    var maxTop = Math.max(margin, window.innerHeight - rect.height - margin);
+    var maxLeft = Math.max(margin, window.innerWidth - width - margin);
+    var maxTop = Math.max(margin, window.innerHeight - height - margin);
     var currentLeft = Number.parseFloat(panel.style.left) || margin;
     var currentTop = Number.parseFloat(panel.style.top) || margin;
     panel.style.left = clamp(currentLeft, margin, maxLeft) + 'px';
     panel.style.top = clamp(currentTop, margin, maxTop) + 'px';
     panel.style.right = 'auto';
     panel.style.bottom = 'auto';
+    syncPanelHeaderDensity();
   }
 
   function initPanelDrag() {
@@ -1699,9 +1875,11 @@
     }
   }
 
-  function addToolCard(tool) {
+  function addToolCard(tool, options) {
+    var opts = options || {};
     var card = document.createElement('div');
-    card.className = 'sobs-ai-tool-card';
+    card.className = 'sobs-ai-tool-card' + (opts.historical ? ' historical' : '');
+    card.dataset.toolPayload = encodeDatasetJson(tool);
 
     var title = document.createElement('div');
     title.className = 'sobs-ai-tool-title';
@@ -1721,31 +1899,25 @@
 
     var status = document.createElement('div');
     status.className = 'sobs-ai-tool-status';
-    if (tool.unsupported) {
-      status.textContent = 'Not available in this page action manifest';
-    } else {
-      status.textContent = tool.requires_confirmation ? 'Awaiting confirmation' : 'Queued';
-    }
+    status.textContent = String(tool.status_label || (tool.unsupported
+      ? 'Not available in this page action manifest'
+      : (tool.requires_confirmation ? 'Awaiting confirmation' : 'Queued')));
 
     var actions = document.createElement('div');
     actions.className = 'sobs-ai-tool-actions';
 
-    if (!tool.unsupported && tool.requires_confirmation) {
+    if (!opts.historical && !tool.unsupported && tool.requires_confirmation) {
       var confirmBtn = document.createElement('button');
       confirmBtn.className = 'btn btn-sm btn-primary';
       confirmBtn.type = 'button';
       confirmBtn.textContent = 'Confirm';
-      confirmBtn.addEventListener('click', function () {
-        executeToolAction(tool, status, true);
-      });
+      confirmBtn.setAttribute('data-sobs-ai-tool-action', 'confirm');
 
       var cancelBtn = document.createElement('button');
       cancelBtn.className = 'btn btn-sm btn-outline-secondary';
       cancelBtn.type = 'button';
       cancelBtn.textContent = 'Dismiss';
-      cancelBtn.addEventListener('click', function () {
-        status.textContent = 'Dismissed';
-      });
+      cancelBtn.setAttribute('data-sobs-ai-tool-action', 'dismiss');
 
       actions.appendChild(confirmBtn);
       actions.appendChild(cancelBtn);
@@ -1769,22 +1941,116 @@
   if (expandBtn) {
     expandBtn.addEventListener('click', toggleExpanded);
   }
+  document.addEventListener('click', function (event) {
+    var target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    var link = target.closest('a[href]');
+    if (!link) {
+      return;
+    }
+    if (link.hasAttribute('download')) {
+      return;
+    }
+    var rel = String(link.getAttribute('rel') || '').toLowerCase();
+    if (rel.indexOf('external') !== -1) {
+      return;
+    }
+    var href = String(link.getAttribute('href') || '').trim();
+    if (!href || href.charAt(0) === '#') {
+      return;
+    }
+    if (href.toLowerCase().indexOf('javascript:') === 0) {
+      return;
+    }
+    var targetAttr = String(link.getAttribute('target') || '').trim().toLowerCase();
+    if (targetAttr && targetAttr !== '_self') {
+      return;
+    }
+    saveAiStateForNavigation();
+  }, true);
+  document.addEventListener('submit', function (_event) {
+    saveAiStateForNavigation();
+  }, true);
+  window.addEventListener('pagehide', function () {
+    saveAiStateForNavigation();
+  });
   document.addEventListener('show.bs.modal', function (_evt) {
     setAiLayerBehindModal(true);
   });
   document.addEventListener('hidden.bs.modal', function (_evt) {
     syncAiLayerWithModals();
   });
+  messagesEl.addEventListener('click', async function (event) {
+    var target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    var msgButton = target.closest('[data-sobs-ai-msg-action]');
+    if (msgButton) {
+      var msgEl = msgButton.closest('.sobs-ai-msg');
+      if (!msgEl) {
+        return;
+      }
+      var msgAction = String(msgButton.getAttribute('data-sobs-ai-msg-action') || '');
+      if (msgAction === 'retry') {
+        await sendQuestionText(String(msgEl.dataset.retryQuestion || ''));
+      } else if (msgAction === 'copy') {
+        var copyText = String(msgEl.dataset.copyText || '').trim();
+        if (!copyText) {
+          return;
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(copyText);
+          flashMessageActionButton(msgButton, 'Copied');
+        } else {
+          window.prompt('Copy response:', copyText);
+        }
+      } else if (msgAction === 'feedback') {
+        await submitAssistantFeedback(msgEl, msgButton);
+      }
+      return;
+    }
+
+    var toolButton = target.closest('[data-sobs-ai-tool-action]');
+    if (!toolButton) {
+      return;
+    }
+    var card = toolButton.closest('.sobs-ai-tool-card');
+    if (!card) {
+      return;
+    }
+    var toolPayload = decodeDatasetJson(card.dataset.toolPayload || '');
+    var statusNode = card.querySelector('.sobs-ai-tool-status');
+    if (!toolPayload) {
+      if (statusNode) {
+        statusNode.textContent = 'Action details unavailable';
+      }
+      return;
+    }
+    var toolAction = String(toolButton.getAttribute('data-sobs-ai-tool-action') || '');
+    if (toolAction === 'dismiss') {
+      removeNode(card);
+      return;
+    }
+    if (toolAction === 'confirm') {
+      executeToolAction(toolPayload, statusNode, true);
+    }
+  });
   initPanelDrag();
   window.addEventListener('resize', function () {
     clampPanelSize();
     clampPanelPosition();
+    syncPanelHeaderDensity();
   });
   restoreChatState();
   loadCapabilities();
   loadChatHistory();
+  syncPanelHeaderDensity();
 
-  function addMsg(role, text, ts) {
+  function addMsg(role, text, ts, options) {
     var el = document.createElement('div');
     el.className = 'sobs-ai-msg ' + role;
     if (role === 'assistant') {
@@ -1792,13 +2058,10 @@
     } else {
       el.textContent = text;
     }
-    var rel = formatRelativeTime(ts);
-    if (rel) {
-      var timeEl = document.createElement('span');
-      timeEl.className = 'sobs-ai-msg-time';
-      timeEl.textContent = rel;
-      el.appendChild(timeEl);
-    }
+    syncMessageMeta(el, ts, Object.assign({
+      role: role,
+      copyText: role === 'assistant' ? stripAssistantMeta(text) : ''
+    }, options || {}));
     messagesEl.appendChild(el);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     return el;
@@ -1898,13 +2161,14 @@
 
   function appendMsgTimestamp(msgEl, ts) {
     if (!msgEl || !ts) return;
-    if (msgEl.querySelector('.sobs-ai-msg-time')) return;
-    var rel = formatRelativeTime(ts);
-    if (!rel) return;
-    var timeEl = document.createElement('span');
-    timeEl.className = 'sobs-ai-msg-time';
-    timeEl.textContent = rel;
-    msgEl.appendChild(timeEl);
+    syncMessageMeta(msgEl, ts, {
+      role: getMessageRole(msgEl),
+      turnId: msgEl.dataset.turnId,
+      chatId: msgEl.dataset.chatId,
+      retryQuestion: msgEl.dataset.retryQuestion,
+      copyText: msgEl.dataset.copyText,
+      feedbackSaved: msgEl.dataset.feedbackSaved === '1'
+    });
   }
 
   function tps(stats) {
@@ -1953,6 +2217,165 @@
   function removeNode(node) {
     if (node && node.parentNode) {
       node.parentNode.removeChild(node);
+    }
+  }
+
+  function getMessageRole(msgEl) {
+    if (!msgEl || !msgEl.classList) {
+      return 'assistant';
+    }
+    if (msgEl.classList.contains('user')) {
+      return 'user';
+    }
+    if (msgEl.classList.contains('assistant')) {
+      return 'assistant';
+    }
+    return 'assistant';
+  }
+
+  function buildMessageActionButton(label, iconClass, actionName) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn btn-sm btn-link sobs-ai-msg-action';
+    button.setAttribute('data-sobs-ai-msg-action', actionName);
+    button.setAttribute('aria-label', label);
+    button.setAttribute('title', label);
+    button.innerHTML = '<i class="' + iconClass + '"></i><span>' + label + '</span>';
+    return button;
+  }
+
+  function setMessageActionButtonLabel(button, label) {
+    if (!button) return;
+    var labelEl = button.querySelector('span');
+    if (labelEl) {
+      labelEl.textContent = label;
+    }
+  }
+
+  function flashMessageActionButton(button, label) {
+    if (!button) return;
+    var original = button.dataset.originalLabel;
+    if (!original) {
+      var labelEl = button.querySelector('span');
+      original = labelEl ? labelEl.textContent : '';
+      button.dataset.originalLabel = original;
+    }
+    setMessageActionButtonLabel(button, label);
+    window.setTimeout(function () {
+      setMessageActionButtonLabel(button, button.dataset.originalLabel || original || '');
+    }, 1200);
+  }
+
+  function syncMessageMeta(msgEl, ts, options) {
+    if (!msgEl) return;
+    var opts = options || {};
+    var role = String(opts.role || getMessageRole(msgEl));
+    if (opts.turnId !== undefined) {
+      msgEl.dataset.turnId = String(opts.turnId || '');
+    }
+    if (opts.chatId !== undefined) {
+      msgEl.dataset.chatId = String(opts.chatId || '');
+    }
+    if (opts.retryQuestion !== undefined) {
+      msgEl.dataset.retryQuestion = String(opts.retryQuestion || '');
+    }
+    if (opts.copyText !== undefined) {
+      msgEl.dataset.copyText = String(opts.copyText || '');
+    }
+    if (opts.feedbackSaved) {
+      msgEl.dataset.feedbackSaved = '1';
+    }
+
+    var metaEl = msgEl.querySelector('.sobs-ai-msg-meta');
+    if (!metaEl) {
+      metaEl = document.createElement('div');
+      metaEl.className = 'sobs-ai-msg-meta';
+      msgEl.appendChild(metaEl);
+    }
+    metaEl.innerHTML = '';
+
+    if (role === 'assistant') {
+      var actionsEl = document.createElement('div');
+      actionsEl.className = 'sobs-ai-msg-actions';
+      if (msgEl.dataset.retryQuestion) {
+        actionsEl.appendChild(buildMessageActionButton('Retry', 'bi bi-arrow-clockwise', 'retry'));
+      }
+      if (msgEl.dataset.copyText || String(msgEl.textContent || '').trim()) {
+        actionsEl.appendChild(buildMessageActionButton('Copy', 'bi bi-clipboard', 'copy'));
+      }
+      if (msgEl.dataset.turnId) {
+        var feedbackBtn = buildMessageActionButton('Feedback', 'bi bi-chat-left-text', 'feedback');
+        if (msgEl.dataset.feedbackSaved === '1') {
+          feedbackBtn.disabled = true;
+          setMessageActionButtonLabel(feedbackBtn, 'Saved');
+        }
+        actionsEl.appendChild(feedbackBtn);
+      }
+      if (actionsEl.childNodes.length) {
+        metaEl.appendChild(actionsEl);
+      }
+    }
+
+    var rel = formatRelativeTime(ts);
+    if (rel) {
+      var timeEl = document.createElement('span');
+      timeEl.className = 'sobs-ai-msg-time';
+      timeEl.textContent = rel;
+      metaEl.appendChild(timeEl);
+    }
+  }
+
+  function encodeDatasetJson(value) {
+    try {
+      return encodeURIComponent(JSON.stringify(value || {}));
+    } catch (_err) {
+      return '';
+    }
+  }
+
+  function decodeDatasetJson(value) {
+    if (!value) return null;
+    try {
+      return JSON.parse(decodeURIComponent(String(value)));
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  async function submitAssistantFeedback(msgEl, button) {
+    if (!msgEl || !button) return;
+    var note = window.prompt('Add feedback for this assistant response:', '');
+    if (note == null) {
+      return;
+    }
+    note = String(note).trim();
+    if (!note) {
+      return;
+    }
+
+    button.disabled = true;
+    setMessageActionButtonLabel(button, 'Saving');
+    try {
+      var resp = await fetch('{{ url_for("ai_helper_feedback") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          chat_id: String(msgEl.dataset.chatId || currentChatId || ''),
+          turn_id: String(msgEl.dataset.turnId || ''),
+          note: note,
+          page: window.location.pathname || '/logs'
+        })
+      });
+      var data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        throw new Error(String(data.error || 'Feedback could not be saved'));
+      }
+      msgEl.dataset.feedbackSaved = '1';
+      setMessageActionButtonLabel(button, 'Saved');
+    } catch (err) {
+      button.disabled = false;
+      setMessageActionButtonLabel(button, 'Feedback');
+      addMsg('error-msg', 'Feedback error: ' + String(err), new Date().toISOString());
     }
   }
 
@@ -2113,7 +2536,7 @@
     return {event: eventName, payload: payload};
   }
 
-  async function consumeAiStream(response, thinking) {
+  async function consumeAiStream(response, thinking, questionText) {
     var reader = response.body && response.body.getReader ? response.body.getReader() : null;
     if (!reader) {
       throw new Error('Streaming not supported by this browser');
@@ -2191,7 +2614,13 @@
             }
             updateStatus(parsed.payload.guard_stats || guardStats, modelStats);
             setStreamingText(answerEl, fullAnswer, true);
-            appendMsgTimestamp(answerEl, new Date().toISOString());
+            syncMessageMeta(answerEl, new Date().toISOString(), {
+              role: 'assistant',
+              turnId: String(parsed.payload.turn_id || ''),
+              chatId: currentChatId,
+              retryQuestion: questionText,
+              copyText: stripAssistantMeta(fullAnswer)
+            });
             addThinkingTraceLink(answerEl, parsed.payload);
             queuedAutoTools.forEach(function (item) {
               executeToolAction(item.tool, item.ui.status, false);
@@ -2209,11 +2638,23 @@
       removeNode(thinking);
       if (answerEl && fullAnswer) {
         setStreamingText(answerEl, fullAnswer, true);
-        appendMsgTimestamp(answerEl, new Date().toISOString());
+        syncMessageMeta(answerEl, new Date().toISOString(), {
+          role: 'assistant',
+          turnId: String((finalDonePayload && finalDonePayload.turn_id) || ''),
+          chatId: currentChatId,
+          retryQuestion: questionText,
+          copyText: stripAssistantMeta(fullAnswer)
+        });
         addThinkingTraceLink(answerEl, finalDonePayload);
       } else if (answerEl && pendingAnswer) {
         setStreamingText(answerEl, pendingAnswer, true);
-        appendMsgTimestamp(answerEl, new Date().toISOString());
+        syncMessageMeta(answerEl, new Date().toISOString(), {
+          role: 'assistant',
+          turnId: String((finalDonePayload && finalDonePayload.turn_id) || ''),
+          chatId: currentChatId,
+          retryQuestion: questionText,
+          copyText: stripAssistantMeta(pendingAnswer)
+        });
         addThinkingTraceLink(answerEl, finalDonePayload);
       }
     } catch (err) {
@@ -2229,8 +2670,8 @@
     }
   }
 
-  async function sendQuestion() {
-    var q = inputEl.value.trim();
+  async function sendQuestionText(questionText) {
+    var q = String(questionText || '').trim();
     if (!q) return;
     
     if (currentAbortController) {
@@ -2238,7 +2679,7 @@
       currentAbortController = null;
     }
     
-    addMsg('user', q, new Date().toISOString());
+    addMsg('user', q, new Date().toISOString(), {chatId: currentChatId});
     inputEl.value = '';
     inputEl.style.height = '';
 
@@ -2265,18 +2706,23 @@
 
       var contentType = response.headers.get('content-type') || '';
       if (contentType.indexOf('text/event-stream') !== -1) {
-        await consumeAiStream(response, thinking);
+        await consumeAiStream(response, thinking, q);
         return;
       }
 
       var data = await response.json();
       removeNode(thinking);
       if (data.ok) {
-        var msgEl = addMsg('assistant', data.answer, new Date().toISOString());
         if (data.chat_id) {
           currentChatId = String(data.chat_id);
           syncActiveChatLabelFromHistory();
         }
+        var msgEl = addMsg('assistant', data.answer, new Date().toISOString(), {
+          turnId: String(data.turn_id || ''),
+          chatId: currentChatId,
+          retryQuestion: q,
+          copyText: String(data.answer || '')
+        });
         addThinkingTraceLink(msgEl, data);
         updateStatus(data.guard_stats || null, data.model_stats || null);
         loadChatHistory();
@@ -2287,6 +2733,10 @@
       removeNode(thinking);
       addMsg('error-msg', 'Network error: ' + err, new Date().toISOString());
     }
+  }
+
+  async function sendQuestion() {
+    await sendQuestionText(inputEl.value.trim());
   }
 
   sendBtn.addEventListener('click', sendQuestion);

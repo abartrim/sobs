@@ -6003,6 +6003,120 @@ class TestAISettingsAndAgentFlows:
         assert str(user_msg.get("text") or "") == question
         assert "assistant_meta" not in str(assistant_msg.get("text") or "").lower()
 
+    async def test_ai_helper_chat_detail_includes_historical_tool_cards(self, client):
+        from app import _AI_HELPER_SERVICE_NAME, _emit_ai_helper_log_event, get_db
+
+        db = get_db()
+        chat_id = f"chat-detail-tools-{time.time_ns()}"
+        turn_id = f"turn-tools-{time.time_ns()}"
+        action_id = f"action-{time.time_ns()}"
+        action_payload = {"type": "apply_sql_filter", "sql_where": "SeverityText = 'ERROR'"}
+
+        _emit_ai_helper_log_event(
+            event_name="turn.complete",
+            chat_id=chat_id,
+            turn_id=turn_id,
+            page="/logs",
+            model="gpt-test",
+            guard_model="guard-test",
+            thinking_level="off",
+            body="turn complete",
+            attrs={
+                "gen_ai.input.question": "Show only error logs",
+                "gen_ai.output.messages": json.dumps(
+                    [{"role": "assistant", "content": "I can apply that filter."}],
+                    ensure_ascii=False,
+                ),
+            },
+        )
+        _emit_ai_helper_log_event(
+            event_name="tool.proposed",
+            chat_id=chat_id,
+            turn_id=turn_id,
+            page="/logs",
+            model="gpt-test",
+            guard_model="guard-test",
+            thinking_level="off",
+            body="Tool proposed: logs.filter.apply_sql",
+            attrs={
+                "gen_ai.tool.name": "propose_ui_action",
+                "sobs.ai.action_id": action_id,
+                "sobs.ai.tool.summary": "Filter logs to errors",
+                "sobs.ai.tool.action": json.dumps(action_payload, ensure_ascii=False),
+                "sobs.ai.action.status": "proposed",
+                "sobs.ai.action.requires_confirmation": "true",
+            },
+        )
+        _emit_ai_helper_log_event(
+            event_name="tool.executed",
+            chat_id=chat_id,
+            turn_id=turn_id,
+            page="/logs",
+            model="gpt-test",
+            guard_model="guard-test",
+            thinking_level="off",
+            body="Tool executed: logs.filter.apply_sql",
+            attrs={
+                "sobs.ai.action_id": action_id,
+                "sobs.ai.tool.summary": "Filter logs to errors",
+                "sobs.ai.tool.action": json.dumps(action_payload, ensure_ascii=False),
+            },
+        )
+
+        r_detail = await client.get(f"/api/ai/helper/chats/{chat_id}")
+        assert r_detail.status_code == 200
+        detail = await r_detail.get_json()
+        assert detail["ok"] is True
+
+        messages = detail.get("messages") or []
+        assert [m.get("role") for m in messages[:2]] == ["user", "assistant"]
+        tool_msg = next((m for m in messages if str(m.get("kind") or "") == "tool"), None)
+        assert tool_msg is not None
+        assert str(tool_msg.get("status") or "") == "executed"
+        assert str(tool_msg.get("status_label") or "") == "Executed"
+        assert str(((tool_msg.get("action") or {}).get("sql_where")) or "") == "SeverityText = 'ERROR'"
+
+        logged_tool = db.execute(
+            "SELECT EventName FROM otel_logs WHERE ServiceName=? AND EventName='tool.executed' "
+            "AND LogAttributes['gen_ai.chat_id']=? LIMIT 1",
+            [_AI_HELPER_SERVICE_NAME, chat_id],
+        ).fetchone()
+        assert logged_tool is not None
+
+    async def test_ai_helper_feedback_endpoint_logs_event(self, client):
+        from app import _AI_HELPER_SERVICE_NAME, get_db
+
+        db = get_db()
+        chat_id = f"feedback-chat-{time.time_ns()}"
+        turn_id = f"feedback-turn-{time.time_ns()}"
+        note = "The summary was right but the suggested action should have targeted the chart modal."
+
+        response = await client.post(
+            "/api/ai/helper/feedback",
+            json={
+                "chat_id": chat_id,
+                "turn_id": turn_id,
+                "page": "/logs",
+                "note": note,
+            },
+        )
+        assert response.status_code == 200
+        payload = await response.get_json()
+        assert payload["ok"] is True
+
+        row = db.execute(
+            "SELECT Body, LogAttributes['gen_ai.feedback.note'] AS note, "
+            "LogAttributes['gen_ai.feedback.kind'] AS kind "
+            "FROM otel_logs WHERE ServiceName=? AND EventName='turn.feedback' "
+            "AND LogAttributes['gen_ai.chat_id']=? AND LogAttributes['gen_ai.turn_id']=? "
+            "ORDER BY Timestamp DESC LIMIT 1",
+            [_AI_HELPER_SERVICE_NAME, chat_id, turn_id],
+        ).fetchone()
+        assert row is not None
+        assert str(row["Body"] or "") == note
+        assert str(row["note"] or "") == note
+        assert str(row["kind"] or "") == "user_note"
+
     def test_secret_settings_roundtrip_with_optional_encryption(self, monkeypatch):
         from app import _load_ai_setting, _save_ai_setting, get_db
 

@@ -84,6 +84,17 @@
           {% endfor %}
         </select>
       </div>
+      {% if event_names %}
+      <div class="col-md-2">
+        <label class="form-label small text-secondary">Event</label>
+        <select name="event_name" class="form-select form-select-sm">
+          <option value="">All events</option>
+          {% for e in event_names %}
+          <option value="{{ e }}" {% if e == event_name %}selected{% endif %}>{{ e }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
       <div class="col-md-3">
         <label class="form-label small text-secondary">SQL WHERE <span class="text-muted">(overrides above)</span></label>
         <div class="position-relative">
