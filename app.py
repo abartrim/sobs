@@ -9,6 +9,7 @@ import asyncio
 import base64
 import copy
 import hashlib
+import html
 import inspect
 import json
 import logging
@@ -1331,6 +1332,40 @@ _AI_USAGE_ANALYTICS_KEYWORDS = frozenset(
         "latency",
     ]
 )
+_AI_NAVIGATION_INTENT_KEYWORDS = frozenset(
+    [
+        "navigate",
+        "go to",
+        "open",
+        "take me to",
+        "bring me to",
+        "switch to",
+    ]
+)
+_AI_NAVIGATION_SURFACE_KEYWORDS = frozenset(
+    [
+        "page",
+        "screen",
+        "view",
+        "tab",
+        "section",
+        "modal",
+        "panel",
+    ]
+)
+_AI_CHART_REQUEST_KEYWORDS = frozenset(
+    [
+        "graph",
+        "chart",
+        "plot",
+        "visual",
+        "visualize",
+        "timeseries",
+        "trend",
+        "response time",
+        "latency",
+    ]
+)
 
 
 def _load_ai_setting(db: ChDbConnection, key: str, default: str = "") -> str:
@@ -1432,7 +1467,11 @@ def _llm_reasoning_payload(model: str, thinking_level: str) -> dict[str, Any]:
 
 
 _AI_HELPER_SERVICE_NAME = "sobs-ai-helper"
-_AI_ASSISTANT_META_RE = re.compile(r"<assistant_meta>\s*(\{.*?\})\s*</assistant_meta>", re.DOTALL | re.IGNORECASE)
+_AI_ASSISTANT_META_RE = re.compile(r"<assistant_meta\b[^>]*>\s*([\s\S]*?)\s*</assistant_meta>", re.IGNORECASE)
+_AI_ASSISTANT_META_ESCAPED_RE = re.compile(
+    r"&lt;\s*assistant_meta\b(?:[\s\S]*?)&gt;\s*([\s\S]*?)\s*&lt;\s*/assistant_meta\s*&gt;",
+    re.IGNORECASE,
+)
 _AI_MEMORY_DIMENSIONS = 128
 _AI_MEMORY_SEMANTIC_MIN_SCORE = 0.26
 _AI_MEMORY_CONSOLIDATION_SCORE = 0.72
@@ -1508,18 +1547,43 @@ def _embedding_from_json(raw: str) -> list[float]:
 
 def _extract_assistant_meta(answer_text: str) -> tuple[str, dict[str, Any]]:
     text = str(answer_text or "")
+
+    def _strip_meta_blocks(raw_text: str) -> str:
+        cleaned = _AI_ASSISTANT_META_RE.sub("", raw_text)
+        cleaned = _AI_ASSISTANT_META_ESCAPED_RE.sub("", cleaned)
+        open_raw = cleaned.lower().find("<assistant_meta")
+        open_escaped = cleaned.lower().find("&lt;assistant_meta")
+        cut_index = -1
+        if open_raw >= 0:
+            cut_index = open_raw
+        if open_escaped >= 0 and (cut_index < 0 or open_escaped < cut_index):
+            cut_index = open_escaped
+        if cut_index >= 0:
+            cleaned = cleaned[:cut_index]
+        return cleaned
+
     match = _AI_ASSISTANT_META_RE.search(text)
     if not match:
-        return text.strip(), {}
-    meta_raw = match.group(1)
+        match = _AI_ASSISTANT_META_ESCAPED_RE.search(text)
+    if not match:
+        return _strip_meta_blocks(text).strip(), {}
+    meta_raw = str(match.group(1) or "")
     meta: dict[str, Any] = {}
     try:
-        parsed = json.loads(meta_raw)
+        # Some models emit typographic quotes; normalize before JSON parsing.
+        normalized_meta_raw = (
+            html.unescape(meta_raw)
+            .replace("\u201c", '"')
+            .replace("\u201d", '"')
+            .replace("\u2018", "'")
+            .replace("\u2019", "'")
+        )
+        parsed = json.loads(normalized_meta_raw)
         if isinstance(parsed, dict):
             meta = cast(dict[str, Any], parsed)
     except Exception:
         meta = {}
-    cleaned = (text[: match.start()] + text[match.end() :]).strip()
+    cleaned = _strip_meta_blocks(text).strip()
     return cleaned, meta
 
 
@@ -1786,6 +1850,37 @@ def _load_recent_turn_summaries(db: ChDbConnection, chat_id: str, query: str, li
     return output
 
 
+def _load_recent_chat_turns(db: ChDbConnection, chat_id: str, limit: int = 8) -> list[dict[str, str]]:
+    if not str(chat_id or "").strip():
+        return []
+    rows = db.execute(
+        "SELECT Timestamp, LogAttributes['gen_ai.turn.summary.request'] AS request, "
+        "LogAttributes['gen_ai.turn.summary.action'] AS action, "
+        "LogAttributes['gen_ai.turn.summary.result'] AS result, "
+        "LogAttributes['gen_ai.turn_id'] AS turn_id "
+        "FROM otel_logs "
+        "WHERE ServiceName=? AND EventName='turn.summary' AND LogAttributes['gen_ai.chat_id']=? "
+        "ORDER BY Timestamp DESC LIMIT ?",
+        [_AI_HELPER_SERVICE_NAME, chat_id, int(max(1, limit))],
+    ).fetchall()
+    output: list[dict[str, str]] = []
+    for row in rows:
+        request = str(row["request"] or "").strip()
+        action = str(row["action"] or "").strip()
+        result = str(row["result"] or "").strip()
+        if not request and not action and not result:
+            continue
+        output.append(
+            {
+                "turn_id": str(row["turn_id"] or ""),
+                "request": _coerce_summary_value(request, 180),
+                "action": _coerce_summary_value(action, 180),
+                "result": _coerce_summary_value(result, 220),
+            }
+        )
+    return output
+
+
 _AI_HELPER_GENERIC_UI_ACTION_TOOL = {
     "type": "function",
     "function": {
@@ -1822,9 +1917,23 @@ _AI_HELPER_GENERIC_UI_ACTION_TOOL = {
 
 
 _AI_ACTION_PAGE_TEMPLATES: dict[str, tuple[str, ...]] = {
+    "/": ("summary.html",),
+    "/summary": ("summary.html",),
     "/logs": ("logs.html",),
     "/traces": ("traces.html",),
     "/metrics": ("metrics.html",),
+    "/metrics/anomaly": ("metrics_anomaly.html",),
+    "/metrics/rules": ("metrics_rules.html",),
+    "/errors": ("errors.html",),
+    "/rum": ("rum.html",),
+    "/ai": ("ai.html",),
+    "/dashboards": ("custom_dashboards.html",),
+    "/dashboards/_detail": ("custom_dashboard_view.html",),
+    "/settings": ("settings.html",),
+    "/settings/ai": ("settings_ai.html",),
+    "/settings/agents": ("settings_agents.html",),
+    "/settings/notifications": ("settings_notifications.html",),
+    "/settings/tags": ("settings_tags.html",),
 }
 
 # Action types are now defined entirely via template annotations with data-ai-action-type
@@ -1842,7 +1951,10 @@ _AI_ACTION_TOKEN_TTL_SECONDS = 300
 
 
 def _helper_action_manifest_for_page(page: str) -> list[dict[str, Any]]:
-    templates = _AI_ACTION_PAGE_TEMPLATES.get(page, ())
+    normalized_page = str(page or "").strip() or "/logs"
+    templates = _AI_ACTION_PAGE_TEMPLATES.get(normalized_page, ())
+    if not templates and normalized_page.startswith("/dashboards/"):
+        templates = _AI_ACTION_PAGE_TEMPLATES.get("/dashboards/_detail", ())
     if not templates:
         return []
 
@@ -1960,6 +2072,17 @@ def _action_meta_for_page(page: str, action_id: str) -> dict[str, Any] | None:
     for action in _helper_action_manifest_for_page(page):
         if str(action.get("action_id") or "") == action_id:
             return action
+    return None
+
+
+def _action_meta_for_id(action_id: str) -> dict[str, Any] | None:
+    wanted = str(action_id or "").strip()
+    if not wanted:
+        return None
+    for page in sorted(_AI_ACTION_PAGE_TEMPLATES):
+        for action in _helper_action_manifest_for_page(page):
+            if str(action.get("action_id") or "") == wanted:
+                return action
     return None
 
 
@@ -2088,13 +2211,22 @@ def _normalize_generic_ui_action_tool_call(args: dict[str, Any], current_page: s
     if not action_id:
         return None
 
-    target_page = str(args.get("target_page") or current_page or "").strip() or current_page
+    template_manifest = {item.get("action_id"): item for item in _helper_action_manifest_for_page(current_page)}
+    template_action = cast(dict[str, Any] | None, template_manifest.get(action_id))
+    template_args_pre = cast(dict[str, Any], (template_action or {}).get("arguments") or {})
+    explicit_target = str(args.get("target_page") or "").strip()
+    default_target = str(template_args_pre.get("target_page") or "").strip()
+    target_page = explicit_target or default_target or str(current_page or "").strip() or current_page
     action_arguments = cast(dict[str, Any], args.get("arguments") or {})
     notes = str(args.get("notes") or "").strip()
 
-    # Look up action in manifest for this target page
-    manifest = {item.get("action_id"): item for item in _helper_action_manifest_for_page(target_page)}
-    action_meta = cast(dict[str, Any] | None, manifest.get(action_id))
+    # Resolve action meta from the current page manifest first.
+    # This allows cross-page navigation actions declared on the current page
+    # (e.g., summary.nav.ai with target_page=/ai) to remain valid.
+    action_meta = cast(dict[str, Any] | None, template_manifest.get(action_id))
+    if not action_meta:
+        target_manifest = {item.get("action_id"): item for item in _helper_action_manifest_for_page(target_page)}
+        action_meta = cast(dict[str, Any] | None, target_manifest.get(action_id))
 
     # Return unsupported if action not in manifest
     if not action_meta:
@@ -2113,6 +2245,33 @@ def _normalize_generic_ui_action_tool_call(args: dict[str, Any], current_page: s
 
     action_type = str(action_meta.get("action_type") or "").strip().lower()
     requires_confirmation = target_page != current_page or bool(action_meta.get("requires_confirmation", True))
+    template_args = cast(dict[str, Any], action_meta.get("arguments") or {})
+
+    if action_type == "apply_form_filters":
+        requested_filters = cast(dict[str, Any], action_arguments.get("filters") or {})
+        allowed_filter_values = cast(list[Any], template_args.get("filter_fields") or [])
+        allowed_filters = {str(item or "").strip() for item in allowed_filter_values if str(item or "").strip()}
+        if allowed_filters and requested_filters:
+            filtered_filters = {
+                key: value for key, value in requested_filters.items() if str(key or "").strip() in allowed_filters
+            }
+            if not filtered_filters:
+                return {
+                    "tool": "propose_ui_action",
+                    "action_id": action_id,
+                    "summary": notes or "Requested filters are not available on this page",
+                    "requires_confirmation": False,
+                    "unsupported": True,
+                    "action": {
+                        "type": "unsupported",
+                        "action_id": action_id,
+                        "target_page": target_page,
+                    },
+                }
+            action_arguments = {
+                **action_arguments,
+                "filters": filtered_filters,
+            }
 
     # Build action payload: merge arguments with defaults from template annotation
     action_payload = {
@@ -2120,7 +2279,6 @@ def _normalize_generic_ui_action_tool_call(args: dict[str, Any], current_page: s
         **action_arguments,
     }
     # Apply any template-defined default arguments
-    template_args = cast(dict[str, Any], action_meta.get("arguments") or {})
     for key, default_value in template_args.items():
         if key not in action_payload:
             action_payload[key] = default_value
@@ -2149,6 +2307,27 @@ def _normalize_generic_ui_action_tool_call(args: dict[str, Any], current_page: s
         "unsupported": not bool(action_meta.get("implemented", False)),
         "action": client_action,
     }
+
+
+def _suggest_chart_dashboard_pivot_tool(question: str, current_page: str) -> dict[str, Any] | None:
+    lower_question = str(question or "").strip().lower()
+    if not lower_question:
+        return None
+    if not any(keyword in lower_question for keyword in _AI_CHART_REQUEST_KEYWORDS):
+        return None
+    if current_page.startswith("/dashboards"):
+        return None
+    if "ai" not in lower_question and "trace" not in lower_question and "response" not in lower_question:
+        return None
+    return _normalize_generic_ui_action_tool_call(
+        {
+            "action_id": "dashboards.modal.new.open",
+            "target_page": "/dashboards",
+            "arguments": {},
+            "notes": "Open the new dashboard modal to create the requested chart",
+        },
+        current_page,
+    )
 
 
 def _extract_stream_tool_call_deltas(event: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2376,6 +2555,15 @@ def _is_benign_ai_usage_question(text: str) -> bool:
     return has_intent and has_usage_signal
 
 
+def _is_benign_ui_navigation_request(text: str) -> bool:
+    lower = text.lower()
+    if any(kw in lower for kw in _AI_OBSERVABILITY_HIGH_RISK_KEYWORDS):
+        return False
+    has_intent = any(kw in lower for kw in _AI_NAVIGATION_INTENT_KEYWORDS)
+    has_surface = any(kw in lower for kw in _AI_NAVIGATION_SURFACE_KEYWORDS)
+    return has_intent and has_surface
+
+
 async def _check_guard_model(
     settings: dict[str, str],
     user_input: str,
@@ -2443,9 +2631,16 @@ async def _check_guard_model(
     if verdict in ("UNSAFE", "BLOCKED") or verdict.startswith("BLOCKED"):
         benign_observability = _is_benign_observability_question(user_input)
         benign_ai_usage = _is_benign_ai_usage_question(user_input)
+        benign_navigation = _is_benign_ui_navigation_request(user_input)
         if category_code in _AI_GUARD_NOISY_CATEGORIES and (benign_observability or benign_ai_usage):
             log.info(
                 "Guard override applied for benign observability prompt (category=%s)",
+                category_code or "unknown",
+            )
+            return True, "allowed", guard_stats
+        if category_code in {"S1", "S2", "S6", "S14"} and benign_navigation:
+            log.info(
+                "Guard override applied for benign navigation prompt (category=%s)",
                 category_code or "unknown",
             )
             return True, "allowed", guard_stats
@@ -13046,8 +13241,11 @@ async def ai_helper():
 
     action_manifest = _helper_action_manifest_for_page(page)
     action_manifest_json = json.dumps(action_manifest, ensure_ascii=False)
+    dashboard_action_manifest = _helper_action_manifest_for_page("/dashboards")
+    dashboard_action_manifest_json = json.dumps(dashboard_action_manifest, ensure_ascii=False)
     chat_memories = _load_chat_memories(db, chat_id)
     relevant_memories = _semantic_memory_matches(chat_memories, question, max_results=5)
+    recent_chat_turns = _load_recent_chat_turns(db, chat_id, limit=8)
     recent_history = _load_recent_turn_summaries(db, chat_id, question, limit=4)
 
     memory_lines: list[str] = []
@@ -13065,6 +13263,14 @@ async def ai_helper():
         history_lines.append(f"- request={request_s}; action={action_s}; result={result_s}")
     history_block = "\n".join(history_lines)
 
+    continuity_lines: list[str] = []
+    for item in recent_chat_turns:
+        request_s = str(item.get("request") or "")
+        action_s = str(item.get("action") or "")
+        result_s = str(item.get("result") or "")
+        continuity_lines.append(f"- request={request_s}; action={action_s}; result={result_s}")
+    continuity_block = "\n".join(continuity_lines)
+
     system_prompt = system_prompt_override or (
         "You are an expert observability assistant for SOBS (Simple Observe Stack). "
         "You help operators understand and troubleshoot their application telemetry including "
@@ -13074,7 +13280,14 @@ async def ai_helper():
         "clarifying question before taking action. If intent is clear, act directly. "
         "Try higher-quality solutions before simplistic ones, especially for grouping/ranking asks. "
         "Only propose UI actions that exist in the action manifest for this page. "
-        "Do not claim any UI action was executed unless a tool is called and execution is confirmed by the app. "
+        "Do not claim any UI action was executed unless a tool is called and execution is "
+        "confirmed by the app. "
+        "When a UI action will be applied by the browser after your response, describe it as "
+        "proposed, queued, or ready to apply; do not say it already succeeded. "
+        "If the page action manifest does not expose the control needed for the request, explain "
+        "that limitation and do not call a UI action unless you can pivot using cross-page actions. "
+        "For chart or dashboard creation requests, prefer a cross-page pivot to /dashboards using "
+        "available dashboard actions. "
         "If tools are available and the user asks to apply a logs SQL filter, call "
         "propose_ui_action with action_id logs.filter.apply_sql. "
         "For requests like 'longest traces' or 'highest total duration by trace', generate a "
@@ -13084,11 +13297,16 @@ async def ai_helper():
         '"memory_candidates":["optional memory 1","optional memory 2"]}</assistant_meta>. '
         "Keep memory_candidates empty when no durable memory is needed. "
         "Do not include any additional text after </assistant_meta>. "
-        "Page action manifest: " + action_manifest_json
+        "Page action manifest: "
+        + action_manifest_json
+        + "\nCross-page dashboard actions (/dashboards): "
+        + dashboard_action_manifest_json
     )
 
     if memory_block:
         system_prompt += "\n\nRelevant persistent memories:\n" + memory_block
+    if continuity_block:
+        system_prompt += "\n\nCurrent chat continuity (recent turns):\n" + continuity_block
     if history_block:
         system_prompt += "\n\nSemantically relevant prior turn summaries:\n" + history_block
 
@@ -13206,6 +13424,60 @@ async def ai_helper():
                                     yield _sse_json_event("tool", normalized_tool)
                         elif event_type == "done":
                             model_stats = cast(dict[str, Any], event.get("stats") or {})
+
+                    if not round_tool_feedback:
+                        fallback_tool = _suggest_chart_dashboard_pivot_tool(question, page)
+                        if fallback_tool:
+                            action_id = str(fallback_tool.get("action_id") or "")
+                            unsupported = bool(fallback_tool.get("unsupported"))
+                            action_payload = cast(dict[str, Any], fallback_tool.get("action") or {})
+                            last_tool_summary = str(fallback_tool.get("summary") or "").strip()
+                            if action_id and not unsupported and action_payload:
+                                fallback_tool["action_token"] = _issue_ai_action_token(
+                                    action_id=action_id,
+                                    target_page=str(action_payload.get("target_page") or page or "/logs"),
+                                    action=action_payload,
+                                    requires_confirmation=bool(fallback_tool.get("requires_confirmation", True)),
+                                    chat_id=chat_id,
+                                    turn_id=turn_id,
+                                )
+                            _emit_ai_helper_log_event(
+                                event_name="tool.proposed",
+                                chat_id=chat_id,
+                                turn_id=turn_id,
+                                page=page,
+                                model=model,
+                                guard_model=guard_model,
+                                thinking_level=thinking_level,
+                                body="Tool proposed: fallback.dashboard_chart_pivot",
+                                attrs={
+                                    "gen_ai.tool.name": "fallback.dashboard_chart_pivot",
+                                    "sobs.ai.action_id": action_id,
+                                    "sobs.ai.tool.summary": fallback_tool.get("summary", ""),
+                                    "sobs.ai.tool.action": json.dumps(
+                                        fallback_tool.get("action") or {}, ensure_ascii=False
+                                    ),
+                                    "sobs.ai.action.status": ("unsupported" if unsupported else "proposed"),
+                                },
+                            )
+                            round_tool_feedback.append(
+                                {
+                                    "tool": "propose_ui_action",
+                                    "ok": not unsupported,
+                                    "action_id": action_id,
+                                    "summary": str(fallback_tool.get("summary") or ""),
+                                    "action": cast(dict[str, Any], fallback_tool.get("action") or {}),
+                                    "requires_confirmation": bool(fallback_tool.get("requires_confirmation", True)),
+                                }
+                            )
+                            yield _sse_json_event("tool", fallback_tool)
+
+                    has_pending_confirmation = any(
+                        bool(item.get("requires_confirmation", True)) for item in round_tool_feedback
+                    )
+                    # If awaiting user confirmation, stop loop to avoid re-proposing identical actions.
+                    if has_pending_confirmation:
+                        break
 
                     # Continue loop only if tool calls were made this round and rounds remain.
                     if not round_tool_feedback or loop_round >= max_tool_rounds:
@@ -13452,6 +13724,54 @@ async def ai_helper():
             elif event_type == "done":
                 model_stats = cast(dict[str, Any], event.get("stats") or {})
 
+        if not round_tool_feedback:
+            fallback_tool = _suggest_chart_dashboard_pivot_tool(question, page)
+            if fallback_tool:
+                action_id = str(fallback_tool.get("action_id") or "")
+                unsupported = bool(fallback_tool.get("unsupported"))
+                action_payload = cast(dict[str, Any], fallback_tool.get("action") or {})
+                if action_id and not unsupported and action_payload:
+                    fallback_tool["action_token"] = _issue_ai_action_token(
+                        action_id=action_id,
+                        target_page=str(action_payload.get("target_page") or page or "/logs"),
+                        action=action_payload,
+                        requires_confirmation=bool(fallback_tool.get("requires_confirmation", True)),
+                        chat_id=chat_id,
+                        turn_id=turn_id,
+                    )
+                _emit_ai_helper_log_event(
+                    event_name="tool.proposed",
+                    chat_id=chat_id,
+                    turn_id=turn_id,
+                    page=page,
+                    model=model,
+                    guard_model=guard_model,
+                    thinking_level=thinking_level,
+                    body="Tool proposed: fallback.dashboard_chart_pivot",
+                    attrs={
+                        "gen_ai.tool.name": "fallback.dashboard_chart_pivot",
+                        "sobs.ai.action_id": action_id,
+                        "sobs.ai.tool.summary": fallback_tool.get("summary", ""),
+                        "sobs.ai.tool.action": json.dumps(fallback_tool.get("action") or {}, ensure_ascii=False),
+                        "sobs.ai.action.status": ("unsupported" if unsupported else "proposed"),
+                    },
+                )
+                proposed_tools.append(fallback_tool)
+                round_tool_feedback.append(
+                    {
+                        "tool": "propose_ui_action",
+                        "ok": not unsupported,
+                        "action_id": action_id,
+                        "summary": str(fallback_tool.get("summary") or ""),
+                        "action": cast(dict[str, Any], fallback_tool.get("action") or {}),
+                        "requires_confirmation": bool(fallback_tool.get("requires_confirmation", True)),
+                    }
+                )
+
+        has_pending_confirmation = any(bool(item.get("requires_confirmation", True)) for item in round_tool_feedback)
+        if has_pending_confirmation:
+            break
+
         if not round_tool_feedback or loop_round >= max_tool_rounds:
             break
 
@@ -13608,6 +13928,8 @@ async def ai_helper_execute_action():
     turn_id = str(decoded.get("turn_id") or "").strip()
 
     action_meta = _action_meta_for_page(target_page, action_id)
+    if not action_meta:
+        action_meta = _action_meta_for_id(action_id)
     if not action_meta:
         return jsonify({"ok": False, "error": "Action is not allowed for this page"}), 400
     if not bool(action_meta.get("implemented", False)):
