@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Summary{% endblock %}
+{% macro fmt_num(n) %}{% if n >= 1000000 %}{{ "%.1f" | format(n / 1000000) }}M{% elif n >= 1000 %}{{ "%.1f" | format(n / 1000) }}K{% else %}{{ n }}{% endif %}{% endmacro %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-4">
   <h4 class="fw-semibold mb-0">Summary</h4>
@@ -31,7 +32,7 @@
        data-ai-risk="low"
        data-ai-confirm="false">
       <div class="stat-card p-3 text-center">
-        <div class="fs-2 fw-bold text-info">{{ stats.logs }}</div>
+        <div class="fs-2 fw-bold text-info">{{ fmt_num(stats.logs) }}</div>
         <div class="text-secondary small">Logs</div>
       </div>
     </a>
@@ -46,7 +47,7 @@
        data-ai-risk="low"
        data-ai-confirm="false">
       <div class="stat-card p-3 text-center">
-        <div class="fs-2 fw-bold {% if stats.errors > 0 %}text-danger{% else %}text-success{% endif %}">{{ stats.errors }}</div>
+        <div class="fs-2 fw-bold {% if stats.errors > 0 %}text-danger{% else %}text-success{% endif %}">{{ fmt_num(stats.errors) }}</div>
         <div class="text-secondary small">Open Errors</div>
       </div>
     </a>
@@ -61,7 +62,7 @@
        data-ai-risk="low"
        data-ai-confirm="false">
       <div class="stat-card p-3 text-center">
-        <div class="fs-2 fw-bold text-warning">{{ stats.spans }}</div>
+        <div class="fs-2 fw-bold text-warning">{{ fmt_num(stats.spans) }}</div>
         <div class="text-secondary small">Spans</div>
       </div>
     </a>
@@ -76,7 +77,7 @@
        data-ai-risk="low"
        data-ai-confirm="false">
       <div class="stat-card p-3 text-center">
-        <div class="fs-2 fw-bold text-primary">{{ stats.rum }}</div>
+        <div class="fs-2 fw-bold text-primary">{{ fmt_num(stats.rum) }}</div>
         <div class="text-secondary small">RUM Events</div>
       </div>
     </a>
@@ -91,7 +92,7 @@
        data-ai-risk="low"
        data-ai-confirm="false">
       <div class="stat-card p-3 text-center">
-        <div class="fs-2 fw-bold text-success">{{ stats.ai }}</div>
+        <div class="fs-2 fw-bold text-success">{{ fmt_num(stats.ai) }}</div>
         <div class="text-secondary small">AI Calls</div>
       </div>
     </a>

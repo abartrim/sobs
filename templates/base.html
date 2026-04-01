@@ -30,7 +30,7 @@
     .sidebar.sidebar-compact { width: var(--sb-compact); padding-left: 0; padding-right: 0; }
     .sidebar.sidebar-compact .sb-label { opacity: 0; max-width: 0; pointer-events: none; }
     .sidebar.sidebar-compact .sb-brand-text { display: none; }
-    .sidebar.sidebar-compact .nav-link { margin: 1px 2px; padding: .5rem .4rem; justify-content: center; }
+    .sidebar.sidebar-compact .nav-link { margin: 1px 2px; padding: .5rem .4rem; justify-content: center; gap: 0; }
     .sidebar.sidebar-compact .sb-brand { padding: 0 .6rem; justify-content: center; }
     .sidebar.sidebar-compact .sb-footer { display: none; }
     /* ===== Sidebar edge toggle button ===== */
@@ -57,7 +57,13 @@
       .sidebar.sidebar-compact .sb-brand { padding: 0; justify-content: flex-start; }
       .sidebar.sidebar-compact .sb-footer { display: block; }
     }
-    .main-content { min-height: 100vh; }
+    .main-content { min-height: 100vh; transition: margin-left 0.22s ease; }
+    /* ===== Desktop: sidebar fixed to viewport ===== */
+    @media (min-width: 576px) {
+      .sidebar { position: fixed; top: 0; left: 0; height: 100vh; }
+      .main-content { margin-left: var(--sb-full); }
+      .sidebar.sidebar-compact + .main-content { margin-left: var(--sb-compact); }
+    }
     .badge-level-ERROR, .badge-level-FATAL, .badge-level-CRITICAL { background-color: #dc3545 !important; }
     .badge-level-WARN, .badge-level-WARNING { background-color: #fd7e14 !important; }
     .badge-level-INFO { background-color: #0d6efd !important; }
@@ -128,6 +134,22 @@
       z-index: 3;
     }
     .drp-combo .drp-combo-trigger .bi { font-size: .85rem; }
+    .filter-date-group {
+      flex: 2 1 300px;
+      min-width: min(300px, 100%);
+      max-width: 100%;
+    }
+    .filter-date-fields {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem;
+      align-items: end;
+      max-width: 100%;
+    }
+    .filter-date-field {
+      flex: 1 1 140px;
+      min-width: 0;
+    }
   </style>
 </head>
 <body>
@@ -603,6 +625,35 @@
     flex-direction: column;
     gap: .28rem;
   }
+  #sobsAiHistorySentinel {
+    height: 1px;
+    flex-shrink: 0;
+  }
+  #sobsAiHistorySearch {
+    flex-shrink: 0;
+    padding: .3rem .35rem;
+    border-top: 1px solid var(--bs-border-color);
+  }
+  #sobsAiHistorySearchInput {
+    width: 100%;
+    font-size: .7rem;
+    padding: .22rem .4rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 5px;
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    outline: none;
+  }
+  #sobsAiHistorySearchInput:focus {
+    border-color: color-mix(in srgb, var(--bs-primary) 55%, var(--bs-border-color));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--bs-primary) 15%, transparent);
+  }
+  .sobs-ai-history-loading {
+    text-align: center;
+    font-size: .68rem;
+    color: var(--bs-secondary-color);
+    padding: .3rem 0;
+  }
   .sobs-ai-history-item {
     border: 1px solid var(--bs-border-color);
     border-radius: 8px;
@@ -961,7 +1012,12 @@
   <div id="sobsAiBody">
     <aside id="sobsAiHistoryPanel" aria-label="Chat history">
       <div id="sobsAiHistoryHeader">Chats</div>
-      <div id="sobsAiHistoryList"></div>
+      <div id="sobsAiHistoryList">
+        <div id="sobsAiHistorySentinel"></div>
+      </div>
+      <div id="sobsAiHistorySearch">
+        <input type="search" id="sobsAiHistorySearchInput" placeholder="Filter chats…" autocomplete="off" aria-label="Filter chat history">
+      </div>
     </aside>
     <div id="sobsAiConversation">
       <div id="sobsAiMessages" aria-live="polite" aria-relevant="additions"></div>
@@ -1047,24 +1103,6 @@
     }
     activeChatLabelEl.textContent = text;
     activeChatEl.classList.add('visible');
-  }
-
-  function syncActiveChatLabelFromHistory() {
-    var chats = (historyListEl && historyListEl._cachedChats) || [];
-    var found = null;
-    for (var i = 0; i < chats.length; i += 1) {
-      if (String(chats[i].chat_id || '') === currentChatId) {
-        found = chats[i];
-        break;
-      }
-    }
-    if (found) {
-      setActiveChatLabel(String(found.label || 'Chat'));
-    } else if (currentChatId) {
-      setActiveChatLabel('Chat');
-    } else {
-      setActiveChatLabel('');
-    }
   }
 
   function syncPanelHeaderDensity() {
@@ -1175,41 +1213,148 @@
     }
   }
 
-  function renderHistoryItems(chats) {
-    if (!historyListEl) return;
-    historyListEl._cachedChats = chats || [];
-    historyListEl.innerHTML = '';
-    (chats || []).forEach(function (chat) {
-      var item = document.createElement('button');
-      item.type = 'button';
-      item.className = 'sobs-ai-history-item' + (String(chat.chat_id || '') === currentChatId ? ' active' : '');
-      var title = document.createElement('div');
-      title.className = 'sobs-ai-history-title';
-      title.textContent = String(chat.label || 'Chat');
-      var meta = document.createElement('div');
-      meta.className = 'sobs-ai-history-meta';
-      meta.textContent = formatRelativeTime(chat.last_ts) + ' • ' + String(chat.turn_count || 0) + ' turns';
-      item.appendChild(title);
-      item.appendChild(meta);
-      item.addEventListener('click', function () {
-        loadChatConversation(String(chat.chat_id || ''));
-      });
-      historyListEl.appendChild(item);
-    });
-    syncActiveChatLabelFromHistory();
+  // ===== Paged history state =====
+  var historySearchEl = document.getElementById('sobsAiHistorySearchInput');
+  var historySentinelEl = document.getElementById('sobsAiHistorySentinel');
+  var historyState = { offset: 0, q: '', loading: false, hasMore: true };
+  var historyIntersectionObserver = null;
+  var historySearchTimer = null;
+
+  function _historyPageSize() {
+    // Estimate how many items fit in the visible list height.
+    // Each item is ~54px (2-line title+meta + padding + gap).
+    var listH = historyListEl ? historyListEl.clientHeight : 0;
+    var itemH = 54;
+    // Try to measure an existing item for accuracy.
+    var existing = historyListEl && historyListEl.querySelector('.sobs-ai-history-item');
+    if (existing && existing.offsetHeight > 0) {
+      itemH = existing.offsetHeight + 4; // +4 for gap
+    }
+    var visible = listH > 0 ? Math.floor(listH / itemH) : 10;
+    // Fetch 1.5x what's visible so the list fills without an immediate second request, min 5 max 100.
+    return Math.max(5, Math.min(Math.ceil(visible * 1.5), 100));
   }
 
-  async function loadChatHistory() {
+  function _buildHistoryItem(chat) {
+    var item = document.createElement('button');
+    item.type = 'button';
+    item.dataset.chatId = String(chat.chat_id || '');
+    item.className = 'sobs-ai-history-item' + (String(chat.chat_id || '') === currentChatId ? ' active' : '');
+    var title = document.createElement('div');
+    title.className = 'sobs-ai-history-title';
+    title.textContent = String(chat.label || 'Chat');
+    var meta = document.createElement('div');
+    meta.className = 'sobs-ai-history-meta';
+    meta.textContent = formatRelativeTime(chat.last_ts) + ' • ' + String(chat.turn_count || 0) + ' turns';
+    item.appendChild(title);
+    item.appendChild(meta);
+    item.addEventListener('click', function () {
+      loadChatConversation(String(chat.chat_id || ''));
+    });
+    return item;
+  }
+
+  function _appendHistoryItems(chats) {
+    if (!historyListEl || !historySentinelEl) return;
+    (chats || []).forEach(function (chat) {
+      // insert before sentinel so new items appear above it
+      historyListEl.insertBefore(_buildHistoryItem(chat), historySentinelEl);
+      // accumulate into cache for label sync
+      if (!historyListEl._cachedChats) historyListEl._cachedChats = [];
+      historyListEl._cachedChats.push(chat);
+    });
+  }
+
+  function refreshHistoryActiveState() {
+    if (!historyListEl) return;
+    historyListEl.querySelectorAll('.sobs-ai-history-item').forEach(function (el) {
+      el.classList.toggle('active', el.dataset.chatId === currentChatId);
+    });
+  }
+
+  async function _fetchHistoryPage() {
+    if (historyState.loading || !historyState.hasMore) return;
+    historyState.loading = true;
+    // show a loading indicator inside sentinel
+    var loadingEl = document.createElement('div');
+    loadingEl.className = 'sobs-ai-history-loading';
+    loadingEl.textContent = '…';
+    if (historySentinelEl) historySentinelEl.appendChild(loadingEl);
     try {
       var url = new URL('{{ url_for("ai_helper_chats") }}', window.location.origin);
-      url.searchParams.set('page', window.location.pathname || '/logs');
+      url.searchParams.set('page', window.location.pathname || '/');
+      url.searchParams.set('offset', String(historyState.offset));
+      url.searchParams.set('limit', String(_historyPageSize()));
+      if (historyState.q) url.searchParams.set('q', historyState.q);
       var resp = await fetch(url.toString());
       var data = await resp.json();
       if (!resp.ok || !data.ok) return;
       historyLoaded = true;
-      renderHistoryItems(data.chats || []);
+      _appendHistoryItems(data.chats || []);
+      historyState.offset += (data.chats || []).length;
+      historyState.hasMore = !!data.has_more;
+      syncActiveChatLabelFromHistory();
     } catch (_err) {
-      // ignore history fetch failures in UI
+      // ignore
+    } finally {
+      if (loadingEl.parentNode) loadingEl.parentNode.removeChild(loadingEl);
+      historyState.loading = false;
+    }
+  }
+
+  function _resetAndLoadHistory() {
+    if (!historyListEl || !historySentinelEl) return;
+    // remove all history items (keep sentinel)
+    Array.from(historyListEl.querySelectorAll('.sobs-ai-history-item')).forEach(function (el) {
+      el.parentNode.removeChild(el);
+    });
+    historyListEl._cachedChats = [];
+    historyState.offset = 0;
+    historyState.hasMore = true;
+    historyState.loading = false;
+    _fetchHistoryPage();
+  }
+
+  function loadChatHistory() {
+    _resetAndLoadHistory();
+  }
+
+  // IntersectionObserver: load next page when sentinel scrolls into view
+  if (window.IntersectionObserver && historySentinelEl && historyListEl) {
+    historyIntersectionObserver = new IntersectionObserver(function (entries) {
+      if (entries[0].isIntersecting && historyState.hasMore && !historyState.loading) {
+        _fetchHistoryPage();
+      }
+    }, { root: historyListEl, threshold: 0.1 });
+    historyIntersectionObserver.observe(historySentinelEl);
+  }
+
+  // Debounced search
+  if (historySearchEl) {
+    historySearchEl.addEventListener('input', function () {
+      clearTimeout(historySearchTimer);
+      historySearchTimer = setTimeout(function () {
+        historyState.q = (historySearchEl.value || '').trim().toLowerCase();
+        _resetAndLoadHistory();
+      }, 300);
+    });
+  }
+
+  function syncActiveChatLabelFromHistory() {
+    var chats = (historyListEl && historyListEl._cachedChats) || [];
+    var found = null;
+    for (var i = 0; i < chats.length; i += 1) {
+      if (String(chats[i].chat_id || '') === currentChatId) {
+        found = chats[i];
+        break;
+      }
+    }
+    if (found) {
+      setActiveChatLabel(String(found.label || 'Chat'));
+    } else if (currentChatId) {
+      setActiveChatLabel('Chat');
+    } else {
+      setActiveChatLabel('');
     }
   }
 
@@ -1234,7 +1379,7 @@
         });
       });
       currentChatId = String(data.chat_id || chatId);
-      renderHistoryItems((historyListEl && historyListEl._cachedChats) || []);
+      refreshHistoryActiveState();
       syncActiveChatLabelFromHistory();
       messagesEl.scrollTop = messagesEl.scrollHeight;
       syncPanelHeaderDensity();
@@ -1687,6 +1832,29 @@
 
     if (clientAction.type === 'apply_sql_filter') {
       var sqlWhere = String(clientAction.sql_where || '').trim();
+      if (!sqlWhere) {
+        var altSql = [
+          clientAction.sql,
+          clientAction.where,
+          clientAction.filter,
+          clientAction.expression,
+          clientAction.query
+        ];
+        for (var si = 0; si < altSql.length; si += 1) {
+          var candidate = altSql[si];
+          if (typeof candidate === 'string' && candidate.trim()) {
+            sqlWhere = candidate.trim();
+            break;
+          }
+          if (candidate && typeof candidate === 'object') {
+            var nested = String(candidate.sql_where || candidate.sql || candidate.where || '').trim();
+            if (nested) {
+              sqlWhere = nested;
+              break;
+            }
+          }
+        }
+      }
       var targetPage = String(clientAction.target_page || window.location.pathname || '/logs');
       if (!sqlWhere) {
         if (statusElRef) {

@@ -2346,6 +2346,31 @@ def _normalize_generic_ui_action_tool_call(args: dict[str, Any], current_page: s
                 "filters": filtered_filters,
             }
 
+    if action_type == "apply_sql_filter":
+        sql_where = str(action_arguments.get("sql_where") or "").strip()
+        if not sql_where:
+            for alt_key in ("sql", "where", "filter", "expression", "query"):
+                candidate = action_arguments.get(alt_key)
+                if isinstance(candidate, str) and candidate.strip():
+                    sql_where = candidate.strip()
+                    break
+                if isinstance(candidate, dict):
+                    nested = str(
+                        candidate.get("sql_where") or candidate.get("sql") or candidate.get("where") or ""
+                    ).strip()
+                    if nested:
+                        sql_where = nested
+                        break
+        if not sql_where and notes:
+            note_sql_match = re.search(r"\bwith\s+sql\s+(.+)$", notes, re.IGNORECASE)
+            if note_sql_match:
+                sql_where = str(note_sql_match.group(1) or "").strip()
+        if sql_where:
+            action_arguments = {
+                **action_arguments,
+                "sql_where": sql_where,
+            }
+
     # Build action payload: merge arguments with defaults from template annotation
     action_payload = {
         "target_page": target_page,
@@ -5289,6 +5314,76 @@ async def view_logs():
 # ---------------------------------------------------------------------------
 _ANOMALY_SEVERITY_RANK = {"normal": 0, "warning": 1, "outlier": 2}
 
+_AI_TRACE_PROMPT_SQL = (
+    "coalesce(SpanAttributes['sobs.gen_ai.prompt'], "
+    "SpanAttributes['gen_ai.turn.summary.request'], "
+    "SpanAttributes['gen_ai.input.question'], "
+    "SpanAttributes['gen_ai.input.messages'])"
+)
+_AI_TRACE_RESPONSE_SQL = "coalesce(SpanAttributes['sobs.gen_ai.response'], " "SpanAttributes['gen_ai.output.messages'])"
+
+
+def _replace_sql_outside_single_quotes(sql: str, replacements: list[tuple[str, str]]) -> str:
+    placeholders: list[str] = []
+    masked_parts: list[str] = []
+    i = 0
+    while i < len(sql):
+        ch = sql[i]
+        if ch != "'":
+            masked_parts.append(ch)
+            i += 1
+            continue
+
+        start = i
+        i += 1
+        while i < len(sql):
+            if sql[i] == "'":
+                if i + 1 < len(sql) and sql[i + 1] == "'":
+                    i += 2
+                    continue
+                i += 1
+                break
+            i += 1
+
+        literal = sql[start:i]
+        token = f"__SQL_LITERAL_{len(placeholders)}__"
+        placeholders.append(literal)
+        masked_parts.append(token)
+
+    masked = "".join(masked_parts)
+    for pattern, replacement in replacements:
+        masked = re.sub(pattern, replacement, masked, flags=re.IGNORECASE)
+    for idx, literal in enumerate(placeholders):
+        masked = masked.replace(f"__SQL_LITERAL_{idx}__", literal)
+    return masked
+
+
+def _normalize_ai_sql_where(sql_where: str) -> str:
+    safe_sql = str(sql_where or "").replace(";", "")
+    replacements = [
+        (r"\bLogAttributes\s*\[", "SpanAttributes["),
+        (r"SpanAttributes\s*\[\s*'prompt'\s*\]", _AI_TRACE_PROMPT_SQL),
+        (r"SpanAttributes\s*\[\s*'response'\s*\]", _AI_TRACE_RESPONSE_SQL),
+        (r"\bservice\b", "ServiceName"),
+        (r"\bmodel\b", "SpanAttributes['gen_ai.request.model']"),
+        (r"\bprovider\b", "SpanAttributes['gen_ai.provider.name']"),
+        (r"\boperation\b", "SpanAttributes['gen_ai.operation.name']"),
+        (r"\bprompt\b", _AI_TRACE_PROMPT_SQL),
+        (r"\bresponse\b", _AI_TRACE_RESPONSE_SQL),
+        (r"\btrace_id\b", "TraceId"),
+        (r"\bspan_id\b", "SpanId"),
+        (r"\bspan_name\b", "SpanName"),
+        (r"\brow_type\b", "if(SpanAttributes['gen_ai.request.model'] != '', 'llm', 'system')"),
+        (r"\bts\b", "Timestamp"),
+        (r"\bstatus\b", "StatusCode"),
+        (r"\berror_type\b", "SpanAttributes['error.type']"),
+        (r"\btokens_in\b", "toUInt64OrZero(SpanAttributes['gen_ai.usage.input_tokens'])"),
+        (r"\btokens_out\b", "toUInt64OrZero(SpanAttributes['gen_ai.usage.output_tokens'])"),
+        (r"\bthinking_tokens\b", "toUInt64OrZero(SpanAttributes['gen_ai.usage.thinking_tokens'])"),
+        (r"\bduration_ms\b", "(Duration / 1000000.0)"),
+    ]
+    return _replace_sql_outside_single_quotes(safe_sql, replacements)
+
 
 def _list_derived_signal_dimensions(db: ChDbConnection) -> tuple[list[str], list[str], list[str]]:
     services = [
@@ -7542,9 +7637,15 @@ async def view_ai():
     service = request.args.get("service", "").strip()
     model = request.args.get("model", "").strip()
     operation_filter = request.args.get("operation", "").strip()
+    span_name = request.args.get("span_name", "").strip()
+    row_type = request.args.get("row_type", "").strip().lower()
+    sql_where = request.args.get("sql", "").strip()
+    from_ts, to_ts, time_error = _parse_time_window_args()
     view_mode = request.args.get("view", "flat").strip().lower()
     if view_mode not in ("flat", "trace"):
         view_mode = "flat"
+    if row_type not in ("", "llm", "system"):
+        row_type = ""
     limit = _parse_limit(50)
     offset = _parse_offset()
     sort_by, sort_col, sort_dir = _parse_sort(
@@ -7555,54 +7656,91 @@ async def view_ai():
 
     conditions = []
     params = []
-    if service:
-        conditions.append("ServiceName=?")
-        params.append(service)
-    if model:
-        conditions.append("SpanAttributes['gen_ai.request.model']=?")
-        params.append(model)
-    if operation_filter:
-        if operation_filter.lower() == "chat":
-            conditions.append(
-                "(SpanAttributes['gen_ai.operation.name']=? OR SpanAttributes['gen_ai.operation.name']='')"
-            )
-            params.append("chat")
-        else:
-            conditions.append("SpanAttributes['gen_ai.operation.name']=?")
-            params.append(operation_filter)
-    conditions.append("(SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '')")
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    error_msg = time_error
+    base_ai_condition = "(SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '')"
+    time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
+    where = "WHERE " + base_ai_condition
+    if sql_where and not error_msg:
+        try:
+            safe_sql = _normalize_ai_sql_where(sql_where)
+            sql_conditions = [f"({safe_sql})", base_ai_condition]
+            sql_conditions.extend(time_conditions)
+            where = "WHERE " + " AND ".join(sql_conditions)
+            params = list(time_params)
+        except Exception as exc:
+            error_msg = f"SQL error: {_public_dashboard_query_error(exc)}"
+            where = "WHERE " + base_ai_condition
+    elif not error_msg:
+        if service:
+            conditions.append("ServiceName=?")
+            params.append(service)
+        if model:
+            conditions.append("SpanAttributes['gen_ai.request.model']=?")
+            params.append(model)
+        if operation_filter:
+            if operation_filter.lower() == "chat":
+                conditions.append(
+                    "(SpanAttributes['gen_ai.operation.name']=? OR SpanAttributes['gen_ai.operation.name']='')"
+                )
+                params.append("chat")
+            else:
+                conditions.append("SpanAttributes['gen_ai.operation.name']=?")
+                params.append(operation_filter)
+        if span_name:
+            conditions.append("SpanName=?")
+            params.append(span_name)
+        if row_type == "llm":
+            conditions.append("SpanAttributes['gen_ai.request.model'] != ''")
+        elif row_type == "system":
+            conditions.append("SpanAttributes['gen_ai.request.model'] = ''")
+        conditions.append(base_ai_condition)
+        conditions.extend(time_conditions)
+        params.extend(time_params)
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
     trace_ids: list[str] = []
-    if view_mode == "trace":
-        trace_conditions = list(conditions)
-        trace_conditions.append("TraceId != ''")
-        trace_where = "WHERE " + " AND ".join(trace_conditions)
-        total = db.execute(f"SELECT COUNT(DISTINCT TraceId) FROM otel_traces {trace_where}", params).fetchone()[0]
-        trace_rows = db.execute(
-            f"SELECT TraceId, MAX(Timestamp) AS LastTs FROM otel_traces "
-            f"{trace_where} GROUP BY TraceId ORDER BY LastTs {'ASC' if sort_dir == 'asc' else 'DESC'} LIMIT ? OFFSET ?",
-            params + [limit, offset],
-        ).fetchall()
-        trace_ids = [str(r["TraceId"]) for r in trace_rows if str(r["TraceId"])]
-        if trace_ids:
-            placeholders = ",".join(["?"] * len(trace_ids))
-            rows = db.execute(
-                f"SELECT Timestamp, ServiceName, TraceId, Duration, SpanAttributes "
-                f"FROM otel_traces WHERE TraceId IN ({placeholders}) "
-                "AND (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
-                "ORDER BY Timestamp ASC",
-                trace_ids,
-            ).fetchall()
-        else:
+    total = 0
+    rows = []
+    if not error_msg:
+        try:
+            if view_mode == "trace":
+                trace_conditions = list(conditions)
+                if sql_where:
+                    trace_where = f"{where} AND TraceId != ''"
+                else:
+                    trace_conditions.append("TraceId != ''")
+                    trace_where = "WHERE " + " AND ".join(trace_conditions)
+                total = db.execute(f"SELECT COUNT(DISTINCT TraceId) FROM otel_traces {trace_where}", params).fetchone()[
+                    0
+                ]
+                trace_rows = db.execute(
+                    f"SELECT TraceId, MAX(Timestamp) AS LastTs FROM otel_traces "
+                    f"{trace_where} GROUP BY TraceId "
+                    f"ORDER BY LastTs {'ASC' if sort_dir == 'asc' else 'DESC'} LIMIT ? OFFSET ?",
+                    params + [limit, offset],
+                ).fetchall()
+                trace_ids = [str(r["TraceId"]) for r in trace_rows if str(r["TraceId"])]
+                if trace_ids:
+                    placeholders = ",".join(["?"] * len(trace_ids))
+                    rows = db.execute(
+                        f"SELECT Timestamp, ServiceName, TraceId, SpanName, Duration, SpanAttributes "
+                        f"FROM otel_traces WHERE TraceId IN ({placeholders}) "
+                        "AND (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
+                        "ORDER BY Timestamp ASC",
+                        trace_ids,
+                    ).fetchall()
+            else:
+                total = db.execute(f"SELECT COUNT(*) FROM otel_traces {where}", params).fetchone()[0]
+                rows = db.execute(
+                    f"SELECT Timestamp, ServiceName, TraceId, SpanName, Duration, SpanAttributes "
+                    f"FROM otel_traces {where} {order_clause} LIMIT ? OFFSET ?",
+                    params + [limit, offset],
+                ).fetchall()
+        except Exception as exc:
+            error_msg = f"SQL error: {_public_dashboard_query_error(exc)}"
+            total = 0
             rows = []
-    else:
-        total = db.execute(f"SELECT COUNT(*) FROM otel_traces {where}", params).fetchone()[0]
-        rows = db.execute(
-            f"SELECT Timestamp, ServiceName, TraceId, Duration, SpanAttributes "
-            f"FROM otel_traces {where} {order_clause} LIMIT ? OFFSET ?",
-            params + [limit, offset],
-        ).fetchall()
+            trace_ids = []
 
     ai_items = []
     for r in rows:
@@ -7625,6 +7763,7 @@ async def view_ai():
         tokens_per_sec = round(tokens_out / (duration_ms / 1000), 1) if duration_ms > 0 and tokens_out > 0 else 0
         # Additional OTel GenAI attributes
         finish_reason = str(attrs.get("gen_ai.response.finish_reason", ""))
+        span_name = str(r["SpanName"] or "")
         temperature = str(attrs.get("gen_ai.request.temperature", ""))
         max_tokens = str(attrs.get("gen_ai.request.max_tokens", ""))
         thinking_tokens = int(float(attrs.get("gen_ai.usage.thinking_tokens", "0") or 0))
@@ -7656,6 +7795,8 @@ async def view_ai():
                 "provider": provider,
                 "model": req_model,
                 "operation": operation,
+                "span_name": span_name,
+                "is_llm_call": bool(req_model and (tokens_in > 0 or tokens_out > 0 or response)),
                 "prompt": prompt,
                 "response": response,
                 "input_messages": input_messages,
@@ -7756,6 +7897,14 @@ async def view_ai():
             "AND SpanAttributes['gen_ai.operation.name'] != '' ORDER BY op"
         ).fetchall()
     ]
+    span_names = [
+        row[0]
+        for row in db.execute(
+            "SELECT DISTINCT SpanName FROM otel_traces "
+            "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
+            "AND SpanName != '' ORDER BY SpanName"
+        ).fetchall()
+    ]
 
     # Token usage totals
     totals = db.execute(
@@ -7776,17 +7925,24 @@ async def view_ai():
         service=service,
         model=model,
         operation=operation_filter,
+        span_name=span_name,
+        row_type=row_type,
+        sql_where=sql_where,
         view_mode=view_mode,
         services=services,
         models=models,
         operations=operations,
+        span_names=span_names,
         trace_groups=trace_groups,
         total_tokens_in=totals["ti"] or 0,
         total_tokens_out=totals["to_"] or 0,
         total_calls=totals["cnt"] or 0,
         total_errors=totals["errors"] or 0,
+        error_msg=error_msg,
         sort_by=sort_by,
         sort_dir=sort_dir,
+        from_ts=from_ts,
+        to_ts=to_ts,
     )
 
 
@@ -7801,6 +7957,7 @@ async def export_ai_training():
     service = request.args.get("service", "").strip()
     model = request.args.get("model", "").strip()
     operation_filter = request.args.get("operation", "").strip()
+    from_ts, to_ts, _time_error = _parse_time_window_args()
     fmt = request.args.get("format", "jsonl").strip().lower()
     try:
         max_rows = max(1, min(int(request.args.get("limit", 1000)), 5000))
@@ -7826,6 +7983,9 @@ async def export_ai_training():
         else:
             conditions.append("SpanAttributes['gen_ai.operation.name']=?")
             params.append(operation_filter)
+    time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
+    conditions.extend(time_conditions)
+    params.extend(time_params)
     where = "WHERE " + " AND ".join(conditions)
 
     rows = db.execute(
@@ -11109,6 +11269,243 @@ async def api_logs_validate_filter():
 
 
 # ---------------------------------------------------------------------------
+# AI Field Hints API  GET /api/ai/field-hints
+# Used by SQL filter autocomplete on the AI Transparency page.
+# ---------------------------------------------------------------------------
+@app.route("/api/ai/field-hints", methods=["GET"])
+@require_basic_auth
+async def api_ai_field_hints():
+    db = get_db()
+    base_where = "(SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '')"
+
+    fields = [
+        {"name": "service", "column": "ServiceName", "type": "string", "values": []},
+        {"name": "model", "column": "SpanAttributes['gen_ai.request.model']", "type": "string", "values": []},
+        {"name": "provider", "column": "SpanAttributes['gen_ai.provider.name']", "type": "string", "values": []},
+        {"name": "operation", "column": "SpanAttributes['gen_ai.operation.name']", "type": "string", "values": []},
+        {
+            "name": "prompt",
+            "column": _AI_TRACE_PROMPT_SQL,
+            "type": "string",
+            "values": [],
+        },
+        {
+            "name": "response",
+            "column": _AI_TRACE_RESPONSE_SQL,
+            "type": "string",
+            "values": [],
+        },
+        {"name": "span_name", "column": "SpanName", "type": "string", "values": []},
+        {
+            "name": "row_type",
+            "column": "if(SpanAttributes['gen_ai.request.model'] != '', 'llm', 'system')",
+            "type": "string",
+            "values": [
+                "llm",
+                "system",
+            ],
+        },
+        {"name": "trace_id", "column": "TraceId", "type": "string", "values": []},
+        {"name": "span_id", "column": "SpanId", "type": "string", "values": []},
+        {"name": "ts", "column": "Timestamp", "type": "datetime", "values": []},
+        {"name": "status", "column": "StatusCode", "type": "string", "values": []},
+        {"name": "error_type", "column": "SpanAttributes['error.type']", "type": "string", "values": []},
+        {
+            "name": "tokens_in",
+            "column": "toUInt64OrZero(SpanAttributes['gen_ai.usage.input_tokens'])",
+            "type": "number",
+            "values": [],
+        },
+        {
+            "name": "tokens_out",
+            "column": "toUInt64OrZero(SpanAttributes['gen_ai.usage.output_tokens'])",
+            "type": "number",
+            "values": [],
+        },
+        {
+            "name": "thinking_tokens",
+            "column": "toUInt64OrZero(SpanAttributes['gen_ai.usage.thinking_tokens'])",
+            "type": "number",
+            "values": [],
+        },
+        {"name": "duration_ms", "column": "(Duration / 1000000.0)", "type": "number", "values": []},
+    ]
+
+    try:
+        services = [
+            str(r[0])
+            for r in db.execute(
+                f"SELECT DISTINCT ServiceName FROM otel_traces WHERE {base_where} "
+                "AND ServiceName != '' ORDER BY ServiceName LIMIT 40"
+            ).fetchall()
+        ]
+        models = [
+            str(r[0])
+            for r in db.execute(
+                f"SELECT DISTINCT SpanAttributes['gen_ai.request.model'] FROM otel_traces WHERE {base_where} "
+                "AND SpanAttributes['gen_ai.request.model'] != '' "
+                "ORDER BY SpanAttributes['gen_ai.request.model'] LIMIT 40"
+            ).fetchall()
+        ]
+        providers = [
+            str(r[0])
+            for r in db.execute(
+                f"SELECT DISTINCT coalesce(SpanAttributes['gen_ai.provider.name'], SpanAttributes['gen_ai.system']) "
+                f"FROM otel_traces WHERE {base_where} "
+                "ORDER BY coalesce(SpanAttributes['gen_ai.provider.name'], SpanAttributes['gen_ai.system']) LIMIT 40"
+            ).fetchall()
+        ]
+        operations = [
+            str(r[0])
+            for r in db.execute(
+                f"SELECT DISTINCT SpanAttributes['gen_ai.operation.name'] FROM otel_traces WHERE {base_where} "
+                "AND SpanAttributes['gen_ai.operation.name'] != '' "
+                "ORDER BY SpanAttributes['gen_ai.operation.name'] LIMIT 40"
+            ).fetchall()
+        ]
+        span_names = [
+            str(r[0])
+            for r in db.execute(
+                f"SELECT DISTINCT SpanName FROM otel_traces WHERE {base_where} "
+                "AND SpanName != '' ORDER BY SpanName LIMIT 60"
+            ).fetchall()
+        ]
+        status_codes = [
+            str(r[0])
+            for r in db.execute(
+                f"SELECT DISTINCT StatusCode FROM otel_traces WHERE {base_where} "
+                "AND StatusCode != '' ORDER BY StatusCode LIMIT 20"
+            ).fetchall()
+        ]
+        error_types = [
+            str(r[0])
+            for r in db.execute(
+                f"SELECT DISTINCT SpanAttributes['error.type'] FROM otel_traces WHERE {base_where} "
+                "AND SpanAttributes['error.type'] != '' ORDER BY SpanAttributes['error.type'] LIMIT 40"
+            ).fetchall()
+        ]
+    except Exception:
+        services = []
+        models = []
+        providers = []
+        operations = []
+        span_names = []
+        status_codes = []
+        error_types = []
+
+    values_by_field = {
+        "service": services,
+        "model": models,
+        "provider": providers,
+        "operation": operations,
+        "span_name": span_names,
+        "status": status_codes,
+        "error_type": error_types,
+    }
+    for fld in fields:
+        if fld["name"] in values_by_field:
+            fld["values"] = values_by_field[fld["name"]]
+
+    operators = ["=", "!=", "LIKE", "NOT LIKE", "ILIKE", "NOT ILIKE", "IN", "NOT IN", ">", "<", ">=", "<="]
+    keywords = ["AND", "OR", "NOT", "IS NULL", "IS NOT NULL", "TRUE", "FALSE", "NULL"]
+    functions = [
+        {"name": "match", "signature": "match(model, 'gpt')", "kind": "string"},
+        {"name": "startsWith", "signature": "startsWith(span_name, 'ai.tool')", "kind": "string"},
+        {"name": "endsWith", "signature": "endsWith(provider, 'cloud')", "kind": "string"},
+        {"name": "lower", "signature": "lower(model)", "kind": "string"},
+        {"name": "upper", "signature": "upper(operation)", "kind": "string"},
+        {"name": "toDateTime", "signature": "toDateTime('2026-03-30 12:00:00')", "kind": "datetime"},
+    ]
+    snippets = [
+        {"label": "row_type='llm'", "insert": "row_type='llm'", "kind": "predicate"},
+        {"label": "row_type='system'", "insert": "row_type='system'", "kind": "predicate"},
+        {"label": "span_name='ai.tool.executed'", "insert": "span_name='ai.tool.executed'", "kind": "predicate"},
+        {
+            "label": "prompt ILIKE '%graph%'",
+            "insert": "prompt ILIKE '%graph%'",
+            "kind": "predicate",
+        },
+        {
+            "label": "response ILIKE '%chart%'",
+            "insert": "response ILIKE '%chart%'",
+            "kind": "predicate",
+        },
+        {"label": "tokens_out > 1000", "insert": "tokens_out > 1000", "kind": "predicate"},
+        {"label": "error_type != ''", "insert": "error_type != ''", "kind": "predicate"},
+        {
+            "label": "ts >= toDateTime('2026-03-30 00:00:00')",
+            "insert": "ts >= toDateTime('2026-03-30 00:00:00')",
+            "kind": "predicate",
+        },
+    ]
+
+    return jsonify(
+        {
+            "fields": fields,
+            "operators": operators,
+            "keywords": keywords,
+            "functions": functions,
+            "snippets": snippets,
+        }
+    )
+
+
+@app.route("/api/ai/validate-filter", methods=["POST"])
+@require_basic_auth
+async def api_ai_validate_filter():
+    """Validate a SQL WHERE fragment used by /ai?sql=... and return actionable feedback."""
+    payload = await request.get_json(silent=True)
+    sql_where = str((payload or {}).get("sql", "") or "").strip()
+    if not sql_where:
+        return jsonify({"ok": True, "normalized": "", "issues": []})
+
+    issues: list[dict[str, str]] = []
+
+    quote_open = False
+    paren_depth = 0
+    i = 0
+    while i < len(sql_where):
+        ch = sql_where[i]
+        if ch == "'":
+            if i + 1 < len(sql_where) and sql_where[i + 1] == "'":
+                i += 2
+                continue
+            quote_open = not quote_open
+        elif not quote_open:
+            if ch == "(":
+                paren_depth += 1
+            elif ch == ")":
+                paren_depth -= 1
+                if paren_depth < 0:
+                    issues.append({"level": "error", "message": "Unexpected ')' in filter."})
+                    break
+        i += 1
+
+    if quote_open:
+        issues.append({"level": "error", "message": "Unclosed single quote in filter."})
+    if paren_depth > 0:
+        issues.append({"level": "error", "message": "Unclosed '(' in filter."})
+    if re.search(r"\b(AND|OR|NOT|IN|LIKE|ILIKE)\s*$", sql_where, re.IGNORECASE):
+        issues.append({"level": "warning", "message": "Filter ends with an operator or keyword."})
+
+    try:
+        safe_sql = _normalize_ai_sql_where(sql_where)
+
+        db = get_db()
+        db.execute(
+            "SELECT 1 FROM otel_traces "
+            f"WHERE ({safe_sql}) "
+            "AND (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
+            "LIMIT 1"
+        ).fetchone()
+    except Exception as exc:
+        issues.append({"level": "error", "message": _public_dashboard_query_error(exc)})
+        return jsonify({"ok": False, "normalized": "", "issues": issues}), 200
+
+    return jsonify({"ok": True, "normalized": safe_sql, "issues": issues})
+
+
+# ---------------------------------------------------------------------------
 # SSE live tail  GET /tail
 # ---------------------------------------------------------------------------
 @app.route("/tail")
@@ -13121,6 +13518,16 @@ async def ai_helper_action_manifest():
 async def ai_helper_chats():
     db = get_db()
     page = str(request.args.get("page") or "").strip()
+    q = str(request.args.get("q") or "").strip().lower()
+    try:
+        limit = max(5, min(int(request.args.get("limit") or 20), 100))
+    except (ValueError, TypeError):
+        limit = 20
+    try:
+        offset = max(0, int(request.args.get("offset") or 0))
+    except (ValueError, TypeError):
+        offset = 0
+
     where = ["ServiceName=?", "EventName='turn.summary'", "LogAttributes['gen_ai.chat_id'] != ''"]
     params: list[Any] = [_AI_HELPER_SERVICE_NAME]
     if page:
@@ -13137,7 +13544,7 @@ async def ai_helper_chats():
         "  count() AS turn_count "
         f"FROM otel_logs WHERE {where_sql} "
         "GROUP BY chat_id "
-        "ORDER BY last_ts DESC LIMIT 200",
+        "ORDER BY last_ts DESC LIMIT 500",
         params,
     ).fetchall()
 
@@ -13146,16 +13553,23 @@ async def ai_helper_chats():
         chat_id = str(row["chat_id"] or "").strip()
         if not chat_id:
             continue
+        label = _chat_label_from_first_turn(row["first_question"], row["first_request"])
+        if q and q not in label.lower():
+            continue
         chats.append(
             {
                 "chat_id": chat_id,
                 "first_ts": str(row["first_ts"] or ""),
                 "last_ts": str(row["last_ts"] or ""),
-                "label": _chat_label_from_first_turn(row["first_question"], row["first_request"]),
+                "label": label,
                 "turn_count": int(row["turn_count"] or 0),
             }
         )
-    return jsonify({"ok": True, "chats": chats})
+
+    total = len(chats)
+    page_chats = chats[offset : offset + limit]
+    has_more = offset + len(page_chats) < total
+    return jsonify({"ok": True, "chats": page_chats, "total": total, "has_more": has_more, "offset": offset})
 
 
 @app.route("/api/ai/helper/chats/<chat_id>", methods=["GET"])
@@ -13409,6 +13823,8 @@ async def ai_helper():
         "available dashboard actions. "
         "If tools are available and the user asks to apply a logs SQL filter, call "
         "propose_ui_action with action_id logs.filter.apply_sql. "
+        "If tools are available and the user asks to apply an AI page SQL filter, call "
+        "propose_ui_action with action_id ai.filter.apply_sql. "
         "The otel_logs table has an EventName column for structured event types. "
         "To filter by event name use: EventName = 'turn.feedback' "
         "To access log attributes use: LogAttributes['gen_ai.feedback.note'] "
@@ -13416,6 +13832,16 @@ async def ai_helper():
         "EventName = 'turn.complete' finds completed AI turns; "
         "EventName = 'turn.feedback' AND TraceId = '<chat_id>' scopes to one conversation. "
         "All AI assistant telemetry lives in otel_logs under ServiceName = 'sobs-ai-helper'. "
+        "On the AI page the table is otel_traces. Supported aliases include: service, model, provider, "
+        "operation, prompt, response, span_name, row_type, trace_id, span_id, ts, status, "
+        "error_type, tokens_in, tokens_out, "
+        "thinking_tokens, duration_ms. "
+        "Do not use LogAttributes[...] on the AI page; use aliases or SpanAttributes[...] only. "
+        "AI page examples: row_type = 'system' AND span_name = 'ai.tool.executed'; "
+        "model = 'gpt-oss:120b-cloud' AND tokens_out > 1000; "
+        "prompt ILIKE '%graph%' OR response ILIKE '%chart%'; "
+        "provider = 'sobs' AND error_type != ''; "
+        "duration_ms > 1000 ORDER BY Timestamp DESC is not valid in WHERE, so only emit the filter expression. "
         "For requests like 'longest traces' or 'highest total duration by trace', generate a "
         "richer WHERE clause using an IN subquery with GROUP BY trace id and ORDER BY sum(Duration) DESC. "
         "At the very end of every response, append a single compact metadata block in this exact format: "
