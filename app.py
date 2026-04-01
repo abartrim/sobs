@@ -920,6 +920,18 @@ CREATE TABLE IF NOT EXISTS sobs_app_settings (
     UpdatedAt DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1))
 ) ENGINE = ReplacingMergeTree(UpdatedAt)
 ORDER BY Key;
+
+CREATE TABLE IF NOT EXISTS sobs_reports (
+    Id String CODEC(ZSTD(1)),
+    Name String CODEC(ZSTD(1)),
+    Description String CODEC(ZSTD(1)),
+    PageType LowCardinality(String) CODEC(ZSTD(1)),
+    FiltersJson String CODEC(ZSTD(1)),
+    IsDeleted UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Version UInt64 DEFAULT 0 CODEC(T64, ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY Id
+SETTINGS index_granularity = 8192;
 """
 
 
@@ -10771,6 +10783,164 @@ async def metrics_anomaly():
     except Exception as exc:
         app.logger.exception("metrics_anomaly query failed: service=%s metric=%s", service, metric)
         return jsonify({"error": _public_dashboard_query_error(exc)}), 400
+
+
+# ---------------------------------------------------------------------------
+# Reports – saved filter configurations
+# ---------------------------------------------------------------------------
+
+# Valid page types for reports
+_REPORT_PAGE_TYPES = {"logs", "traces", "errors", "metrics", "rum", "ai"}
+
+
+def _get_reports(db: ChDbConnection, page_type: str | None = None) -> list[dict]:
+    if page_type:
+        rows = db.execute(
+            "SELECT Id, Name, Description, PageType, FiltersJson "
+            "FROM sobs_reports FINAL WHERE IsDeleted = 0 AND PageType = ? ORDER BY Name",
+            [page_type],
+        ).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT Id, Name, Description, PageType, FiltersJson "
+            "FROM sobs_reports FINAL WHERE IsDeleted = 0 ORDER BY PageType, Name"
+        ).fetchall()
+    return [
+        {
+            "id": str(r["Id"]),
+            "name": str(r["Name"]),
+            "description": str(r["Description"]),
+            "page_type": str(r["PageType"]),
+            "filters": json.loads(str(r["FiltersJson"])) if r["FiltersJson"] else {},
+        }
+        for r in rows
+    ]
+
+
+def _get_report(db: ChDbConnection, report_id: str) -> dict | None:
+    row = db.execute(
+        "SELECT Id, Name, Description, PageType, FiltersJson "
+        "FROM sobs_reports FINAL WHERE IsDeleted = 0 AND Id = ?",
+        [report_id],
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "id": str(row["Id"]),
+        "name": str(row["Name"]),
+        "description": str(row["Description"]),
+        "page_type": str(row["PageType"]),
+        "filters": json.loads(str(row["FiltersJson"])) if row["FiltersJson"] else {},
+    }
+
+
+@app.route("/reports")
+@require_basic_auth
+async def list_reports():
+    db = get_db()
+    reports = _get_reports(db)
+    return await render_template("reports.html", reports=reports)
+
+
+@app.route("/reports/<report_id>/delete", methods=["POST"])
+@require_basic_auth
+async def delete_report(report_id: str):
+    db = get_db()
+    report = _get_report(db, report_id)
+    if not report:
+        await flash("Report not found", "danger")
+        return redirect(url_for("list_reports"))
+    version = int(time.time() * 1000)
+    _insert_rows_json_each_row(
+        db,
+        "sobs_reports",
+        [
+            {
+                "Id": report_id,
+                "Name": report["name"],
+                "Description": report["description"],
+                "PageType": report["page_type"],
+                "FiltersJson": json.dumps(report["filters"], ensure_ascii=False),
+                "IsDeleted": 1,
+                "Version": version,
+            }
+        ],
+    )
+    await flash(f"Report '{report['name']}' deleted", "success")
+    return redirect(url_for("list_reports"))
+
+
+@app.route("/api/reports", methods=["GET"])
+@require_basic_auth
+async def api_list_reports():
+    page_type = request.args.get("page_type", "").strip()
+    db = get_db()
+    reports = _get_reports(db, page_type if page_type else None)
+    return jsonify(reports)
+
+
+@app.route("/api/reports", methods=["POST"])
+@require_basic_auth
+async def api_create_report():
+    body = await request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    description = (body.get("description") or "").strip()
+    page_type = (body.get("page_type") or "").strip()
+    filters = body.get("filters") or {}
+
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    if page_type not in _REPORT_PAGE_TYPES:
+        return jsonify({"error": f"page_type must be one of: {', '.join(sorted(_REPORT_PAGE_TYPES))}"}), 400
+    if not isinstance(filters, dict):
+        return jsonify({"error": "filters must be an object"}), 400
+
+    report_id = str(uuid.uuid4())
+    version = int(time.time() * 1000)
+    db = get_db()
+    _insert_rows_json_each_row(
+        db,
+        "sobs_reports",
+        [
+            {
+                "Id": report_id,
+                "Name": name,
+                "Description": description,
+                "PageType": page_type,
+                "FiltersJson": json.dumps(filters, ensure_ascii=False),
+                "IsDeleted": 0,
+                "Version": version,
+            }
+        ],
+    )
+    result = {"id": report_id, "name": name, "description": description, "page_type": page_type, "filters": filters}
+    return jsonify(result), 201
+
+
+@app.route("/api/reports/<report_id>", methods=["DELETE"])
+@require_basic_auth
+async def api_delete_report(report_id: str):
+    db = get_db()
+    report = _get_report(db, report_id)
+    if not report:
+        return jsonify({"error": "not found"}), 404
+    version = int(time.time() * 1000)
+    _insert_rows_json_each_row(
+        db,
+        "sobs_reports",
+        [
+            {
+                "Id": report_id,
+                "Name": report["name"],
+                "Description": report["description"],
+                "PageType": report["page_type"],
+                "FiltersJson": json.dumps(report["filters"], ensure_ascii=False),
+                "IsDeleted": 1,
+                "Version": version,
+            }
+        ],
+    )
+    return jsonify({"deleted": True})
 
 
 # ---------------------------------------------------------------------------

@@ -70,6 +70,17 @@
           data-ai-confirm="false"
           data-ai-action-role="filter-submit"><i class="bi bi-search"></i></button>
         <a href="{{ url_for('view_errors') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
+        <div class="btn-group btn-group-sm" id="errors-reports-group">
+          <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Saved reports">
+            <i class="bi bi-bookmark-star"></i>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end" id="errors-reports-menu">
+            <li><span class="dropdown-item text-secondary small">Loading…</span></li>
+          </ul>
+        </div>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="errors-save-report-btn" title="Save as report">
+          <i class="bi bi-bookmark-plus"></i>
+        </button>
       </div>
     </form>
     {% if error_msg %}
@@ -234,5 +245,58 @@ document.querySelectorAll('.ai-help-btn').forEach(btn => {
     }
   });
 });
+
+// ── Saved Reports: errors page ────────────────────────────────────────────
+(function () {
+  const menu = document.getElementById('errors-reports-menu');
+  const saveBtn = document.getElementById('errors-save-report-btn');
+  const pageBaseUrl = {{ url_for('view_errors') | tojson }};
+
+  if (!menu || !saveBtn) return;
+
+  document.getElementById('errors-reports-group').addEventListener('show.bs.dropdown', function () {
+    fetch('/api/reports?page_type=errors')
+      .then(r => r.json())
+      .then(reports => {
+        if (!reports.length) {
+          menu.innerHTML = '<li><span class="dropdown-item text-secondary small">No saved reports</span></li>';
+          return;
+        }
+        menu.innerHTML = reports.map(rep => {
+          const params = new URLSearchParams(rep.filters);
+          const url = pageBaseUrl + '?' + params.toString();
+          return `<li><a class="dropdown-item small" href="${url}" title="${rep.description || ''}">${rep.name}</a></li>`;
+        }).join('') +
+          '<li><hr class="dropdown-divider my-1"></li>' +
+          `<li><a class="dropdown-item small text-secondary" href="{{ url_for('list_reports') }}"><i class="bi bi-gear me-1"></i>Manage reports</a></li>`;
+      })
+      .catch(() => {
+        menu.innerHTML = '<li><span class="dropdown-item text-danger small">Failed to load</span></li>';
+      });
+  });
+
+  saveBtn.addEventListener('click', function () {
+    const name = prompt('Report name:');
+    if (!name || !name.trim()) return;
+    const description = prompt('Description (optional):') || '';
+    const form = document.querySelector('form[method="get"]');
+    const data = new FormData(form);
+    const filters = {};
+    for (const [k, v] of data.entries()) {
+      if (v) filters[k] = v;
+    }
+    fetch('/api/reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim(), description: description.trim(), page_type: 'errors', filters })
+    })
+      .then(r => r.json())
+      .then(rep => {
+        if (rep.error) { alert('Error: ' + rep.error); return; }
+        alert('Report \'' + rep.name + '\' saved!');
+      })
+      .catch(() => alert('Failed to save report.'));
+  });
+})();
 </script>
 {% endblock %}

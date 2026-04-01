@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-bookmark-star me-2 text-primary"></i>Saved Reports</h4>
+</div>
+
+<p class="text-secondary small mb-3">
+  Reports are saved filter configurations that can be quickly applied from the Logs, Traces, Errors, Metrics, RUM, and AI pages.
+  Use the <strong>Save as report</strong> button on any filter bar to save your current filters, then load them here or from the dropdown on each page.
+</p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+{% for category, message in messages %}
+<div class="alert alert-{{ category }} alert-dismissible fade show py-2" role="alert">
+  {{ message }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endfor %}
+{% endif %}
+{% endwith %}
+
+{% if reports %}
+{% set page_labels = {'logs': ('journal-text', 'text-info', 'Logs'), 'traces': ('diagram-3', 'text-warning', 'Traces'), 'errors': ('bug', 'text-danger', 'Errors'), 'metrics': ('graph-up', 'text-success', 'Metrics'), 'rum': ('phone', 'text-primary', 'RUM'), 'ai': ('robot', 'text-secondary', 'AI')} %}
+{% set current_page_type = namespace(value='') %}
+{% for report in reports %}
+{% if report.page_type != current_page_type.value %}
+{% set current_page_type.value = report.page_type %}
+{% set pt = page_labels.get(report.page_type, ('bookmark', 'text-secondary', report.page_type)) %}
+<h6 class="fw-semibold text-secondary small mt-4 mb-2 text-uppercase letter-spacing-1">
+  <i class="bi bi-{{ pt[0] }} me-1 {{ pt[1] }}"></i>{{ pt[2] }}
+</h6>
+{% endif %}
+<div class="card border-secondary mb-2">
+  <div class="card-body py-2 px-3 d-flex align-items-center gap-3">
+    <div class="flex-grow-1">
+      <div class="fw-semibold">{{ report.name }}</div>
+      {% if report.description %}
+      <div class="text-secondary small">{{ report.description }}</div>
+      {% endif %}
+      {% if report.filters %}
+      <div class="mt-1 d-flex flex-wrap gap-1">
+        {% for k, v in report.filters.items() %}
+        {% if v %}
+        <span class="badge bg-secondary font-monospace" style="font-size:.72rem;">{{ k }}={{ v }}</span>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    <div class="d-flex gap-2 align-items-center flex-shrink-0">
+      {% set page_url_map = {'logs': url_for('view_logs'), 'traces': url_for('view_traces'), 'errors': url_for('view_errors'), 'metrics': url_for('view_metrics'), 'rum': url_for('view_rum'), 'ai': url_for('view_ai')} %}
+      {% if report.page_type in page_url_map %}
+      <a href="{{ page_url_map[report.page_type] }}?{{ report.filters | urlencode }}" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-play me-1"></i>Apply
+      </a>
+      {% endif %}
+      <form method="post" action="{{ url_for('delete_report', report_id=report.id) }}"
+            onsubmit="return confirm('Delete report \'{{ report.name }}\'?')">
+        <button type="submit" class="btn btn-sm btn-outline-danger">
+          <i class="bi bi-trash"></i>
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="text-center py-5 text-secondary">
+  <i class="bi bi-bookmark-star fs-1 d-block mb-3"></i>
+  <p class="mb-3">No saved reports yet.</p>
+  <p class="small">Go to <a href="{{ url_for('view_logs') }}">Logs</a>, <a href="{{ url_for('view_traces') }}">Traces</a>, or another page,
+  apply filters, then click <strong>Save as report</strong> to save them here.</p>
+</div>
+{% endif %}
+{% endblock %}

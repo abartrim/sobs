@@ -6870,3 +6870,137 @@ class TestNotifications:
         assert "sobs_notification_channels" in tables
         assert "sobs_notification_rules" in tables
         assert "sobs_notification_log" in tables
+
+
+# ---------------------------------------------------------------------------
+# Saved Reports
+# ---------------------------------------------------------------------------
+class TestReports:
+    async def test_reports_page_loads(self, client):
+        r = await client.get("/reports")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Reports" in text
+
+    async def test_api_list_reports_empty(self, client):
+        r = await client.get("/api/reports")
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert isinstance(data, list)
+
+    async def test_api_create_report(self, client):
+        payload = {
+            "name": "Error Spike",
+            "description": "Captures ERROR-level logs for api service",
+            "page_type": "logs",
+            "filters": {"level": "ERROR", "service": "api"},
+        }
+        r = await client.post("/api/reports", json=payload)
+        assert r.status_code == 201
+        data = json.loads(await r.get_data())
+        assert data["name"] == "Error Spike"
+        assert data["page_type"] == "logs"
+        assert data["filters"]["level"] == "ERROR"
+        return data["id"]
+
+    async def test_api_list_reports_filtered_by_page_type(self, client):
+        # Create a logs report
+        await client.post(
+            "/api/reports",
+            json={"name": "Logs Report", "page_type": "logs", "filters": {"level": "WARN"}},
+        )
+        # Create a traces report
+        await client.post(
+            "/api/reports",
+            json={"name": "Traces Report", "page_type": "traces", "filters": {"service": "checkout"}},
+        )
+        r = await client.get("/api/reports?page_type=logs")
+        assert r.status_code == 200
+        reports = json.loads(await r.get_data())
+        assert all(rep["page_type"] == "logs" for rep in reports)
+
+        r2 = await client.get("/api/reports?page_type=traces")
+        assert r2.status_code == 200
+        traces_reports = json.loads(await r2.get_data())
+        assert all(rep["page_type"] == "traces" for rep in traces_reports)
+
+    async def test_api_create_report_requires_name(self, client):
+        r = await client.post(
+            "/api/reports",
+            json={"name": "", "page_type": "logs", "filters": {}},
+        )
+        assert r.status_code == 400
+        data = json.loads(await r.get_data())
+        assert "error" in data
+
+    async def test_api_create_report_invalid_page_type(self, client):
+        r = await client.post(
+            "/api/reports",
+            json={"name": "Bad Report", "page_type": "invalid_page", "filters": {}},
+        )
+        assert r.status_code == 400
+        data = json.loads(await r.get_data())
+        assert "error" in data
+
+    async def test_api_delete_report(self, client):
+        # Create then delete
+        r = await client.post(
+            "/api/reports",
+            json={"name": "Temp Report", "page_type": "errors", "filters": {"service": "payments"}},
+        )
+        assert r.status_code == 201
+        report_id = json.loads(await r.get_data())["id"]
+
+        r2 = await client.delete(f"/api/reports/{report_id}")
+        assert r2.status_code == 200
+        data = json.loads(await r2.get_data())
+        assert data["deleted"] is True
+
+        # Should not appear in list after deletion
+        r3 = await client.get("/api/reports?page_type=errors")
+        reports = json.loads(await r3.get_data())
+        assert not any(rep["id"] == report_id for rep in reports)
+
+    async def test_api_delete_nonexistent_report(self, client):
+        r = await client.delete("/api/reports/nonexistent-id-xxxx")
+        assert r.status_code == 404
+
+    async def test_reports_table_exists(self, client):
+        tables = {
+            row[0]
+            for row in sobs_app.get_db()
+            .execute(
+                "SELECT name FROM system.tables WHERE database='default' "
+                "AND name = 'sobs_reports'"
+            )
+            .fetchall()
+        }
+        assert "sobs_reports" in tables
+
+    async def test_ui_delete_report(self, client):
+        # Create a report via API
+        r = await client.post(
+            "/api/reports",
+            json={"name": "UI Delete Test", "page_type": "logs", "filters": {"level": "DEBUG"}},
+        )
+        assert r.status_code == 201
+        report_id = json.loads(await r.get_data())["id"]
+
+        # Delete via UI form endpoint
+        r2 = await client.post(
+            f"/reports/{report_id}/delete",
+            follow_redirects=False,
+        )
+        assert r2.status_code in (302, 303)
+        assert r2.headers.get("Location", "").endswith("/reports")
+
+    async def test_reports_page_shows_reports(self, client):
+        # Create a report
+        await client.post(
+            "/api/reports",
+            json={"name": "Visible Report", "page_type": "traces", "filters": {"service": "frontend"}},
+        )
+        r = await client.get("/reports")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Visible Report" in text

@@ -139,6 +139,17 @@
           <i class="bi bi-search"></i>
         </button>
         <a href="{{ url_for('view_logs') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
+        <div class="btn-group btn-group-sm" id="logs-reports-group">
+          <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Saved reports">
+            <i class="bi bi-bookmark-star"></i>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end" id="logs-reports-menu">
+            <li><span class="dropdown-item text-secondary small">Loading…</span></li>
+          </ul>
+        </div>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="logs-save-report-btn" title="Save as report">
+          <i class="bi bi-bookmark-plus"></i>
+        </button>
       </div>
     </form>
     <div id="sql-filter-feedback" class="form-text small text-secondary mt-1 sql-feedback" title="{{ error_msg if (error_msg and sql_where) else '' }}">
@@ -1277,6 +1288,60 @@
   // Initial validation state for pre-filled sql query params.
   const initial = localValidate(input.value);
   setFeedback(initial.level, initial.message);
+})();
+
+// ── Saved Reports: logs page ──────────────────────────────────────────────
+(function () {
+  const menu = document.getElementById('logs-reports-menu');
+  const saveBtn = document.getElementById('logs-save-report-btn');
+  const pageBaseUrl = {{ url_for('view_logs') | tojson }};
+
+  // Populate dropdown when opened
+  document.getElementById('logs-reports-group').addEventListener('show.bs.dropdown', function () {
+    fetch('/api/reports?page_type=logs')
+      .then(r => r.json())
+      .then(reports => {
+        if (!reports.length) {
+          menu.innerHTML = '<li><span class="dropdown-item text-secondary small">No saved reports</span></li>';
+          return;
+        }
+        menu.innerHTML = reports.map(rep => {
+          const params = new URLSearchParams(rep.filters);
+          const url = pageBaseUrl + '?' + params.toString();
+          return `<li><a class="dropdown-item small" href="${url}" title="${rep.description || ''}">${rep.name}</a></li>`;
+        }).join('') +
+          '<li><hr class="dropdown-divider my-1"></li>' +
+          `<li><a class="dropdown-item small text-secondary" href="{{ url_for('list_reports') }}"><i class="bi bi-gear me-1"></i>Manage reports</a></li>`;
+      })
+      .catch(() => {
+        menu.innerHTML = '<li><span class="dropdown-item text-danger small">Failed to load</span></li>';
+      });
+  });
+
+  // Save as report
+  saveBtn.addEventListener('click', function () {
+    const name = prompt('Report name:');
+    if (!name || !name.trim()) return;
+    const description = prompt('Description (optional):') || '';
+    // Collect current filter params from the form
+    const form = document.querySelector('form[method="get"]');
+    const data = new FormData(form);
+    const filters = {};
+    for (const [k, v] of data.entries()) {
+      if (v && k !== 'live' && k !== 'analyze' && k !== 'stats') filters[k] = v;
+    }
+    fetch('/api/reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim(), description: description.trim(), page_type: 'logs', filters })
+    })
+      .then(r => r.json())
+      .then(rep => {
+        if (rep.error) { alert('Error: ' + rep.error); return; }
+        alert('Report \'' + rep.name + '\' saved!');
+      })
+      .catch(() => alert('Failed to save report.'));
+  });
 })();
 </script>
 {% endblock %}
