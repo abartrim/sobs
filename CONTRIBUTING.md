@@ -62,4 +62,5 @@ cp tests/screenshots/dashboard.png static/help/dashboard.png
 cp tests/screenshots/logs.png static/help/logs.png
 cp tests/screenshots/traces.png static/help/traces.png
 cp tests/screenshots/query.png static/help/query.png
+cp tests/screenshots/summary.png static/help/summary.png
 ```

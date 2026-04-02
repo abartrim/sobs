@@ -14,7 +14,9 @@ Run as part of the full suite (unit tests excluded from integration marker):
     pytest tests/test_integration.py -v     # integration tests only
 """
 
+import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -498,10 +500,28 @@ class TestDataVisibleInUI:
 class TestScreenshots:
     """Capture full-page screenshots of every UI view for visual regression."""
 
-    def _screenshot(self, page: Page, filename: str, url: str) -> None:
-        page.goto(url)
-        page.wait_for_load_state("networkidle")
-        # Safety net: keep docs screenshots clean even if tour config regresses.
+    @pytest.fixture(scope="class", autouse=True)
+    def _seed_screenshot_data(self, live_server):
+        """Pump realistic sample traffic so screenshots show populated views."""
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        subprocess.run(
+            [
+                sys.executable,
+                "scripts/load_example.py",
+                "--base",
+                live_server,
+                "--total",
+                "240",
+                "--workers",
+                "24",
+            ],
+            cwd=repo_root,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def _dismiss_tour_modal(self, page: Page) -> None:
         page.evaluate("""
             () => {
                 try {
@@ -527,6 +547,73 @@ class TestScreenshots:
                 if (backdrop) backdrop.remove();
             }
             """)
+
+    def _create_docs_dashboard(self, live_server: str) -> str:
+        """Create a dashboard with one rendered chart and return the dashboard URL."""
+        create_resp = requests.post(
+            f"{live_server}/dashboards",
+            data={
+                "name": "Docs Screenshot Dashboard",
+                "description": "Auto-generated dashboard for docs screenshots",
+            },
+            allow_redirects=False,
+            timeout=10,
+        )
+        assert create_resp.status_code in (302, 303)
+
+        location = create_resp.headers.get("Location", "")
+        match = re.search(r"/dashboards/([^/?#]+)", location)
+        assert match is not None
+        dashboard_id = match.group(1)
+
+        chart_spec = {
+            "template_id": "custom_echarts",
+            "sql": {
+                "mode": "raw",
+                "override_sql": (
+                    "SELECT toStartOfMinute(TimestampTime) AS time, count() AS value "
+                    "FROM otel_logs GROUP BY time ORDER BY time LIMIT 120"
+                ),
+            },
+            "visual": {
+                "custom_mapping_json": json.dumps({"points": {"from": "rows"}}, ensure_ascii=False),
+                "custom_option_json": json.dumps(
+                    {
+                        "tooltip": {"trigger": "axis"},
+                        "xAxis": {"type": "time"},
+                        "yAxis": {"type": "value"},
+                        "series": [
+                            {
+                                "name": "Logs/min",
+                                "type": "line",
+                                "data": "{{points}}",
+                                "showSymbol": False,
+                                "smooth": True,
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        }
+
+        add_resp = requests.post(
+            f"{live_server}/dashboards/{dashboard_id}/charts",
+            data={
+                "title": "Log Volume by Minute",
+                "chart_spec_json": json.dumps(chart_spec, ensure_ascii=False),
+            },
+            allow_redirects=False,
+            timeout=10,
+        )
+        assert add_resp.status_code in (302, 303)
+
+        return f"{live_server}/dashboards/{dashboard_id}"
+
+    def _screenshot(self, page: Page, filename: str, url: str) -> None:
+        page.goto(url)
+        page.wait_for_load_state("networkidle")
+        self._dismiss_tour_modal(page)
         os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
         page.screenshot(path=os.path.join(SCREENSHOTS_DIR, filename), full_page=True)
 
@@ -555,8 +642,10 @@ class TestScreenshots:
         expect(page.get_by_role("heading", name="AI Transparency")).to_be_visible()
 
     def test_screenshot_dashboards(self, page: Page, live_server):
-        self._screenshot(page, "dashboard.png", f"{live_server}/dashboards")
-        expect(page.get_by_role("heading", name="Custom Dashboards")).to_be_visible()
+        dashboard_url = self._create_docs_dashboard(live_server)
+        self._screenshot(page, "dashboard.png", dashboard_url)
+        page.wait_for_selector("[id^='chart-'] canvas", timeout=10000)
+        expect(page.get_by_text("Log Volume by Minute")).to_be_visible()
 
     def test_screenshot_query(self, page: Page, live_server):
         self._screenshot(page, "query.png", f"{live_server}/query")

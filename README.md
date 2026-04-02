@@ -476,9 +476,9 @@ The script starts local port-forwards for LLM, embeddings, and DLP, exports `SOB
 
 ## Screenshots
 
-| Dashboards | Query | Logs |
-|---|---|---|
-| ![Dashboards](static/help/dashboard.png) | ![Query](static/help/query.png) | ![Logs](static/help/logs.png) |
+| Summary | Custom Dashboard | Query | Logs |
+|---|---|---|---|
+| ![Summary](static/help/summary.png) | ![Custom Dashboard](static/help/dashboard.png) | ![Query](static/help/query.png) | ![Logs](static/help/logs.png) |
 
 ## Running Tests
 
