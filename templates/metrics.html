@@ -208,6 +208,15 @@
   const menu = group.querySelector('ul');
   const pageBaseUrl = {{ url_for('view_metrics') | tojson }};
 
+  function escHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   group.addEventListener('show.bs.dropdown', function () {
     fetch('/api/reports?page_type=metrics')
       .then(r => r.json())
@@ -219,7 +228,7 @@
         menu.innerHTML = reports.map(rep => {
           const params = new URLSearchParams(rep.filters);
           const url = pageBaseUrl + '?' + params.toString();
-          return `<li><a class="dropdown-item small" href="${url}" title="${rep.description || ''}">${rep.name}</a></li>`;
+          return `<li><a class="dropdown-item small" href="${url}" title="${escHtml(rep.description)}">${escHtml(rep.name)}</a></li>`;
         }).join('') +
           '<li><hr class="dropdown-divider my-1"></li>' +
           `<li><a class="dropdown-item small text-secondary" href="{{ url_for('list_reports') }}"><i class="bi bi-gear me-1"></i>Manage reports</a></li>`;

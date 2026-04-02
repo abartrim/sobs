@@ -10969,6 +10969,16 @@ async def metrics_anomaly():
 _REPORT_PAGE_TYPES = {"logs", "traces", "errors", "metrics", "rum", "ai"}
 
 
+def _parse_report_filters(raw_filters_json: Any) -> dict[str, Any]:
+    if not raw_filters_json:
+        return {}
+    try:
+        parsed = json.loads(str(raw_filters_json))
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def _get_reports(db: ChDbConnection, page_type: str | None = None) -> list[dict]:
     if page_type:
         rows = db.execute(
@@ -10987,7 +10997,7 @@ def _get_reports(db: ChDbConnection, page_type: str | None = None) -> list[dict]
             "name": str(r["Name"]),
             "description": str(r["Description"]),
             "page_type": str(r["PageType"]),
-            "filters": json.loads(str(r["FiltersJson"])) if r["FiltersJson"] else {},
+            "filters": _parse_report_filters(r["FiltersJson"]),
         }
         for r in rows
     ]
@@ -10995,8 +11005,7 @@ def _get_reports(db: ChDbConnection, page_type: str | None = None) -> list[dict]
 
 def _get_report(db: ChDbConnection, report_id: str) -> dict | None:
     row = db.execute(
-        "SELECT Id, Name, Description, PageType, FiltersJson "
-        "FROM sobs_reports FINAL WHERE IsDeleted = 0 AND Id = ?",
+        "SELECT Id, Name, Description, PageType, FiltersJson " "FROM sobs_reports FINAL WHERE IsDeleted = 0 AND Id = ?",
         [report_id],
     ).fetchone()
     if not row:
@@ -11006,7 +11015,7 @@ def _get_report(db: ChDbConnection, report_id: str) -> dict | None:
         "name": str(row["Name"]),
         "description": str(row["Description"]),
         "page_type": str(row["PageType"]),
-        "filters": json.loads(str(row["FiltersJson"])) if row["FiltersJson"] else {},
+        "filters": _parse_report_filters(row["FiltersJson"]),
     }
 
 
