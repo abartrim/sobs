@@ -28,6 +28,7 @@ jobs:
             requirements-integration.txt
             pyproject.toml
             .github/workflows/ci.yml
+            .github/cache-key.txt
 
       - name: Install linting dependencies
         run: pip install black isort flake8 mypy flask
@@ -63,6 +64,7 @@ jobs:
             requirements-integration.txt
             pyproject.toml
             .github/workflows/ci.yml
+            .github/cache-key.txt
 
       - name: Install dependencies
         run: pip install -r requirements.txt pytest pytest-asyncio
@@ -89,6 +91,15 @@ jobs:
             requirements-integration.txt
             pyproject.toml
             .github/workflows/ci.yml
+            .github/cache-key.txt
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('requirements-integration.txt', '.github/workflows/ci.yml', '.github/cache-key.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Install dependencies
         run: |
