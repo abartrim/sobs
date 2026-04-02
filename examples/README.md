@@ -82,11 +82,21 @@ Embed in your HTML:
 
 ```html
 <script src="http://localhost:44317/static/rum.js"></script>
+<meta name="traceparent" content="00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01">
 <script>
   SOBS.init({
     endpoint: 'http://localhost:44317/v1/rum',
     appName: 'my-app'
   });
+  // Optional if your app already has W3C trace context available:
+  // SOBS.setTraceParent('00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01');
+  // Optional if your screenshot/replay integration already uploaded an artifact:
+  // SOBS.setVisualContext({
+  //   artifact: { type: 'screenshot', id: 'shot-123', url: 'https://example.com/shot-123.png' },
+  //   replay: { id: 'replay-123', url: 'https://example.com/replay-123' },
+  //   ttlMs: 15000
+  // });
+  // SOBS.captureException(new Error('Checkout failed'));
 </script>
 ```
 

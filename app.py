@@ -4793,6 +4793,25 @@ async def ingest_rum():
             }
             if event.get("stack"):
                 err_attrs["exception.stacktrace"] = str(event.get("stack"))
+            if event.get("errorSource"):
+                err_attrs["error.source"] = str(event.get("errorSource"))
+            page = event.get("page") if isinstance(event.get("page"), dict) else {}
+            if page.get("title"):
+                err_attrs["browser.page.title"] = str(page.get("title"))
+            if page.get("viewport"):
+                err_attrs["browser.viewport"] = str(page.get("viewport"))
+            artifact = event.get("artifact") if isinstance(event.get("artifact"), dict) else {}
+            if artifact.get("type"):
+                err_attrs["artifact.type"] = str(artifact.get("type"))
+            if artifact.get("id"):
+                err_attrs["artifact.id"] = str(artifact.get("id"))
+            if artifact.get("url"):
+                err_attrs["artifact.url"] = str(artifact.get("url"))
+            replay = event.get("replay") if isinstance(event.get("replay"), dict) else {}
+            if replay.get("id"):
+                err_attrs["replay.id"] = str(replay.get("id"))
+            if replay.get("url"):
+                err_attrs["replay.url"] = str(replay.get("url"))
             error_rows.append(
                 {
                     "Timestamp": ts,
@@ -5016,6 +5035,15 @@ def _build_error_item(row: dict) -> dict:
         "stack": stack,
         "trace_id": trace_id,
         "span_id": span_id,
+        "url": str(attrs.get("url.full", "")),
+        "error_source": str(attrs.get("error.source", "")),
+        "page_title": str(attrs.get("browser.page.title", "")),
+        "viewport": str(attrs.get("browser.viewport", "")),
+        "artifact_type": str(attrs.get("artifact.type", "")),
+        "artifact_id": str(attrs.get("artifact.id", "")),
+        "artifact_url": str(attrs.get("artifact.url", "")),
+        "replay_id": str(attrs.get("replay.id", "")),
+        "replay_url": str(attrs.get("replay.url", "")),
     }
 
 
@@ -7714,6 +7742,7 @@ async def view_traces():
 async def view_rum():
     db = get_db()
     event_type = request.args.get("type", "").strip()
+    error_source = request.args.get("error_source", "").strip()
     limit = _parse_limit(200)
     offset = _parse_offset()
     sort_by, sort_col, sort_dir = _parse_sort(
@@ -7728,6 +7757,9 @@ async def view_rum():
     if event_type:
         conditions.append("EventName=?")
         params.append(event_type)
+    if error_source:
+        conditions.append("LogAttributes['errorSource']=?")
+        params.append(error_source)
     time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
     conditions.extend(time_conditions)
     params.extend(time_params)
@@ -7760,6 +7792,13 @@ async def view_rum():
 
     event_types = [
         row[0] for row in db.execute("SELECT DISTINCT EventName FROM hyperdx_sessions ORDER BY EventName").fetchall()
+    ]
+    error_sources = [
+        row[0]
+        for row in db.execute(
+            "SELECT DISTINCT LogAttributes['errorSource'] FROM hyperdx_sessions "
+            "WHERE LogAttributes['errorSource']!='' ORDER BY LogAttributes['errorSource']"
+        ).fetchall()
     ]
 
     # Web vitals summary
@@ -7800,6 +7839,8 @@ async def view_rum():
         offset=offset,
         event_type=event_type,
         event_types=event_types,
+        error_source=error_source,
+        error_sources=error_sources,
         vitals_summary=vitals_summary,
         sort_by=sort_by,
         sort_dir=sort_dir,

@@ -131,10 +131,48 @@
         {% if err.stack %}
         <pre id="stack-{{ err.id }}" class="stack-trace rounded p-2">{{ err.stack }}</pre>
         {% endif %}
+        {% if err.error_source or err.page_title or err.url or err.artifact_url or err.replay_url %}
+        <div class="row g-2 mt-1 mb-2 small">
+          {% if err.error_source %}
+          <div class="col-md-3">
+            <div class="text-secondary mb-1">Source</div>
+            <div class="font-monospace">{{ err.error_source }}</div>
+          </div>
+          {% endif %}
+          {% if err.page_title %}
+          <div class="col-md-3">
+            <div class="text-secondary mb-1">Page</div>
+            <div>{{ err.page_title }}</div>
+          </div>
+          {% endif %}
+          {% if err.viewport %}
+          <div class="col-md-2">
+            <div class="text-secondary mb-1">Viewport</div>
+            <div class="font-monospace">{{ err.viewport }}</div>
+          </div>
+          {% endif %}
+          {% if err.url %}
+          <div class="col-md-4">
+            <div class="text-secondary mb-1">URL</div>
+            <div class="text-break font-monospace">{{ err.url }}</div>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
         <div class="d-flex gap-2 mt-2">
           {% if err.trace_id %}
           <a href="{{ url_for('view_traces', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
             <i class="bi bi-diagram-3 me-1"></i>Trace
+          </a>
+          {% endif %}
+          {% if err.artifact_url %}
+          <a href="{{ err.artifact_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-image me-1"></i>{{ err.artifact_type or 'Artifact' }}
+          </a>
+          {% endif %}
+          {% if err.replay_url %}
+          <a href="{{ err.replay_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-warning">
+            <i class="bi bi-play-circle me-1"></i>Replay
           </a>
           {% endif %}
           {% if not err.resolved %}

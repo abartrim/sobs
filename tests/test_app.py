@@ -791,6 +791,63 @@ class TestRumIngest:
         )
         assert r.status_code == 200
 
+    async def test_ingest_js_error_with_breadcrumbs_and_trace(self, client):
+        r = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "error",
+                    "sessionId": "sess-002",
+                    "traceId": "trace-1234567890",
+                    "spanId": "span-1234",
+                    "url": "https://example.com/app",
+                    "message": "Cannot read properties of null",
+                    "errorType": "TypeError",
+                    "errorSource": "window.onerror",
+                    "stack": "TypeError: Cannot read...\n  at main (app.js:5)",
+                    "page": {
+                        "title": "Orders",
+                        "viewport": "1440x900",
+                    },
+                    "artifact": {
+                        "type": "screenshot",
+                        "id": "shot-001",
+                        "url": "https://example.com/artifacts/shot-001.png",
+                    },
+                    "replay": {
+                        "id": "replay-001",
+                        "url": "https://example.com/replays/replay-001",
+                    },
+                    "breadcrumbs": {
+                        "console": [
+                            {
+                                "timestamp": "2024-01-01T00:00:00Z",
+                                "level": "error",
+                                "message": "Widget exploded",
+                            }
+                        ],
+                        "user": [
+                            {
+                                "timestamp": "2024-01-01T00:00:00Z",
+                                "category": "ui.click",
+                                "message": "Clicked button#save",
+                                "data": {"target": "button#save"},
+                            }
+                        ],
+                    },
+                }
+            ],
+        )
+        assert r.status_code == 200
+
+        r = await client.get("/errors")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "window.onerror" in body
+        assert "Orders" in body
+        assert "screenshot" in body
+        assert "Replay" in body
+
     async def test_ingest_dict_payload(self, client):
         r = await client.post(
             "/v1/rum",
@@ -1304,6 +1361,84 @@ class TestUIPages:
         r = await client.get("/rum")
         assert r.status_code == 200
 
+    async def test_rum_page_renders_enriched_error_details(self, client):
+        await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "error",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": "sess-detail-001",
+                    "traceId": "trace-detail-001",
+                    "url": "https://example.com/app",
+                    "message": "Cannot save order",
+                    "errorType": "TypeError",
+                    "errorSource": "window.onerror",
+                    "stack": "TypeError: Cannot save order\n  at saveOrder (app.js:5)",
+                    "page": {"title": "Order Editor", "viewport": "1280x720"},
+                    "artifact": {
+                        "type": "screenshot",
+                        "id": "shot-002",
+                        "url": "https://example.com/artifacts/shot-002.png",
+                    },
+                    "replay": {
+                        "id": "replay-002",
+                        "url": "https://example.com/replays/replay-002",
+                    },
+                    "breadcrumbs": {
+                        "console": [{"timestamp": "2024-01-01T00:00:00Z", "level": "error", "message": "Save failed"}],
+                        "user": [
+                            {
+                                "timestamp": "2024-01-01T00:00:01Z",
+                                "category": "ui.click",
+                                "message": "Clicked button#save",
+                                "data": {"target": "button#save"},
+                            }
+                        ],
+                    },
+                }
+            ],
+        )
+        r = await client.get("/rum")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Recent Console" in body
+        assert "Recent Breadcrumbs" in body
+        assert "button#save" in body
+        assert "Trace trace-detail" in body
+        assert "shot-002" in body
+        assert "replay-002" in body
+
+    async def test_rum_page_filters_by_error_source(self, client):
+        await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "error",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": "sess-source-001",
+                    "url": "https://example.com/app",
+                    "message": "Script boom",
+                    "errorType": "TypeError",
+                    "errorSource": "window.onerror",
+                },
+                {
+                    "type": "error",
+                    "timestamp": "2024-01-01T00:00:01Z",
+                    "sessionId": "sess-source-002",
+                    "url": "https://example.com/app",
+                    "message": "Asset failed",
+                    "errorType": "ResourceError",
+                    "errorSource": "resource-error",
+                },
+            ],
+        )
+        r = await client.get("/rum?error_source=resource-error")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Asset failed" in body
+        assert "Script boom" not in body
+
     async def test_ai_page(self, client):
         r = await client.get("/ai")
         assert r.status_code == 200
@@ -1431,7 +1566,11 @@ class TestUIPages:
     async def test_rum_js_served(self, client):
         r = await client.get("/static/rum.js")
         assert r.status_code == 200
-        assert b"SOBS" in await r.get_data()
+        body = await r.get_data()
+        assert b"SOBS" in body
+        assert b"setTraceParent" in body
+        assert b"setVisualContext" in body
+        assert b"captureException" in body
 
     async def test_pagination(self, client):
         r = await client.get("/logs?limit=10&offset=0")

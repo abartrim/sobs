@@ -3,6 +3,20 @@
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
 {% set to_ts = to_ts or request.args.get('to_ts', '') %}
+<style>
+  .rum-detail-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: .75rem;
+  }
+  .rum-detail-pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    max-height: 14rem;
+    overflow-y: auto;
+  }
+</style>
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="fw-semibold mb-0"><i class="bi bi-globe me-2 text-primary"></i>Real User Monitoring</h4>
   <span class="text-secondary small">{{ total }} events</span>
@@ -47,6 +61,15 @@
           <option value="">All types</option>
           {% for t in event_types %}
           <option value="{{ t }}" {% if t == event_type %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="flex: 1 0 160px">
+        <label class="form-label small text-secondary">Error source</label>
+        <select name="error_source" class="form-select form-select-sm">
+          <option value="">All sources</option>
+          {% for source in error_sources %}
+          <option value="{{ source }}" {% if source == error_source %}selected{% endif %}>{{ source }}</option>
           {% endfor %}
         </select>
       </div>
@@ -106,13 +129,13 @@
       {% set type_next_dir = 'asc' if (sort_by == 'EventName' and sort_dir == 'desc') else 'desc' %}
       <tr>
         <th style="width:155px;">
-          <a href="{{ url_for('view_rum', type=event_type, from_ts=from_ts, to_ts=to_ts, sort_by='Timestamp', sort_dir=ts_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
+          <a href="{{ url_for('view_rum', type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by='Timestamp', sort_dir=ts_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
             Timestamp {% if sort_by == 'Timestamp' %}<small>{{ '↑' if sort_dir == 'asc' else '↓' }}</small>{% endif %}
           </a>
         </th>
         <th style="width:80px;">Session</th>
         <th style="width:110px;">
-          <a href="{{ url_for('view_rum', type=event_type, from_ts=from_ts, to_ts=to_ts, sort_by='EventName', sort_dir=type_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
+          <a href="{{ url_for('view_rum', type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by='EventName', sort_dir=type_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
             Type {% if sort_by == 'EventName' %}<small>{{ '↑' if sort_dir == 'asc' else '↓' }}</small>{% endif %}
           </a>
         </th>
@@ -135,12 +158,142 @@
           {% if ev.event_type == 'web-vital' %}
             {{ ev.data.get('name','') }}: <strong>{{ ev.data.get('value', '') }}</strong>
           {% elif ev.event_type in ('error','unhandledrejection') %}
-            <span class="text-danger">{{ ev.data.get('message','') | truncate(60) }}</span>
+            <div class="d-flex align-items-center gap-2">
+              <span class="text-danger text-truncate d-inline-block" style="max-width:180px;" title="{{ ev.data.get('message','') }}">{{ ev.data.get('message','') | truncate(60) }}</span>
+              <button class="btn btn-outline-secondary btn-sm py-0 px-2" type="button" data-bs-toggle="collapse" data-bs-target="#rum-detail-{{ loop.index }}" aria-expanded="false" aria-controls="rum-detail-{{ loop.index }}">
+                Details
+              </button>
+            </div>
           {% elif ev.event_type == 'pageview' %}
             {{ ev.data.get('title','') | truncate(40) }}
           {% endif %}
         </td>
       </tr>
+      {% if ev.event_type in ('error','unhandledrejection') %}
+      {% set breadcrumbs = ev.data.get('breadcrumbs', {}) %}
+      {% set page = ev.data.get('page', {}) %}
+      <tr class="collapse" id="rum-detail-{{ loop.index }}">
+        <td colspan="5" class="border-top-0 pt-0">
+          <div class="theme-panel rounded p-3 mt-1 small">
+            <div class="rum-detail-list mb-3">
+              <div>
+                <div class="text-secondary mb-1">Message</div>
+                <div class="fw-semibold text-danger">{{ ev.data.get('message', '—') }}</div>
+              </div>
+              <div>
+                <div class="text-secondary mb-1">Error Type</div>
+                <div class="font-monospace">{{ ev.data.get('errorType', '—') }}</div>
+              </div>
+              <div>
+                <div class="text-secondary mb-1">Source</div>
+                <div class="font-monospace">{{ ev.data.get('errorSource', '—') }}</div>
+              </div>
+              <div>
+                <div class="text-secondary mb-1">Location</div>
+                <div class="font-monospace">{{ ev.data.get('filename', '') }}{% if ev.data.get('lineno') %}:{{ ev.data.get('lineno') }}{% endif %}{% if ev.data.get('colno') %}:{{ ev.data.get('colno') }}{% endif %}</div>
+              </div>
+              <div>
+                <div class="text-secondary mb-1">Page</div>
+                <div>{{ page.get('title', '—') }}</div>
+              </div>
+              <div>
+                <div class="text-secondary mb-1">Viewport</div>
+                <div class="font-monospace">{{ page.get('viewport', '—') }}</div>
+              </div>
+            </div>
+
+            {% if ev.data.get('traceId') %}
+            <div class="mb-3">
+              <a href="{{ url_for('view_traces', trace_id=ev.data.get('traceId'), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
+                <i class="bi bi-diagram-3 me-1"></i>Trace {{ ev.data.get('traceId')[:12] }}
+              </a>
+            </div>
+            {% endif %}
+
+            {% if ev.data.get('artifact') or ev.data.get('replay') %}
+            {% set artifact = ev.data.get('artifact', {}) %}
+            {% set replay = ev.data.get('replay', {}) %}
+            <div class="mb-3">
+              <div class="text-secondary mb-2">Artifacts</div>
+              <div class="d-flex flex-wrap gap-2">
+                {% if artifact.get('url') %}
+                <a href="{{ artifact.get('url') }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary">
+                  <i class="bi bi-image me-1"></i>{{ artifact.get('type', 'artifact') | title }}{% if artifact.get('id') %} {{ artifact.get('id') }}{% endif %}
+                </a>
+                {% endif %}
+                {% if replay.get('url') %}
+                <a href="{{ replay.get('url') }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-warning">
+                  <i class="bi bi-play-circle me-1"></i>Replay{% if replay.get('id') %} {{ replay.get('id') }}{% endif %}
+                </a>
+                {% endif %}
+              </div>
+            </div>
+            {% endif %}
+
+            {% if ev.data.get('stack') %}
+            <div class="mb-3">
+              <div class="text-secondary mb-1">Stack Trace</div>
+              <pre class="rum-detail-pre rounded p-2 mb-0">{{ ev.data.get('stack') }}</pre>
+            </div>
+            {% endif %}
+
+            {% if breadcrumbs.get('console') %}
+            <div class="mb-3">
+              <div class="text-secondary mb-2">Recent Console</div>
+              <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th style="width:150px;">Timestamp</th>
+                      <th style="width:90px;">Level</th>
+                      <th>Message</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for entry in breadcrumbs.get('console', []) %}
+                    <tr>
+                      <td class="font-monospace text-secondary">{{ entry.get('timestamp', '')[:23] }}</td>
+                      <td><span class="badge {% if entry.get('level') == 'error' %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ entry.get('level', '') }}</span></td>
+                      <td class="text-break">{{ entry.get('message', '') }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            {% endif %}
+
+            {% if breadcrumbs.get('user') %}
+            <div>
+              <div class="text-secondary mb-2">Recent Breadcrumbs</div>
+              <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th style="width:150px;">Timestamp</th>
+                      <th style="width:150px;">Category</th>
+                      <th style="width:220px;">Message</th>
+                      <th>Data</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for entry in breadcrumbs.get('user', []) %}
+                    <tr>
+                      <td class="font-monospace text-secondary">{{ entry.get('timestamp', '')[:23] }}</td>
+                      <td class="font-monospace">{{ entry.get('category', '') }}</td>
+                      <td>{{ entry.get('message', '') }}</td>
+                      <td class="text-break font-monospace">{{ entry.get('data', {}) | tojson }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endif %}
       {% endfor %}
     </tbody>
   </table>
@@ -154,19 +307,19 @@
     <small class="text-secondary">Showing {{ offset + 1 }}–{{ [offset + events | length, total] | min }} of {{ total }}</small>
     <select class="form-select form-select-sm" style="width:auto;" onchange="window.location.href=this.value" aria-label="Rows per page">
       {% for n in [10, 25, 50, 100, 200] %}
-      <option value="{{ url_for('view_rum', type=event_type, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=n, offset=0) }}" {% if limit == n %}selected{% endif %}>{{ n }} / page</option>
+      <option value="{{ url_for('view_rum', type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=n, offset=0) }}" {% if limit == n %}selected{% endif %}>{{ n }} / page</option>
       {% endfor %}
     </select>
   </div>
   <ul class="pagination pagination-sm mb-0">
     {% if offset > 0 %}
     <li class="page-item">
-      <a class="page-link" href="{{ url_for('view_rum', type=event_type, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=prev_offset) }}">← Prev</a>
+      <a class="page-link" href="{{ url_for('view_rum', type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=prev_offset) }}">← Prev</a>
     </li>
     {% endif %}
     {% if next_offset < total %}
     <li class="page-item">
-      <a class="page-link" href="{{ url_for('view_rum', type=event_type, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=next_offset) }}">Next →</a>
+      <a class="page-link" href="{{ url_for('view_rum', type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=next_offset) }}">Next →</a>
     </li>
     {% endif %}
   </ul>
@@ -183,8 +336,12 @@
   <div class="card-header small"><i class="bi bi-code-slash me-1"></i>Client-side snippet</div>
   <div class="card-body">
     <pre class="mb-0 small text-info"><code>&lt;script src="http://YOUR_SOBS_HOST/static/rum.js"&gt;&lt;/script&gt;
+&lt;meta name="traceparent" content="00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01"&gt;
 &lt;script&gt;
   SOBS.init({ endpoint: 'http://YOUR_SOBS_HOST/v1/rum', appName: 'my-app' });
+  // Optional: attach an artifact or replay reference to the next captured error.
+  // SOBS.setVisualContext({ artifact: { type: 'screenshot', id: 'shot-123', url: 'https://example.com/shot-123.png' }, ttlMs: 15000 });
+  // SOBS.captureException(new Error('Checkout failed'));
 &lt;/script&gt;</code></pre>
   </div>
 </div>

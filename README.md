@@ -118,8 +118,26 @@ details, security considerations, and limitations.
 
 ```html
 <script src="http://YOUR_SOBS_HOST/static/rum.js"></script>
+<meta name="traceparent" content="00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01">
 <script>
   SOBS.init({ endpoint: 'http://YOUR_SOBS_HOST/v1/rum', appName: 'my-app' });
+  // Or set W3C context explicitly from your OTEL/browser tracer integration:
+  // SOBS.setTraceParent('00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01');
+
+  // Optional: attach screenshot/replay artifact references to the next error event.
+  // SOBS.setVisualContext({
+  //   artifact: {
+  //     type: 'screenshot',
+  //     id: 'shot-123',
+  //     url: 'https://example.com/artifacts/shot-123.png'
+  //   },
+  //   replay: {
+  //     id: 'replay-123',
+  //     url: 'https://example.com/replays/replay-123'
+  //   },
+  //   ttlMs: 15000
+  // });
+  // SOBS.captureException(new Error('Save failed'));
 </script>
 ```
 
