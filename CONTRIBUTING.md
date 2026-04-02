@@ -42,3 +42,28 @@ flake8 *.py tests/ scripts
 mypy app.py tests scripts
 pytest tests/
 ```
+
+## Regenerating Docs Screenshots
+
+Use the integration screenshot suite to refresh UI screenshots used in docs/help:
+
+```bash
+python -m pytest tests/test_integration.py -q -k "TestScreenshots"
+```
+
+Output files are written to `tests/screenshots/`.
+
+The screenshot harness disables the first-run tour (`SOBS_ENABLE_FIRST_RUN_TOUR=0`) and also force-dismisses any visible tour modal before capture so docs screenshots are not obscured.
+
+To sync images used by in-app help pages:
+
+```bash
+cp tests/screenshots/dashboard.png static/help/dashboard.png
+cp tests/screenshots/ai.png static/help/ai.png
+cp tests/screenshots/logs.png static/help/logs.png
+cp tests/screenshots/traces.png static/help/traces.png
+cp tests/screenshots/traces_drilldown.png static/help/traces_drilldown.png
+cp tests/screenshots/query.png static/help/query.png
+cp tests/screenshots/summary.png static/help/summary.png
+cp tests/screenshots/summary_ai_assistant.png static/help/summary_ai_assistant.png
+```

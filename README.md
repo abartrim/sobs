@@ -2,7 +2,7 @@
 
 **SOBS** is a lightweight, single-user OpenTelemetry-compatible telemetry container focused on simplicity and transparency. It collects **Logs**, **Errors**, **Traces**, **RUM** (Real User Monitoring), and **AI call transparency** — all in one tiny container you can run as a standalone pod or sidecar.
 
-![Dashboard](https://github.com/user-attachments/assets/fab68924-3526-49a9-9c03-d3f994bca3dd)
+![Summary AI Assistant](static/help/summary_ai_assistant.png)
 
 ## Features
 
@@ -12,16 +12,21 @@
 - 🌐 **RUM** – client-side JS snippet with Web Vitals (LCP, CLS, INP, TTFB, FCP)
 - 🐛 **Error tracking** – with stack traces and one-click resolve
 - 🤖 **AI transparency** – record LLM prompts, responses and token usage
+- 💬 **Contextual AI Assistant** – bottom-right in-app assistant for page-aware help and guided UI actions
 - 🔍 **Search** – grep (regex) and SQL WHERE clause filtering on logs
+- 🏷️ **Tag-aware log SQL assistant** – `has_tag()` helper, SQL filter validation, and field hints/autocomplete on Logs
 - 📊 **Query statistics** – collapsible logs analytics panel with query-scoped level/service distributions
 - 🧠 **Manual advanced log analysis** – on-demand message pattern clustering, keyword signals, and optimization hints
+- 📚 **Saved reports** – persist and re-apply filter sets across Logs, Traces, Errors, Metrics, RUM, and AI pages
+- 🧮 **Natural-language Query page** – NL→SQL over embedded chDB with read-only SQL guardrails and chart/dashboard actions
+- 🔔 **Notifications & Webhooks** – Slack, webhook, email, and browser push channels with rule-based dispatch
 - 📡 **Live tail** – SSE endpoint (`/tail`) for real-time streaming of logs and traces
 - ⚡ **Live logs mode** – optional in-page streaming on Logs with pause-on-scroll and queued event counter
 - 📈 **Metrics & Signals** – top-level Metrics page with derived telemetry signals and anomaly status
 - 🧩 **Auto rule generation** – preview/create metric anomaly rules from recent derived-signal history
 - 🗂️ **Auto dashboard generation** – build a derived-signal dashboard directly from active metric rules
 - ✨ **First-run visual tour** – one-time onboarding modal with flow overview and quick-tour reopen entry
-- 🎨 **Bootstrap 5 dark UI** – served locally, no CDN required
+- 🎨 **Bootstrap 5 theming** – served locally with light/dark/system theme toggle, no CDN required
 - 🐳 **Docker ready** – Dockerfile + docker-compose + Kubernetes manifests
 
 ## Quick Start
@@ -152,6 +157,54 @@ Fresh chDB databases are created with schema compression tuned using ZSTD plus s
 
 Use `/health/db` for readiness checks in orchestrated deployments when you need the probe to exercise DB availability as well as process liveness.
 
+## Saved Reports
+
+SOBS supports saved report presets for page filters.
+
+- Save the current filter state from Logs, Traces, Errors, Metrics, RUM, or AI.
+- Re-apply saved reports from page-level report pickers or from the dedicated **Reports** page.
+- Delete reports from the **Reports** page when no longer needed.
+
+API endpoints:
+
+- `GET /api/reports?page_type=<logs|traces|errors|metrics|rum|ai>`
+- `POST /api/reports`
+- `DELETE /api/reports/<report_id>`
+
+UI routes:
+
+- `GET /reports`
+
+## Query Page (Natural Language → SQL)
+
+SOBS includes a dedicated **Query** page that turns natural-language prompts into read-only SQL against embedded chDB.
+
+- Query availability is automatic when AI endpoint and model settings are configured.
+- SQL is restricted to read-only statements (`SELECT`, `EXPLAIN`, `SHOW`, `DESCRIBE`, `WITH`).
+- Query execution is row-capped by `SOBS_QUERY_MAX_ROWS` (default `1000`).
+- Query results can generate chart JSON and be added to an existing dashboard.
+
+Routes:
+
+- `GET /query`
+- `POST /api/query/ask`
+- `POST /api/query/run`
+- `POST /api/query/refine-chart`
+- `POST /api/query/add-to-dashboard`
+- `GET /api/query/schema`
+
+## Notifications & Webhooks
+
+SOBS provides rule-driven notifications under **Settings → Notifications & Webhooks**.
+
+- Channel types: `webhook`, `slack`, `email`, `browser_push`.
+- Browser push supports VAPID keys from env (`SOBS_VAPID_PRIVATE_KEY`) or DB-backed key generation in the settings UI.
+- Notification checks are exposed as an API for external schedulers (cron, Kubernetes CronJob, etc.).
+
+Operational trigger endpoint:
+
+- `POST /api/notifications/check`
+
 ## Configuration
 
 | Variable                    | Default        | Description                                      |
@@ -163,10 +216,12 @@ Use `/health/db` for readiness checks in orchestrated deployments when you need 
 | `SOBS_EXTERNAL_AUTH_URL`    | _(empty)_      | Optional external Bearer validator for the Web UI |
 | `SOBS_BASE_PATH`            | _(empty)_      | Optional URL prefix (for example `/sobs`) for UI/API routing and generated links |
 | `SOBS_SECRET_KEY`           | `sobs-dev-secret-key` | Secret key used by Quart session handling (set explicitly in production) |
+| `SOBS_SESSION_COOKIE_NAME`  | `sobs_session` | Session cookie name for SOBS UI sessions (prevents collisions with management services using `session`) |
 | `PORT`                      | `44317`        | Listen port                                      |
 | `SOBS_WRITE_QUEUE_MAX`      | `5000`         | Max buffered write operations before ingest returns `503` |
 | `SOBS_WRITE_BATCH_MAX`      | `200`          | Max writes processed per DB batch |
 | `SOBS_WRITE_BATCH_WAIT_MS`  | `20`           | Max milliseconds to wait for filling a write batch |
+| `SOBS_QUERY_MAX_ROWS`       | `1000`         | Hard cap for rows returned by Query page SQL execution |
 | `SOBS_SETTINGS_ENCRYPTION_KEY` | _(empty)_   | Optional app-settings encryption key (base64 URL-safe Fernet key) |
 | `SOBS_SETTINGS_ENCRYPTION_KEY_FILE` | _(empty)_ | Optional absolute file path containing the app-settings encryption key |
 | `SOBS_AI_ENDPOINT_URL`      | _(empty)_      | Optional fallback for AI endpoint URL when not configured in Settings -> AI |
@@ -181,6 +236,8 @@ Use `/health/db` for readiness checks in orchestrated deployments when you need 
 | `SOBS_AI_GUARD_MODEL_FILE`  | _(empty)_      | Optional file path with guard model override |
 | `SOBS_AI_DLP_ENDPOINT_URL`  | _(empty)_      | Optional runtime override for DLP endpoint URL |
 | `SOBS_AI_DLP_ENDPOINT_URL_FILE` | _(empty)_  | Optional file path with DLP endpoint URL override |
+| `SOBS_VAPID_PRIVATE_KEY`    | _(empty)_      | Optional browser-push private key override (takes precedence over DB-stored key) |
+| `SOBS_VAPID_SUBJECT`        | `mailto:sobs@localhost` | Subject claim used when signing VAPID JWTs |
 | `SOBS_CHDB_ENCRYPTION_KEY`  | _(empty)_      | Hex key for runtime-generated encrypted disk config in container startup |
 | `SOBS_CHDB_BASE_DISK_PATH`  | `/data/chdb-disks/plain` | Base local disk path for runtime-generated storage configuration |
 | `SOBS_CHDB_ENCRYPTED_DISK_PATH` | `/data/chdb-disks/encrypted` | Encrypted disk path for runtime-generated storage configuration |
@@ -420,9 +477,13 @@ The script starts local port-forwards for LLM, embeddings, and DLP, exports `SOB
 
 ## Screenshots
 
-| Logs (grep + SQL search) | AI Transparency |
-|---|---|
-| ![Logs](https://github.com/user-attachments/assets/f6eb544c-11c0-4836-a337-864a46e13e29) | ![AI](https://github.com/user-attachments/assets/caf5a401-d86b-4bea-b6db-28ef983879ba) |
+| Summary | Summary + AI Assistant | AI Transparency |
+|---|---|---|
+| ![Summary](static/help/summary.png) | ![Summary AI Assistant](static/help/summary_ai_assistant.png) | ![AI Transparency](static/help/ai.png) |
+
+| Custom Dashboard | Traces Drilldown | Query |
+|---|---|---|
+| ![Custom Dashboard](static/help/dashboard.png) | ![Traces Drilldown](static/help/traces_drilldown.png) | ![Query](static/help/query.png) |
 
 ## Running Tests
 
