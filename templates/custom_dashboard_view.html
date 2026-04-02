@@ -42,6 +42,18 @@
   #chartSqlModal .modal-header-actions .btn-close {
     margin: 0;
   }
+
+  /* Push modals clear of the fixed sidebar on desktop */
+  @media (min-width: 576px) {
+    #addChartModal,
+    #chartSqlModal {
+      padding-left: var(--sb-full);
+    }
+    body:has(.sidebar.sidebar-compact) #addChartModal,
+    body:has(.sidebar.sidebar-compact) #chartSqlModal {
+      padding-left: var(--sb-compact);
+    }
+  }
 </style>
 <div class="d-flex justify-content-between align-items-center mb-4">
   <div>
