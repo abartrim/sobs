@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}AI Transparency{% endblock %}
 {% macro fmt_num(n) %}{% if n >= 1000000 %}{{ "%.1f" | format(n / 1000000) }}M{% elif n >= 1000 %}{{ "%.1f" | format(n / 1000) }}K{% else %}{{ n }}{% endif %}{% endmacro %}
+{% macro render_message_content(msg) %}{% set content = msg.get('content', '') if msg is mapping else '' %}{{ content if content is string else content | tojson }}{% endmacro %}
 {% block content %}
 <style>
   .ai-row-grid {
@@ -455,7 +456,7 @@
                           {% elif msg.role == 'tool' %}bg-warning text-dark
                           {% else %}bg-dark{% endif %}"
                           style="min-width:4.5rem;text-align:center;">{{ msg.role or '?' }}</span>
-                        <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:200px;">{{ msg.content if msg.content is string else msg.content | tojson }}</div>
+                        <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:200px;">{{ render_message_content(msg) }}</div>
                       </div>
                       {% endfor %}
                     </div>
@@ -470,7 +471,7 @@
                         {% elif msg.role == 'tool' %}bg-warning text-dark
                         {% else %}bg-dark{% endif %}"
                         style="min-width:4.5rem;text-align:center;">{{ msg.role or '?' }}</span>
-                      <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:300px;">{{ msg.content if msg.content is string else msg.content | tojson }}</div>
+                      <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:300px;">{{ render_message_content(msg) }}</div>
                     </div>
                     {% endfor %}
                     {% elif item.prompt or item.response %}
@@ -712,7 +713,7 @@
                   {% elif msg.role == 'tool' %}bg-warning text-dark
                   {% else %}bg-dark{% endif %}"
                   style="min-width:4.5rem;text-align:center;">{{ msg.role or '?' }}</span>
-                <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:200px;">{{ msg.content if msg.content is string else msg.content | tojson }}</div>
+                <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:200px;">{{ render_message_content(msg) }}</div>
               </div>
               {% endfor %}
             </div>
@@ -729,7 +730,7 @@
                 {% else %}bg-dark{% endif %}"
                 style="min-width:4.5rem;text-align:center;">{{ msg.role or '?' }}</span>
               <!-- Allow slightly more height for responses which are typically longer -->
-              <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:300px;">{{ msg.content if msg.content is string else msg.content | tojson }}</div>
+              <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:300px;">{{ render_message_content(msg) }}</div>
             </div>
             {% endfor %}
             {% elif item.prompt or item.response %}
