@@ -56,8 +56,18 @@
 </div>
 
 <!-- Search / Filter bar -->
-<div class="card border-secondary mb-3">
-  <div class="card-body">
+<div class="accordion mb-3" id="logsFiltersAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header" id="logsFiltersHeading">
+      <button class="accordion-button py-2" type="button"
+              data-bs-toggle="collapse" data-bs-target="#logsFiltersPanel"
+              aria-expanded="true" aria-controls="logsFiltersPanel">
+        <i class="bi bi-funnel me-2 text-info"></i>
+        <span class="fw-semibold">Filters</span>
+      </button>
+    </h2>
+    <div id="logsFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="logsFiltersHeading" data-bs-parent="#logsFiltersAccordion">
+      <div class="accordion-body py-3">
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
       <input type="hidden" name="live" id="liveModeInput" value="{{ '1' if live == '1' else '' }}">
       <input type="hidden" name="analyze" value="{{ analyze }}">
@@ -95,28 +105,6 @@
         </select>
       </div>
       {% endif %}
-      <div style="flex: 2 0 200px">
-        <label class="form-label small text-secondary">SQL WHERE <span class="text-muted">(overrides above)</span></label>
-        <div class="position-relative">
-             <input
-               type="text"
-               name="sql"
-               id="sql-filter-input"
-               class="form-control form-control-sm font-monospace"
-               data-ai-action-id="logs.filter.apply_sql"
-               data-ai-action-type="apply_sql_filter"
-               data-ai-handler="applySqlFilter"
-               data-ai-label="Apply logs SQL filter"
-               data-ai-risk="low"
-               data-ai-confirm="false"
-               data-ai-action-role="sql-where-input"
-                 placeholder="level='ERROR' AND service='api'" value="{{ sql_where }}"
-                 autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox" aria-describedby="sql-filter-feedback">
-          <ul id="sql-ac-dropdown" role="listbox"
-              class="dropdown-menu p-0 font-monospace small"
-              style="display:none;position:absolute;top:100%;left:0;right:0;z-index:1060;max-height:220px;overflow-y:auto;"></ul>
-        </div>
-      </div>
       <div class="filter-date-group">
         <div class="filter-date-fields">
           <div class="filter-date-field">
@@ -151,13 +139,38 @@
           <i class="bi bi-bookmark-plus"></i>
         </button>
       </div>
+      <div class="w-100"></div>
+      <div style="flex: 1 1 100%">
+        <label class="form-label small text-secondary">SQL WHERE <span class="text-muted">(overrides above)</span></label>
+        <div class="position-relative">
+             <input
+               type="text"
+               name="sql"
+               id="sql-filter-input"
+               class="form-control form-control-sm font-monospace"
+               data-ai-action-id="logs.filter.apply_sql"
+               data-ai-action-type="apply_sql_filter"
+               data-ai-handler="applySqlFilter"
+               data-ai-label="Apply logs SQL filter"
+               data-ai-risk="low"
+               data-ai-confirm="false"
+               data-ai-action-role="sql-where-input"
+                 placeholder="level='ERROR' AND service='api'" value="{{ sql_where }}"
+                 autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox" aria-describedby="sql-filter-feedback">
+          <ul id="sql-ac-dropdown" role="listbox"
+              class="dropdown-menu p-0 font-monospace small"
+              style="display:none;position:absolute;top:100%;left:0;right:0;z-index:1060;max-height:220px;overflow-y:auto;"></ul>
+        </div>
+        <div id="sql-filter-feedback" class="form-text small text-secondary mt-1 sql-feedback" title="{{ error_msg if (error_msg and sql_where) else '' }}">
+          {{ (error_msg if (error_msg and sql_where) else "Use fields, SQL operators, or functions like has_tag().") }}
+        </div>
+      </div>
     </form>
-    <div id="sql-filter-feedback" class="form-text small text-secondary mt-1 sql-feedback" title="{{ error_msg if (error_msg and sql_where) else '' }}">
-      {{ (error_msg if (error_msg and sql_where) else "Use fields, SQL operators, or functions like has_tag().") }}
-    </div>
     {% if error_msg and not sql_where %}
     <div class="alert alert-danger mt-2 mb-0 py-1 small">{{ error_msg }}</div>
     {% endif %}
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1329,9 +1342,6 @@
   });
 
   saveBtn.addEventListener('click', function () {
-    const name = prompt('Report name:');
-    if (!name || !name.trim()) return;
-    const description = prompt('Description (optional):') || '';
     const form = document.querySelector('form[method="get"]');
     const data = new FormData(form);
     const filters = {};
@@ -1339,17 +1349,9 @@
       // Exclude transient UI state params that should not be part of a saved filter set
       if (v && k !== 'live' && k !== 'analyze' && k !== 'stats') filters[k] = v;
     }
-    fetch('/api/reports', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name.trim(), description: description.trim(), page_type: 'logs', filters })
-    })
-      .then(r => r.json())
-      .then(rep => {
-        if (rep.error) { alert('Error: ' + rep.error); return; }
-        alert('Report \'' + rep.name + '\' saved!');
-      })
-      .catch(() => alert('Failed to save report.'));
+    if (window.sobsReportSaveModal && typeof window.sobsReportSaveModal.open === 'function') {
+      window.sobsReportSaveModal.open({ pageType: 'logs', filters });
+    }
   });
 })();
 </script>

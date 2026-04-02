@@ -154,8 +154,18 @@
 </div>
 
 <!-- Filter bar -->
-<div class="card border-secondary mb-3">
-  <div class="card-body">
+<div class="accordion mb-3" id="aiFiltersAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header" id="aiFiltersHeading">
+      <button class="accordion-button py-2" type="button"
+              data-bs-toggle="collapse" data-bs-target="#aiFiltersPanel"
+              aria-expanded="true" aria-controls="aiFiltersPanel">
+        <i class="bi bi-funnel me-2 text-secondary"></i>
+        <span class="fw-semibold">Filters</span>
+      </button>
+    </h2>
+    <div id="aiFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="aiFiltersHeading" data-bs-parent="#aiFiltersAccordion">
+      <div class="accordion-body py-3">
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
       <input type="hidden" name="view" value="{{ view_mode }}">
       <div style="flex: 1 0 140px">
@@ -290,6 +300,8 @@
     {% if error_msg and not sql_where %}
     <div class="alert alert-danger mt-2 mb-0 py-1 small">{{ error_msg }}</div>
     {% endif %}
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1548,9 +1560,6 @@ function escHtml(s) {
   });
 
   saveBtn.addEventListener('click', function () {
-    const name = prompt('Report name:');
-    if (!name || !name.trim()) return;
-    const description = prompt('Description (optional):') || '';
     const form = document.querySelector('form[method="get"]');
     const data = new FormData(form);
     const filters = {};
@@ -1558,17 +1567,9 @@ function escHtml(s) {
       // Exclude internal AI page params that are not meaningful filter state
       if (v && k !== 'live') filters[k] = v;
     }
-    fetch('/api/reports', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name.trim(), description: description.trim(), page_type: 'ai', filters })
-    })
-      .then(r => r.json())
-      .then(rep => {
-        if (rep.error) { alert('Error: ' + rep.error); return; }
-        alert('Report \'' + rep.name + '\' saved!');
-      })
-      .catch(() => alert('Failed to save report.'));
+    if (window.sobsReportSaveModal && typeof window.sobsReportSaveModal.open === 'function') {
+      window.sobsReportSaveModal.open({ pageType: 'ai', filters });
+    }
   });
 })();
 </script>

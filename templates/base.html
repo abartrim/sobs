@@ -312,12 +312,158 @@
   </div>
 </div>
 
+<div class="modal fade" id="saveReportModal" tabindex="-1" aria-labelledby="saveReportModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-secondary">
+      <form id="saveReportForm" novalidate>
+        <div class="modal-header">
+          <h5 class="modal-title" id="saveReportModalTitle">
+            <i class="bi bi-bookmark-plus me-2"></i>Save Report
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div id="saveReportFeedback" class="alert py-2 d-none" role="alert"></div>
+          <div class="mb-3">
+            <label for="saveReportName" class="form-label">Name</label>
+            <input id="saveReportName" name="name" type="text" class="form-control" maxlength="120" required>
+            <div class="invalid-feedback">Please provide a report name.</div>
+          </div>
+          <div class="mb-1">
+            <label for="saveReportDescription" class="form-label">Description (optional)</label>
+            <textarea id="saveReportDescription" name="description" class="form-control" rows="2" maxlength="500"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button id="saveReportSubmit" type="submit" class="btn btn-primary">
+            <i class="bi bi-bookmark-check me-1"></i>Save report
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
 <script src="{{ url_for('static', filename='date-range-picker.js') }}"></script>
 
 {% if config.get('ENABLE_FIRST_RUN_TOUR', True) and request.endpoint not in ('chart_editor_help', 'metrics_rules_help', 'auto_metrics_rules_help') %}
   {% include "_first_run_tour.html" %}
 {% endif %}
+<script>
+(function () {
+  var modalEl = document.getElementById('saveReportModal');
+  var formEl = document.getElementById('saveReportForm');
+  var nameEl = document.getElementById('saveReportName');
+  var descriptionEl = document.getElementById('saveReportDescription');
+  var submitEl = document.getElementById('saveReportSubmit');
+  var feedbackEl = document.getElementById('saveReportFeedback');
+
+  if (!modalEl || !formEl || !nameEl || !descriptionEl || !submitEl || !feedbackEl || !window.bootstrap) {
+    return;
+  }
+
+  var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  var state = {
+    pageType: '',
+    filters: {}
+  };
+
+  function setFeedback(level, message) {
+    feedbackEl.className = 'alert py-2';
+    if (level === 'success') {
+      feedbackEl.classList.add('alert-success');
+    } else {
+      feedbackEl.classList.add('alert-danger');
+    }
+    feedbackEl.textContent = String(message || '');
+  }
+
+  function clearFeedback() {
+    feedbackEl.className = 'alert py-2 d-none';
+    feedbackEl.textContent = '';
+  }
+
+  function setBusy(busy) {
+    submitEl.disabled = !!busy;
+    submitEl.innerHTML = busy
+      ? '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Saving...'
+      : '<i class="bi bi-bookmark-check me-1"></i>Save report';
+  }
+
+  function resetForm() {
+    formEl.classList.remove('was-validated');
+    nameEl.value = '';
+    descriptionEl.value = '';
+    nameEl.classList.remove('is-invalid');
+    clearFeedback();
+    setBusy(false);
+  }
+
+  window.sobsReportSaveModal = {
+    open: function (opts) {
+      opts = opts || {};
+      state.pageType = String(opts.pageType || '').trim();
+      state.filters = opts.filters && typeof opts.filters === 'object' ? opts.filters : {};
+      resetForm();
+      modal.show();
+    }
+  };
+
+  modalEl.addEventListener('shown.bs.modal', function () {
+    nameEl.focus();
+  });
+
+  modalEl.addEventListener('hidden.bs.modal', function () {
+    resetForm();
+  });
+
+  formEl.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    var name = String(nameEl.value || '').trim();
+    var description = String(descriptionEl.value || '').trim();
+    if (!name) {
+      nameEl.classList.add('is-invalid');
+      formEl.classList.add('was-validated');
+      return;
+    }
+    nameEl.classList.remove('is-invalid');
+    clearFeedback();
+    setBusy(true);
+
+    try {
+      var response = await fetch('/api/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name,
+          description: description,
+          page_type: state.pageType,
+          filters: state.filters
+        })
+      });
+      var payload = await response.json();
+      if (!response.ok || payload.error) {
+        setFeedback('error', payload.error || 'Failed to save report.');
+        return;
+      }
+
+      setFeedback('success', "Report '" + payload.name + "' saved.");
+      document.dispatchEvent(new CustomEvent('sobs:report-saved', { detail: payload }));
+      window.setTimeout(function () {
+        modal.hide();
+      }, 550);
+    } catch (_err) {
+      setFeedback('error', 'Failed to save report.');
+    } finally {
+      setBusy(false);
+    }
+  });
+})();
+</script>
 {% block scripts %}{% endblock %}
 <script>
 (function () {

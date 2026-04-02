@@ -28,8 +28,18 @@
 {% endif %}
 
 <!-- Filter bar -->
-<div class="card border-secondary mb-3">
-  <div class="card-body">
+<div class="accordion mb-3" id="rumFiltersAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header" id="rumFiltersHeading">
+      <button class="accordion-button py-2" type="button"
+              data-bs-toggle="collapse" data-bs-target="#rumFiltersPanel"
+              aria-expanded="true" aria-controls="rumFiltersPanel">
+        <i class="bi bi-funnel me-2 text-primary"></i>
+        <span class="fw-semibold">Filters</span>
+      </button>
+    </h2>
+    <div id="rumFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="rumFiltersHeading" data-bs-parent="#rumFiltersAccordion">
+      <div class="accordion-body py-3">
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
       <div style="flex: 1 0 140px">
         <label class="form-label small text-secondary">Event type</label>
@@ -83,6 +93,8 @@
     {% if error_msg %}
     <div class="alert alert-danger mt-2 mb-0 py-1 small">{{ error_msg }}</div>
     {% endif %}
+      </div>
+    </div>
   </div>
 </div>
 
@@ -216,26 +228,15 @@
   });
 
   saveBtn.addEventListener('click', function () {
-    const name = prompt('Report name:');
-    if (!name || !name.trim()) return;
-    const description = prompt('Description (optional):') || '';
     const form = document.querySelector('form[method="get"]');
     const data = new FormData(form);
     const filters = {};
     for (const [k, v] of data.entries()) {
       if (v) filters[k] = v;
     }
-    fetch('/api/reports', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name.trim(), description: description.trim(), page_type: 'rum', filters })
-    })
-      .then(r => r.json())
-      .then(rep => {
-        if (rep.error) { alert('Error: ' + rep.error); return; }
-        alert('Report \'' + rep.name + '\' saved!');
-      })
-      .catch(() => alert('Failed to save report.'));
+    if (window.sobsReportSaveModal && typeof window.sobsReportSaveModal.open === 'function') {
+      window.sobsReportSaveModal.open({ pageType: 'rum', filters });
+    }
   });
 })();
 </script>
