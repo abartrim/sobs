@@ -484,6 +484,9 @@ SOBS_AI_GUARD_MODEL=qwen2.5:7b-instruct \
 
 The script validates Ollama availability at `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`), exports `SOBS_AI_*` env vars, and runs your command (default: `python app.py`).
 
+By default it also starts a local browser demo app for RUM/replay testing at `http://127.0.0.1:5005`.
+You can disable it with `START_EXAMPLE_APP=0`.
+
 This local Ollama path does not use Kubernetes and does not require `kubectl`.
 
 ## Spark Cluster AI Test Script (Advanced)

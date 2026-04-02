@@ -136,6 +136,22 @@ Use either `SOBS.setVisualContext(...)` directly, or the dedicated helpers:
 
 See [rum/rrweb_replay_example.js](rum/rrweb_replay_example.js) for an end-to-end browser integration pattern.
 
+### Browser replay demo app
+
+For a quick local test page that exercises the new RUM replay/artifact/error flows:
+
+```bash
+./scripts/start_ollama_ai_test.sh
+```
+
+Then open:
+
+- `http://127.0.0.1:5005` (demo app)
+- `http://127.0.0.1:44317/rum`
+- `http://127.0.0.1:44317/errors`
+
+Disable demo app auto-start with `START_EXAMPLE_APP=0`.
+
 ## OTLP Endpoint Reference
 
 | Endpoint         | Method | Description                        |
