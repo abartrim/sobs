@@ -201,9 +201,9 @@
           <h5 class="card-title mb-0">Kubernetes Health View</h5>
         </div>
         <p class="card-text text-secondary small flex-grow-1">
-          Display a live or ingested dashboard of cluster health, pod status, deployments, and nodes.
-          Supports real-time polling of the Kubernetes API or an ingestion endpoint for air-gapped
-          environments. Off by default — enable and configure the data source here.
+          Display Kubernetes health from OTEL tables only. Designed for in-cluster OpenTelemetry
+          collector deployments (deployment + daemonset) and migration-compatible OTEL schema usage.
+          Off by default.
         </p>
         <div class="d-flex align-items-center justify-content-between mt-2">
           {% if kubernetes_view_enabled %}

@@ -934,14 +934,6 @@ CREATE TABLE IF NOT EXISTS sobs_reports (
 ORDER BY Id
 SETTINGS index_granularity = 8192;
 
-CREATE TABLE IF NOT EXISTS sobs_kubernetes_snapshots (
-    Id String CODEC(ZSTD(1)),
-    Source LowCardinality(String) CODEC(ZSTD(1)),
-    SnapshotJson String CODEC(ZSTD(1)),
-    ReceivedAt DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1))
-) ENGINE = ReplacingMergeTree(ReceivedAt)
-ORDER BY Id
-SETTINGS index_granularity = 8192;
 """
 
 
@@ -10397,6 +10389,12 @@ async def auto_metrics_rules_help():
     return await render_template("auto_metrics_rules_help.html")
 
 
+@app.route("/kubernetes/help")
+@require_basic_auth
+async def kubernetes_help():
+    return await render_template("kubernetes_help.html")
+
+
 @app.route("/dashboards/<dashboard_id>/delete", methods=["POST"])
 @require_basic_auth
 async def delete_dashboard(dashboard_id: str):
@@ -16673,27 +16671,13 @@ async def api_chart_types():
 # Kubernetes Health View  GET /kubernetes
 # Settings               GET/POST /settings/kubernetes
 # API                    GET /api/kubernetes/status
-#                        POST /api/kubernetes/ingest
 # ---------------------------------------------------------------------------
 
-_K8S_SETTING_KEYS = (
-    "kubernetes.enabled",
-    "kubernetes.mode",
-    "kubernetes.api_url",
-    "kubernetes.namespace",
-    "kubernetes.token",
-    "kubernetes.ca_cert",
-    "kubernetes.tls_verify",
-)
-
-_K8S_SENSITIVE_SETTING_KEYS = frozenset({"kubernetes.token"})
-
-_K8S_SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
-_K8S_DEFAULT_TIMEOUT = 10.0
+_K8S_SETTING_KEYS = ("kubernetes.enabled",)
 
 
 def _load_k8s_settings(db: "ChDbConnection") -> dict[str, str]:
-    """Load all Kubernetes settings from sobs_app_settings."""
+    """Load Kubernetes health settings from sobs_app_settings."""
     result: dict[str, str] = {k: "" for k in _K8S_SETTING_KEYS}
     for key in _K8S_SETTING_KEYS:
         raw = _get_app_setting(db, key)
@@ -16703,200 +16687,295 @@ def _load_k8s_settings(db: "ChDbConnection") -> dict[str, str]:
 
 
 def _k8s_settings_from_form(form: "dict[str, str]") -> dict[str, str]:
-    """Extract and validate Kubernetes settings from a submitted form."""
-    enabled = "1" if form.get("enabled") == "1" else "0"
-    mode = form.get("mode", "ingested").strip()
-    if mode not in {"realtime", "ingested"}:
-        mode = "ingested"
-    api_url = form.get("api_url", "").strip().rstrip("/")
-    namespace = form.get("namespace", "").strip() or "default"
-    token = form.get("token", "").strip()
-    ca_cert = form.get("ca_cert", "").strip()
-    # tls_verify defaults to "1" (enabled); only explicitly set to "0" when unchecked
-    tls_verify = "0" if form.get("tls_verify") == "0" else "1"
-    return {
-        "kubernetes.enabled": enabled,
-        "kubernetes.mode": mode,
-        "kubernetes.api_url": api_url,
-        "kubernetes.namespace": namespace,
-        "kubernetes.token": token,
-        "kubernetes.ca_cert": ca_cert,
-        "kubernetes.tls_verify": tls_verify,
+    """Extract Kubernetes settings from a submitted form."""
+    return {"kubernetes.enabled": "1" if form.get("enabled") == "1" else "0"}
+
+
+def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Build Kubernetes status from OTEL metric tables only."""
+    query = query or {}
+
+    def _to_int(value: Any, default: int, lo: int, hi: int) -> int:
+        try:
+            parsed = int(str(value).strip())
+        except Exception:
+            return default
+        return max(lo, min(hi, parsed))
+
+    def _count_query(sql: str, params: list[Any]) -> int:
+        row = db.execute(sql, params).fetchone()
+        if row is None:
+            return 0
+        if isinstance(row, dict):
+            v = row.get("cnt")
+            return int(v or 0)
+        return int(row[0] or 0)
+
+    name_filter = str(query.get("name", "")).strip()
+    namespace_filter = str(query.get("namespace", "")).strip()
+
+    table_defaults: dict[str, dict[str, Any]] = {
+        "nodes": {"sort": "name", "page": 1, "page_size": 25},
+        "deployments": {"sort": "namespace", "page": 1, "page_size": 25},
+        "pods": {"sort": "namespace", "page": 1, "page_size": 25},
+    }
+    sort_columns: dict[str, dict[str, str]] = {
+        "nodes": {
+            "name": "name",
+            "status": "status",
+            "version": "version",
+            "created": "last_seen",
+        },
+        "deployments": {
+            "namespace": "namespace",
+            "name": "name",
+            "desired": "desired",
+            "ready": "ready",
+            "available": "available",
+            "created": "last_seen",
+        },
+        "pods": {
+            "namespace": "namespace",
+            "name": "name",
+            "phase": "phase",
+            "ready": "ready_signal",
+            "restarts": "restarts",
+            "node": "node",
+            "created": "last_seen",
+        },
     }
 
+    table_opts: dict[str, dict[str, Any]] = {}
+    for table in ("nodes", "deployments", "pods"):
+        default_sort = str(table_defaults[table]["sort"])
+        req_sort = str(query.get(f"{table}_sort", default_sort)).strip()
+        sort_key = req_sort if req_sort in sort_columns[table] else default_sort
+        req_dir = str(query.get(f"{table}_dir", "asc")).strip().lower()
+        sort_dir = "desc" if req_dir == "desc" else "asc"
+        page = _to_int(query.get(f"{table}_page"), 1, 1, 1_000_000)
+        page_size = _to_int(query.get(f"{table}_page_size"), 25, 1, 200)
+        table_opts[table] = {
+            "sort_key": sort_key,
+            "sort_col": sort_columns[table][sort_key],
+            "sort_dir": sort_dir,
+            "page": page,
+            "page_size": page_size,
+            "offset": (page - 1) * page_size,
+        }
 
-async def _fetch_k8s_realtime(settings: dict[str, str]) -> dict:
-    """Fetch live Kubernetes health data via the K8s REST API using httpx.
-
-    Returns a dict with keys: pods, deployments, nodes, namespaces, error.
-    Falls back to in-cluster service-account credentials when api_url is empty.
-    """
-    api_url = settings.get("kubernetes.api_url", "").strip().rstrip("/")
-    token = settings.get("kubernetes.token", "").strip()
-    namespace = settings.get("kubernetes.namespace", "default").strip() or "default"
-
-    # In-cluster fallback
-    if not api_url:
-        api_url = "https://kubernetes.default.svc"
-    if not token:
-        try:
-            with open(_K8S_SA_TOKEN_PATH) as fh:
-                token = fh.read().strip()
-        except OSError:
-            pass
-
-    headers: dict[str, str] = {}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-
-    # TLS verification: default to True (secure); user can disable via settings for self-signed certs
-    ca_cert = settings.get("kubernetes.ca_cert", "").strip()
-    tls_verify_setting = settings.get("kubernetes.tls_verify", "1")
-    if ca_cert:
-        verify: bool | str = ca_cert
-    elif tls_verify_setting == "0":
-        verify = False
-    else:
-        verify = True
-
-    result: dict = {"pods": [], "deployments": [], "nodes": [], "namespaces": [], "error": ""}
+    result: dict[str, Any] = {
+        "pods": [],
+        "deployments": [],
+        "nodes": [],
+        "namespaces": [],
+        "meta": {
+            "nodes": {"total": 0, **table_opts["nodes"]},
+            "deployments": {"total": 0, **table_opts["deployments"]},
+            "pods": {"total": 0, **table_opts["pods"]},
+        },
+        "summary": {
+            "nodes_total": 0,
+            "nodes_ready": 0,
+            "pods_total": 0,
+            "pods_running": 0,
+            "pods_failed": 0,
+            "deployments_total": 0,
+            "deployments_unhealthy": 0,
+            "namespaces_total": 0,
+        },
+        "error": "",
+        "source": "otel",
+    }
+    errors: list[str] = []
 
     try:
-        async with httpx.AsyncClient(verify=verify, headers=headers, timeout=_K8S_DEFAULT_TIMEOUT) as client:
-            # Namespaces
-            try:
-                r = await client.get(f"{api_url}/api/v1/namespaces")
-                r.raise_for_status()
-                ns_items = r.json().get("items", [])
-                result["namespaces"] = [
-                    {
-                        "name": ns["metadata"]["name"],
-                        "status": ns.get("status", {}).get("phase", ""),
-                        "created": ns["metadata"].get("creationTimestamp", ""),
-                    }
-                    for ns in ns_items
-                ]
-            except Exception as exc:
-                result["namespaces"] = []
-                result["error"] = str(exc)
+        node_conditions = ["Attributes['k8s.node.name'] != ''"]
+        node_params: list[Any] = []
+        if name_filter:
+            node_conditions.append("positionCaseInsensitive(Attributes['k8s.node.name'], ?) > 0")
+            node_params.append(name_filter)
 
-            # Pods
-            pod_url = (
-                f"{api_url}/api/v1/pods" if namespace == "all" else f"{api_url}/api/v1/namespaces/{namespace}/pods"
-            )
-            try:
-                r = await client.get(pod_url)
-                r.raise_for_status()
-                pod_items = r.json().get("items", [])
-                result["pods"] = [
-                    {
-                        "namespace": p["metadata"].get("namespace", namespace),
-                        "name": p["metadata"]["name"],
-                        "phase": p.get("status", {}).get("phase", "Unknown"),
-                        "ready": _k8s_pod_ready(p),
-                        "restarts": _k8s_pod_restarts(p),
-                        "node": p.get("spec", {}).get("nodeName", ""),
-                        "created": p["metadata"].get("creationTimestamp", ""),
-                    }
-                    for p in pod_items
-                ]
-            except Exception as exc:
-                result["pods"] = []
-                if not result["error"]:
-                    result["error"] = str(exc)
-
-            # Deployments
-            deploy_url = (
-                f"{api_url}/apis/apps/v1/deployments"
-                if namespace == "all"
-                else f"{api_url}/apis/apps/v1/namespaces/{namespace}/deployments"
-            )
-            try:
-                r = await client.get(deploy_url)
-                r.raise_for_status()
-                deploy_items = r.json().get("items", [])
-                result["deployments"] = [
-                    {
-                        "namespace": d["metadata"].get("namespace", namespace),
-                        "name": d["metadata"]["name"],
-                        "desired": d.get("spec", {}).get("replicas", 0),
-                        "ready": d.get("status", {}).get("readyReplicas", 0),
-                        "available": d.get("status", {}).get("availableReplicas", 0),
-                        "updated": d.get("status", {}).get("updatedReplicas", 0),
-                        "created": d["metadata"].get("creationTimestamp", ""),
-                    }
-                    for d in deploy_items
-                ]
-            except Exception as exc:
-                result["deployments"] = []
-                if not result["error"]:
-                    result["error"] = str(exc)
-
-            # Nodes
-            try:
-                r = await client.get(f"{api_url}/api/v1/nodes")
-                r.raise_for_status()
-                node_items = r.json().get("items", [])
-                result["nodes"] = [
-                    {
-                        "name": n["metadata"]["name"],
-                        "status": _k8s_node_status(n),
-                        "version": n.get("status", {}).get("nodeInfo", {}).get("kubeletVersion", ""),
-                        "created": n["metadata"].get("creationTimestamp", ""),
-                    }
-                    for n in node_items
-                ]
-            except Exception as exc:
-                result["nodes"] = []
-                if not result["error"]:
-                    result["error"] = str(exc)
-
+        node_base_sql = f"""
+            SELECT
+                Attributes['k8s.node.name'] AS name,
+                maxIf(Value, MetricName = 'k8s.node.condition_ready') AS ready_signal,
+                if(maxIf(Value, MetricName = 'k8s.node.condition_ready') > 0, 'Ready', 'NotReady') AS status,
+                any(Attributes['k8s.kubelet.version']) AS version,
+                max(TimeUnix) AS last_seen
+            FROM otel_metrics_gauge
+            WHERE {' AND '.join(node_conditions)}
+            GROUP BY name
+        """
+        node_total = _count_query(f"SELECT count(*) AS cnt FROM ({node_base_sql})", node_params)
+        result["meta"]["nodes"]["total"] = node_total
+        result["summary"]["nodes_total"] = node_total
+        result["summary"]["nodes_ready"] = _count_query(
+            f"SELECT count(*) AS cnt FROM ({node_base_sql}) WHERE ready_signal > 0",
+            node_params,
+        )
+        node_sql = (
+            f"SELECT * FROM ({node_base_sql}) "
+            f"ORDER BY {table_opts['nodes']['sort_col']} {table_opts['nodes']['sort_dir'].upper()} "
+            "LIMIT ? OFFSET ?"
+        )
+        node_rows = db.execute(
+            node_sql,
+            node_params + [table_opts["nodes"]["page_size"], table_opts["nodes"]["offset"]],
+        ).fetchall()
+        result["nodes"] = [
+            {
+                "name": str(row["name"]),
+                "status": "Ready" if float(row["ready_signal"] or 0) > 0 else "NotReady",
+                "version": str(row["version"] or ""),
+                "created": str(row["last_seen"]),
+            }
+            for row in node_rows
+        ]
     except Exception as exc:
-        result["error"] = str(exc)
+        errors.append(f"nodes: {exc}")
+
+    try:
+        pod_conditions = ["Attributes['k8s.pod.name'] != ''"]
+        pod_params: list[Any] = []
+        if namespace_filter:
+            pod_conditions.append("Attributes['k8s.namespace.name'] = ?")
+            pod_params.append(namespace_filter)
+        if name_filter:
+            pod_conditions.append("positionCaseInsensitive(Attributes['k8s.pod.name'], ?) > 0")
+            pod_params.append(name_filter)
+
+        pod_base_sql = f"""
+            SELECT
+                Attributes['k8s.namespace.name'] AS namespace,
+                Attributes['k8s.pod.name'] AS name,
+                any(Attributes['k8s.pod.phase']) AS phase,
+                maxIf(Value, MetricName = 'k8s.pod.status_ready') AS ready_signal,
+                maxIf(toInt64(Value), MetricName = 'k8s.container.restart_count') AS restarts,
+                any(Attributes['k8s.node.name']) AS node,
+                max(TimeUnix) AS last_seen
+            FROM otel_metrics_gauge
+            WHERE {' AND '.join(pod_conditions)}
+            GROUP BY namespace, name
+        """
+        pod_total = _count_query(f"SELECT count(*) AS cnt FROM ({pod_base_sql})", pod_params)
+        result["meta"]["pods"]["total"] = pod_total
+        result["summary"]["pods_total"] = pod_total
+        result["summary"]["pods_running"] = _count_query(
+            f"SELECT count(*) AS cnt FROM ({pod_base_sql}) WHERE phase = 'Running'",
+            pod_params,
+        )
+        result["summary"]["pods_failed"] = _count_query(
+            f"SELECT count(*) AS cnt FROM ({pod_base_sql}) WHERE phase = 'Failed'",
+            pod_params,
+        )
+        pod_sql = (
+            f"SELECT * FROM ({pod_base_sql}) "
+            f"ORDER BY {table_opts['pods']['sort_col']} {table_opts['pods']['sort_dir'].upper()} "
+            "LIMIT ? OFFSET ?"
+        )
+        pod_rows = db.execute(
+            pod_sql,
+            pod_params + [table_opts["pods"]["page_size"], table_opts["pods"]["offset"]],
+        ).fetchall()
+        result["pods"] = [
+            {
+                "namespace": str(row["namespace"] or "default"),
+                "name": str(row["name"]),
+                "phase": str(row["phase"] or "Unknown"),
+                "ready": float(row["ready_signal"] or 0) > 0,
+                "restarts": int(row["restarts"] or 0),
+                "node": str(row["node"] or ""),
+                "created": str(row["last_seen"]),
+            }
+            for row in pod_rows
+        ]
+    except Exception as exc:
+        errors.append(f"pods: {exc}")
+
+    try:
+        deploy_conditions = ["Attributes['k8s.deployment.name'] != ''"]
+        deploy_params: list[Any] = []
+        if namespace_filter:
+            deploy_conditions.append("Attributes['k8s.namespace.name'] = ?")
+            deploy_params.append(namespace_filter)
+        if name_filter:
+            deploy_conditions.append("positionCaseInsensitive(Attributes['k8s.deployment.name'], ?) > 0")
+            deploy_params.append(name_filter)
+
+        deploy_base_sql = f"""
+            SELECT
+                Attributes['k8s.namespace.name'] AS namespace,
+                Attributes['k8s.deployment.name'] AS name,
+                maxIf(toInt64(Value), MetricName = 'k8s.deployment.desired') AS desired,
+                maxIf(toInt64(Value), MetricName = 'k8s.deployment.ready') AS ready,
+                maxIf(toInt64(Value), MetricName = 'k8s.deployment.available') AS available,
+                maxIf(toInt64(Value), MetricName = 'k8s.deployment.updated') AS updated,
+                max(TimeUnix) AS last_seen
+            FROM otel_metrics_gauge
+            WHERE {' AND '.join(deploy_conditions)}
+            GROUP BY namespace, name
+        """
+        deploy_total = _count_query(f"SELECT count(*) AS cnt FROM ({deploy_base_sql})", deploy_params)
+        result["meta"]["deployments"]["total"] = deploy_total
+        result["summary"]["deployments_total"] = deploy_total
+        result["summary"]["deployments_unhealthy"] = _count_query(
+            f"SELECT count(*) AS cnt FROM ({deploy_base_sql}) WHERE ready < desired",
+            deploy_params,
+        )
+        deploy_sql = (
+            f"SELECT * FROM ({deploy_base_sql}) "
+            f"ORDER BY {table_opts['deployments']['sort_col']} {table_opts['deployments']['sort_dir'].upper()} "
+            "LIMIT ? OFFSET ?"
+        )
+        deploy_rows = db.execute(
+            deploy_sql,
+            deploy_params + [table_opts["deployments"]["page_size"], table_opts["deployments"]["offset"]],
+        ).fetchall()
+        result["deployments"] = [
+            {
+                "namespace": str(row["namespace"] or "default"),
+                "name": str(row["name"]),
+                "desired": int(row["desired"] or 0),
+                "ready": int(row["ready"] or 0),
+                "available": int(row["available"] or 0),
+                "updated": int(row["updated"] or 0),
+                "created": str(row["last_seen"]),
+            }
+            for row in deploy_rows
+        ]
+    except Exception as exc:
+        errors.append(f"deployments: {exc}")
+
+    try:
+        namespace_rows = db.execute("""
+            SELECT
+                Attributes['k8s.namespace.name'] AS name,
+                max(TimeUnix) AS last_seen
+            FROM otel_metrics_gauge
+            WHERE Attributes['k8s.namespace.name'] != ''
+            GROUP BY name
+            ORDER BY name
+            """).fetchall()
+        result["namespaces"] = [
+            {
+                "name": str(row["name"]),
+                "status": "Active",
+                "created": str(row["last_seen"]),
+            }
+            for row in namespace_rows
+        ]
+        result["summary"]["namespaces_total"] = len(result["namespaces"])
+    except Exception as exc:
+        errors.append(f"namespaces: {exc}")
+
+    if errors:
+        result["error"] = "; ".join(errors)
+    elif not (result["pods"] or result["deployments"] or result["nodes"] or result["namespaces"]):
+        result["error"] = (
+            "No Kubernetes OTEL data found yet. Deploy the reference OTEL Kubernetes collectors to populate this view."
+        )
 
     return result
-
-
-def _k8s_pod_ready(pod: dict) -> bool:
-    """Return True when all containers in the pod are ready."""
-    conditions = pod.get("status", {}).get("conditions", [])
-    for cond in conditions:
-        if cond.get("type") == "Ready":
-            return cond.get("status") == "True"
-    return False
-
-
-def _k8s_pod_restarts(pod: dict) -> int:
-    """Return total restart count across all containers in the pod."""
-    total = 0
-    for cs in pod.get("status", {}).get("containerStatuses", []):
-        total += cs.get("restartCount", 0)
-    return total
-
-
-def _k8s_node_status(node: dict) -> str:
-    """Return 'Ready' or 'NotReady' based on node conditions."""
-    for cond in node.get("status", {}).get("conditions", []):
-        if cond.get("type") == "Ready":
-            return "Ready" if cond.get("status") == "True" else "NotReady"
-    return "Unknown"
-
-
-def _load_k8s_snapshot(db: "ChDbConnection") -> dict | None:
-    """Load the most recent ingested Kubernetes snapshot."""
-    row = db.execute(
-        "SELECT SnapshotJson, Source, ReceivedAt FROM sobs_kubernetes_snapshots FINAL "
-        "ORDER BY ReceivedAt DESC LIMIT 1"
-    ).fetchone()
-    if not row:
-        return None
-    try:
-        data = json.loads(str(row[0]))
-        data["_source"] = str(row[1])
-        data["_received_at"] = str(row[2])
-        return data
-    except Exception:
-        return None
 
 
 @app.route("/settings/kubernetes", methods=["GET"])
@@ -16923,9 +17002,6 @@ async def save_k8s_settings():
     new_settings = _k8s_settings_from_form(dict(form))
     db = get_db()
     for key, value in new_settings.items():
-        # For the sensitive token field, an empty submission means "keep existing value"
-        if key == "kubernetes.token" and not value:
-            continue
         if value:
             _set_app_setting(db, key, value)
         else:
@@ -16949,86 +17025,39 @@ async def view_kubernetes():
 @app.route("/api/kubernetes/status", methods=["GET"])
 @require_basic_auth
 async def api_kubernetes_status():
-    """Return current Kubernetes health data.
-
-    In 'realtime' mode the K8s API is queried live.
-    In 'ingested' mode the latest stored snapshot is returned.
-    """
+    """Return current Kubernetes health data from OTEL tables."""
     if not _kubernetes_enabled():
         return jsonify({"ok": False, "error": "Kubernetes health view is disabled."}), 404
 
-    db = get_db()
-    settings = _load_k8s_settings(db)
-    mode = settings.get("kubernetes.mode", "ingested")
-
-    if mode == "realtime":
+    def _q_int(name: str, default: int, lo: int, hi: int) -> int:
+        raw = request.args.get(name, str(default)).strip()
         try:
-            data = await _fetch_k8s_realtime(settings)
-            data["source"] = "realtime"
-            data["ok"] = True
-            return jsonify(data)
-        except Exception as exc:
-            return jsonify({"ok": False, "error": str(exc), "source": "realtime"}), 502
-    else:
-        snapshot = _load_k8s_snapshot(db)
-        if snapshot is None:
-            return jsonify(
-                {
-                    "ok": True,
-                    "source": "ingested",
-                    "pods": [],
-                    "deployments": [],
-                    "nodes": [],
-                    "namespaces": [],
-                    "error": "No ingested data yet. POST to /api/kubernetes/ingest to supply data.",
-                }
-            )
-        snapshot["ok"] = True
-        snapshot["source"] = "ingested"
-        return jsonify(snapshot)
+            parsed = int(raw)
+        except Exception:
+            parsed = default
+        return max(lo, min(hi, parsed))
 
-
-@app.route("/api/kubernetes/ingest", methods=["POST"])
-@require_basic_auth
-async def api_kubernetes_ingest():
-    """Accept an externally-generated Kubernetes health snapshot.
-
-    Expects JSON with any subset of: pods, deployments, nodes, namespaces.
-    Example::
-
-        {
-          "pods": [...],
-          "deployments": [...],
-          "nodes": [...],
-          "namespaces": [...]
-        }
-    """
-    if not _kubernetes_enabled():
-        return jsonify({"ok": False, "error": "Kubernetes health view is disabled."}), 404
-
-    payload = await request.get_json(force=True, silent=True)
-    if not payload or not isinstance(payload, dict):
-        return jsonify({"ok": False, "error": "Invalid JSON payload."}), 400
-
-    snapshot_id = hashlib.sha256(f"k8s|{time.time_ns()}".encode()).hexdigest()[:32]
-    snapshot_json = json.dumps(
-        {
-            "pods": payload.get("pods") or [],
-            "deployments": payload.get("deployments") or [],
-            "nodes": payload.get("nodes") or [],
-            "namespaces": payload.get("namespaces") or [],
-            "error": payload.get("error") or "",
-        }
-    )
+    query_opts: dict[str, Any] = {
+        "namespace": request.args.get("namespace", "").strip(),
+        "name": request.args.get("name", "").strip(),
+        "nodes_sort": request.args.get("nodes_sort", "name").strip(),
+        "nodes_dir": request.args.get("nodes_dir", "asc").strip().lower(),
+        "nodes_page": _q_int("nodes_page", 1, 1, 1_000_000),
+        "nodes_page_size": _q_int("nodes_page_size", 25, 1, 200),
+        "deployments_sort": request.args.get("deployments_sort", "namespace").strip(),
+        "deployments_dir": request.args.get("deployments_dir", "asc").strip().lower(),
+        "deployments_page": _q_int("deployments_page", 1, 1, 1_000_000),
+        "deployments_page_size": _q_int("deployments_page_size", 25, 1, 200),
+        "pods_sort": request.args.get("pods_sort", "namespace").strip(),
+        "pods_dir": request.args.get("pods_dir", "asc").strip().lower(),
+        "pods_page": _q_int("pods_page", 1, 1, 1_000_000),
+        "pods_page_size": _q_int("pods_page_size", 25, 1, 200),
+    }
 
     db = get_db()
-    _insert_rows_json_each_row(
-        db,
-        "sobs_kubernetes_snapshots",
-        [{"Id": snapshot_id, "Source": "ingested", "SnapshotJson": snapshot_json}],
-    )
-
-    return jsonify({"ok": True, "id": snapshot_id})
+    data = _fetch_k8s_from_otel(db, query_opts)
+    data["ok"] = True
+    return jsonify(data)
 
 
 if __name__ == "__main__":

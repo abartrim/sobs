@@ -7666,12 +7666,9 @@ class TestKubernetesRoutes:
         data = json.loads(await r.get_data())
         assert data["ok"] is False
 
-    async def test_kubernetes_ingest_disabled(self, client, monkeypatch):
-        monkeypatch.setattr(sobs_app, "_kubernetes_enabled", lambda: False)
+    async def test_kubernetes_ingest_route_removed(self, client):
         r = await client.post("/api/kubernetes/ingest", json={"pods": []})
         assert r.status_code == 404
-        data = json.loads(await r.get_data())
-        assert data["ok"] is False
 
     async def test_kubernetes_page_enabled(self, client, monkeypatch):
         monkeypatch.setattr(sobs_app, "_kubernetes_enabled", lambda: True)
@@ -7686,125 +7683,87 @@ class TestKubernetesRoutes:
         assert r.status_code == 200
         text = (await r.get_data()).decode()
         assert "Kubernetes Health View" in text
-        assert "kubernetes.enabled" in text or "k8sEnabled" in text
+        assert "OTEL tables only" in text
 
     async def test_kubernetes_settings_save(self, client):
         r = await client.post(
             "/settings/kubernetes",
-            form={"enabled": "1", "mode": "ingested", "namespace": "default"},
+            form={"enabled": "1"},
         )
         assert r.status_code in (200, 302)
 
-    async def test_kubernetes_ingest_and_status(self, client, monkeypatch):
-        """Ingesting a snapshot makes it available via the status endpoint."""
+    async def test_kubernetes_status_from_otel(self, client, monkeypatch):
         monkeypatch.setattr(sobs_app, "_kubernetes_enabled", lambda: True)
-
-        snapshot = {
-            "pods": [
-                {
-                    "namespace": "default",
-                    "name": "my-pod-abc",
-                    "phase": "Running",
-                    "ready": True,
-                    "restarts": 0,
-                    "node": "node-1",
-                    "created": "2024-01-01T00:00:00Z",
-                }
-            ],
-            "deployments": [
-                {
-                    "namespace": "default",
-                    "name": "my-deploy",
-                    "desired": 2,
-                    "ready": 2,
-                    "available": 2,
-                    "updated": 2,
-                    "created": "2024-01-01T00:00:00Z",
-                }
-            ],
-            "nodes": [
-                {
-                    "name": "node-1",
-                    "status": "Ready",
-                    "version": "v1.29.0",
-                    "created": "2024-01-01T00:00:00Z",
-                }
-            ],
-            "namespaces": [{"name": "default", "status": "Active", "created": "2024-01-01T00:00:00Z"}],
-        }
-        ingest_r = await client.post("/api/kubernetes/ingest", json=snapshot)
-        assert ingest_r.status_code == 200
-        ingest_data = json.loads(await ingest_r.get_data())
-        assert ingest_data["ok"] is True
-        assert "id" in ingest_data
-
-        # Configure the feature to use ingested mode before checking status
         monkeypatch.setattr(
             sobs_app,
-            "_load_k8s_settings",
-            lambda _db: {"kubernetes.enabled": "1", "kubernetes.mode": "ingested"},
+            "_fetch_k8s_from_otel",
+            lambda _db, _query: {
+                "pods": [
+                    {
+                        "namespace": "default",
+                        "name": "my-pod-abc",
+                        "phase": "Running",
+                        "ready": True,
+                        "restarts": 0,
+                        "node": "node-1",
+                        "created": "2024-01-01T00:00:00Z",
+                    }
+                ],
+                "deployments": [
+                    {
+                        "namespace": "default",
+                        "name": "my-deploy",
+                        "desired": 2,
+                        "ready": 2,
+                        "available": 2,
+                        "updated": 2,
+                        "created": "2024-01-01T00:00:00Z",
+                    }
+                ],
+                "nodes": [
+                    {
+                        "name": "node-1",
+                        "status": "Ready",
+                        "version": "v1.29.0",
+                        "created": "2024-01-01T00:00:00Z",
+                    }
+                ],
+                "namespaces": [{"name": "default", "status": "Active", "created": "2024-01-01T00:00:00Z"}],
+                "error": "",
+                "source": "otel",
+            },
         )
 
         status_r = await client.get("/api/kubernetes/status")
         assert status_r.status_code == 200
         status_data = json.loads(await status_r.get_data())
         assert status_data["ok"] is True
-        assert status_data["source"] == "ingested"
+        assert status_data["source"] == "otel"
         assert len(status_data["pods"]) == 1
         assert status_data["pods"][0]["name"] == "my-pod-abc"
         assert len(status_data["deployments"]) == 1
         assert len(status_data["nodes"]) == 1
 
-    async def test_kubernetes_ingest_bad_payload(self, client, monkeypatch):
-        monkeypatch.setattr(sobs_app, "_kubernetes_enabled", lambda: True)
-        r = await client.post("/api/kubernetes/ingest", data=b"not json", headers={"Content-Type": "text/plain"})
-        assert r.status_code == 400
-        data = json.loads(await r.get_data())
-        assert data["ok"] is False
-
     async def test_kubernetes_status_no_data(self, client, monkeypatch):
-        """When no ingested snapshot exists, status returns empty lists and ok=True."""
         monkeypatch.setattr(sobs_app, "_kubernetes_enabled", lambda: True)
         monkeypatch.setattr(
             sobs_app,
-            "_load_k8s_settings",
-            lambda _db: {"kubernetes.enabled": "1", "kubernetes.mode": "ingested"},
+            "_fetch_k8s_from_otel",
+            lambda _db, _query: {
+                "pods": [],
+                "deployments": [],
+                "nodes": [],
+                "namespaces": [],
+                "error": "No Kubernetes OTEL data found yet.",
+                "source": "otel",
+            },
         )
-        monkeypatch.setattr(sobs_app, "_load_k8s_snapshot", lambda _db: None)
         r = await client.get("/api/kubernetes/status")
         assert r.status_code == 200
         data = json.loads(await r.get_data())
         assert data["ok"] is True
         assert data["pods"] == []
-        assert data["deployments"] == []
-        assert "ingested" in data.get("error", "") or data["source"] == "ingested"
-
-    async def test_k8s_pod_ready_true(self):
-        pod = {"status": {"conditions": [{"type": "Ready", "status": "True"}]}}
-        assert sobs_app._k8s_pod_ready(pod) is True
-
-    async def test_k8s_pod_ready_false(self):
-        pod = {"status": {"conditions": [{"type": "Ready", "status": "False"}]}}
-        assert sobs_app._k8s_pod_ready(pod) is False
-
-    async def test_k8s_pod_restarts(self):
-        pod = {
-            "status": {
-                "containerStatuses": [
-                    {"restartCount": 3},
-                    {"restartCount": 2},
-                ]
-            }
-        }
-        assert sobs_app._k8s_pod_restarts(pod) == 5
-
-    async def test_k8s_node_status_ready(self):
-        node = {"status": {"conditions": [{"type": "Ready", "status": "True"}]}}
-        assert sobs_app._k8s_node_status(node) == "Ready"
-
-    async def test_k8s_node_status_not_ready(self):
-        node = {"status": {"conditions": [{"type": "Ready", "status": "False"}]}}
-        assert sobs_app._k8s_node_status(node) == "NotReady"
+        assert data["source"] == "otel"
 
     async def test_kubernetes_settings_hub_card(self, client, monkeypatch):
         """Settings hub shows the Kubernetes card."""

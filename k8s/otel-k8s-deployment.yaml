@@ -1,0 +1,37 @@
+# OpenTelemetry Collector (deployment mode) for cluster-wide Kubernetes telemetry.
+# Apply with:
+#   helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+#   helm install sobs-k8s-deployment open-telemetry/opentelemetry-collector -f k8s/otel-k8s-deployment.yaml
+
+mode: deployment
+replicaCount: 1
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: 0.123.0
+
+presets:
+  kubernetesAttributes:
+    enabled: true
+    extractAllPodLabels: true
+    extractAllPodAnnotations: true
+  kubernetesEvents:
+    enabled: true
+  clusterMetrics:
+    enabled: true
+
+extraEnvs:
+  - name: SOBS_OTLP_HTTP_ENDPOINT
+    value: http://sobs:4318
+
+config:
+  exporters:
+    otlphttp/sobs:
+      endpoint: "${env:SOBS_OTLP_HTTP_ENDPOINT}"
+      compression: gzip
+  service:
+    pipelines:
+      logs:
+        exporters: [otlphttp/sobs]
+      metrics:
+        exporters: [otlphttp/sobs]

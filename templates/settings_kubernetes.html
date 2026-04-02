@@ -9,10 +9,8 @@
 </div>
 
 <p class="text-secondary small mb-3">
-  Configure the Kubernetes Health View to display the status of your cluster, pods, deployments, and nodes.
-  The feature is <strong>off by default</strong> and has no effect unless explicitly enabled here.
-  Choose between <strong>real-time</strong> polling (requires access to the Kubernetes API) or
-  <strong>ingested</strong> mode where you push snapshot data via <code>POST /api/kubernetes/ingest</code>.
+  Kubernetes health in SOBS is sourced from <strong>OTEL tables only</strong>.
+  This view expects Kubernetes telemetry collected by OpenTelemetry Collectors running inside your cluster.
 </p>
 
 {% if flash_msg %}
@@ -25,7 +23,6 @@
 <div class="card border-secondary mb-4">
   <div class="card-body">
     <form method="post" action="{{ url_for('save_k8s_settings') }}">
-      <!-- Enable toggle -->
       <div class="mb-4">
         <div class="form-check form-switch">
           <input class="form-check-input" type="checkbox" role="switch" id="k8sEnabled"
@@ -37,95 +34,6 @@
         </div>
         <div class="form-text text-secondary">
           When enabled, a <strong>Kubernetes</strong> entry appears in the navigation sidebar.
-        </div>
-      </div>
-
-      <!-- Data mode -->
-      <div class="mb-4">
-        <label class="form-label fw-semibold">Data Mode</label>
-        <div class="d-flex gap-4">
-          <div class="form-check">
-            <input class="form-check-input" type="radio" name="mode" id="modeIngested" value="ingested"
-                   {% if k8s_settings.get('kubernetes.mode', 'ingested') != 'realtime' %}checked{% endif %}>
-            <label class="form-check-label" for="modeIngested">
-              <i class="bi bi-upload me-1 text-secondary"></i>Ingested
-              <span class="d-block text-secondary small">External tool pushes snapshots via <code>POST /api/kubernetes/ingest</code></span>
-            </label>
-          </div>
-          <div class="form-check">
-            <input class="form-check-input" type="radio" name="mode" id="modeRealtime" value="realtime"
-                   {% if k8s_settings.get('kubernetes.mode') == 'realtime' %}checked{% endif %}>
-            <label class="form-check-label" for="modeRealtime">
-              <i class="bi bi-broadcast me-1 text-success"></i>Real-time
-              <span class="d-block text-secondary small">SOBS polls the Kubernetes API directly</span>
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <!-- Realtime-only settings -->
-      <div id="realtimeSettings" {% if k8s_settings.get('kubernetes.mode') != 'realtime' %}class="d-none"{% endif %}>
-        <div class="row g-3 mb-3">
-          <div class="col-md-8">
-            <label class="form-label small text-secondary" for="k8sApiUrl">
-              Kubernetes API Server URL
-            </label>
-            <input type="url" name="api_url" id="k8sApiUrl"
-                   class="form-control form-control-sm font-monospace"
-                   placeholder="https://kubernetes.default.svc (leave blank for in-cluster)"
-                   value="{{ k8s_settings.get('kubernetes.api_url', '') }}">
-            <div class="form-text text-secondary">
-              Leave blank to use the in-cluster service account automatically.
-            </div>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label small text-secondary" for="k8sNamespace">
-              Namespace
-            </label>
-            <input type="text" name="namespace" id="k8sNamespace"
-                   class="form-control form-control-sm"
-                   placeholder="default"
-                   value="{{ k8s_settings.get('kubernetes.namespace', 'default') }}">
-            <div class="form-text text-secondary">
-              Use <code>all</code> for all namespaces (requires cluster-wide RBAC).
-            </div>
-          </div>
-        </div>
-        <div class="row g-3 mb-3">
-          <div class="col-md-8">
-            <label class="form-label small text-secondary" for="k8sToken">
-              Service Account Token
-              <span class="badge text-bg-secondary ms-1">sensitive</span>
-            </label>
-            <input type="password" name="token" id="k8sToken"
-                   class="form-control form-control-sm font-monospace"
-                   autocomplete="new-password"
-                   placeholder="{{ '(token saved — leave blank to keep unchanged)' if k8s_settings.get('kubernetes.token') else 'Leave blank to use in-cluster token' }}"
-                   value="">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label small text-secondary" for="k8sCaCert">
-              CA Certificate Path (optional)
-            </label>
-            <input type="text" name="ca_cert" id="k8sCaCert"
-                   class="form-control form-control-sm font-monospace"
-                   placeholder="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-                   value="{{ k8s_settings.get('kubernetes.ca_cert', '') }}">
-          </div>
-        </div>
-        <div class="mb-3">
-          <div class="form-check">
-            <input class="form-check-input" type="checkbox" id="k8sTlsVerify"
-                   name="tls_verify" value="0"
-                   {% if k8s_settings.get('kubernetes.tls_verify') == '0' %}checked{% endif %}>
-            <label class="form-check-label small" for="k8sTlsVerify">
-              Disable TLS certificate verification
-              <span class="badge text-bg-warning ms-1">insecure</span>
-            </label>
-          </div>
-          <div class="form-text text-secondary">
-            Only enable when using self-signed certificates and no CA cert path is provided.
-          </div>
         </div>
       </div>
 
@@ -143,51 +51,21 @@
   </div>
 </div>
 
-<!-- Ingestion API docs -->
 <div class="card border-secondary mb-3">
   <div class="card-body">
-    <h6 class="fw-semibold mb-2"><i class="bi bi-code-slash me-1 text-secondary"></i>Ingestion API</h6>
+    <h6 class="fw-semibold mb-2"><i class="bi bi-diagram-3 me-1 text-secondary"></i>Reference In-Cluster Setup</h6>
     <p class="small text-secondary mb-2">
-      Push Kubernetes health snapshots from your CI/CD pipelines, scripts, or monitoring tools.
+      Follow the standard OTEL pattern used by ClickStack-style Kubernetes deployments:
+      one deployment collector for cluster-wide signals and one daemonset collector for node-level signals.
     </p>
-    <pre class="bg-body-secondary rounded p-3 small mb-0"><code>POST /api/kubernetes/ingest
-Content-Type: application/json
-
-{
-  "pods": [
-    {"namespace": "default", "name": "my-pod-abc", "phase": "Running",
-     "ready": true, "restarts": 0, "node": "node-1", "created": "2024-01-01T00:00:00Z"}
-  ],
-  "deployments": [
-    {"namespace": "default", "name": "my-deploy",
-     "desired": 3, "ready": 3, "available": 3, "updated": 3, "created": "2024-01-01T00:00:00Z"}
-  ],
-  "nodes": [
-    {"name": "node-1", "status": "Ready", "version": "v1.29.0", "created": "2024-01-01T00:00:00Z"}
-  ],
-  "namespaces": [
-    {"name": "default", "status": "Active", "created": "2024-01-01T00:00:00Z"}
-  ]
-}</code></pre>
+    <ol class="small mb-2">
+      <li>Deploy <code>k8s/otel-k8s-deployment.yaml</code> (single replica for cluster metrics/events).</li>
+      <li>Deploy <code>k8s/otel-k8s-daemonset.yaml</code> (runs on each node for kubelet/log signals).</li>
+      <li>Point exporter endpoint to SOBS OTLP endpoint (<code>http://sobs:4318</code> in-cluster).</li>
+    </ol>
+    <p class="small text-secondary mb-0">
+      Once collectors are running, this dashboard reads from <code>otel_metrics_*</code> tables automatically.
+    </p>
   </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-(function () {
-  var radios = document.querySelectorAll('input[name="mode"]');
-  var realtimeDiv = document.getElementById('realtimeSettings');
-  function toggleRealtime() {
-    var v = document.querySelector('input[name="mode"]:checked');
-    if (v && v.value === 'realtime') {
-      realtimeDiv.classList.remove('d-none');
-    } else {
-      realtimeDiv.classList.add('d-none');
-    }
-  }
-  radios.forEach(function (r) { r.addEventListener('change', toggleRealtime); });
-  toggleRealtime();
-})();
-</script>
 {% endblock %}

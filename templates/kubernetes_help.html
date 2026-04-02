@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+{% block title %}Kubernetes Health Help{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="fw-semibold mb-1">Kubernetes Health Setup</h4>
+    <p class="text-secondary mb-0">Deploy in-cluster OpenTelemetry collectors to observe your Kubernetes cluster health via standard OTEL signals.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_kubernetes') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Health View
+  </a>
+</div>
+
+<!-- Quick-start cards -->
+<div class="row g-3 mb-4">
+  <div class="col-lg-6">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-info-circle me-1 text-info"></i>What You Need</h6>
+        <ul class="small text-secondary mb-0 ps-3">
+          <li>Kubernetes cluster (1.20+)</li>
+          <li><code>kubectl</code> access to the cluster</li>
+          <li>Helm 3.x installed</li>
+          <li>SOBS running with OTLP HTTP receiver enabled (port 4318)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-check-circle me-1 text-success"></i>What You Get</h6>
+        <ul class="small text-secondary mb-0 ps-3">
+          <li>Node status & readiness (from kubeletstats)</li>
+          <li>Pod phases & restart counts (from hostmetrics)</li>
+          <li>Deployment desired/ready replicas (from k8s_cluster)</li>
+          <li>Namespace-level resource aggregates</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Setup instructions -->
+<div class="card border-secondary mb-4">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-list-check me-2"></i>Installation Steps
+  </div>
+  <div class="card-body">
+    <ol class="small">
+      <li class="mb-3">
+        <strong>Add the OpenTelemetry Helm repository:</strong>
+        <div class="bg-dark p-2 rounded-1 font-monospace mt-1"><code class="text-light">helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts<br>helm repo update</code></div>
+      </li>
+      <li class="mb-3">
+        <strong>Install cluster-wide collector (Deployment):</strong>
+        <div class="alert alert-info small mb-2 py-2">
+          Handles Kubernetes API metadata, events, and cluster-level metrics.
+        </div>
+        <div class="bg-dark p-2 rounded-1 font-monospace"><code class="text-light">helm install sobs-k8s-deployment \<br>&nbsp;&nbsp;open-telemetry/opentelemetry-collector \<br>&nbsp;&nbsp;-f k8s/otel-k8s-deployment.yaml</code></div>
+      </li>
+      <li class="mb-3">
+        <strong>Install node-level collector (DaemonSet):</strong>
+        <div class="alert alert-info small mb-2 py-2">
+          Runs on every node to collect kubelet metrics, host metrics, and container logs.
+        </div>
+        <div class="bg-dark p-2 rounded-1 font-monospace"><code class="text-light">helm install sobs-k8s-daemonset \<br>&nbsp;&nbsp;open-telemetry/opentelemetry-collector \<br>&nbsp;&nbsp;-f k8s/otel-k8s-daemonset.yaml</code></div>
+      </li>
+      <li class="mb-3">
+        <strong>Verify collectors are running:</strong>
+        <div class="bg-dark p-2 rounded-1 font-monospace"><code class="text-light">kubectl get pods -o wide | grep -i otel</code></div>
+      </li>
+      <li>
+        <strong>Enable in SOBS:</strong>
+        <ul class="small mt-2 ps-3 mb-0">
+          <li>Navigate to <strong>Settings → Kubernetes</strong></li>
+          <li>Check the <strong>"Enable Kubernetes Health View"</strong> checkbox</li>
+          <li>Save settings</li>
+          <li>Data will appear in <strong>Kubernetes Health</strong> dashboard as metrics flow in</li>
+        </ul>
+      </li>
+    </ol>
+  </div>
+</div>
+
+<!-- Architecture explanation -->
+<div class="card border-secondary mb-4">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-diagram-3 me-2"></i>Collector Architecture
+  </div>
+  <div class="card-body small">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <h6 class="fw-semibold mb-2 text-info">Cluster-Wide Deployment (Single Pod)</h6>
+        <p class="text-secondary mb-2">Runs once in the cluster (in the OpenTelemetry Collector namespace).</p>
+        <ul class="text-secondary ps-3">
+          <li><strong>kubernetesAttributes:</strong> Enriches all signals with pod/node/cluster context</li>
+          <li><strong>kubernetesEvents:</strong> Collects Kubernetes API events (pod created, deployment updated, etc.)</li>
+          <li><strong>clusterMetrics:</strong> Gathers cluster-level state (nodes, namespaces, deployments)</li>
+        </ul>
+      </div>
+      <div class="col-md-6">
+        <h6 class="fw-semibold mb-2 text-info">Node-Level DaemonSet (One Pod Per Node)</h6>
+        <p class="text-secondary mb-2">Runs on every node in the cluster (via DaemonSet).</p>
+        <ul class="text-secondary ps-3">
+          <li><strong>kubeletMetrics:</strong> Reads pod resource usage (CPU, memory) directly from kubelet</li>
+          <li><strong>hostMetrics:</strong> Collects host-level metrics (disk, network, processes)</li>
+          <li><strong>Container Logs:</strong> Gathers logs from running containers via CRI runtime</li>
+        </ul>
+      </div>
+    </div>
+    <div class="mt-3 p-3 bg-dark rounded-1">
+      <div class="small text-secondary mb-2"><strong>Data Flow:</strong></div>
+      <div class="font-monospace text-light small">Kubernetes API ← Collectors → OTLP HTTP (port 4318) → SOBS ClickHouse</div>
+    </div>
+  </div>
+</div>
+
+<!-- Data mapping reference -->
+<div class="card border-secondary mb-4">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-table me-2"></i>Dashboard Data Mapping
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Dashboard Section</th>
+          <th>Data Source</th>
+          <th>OTEL Signal</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="fw-semibold">Nodes</td>
+          <td><code class="small">kubeletstats</code> on each node</td>
+          <td><code class="text-info small">k8s.node.condition_ready</code></td>
+        </tr>
+        <tr>
+          <td class="fw-semibold">Pods</td>
+          <td><code class="small">kubeletMetrics</code> + <code class="small">container logs</code></td>
+          <td><code class="text-info small">k8s.pod.name</code>, <code class="text-info small">k8s.container.restart_count</code></td>
+        </tr>
+        <tr>
+          <td class="fw-semibold">Deployments</td>
+          <td><code class="small">clusterMetrics</code> + <code class="small">kubernetesEvents</code></td>
+          <td><code class="text-info small">k8s.deployment.name</code>, <code class="text-info small">k8s.container.ready</code></td>
+        </tr>
+        <tr>
+          <td class="fw-semibold">Namespaces</td>
+          <td><code class="small">clusterMetrics</code></td>
+          <td><code class="text-info small">k8s.namespace.name</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Troubleshooting -->
+<div class="card border-secondary mb-4">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-question-circle me-2"></i>Troubleshooting
+  </div>
+  <div class="card-body small">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <h6 class="mb-2 text-warning">Collectors not starting?</h6>
+        <p class="text-secondary mb-2">Check logs and resource requests:</p>
+        <div class="bg-dark p-2 rounded-1 font-monospace text-light">
+          <code>kubectl logs -l app.kubernetes.io/name=opentelemetry-collector</code>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <h6 class="mb-2 text-warning">No data appearing in SOBS?</h6>
+        <p class="text-secondary mb-2">Verify OTLP endpoint is reachable from cluster:</p>
+        <div class="bg-dark p-2 rounded-1 font-monospace text-light">
+          <code>kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- curl -v http://sobs:4318/v1/metrics</code>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <h6 class="mb-2 text-warning">Wrong SOBS endpoint?</h6>
+        <p class="text-secondary mb-2">Update the Helm values <code>endpoint</code> field and upgrade:</p>
+        <div class="bg-dark p-2 rounded-1 font-monospace text-light">
+          <code>helm upgrade sobs-k8s-deployment ... --set-string endpoint=http://your-sobs-ip:4318</code>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <h6 class="mb-2 text-warning">Settings page doesn't show it enabled?</h6>
+        <p class="text-secondary mb-2">Check that SOBS is receiving metrics and has processed them. Initial data flow takes 30-60s.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Reference manifests -->
+<div class="card border-secondary">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-file-code me-2"></i>Reference Manifests
+  </div>
+  <div class="card-body p-0">
+    <div class="accordion" id="manifestAccordion">
+      <div class="accordion-item border-0">
+        <h2 class="accordion-header">
+          <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#deploymentManifest" aria-expanded="true">
+            <i class="bi bi-diagram-2 me-2" style="color: #0d6efd;"></i>
+            <strong>Cluster-Wide Deployment (<code>otel-k8s-deployment.yaml</code>)</strong>
+          </button>
+        </h2>
+        <div id="deploymentManifest" class="accordion-collapse collapse show" data-bs-parent="#manifestAccordion">
+          <div class="accordion-body p-0">
+            <pre class="bg-dark text-light p-3 mb-0 rounded-bottom"><code class="small">mode: deployment
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: 0.123.0
+
+presets:
+  kubernetesAttributes:
+    enabled: true
+    extractAllPodLabels: true
+    extractAllPodAnnotations: true
+  kubernetesEvents:
+    enabled: true
+  clusterMetrics:
+    enabled: true
+
+exporters:
+  otlphttp/sobs:
+    endpoint: http://sobs:4318
+    compression: gzip
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/sobs]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/sobs]</code></pre>
+          </div>
+        </div>
+      </div>
+      <div class="accordion-item border-0">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#daemonsetManifest">
+            <i class="bi bi-layers me-2" style="color: #198754;"></i>
+            <strong>Node-Level DaemonSet (<code>otel-k8s-daemonset.yaml</code>)</strong>
+          </button>
+        </h2>
+        <div id="daemonsetManifest" class="accordion-collapse collapse" data-bs-parent="#manifestAccordion">
+          <div class="accordion-body p-0">
+            <pre class="bg-dark text-light p-3 mb-0 rounded-bottom"><code class="small">mode: daemonset
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: 0.123.0
+
+presets:
+  logsCollection:
+    enabled: true
+  hostMetrics:
+    enabled: true
+  kubernetesAttributes:
+    enabled: true
+    extractAllPodLabels: true
+    extractAllPodAnnotations: true
+  kubeletMetrics:
+    enabled: true
+
+config:
+  receivers:
+    kubeletstats:
+      auth_type: serviceAccount
+      endpoint: "https://${K8S_NODE_NAME}:10250"
+      insecure_skip_verify: true
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+
+clusterRole:
+  create: true
+  rules:
+  - apiGroups: [""]
+    resources: ["nodes/proxy"]
+    verbs: ["get"]
+
+exporters:
+  otlphttp/sobs:
+    endpoint: http://sobs:4318
+    compression: gzip
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/sobs]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/sobs]</code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
