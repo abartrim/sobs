@@ -477,9 +477,13 @@ The script starts local port-forwards for LLM, embeddings, and DLP, exports `SOB
 
 ## Screenshots
 
-| Summary | Summary + AI Assistant | Custom Dashboard | Traces Drilldown | Query |
-|---|---|---|---|---|
-| ![Summary](static/help/summary.png) | ![Summary AI Assistant](static/help/summary_ai_assistant.png) | ![Custom Dashboard](static/help/dashboard.png) | ![Traces Drilldown](static/help/traces_drilldown.png) | ![Query](static/help/query.png) |
+| Summary | Summary + AI Assistant | AI Transparency |
+|---|---|---|
+| ![Summary](static/help/summary.png) | ![Summary AI Assistant](static/help/summary_ai_assistant.png) | ![AI Transparency](static/help/ai.png) |
+
+| Custom Dashboard | Traces Drilldown | Query |
+|---|---|---|
+| ![Custom Dashboard](static/help/dashboard.png) | ![Traces Drilldown](static/help/traces_drilldown.png) | ![Query](static/help/query.png) |
 
 ## Running Tests
 
