@@ -53,10 +53,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest pytest-asyncio
+        run: pip install -r requirements.txt pytest pytest-asyncio pytest-forked
 
       - name: Run unit tests
-        run: pytest tests/test_app.py -v
+        run: pytest tests/test_app.py -v --forked
 
   integration:
     name: Integration Tests
