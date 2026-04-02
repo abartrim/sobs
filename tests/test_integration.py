@@ -60,6 +60,8 @@ def live_server():
     env["PORT"] = str(SERVER_PORT)
     env["SOBS_DATA_DIR"] = data_dir
     env["SOBS_ENABLE_FIRST_RUN_TOUR"] = "0"
+    env["SOBS_AI_ENDPOINT_URL"] = "http://localhost:9999/v1"
+    env["SOBS_AI_MODEL"] = "docs-screenshot-model"
 
     proc = subprocess.Popen(
         [sys.executable, "app.py"],
@@ -555,3 +557,7 @@ class TestScreenshots:
     def test_screenshot_dashboards(self, page: Page, live_server):
         self._screenshot(page, "dashboard.png", f"{live_server}/dashboards")
         expect(page.get_by_role("heading", name="Custom Dashboards")).to_be_visible()
+
+    def test_screenshot_query(self, page: Page, live_server):
+        self._screenshot(page, "query.png", f"{live_server}/query")
+        expect(page.get_by_role("heading", name="Natural-Language Query")).to_be_visible()
