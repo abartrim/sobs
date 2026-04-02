@@ -498,7 +498,7 @@ class TestDataVisibleInUI:
 
 @pytest.mark.integration
 class TestScreenshots:
-    """Capture full-page screenshots of every UI view for visual regression."""
+    """Capture consistent viewport screenshots of UI views for visual regression."""
 
     @pytest.fixture(scope="class", autouse=True)
     def _seed_screenshot_data(self, live_server):
@@ -525,9 +525,12 @@ class TestScreenshots:
         page.evaluate("""
             () => {
                 try {
+                    localStorage.setItem('sobs-theme', 'dark');
                     localStorage.setItem('sobs.firstRunTourSeen.v1', '1');
                     localStorage.setItem('sobs.firstRunTourShown.v1', '1');
                 } catch (_) {}
+
+                document.documentElement.setAttribute('data-bs-theme', 'dark');
 
                 const doneBtn = document.getElementById('firstRunTourDoneBtn');
                 if (doneBtn && doneBtn.offsetParent !== null) {
@@ -547,6 +550,14 @@ class TestScreenshots:
                 if (backdrop) backdrop.remove();
             }
             """)
+
+    def _first_trace_detail_url(self, live_server: str) -> str:
+        """Return a traces drilldown URL for the first available trace."""
+        resp = requests.get(f"{live_server}/traces?limit=200", timeout=10)
+        assert resp.status_code == 200
+        match = re.search(r'href="(/traces\?trace_id=[^"]+)"', resp.text)
+        assert match is not None
+        return f"{live_server}{match.group(1).replace('&amp;', '&')}"
 
     def _create_docs_dashboard(self, live_server: str) -> str:
         """Create a dashboard with one rendered chart and return the dashboard URL."""
@@ -611,11 +622,19 @@ class TestScreenshots:
         return f"{live_server}/dashboards/{dashboard_id}"
 
     def _screenshot(self, page: Page, filename: str, url: str) -> None:
+        page.add_init_script("""
+            try {
+                localStorage.setItem('sobs-theme', 'dark');
+                localStorage.setItem('sobs.firstRunTourSeen.v1', '1');
+                localStorage.setItem('sobs.firstRunTourShown.v1', '1');
+            } catch (_) {}
+        """)
+        page.set_viewport_size({"width": 1440, "height": 900})
         page.goto(url)
         page.wait_for_load_state("networkidle")
         self._dismiss_tour_modal(page)
         os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
-        page.screenshot(path=os.path.join(SCREENSHOTS_DIR, filename), full_page=True)
+        page.screenshot(path=os.path.join(SCREENSHOTS_DIR, filename), full_page=False)
 
     def test_screenshot_summary(self, page: Page, live_server):
         self._screenshot(page, "summary.png", f"{live_server}/")
@@ -628,6 +647,11 @@ class TestScreenshots:
     def test_screenshot_traces(self, page: Page, live_server):
         self._screenshot(page, "traces.png", f"{live_server}/traces")
         expect(page.get_by_role("heading", name="Traces")).to_be_visible()
+
+    def test_screenshot_traces_drilldown(self, page: Page, live_server):
+        detail_url = self._first_trace_detail_url(live_server)
+        self._screenshot(page, "traces_drilldown.png", detail_url)
+        expect(page.get_by_text("All Traces")).to_be_visible()
 
     def test_screenshot_errors(self, page: Page, live_server):
         self._screenshot(page, "errors.png", f"{live_server}/errors")

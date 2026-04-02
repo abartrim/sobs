@@ -2,7 +2,7 @@
 
 **SOBS** is a lightweight, single-user OpenTelemetry-compatible telemetry container focused on simplicity and transparency. It collects **Logs**, **Errors**, **Traces**, **RUM** (Real User Monitoring), and **AI call transparency** — all in one tiny container you can run as a standalone pod or sidecar.
 
-![Dashboard](https://github.com/user-attachments/assets/fab68924-3526-49a9-9c03-d3f994bca3dd)
+![Summary](static/help/summary.png)
 
 ## Features
 
@@ -476,9 +476,9 @@ The script starts local port-forwards for LLM, embeddings, and DLP, exports `SOB
 
 ## Screenshots
 
-| Summary | Custom Dashboard | Query | Logs |
+| Summary | Custom Dashboard | Traces Drilldown | Query |
 |---|---|---|---|
-| ![Summary](static/help/summary.png) | ![Custom Dashboard](static/help/dashboard.png) | ![Query](static/help/query.png) | ![Logs](static/help/logs.png) |
+| ![Summary](static/help/summary.png) | ![Custom Dashboard](static/help/dashboard.png) | ![Traces Drilldown](static/help/traces_drilldown.png) | ![Query](static/help/query.png) |
 
 ## Running Tests
 
