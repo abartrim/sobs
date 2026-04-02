@@ -12,6 +12,7 @@
 - 🌐 **RUM** – client-side JS snippet with Web Vitals (LCP, CLS, INP, TTFB, FCP)
 - 🐛 **Error tracking** – with stack traces and one-click resolve
 - 🤖 **AI transparency** – record LLM prompts, responses and token usage
+- 💬 **Contextual AI Assistant** – bottom-right in-app assistant for page-aware help and guided UI actions
 - 🔍 **Search** – grep (regex) and SQL WHERE clause filtering on logs
 - 🏷️ **Tag-aware log SQL assistant** – `has_tag()` helper, SQL filter validation, and field hints/autocomplete on Logs
 - 📊 **Query statistics** – collapsible logs analytics panel with query-scoped level/service distributions
