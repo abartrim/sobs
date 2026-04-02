@@ -499,6 +499,32 @@ class TestScreenshots:
     def _screenshot(self, page: Page, filename: str, url: str) -> None:
         page.goto(url)
         page.wait_for_load_state("networkidle")
+        # Safety net: keep docs screenshots clean even if tour config regresses.
+        page.evaluate("""
+            () => {
+                try {
+                    localStorage.setItem('sobs.firstRunTourSeen.v1', '1');
+                    localStorage.setItem('sobs.firstRunTourShown.v1', '1');
+                } catch (_) {}
+
+                const doneBtn = document.getElementById('firstRunTourDoneBtn');
+                if (doneBtn && doneBtn.offsetParent !== null) {
+                    doneBtn.click();
+                }
+
+                const modalEl = document.getElementById('firstRunTourModal');
+                if (modalEl) {
+                    modalEl.classList.remove('show');
+                    modalEl.setAttribute('aria-hidden', 'true');
+                    modalEl.style.display = 'none';
+                }
+
+                document.body.classList.remove('modal-open');
+                document.body.style.removeProperty('padding-right');
+                const backdrop = document.querySelector('.modal-backdrop');
+                if (backdrop) backdrop.remove();
+            }
+            """)
         os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
         page.screenshot(path=os.path.join(SCREENSHOTS_DIR, filename), full_page=True)
 
@@ -525,3 +551,7 @@ class TestScreenshots:
     def test_screenshot_ai(self, page: Page, live_server):
         self._screenshot(page, "ai.png", f"{live_server}/ai")
         expect(page.get_by_role("heading", name="AI Transparency")).to_be_visible()
+
+    def test_screenshot_dashboards(self, page: Page, live_server):
+        self._screenshot(page, "dashboard.png", f"{live_server}/dashboards")
+        expect(page.get_by_role("heading", name="Custom Dashboards")).to_be_visible()

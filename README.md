@@ -476,9 +476,9 @@ The script starts local port-forwards for LLM, embeddings, and DLP, exports `SOB
 
 ## Screenshots
 
-| Logs (grep + SQL search) | AI Transparency |
+| Summary | AI Transparency |
 |---|---|
-| ![Logs](https://github.com/user-attachments/assets/f6eb544c-11c0-4836-a337-864a46e13e29) | ![AI](https://github.com/user-attachments/assets/caf5a401-d86b-4bea-b6db-28ef983879ba) |
+| ![Summary](tests/screenshots/summary.png) | ![AI](tests/screenshots/ai.png) |
 
 ## Running Tests
 
