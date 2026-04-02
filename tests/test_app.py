@@ -7695,36 +7695,67 @@ class TestWebTraffic:
         assert r.status_code == 200
         assert json.loads(await r.get_data())["accepted"] == 1
 
-    async def test_cve_lookup_missing_package(self, client):
-        r = await client.get("/api/enrichment/cve")
-        assert r.status_code == 400
+    async def test_cve_findings_endpoint(self, client):
+        r = await client.get("/api/enrichment/cve/findings")
+        assert r.status_code == 200
         data = json.loads(await r.get_data())
-        assert data["ok"] is False
-        assert "package" in data["error"]
+        assert data["ok"] is True
+        assert isinstance(data["findings"], list)
+        assert "last_scan" in data
+
+    async def test_cve_scan_endpoint(self, client):
+        r = await client.post("/api/enrichment/cve/scan")
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["ok"] is True
+        assert "libraries_found" in data
 
     async def test_enrichment_settings_page_loads(self, client):
         r = await client.get("/settings/enrichment")
         assert r.status_code == 200
         data = await r.get_data()
         assert b"Enrichment" in data
-        assert b"ip-api.com" in data
+        assert b"geoip2fast" in data
 
     async def test_enrichment_settings_save(self, client):
         r = await client.post(
             "/settings/enrichment",
-            form={"geo_source": "disabled", "cve_enabled": "on"},
+            form={"geo_enabled": "on", "cve_enabled": "on"},
         )
         # Should redirect back to enrichment settings
         assert r.status_code in (302, 200)
 
     async def test_enrichment_settings_geo_disabled(self, client):
-        # Disable geo, then check geo API returns source=disabled
+        # Disable geo, then check geo API returns geo_enabled=false
         await client.post(
             "/settings/enrichment",
-            form={"geo_source": "disabled"},
+            form={},  # unchecked checkboxes send nothing
         )
         r = await client.get("/api/web-traffic/geo")
         assert r.status_code == 200
         body = json.loads(await r.get_data())
         assert body["ok"] is True
-        assert body["geo_source"] == "disabled"
+        assert body["geo_enabled"] is False
+
+    async def test_geoip2fast_local_lookup(self):
+        """geoip2fast should resolve public IPs locally (MIT license, bundled DB)."""
+        import app as sobs_app
+        # Reset cache for this test
+        sobs_app._GEO_CACHE.clear()
+        result = sobs_app._geo_lookup_batch(["8.8.8.8"], geo_enabled=True)
+        assert "8.8.8.8" in result
+        assert result["8.8.8.8"]["country_code"] == "US"
+
+    async def test_geoip2fast_private_ip_not_resolved(self):
+        """Private IPs should be tagged as Private/Local without external lookup."""
+        import app as sobs_app
+        result = sobs_app._geo_lookup_batch(["192.168.1.1", "10.0.0.1"], geo_enabled=True)
+        for ip in ["192.168.1.1", "10.0.0.1"]:
+            assert result[ip]["country"] == "Private/Local"
+
+    async def test_extract_library_versions_returns_list(self, client):
+        """_extract_library_versions_from_otel should return a list (possibly empty)."""
+        import app as sobs_app
+        db = sobs_app.get_db()
+        libs = sobs_app._extract_library_versions_from_otel(db)
+        assert isinstance(libs, list)

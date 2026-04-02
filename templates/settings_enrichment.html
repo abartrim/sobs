@@ -27,25 +27,21 @@
     </div>
     <div class="card-body">
       <p class="small text-secondary mb-3">
-        Resolves visitor IP addresses to country/city for the
+        Resolves visitor IP addresses to country for the
         <a href="{{ url_for('view_web_traffic') }}">Web Traffic</a> map.
-        Results are cached in-process to minimise external requests.
+        Lookups are performed <strong>locally</strong> using a bundled database — no external API calls.
+        Results are cached in-process.
       </p>
-      <div class="row g-3">
-        <div class="col-md-4">
-          <label class="form-label small fw-semibold">Geo-lookup source</label>
-          <select name="geo_source" class="form-select form-select-sm">
-            {% for src in geo_sources %}
-            <option value="{{ src }}" {% if src == geo_source %}selected{% endif %}>{{ src }}</option>
-            {% endfor %}
-          </select>
-        </div>
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" role="switch" id="geo_enabled" name="geo_enabled"
+               {% if geo_enabled %}checked{% endif %}>
+        <label class="form-check-label small" for="geo_enabled">Enable IP geo-lookup (local, offline)</label>
       </div>
       <div class="mt-3 small text-secondary">
-        <strong>ip-api.com</strong> — free for non-commercial use, no API key required, up to 45 req/min (batch of 100 IPs).<br>
-        License: <a href="https://ip-api.com/docs" target="_blank" rel="noopener">ip-api.com Terms</a>.
-        Private/loopback IPs are never sent to the geo API.<br>
-        <strong>disabled</strong> — turns off all IP resolution; only request counts are shown.
+        <strong>geoip2fast</strong> (MIT license) — local database sourced from IANA/RIR delegated statistics
+        (public domain). No external API calls, no registration, no API key required.
+        Bundled with the Python package.<br>
+        GitHub: <a href="https://github.com/rabuchaim/geoip2fast" target="_blank" rel="noopener">https://github.com/rabuchaim/geoip2fast</a>
       </div>
     </div>
   </div>
@@ -58,21 +54,23 @@
     </div>
     <div class="card-body">
       <p class="small text-secondary mb-3">
-        Look up known CVEs for packages and libraries using the
-        <a href="https://osv.dev" target="_blank" rel="noopener">OSV.dev</a> API —
-        an open-source vulnerability database operated by Google.
-        Completely free, no API key required.
-        Queries are made on demand from the
+        Automatically extracts library and SDK versions from OTEL telemetry
+        (<code>telemetry.sdk.*</code> ResourceAttributes and instrumentation scope versions),
+        then checks <a href="https://osv.dev" target="_blank" rel="noopener">OSV.dev</a> daily for known CVEs.
+        Findings are stored in <code>sobs_cve_findings</code> and displayed on the
         <a href="{{ url_for('view_web_traffic') }}">Web Traffic</a> page.
       </p>
       <div class="form-check form-switch">
         <input class="form-check-input" type="checkbox" role="switch" id="cve_enabled" name="cve_enabled"
                {% if cve_enabled %}checked{% endif %}>
-        <label class="form-check-label small" for="cve_enabled">Enable CVE enrichment (OSV.dev)</label>
+        <label class="form-check-label small" for="cve_enabled">Enable daily CVE background scan (OSV.dev)</label>
       </div>
+      {% if cve_last_scan %}
+      <div class="mt-2 small text-secondary"><i class="bi bi-clock me-1"></i>Last scan: {{ cve_last_scan[:16] }}</div>
+      {% endif %}
       <div class="mt-2 small text-secondary">
-        <strong>OSV.dev</strong> — open-source vulnerability database (Apache 2.0).
-        Supports PyPI, npm, Go, Maven, crates.io, RubyGems, NuGet, Packagist, Pub, and more.<br>
+        <strong>OSV.dev</strong> — open-source vulnerability database (Apache 2.0, free, no API key required).
+        Covers PyPI, npm, Go, Maven, crates.io, RubyGems, NuGet, Packagist, Pub, and more.<br>
         API reference: <a href="https://google.github.io/osv.dev/api/" target="_blank" rel="noopener">https://google.github.io/osv.dev/api/</a>
       </div>
     </div>

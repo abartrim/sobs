@@ -59,30 +59,26 @@
 </div>
 {% else %}
 
-<!-- Geo notice when using ip-api.com -->
-{% if geo_source == 'ip-api.com' %}
-<div class="alert alert-info py-2 small mb-3" role="alert">
-  <i class="bi bi-info-circle me-1"></i>
-  Geo lookup powered by <strong>ip-api.com</strong> (free, non-commercial).
-  Country data is resolved on demand and cached in memory.
-  <a href="{{ url_for('view_enrichment_settings') }}" class="alert-link">Change settings</a>
-{% elif geo_source == 'disabled' %}
+{% if not geo_enabled %}
 <div class="alert alert-secondary py-2 small mb-3" role="alert">
   <i class="bi bi-geo-alt-fill me-1"></i>
   Geo lookup is <strong>disabled</strong>.
   <a href="{{ url_for('view_enrichment_settings') }}" class="alert-link">Enable in settings</a>
-{% endif %}
-{% if geo_source != 'disabled' %}
 </div>
 {% endif %}
 
 <div class="row g-3 mb-3">
-  <!-- Geo Map -->
   <div class="col-12">
     <div class="card border-secondary">
       <div class="card-header d-flex align-items-center justify-content-between">
         <span class="fw-semibold small"><i class="bi bi-globe2 me-1 text-primary"></i>Visitor Locations</span>
-        <span id="map-status" class="text-secondary small"></span>
+        <span class="text-secondary small">
+          {% if geo_enabled %}
+          <i class="bi bi-hdd me-1"></i>Local geo DB (geoip2fast, MIT)
+          {% else %}
+          Geo disabled
+          {% endif %}
+        </span>
       </div>
       <div class="card-body p-2">
         <div id="traffic-map" style="width:100%;height:380px;"></div>
@@ -90,7 +86,6 @@
     </div>
   </div>
 
-  <!-- Top Countries -->
   <div class="col-md-6">
     <div class="card border-secondary h-100">
       <div class="card-header fw-semibold small"><i class="bi bi-bar-chart-fill me-1 text-success"></i>Top Countries</div>
@@ -100,7 +95,6 @@
     </div>
   </div>
 
-  <!-- Event Types -->
   <div class="col-md-6">
     <div class="card border-secondary h-100">
       <div class="card-header fw-semibold small"><i class="bi bi-pie-chart-fill me-1 text-info"></i>Event Types</div>
@@ -111,7 +105,6 @@
   </div>
 </div>
 
-<!-- Top URLs -->
 {% if top_urls %}
 <div class="card border-secondary mb-3">
   <div class="card-header fw-semibold small"><i class="bi bi-link-45deg me-1 text-warning"></i>Top URLs</div>
@@ -131,67 +124,74 @@
 </div>
 {% endif %}
 
-<!-- CVE Enrichment -->
-{% if cve_enabled %}
 <div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold small"><i class="bi bi-shield-exclamation me-1 text-danger"></i>CVE Enrichment
-    <span class="text-secondary fw-normal ms-1">via <a href="https://osv.dev" target="_blank" rel="noopener" class="text-secondary">OSV.dev</a> (free, open-source)</span>
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span class="fw-semibold small">
+      <i class="bi bi-shield-exclamation me-1 text-danger"></i>CVE / Vulnerability Findings
+      {% if cve_findings %}
+      <span class="badge bg-danger ms-1">{{ cve_findings | length }}</span>
+      {% endif %}
+    </span>
+    <div class="d-flex align-items-center gap-2">
+      {% if cve_last_scan %}
+      <span class="text-secondary" style="font-size:.7rem;">Last scan: {{ cve_last_scan[:16] }}</span>
+      {% endif %}
+      {% if cve_enabled %}
+      <button class="btn btn-sm btn-outline-danger py-0" id="cve-scan-btn" onclick="triggerCveScan()">
+        <i class="bi bi-arrow-clockwise me-1"></i>Scan now
+      </button>
+      {% endif %}
+    </div>
   </div>
   <div class="card-body">
-    <p class="text-secondary small mb-2">
-      Query the <a href="https://osv.dev" target="_blank" rel="noopener">Open Source Vulnerabilities</a> database (free, no key required)
-      for known CVEs in a library or framework from your stack.
-    </p>
-    <div class="row g-2 align-items-end mb-3">
-      <div class="col-sm-4">
-        <label class="form-label small text-secondary mb-1">Package / Library</label>
-        <input type="text" id="cve-package" class="form-control form-control-sm" placeholder="e.g. flask, express, lodash">
-      </div>
-      <div class="col-sm-3">
-        <label class="form-label small text-secondary mb-1">Ecosystem</label>
-        <select id="cve-ecosystem" class="form-select form-select-sm">
-          <option value="PyPI">PyPI (Python)</option>
-          <option value="npm">npm (Node.js)</option>
-          <option value="Go">Go</option>
-          <option value="Maven">Maven (Java)</option>
-          <option value="RubyGems">RubyGems</option>
-          <option value="crates.io">crates.io (Rust)</option>
-          <option value="NuGet">NuGet (.NET)</option>
-          <option value="Packagist">Packagist (PHP)</option>
-          <option value="Hex">Hex (Elixir/Erlang)</option>
-          <option value="Pub">Pub (Dart/Flutter)</option>
-        </select>
-      </div>
-      <div class="col-sm-2">
-        <label class="form-label small text-secondary mb-1">Version (optional)</label>
-        <input type="text" id="cve-version" class="form-control form-control-sm" placeholder="e.g. 2.0.0">
-      </div>
-      <div class="col-sm-auto">
-        <button class="btn btn-sm btn-outline-danger" id="cve-lookup-btn" onclick="lookupCVE()">
-          <i class="bi bi-search me-1"></i>Check CVEs
-        </button>
-      </div>
+    {% if not cve_enabled %}
+    <div class="text-secondary small">
+      <i class="bi bi-shield-slash me-1"></i>CVE scanning is disabled.
+      <a href="{{ url_for('view_enrichment_settings') }}" class="text-secondary">Enable in settings</a>
     </div>
-
-    <!-- Quick-lookup buttons for detected app names -->
-    {% if app_names %}
-    <div class="mb-3">
-      <span class="text-secondary small me-2">Detected apps:</span>
-      {% for name in app_names %}
-      <button class="btn btn-sm btn-outline-secondary me-1 mb-1" onclick="prefillCVE('{{ name }}')">{{ name }}</button>
+    {% elif cve_findings %}
+    <p class="text-secondary small mb-2">
+      Vulnerabilities found in libraries detected via OTEL <code>telemetry.sdk.*</code> attributes and
+      instrumentation scope versions. Data from <a href="https://osv.dev" target="_blank" rel="noopener">OSV.dev</a>
+      (Apache 2.0). Scans run daily automatically.
+    </p>
+    <div class="list-group list-group-flush">
+      {% for f in cve_findings %}
+      <div class="list-group-item list-group-item-action border-secondary py-2">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-1">
+          <span class="fw-semibold small">
+            <a href="https://osv.dev/vulnerability/{{ f.osv_id }}" target="_blank" rel="noopener" class="text-decoration-none">{{ f.osv_id }}</a>
+            {% if f.severity %}<span class="badge bg-danger ms-1">{{ f.severity }}</span>{% endif %}
+          </span>
+          <span class="text-secondary" style="font-size:.7rem;">{{ f.published }}</span>
+        </div>
+        <div class="mt-1 small">
+          <code>{{ f.ecosystem }}/{{ f.package }}@{{ f.version }}</code>
+          {% if f.service %}<span class="text-secondary ms-1">({{ f.service }})</span>{% endif %}
+        </div>
+        {% if f.cve_ids %}
+        <div class="mt-1">
+          {% for cid in f.cve_ids %}
+          <a href="https://nvd.nist.gov/vuln/detail/{{ cid }}" target="_blank" rel="noopener" class="badge bg-secondary text-decoration-none me-1">{{ cid }}</a>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% if f.summary %}<div class="text-secondary small mt-1">{{ f.summary | truncate(200) }}</div>{% endif %}
+      </div>
       {% endfor %}
     </div>
+    {% else %}
+    <div class="text-secondary small">
+      <i class="bi bi-check-circle me-1 text-success"></i>
+      No CVE findings stored yet.
+      {% if cve_last_scan %}Last scan: {{ cve_last_scan[:16] }}.{% endif %}
+      The background scanner runs daily (30s after startup). It extracts library versions from OTEL
+      <code>telemetry.sdk.*</code> attributes and checks <a href="https://osv.dev" target="_blank" rel="noopener">OSV.dev</a>.
+    </div>
     {% endif %}
-
-    <div id="cve-results"></div>
+    <div id="cve-scan-result" class="mt-2"></div>
   </div>
 </div>
-{% else %}
-<div class="alert alert-secondary small mb-3">
-  <i class="bi bi-shield-slash me-1"></i>CVE enrichment is disabled.
-  <a href="{{ url_for('view_enrichment_settings') }}" class="alert-link">Enable in settings</a>
-</div>
-{% endif %}
 
 {% endif %}
 {% endblock %}
@@ -203,10 +203,9 @@
   'use strict';
 
   var geoApiUrl = {{ url_for('api_web_traffic_geo', from_ts=from_ts, to_ts=to_ts) | tojson }};
-  var geoSource = {{ geo_source | tojson }};
+  var geoEnabled = {{ geo_enabled | tojson }};
   var eventTypesData = {{ event_types | tojson }};
 
-  // ── Event Types chart ─────────────────────────────────────────────────
   var eventsEl = document.getElementById('events-chart');
   if (eventsEl && window.echarts && eventTypesData.length) {
     var evChart = echarts.init(eventsEl, null, {renderer: 'canvas'});
@@ -222,10 +221,9 @@
     window.addEventListener('resize', function() { evChart.resize(); });
   }
 
-  // ── Geo data load ─────────────────────────────────────────────────────
-  if (geoSource === 'disabled') {
-    var ms = document.getElementById('map-status');
-    if (ms) ms.textContent = 'Geo lookup disabled';
+  if (!geoEnabled) {
+    var mapEl = document.getElementById('traffic-map');
+    if (mapEl) mapEl.innerHTML = '<div class="text-center text-secondary py-5 small">Geo lookup is disabled.</div>';
     return;
   }
 
@@ -236,9 +234,9 @@
       renderCountriesChart(data.country_counts);
       loadWorldMap(data.country_counts);
     })
-    .catch(function(err) {
-      var ms = document.getElementById('map-status');
-      if (ms) ms.textContent = 'Failed to load geo data';
+    .catch(function() {
+      var el = document.getElementById('traffic-map');
+      if (el) el.innerHTML = '<div class="text-center text-secondary py-4 small">Failed to load geo data</div>';
     });
 
   function renderCountriesChart(countryCounts) {
@@ -251,125 +249,56 @@
       grid: {left: '2%', right: '4%', bottom: '3%', top: '3%', containLabel: true},
       xAxis: {type: 'value'},
       yAxis: {type: 'category', data: top.map(function(d) { return d.name; }).reverse()},
-      series: [{
-        type: 'bar',
-        data: top.map(function(d) { return d.value; }).reverse(),
-        itemStyle: {color: '#4e8ef7'}
-      }]
+      series: [{type: 'bar', data: top.map(function(d) { return d.value; }).reverse(), itemStyle: {color: '#4e8ef7'}}]
     });
     window.addEventListener('resize', function() { chart.resize(); });
   }
 
   function loadWorldMap(countryCounts) {
-    // Load world GeoJSON from jsdelivr CDN (Apache ECharts world atlas, Apache 2.0 license)
-    // Reference: https://cdn.jsdelivr.net/npm/echarts@5/map/json/world.json
     var mapEl = document.getElementById('traffic-map');
-    var ms = document.getElementById('map-status');
-
     fetch('https://cdn.jsdelivr.net/npm/echarts@5/map/json/world.json')
-      .then(function(r) {
-        if (!r.ok) throw new Error('Failed to load map data');
-        return r.json();
-      })
+      .then(function(r) { if (!r.ok) throw new Error('Failed to load world map GeoJSON from CDN'); return r.json(); })
       .then(function(geoJson) {
         if (!window.echarts || !mapEl) return;
         echarts.registerMap('world', geoJson);
-        var mapChart = echarts.init(mapEl, null, {renderer: 'canvas'});
-        var maxVal = countryCounts.reduce(function(m, d) { return Math.max(m, d.value); }, 1);
-        mapChart.setOption({
-          tooltip: {
-            trigger: 'item',
-            formatter: function(params) {
-              return params.name + ': ' + (params.value || 0) + ' requests';
-            }
-          },
-          visualMap: {
-            min: 0,
-            max: maxVal,
-            left: 'left',
-            bottom: '5%',
-            text: ['High', 'Low'],
-            calculable: true,
-            inRange: {color: ['#e0f0ff', '#1a6eb5']}
-          },
-          series: [{
-            type: 'map',
-            map: 'world',
-            roam: true,
-            emphasis: {label: {show: true}},
-            data: countryCounts
-          }]
+        var mc = echarts.init(mapEl, null, {renderer: 'canvas'});
+        var maxVal = countryCounts.reduce(function(m,d){return Math.max(m,d.value);},1);
+        mc.setOption({
+          tooltip: {trigger:'item', formatter: function(p){return p.name+': '+(p.value||0)+' requests';}},
+          visualMap: {min:0, max:maxVal, left:'left', bottom:'5%', text:['High','Low'], calculable:true, inRange:{color:['#e0f0ff','#1a6eb5']}},
+          series: [{type:'map', map:'world', roam:true, emphasis:{label:{show:true}}, data:countryCounts}]
         });
-        window.addEventListener('resize', function() { mapChart.resize(); });
-        if (ms) ms.textContent = '';
+        window.addEventListener('resize', function(){mc.resize();});
       })
       .catch(function() {
-        // Fallback: show a message – the bar chart above still shows data
-        if (ms) ms.textContent = 'Map unavailable (offline mode)';
-        if (mapEl) mapEl.innerHTML = '<div class="text-center text-secondary py-5 small">World map requires network access to load map data. Country counts are shown in the bar chart.</div>';
+        if (mapEl) mapEl.innerHTML = '<div class="text-center text-secondary py-5 small">World map requires internet access (CDN). Country counts are shown in the bar chart.</div>';
       });
   }
 })();
 
-// ── CVE lookup ─────────────────────────────────────────────────────────────
-function prefillCVE(name) {
-  document.getElementById('cve-package').value = name;
-}
-
-function lookupCVE() {
-  var pkg = document.getElementById('cve-package').value.trim();
-  var eco = document.getElementById('cve-ecosystem').value;
-  var ver = document.getElementById('cve-version').value.trim();
-  var resultsEl = document.getElementById('cve-results');
-  if (!pkg || !resultsEl) return;
-
-  var btn = document.getElementById('cve-lookup-btn');
+function triggerCveScan() {
+  var btn = document.getElementById('cve-scan-btn');
+  var resultsEl = document.getElementById('cve-scan-result');
   if (btn) btn.disabled = true;
-  resultsEl.innerHTML = '<div class="text-secondary small"><span class="spinner-border spinner-border-sm me-1"></span>Looking up CVEs via OSV.dev…</div>';
-
-  var url = '/api/enrichment/cve?package=' + encodeURIComponent(pkg) +
-    '&ecosystem=' + encodeURIComponent(eco) +
-    (ver ? '&version=' + encodeURIComponent(ver) : '');
-
-  fetch(url)
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+  if (resultsEl) resultsEl.innerHTML = '<div class="text-secondary small"><span class="spinner-border spinner-border-sm me-1"></span>Scanning OTEL library versions via OSV.dev…</div>';
+  fetch('/api/enrichment/cve/scan', {method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(data){
       if (btn) btn.disabled = false;
       if (!data.ok) {
-        resultsEl.innerHTML = '<div class="alert alert-warning small py-2">' + escHtml(data.error || 'Error') + '</div>';
+        if (resultsEl) resultsEl.innerHTML = '<div class="alert alert-warning small py-2">'+escHtml(data.error||'Scan failed')+'</div>';
         return;
       }
-      if (!data.vulns || !data.vulns.length) {
-        resultsEl.innerHTML = '<div class="alert alert-success small py-2"><i class="bi bi-check-circle me-1"></i>No known vulnerabilities found for <strong>' + escHtml(pkg) + '</strong> in ' + escHtml(eco) + (ver ? ' v' + escHtml(ver) : '') + ' (OSV.dev).</div>';
-        return;
-      }
-      var html = '<div class="alert alert-warning small py-2 mb-2"><i class="bi bi-exclamation-triangle me-1"></i><strong>' + data.total + '</strong> vulnerabilit' + (data.total === 1 ? 'y' : 'ies') + ' found for <strong>' + escHtml(pkg) + '</strong> in ' + escHtml(eco) + (ver ? ' v' + escHtml(ver) : '') + ' (showing up to 20).</div>';
-      html += '<div class="list-group list-group-flush">';
-      data.vulns.forEach(function(v) {
-        var badge = v.severity ? ('<span class="badge bg-danger ms-1">' + escHtml(v.severity) + '</span>') : '';
-        var cves = v.cve_ids && v.cve_ids.length
-          ? v.cve_ids.map(function(c) { return '<a href="https://nvd.nist.gov/vuln/detail/' + escHtml(c) + '" target="_blank" rel="noopener" class="badge bg-secondary text-decoration-none me-1">' + escHtml(c) + '</a>'; }).join('')
-          : '';
-        html += '<div class="list-group-item list-group-item-action border-secondary py-2">';
-        html += '<div class="d-flex justify-content-between align-items-start">';
-        html += '<span class="fw-semibold small"><a href="https://osv.dev/vulnerability/' + escHtml(v.id) + '" target="_blank" rel="noopener" class="text-decoration-none">' + escHtml(v.id) + '</a>' + badge + '</span>';
-        html += '<span class="text-secondary" style="font-size:.7rem;">' + escHtml(v.published || '') + '</span>';
-        html += '</div>';
-        if (cves) html += '<div class="mt-1">' + cves + '</div>';
-        if (v.summary) html += '<div class="text-secondary small mt-1">' + escHtml(v.summary) + '</div>';
-        html += '</div>';
-      });
-      html += '</div>';
-      resultsEl.innerHTML = html;
+      var libs = data.libraries_found||0, vulns = data.vulns_found||0;
+      var msg = 'Scan complete. Libraries: <strong>'+libs+'</strong>. Vulnerabilities: <strong>'+vulns+'</strong>.';
+      if (vulns>0) msg += ' <button class="btn btn-sm btn-link p-0 align-baseline" onclick="location.reload()">Reload to see findings</button>';
+      if (resultsEl) resultsEl.innerHTML = '<div class="alert alert-'+(vulns>0?'warning':'success')+' small py-2">'+msg+'</div>';
     })
-    .catch(function(err) {
+    .catch(function(err){
       if (btn) btn.disabled = false;
-      resultsEl.innerHTML = '<div class="alert alert-danger small py-2">Request failed: ' + escHtml(String(err)) + '</div>';
+      if (resultsEl) resultsEl.innerHTML = '<div class="alert alert-danger small py-2">Request failed: '+escHtml(String(err))+'</div>';
     });
 }
-
-function escHtml(v) {
-  return String(v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
+function escHtml(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 </script>
 {% endblock %}

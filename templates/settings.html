@@ -201,10 +201,11 @@
           <h5 class="card-title mb-0">Enrichment</h5>
         </div>
         <p class="card-text text-secondary small flex-grow-1">
-          Configure IP geo-lookup (ip-api.com, free) and CVE vulnerability enrichment (OSV.dev, free).
-          Used by the <a href="{{ url_for('view_web_traffic') }}">Web Traffic</a> page to map visitor
-          countries and surface known vulnerabilities for libraries in your stack.
-          All sources are open and free — no API keys required.
+          Configure IP geo-lookup (geoip2fast, MIT license, local DB — no external API calls) and
+          daily CVE scanning (OSV.dev, Apache 2.0, free).
+          Library versions are auto-detected from OTEL <code>telemetry.sdk.*</code> attributes.
+          Findings are stored in <code>sobs_cve_findings</code> and shown on the
+          <a href="{{ url_for('view_web_traffic') }}">Web Traffic</a> page.
         </p>
         <div class="d-flex align-items-center justify-content-end mt-2">
           <a href="{{ url_for('view_enrichment_settings') }}" class="btn btn-sm btn-outline-primary"
