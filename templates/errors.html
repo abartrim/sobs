@@ -84,20 +84,27 @@
   <div class="accordion-item border-secondary mb-1">
     <h2 class="accordion-header">
       <button class="accordion-button {% if not loop.first %}collapsed{% endif %} py-2"
+              style="min-width:0;"
               type="button" data-bs-toggle="collapse" data-bs-target="#err{{ err.id }}">
-        <div class="d-flex gap-3 align-items-center w-100 me-2">
-          <span class="badge {% if err.resolved %}bg-success{% else %}bg-danger{% endif %}">
+        <div class="d-flex gap-3 align-items-center w-100 me-2 overflow-hidden" style="min-width:0;">
+          <span class="badge flex-shrink-0 {% if err.resolved %}bg-success{% else %}bg-danger{% endif %}">
             {{ 'Resolved' if err.resolved else 'Open' }}
           </span>
-          <code class="small text-warning">{{ err.err_type }}</code>
-          <span class="small flex-grow-1 text-truncate">{{ err.message }}</span>
-          <span class="badge bg-secondary">{{ err.service or '—' }}</span>
-          <span class="text-secondary small">{{ err.ts[:19] }}</span>
+          <code class="small text-warning text-truncate d-inline-block" style="max-width:16rem;" title="{{ err.err_type }}">{{ err.err_type }}</code>
+          <span class="small text-truncate d-block" style="flex:1 1 0;min-width:0;width:0;" title="{{ err.message }}">{{ err.message }}</span>
+          <span class="badge bg-secondary text-truncate d-inline-block" style="max-width:10rem;" title="{{ err.service or '—' }}">{{ err.service or '—' }}</span>
+          <span class="text-secondary small flex-shrink-0">{{ err.ts[:19] }}</span>
         </div>
       </button>
     </h2>
     <div id="err{{ err.id }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}">
       <div class="accordion-body py-2">
+        {% if err.message %}
+        <div class="mb-2">
+          <div class="small text-secondary mb-1">Error message</div>
+          <div class="small rounded p-2 theme-panel" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.message }}</div>
+        </div>
+        {% endif %}
         {% if err.stack %}
         <pre id="stack-{{ err.id }}" class="stack-trace rounded p-2">{{ err.stack }}</pre>
         {% endif %}
