@@ -16782,9 +16782,7 @@ async def _fetch_k8s_realtime(settings: dict[str, str]) -> dict:
 
             # Pods
             pod_url = (
-                f"{api_url}/api/v1/pods"
-                if namespace == "all"
-                else f"{api_url}/api/v1/namespaces/{namespace}/pods"
+                f"{api_url}/api/v1/pods" if namespace == "all" else f"{api_url}/api/v1/namespaces/{namespace}/pods"
             )
             try:
                 r = await client.get(pod_url)
