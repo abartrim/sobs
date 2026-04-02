@@ -636,9 +636,30 @@ class TestScreenshots:
         os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
         page.screenshot(path=os.path.join(SCREENSHOTS_DIR, filename), full_page=False)
 
+    def _screenshot_summary_with_assistant(self, page: Page, filename: str, live_server: str) -> None:
+        page.add_init_script("""
+            try {
+                localStorage.setItem('sobs-theme', 'dark');
+                localStorage.setItem('sobs.firstRunTourSeen.v1', '1');
+                localStorage.setItem('sobs.firstRunTourShown.v1', '1');
+            } catch (_) {}
+        """)
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(f"{live_server}/")
+        page.wait_for_load_state("networkidle")
+        self._dismiss_tour_modal(page)
+        page.click("#sobsAiBtn")
+        page.wait_for_selector("#sobsAiPanel.open", timeout=5000)
+        expect(page.get_by_text("SOBS observability assistant")).to_be_visible()
+        os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+        page.screenshot(path=os.path.join(SCREENSHOTS_DIR, filename), full_page=False)
+
     def test_screenshot_summary(self, page: Page, live_server):
         self._screenshot(page, "summary.png", f"{live_server}/")
         expect(page.get_by_role("heading", name="Summary")).to_be_visible()
+
+    def test_screenshot_summary_ai_assistant(self, page: Page, live_server):
+        self._screenshot_summary_with_assistant(page, "summary_ai_assistant.png", live_server)
 
     def test_screenshot_logs(self, page: Page, live_server):
         self._screenshot(page, "logs.png", f"{live_server}/logs")

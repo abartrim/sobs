@@ -64,4 +64,5 @@ cp tests/screenshots/traces.png static/help/traces.png
 cp tests/screenshots/traces_drilldown.png static/help/traces_drilldown.png
 cp tests/screenshots/query.png static/help/query.png
 cp tests/screenshots/summary.png static/help/summary.png
+cp tests/screenshots/summary_ai_assistant.png static/help/summary_ai_assistant.png
 ```
