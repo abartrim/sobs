@@ -163,6 +163,26 @@ Replay and screenshot payload contract:
 
 For an integration sketch, see [examples/rum/rrweb_replay_example.js](examples/rum/rrweb_replay_example.js).
 
+Signed asset upload endpoint:
+
+- `POST /v1/rum/assets?type=<replay|screenshot|...>&name=<filename>`
+- Body: raw bytes (`application/json`, `image/png`, etc.)
+- Required headers:
+  - `X-SOBS-Asset-Timestamp` (unix epoch seconds)
+  - `X-SOBS-Asset-Signature` (`hex(hmac_sha256(signing_key, canonical_payload))`)
+
+Canonical payload format:
+
+```text
+POST
+/v1/rum/assets
+<timestamp>
+<sha256_body_hex>
+<content_type_lowercase>
+<asset_type_lowercase>
+<asset_name>
+```
+
 ## OTLP Endpoints
 
 | Endpoint       | Method | Description                        |
@@ -486,6 +506,7 @@ The script validates Ollama availability at `OLLAMA_BASE_URL` (default `http://1
 
 By default it also starts a local browser demo app for RUM/replay testing at `http://127.0.0.1:5005`.
 You can disable it with `START_EXAMPLE_APP=0`.
+It also exports `SOBS_RUM_ASSET_SIGNING_KEY` so the demo app can upload replay/screenshot assets using signed auth.
 
 This local Ollama path does not use Kubernetes and does not require `kubectl`.
 

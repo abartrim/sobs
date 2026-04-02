@@ -38,6 +38,9 @@ EXAMPLE_APP_PYTHON="${EXAMPLE_APP_PYTHON:-python}"
 EXAMPLE_APP_LOG="${EXAMPLE_APP_LOG:-/tmp/sobs-rum-replay-demo.log}"
 EXAMPLE_APP_PID=""
 
+# Signed asset upload auth for /v1/rum/assets.
+SOBS_RUM_ASSET_SIGNING_KEY="${SOBS_RUM_ASSET_SIGNING_KEY:-}"
+
 if [[ "${1:-}" == "--" ]]; then
   shift
 fi
@@ -122,6 +125,19 @@ if [[ -n "${SOBS_AI_API_KEY:-}" ]]; then
   export SOBS_AI_API_KEY
 fi
 
+if [[ -z "$SOBS_RUM_ASSET_SIGNING_KEY" ]]; then
+  if command -v python >/dev/null 2>&1; then
+    SOBS_RUM_ASSET_SIGNING_KEY="$(python - <<'PY'
+import secrets
+print(secrets.token_hex(32))
+PY
+)"
+  else
+    SOBS_RUM_ASSET_SIGNING_KEY="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  fi
+fi
+export SOBS_RUM_ASSET_SIGNING_KEY
+
 start_example_app
 
 echo
@@ -141,6 +157,7 @@ if [[ -n "${SOBS_AI_API_KEY:-}" ]]; then
 else
   printf '  SOBS_AI_API_KEY=<empty>\n'
 fi
+printf '  SOBS_RUM_ASSET_SIGNING_KEY=<set>\n'
 if [[ "$START_EXAMPLE_APP" == "1" ]]; then
   printf '  demo_app_url=http://127.0.0.1:%s\n' "$EXAMPLE_APP_PORT"
   printf '  demo_app_script=%s\n' "$EXAMPLE_APP_SCRIPT"

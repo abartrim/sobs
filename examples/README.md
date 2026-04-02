@@ -134,6 +134,26 @@ Use either `SOBS.setVisualContext(...)` directly, or the dedicated helpers:
 - `SOBS.setReplayContext(replay, { ttlMs, consumeOnce })`
 - `SOBS.setArtifactContext(artifact, { ttlMs, consumeOnce })`
 
+Signed upload endpoint contract for replay/screenshot bytes:
+
+- `POST /v1/rum/assets?type=<replay|screenshot|...>&name=<filename>`
+- Body: raw bytes
+- Required headers:
+  - `X-SOBS-Asset-Timestamp`
+  - `X-SOBS-Asset-Signature`
+
+Signature payload:
+
+```text
+POST
+/v1/rum/assets
+<timestamp>
+<sha256_body_hex>
+<content_type_lowercase>
+<asset_type_lowercase>
+<asset_name>
+```
+
 See [rum/rrweb_replay_example.js](rum/rrweb_replay_example.js) for an end-to-end browser integration pattern.
 
 ### Browser replay demo app

@@ -5,7 +5,14 @@ Run manually:
     SOBS_BASE_URL=http://127.0.0.1:44317 EXAMPLE_APP_PORT=5005 python examples/python/rum_replay_test_app.py
 """
 
+import hashlib
+import hmac
+import json
 import os
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 from flask import Flask, jsonify, render_template_string
 
@@ -13,6 +20,48 @@ app = Flask(__name__)
 
 SOBS_BASE_URL = os.environ.get("SOBS_BASE_URL", "http://127.0.0.1:44317").rstrip("/")
 EXAMPLE_APP_PORT = int(os.environ.get("EXAMPLE_APP_PORT", "5005"))
+SOBS_API_KEY = os.environ.get("SOBS_API_KEY", "")
+SOBS_RUM_ASSET_SIGNING_KEY = os.environ.get("SOBS_RUM_ASSET_SIGNING_KEY", "")
+
+
+def _sign_asset_request(path: str, body: bytes, content_type: str, asset_type: str, asset_name: str) -> tuple[str, str]:
+    timestamp = str(int(time.time()))
+    payload = "\n".join(
+        [
+            "POST",
+            path,
+            timestamp,
+            hashlib.sha256(body).hexdigest(),
+            content_type.lower(),
+            asset_type.lower(),
+            asset_name,
+        ]
+    )
+    signature = hmac.new(
+        SOBS_RUM_ASSET_SIGNING_KEY.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+    return timestamp, signature
+
+
+def _upload_asset_to_sobs(body: bytes, *, asset_type: str, asset_name: str, content_type: str) -> dict:
+    if not SOBS_RUM_ASSET_SIGNING_KEY:
+        raise RuntimeError("SOBS_RUM_ASSET_SIGNING_KEY is not set")
+
+    path = "/v1/rum/assets"
+    query = urllib.parse.urlencode({"type": asset_type, "name": asset_name})
+    url = f"{SOBS_BASE_URL}{path}?{query}"
+    ts, sig = _sign_asset_request(path, body, content_type, asset_type, asset_name)
+    headers = {
+        "Content-Type": content_type,
+        "X-SOBS-Asset-Timestamp": ts,
+        "X-SOBS-Asset-Signature": sig,
+    }
+    if SOBS_API_KEY:
+        headers["X-API-Key"] = SOBS_API_KEY
+
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=8) as resp:  # noqa: S310
+        return json.loads(resp.read().decode("utf-8"))
 
 
 PAGE = """
@@ -122,16 +171,31 @@ PAGE = """
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: 'rrweb', events: [{ type: 'meta', ts: Date.now() }] })
       });
-      const replay = await replayResp.json();
+      const upload = await replayResp.json();
+
+      if (!replayResp.ok) {
+        alert('Replay upload failed: ' + (upload.error || replayResp.status));
+        return;
+      }
 
       SOBS.setReplayContext(
-        { id: replay.id, url: replay.url, provider: replay.provider },
+        {
+          id: upload.replay.id,
+          url: upload.replay.url,
+          provider: upload.replay.provider
+        },
         { ttlMs: 15000, consumeOnce: true }
       );
-      SOBS.setArtifactContext(
-        { type: 'screenshot', id: shotId, url: '{{ sobs_base }}/static/help/summary.png' },
-        { ttlMs: 15000, consumeOnce: true }
-      );
+      if (upload.artifact && upload.artifact.url) {
+        SOBS.setArtifactContext(
+          {
+            type: upload.artifact.type || 'screenshot',
+            id: upload.artifact.id || shotId,
+            url: upload.artifact.url
+          },
+          { ttlMs: 15000, consumeOnce: true }
+        );
+      }
       SOBS.captureException(new Error('demo replay+artifact event'), {
         errorSource: 'captureException'
       });
@@ -158,14 +222,47 @@ def index():
 
 @app.route("/api/replay/upload", methods=["POST"])
 def replay_upload():
-    replay_id = "replay-demo-001"
-    return jsonify(
-        {
-            "id": replay_id,
-            "url": f"{SOBS_BASE_URL}/rum?type=error",
-            "provider": "rrweb",
-        }
-    )
+    try:
+        replay_payload = json.dumps(
+            {
+                "provider": "rrweb",
+                "events": [{"type": "meta", "ts": int(time.time() * 1000)}],
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        replay = _upload_asset_to_sobs(
+            replay_payload,
+            asset_type="replay",
+            asset_name="rrweb-events.json",
+            content_type="application/json",
+        )
+
+        artifact = None
+        screenshot_path = os.path.join(os.path.dirname(__file__), "..", "..", "static", "help", "summary.png")
+        if os.path.exists(screenshot_path):
+            with open(screenshot_path, "rb") as handle:
+                screenshot_bytes = handle.read()
+            artifact = _upload_asset_to_sobs(
+                screenshot_bytes,
+                asset_type="screenshot",
+                asset_name="summary.png",
+                content_type="image/png",
+            )
+
+        return jsonify(
+            {
+                "replay": {
+                    "id": replay.get("id"),
+                    "url": replay.get("url"),
+                    "provider": "rrweb",
+                },
+                "artifact": artifact,
+            }
+        )
+    except urllib.error.HTTPError as exc:
+        return jsonify({"error": f"asset upload failed with HTTP {exc.code}"}), 502
+    except Exception as exc:
+        return jsonify({"error": f"asset upload failed: {exc}"}), 500
 
 
 @app.route("/api/fail", methods=["GET"])

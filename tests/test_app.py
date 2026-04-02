@@ -5,6 +5,8 @@ Run with:  pytest tests/
 
 import asyncio
 import base64
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -867,6 +869,71 @@ class TestRumIngest:
         r = await client.post("/v1/rum", json=[])
         assert r.status_code == 200
         assert json.loads(await r.get_data())["accepted"] == 0
+
+
+class TestRumAssetUploads:
+    async def test_rejects_missing_signature(self, client, monkeypatch):
+        monkeypatch.setattr(sobs_app, "RUM_ASSET_SIGNING_KEY", "test-secret")
+        r = await client.post(
+            "/v1/rum/assets?type=replay&name=rrweb.json",
+            data=b'{"events":[]}',
+            headers={"Content-Type": "application/json"},
+        )
+        assert r.status_code == 401
+
+    async def test_rejects_invalid_signature(self, client, monkeypatch):
+        monkeypatch.setattr(sobs_app, "RUM_ASSET_SIGNING_KEY", "test-secret")
+        r = await client.post(
+            "/v1/rum/assets?type=replay&name=rrweb.json",
+            data=b'{"events":[]}',
+            headers={
+                "Content-Type": "application/json",
+                "X-SOBS-Asset-Timestamp": str(int(time.time())),
+                "X-SOBS-Asset-Signature": "deadbeef",
+            },
+        )
+        assert r.status_code == 401
+
+    async def test_upload_and_download_with_valid_signature(self, client, monkeypatch):
+        secret = "test-secret"
+        body = b'{"events":[{"type":"meta","ts":1}]}'
+        asset_type = "replay"
+        asset_name = "rrweb-events.json"
+        content_type = "application/json"
+        timestamp = str(int(time.time()))
+
+        monkeypatch.setattr(sobs_app, "RUM_ASSET_SIGNING_KEY", secret)
+        monkeypatch.setattr(sobs_app, "RUM_ASSET_SIGN_WINDOW_SEC", 300)
+
+        payload = sobs_app._rum_asset_signature_payload(
+            method="POST",
+            path="/v1/rum/assets",
+            timestamp=timestamp,
+            body_sha256=hashlib.sha256(body).hexdigest(),
+            content_type=content_type,
+            asset_type=asset_type,
+            asset_name=asset_name,
+        )
+        signature = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+        r = await client.post(
+            f"/v1/rum/assets?type={asset_type}&name={asset_name}",
+            data=body,
+            headers={
+                "Content-Type": content_type,
+                "X-SOBS-Asset-Timestamp": timestamp,
+                "X-SOBS-Asset-Signature": signature,
+            },
+        )
+        assert r.status_code == 201
+        data = await r.get_json()
+        assert data["id"]
+        assert data["type"] == "replay"
+        assert data["url"].startswith("/v1/rum/assets/")
+
+        dl = await client.get(data["url"])
+        assert dl.status_code == 200
+        assert await dl.get_data() == body
 
 
 # ---------------------------------------------------------------------------

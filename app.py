@@ -10,6 +10,7 @@ import atexit
 import base64
 import copy
 import hashlib
+import hmac
 import html
 import inspect
 import json
@@ -295,15 +296,20 @@ app.asgi_app = BasePathMiddleware(app.asgi_app, BASE_PATH)  # type: ignore[metho
 
 DATA_DIR = os.environ.get("SOBS_DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "sobs.chdb")
+RUM_ASSET_DIR = os.path.join(DATA_DIR, "rum_assets")
 API_KEY = os.environ.get("SOBS_API_KEY", "")  # empty = no auth required
 BASIC_AUTH_USERNAME = os.environ.get("SOBS_BASIC_AUTH_USERNAME", "")  # empty = no basic auth
 BASIC_AUTH_PASSWORD = os.environ.get("SOBS_BASIC_AUTH_PASSWORD", "")
 EXTERNAL_AUTH_URL = os.environ.get("SOBS_EXTERNAL_AUTH_URL", "")  # empty = disabled
+RUM_ASSET_SIGNING_KEY = os.environ.get("SOBS_RUM_ASSET_SIGNING_KEY", "")
+RUM_ASSET_SIGN_WINDOW_SEC = int(os.environ.get("SOBS_RUM_ASSET_SIGN_WINDOW_SEC", "300"))
+RUM_ASSET_MAX_BYTES = int(os.environ.get("SOBS_RUM_ASSET_MAX_BYTES", str(8 * 1024 * 1024)))
 CHDB_CONFIG_FILE_ENV = "SOBS_CLICKHOUSE_CONFIG_FILE"
 CHDB_EXPECT_DISK_ENV = "SOBS_CHDB_EXPECT_DISK"
 CHDB_EXPECT_POLICY_ENV = "SOBS_CHDB_EXPECT_STORAGE_POLICY"
 
 os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(RUM_ASSET_DIR, exist_ok=True)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 log = logging.getLogger("sobs")
@@ -3860,6 +3866,110 @@ def require_api_key(f):
     return decorated
 
 
+def _sanitize_rum_asset_name(value: str) -> str:
+    raw = os.path.basename(str(value or "").strip())
+    if not raw:
+        return "asset"
+    cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "-", raw).strip("-._")
+    return cleaned or "asset"
+
+
+def _sanitize_rum_asset_type(value: str) -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return "asset"
+    cleaned = re.sub(r"[^a-z0-9._-]+", "-", raw).strip("-._")
+    return cleaned or "asset"
+
+
+def _asset_extension(asset_name: str, content_type: str) -> str:
+    _, ext = os.path.splitext(asset_name)
+    if ext and re.fullmatch(r"\.[a-zA-Z0-9]{1,8}", ext):
+        return ext.lstrip(".").lower()
+    mapping = {
+        "application/json": "json",
+        "application/octet-stream": "bin",
+        "text/plain": "txt",
+        "image/png": "png",
+        "image/jpeg": "jpg",
+        "image/webp": "webp",
+        "video/webm": "webm",
+    }
+    return mapping.get(content_type.split(";", 1)[0].strip().lower(), "bin")
+
+
+def _rum_asset_signature_payload(
+    method: str,
+    path: str,
+    timestamp: str,
+    body_sha256: str,
+    content_type: str,
+    asset_type: str,
+    asset_name: str,
+) -> str:
+    return "\n".join(
+        [
+            str(method or "").upper(),
+            str(path or ""),
+            str(timestamp or ""),
+            str(body_sha256 or ""),
+            str(content_type or "").strip().lower(),
+            str(asset_type or "").strip().lower(),
+            str(asset_name or ""),
+        ]
+    )
+
+
+def _rum_asset_signature(secret: str, payload: str) -> str:
+    return hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _verify_rum_asset_signature(
+    *,
+    body: bytes,
+    method: str,
+    path: str,
+    content_type: str,
+    asset_type: str,
+    asset_name: str,
+) -> tuple[bool, str]:
+    if not RUM_ASSET_SIGNING_KEY:
+        return False, "Asset upload signing key is not configured"
+
+    timestamp = (request.headers.get("X-SOBS-Asset-Timestamp") or "").strip()
+    signature = (request.headers.get("X-SOBS-Asset-Signature") or "").strip().lower()
+    if not timestamp or not signature:
+        return False, "Missing asset signature headers"
+
+    try:
+        ts = int(timestamp)
+    except ValueError:
+        return False, "Invalid asset signature timestamp"
+
+    now = int(time.time())
+    if abs(now - ts) > max(1, RUM_ASSET_SIGN_WINDOW_SEC):
+        return False, "Asset signature timestamp outside allowed window"
+
+    body_sha = hashlib.sha256(body).hexdigest()
+    payload = _rum_asset_signature_payload(
+        method=method,
+        path=path,
+        timestamp=timestamp,
+        body_sha256=body_sha,
+        content_type=content_type,
+        asset_type=asset_type,
+        asset_name=asset_name,
+    )
+    expected = _rum_asset_signature(RUM_ASSET_SIGNING_KEY, payload)
+    if not secrets.compare_digest(signature, expected):
+        return False, "Invalid asset signature"
+    return True, ""
+
+
+def _rum_asset_meta_path(asset_id: str) -> str:
+    return os.path.join(RUM_ASSET_DIR, f"{asset_id}.meta.json")
+
+
 # ---------------------------------------------------------------------------
 # Auth decorator (optional Basic Auth for Web UI)
 # ---------------------------------------------------------------------------
@@ -4658,6 +4768,98 @@ async def ingest_logs():
         )
     count = len(events)
     return jsonify({"accepted": count}), 200
+
+
+@app.route("/v1/rum/assets", methods=["POST"])
+@require_api_key
+async def ingest_rum_asset():
+    asset_type = _sanitize_rum_asset_type(request.args.get("type", "asset"))
+    asset_name = _sanitize_rum_asset_name(request.args.get("name", "asset"))
+    content_type = (request.headers.get("Content-Type") or "application/octet-stream").split(";", 1)[0].strip()
+    body = await request.get_data(cache=False)
+
+    if not body:
+        return jsonify({"error": "asset body is required"}), 400
+    if len(body) > max(1024, RUM_ASSET_MAX_BYTES):
+        return jsonify({"error": "asset exceeds max allowed size"}), 413
+
+    ok, err = _verify_rum_asset_signature(
+        body=body,
+        method=request.method,
+        path=request.path,
+        content_type=content_type,
+        asset_type=asset_type,
+        asset_name=asset_name,
+    )
+    if not ok:
+        if "not configured" in err:
+            return jsonify({"error": err}), 503
+        return jsonify({"error": err}), 401
+
+    asset_id = uuid.uuid4().hex
+    ext = _asset_extension(asset_name, content_type)
+    storage_name = f"{asset_id}.{ext}"
+    asset_path = os.path.join(RUM_ASSET_DIR, storage_name)
+    meta_path = _rum_asset_meta_path(asset_id)
+
+    with open(asset_path, "wb") as handle:
+        handle.write(body)
+
+    metadata = {
+        "id": asset_id,
+        "type": asset_type,
+        "original_name": asset_name,
+        "storage_name": storage_name,
+        "content_type": content_type,
+        "size": len(body),
+        "uploaded_at": _now_iso(),
+    }
+    with open(meta_path, "w", encoding="utf-8") as handle:
+        json.dump(metadata, handle, ensure_ascii=False)
+
+    return (
+        jsonify(
+            {
+                "id": asset_id,
+                "type": asset_type,
+                "name": asset_name,
+                "contentType": content_type,
+                "size": len(body),
+                "url": url_for("rum_asset_download", asset_id=asset_id),
+            }
+        ),
+        201,
+    )
+
+
+@app.route("/v1/rum/assets/<asset_id>", methods=["GET"])
+@require_basic_auth
+async def rum_asset_download(asset_id: str):
+    if not re.fullmatch(r"[a-f0-9]{32}", asset_id):
+        return jsonify({"error": "invalid asset id"}), 400
+    meta_path = _rum_asset_meta_path(asset_id)
+    if not os.path.exists(meta_path):
+        return jsonify({"error": "not found"}), 404
+    try:
+        with open(meta_path, encoding="utf-8") as handle:
+            metadata = json.load(handle)
+    except Exception:
+        return jsonify({"error": "asset metadata unavailable"}), 500
+
+    storage_name = str(metadata.get("storage_name", ""))
+    if not storage_name or "/" in storage_name or "\\" in storage_name:
+        return jsonify({"error": "invalid asset metadata"}), 500
+
+    file_path = os.path.join(RUM_ASSET_DIR, storage_name)
+    if not os.path.exists(file_path):
+        return jsonify({"error": "not found"}), 404
+
+    return await send_from_directory(
+        RUM_ASSET_DIR,
+        storage_name,
+        mimetype=str(metadata.get("content_type", "application/octet-stream")),
+        as_attachment=False,
+    )
 
 
 # ---------------------------------------------------------------------------
