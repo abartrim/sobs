@@ -933,6 +933,15 @@ CREATE TABLE IF NOT EXISTS sobs_reports (
 ) ENGINE = ReplacingMergeTree(Version)
 ORDER BY Id
 SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS sobs_kubernetes_snapshots (
+    Id String CODEC(ZSTD(1)),
+    Source LowCardinality(String) CODEC(ZSTD(1)),
+    SnapshotJson String CODEC(ZSTD(1)),
+    ReceivedAt DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1))
+) ENGINE = ReplacingMergeTree(ReceivedAt)
+ORDER BY Id
+SETTINGS index_granularity = 8192;
 """
 
 
@@ -1439,12 +1448,25 @@ def _query_page_enabled(settings: dict[str, str] | None = None) -> bool:
     return bool(settings.get("ai.endpoint_url", "").strip() and settings.get("ai.model", "").strip())
 
 
+def _kubernetes_enabled() -> bool:
+    """Return True when the Kubernetes health view is enabled in settings."""
+    try:
+        db = get_db()
+        value = _get_app_setting(db, "kubernetes.enabled")
+        return value == "1"
+    except Exception:
+        return False
+
+
 @app.context_processor
 def inject_feature_flags() -> dict[str, bool]:
     try:
-        return {"query_enabled": _query_page_enabled()}
+        return {
+            "query_enabled": _query_page_enabled(),
+            "kubernetes_enabled": _kubernetes_enabled(),
+        }
     except Exception:
-        return {"query_enabled": False}
+        return {"query_enabled": False, "kubernetes_enabled": False}
 
 
 # ---------------------------------------------------------------------------
@@ -11152,6 +11174,7 @@ async def view_settings():
     ai_settings = _load_all_ai_settings(db)
     notification_channels = _load_notification_channels(db)
     notification_rules = _load_notification_rules(db)
+    k8s_settings = _load_k8s_settings(db)
     return await render_template(
         "settings.html",
         tag_rule_count=len(tag_rules),
@@ -11160,6 +11183,7 @@ async def view_settings():
         ai_configured=bool(ai_settings.get("ai.endpoint_url") and ai_settings.get("ai.model")),
         notification_channel_count=len(notification_channels),
         notification_rule_count=len(notification_rules),
+        kubernetes_view_enabled=k8s_settings.get("kubernetes.enabled") == "1",
     )
 
 
@@ -16643,6 +16667,357 @@ async def api_chart_types():
             jsonify({"ok": False, "error": f"Failed to load chart types: {str(e)}"}),
             500,
         )
+
+
+# ---------------------------------------------------------------------------
+# Kubernetes Health View  GET /kubernetes
+# Settings               GET/POST /settings/kubernetes
+# API                    GET /api/kubernetes/status
+#                        POST /api/kubernetes/ingest
+# ---------------------------------------------------------------------------
+
+_K8S_SETTING_KEYS = (
+    "kubernetes.enabled",
+    "kubernetes.mode",
+    "kubernetes.api_url",
+    "kubernetes.namespace",
+    "kubernetes.token",
+    "kubernetes.ca_cert",
+)
+
+_K8S_SENSITIVE_SETTING_KEYS = frozenset({"kubernetes.token"})
+
+
+def _load_k8s_settings(db: "ChDbConnection") -> dict[str, str]:
+    """Load all Kubernetes settings from sobs_app_settings."""
+    result: dict[str, str] = {k: "" for k in _K8S_SETTING_KEYS}
+    for key in _K8S_SETTING_KEYS:
+        raw = _get_app_setting(db, key)
+        if raw:
+            result[key] = raw
+    return result
+
+
+def _k8s_settings_from_form(form: "dict[str, str]") -> dict[str, str]:
+    """Extract and validate Kubernetes settings from a submitted form."""
+    enabled = "1" if form.get("enabled") == "1" else "0"
+    mode = form.get("mode", "ingested").strip()
+    if mode not in {"realtime", "ingested"}:
+        mode = "ingested"
+    api_url = form.get("api_url", "").strip().rstrip("/")
+    namespace = form.get("namespace", "").strip() or "default"
+    token = form.get("token", "").strip()
+    ca_cert = form.get("ca_cert", "").strip()
+    return {
+        "kubernetes.enabled": enabled,
+        "kubernetes.mode": mode,
+        "kubernetes.api_url": api_url,
+        "kubernetes.namespace": namespace,
+        "kubernetes.token": token,
+        "kubernetes.ca_cert": ca_cert,
+    }
+
+
+async def _fetch_k8s_realtime(settings: dict[str, str]) -> dict:
+    """Fetch live Kubernetes health data via the K8s REST API using httpx.
+
+    Returns a dict with keys: pods, deployments, nodes, namespaces, error.
+    Falls back to in-cluster service-account credentials when api_url is empty.
+    """
+    api_url = settings.get("kubernetes.api_url", "").strip().rstrip("/")
+    token = settings.get("kubernetes.token", "").strip()
+    namespace = settings.get("kubernetes.namespace", "default").strip() or "default"
+
+    # In-cluster fallback
+    if not api_url:
+        api_url = "https://kubernetes.default.svc"
+    if not token:
+        sa_token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        try:
+            with open(sa_token_path) as fh:
+                token = fh.read().strip()
+        except OSError:
+            pass
+
+    headers: dict[str, str] = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    # Use a dedicated client that tolerates self-signed K8s certs
+    verify: bool | str = False  # default: skip TLS verification for self-signed certs
+    ca_cert = settings.get("kubernetes.ca_cert", "").strip()
+    if ca_cert:
+        verify = ca_cert
+
+    result: dict = {"pods": [], "deployments": [], "nodes": [], "namespaces": [], "error": ""}
+
+    try:
+        async with httpx.AsyncClient(verify=verify, headers=headers, timeout=10.0) as client:
+            # Namespaces
+            try:
+                r = await client.get(f"{api_url}/api/v1/namespaces")
+                r.raise_for_status()
+                ns_items = r.json().get("items", [])
+                result["namespaces"] = [
+                    {
+                        "name": ns["metadata"]["name"],
+                        "status": ns.get("status", {}).get("phase", ""),
+                        "created": ns["metadata"].get("creationTimestamp", ""),
+                    }
+                    for ns in ns_items
+                ]
+            except Exception as exc:
+                result["namespaces"] = []
+                result["error"] = str(exc)
+
+            # Pods
+            pod_url = (
+                f"{api_url}/api/v1/pods"
+                if namespace == "all"
+                else f"{api_url}/api/v1/namespaces/{namespace}/pods"
+            )
+            try:
+                r = await client.get(pod_url)
+                r.raise_for_status()
+                pod_items = r.json().get("items", [])
+                result["pods"] = [
+                    {
+                        "namespace": p["metadata"].get("namespace", namespace),
+                        "name": p["metadata"]["name"],
+                        "phase": p.get("status", {}).get("phase", "Unknown"),
+                        "ready": _k8s_pod_ready(p),
+                        "restarts": _k8s_pod_restarts(p),
+                        "node": p.get("spec", {}).get("nodeName", ""),
+                        "created": p["metadata"].get("creationTimestamp", ""),
+                    }
+                    for p in pod_items
+                ]
+            except Exception as exc:
+                result["pods"] = []
+                if not result["error"]:
+                    result["error"] = str(exc)
+
+            # Deployments
+            deploy_url = (
+                f"{api_url}/apis/apps/v1/deployments"
+                if namespace == "all"
+                else f"{api_url}/apis/apps/v1/namespaces/{namespace}/deployments"
+            )
+            try:
+                r = await client.get(deploy_url)
+                r.raise_for_status()
+                deploy_items = r.json().get("items", [])
+                result["deployments"] = [
+                    {
+                        "namespace": d["metadata"].get("namespace", namespace),
+                        "name": d["metadata"]["name"],
+                        "desired": d.get("spec", {}).get("replicas", 0),
+                        "ready": d.get("status", {}).get("readyReplicas", 0),
+                        "available": d.get("status", {}).get("availableReplicas", 0),
+                        "updated": d.get("status", {}).get("updatedReplicas", 0),
+                        "created": d["metadata"].get("creationTimestamp", ""),
+                    }
+                    for d in deploy_items
+                ]
+            except Exception as exc:
+                result["deployments"] = []
+                if not result["error"]:
+                    result["error"] = str(exc)
+
+            # Nodes
+            try:
+                r = await client.get(f"{api_url}/api/v1/nodes")
+                r.raise_for_status()
+                node_items = r.json().get("items", [])
+                result["nodes"] = [
+                    {
+                        "name": n["metadata"]["name"],
+                        "status": _k8s_node_status(n),
+                        "version": n.get("status", {}).get("nodeInfo", {}).get("kubeletVersion", ""),
+                        "created": n["metadata"].get("creationTimestamp", ""),
+                    }
+                    for n in node_items
+                ]
+            except Exception as exc:
+                result["nodes"] = []
+                if not result["error"]:
+                    result["error"] = str(exc)
+
+    except Exception as exc:
+        result["error"] = str(exc)
+
+    return result
+
+
+def _k8s_pod_ready(pod: dict) -> bool:
+    """Return True when all containers in the pod are ready."""
+    conditions = pod.get("status", {}).get("conditions", [])
+    for cond in conditions:
+        if cond.get("type") == "Ready":
+            return cond.get("status") == "True"
+    return False
+
+
+def _k8s_pod_restarts(pod: dict) -> int:
+    """Return total restart count across all containers in the pod."""
+    total = 0
+    for cs in pod.get("status", {}).get("containerStatuses", []):
+        total += cs.get("restartCount", 0)
+    return total
+
+
+def _k8s_node_status(node: dict) -> str:
+    """Return 'Ready' or 'NotReady' based on node conditions."""
+    for cond in node.get("status", {}).get("conditions", []):
+        if cond.get("type") == "Ready":
+            return "Ready" if cond.get("status") == "True" else "NotReady"
+    return "Unknown"
+
+
+def _load_k8s_snapshot(db: "ChDbConnection") -> dict | None:
+    """Load the most recent ingested Kubernetes snapshot."""
+    row = db.execute(
+        "SELECT SnapshotJson, Source, ReceivedAt FROM sobs_kubernetes_snapshots FINAL "
+        "ORDER BY ReceivedAt DESC LIMIT 1"
+    ).fetchone()
+    if not row:
+        return None
+    try:
+        data = json.loads(str(row[0]))
+        data["_source"] = str(row[1])
+        data["_received_at"] = str(row[2])
+        return data
+    except Exception:
+        return None
+
+
+@app.route("/settings/kubernetes", methods=["GET"])
+@require_basic_auth
+async def view_k8s_settings():
+    """Kubernetes health view settings page."""
+    db = get_db()
+    settings = _load_k8s_settings(db)
+    flash_msg = request.args.get("msg", "")
+    flash_type = request.args.get("msg_type", "success")
+    return await render_template(
+        "settings_kubernetes.html",
+        k8s_settings=settings,
+        flash_msg=flash_msg,
+        flash_type=flash_type,
+    )
+
+
+@app.route("/settings/kubernetes", methods=["POST"])
+@require_basic_auth
+async def save_k8s_settings():
+    """Save Kubernetes health view settings."""
+    form = await request.form
+    new_settings = _k8s_settings_from_form(dict(form))
+    db = get_db()
+    for key, value in new_settings.items():
+        if value:
+            _set_app_setting(db, key, value)
+        else:
+            _del_app_setting(db, key)
+    redirect_url = url_for("view_k8s_settings") + "?msg=Settings+saved&msg_type=success"
+    return redirect(redirect_url)
+
+
+@app.route("/kubernetes")
+@require_basic_auth
+async def view_kubernetes():
+    """Kubernetes health dashboard page."""
+    if not _kubernetes_enabled():
+        return (
+            "Kubernetes health view is disabled. Enable it in Settings → Kubernetes.",
+            404,
+        )
+    return await render_template("kubernetes.html")
+
+
+@app.route("/api/kubernetes/status", methods=["GET"])
+@require_basic_auth
+async def api_kubernetes_status():
+    """Return current Kubernetes health data.
+
+    In 'realtime' mode the K8s API is queried live.
+    In 'ingested' mode the latest stored snapshot is returned.
+    """
+    if not _kubernetes_enabled():
+        return jsonify({"ok": False, "error": "Kubernetes health view is disabled."}), 404
+
+    db = get_db()
+    settings = _load_k8s_settings(db)
+    mode = settings.get("kubernetes.mode", "ingested")
+
+    if mode == "realtime":
+        try:
+            data = await _fetch_k8s_realtime(settings)
+            data["source"] = "realtime"
+            data["ok"] = True
+            return jsonify(data)
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc), "source": "realtime"}), 502
+    else:
+        snapshot = _load_k8s_snapshot(db)
+        if snapshot is None:
+            return jsonify(
+                {
+                    "ok": True,
+                    "source": "ingested",
+                    "pods": [],
+                    "deployments": [],
+                    "nodes": [],
+                    "namespaces": [],
+                    "error": "No ingested data yet. POST to /api/kubernetes/ingest to supply data.",
+                }
+            )
+        snapshot["ok"] = True
+        snapshot["source"] = "ingested"
+        return jsonify(snapshot)
+
+
+@app.route("/api/kubernetes/ingest", methods=["POST"])
+@require_basic_auth
+async def api_kubernetes_ingest():
+    """Accept an externally-generated Kubernetes health snapshot.
+
+    Expects JSON with any subset of: pods, deployments, nodes, namespaces.
+    Example::
+
+        {
+          "pods": [...],
+          "deployments": [...],
+          "nodes": [...],
+          "namespaces": [...]
+        }
+    """
+    if not _kubernetes_enabled():
+        return jsonify({"ok": False, "error": "Kubernetes health view is disabled."}), 404
+
+    payload = await request.get_json(force=True, silent=True)
+    if not payload or not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "Invalid JSON payload."}), 400
+
+    snapshot_id = hashlib.md5(f"k8s|{time.time_ns()}".encode()).hexdigest()
+    snapshot_json = json.dumps(
+        {
+            "pods": payload.get("pods") or [],
+            "deployments": payload.get("deployments") or [],
+            "nodes": payload.get("nodes") or [],
+            "namespaces": payload.get("namespaces") or [],
+            "error": payload.get("error") or "",
+        }
+    )
+
+    db = get_db()
+    _insert_rows_json_each_row(
+        db,
+        "sobs_kubernetes_snapshots",
+        [{"Id": snapshot_id, "Source": "ingested", "SnapshotJson": snapshot_json}],
+    )
+
+    return jsonify({"ok": True, "id": snapshot_id})
 
 
 if __name__ == "__main__":

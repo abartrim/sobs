@@ -255,13 +255,20 @@
         </a>
       </li>
       {% endif %}
+      {% if kubernetes_enabled %}
+      <li class="nav-item">
+        <a href="{{ url_for('view_kubernetes') }}" class="nav-link {% if request.endpoint in ('view_kubernetes',) %}active{% endif %}" title="Kubernetes">
+          <i class="bi bi-hdd-network"></i><span class="sb-label">Kubernetes</span>
+        </a>
+      </li>
+      {% endif %}
       <li class="nav-item">
         <a href="{{ url_for('list_reports') }}" class="nav-link {% if request.endpoint == 'list_reports' %}active{% endif %}" title="Reports">
           <i class="bi bi-bookmark-star"></i><span class="sb-label">Reports</span>
         </a>
       </li>
       <li class="nav-item">
-        <a href="{{ url_for('view_settings') }}" class="nav-link {% if request.endpoint in ('view_settings', 'view_tag_rules', 'view_ai_settings', 'view_agent_rules', 'view_notifications') %}active{% endif %}" title="Settings">
+        <a href="{{ url_for('view_settings') }}" class="nav-link {% if request.endpoint in ('view_settings', 'view_tag_rules', 'view_ai_settings', 'view_agent_rules', 'view_notifications', 'view_k8s_settings') %}active{% endif %}" title="Settings">
           <i class="bi bi-gear"></i><span class="sb-label">Settings</span>
         </a>
       </li>

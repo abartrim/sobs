@@ -1,0 +1,305 @@
+{% extends "base.html" %}
+{% block title %}Kubernetes Health{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-hdd-network me-2 text-info"></i>Kubernetes Health</h4>
+  <div class="d-flex align-items-center gap-2">
+    <span id="dataSourceBadge" class="badge text-bg-secondary">Loading…</span>
+    <span id="lastUpdatedBadge" class="text-secondary small"></span>
+    <button class="btn btn-sm btn-outline-secondary" id="refreshBtn" title="Refresh">
+      <i class="bi bi-arrow-clockwise"></i>
+    </button>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_k8s_settings') }}">
+      <i class="bi bi-gear me-1"></i>Settings
+    </a>
+  </div>
+</div>
+
+<!-- Error banner -->
+<div id="errorBanner" class="alert alert-warning d-none" role="alert">
+  <i class="bi bi-exclamation-triangle me-2"></i>
+  <span id="errorMsg"></span>
+</div>
+
+<!-- Summary cards -->
+<div class="row g-3 mb-4" id="summaryCards">
+  <div class="col-6 col-md-3">
+    <div class="card border-secondary text-center h-100">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold text-info" id="nodeCount">–</div>
+        <div class="small text-secondary">Nodes</div>
+        <div class="small text-success" id="nodeReadyCount"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-secondary text-center h-100">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold text-primary" id="podCount">–</div>
+        <div class="small text-secondary">Pods</div>
+        <div class="small" id="podStatusSummary"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-secondary text-center h-100">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold text-success" id="deployCount">–</div>
+        <div class="small text-secondary">Deployments</div>
+        <div class="small" id="deployStatusSummary"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-secondary text-center h-100">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold text-warning" id="nsCount">–</div>
+        <div class="small text-secondary">Namespaces</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Nodes table -->
+<div class="mb-4">
+  <h5 class="fw-semibold mb-2"><i class="bi bi-server me-2 text-secondary"></i>Nodes</h5>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Name</th>
+          <th>Status</th>
+          <th>Version</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody id="nodesBody">
+        <tr><td colspan="4" class="text-center text-secondary">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Deployments table -->
+<div class="mb-4">
+  <h5 class="fw-semibold mb-2"><i class="bi bi-collection me-2 text-secondary"></i>Deployments</h5>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Namespace</th>
+          <th>Name</th>
+          <th>Desired</th>
+          <th>Ready</th>
+          <th>Available</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody id="deploymentsBody">
+        <tr><td colspan="6" class="text-center text-secondary">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Pods table -->
+<div class="mb-4">
+  <h5 class="fw-semibold mb-2"><i class="bi bi-box me-2 text-secondary"></i>Pods</h5>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Namespace</th>
+          <th>Name</th>
+          <th>Phase</th>
+          <th>Ready</th>
+          <th>Restarts</th>
+          <th>Node</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody id="podsBody">
+        <tr><td colspan="7" class="text-center text-secondary">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  'use strict';
+
+  var REFRESH_INTERVAL_MS = 30000;
+  var _timer = null;
+
+  function phaseBadge(phase) {
+    var cls = {
+      'Running': 'text-bg-success',
+      'Pending': 'text-bg-warning',
+      'Succeeded': 'text-bg-info',
+      'Failed': 'text-bg-danger',
+      'Unknown': 'text-bg-secondary'
+    }[phase] || 'text-bg-secondary';
+    return '<span class="badge ' + cls + '">' + escHtml(phase || 'Unknown') + '</span>';
+  }
+
+  function nodeBadge(status) {
+    var cls = status === 'Ready' ? 'text-bg-success' : 'text-bg-danger';
+    return '<span class="badge ' + cls + '">' + escHtml(status || 'Unknown') + '</span>';
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function fmtDate(ts) {
+    if (!ts) return '–';
+    try { return new Date(ts).toLocaleString(); } catch (e) { return ts; }
+  }
+
+  function renderNodes(nodes) {
+    var tbody = document.getElementById('nodesBody');
+    if (!nodes || nodes.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-secondary">No nodes found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = nodes.map(function (n) {
+      return '<tr>'
+        + '<td class="font-monospace small">' + escHtml(n.name) + '</td>'
+        + '<td>' + nodeBadge(n.status) + '</td>'
+        + '<td class="small">' + escHtml(n.version || '–') + '</td>'
+        + '<td class="small">' + fmtDate(n.created) + '</td>'
+        + '</tr>';
+    }).join('');
+  }
+
+  function renderDeployments(deploys) {
+    var tbody = document.getElementById('deploymentsBody');
+    if (!deploys || deploys.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-secondary">No deployments found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = deploys.map(function (d) {
+      var healthy = (d.ready || 0) >= (d.desired || 0);
+      var readyCls = healthy ? 'text-success' : 'text-danger';
+      return '<tr>'
+        + '<td class="small">' + escHtml(d.namespace || '–') + '</td>'
+        + '<td class="font-monospace small">' + escHtml(d.name) + '</td>'
+        + '<td class="text-center">' + escHtml(d.desired || 0) + '</td>'
+        + '<td class="text-center ' + readyCls + ' fw-semibold">' + escHtml(d.ready || 0) + '</td>'
+        + '<td class="text-center">' + escHtml(d.available || 0) + '</td>'
+        + '<td class="small">' + fmtDate(d.created) + '</td>'
+        + '</tr>';
+    }).join('');
+  }
+
+  function renderPods(pods) {
+    var tbody = document.getElementById('podsBody');
+    if (!pods || pods.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-secondary">No pods found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = pods.map(function (p) {
+      var restartCls = (p.restarts || 0) > 5 ? 'text-danger' : (p.restarts > 0 ? 'text-warning' : '');
+      return '<tr>'
+        + '<td class="small">' + escHtml(p.namespace || '–') + '</td>'
+        + '<td class="font-monospace small">' + escHtml(p.name) + '</td>'
+        + '<td>' + phaseBadge(p.phase) + '</td>'
+        + '<td class="text-center">' + (p.ready ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>') + '</td>'
+        + '<td class="text-center ' + restartCls + '">' + escHtml(p.restarts || 0) + '</td>'
+        + '<td class="small">' + escHtml(p.node || '–') + '</td>'
+        + '<td class="small">' + fmtDate(p.created) + '</td>'
+        + '</tr>';
+    }).join('');
+  }
+
+  function updateSummary(data) {
+    var nodes = data.nodes || [];
+    var pods = data.pods || [];
+    var deploys = data.deployments || [];
+    var nss = data.namespaces || [];
+
+    document.getElementById('nodeCount').textContent = nodes.length;
+    var readyNodes = nodes.filter(function (n) { return n.status === 'Ready'; }).length;
+    document.getElementById('nodeReadyCount').textContent = readyNodes + '/' + nodes.length + ' ready';
+
+    document.getElementById('podCount').textContent = pods.length;
+    var runningPods = pods.filter(function (p) { return p.phase === 'Running'; }).length;
+    var failedPods = pods.filter(function (p) { return p.phase === 'Failed'; }).length;
+    var podSummary = document.getElementById('podStatusSummary');
+    podSummary.className = 'small ' + (failedPods > 0 ? 'text-danger' : 'text-success');
+    podSummary.textContent = runningPods + ' running' + (failedPods > 0 ? ', ' + failedPods + ' failed' : '');
+
+    document.getElementById('deployCount').textContent = deploys.length;
+    var unhealthyDeploys = deploys.filter(function (d) { return (d.ready || 0) < (d.desired || 0); }).length;
+    var deploySummary = document.getElementById('deployStatusSummary');
+    deploySummary.className = 'small ' + (unhealthyDeploys > 0 ? 'text-danger' : 'text-success');
+    deploySummary.textContent = unhealthyDeploys > 0 ? unhealthyDeploys + ' not fully ready' : 'all healthy';
+
+    document.getElementById('nsCount').textContent = nss.length;
+  }
+
+  function setSourceBadge(source, receivedAt) {
+    var badge = document.getElementById('dataSourceBadge');
+    if (source === 'realtime') {
+      badge.className = 'badge text-bg-success';
+      badge.innerHTML = '<i class="bi bi-broadcast me-1"></i>Real-time';
+    } else {
+      badge.className = 'badge text-bg-info';
+      badge.innerHTML = '<i class="bi bi-upload me-1"></i>Ingested';
+    }
+    var ts = document.getElementById('lastUpdatedBadge');
+    if (receivedAt) {
+      ts.textContent = 'Updated: ' + fmtDate(receivedAt);
+    } else {
+      ts.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+    }
+  }
+
+  function load() {
+    fetch('/api/kubernetes/status')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var errorBanner = document.getElementById('errorBanner');
+        var errorMsg = document.getElementById('errorMsg');
+        if (data.error) {
+          errorBanner.classList.remove('d-none');
+          errorMsg.textContent = data.error;
+        } else {
+          errorBanner.classList.add('d-none');
+        }
+        setSourceBadge(data.source || 'ingested', data._received_at);
+        updateSummary(data);
+        renderNodes(data.nodes || []);
+        renderDeployments(data.deployments || []);
+        renderPods(data.pods || []);
+      })
+      .catch(function (err) {
+        var errorBanner = document.getElementById('errorBanner');
+        errorBanner.classList.remove('d-none');
+        document.getElementById('errorMsg').textContent = 'Failed to load data: ' + err;
+        document.getElementById('dataSourceBadge').className = 'badge text-bg-danger';
+        document.getElementById('dataSourceBadge').textContent = 'Error';
+      });
+  }
+
+  function startAutoRefresh() {
+    if (_timer) clearInterval(_timer);
+    _timer = setInterval(load, REFRESH_INTERVAL_MS);
+  }
+
+  document.getElementById('refreshBtn').addEventListener('click', function () {
+    load();
+  });
+
+  load();
+  startAutoRefresh();
+})();
+</script>
+{% endblock %}
