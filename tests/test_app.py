@@ -6970,10 +6970,7 @@ class TestReports:
         tables = {
             row[0]
             for row in sobs_app.get_db()
-            .execute(
-                "SELECT name FROM system.tables WHERE database='default' "
-                "AND name = 'sobs_reports'"
-            )
+            .execute("SELECT name FROM system.tables WHERE database='default' " "AND name = 'sobs_reports'")
             .fetchall()
         }
         assert "sobs_reports" in tables
@@ -7005,6 +7002,8 @@ class TestReports:
         assert r.status_code == 200
         text = (await r.get_data()).decode()
         assert "Visible Report" in text
+
+
 # ChdbSqlRunner & Vanna Query Service
 # ---------------------------------------------------------------------------
 class TestChdbSqlRunner:
