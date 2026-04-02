@@ -17116,7 +17116,7 @@ async def api_kubernetes_status():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 18080))
+    port = int(os.environ.get("PORT", 44317))
     requested_workers = max(
         1,
         int(
