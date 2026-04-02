@@ -59,6 +59,7 @@ To sync images used by in-app help pages:
 
 ```bash
 cp tests/screenshots/dashboard.png static/help/dashboard.png
+cp tests/screenshots/ai.png static/help/ai.png
 cp tests/screenshots/logs.png static/help/logs.png
 cp tests/screenshots/traces.png static/help/traces.png
 cp tests/screenshots/traces_drilldown.png static/help/traces_drilldown.png
