@@ -16683,9 +16683,13 @@ _K8S_SETTING_KEYS = (
     "kubernetes.namespace",
     "kubernetes.token",
     "kubernetes.ca_cert",
+    "kubernetes.tls_verify",
 )
 
 _K8S_SENSITIVE_SETTING_KEYS = frozenset({"kubernetes.token"})
+
+_K8S_SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+_K8S_DEFAULT_TIMEOUT = 10.0
 
 
 def _load_k8s_settings(db: "ChDbConnection") -> dict[str, str]:
@@ -16708,6 +16712,8 @@ def _k8s_settings_from_form(form: "dict[str, str]") -> dict[str, str]:
     namespace = form.get("namespace", "").strip() or "default"
     token = form.get("token", "").strip()
     ca_cert = form.get("ca_cert", "").strip()
+    # tls_verify defaults to "1" (enabled); only explicitly set to "0" when unchecked
+    tls_verify = "0" if form.get("tls_verify") == "0" else "1"
     return {
         "kubernetes.enabled": enabled,
         "kubernetes.mode": mode,
@@ -16715,6 +16721,7 @@ def _k8s_settings_from_form(form: "dict[str, str]") -> dict[str, str]:
         "kubernetes.namespace": namespace,
         "kubernetes.token": token,
         "kubernetes.ca_cert": ca_cert,
+        "kubernetes.tls_verify": tls_verify,
     }
 
 
@@ -16732,9 +16739,8 @@ async def _fetch_k8s_realtime(settings: dict[str, str]) -> dict:
     if not api_url:
         api_url = "https://kubernetes.default.svc"
     if not token:
-        sa_token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
         try:
-            with open(sa_token_path) as fh:
+            with open(_K8S_SA_TOKEN_PATH) as fh:
                 token = fh.read().strip()
         except OSError:
             pass
@@ -16743,16 +16749,20 @@ async def _fetch_k8s_realtime(settings: dict[str, str]) -> dict:
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    # Use a dedicated client that tolerates self-signed K8s certs
-    verify: bool | str = False  # default: skip TLS verification for self-signed certs
+    # TLS verification: default to True (secure); user can disable via settings for self-signed certs
     ca_cert = settings.get("kubernetes.ca_cert", "").strip()
+    tls_verify_setting = settings.get("kubernetes.tls_verify", "1")
     if ca_cert:
-        verify = ca_cert
+        verify: bool | str = ca_cert
+    elif tls_verify_setting == "0":
+        verify = False
+    else:
+        verify = True
 
     result: dict = {"pods": [], "deployments": [], "nodes": [], "namespaces": [], "error": ""}
 
     try:
-        async with httpx.AsyncClient(verify=verify, headers=headers, timeout=10.0) as client:
+        async with httpx.AsyncClient(verify=verify, headers=headers, timeout=_K8S_DEFAULT_TIMEOUT) as client:
             # Namespaces
             try:
                 r = await client.get(f"{api_url}/api/v1/namespaces")
@@ -16915,6 +16925,9 @@ async def save_k8s_settings():
     new_settings = _k8s_settings_from_form(dict(form))
     db = get_db()
     for key, value in new_settings.items():
+        # For the sensitive token field, an empty submission means "keep existing value"
+        if key == "kubernetes.token" and not value:
+            continue
         if value:
             _set_app_setting(db, key, value)
         else:
@@ -16999,7 +17012,7 @@ async def api_kubernetes_ingest():
     if not payload or not isinstance(payload, dict):
         return jsonify({"ok": False, "error": "Invalid JSON payload."}), 400
 
-    snapshot_id = hashlib.md5(f"k8s|{time.time_ns()}".encode()).hexdigest()
+    snapshot_id = hashlib.sha256(f"k8s|{time.time_ns()}".encode()).hexdigest()[:32]
     snapshot_json = json.dumps(
         {
             "pods": payload.get("pods") or [],

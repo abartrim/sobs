@@ -99,8 +99,9 @@
             </label>
             <input type="password" name="token" id="k8sToken"
                    class="form-control form-control-sm font-monospace"
-                   placeholder="Leave blank to use in-cluster token"
-                   value="{{ k8s_settings.get('kubernetes.token', '') }}">
+                   autocomplete="new-password"
+                   placeholder="{{ '(token saved — leave blank to keep unchanged)' if k8s_settings.get('kubernetes.token') else 'Leave blank to use in-cluster token' }}"
+                   value="">
           </div>
           <div class="col-md-4">
             <label class="form-label small text-secondary" for="k8sCaCert">
@@ -110,6 +111,20 @@
                    class="form-control form-control-sm font-monospace"
                    placeholder="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
                    value="{{ k8s_settings.get('kubernetes.ca_cert', '') }}">
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="k8sTlsVerify"
+                   name="tls_verify" value="0"
+                   {% if k8s_settings.get('kubernetes.tls_verify') == '0' %}checked{% endif %}>
+            <label class="form-check-label small" for="k8sTlsVerify">
+              Disable TLS certificate verification
+              <span class="badge text-bg-warning ms-1">insecure</span>
+            </label>
+          </div>
+          <div class="form-text text-secondary">
+            Only enable when using self-signed certificates and no CA cert path is provided.
           </div>
         </div>
       </div>
