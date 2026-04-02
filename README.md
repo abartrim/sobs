@@ -134,12 +134,34 @@ details, security considerations, and limitations.
   //   replay: {
   //     id: 'replay-123',
   //     url: 'https://example.com/replays/replay-123'
+  //     provider: 'rrweb'
   //   },
   //   ttlMs: 15000
   // });
+  // SOBS.setReplayContext({ id: 'replay-123', url: 'https://example.com/replays/replay-123', provider: 'rrweb' }, { ttlMs: 15000, consumeOnce: true });
+  // SOBS.setArtifactContext({ type: 'screenshot', id: 'shot-123', url: 'https://example.com/artifacts/shot-123.png' }, { ttlMs: 15000, consumeOnce: true });
   // SOBS.captureException(new Error('Save failed'));
 </script>
 ```
+
+Replay and screenshot payload contract:
+
+```json
+{
+  "replay": {
+    "id": "replay-123",
+    "url": "https://example.com/replays/replay-123",
+    "provider": "rrweb"
+  },
+  "artifact": {
+    "type": "screenshot",
+    "id": "shot-123",
+    "url": "https://example.com/artifacts/shot-123.png"
+  }
+}
+```
+
+For an integration sketch, see [examples/rum/rrweb_replay_example.js](examples/rum/rrweb_replay_example.js).
 
 ## OTLP Endpoints
 

@@ -100,6 +100,42 @@ Embed in your HTML:
 </script>
 ```
 
+### RUM replay payload contract (rrweb-style)
+
+SOBS expects replay metadata on error events under `replay` and optional screenshot metadata under `artifact`.
+The metadata should reference an uploaded replay/session in your own storage system.
+
+Replay contract:
+
+```json
+{
+  "replay": {
+    "id": "replay-123",
+    "url": "https://example.com/replays/replay-123",
+    "provider": "rrweb"
+  }
+}
+```
+
+Artifact contract:
+
+```json
+{
+  "artifact": {
+    "type": "screenshot",
+    "id": "shot-123",
+    "url": "https://example.com/artifacts/shot-123.png"
+  }
+}
+```
+
+Use either `SOBS.setVisualContext(...)` directly, or the dedicated helpers:
+
+- `SOBS.setReplayContext(replay, { ttlMs, consumeOnce })`
+- `SOBS.setArtifactContext(artifact, { ttlMs, consumeOnce })`
+
+See [rum/rrweb_replay_example.js](rum/rrweb_replay_example.js) for an end-to-end browser integration pattern.
+
 ## OTLP Endpoint Reference
 
 | Endpoint         | Method | Description                        |

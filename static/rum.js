@@ -512,6 +512,26 @@
     return !!_visualContext;
   };
 
+  SOBS.setReplayContext = function (replay, options) {
+    var current = _peekVisualContext() || {};
+    return SOBS.setVisualContext({
+      artifact: _copyObject(current.artifact),
+      replay: _copyObject(replay),
+      ttlMs: options && options.ttlMs,
+      consumeOnce: options ? options.consumeOnce : undefined
+    });
+  };
+
+  SOBS.setArtifactContext = function (artifact, options) {
+    var current = _peekVisualContext() || {};
+    return SOBS.setVisualContext({
+      artifact: _copyObject(artifact),
+      replay: _copyObject(current.replay),
+      ttlMs: options && options.ttlMs,
+      consumeOnce: options ? options.consumeOnce : undefined
+    });
+  };
+
   SOBS.clearVisualContext = function () {
     _visualContext = null;
   };

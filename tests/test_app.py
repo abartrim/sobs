@@ -1570,6 +1570,8 @@ class TestUIPages:
         assert b"SOBS" in body
         assert b"setTraceParent" in body
         assert b"setVisualContext" in body
+        assert b"setReplayContext" in body
+        assert b"setArtifactContext" in body
         assert b"captureException" in body
 
     async def test_pagination(self, client):
