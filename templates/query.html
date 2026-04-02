@@ -1,0 +1,1756 @@
+{% extends "base.html" %}
+{% block title %}Query{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <i class="bi bi-database-check fs-4 text-primary"></i>
+  <h4 class="mb-0">Natural-Language Query</h4>
+</div>
+<p class="text-secondary small mb-3">
+  Ask a question in plain English. The AI will generate a ClickHouse SQL query, run it against
+  the embedded chDB database, and optionally render a chart.
+</p>
+<div class="small text-secondary border rounded px-2 py-1 mb-3" style="background:var(--bs-tertiary-bg);border-color:var(--bs-border-color)!important;">
+  <i class="bi bi-flask me-1"></i>This feature is beta. If a query fails or is blocked, retry or rephrase your question.
+</div>
+
+<form id="queryForm" autocomplete="off">
+  <div class="mb-3">
+    <label for="questionInput" class="form-label fw-semibold">Your question</label>
+    <div class="input-group">
+      <textarea id="questionInput" class="form-control" rows="2"
+                placeholder="e.g. How many log entries were recorded per service in the last hour?"></textarea>
+      <button class="btn btn-primary" type="submit" id="askBtn">
+        <span id="askSpinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+        <span id="askBtnLabel"><i class="bi bi-send"></i> Ask</span>
+      </button>
+    </div>
+    <div class="d-flex align-items-center gap-2 mt-2">
+      <select id="questionHistorySelect" class="form-select form-select-sm" style="max-width:420px;">
+        <option value="">Recent questions...</option>
+      </select>
+      <button id="clearQuestionHistoryBtn" class="btn btn-sm btn-outline-secondary" type="button" title="Clear saved question history">
+        Clear history
+      </button>
+    </div>
+  </div>
+  <div class="mb-3">
+    <div class="p-2 rounded border" style="background:var(--bs-tertiary-bg);border-color:var(--bs-border-color)!important;">
+      <div class="d-flex flex-wrap align-items-start gap-3">
+        <div class="form-check form-switch m-0">
+          <input class="form-check-input" type="checkbox" id="executeCheck" checked>
+          <label class="form-check-label small fw-semibold d-flex align-items-center gap-1" for="executeCheck">
+            <i class="bi bi-table"></i>
+            <span>Execute query</span>
+          </label>
+          <div class="small text-secondary">Runs generated SQL and returns rows.</div>
+        </div>
+        <div class="form-check form-switch m-0">
+          <input class="form-check-input" type="checkbox" id="chartCheck">
+          <div class="d-flex align-items-center gap-2">
+            <label class="form-check-label small fw-semibold d-flex align-items-center gap-1" for="chartCheck">
+              <i class="bi bi-bar-chart-line"></i>
+              <span>Generate chart</span>
+            </label>
+            <button id="chartPresetBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" type="button" title="Set chart type preference before generation" style="opacity:0.7;">
+              <i class="bi bi-pencil-square"></i>
+            </button>
+          </div>
+          <div class="small text-secondary">Builds an Apache ECharts option from results.</div>
+        </div>
+        <div class="m-0">
+          <div class="d-flex align-items-center gap-2 mb-1 flex-nowrap">
+            <select class="form-select form-select-sm" id="thinkingLevelSelect" style="width:auto;">
+              <option value="off">Off</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+            <label class="small fw-semibold d-flex align-items-center gap-1 mb-0 text-nowrap" for="thinkingLevelSelect">
+              <i class="bi bi-lightbulb"></i>
+              <span>Thinking</span>
+            </label>
+          </div>
+          <div class="small text-secondary">LLM reasoning effort.</div>
+        </div>
+      </div>
+      <div id="queryOptionsHint" class="small text-secondary mt-2"></div>
+    </div>
+  </div>
+</form>
+
+<div id="queryStatus" class="d-none small mb-3 d-flex align-items-center gap-2">
+  <i id="queryStatusIcon" class="bi"></i>
+  <span id="queryStatusText"></span>
+</div>
+
+<div id="errorAlert" class="alert alert-danger d-none" role="alert"></div>
+
+<!-- Generated SQL -->
+<div id="sqlSection" class="d-none mb-4">
+  <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+    <h6 class="mb-0">Generated SQL</h6>
+    <button id="executeSqlBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Execute SQL" type="button">
+      <i class="bi bi-play"></i>
+    </button>
+    <button id="editSqlBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Edit SQL" type="button">
+      <i class="bi bi-pencil"></i>
+    </button>
+    <button id="cancelEditSqlBtn" class="btn btn-sm btn-outline-secondary py-0 px-2 d-none" title="Cancel edit" type="button">
+      <i class="bi bi-x-lg"></i> Cancel
+    </button>
+    <button id="copySqlBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Copy SQL">
+      <i class="bi bi-clipboard"></i>
+    </button>
+    <button id="toggleSqlBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Collapse/Expand SQL" type="button">
+      <i id="toggleSqlIcon" class="bi bi-chevron-up"></i>
+    </button>
+    <div id="traceMeta" class="d-none small text-secondary d-flex align-items-center gap-2 ms-auto">
+      <span>Trace:</span>
+      <a id="traceIdLink" class="text-decoration-none" href="{{ url_for('view_traces') }}" title="Open trace in Traces view">
+        <code id="traceIdText"></code>
+      </a>
+      <button id="copyTraceBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Copy trace ID" type="button">
+        <i class="bi bi-clipboard"></i>
+      </button>
+    </div>
+  </div>
+  <div id="cachedSqlNotice" class="d-none alert alert-warning py-1 px-2 small mb-2" role="alert">
+    Restored cached SQL from local history. Tables/schema may have changed; rerun question to refresh.
+  </div>
+  <div id="sqlContentWrap">
+    <pre id="sqlDisplay" class="p-3 rounded small" style="background:var(--bs-tertiary-bg);border:1px solid var(--bs-border-color);white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;"></pre>
+    <textarea id="sqlEditTextarea" class="form-control font-monospace small d-none" rows="8" spellcheck="false" autocomplete="off" style="resize:vertical;font-size:0.78rem;"></textarea>
+  </div>
+</div>
+
+<!-- Results table -->
+<div id="tableSection" class="d-none mb-4">
+  <div id="singleTableWrap" class="card border-secondary">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <button class="btn btn-link btn-sm text-decoration-none text-reset p-0 d-flex align-items-center gap-2"
+              type="button" data-bs-toggle="collapse" data-bs-target="#singleTableCollapse"
+              aria-expanded="true" aria-controls="singleTableCollapse" id="singleTableToggle">
+        <i class="bi bi-chevron-down" id="singleTableChevron" style="transition:transform 0.2s;"></i>
+        <span class="small text-secondary">Results <span id="rowCountBadge" class="badge bg-secondary text-white"></span></span>
+      </button>
+      <div class="d-flex align-items-center gap-2">
+        <button id="exportCsvBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" type="button" title="Export as CSV" style="opacity:0.7;">
+          <i class="bi bi-download"></i> CSV
+        </button>
+        <span class="small text-secondary" id="pageInfo"></span>
+      </div>
+    </div>
+    <div id="singleTableCollapse" class="collapse show">
+      <div class="table-responsive">
+        <table class="table table-dark table-sm align-middle mb-0" id="resultsTable">
+          <thead id="tableHead"></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div id="tablePager" class="d-none d-flex flex-wrap align-items-center justify-content-between gap-2 mt-2">
+    <div class="d-flex align-items-center gap-2">
+      <label for="pageSizeSelect" class="small text-secondary mb-0">Rows</label>
+      <select id="pageSizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="10">10</option>
+        <option value="25" selected>25</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+        <option value="200">200</option>
+      </select>
+    </div>
+    <ul id="pageList" class="pagination pagination-sm mb-0"></ul>
+  </div>
+  <div id="datasetsAccordion" class="accordion d-none"></div>
+</div>
+
+<template id="pageListItemTemplate">
+  <li class="page-item"><button class="page-link" type="button"></button></li>
+</template>
+
+<template id="sortHeaderTemplate">
+  <button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 d-flex align-items-center gap-1">
+    <span class="sort-label fw-semibold"></span>
+    <small class="sort-arrow text-secondary"></small>
+  </button>
+</template>
+
+<!-- Chart -->
+<div id="chartSection" class="d-none mb-4">
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <h6 class="mb-0">Chart</h6>
+    <button id="addToDashboardBtn" class="btn btn-sm btn-outline-primary py-0 px-2" type="button" title="Add this chart to a dashboard" style="opacity:0.85;" disabled>
+      <i class="bi bi-plus-square"></i> Add to Dashboard
+    </button>
+    <button id="refineChartBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" type="button" title="Customize this chart" style="opacity:0.7;">
+      <i class="bi bi-pencil-square"></i>
+    </button>
+    <button id="exportChartBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" type="button" title="Export chart as PNG" style="opacity:0.7;">
+      <i class="bi bi-download"></i>
+    </button>
+  </div>
+  <div id="chartContainer" style="width:100%;height:400px;position:relative;"></div>
+  <details class="mt-2">
+    <summary class="small text-secondary" style="cursor:pointer;">Show chart spec (JSON)
+      <button id="copyChartSpecBtn" class="btn btn-sm btn-link py-0 px-1 text-secondary" type="button" title="Copy chart JSON to clipboard" style="vertical-align:baseline;font-size:0.85em;" onclick="event.preventDefault()">
+        <i class="bi bi-clipboard"></i>
+      </button>
+    </summary>
+    <pre id="chartSpecDisplay" class="p-2 rounded small mt-1" style="background:var(--bs-tertiary-bg);border:1px solid var(--bs-border-color);max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;"></pre>
+  </details>
+</div>
+
+<!-- Chart Customization Modal -->
+<div class="modal fade" id="chartCustomizeModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Customize Chart</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-secondary mb-3">
+          Tell the LLM how you'd like to customize this chart. Examples: "make it a horizontal bar chart", 
+          "use blue color scheme", "add a legend", "change to pie chart", etc.
+        </p>
+        <textarea id="chartCustomizationInput" class="form-control" rows="3"
+                  placeholder="e.g., Make this a horizontal bar chart with gradient colors..."></textarea>
+        <div class="small text-secondary mt-2">
+          <strong>Tip:</strong> View <a href="https://echarts.apache.org/examples" target="_blank" rel="noopener">Apache ECharts examples</a> 
+          for inspiration on available chart types.
+        </div>
+          <!-- Chart Type Selector -->
+          <div class="mt-3 pt-3 border-top">
+            <label for="chartTypeSelect" class="form-label small fw-semibold">Or choose a chart type:</label>
+            <select id="chartTypeSelect" class="form-select form-select-sm">
+              <option value="">Loading chart types...</option>
+            </select>
+            <div id="chartTypeInfo" class="small text-secondary mt-2 p-2 rounded" style="background:var(--bs-tertiary-bg);display:none;"></div>
+          </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button id="applyChartCustomizationBtn" type="button" class="btn btn-primary">Apply</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart Generation Preference Modal -->
+<div class="modal fade" id="chartPresetModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Chart Generation Preference</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-secondary mb-3">
+          Set an optional chart preference before generation. This guides the first chart the AI creates.
+        </p>
+        <div class="small text-secondary mb-3">
+          <strong>Tip:</strong> View <a href="https://echarts.apache.org/examples" target="_blank" rel="noopener">Apache ECharts examples</a>
+          while choosing a chart type.
+        </div>
+        <label for="preChartTypeSelect" class="form-label small fw-semibold">Preferred chart type</label>
+        <select id="preChartTypeSelect" class="form-select form-select-sm">
+          <option value="">Auto (let AI choose)</option>
+        </select>
+        <div id="preChartTypeInfo" class="small text-secondary mt-2 p-2 rounded" style="background:var(--bs-tertiary-bg);display:none;"></div>
+        <label for="preChartInstructionInput" class="form-label small fw-semibold mt-3">Extra instruction (optional)</label>
+        <textarea id="preChartInstructionInput" class="form-control" rows="2" placeholder="e.g., keep labels readable and use a compact legend"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button id="clearChartPresetBtn" type="button" class="btn btn-outline-secondary">Clear</button>
+        <button id="saveChartPresetBtn" type="button" class="btn btn-primary" data-bs-dismiss="modal">Save Preference</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add To Dashboard Modal -->
+<div class="modal fade" id="addToDashboardModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Chart To Dashboard</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label for="addDashDashboardSelect" class="form-label small fw-semibold">Dashboard</label>
+        <select id="addDashDashboardSelect" class="form-select form-select-sm mb-3">
+          <option value="">Loading dashboards...</option>
+        </select>
+
+        <label for="addDashChartTitleInput" class="form-label small fw-semibold">Chart title</label>
+        <input id="addDashChartTitleInput" class="form-control form-control-sm" type="text" maxlength="120" placeholder="e.g., Table row counts">
+
+        <div id="addDashModalHint" class="small text-secondary mt-2">
+          This saves the current SQL and chart JSON as a custom ECharts chart.
+        </div>
+        <a id="openDashboardAfterSaveLink" href="#" class="small d-none mt-2 d-inline-block">Open dashboard</a>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button id="confirmAddToDashboardBtn" type="button" class="btn btn-primary">Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='echarts.min.js') }}"></script>
+<script>
+(function () {
+  var form = document.getElementById('queryForm');
+  var questionInput = document.getElementById('questionInput');
+  var executeCheck = document.getElementById('executeCheck');
+  var chartCheck = document.getElementById('chartCheck');
+  var queryOptionsHint = document.getElementById('queryOptionsHint');
+  var askBtn = document.getElementById('askBtn');
+  var askSpinner = document.getElementById('askSpinner');
+  var askBtnLabel = document.getElementById('askBtnLabel');
+  var questionHistorySelect = document.getElementById('questionHistorySelect');
+  var clearQuestionHistoryBtn = document.getElementById('clearQuestionHistoryBtn');
+  var errorAlert = document.getElementById('errorAlert');
+  var queryStatus = document.getElementById('queryStatus');
+  var queryStatusIcon = document.getElementById('queryStatusIcon');
+  var queryStatusText = document.getElementById('queryStatusText');
+  var sqlSection = document.getElementById('sqlSection');
+  var cachedSqlNotice = document.getElementById('cachedSqlNotice');
+  var sqlContentWrap = document.getElementById('sqlContentWrap');
+  var sqlDisplay = document.getElementById('sqlDisplay');
+  var executeSqlBtn = document.getElementById('executeSqlBtn');
+  var editSqlBtn = document.getElementById('editSqlBtn');
+  var cancelEditSqlBtn = document.getElementById('cancelEditSqlBtn');
+  var sqlEditTextarea = document.getElementById('sqlEditTextarea');
+  var copySqlBtn = document.getElementById('copySqlBtn');
+  var toggleSqlBtn = document.getElementById('toggleSqlBtn');
+  var toggleSqlIcon = document.getElementById('toggleSqlIcon');
+  var traceMeta = document.getElementById('traceMeta');
+  var traceIdLink = document.getElementById('traceIdLink');
+  var traceIdText = document.getElementById('traceIdText');
+  var copyTraceBtn = document.getElementById('copyTraceBtn');
+  var tableSection = document.getElementById('tableSection');
+  var singleTableWrap = document.getElementById('singleTableWrap');
+  var singleTableCollapse = document.getElementById('singleTableCollapse');
+  var singleTableChevron = document.getElementById('singleTableChevron');
+  var tableHead = document.getElementById('tableHead');
+  var tableBody = document.getElementById('tableBody');
+  var datasetsAccordion = document.getElementById('datasetsAccordion');
+  var rowCountBadge = document.getElementById('rowCountBadge');
+  var tablePager = document.getElementById('tablePager');
+  var pageInfo = document.getElementById('pageInfo');
+  var pageSizeSelect = document.getElementById('pageSizeSelect');
+  var pageList = document.getElementById('pageList');
+  var pageListItemTemplate = document.getElementById('pageListItemTemplate');
+  var sortHeaderTemplate = document.getElementById('sortHeaderTemplate');
+  var exportCsvBtn = document.getElementById('exportCsvBtn');
+  var chartSection = document.getElementById('chartSection');
+  var chartContainer = document.getElementById('chartContainer');
+  var chartSpecDisplay = document.getElementById('chartSpecDisplay');
+  var addToDashboardBtn = document.getElementById('addToDashboardBtn');
+  var refineChartBtn = document.getElementById('refineChartBtn');
+  var exportChartBtn = document.getElementById('exportChartBtn');
+  var chartCustomizeModal = new bootstrap.Modal(document.getElementById('chartCustomizeModal'));
+  var chartCustomizationInput = document.getElementById('chartCustomizationInput');
+  var applyChartCustomizationBtn = document.getElementById('applyChartCustomizationBtn');
+  var thinkingLevelSelect = document.getElementById('thinkingLevelSelect');
+  var chartPresetBtn = document.getElementById('chartPresetBtn');
+  var chartPresetModal = new bootstrap.Modal(document.getElementById('chartPresetModal'));
+  var addToDashboardModal = new bootstrap.Modal(document.getElementById('addToDashboardModal'));
+  var addDashDashboardSelect = document.getElementById('addDashDashboardSelect');
+  var addDashChartTitleInput = document.getElementById('addDashChartTitleInput');
+  var addDashModalHint = document.getElementById('addDashModalHint');
+  var confirmAddToDashboardBtn = document.getElementById('confirmAddToDashboardBtn');
+  var openDashboardAfterSaveLink = document.getElementById('openDashboardAfterSaveLink');
+  var preChartTypeSelect = document.getElementById('preChartTypeSelect');
+  var preChartTypeInfo = document.getElementById('preChartTypeInfo');
+  var preChartInstructionInput = document.getElementById('preChartInstructionInput');
+  var saveChartPresetBtn = document.getElementById('saveChartPresetBtn');
+  var clearChartPresetBtn = document.getElementById('clearChartPresetBtn');
+  var chartTypeSelect = document.getElementById('chartTypeSelect');
+  var chartTypeInfo = document.getElementById('chartTypeInfo');
+  var chartTypesCatalog = {};
+
+  var chartInstance = null;
+  var currentColumns = [];
+  var currentFieldTypes = [];
+  var currentRows = [];
+  var currentDatasets = [];
+  var datasetPages = {};
+  var sortedRows = [];
+  var currentPage = 1;
+  var currentSortIndex = -1;
+  var currentSortDir = 'asc';
+  var currentQuestion = '';
+  var lastRenderedSql = '';
+  var currentChartSpec = '';
+  var preferredChartType = '';
+  var preferredChartInstruction = '';
+  var thinkingLevel = 'off';
+  var tracesUrlBase = '{{ url_for("view_traces") }}';
+  var dashboardsListApiUrl = '{{ url_for("api_dashboards_list") }}';
+  var addToDashboardApiUrl = '{{ url_for("api_query_add_to_dashboard") }}';
+  var QUERY_HISTORY_KEY = 'sobs.query.history.v1';
+  var CHART_PRESET_KEY = 'sobs.query.chart.preset.v1';
+  var THINKING_LEVEL_KEY = 'sobs.query.thinking.level.v1';
+  var QUERY_HISTORY_MAX = 20;
+  var SQL_COLLAPSED_KEY = 'sobs.query.sql.collapsed.v1';
+  var questionHistoryEntries = [];
+
+  function renderChartTypeDescription(targetEl, typeInfo) {
+    if (!typeInfo) {
+      targetEl.style.display = 'none';
+      targetEl.innerHTML = '';
+      return;
+    }
+    var examplesUrl = typeInfo.examplesGalleryUrl || 'https://echarts.apache.org/examples';
+    if (typeInfo.exampleIds && typeInfo.exampleIds.length > 0) {
+      examplesUrl = 'https://echarts.apache.org/examples/en/editor.html?c=' + encodeURIComponent(typeInfo.exampleIds[0]);
+    }
+    var infoHtml = '<strong>' + typeInfo.name + '</strong><br/>' +
+                   '<small>' + typeInfo.description + '</small><br/>' +
+                   '<small class="text-muted">Data: ' + typeInfo.dataStructure.type + '</small><br/>' +
+                   '<small class="text-muted">Best for: ' + typeInfo.goodFor + '</small><br/>' +
+                   '<a class="small" href="' + examplesUrl + '" target="_blank" rel="noopener">View example</a>';
+    targetEl.innerHTML = infoHtml;
+    targetEl.style.display = 'block';
+  }
+
+  function renderChartTypeSelectOptions() {
+    chartTypeSelect.innerHTML = '<option value="">Quick pick chart type...</option>';
+    preChartTypeSelect.innerHTML = '<option value="">Auto (let AI choose)</option>';
+
+    for (var typeKey in chartTypesCatalog) {
+      if (!Object.prototype.hasOwnProperty.call(chartTypesCatalog, typeKey)) continue;
+      var info = chartTypesCatalog[typeKey];
+
+      var optionA = document.createElement('option');
+      optionA.value = typeKey;
+      optionA.textContent = info.name + ' (' + typeKey + ')';
+      chartTypeSelect.appendChild(optionA);
+
+      var optionB = document.createElement('option');
+      optionB.value = typeKey;
+      optionB.textContent = info.name + ' (' + typeKey + ')';
+      preChartTypeSelect.appendChild(optionB);
+    }
+  }
+
+  async function loadChartTypes() {
+    try {
+      var resp = await fetch('{{ url_for("api_chart_types") }}');
+      var data = await resp.json();
+      if (data.ok && data.data && data.data.chartTypes) {
+        chartTypesCatalog = data.data.chartTypes;
+        renderChartTypeSelectOptions();
+      } else {
+        chartTypeSelect.innerHTML = '<option value="">No chart types available</option>';
+        preChartTypeSelect.innerHTML = '<option value="">No chart types available</option>';
+      }
+    } catch (err) {
+      console.error('Failed to load chart types:', err);
+      chartTypeSelect.innerHTML = '<option value="">Failed to load chart types</option>';
+      preChartTypeSelect.innerHTML = '<option value="">Failed to load chart types</option>';
+    }
+  }
+
+  function loadSqlCollapsed() {
+    try {
+      return localStorage.getItem(SQL_COLLAPSED_KEY) === '1';
+    } catch (_err) {
+      return false;
+    }
+  }
+
+  function saveSqlCollapsed(collapsed) {
+    try {
+      localStorage.setItem(SQL_COLLAPSED_KEY, collapsed ? '1' : '0');
+    } catch (_err) {
+      // Ignore storage errors.
+    }
+  }
+
+  function setSqlCollapsed(collapsed, persist) {
+    sqlContentWrap.classList.toggle('d-none', !!collapsed);
+    toggleSqlIcon.className = 'bi ' + (collapsed ? 'bi-chevron-down' : 'bi-chevron-up');
+    if (persist !== false) {
+      saveSqlCollapsed(!!collapsed);
+    }
+  }
+
+  function loadQuestionHistory() {
+    try {
+      var raw = localStorage.getItem(QUERY_HISTORY_KEY);
+      if (!raw) return [];
+      var parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+
+      return parsed.map(function (item) {
+        if (typeof item === 'string') {
+          var q = item.trim();
+          if (!q) return null;
+          return { question: q, sql: '', preferredChartType: '', chartInstruction: '', chartType: '' };
+        }
+        if (!item || typeof item !== 'object') return null;
+        var question = String(item.question || '').trim();
+        if (!question) return null;
+        return {
+          question: question,
+          sql: String(item.sql || ''),
+          preferredChartType: String(item.preferredChartType || item.preferred_chart_type || ''),
+          chartInstruction: String(item.chartInstruction || item.chart_instruction || ''),
+          chartType: String(item.chartType || item.chart_type || '')
+        };
+      }).filter(function (item) { return !!item; });
+    } catch (_err) {
+      return [];
+    }
+  }
+
+  function saveQuestionHistory(history) {
+    try {
+      localStorage.setItem(QUERY_HISTORY_KEY, JSON.stringify(history));
+    } catch (_err) {
+      // Ignore storage errors (private mode/quota/etc.)
+    }
+  }
+
+  function renderQuestionHistory() {
+    var history = loadQuestionHistory();
+    questionHistoryEntries = history;
+    questionHistorySelect.innerHTML = '';
+
+    var placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = history.length ? 'Recent questions...' : 'No saved questions yet';
+    questionHistorySelect.appendChild(placeholder);
+
+    history.forEach(function (entry, idx) {
+      var opt = document.createElement('option');
+      opt.value = String(idx);
+      var question = entry.question;
+      var suffix = entry.sql ? ' [SQL]' : '';
+      if (entry.chartType) {
+        suffix += ' [' + entry.chartType + ']';
+      }
+      opt.textContent = (question.length > 110 ? (question.slice(0, 110) + '...') : question) + suffix;
+      opt.title = question;
+      questionHistorySelect.appendChild(opt);
+    });
+  }
+
+  function inferChartTypeFromSpec(specJson) {
+    if (!specJson) return '';
+    try {
+      var spec = typeof specJson === 'string' ? JSON.parse(specJson) : specJson;
+      if (spec && Array.isArray(spec.series) && spec.series.length > 0 && spec.series[0] && spec.series[0].type) {
+        return String(spec.series[0].type);
+      }
+      if (spec && spec.type) {
+        return String(spec.type);
+      }
+    } catch (_err) {
+      return '';
+    }
+    return '';
+  }
+
+  function rememberQuestionEntry(question, sql, meta) {
+    var q = (question || '').trim();
+    if (!q) return;
+    var s = String(sql || '').trim();
+    var m = meta || {};
+    var preferredType = String(m.preferredChartType || preferredChartType || '').trim();
+    var chartInstruction = String(m.chartInstruction || preferredChartInstruction || '').trim();
+    var chartType = String(m.chartType || '').trim();
+
+    var history = loadQuestionHistory().filter(function (item) {
+      return !(item.question === q && String(item.preferredChartType || '') === preferredType);
+    });
+    history.unshift({
+      question: q,
+      sql: s,
+      preferredChartType: preferredType,
+      chartInstruction: chartInstruction,
+      chartType: chartType
+    });
+    if (history.length > QUERY_HISTORY_MAX) {
+      history = history.slice(0, QUERY_HISTORY_MAX);
+    }
+    saveQuestionHistory(history);
+    renderQuestionHistory();
+  }
+
+  async function runQuestionWithCurrentPreferences(question) {
+    var q = String(question || '').trim();
+    if (!q) return;
+
+    currentQuestion = q;
+    rememberQuestionEntry(q, '', {
+      preferredChartType: preferredChartType,
+      chartInstruction: preferredChartInstruction,
+      chartType: ''
+    });
+
+    hideError();
+    setQueryStatus('loading', 'Running query...');
+    sqlSection.classList.add('d-none');
+    traceMeta.classList.add('d-none');
+    tableSection.classList.add('d-none');
+    chartSection.classList.add('d-none');
+    exitSqlEditMode(false);
+    setLoading(true);
+
+    try {
+      var resp = await fetch('{{ url_for("api_query_ask") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: q,
+          execute: executeCheck.checked,
+          chart: chartCheck.checked,
+          preferred_chart_type: preferredChartType,
+          chart_instruction: preferredChartInstruction,
+          thinking_level: thinkingLevel
+        })
+      });
+      var data = await resp.json();
+
+      if (!data.ok) {
+        setQueryStatus('error', 'Query failed.');
+        showError(data.error || 'Unknown error');
+        return;
+      }
+      try {
+        applyQueryResponse(data, { fromRun: false });
+      } catch (renderErr) {
+        console.error('Failed to render query response:', renderErr, data);
+        throw new Error('Response render failed: ' + (renderErr && renderErr.message ? renderErr.message : String(renderErr)));
+      }
+      rememberQuestionEntry(q, data.sql || '', {
+        preferredChartType: preferredChartType,
+        chartInstruction: preferredChartInstruction,
+        chartType: inferChartTypeFromSpec(data.chart_spec) || preferredChartType
+      });
+    } catch (err) {
+      setQueryStatus('error', 'Request failed.');
+      showError('Request failed: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function getPageSize() {
+    var parsed = parseInt(pageSizeSelect.value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 25;
+  }
+
+  function fieldTypeByIndex(index) {
+    if (!currentFieldTypes || !currentFieldTypes.length) return null;
+    return currentFieldTypes[index] || null;
+  }
+
+  function compareValues(a, b, kind) {
+    if (a === null || a === undefined) return (b === null || b === undefined) ? 0 : 1;
+    if (b === null || b === undefined) return -1;
+
+    if (kind === 'integer' || kind === 'number') {
+      var na = Number(a);
+      var nb = Number(b);
+      if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+    }
+    if (kind === 'datetime') {
+      var ta = new Date(a).getTime();
+      var tb = new Date(b).getTime();
+      if (!Number.isNaN(ta) && !Number.isNaN(tb)) return ta - tb;
+    }
+    return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+  }
+
+  function applySort() {
+    sortedRows = (currentRows || []).slice();
+    if (currentSortIndex < 0) return;
+    var meta = fieldTypeByIndex(currentSortIndex);
+    var kind = meta && meta.kind ? meta.kind : '';
+    sortedRows.sort(function (ra, rb) {
+      var cmp = compareValues(ra[currentSortIndex], rb[currentSortIndex], kind);
+      return currentSortDir === 'asc' ? cmp : -cmp;
+    });
+  }
+
+  function formatCellValue(value, fieldType) {
+    if (value === null || value === undefined) return 'NULL';
+
+    var kind = fieldType && fieldType.kind ? fieldType.kind : '';
+    if (kind === 'boolean') return value ? 'true' : 'false';
+
+    if (kind === 'integer' || kind === 'number') {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return new Intl.NumberFormat().format(value);
+      }
+    }
+
+    if (kind === 'datetime') {
+      var dt = new Date(value);
+      if (!Number.isNaN(dt.getTime())) {
+        return dt.toLocaleString();
+      }
+    }
+
+    if (kind === 'json' || (typeof value === 'object' && value !== null)) {
+      try {
+        return JSON.stringify(value);
+      } catch (_err) {
+        return String(value);
+      }
+    }
+
+    return String(value);
+  }
+
+  function renderTablePage() {
+    var pageSize = getPageSize();
+    var total = sortedRows.length;
+    var totalPages = Math.max(1, Math.ceil(total / pageSize));
+    if (currentPage > totalPages) currentPage = totalPages;
+    if (currentPage < 1) currentPage = 1;
+
+    var startIdx = (currentPage - 1) * pageSize;
+    var endIdx = Math.min(startIdx + pageSize, total);
+    var pageRows = sortedRows.slice(startIdx, endIdx);
+
+    tableBody.innerHTML = '';
+    pageRows.forEach(function (row) {
+      var tr = document.createElement('tr');
+      row.forEach(function (cell, idx) {
+        var td = document.createElement('td');
+        var meta = fieldTypeByIndex(idx);
+        td.textContent = formatCellValue(cell, meta);
+        if (cell === null || cell === undefined) {
+          td.classList.add('text-secondary', 'fst-italic');
+        }
+        if (meta && (meta.kind === 'integer' || meta.kind === 'number')) {
+          td.classList.add('text-end', 'font-monospace');
+        }
+        if (meta && meta.kind === 'datetime') {
+          td.classList.add('font-monospace');
+        }
+        if (td.textContent.length > 140) {
+          td.title = td.textContent;
+          td.textContent = td.textContent.slice(0, 140) + '...';
+        }
+        tr.appendChild(td);
+      });
+      tableBody.appendChild(tr);
+    });
+
+    pageInfo.textContent =
+      total === 0
+        ? 'No rows'
+        : ('Showing ' + (startIdx + 1) + '-' + endIdx + ' of ' + total + ' rows (page ' + currentPage + '/' + totalPages + ')');
+
+    pageList.innerHTML = '';
+    function addPageButton(label, targetPage, disabled, active) {
+      var node = pageListItemTemplate.content.firstElementChild.cloneNode(true);
+      var btn = node.querySelector('button');
+      btn.textContent = label;
+      if (active) node.classList.add('active');
+      if (disabled) node.classList.add('disabled');
+      btn.disabled = !!disabled;
+      btn.addEventListener('click', function () {
+        if (disabled) return;
+        currentPage = targetPage;
+        renderTablePage();
+      });
+      pageList.appendChild(node);
+    }
+
+    addPageButton('«', Math.max(1, currentPage - 1), currentPage <= 1, false);
+    var startPage = Math.max(1, currentPage - 2);
+    var endPage = Math.min(totalPages, currentPage + 2);
+    for (var p = startPage; p <= endPage; p++) {
+      addPageButton(String(p), p, false, p === currentPage);
+    }
+    addPageButton('»', Math.min(totalPages, currentPage + 1), currentPage >= totalPages, false);
+
+    tablePager.classList.toggle('d-none', total <= pageSize);
+  }
+
+  function exportRowsAsCsv(headers, rows, filenamePrefix) {
+    if (!rows || rows.length === 0) {
+      showError('No data to export.');
+      return;
+    }
+
+    var csv = [];
+    csv.push(headers.map(function (h) { return escapeCSVField(String(h || '')); }).join(','));
+
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i] || [];
+      var fields = headers.map(function (_h, idx) {
+        return escapeCSVField(formatCSVValue(row[idx]));
+      });
+      csv.push(fields.join(','));
+    }
+
+    var csvContent = csv.join('\n');
+    var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    var link = document.createElement('a');
+    var url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filenamePrefix + '_' + new Date().getTime() + '.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setQueryStatus('success', 'Results exported as CSV.');
+  }
+
+  // Single resize listener registered once on page load.
+  window.addEventListener('resize', function () {
+    if (chartInstance) chartInstance.resize();
+  });
+
+  function setLoading(on) {
+    askBtn.disabled = on;
+    executeSqlBtn.disabled = on;
+    askSpinner.classList.toggle('d-none', !on);
+    askBtnLabel.classList.toggle('d-none', on);
+  }
+
+  function showError(msg) {
+    errorAlert.textContent = msg;
+    errorAlert.classList.remove('d-none');
+  }
+
+  function hideError() {
+    errorAlert.classList.add('d-none');
+  }
+
+  function updateQueryOptionsHint() {
+    if (!executeCheck.checked) {
+      chartCheck.checked = false;
+      chartCheck.disabled = true;
+      chartPresetBtn.disabled = true;
+      queryOptionsHint.textContent = 'Chart generation requires query execution, so it is disabled until Execute query is on.';
+      return;
+    }
+    chartCheck.disabled = false;
+    chartPresetBtn.disabled = !chartCheck.checked;
+    if (chartCheck.checked) {
+      var hint = 'Both result rows and a chart will be generated.';
+      if (preferredChartType) {
+        hint += ' Preferred chart type: ' + preferredChartType + '.';
+      }
+      if (thinkingLevel && thinkingLevel !== 'off') {
+        hint += ' Thinking: ' + thinkingLevel + '.';
+      }
+      queryOptionsHint.textContent = hint;
+    } else {
+      var hint2 = 'Only generated SQL and tabular results will be shown.';
+      if (thinkingLevel && thinkingLevel !== 'off') {
+        hint2 += ' Thinking: ' + thinkingLevel + '.';
+      }
+      queryOptionsHint.textContent = hint2;
+    }
+  }
+
+  function setQueryStatus(kind, message) {
+    if (!message) {
+      queryStatus.classList.add('d-none');
+      queryStatusText.textContent = '';
+      queryStatusIcon.className = 'bi';
+      return;
+    }
+
+    var icon = 'bi-info-circle';
+    var tone = 'text-secondary';
+    if (kind === 'loading') {
+      icon = 'bi-arrow-repeat';
+      tone = 'text-primary';
+    } else if (kind === 'retry') {
+      icon = 'bi-arrow-repeat';
+      tone = 'text-warning';
+    } else if (kind === 'warning') {
+      icon = 'bi-exclamation-triangle';
+      tone = 'text-warning';
+    } else if (kind === 'error') {
+      icon = 'bi-exclamation-triangle';
+      tone = 'text-danger';
+    } else if (kind === 'success') {
+      icon = 'bi-check-circle';
+      tone = 'text-success';
+    }
+
+    queryStatus.className = 'small mb-3 d-flex align-items-center gap-2 ' + tone;
+    queryStatus.classList.remove('d-none');
+    queryStatusIcon.className = 'bi ' + icon;
+    queryStatusText.textContent = message;
+  }
+
+  function renderTraceMeta(traceId) {
+    if (!traceId) {
+      traceMeta.classList.add('d-none');
+      traceIdText.textContent = '';
+      traceIdLink.dataset.traceId = '';
+      return;
+    }
+    traceIdText.textContent = traceId;
+    traceIdLink.dataset.traceId = traceId;
+    traceMeta.classList.remove('d-none');
+  }
+
+  function setAddToDashboardEnabled(enabled) {
+    if (!addToDashboardBtn) return;
+    addToDashboardBtn.disabled = !enabled;
+    addToDashboardBtn.style.opacity = enabled ? '0.85' : '0.55';
+  }
+
+  async function loadDashboardsForModal() {
+    addDashDashboardSelect.innerHTML = '<option value="">Loading dashboards...</option>';
+    confirmAddToDashboardBtn.disabled = true;
+    try {
+      var resp = await fetch(dashboardsListApiUrl);
+      var data = await resp.json();
+      if (!data.ok || !Array.isArray(data.dashboards)) {
+        throw new Error(data.error || 'Failed to load dashboards');
+      }
+      var dashboards = data.dashboards;
+      if (!dashboards.length) {
+        addDashDashboardSelect.innerHTML = '<option value="">No dashboards found</option>';
+        addDashModalHint.textContent = 'Create a dashboard first, then try Add to Dashboard again.';
+        confirmAddToDashboardBtn.disabled = true;
+        return;
+      }
+
+      addDashDashboardSelect.innerHTML = '';
+      dashboards.forEach(function (dash, idx) {
+        var opt = document.createElement('option');
+        opt.value = String(dash.id || '');
+        opt.textContent = String(dash.name || ('Dashboard ' + (idx + 1)));
+        addDashDashboardSelect.appendChild(opt);
+      });
+      addDashModalHint.textContent = 'This saves the current SQL and chart JSON as a custom ECharts chart.';
+      confirmAddToDashboardBtn.disabled = false;
+    } catch (err) {
+      addDashDashboardSelect.innerHTML = '<option value="">Failed to load dashboards</option>';
+      addDashModalHint.textContent = 'Could not load dashboards: ' + err.message;
+      confirmAddToDashboardBtn.disabled = true;
+    }
+  }
+
+  function applyQueryResponse(data, options) {
+    var opts = options || {};
+
+    cachedSqlNotice.classList.toggle('d-none', !opts.cached);
+
+    renderTraceMeta(data.trace_id || '');
+
+    if (data.sql) {
+      var isNewSql = data.sql !== lastRenderedSql;
+      sqlDisplay.textContent = data.sql;
+      sqlSection.classList.remove('d-none');
+      if (isNewSql) {
+        lastRenderedSql = data.sql;
+        setSqlCollapsed(false, true);
+      }
+    }
+
+    if (data.error) {
+      var hasResults = (data.datasets && data.datasets.length > 0) ||
+                       (data.columns && data.columns.length > 0);
+      if (hasResults) {
+        // Partial failure (e.g. chart error alongside valid results) — status bar only
+        setQueryStatus('warning', 'Partial error — see details above.');
+        showError(data.error);
+      } else {
+        setQueryStatus('error', 'Query failed.');
+        showError(data.error);
+      }
+    }
+
+    if (data.chart_spec) {
+      renderChart(data.chart_spec);
+      if (chartSection.parentElement === tableSection.parentElement) {
+        chartSection.parentElement.insertBefore(chartSection, tableSection);
+      }
+    } else {
+      chartSection.classList.add('d-none');
+    }
+
+    if (data.datasets && Array.isArray(data.datasets) && data.datasets.length > 0) {
+      renderDatasets(data.datasets);
+    } else if (data.columns && data.columns.length) {
+      currentDatasets = [];
+      datasetsAccordion.classList.add('d-none');
+      singleTableWrap.classList.remove('d-none');
+      exportCsvBtn.classList.remove('d-none');
+      renderTable(data.columns, data.rows || [], data.field_types || []);
+    } else {
+      currentDatasets = [];
+      tableSection.classList.add('d-none');
+      datasetsAccordion.classList.add('d-none');
+      singleTableWrap.classList.remove('d-none');
+      exportCsvBtn.classList.remove('d-none');
+    }
+
+    if (data.retry_count && data.retry_count > 0) {
+      setQueryStatus('retry', 'Retried ' + data.retry_count + ' time' + (data.retry_count === 1 ? '' : 's') + ' before success.');
+    } else if (!data.error && !opts.cached && (!data.columns || data.columns.length === 0) && !data.chart_spec) {
+      setQueryStatus('error', 'No data returned. Try refining the question.');
+    } else if (opts.cached) {
+      setQueryStatus('info', 'Restored cached SQL from history.');
+    } else if (!data.error) {
+      setQueryStatus('success', opts.fromRun ? 'SQL executed.' : 'Query completed.');
+    }
+  }
+
+  function renderDatasetPage(index, dataset, page) {
+    var collapseId = 'datasetCollapse' + index;
+    var bodyEl = document.querySelector('#' + collapseId + ' .accordion-body');
+    if (!bodyEl) return;
+
+    var rows = Array.isArray(dataset.rows) ? dataset.rows : [];
+    var columns = Array.isArray(dataset.columns) ? dataset.columns : [];
+    var error = String(dataset.error || '');
+
+    if (error) {
+      bodyEl.innerHTML = '<div class="alert alert-warning py-2 px-3 small mb-0">Dataset query failed: ' + error + '</div>';
+      return;
+    }
+    if (!columns.length) {
+      bodyEl.innerHTML = '<div class="small text-secondary">No rows returned.</div>';
+      return;
+    }
+
+    var pageSize = getPageSize();
+    var total = rows.length;
+    var totalPages = Math.max(1, Math.ceil(total / pageSize));
+    if (page > totalPages) page = totalPages;
+    if (page < 1) page = 1;
+    datasetPages[index] = page;
+
+    var startIdx = (page - 1) * pageSize;
+    var endIdx = Math.min(startIdx + pageSize, total);
+    var pageRows = rows.slice(startIdx, endIdx);
+
+    var theadCells = columns.map(function (c) { return '<th>' + String(c) + '</th>'; }).join('');
+    var tbodyRows = pageRows.map(function (row) {
+      var tds = columns.map(function (_c, ci) {
+        var v = row[ci];
+        var txt = formatCellValue(v, null);
+        if (txt.length > 140) txt = txt.slice(0, 140) + '...';
+        return '<td>' + txt + '</td>';
+      }).join('');
+      return '<tr>' + tds + '</tr>';
+    }).join('');
+
+    var html = '<div class="table-responsive"><table class="table table-dark table-sm align-middle mb-0">' +
+      '<thead><tr>' + theadCells + '</tr></thead>' +
+      '<tbody>' + tbodyRows + '</tbody>' +
+      '</table></div>';
+
+    html += '<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mt-2">';
+    if (total === 0) {
+      html += '<span class="small text-secondary">No rows</span>';
+    } else {
+      html += '<span class="small text-secondary">Showing ' + (startIdx + 1) + '\u2013' + endIdx + ' of ' + total + ' rows</span>';
+    }
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary dataset-export-csv-btn" data-dataset-index="' + index + '"><i class="bi bi-download"></i> Export CSV</button>';
+    html += '</div>';
+
+    if (total > pageSize) {
+      html += '<div class="d-flex justify-content-center mt-2"><ul class="pagination pagination-sm mb-0">';
+      if (page > 1) {
+        html += '<li class="page-item"><button class="page-link dataset-page-btn" data-dataset-index="' + index + '" data-page="' + (page - 1) + '">\u00ab</button></li>';
+      } else {
+        html += '<li class="page-item disabled"><span class="page-link">\u00ab</span></li>';
+      }
+      var startPage = Math.max(1, page - 2);
+      var endPage = Math.min(totalPages, page + 2);
+      for (var p = startPage; p <= endPage; p++) {
+        var isActive = p === page ? ' active' : '';
+        html += '<li class="page-item' + isActive + '"><button class="page-link dataset-page-btn" data-dataset-index="' + index + '" data-page="' + p + '">' + p + '</button></li>';
+      }
+      if (page < totalPages) {
+        html += '<li class="page-item"><button class="page-link dataset-page-btn" data-dataset-index="' + index + '" data-page="' + (page + 1) + '">\u00bb</button></li>';
+      } else {
+        html += '<li class="page-item disabled"><span class="page-link">\u00bb</span></li>';
+      }
+      html += '</ul></div>';
+    }
+
+    bodyEl.innerHTML = html;
+  }
+
+  function renderDatasets(datasets) {
+    if (!Array.isArray(datasets) || datasets.length === 0) {
+      tableSection.classList.add('d-none');
+      return;
+    }
+
+    if (datasets.length === 1) {
+      var only = datasets[0] || {};
+      currentDatasets = [only];
+      datasetsAccordion.classList.add('d-none');
+      singleTableWrap.classList.remove('d-none');
+      exportCsvBtn.classList.remove('d-none');
+      renderTable(only.columns || [], only.rows || [], only.field_types || []);
+      return;
+    }
+
+    currentDatasets = datasets.slice();
+    datasetPages = {};
+    singleTableWrap.classList.add('d-none');
+    exportCsvBtn.classList.add('d-none');
+    tablePager.classList.add('d-none');
+    datasetsAccordion.classList.remove('d-none');
+    tableSection.classList.remove('d-none');
+    datasetsAccordion.innerHTML = '';
+
+    datasets.forEach(function (dataset, index) {
+      var name = String(dataset.name || ('dataset_' + (index + 1)));
+      var rows = Array.isArray(dataset.rows) ? dataset.rows : [];
+      var purpose = String(dataset.purpose || '');
+
+      var item = document.createElement('div');
+      item.className = 'accordion-item';
+
+      var headerId = 'datasetHeading' + index;
+      var collapseId = 'datasetCollapse' + index;
+      var show = index === 0 ? ' show' : '';
+      var collapsed = index === 0 ? '' : ' collapsed';
+
+      item.innerHTML =
+        '<h2 class="accordion-header" id="' + headerId + '">' +
+          '<button class="accordion-button' + collapsed + '" type="button" data-bs-toggle="collapse" data-bs-target="#' + collapseId + '" aria-expanded="' + (index === 0 ? 'true' : 'false') + '" aria-controls="' + collapseId + '">' +
+            '<span class="fw-semibold me-2">' + name + '</span>' +
+            '<span class="small text-secondary">' + rows.length + ' rows' + (purpose ? ' \u2013 ' + purpose : '') + '</span>' +
+          '</button>' +
+        '</h2>' +
+        '<div id="' + collapseId + '" class="accordion-collapse collapse' + show + '" aria-labelledby="' + headerId + '" data-bs-parent="#datasetsAccordion">' +
+          '<div class="accordion-body"></div>' +
+        '</div>';
+
+      datasetsAccordion.appendChild(item);
+      renderDatasetPage(index, dataset, 1);
+    });
+
+    var primary = datasets[0] || {};
+    currentColumns = Array.isArray(primary.columns) ? primary.columns : [];
+    currentRows = Array.isArray(primary.rows) ? primary.rows : [];
+    currentFieldTypes = Array.isArray(primary.field_types) ? primary.field_types : [];
+    rowCountBadge.textContent = currentRows.length + ' row' + (currentRows.length === 1 ? '' : 's');
+    pageInfo.textContent = 'Showing named datasets';
+  }
+
+  function renderTable(columns, rows, fieldTypes) {
+    if (!columns.length) {
+      tableSection.classList.add('d-none');
+      return;
+    }
+    currentColumns = columns;
+    currentRows = rows || [];
+    currentFieldTypes = fieldTypes || [];
+    if (currentSortIndex >= columns.length) {
+      currentSortIndex = -1;
+      currentSortDir = 'asc';
+    }
+    applySort();
+    currentPage = 1;
+
+    // Header
+    var thRow = document.createElement('tr');
+    columns.forEach(function (col, idx) {
+      var th = document.createElement('th');
+      th.classList.add('align-top');
+      var sortBtn = sortHeaderTemplate.content.firstElementChild.cloneNode(true);
+      var sortLabel = sortBtn.querySelector('.sort-label');
+      var sortArrow = sortBtn.querySelector('.sort-arrow');
+      sortLabel.textContent = col;
+      sortArrow.textContent = (currentSortIndex === idx) ? (currentSortDir === 'asc' ? '↑' : '↓') : '';
+      sortBtn.addEventListener('click', function () {
+        if (currentSortIndex === idx) {
+          currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          currentSortIndex = idx;
+          currentSortDir = 'asc';
+        }
+        applySort();
+        renderTable(columns, currentRows, currentFieldTypes);
+      });
+      th.appendChild(sortBtn);
+
+      var meta = currentFieldTypes[idx];
+      if (meta && meta.dtype) {
+        var sub = document.createElement('div');
+        sub.classList.add('small', 'text-secondary', 'fw-normal');
+        sub.textContent = meta.dtype;
+        th.appendChild(sub);
+      }
+      thRow.appendChild(th);
+    });
+    tableHead.innerHTML = '';
+    tableHead.appendChild(thRow);
+
+    rowCountBadge.textContent = sortedRows.length + ' row' + (sortedRows.length === 1 ? '' : 's');
+    renderTablePage();
+    tableSection.classList.remove('d-none');
+    // Ensure the collapse is open for each new result set
+    singleTableCollapse.classList.add('show');
+    singleTableChevron.style.transform = '';
+    var toggleBtn = document.getElementById('singleTableToggle');
+    if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  function renderChart(specJson) {
+    if (!specJson) {
+      chartSection.classList.add('d-none');
+      currentChartSpec = '';
+      setAddToDashboardEnabled(false);
+      return;
+    }
+    var specText = String(specJson || '').trim();
+    var firstObj = specText.indexOf('{');
+    var lastObj = specText.lastIndexOf('}');
+    if (firstObj >= 0 && lastObj > firstObj) {
+      specText = specText.slice(firstObj, lastObj + 1);
+    }
+
+    var spec;
+    try {
+      spec = JSON.parse(specText);
+    } catch (e) {
+      chartSection.classList.add('d-none');
+      currentChartSpec = '';
+      setAddToDashboardEnabled(false);
+      showError('Chart render failed: invalid chart JSON (' + e.message + ')');
+      chartSpecDisplay.textContent = specJson;
+      return;
+    }
+
+    chartSection.classList.remove('d-none');
+    chartSpecDisplay.textContent = JSON.stringify(spec, null, 2);
+    currentChartSpec = JSON.stringify(spec);
+    setAddToDashboardEnabled(true);
+
+    if (chartInstance) {
+      chartInstance.dispose();
+    }
+    chartInstance = echarts.init(
+      chartContainer,
+      (window.SOBS && SOBS.echartsTheme) ? SOBS.echartsTheme() : null
+    );
+    try {
+      chartInstance.setOption(spec);
+    } catch (e) {
+      chartSection.classList.add('d-none');
+      currentChartSpec = '';
+      setAddToDashboardEnabled(false);
+      showError('Chart render failed: ' + e.message);
+    }
+  }
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var question = questionInput.value.trim();
+    if (!question) return;
+    await runQuestionWithCurrentPreferences(question);
+  });
+
+  copySqlBtn.addEventListener('click', function () {
+    var txt = getSqlForExecution() || sqlDisplay.textContent;
+    if (!txt) return;
+    navigator.clipboard.writeText(txt).then(function () {
+      copySqlBtn.innerHTML = '<i class="bi bi-clipboard-check"></i>';
+      setTimeout(function () {
+        copySqlBtn.innerHTML = '<i class="bi bi-clipboard"></i>';
+      }, 1500);
+    });
+  });
+
+  var copyChartSpecBtn = document.getElementById('copyChartSpecBtn');
+  if (copyChartSpecBtn) {
+    copyChartSpecBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      var txt = currentChartSpec || chartSpecDisplay.textContent;
+      if (!txt) return;
+      navigator.clipboard.writeText(txt).then(function () {
+        copyChartSpecBtn.innerHTML = '<i class="bi bi-clipboard-check"></i>';
+        setTimeout(function () {
+          copyChartSpecBtn.innerHTML = '<i class="bi bi-clipboard"></i>';
+        }, 1500);
+      });
+    });
+  }
+
+  var _sqlBeforeEdit = '';
+
+  function getSqlForExecution() {
+    if (!sqlEditTextarea.classList.contains('d-none')) {
+      return (sqlEditTextarea.value || '').trim();
+    }
+    return (sqlDisplay.textContent || '').trim();
+  }
+
+  function enterSqlEditMode() {
+    _sqlBeforeEdit = (sqlDisplay.textContent || '').trim();
+    sqlEditTextarea.value = _sqlBeforeEdit;
+    sqlDisplay.classList.add('d-none');
+    sqlEditTextarea.classList.remove('d-none');
+    editSqlBtn.classList.add('d-none');
+    cancelEditSqlBtn.classList.remove('d-none');
+    setSqlCollapsed(false, false);
+    sqlEditTextarea.focus();
+    sqlEditTextarea.setSelectionRange(0, 0);
+  }
+
+  function exitSqlEditMode(keepEdited) {
+    var edited = (sqlEditTextarea.value || '').trim();
+    if (keepEdited && edited) {
+      sqlDisplay.textContent = edited;
+    }
+    sqlEditTextarea.classList.add('d-none');
+    sqlDisplay.classList.remove('d-none');
+    editSqlBtn.classList.remove('d-none');
+    cancelEditSqlBtn.classList.add('d-none');
+  }
+
+  editSqlBtn.addEventListener('click', function () {
+    enterSqlEditMode();
+  });
+
+  cancelEditSqlBtn.addEventListener('click', function () {
+    sqlEditTextarea.value = _sqlBeforeEdit;
+    exitSqlEditMode(false);
+  });
+
+  // Ctrl/Cmd+Enter inside the textarea triggers execute
+  sqlEditTextarea.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      executeSqlBtn.click();
+    }
+  });
+
+  executeSqlBtn.addEventListener('click', async function () {
+    var sql = getSqlForExecution();
+    if (!sql) {
+      setQueryStatus('error', 'No SQL to execute yet.');
+      return;
+    }
+
+    // Commit any in-progress edit before running
+    exitSqlEditMode(true);
+
+    hideError();
+    setQueryStatus('loading', 'Executing SQL...');
+    tableSection.classList.add('d-none');
+    chartSection.classList.add('d-none');
+    setLoading(true);
+
+    try {
+      var resp = await fetch('{{ url_for("api_query_run") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sql: sql,
+          question: currentQuestion,
+          chart: chartCheck.checked,
+          preferred_chart_type: preferredChartType,
+          chart_instruction: preferredChartInstruction,
+          thinking_level: thinkingLevel
+        })
+      });
+      var data = await resp.json();
+      if (!data.ok) {
+        setQueryStatus('error', 'SQL execution failed.');
+        showError(data.error || 'Unknown error');
+        return;
+      }
+      try {
+        applyQueryResponse(data, { fromRun: true });
+      } catch (renderErr) {
+        console.error('Failed to render SQL run response:', renderErr, data);
+        throw new Error('Response render failed: ' + (renderErr && renderErr.message ? renderErr.message : String(renderErr)));
+      }
+      rememberQuestionEntry(currentQuestion || questionInput.value || '', data.sql || sql, {
+        preferredChartType: preferredChartType,
+        chartInstruction: preferredChartInstruction,
+        chartType: inferChartTypeFromSpec(data.chart_spec) || preferredChartType
+      });
+    } catch (err) {
+      setQueryStatus('error', 'SQL execution failed.');
+      showError('SQL execution failed: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  toggleSqlBtn.addEventListener('click', function () {
+    var collapsed = !sqlContentWrap.classList.contains('d-none');
+    setSqlCollapsed(collapsed, true);
+  });
+
+  copyTraceBtn.addEventListener('click', function () {
+    var txt = traceIdText.textContent;
+    if (!txt) return;
+    navigator.clipboard.writeText(txt).then(function () {
+      copyTraceBtn.innerHTML = '<i class="bi bi-clipboard-check"></i>';
+      setTimeout(function () {
+        copyTraceBtn.innerHTML = '<i class="bi bi-clipboard"></i>';
+      }, 1500);
+    });
+  });
+
+  traceIdLink.addEventListener('click', function (e) {
+    var traceId = (traceIdLink.dataset.traceId || '').trim();
+    if (!traceId) {
+      e.preventDefault();
+      return;
+    }
+    e.preventDefault();
+    window.location.assign(tracesUrlBase + '?trace_id=' + encodeURIComponent(traceId));
+  });
+
+  exportCsvBtn.addEventListener('click', function () {
+    exportRowsAsCsv(currentColumns || [], currentRows || [], 'query_results');
+  });
+
+  datasetsAccordion.addEventListener('click', function (e) {
+    var target = e.target;
+
+    var pageBtn = target && target.closest ? target.closest('.dataset-page-btn') : null;
+    if (pageBtn) {
+      var pIdx = parseInt(pageBtn.getAttribute('data-dataset-index') || '', 10);
+      var page = parseInt(pageBtn.getAttribute('data-page') || '', 10);
+      if (Number.isFinite(pIdx) && Number.isFinite(page) && currentDatasets[pIdx]) {
+        renderDatasetPage(pIdx, currentDatasets[pIdx], page);
+      }
+      return;
+    }
+
+    var button = target && target.closest ? target.closest('.dataset-export-csv-btn') : null;
+    if (!button) return;
+
+    var idx = parseInt(button.getAttribute('data-dataset-index') || '', 10);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= currentDatasets.length) return;
+
+    var ds = currentDatasets[idx] || {};
+    exportRowsAsCsv(ds.columns || [], ds.rows || [], String(ds.name || ('dataset_' + (idx + 1))));
+  });
+
+  function escapeCSVField(field) {
+    if (field == null) return '';
+    var str = String(field);
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      return '"' + str.replace(/"/g, '""') + '"';
+    }
+    return str;
+  }
+
+  function formatCSVValue(val) {
+    if (val == null) return '';
+    if (typeof val === 'object') {
+      return JSON.stringify(val);
+    }
+    return String(val);
+  }
+
+  // Allow Shift+Enter (plus Ctrl/Cmd+Enter) to submit
+  questionInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      form.dispatchEvent(new Event('submit'));
+    }
+  });
+
+  pageSizeSelect.addEventListener('change', function () {
+    currentPage = 1;
+    renderTablePage();
+  });
+
+  executeCheck.addEventListener('change', updateQueryOptionsHint);
+  chartCheck.addEventListener('change', updateQueryOptionsHint);
+  thinkingLevelSelect.addEventListener('change', function () {
+    thinkingLevel = thinkingLevelSelect.value || 'off';
+    try { localStorage.setItem(THINKING_LEVEL_KEY, thinkingLevel); } catch (_e) {}
+    updateQueryOptionsHint();
+  });
+
+  chartPresetBtn.addEventListener('click', function () {
+    preChartTypeSelect.value = preferredChartType || '';
+    preChartInstructionInput.value = preferredChartInstruction || '';
+    renderChartTypeDescription(preChartTypeInfo, chartTypesCatalog[preChartTypeSelect.value]);
+    chartPresetModal.show();
+  });
+
+  saveChartPresetBtn.addEventListener('click', function () {
+    preferredChartType = preChartTypeSelect.value || '';
+    preferredChartInstruction = preChartInstructionInput.value.trim();
+    try {
+      localStorage.setItem(CHART_PRESET_KEY, JSON.stringify({ type: preferredChartType, instruction: preferredChartInstruction }));
+    } catch (_e) {}
+    updateQueryOptionsHint();
+  });
+
+  clearChartPresetBtn.addEventListener('click', function () {
+    preferredChartType = '';
+    preferredChartInstruction = '';
+    preChartTypeSelect.value = '';
+    preChartInstructionInput.value = '';
+    renderChartTypeDescription(preChartTypeInfo, null);
+    try { localStorage.removeItem(CHART_PRESET_KEY); } catch (_e) {}
+    updateQueryOptionsHint();
+  });
+
+  preChartTypeSelect.addEventListener('change', function () {
+    renderChartTypeDescription(preChartTypeInfo, chartTypesCatalog[preChartTypeSelect.value]);
+  });
+
+  questionHistorySelect.addEventListener('change', function () {
+    if (!questionHistorySelect.value) return;
+    var idx = parseInt(questionHistorySelect.value, 10);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= questionHistoryEntries.length) return;
+    var entry = questionHistoryEntries[idx];
+    questionInput.value = entry.question;
+    currentQuestion = entry.question;
+
+    var entryChartType = String(entry.chartType || entry.preferredChartType || '').trim();
+    var activeChartType = String(preferredChartType || '').trim();
+
+    if (chartCheck.checked && activeChartType && entryChartType && activeChartType !== entryChartType) {
+      setQueryStatus('loading', 'Chart type changed from history (' + entryChartType + ' → ' + activeChartType + '), regenerating SQL...');
+      runQuestionWithCurrentPreferences(entry.question);
+      questionInput.focus();
+      return;
+    }
+
+    if (entry.sql) {
+      applyQueryResponse(
+        {
+          trace_id: '',
+          sql: entry.sql,
+          columns: [],
+          field_types: [],
+          rows: [],
+          retry_count: 0,
+          chart_spec: '',
+          error: ''
+        },
+        { cached: true }
+      );
+    } else {
+      runQuestionWithCurrentPreferences(entry.question);
+    }
+    questionInput.focus();
+  });
+
+  clearQuestionHistoryBtn.addEventListener('click', function () {
+    saveQuestionHistory([]);
+    renderQuestionHistory();
+    questionHistorySelect.value = '';
+  });
+
+  refineChartBtn.addEventListener('click', function () {
+    if (!currentChartSpec) {
+      showError('No chart to customize. Generate a chart first.');
+      return;
+    }
+    chartCustomizationInput.value = '';
+    chartCustomizeModal.show();
+  });
+
+  chartTypeSelect.addEventListener('change', function () {
+    var selectedType = chartTypeSelect.value;
+    var typeInfo = chartTypesCatalog[selectedType];
+    renderChartTypeDescription(chartTypeInfo, typeInfo);
+
+    if (typeInfo && chartCustomizationInput.value.trim() === '') {
+      chartCustomizationInput.value = 'Change chart to ' + typeInfo.name.toLowerCase() + '.';
+    }
+  });
+
+  exportChartBtn.addEventListener('click', function () {
+    if (!chartInstance) {
+      showError('No chart to export. Generate a chart first.');
+      return;
+    }
+    try {
+      var option = chartInstance.getOption();
+      var title = (option.title && option.title[0] && option.title[0].text) || 'chart';
+      var dataUrl = chartInstance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#fff' });
+      var a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = title.replace(/\s+/g, '_') + '_' + new Date().getTime() + '.png';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setQueryStatus('success', 'Chart exported as PNG.');
+    } catch (err) {
+      showError('Chart export failed: ' + err.message);
+    }
+  });
+
+  addToDashboardBtn.addEventListener('click', async function () {
+    if (!currentChartSpec) {
+      showError('No chart to add. Generate a chart first.');
+      return;
+    }
+    var sql = (sqlDisplay.textContent || '').trim();
+    if (!sql) {
+      showError('No SQL available for this chart.');
+      return;
+    }
+
+    hideError();
+    openDashboardAfterSaveLink.classList.add('d-none');
+    openDashboardAfterSaveLink.setAttribute('href', '#');
+    addDashChartTitleInput.value = (currentQuestion || 'Query chart').slice(0, 120);
+    await loadDashboardsForModal();
+    addToDashboardModal.show();
+  });
+
+  confirmAddToDashboardBtn.addEventListener('click', async function () {
+    var dashboardId = (addDashDashboardSelect.value || '').trim();
+    var title = (addDashChartTitleInput.value || '').trim();
+    var sql = (sqlDisplay.textContent || '').trim();
+    if (!dashboardId) {
+      showError('Please choose a dashboard.');
+      return;
+    }
+    if (!sql || !currentChartSpec) {
+      showError('Missing SQL or chart spec to save.');
+      return;
+    }
+
+    hideError();
+    confirmAddToDashboardBtn.disabled = true;
+    confirmAddToDashboardBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+    try {
+      var resp = await fetch(addToDashboardApiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dashboard_id: dashboardId,
+          title: title,
+          sql: sql,
+          chart_spec: currentChartSpec
+        })
+      });
+      var data = await resp.json();
+      if (!data.ok) {
+        showError(data.error || 'Failed to add chart to dashboard.');
+        return;
+      }
+
+      setQueryStatus('success', 'Chart added to dashboard: ' + (data.dashboard_name || 'Dashboard'));
+      if (data.dashboard_url) {
+        openDashboardAfterSaveLink.setAttribute('href', data.dashboard_url);
+        openDashboardAfterSaveLink.classList.remove('d-none');
+      }
+      addToDashboardModal.hide();
+    } catch (err) {
+      showError('Failed to add chart to dashboard: ' + err.message);
+    } finally {
+      confirmAddToDashboardBtn.disabled = false;
+      confirmAddToDashboardBtn.textContent = 'Add';
+    }
+  });
+
+  applyChartCustomizationBtn.addEventListener('click', async function () {
+    var instruction = chartCustomizationInput.value.trim();
+    if (!instruction) {
+      showError('Please enter a customization instruction.');
+      return;
+    }
+
+    hideError();
+    applyChartCustomizationBtn.disabled = true;
+    applyChartCustomizationBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Refining...';
+
+    try {
+      var resp = await fetch('{{ url_for("api_query_refine_chart") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chart_spec: currentChartSpec,
+          columns: currentColumns,
+          rows: currentRows,
+          instruction: instruction,
+          thinking_level: thinkingLevel
+        })
+      });
+      var data = await resp.json();
+
+      if (!data.ok) {
+        showError(data.error || 'Chart customization failed');
+        return;
+      }
+
+      currentChartSpec = data.chart_spec;
+      renderChart(data.chart_spec);
+      chartCustomizeModal.hide();
+      var didRegenerateSql = false;
+      var refinedChartType = inferChartTypeFromSpec(data.chart_spec);
+      if (refinedChartType && refinedChartType !== preferredChartType) {
+        preferredChartType = refinedChartType;
+        if (preChartTypeSelect.querySelector('option[value="' + refinedChartType + '"]')) {
+          preChartTypeSelect.value = refinedChartType;
+        }
+        updateQueryOptionsHint();
+        if ((currentQuestion || '').trim()) {
+          setQueryStatus('loading', 'Chart type changed to ' + refinedChartType + '; regenerating SQL for matching data model...');
+          await runQuestionWithCurrentPreferences(currentQuestion);
+          didRegenerateSql = true;
+        }
+      }
+      if (!didRegenerateSql) {
+        var statusMsg = 'Chart customized successfully.';
+        if (data.trace_id) {
+          statusMsg += ' Trace: ' + data.trace_id;
+        }
+        setQueryStatus('success', statusMsg);
+      }
+    } catch (err) {
+      showError('Chart customization request failed: ' + err.message);
+    } finally {
+      applyChartCustomizationBtn.disabled = false;
+      applyChartCustomizationBtn.innerHTML = 'Apply';
+    }
+  });
+
+  singleTableCollapse.addEventListener('show.bs.collapse', function () {
+    singleTableChevron.style.transform = '';
+  });
+  singleTableCollapse.addEventListener('hide.bs.collapse', function () {
+    singleTableChevron.style.transform = 'rotate(-90deg)';
+  });
+
+  renderQuestionHistory();
+  try {
+    var _savedPreset = JSON.parse(localStorage.getItem(CHART_PRESET_KEY) || 'null');
+    if (_savedPreset && typeof _savedPreset === 'object') {
+      preferredChartType = String(_savedPreset.type || '');
+      preferredChartInstruction = String(_savedPreset.instruction || '');
+    }
+  } catch (_e) {}
+  try {
+    var _savedThinking = localStorage.getItem(THINKING_LEVEL_KEY) || 'off';
+    if (['off', 'low', 'medium', 'high'].indexOf(_savedThinking) !== -1) {
+      thinkingLevel = _savedThinking;
+      thinkingLevelSelect.value = _savedThinking;
+    }
+  } catch (_e) {}
+  updateQueryOptionsHint();
+  setAddToDashboardEnabled(false);
+  loadChartTypes();
+  setSqlCollapsed(loadSqlCollapsed(), false);
+}());
+</script>
+{% endblock %}

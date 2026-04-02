@@ -32,7 +32,18 @@
     .sidebar.sidebar-compact .sb-brand-text { display: none; }
     .sidebar.sidebar-compact .nav-link { margin: 1px 2px; padding: .5rem .4rem; justify-content: center; gap: 0; }
     .sidebar.sidebar-compact .sb-brand { padding: 0 .6rem; justify-content: center; }
-    .sidebar.sidebar-compact .sb-footer { display: none; }
+    .sb-theme-compact { display: none; }
+    .sidebar.sidebar-compact .sb-footer {
+      display: block;
+      border-top: 0 !important;
+      padding-top: .5rem !important;
+    }
+    .sidebar.sidebar-compact .sb-footer .sb-theme-full { display: none !important; }
+    .sidebar.sidebar-compact .sb-footer .sb-theme-compact {
+      display: flex;
+      justify-content: center;
+    }
+    .sidebar.sidebar-compact .sb-footer small { display: none; }
     /* ===== Sidebar edge toggle button ===== */
     /* Draw border as a right-side half-ring so the menu-side edge stays clean and the icon remains unobstructed. */
     .sb-toggle-btn { position: absolute; right: -14px; top: 64px; z-index: 1200; width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--bs-tertiary-bg); color: var(--bs-secondary-color); display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: background 0.15s, color 0.15s; }
@@ -55,7 +66,14 @@
       .sidebar.sidebar-compact .sb-brand-text { display: inline; }
       .sidebar.sidebar-compact .nav-link { margin: 1px 4px; padding: .4rem .8rem; justify-content: flex-start; }
       .sidebar.sidebar-compact .sb-brand { padding: 0; justify-content: flex-start; }
-      .sidebar.sidebar-compact .sb-footer { display: block; }
+      .sidebar.sidebar-compact .sb-footer {
+        display: block;
+        border-top: 1px solid var(--bs-border-color) !important;
+        padding-top: 1rem !important;
+      }
+      .sidebar.sidebar-compact .sb-footer .sb-theme-full { display: inline-flex !important; }
+      .sidebar.sidebar-compact .sb-footer .sb-theme-compact { display: none !important; }
+      .sidebar.sidebar-compact .sb-footer small { display: inline; }
     }
     .main-content { min-height: 100vh; transition: margin-left 0.22s ease; }
     /* ===== Desktop: sidebar fixed to viewport ===== */
@@ -230,6 +248,13 @@
           <i class="bi bi-cpu"></i><span class="sb-label">AI</span>
         </a>
       </li>
+      {% if query_enabled %}
+      <li class="nav-item">
+        <a href="{{ url_for('view_query') }}" class="nav-link {% if request.endpoint in ('view_query',) %}active{% endif %}" title="Query">
+          <i class="bi bi-database-check"></i><span class="sb-label">Query</span>
+        </a>
+      </li>
+      {% endif %}
       <li class="nav-item">
         <a href="{{ url_for('list_reports') }}" class="nav-link {% if request.endpoint == 'list_reports' %}active{% endif %}" title="Reports">
           <i class="bi bi-bookmark-star"></i><span class="sb-label">Reports</span>
@@ -247,7 +272,7 @@
       </li>
     </ul>
     <div class="mt-auto pt-3 border-top border-secondary sb-footer">
-      <div class="btn-group btn-group-sm mb-2" role="group" aria-label="Theme">
+      <div class="btn-group btn-group-sm mb-2 sb-theme-full" role="group" aria-label="Theme">
         <button type="button" class="btn btn-outline-secondary" data-sobs-theme="light" title="Light theme" aria-pressed="false">
           <i class="bi bi-sun"></i>
         </button>
@@ -257,6 +282,16 @@
         <button type="button" class="btn btn-outline-secondary" data-sobs-theme="dark" title="Dark theme" aria-pressed="false">
           <i class="bi bi-moon-stars"></i>
         </button>
+      </div>
+      <div class="dropup sb-theme-compact mb-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Theme">
+          <i id="sbCompactThemeIcon" class="bi bi-circle-half"></i>
+        </button>
+        <ul class="dropdown-menu shadow-sm">
+          <li><button type="button" class="dropdown-item" data-sobs-theme="light"><i class="bi bi-sun me-2"></i>Light</button></li>
+          <li><button type="button" class="dropdown-item" data-sobs-theme="system"><i class="bi bi-circle-half me-2"></i>System</button></li>
+          <li><button type="button" class="dropdown-item" data-sobs-theme="dark"><i class="bi bi-moon-stars me-2"></i>Dark</button></li>
+        </ul>
       </div>
       <br>
       <small class="text-secondary">Simple Observe Stack v1.0</small>
@@ -312,6 +347,13 @@
       btn.classList.toggle('active', active);
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
+
+    var compactIcon = document.getElementById('sbCompactThemeIcon');
+    if (compactIcon) {
+      compactIcon.className = stored === 'light'
+        ? 'bi bi-sun'
+        : (stored === 'dark' ? 'bi bi-moon-stars' : 'bi bi-circle-half');
+    }
   }
 
   var currentTheme = getStoredTheme();

@@ -33,6 +33,7 @@ from typing import Any, Callable, cast
 
 import chdb.dbapi as chdb_driver
 import httpx
+import pandas as pd
 from google.protobuf.json_format import ParseDict
 from hypercorn.asyncio import serve as hypercorn_serve
 from hypercorn.config import Config as HypercornConfig
@@ -1430,6 +1431,22 @@ def _load_all_ai_settings(db: ChDbConnection) -> dict[str, str]:
     return result
 
 
+def _query_page_enabled(settings: dict[str, str] | None = None) -> bool:
+    """Query page is available when an AI model and endpoint are configured."""
+    if settings is None:
+        db = get_db()
+        settings = _load_all_ai_settings(db)
+    return bool(settings.get("ai.endpoint_url", "").strip() and settings.get("ai.model", "").strip())
+
+
+@app.context_processor
+def inject_feature_flags() -> dict[str, bool]:
+    try:
+        return {"query_enabled": _query_page_enabled()}
+    except Exception:
+        return {"query_enabled": False}
+
+
 # ---------------------------------------------------------------------------
 # LLM / Guard / DLP helpers
 # ---------------------------------------------------------------------------
@@ -2522,6 +2539,19 @@ async def _call_llm_endpoint(
     payload.update(_llm_reasoning_payload(model, thinking_level))
     client = await _get_async_http_client()
     t0 = time.monotonic()
+
+    def _empty_content_hint(body: dict[str, Any]) -> str:
+        message = body.get("choices", [{}])[0].get("message", {})
+        hint_parts: list[str] = []
+        if isinstance(message, dict):
+            for key in ("reasoning_content", "reasoning", "refusal", "tool_calls"):
+                value = message.get(key)
+                if value:
+                    hint_parts.append(f"{key}={str(value)[:180]}")
+        if not hint_parts:
+            hint_parts.append(f"finish_reason={body.get('choices', [{}])[0].get('finish_reason')}")
+        return "; ".join(hint_parts)
+
     try:
         resp = await client.post(
             _llm_chat_completions_url(endpoint_url),
@@ -2533,10 +2563,66 @@ async def _call_llm_endpoint(
         body = resp.json()
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         stats = _llm_usage_stats(body.get("usage"), elapsed_ms)
-        return _coerce_llm_content(body["choices"][0]["message"]["content"]), stats
+        reply_text = _coerce_llm_content(body["choices"][0]["message"].get("content"))
+        if reply_text.strip():
+            return reply_text, stats
+
+        # Some servers/models emit reasoning-only output with empty message.content.
+        # Ask once more for explicit final content-only output.
+        initial_hint = _empty_content_hint(body)
+        retry_messages = messages + [
+            {
+                "role": "user",
+                "content": (
+                    "Your previous reply had empty message.content. "
+                    "Return a NON-EMPTY final answer now, content only, no reasoning trace."
+                ),
+            }
+        ]
+        retry_payload = {"model": model, "messages": retry_messages, "max_tokens": max_tokens}
+        retry_payload.update(_llm_reasoning_payload(model, "off"))
+        retry_started = time.monotonic()
+        retry_resp = await client.post(
+            _llm_chat_completions_url(endpoint_url),
+            json=retry_payload,
+            headers=_llm_request_headers(api_key),
+            timeout=timeout,
+        )
+        retry_resp.raise_for_status()
+        retry_body = retry_resp.json()
+        retry_elapsed_ms = int((time.monotonic() - retry_started) * 1000)
+        retry_stats = _llm_usage_stats(retry_body.get("usage"), retry_elapsed_ms)
+        retry_reply = _coerce_llm_content(retry_body["choices"][0]["message"].get("content"))
+        if retry_reply.strip():
+            return retry_reply, retry_stats
+
+        retry_hint = _empty_content_hint(retry_body)
+        error_text = "LLM returned empty content after retry"
+        details: list[str] = []
+        if initial_hint:
+            details.append(f"initial: {initial_hint}")
+        if retry_hint:
+            details.append(f"retry: {retry_hint}")
+        if details:
+            error_text += f" ({' | '.join(details)})"
+        retry_stats_out: dict[str, Any] = dict(retry_stats)
+        retry_stats_out["error"] = error_text
+        log.warning("LLM endpoint returned empty content: %s", error_text)
+        return "", retry_stats_out
     except Exception as exc:
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        error_text = str(exc)
+        if isinstance(exc, httpx.HTTPStatusError):
+            try:
+                detail = exc.response.text.strip()
+                if detail:
+                    error_text = f"HTTP {exc.response.status_code}: {detail[:500]}"
+                else:
+                    error_text = f"HTTP {exc.response.status_code}: {exc}"
+            except Exception:
+                error_text = str(exc)
         log.warning("LLM endpoint call failed: %s", exc)
-        return "", {}
+        return "", {"elapsed_ms": elapsed_ms, "error": error_text}
 
 
 async def _stream_llm_endpoint(
@@ -10116,6 +10202,96 @@ def _get_charts(db: ChDbConnection, dashboard_id: str) -> list[dict]:
     return charts
 
 
+@app.route("/api/dashboards/list", methods=["GET"])
+@require_basic_auth
+async def api_dashboards_list():
+    """Return all non-deleted dashboards for quick picker UIs."""
+    db = get_db()
+    dashboards = _get_dashboards(db)
+    return jsonify({"ok": True, "dashboards": dashboards})
+
+
+@app.route("/api/query/add-to-dashboard", methods=["POST"])
+@require_basic_auth
+async def api_query_add_to_dashboard():
+    """Persist query-page SQL + chart JSON into a dashboard chart record."""
+    payload = await request.get_json(silent=True) or {}
+
+    dashboard_id = str(payload.get("dashboard_id") or "").strip()
+    title = str(payload.get("title") or "").strip()
+    sql = str(payload.get("sql") or "").strip()
+    chart_spec_raw = payload.get("chart_spec")
+
+    if not dashboard_id:
+        return jsonify({"ok": False, "error": "dashboard_id is required"}), 400
+    if not sql:
+        return jsonify({"ok": False, "error": "sql is required"}), 400
+    if not chart_spec_raw:
+        return jsonify({"ok": False, "error": "chart_spec is required"}), 400
+
+    db = get_db()
+    dashboard = _get_dashboard(db, dashboard_id)
+    if not dashboard:
+        return jsonify({"ok": False, "error": "Dashboard not found"}), 404
+
+    if not title:
+        title = "Query Chart"
+
+    try:
+        chart_option = json.loads(chart_spec_raw) if isinstance(chart_spec_raw, str) else chart_spec_raw
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"chart_spec must be valid JSON: {exc}"}), 400
+    if not isinstance(chart_option, dict):
+        return jsonify({"ok": False, "error": "chart_spec must be a JSON object"}), 400
+
+    spec_raw = {
+        "template_id": "custom_echarts",
+        "sql": {"mode": "raw", "override_sql": sql},
+        "visual": {
+            "custom_option_json": json.dumps(chart_option, ensure_ascii=False),
+            "custom_mapping_json": "{}",
+        },
+    }
+    try:
+        template_id, query, normalized_spec = _compile_chart_spec(spec_raw)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"Chart spec error: {exc}"}), 400
+
+    options_json = json.dumps({"chart_spec": normalized_spec}, ensure_ascii=False)
+    existing = _get_charts(db, dashboard_id)
+    position = max((c["position"] for c in existing), default=-1) + 1
+
+    chart_id = str(uuid.uuid4())
+    version = int(time.time() * 1000)
+    _insert_rows_json_each_row(
+        db,
+        "sobs_chart_configs",
+        [
+            {
+                "Id": chart_id,
+                "DashboardId": dashboard_id,
+                "Title": title,
+                "ChartType": template_id,
+                "Query": query,
+                "OptionsJson": options_json,
+                "Position": position,
+                "IsDeleted": 0,
+                "Version": version,
+            }
+        ],
+    )
+
+    return jsonify(
+        {
+            "ok": True,
+            "chart_id": chart_id,
+            "dashboard_id": dashboard_id,
+            "dashboard_name": dashboard["name"],
+            "dashboard_url": url_for("view_custom_dashboard", dashboard_id=dashboard_id),
+        }
+    )
+
+
 @app.route("/dashboards")
 @require_basic_auth
 async def list_dashboards():
@@ -14832,8 +15008,1634 @@ async def dismiss_agent_run(run_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Entrypoint
+# ChdbSqlRunner – minimal Vanna-style chDB adapter
 # ---------------------------------------------------------------------------
+
+# SQL statements that are safe to execute (read-only)
+_SAFE_SQL_PREFIXES = frozenset(["select", "explain", "show", "describe", "desc", "with"])
+
+# Patterns that indicate write operations (blocked regardless of prefix)
+_UNSAFE_SQL_PATTERNS = re.compile(
+    r"\b(insert|update|delete|drop|truncate|alter|create|replace|rename|attach|detach|"
+    r"grant|revoke|system\s+stop|system\s+start|system\s+reload|kill|optimize|exchange)\b",
+    re.IGNORECASE,
+)
+
+
+class ChdbSqlRunner:
+    """Vanna-style chDB adapter for read-only SQL execution via chDB's DB-API 2.0 interface.
+
+    This adapter:
+    - Validates SQL is read-only before execution (SELECT, EXPLAIN, SHOW, DESCRIBE, WITH).
+    - Executes queries through the shared ChDbConnection so the chDB lock is respected.
+    - Returns results as pandas DataFrames.
+    - Provides schema introspection helpers for building LLM prompt context.
+    """
+
+    def __init__(self, db: "ChDbConnection") -> None:
+        self._db = db
+
+    # ------------------------------------------------------------------
+    # SQL safety validation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def validate_sql(sql: str) -> None:
+        """Raise ValueError if *sql* is not a safe, read-only statement.
+
+        Checks:
+        1. The first non-whitespace keyword must be in ``_SAFE_SQL_PREFIXES``.
+        2. The statement must not contain write/DDL keywords.
+
+        Raises:
+            ValueError: with an explicit error message describing the violation.
+        """
+        stripped = sql.strip()
+        if not stripped:
+            raise ValueError("SQL statement is empty.")
+
+        first_token = stripped.split()[0].lower()
+        if first_token not in _SAFE_SQL_PREFIXES:
+            raise ValueError(
+                f"Only read-only SQL is allowed (SELECT, EXPLAIN, SHOW, DESCRIBE, WITH). "
+                f"Got: '{first_token.upper()}'."
+            )
+
+        if _UNSAFE_SQL_PATTERNS.search(stripped):
+            raise ValueError(
+                "SQL statement contains a disallowed write or DDL keyword "
+                "(INSERT, UPDATE, DELETE, DROP, CREATE, TRUNCATE, …)."
+            )
+
+    # ------------------------------------------------------------------
+    # Query execution
+    # ------------------------------------------------------------------
+
+    def run_sql(self, sql: str) -> "pd.DataFrame":
+        """Validate and execute *sql*, returning a pandas DataFrame.
+
+        Raises:
+            ValueError: if the SQL is not safe/read-only.
+            Exception: propagates chDB execution errors unchanged.
+        """
+        self.validate_sql(sql)
+        result = self._db.execute(sql)
+        rows = result.fetchall()
+        if not rows:
+            return pd.DataFrame()
+        columns = list(rows[0].keys())
+        return pd.DataFrame([dict(r) for r in rows], columns=columns)
+
+    # ------------------------------------------------------------------
+    # Schema introspection
+    # ------------------------------------------------------------------
+
+    def get_tables(self, database: str = "default") -> list[str]:
+        """Return a list of table names in *database*."""
+        result = self._db.execute("SELECT name FROM system.tables WHERE database=? ORDER BY name", [database])
+        return [str(row[0]) for row in result.fetchall()]
+
+    def describe_table(self, table: str, database: str = "default") -> "pd.DataFrame":
+        """Return column metadata for *table* as a DataFrame."""
+        result = self._db.execute(
+            "SELECT name, type, default_kind, comment "
+            "FROM system.columns WHERE database=? AND table=? ORDER BY position",
+            [database, table],
+        )
+        rows = result.fetchall()
+        if not rows:
+            return pd.DataFrame(columns=["name", "type", "default_kind", "comment"])
+        return pd.DataFrame([dict(r) for r in rows])
+
+    def get_schema_context(self, database: str = "default", max_tables: int = 30) -> str:
+        """Build a concise schema description string suitable for embedding in LLM prompts.
+
+        Returns a formatted string listing every table and its columns/types, e.g.::
+
+            Database: default
+            Table: otel_logs
+              - Timestamp: DateTime64(9)
+              - ServiceName: LowCardinality(String)
+              ...
+
+        Only the first *max_tables* tables are included to keep prompts manageable.
+        """
+        tables = self.get_tables(database)[:max_tables]
+        if not tables:
+            return f"Database: {database}\n(no tables found)"
+
+        lines: list[str] = [f"Database: {database}"]
+        for table in tables:
+            lines.append(f"\nTable: {table}")
+            try:
+                df = self.describe_table(table, database)
+                for _, col_row in df.iterrows():
+                    comment = str(col_row.get("comment", "") or "").strip()
+                    comment_str = f"  -- {comment}" if comment else ""
+                    lines.append(f"  - {col_row['name']}: {col_row['type']}{comment_str}")
+            except Exception as exc:
+                lines.append(f"  (describe error: {exc})")
+        return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Vanna Query Service – async helpers for NL → SQL → DataFrame
+# ---------------------------------------------------------------------------
+
+_QUERY_SQL_SYSTEM_PROMPT = """You are a ClickHouse SQL expert. Your job is to write correct, \
+read-only ClickHouse SELECT queries based on natural-language questions.
+
+Rules:
+- Output ONLY raw SQL. No markdown, no backticks, no explanation.
+- You MUST return a non-empty SQL query as your final answer.
+- Use only SELECT statements (or WITH … SELECT). Never use INSERT, UPDATE, DELETE, DROP, CREATE, or any DDL.
+- The database name is "default". Always qualify table names as `default.<table>` or omit the database when unambiguous.
+- Use ClickHouse-compatible syntax (e.g. toDate(), now(), formatDateTime(), arrayJoin(), etc.).
+- When the question asks for a chart or visualisation, still return only the SQL that produces the data.
+- Limit results to at most 1000 rows unless the user explicitly asks for more (add LIMIT 1000 unless already present).
+
+Schema context:
+{schema}
+"""
+
+_QUERY_CHART_SYSTEM_PROMPT = """You are a data-visualisation expert. \
+Given a ClickHouse SQL result set described as column names and sample rows, \
+produce an Apache ECharts option object (JSON) that best visualises the data.
+
+Guidelines:
+- Output ONLY a valid JSON object — the value to assign to `chart.setOption(...)`.
+- You MUST return a non-empty final JSON object.
+- Use Bootstrap 5 colours where possible (primary: #0d6efd, success: #198754, danger: #dc3545, \
+warning: #ffc107, info: #0dcaf0).
+- Choose the most appropriate chart type from the full ECharts library \
+(bar, line, pie, scatter, heatmap, radar, funnel, gauge, candlestick, tree, treemap, sunburst, etc.).
+- Titles, tooltips, legends, and axes should be concise and readable.
+- Set `backgroundColor: 'transparent'` to inherit the page background.
+- If the data is tabular with no obvious chart form, use a simple bar chart.
+- If a preferred chart type is incompatible with available columns, choose the nearest compatible
+    type and still return valid JSON.
+- The JSON must be parseable by JSON.parse() with no trailing commas or comments.
+"""
+
+_QUERY_CHART_JSON_REPAIR_SYSTEM_PROMPT = """You repair malformed Apache ECharts option JSON.
+
+Rules:
+- Return ONLY a valid JSON object.
+- Preserve the original visualization intent as closely as possible.
+- Do not add markdown, comments, or code fences.
+- Ensure the output is parseable by JSON.parse().
+"""
+
+
+def _normalize_chart_spec_text(spec_raw: str) -> str:
+    """Extract a likely JSON object from a raw chart-spec model reply."""
+    spec = spec_raw.strip()
+    if spec.startswith("```"):
+        spec = re.sub(r"^```[a-zA-Z]*\n?", "", spec)
+        spec = re.sub(r"\n?```$", "", spec)
+    spec = spec.strip()
+
+    first_obj = spec.find("{")
+    last_obj = spec.rfind("}")
+    if first_obj >= 0 and last_obj > first_obj:
+        spec = spec[first_obj : last_obj + 1].strip()
+    return spec
+
+
+def _parse_chart_spec_json(spec_raw: str) -> tuple[dict[str, Any] | None, str]:
+    """Parse chart JSON with a lightweight local repair pass."""
+    spec = _normalize_chart_spec_text(spec_raw)
+    if not spec:
+        return None, "empty chart spec"
+
+    try:
+        parsed = json.loads(spec)
+    except Exception:
+        repaired = re.sub(r"//[^\n]*", "", spec)  # // line comments
+        repaired = re.sub(r"/\*.*?\*/", "", repaired, flags=re.DOTALL)  # /* */ comments
+        repaired = re.sub(r",\s*([}\]])", r"\1", repaired)  # trailing commas
+        repaired = repaired.strip()
+        try:
+            parsed = json.loads(repaired)
+        except Exception as exc2:
+            return None, str(exc2)
+
+    if not isinstance(parsed, dict):
+        return None, "top-level chart spec must be a JSON object"
+    return parsed, ""
+
+
+async def _repair_chart_spec_json_with_llm(
+    spec_raw: str,
+    parse_error: str,
+    settings: dict[str, str],
+) -> tuple[dict[str, Any] | None, str, dict[str, Any]]:
+    """Ask the LLM for a strict JSON repair when local parsing fails."""
+    endpoint_url = settings.get("ai.endpoint_url", "").strip()
+    model = settings.get("ai.model", "").strip()
+    api_key = settings.get("ai.api_key", "").strip()
+    if not endpoint_url or not model:
+        return None, "AI endpoint not configured.", {}
+
+    user_message = (
+        "The chart JSON below failed to parse. Repair it and return only valid JSON.\n\n"
+        f"Parse error: {parse_error}\n\n"
+        f"Malformed chart JSON:\n{spec_raw}"
+    )
+    messages = [
+        {"role": "system", "content": _QUERY_CHART_JSON_REPAIR_SYSTEM_PROMPT},
+        {"role": "user", "content": user_message},
+    ]
+    repaired_raw, repair_stats = await _call_llm_endpoint(
+        endpoint_url,
+        model,
+        api_key,
+        messages,
+        max_tokens=1024,
+        thinking_level="off",
+    )
+    if not repaired_raw:
+        error_detail = str(repair_stats.get("error") or "").strip()
+        if error_detail:
+            return None, f"LLM JSON repair failed: {error_detail}", repair_stats
+        return None, "LLM JSON repair returned empty content.", repair_stats
+
+    parsed, parse_err = _parse_chart_spec_json(repaired_raw)
+    if parsed is None:
+        return None, f"LLM JSON repair output was still invalid: {parse_err}", repair_stats
+    return parsed, "", repair_stats
+
+
+async def _vanna_generate_sql(
+    question: str,
+    schema_context: str,
+    settings: dict[str, str],
+    preferred_chart_type: str = "",
+    chart_instruction: str = "",
+    thinking_level: str = "off",
+) -> tuple[str, str, dict[str, Any]]:
+    """Ask the configured LLM to generate SQL for *question*.
+
+    Returns ``(sql, error)`` where *error* is empty on success.
+    """
+    endpoint_url = settings.get("ai.endpoint_url", "").strip()
+    model = settings.get("ai.model", "").strip()
+    api_key = settings.get("ai.api_key", "").strip()
+
+    if not endpoint_url or not model:
+        return "", "AI endpoint not configured. Visit Settings → AI Configuration.", {}
+
+    system_prompt = _QUERY_SQL_SYSTEM_PROMPT.format(schema=schema_context)
+    user_content = question
+    chart_guidance: list[str] = []
+    if preferred_chart_type:
+        chart_guidance.append(f"Preferred chart type: {preferred_chart_type}")
+    if chart_instruction:
+        chart_guidance.append(f"Chart instruction: {chart_instruction}")
+
+    if preferred_chart_type:
+        catalog = _load_chart_types_catalog()
+        chart_info = (catalog.get("chartTypes") or {}).get(preferred_chart_type) if isinstance(catalog, dict) else None
+        if isinstance(chart_info, dict):
+            ds = chart_info.get("dataStructure") or {}
+            if isinstance(ds, dict):
+                ds_type = str(ds.get("type") or "").strip()
+                ds_example = str(ds.get("example") or "").strip()
+                if ds_type:
+                    chart_guidance.append(f"Desired chart data shape: {ds_type}")
+                if ds_example:
+                    chart_guidance.append(f"Desired chart data example: {ds_example}")
+
+    if chart_guidance:
+        user_content = f"{question}\n\n" "Chart generation guidance (shape SQL output to fit this):\n" + "\n".join(
+            [f"- {line}" for line in chart_guidance]
+        )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+
+    sql_raw, _stats = await _call_llm_endpoint(
+        endpoint_url, model, api_key, messages, max_tokens=512, thinking_level=thinking_level
+    )
+    if not sql_raw:
+        error_detail = str(_stats.get("error") or "").strip()
+        if error_detail:
+            return "", f"LLM request failed: {error_detail}", _stats
+        return "", "LLM did not return a response. Check AI settings.", _stats
+
+    # Strip markdown fences if the model included them despite instructions.
+    sql = sql_raw.strip()
+    if sql.startswith("```"):
+        sql = re.sub(r"^```[a-zA-Z]*\n?", "", sql)
+        sql = re.sub(r"\n?```$", "", sql)
+    sql = sql.strip()
+    if not sql:
+        return "", "LLM returned an empty SQL statement.", _stats
+    return sql, "", _stats
+
+
+async def _vanna_generate_named_queries(
+    question: str,
+    schema_context: str,
+    base_sql: str,
+    settings: dict[str, str],
+    preferred_chart_type: str = "",
+    chart_instruction: str = "",
+    thinking_level: str = "off",
+) -> tuple[list[dict[str, str]], str, dict[str, Any]]:
+    """Ask the LLM for optional named dataset SQL queries for complex charts.
+
+    Returns ``(datasets, error, stats)`` where datasets is a list of
+    ``{"name": str, "sql": str, "purpose": str}``.
+    """
+    endpoint_url = settings.get("ai.endpoint_url", "").strip()
+    model = settings.get("ai.model", "").strip()
+    api_key = settings.get("ai.api_key", "").strip()
+
+    if not endpoint_url or not model:
+        return [], "AI endpoint not configured.", {}
+
+    preferred = preferred_chart_type or "auto"
+    instruction = chart_instruction or ""
+    system_prompt = (
+        "You are a ClickHouse SQL planner for chart datasets. "
+        "Return ONLY valid JSON with the shape: "
+        '{"datasets":[{"name":"...","sql":"SELECT ...","purpose":"..."}]}. '
+        "Rules: use only read-only SELECT/WITH queries; keep at most 3 datasets; "
+        "names should be short snake_case identifiers; no markdown."
+    )
+    user_message = (
+        f"Question: {question}\n\n"
+        f"Preferred chart type: {preferred}\n"
+        f"Chart instruction: {instruction}\n\n"
+        f"Primary SQL:\n{base_sql}\n\n"
+        f"Schema context:\n{schema_context}\n\n"
+        "If one dataset is sufficient, return an empty datasets array. "
+        "For network/flow charts (graph/sankey/chord), prefer separate nodes and links datasets."
+    )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+    plan_raw, stats = await _call_llm_endpoint(
+        endpoint_url, model, api_key, messages, max_tokens=768, thinking_level=thinking_level
+    )
+    if not plan_raw:
+        return [], str(stats.get("error") or "").strip(), stats
+
+    plan_text = plan_raw.strip()
+    if plan_text.startswith("```"):
+        plan_text = re.sub(r"^```[a-zA-Z]*\n?", "", plan_text)
+        plan_text = re.sub(r"\n?```$", "", plan_text)
+    plan_text = plan_text.strip()
+
+    first_obj = plan_text.find("{")
+    last_obj = plan_text.rfind("}")
+    if first_obj >= 0 and last_obj > first_obj:
+        plan_text = plan_text[first_obj : last_obj + 1].strip()
+
+    try:
+        parsed = json.loads(plan_text)
+    except Exception:
+        return [], "", stats
+
+    raw_datasets = parsed.get("datasets") if isinstance(parsed, dict) else []
+    if not isinstance(raw_datasets, list):
+        return [], "", stats
+
+    datasets: list[dict[str, str]] = []
+    for item in raw_datasets[:3]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip().lower()
+        sql = str(item.get("sql") or "").strip().rstrip(";")
+        purpose = str(item.get("purpose") or "").strip()
+        if not name or not re.match(r"^[a-z][a-z0-9_]{0,31}$", name):
+            continue
+        upper_sql = sql.upper().lstrip()
+        if not (upper_sql.startswith("SELECT") or upper_sql.startswith("WITH")):
+            continue
+        if sql == base_sql.strip().rstrip(";"):
+            continue
+        datasets.append({"name": name, "sql": sql, "purpose": purpose})
+
+    return datasets, "", stats
+
+
+async def _vanna_repair_sql(
+    question: str,
+    schema_context: str,
+    previous_sql: str,
+    execution_error: str,
+    settings: dict[str, str],
+    attempt_number: int,
+    thinking_level: str = "off",
+) -> tuple[str, str, dict[str, Any]]:
+    """Ask the LLM to fix SQL after an execution failure.
+
+    Returns ``(sql, error)`` where *error* is empty on success.
+    """
+    endpoint_url = settings.get("ai.endpoint_url", "").strip()
+    model = settings.get("ai.model", "").strip()
+    api_key = settings.get("ai.api_key", "").strip()
+
+    if not endpoint_url or not model:
+        return "", "AI endpoint not configured.", {}
+
+    system_prompt = _QUERY_SQL_SYSTEM_PROMPT.format(schema=schema_context)
+    user_message = (
+        f"Original question: {question}\n\n"
+        f"Previous SQL (attempt {attempt_number}):\n{previous_sql}\n\n"
+        f"Execution error:\n{execution_error}\n\n"
+        "Rewrite the SQL so it is valid for this schema and still answers the question. "
+        "Return ONLY raw SQL."
+    )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+    sql_raw, _stats = await _call_llm_endpoint(
+        endpoint_url, model, api_key, messages, max_tokens=512, thinking_level=thinking_level
+    )
+    if not sql_raw:
+        error_detail = str(_stats.get("error") or "").strip()
+        if error_detail:
+            return "", f"LLM repair request failed: {error_detail}", _stats
+        return "", "LLM did not return a repaired SQL statement.", _stats
+
+    sql = sql_raw.strip()
+    if sql.startswith("```"):
+        sql = re.sub(r"^```[a-zA-Z]*\n?", "", sql)
+        sql = re.sub(r"\n?```$", "", sql)
+    sql = sql.strip()
+    if not sql:
+        return "", "LLM returned an empty repaired SQL statement.", _stats
+    return sql, "", _stats
+
+
+async def _vanna_generate_chart_spec(
+    columns: list[str],
+    sample_rows: list[dict],
+    question: str,
+    settings: dict[str, str],
+    preferred_chart_type: str = "",
+    chart_instruction: str = "",
+    named_datasets: list[dict[str, Any]] | None = None,
+    thinking_level: str = "off",
+) -> tuple[str, str, dict[str, Any]]:
+    """Ask the LLM to produce an ECharts option JSON for the result set.
+
+    Returns ``(json_spec, error)`` where *json_spec* is the raw JSON string.
+    """
+    endpoint_url = settings.get("ai.endpoint_url", "").strip()
+    model = settings.get("ai.model", "").strip()
+    api_key = settings.get("ai.api_key", "").strip()
+
+    if not endpoint_url or not model:
+        return "", "AI endpoint not configured.", {}
+
+    sample_str = json.dumps({"columns": columns, "rows": sample_rows[:20]}, ensure_ascii=False, default=str)
+    named_datasets_str = ""
+    if named_datasets:
+        condensed = []
+        for ds in named_datasets:
+            if not isinstance(ds, dict):
+                continue
+            condensed.append(
+                {
+                    "name": ds.get("name", ""),
+                    "purpose": ds.get("purpose", ""),
+                    "columns": ds.get("columns", []),
+                    "rows": (ds.get("rows", []) or [])[:20],
+                }
+            )
+        if condensed:
+            named_datasets_str = (
+                "\n\nNamed datasets (use when multi-dataset chart structures are needed):\n"
+                + json.dumps(condensed, ensure_ascii=False, default=str)
+            )
+    preference_lines: list[str] = []
+    if preferred_chart_type:
+        preference_lines.append(f"Preferred chart type: {preferred_chart_type}")
+    if chart_instruction:
+        preference_lines.append(f"Chart instruction: {chart_instruction}")
+    preference_block = "\n".join(preference_lines)
+    if preference_block:
+        preference_block = f"\n\nChart preferences:\n{preference_block}"
+
+    user_message = (
+        f"Original question: {question}\n\n"
+        f"Result set (columns + up to 20 sample rows):\n{sample_str}\n\n"
+        f"{named_datasets_str}"
+        f"{preference_block}"
+        "Produce an ECharts option JSON object for this data."
+    )
+    messages = [
+        {"role": "system", "content": _QUERY_CHART_SYSTEM_PROMPT},
+        {"role": "user", "content": user_message},
+    ]
+
+    spec_raw, _stats = await _call_llm_endpoint(
+        endpoint_url, model, api_key, messages, max_tokens=1024, thinking_level=thinking_level
+    )
+    if not spec_raw:
+        error_detail = str(_stats.get("error") or "").strip()
+        if error_detail:
+            return "", f"LLM chart request failed: {error_detail}", _stats
+        return "", "LLM did not return a chart spec.", _stats
+
+    parsed, parse_err = _parse_chart_spec_json(spec_raw)
+    if parsed is not None:
+        return json.dumps(parsed, ensure_ascii=False), "", _stats
+
+    repaired_parsed, repair_error, repair_stats = await _repair_chart_spec_json_with_llm(
+        spec_raw,
+        parse_err,
+        settings,
+    )
+    if repaired_parsed is None:
+        if repair_error:
+            return "", f"Chart spec JSON parse error: {parse_err}. {repair_error}", _stats
+        return "", f"Chart spec JSON parse error: {parse_err}", _stats
+
+    merged_stats: dict[str, Any] = dict(_stats)
+    merged_stats["chart_json_repair"] = 1
+    if repair_stats:
+        merged_stats["chart_json_repair_stats"] = repair_stats
+    return json.dumps(repaired_parsed, ensure_ascii=False), "", merged_stats
+
+
+def _load_chart_types_catalog() -> dict[str, Any]:
+    """Load the ECharts chart types catalog from JSON file.
+
+    Returns the full catalog or empty dict if file not found.
+    """
+    try:
+        import json as json_module
+
+        catalog_path = os.path.join(os.path.dirname(__file__), "static", "echarts-chart-types.json")
+        if os.path.exists(catalog_path):
+            with open(catalog_path, "r") as f:
+                return json_module.load(f)
+    except Exception:
+        pass
+    return {}
+
+
+def _build_chart_refinement_prompt() -> str:
+    """Build chart refinement system prompt with dynamic chart type catalog.
+
+    Includes comprehensive chart type descriptions and data requirements.
+    """
+    catalog = _load_chart_types_catalog()
+    chart_catalog_section = ""
+
+    if catalog and "chartTypes" in catalog:
+        chart_catalog_section = "\nAvailable Chart Types and Data Requirements:\n"
+        for chart_type, info in catalog["chartTypes"].items():
+            chart_catalog_section += f"\n**{info.get('name', chart_type)}** ({chart_type})\n"
+            chart_catalog_section += f"  Description: {info.get('description', '')}\n"
+            chart_catalog_section += f"  Data Structure: {info.get('dataStructure', {}).get('type', '')}\n"
+            chart_catalog_section += f"  Example: {info.get('dataStructure', {}).get('example', '')}\n"
+            chart_catalog_section += f"  Best For: {info.get('goodFor', '')}\n"
+
+    base_prompt = (
+        "You are an expert in Apache ECharts data visualization. "
+        "The user will ask you to modify or refine an existing chart spec based on the available data.\n\n"
+        "Your primary task: Fulfill the user's request, even if it requires changing the chart type.\n"
+        f"{chart_catalog_section}\n"
+        "Data-Aware Chart Transformation:\n"
+        "1. If the user requests a chart type different from current, intelligently restructure the data:\n"
+        "   - For pie/gauge: Select top values or aggregate by category\n"
+        "   - For scatter: Use first two numeric columns as x,y\n"
+        "   - For heatmap: Pivot or aggregate data into matrix form\n"
+        "   - For radar: Use all numeric columns as dimensions\n"
+        "   - For hierarchical (tree, treemap, sunburst): Organize data with parent-child structure\n"
+        "2. Always maintain data accuracy during transformation\n"
+        "3. The data object contains 'columns' (field names) and 'rows' (actual data)\n\n"
+        "Guidelines:\n"
+        "- Update chart.type to the requested chart type\n"
+        "- Restructure series.data if needed for the new chart type\n"
+        "- Change xAxis, yAxis, or other coordinate systems based on new chart type\n"
+        "- Update colors, gridlines, legends, tooltips, animations per user request\n"
+        "- Use Bootstrap 5 colors (primary: #0d6efd, success: #198754, danger: #dc3545, etc.) unless specified\n"
+        "- Set backgroundColor: 'transparent'\n"
+        "- Return ONLY valid JSON—no markdown, no explanations\n"
+        "- The result must be parseable by JSON.parse()\n"
+    )
+
+    return base_prompt
+
+
+_QUERY_CHART_REFINEMENT_SYSTEM_PROMPT = _build_chart_refinement_prompt()
+
+
+async def _vanna_refine_chart_spec(
+    current_spec: str,
+    columns: list[str],
+    sample_rows: list[dict],
+    user_instruction: str,
+    settings: dict[str, str],
+    thinking_level: str = "off",
+) -> tuple[str, str, dict[str, Any]]:
+    """Ask the LLM to refine an existing ECharts spec based on user instruction.
+
+    Returns ``(json_spec, error)`` where *json_spec* is the refined JSON string.
+    """
+    endpoint_url = settings.get("ai.endpoint_url", "").strip()
+    model = settings.get("ai.model", "").strip()
+    api_key = settings.get("ai.api_key", "").strip()
+
+    if not endpoint_url or not model:
+        return "", "AI endpoint not configured.", {}
+
+    # Validate current spec is valid JSON
+    try:
+        json.loads(current_spec)
+    except Exception as exc:
+        return "", f"Current chart spec is invalid JSON: {exc}", {}
+
+    sample_str = json.dumps({"columns": columns, "rows": sample_rows[:20]}, ensure_ascii=False, default=str)
+    user_message = (
+        f"Current ECharts spec structure:\n{current_spec}\n\n"
+        f"Data available (columns + up to 20 sample rows):\n{sample_str}\n\n"
+        f"User instruction: {user_instruction}\n\n"
+        "Please refine the chart spec to fulfill this request. Return only the updated JSON."
+    )
+    messages = [
+        {"role": "system", "content": _QUERY_CHART_REFINEMENT_SYSTEM_PROMPT},
+        {"role": "user", "content": user_message},
+    ]
+
+    spec_raw, _stats = await _call_llm_endpoint(
+        endpoint_url, model, api_key, messages, max_tokens=1024, thinking_level=thinking_level
+    )
+    if not spec_raw:
+        error_detail = str(_stats.get("error") or "").strip()
+        if error_detail:
+            return "", f"LLM chart refinement failed: {error_detail}", _stats
+        return "", "LLM did not return a refined chart spec.", _stats
+
+    parsed, parse_err = _parse_chart_spec_json(spec_raw)
+    if parsed is not None:
+        return json.dumps(parsed, ensure_ascii=False), "", _stats
+
+    repaired_parsed, repair_error, repair_stats = await _repair_chart_spec_json_with_llm(
+        spec_raw,
+        parse_err,
+        settings,
+    )
+    if repaired_parsed is None:
+        if repair_error:
+            return "", f"Refined chart spec JSON parse error: {parse_err}. {repair_error}", _stats
+        return "", f"Refined chart spec JSON parse error: {parse_err}", _stats
+
+    merged_stats: dict[str, Any] = dict(_stats)
+    merged_stats["chart_json_repair"] = 1
+    if repair_stats:
+        merged_stats["chart_json_repair_stats"] = repair_stats
+    return json.dumps(repaired_parsed, ensure_ascii=False), "", merged_stats
+
+
+_QUERY_MAX_ROWS = int(os.environ.get("SOBS_QUERY_MAX_ROWS", 1000))
+
+
+def _infer_query_field_types(df: "pd.DataFrame") -> list[dict[str, str]]:
+    """Infer display-friendly field type metadata from a query DataFrame."""
+    field_types: list[dict[str, str]] = []
+    for col in df.columns:
+        series = df[col]
+        dtype_name = str(series.dtype)
+        lower_dtype = dtype_name.lower()
+        kind = "string"
+
+        if "datetime" in lower_dtype:
+            kind = "datetime"
+        elif lower_dtype in ("bool", "boolean"):
+            kind = "boolean"
+        elif lower_dtype.startswith(("int", "uint")):
+            kind = "integer"
+        elif lower_dtype.startswith(("float", "double")):
+            kind = "number"
+        else:
+            non_null = series.dropna()
+            if not non_null.empty:
+                sample = non_null.iloc[0]
+                if isinstance(sample, bool):
+                    kind = "boolean"
+                elif isinstance(sample, int):
+                    kind = "integer"
+                elif isinstance(sample, float):
+                    kind = "number"
+                elif isinstance(sample, (dict, list, tuple)):
+                    kind = "json"
+
+        field_types.append({"name": str(col), "dtype": dtype_name, "kind": kind})
+    return field_types
+
+
+def _json_safe_scalar(value: Any) -> Any:
+    """Convert non-finite float values to None for strict JSON responses."""
+    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+        return None
+    return value
+
+
+def _json_safe_rows(rows: list[list[Any]]) -> list[list[Any]]:
+    """Normalize a 2D row matrix to JSON-safe scalars."""
+    return [[_json_safe_scalar(cell) for cell in row] for row in rows]
+
+
+def _vanna_explain_sql(db: "ChDbConnection", sql: str) -> str:
+    """Run EXPLAIN on *sql* to validate syntax/planning without touching data.
+
+    Returns an empty string on success, or the error message on failure.
+    This is a cheap pre-flight check: chDB parses and plans the query without
+    scanning any data, so it catches typos, unknown columns/tables, and
+    invalid function calls before a real execution attempt.
+    """
+    # Validate read-only first (reuse existing guard).
+    try:
+        ChdbSqlRunner.validate_sql(sql)
+    except ValueError as exc:
+        return f"SQL validation error: {exc}"
+
+    try:
+        # Execute EXPLAIN directly on the connection — skip the DataFrame
+        # conversion in run_sql because EXPLAIN rows are plain tuples, not dicts.
+        db.execute(f"EXPLAIN {sql}").fetchall()
+        return ""
+    except Exception as exc:
+        return str(exc)
+
+
+def _vanna_run_query(db: "ChDbConnection", sql: str) -> tuple["pd.DataFrame | None", str]:
+    """Synchronously validate and execute *sql* using a ChdbSqlRunner.
+
+    Applies a hard row cap (``SOBS_QUERY_MAX_ROWS``, default 1000) by truncating
+    the resulting DataFrame to prevent memory exhaustion regardless of what the
+    LLM generated.
+
+    Returns ``(dataframe, error)`` – on success *error* is empty, on failure
+    *dataframe* is ``None``.  This is a thin synchronous helper; callers in
+    async routes should dispatch it via ``asyncio.to_thread``.
+    """
+    runner = ChdbSqlRunner(db)
+    try:
+        df = runner.run_sql(sql)
+        # Hard row cap applied after execution to avoid memory issues.
+        if len(df) > _QUERY_MAX_ROWS:
+            df = df.iloc[:_QUERY_MAX_ROWS]
+        return df, ""
+    except ValueError as exc:
+        return None, f"SQL validation error: {exc}"
+    except Exception as exc:
+        return None, f"Query execution error: {exc}"
+
+
+# ---------------------------------------------------------------------------
+# Query page  GET /query   POST /api/query/ask
+# ---------------------------------------------------------------------------
+
+
+@app.route("/query")
+@require_basic_auth
+async def view_query():
+    if not _query_page_enabled():
+        return (
+            "Query page is unavailable until AI and guard settings are configured.",
+            404,
+        )
+    return await render_template("query.html")
+
+
+@app.route("/api/query/ask", methods=["POST"])
+@require_basic_auth
+async def api_query_ask():
+    """Natural-language → SQL → DataFrame endpoint.
+
+    Accepts JSON ``{question, execute, chart}`` and returns::
+
+        {
+          ok: bool,
+                    trace_id: str,
+                    turn_id: str,
+          sql: str,
+          columns: [...],
+                    field_types: [{name, dtype, kind}, ...],
+          rows: [[...], ...],
+                    retry_count: int,
+          chart_spec: str,   # ECharts option JSON, may be empty
+          error: str
+        }
+    """
+    payload = await request.get_json(force=True, silent=True) or {}
+    question = str(payload.get("question") or "").strip()
+    do_execute = bool(payload.get("execute", True))
+    do_chart = bool(payload.get("chart", False))
+    preferred_chart_type = str(payload.get("preferred_chart_type") or "").strip()
+    chart_instruction = str(payload.get("chart_instruction") or "").strip()
+    thinking_level = _normalize_thinking_level(str(payload.get("thinking_level") or "off"))
+
+    if not question:
+        return jsonify({"ok": False, "error": "question is required"}), 400
+
+    db = get_db()
+    settings = _load_all_ai_settings(db)
+    if not _query_page_enabled(settings):
+        return jsonify({"ok": False, "error": "Query page is unavailable."}), 404
+
+    trace_id = hashlib.md5(f"query|{question}|{time.time_ns()}".encode("utf-8")).hexdigest()
+    turn_id = trace_id[:16]
+    model = settings.get("ai.model", "").strip()
+    guard_model = settings.get("ai.guard_model", "").strip()
+
+    _emit_ai_helper_log_event(
+        event_name="query.turn.start",
+        chat_id=trace_id,
+        turn_id=turn_id,
+        page="/query",
+        model=model,
+        guard_model=guard_model,
+        thinking_level="off",
+        body=question,
+        attrs={"gen_ai.input.question": question},
+    )
+
+    allowed, guard_reason, guard_stats = await _check_guard_model(settings, question, "/query")
+    _emit_ai_helper_log_event(
+        event_name="query.guard.result",
+        chat_id=trace_id,
+        turn_id=turn_id,
+        page="/query",
+        model=model,
+        guard_model=guard_model,
+        thinking_level="off",
+        body=f"Guard verdict: {guard_reason}",
+        attrs={
+            "gen_ai.guard.allowed": allowed,
+            "gen_ai.guard.reason": guard_reason,
+            "gen_ai.usage.input_tokens": guard_stats.get("prompt_tokens", 0),
+            "gen_ai.usage.output_tokens": guard_stats.get("completion_tokens", 0),
+            "gen_ai.response.latency_ms": guard_stats.get("elapsed_ms", 0),
+        },
+    )
+    if not allowed:
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": f"Request blocked by safety guard: {guard_reason}",
+                    "trace_id": trace_id,
+                    "turn_id": turn_id,
+                }
+            ),
+            403,
+        )
+
+    # Build schema context (run synchronously in a thread so we don't block the event loop)
+    runner = ChdbSqlRunner(db)
+    schema_context = await asyncio.to_thread(runner.get_schema_context)
+
+    # Generate SQL
+    sql, sql_err, sql_stats = await _vanna_generate_sql(
+        question,
+        schema_context,
+        settings,
+        preferred_chart_type=preferred_chart_type,
+        chart_instruction=chart_instruction,
+        thinking_level=thinking_level,
+    )
+    _emit_ai_helper_log_event(
+        event_name="query.sql.generated",
+        chat_id=trace_id,
+        turn_id=turn_id,
+        page="/query",
+        model=model,
+        guard_model=guard_model,
+        thinking_level="off",
+        body=sql if sql else sql_err,
+        attrs={
+            "gen_ai.operation.name": "query_sql",
+            "gen_ai.usage.input_tokens": sql_stats.get("prompt_tokens", 0),
+            "gen_ai.usage.output_tokens": sql_stats.get("completion_tokens", 0),
+            "gen_ai.response.latency_ms": sql_stats.get("elapsed_ms", 0),
+            "sobs.gen_ai.prompt": question,
+            "sobs.gen_ai.response": sql,
+        },
+    )
+    if sql_err:
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": sql_err,
+                    "trace_id": trace_id,
+                    "turn_id": turn_id,
+                    "sql": "",
+                    "columns": [],
+                    "rows": [],
+                }
+            ),
+            503,
+        )
+
+    # Optionally execute
+    columns: list[str] = []
+    field_types: list[dict[str, str]] = []
+    rows: list[list] = []
+    datasets: list[dict[str, Any]] = []
+    retry_count = 0
+    exec_error = ""
+    main_df: pd.DataFrame | None = None
+    if do_execute:
+        max_attempts = 3
+        current_sql = sql
+        last_repair_error = ""
+
+        # Pre-flight: EXPLAIN the generated SQL to catch parse/planning errors
+        # cheaply before spending a full execution attempt on broken SQL.
+        explain_error = await asyncio.to_thread(_vanna_explain_sql, db, current_sql)
+        if explain_error:
+            _emit_ai_helper_log_event(
+                event_name="query.sql.explain_failed",
+                chat_id=trace_id,
+                turn_id=turn_id,
+                page="/query",
+                model=model,
+                guard_model=guard_model,
+                thinking_level="off",
+                body=explain_error,
+                severity="WARN",
+                attrs={"gen_ai.operation.name": "query_sql_explain", "sobs.query.exec.error": explain_error},
+            )
+            repaired_sql, repair_error, repair_stats = await _vanna_repair_sql(
+                question=question,
+                schema_context=schema_context,
+                previous_sql=current_sql,
+                execution_error=explain_error,
+                settings=settings,
+                attempt_number=0,
+                thinking_level=thinking_level,
+            )
+            _emit_ai_helper_log_event(
+                event_name="query.sql.repaired",
+                chat_id=trace_id,
+                turn_id=turn_id,
+                page="/query",
+                model=model,
+                guard_model=guard_model,
+                thinking_level="off",
+                body=repaired_sql if repaired_sql else repair_error,
+                attrs={
+                    "gen_ai.operation.name": "query_sql_repair",
+                    "gen_ai.usage.input_tokens": repair_stats.get("prompt_tokens", 0),
+                    "gen_ai.usage.output_tokens": repair_stats.get("completion_tokens", 0),
+                    "gen_ai.response.latency_ms": repair_stats.get("elapsed_ms", 0),
+                },
+            )
+            if repaired_sql and not repair_error:
+                current_sql = repaired_sql
+                retry_count += 1
+
+        for attempt in range(1, max_attempts + 1):
+            sql = current_sql
+            exec_started = time.monotonic()
+            try:
+                df, exec_error = await asyncio.to_thread(_vanna_run_query, db, current_sql)
+            except Exception as exc:
+                df, exec_error = None, f"Query execution error: {exc}"
+
+            exec_elapsed_ms = int((time.monotonic() - exec_started) * 1000)
+            exec_ok = bool(df is not None and not exec_error)
+            row_count = 0
+            if df is not None:
+                try:
+                    row_count = int(len(df))
+                except Exception:
+                    row_count = 0
+
+            _emit_ai_helper_log_event(
+                event_name="query.sql.executed",
+                chat_id=trace_id,
+                turn_id=turn_id,
+                page="/query",
+                model=model,
+                guard_model=guard_model,
+                thinking_level="off",
+                body=current_sql,
+                severity="INFO" if exec_ok else "ERROR",
+                attrs={
+                    "gen_ai.operation.name": "query_sql_execute",
+                    "sobs.query.exec.attempt": attempt,
+                    "sobs.query.exec.status": "ok" if exec_ok else "error",
+                    "sobs.query.exec.row_count": row_count,
+                    "sobs.query.exec.error": exec_error,
+                    "gen_ai.response.latency_ms": exec_elapsed_ms,
+                    "sobs.gen_ai.prompt": question,
+                    "sobs.gen_ai.response": current_sql,
+                },
+            )
+
+            if df is not None:
+                main_df = df
+                if not df.empty:
+                    columns = list(df.columns)
+                    field_types = _infer_query_field_types(df)
+                    rows = _json_safe_rows(df.values.tolist())
+                exec_error = ""
+                break
+
+            if attempt >= max_attempts:
+                break
+
+            repaired_sql, repair_error, repair_stats = await _vanna_repair_sql(
+                question=question,
+                schema_context=schema_context,
+                previous_sql=current_sql,
+                execution_error=exec_error or "Unknown SQL execution error.",
+                settings=settings,
+                attempt_number=attempt,
+                thinking_level=thinking_level,
+            )
+            _emit_ai_helper_log_event(
+                event_name="query.sql.repaired",
+                chat_id=trace_id,
+                turn_id=turn_id,
+                page="/query",
+                model=model,
+                guard_model=guard_model,
+                thinking_level="off",
+                body=repaired_sql if repaired_sql else repair_error,
+                attrs={
+                    "gen_ai.operation.name": "query_sql_repair",
+                    "gen_ai.usage.input_tokens": repair_stats.get("prompt_tokens", 0),
+                    "gen_ai.usage.output_tokens": repair_stats.get("completion_tokens", 0),
+                    "gen_ai.response.latency_ms": repair_stats.get("elapsed_ms", 0),
+                },
+            )
+            if repair_error:
+                last_repair_error = repair_error
+                break
+            current_sql = repaired_sql
+            retry_count += 1
+
+        if exec_error and last_repair_error:
+            exec_error = f"{exec_error} | SQL repair error: {last_repair_error}"
+
+        if main_df is not None:
+            datasets.append(
+                {
+                    "name": "main",
+                    "purpose": "primary dataset",
+                    "sql": sql,
+                    "columns": columns,
+                    "field_types": field_types,
+                    "rows": rows,
+                    "error": "",
+                }
+            )
+
+    # Optionally generate chart spec
+    chart_spec = ""
+    chart_error = ""
+    if do_chart and not exec_error and columns:
+        named_queries, _named_err, named_stats = await _vanna_generate_named_queries(
+            question=question,
+            schema_context=schema_context,
+            base_sql=sql,
+            settings=settings,
+            preferred_chart_type=preferred_chart_type,
+            chart_instruction=chart_instruction,
+            thinking_level=thinking_level,
+        )
+        _emit_ai_helper_log_event(
+            event_name="query.sql.named_generated",
+            chat_id=trace_id,
+            turn_id=turn_id,
+            page="/query",
+            model=model,
+            guard_model=guard_model,
+            thinking_level="off",
+            body=json.dumps(named_queries, ensure_ascii=False),
+            attrs={
+                "gen_ai.operation.name": "query_sql_named",
+                "gen_ai.usage.input_tokens": named_stats.get("prompt_tokens", 0),
+                "gen_ai.usage.output_tokens": named_stats.get("completion_tokens", 0),
+                "gen_ai.response.latency_ms": named_stats.get("elapsed_ms", 0),
+            },
+        )
+
+        for nq in named_queries:
+            ds_name = str(nq.get("name") or "dataset")
+            ds_sql = str(nq.get("sql") or "").strip()
+            ds_purpose = str(nq.get("purpose") or "")
+            if not ds_sql:
+                continue
+            try:
+                ds_df, ds_error = await asyncio.to_thread(_vanna_run_query, db, ds_sql)
+            except Exception as exc:
+                ds_df, ds_error = None, f"Query execution error: {exc}"
+
+            ds_columns: list[str] = []
+            ds_field_types: list[dict[str, str]] = []
+            ds_rows: list[list] = []
+            if ds_df is not None and not ds_df.empty:
+                ds_columns = list(ds_df.columns)
+                ds_field_types = _infer_query_field_types(ds_df)
+                ds_rows = _json_safe_rows(ds_df.values.tolist())
+
+            datasets.append(
+                {
+                    "name": ds_name,
+                    "purpose": ds_purpose,
+                    "sql": ds_sql,
+                    "columns": ds_columns,
+                    "field_types": ds_field_types,
+                    "rows": ds_rows,
+                    "error": ds_error,
+                }
+            )
+
+        sample = [dict(zip(columns, r)) for r in rows[:20]]
+        chart_spec, chart_error, chart_stats = await _vanna_generate_chart_spec(
+            columns,
+            sample,
+            question,
+            settings,
+            preferred_chart_type=preferred_chart_type,
+            chart_instruction=chart_instruction,
+            named_datasets=datasets,
+            thinking_level=thinking_level,
+        )
+        _emit_ai_helper_log_event(
+            event_name="query.chart.generated",
+            chat_id=trace_id,
+            turn_id=turn_id,
+            page="/query",
+            model=model,
+            guard_model=guard_model,
+            thinking_level="off",
+            body=chart_spec if chart_spec else chart_error,
+            attrs={
+                "gen_ai.operation.name": "query_chart",
+                "gen_ai.usage.input_tokens": chart_stats.get("prompt_tokens", 0),
+                "gen_ai.usage.output_tokens": chart_stats.get("completion_tokens", 0),
+                "gen_ai.response.latency_ms": chart_stats.get("elapsed_ms", 0),
+            },
+        )
+
+    _emit_ai_helper_log_event(
+        event_name="query.turn.complete",
+        chat_id=trace_id,
+        turn_id=turn_id,
+        page="/query",
+        model=model,
+        guard_model=guard_model,
+        thinking_level="off",
+        body="Query turn completed",
+        attrs={
+            "gen_ai.input.question": question,
+            "sobs.gen_ai.prompt": question,
+            "sobs.gen_ai.response": sql,
+            "gen_ai.operation.name": "query",
+        },
+    )
+
+    return jsonify(
+        {
+            "ok": True,
+            "trace_id": trace_id,
+            "turn_id": turn_id,
+            "sql": sql,
+            "columns": columns,
+            "field_types": field_types,
+            "rows": rows,
+            "retry_count": retry_count,
+            "datasets": datasets,
+            "chart_spec": chart_spec,
+            "error": exec_error or chart_error,
+        }
+    )
+
+
+@app.route("/api/query/run", methods=["POST"])
+@require_basic_auth
+async def api_query_run():
+    """Execute an existing SQL statement and optionally generate a chart."""
+    payload = await request.get_json(force=True, silent=True) or {}
+    sql = str(payload.get("sql") or "").strip()
+    question = str(payload.get("question") or "").strip()
+    do_chart = bool(payload.get("chart", False))
+    preferred_chart_type = str(payload.get("preferred_chart_type") or "").strip()
+    chart_instruction = str(payload.get("chart_instruction") or "").strip()
+    thinking_level = _normalize_thinking_level(str(payload.get("thinking_level") or "off"))
+
+    if not sql:
+        return jsonify({"ok": False, "error": "sql is required"}), 400
+
+    db = get_db()
+    settings = _load_all_ai_settings(db)
+    if not _query_page_enabled(settings):
+        return jsonify({"ok": False, "error": "Query page is unavailable."}), 404
+
+    trace_id = hashlib.md5(f"query-run|{sql}|{time.time_ns()}".encode("utf-8")).hexdigest()
+    turn_id = trace_id[:16]
+    model = settings.get("ai.model", "").strip()
+    guard_model = settings.get("ai.guard_model", "").strip()
+
+    _emit_ai_helper_log_event(
+        event_name="query.turn.start",
+        chat_id=trace_id,
+        turn_id=turn_id,
+        page="/query",
+        model=model,
+        guard_model=guard_model,
+        thinking_level="off",
+        body=question or sql,
+        attrs={"gen_ai.input.question": question or "(manual SQL execution)"},
+    )
+
+    exec_started = time.monotonic()
+    # Pre-flight EXPLAIN to surface any parse/planning errors before execution.
+    explain_error = await asyncio.to_thread(_vanna_explain_sql, db, sql)
+    if explain_error:
+        exec_elapsed_ms = int((time.monotonic() - exec_started) * 1000)
+        _emit_ai_helper_log_event(
+            event_name="query.sql.explain_failed",
+            chat_id=trace_id,
+            turn_id=turn_id,
+            page="/query",
+            model=model,
+            guard_model=guard_model,
+            thinking_level="off",
+            body=explain_error,
+            severity="WARN",
+            attrs={"gen_ai.operation.name": "query_sql_explain", "sobs.query.exec.error": explain_error},
+        )
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": explain_error,
+                    "trace_id": trace_id,
+                    "turn_id": turn_id,
+                    "sql": sql,
+                    "columns": [],
+                    "rows": [],
+                }
+            ),
+            422,
+        )
+    try:
+        df, exec_error = await asyncio.to_thread(_vanna_run_query, db, sql)
+    except Exception as exc:
+        df, exec_error = None, f"Query execution error: {exc}"
+    exec_elapsed_ms = int((time.monotonic() - exec_started) * 1000)
+
+    row_count = 0
+    columns: list[str] = []
+    field_types: list[dict[str, str]] = []
+    rows: list[list] = []
+    datasets: list[dict[str, Any]] = []
+    if df is not None:
+        row_count = int(len(df))
+        if not df.empty:
+            columns = list(df.columns)
+            field_types = _infer_query_field_types(df)
+            rows = _json_safe_rows(df.values.tolist())
+        datasets.append(
+            {
+                "name": "main",
+                "purpose": "primary dataset",
+                "sql": sql,
+                "columns": columns,
+                "field_types": field_types,
+                "rows": rows,
+                "error": "",
+            }
+        )
+
+    _emit_ai_helper_log_event(
+        event_name="query.sql.executed",
+        chat_id=trace_id,
+        turn_id=turn_id,
+        page="/query",
+        model=model,
+        guard_model=guard_model,
+        thinking_level="off",
+        body=sql,
+        severity="INFO" if not exec_error else "ERROR",
+        attrs={
+            "gen_ai.operation.name": "query_sql_execute",
+            "sobs.query.exec.attempt": 1,
+            "sobs.query.exec.status": "ok" if not exec_error else "error",
+            "sobs.query.exec.row_count": row_count,
+            "sobs.query.exec.error": exec_error,
+            "gen_ai.response.latency_ms": exec_elapsed_ms,
+            "sobs.gen_ai.prompt": question,
+            "sobs.gen_ai.response": sql,
+        },
+    )
+
+    chart_spec = ""
+    chart_error = ""
+    if do_chart and not exec_error and columns:
+        guard_input = question or f"Generate chart for SQL: {sql[:500]}"
+        allowed, guard_reason, guard_stats = await _check_guard_model(settings, guard_input, "/query")
+        _emit_ai_helper_log_event(
+            event_name="query.guard.result",
+            chat_id=trace_id,
+            turn_id=turn_id,
+            page="/query",
+            model=model,
+            guard_model=guard_model,
+            thinking_level="off",
+            body=f"Guard verdict: {guard_reason}",
+            attrs={
+                "gen_ai.guard.allowed": allowed,
+                "gen_ai.guard.reason": guard_reason,
+                "gen_ai.usage.input_tokens": guard_stats.get("prompt_tokens", 0),
+                "gen_ai.usage.output_tokens": guard_stats.get("completion_tokens", 0),
+                "gen_ai.response.latency_ms": guard_stats.get("elapsed_ms", 0),
+            },
+        )
+        if allowed:
+            schema_context = await asyncio.to_thread(ChdbSqlRunner(db).get_schema_context)
+            named_queries, _named_err, named_stats = await _vanna_generate_named_queries(
+                question=question or sql,
+                schema_context=schema_context,
+                base_sql=sql,
+                settings=settings,
+                preferred_chart_type=preferred_chart_type,
+                chart_instruction=chart_instruction,
+                thinking_level=thinking_level,
+            )
+            _emit_ai_helper_log_event(
+                event_name="query.sql.named_generated",
+                chat_id=trace_id,
+                turn_id=turn_id,
+                page="/query",
+                model=model,
+                guard_model=guard_model,
+                thinking_level="off",
+                body=json.dumps(named_queries, ensure_ascii=False),
+                attrs={
+                    "gen_ai.operation.name": "query_sql_named",
+                    "gen_ai.usage.input_tokens": named_stats.get("prompt_tokens", 0),
+                    "gen_ai.usage.output_tokens": named_stats.get("completion_tokens", 0),
+                    "gen_ai.response.latency_ms": named_stats.get("elapsed_ms", 0),
+                },
+            )
+
+            for nq in named_queries:
+                ds_name = str(nq.get("name") or "dataset")
+                ds_sql = str(nq.get("sql") or "").strip()
+                ds_purpose = str(nq.get("purpose") or "")
+                if not ds_sql:
+                    continue
+                try:
+                    ds_df, ds_error = await asyncio.to_thread(_vanna_run_query, db, ds_sql)
+                except Exception as exc:
+                    ds_df, ds_error = None, f"Query execution error: {exc}"
+
+                ds_columns: list[str] = []
+                ds_field_types: list[dict[str, str]] = []
+                ds_rows: list[list] = []
+                if ds_df is not None and not ds_df.empty:
+                    ds_columns = list(ds_df.columns)
+                    ds_field_types = _infer_query_field_types(ds_df)
+                    ds_rows = _json_safe_rows(ds_df.values.tolist())
+
+                datasets.append(
+                    {
+                        "name": ds_name,
+                        "purpose": ds_purpose,
+                        "sql": ds_sql,
+                        "columns": ds_columns,
+                        "field_types": ds_field_types,
+                        "rows": ds_rows,
+                        "error": ds_error,
+                    }
+                )
+
+            sample = [dict(zip(columns, r)) for r in rows[:20]]
+            chart_spec, chart_error, chart_stats = await _vanna_generate_chart_spec(
+                columns,
+                sample,
+                question,
+                settings,
+                preferred_chart_type=preferred_chart_type,
+                chart_instruction=chart_instruction,
+                named_datasets=datasets,
+                thinking_level=thinking_level,
+            )
+            _emit_ai_helper_log_event(
+                event_name="query.chart.generated",
+                chat_id=trace_id,
+                turn_id=turn_id,
+                page="/query",
+                model=model,
+                guard_model=guard_model,
+                thinking_level="off",
+                body=chart_spec if chart_spec else chart_error,
+                attrs={
+                    "gen_ai.operation.name": "query_chart",
+                    "gen_ai.usage.input_tokens": chart_stats.get("prompt_tokens", 0),
+                    "gen_ai.usage.output_tokens": chart_stats.get("completion_tokens", 0),
+                    "gen_ai.response.latency_ms": chart_stats.get("elapsed_ms", 0),
+                },
+            )
+        else:
+            chart_error = f"Chart generation blocked by safety guard: {guard_reason}"
+
+    final_error = exec_error or chart_error
+    _emit_ai_helper_log_event(
+        event_name="query.turn.complete",
+        chat_id=trace_id,
+        turn_id=turn_id,
+        page="/query",
+        model=model,
+        guard_model=guard_model,
+        thinking_level="off",
+        body="Query turn completed",
+        severity="INFO" if not final_error else "ERROR",
+        attrs={
+            "gen_ai.input.question": question,
+            "sobs.gen_ai.prompt": question,
+            "sobs.gen_ai.response": sql,
+            "gen_ai.operation.name": "query",
+        },
+    )
+
+    return jsonify(
+        {
+            "ok": True,
+            "trace_id": trace_id,
+            "turn_id": turn_id,
+            "sql": sql,
+            "columns": columns,
+            "field_types": field_types,
+            "rows": rows,
+            "retry_count": 0,
+            "datasets": datasets,
+            "chart_spec": chart_spec,
+            "error": final_error,
+        }
+    )
+
+
+@app.route("/api/query/refine-chart", methods=["POST"])
+@require_basic_auth
+async def api_query_refine_chart():
+    """Refine an existing chart spec based on user instruction."""
+    settings = _load_all_ai_settings(get_db())
+    if not _query_page_enabled(settings):
+        return jsonify({"ok": False, "error": "Query page is unavailable."}), 404
+
+    payload = await request.get_json() or {}
+    current_spec = payload.get("chart_spec", "")
+    columns = payload.get("columns", [])
+    rows = payload.get("rows", [])
+    user_instruction = payload.get("instruction", "").strip()
+    thinking_level = _normalize_thinking_level(str(payload.get("thinking_level") or "off"))
+
+    if not current_spec:
+        return jsonify({"ok": False, "error": "No chart spec provided."}), 400
+    if not user_instruction:
+        return jsonify({"ok": False, "error": "No instruction provided."}), 400
+
+    # Use current row data as sample if available, otherwise empty list
+    sample_rows = rows[:20] if rows else []
+
+    trace_id = str(uuid.uuid4())
+    turn_id = str(uuid.uuid4())
+    model = settings.get("ai.model", "").strip()
+
+    # Emit trace start event
+    _emit_ai_helper_log_event(
+        event_name="query.turn.start",
+        chat_id=trace_id,
+        turn_id=turn_id,
+        page="/query",
+        model=model,
+        guard_model="",
+        thinking_level="off",
+        body=f"Chart refinement requested: {user_instruction}",
+        attrs={
+            "gen_ai.operation.name": "refine_chart",
+            "sobs.gen_ai.instruction": user_instruction,
+        },
+    )
+
+    chart_spec, chart_error, chart_stats = await _vanna_refine_chart_spec(
+        current_spec, columns, sample_rows, user_instruction, settings, thinking_level=thinking_level
+    )
+
+    # Emit chart refinement event with LLM call details
+    _emit_ai_helper_log_event(
+        event_name="query.chart.refined",
+        chat_id=trace_id,
+        turn_id=turn_id,
+        page="/query",
+        model=model,
+        guard_model="",
+        thinking_level="off",
+        body=chart_spec if chart_spec else chart_error,
+        severity="ERROR" if chart_error else "INFO",
+        attrs={
+            "gen_ai.operation.name": "refine_chart",
+            "gen_ai.usage.input_tokens": chart_stats.get("prompt_tokens", 0),
+            "gen_ai.usage.output_tokens": chart_stats.get("completion_tokens", 0),
+            "gen_ai.response.latency_ms": chart_stats.get("elapsed_ms", 0),
+            "sobs.gen_ai.instruction": user_instruction,
+        },
+    )
+
+    # Emit turn complete event
+    _emit_ai_helper_log_event(
+        event_name="query.turn.complete",
+        chat_id=trace_id,
+        turn_id=turn_id,
+        page="/query",
+        model=model,
+        guard_model="",
+        thinking_level="off",
+        body="Chart refinement completed",
+        severity="ERROR" if chart_error else "INFO",
+        attrs={
+            "gen_ai.operation.name": "refine_chart",
+        },
+    )
+
+    if chart_error:
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": chart_error,
+                    "trace_id": trace_id,
+                }
+            ),
+            500,
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "trace_id": trace_id,
+            "chart_spec": chart_spec,
+        }
+    )
+
+
+@app.route("/api/query/schema", methods=["GET"])
+@require_basic_auth
+async def api_query_schema():
+    """Return the schema context string used for LLM prompts."""
+    settings = _load_all_ai_settings(get_db())
+    if not _query_page_enabled(settings):
+        return jsonify({"ok": False, "error": "Query page is unavailable."}), 404
+    db = get_db()
+    runner = ChdbSqlRunner(db)
+    schema = await asyncio.to_thread(runner.get_schema_context)
+    return jsonify({"ok": True, "schema": schema})
+
+
+@app.route("/api/chart-types", methods=["GET"])
+@require_basic_auth
+async def api_chart_types():
+    """Return the catalog of available ECharts chart types with configurations."""
+    try:
+        import json as json_module
+
+        chart_types_path = os.path.join(os.path.dirname(__file__), "static", "echarts-chart-types.json")
+        if not os.path.exists(chart_types_path):
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": "Chart types catalog not found. Run: node scripts/extract-echarts-types.js",
+                    }
+                ),
+                404,
+            )
+
+        with open(chart_types_path, "r") as f:
+            catalog = json_module.load(f)
+
+        return jsonify({"ok": True, "data": catalog})
+    except Exception as e:
+        return (
+            jsonify({"ok": False, "error": f"Failed to load chart types: {str(e)}"}),
+            500,
+        )
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 44317))
     requested_workers = max(
