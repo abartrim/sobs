@@ -24,7 +24,7 @@ import urllib.parse
 import urllib.request
 import uuid
 import zlib
-from collections import Counter
+from collections import Counter, OrderedDict
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -4668,6 +4668,12 @@ async def ingest_rum():
         events = payload
     else:
         events = payload.get("events", [payload])
+    # Extract client IP from proxy-forwarded or direct headers
+    client_ip = (
+        (request.headers.get("X-Forwarded-For", "") or "").split(",")[0].strip()
+        or (request.headers.get("X-Real-IP", "") or "").strip()
+        or (request.remote_addr or "")
+    )
     session_rows = []
     error_rows = []
     for event in events:
@@ -4676,6 +4682,8 @@ async def ingest_rum():
         event_type = event.get("type", "unknown")
         url = event.get("url", "")
         attrs = _stringify_attrs(event)
+        if client_ip:
+            attrs["client.ip"] = client_ip
         session_rows.append(
             {
                 "Timestamp": ts,
@@ -7623,6 +7631,92 @@ async def view_traces():
 
 
 # ---------------------------------------------------------------------------
+# Enrichment – geo-lookup helpers
+# ---------------------------------------------------------------------------
+
+import ipaddress as _ipaddress
+
+
+def _is_private_ip(ip: str) -> bool:
+    """Return True for private/loopback/link-local IPs that cannot be geolocated."""
+    try:
+        addr = _ipaddress.ip_address(ip)
+        return addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_unspecified
+    except ValueError:
+        return True
+
+
+def _build_geo_dict(
+    country: str = "",
+    country_code: str = "",
+    city: str = "",
+    lat: float = 0.0,
+    lon: float = 0.0,
+) -> dict:
+    """Build a normalised geo dict used throughout the geo-lookup subsystem."""
+    return {"country": country, "country_code": country_code, "city": city, "lat": lat, "lon": lon}
+
+
+async def _geo_lookup_batch(ips: list[str], source: str = "ip-api.com") -> dict[str, dict]:
+    """Resolve a list of public IPs to geo info.
+
+    Uses ip-api.com batch API by default (free for non-commercial use, no API key
+    required, up to 100 IPs per request).  Returns a dict mapping IP → geo dict.
+    """
+    if source == "disabled" or not ips:
+        return {}
+
+    results: dict[str, dict] = {}
+    uncached: list[str] = []
+
+    with _GEO_CACHE_LOCK:
+        for ip in ips:
+            if _is_private_ip(ip):
+                results[ip] = _build_geo_dict(country="Private/Local")
+            elif ip in _GEO_CACHE:
+                # Move to end to mark as recently used (LRU)
+                _GEO_CACHE.move_to_end(ip)
+                results[ip] = _GEO_CACHE[ip]
+            else:
+                uncached.append(ip)
+
+    if not uncached:
+        return results
+
+    # ip-api.com batch endpoint – free for non-commercial use
+    try:
+        client = await _get_async_http_client()
+        batch_payload = [
+            {"query": ip, "fields": "query,country,countryCode,city,lat,lon,status"}
+            for ip in uncached[:100]
+        ]
+        resp = await client.post("http://ip-api.com/batch", json=batch_payload, timeout=5.0)
+        if resp.status_code == 200:
+            fresh: dict[str, dict] = {}
+            for entry in resp.json():
+                if isinstance(entry, dict) and entry.get("status") == "success":
+                    ip_key = entry.get("query", "")
+                    if ip_key:
+                        fresh[ip_key] = _build_geo_dict(
+                            country=entry.get("country", ""),
+                            country_code=entry.get("countryCode", ""),
+                            city=entry.get("city", ""),
+                            lat=float(entry.get("lat", 0.0)),
+                            lon=float(entry.get("lon", 0.0)),
+                        )
+            with _GEO_CACHE_LOCK:
+                # Evict least-recently-used entries when over capacity
+                while len(_GEO_CACHE) >= _GEO_CACHE_MAX:
+                    _GEO_CACHE.popitem(last=False)
+                _GEO_CACHE.update(fresh)
+            results.update(fresh)
+    except Exception:
+        app.logger.debug("geo lookup failed", exc_info=True)
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Web UI – RUM
 # ---------------------------------------------------------------------------
 @app.route("/rum")
@@ -7723,6 +7817,186 @@ async def view_rum():
         to_ts=to_ts,
         error_msg=time_error,
     )
+
+
+# ---------------------------------------------------------------------------
+# Web UI – Web Traffic (IP geo-map, CVE enrichment)
+# ---------------------------------------------------------------------------
+@app.route("/web-traffic")
+@require_basic_auth
+async def view_web_traffic():
+    """Web traffic analytics: IP→geo map, top URLs, event breakdown."""
+    db = get_db()
+    from_ts, to_ts, time_error = _parse_time_window_args()
+    time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
+    where = ("WHERE " + " AND ".join(time_conditions)) if time_conditions else ""
+
+    total = db.execute(f"SELECT COUNT(*) FROM hyperdx_sessions {where}", time_params).fetchone()[0]
+
+    top_urls_rows = db.execute(
+        f"SELECT LogAttributes['url'] AS url, COUNT(*) AS cnt "
+        f"FROM hyperdx_sessions {where} "
+        f"GROUP BY url HAVING url != '' ORDER BY cnt DESC LIMIT 20",
+        time_params,
+    ).fetchall()
+    top_urls = [(str(r[0]), int(r[1])) for r in top_urls_rows]
+
+    event_type_rows = db.execute(
+        f"SELECT EventName, COUNT(*) AS cnt FROM hyperdx_sessions {where} "
+        f"GROUP BY EventName ORDER BY cnt DESC LIMIT 20",
+        time_params,
+    ).fetchall()
+    event_types = [(str(r[0]), int(r[1])) for r in event_type_rows]
+
+    geo_source = _get_app_setting(db, _GEO_LOOKUP_SOURCE_SETTING) or "ip-api.com"
+    cve_enabled = (_get_app_setting(db, _CVE_ENABLED_SETTING) or "true").lower() in ("1", "true", "yes")
+
+    # Top app names from RUM (for CVE lookup hints)
+    app_name_rows = db.execute(
+        f"SELECT LogAttributes['appName'] AS app, COUNT(*) AS cnt "
+        f"FROM hyperdx_sessions {where} "
+        f"GROUP BY app HAVING app != '' ORDER BY cnt DESC LIMIT 10",
+        time_params,
+    ).fetchall()
+    app_names = [str(r[0]) for r in app_name_rows]
+
+    return await render_template(
+        "web_traffic.html",
+        total=total,
+        top_urls=top_urls,
+        event_types=event_types,
+        app_names=app_names,
+        from_ts=from_ts,
+        to_ts=to_ts,
+        error_msg=time_error,
+        geo_source=geo_source,
+        cve_enabled=cve_enabled,
+        geo_sources=_GEO_LOOKUP_SOURCES,
+    )
+
+
+# ---------------------------------------------------------------------------
+# API – Web Traffic geo aggregation  GET /api/web-traffic/geo
+# ---------------------------------------------------------------------------
+@app.route("/api/web-traffic/geo", methods=["GET"])
+@require_basic_auth
+async def api_web_traffic_geo():
+    """Return IP→country aggregation from RUM events, resolving via configurable geo source."""
+    db = get_db()
+    from_ts, to_ts, _ = _parse_time_window_args()
+    time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
+    where = ("WHERE " + " AND ".join(time_conditions)) if time_conditions else ""
+
+    rows = db.execute(
+        f"SELECT LogAttributes['client.ip'] AS ip, COUNT(*) AS cnt "
+        f"FROM hyperdx_sessions {where} "
+        f"GROUP BY ip HAVING ip != '' ORDER BY cnt DESC LIMIT 200",
+        time_params,
+    ).fetchall()
+    ip_counts: dict[str, int] = {str(r[0]): int(r[1]) for r in rows}
+
+    geo_source = _get_app_setting(db, _GEO_LOOKUP_SOURCE_SETTING) or "ip-api.com"
+    geo_data = await _geo_lookup_batch(list(ip_counts.keys()), source=geo_source)
+
+    country_totals: dict[str, int] = {}
+    ip_details: list[dict] = []
+    for ip, cnt in ip_counts.items():
+        geo = geo_data.get(ip, {})
+        country = geo.get("country") or "Unknown"
+        country_code = geo.get("country_code", "")
+        country_totals[country] = country_totals.get(country, 0) + cnt
+        ip_details.append(
+            {
+                "ip": ip,
+                "count": cnt,
+                "country": country,
+                "country_code": country_code,
+                "city": geo.get("city", ""),
+                "lat": geo.get("lat", 0),
+                "lon": geo.get("lon", 0),
+            }
+        )
+
+    country_counts = sorted(
+        [{"name": k, "value": v} for k, v in country_totals.items()],
+        key=lambda x: -x["value"],
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "country_counts": country_counts,
+            "ip_details": ip_details[:100],
+            "geo_source": geo_source,
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# API – CVE enrichment  GET /api/enrichment/cve
+# Uses OSV.dev (open-source vulnerability database; free, no API key required)
+# Reference: https://google.github.io/osv.dev/api/
+# ---------------------------------------------------------------------------
+@app.route("/api/enrichment/cve", methods=["GET"])
+@require_basic_auth
+async def api_enrichment_cve():
+    """Look up CVEs for a package/ecosystem using the OSV.dev API (free, no key)."""
+    package = request.args.get("package", "").strip()
+    ecosystem = request.args.get("ecosystem", "PyPI").strip()
+    version = request.args.get("version", "").strip()
+
+    if not package:
+        return jsonify({"ok": False, "error": "package parameter required"}), 400
+
+    db = get_db()
+    cve_enabled = (_get_app_setting(db, _CVE_ENABLED_SETTING) or "true").lower() in ("1", "true", "yes")
+    if not cve_enabled:
+        return jsonify({"ok": False, "error": "CVE enrichment is disabled in settings"}), 403
+
+    try:
+        client = await _get_async_http_client()
+        query_body: dict = {"package": {"name": package, "ecosystem": ecosystem}}
+        if version:
+            query_body["version"] = version
+        resp = await client.post("https://api.osv.dev/v1/query", json=query_body, timeout=10.0)
+        if resp.status_code == 200:
+            data = resp.json()
+            vulns_raw = data.get("vulns", [])
+            vulns: list[dict] = []
+            for v in vulns_raw[:20]:
+                aliases = v.get("aliases", [])
+                cve_ids = [a for a in aliases if a.startswith("CVE-")]
+                severity_list = v.get("severity", [])
+                severity = ""
+                if severity_list:
+                    severity = severity_list[0].get("score", "") or severity_list[0].get("type", "")
+                db_specific = v.get("database_specific", {})
+                if not severity and db_specific.get("severity"):
+                    severity = str(db_specific["severity"])
+                vulns.append(
+                    {
+                        "id": v.get("id", ""),
+                        "cve_ids": cve_ids,
+                        "summary": v.get("summary", ""),
+                        "details": (v.get("details", "") or "")[:400],
+                        "severity": severity,
+                        "published": v.get("published", "")[:10],
+                        "modified": v.get("modified", "")[:10],
+                    }
+                )
+            return jsonify(
+                {
+                    "ok": True,
+                    "package": package,
+                    "ecosystem": ecosystem,
+                    "version": version,
+                    "vulns": vulns,
+                    "total": len(vulns_raw),
+                }
+            )
+        return jsonify({"ok": False, "error": f"OSV API returned HTTP {resp.status_code}"}), 502
+    except Exception as exc:
+        app.logger.debug("CVE lookup failed for %s/%s: %s", package, ecosystem, exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 # ---------------------------------------------------------------------------
@@ -11926,6 +12200,22 @@ _VAPID_PRIVATE_KEY_SETTING = "vapid_private_key"
 # Web Push AES-128-GCM record size per RFC 8291
 _PUSH_RECORD_SIZE = 4096
 
+# ---------------------------------------------------------------------------
+# Enrichment – settings keys and geo-lookup cache
+# Geolocation uses ip-api.com (free, non-commercial; no API key required).
+# Reference: https://ip-api.com/docs/api:batch
+# CVE data uses OSV.dev (open-source vulnerability database; free, no API key).
+# Reference: https://google.github.io/osv.dev/api/
+# ---------------------------------------------------------------------------
+_GEO_LOOKUP_SOURCE_SETTING = "enrichment.geo_source"
+_CVE_ENABLED_SETTING = "enrichment.cve_enabled"
+_GEO_LOOKUP_SOURCES = ["ip-api.com", "disabled"]
+
+# Simple bounded in-process geo cache: {ip: geo_dict}
+_GEO_CACHE: OrderedDict[str, dict] = OrderedDict()
+_GEO_CACHE_MAX = 2000
+_GEO_CACHE_LOCK = threading.Lock()
+
 # Available signal sources for condition building (mirrors v_derived_signals_1m signals)
 _NOTIFICATION_SIGNAL_SOURCES: dict[str, list[str]] = {
     "logs": ["log_volume", "error_volume", "error_ratio"],
@@ -13606,6 +13896,38 @@ async def save_ai_settings():
         _save_ai_setting(db, key, value)
     await flash("AI settings saved", "success")
     return redirect(url_for("view_ai_settings"))
+
+
+# ---------------------------------------------------------------------------
+# Enrichment Settings  GET/POST /settings/enrichment
+# ---------------------------------------------------------------------------
+@app.route("/settings/enrichment", methods=["GET"])
+@require_basic_auth
+async def view_enrichment_settings():
+    db = get_db()
+    geo_source = _get_app_setting(db, _GEO_LOOKUP_SOURCE_SETTING) or "ip-api.com"
+    cve_enabled = (_get_app_setting(db, _CVE_ENABLED_SETTING) or "true").lower() in ("1", "true", "yes")
+    return await render_template(
+        "settings_enrichment.html",
+        geo_source=geo_source,
+        geo_sources=_GEO_LOOKUP_SOURCES,
+        cve_enabled=cve_enabled,
+    )
+
+
+@app.route("/settings/enrichment", methods=["POST"])
+@require_basic_auth
+async def save_enrichment_settings():
+    form = await request.form
+    db = get_db()
+    geo_source = (form.get("geo_source") or "ip-api.com").strip()
+    if geo_source not in _GEO_LOOKUP_SOURCES:
+        geo_source = "ip-api.com"
+    _set_app_setting(db, _GEO_LOOKUP_SOURCE_SETTING, geo_source)
+    cve_enabled = "true" if form.get("cve_enabled") else "false"
+    _set_app_setting(db, _CVE_ENABLED_SETTING, cve_enabled)
+    await flash("Enrichment settings saved", "success")
+    return redirect(url_for("view_enrichment_settings"))
 
 
 # ---------------------------------------------------------------------------

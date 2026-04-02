@@ -7648,3 +7648,83 @@ class TestChartSpecHelpers:
         assert "LLM JSON repair failed" in err or "still invalid" in err
         assert stats == {}
         assert calls["n"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Web Traffic – new feature tests
+# ---------------------------------------------------------------------------
+class TestWebTraffic:
+    async def test_web_traffic_page_loads(self, client):
+        r = await client.get("/web-traffic")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Web Traffic" in data
+
+    async def test_web_traffic_geo_api_empty(self, client):
+        r = await client.get("/api/web-traffic/geo")
+        assert r.status_code == 200
+        body = json.loads(await r.get_data())
+        assert body["ok"] is True
+        assert isinstance(body["country_counts"], list)
+        assert isinstance(body["ip_details"], list)
+
+    async def test_web_traffic_geo_api_with_rum_events(self, client):
+        # Ingest a RUM event first so geo API has data
+        await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "sessionId": "sess-geo-001",
+                    "url": "https://example.com/page",
+                    "appName": "my-app",
+                }
+            ],
+        )
+        r = await client.get("/api/web-traffic/geo")
+        assert r.status_code == 200
+        body = json.loads(await r.get_data())
+        assert body["ok"] is True
+
+    async def test_rum_ingest_captures_client_ip(self, client):
+        r = await client.post(
+            "/v1/rum",
+            headers={"X-Forwarded-For": "8.8.8.8"},
+            json=[{"type": "pageview", "sessionId": "sess-ip-001", "url": "https://example.com/"}],
+        )
+        assert r.status_code == 200
+        assert json.loads(await r.get_data())["accepted"] == 1
+
+    async def test_cve_lookup_missing_package(self, client):
+        r = await client.get("/api/enrichment/cve")
+        assert r.status_code == 400
+        data = json.loads(await r.get_data())
+        assert data["ok"] is False
+        assert "package" in data["error"]
+
+    async def test_enrichment_settings_page_loads(self, client):
+        r = await client.get("/settings/enrichment")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Enrichment" in data
+        assert b"ip-api.com" in data
+
+    async def test_enrichment_settings_save(self, client):
+        r = await client.post(
+            "/settings/enrichment",
+            form={"geo_source": "disabled", "cve_enabled": "on"},
+        )
+        # Should redirect back to enrichment settings
+        assert r.status_code in (302, 200)
+
+    async def test_enrichment_settings_geo_disabled(self, client):
+        # Disable geo, then check geo API returns source=disabled
+        await client.post(
+            "/settings/enrichment",
+            form={"geo_source": "disabled"},
+        )
+        r = await client.get("/api/web-traffic/geo")
+        assert r.status_code == 200
+        body = json.loads(await r.get_data())
+        assert body["ok"] is True
+        assert body["geo_source"] == "disabled"

@@ -191,6 +191,36 @@
       </div>
     </div>
   </div>
+
+  <!-- Enrichment (Geo / CVE) -->
+  <div class="col-md-6 col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body d-flex flex-column">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-database-check fs-4 text-primary"></i>
+          <h5 class="card-title mb-0">Enrichment</h5>
+        </div>
+        <p class="card-text text-secondary small flex-grow-1">
+          Configure IP geo-lookup (ip-api.com, free) and CVE vulnerability enrichment (OSV.dev, free).
+          Used by the <a href="{{ url_for('view_web_traffic') }}">Web Traffic</a> page to map visitor
+          countries and surface known vulnerabilities for libraries in your stack.
+          All sources are open and free — no API keys required.
+        </p>
+        <div class="d-flex align-items-center justify-content-end mt-2">
+          <a href="{{ url_for('view_enrichment_settings') }}" class="btn btn-sm btn-outline-primary"
+             data-ai-action-id="settings.nav.enrichment"
+             data-ai-action-type="navigate"
+             data-ai-handler="navigate"
+             data-ai-args='{"target_page":"/settings/enrichment"}'
+             data-ai-label="Open enrichment settings"
+             data-ai-risk="high"
+             data-ai-confirm="true">
+            <i class="bi bi-pencil-square me-1"></i>Configure Enrichment
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="mt-4">
