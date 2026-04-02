@@ -27,6 +27,8 @@ from app import app, compress, compress_json, decompress, decompress_json, init_
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
     init_db()
+    yield
+    sobs_app._shutdown_db_resources()
 
 
 @pytest.fixture

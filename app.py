@@ -6,6 +6,7 @@ RUM, Logs, Errors, Traces, and AI transparency.
 
 import ast
 import asyncio
+import atexit
 import base64
 import copy
 import hashlib
@@ -109,6 +110,7 @@ async def _shutdown_async_http_client() -> None:
     if _ASYNC_HTTP_CLIENT is not None:
         await _ASYNC_HTTP_CLIENT.aclose()
         _ASYNC_HTTP_CLIENT = None
+    _shutdown_db_resources()
 
 
 async def _maybe_await(value: Any) -> Any:
@@ -1092,6 +1094,9 @@ class _WriteTask:
     op: Callable[[ChDbConnection], None]
     done: threading.Event | None = None
     error: Exception | None = None
+
+
+_WRITE_STOP = cast(_WriteTask, object())
 
 
 class WriteQueueFullError(RuntimeError):
@@ -3671,6 +3676,8 @@ def _write_worker_main() -> None:
     assert _write_queue is not None
     while True:
         first = _write_queue.get()
+        if first is _WRITE_STOP:
+            return
         batch = [first]
         deadline = time.monotonic() + (max(1, WRITE_BATCH_WAIT_MS) / 1000.0)
         while len(batch) < max(1, WRITE_BATCH_MAX):
@@ -3678,7 +3685,11 @@ def _write_worker_main() -> None:
             if remaining <= 0:
                 break
             try:
-                batch.append(_write_queue.get(timeout=remaining))
+                queued = _write_queue.get(timeout=remaining)
+                if queued is _WRITE_STOP:
+                    _run_write_batch(batch)
+                    return
+                batch.append(queued)
             except queue.Empty:
                 break
         _run_write_batch(batch)
@@ -3716,6 +3727,38 @@ def _queue_write(op: Callable[[ChDbConnection], None], wait: bool = False) -> No
 
 def _write_queue_depth() -> int:
     return _write_queue.qsize() if _write_queue is not None else 0
+
+
+def _shutdown_db_resources() -> None:
+    global _global_db, _schema_ready, _write_queue, _write_thread
+
+    thread_to_join: threading.Thread | None = None
+    with _write_worker_lock:
+        if _write_queue is not None and _write_thread is not None and _write_thread.is_alive():
+            try:
+                _write_queue.put(_WRITE_STOP, timeout=1)
+            except queue.Full:
+                pass
+            thread_to_join = _write_thread
+
+    if thread_to_join is not None:
+        thread_to_join.join(timeout=5)
+
+    with _write_worker_lock:
+        _write_thread = None
+        _write_queue = None
+
+    with _db_init_lock:
+        if _global_db is not None:
+            try:
+                _global_db.close()
+            except Exception:
+                pass
+        _global_db = None
+        _schema_ready = False
+
+
+atexit.register(_shutdown_db_resources)
 
 
 # ---------------------------------------------------------------------------
