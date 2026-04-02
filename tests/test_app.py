@@ -2996,6 +2996,31 @@ class TestGenAICompliance:
         body = await r2.get_data(as_text=True)
         assert "Tokens/sec" in body
 
+    async def test_ai_view_handles_metadata_query_failure_without_500(self, client, monkeypatch):
+        """AI view should degrade gracefully when non-critical metadata queries fail."""
+        import app as app_module
+
+        real_db = app_module.get_db()
+
+        class _DbProxy:
+            def __init__(self, inner_db):
+                self._inner_db = inner_db
+
+            def execute(self, sql, params=None):
+                sql_text = str(sql)
+                if "SELECT DISTINCT ServiceName FROM otel_traces" in sql_text:
+                    raise RuntimeError("simulated metadata query failure")
+                if params is None:
+                    return self._inner_db.execute(sql)
+                return self._inner_db.execute(sql, params)
+
+        monkeypatch.setattr(app_module, "get_db", lambda: _DbProxy(real_db))
+
+        r = await client.get("/ai")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Some AI metadata failed to load" in body
+
 
 # ---------------------------------------------------------------------------
 # Custom Dashboards (eChart)

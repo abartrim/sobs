@@ -7854,6 +7854,25 @@ async def view_ai():
             rows = []
             trace_ids = []
 
+    def _safe_attr_int(attrs: dict[str, object], key: str) -> int:
+        raw_value = attrs.get(key, "0")
+        try:
+            parsed = float(str(raw_value or 0))
+        except (TypeError, ValueError):
+            return 0
+        if parsed != parsed or parsed in (float("inf"), float("-inf")):
+            return 0
+        return int(parsed)
+
+    def _safe_duration_ms(duration_ns: object) -> float:
+        try:
+            parsed = float(str(duration_ns or 0))
+        except (TypeError, ValueError):
+            return 0.0
+        if parsed != parsed or parsed in (float("inf"), float("-inf")):
+            return 0.0
+        return round(parsed / 1_000_000, 1)
+
     ai_items = []
     for r in rows:
         attrs = _map_to_dict(r["SpanAttributes"])
@@ -7867,18 +7886,18 @@ async def view_ai():
         output_messages_raw = str(attrs.get("gen_ai.output.messages", ""))
         prompt = _extract_messages_text(input_messages_raw) or str(attrs.get("sobs.gen_ai.prompt", ""))
         response = _extract_messages_text(output_messages_raw) or str(attrs.get("sobs.gen_ai.response", ""))
-        tokens_in = int(float(attrs.get("gen_ai.usage.input_tokens", "0") or 0))
-        tokens_out = int(float(attrs.get("gen_ai.usage.output_tokens", "0") or 0))
+        tokens_in = _safe_attr_int(attrs, "gen_ai.usage.input_tokens")
+        tokens_out = _safe_attr_int(attrs, "gen_ai.usage.output_tokens")
         err_type = str(attrs.get("error.type", ""))
         msg = str(attrs.get("exception.message", ""))
-        duration_ms = round(float(r["Duration"]) / 1_000_000, 1)
+        duration_ms = _safe_duration_ms(r["Duration"])
         tokens_per_sec = round(tokens_out / (duration_ms / 1000), 1) if duration_ms > 0 and tokens_out > 0 else 0
         # Additional OTel GenAI attributes
         finish_reason = str(attrs.get("gen_ai.response.finish_reason", ""))
         span_name = str(r["SpanName"] or "")
         temperature = str(attrs.get("gen_ai.request.temperature", ""))
         max_tokens = str(attrs.get("gen_ai.request.max_tokens", ""))
-        thinking_tokens = int(float(attrs.get("gen_ai.usage.thinking_tokens", "0") or 0))
+        thinking_tokens = _safe_attr_int(attrs, "gen_ai.usage.thinking_tokens")
         # Build structured messages for conversation view
         input_messages = []
         output_messages = []
@@ -7985,48 +8004,84 @@ async def view_ai():
             grp["operations"] = sorted(grp["operations"])
             trace_groups.append(grp)
 
-    services = [
-        row[0]
-        for row in db.execute(
-            "SELECT DISTINCT ServiceName FROM otel_traces "
-            "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
-            "AND ServiceName!='' ORDER BY ServiceName"
-        ).fetchall()
-    ]
-    models = [
-        row[0]
-        for row in db.execute(
-            "SELECT DISTINCT SpanAttributes['gen_ai.request.model'] AS model FROM otel_traces "
-            "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
-            "AND SpanAttributes['gen_ai.request.model'] != '' ORDER BY model"
-        ).fetchall()
-    ]
-    operations = [
-        row[0]
-        for row in db.execute(
-            "SELECT DISTINCT SpanAttributes['gen_ai.operation.name'] AS op FROM otel_traces "
-            "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
-            "AND SpanAttributes['gen_ai.operation.name'] != '' ORDER BY op"
-        ).fetchall()
-    ]
-    span_names = [
-        row[0]
-        for row in db.execute(
-            "SELECT DISTINCT SpanName FROM otel_traces "
-            "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
-            "AND SpanName != '' ORDER BY SpanName"
-        ).fetchall()
-    ]
+    metadata_errors: list[str] = []
+    services: list[str] = []
+    models: list[str] = []
+    operations: list[str] = []
+    span_names: list[str] = []
+    totals: dict[str, int] = {"ti": 0, "to_": 0, "cnt": 0, "errors": 0}
 
-    # Token usage totals
-    totals = db.execute(
-        "SELECT "
-        "SUM(toUInt64OrZero(SpanAttributes['gen_ai.usage.input_tokens'])) ti, "
-        "SUM(toUInt64OrZero(SpanAttributes['gen_ai.usage.output_tokens'])) to_, "
-        "COUNT(*) cnt, "
-        "countIf(SpanAttributes['error.type'] != '') errors "
-        "FROM otel_traces WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '')"
-    ).fetchone()
+    try:
+        services = [
+            row[0]
+            for row in db.execute(
+                "SELECT DISTINCT ServiceName FROM otel_traces "
+                "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
+                "AND ServiceName!='' ORDER BY ServiceName"
+            ).fetchall()
+        ]
+    except Exception as exc:
+        metadata_errors.append(f"services={_public_dashboard_query_error(exc)}")
+
+    try:
+        models = [
+            row[0]
+            for row in db.execute(
+                "SELECT DISTINCT SpanAttributes['gen_ai.request.model'] AS model FROM otel_traces "
+                "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
+                "AND SpanAttributes['gen_ai.request.model'] != '' ORDER BY model"
+            ).fetchall()
+        ]
+    except Exception as exc:
+        metadata_errors.append(f"models={_public_dashboard_query_error(exc)}")
+
+    try:
+        operations = [
+            row[0]
+            for row in db.execute(
+                "SELECT DISTINCT SpanAttributes['gen_ai.operation.name'] AS op FROM otel_traces "
+                "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
+                "AND SpanAttributes['gen_ai.operation.name'] != '' ORDER BY op"
+            ).fetchall()
+        ]
+    except Exception as exc:
+        metadata_errors.append(f"operations={_public_dashboard_query_error(exc)}")
+
+    try:
+        span_names = [
+            row[0]
+            for row in db.execute(
+                "SELECT DISTINCT SpanName FROM otel_traces "
+                "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
+                "AND SpanName != '' ORDER BY SpanName"
+            ).fetchall()
+        ]
+    except Exception as exc:
+        metadata_errors.append(f"span_names={_public_dashboard_query_error(exc)}")
+
+    try:
+        totals_row = db.execute(
+            "SELECT "
+            "SUM(toUInt64OrZero(SpanAttributes['gen_ai.usage.input_tokens'])) ti, "
+            "SUM(toUInt64OrZero(SpanAttributes['gen_ai.usage.output_tokens'])) to_, "
+            "COUNT(*) cnt, "
+            "countIf(SpanAttributes['error.type'] != '') errors "
+            "FROM otel_traces "
+            "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '')"
+        ).fetchone()
+        if totals_row:
+            totals = {
+                "ti": int(totals_row["ti"] or 0),
+                "to_": int(totals_row["to_"] or 0),
+                "cnt": int(totals_row["cnt"] or 0),
+                "errors": int(totals_row["errors"] or 0),
+            }
+    except Exception as exc:
+        metadata_errors.append(f"totals={_public_dashboard_query_error(exc)}")
+
+    if metadata_errors:
+        metadata_error_text = "Some AI metadata failed to load: " + "; ".join(metadata_errors[:3])
+        error_msg = f"{error_msg}; {metadata_error_text}" if error_msg else metadata_error_text
 
     return await render_template(
         "ai.html",
@@ -8046,10 +8101,10 @@ async def view_ai():
         operations=operations,
         span_names=span_names,
         trace_groups=trace_groups,
-        total_tokens_in=totals["ti"] or 0,
-        total_tokens_out=totals["to_"] or 0,
-        total_calls=totals["cnt"] or 0,
-        total_errors=totals["errors"] or 0,
+        total_tokens_in=totals["ti"],
+        total_tokens_out=totals["to_"],
+        total_calls=totals["cnt"],
+        total_errors=totals["errors"],
         error_msg=error_msg,
         sort_by=sort_by,
         sort_dir=sort_dir,
@@ -17061,7 +17116,7 @@ async def api_kubernetes_status():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 44317))
+    port = int(os.environ.get("PORT", 18080))
     requested_workers = max(
         1,
         int(
