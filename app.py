@@ -57,6 +57,33 @@ from quart import (
 # ---------------------------------------------------------------------------
 app = Quart(__name__)
 
+_base_jsonify = jsonify
+
+
+def _coerce_undefined_for_json(value: Any, depth: int = 0, max_depth: int = 12) -> Any:
+    """Replace Undefined sentinels with None so JSON encoding can proceed."""
+    if depth > max_depth:
+        return value
+
+    if type(value).__name__ == "Undefined":
+        return None
+
+    if isinstance(value, dict):
+        return {key: _coerce_undefined_for_json(item, depth + 1, max_depth) for key, item in value.items()}
+
+    if isinstance(value, (list, tuple)):
+        return [_coerce_undefined_for_json(item, depth + 1, max_depth) for item in value]
+
+    return value
+
+
+def jsonify(*args: Any, **kwargs: Any):  # type: ignore[no-redef]
+    """Wrap Quart jsonify to guard against leaked Undefined values in payloads."""
+    safe_args = tuple(_coerce_undefined_for_json(arg) for arg in args)
+    safe_kwargs = {key: _coerce_undefined_for_json(value) for key, value in kwargs.items()}
+    return _base_jsonify(*safe_args, **safe_kwargs)
+
+
 _ASYNC_HTTP_CLIENT: httpx.AsyncClient | None = None
 
 

@@ -59,6 +59,27 @@ class TestCompression:
         assert decompress_json(None) == {}
 
 
+class TestJsonSanitizer:
+    async def test_coerce_undefined_values_to_none(self):
+        class Undefined:
+            pass
+
+        payload = {
+            "top": Undefined(),
+            "nested": {"value": Undefined()},
+            "items": [1, Undefined(), {"x": Undefined()}],
+            "ok": "value",
+        }
+
+        sanitized = sobs_app._coerce_undefined_for_json(payload)
+
+        assert sanitized["top"] is None
+        assert sanitized["nested"]["value"] is None
+        assert sanitized["items"][1] is None
+        assert sanitized["items"][2]["x"] is None
+        assert sanitized["ok"] == "value"
+
+
 # ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------
