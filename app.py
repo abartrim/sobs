@@ -307,6 +307,8 @@ RUM_ASSET_MAX_BYTES = int(os.environ.get("SOBS_RUM_ASSET_MAX_BYTES", str(8 * 102
 RUM_CLIENT_AUTH_MODE = os.environ.get("SOBS_RUM_CLIENT_AUTH_MODE", "none").strip().lower()
 RUM_CLIENT_SIGNING_KEY = os.environ.get("SOBS_RUM_CLIENT_SIGNING_KEY", "")
 RUM_CLIENT_TOKEN_TTL_SEC = int(os.environ.get("SOBS_RUM_CLIENT_TOKEN_TTL_SEC", "900"))
+SOURCE_MAP_DIR = os.environ.get("SOBS_SOURCE_MAP_DIR", "").strip()
+SOURCE_MAP_ENABLE = _env_flag("SOBS_SOURCE_MAP_ENABLE", False)
 CHDB_CONFIG_FILE_ENV = "SOBS_CLICKHOUSE_CONFIG_FILE"
 CHDB_EXPECT_DISK_ENV = "SOBS_CHDB_EXPECT_DISK"
 CHDB_EXPECT_POLICY_ENV = "SOBS_CHDB_EXPECT_STORAGE_POLICY"
@@ -4159,6 +4161,121 @@ def _ns_to_iso(nanos: int) -> str:
         return _now_iso()
 
 
+_STACK_FRAME_RE = re.compile(r"(?P<prefix>.*?)(?P<url>https?://[^\s\)]+|/[^\s\):]+\.js(?:\?[^\s\)]*)?)(?::(?P<line>\d+))(?::(?P<col>\d+))(?P<suffix>.*)$")
+_SOURCE_MAP_CACHE: dict[str, tuple[float, Any]] = {}
+
+
+def _sourcemap_lookup_for_file(
+    js_url: str, line: int, col: int
+) -> tuple[str, int, int, str] | None:
+    if not SOURCE_MAP_ENABLE or not SOURCE_MAP_DIR:
+        return None
+    if not os.path.isdir(SOURCE_MAP_DIR):
+        return None
+
+    parsed = urllib.parse.urlparse(str(js_url or ""))
+    rel_path = parsed.path.lstrip("/")
+    basename = os.path.basename(parsed.path)
+    candidates = []
+    if rel_path:
+        candidates.append(os.path.join(SOURCE_MAP_DIR, rel_path + ".map"))
+    if basename:
+        candidates.append(os.path.join(SOURCE_MAP_DIR, basename + ".map"))
+        if basename.endswith(".min.js"):
+            candidates.append(os.path.join(SOURCE_MAP_DIR, basename.replace(".min.js", ".js.map")))
+        if basename.endswith(".js"):
+            candidates.append(os.path.join(SOURCE_MAP_DIR, basename[:-3] + ".js.map"))
+
+    map_path = ""
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            map_path = candidate
+            break
+    if not map_path:
+        return None
+
+    try:
+        mtime = os.path.getmtime(map_path)
+    except OSError:
+        return None
+
+    cache_entry = _SOURCE_MAP_CACHE.get(map_path)
+    index = None
+    if cache_entry and cache_entry[0] == mtime:
+        index = cache_entry[1]
+    else:
+        try:
+            import sourcemap  # type: ignore
+
+            with open(map_path, encoding="utf-8") as handle:
+                index = sourcemap.loads(handle.read())
+            _SOURCE_MAP_CACHE[map_path] = (mtime, index)
+        except Exception:
+            return None
+
+    try:
+        token = index.lookup(max(0, line - 1), max(0, col - 1))
+    except Exception:
+        return None
+    if not token:
+        return None
+
+    src = str(getattr(token, "src", "") or "")
+    src_line = int(getattr(token, "src_line", 0) or 0)
+    src_col = int(getattr(token, "src_col", 0) or 0)
+    name = str(getattr(token, "name", "") or "")
+    return (src, src_line + 1, src_col + 1, name)
+
+
+def _maybe_demangle_js_stack(stack_text: str) -> str:
+    text = str(stack_text or "")
+    if not text or not SOURCE_MAP_ENABLE:
+        return text
+
+    mapped_lines = []
+    for raw_line in text.splitlines():
+        match = _STACK_FRAME_RE.match(raw_line)
+        if not match:
+            mapped_lines.append(raw_line)
+            continue
+
+        url = str(match.group("url") or "")
+        try:
+            line = int(match.group("line") or "0")
+            col = int(match.group("col") or "0")
+        except ValueError:
+            mapped_lines.append(raw_line)
+            continue
+
+        mapped = _sourcemap_lookup_for_file(url, line, col)
+        if not mapped:
+            mapped_lines.append(raw_line)
+            continue
+
+        src, src_line, src_col, name = mapped
+        mapped_target = f"{src}:{src_line}:{src_col}" if src else f"{url}:{line}:{col}"
+        if name:
+            mapped_target = f"{name} ({mapped_target})"
+        mapped_lines.append(f"{match.group('prefix')}[mapped] {mapped_target}{match.group('suffix')}")
+
+    return "\n".join(mapped_lines)
+
+
+def _remap_rum_console_stacks(event: dict[str, Any]) -> None:
+    breadcrumbs = event.get("breadcrumbs")
+    if not isinstance(breadcrumbs, dict):
+        return
+    console_entries = breadcrumbs.get("console")
+    if not isinstance(console_entries, list):
+        return
+    for entry in console_entries:
+        if not isinstance(entry, dict):
+            continue
+        stack = str(entry.get("stack", ""))
+        if stack:
+            entry["stack"] = _maybe_demangle_js_stack(stack)
+
+
 def _parse_limit(default=200) -> int:
     try:
         return max(1, min(int(request.args.get("limit", default)), 5000))
@@ -5123,6 +5240,9 @@ async def ingest_rum():
             continue
         event = dict(event)
         event.pop("clientAuthToken", None)
+        if event.get("stack"):
+            event["stack"] = _maybe_demangle_js_stack(str(event.get("stack", "")))
+        _remap_rum_console_stacks(event)
         ts = event.get("timestamp", _now_iso())
         session_id = event.get("sessionId", "")
         event_type = event.get("type", "unknown")
@@ -5326,7 +5446,7 @@ async def ingest_errors():
     attrs["exception.type"] = str(payload.get("type", "Error"))
     attrs["exception.message"] = str(payload.get("message", ""))
     if payload.get("stack"):
-        attrs["exception.stacktrace"] = str(payload.get("stack"))
+        attrs["exception.stacktrace"] = _maybe_demangle_js_stack(str(payload.get("stack")))
     row = {
         "Timestamp": ts,
         "TraceId": str(payload.get("trace_id", "")),
@@ -5390,7 +5510,7 @@ def _build_error_item(row: dict) -> dict:
     service = str(row.get("ServiceName", ""))
     err_type = str(attrs.get("exception.type", "Error"))
     message = str(attrs.get("exception.message", row.get("Body", "")))
-    stack = str(attrs.get("exception.stacktrace", ""))
+    stack = _maybe_demangle_js_stack(str(attrs.get("exception.stacktrace", "")))
     trace_id = str(row.get("TraceId", ""))
     span_id = str(row.get("SpanId", ""))
     eid = _error_id(ts, service, err_type, message, trace_id, span_id)

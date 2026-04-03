@@ -740,6 +740,32 @@ class TestErrorsIngest:
         assert "data-err-message" in body
         assert "data-err-service" in body
 
+    async def test_ingest_error_stack_is_source_mapped_when_enabled(self, client, monkeypatch):
+        monkeypatch.setattr(sobs_app, "SOURCE_MAP_ENABLE", True)
+
+        def _fake_lookup(_js_url, line, col):
+            if line == 1 and col == 1234:
+                return ("src/components/Checkout.tsx", 88, 21, "saveOrder")
+            return None
+
+        monkeypatch.setattr(sobs_app, "_sourcemap_lookup_for_file", _fake_lookup)
+
+        r = await client.post(
+            "/v1/errors",
+            json={
+                "service": "source-map-svc",
+                "type": "TypeError",
+                "message": "minified failure",
+                "stack": "TypeError: minified failure\n  at https://cdn.example.com/assets/app.min.js:1:1234",
+            },
+        )
+        assert r.status_code == 200
+
+        page = await client.get("/errors?service=source-map-svc")
+        assert page.status_code == 200
+        body = await page.get_data(as_text=True)
+        assert "[mapped] saveOrder (src/components/Checkout.tsx:88:21)" in body
+
 
 # ---------------------------------------------------------------------------
 # RUM ingest

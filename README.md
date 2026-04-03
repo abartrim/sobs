@@ -439,6 +439,13 @@ Recommended flow:
 2. Your backend returns the token to your own web app.
 3. Browser sends token via `data-sobs-client-token-url` or `SOBS.setClientAuthToken(...)`.
 4. SOBS accepts RUM only when token origin matches request origin/referer.
+
+Optional server-side JS stack source-map remapping:
+
+- `SOBS_SOURCE_MAP_ENABLE=true`
+- `SOBS_SOURCE_MAP_DIR=/path/to/source-maps`
+
+When enabled, SOBS attempts to remap JavaScript stack frames (RUM + direct `/v1/errors`) to original source locations using `.map` files in `SOBS_SOURCE_MAP_DIR`.
 ```bash
 # Basic auth
 curl -N http://localhost:44317/tail \
