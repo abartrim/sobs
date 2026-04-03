@@ -120,22 +120,85 @@ details, security considerations, and limitations.
 <!-- One-line auto-init (endpoint inferred from script host) -->
 <script src="http://YOUR_SOBS_HOST/static/rum.js?app=my-app"></script>
 
-<!-- Optional origin-bound auth token bootstrap from your backend -->
+<!-- Feature-complete init (auth token, SPA nav, trace propagation, replay/screenshot hooks) -->
 <script
   src="http://YOUR_SOBS_HOST/static/rum.js"
-  data-sobs-app="my-app"
+  data-sobs-app="shop-web"
   data-sobs-endpoint="http://YOUR_SOBS_HOST/v1/rum"
   data-sobs-client-token-url="/internal/sobs/rum-client-token">
 </script>
-```
 
-Optional API usage (when you need manual control):
-
-```html
 <script>
+  SOBS.init({
+    endpoint: 'http://YOUR_SOBS_HOST/v1/rum',
+    appName: 'shop-web',
+    clientAuthTokenUrl: '/internal/sobs/rum-client-token',
+    trackSPA: true,
+
+    // Optional trace defaults (or call setTraceParent/setTraceContext at runtime)
+    traceparent: window.__TRACEPARENT__ || '',
+    tracePropagationOrigins: ['https://api.example.com'],
+
+    // Optional breadcrumb buffer sizing
+    consoleBufferSize: 20,
+    breadcrumbBufferSize: 40,
+
+    // Optional replay + screenshot capture for enriched error events
+    replay: {
+      enabled: true,
+      scriptUrl: 'https://cdn.jsdelivr.net/npm/rrweb@latest/dist/record/rrweb-record.min.js',
+      maxEvents: 500,
+      screenshot: {
+        enabled: true,
+        scriptUrl: 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
+        mimeType: 'image/jpeg',
+        quality: 0.75,
+        maxEdge: 1400
+      },
+      upload: async function (envelope) {
+        // Your backend uploads replay/screenshot and returns metadata refs.
+        const resp = await fetch('/api/replay/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(envelope)
+        });
+        if (!resp.ok) throw new Error('Replay upload failed');
+        // Expected shape:
+        // { replay: { id, url, provider }, artifact: { type, id, url } }
+        return resp.json();
+      }
+    }
+  });
+
+  // Add app-level breadcrumbs and custom events.
+  SOBS.addBreadcrumb('checkout', 'User clicked Place Order', { step: 'payment' });
+  SOBS.track('feature-flag', { flag: 'new-checkout', variant: 'B' });
+
+  // Attach visual context to the NEXT captured error event.
+  SOBS.setVisualContext({
+    replay: { id: 'replay-123', url: 'https://example.com/replays/replay-123', provider: 'rrweb' },
+    artifact: { type: 'screenshot', id: 'shot-123', url: 'https://example.com/artifacts/shot-123.png' },
+    ttlMs: 15000,
+    consumeOnce: true
+  });
+
+  // Manual capture path (in addition to auto window.onerror/unhandledrejection capture).
+  try {
+    throw new Error('Checkout confirmation failed');
+  } catch (err) {
+    SOBS.captureException(err, { errorSource: 'checkout-flow' });
+  }
+
+  // Runtime helpers:
   // SOBS.setTraceParent('00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01');
-  // SOBS.setVisualContext({ artifact: { type: 'screenshot', id: 'shot-123', url: 'https://example.com/artifacts/shot-123.png' }, ttlMs: 15000 });
-  // SOBS.captureException(new Error('Save failed'));
+  // SOBS.setTraceContext('<trace-id-32-hex>', '<span-id-16-hex>');
+  // SOBS.setReplayContext({ id: 'replay-123', url: 'https://.../replay-123', provider: 'rrweb' }, { ttlMs: 15000 });
+  // SOBS.setArtifactContext({ type: 'screenshot', id: 'shot-123', url: 'https://.../shot-123.png' }, { ttlMs: 15000 });
+  // SOBS.clearVisualContext();
+  // SOBS.enableReplay({ enabled: true, scriptUrl: 'https://cdn.../rrweb-record.min.js' });
+  // SOBS.disableReplay();
+  // SOBS.setReplayUpload(async (envelope) => ({ replay: { id: 'r1', url: 'https://...', provider: 'rrweb' } }));
+  // SOBS.setClientAuthToken('<short-lived-rum-token>');
 </script>
 ```
 

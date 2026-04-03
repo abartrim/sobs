@@ -2,7 +2,12 @@
 {% block title %}Metrics Anomaly Details{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-activity me-2 text-info"></i>Metrics Anomaly Details</h4>
+  <h4 class="fw-semibold mb-0"><i class="bi bi-activity me-2 text-info"></i>Metrics Anomaly Details
+    <span id="metrics-anomaly-tz-badge-btn" class="sobs-tz-header-badge" role="button" tabindex="0" title="Display timezone - click to change">
+      <i class="bi bi-clock"></i>
+      <span id="metrics-anomaly-tz-badge-label">UTC</span>
+    </span>
+  </h4>
   <div class="d-flex gap-2">
     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics') }}">
       <i class="bi bi-arrow-left me-1"></i>Back to Metrics
@@ -137,10 +142,10 @@
     <span class="small font-monospace">z={{ point_score }}</span>
     {% endif %}
     {% if from_ts %}
-    <span class="small text-secondary">from {{ from_ts }}</span>
+    <span class="small text-secondary">from <span class="sobs-tz-ts" data-utc-ts="{{ from_ts }}">{{ from_ts }}</span></span>
     {% endif %}
     {% if to_ts %}
-    <span class="small text-secondary">to {{ to_ts }}</span>
+    <span class="small text-secondary">to <span class="sobs-tz-ts" data-utc-ts="{{ to_ts }}">{{ to_ts }}</span></span>
     {% endif %}
   </div>
 </div>
@@ -182,7 +187,7 @@
         {% if rows %}
           {% for r in rows %}
           <tr>
-            <td class="font-monospace small">{{ r.time }}</td>
+            <td class="font-monospace small sobs-tz-ts" data-utc-ts="{{ r.time }}">{{ r.time }}</td>
             <td class="small">{{ r.service }}</td>
             <td class="small font-monospace">{{ r.metric }}</td>
             <td class="small">{{ r.metric_kind }}</td>
@@ -241,6 +246,17 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='echarts.min.js') }}"></script>
 <script>
+  if (window.sobsTimezone && typeof window.sobsTimezone.initPage === 'function') {
+    window.sobsTimezone.initPage({
+      fromInputId: 'metrics-anomaly-from-ts',
+      toInputId: 'metrics-anomaly-to-ts',
+      formSelector: 'form[method="get"]',
+      badgeButtonId: 'metrics-anomaly-tz-badge-btn',
+      badgeLabelId: 'metrics-anomaly-tz-badge-label',
+      timestampSelector: '.sobs-tz-ts[data-utc-ts]'
+    });
+  }
+
   (function () {
     var chartEl = document.getElementById('metricsAnomalyChart');
     if (!chartEl) return;

@@ -64,6 +64,10 @@
               aria-expanded="true" aria-controls="logsFiltersPanel">
         <i class="bi bi-funnel me-2 text-info"></i>
         <span class="fw-semibold">Filters</span>
+        <span id="logs-tz-badge-btn" class="sobs-tz-header-badge" role="button" tabindex="0" title="Display timezone - click to change">
+          <i class="bi bi-clock"></i>
+          <span id="logs-tz-badge-label">UTC</span>
+        </span>
       </button>
     </h2>
     <div id="logsFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="logsFiltersHeading" data-bs-parent="#logsFiltersAccordion">
@@ -371,7 +375,7 @@
     <tbody id="logsTableBody">
       {% for log in logs %}
       <tr>
-        <td class="text-secondary small font-monospace">{{ log.ts[:23] }}</td>
+        <td class="text-secondary small font-monospace sobs-tz-ts" data-utc-ts="{{ log.ts }}">{{ log.ts[:23] }}</td>
         <td><span class="badge badge-level-{{ log.level }}">{{ log.level }}</span></td>
         <td><span class="badge bg-secondary">{{ log.service or '—' }}</span></td>
         <td class="log-body">
@@ -444,6 +448,17 @@
 {% block scripts %}
 <script>
 (() => {
+  if (window.sobsTimezone && typeof window.sobsTimezone.initPage === 'function') {
+    window.sobsTimezone.initPage({
+      fromInputId: 'logs-from-ts',
+      toInputId: 'logs-to-ts',
+      formSelector: '#logsFiltersPanel form[method="get"]',
+      badgeButtonId: 'logs-tz-badge-btn',
+      badgeLabelId: 'logs-tz-badge-label',
+      timestampSelector: '.sobs-tz-ts[data-utc-ts]'
+    });
+  }
+
   const toggleBtn = document.getElementById("liveModeToggle");
   const liveInput = document.getElementById("liveModeInput");
   const newCountBtn = document.getElementById("liveNewCountBtn");
@@ -662,7 +677,8 @@
     tr.classList.add("live-row-new");
 
     const ts = document.createElement("td");
-    ts.className = "text-secondary small font-monospace";
+    ts.className = "text-secondary small font-monospace sobs-tz-ts";
+    ts.setAttribute('data-utc-ts', String(event.ts || ''));
     ts.textContent = formatTs(event.ts);
 
     const level = document.createElement("td");
@@ -688,6 +704,9 @@
     tr.appendChild(createTraceCell(event.trace_id || ""));
 
     insertRowBySort(tr, event);
+    if (window.sobsTimezone && typeof window.sobsTimezone.refreshTimestamps === 'function') {
+      window.sobsTimezone.refreshTimestamps('.sobs-tz-ts[data-utc-ts]');
+    }
     while (tableBody.children.length > MAX_LIVE_ROWS) {
       tableBody.removeChild(tableBody.lastChild);
     }

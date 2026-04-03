@@ -648,7 +648,7 @@ WINDOW w AS (
     ROWS BETWEEN 59 PRECEDING AND CURRENT ROW
 );
 
-CREATE VIEW IF NOT EXISTS v_derived_signals_1m AS
+CREATE OR REPLACE VIEW v_derived_signals_1m AS
 SELECT
     ServiceName,
     'logs' AS SignalSource,
@@ -725,6 +725,84 @@ SELECT
     count() AS SampleCount
 FROM otel_logs
 WHERE EventName = 'exception'
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+        ServiceName,
+        'rum_vitals' AS SignalSource,
+        'LCP' AS SignalName,
+        substring(lower(hex(MD5(concat(ServiceName, '|rum_vitals|LCP')))), 1, 16) AS AttrFingerprint,
+        toStartOfMinute(Timestamp) AS MinuteBucket,
+        toFloat64(quantileExact(0.75)(JSONExtractFloat(Body, 'value'))) AS Value,
+        count() AS SampleCount
+FROM hyperdx_sessions
+WHERE EventName = 'web-vital'
+    AND JSONExtractString(Body, 'name') = 'LCP'
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+        ServiceName,
+        'rum_vitals' AS SignalSource,
+        'INP' AS SignalName,
+        substring(lower(hex(MD5(concat(ServiceName, '|rum_vitals|INP')))), 1, 16) AS AttrFingerprint,
+        toStartOfMinute(Timestamp) AS MinuteBucket,
+        toFloat64(quantileExact(0.75)(JSONExtractFloat(Body, 'value'))) AS Value,
+        count() AS SampleCount
+FROM hyperdx_sessions
+WHERE EventName = 'web-vital'
+    AND JSONExtractString(Body, 'name') = 'INP'
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+        ServiceName,
+        'rum_vitals' AS SignalSource,
+        'CLS' AS SignalName,
+        substring(lower(hex(MD5(concat(ServiceName, '|rum_vitals|CLS')))), 1, 16) AS AttrFingerprint,
+        toStartOfMinute(Timestamp) AS MinuteBucket,
+        toFloat64(quantileExact(0.75)(JSONExtractFloat(Body, 'value'))) AS Value,
+        count() AS SampleCount
+FROM hyperdx_sessions
+WHERE EventName = 'web-vital'
+    AND JSONExtractString(Body, 'name') = 'CLS'
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+        ServiceName,
+        'rum_vitals' AS SignalSource,
+        'TTFB' AS SignalName,
+        substring(lower(hex(MD5(concat(ServiceName, '|rum_vitals|TTFB')))), 1, 16) AS AttrFingerprint,
+        toStartOfMinute(Timestamp) AS MinuteBucket,
+        toFloat64(quantileExact(0.75)(JSONExtractFloat(Body, 'value'))) AS Value,
+        count() AS SampleCount
+FROM hyperdx_sessions
+WHERE EventName = 'web-vital'
+    AND JSONExtractString(Body, 'name') = 'TTFB'
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+        ServiceName,
+        'rum_vitals' AS SignalSource,
+        'FCP' AS SignalName,
+        substring(lower(hex(MD5(concat(ServiceName, '|rum_vitals|FCP')))), 1, 16) AS AttrFingerprint,
+        toStartOfMinute(Timestamp) AS MinuteBucket,
+        toFloat64(quantileExact(0.75)(JSONExtractFloat(Body, 'value'))) AS Value,
+        count() AS SampleCount
+FROM hyperdx_sessions
+WHERE EventName = 'web-vital'
+    AND JSONExtractString(Body, 'name') = 'FCP'
+GROUP BY ServiceName, MinuteBucket
+UNION ALL
+SELECT
+        ServiceName,
+        'rum_vitals' AS SignalSource,
+        'FID' AS SignalName,
+        substring(lower(hex(MD5(concat(ServiceName, '|rum_vitals|FID')))), 1, 16) AS AttrFingerprint,
+        toStartOfMinute(Timestamp) AS MinuteBucket,
+        toFloat64(quantileExact(0.75)(JSONExtractFloat(Body, 'value'))) AS Value,
+        count() AS SampleCount
+FROM hyperdx_sessions
+WHERE EventName = 'web-vital'
+    AND JSONExtractString(Body, 'name') = 'FID'
 GROUP BY ServiceName, MinuteBucket;
 
 CREATE VIEW IF NOT EXISTS v_derived_signals_anomaly AS
@@ -1106,10 +1184,12 @@ class ChDbConnection:
         log.info("chDB connect target: %s", connect_target)
         self._conn = chdb_driver.connect(connect_target)
         self._lock = threading.Lock()
+        self._closed = False
         try:
             _validate_chdb_startup_configuration(self)
         except Exception:
             self._conn.close()
+            self._closed = True
             raise
 
     def execute(self, query: str, params=None):
@@ -1134,7 +1214,11 @@ class ChDbConnection:
         return None  # ClickHouse auto-commits
 
     def close(self):
-        self._conn.close()
+        with self._lock:
+            if self._closed:
+                return
+            self._conn.close()
+            self._closed = True
 
 
 _global_db: ChDbConnection | None = None
@@ -1216,6 +1300,7 @@ def _ensure_post_schema_state(db: ChDbConnection) -> None:
     _ensure_ai_memory_schema(db)
     _prime_log_attr_key_cache(db)
     _seed_app_release_registry_from_env(db)
+    _seed_cwv_anomaly_rules(db)
     if not app.config.get("TESTING"):
         _seed_example_metrics_content(db)
 
@@ -3724,6 +3809,45 @@ def _seed_example_metrics_content(db: ChDbConnection) -> None:
     _soft_delete_seed_chart_by_title(db, dashboard_id, "Trace latency")
 
 
+_CWV_RULES: list[tuple[str, str, str, float, float]] = [
+    ("CWV LCP", "LCP", "gt", 2500.0, 4000.0),
+    ("CWV INP", "INP", "gt", 200.0, 500.0),
+    ("CWV CLS", "CLS", "gt", 0.1, 0.25),
+    ("CWV TTFB", "TTFB", "gt", 800.0, 1800.0),
+    ("CWV FCP", "FCP", "gt", 1800.0, 3000.0),
+    ("CWV FID", "FID", "gt", 100.0, 300.0),
+]
+
+
+def _seed_cwv_anomaly_rules(db: ChDbConnection) -> None:
+    """Seed default Core Web Vitals threshold rules into sobs_anomaly_rules."""
+    version = int(time.time() * 1000)
+    for name, signal, comparator, warn, crit in _CWV_RULES:
+        _seed_rule_if_missing(
+            db,
+            {
+                "Id": str(uuid.uuid4()),
+                "Name": name,
+                "RuleType": "threshold",
+                "SignalSource": "rum_vitals",
+                "SignalName": signal,
+                "ServiceName": "",
+                "AttrFingerprint": "",
+                "Comparator": comparator,
+                "WarningThreshold": warn,
+                "CriticalThreshold": crit,
+                "SecondarySignalSource": "",
+                "SecondarySignalName": "",
+                "SecondaryComparator": "gt",
+                "SecondaryWarningThreshold": 0.0,
+                "SecondaryCriticalThreshold": 0.0,
+                "MinSampleCount": 5,
+                "IsDeleted": 0,
+                "Version": version,
+            },
+        )
+
+
 def _run_write_batch(tasks: list[_WriteTask]) -> None:
     db = get_db()
     for task in tasks:
@@ -4397,6 +4521,57 @@ def _time_window_conditions(column: str, from_ts: str, to_ts: str) -> tuple[list
         conditions.append(f"{column} < parseDateTime64BestEffort(?, 9)")
         params.append(to_ts)
     return conditions, params
+
+
+_RUM_SESSION_KEY_SQL = (
+    "if(LogAttributes['sessionId'] != '', LogAttributes['sessionId'], "
+    "if(LogAttributes['session.id'] != '', LogAttributes['session.id'], "
+    "concat('anon:', substring(lower(hex(MD5(concat(toString(Timestamp), '|', Body)))), 1, 16))))"
+)
+
+
+def _rum_session_key_from_attrs(attrs: dict[str, str], ts: str, body_raw: str) -> str:
+    session_id = str(attrs.get("sessionId", attrs.get("session.id", ""))).strip()
+    if session_id:
+        return session_id
+    return f"anon:{hashlib.md5(f'{ts}|{body_raw}'.encode('utf-8')).hexdigest()[:16]}"
+
+
+def _build_rum_event_item(row: Any) -> dict[str, Any]:
+    attrs = _map_to_dict(row["LogAttributes"])
+    body_raw = str(row["Body"] or "")
+    try:
+        body_data = json.loads(body_raw) if body_raw else {}
+    except json.JSONDecodeError:
+        body_data = {}
+
+    data = body_data if isinstance(body_data, dict) else {"value": body_data}
+    keys = set(row.keys()) if hasattr(row, "keys") else set()
+    trace_id = str(row["TraceId"]) if "TraceId" in keys else str(data.get("traceId", ""))
+    span_id = str(row["SpanId"]) if "SpanId" in keys else str(data.get("spanId", ""))
+    if trace_id and not data.get("traceId"):
+        data["traceId"] = trace_id
+    if span_id and not data.get("spanId"):
+        data["spanId"] = span_id
+
+    ts = str(row["Timestamp"])
+    session_key = _rum_session_key_from_attrs(attrs, ts, body_raw)
+    artifact_raw = data.get("artifact")
+    replay_raw = data.get("replay")
+    artifact: dict[str, Any] = artifact_raw if isinstance(artifact_raw, dict) else {}
+    replay: dict[str, Any] = replay_raw if isinstance(replay_raw, dict) else {}
+    return {
+        "ts": ts,
+        "session_key": session_key,
+        "session_id": session_key[:8],
+        "event_type": str(row["EventName"]),
+        "url": str(attrs.get("url", attrs.get("url.full", ""))),
+        "data": data,
+        "trace_id": trace_id,
+        "span_id": span_id,
+        "has_artifact": bool(artifact.get("url") or artifact.get("id")),
+        "has_replay": bool(replay.get("url") or replay.get("id")),
+    }
 
 
 def _hex(b) -> str:
@@ -5505,6 +5680,36 @@ async def ingest_metrics():
 # ---------------------------------------------------------------------------
 # RUM Ingest  POST /v1/rum
 # ---------------------------------------------------------------------------
+_TRACEPARENT_RE = re.compile(r"^[0-9a-fA-F]{2}-([0-9a-fA-F]{32})-([0-9a-fA-F]{16})-([0-9a-fA-F]{2})$")
+
+
+def _extract_trace_fields(event: dict[str, Any]) -> tuple[str, str, int]:
+    trace_id = str(event.get("traceId", "") or "").strip().lower()
+    span_id = str(event.get("spanId", "") or "").strip().lower()
+    trace_flags = 0
+
+    raw_flags = event.get("traceFlags")
+    if raw_flags is not None and str(raw_flags).strip() != "":
+        try:
+            trace_flags = int(str(raw_flags), 16) if isinstance(raw_flags, str) else int(raw_flags)
+        except (TypeError, ValueError):
+            trace_flags = 0
+
+    if trace_id and span_id:
+        return trace_id, span_id, trace_flags
+
+    traceparent = str(event.get("traceparent", "") or "").strip()
+    match = _TRACEPARENT_RE.match(traceparent)
+    if not match:
+        return trace_id, span_id, trace_flags
+
+    parsed_trace_id = match.group(1).lower()
+    parsed_span_id = match.group(2).lower()
+    parsed_flags = int(match.group(3), 16)
+
+    return parsed_trace_id or trace_id, parsed_span_id or span_id, parsed_flags
+
+
 @app.route("/v1/rum", methods=["POST"])
 @require_api_key
 async def ingest_rum():
@@ -5534,13 +5739,14 @@ async def ingest_rum():
         session_id = event.get("sessionId", "")
         event_type = event.get("type", "unknown")
         url = event.get("url", "")
+        trace_id, span_id, trace_flags = _extract_trace_fields(event)
         attrs = _stringify_attrs(event)
         session_rows.append(
             {
                 "Timestamp": ts,
-                "TraceId": str(event.get("traceId", "")),
-                "SpanId": str(event.get("spanId", "")),
-                "TraceFlags": 0,
+                "TraceId": trace_id,
+                "SpanId": span_id,
+                "TraceFlags": trace_flags,
                 "SeverityText": "ERROR" if event_type in ("error", "unhandledrejection") else "INFO",
                 "SeverityNumber": _severity_number(
                     "ERROR" if event_type in ("error", "unhandledrejection") else "INFO"
@@ -5590,9 +5796,9 @@ async def ingest_rum():
             error_rows.append(
                 {
                     "Timestamp": ts,
-                    "TraceId": str(event.get("traceId", "")),
-                    "SpanId": str(event.get("spanId", "")),
-                    "TraceFlags": 0,
+                    "TraceId": trace_id,
+                    "SpanId": span_id,
+                    "TraceFlags": trace_flags,
                     "SeverityText": "ERROR",
                     "SeverityNumber": _severity_number("ERROR"),
                     "ServiceName": "rum",
@@ -6013,13 +6219,120 @@ WHERE EventName IN ('error', 'unhandledrejection', 'exception')
 """
 
 
+def _compact_text(value: str, limit: int = 220) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "..."
+
+
+def _try_pretty_json_text(value: str) -> tuple[bool, str]:
+    raw = str(value or "").strip()
+    if not raw or raw[:1] not in ("{", "["):
+        return False, ""
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return False, ""
+    return True, json.dumps(parsed, ensure_ascii=False, indent=2)
+
+
+def _extract_structured_error_summary(message: str, raw_body: str) -> tuple[str, bool]:
+    text_keys = {
+        "message",
+        "error",
+        "error_message",
+        "errormessage",
+        "detail",
+        "description",
+        "reason",
+        "body",
+        "msg",
+    }
+    code_keys = {"code", "status", "status_code", "error_code", "errorcode"}
+    type_keys = {"type", "error_type", "exception", "name"}
+
+    def _first_scalar(value: Any, keyset: set[str], depth: int = 0) -> str:
+        if depth > 5:
+            return ""
+        if isinstance(value, dict):
+            # Prefer direct matches before descending.
+            for key, inner in value.items():
+                if str(key).lower() in keyset and isinstance(inner, (str, int, float, bool)):
+                    return str(inner).strip()
+            for inner in value.values():
+                found = _first_scalar(inner, keyset, depth + 1)
+                if found:
+                    return found
+            return ""
+        if isinstance(value, list):
+            for inner in value:
+                found = _first_scalar(inner, keyset, depth + 1)
+                if found:
+                    return found
+            return ""
+        if isinstance(value, (str, int, float, bool)):
+            return str(value).strip()
+        return ""
+
+    def _to_summary(parsed: Any) -> str:
+        if isinstance(parsed, list):
+            parsed = parsed[0] if parsed else {}
+        if not isinstance(parsed, dict):
+            return ""
+
+        message_text = _first_scalar(parsed, text_keys)
+        code_text = _first_scalar(parsed, code_keys)
+        type_text = _first_scalar(parsed, type_keys)
+
+        if message_text:
+            summary = message_text
+            extras = []
+            if type_text and type_text.lower() not in summary.lower():
+                extras.append(type_text)
+            if code_text and code_text.lower() not in summary.lower():
+                extras.append("code " + code_text)
+            if extras:
+                summary = summary + " [" + ", ".join(extras) + "]"
+            return _compact_text(summary)
+        if type_text and code_text:
+            return _compact_text(type_text + " (code " + code_text + ")")
+        if type_text:
+            return _compact_text(type_text)
+        if code_text:
+            return _compact_text("code " + code_text)
+        return ""
+
+    for candidate in (message, raw_body):
+        raw = str(candidate or "").strip()
+        if not raw:
+            continue
+        if raw[:1] not in ("{", "["):
+            continue
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        summary = _to_summary(parsed)
+        if summary:
+            return summary, True
+        return _compact_text(json.dumps(parsed, ensure_ascii=False)), True
+
+    return _compact_text(message or raw_body), False
+
+
 def _build_error_item(row: dict) -> dict:
     attrs = _map_to_dict(row.get("LogAttributes"))
     ts = str(row.get("Timestamp", ""))
     service = str(row.get("ServiceName", ""))
     err_type = str(attrs.get("exception.type", "Error"))
     message = str(attrs.get("exception.message", row.get("Body", "")))
+    raw_body = str(row.get("Body", ""))
+    message_summary, summary_from_json = _extract_structured_error_summary(message, raw_body)
+    message_is_json, message_pretty_json = _try_pretty_json_text(message)
+    body_is_json, body_pretty_json = _try_pretty_json_text(raw_body)
     stack = _maybe_demangle_js_stack(str(attrs.get("exception.stacktrace", "")))
+    stack_is_json, stack_pretty_json = _try_pretty_json_text(stack)
     trace_id = str(row.get("TraceId", ""))
     span_id = str(row.get("SpanId", ""))
     eid = _error_id(ts, service, err_type, message, trace_id, span_id)
@@ -6029,7 +6342,16 @@ def _build_error_item(row: dict) -> dict:
         "service": service,
         "err_type": err_type,
         "message": message,
+        "message_summary": message_summary,
+        "summary_from_json": summary_from_json,
+        "message_is_json": message_is_json,
+        "message_pretty_json": message_pretty_json,
+        "raw_body": raw_body,
+        "raw_body_is_json": body_is_json,
+        "raw_body_pretty_json": body_pretty_json,
         "stack": stack,
+        "stack_is_json": stack_is_json,
+        "stack_pretty_json": stack_pretty_json,
         "trace_id": trace_id,
         "span_id": span_id,
         "url": str(attrs.get("url.full", "")),
@@ -8545,6 +8867,102 @@ def _build_span_tree(spans: list[dict]) -> list[dict]:
     return result
 
 
+def _compute_active_timeline_ms(spans: list[dict]) -> float:
+    """Return merged active time across span intervals in milliseconds."""
+    merged = _merge_span_intervals(spans)
+    return sum(max(0.0, end_ms - start_ms) for start_ms, end_ms in merged)
+
+
+def _merge_span_intervals(spans: list[dict]) -> list[tuple[float, float]]:
+    """Merge span start/end intervals sorted by start time."""
+    if not spans:
+        return []
+    intervals: list[tuple[float, float]] = []
+    for span in spans:
+        start_ms = float(span.get("start_ms", 0.0) or 0.0)
+        duration_ms = max(float(span.get("duration_ms", 0.0) or 0.0), 0.0)
+        end_ms = start_ms + duration_ms
+        intervals.append((start_ms, end_ms))
+    intervals.sort(key=lambda item: item[0])
+    merged: list[tuple[float, float]] = []
+    for start_ms, end_ms in intervals:
+        if not merged or start_ms > merged[-1][1]:
+            merged.append((start_ms, end_ms))
+        else:
+            prev_start, prev_end = merged[-1]
+            merged[-1] = (prev_start, max(prev_end, end_ms))
+    return merged
+
+
+def _build_trace_timeline_segments(
+    spans: list[dict], activity_ts_ms: list[float]
+) -> list[dict[str, float | str | bool]]:
+    """Return active/gap segments over the trace window with optional gap-signal flags."""
+    if not spans:
+        return []
+
+    trace_start_ms = min(float(s.get("start_ms", 0.0) or 0.0) for s in spans)
+    trace_end_ms = max(
+        (float(s.get("start_ms", 0.0) or 0.0) + max(float(s.get("duration_ms", 0.0) or 0.0), 0.0)) for s in spans
+    )
+    trace_total_ms = max(trace_end_ms - trace_start_ms, 1.0)
+
+    merged = _merge_span_intervals(spans)
+    activity_sorted = sorted(float(ts) for ts in activity_ts_ms)
+    segments: list[dict[str, float | str | bool]] = []
+
+    def _to_pct(value_ms: float) -> float:
+        return (value_ms - trace_start_ms) / trace_total_ms * 100.0
+
+    def _has_gap_activity(start_ms: float, end_ms: float) -> bool:
+        for ts in activity_sorted:
+            if ts < start_ms:
+                continue
+            if ts > end_ms:
+                break
+            return True
+        return False
+
+    cursor = trace_start_ms
+    for start_ms, end_ms in merged:
+        if start_ms > cursor:
+            gap_width_pct = _to_pct(start_ms) - _to_pct(cursor)
+            if gap_width_pct > 0:
+                segments.append(
+                    {
+                        "kind": "gap",
+                        "start_pct": round(_to_pct(cursor), 3),
+                        "width_pct": round(gap_width_pct, 3),
+                        "potential": _has_gap_activity(cursor, start_ms),
+                    }
+                )
+        active_width_pct = _to_pct(end_ms) - _to_pct(start_ms)
+        if active_width_pct > 0:
+            segments.append(
+                {
+                    "kind": "active",
+                    "start_pct": round(_to_pct(start_ms), 3),
+                    "width_pct": round(active_width_pct, 3),
+                    "potential": False,
+                }
+            )
+        cursor = max(cursor, end_ms)
+
+    if cursor < trace_end_ms:
+        gap_width_pct = _to_pct(trace_end_ms) - _to_pct(cursor)
+        if gap_width_pct > 0:
+            segments.append(
+                {
+                    "kind": "gap",
+                    "start_pct": round(_to_pct(cursor), 3),
+                    "width_pct": round(gap_width_pct, 3),
+                    "potential": _has_gap_activity(cursor, trace_end_ms),
+                }
+            )
+
+    return segments
+
+
 @app.route("/traces")
 @require_basic_auth
 async def view_traces():
@@ -8647,6 +9065,9 @@ async def view_traces():
             trace_start_ms = min(s["start_ms"] for s in all_trace_spans)
             trace_end_ms = max(s["start_ms"] + s["duration_ms"] for s in all_trace_spans)
             trace_total_ms = max(trace_end_ms - trace_start_ms, 1.0)
+            trace_active_ms = _compute_active_timeline_ms(all_trace_spans)
+            trace_coverage_pct = min(100.0, max(0.0, (trace_active_ms / trace_total_ms) * 100.0))
+            trace_span_sum_ms = sum(max(0.0, float(s.get("duration_ms", 0.0) or 0.0)) for s in all_trace_spans)
             for span in all_trace_spans:
                 span["offset_pct"] = round((span["start_ms"] - trace_start_ms) / trace_total_ms * 100, 2)
                 # 0.5 minimum keeps very short spans visible in the timeline bar
@@ -8656,6 +9077,7 @@ async def view_traces():
             _TRACE_ERROR_LIMIT = 50
             trace_errors: list[dict] = []
             errors_truncated = False
+            trace_activity_ts_ms: list[float] = []
             try:
                 err_rows = db.execute(
                     "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes "
@@ -8670,6 +9092,9 @@ async def view_traces():
                     item = _build_error_item(dict(row))
                     item["resolved"] = item["id"] in resolved_ids
                     trace_errors.append(item)
+                    ts_raw = str(item.get("ts") or "")
+                    if ts_raw:
+                        trace_activity_ts_ms.append(_ts_str_to_epoch_ms(ts_raw))
             except Exception as exc:
                 log.warning("view_traces: failed to fetch errors for trace %s: %s", trace_id, exc)
 
@@ -8684,8 +9109,20 @@ async def view_traces():
                 ).fetchall()
                 for r in log_rows:
                     log_counts[str(r["SpanId"])] = int(r["cnt"])
+
+                log_ts_rows = db.execute(
+                    "SELECT Timestamp FROM otel_logs WHERE TraceId=? LIMIT 2000",
+                    [trace_id],
+                ).fetchall()
+                for r in log_ts_rows:
+                    trace_activity_ts_ms.append(_ts_str_to_epoch_ms(str(r["Timestamp"])))
             except Exception as exc:
                 log.warning("view_traces: failed to fetch log counts for trace %s: %s", trace_id, exc)
+
+            timeline_segments = _build_trace_timeline_segments(all_trace_spans, trace_activity_ts_ms)
+            has_potential_gap = any(
+                seg.get("kind") == "gap" and bool(seg.get("potential")) for seg in timeline_segments
+            )
 
             # Fetch anomaly state for the primary service.
             trace_anomaly_state: str | None = None
@@ -8711,6 +9148,11 @@ async def view_traces():
                 "log_counts": log_counts,
                 "anomaly_state": trace_anomaly_state,
                 "total_ms": round(trace_total_ms, 2),
+                "active_ms": round(trace_active_ms, 2),
+                "coverage_pct": round(trace_coverage_pct, 2),
+                "span_sum_ms": round(trace_span_sum_ms, 2),
+                "timeline_segments": timeline_segments,
+                "has_potential_gap": has_potential_gap,
             }
 
     return await render_template(
@@ -8738,14 +9180,28 @@ async def view_traces():
 @require_basic_auth
 async def view_rum():
     db = get_db()
+    view_mode = request.args.get("view", "sessions").strip().lower()
+    if view_mode not in ("sessions", "events"):
+        view_mode = "sessions"
     event_type = request.args.get("type", "").strip()
     error_source = request.args.get("error_source", "").strip()
     limit = _parse_limit(200)
     offset = _parse_offset()
-    sort_by, sort_col, sort_dir = _parse_sort(
-        {"Timestamp": "Timestamp", "EventName": "EventName"},
-        "Timestamp",
-    )
+    if view_mode == "sessions":
+        sort_by, sort_col, sort_dir = _parse_sort(
+            {
+                "severity": "severity_rank",
+                "last_seen": "last_ts",
+                "events": "event_count",
+                "errors": "error_count",
+            },
+            "severity",
+        )
+    else:
+        sort_by, sort_col, sort_dir = _parse_sort(
+            {"Timestamp": "Timestamp", "EventName": "EventName"},
+            "Timestamp",
+        )
     order_clause = f"ORDER BY {sort_col} {'ASC' if sort_dir == 'asc' else 'DESC'}"
     from_ts, to_ts, time_error = _parse_time_window_args()
 
@@ -8761,31 +9217,94 @@ async def view_rum():
     conditions.extend(time_conditions)
     params.extend(time_params)
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    total = 0
+    events: list[dict[str, Any]] = []
+    session_groups: list[dict[str, Any]] = []
+    if view_mode == "sessions":
+        total = db.execute(
+            "SELECT count() FROM ("
+            f"SELECT {_RUM_SESSION_KEY_SQL} AS session_key "
+            f"FROM hyperdx_sessions {where} GROUP BY session_key)",
+            params,
+        ).fetchone()[0]
+        summary_rows = db.execute(
+            "SELECT "
+            f"  {_RUM_SESSION_KEY_SQL} AS session_key,"
+            "  max(Timestamp) AS last_ts,"
+            "  count() AS event_count,"
+            "  countIf(EventName IN ('error', 'unhandledrejection')) AS error_count,"
+            "  countIf(EventName = 'web-vital' "
+            "AND JSONExtractString(Body, 'rating') = 'poor') AS poor_vital_count,"
+            "  countIf(EventName = 'web-vital' "
+            "AND JSONExtractString(Body, 'rating') = 'needs-improvement') AS warn_vital_count,"
+            "  countIf(TraceId != '') AS traced_count,"
+            "  multiIf("
+            "    countIf(EventName IN ('error', 'unhandledrejection')) > 0, 3,"
+            "    countIf(EventName = 'web-vital' "
+            "AND JSONExtractString(Body, 'rating') = 'poor') > 0, 2,"
+            "    countIf(EventName = 'web-vital' "
+            "AND JSONExtractString(Body, 'rating') = 'needs-improvement') > 0, 1,"
+            "    0"
+            "  ) AS severity_rank,"
+            "  argMax(if(LogAttributes['url'] != '', LogAttributes['url'], "
+            "LogAttributes['url.full']), Timestamp) AS last_url,"
+            "  argMax(EventName, Timestamp) AS last_event_type"
+            f" FROM hyperdx_sessions {where}"
+            " GROUP BY session_key "
+            f" ORDER BY {sort_col} {'ASC' if sort_dir == 'asc' else 'DESC'}, last_ts DESC LIMIT ? OFFSET ?",
+            params + [limit, offset],
+        ).fetchall()
 
-    total = db.execute(f"SELECT COUNT(*) FROM hyperdx_sessions {where}", params).fetchone()[0]
-    rows = db.execute(
-        f"SELECT Timestamp, EventName, Body, LogAttributes FROM hyperdx_sessions {where} "
-        f"{order_clause} LIMIT ? OFFSET ?",
-        params + [limit, offset],
-    ).fetchall()
+        if summary_rows:
+            session_keys = [str(row["session_key"]) for row in summary_rows]
+            placeholders = ",".join(["?"] * len(session_keys))
+            detail_conditions = list(conditions)
+            detail_conditions.append(f"{_RUM_SESSION_KEY_SQL} IN ({placeholders})")
+            detail_where = "WHERE " + " AND ".join(detail_conditions)
+            detail_rows = db.execute(
+                "SELECT Timestamp, EventName, Body, LogAttributes, TraceId, SpanId "
+                f"FROM hyperdx_sessions {detail_where} "
+                f"ORDER BY {_RUM_SESSION_KEY_SQL} ASC, Timestamp DESC",
+                params + session_keys,
+            ).fetchall()
+            events_by_session: dict[str, list[dict[str, Any]]] = {}
+            for row in detail_rows:
+                item = _build_rum_event_item(row)
+                events_by_session.setdefault(str(item["session_key"]), []).append(item)
 
-    events = []
-    for r in rows:
-        attrs = _map_to_dict(r["LogAttributes"])
-        try:
-            body_data = json.loads(r["Body"]) if r["Body"] else {}
-        except json.JSONDecodeError:
-            body_data = {}
-        data = body_data if isinstance(body_data, dict) else {"value": body_data}
-        events.append(
-            {
-                "ts": str(r["Timestamp"]),
-                "session_id": str(attrs.get("sessionId", attrs.get("session.id", "")))[:8],
-                "event_type": r["EventName"],
-                "url": str(attrs.get("url", attrs.get("url.full", ""))),
-                "data": data,
-            }
-        )
+            for row in summary_rows:
+                session_key = str(row["session_key"])
+                session_events = events_by_session.get(session_key, [])
+                session_trace_id = next(
+                    (str(ev.get("trace_id", "")) for ev in session_events if ev.get("trace_id")), ""
+                )
+                session_groups.append(
+                    {
+                        "session_key": session_key,
+                        "session_id": session_key[:8],
+                        "last_ts": str(row["last_ts"]),
+                        "last_url": str(row["last_url"] or ""),
+                        "last_event_type": str(row["last_event_type"] or ""),
+                        "event_count": int(row["event_count"]),
+                        "error_count": int(row["error_count"]),
+                        "poor_vital_count": int(row["poor_vital_count"]),
+                        "warn_vital_count": int(row["warn_vital_count"]),
+                        "severity_rank": int(row["severity_rank"]),
+                        "traced_count": int(row["traced_count"]),
+                        "trace_id": session_trace_id,
+                        "has_replay": any(bool(ev.get("has_replay")) for ev in session_events),
+                        "has_artifact": any(bool(ev.get("has_artifact")) for ev in session_events),
+                        "events": session_events,
+                    }
+                )
+    else:
+        total = db.execute(f"SELECT COUNT(*) FROM hyperdx_sessions {where}", params).fetchone()[0]
+        rows = db.execute(
+            f"SELECT Timestamp, EventName, Body, LogAttributes, TraceId, SpanId FROM hyperdx_sessions {where} "
+            f"{order_clause} LIMIT ? OFFSET ?",
+            params + [limit, offset],
+        ).fetchall()
+        events = [_build_rum_event_item(row) for row in rows]
 
     event_types = [
         row[0] for row in db.execute("SELECT DISTINCT EventName FROM hyperdx_sessions ORDER BY EventName").fetchall()
@@ -8798,47 +9317,185 @@ async def view_rum():
         ).fetchall()
     ]
 
-    # Web vitals summary
-    vitals_rows = db.execute(
-        "SELECT Body, LogAttributes FROM hyperdx_sessions WHERE EventName='web-vital' "
-        "ORDER BY Timestamp DESC LIMIT 500"
-    ).fetchall()
-    vitals = {}
-    for vr in vitals_rows:
-        attrs = _map_to_dict(vr["LogAttributes"])
-        try:
-            d = json.loads(vr["Body"]) if vr["Body"] else {}
-        except json.JSONDecodeError:
-            d = {}
-        if not isinstance(d, dict):
-            d = {}
-        name = d.get("name", "")
-        val = d.get("value", attrs.get("value"))
-        try:
-            val = float(val) if val is not None else None
-        except (TypeError, ValueError):
-            val = None
-        if name and val is not None:
-            vitals.setdefault(name, []).append(val)
-    vitals_summary = {}
-    for name, vals in vitals.items():
-        vitals_summary[name] = {
-            "avg": round(sum(vals) / len(vals), 1),
-            "p75": round(sorted(vals)[int(len(vals) * 0.75)], 1),
-            "count": len(vals),
-        }
+    # Web vitals — anomaly state + sparklines + hotspot via rule-backed derived signals
+    vitals_summary: dict[str, dict[str, object]] = {}
+    vitals_sparklines: dict[str, list[dict[str, object]]] = {}
+    vitals_hotspot: dict[str, list[dict[str, object]]] = {}
+    try:
+        anom_rows = db.execute(
+            "SELECT SignalName,"
+            " argMax(value, time) AS latest_value,"
+            " argMax(anomaly_state, time) AS latest_state,"
+            " toUInt64(argMax(SampleCount, time)) AS latest_count"
+            " FROM v_derived_signals_anomaly"
+            " WHERE SignalSource = 'rum_vitals'"
+            "   AND time >= now() - INTERVAL 60 MINUTE"
+            " GROUP BY SignalName"
+        ).fetchall()
+        for row in anom_rows:
+            nm = str(row["SignalName"])
+            val = float(row["latest_value"])
+            state = str(row["latest_state"])
+            cnt = int(row["latest_count"])
+            vitals_summary[nm] = {
+                "p75": round(val, 3) if nm == "CLS" else round(val, 0),
+                "count": cnt,
+                "anomaly_state": state,
+            }
+        spark_rows = db.execute(
+            "SELECT SignalName, MinuteBucket, Value, SampleCount"
+            " FROM v_derived_signals_1m"
+            " WHERE SignalSource = 'rum_vitals'"
+            "   AND MinuteBucket >= now() - INTERVAL 60 MINUTE"
+            " ORDER BY SignalName, MinuteBucket"
+        ).fetchall()
+        for row in spark_rows:
+            nm = str(row["SignalName"])
+            vitals_sparklines.setdefault(nm, []).append(
+                {
+                    "t": str(row["MinuteBucket"]),
+                    "v": round(float(row["Value"]), 3) if nm == "CLS" else round(float(row["Value"]), 1),
+                }
+            )
+        hotspot_rows = db.execute(
+            "SELECT"
+            "  JSONExtractString(Body, 'name') AS metric,"
+            "  LogAttributes['url'] AS url,"
+            "  count() AS total,"
+            "  countIf(JSONExtractString(Body, 'rating') = 'poor') AS poor_count,"
+            "  round(toFloat64(poor_count) / toFloat64(total), 3) AS poor_rate,"
+            "  round(quantileExact(0.75)(JSONExtractFloat(Body, 'value')), 1) AS p75"
+            " FROM hyperdx_sessions"
+            " WHERE EventName = 'web-vital'"
+            "   AND Timestamp >= now() - INTERVAL 24 HOUR"
+            " GROUP BY metric, url"
+            " HAVING total >= 3"
+            " ORDER BY metric ASC, poor_rate DESC, total DESC"
+            " LIMIT 60"
+        ).fetchall()
+        for row in hotspot_rows:
+            metric = str(row["metric"])
+            if not metric:
+                continue
+            vitals_hotspot.setdefault(metric, []).append(
+                {
+                    "url": str(row["url"]),
+                    "total": int(row["total"]),
+                    "poor_count": int(row["poor_count"]),
+                    "poor_rate": float(row["poor_rate"]),
+                    "p75": float(row["p75"]),
+                }
+            )
+        for metric in vitals_hotspot:
+            vitals_hotspot[metric] = vitals_hotspot[metric][:5]
+    except Exception:
+        app.logger.exception("vitals derived-signal query failed")
+
+    # Error trend — sparkline + direction + top messages + top URLs (vs now())
+    error_stats: dict[str, Any] = {
+        "total": 0,
+        "by_type": {},
+        "trend": "stable",
+        "recent": 0,
+        "prior": 0,
+        "sparkline": [],
+        "top_messages": [],
+        "top_urls": [],
+    }
+    try:
+        trend_row = db.execute(
+            "SELECT"
+            " countIf(Timestamp >= now() - INTERVAL 30 MINUTE) AS recent,"
+            " countIf("
+            "   Timestamp >= now() - INTERVAL 60 MINUTE"
+            "   AND Timestamp < now() - INTERVAL 30 MINUTE"
+            " ) AS prior"
+            " FROM hyperdx_sessions"
+            " WHERE EventName IN ('error', 'unhandledrejection')"
+            "   AND Timestamp >= now() - INTERVAL 60 MINUTE"
+        ).fetchone()
+        if trend_row:
+            recent_cnt = int(trend_row["recent"])
+            prior_cnt = int(trend_row["prior"])
+            error_stats["recent"] = recent_cnt
+            error_stats["prior"] = prior_cnt
+            if prior_cnt == 0:
+                err_trend = "stable" if recent_cnt == 0 else "up"
+            elif recent_cnt > prior_cnt * 1.25:
+                err_trend = "up"
+            elif recent_cnt < prior_cnt * 0.75:
+                err_trend = "down"
+            else:
+                err_trend = "stable"
+            error_stats["trend"] = err_trend
+        type_rows = db.execute(
+            "SELECT EventName, count() AS cnt"
+            " FROM hyperdx_sessions"
+            " WHERE EventName IN ('error', 'unhandledrejection')"
+            "   AND Timestamp >= now() - INTERVAL 24 HOUR"
+            " GROUP BY EventName"
+        ).fetchall()
+        total_24h = 0
+        by_type: dict[str, int] = {}
+        for row in type_rows:
+            cnt = int(row["cnt"])
+            total_24h += cnt
+            by_type[str(row["EventName"])] = cnt
+        error_stats["total"] = total_24h
+        error_stats["by_type"] = by_type
+        spark_rows = db.execute(
+            "SELECT mb, cnt"
+            " FROM ("
+            "   SELECT toStartOfMinute(Timestamp) AS mb, count() AS cnt"
+            "   FROM hyperdx_sessions"
+            "   WHERE EventName IN ('error', 'unhandledrejection')"
+            "     AND Timestamp >= now() - INTERVAL 180 MINUTE"
+            "   GROUP BY mb"
+            " )"
+            " ORDER BY mb"
+            " WITH FILL"
+            " FROM toStartOfMinute(now() - INTERVAL 180 MINUTE)"
+            " TO toStartOfMinute(now())"
+            " STEP toIntervalMinute(1)"
+        ).fetchall()
+        error_stats["sparkline"] = [{"t": str(row["mb"]), "v": int(row["cnt"])} for row in spark_rows]
+        msg_rows = db.execute(
+            "SELECT JSONExtractString(Body, 'message') AS message, count() AS cnt"
+            " FROM hyperdx_sessions"
+            " WHERE EventName IN ('error', 'unhandledrejection')"
+            "   AND Timestamp >= now() - INTERVAL 24 HOUR"
+            "   AND JSONExtractString(Body, 'message') != ''"
+            " GROUP BY message ORDER BY cnt DESC LIMIT 8"
+        ).fetchall()
+        error_stats["top_messages"] = [{"message": str(row["message"]), "count": int(row["cnt"])} for row in msg_rows]
+        url_rows = db.execute(
+            "SELECT LogAttributes['url'] AS url, count() AS cnt"
+            " FROM hyperdx_sessions"
+            " WHERE EventName IN ('error', 'unhandledrejection')"
+            "   AND Timestamp >= now() - INTERVAL 24 HOUR"
+            "   AND LogAttributes['url'] != ''"
+            " GROUP BY url ORDER BY cnt DESC LIMIT 5"
+        ).fetchall()
+        error_stats["top_urls"] = [{"url": str(row["url"]), "count": int(row["cnt"])} for row in url_rows]
+    except Exception:
+        app.logger.exception("error stats query failed")
 
     return await render_template(
         "rum.html",
         events=events,
+        session_groups=session_groups,
         total=total,
         limit=limit,
         offset=offset,
+        view_mode=view_mode,
         event_type=event_type,
         event_types=event_types,
         error_source=error_source,
         error_sources=error_sources,
         vitals_summary=vitals_summary,
+        vitals_sparklines=vitals_sparklines,
+        vitals_hotspot=vitals_hotspot,
+        error_stats=error_stats,
         sort_by=sort_by,
         sort_dir=sort_dir,
         from_ts=from_ts,
@@ -18243,4 +18900,8 @@ if __name__ == "__main__":
     config.workers = 1
     config.use_reloader = False
 
-    asyncio.run(hypercorn_serve(app, config))
+    try:
+        asyncio.run(hypercorn_serve(app, config))
+    finally:
+        # Safety net for abrupt exits where lifecycle hooks may not complete.
+        _shutdown_db_resources()

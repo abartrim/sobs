@@ -902,6 +902,87 @@ class TestRumIngest:
         )
         assert r.status_code == 200
 
+    async def test_ingest_rum_parses_traceparent_when_trace_ids_missing(self, client):
+        traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        session_id = f"sess-traceparent-{time.time_ns()}"
+        r = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": session_id,
+                    "url": "https://example.com/",
+                    "title": "Traceparent parse",
+                    "traceparent": traceparent,
+                }
+            ],
+        )
+        assert r.status_code == 200
+
+        row = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT TraceId, SpanId, TraceFlags FROM hyperdx_sessions "
+                "WHERE EventName='pageview' AND LogAttributes['sessionId']=? "
+                "ORDER BY Timestamp DESC LIMIT 1",
+                [session_id],
+            )
+            .fetchone()
+        )
+        assert row is not None
+        assert str(row["TraceId"]) == "4bf92f3577b34da6a3ce929d0e0e4736"
+        assert str(row["SpanId"]) == "00f067aa0ba902b7"
+        assert int(row["TraceFlags"]) == 1
+
+    async def test_ingest_web_vital_feeds_derived_signal_views(self, client):
+        marker = f"rum-vitals-svc-{time.time_ns()}"
+        r = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "web-vital",
+                    "name": "LCP",
+                    "value": 2400,
+                    "rating": "needs-improvement",
+                    "service": marker,
+                    "url": "https://example.com/checkout",
+                },
+                {
+                    "type": "web-vital",
+                    "name": "LCP",
+                    "value": 3000,
+                    "rating": "poor",
+                    "service": marker,
+                    "url": "https://example.com/checkout",
+                },
+                {
+                    "type": "web-vital",
+                    "name": "CLS",
+                    "value": 0.2,
+                    "rating": "needs-improvement",
+                    "service": marker,
+                    "url": "https://example.com/checkout",
+                },
+            ],
+        )
+        assert r.status_code == 200
+
+        db = sobs_app.get_db()
+        one_min_rows = db.execute(
+            "SELECT count() AS c FROM v_derived_signals_1m "
+            "WHERE SignalSource='rum_vitals' AND ServiceName=? AND SignalName IN ('LCP','CLS')",
+            [marker],
+        ).fetchone()["c"]
+        assert int(one_min_rows) >= 2
+
+        anomaly_rows = db.execute(
+            "SELECT count() AS c FROM v_derived_signals_anomaly "
+            "WHERE SignalSource='rum_vitals' AND ServiceName=? AND SignalName='LCP'",
+            [marker],
+        ).fetchone()["c"]
+        assert int(anomaly_rows) >= 1
+
     async def test_ingest_js_error(self, client):
         r = await client.post(
             "/v1/rum",
@@ -1599,6 +1680,92 @@ class TestUIPages:
         r = await client.get("/rum")
         assert r.status_code == 200
 
+    async def test_rum_page_defaults_to_session_grouped_view(self, client):
+        session_id = f"sess-grouped-{time.time_ns()}"
+        await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": session_id,
+                    "url": "https://example.com/checkout",
+                    "title": "Checkout",
+                },
+                {
+                    "type": "web-vital",
+                    "timestamp": "2024-01-01T00:00:01Z",
+                    "sessionId": session_id,
+                    "url": "https://example.com/checkout",
+                    "name": "LCP",
+                    "value": 2100,
+                    "rating": "good",
+                },
+            ],
+        )
+
+        r = await client.get("/rum")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Session timeline" in body
+        assert "Latest event" in body
+        assert "Healthy" in body
+        assert session_id[:8] in body
+
+    async def test_rum_page_session_view_defaults_to_severity_order(self, client):
+        healthy_session = f"sess-healthy-{time.time_ns()}"
+        error_session = f"sess-error-{time.time_ns()}"
+
+        await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:10Z",
+                    "sessionId": healthy_session,
+                    "url": "https://example.com/healthy",
+                    "title": "Healthy",
+                },
+                {
+                    "type": "web-vital",
+                    "timestamp": "2024-01-01T00:00:11Z",
+                    "sessionId": healthy_session,
+                    "url": "https://example.com/healthy",
+                    "name": "LCP",
+                    "value": 1200,
+                    "rating": "good",
+                },
+            ],
+        )
+        await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "error",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": error_session,
+                    "url": "https://example.com/failing",
+                    "message": "Boom",
+                    "errorType": "TypeError",
+                    "errorSource": "window.onerror",
+                }
+            ],
+        )
+
+        r = await client.get("/rum")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Error session" in body
+        assert body.index(error_session[:8]) < body.index(healthy_session[:8])
+
+    async def test_rum_page_events_view_toggle_renders_flat_table(self, client):
+        r = await client.get("/rum?view=events")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Timestamp" in body
+        assert "Type" in body
+        assert "Details" in body
+
     async def test_rum_page_renders_enriched_error_details(self, client):
         await client.post(
             "/v1/rum",
@@ -1690,7 +1857,105 @@ class TestUIPages:
         assert "Asset failed" in body
         assert "Script boom" not in body
 
+    async def test_rum_page_renders_vitals_sparklines_and_hotspots(self, client):
+        marker = f"rum-ui-vitals-{time.time_ns()}"
+        r = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "web-vital",
+                    "name": "LCP",
+                    "value": 4500,
+                    "rating": "poor",
+                    "service": marker,
+                    "url": "https://example.com/checkout",
+                },
+                {
+                    "type": "web-vital",
+                    "name": "LCP",
+                    "value": 4200,
+                    "rating": "poor",
+                    "service": marker,
+                    "url": "https://example.com/checkout",
+                },
+                {
+                    "type": "web-vital",
+                    "name": "LCP",
+                    "value": 1800,
+                    "rating": "good",
+                    "service": marker,
+                    "url": "https://example.com/home",
+                },
+                {
+                    "type": "web-vital",
+                    "name": "LCP",
+                    "value": 4100,
+                    "rating": "poor",
+                    "service": marker,
+                    "url": "https://example.com/checkout",
+                },
+                {
+                    "type": "web-vital",
+                    "name": "CLS",
+                    "value": 0.3,
+                    "rating": "poor",
+                    "service": marker,
+                    "url": "https://example.com/checkout",
+                },
+            ],
+        )
+        assert r.status_code == 200
+
+        r = await client.get("/rum")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "URL Hotspots" in body
+        assert "vitals-sparkline" in body
+        assert "https://example.com/checkout" in body
+
     async def test_ai_page(self, client):
+        pass
+
+    async def test_rum_page_renders_error_stats_panel(self, client):
+        marker = f"rum-error-panel-{time.time_ns()}"
+        r = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "error",
+                    "message": "ReferenceError: marker is not defined",
+                    "errorType": "ReferenceError",
+                    "service": marker,
+                    "url": f"https://example.com/page-{marker}",
+                },
+                {
+                    "type": "error",
+                    "message": "ReferenceError: marker is not defined",
+                    "errorType": "ReferenceError",
+                    "service": marker,
+                    "url": f"https://example.com/page-{marker}",
+                },
+                {
+                    "type": "unhandledrejection",
+                    "message": "Promise rejected",
+                    "service": marker,
+                    "url": f"https://example.com/other-{marker}",
+                },
+            ],
+        )
+        assert r.status_code == 200
+
+        r = await client.get("/rum")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Errors (24 h)" in body
+        assert "errorRateSparkline" in body
+        assert "Top error messages" in body
+        assert "ReferenceError: marker is not defined" in body
+        assert "Top erroring URLs" in body
+        assert f"https://example.com/page-{marker}" in body
+
+    async def test_ai_page_real(self, client):
         r = await client.get("/ai")
         assert r.status_code == 200
 
@@ -2250,6 +2515,9 @@ class TestUIPages:
         body = await r.get_data(as_text=True)
         assert "failing-span" in body
         assert "error" in body.lower()
+        assert "Related Errors" in body
+        assert "bad value" in body
+        assert "AI Help" in body
 
     async def test_trace_detail_back_link(self, client):
         """The detail view includes a link back to the full traces list."""
@@ -4351,6 +4619,17 @@ class TestMetricsAnomalyDetection:
         for view in ("v_derived_signals_1m", "v_derived_signals_anomaly"):
             row = db.execute("SELECT 1 FROM system.tables WHERE database='default' AND name=?", (view,)).fetchone()
             assert row is not None, f"View {view!r} not found in schema"
+
+    async def test_cwv_rules_seeded_in_anomaly_rules(self, client):
+        db = sobs_app.get_db()
+        for signal in ("LCP", "INP", "CLS", "TTFB", "FCP", "FID"):
+            row = db.execute(
+                "SELECT count() AS c FROM sobs_anomaly_rules FINAL "
+                "WHERE IsDeleted=0 AND SignalSource='rum_vitals' AND SignalName=?",
+                [signal],
+            ).fetchone()
+            assert row is not None
+            assert int(row["c"]) >= 1
 
     async def test_metrics_index_page_renders(self, client):
         """Top-level metrics page should be accessible without chart drilldown."""

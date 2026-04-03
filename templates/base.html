@@ -168,6 +168,28 @@
       flex: 1 1 140px;
       min-width: 0;
     }
+    .sobs-tz-header-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .25rem;
+      margin-left: .75rem;
+      padding: .1rem .45rem;
+      font-size: .7rem;
+      font-weight: 500;
+      color: var(--bs-secondary-color);
+      background: color-mix(in srgb, var(--bs-secondary-bg) 45%, transparent);
+      border: 1px solid var(--bs-border-color);
+      border-radius: .3rem;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      user-select: none;
+      transition: color .15s, background-color .15s;
+    }
+    .sobs-tz-header-badge:hover {
+      color: var(--bs-body-color);
+      background-color: color-mix(in srgb, var(--bs-secondary-bg) 75%, transparent);
+    }
   </style>
 </head>
 <body>
@@ -352,8 +374,35 @@
   </div>
 </div>
 
+<div class="modal fade" id="sobsTzModal" tabindex="-1" aria-labelledby="sobsTzModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-secondary">
+      <div class="modal-header">
+        <h5 class="modal-title fs-6" id="sobsTzModalTitle">
+          <i class="bi bi-clock me-2 text-primary"></i>Display Timezone
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body py-2">
+        <div class="small text-secondary mb-2">
+          Timestamps are stored in UTC and displayed in your selected timezone.
+        </div>
+        <label class="form-label small fw-semibold mb-1" for="sobs-tz-modal-input">Select Timezone</label>
+        <input id="sobs-tz-modal-input" type="text" class="form-control form-control-sm" list="sobs-tz-list" autocomplete="off" placeholder="UTC or e.g. America/New_York">
+        <datalist id="sobs-tz-list"></datalist>
+        <div class="mt-2 small" id="sobs-tz-modal-note"></div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" id="sobs-tz-apply-btn">Apply</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
 <script src="{{ url_for('static', filename='date-range-picker.js') }}"></script>
+<script src="{{ url_for('static', filename='sobs-timezone.js') }}"></script>
 
 {% if config.get('ENABLE_FIRST_RUN_TOUR', True) and request.endpoint not in ('chart_editor_help', 'metrics_rules_help', 'auto_metrics_rules_help') %}
   {% include "_first_run_tour.html" %}

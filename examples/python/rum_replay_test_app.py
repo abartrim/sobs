@@ -135,6 +135,7 @@ PAGE = """
       <button data-demo-action="capture">Capture exception()</button>
       <button class="alt" data-demo-action="replay">Replay + screenshot + capture</button>
       <button data-demo-action="fetch-fail">Failed fetch breadcrumb</button>
+      <button class="alt" data-demo-action="clear-session">Clear session + reload</button>
     </div>
 
     <p class="muted">
@@ -211,6 +212,49 @@ PAGE = """
         } catch (e) {
           console.error('fetch failed as expected', e);
         }
+      },
+      'clear-session': async function () {
+        // Clear browser-side state so a fresh RUM session is created on reload.
+        try {
+          localStorage.clear();
+        } catch (e) {
+          console.warn('localStorage clear failed', e);
+        }
+        try {
+          sessionStorage.clear();
+        } catch (e) {
+          console.warn('sessionStorage clear failed', e);
+        }
+
+        try {
+          document.cookie.split(';').forEach(function (cookie) {
+            var eqPos = cookie.indexOf('=');
+            var name = (eqPos > -1 ? cookie.slice(0, eqPos) : cookie).trim();
+            if (!name) return;
+            document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+          });
+        } catch (e) {
+          console.warn('cookie clear failed', e);
+        }
+
+        if (window.indexedDB && indexedDB.databases) {
+          try {
+            var dbs = await indexedDB.databases();
+            await Promise.all((dbs || []).map(function (db) {
+              if (!db || !db.name) return Promise.resolve();
+              return new Promise(function (resolve) {
+                var req = indexedDB.deleteDatabase(db.name);
+                req.onsuccess = function () { resolve(); };
+                req.onerror = function () { resolve(); };
+                req.onblocked = function () { resolve(); };
+              });
+            }));
+          } catch (e) {
+            console.warn('indexedDB clear failed', e);
+          }
+        }
+
+        location.reload();
       }
     };
 

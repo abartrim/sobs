@@ -413,6 +413,118 @@
     });
   }
 
+  function _randomHex(bytes) {
+    var out = '';
+    var len = bytes * 2;
+    try {
+      if (global.crypto && typeof global.crypto.getRandomValues === 'function') {
+        var arr = new Uint8Array(bytes);
+        global.crypto.getRandomValues(arr);
+        for (var i = 0; i < arr.length; i += 1) {
+          out += ('0' + arr[i].toString(16)).slice(-2);
+        }
+        return out;
+      }
+    } catch (e) {}
+
+    while (out.length < len) {
+      out += ('0' + ((Math.random() * 256) | 0).toString(16)).slice(-2);
+    }
+    return out.slice(0, len);
+  }
+
+  function _isHex(value, len) {
+    return new RegExp('^[0-9a-f]{' + String(len) + '}$', 'i').test(String(value || ''));
+  }
+
+  function _newTraceId() {
+    return _randomHex(16);
+  }
+
+  function _newSpanId() {
+    return _randomHex(8);
+  }
+
+  function _formatTraceParent(traceId, spanId, flags) {
+    var tid = String(traceId || '').toLowerCase();
+    var sid = String(spanId || '').toLowerCase();
+    var flg = String(flags || '01').toLowerCase();
+    if (!_isHex(tid, 32) || !_isHex(sid, 16) || !_isHex(flg, 2)) return '';
+    return '00-' + tid + '-' + sid + '-' + flg;
+  }
+
+  function _ensureTraceContext() {
+    if (!_isHex(_traceContext.traceId, 32)) _traceContext.traceId = _newTraceId();
+    if (!_isHex(_traceContext.spanId, 16)) _traceContext.spanId = _newSpanId();
+    if (!_isHex(_traceContext.traceFlags, 2)) _traceContext.traceFlags = '01';
+    _traceContext.traceparent = _formatTraceParent(
+      _traceContext.traceId,
+      _traceContext.spanId,
+      _traceContext.traceFlags
+    );
+    return _traceContext;
+  }
+
+  function _nextOutboundTraceContext() {
+    var base = _ensureTraceContext();
+    var childSpanId = _newSpanId();
+    return {
+      traceId: base.traceId,
+      spanId: childSpanId,
+      traceFlags: base.traceFlags,
+      traceparent: _formatTraceParent(base.traceId, childSpanId, base.traceFlags)
+    };
+  }
+
+  function _shouldPropagateTraceToUrl(value) {
+    if (!value) return false;
+    try {
+      var parsed = new URL(String(value), location.href);
+      if (parsed.origin === location.origin) return true;
+      if (_cfg && _cfg.tracePropagationCrossOrigin === true) return true;
+      var allowed = (_cfg && _cfg.tracePropagationOrigins) || [];
+      if (Array.isArray(allowed) && allowed.indexOf(parsed.origin) !== -1) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  function _injectTraceIntoFetchArgs(args) {
+    var request = args[0];
+    var init = args.length > 1 ? args[1] : undefined;
+    var requestUrl = request && request.url ? request.url : request;
+
+    if (!_shouldPropagateTraceToUrl(requestUrl)) {
+      return { args: args, requestUrl: requestUrl, traceContext: null };
+    }
+
+    var traceCtx = _nextOutboundTraceContext();
+    if (!traceCtx.traceparent) {
+      return { args: args, requestUrl: requestUrl, traceContext: null };
+    }
+
+    if (typeof Request !== 'undefined' && request instanceof Request) {
+      var reqHeaders = new Headers(request.headers || {});
+      if (!reqHeaders.has('traceparent')) reqHeaders.set('traceparent', traceCtx.traceparent);
+      if (_cfg.tracestate && !reqHeaders.has('tracestate')) reqHeaders.set('tracestate', String(_cfg.tracestate));
+      var reqInit = Object.assign({}, init || {}, { headers: reqHeaders });
+      return {
+        args: [new Request(request, reqInit)],
+        requestUrl: requestUrl,
+        traceContext: traceCtx
+      };
+    }
+
+    var headers = new Headers((init && init.headers) || {});
+    if (!headers.has('traceparent')) headers.set('traceparent', traceCtx.traceparent);
+    if (_cfg.tracestate && !headers.has('tracestate')) headers.set('tracestate', String(_cfg.tracestate));
+    var nextInit = Object.assign({}, init || {}, { headers: headers });
+    return {
+      args: [request, nextInit],
+      requestUrl: requestUrl,
+      traceContext: traceCtx
+    };
+  }
+
   function _parseTraceParent(value) {
     var text = String(value || '').trim();
     var match = text.match(/^([\da-f]{2})-([\da-f]{32})-([\da-f]{16})-([\da-f]{2})$/i);
@@ -432,29 +544,48 @@
       traceId: parsed.traceId,
       spanId: parsed.spanId,
       traceFlags: parsed.traceFlags,
-      traceparent: value
+      traceparent: _formatTraceParent(parsed.traceId, parsed.spanId, parsed.traceFlags)
     };
     return true;
   }
 
   function _detectTraceContext() {
     if (_cfg.traceId || _cfg.spanId) {
+      var cfgTraceId = _cfg.traceId || '';
+      var cfgSpanId = _cfg.spanId || '';
+      var cfgFlags = _cfg.traceFlags || '';
       _traceContext = {
-        traceId: _cfg.traceId || '',
-        spanId: _cfg.spanId || '',
-        traceFlags: _cfg.traceFlags || '',
-        traceparent: ''
+        traceId: cfgTraceId,
+        spanId: cfgSpanId,
+        traceFlags: cfgFlags,
+        traceparent: _formatTraceParent(cfgTraceId, cfgSpanId, cfgFlags)
       };
+      _ensureTraceContext();
       return;
     }
 
-    if (_cfg.traceparent && _setTraceContextFromTraceParent(_cfg.traceparent)) return;
+    if (_cfg.traceparent && _setTraceContextFromTraceParent(_cfg.traceparent)) {
+      _ensureTraceContext();
+      return;
+    }
 
     var meta = document.querySelector('meta[name="traceparent"]');
-    if (meta && _setTraceContextFromTraceParent(meta.getAttribute('content'))) return;
+    if (meta && _setTraceContextFromTraceParent(meta.getAttribute('content'))) {
+      _ensureTraceContext();
+      return;
+    }
 
-    if (global.__SOBS_TRACEPARENT__ && _setTraceContextFromTraceParent(global.__SOBS_TRACEPARENT__)) return;
-    if (global.__TRACEPARENT__ && _setTraceContextFromTraceParent(global.__TRACEPARENT__)) return;
+    if (global.__SOBS_TRACEPARENT__ && _setTraceContextFromTraceParent(global.__SOBS_TRACEPARENT__)) {
+      _ensureTraceContext();
+      return;
+    }
+    if (global.__TRACEPARENT__ && _setTraceContextFromTraceParent(global.__TRACEPARENT__)) {
+      _ensureTraceContext();
+      return;
+    }
+
+    // Fall back to a generated client trace context so all RUM events can correlate.
+    _ensureTraceContext();
   }
 
   function _mergeErrorContext(payload) {
@@ -469,6 +600,7 @@
   }
 
   function _applyTraceContext(payload) {
+    _ensureTraceContext();
     if (_traceContext.traceId && !payload.traceId) payload.traceId = _traceContext.traceId;
     if (_traceContext.spanId && !payload.spanId) payload.spanId = _traceContext.spanId;
     if (_traceContext.traceFlags && !payload.traceFlags) payload.traceFlags = _traceContext.traceFlags;
@@ -570,13 +702,17 @@
       var originalFetch = global.fetch;
       global.fetch = function () {
         var startedAt = Date.now();
-        var requestUrl = arguments[0] && arguments[0].url ? arguments[0].url : arguments[0];
-        return originalFetch.apply(this, arguments).then(function (response) {
+        var rawArgs = Array.prototype.slice.call(arguments);
+        var wrapped = _injectTraceIntoFetchArgs(rawArgs);
+        var requestUrl = wrapped.requestUrl;
+        return originalFetch.apply(this, wrapped.args).then(function (response) {
           if (!response.ok) {
             _addBreadcrumb('http.fetch', 'Fetch failed', {
               url: _truncate(String(requestUrl || ''), 200),
               status: response.status,
-              durationMs: Date.now() - startedAt
+              durationMs: Date.now() - startedAt,
+              traceId: wrapped.traceContext ? wrapped.traceContext.traceId : '',
+              spanId: wrapped.traceContext ? wrapped.traceContext.spanId : ''
             });
           }
           return response;
@@ -584,6 +720,8 @@
           _addBreadcrumb('http.fetch', 'Fetch exception', {
             url: _truncate(String(requestUrl || ''), 200),
             durationMs: Date.now() - startedAt,
+            traceId: wrapped.traceContext ? wrapped.traceContext.traceId : '',
+            spanId: wrapped.traceContext ? wrapped.traceContext.spanId : '',
             error: _safeSerialize(error, 180)
           });
           throw error;
@@ -890,11 +1028,14 @@
   };
 
   SOBS.setTraceContext = function (traceId, spanId) {
+    var normalizedTraceId = _isHex(traceId, 32) ? String(traceId).toLowerCase() : _newTraceId();
+    var normalizedSpanId = _isHex(spanId, 16) ? String(spanId).toLowerCase() : _newSpanId();
+    var flags = _isHex(_traceContext.traceFlags, 2) ? _traceContext.traceFlags : '01';
     _traceContext = {
-      traceId: traceId || '',
-      spanId: spanId || '',
-      traceFlags: _traceContext.traceFlags || '',
-      traceparent: _traceContext.traceparent || ''
+      traceId: normalizedTraceId,
+      spanId: normalizedSpanId,
+      traceFlags: flags,
+      traceparent: _formatTraceParent(normalizedTraceId, normalizedSpanId, flags)
     };
   };
 
