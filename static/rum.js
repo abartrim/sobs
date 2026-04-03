@@ -30,6 +30,7 @@
   var _replayScriptPromise = null;
   var _replayStopFn = null;
   var _replayRecorderStarted = false;
+  var _screenshotScriptPromise = null;
 
   function _bufferLimit(key, fallbackValue) {
     var raw = _cfg && _cfg[key];
@@ -201,6 +202,91 @@
     return _replayScriptPromise;
   }
 
+  function _screenshotConfig() {
+    var replay = _replayConfig();
+    if (!replay || !replay.screenshot || typeof replay.screenshot !== 'object') return null;
+    return replay.screenshot;
+  }
+
+  function _getScreenshotFactory() {
+    if (typeof global.html2canvas === 'function') return global.html2canvas;
+    return null;
+  }
+
+  function _loadScreenshotScript(scriptUrl) {
+    if (_screenshotScriptPromise) return _screenshotScriptPromise;
+    _screenshotScriptPromise = new Promise(function (resolve, reject) {
+      var script = document.createElement('script');
+      script.async = true;
+      script.src = scriptUrl;
+      script.onload = function () { resolve(true); };
+      script.onerror = function () { reject(new Error('Failed to load screenshot script')); };
+      document.head.appendChild(script);
+    });
+    return _screenshotScriptPromise;
+  }
+
+  function _resizeCanvas(source, maxEdge) {
+    if (!maxEdge || maxEdge < 256) return source;
+    var width = source.width || 0;
+    var height = source.height || 0;
+    var currentMax = Math.max(width, height);
+    if (!currentMax || currentMax <= maxEdge) return source;
+    var ratio = maxEdge / currentMax;
+    var dst = document.createElement('canvas');
+    dst.width = Math.max(1, Math.round(width * ratio));
+    dst.height = Math.max(1, Math.round(height * ratio));
+    var ctx = dst.getContext('2d');
+    if (!ctx) return source;
+    ctx.drawImage(source, 0, 0, dst.width, dst.height);
+    return dst;
+  }
+
+  function _captureScreenshotForError(errorPayload) {
+    if (errorPayload && errorPayload.artifact) return Promise.resolve(null);
+
+    var screenshot = _screenshotConfig();
+    if (!screenshot || screenshot.enabled !== true) return Promise.resolve(null);
+
+    function capture() {
+      var screenshotFn = _getScreenshotFactory();
+      if (!screenshotFn) return Promise.resolve(null);
+
+      var target = document.body || document.documentElement;
+      var options = Object.assign({
+        logging: false,
+        useCORS: true,
+        backgroundColor: null,
+        scale: screenshot.scale || 0.7
+      }, screenshot.options || {});
+
+      return Promise.resolve(screenshotFn(target, options)).then(function (canvas) {
+        if (!canvas || !canvas.toDataURL) return null;
+        var resized = _resizeCanvas(canvas, screenshot.maxEdge || 1400);
+        var mimeType = screenshot.mimeType || 'image/jpeg';
+        var quality = typeof screenshot.quality === 'number' ? screenshot.quality : 0.75;
+        var dataUrl = resized.toDataURL(mimeType, quality);
+        return {
+          dataUrl: dataUrl,
+          mimeType: mimeType,
+          width: resized.width || 0,
+          height: resized.height || 0,
+          source: 'html2canvas'
+        };
+      }).catch(function () {
+        return null;
+      });
+    }
+
+    if (_getScreenshotFactory()) return capture();
+    if (!screenshot.scriptUrl) return Promise.resolve(null);
+    return _loadScreenshotScript(screenshot.scriptUrl).then(function () {
+      return capture();
+    }).catch(function () {
+      return null;
+    });
+  }
+
   function _startReplayRecorder() {
     if (_replayRecorderStarted) return;
     var replay = _replayConfig();
@@ -233,8 +319,8 @@
     }).catch(function () {});
   }
 
-  function _buildReplayEnvelope(errorPayload) {
-    return {
+  function _buildReplayEnvelope(errorPayload, screenshot) {
+    var envelope = {
       provider: 'rrweb',
       events: _cloneEntries(_replayEvents),
       error: {
@@ -246,6 +332,8 @@
         url: errorPayload.url
       }
     };
+    if (screenshot) envelope.screenshot = screenshot;
+    return envelope;
   }
 
   function _attachReplayArtifacts(errorPayload) {
@@ -263,8 +351,8 @@
       return Promise.resolve(errorPayload);
     }
 
-    var envelope = _buildReplayEnvelope(errorPayload);
-    return Promise.resolve().then(function () {
+    return _captureScreenshotForError(errorPayload).then(function (screenshot) {
+      var envelope = _buildReplayEnvelope(errorPayload, screenshot);
       return uploader(envelope);
     }).then(function (result) {
       if (result && typeof result === 'object') {

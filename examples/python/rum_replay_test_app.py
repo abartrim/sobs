@@ -5,6 +5,8 @@ Run manually:
     SOBS_BASE_URL=http://127.0.0.1:44317 EXAMPLE_APP_PORT=5005 python examples/python/rum_replay_test_app.py
 """
 
+import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -135,6 +137,13 @@ PAGE = """
       replay: {
         enabled: true,
         scriptUrl: 'https://cdn.jsdelivr.net/npm/rrweb@latest/dist/record/rrweb-record.min.js',
+        screenshot: {
+          enabled: true,
+          scriptUrl: 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
+          mimeType: 'image/jpeg',
+          quality: 0.7,
+          maxEdge: 1400
+        },
         maxEvents: 500,
         upload: async function (envelope) {
           const replayResp = await fetch('/api/replay/upload', {
@@ -150,10 +159,6 @@ PAGE = """
         }
       }
     });
-
-    // Deterministic sample IDs for easier manual validation in UI.
-    const replayId = 'replay-demo-001';
-    const shotId = 'shot-demo-001';
 
     document.getElementById('btn-console').addEventListener('click', function () {
       console.warn('demo warn: user clicked console button');
@@ -183,18 +188,10 @@ PAGE = """
     });
 
     document.getElementById('btn-replay').addEventListener('click', async function () {
-      SOBS.setArtifactContext(
-        {
-          type: 'screenshot',
-          id: shotId,
-          url: '{{ sobs_base }}/static/help/summary.png'
-        },
-        { ttlMs: 15000, consumeOnce: true }
-      );
       SOBS.captureException(new Error('demo replay+artifact event'), {
         errorSource: 'captureException'
       });
-      alert('Replay + artifact context attached to error event');
+      alert('Replay + screenshot context attached to error event');
     });
 
     document.getElementById('btn-fetch-fail').addEventListener('click', async function () {
@@ -243,16 +240,40 @@ def replay_upload():
         )
 
         artifact = None
-        screenshot_path = os.path.join(os.path.dirname(__file__), "..", "..", "static", "help", "summary.png")
-        if os.path.exists(screenshot_path):
-            with open(screenshot_path, "rb") as handle:
-                screenshot_bytes = handle.read()
-            artifact = _upload_asset_to_sobs(
-                screenshot_bytes,
-                asset_type="screenshot",
-                asset_name="summary.png",
-                content_type="image/png",
-            )
+        screenshot = payload.get("screenshot") if isinstance(payload, dict) else None
+        if isinstance(screenshot, dict):
+            data_url = str(screenshot.get("dataUrl") or "")
+            if data_url.startswith("data:") and ";base64," in data_url:
+                meta, encoded = data_url.split(",", 1)
+                content_type = meta[5:].split(";", 1)[0] or "image/png"
+                extension = "png"
+                if content_type == "image/jpeg":
+                    extension = "jpg"
+                elif content_type == "image/webp":
+                    extension = "webp"
+                try:
+                    screenshot_bytes = base64.b64decode(encoded, validate=True)
+                except (binascii.Error, ValueError):
+                    screenshot_bytes = b""
+                if screenshot_bytes:
+                    artifact = _upload_asset_to_sobs(
+                        screenshot_bytes,
+                        asset_type="screenshot",
+                        asset_name=f"capture-{int(time.time())}.{extension}",
+                        content_type=content_type,
+                    )
+
+        if artifact is None:
+            screenshot_path = os.path.join(os.path.dirname(__file__), "..", "..", "static", "help", "summary.png")
+            if os.path.exists(screenshot_path):
+                with open(screenshot_path, "rb") as handle:
+                    screenshot_bytes = handle.read()
+                artifact = _upload_asset_to_sobs(
+                    screenshot_bytes,
+                    asset_type="screenshot",
+                    asset_name="summary.png",
+                    content_type="image/png",
+                )
 
         return jsonify(
             {
