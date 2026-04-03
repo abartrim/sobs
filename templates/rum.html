@@ -16,6 +16,27 @@
     max-height: 14rem;
     overflow-y: auto;
   }
+  .rum-viewer-image {
+    max-width: 100%;
+    max-height: 60vh;
+    border-radius: .5rem;
+    border: 1px solid var(--bs-border-color);
+    background: var(--bs-body-bg);
+  }
+  .rum-viewer-json {
+    max-height: 50vh;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .rum-viewer-player {
+    min-height: 360px;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    overflow: hidden;
+    background: var(--bs-body-bg);
+  }
 </style>
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="fw-semibold mb-0"><i class="bi bi-globe me-2 text-primary"></i>Real User Monitoring</h4>
@@ -217,13 +238,25 @@
               <div class="text-secondary mb-2">Artifacts</div>
               <div class="d-flex flex-wrap gap-2">
                 {% if artifact.get('url') %}
-                <a href="{{ artifact.get('url') }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary">
-                  <i class="bi bi-image me-1"></i>{{ artifact.get('type', 'artifact') | title }}{% if artifact.get('id') %} {{ artifact.get('id') }}{% endif %}
+                <button type="button" class="btn btn-sm btn-outline-primary js-rum-viewer-open"
+                        data-rum-view-kind="artifact"
+                        data-rum-view-url="{{ artifact.get('url') }}"
+                        data-rum-view-label="{{ artifact.get('type', 'artifact') | title }}{% if artifact.get('id') %} {{ artifact.get('id') }}{% endif %}">
+                  <i class="bi bi-image me-1"></i>View {{ artifact.get('type', 'artifact') | title }}
+                </button>
+                <a href="{{ artifact.get('url') }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
+                  <i class="bi bi-box-arrow-up-right me-1"></i>Open Raw
                 </a>
                 {% endif %}
                 {% if replay.get('url') %}
-                <a href="{{ replay.get('url') }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-warning">
-                  <i class="bi bi-play-circle me-1"></i>Replay{% if replay.get('id') %} {{ replay.get('id') }}{% endif %}
+                <button type="button" class="btn btn-sm btn-outline-warning js-rum-viewer-open"
+                        data-rum-view-kind="replay"
+                        data-rum-view-url="{{ replay.get('url') }}"
+                        data-rum-view-label="Replay{% if replay.get('id') %} {{ replay.get('id') }}{% endif %}">
+                  <i class="bi bi-play-circle me-1"></i>View Replay
+                </button>
+                <a href="{{ replay.get('url') }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
+                  <i class="bi bi-box-arrow-up-right me-1"></i>Open Raw
                 </a>
                 {% endif %}
               </div>
@@ -345,6 +378,37 @@
 &lt;/script&gt;</code></pre>
   </div>
 </div>
+
+<div class="modal fade" id="rumAssetViewerModal" tabindex="-1" aria-labelledby="rumAssetViewerLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="rumAssetViewerLabel">RUM Asset Viewer</h5>
+        <a id="rumAssetViewerOpenRaw" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary me-2">
+          <i class="bi bi-box-arrow-up-right me-1"></i>Open Raw
+        </a>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="rumAssetViewerStatus" class="small text-secondary mb-2"></div>
+        <div id="rumAssetViewerError" class="alert alert-danger d-none py-2 small" role="alert"></div>
+
+        <div id="rumAssetViewerImageWrap" class="d-none text-center">
+          <img id="rumAssetViewerImage" class="rum-viewer-image" alt="RUM artifact preview">
+        </div>
+
+        <div id="rumAssetViewerFrameWrap" class="d-none">
+          <iframe id="rumAssetViewerFrame" title="RUM asset preview" class="w-100" style="height:60vh;border:1px solid var(--bs-border-color);border-radius:.5rem;"></iframe>
+        </div>
+
+        <div id="rumAssetViewerReplayWrap" class="d-none">
+          <div id="rumAssetViewerReplayPlayer" class="rum-viewer-player mb-3 d-none"></div>
+          <pre id="rumAssetViewerReplayJson" class="rum-viewer-json rounded p-2 mb-0 theme-panel"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 <script>
 // ── Saved Reports: RUM page ───────────────────────────────────────────────
 (function () {
@@ -394,6 +458,155 @@
     if (window.sobsReportSaveModal && typeof window.sobsReportSaveModal.open === 'function') {
       window.sobsReportSaveModal.open({ pageType: 'rum', filters });
     }
+  });
+})();
+
+// ── RUM Asset / Replay Viewer ──────────────────────────────────────────────
+(function () {
+  const modalEl = document.getElementById('rumAssetViewerModal');
+  if (!modalEl) return;
+
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  const titleEl = document.getElementById('rumAssetViewerLabel');
+  const rawEl = document.getElementById('rumAssetViewerOpenRaw');
+  const statusEl = document.getElementById('rumAssetViewerStatus');
+  const errorEl = document.getElementById('rumAssetViewerError');
+
+  const imgWrap = document.getElementById('rumAssetViewerImageWrap');
+  const imgEl = document.getElementById('rumAssetViewerImage');
+  const frameWrap = document.getElementById('rumAssetViewerFrameWrap');
+  const frameEl = document.getElementById('rumAssetViewerFrame');
+  const replayWrap = document.getElementById('rumAssetViewerReplayWrap');
+  const replayPlayer = document.getElementById('rumAssetViewerReplayPlayer');
+  const replayJson = document.getElementById('rumAssetViewerReplayJson');
+
+  let rrwebPlayerLoadPromise = null;
+
+  function hideAll() {
+    imgWrap.classList.add('d-none');
+    frameWrap.classList.add('d-none');
+    replayWrap.classList.add('d-none');
+    replayPlayer.classList.add('d-none');
+    errorEl.classList.add('d-none');
+    errorEl.textContent = '';
+    statusEl.textContent = '';
+    imgEl.removeAttribute('src');
+    frameEl.removeAttribute('src');
+    replayPlayer.innerHTML = '';
+    replayJson.textContent = '';
+  }
+
+  function setError(message) {
+    errorEl.textContent = String(message || 'Unable to load asset');
+    errorEl.classList.remove('d-none');
+  }
+
+  function looksLikeImage(url) {
+    return /\.(png|jpe?g|webp|gif)(\?|$)/i.test(String(url || ''));
+  }
+
+  function loadRrwebPlayer() {
+    if (window.rrwebPlayer) return Promise.resolve(true);
+    if (rrwebPlayerLoadPromise) return rrwebPlayerLoadPromise;
+
+    rrwebPlayerLoadPromise = new Promise((resolve, reject) => {
+      const cssId = 'rum-rrweb-player-css';
+      if (!document.getElementById(cssId)) {
+        const link = document.createElement('link');
+        link.id = cssId;
+        link.rel = 'stylesheet';
+        link.href = 'https://cdn.jsdelivr.net/npm/rrweb-player@latest/dist/style.css';
+        document.head.appendChild(link);
+      }
+
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/rrweb-player@latest/dist/index.js';
+      script.async = true;
+      script.onload = () => resolve(!!window.rrwebPlayer);
+      script.onerror = () => reject(new Error('Failed to load rrweb-player'));
+      document.head.appendChild(script);
+    });
+
+    return rrwebPlayerLoadPromise;
+  }
+
+  async function renderReplay(url) {
+    replayWrap.classList.remove('d-none');
+    statusEl.textContent = 'Loading replay payload...';
+
+    const resp = await fetch(url, { credentials: 'same-origin' });
+    if (!resp.ok) throw new Error('Replay fetch failed with HTTP ' + resp.status);
+
+    const text = await resp.text();
+    replayJson.textContent = text;
+
+    let parsed = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch (_) {
+      statusEl.textContent = 'Replay payload is not JSON. Showing raw content.';
+      return;
+    }
+
+    if (!parsed || !Array.isArray(parsed.events) || !parsed.events.length) {
+      statusEl.textContent = 'Replay JSON loaded (no events array found).';
+      return;
+    }
+
+    statusEl.textContent = 'Replay JSON loaded (' + parsed.events.length + ' events).';
+    try {
+      await loadRrwebPlayer();
+      if (!window.rrwebPlayer) return;
+      replayPlayer.classList.remove('d-none');
+      new window.rrwebPlayer({
+        target: replayPlayer,
+        props: {
+          events: parsed.events,
+          autoPlay: false,
+          showController: true
+        }
+      });
+      statusEl.textContent = 'Replay ready (' + parsed.events.length + ' events).';
+    } catch (err) {
+      statusEl.textContent = 'Replay JSON loaded; rrweb-player unavailable. Showing raw content.';
+    }
+  }
+
+  async function openViewer(kind, url, label) {
+    hideAll();
+    titleEl.textContent = label || 'RUM Asset Viewer';
+    rawEl.href = url;
+    modal.show();
+
+    try {
+      if (kind === 'artifact') {
+        if (looksLikeImage(url)) {
+          imgWrap.classList.remove('d-none');
+          imgEl.src = url;
+          statusEl.textContent = 'Image preview loaded.';
+        } else {
+          frameWrap.classList.remove('d-none');
+          frameEl.src = url;
+          statusEl.textContent = 'Rendering asset in embedded frame.';
+        }
+        return;
+      }
+
+      await renderReplay(url);
+    } catch (err) {
+      setError(err && err.message ? err.message : String(err));
+    }
+  }
+
+  document.addEventListener('click', function (evt) {
+    const btn = evt.target.closest('.js-rum-viewer-open');
+    if (!btn) return;
+    evt.preventDefault();
+    openViewer(
+      btn.getAttribute('data-rum-view-kind') || 'artifact',
+      btn.getAttribute('data-rum-view-url') || '',
+      btn.getAttribute('data-rum-view-label') || 'RUM Asset Viewer'
+    );
   });
 })();
 </script>

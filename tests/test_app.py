@@ -1475,6 +1475,7 @@ class TestUIPages:
         assert "Trace trace-detail" in body
         assert "shot-002" in body
         assert "replay-002" in body
+        assert "View Replay" in body
 
     async def test_rum_page_filters_by_error_source(self, client):
         await client.post(
