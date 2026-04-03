@@ -740,9 +740,14 @@
     var token = ds.sobsClientToken || (params && params.get('clientToken')) || '';
     var tokenUrl = ds.sobsClientTokenUrl || (params && params.get('clientTokenUrl')) || '';
     var autoRaw = ds.sobsAuto || (params && params.get('auto')) || '';
-    var autoEnabled = String(autoRaw || 'true').toLowerCase() !== 'false';
+    var explicitAuto = String(autoRaw || '').trim();
+    var autoEnabled = explicitAuto ? (explicitAuto.toLowerCase() !== 'false') : true;
+    var hasExplicitConfig = !!(ds.sobsApp || ds.sobsEndpoint || ds.sobsClientToken || ds.sobsClientTokenUrl);
+    var hasQueryConfig = !!(params && (params.get('app') || params.get('appName') || params.get('endpoint') || params.get('clientToken') || params.get('clientTokenUrl')));
 
     if (!endpoint && parsed && parsed.origin) endpoint = parsed.origin + '/v1/rum';
+    // Avoid surprising auto-init when script is included without explicit config.
+    if (!explicitAuto && !hasExplicitConfig && !hasQueryConfig) return null;
     if (!autoEnabled || (!endpoint && !appName)) return null;
 
     return {
@@ -772,6 +777,11 @@
 
   SOBS.init = function (cfg) {
     _cfg = cfg || {};
+    if (_isInitialized) {
+      // Allow late init calls (e.g. after plain script include) to enable replay/token config.
+      _startReplayRecorder();
+      return Promise.resolve(true);
+    }
     if (_cfg.clientAuthToken) {
       _bootWithConfig();
       return Promise.resolve(true);
