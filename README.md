@@ -491,6 +491,58 @@ Seed JSON shape:
   ]
 }
 ```
+
+CI helper script for registry onboarding:
+
+```bash
+python scripts/register_release_artifacts.py \
+  --base-url "${SOBS_BASE_URL:-http://127.0.0.1:44317}" \
+  --api-key "$SOBS_API_KEY" \
+  --app-name checkout-web \
+  --app-slug checkout-web \
+  --release-version "${RELEASE_VERSION}" \
+  --commit-sha "${GITHUB_SHA}" \
+  --environment prod \
+  --artifacts-file ./build/sobs-artifacts.json
+```
+
+The helper is idempotent-oriented:
+
+- Reuses existing app by slug/name.
+- Reuses existing release by version+commit+environment+build.
+- Skips artifact metadata already present by `(artifactType, name, storageRef)`.
+
+Environment-first usage is also supported (useful in CI):
+
+- `SOBS_BASE_URL`
+- `SOBS_API_KEY`
+- `SOBS_APP_NAME`
+- `SOBS_APP_SLUG`
+- `SOBS_OWNER_TEAM`
+- `SOBS_APP_REPO_URL`
+- `SOBS_DEFAULT_ENVIRONMENT`
+- `SOBS_RELEASE_VERSION`
+- `SOBS_RELEASE_COMMIT_SHA`
+- `SOBS_RELEASE_BUILD_ID`
+- `SOBS_RELEASE_ENVIRONMENT`
+- `SOBS_RELEASED_AT`
+- `SOBS_RELEASE_METADATA_JSON`
+- `SOBS_RELEASE_ARTIFACTS_JSON` or `SOBS_RELEASE_ARTIFACTS_JSON_FILE`
+
+Artifacts JSON array example (`sobs-artifacts.json`):
+
+```json
+[
+  {
+    "artifactType": "js_sourcemap",
+    "name": "app.min.js.map",
+    "contentType": "application/json",
+    "size": 3210,
+    "storageRef": "s3://symbols/checkout/1.2.3/app.min.js.map",
+    "checksumSha256": "..."
+  }
+]
+```
 ```bash
 # Basic auth
 curl -N http://localhost:44317/tail \
