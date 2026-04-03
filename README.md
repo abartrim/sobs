@@ -446,6 +446,51 @@ Optional server-side JS stack source-map remapping:
 - `SOBS_SOURCE_MAP_DIR=/path/to/source-maps`
 
 When enabled, SOBS attempts to remap JavaScript stack frames (RUM + direct `/v1/errors`) to original source locations using `.map` files in `SOBS_SOURCE_MAP_DIR`.
+
+App/release/artifact registry (Phase 1 scaffolding):
+
+- `POST /v1/apps`
+- `GET /v1/apps`
+- `GET /v1/apps/{app_id}`
+- `PATCH /v1/apps/{app_id}`
+- `POST /v1/apps/{app_id}/releases`
+- `GET /v1/apps/{app_id}/releases`
+- `GET /v1/releases/{release_id}`
+- `POST /v1/releases/{release_id}/artifacts/meta`
+- `GET /v1/releases/{release_id}/artifacts`
+
+Environment seed support for app/release/artifact registry:
+
+- `SOBS_APP_REGISTRY_SEED_JSON` (inline JSON)
+- `SOBS_APP_REGISTRY_SEED_JSON_FILE` (path to JSON file)
+
+Seed JSON shape:
+
+```json
+{
+  "apps": [
+    {
+      "name": "checkout-web",
+      "slug": "checkout-web",
+      "ownerTeam": "frontend",
+      "releases": [
+        {
+          "version": "1.2.3",
+          "commitSha": "abc123",
+          "environment": "prod",
+          "artifacts": [
+            {
+              "artifactType": "js_sourcemap",
+              "name": "app.min.js.map",
+              "storageRef": "s3://symbols/checkout/1.2.3/app.min.js.map"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
 ```bash
 # Basic auth
 curl -N http://localhost:44317/tail \

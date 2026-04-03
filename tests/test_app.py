@@ -767,6 +767,105 @@ class TestErrorsIngest:
         assert "[mapped] saveOrder (src/components/Checkout.tsx:88:21)" in body
 
 
+class TestAppReleaseRegistry:
+    async def test_create_and_list_app_release_artifacts(self, client):
+        app_resp = await client.post(
+            "/v1/apps",
+            json={
+                "name": "Checkout Web",
+                "slug": "checkout-web",
+                "ownerTeam": "frontend",
+                "repoUrl": "https://github.com/example/checkout",
+                "defaultEnvironment": "prod",
+            },
+        )
+        assert app_resp.status_code == 201
+        app_data = await app_resp.get_json()
+        app_id = app_data["id"]
+
+        list_apps = await client.get("/v1/apps")
+        assert list_apps.status_code == 200
+        apps = await list_apps.get_json()
+        assert any(a.get("slug") == "checkout-web" for a in apps)
+
+        rel_resp = await client.post(
+            f"/v1/apps/{app_id}/releases",
+            json={
+                "version": "1.2.3",
+                "commitSha": "abc123def456",
+                "environment": "prod",
+            },
+        )
+        assert rel_resp.status_code == 201
+        rel_data = await rel_resp.get_json()
+        release_id = rel_data["id"]
+
+        art_resp = await client.post(
+            f"/v1/releases/{release_id}/artifacts/meta",
+            json={
+                "artifactType": "js_sourcemap",
+                "name": "app.min.js.map",
+                "contentType": "application/json",
+                "size": 3210,
+                "storageRef": "s3://symbols/checkout/1.2.3/app.min.js.map",
+            },
+        )
+        assert art_resp.status_code == 201
+
+        rel_get = await client.get(f"/v1/releases/{release_id}")
+        assert rel_get.status_code == 200
+        rel_payload = await rel_get.get_json()
+        assert rel_payload["release"]["version"] == "1.2.3"
+        assert any(a.get("name") == "app.min.js.map" for a in rel_payload["artifacts"])
+
+    async def test_registry_seed_from_environment(self, monkeypatch):
+        seed = {
+            "apps": [
+                {
+                    "name": "Seeded App",
+                    "slug": "seeded-app",
+                    "ownerTeam": "platform",
+                    "releases": [
+                        {
+                            "version": "2026.04.02",
+                            "commitSha": "deadbeef",
+                            "environment": "prod",
+                            "artifacts": [
+                                {
+                                    "artifactType": "js_sourcemap",
+                                    "name": "main.js.map",
+                                    "storageRef": "s3://seeded/main.js.map",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        monkeypatch.setenv("SOBS_APP_REGISTRY_SEED_JSON", json.dumps(seed))
+        db = sobs_app.get_db()
+        sobs_app._seed_app_release_registry_from_env(db)
+
+        app_row = db.execute(
+            "SELECT Id, Name FROM sobs_apps FINAL WHERE Slug='seeded-app' AND IsDeleted=0 LIMIT 1"
+        ).fetchone()
+        assert app_row is not None
+
+        release_row = db.execute(
+            "SELECT Id FROM sobs_app_releases FINAL "
+            "WHERE AppId=? AND ReleaseVersion='2026.04.02' AND IsDeleted=0 LIMIT 1",
+            [str(app_row[0])],
+        ).fetchone()
+        assert release_row is not None
+
+        artifact_row = db.execute(
+            "SELECT Id FROM sobs_release_artifacts FINAL "
+            "WHERE ReleaseId=? AND Name='main.js.map' AND IsDeleted=0 LIMIT 1",
+            [str(release_row[0])],
+        ).fetchone()
+        assert artifact_row is not None
+
+
 # ---------------------------------------------------------------------------
 # RUM ingest
 # ---------------------------------------------------------------------------

@@ -309,6 +309,8 @@ RUM_CLIENT_SIGNING_KEY = os.environ.get("SOBS_RUM_CLIENT_SIGNING_KEY", "")
 RUM_CLIENT_TOKEN_TTL_SEC = int(os.environ.get("SOBS_RUM_CLIENT_TOKEN_TTL_SEC", "900"))
 SOURCE_MAP_DIR = os.environ.get("SOBS_SOURCE_MAP_DIR", "").strip()
 SOURCE_MAP_ENABLE = _env_flag("SOBS_SOURCE_MAP_ENABLE", False)
+APP_REGISTRY_SEED_JSON_ENV = "SOBS_APP_REGISTRY_SEED_JSON"
+APP_REGISTRY_SEED_JSON_FILE_ENV = "SOBS_APP_REGISTRY_SEED_JSON_FILE"
 CHDB_CONFIG_FILE_ENV = "SOBS_CLICKHOUSE_CONFIG_FILE"
 CHDB_EXPECT_DISK_ENV = "SOBS_CHDB_EXPECT_DISK"
 CHDB_EXPECT_POLICY_ENV = "SOBS_CHDB_EXPECT_STORAGE_POLICY"
@@ -974,6 +976,57 @@ CREATE TABLE IF NOT EXISTS sobs_reports (
 ORDER BY Id
 SETTINGS index_granularity = 8192;
 
+CREATE TABLE IF NOT EXISTS sobs_apps (
+    Id String CODEC(ZSTD(1)),
+    Name String CODEC(ZSTD(1)),
+    Slug String CODEC(ZSTD(1)),
+    OwnerTeam String CODEC(ZSTD(1)),
+    RepoUrl String CODEC(ZSTD(1)),
+    DefaultEnvironment String CODEC(ZSTD(1)),
+    Enabled UInt8 DEFAULT 1 CODEC(T64, ZSTD(1)),
+    MetadataJson String CODEC(ZSTD(1)),
+    IsDeleted UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Version UInt64 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    CreatedAt DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1)),
+    UpdatedAt DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY (Slug, Id)
+SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS sobs_app_releases (
+    Id String CODEC(ZSTD(1)),
+    AppId String CODEC(ZSTD(1)),
+    ReleaseVersion String CODEC(ZSTD(1)),
+    CommitSha String CODEC(ZSTD(1)),
+    BuildId String CODEC(ZSTD(1)),
+    Environment String CODEC(ZSTD(1)),
+    ReleasedAt DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1)),
+    MetadataJson String CODEC(ZSTD(1)),
+    IsDeleted UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Version UInt64 DEFAULT 0 CODEC(T64, ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY (AppId, ReleaseVersion, Id)
+SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS sobs_release_artifacts (
+    Id String CODEC(ZSTD(1)),
+    ReleaseId String CODEC(ZSTD(1)),
+    ArtifactType LowCardinality(String) CODEC(ZSTD(1)),
+    Name String CODEC(ZSTD(1)),
+    ContentType String CODEC(ZSTD(1)),
+    Size UInt64 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    StorageRef String CODEC(ZSTD(1)),
+    ChecksumSha256 String CODEC(ZSTD(1)),
+    Platform String CODEC(ZSTD(1)),
+    Architecture String CODEC(ZSTD(1)),
+    MetadataJson String CODEC(ZSTD(1)),
+    UploadedAt DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1)),
+    IsDeleted UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Version UInt64 DEFAULT 0 CODEC(T64, ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY (ReleaseId, ArtifactType, Name, Id)
+SETTINGS index_granularity = 8192;
+
 """
 
 
@@ -1162,6 +1215,7 @@ def _ensure_post_schema_state(db: ChDbConnection) -> None:
     _ensure_notification_schema(db)
     _ensure_ai_memory_schema(db)
     _prime_log_attr_key_cache(db)
+    _seed_app_release_registry_from_env(db)
     if not app.config.get("TESTING"):
         _seed_example_metrics_content(db)
 
@@ -4161,13 +4215,17 @@ def _ns_to_iso(nanos: int) -> str:
         return _now_iso()
 
 
-_STACK_FRAME_RE = re.compile(r"(?P<prefix>.*?)(?P<url>https?://[^\s\)]+|/[^\s\):]+\.js(?:\?[^\s\)]*)?)(?::(?P<line>\d+))(?::(?P<col>\d+))(?P<suffix>.*)$")
+_STACK_FRAME_RE = re.compile(
+    r"(?P<prefix>.*?)"
+    r"(?P<url>https?://[^\s\)]+|/[^\s\):]+\.js(?:\?[^\s\)]*)?)"
+    r"(?::(?P<line>\d+))"
+    r"(?::(?P<col>\d+))"
+    r"(?P<suffix>.*)$"
+)
 _SOURCE_MAP_CACHE: dict[str, tuple[float, Any]] = {}
 
 
-def _sourcemap_lookup_for_file(
-    js_url: str, line: int, col: int
-) -> tuple[str, int, int, str] | None:
+def _sourcemap_lookup_for_file(js_url: str, line: int, col: int) -> tuple[str, int, int, str] | None:
     if not SOURCE_MAP_ENABLE or not SOURCE_MAP_DIR:
         return None
     if not os.path.isdir(SOURCE_MAP_DIR):
@@ -4450,7 +4508,7 @@ def _error_id(ts: str, service: str, err_type: str, message: str, trace_id: str,
 def _insert_rows_json_each_row(db, table_name: str, rows: list[dict]) -> int:
     if not rows:
         return 0
-    dt_keys = {"Timestamp", "TimeUnix", "UpdatedAt", "CreatedAt", "CompletedAt"}
+    dt_keys = {"Timestamp", "TimeUnix", "UpdatedAt", "CreatedAt", "CompletedAt", "ReleasedAt", "UploadedAt"}
     normalized_rows = []
     for row in rows:
         item = dict(row)
@@ -4482,6 +4540,235 @@ def _normalize_ch_timestamp(value) -> str:
             if dt.tzinfo:
                 dt = dt.astimezone(timezone.utc)
     return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def _safe_json_dumps(value: Any) -> str:
+    if value is None:
+        return "{}"
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return "{}"
+        try:
+            parsed = json.loads(stripped)
+            return json.dumps(parsed, ensure_ascii=False)
+        except Exception:
+            return "{}"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return "{}"
+
+
+def _safe_json_loads(value: object, default: object) -> object:
+    raw = str(value or "").strip()
+    if not raw:
+        return default
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return default
+    if isinstance(default, dict) and isinstance(parsed, dict):
+        return parsed
+    if isinstance(default, list) and isinstance(parsed, list):
+        return parsed
+    return default
+
+
+def _app_slug(value: str, fallback: str = "app") -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+    return (slug or fallback)[:80]
+
+
+def _find_app_by_id(db: ChDbConnection, app_id: str) -> dict[str, Any] | None:
+    row = db.execute(
+        "SELECT * FROM sobs_apps FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1",
+        [app_id],
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def _find_release_by_id(db: ChDbConnection, release_id: str) -> dict[str, Any] | None:
+    row = db.execute(
+        "SELECT * FROM sobs_app_releases FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1",
+        [release_id],
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def _serialize_app_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row.get("Id", "")),
+        "name": str(row.get("Name", "")),
+        "slug": str(row.get("Slug", "")),
+        "ownerTeam": str(row.get("OwnerTeam", "")),
+        "repoUrl": str(row.get("RepoUrl", "")),
+        "defaultEnvironment": str(row.get("DefaultEnvironment", "")),
+        "enabled": bool(int(row.get("Enabled", 1) or 0)),
+        "metadata": _safe_json_loads(row.get("MetadataJson", ""), {}),
+        "createdAt": str(row.get("CreatedAt", "")),
+        "updatedAt": str(row.get("UpdatedAt", "")),
+    }
+
+
+def _serialize_release_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row.get("Id", "")),
+        "appId": str(row.get("AppId", "")),
+        "version": str(row.get("ReleaseVersion", "")),
+        "commitSha": str(row.get("CommitSha", "")),
+        "buildId": str(row.get("BuildId", "")),
+        "environment": str(row.get("Environment", "")),
+        "releasedAt": str(row.get("ReleasedAt", "")),
+        "metadata": _safe_json_loads(row.get("MetadataJson", ""), {}),
+    }
+
+
+def _serialize_artifact_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row.get("Id", "")),
+        "releaseId": str(row.get("ReleaseId", "")),
+        "artifactType": str(row.get("ArtifactType", "")),
+        "name": str(row.get("Name", "")),
+        "contentType": str(row.get("ContentType", "")),
+        "size": int(row.get("Size", 0) or 0),
+        "storageRef": str(row.get("StorageRef", "")),
+        "checksumSha256": str(row.get("ChecksumSha256", "")),
+        "platform": str(row.get("Platform", "")),
+        "architecture": str(row.get("Architecture", "")),
+        "metadata": _safe_json_loads(row.get("MetadataJson", ""), {}),
+        "uploadedAt": str(row.get("UploadedAt", "")),
+    }
+
+
+def _seed_app_release_registry_from_env(db: ChDbConnection) -> None:
+    seed_raw = _read_file_or_env(APP_REGISTRY_SEED_JSON_ENV, APP_REGISTRY_SEED_JSON_FILE_ENV)
+    if not seed_raw:
+        return
+
+    try:
+        parsed = json.loads(seed_raw)
+    except Exception as exc:
+        app.logger.warning("Failed to parse app registry seed JSON: %s", exc)
+        return
+
+    if isinstance(parsed, dict):
+        apps = parsed.get("apps", [])
+    elif isinstance(parsed, list):
+        apps = parsed
+    else:
+        app.logger.warning("Ignoring app registry seed: expected object with 'apps' or an array")
+        return
+
+    if not isinstance(apps, list):
+        app.logger.warning("Ignoring app registry seed: 'apps' must be an array")
+        return
+
+    now_version = int(time.time() * 1000)
+    app_rows: list[dict[str, Any]] = []
+    release_rows: list[dict[str, Any]] = []
+    artifact_rows: list[dict[str, Any]] = []
+
+    for app_item in apps:
+        if not isinstance(app_item, dict):
+            continue
+        name = str(app_item.get("name", "")).strip()
+        if not name:
+            continue
+
+        slug = _app_slug(str(app_item.get("slug", "")).strip() or name)
+        existing = db.execute(
+            "SELECT Id FROM sobs_apps FINAL WHERE Slug=? AND IsDeleted=0 LIMIT 1",
+            [slug],
+        ).fetchone()
+        app_id = str(app_item.get("id", "")).strip() or (str(existing[0]) if existing else uuid.uuid4().hex)
+
+        app_rows.append(
+            {
+                "Id": app_id,
+                "Name": name,
+                "Slug": slug,
+                "OwnerTeam": str(app_item.get("ownerTeam", "")).strip(),
+                "RepoUrl": str(app_item.get("repoUrl", "")).strip(),
+                "DefaultEnvironment": str(app_item.get("defaultEnvironment", "")).strip(),
+                "Enabled": 1 if _parse_bool(app_item.get("enabled", True), True) else 0,
+                "MetadataJson": _safe_json_dumps(app_item.get("metadata", {})),
+                "IsDeleted": 0,
+                "Version": now_version,
+                "CreatedAt": _now_iso(),
+                "UpdatedAt": _now_iso(),
+            }
+        )
+
+        releases = app_item.get("releases", [])
+        if not isinstance(releases, list):
+            continue
+        for rel in releases:
+            if not isinstance(rel, dict):
+                continue
+            rel_version = str(rel.get("version", "")).strip()
+            if not rel_version:
+                continue
+
+            existing_rel = db.execute(
+                "SELECT Id FROM sobs_app_releases FINAL "
+                "WHERE AppId=? AND ReleaseVersion=? AND CommitSha=? AND Environment=? AND IsDeleted=0 LIMIT 1",
+                [
+                    app_id,
+                    rel_version,
+                    str(rel.get("commitSha", "")).strip(),
+                    str(rel.get("environment", "")).strip(),
+                ],
+            ).fetchone()
+            rel_id = str(rel.get("id", "")).strip() or (str(existing_rel[0]) if existing_rel else uuid.uuid4().hex)
+
+            release_rows.append(
+                {
+                    "Id": rel_id,
+                    "AppId": app_id,
+                    "ReleaseVersion": rel_version,
+                    "CommitSha": str(rel.get("commitSha", "")).strip(),
+                    "BuildId": str(rel.get("buildId", "")).strip(),
+                    "Environment": str(rel.get("environment", "")).strip(),
+                    "ReleasedAt": str(rel.get("releasedAt", "")).strip() or _now_iso(),
+                    "MetadataJson": _safe_json_dumps(rel.get("metadata", {})),
+                    "IsDeleted": 0,
+                    "Version": now_version,
+                }
+            )
+
+            artifacts = rel.get("artifacts", [])
+            if not isinstance(artifacts, list):
+                continue
+            for art in artifacts:
+                if not isinstance(art, dict):
+                    continue
+                artifact_type = str(art.get("artifactType", "")).strip()
+                artifact_name = str(art.get("name", "")).strip()
+                if not artifact_type or not artifact_name:
+                    continue
+
+                artifact_rows.append(
+                    {
+                        "Id": str(art.get("id", "")).strip() or uuid.uuid4().hex,
+                        "ReleaseId": rel_id,
+                        "ArtifactType": artifact_type,
+                        "Name": artifact_name,
+                        "ContentType": str(art.get("contentType", "")).strip(),
+                        "Size": int(art.get("size", 0) or 0),
+                        "StorageRef": str(art.get("storageRef", "")).strip(),
+                        "ChecksumSha256": str(art.get("checksumSha256", "")).strip(),
+                        "Platform": str(art.get("platform", "")).strip(),
+                        "Architecture": str(art.get("architecture", "")).strip(),
+                        "MetadataJson": _safe_json_dumps(art.get("metadata", {})),
+                        "UploadedAt": str(art.get("uploadedAt", "")).strip() or _now_iso(),
+                        "IsDeleted": 0,
+                        "Version": now_version,
+                    }
+                )
+
+    _insert_rows_json_each_row(db, "sobs_apps", app_rows)
+    _insert_rows_json_each_row(db, "sobs_app_releases", release_rows)
+    _insert_rows_json_each_row(db, "sobs_release_artifacts", artifact_rows)
 
 
 def _attr_list_to_dict(attr_list: list) -> dict:
@@ -5485,6 +5772,228 @@ async def ingest_errors():
         app.logger.exception("error ingest write failed")
         return jsonify({"error": str(exc)}), 500
     return jsonify({"ok": True}), 200
+
+
+# ---------------------------------------------------------------------------
+# App / Release / Artifact Registry APIs (Phase 1 scaffolding)
+# ---------------------------------------------------------------------------
+@app.route("/v1/apps", methods=["GET"])
+@require_api_key
+async def list_apps():
+    db = get_db()
+    q = (request.args.get("q") or "").strip().lower()
+    rows = [dict(r) for r in db.execute("SELECT * FROM sobs_apps FINAL WHERE IsDeleted=0 ORDER BY Name ASC").fetchall()]
+    apps = [_serialize_app_row(row) for row in rows]
+    if q:
+        apps = [item for item in apps if q in item["name"].lower() or q in item["slug"].lower()]
+    return jsonify(apps), 200
+
+
+@app.route("/v1/apps", methods=["POST"])
+@require_api_key
+async def create_app_registry_entry():
+    db = get_db()
+    payload = await request.get_json(force=True, silent=True) or {}
+    name = str(payload.get("name", "")).strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+
+    slug = _app_slug(str(payload.get("slug", "")).strip() or name)
+    existing = db.execute(
+        "SELECT Id FROM sobs_apps FINAL WHERE Slug=? AND IsDeleted=0 LIMIT 1",
+        [slug],
+    ).fetchone()
+    if existing:
+        return jsonify({"error": "app slug already exists"}), 409
+
+    version = int(time.time() * 1000)
+    app_id = str(payload.get("id", "")).strip() or uuid.uuid4().hex
+    row = {
+        "Id": app_id,
+        "Name": name,
+        "Slug": slug,
+        "OwnerTeam": str(payload.get("ownerTeam", "")).strip(),
+        "RepoUrl": str(payload.get("repoUrl", "")).strip(),
+        "DefaultEnvironment": str(payload.get("defaultEnvironment", "")).strip(),
+        "Enabled": 1 if _parse_bool(payload.get("enabled", True), True) else 0,
+        "MetadataJson": _safe_json_dumps(payload.get("metadata", {})),
+        "IsDeleted": 0,
+        "Version": version,
+        "CreatedAt": _now_iso(),
+        "UpdatedAt": _now_iso(),
+    }
+    _insert_rows_json_each_row(db, "sobs_apps", [row])
+    return jsonify(_serialize_app_row(row)), 201
+
+
+@app.route("/v1/apps/<app_id>", methods=["GET"])
+@require_api_key
+async def get_app_registry_entry(app_id: str):
+    db = get_db()
+    row = _find_app_by_id(db, app_id)
+    if not row:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(_serialize_app_row(row)), 200
+
+
+@app.route("/v1/apps/<app_id>", methods=["PATCH"])
+@require_api_key
+async def update_app_registry_entry(app_id: str):
+    db = get_db()
+    current = _find_app_by_id(db, app_id)
+    if not current:
+        return jsonify({"error": "not found"}), 404
+
+    payload = await request.get_json(force=True, silent=True) or {}
+    name = str(payload.get("name", current.get("Name", ""))).strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+
+    slug = _app_slug(str(payload.get("slug", current.get("Slug", ""))).strip() or name)
+    conflict = db.execute(
+        "SELECT Id FROM sobs_apps FINAL WHERE Slug=? AND IsDeleted=0 AND Id!=? LIMIT 1",
+        [slug, app_id],
+    ).fetchone()
+    if conflict:
+        return jsonify({"error": "app slug already exists"}), 409
+
+    version = int(time.time() * 1000)
+    row = {
+        "Id": app_id,
+        "Name": name,
+        "Slug": slug,
+        "OwnerTeam": str(payload.get("ownerTeam", current.get("OwnerTeam", ""))).strip(),
+        "RepoUrl": str(payload.get("repoUrl", current.get("RepoUrl", ""))).strip(),
+        "DefaultEnvironment": str(payload.get("defaultEnvironment", current.get("DefaultEnvironment", ""))).strip(),
+        "Enabled": 1 if _parse_bool(payload.get("enabled", int(current.get("Enabled", 1))), True) else 0,
+        "MetadataJson": _safe_json_dumps(
+            payload.get("metadata", _safe_json_loads(current.get("MetadataJson", ""), {}))
+        ),
+        "IsDeleted": 0,
+        "Version": version,
+        "CreatedAt": str(current.get("CreatedAt", "")) or _now_iso(),
+        "UpdatedAt": _now_iso(),
+    }
+    _insert_rows_json_each_row(db, "sobs_apps", [row])
+    return jsonify(_serialize_app_row(row)), 200
+
+
+@app.route("/v1/apps/<app_id>/releases", methods=["GET"])
+@require_api_key
+async def list_app_releases(app_id: str):
+    db = get_db()
+    app_row = _find_app_by_id(db, app_id)
+    if not app_row:
+        return jsonify({"error": "app not found"}), 404
+    rows = [
+        _serialize_release_row(dict(r))
+        for r in db.execute(
+            "SELECT * FROM sobs_app_releases FINAL WHERE AppId=? AND IsDeleted=0 ORDER BY ReleasedAt DESC",
+            [app_id],
+        ).fetchall()
+    ]
+    return jsonify(rows), 200
+
+
+@app.route("/v1/apps/<app_id>/releases", methods=["POST"])
+@require_api_key
+async def create_app_release(app_id: str):
+    db = get_db()
+    app_row = _find_app_by_id(db, app_id)
+    if not app_row:
+        return jsonify({"error": "app not found"}), 404
+
+    payload = await request.get_json(force=True, silent=True) or {}
+    release_version = str(payload.get("version", "")).strip()
+    if not release_version:
+        return jsonify({"error": "version is required"}), 400
+
+    version = int(time.time() * 1000)
+    row = {
+        "Id": str(payload.get("id", "")).strip() or uuid.uuid4().hex,
+        "AppId": app_id,
+        "ReleaseVersion": release_version,
+        "CommitSha": str(payload.get("commitSha", "")).strip(),
+        "BuildId": str(payload.get("buildId", "")).strip(),
+        "Environment": str(payload.get("environment", "")).strip(),
+        "ReleasedAt": str(payload.get("releasedAt", "")).strip() or _now_iso(),
+        "MetadataJson": _safe_json_dumps(payload.get("metadata", {})),
+        "IsDeleted": 0,
+        "Version": version,
+    }
+    _insert_rows_json_each_row(db, "sobs_app_releases", [row])
+    return jsonify(_serialize_release_row(row)), 201
+
+
+@app.route("/v1/releases/<release_id>", methods=["GET"])
+@require_api_key
+async def get_release(release_id: str):
+    db = get_db()
+    row = _find_release_by_id(db, release_id)
+    if not row:
+        return jsonify({"error": "not found"}), 404
+
+    release = _serialize_release_row(row)
+    artifacts = [
+        _serialize_artifact_row(dict(r))
+        for r in db.execute(
+            "SELECT * FROM sobs_release_artifacts FINAL WHERE ReleaseId=? AND IsDeleted=0 ORDER BY UploadedAt DESC",
+            [release_id],
+        ).fetchall()
+    ]
+    return jsonify({"release": release, "artifacts": artifacts}), 200
+
+
+@app.route("/v1/releases/<release_id>/artifacts", methods=["GET"])
+@require_api_key
+async def list_release_artifacts(release_id: str):
+    db = get_db()
+    row = _find_release_by_id(db, release_id)
+    if not row:
+        return jsonify({"error": "release not found"}), 404
+    artifacts = [
+        _serialize_artifact_row(dict(r))
+        for r in db.execute(
+            "SELECT * FROM sobs_release_artifacts FINAL WHERE ReleaseId=? AND IsDeleted=0 ORDER BY UploadedAt DESC",
+            [release_id],
+        ).fetchall()
+    ]
+    return jsonify(artifacts), 200
+
+
+@app.route("/v1/releases/<release_id>/artifacts/meta", methods=["POST"])
+@require_api_key
+async def create_release_artifact_meta(release_id: str):
+    db = get_db()
+    release = _find_release_by_id(db, release_id)
+    if not release:
+        return jsonify({"error": "release not found"}), 404
+
+    payload = await request.get_json(force=True, silent=True) or {}
+    artifact_type = str(payload.get("artifactType", "")).strip()
+    name = str(payload.get("name", "")).strip()
+    if not artifact_type or not name:
+        return jsonify({"error": "artifactType and name are required"}), 400
+
+    version = int(time.time() * 1000)
+    row = {
+        "Id": str(payload.get("id", "")).strip() or uuid.uuid4().hex,
+        "ReleaseId": release_id,
+        "ArtifactType": artifact_type,
+        "Name": name,
+        "ContentType": str(payload.get("contentType", "")).strip(),
+        "Size": int(payload.get("size", 0) or 0),
+        "StorageRef": str(payload.get("storageRef", "")).strip(),
+        "ChecksumSha256": str(payload.get("checksumSha256", "")).strip(),
+        "Platform": str(payload.get("platform", "")).strip(),
+        "Architecture": str(payload.get("architecture", "")).strip(),
+        "MetadataJson": _safe_json_dumps(payload.get("metadata", {})),
+        "UploadedAt": str(payload.get("uploadedAt", "")).strip() or _now_iso(),
+        "IsDeleted": 0,
+        "Version": version,
+    }
+    _insert_rows_json_each_row(db, "sobs_release_artifacts", [row])
+    return jsonify(_serialize_artifact_row(row)), 201
 
 
 ERROR_SOURCES_SQL = """
