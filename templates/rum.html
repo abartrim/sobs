@@ -31,28 +31,39 @@
     overflow-wrap: anywhere;
   }
   .rum-viewer-player {
-    min-height: min(50vh, 560px);
-    height: min(50vh, 560px);
+    min-height: min(64vh, 760px);
+    height: min(64vh, 760px);
     border: 1px solid var(--bs-border-color);
     border-radius: .5rem;
     overflow: hidden;
     background: var(--bs-body-bg);
   }
+  .rum-viewer-player .rr-player {
+    width: 100% !important;
+    height: 100% !important;
+  }
+  .rum-replay-raw summary {
+    cursor: pointer;
+    user-select: none;
+  }
+  .rum-replay-raw[open] summary {
+    margin-bottom: .5rem;
+  }
   #rumAssetViewerModal {
     z-index: 1080;
   }
   #rumAssetViewerModal .modal-dialog {
-    width: min(96vw, 1500px);
-    max-width: min(96vw, 1500px);
-    max-height: 92vh;
-    margin: 1rem auto;
+    width: min(98vw, 1680px);
+    max-width: min(98vw, 1680px);
+    max-height: 96vh;
+    margin: .5rem auto;
   }
   #rumAssetViewerModal .modal-content {
-    max-height: 92vh;
+    max-height: 96vh;
     overflow: hidden;
   }
   #rumAssetViewerModal .modal-body {
-    max-height: calc(92vh - 8rem);
+    max-height: calc(96vh - 7rem);
     overflow: auto;
   }
 </style>
@@ -421,7 +432,10 @@
 
         <div id="rumAssetViewerReplayWrap" class="d-none">
           <div id="rumAssetViewerReplayPlayer" class="rum-viewer-player mb-3 d-none"></div>
-          <pre id="rumAssetViewerReplayJson" class="rum-viewer-json rounded p-2 mb-0 theme-panel"></pre>
+          <details id="rumAssetViewerReplayRaw" class="rum-replay-raw">
+            <summary class="small text-secondary">Raw Replay JSON</summary>
+            <pre id="rumAssetViewerReplayJson" class="rum-viewer-json rounded p-2 mb-0 theme-panel"></pre>
+          </details>
         </div>
       </div>
     </div>
@@ -512,7 +526,10 @@
   const frameEl = document.getElementById('rumAssetViewerFrame');
   const replayWrap = document.getElementById('rumAssetViewerReplayWrap');
   const replayPlayer = document.getElementById('rumAssetViewerReplayPlayer');
+  const replayRaw = document.getElementById('rumAssetViewerReplayRaw');
   const replayJson = document.getElementById('rumAssetViewerReplayJson');
+  let replayRawText = '';
+  let replayRawParsed = null;
 
   if (!hasBootstrapModal) {
     modalEl.querySelectorAll('[data-bs-dismiss="modal"], .btn-close').forEach((btn) => {
@@ -536,6 +553,9 @@
     imgEl.removeAttribute('src');
     frameEl.removeAttribute('src');
     replayPlayer.innerHTML = '';
+    if (replayRaw) replayRaw.open = false;
+    replayRawText = '';
+    replayRawParsed = null;
     replayJson.textContent = '';
   }
 
@@ -581,15 +601,18 @@
     if (!resp.ok) throw new Error('Replay fetch failed with HTTP ' + resp.status);
 
     const text = await resp.text();
-    replayJson.textContent = text;
+    replayRawText = text;
+    replayJson.textContent = '';
 
     let parsed = null;
     try {
       parsed = JSON.parse(text);
     } catch (_) {
+      replayRawParsed = null;
       statusEl.textContent = 'Replay payload is not JSON. Showing raw content.';
       return;
     }
+    replayRawParsed = parsed;
 
     if (!parsed || !Array.isArray(parsed.events) || !parsed.events.length) {
       statusEl.textContent = 'Replay JSON loaded (no events array found).';
@@ -601,8 +624,8 @@
       await loadRrwebPlayer();
       if (!window.rrwebPlayer) return;
       replayPlayer.classList.remove('d-none');
-      const playerWidth = Math.max(320, Math.floor(replayPlayer.clientWidth || replayWrap.clientWidth || 960));
-      const playerHeight = Math.max(240, Math.floor((replayPlayer.clientHeight || 520) - 8));
+      const playerWidth = Math.max(480, Math.floor(replayPlayer.clientWidth || replayWrap.clientWidth || 1100));
+      const playerHeight = Math.max(360, Math.floor(replayPlayer.clientHeight || (window.innerHeight * 0.64)));
       new window.rrwebPlayer({
         target: replayPlayer,
         props: {
@@ -617,6 +640,18 @@
     } catch (err) {
       statusEl.textContent = 'Replay JSON loaded; rrweb-player unavailable. Showing raw content.';
     }
+  }
+
+  if (replayRaw) {
+    replayRaw.addEventListener('toggle', function () {
+      if (!replayRaw.open) return;
+      if (replayJson.textContent) return;
+      if (replayRawParsed) {
+        replayJson.textContent = JSON.stringify(replayRawParsed, null, 2);
+        return;
+      }
+      replayJson.textContent = replayRawText || '';
+    });
   }
 
   async function openViewer(kind, url, label) {
