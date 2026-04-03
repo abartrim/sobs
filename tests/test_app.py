@@ -870,6 +870,52 @@ class TestRumIngest:
         assert r.status_code == 200
         assert json.loads(await r.get_data())["accepted"] == 0
 
+    async def test_origin_bound_client_token_auth(self, client, monkeypatch):
+        monkeypatch.setattr(sobs_app, "RUM_CLIENT_AUTH_MODE", "origin")
+        monkeypatch.setattr(sobs_app, "RUM_CLIENT_SIGNING_KEY", "rum-client-secret")
+        monkeypatch.setattr(sobs_app, "RUM_CLIENT_TOKEN_TTL_SEC", 900)
+
+        issue = await client.post(
+            "/v1/rum/client-token",
+            json={"appName": "my-app", "origin": "https://example.com"},
+        )
+        assert issue.status_code == 200
+        issued = await issue.get_json()
+        token = issued["token"]
+        assert token
+
+        ok = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": "sess-auth-001",
+                    "appName": "my-app",
+                    "url": "https://example.com/",
+                    "clientAuthToken": token,
+                }
+            ],
+            headers={"Origin": "https://example.com"},
+        )
+        assert ok.status_code == 200
+
+        bad = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": "sess-auth-002",
+                    "appName": "my-app",
+                    "url": "https://example.com/",
+                    "clientAuthToken": token,
+                }
+            ],
+            headers={"Origin": "https://evil.example"},
+        )
+        assert bad.status_code == 401
+
 
 class TestRumAssetUploads:
     async def test_rejects_missing_signature(self, client, monkeypatch):
@@ -1644,6 +1690,7 @@ class TestUIPages:
         assert b"enableReplay" in body
         assert b"disableReplay" in body
         assert b"captureException" in body
+        assert b"setClientAuthToken" in body
 
     async def test_pagination(self, client):
         r = await client.get("/logs?limit=10&offset=0")

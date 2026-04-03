@@ -66,6 +66,21 @@ def _upload_asset_to_sobs(body: bytes, *, asset_type: str, asset_name: str, cont
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _post_json_to_sobs(path: str, payload: dict) -> dict:
+    url = f"{SOBS_BASE_URL}{path}"
+    headers = {"Content-Type": "application/json"}
+    if SOBS_API_KEY:
+        headers["X-API-Key"] = SOBS_API_KEY
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=8) as resp:  # noqa: S310
+        return json.loads(resp.read().decode("utf-8"))
+
+
 PAGE = """
 <!doctype html>
 <html lang="en">
@@ -133,6 +148,7 @@ PAGE = """
     SOBS.init({
       endpoint: '{{ sobs_base }}/v1/rum',
       appName: 'rum-replay-demo',
+      clientAuthTokenUrl: '/internal/sobs/rum-client-token',
       trackSPA: true,
       replay: {
         enabled: true,
@@ -210,6 +226,27 @@ PAGE = """
 @app.route("/")
 def index():
     return render_template_string(PAGE, sobs_base=SOBS_BASE_URL)
+
+
+@app.route("/internal/sobs/rum-client-token", methods=["POST"])
+def issue_rum_client_token():
+    origin = request.headers.get("Origin") or request.host_url.rstrip("/")
+    try:
+        data = _post_json_to_sobs(
+            "/v1/rum/client-token",
+            {
+                "appName": "rum-replay-demo",
+                "origin": origin,
+            },
+        )
+        token = str(data.get("token") or "")
+        if not token:
+            return jsonify(data), 200
+        return jsonify({"token": token, "expiresAt": data.get("expiresAt"), "origin": data.get("origin")}), 200
+    except urllib.error.HTTPError as exc:
+        return jsonify({"error": f"token request failed with HTTP {exc.code}"}), 502
+    except Exception as exc:
+        return jsonify({"error": f"token request failed: {exc}"}), 500
 
 
 @app.route("/api/replay/upload", methods=["POST"])

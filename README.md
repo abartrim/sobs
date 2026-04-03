@@ -117,46 +117,24 @@ details, security considerations, and limitations.
 ### Client-side RUM
 
 ```html
-<script src="http://YOUR_SOBS_HOST/static/rum.js"></script>
-<meta name="traceparent" content="00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01">
-<script>
-  SOBS.init({
-    endpoint: 'http://YOUR_SOBS_HOST/v1/rum',
-    appName: 'my-app',
-    replay: {
-      enabled: false,
-      // rrweb is only loaded when enabled=true
-      scriptUrl: 'https://cdn.jsdelivr.net/npm/rrweb@latest/dist/record/rrweb-record.min.js',
-      upload: async (envelope) => {
-        const resp = await fetch('/api/replay/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(envelope)
-        });
-        if (!resp.ok) throw new Error('Replay upload failed');
-        return await resp.json();
-      }
-    }
-  });
-  // Or set W3C context explicitly from your OTEL/browser tracer integration:
-  // SOBS.setTraceParent('00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01');
+<!-- One-line auto-init (endpoint inferred from script host) -->
+<script src="http://YOUR_SOBS_HOST/static/rum.js?app=my-app"></script>
 
-  // Optional: attach screenshot/replay artifact references to the next error event.
-  // SOBS.setVisualContext({
-  //   artifact: {
-  //     type: 'screenshot',
-  //     id: 'shot-123',
-  //     url: 'https://example.com/artifacts/shot-123.png'
-  //   },
-  //   replay: {
-  //     id: 'replay-123',
-  //     url: 'https://example.com/replays/replay-123'
-  //     provider: 'rrweb'
-  //   },
-  //   ttlMs: 15000
-  // });
-  // SOBS.setReplayContext({ id: 'replay-123', url: 'https://example.com/replays/replay-123', provider: 'rrweb' }, { ttlMs: 15000, consumeOnce: true });
-  // SOBS.setArtifactContext({ type: 'screenshot', id: 'shot-123', url: 'https://example.com/artifacts/shot-123.png' }, { ttlMs: 15000, consumeOnce: true });
+<!-- Optional origin-bound auth token bootstrap from your backend -->
+<script
+  src="http://YOUR_SOBS_HOST/static/rum.js"
+  data-sobs-app="my-app"
+  data-sobs-endpoint="http://YOUR_SOBS_HOST/v1/rum"
+  data-sobs-client-token-url="/internal/sobs/rum-client-token">
+</script>
+```
+
+Optional API usage (when you need manual control):
+
+```html
+<script>
+  // SOBS.setTraceParent('00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01');
+  // SOBS.setVisualContext({ artifact: { type: 'screenshot', id: 'shot-123', url: 'https://example.com/artifacts/shot-123.png' }, ttlMs: 15000 });
   // SOBS.captureException(new Error('Save failed'));
 </script>
 ```
@@ -199,6 +177,13 @@ POST
 <asset_type_lowercase>
 <asset_name>
 ```
+
+Optional browser RUM auth endpoint:
+
+- `POST /v1/rum/client-token`
+- Body: `{ "appName": "my-app", "origin": "https://app.example.com", "ttlSec": 900 }`
+- Requires `SOBS_API_KEY` when API key auth is enabled.
+- Returns a short-lived token bound to app + origin, for use in browser RUM events.
 
 ## OTLP Endpoints
 
@@ -435,6 +420,19 @@ The stream sends a `retry: 5000` directive on connect and a `: keepalive` commen
 
 `/tail` uses the same Web UI auth mode as all other UI routes. Supply credentials the same way you would for the Web UI:
 
+
+Optional browser RUM client auth (origin-bound tokens):
+
+- `SOBS_RUM_CLIENT_AUTH_MODE=none|origin` (default `none`)
+- `SOBS_RUM_CLIENT_SIGNING_KEY=<secret>` (required when mode is `origin`)
+- `SOBS_RUM_CLIENT_TOKEN_TTL_SEC=900` (optional)
+
+Recommended flow:
+
+1. Your backend calls `POST /v1/rum/client-token` (with API key if enabled).
+2. Your backend returns the token to your own web app.
+3. Browser sends token via `data-sobs-client-token-url` or `SOBS.setClientAuthToken(...)`.
+4. SOBS accepts RUM only when token origin matches request origin/referer.
 ```bash
 # Basic auth
 curl -N http://localhost:44317/tail \

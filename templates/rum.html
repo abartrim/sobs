@@ -31,11 +31,29 @@
     overflow-wrap: anywhere;
   }
   .rum-viewer-player {
-    min-height: 360px;
+    min-height: min(50vh, 560px);
+    height: min(50vh, 560px);
     border: 1px solid var(--bs-border-color);
     border-radius: .5rem;
     overflow: hidden;
     background: var(--bs-body-bg);
+  }
+  #rumAssetViewerModal {
+    z-index: 1080;
+  }
+  #rumAssetViewerModal .modal-dialog {
+    width: min(96vw, 1500px);
+    max-width: min(96vw, 1500px);
+    max-height: 92vh;
+    margin: 1rem auto;
+  }
+  #rumAssetViewerModal .modal-content {
+    max-height: 92vh;
+    overflow: hidden;
+  }
+  #rumAssetViewerModal .modal-body {
+    max-height: calc(92vh - 8rem);
+    overflow: auto;
   }
 </style>
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -368,14 +386,14 @@
 <div class="card border-secondary mt-4">
   <div class="card-header small"><i class="bi bi-code-slash me-1"></i>Client-side snippet</div>
   <div class="card-body">
-    <pre class="mb-0 small text-info"><code>&lt;script src="http://YOUR_SOBS_HOST/static/rum.js"&gt;&lt;/script&gt;
-&lt;meta name="traceparent" content="00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01"&gt;
-&lt;script&gt;
-  SOBS.init({ endpoint: 'http://YOUR_SOBS_HOST/v1/rum', appName: 'my-app' });
-  // Optional: attach an artifact or replay reference to the next captured error.
-  // SOBS.setVisualContext({ artifact: { type: 'screenshot', id: 'shot-123', url: 'https://example.com/shot-123.png' }, ttlMs: 15000 });
-  // SOBS.captureException(new Error('Checkout failed'));
-&lt;/script&gt;</code></pre>
+    <pre class="mb-0 small text-info"><code>&lt;!-- One-line auto-init snippet (endpoint inferred from script host) --&gt;
+&lt;script src="http://YOUR_SOBS_HOST/static/rum.js?app=my-app"&gt;&lt;/script&gt;
+
+&lt;!-- Optional origin-bound client auth token bootstrap --&gt;
+&lt;script src="http://YOUR_SOBS_HOST/static/rum.js"
+        data-sobs-app="my-app"
+        data-sobs-endpoint="http://YOUR_SOBS_HOST/v1/rum"
+        data-sobs-client-token-url="/internal/sobs/rum-client-token"&gt;&lt;/script&gt;</code></pre>
   </div>
 </div>
 
@@ -583,10 +601,14 @@
       await loadRrwebPlayer();
       if (!window.rrwebPlayer) return;
       replayPlayer.classList.remove('d-none');
+      const playerWidth = Math.max(320, Math.floor(replayPlayer.clientWidth || replayWrap.clientWidth || 960));
+      const playerHeight = Math.max(240, Math.floor((replayPlayer.clientHeight || 520) - 8));
       new window.rrwebPlayer({
         target: replayPlayer,
         props: {
           events: parsed.events,
+          width: playerWidth,
+          height: playerHeight,
           autoPlay: false,
           showController: true
         }

@@ -81,37 +81,14 @@ python scripts/load_example.py --base http://localhost:44317 --mode realistic --
 Embed in your HTML:
 
 ```html
-<script src="http://localhost:44317/static/rum.js"></script>
-<meta name="traceparent" content="00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01">
-<script>
-  SOBS.init({
-    endpoint: 'http://localhost:44317/v1/rum',
-    appName: 'my-app',
-    replay: {
-      enabled: true,
-      // rrweb is loaded only when replay.enabled is true
-      scriptUrl: 'https://cdn.jsdelivr.net/npm/rrweb@latest/dist/record/rrweb-record.min.js',
-      maxEvents: 500,
-      upload: async (envelope) => {
-        const resp = await fetch('/api/replay/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(envelope)
-        });
-        if (!resp.ok) throw new Error('Replay upload failed');
-        return await resp.json();
-      }
-    }
-  });
-  // Optional if your app already has W3C trace context available:
-  // SOBS.setTraceParent('00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01');
-  // Optional if your screenshot/replay integration already uploaded an artifact:
-  // SOBS.setVisualContext({
-  //   artifact: { type: 'screenshot', id: 'shot-123', url: 'https://example.com/shot-123.png' },
-  //   replay: { id: 'replay-123', url: 'https://example.com/replay-123' },
-  //   ttlMs: 15000
-  // });
-  // SOBS.captureException(new Error('Checkout failed'));
+<script src="http://localhost:44317/static/rum.js?app=my-app"></script>
+
+<!-- Optional origin-bound token bootstrap -->
+<script
+  src="http://localhost:44317/static/rum.js"
+  data-sobs-app="my-app"
+  data-sobs-endpoint="http://localhost:44317/v1/rum"
+  data-sobs-client-token-url="/internal/sobs/rum-client-token">
 </script>
 ```
 
@@ -168,6 +145,12 @@ POST
 <asset_type_lowercase>
 <asset_name>
 ```
+
+Optional browser client auth:
+
+- Configure `SOBS_RUM_CLIENT_AUTH_MODE=origin` and `SOBS_RUM_CLIENT_SIGNING_KEY` on SOBS.
+- Mint token from your backend via `POST /v1/rum/client-token`.
+- Feed token to browser using `data-sobs-client-token-url` or `SOBS.setClientAuthToken(token)`.
 
 See [rum/rrweb_replay_example.js](rum/rrweb_replay_example.js) for an end-to-end browser integration pattern.
 

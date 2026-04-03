@@ -31,6 +31,7 @@
   var _replayStopFn = null;
   var _replayRecorderStarted = false;
   var _screenshotScriptPromise = null;
+  var _isInitialized = false;
 
   function _bufferLimit(key, fallbackValue) {
     var raw = _cfg && _cfg[key];
@@ -461,7 +462,9 @@
     if (!_cfg.endpoint) return;
     var payload = Array.isArray(events) ? events : [events];
     payload = payload.map(function (e) {
-      return _applyTraceContext(Object.assign({ sessionId: _session, appName: _cfg.appName || '' }, e));
+      var item = _applyTraceContext(Object.assign({ sessionId: _session, appName: _cfg.appName || '' }, e));
+      if (_cfg.clientAuthToken && !item.clientAuthToken) item.clientAuthToken = _cfg.clientAuthToken;
+      return item;
     });
     try {
       navigator.sendBeacon(_cfg.endpoint, JSON.stringify(payload));
@@ -692,8 +695,8 @@
   }
 
   // ----- public API -----
-  SOBS.init = function (cfg) {
-    _cfg = cfg || {};
+  function _bootWithConfig() {
+    if (_isInitialized) return;
     _session = _getSession();
     _detectTraceContext();
     _startReplayRecorder();
@@ -703,6 +706,85 @@
     _trackErrors();
     _trackWebVitals();
     if (_cfg.trackSPA !== false) _trackSPANavigation();
+    _isInitialized = true;
+  }
+
+  function _scriptUrlParams(scriptEl) {
+    if (!scriptEl || !scriptEl.src) return null;
+    try {
+      return new URL(scriptEl.src, location.href);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function _scriptElement() {
+    if (document.currentScript && document.currentScript.tagName === 'SCRIPT') return document.currentScript;
+    var scripts = document.getElementsByTagName('script');
+    for (var i = scripts.length - 1; i >= 0; i -= 1) {
+      var src = scripts[i].getAttribute('src') || '';
+      if (src.indexOf('/static/rum.js') !== -1 || src.indexOf('rum.js') !== -1) return scripts[i];
+    }
+    return null;
+  }
+
+  function _readScriptAutoConfig() {
+    var script = _scriptElement();
+    if (!script) return null;
+    var ds = script.dataset || {};
+    var parsed = _scriptUrlParams(script);
+    var params = parsed ? parsed.searchParams : null;
+
+    var appName = ds.sobsApp || (params && (params.get('app') || params.get('appName'))) || '';
+    var endpoint = ds.sobsEndpoint || (params && params.get('endpoint')) || '';
+    var token = ds.sobsClientToken || (params && params.get('clientToken')) || '';
+    var tokenUrl = ds.sobsClientTokenUrl || (params && params.get('clientTokenUrl')) || '';
+    var autoRaw = ds.sobsAuto || (params && params.get('auto')) || '';
+    var autoEnabled = String(autoRaw || 'true').toLowerCase() !== 'false';
+
+    if (!endpoint && parsed && parsed.origin) endpoint = parsed.origin + '/v1/rum';
+    if (!autoEnabled || (!endpoint && !appName)) return null;
+
+    return {
+      endpoint: endpoint,
+      appName: appName,
+      clientAuthToken: token,
+      clientAuthTokenUrl: tokenUrl
+    };
+  }
+
+  function _fetchClientToken(url, appName) {
+    if (!url || !global.fetch) return Promise.resolve('');
+    return fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ appName: appName || '', origin: location.origin })
+    }).then(function (resp) {
+      if (!resp.ok) throw new Error('client token fetch failed');
+      return resp.json();
+    }).then(function (payload) {
+      return payload && payload.token ? String(payload.token) : '';
+    }).catch(function () {
+      return '';
+    });
+  }
+
+  SOBS.init = function (cfg) {
+    _cfg = cfg || {};
+    if (_cfg.clientAuthToken) {
+      _bootWithConfig();
+      return Promise.resolve(true);
+    }
+    if (_cfg.clientAuthTokenUrl) {
+      return _fetchClientToken(_cfg.clientAuthTokenUrl, _cfg.appName).then(function (token) {
+        if (token) _cfg.clientAuthToken = token;
+        _bootWithConfig();
+        return true;
+      });
+    }
+    _bootWithConfig();
+    return Promise.resolve(true);
   };
 
   SOBS.track = function (eventType, data) {
@@ -788,5 +870,18 @@
     _replayRecorderStarted = false;
   };
 
+  SOBS.setClientAuthToken = function (token) {
+    _cfg.clientAuthToken = token ? String(token) : '';
+  };
+
   global.SOBS = SOBS;
+
+  // Auto-init for one-script usage:
+  // <script src="https://SOBS/static/rum.js?app=my-app"></script>
+  // or data-sobs-* attributes on the script tag.
+  var autoCfg = _readScriptAutoConfig();
+  if (autoCfg && !global.__SOBS_AUTO_INIT_DONE__) {
+    global.__SOBS_AUTO_INIT_DONE__ = true;
+    SOBS.init(autoCfg);
+  }
 })(window);

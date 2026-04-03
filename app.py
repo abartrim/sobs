@@ -304,6 +304,9 @@ EXTERNAL_AUTH_URL = os.environ.get("SOBS_EXTERNAL_AUTH_URL", "")  # empty = disa
 RUM_ASSET_SIGNING_KEY = os.environ.get("SOBS_RUM_ASSET_SIGNING_KEY", "")
 RUM_ASSET_SIGN_WINDOW_SEC = int(os.environ.get("SOBS_RUM_ASSET_SIGN_WINDOW_SEC", "300"))
 RUM_ASSET_MAX_BYTES = int(os.environ.get("SOBS_RUM_ASSET_MAX_BYTES", str(8 * 1024 * 1024)))
+RUM_CLIENT_AUTH_MODE = os.environ.get("SOBS_RUM_CLIENT_AUTH_MODE", "none").strip().lower()
+RUM_CLIENT_SIGNING_KEY = os.environ.get("SOBS_RUM_CLIENT_SIGNING_KEY", "")
+RUM_CLIENT_TOKEN_TTL_SEC = int(os.environ.get("SOBS_RUM_CLIENT_TOKEN_TTL_SEC", "900"))
 CHDB_CONFIG_FILE_ENV = "SOBS_CLICKHOUSE_CONFIG_FILE"
 CHDB_EXPECT_DISK_ENV = "SOBS_CHDB_EXPECT_DISK"
 CHDB_EXPECT_POLICY_ENV = "SOBS_CHDB_EXPECT_STORAGE_POLICY"
@@ -3966,6 +3969,120 @@ def _verify_rum_asset_signature(
     return True, ""
 
 
+def _rum_b64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _rum_b64url_decode(value: str) -> bytes:
+    text = str(value or "").strip()
+    if not text:
+        return b""
+    pad_len = (-len(text)) % 4
+    return base64.urlsafe_b64decode(text + ("=" * pad_len))
+
+
+def _normalize_origin(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = urllib.parse.urlparse(raw)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+
+
+def _request_origin() -> str:
+    origin = _normalize_origin(request.headers.get("Origin", ""))
+    if origin:
+        return origin
+    referer = request.headers.get("Referer", "")
+    parsed = urllib.parse.urlparse(str(referer or "").strip())
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+    return ""
+
+
+def _rum_client_sign(payload: str) -> str:
+    return hmac.new(RUM_CLIENT_SIGNING_KEY.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _rum_client_token_encode(claims: dict[str, Any]) -> str:
+    encoded_payload = _rum_b64url_encode(json.dumps(claims, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    signature = _rum_client_sign(encoded_payload)
+    return f"{encoded_payload}.{signature}"
+
+
+def _rum_client_token_decode(token: str) -> tuple[dict[str, Any] | None, str]:
+    parts = str(token or "").strip().split(".")
+    if len(parts) != 2:
+        return None, "Invalid RUM client token format"
+    payload_b64, signature = parts[0], parts[1].lower()
+    expected = _rum_client_sign(payload_b64)
+    if not secrets.compare_digest(signature, expected):
+        return None, "Invalid RUM client token signature"
+    try:
+        claims = json.loads(_rum_b64url_decode(payload_b64).decode("utf-8"))
+    except Exception:
+        return None, "Invalid RUM client token payload"
+    if not isinstance(claims, dict):
+        return None, "Invalid RUM client token payload"
+    return claims, ""
+
+
+def _verify_rum_client_auth(events: list[Any]) -> tuple[bool, int, str]:
+    mode = (RUM_CLIENT_AUTH_MODE or "none").strip().lower()
+    if mode in ("", "none", "off", "disabled"):
+        return True, 200, ""
+
+    if mode not in ("origin", "origin-session"):
+        return False, 500, "Invalid SOBS_RUM_CLIENT_AUTH_MODE"
+
+    if not RUM_CLIENT_SIGNING_KEY:
+        return False, 503, "RUM client signing key is not configured"
+
+    token = (request.headers.get("X-SOBS-RUM-Token") or "").strip()
+    if not token:
+        for event in events:
+            if isinstance(event, dict):
+                token = str(event.get("clientAuthToken", "")).strip()
+                if token:
+                    break
+    if not token:
+        return False, 401, "Missing RUM client auth token"
+
+    claims, err = _rum_client_token_decode(token)
+    if claims is None:
+        return False, 401, err
+
+    now = int(time.time())
+    try:
+        exp = int(claims.get("exp", 0) or 0)
+    except (TypeError, ValueError):
+        return False, 401, "Invalid RUM client token expiry"
+    if exp <= now:
+        return False, 401, "RUM client token expired"
+
+    bound_origin = _normalize_origin(str(claims.get("origin", "")))
+    req_origin = _request_origin()
+    if not bound_origin:
+        return False, 401, "RUM client token missing origin binding"
+    if not req_origin:
+        return False, 401, "Missing Origin/Referer for RUM client auth"
+    if req_origin != bound_origin:
+        return False, 401, "RUM client token origin mismatch"
+
+    bound_app = str(claims.get("app", "")).strip()
+    if bound_app:
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            event_app = str(event.get("appName", "")).strip()
+            if event_app and event_app != bound_app:
+                return False, 401, "RUM client token app mismatch"
+
+    return True, 200, ""
+
+
 def _rum_asset_meta_path(asset_id: str) -> str:
     return os.path.join(RUM_ASSET_DIR, f"{asset_id}.meta.json")
 
@@ -4862,6 +4979,46 @@ async def rum_asset_download(asset_id: str):
     )
 
 
+@app.route("/v1/rum/client-token", methods=["POST"])
+@require_api_key
+async def issue_rum_client_token():
+    mode = (RUM_CLIENT_AUTH_MODE or "none").strip().lower()
+    if mode in ("", "none", "off", "disabled"):
+        return jsonify({"enabled": False, "token": "", "error": "RUM client auth is disabled"}), 200
+
+    if mode not in ("origin", "origin-session"):
+        return jsonify({"error": "Invalid SOBS_RUM_CLIENT_AUTH_MODE"}), 500
+
+    if not RUM_CLIENT_SIGNING_KEY:
+        return jsonify({"error": "RUM client signing key is not configured"}), 503
+
+    payload = await request.get_json(force=True, silent=True) or {}
+    app_name = str(payload.get("appName") or payload.get("app") or "").strip()
+    requested_origin = str(payload.get("origin") or "").strip()
+    origin = _normalize_origin(requested_origin) or _request_origin()
+    if not origin:
+        return jsonify({"error": "origin is required"}), 400
+
+    ttl_raw = payload.get("ttlSec", RUM_CLIENT_TOKEN_TTL_SEC)
+    try:
+        ttl_sec = int(ttl_raw)
+    except (TypeError, ValueError):
+        ttl_sec = RUM_CLIENT_TOKEN_TTL_SEC
+    ttl_sec = max(30, min(ttl_sec, 24 * 60 * 60))
+
+    now = int(time.time())
+    claims = {
+        "iss": "sobs-rum",
+        "app": app_name,
+        "origin": origin,
+        "iat": now,
+        "exp": now + ttl_sec,
+        "jti": uuid.uuid4().hex,
+    }
+    token = _rum_client_token_encode(claims)
+    return jsonify({"enabled": True, "token": token, "expiresAt": claims["exp"], "origin": origin, "app": app_name})
+
+
 # ---------------------------------------------------------------------------
 # OTLP Ingest – Traces  POST /v1/traces
 # ---------------------------------------------------------------------------
@@ -4954,9 +5111,18 @@ async def ingest_rum():
         events = payload
     else:
         events = payload.get("events", [payload])
+
+    ok, status_code, auth_err = _verify_rum_client_auth(events)
+    if not ok:
+        return jsonify({"error": auth_err}), status_code
+
     session_rows = []
     error_rows = []
     for event in events:
+        if not isinstance(event, dict):
+            continue
+        event = dict(event)
+        event.pop("clientAuthToken", None)
         ts = event.get("timestamp", _now_iso())
         session_id = event.get("sessionId", "")
         event_type = event.get("type", "unknown")
