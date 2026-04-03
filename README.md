@@ -556,6 +556,40 @@ Artifacts JSON array example (`sobs-artifacts.json`):
   }
 ]
 ```
+
+GitHub Actions example step:
+
+```yaml
+- name: Register SOBS release artifacts
+  env:
+    SOBS_BASE_URL: ${{ secrets.SOBS_BASE_URL }}
+    SOBS_API_KEY: ${{ secrets.SOBS_API_KEY }}
+    SOBS_APP_NAME: checkout-web
+    SOBS_APP_SLUG: checkout-web
+    SOBS_OWNER_TEAM: frontend
+    SOBS_APP_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+    SOBS_DEFAULT_ENVIRONMENT: prod
+    SOBS_RELEASE_VERSION: ${{ github.ref_name }}
+    SOBS_RELEASE_COMMIT_SHA: ${{ github.sha }}
+    SOBS_RELEASE_BUILD_ID: ${{ github.run_id }}
+    SOBS_RELEASE_ENVIRONMENT: prod
+  run: |
+    cat > sobs-artifacts.json <<'JSON'
+    [
+      {
+        "artifactType": "js_sourcemap",
+        "name": "app.min.js.map",
+        "contentType": "application/json",
+        "size": 3210,
+        "storageRef": "s3://symbols/checkout/${{ github.sha }}/app.min.js.map"
+      }
+    ]
+    JSON
+
+    bash scripts/register_release_artifacts.sh \
+      --artifacts-file ./sobs-artifacts.json
+```
+
 ```bash
 # Basic auth
 curl -N http://localhost:44317/tail \
