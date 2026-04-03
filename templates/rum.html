@@ -32,15 +32,25 @@
   }
   .rum-viewer-player {
     min-height: min(64vh, 760px);
-    height: min(64vh, 760px);
+    height: auto;
     border: 1px solid var(--bs-border-color);
     border-radius: .5rem;
-    overflow: hidden;
+    overflow: visible;
     background: var(--bs-body-bg);
+    padding: .5rem;
   }
   .rum-viewer-player .rr-player {
     width: 100% !important;
-    height: 100% !important;
+    max-width: 100% !important;
+  }
+  .rum-viewer-player .rr-controller,
+  .rum-viewer-player .rr-player__controller,
+  .rum-viewer-player .controller {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background: var(--bs-body-bg) !important;
+    color: var(--bs-body-color) !important;
   }
   .rum-replay-raw summary {
     cursor: pointer;
@@ -625,7 +635,7 @@
       if (!window.rrwebPlayer) return;
       replayPlayer.classList.remove('d-none');
       const playerWidth = Math.max(480, Math.floor(replayPlayer.clientWidth || replayWrap.clientWidth || 1100));
-      const playerHeight = Math.max(360, Math.floor(replayPlayer.clientHeight || (window.innerHeight * 0.64)));
+      const playerHeight = Math.max(320, Math.floor(window.innerHeight * 0.5));
       new window.rrwebPlayer({
         target: replayPlayer,
         props: {
@@ -636,6 +646,13 @@
           showController: true
         }
       });
+      // If controller is not rendered by rrweb-player, surface that in status text.
+      setTimeout(function () {
+        var hasController = !!replayPlayer.querySelector('.rr-controller, .rr-player__controller, .controller');
+        if (!hasController) {
+          statusEl.textContent = 'Replay loaded, but rrweb controls were not rendered by this payload/player version.';
+        }
+      }, 0);
       statusEl.textContent = 'Replay ready (' + parsed.events.length + ' events).';
     } catch (err) {
       statusEl.textContent = 'Replay JSON loaded; rrweb-player unavailable. Showing raw content.';
