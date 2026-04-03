@@ -120,7 +120,24 @@ details, security considerations, and limitations.
 <script src="http://YOUR_SOBS_HOST/static/rum.js"></script>
 <meta name="traceparent" content="00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01">
 <script>
-  SOBS.init({ endpoint: 'http://YOUR_SOBS_HOST/v1/rum', appName: 'my-app' });
+  SOBS.init({
+    endpoint: 'http://YOUR_SOBS_HOST/v1/rum',
+    appName: 'my-app',
+    replay: {
+      enabled: false,
+      // rrweb is only loaded when enabled=true
+      scriptUrl: 'https://cdn.jsdelivr.net/npm/rrweb@latest/dist/record/rrweb-record.min.js',
+      upload: async (envelope) => {
+        const resp = await fetch('/api/replay/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(envelope)
+        });
+        if (!resp.ok) throw new Error('Replay upload failed');
+        return await resp.json();
+      }
+    }
+  });
   // Or set W3C context explicitly from your OTEL/browser tracer integration:
   // SOBS.setTraceParent('00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01');
 

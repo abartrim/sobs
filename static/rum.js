@@ -26,6 +26,10 @@
   var _visualContext = null;
   var _consoleTracked = false;
   var _breadcrumbsTracked = false;
+  var _replayEvents = [];
+  var _replayScriptPromise = null;
+  var _replayStopFn = null;
+  var _replayRecorderStarted = false;
 
   function _bufferLimit(key, fallbackValue) {
     var raw = _cfg && _cfg[key];
@@ -150,6 +154,133 @@
     if (ttlMs > 0) normalized.expiresAt = Date.now() + ttlMs;
     if (!normalized.artifact && !normalized.replay) return null;
     return normalized;
+  }
+
+  function _replayConfig() {
+    return (_cfg && _cfg.replay && typeof _cfg.replay === 'object') ? _cfg.replay : null;
+  }
+
+  function _cloneSafe(value) {
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function _replayEventLimit() {
+    var replay = _replayConfig();
+    if (!replay) return 400;
+    var raw = replay.maxEvents;
+    var n = typeof raw === 'number' ? raw : parseInt(raw, 10);
+    return n > 10 ? n : 400;
+  }
+
+  function _recordReplayEvent(event) {
+    var safe = _cloneSafe(event);
+    if (!safe) return;
+    _pushBounded(_replayEvents, safe, _replayEventLimit());
+  }
+
+  function _getReplayRecorderFactory() {
+    if (typeof global.rrwebRecord === 'function') return global.rrwebRecord;
+    if (global.rrweb && typeof global.rrweb.record === 'function') return global.rrweb.record;
+    return null;
+  }
+
+  function _loadReplayScript(scriptUrl) {
+    if (_replayScriptPromise) return _replayScriptPromise;
+    _replayScriptPromise = new Promise(function (resolve, reject) {
+      var script = document.createElement('script');
+      script.async = true;
+      script.src = scriptUrl;
+      script.onload = function () { resolve(true); };
+      script.onerror = function () { reject(new Error('Failed to load rrweb script')); };
+      document.head.appendChild(script);
+    });
+    return _replayScriptPromise;
+  }
+
+  function _startReplayRecorder() {
+    if (_replayRecorderStarted) return;
+    var replay = _replayConfig();
+    if (!replay || replay.enabled !== true) return;
+
+    function bootRecorder() {
+      var recordFn = _getReplayRecorderFactory();
+      if (!recordFn) return;
+      try {
+        _replayStopFn = recordFn({
+          emit: _recordReplayEvent,
+          sampling: replay.sampling || {
+            mousemove: false,
+            scroll: 150,
+            input: 'last'
+          }
+        });
+        _replayRecorderStarted = true;
+      } catch (e) {}
+    }
+
+    if (_getReplayRecorderFactory()) {
+      bootRecorder();
+      return;
+    }
+
+    if (!replay.scriptUrl) return;
+    _loadReplayScript(replay.scriptUrl).then(function () {
+      bootRecorder();
+    }).catch(function () {});
+  }
+
+  function _buildReplayEnvelope(errorPayload) {
+    return {
+      provider: 'rrweb',
+      events: _cloneEntries(_replayEvents),
+      error: {
+        type: errorPayload.type,
+        message: errorPayload.message,
+        errorType: errorPayload.errorType,
+        errorSource: errorPayload.errorSource,
+        timestamp: errorPayload.timestamp,
+        url: errorPayload.url
+      }
+    };
+  }
+
+  function _attachReplayArtifacts(errorPayload) {
+    var replay = _replayConfig();
+    if (!replay || replay.enabled !== true) return Promise.resolve(errorPayload);
+
+    var uploader = replay.upload;
+    if (typeof uploader !== 'function') {
+      if (_replayEvents.length && !errorPayload.replay) {
+        errorPayload.replay = {
+          provider: 'rrweb',
+          eventCount: _replayEvents.length
+        };
+      }
+      return Promise.resolve(errorPayload);
+    }
+
+    var envelope = _buildReplayEnvelope(errorPayload);
+    return Promise.resolve().then(function () {
+      return uploader(envelope);
+    }).then(function (result) {
+      if (result && typeof result === 'object') {
+        if (result.replay && !errorPayload.replay) errorPayload.replay = result.replay;
+        if (result.artifact && !errorPayload.artifact) errorPayload.artifact = result.artifact;
+      }
+      return errorPayload;
+    }).catch(function () {
+      return errorPayload;
+    });
+  }
+
+  function _emitErrorEvent(payload) {
+    _attachReplayArtifacts(payload).then(function (enriched) {
+      _send(_mergeErrorContext(enriched));
+    });
   }
 
   function _parseTraceParent(value) {
@@ -334,7 +465,7 @@
     global.addEventListener('error', function (evt) {
       var target = evt.target || evt.srcElement;
       if (target && target !== global) {
-        _send(_mergeErrorContext({
+        _emitErrorEvent({
           type: 'error',
           timestamp: _ts(),
           url: location.href,
@@ -343,10 +474,10 @@
           errorSource: 'resource-error',
           filename: target.currentSrc || target.src || target.href || '',
           target: _nodeHint(target),
-        }));
+        });
         return;
       }
-      _send(_mergeErrorContext({
+      _emitErrorEvent({
         type: 'error',
         timestamp: _ts(),
         url: location.href,
@@ -357,11 +488,11 @@
         filename: evt.filename,
         lineno: evt.lineno,
         colno: evt.colno,
-      }));
+      });
     }, true);
     global.addEventListener('unhandledrejection', function (evt) {
       var reason = evt.reason || {};
-      _send(_mergeErrorContext({
+      _emitErrorEvent({
         type: 'unhandledrejection',
         timestamp: _ts(),
         url: location.href,
@@ -369,7 +500,7 @@
         errorType: (reason.name) || 'UnhandledRejection',
         stack: reason.stack || '',
         errorSource: 'unhandledrejection',
-      }));
+      });
     });
   }
 
@@ -477,6 +608,7 @@
     _cfg = cfg || {};
     _session = _getSession();
     _detectTraceContext();
+    _startReplayRecorder();
     _trackConsole();
     _trackBreadcrumbs();
     _trackPageView();
@@ -492,7 +624,7 @@
   SOBS.captureException = function (error, data) {
     var payload = Object.assign({}, data || {});
     var err = error || {};
-    _send(_mergeErrorContext(Object.assign({
+    _emitErrorEvent(Object.assign({
       type: payload.type || 'error',
       timestamp: _ts(),
       url: location.href,
@@ -500,7 +632,7 @@
       errorType: payload.errorType || err.name || 'Error',
       stack: payload.stack || err.stack || '',
       errorSource: payload.errorSource || 'captureException'
-    }, payload)));
+    }, payload));
   };
 
   SOBS.addBreadcrumb = function (category, message, data) {
@@ -547,6 +679,25 @@
 
   SOBS.setTraceParent = function (traceparent) {
     return _setTraceContextFromTraceParent(traceparent);
+  };
+
+  SOBS.setReplayUpload = function (uploader) {
+    _cfg.replay = _cfg.replay || {};
+    _cfg.replay.upload = uploader;
+  };
+
+  SOBS.enableReplay = function (options) {
+    _cfg.replay = Object.assign({}, _cfg.replay || {}, options || {}, { enabled: true });
+    _startReplayRecorder();
+  };
+
+  SOBS.disableReplay = function () {
+    _cfg.replay = Object.assign({}, _cfg.replay || {}, { enabled: false });
+    if (typeof _replayStopFn === 'function') {
+      try { _replayStopFn(); } catch (e) {}
+    }
+    _replayStopFn = null;
+    _replayRecorderStarted = false;
   };
 
   global.SOBS = SOBS;

@@ -86,7 +86,22 @@ Embed in your HTML:
 <script>
   SOBS.init({
     endpoint: 'http://localhost:44317/v1/rum',
-    appName: 'my-app'
+    appName: 'my-app',
+    replay: {
+      enabled: true,
+      // rrweb is loaded only when replay.enabled is true
+      scriptUrl: 'https://cdn.jsdelivr.net/npm/rrweb@latest/dist/record/rrweb-record.min.js',
+      maxEvents: 500,
+      upload: async (envelope) => {
+        const resp = await fetch('/api/replay/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(envelope)
+        });
+        if (!resp.ok) throw new Error('Replay upload failed');
+        return await resp.json();
+      }
+    }
   });
   // Optional if your app already has W3C trace context available:
   // SOBS.setTraceParent('00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01');

@@ -1639,6 +1639,9 @@ class TestUIPages:
         assert b"setVisualContext" in body
         assert b"setReplayContext" in body
         assert b"setArtifactContext" in body
+        assert b"setReplayUpload" in body
+        assert b"enableReplay" in body
+        assert b"disableReplay" in body
         assert b"captureException" in body
 
     async def test_pagination(self, client):

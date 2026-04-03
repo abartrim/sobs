@@ -14,7 +14,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, jsonify, render_template_string, request
 
 app = Flask(__name__)
 
@@ -131,7 +131,24 @@ PAGE = """
     SOBS.init({
       endpoint: '{{ sobs_base }}/v1/rum',
       appName: 'rum-replay-demo',
-      trackSPA: true
+      trackSPA: true,
+      replay: {
+        enabled: true,
+        scriptUrl: 'https://cdn.jsdelivr.net/npm/rrweb@latest/dist/record/rrweb-record.min.js',
+        maxEvents: 500,
+        upload: async function (envelope) {
+          const replayResp = await fetch('/api/replay/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(envelope)
+          });
+          const upload = await replayResp.json();
+          if (!replayResp.ok) {
+            throw new Error(upload.error || ('Replay upload failed: ' + replayResp.status));
+          }
+          return upload;
+        }
+      }
     });
 
     // Deterministic sample IDs for easier manual validation in UI.
@@ -166,36 +183,14 @@ PAGE = """
     });
 
     document.getElementById('btn-replay').addEventListener('click', async function () {
-      const replayResp = await fetch('/api/replay/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: 'rrweb', events: [{ type: 'meta', ts: Date.now() }] })
-      });
-      const upload = await replayResp.json();
-
-      if (!replayResp.ok) {
-        alert('Replay upload failed: ' + (upload.error || replayResp.status));
-        return;
-      }
-
-      SOBS.setReplayContext(
+      SOBS.setArtifactContext(
         {
-          id: upload.replay.id,
-          url: upload.replay.url,
-          provider: upload.replay.provider
+          type: 'screenshot',
+          id: shotId,
+          url: '{{ sobs_base }}/static/help/summary.png'
         },
         { ttlMs: 15000, consumeOnce: true }
       );
-      if (upload.artifact && upload.artifact.url) {
-        SOBS.setArtifactContext(
-          {
-            type: upload.artifact.type || 'screenshot',
-            id: upload.artifact.id || shotId,
-            url: upload.artifact.url
-          },
-          { ttlMs: 15000, consumeOnce: true }
-        );
-      }
       SOBS.captureException(new Error('demo replay+artifact event'), {
         errorSource: 'captureException'
       });
@@ -223,10 +218,20 @@ def index():
 @app.route("/api/replay/upload", methods=["POST"])
 def replay_upload():
     try:
+        payload = {}
+        try:
+            payload = json.loads((request.get_data(cache=False) or b"{}").decode("utf-8"))
+        except Exception:
+            payload = {}
+
+        events = payload.get("events") if isinstance(payload, dict) else None
+        if not isinstance(events, list) or not events:
+            events = [{"type": "meta", "ts": int(time.time() * 1000)}]
+
         replay_payload = json.dumps(
             {
                 "provider": "rrweb",
-                "events": [{"type": "meta", "ts": int(time.time() * 1000)}],
+                "events": events[-500:],
             },
             ensure_ascii=False,
         ).encode("utf-8")
