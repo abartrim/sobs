@@ -1,0 +1,4 @@
+Guard RUM viewer when bootstrap global is missing
+
+Prevent ReferenceError on the RUM page when `window.bootstrap` is unavailable
+by adding a safe modal fallback implementation in the replay/asset viewer code.

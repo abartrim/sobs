@@ -466,7 +466,23 @@
   const modalEl = document.getElementById('rumAssetViewerModal');
   if (!modalEl) return;
 
-  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  const hasBootstrapModal = !!(window.bootstrap && window.bootstrap.Modal);
+  const modal = hasBootstrapModal
+    ? window.bootstrap.Modal.getOrCreateInstance(modalEl)
+    : {
+        show() {
+          modalEl.style.display = 'block';
+          modalEl.classList.add('show');
+          modalEl.removeAttribute('aria-hidden');
+          document.body.classList.add('modal-open');
+        },
+        hide() {
+          modalEl.classList.remove('show');
+          modalEl.style.display = 'none';
+          modalEl.setAttribute('aria-hidden', 'true');
+          document.body.classList.remove('modal-open');
+        }
+      };
   const titleEl = document.getElementById('rumAssetViewerLabel');
   const rawEl = document.getElementById('rumAssetViewerOpenRaw');
   const statusEl = document.getElementById('rumAssetViewerStatus');
@@ -479,6 +495,15 @@
   const replayWrap = document.getElementById('rumAssetViewerReplayWrap');
   const replayPlayer = document.getElementById('rumAssetViewerReplayPlayer');
   const replayJson = document.getElementById('rumAssetViewerReplayJson');
+
+  if (!hasBootstrapModal) {
+    modalEl.querySelectorAll('[data-bs-dismiss="modal"], .btn-close').forEach((btn) => {
+      btn.addEventListener('click', () => modal.hide());
+    });
+    modalEl.addEventListener('click', function (evt) {
+      if (evt.target === modalEl) modal.hide();
+    });
+  }
 
   let rrwebPlayerLoadPromise = null;
 
