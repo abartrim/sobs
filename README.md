@@ -506,6 +506,19 @@ python scripts/register_release_artifacts.py \
   --artifacts-file ./build/sobs-artifacts.json
 ```
 
+Equivalent bash entrypoint (same behavior, delegates to Python helper):
+
+```bash
+bash scripts/register_release_artifacts.sh \
+  --base-url "${SOBS_BASE_URL:-http://127.0.0.1:44317}" \
+  --api-key "$SOBS_API_KEY" \
+  --app-name checkout-web \
+  --release-version "${RELEASE_VERSION}" \
+  --commit-sha "${GITHUB_SHA}" \
+  --environment prod \
+  --artifacts-file ./build/sobs-artifacts.json
+```
+
 The helper is idempotent-oriented:
 
 - Reuses existing app by slug/name.
