@@ -152,6 +152,11 @@ Optional browser client auth:
 - Mint token from your backend via `POST /v1/rum/client-token`.
 - Feed token to browser using `data-sobs-client-token-url` or `SOBS.setClientAuthToken(token)`.
 
+React notes:
+
+- SOBS RUM works with React because collection is browser-level and independent of framework runtime.
+- For component render failures, pair with a React Error Boundary and call `SOBS.captureException(...)` explicitly.
+
 See [rum/rrweb_replay_example.js](rum/rrweb_replay_example.js) for an end-to-end browser integration pattern.
 
 ### Browser replay demo app

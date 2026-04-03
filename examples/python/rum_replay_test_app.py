@@ -125,16 +125,16 @@ PAGE = """
     </p>
 
     <div class="row">
-      <button id="btn-console">Console warn/error</button>
-      <button class="alt" id="btn-breadcrumb">Add breadcrumb</button>
-      <button id="btn-unhandled">Unhandled rejection</button>
-      <button id="btn-throw">Throw uncaught error</button>
+      <button data-demo-action="console">Console warn/error</button>
+      <button class="alt" data-demo-action="breadcrumb">Add breadcrumb</button>
+      <button data-demo-action="unhandled">Unhandled rejection</button>
+      <button data-demo-action="throw">Throw uncaught error</button>
     </div>
 
     <div class="row">
-      <button id="btn-capture">Capture exception()</button>
-      <button class="alt" id="btn-replay">Replay + screenshot + capture</button>
-      <button id="btn-fetch-fail">Failed fetch breadcrumb</button>
+      <button data-demo-action="capture">Capture exception()</button>
+      <button class="alt" data-demo-action="replay">Replay + screenshot + capture</button>
+      <button data-demo-action="fetch-fail">Failed fetch breadcrumb</button>
     </div>
 
     <p class="muted">
@@ -176,46 +176,53 @@ PAGE = """
       }
     });
 
-    document.getElementById('btn-console').addEventListener('click', function () {
-      console.warn('demo warn: user clicked console button');
-      console.error('demo error: simulated widget failure');
-    });
-
-    document.getElementById('btn-breadcrumb').addEventListener('click', function () {
-      SOBS.addBreadcrumb('demo.action', 'Manual demo breadcrumb', { page: location.pathname });
-      alert('Breadcrumb added');
-    });
-
-    document.getElementById('btn-unhandled').addEventListener('click', function () {
-      Promise.reject(new Error('demo unhandled rejection'));
-    });
-
-    document.getElementById('btn-throw').addEventListener('click', function () {
-      setTimeout(function () {
-        throw new Error('demo uncaught error');
-      }, 0);
-    });
-
-    document.getElementById('btn-capture').addEventListener('click', function () {
-      SOBS.captureException(new Error('demo captureException path'), {
-        errorSource: 'captureException'
-      });
-      alert('captureException event sent');
-    });
-
-    document.getElementById('btn-replay').addEventListener('click', async function () {
-      SOBS.captureException(new Error('demo replay+artifact event'), {
-        errorSource: 'captureException'
-      });
-      alert('Replay + screenshot context attached to error event');
-    });
-
-    document.getElementById('btn-fetch-fail').addEventListener('click', async function () {
-      try {
-        await fetch('/api/fail', { method: 'GET' });
-      } catch (e) {
-        console.error('fetch failed as expected', e);
+    const actions = {
+      console: function () {
+        console.warn('demo warn: user clicked console button');
+        console.error('demo error: simulated widget failure');
+      },
+      breadcrumb: function () {
+        SOBS.addBreadcrumb('demo.action', 'Manual demo breadcrumb', { page: location.pathname });
+        alert('Breadcrumb added');
+      },
+      unhandled: function () {
+        Promise.reject(new Error('demo unhandled rejection'));
+      },
+      throw: function () {
+        setTimeout(function () {
+          throw new Error('demo uncaught error');
+        }, 0);
+      },
+      capture: function () {
+        SOBS.captureException(new Error('demo captureException path'), {
+          errorSource: 'captureException'
+        });
+        alert('captureException event sent');
+      },
+      replay: function () {
+        SOBS.captureException(new Error('demo replay+artifact event'), {
+          errorSource: 'captureException'
+        });
+        alert('Replay + screenshot context attached to error event');
+      },
+      'fetch-fail': async function () {
+        try {
+          await fetch('/api/fail', { method: 'GET' });
+        } catch (e) {
+          console.error('fetch failed as expected', e);
+        }
       }
+    };
+
+    document.addEventListener('click', function (evt) {
+      const btn = evt.target.closest('button[data-demo-action]');
+      if (!btn) return;
+      const action = btn.getAttribute('data-demo-action') || '';
+      const handler = actions[action];
+      if (typeof handler !== 'function') return;
+      Promise.resolve(handler()).catch(function (err) {
+        console.error('demo action failed', err);
+      });
     });
   </script>
 </body>

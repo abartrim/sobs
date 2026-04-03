@@ -139,6 +139,12 @@ Optional API usage (when you need manual control):
 </script>
 ```
 
+React compatibility:
+
+- Yes, it works with React apps. The RUM script hooks browser-level signals (`window.onerror`, `unhandledrejection`, fetch failures, performance observers), so framework internals do not block capture.
+- For best results in React, still add an Error Boundary and call `SOBS.captureException(error, { errorSource: 'react-error-boundary' })` from `componentDidCatch`.
+- In SPA routing (React Router), leave `trackSPA` enabled (default) so route changes are tracked via History API.
+
 Replay and screenshot payload contract:
 
 ```json
