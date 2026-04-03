@@ -1499,7 +1499,16 @@ class TestUIPages:
                         "url": "https://example.com/replays/replay-002",
                     },
                     "breadcrumbs": {
-                        "console": [{"timestamp": "2024-01-01T00:00:00Z", "level": "error", "message": "Save failed"}],
+                        "console": [
+                            {
+                                "timestamp": "2024-01-01T00:00:00Z",
+                                "level": "error",
+                                "message": "Save failed",
+                                "errorType": "TypeError",
+                                "source": "app.js:42:10",
+                                "stack": "TypeError: Save failed\n  at saveOrder (app.js:42:10)",
+                            }
+                        ],
                         "user": [
                             {
                                 "timestamp": "2024-01-01T00:00:01Z",
@@ -1516,6 +1525,9 @@ class TestUIPages:
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
         assert "Recent Console" in body
+        assert "Type: TypeError" in body
+        assert "Source: app.js:42:10" in body
+        assert "saveOrder (app.js:42:10)" in body
         assert "Recent Breadcrumbs" in body
         assert "button#save" in body
         assert "Trace trace-detail" in body

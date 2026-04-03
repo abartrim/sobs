@@ -82,16 +82,57 @@
     return hint;
   }
 
+  function _extractConsoleErrorDetails(items) {
+    var details = {
+      errorType: '',
+      stack: '',
+      source: ''
+    };
+
+    for (var i = 0; i < items.length; i += 1) {
+      var item = items[i];
+      if (!item) continue;
+
+      if (item instanceof Error || (typeof item === 'object' && (item.stack || item.message))) {
+        var filename = item.fileName || item.filename || '';
+        var line = item.lineNumber || item.lineno || '';
+        var col = item.columnNumber || item.colno || '';
+
+        if (!details.errorType && item.name) details.errorType = _truncate(String(item.name), 80);
+        if (!details.stack && item.stack) details.stack = _truncate(String(item.stack), 2400);
+
+        if (!details.source && filename) {
+          details.source = _truncate(
+            String(filename) + (line ? (':' + String(line)) : '') + (col ? (':' + String(col)) : ''),
+            240
+          );
+        }
+      }
+    }
+
+    if (!details.source && details.stack) {
+      var firstFrame = String(details.stack).split('\n')[1] || '';
+      details.source = _truncate(firstFrame.replace(/^\s*at\s+/, ''), 240);
+    }
+
+    return details;
+  }
+
   function _recordConsole(level, args) {
+    var items = Array.prototype.slice.call(args);
+    var details = _extractConsoleErrorDetails(items);
     _pushBounded(_consoleBuffer, {
       timestamp: _ts(),
       level: level,
       message: _truncate(
-        Array.prototype.slice.call(args).map(function (item) {
+        items.map(function (item) {
           return _safeSerialize(item, 280);
         }).join(' '),
         400
-      )
+      ),
+      errorType: details.errorType,
+      source: details.source,
+      stack: details.stack
     }, _bufferLimit('consoleBufferSize', 10));
   }
 

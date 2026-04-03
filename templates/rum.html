@@ -326,7 +326,21 @@
                     <tr>
                       <td class="font-monospace text-secondary">{{ entry.get('timestamp', '')[:23] }}</td>
                       <td><span class="badge {% if entry.get('level') == 'error' %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ entry.get('level', '') }}</span></td>
-                      <td class="text-break">{{ entry.get('message', '') }}</td>
+                      <td class="text-break">
+                        <div>{{ entry.get('message', '') }}</div>
+                        {% if entry.get('errorType') %}
+                        <div class="small text-secondary font-monospace mt-1">Type: {{ entry.get('errorType') }}</div>
+                        {% endif %}
+                        {% if entry.get('source') %}
+                        <div class="small text-secondary font-monospace">Source: {{ entry.get('source') }}</div>
+                        {% endif %}
+                        {% if entry.get('stack') %}
+                        <details class="mt-1">
+                          <summary class="small text-secondary">Stack</summary>
+                          <pre class="rum-detail-pre rounded p-2 mt-1 mb-0">{{ entry.get('stack') }}</pre>
+                        </details>
+                        {% endif %}
+                      </td>
                     </tr>
                     {% endfor %}
                   </tbody>
