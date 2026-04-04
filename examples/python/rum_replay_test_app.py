@@ -15,10 +15,12 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import logging
 
 from flask import Flask, jsonify, render_template_string, request
 
 app = Flask(__name__)
+logger = logging.getLogger(__name__)
 
 SOBS_BASE_URL = os.environ.get("SOBS_BASE_URL", "http://127.0.0.1:44317").rstrip("/")
 EXAMPLE_APP_PORT = int(os.environ.get("EXAMPLE_APP_PORT", "5005"))
@@ -296,8 +298,9 @@ def issue_rum_client_token():
         return jsonify({"token": token, "expiresAt": data.get("expiresAt"), "origin": data.get("origin")}), 200
     except urllib.error.HTTPError as exc:
         return jsonify({"error": f"token request failed with HTTP {exc.code}"}), 502
-    except Exception as exc:
-        return jsonify({"error": f"token request failed: {exc}"}), 500
+    except Exception:
+        logger.exception("token request failed")
+        return jsonify({"error": "token request failed"}), 500
 
 
 @app.route("/api/replay/upload", methods=["POST"])
