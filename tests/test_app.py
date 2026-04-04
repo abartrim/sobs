@@ -3756,24 +3756,24 @@ class TestGenAICompliance:
 
     async def test_ai_trace_view_preserves_selected_span_filter(self, client):
         """Trace AI view should not overwrite selected span_name filter with last row span."""
-        trace_id = f"span-filter-trace-{time.time_ns()}"
-        r = await client.post(
-            "/v1/ai",
-            json={
-                "trace_id": trace_id,
-                "service": "span-filter-svc",
-                "provider": "openai",
-                "model": "gpt-4o",
-                "operation": "chat",
-                "span_name": "ai.guard.result",
-                "input_messages": [{"role": "user", "content": "check guard"}],
-                "output_messages": [{"role": "assistant", "content": "allowed"}],
-                "tokens_in": 5,
-                "tokens_out": 2,
-                "duration_ms": 10,
+        import app as app_module
+
+        chat_id = f"span-filter-chat-{time.time_ns()}"
+        turn_id = f"span-filter-turn-{time.time_ns()}"
+        app_module._emit_ai_helper_log_event(
+            event_name="guard.result",
+            chat_id=chat_id,
+            turn_id=turn_id,
+            page="/ai",
+            model="gpt-4o",
+            guard_model="guard-test",
+            thinking_level="off",
+            body="Guard verdict: allowed",
+            attrs={
+                "gen_ai.guard.allowed": True,
+                "gen_ai.guard.reason": "allowed",
             },
         )
-        assert r.status_code == 200
 
         r2 = await client.get("/ai?view=trace&span_name=ai.guard.result")
         assert r2.status_code == 200
