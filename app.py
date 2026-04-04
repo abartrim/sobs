@@ -1726,6 +1726,116 @@ def _llm_usage_stats(usage: dict[str, Any] | None, elapsed_ms: int) -> dict[str,
     }
 
 
+def _infer_genai_provider(endpoint_url: str) -> str:
+    host = urllib.parse.urlparse(str(endpoint_url or "")).netloc.lower()
+    if not host:
+        return "openai-compatible"
+    if "openai" in host:
+        return "openai"
+    if "anthropic" in host:
+        return "anthropic"
+    if "groq" in host:
+        return "groq"
+    if "google" in host or "gemini" in host:
+        return "google"
+    if "mistral" in host:
+        return "mistral"
+    if "deepseek" in host:
+        return "deepseek"
+    if "ollama" in host:
+        return "ollama"
+    return "openai-compatible"
+
+
+async def _emit_internal_genai_span(
+    *,
+    endpoint_url: str,
+    model: str,
+    input_messages: list[dict[str, Any]],
+    output_messages: list[dict[str, Any]] | None,
+    stats: dict[str, Any],
+    error_type: str = "",
+) -> None:
+    provider = _infer_genai_provider(endpoint_url)
+    status_code = "STATUS_CODE_ERROR" if error_type else "STATUS_CODE_OK"
+    trace_id = secrets.token_hex(16)
+    span_id = secrets.token_hex(8)
+    ts = _now_iso()
+    elapsed_ms = max(0, int(stats.get("elapsed_ms") or 0))
+    span_attrs: dict[str, Any] = {
+        "gen_ai.operation.name": "chat",
+        "gen_ai.provider.name": provider,
+        "gen_ai.request.model": model,
+        "gen_ai.usage.input_tokens": int(stats.get("prompt_tokens") or 0),
+        "gen_ai.usage.output_tokens": int(stats.get("completion_tokens") or 0),
+        "gen_ai.input.messages": json.dumps(input_messages, ensure_ascii=False),
+    }
+    if output_messages is not None:
+        span_attrs["gen_ai.output.messages"] = json.dumps(output_messages, ensure_ascii=False)
+    system_messages = [m.get("content") for m in input_messages if str(m.get("role", "")).strip().lower() == "system"]
+    if system_messages:
+        span_attrs["gen_ai.system_instructions"] = "\n\n".join(str(msg) for msg in system_messages if msg is not None)
+    if int(stats.get("thinking_tokens") or 0) > 0:
+        span_attrs["sobs.gen_ai.usage.thinking_tokens"] = int(stats.get("thinking_tokens") or 0)
+    if error_type:
+        span_attrs["error.type"] = error_type
+        if stats.get("error"):
+            span_attrs["error.message"] = str(stats.get("error"))
+    row = {
+        "Timestamp": ts,
+        "TraceId": trace_id,
+        "SpanId": span_id,
+        "ParentSpanId": "",
+        "TraceState": "",
+        "SpanName": f"chat {model}".strip(),
+        "SpanKind": "CLIENT",
+        "ServiceName": _AI_HELPER_SERVICE_NAME,
+        "ResourceAttributes": {},
+        "ScopeName": "sobs-ai",
+        "ScopeVersion": "",
+        "SpanAttributes": _stringify_attrs(span_attrs),
+        "Duration": elapsed_ms * 1_000_000,
+        "StatusCode": status_code,
+        "StatusMessage": str(stats.get("error") or ""),
+        "Events": {"Timestamp": [], "Name": [], "Attributes": []},
+        "Links": {"TraceId": [], "SpanId": [], "TraceState": [], "Attributes": []},
+    }
+
+    wait = bool(app.config.get("TESTING", False))
+
+    def _op(db: ChDbConnection) -> None:
+        _insert_rows_json_each_row(db, "otel_traces", [row])
+        try:
+            rules = _load_tag_rules(db)
+            if rules:
+                _apply_tag_rules(db, "ai", [row], rules)
+        except Exception:
+            app.logger.exception("auto-tag application failed for internal ai")
+
+    try:
+        _queue_write(_op, wait=wait)
+    except Exception:
+        app.logger.exception("internal ai span ingest write failed")
+
+    try:
+        await _sse_broadcast(
+            {
+                "source": "ai",
+                "ts": ts,
+                "service": _AI_HELPER_SERVICE_NAME,
+                "provider": provider,
+                "model": model,
+                "operation": "chat",
+                "duration_ms": round(elapsed_ms, 1),
+                "tokens_in": int(stats.get("prompt_tokens") or 0),
+                "tokens_out": int(stats.get("completion_tokens") or 0),
+                "error_type": error_type,
+            }
+        )
+    except Exception:
+        app.logger.exception("internal ai sse broadcast failed")
+
+
 def _tokenize_for_embedding(text: str) -> list[str]:
     if not text:
         return []
@@ -2770,6 +2880,13 @@ async def _call_llm_endpoint(
         stats = _llm_usage_stats(body.get("usage"), elapsed_ms)
         reply_text = _coerce_llm_content(body["choices"][0]["message"].get("content"))
         if reply_text.strip():
+            await _emit_internal_genai_span(
+                endpoint_url=endpoint_url,
+                model=model,
+                input_messages=messages,
+                output_messages=[{"role": "assistant", "content": reply_text}],
+                stats=stats,
+            )
             return reply_text, stats
 
         # Some servers/models emit reasoning-only output with empty message.content.
@@ -2800,6 +2917,13 @@ async def _call_llm_endpoint(
         retry_stats = _llm_usage_stats(retry_body.get("usage"), retry_elapsed_ms)
         retry_reply = _coerce_llm_content(retry_body["choices"][0]["message"].get("content"))
         if retry_reply.strip():
+            await _emit_internal_genai_span(
+                endpoint_url=endpoint_url,
+                model=model,
+                input_messages=retry_messages,
+                output_messages=[{"role": "assistant", "content": retry_reply}],
+                stats=retry_stats,
+            )
             return retry_reply, retry_stats
 
         retry_hint = _empty_content_hint(retry_body)
@@ -2814,6 +2938,14 @@ async def _call_llm_endpoint(
         retry_stats_out: dict[str, Any] = dict(retry_stats)
         retry_stats_out["error"] = error_text
         log.warning("LLM endpoint returned empty content: %s", error_text)
+        await _emit_internal_genai_span(
+            endpoint_url=endpoint_url,
+            model=model,
+            input_messages=retry_messages,
+            output_messages=[],
+            stats=retry_stats_out,
+            error_type="empty_content",
+        )
         return "", retry_stats_out
     except Exception as exc:
         elapsed_ms = int((time.monotonic() - t0) * 1000)
@@ -2834,7 +2966,16 @@ async def _call_llm_endpoint(
             type(exc).__name__,
             exc,
         )
-        return "", {"elapsed_ms": elapsed_ms, "error": error_text}
+        error_stats = {"elapsed_ms": elapsed_ms, "error": error_text}
+        await _emit_internal_genai_span(
+            endpoint_url=endpoint_url,
+            model=model,
+            input_messages=messages,
+            output_messages=[],
+            stats=error_stats,
+            error_type=type(exc).__name__,
+        )
+        return "", error_stats
 
 
 async def _stream_llm_endpoint(
@@ -2862,74 +3003,96 @@ async def _stream_llm_endpoint(
         payload["tool_choice"] = "auto"
     client = await _get_async_http_client()
     usage: dict[str, Any] = {}
+    output_parts: list[str] = []
     tool_accumulator: dict[int, dict[str, str]] = {}
     started_at = time.monotonic()
-    async with client.stream(
-        "POST",
-        _llm_chat_completions_url(endpoint_url),
-        json=payload,
-        headers=_llm_request_headers(api_key),
-        timeout=timeout,
-    ) as resp:
-        resp.raise_for_status()
-        async for line in resp.aiter_lines():
-            line = line.strip()
-            if not line or line.startswith(":"):
-                continue
-            if not line.startswith("data:"):
-                continue
-            data = line[5:].strip()
-            if not data:
-                continue
-            if data == "[DONE]":
-                break
-            try:
-                event = json.loads(data)
-            except json.JSONDecodeError:
-                continue
-            event_usage = event.get("usage") or {}
-            if event_usage:
-                usage = event_usage
-            for tool_delta in _extract_stream_tool_call_deltas(event):
-                tool_slot = tool_accumulator.setdefault(tool_delta["index"], {"name": "", "arguments": ""})
-                if tool_delta["name"]:
-                    tool_slot["name"] = tool_delta["name"]
-                if tool_delta["arguments"]:
-                    tool_slot["arguments"] += tool_delta["arguments"]
-            delta_text = _extract_stream_delta(event)
-            if delta_text:
-                yield {"type": "delta", "text": delta_text}
-            if _extract_stream_finish_reason(event) == "tool_calls":
-                for tool_index in sorted(tool_accumulator):
-                    call = tool_accumulator[tool_index]
-                    args: dict[str, Any] = {}
-                    raw_args = call.get("arguments") or ""
-                    if raw_args:
-                        try:
-                            parsed_args = json.loads(raw_args)
-                            if isinstance(parsed_args, dict):
-                                args = parsed_args
-                        except json.JSONDecodeError:
-                            args = {}
-                    yield {"type": "tool", "tool_call": {"name": call.get("name", ""), "arguments": args}}
-                tool_accumulator.clear()
-
-    if tool_accumulator:
-        for tool_index in sorted(tool_accumulator):
-            call = tool_accumulator[tool_index]
-            args = {}
-            raw_args = call.get("arguments") or ""
-            if raw_args:
+    try:
+        async with client.stream(
+            "POST",
+            _llm_chat_completions_url(endpoint_url),
+            json=payload,
+            headers=_llm_request_headers(api_key),
+            timeout=timeout,
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                line = line.strip()
+                if not line or line.startswith(":"):
+                    continue
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if not data:
+                    continue
+                if data == "[DONE]":
+                    break
                 try:
-                    parsed_args = json.loads(raw_args)
-                    if isinstance(parsed_args, dict):
-                        args = parsed_args
+                    event = json.loads(data)
                 except json.JSONDecodeError:
-                    args = {}
-            yield {"type": "tool", "tool_call": {"name": call.get("name", ""), "arguments": args}}
+                    continue
+                event_usage = event.get("usage") or {}
+                if event_usage:
+                    usage = event_usage
+                for tool_delta in _extract_stream_tool_call_deltas(event):
+                    tool_slot = tool_accumulator.setdefault(tool_delta["index"], {"name": "", "arguments": ""})
+                    if tool_delta["name"]:
+                        tool_slot["name"] = tool_delta["name"]
+                    if tool_delta["arguments"]:
+                        tool_slot["arguments"] += tool_delta["arguments"]
+                delta_text = _extract_stream_delta(event)
+                if delta_text:
+                    output_parts.append(delta_text)
+                    yield {"type": "delta", "text": delta_text}
+                if _extract_stream_finish_reason(event) == "tool_calls":
+                    for tool_index in sorted(tool_accumulator):
+                        call = tool_accumulator[tool_index]
+                        args: dict[str, Any] = {}
+                        raw_args = call.get("arguments") or ""
+                        if raw_args:
+                            try:
+                                parsed_args = json.loads(raw_args)
+                                if isinstance(parsed_args, dict):
+                                    args = parsed_args
+                            except json.JSONDecodeError:
+                                args = {}
+                        yield {"type": "tool", "tool_call": {"name": call.get("name", ""), "arguments": args}}
+                    tool_accumulator.clear()
 
-    elapsed_ms = int((time.monotonic() - started_at) * 1000)
-    yield {"type": "done", "stats": _llm_usage_stats(usage, elapsed_ms)}
+        if tool_accumulator:
+            for tool_index in sorted(tool_accumulator):
+                call = tool_accumulator[tool_index]
+                args = {}
+                raw_args = call.get("arguments") or ""
+                if raw_args:
+                    try:
+                        parsed_args = json.loads(raw_args)
+                        if isinstance(parsed_args, dict):
+                            args = parsed_args
+                    except json.JSONDecodeError:
+                        args = {}
+                yield {"type": "tool", "tool_call": {"name": call.get("name", ""), "arguments": args}}
+
+        elapsed_ms = int((time.monotonic() - started_at) * 1000)
+        stats = _llm_usage_stats(usage, elapsed_ms)
+        await _emit_internal_genai_span(
+            endpoint_url=endpoint_url,
+            model=model,
+            input_messages=messages,
+            output_messages=[{"role": "assistant", "content": "".join(output_parts)}],
+            stats=stats,
+        )
+        yield {"type": "done", "stats": stats}
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - started_at) * 1000)
+        await _emit_internal_genai_span(
+            endpoint_url=endpoint_url,
+            model=model,
+            input_messages=messages,
+            output_messages=[{"role": "assistant", "content": "".join(output_parts)}],
+            stats={"elapsed_ms": elapsed_ms, "error": str(exc)},
+            error_type=type(exc).__name__,
+        )
+        raise
 
 
 def _heuristic_guard_check(text: str) -> bool:
@@ -4706,6 +4869,47 @@ def _extract_messages_text(messages_str: str) -> str:
     """
     if not messages_str:
         return ""
+
+    def _parts_to_text(parts_value: Any) -> str:
+        if not isinstance(parts_value, list):
+            return ""
+        chunks: list[str] = []
+        for part in parts_value:
+            if isinstance(part, str):
+                if part:
+                    chunks.append(part)
+                continue
+            if not isinstance(part, dict):
+                continue
+            part_type = str(part.get("type", "")).strip().lower()
+            if part_type in {"text", "reasoning"}:
+                text = part.get("content", "") or part.get("text", "")
+                if text:
+                    chunks.append(str(text))
+                continue
+            if part_type in {"tool_call", "server_tool_call"}:
+                name = str(part.get("name", "")).strip()
+                args = part.get("arguments")
+                label = f"tool_call:{name}" if name else "tool_call"
+                if isinstance(args, dict) and args:
+                    chunks.append(f"{label} {json.dumps(args, ensure_ascii=False)}")
+                else:
+                    chunks.append(label)
+                continue
+            if part_type in {"tool_call_response", "server_tool_call_response"}:
+                response = part.get("response")
+                if response:
+                    chunks.append(str(response))
+                else:
+                    chunks.append(part_type)
+                continue
+            content = part.get("content")
+            if content:
+                chunks.append(str(content))
+                continue
+            chunks.append(json.dumps(part, ensure_ascii=False))
+        return "\n".join(chunks).strip()
+
     try:
         messages = json.loads(messages_str)
         if isinstance(messages, list):
@@ -4714,6 +4918,8 @@ def _extract_messages_text(messages_str: str) -> str:
                 if isinstance(msg, dict):
                     role = msg.get("role", "")
                     content = msg.get("content", "")
+                    if not content:
+                        content = _parts_to_text(msg.get("parts"))
                     if isinstance(content, list):
                         # Content blocks (e.g. OpenAI vision API)
                         content = " ".join(
@@ -4727,6 +4933,37 @@ def _extract_messages_text(messages_str: str) -> str:
         return messages_str
     except (json.JSONDecodeError, TypeError):
         return messages_str
+
+
+def _normalize_genai_messages_for_display(messages: Any) -> list[dict[str, Any]]:
+    """Normalize GenAI message payloads into role/content objects for UI rendering."""
+    if not isinstance(messages, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for message in messages:
+        if isinstance(message, dict):
+            msg = dict(message)
+            content = msg.get("content")
+            if not content and isinstance(msg.get("parts"), list):
+                content = _extract_messages_text(json.dumps([msg], ensure_ascii=False))
+                if content:
+                    # Remove optional [role] prefix added by _extract_messages_text helper.
+                    role = str(msg.get("role", "")).strip()
+                    role_prefix = f"[{role}] " if role else ""
+                    msg["content"] = str(content).removeprefix(role_prefix)
+            if msg.get("content") is None:
+                msg["content"] = ""
+            normalized.append(msg)
+            continue
+
+        if isinstance(message, str):
+            normalized.append({"role": "", "content": message})
+            continue
+
+        normalized.append({"role": "", "content": json.dumps(message, ensure_ascii=False)})
+
+    return normalized
 
 
 def _map_to_dict(value) -> dict:
@@ -6497,10 +6734,7 @@ async def summary():
         "errors_total": len(error_items),
         "spans": db.execute("SELECT COUNT(*) FROM otel_traces").fetchone()[0],
         "rum": db.execute("SELECT COUNT(*) FROM hyperdx_sessions").fetchone()[0],
-        "ai": db.execute(
-            "SELECT COUNT(*) FROM otel_traces "
-            f"WHERE {_AI_SPAN_CONDITION}"
-        ).fetchone()[0],
+        "ai": db.execute("SELECT COUNT(*) FROM otel_traces " f"WHERE {_AI_SPAN_CONDITION}").fetchone()[0],
         "services": [
             r[0]
             for r in db.execute(
@@ -9786,14 +10020,14 @@ async def view_ai():
             if input_messages_raw:
                 parsed = json.loads(input_messages_raw)
                 if isinstance(parsed, list):
-                    input_messages = parsed
+                    input_messages = _normalize_genai_messages_for_display(parsed)
         except (json.JSONDecodeError, TypeError):
             pass
         try:
             if output_messages_raw:
                 parsed = json.loads(output_messages_raw)
                 if isinstance(parsed, list):
-                    output_messages = parsed
+                    output_messages = _normalize_genai_messages_for_display(parsed)
         except (json.JSONDecodeError, TypeError):
             pass
         # Build raw attributes dict for JSON inspector
@@ -13807,10 +14041,7 @@ async def api_ai_validate_filter():
 
         db = get_db()
         db.execute(
-            "SELECT 1 FROM otel_traces "
-            f"WHERE ({safe_sql}) "
-            f"AND {_AI_SPAN_CONDITION} "
-            "LIMIT 1"
+            "SELECT 1 FROM otel_traces " f"WHERE ({safe_sql}) " f"AND {_AI_SPAN_CONDITION} " "LIMIT 1"
         ).fetchone()
     except Exception as exc:
         issues.append({"level": "error", "message": _public_dashboard_query_error(exc)})

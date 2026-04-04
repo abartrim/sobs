@@ -3811,9 +3811,7 @@ class TestGenAICompliance:
                         "gen_ai.usage.input_tokens": "15",
                         "gen_ai.usage.output_tokens": "8",
                         "gen_ai.input.messages": json.dumps([{"role": "user", "content": "Semconv-only query"}]),
-                        "gen_ai.output.messages": json.dumps(
-                            [{"role": "assistant", "content": "Semconv-only answer"}]
-                        ),
+                        "gen_ai.output.messages": json.dumps([{"role": "assistant", "content": "Semconv-only answer"}]),
                     },
                     "Duration": 200000000,
                     "StatusCode": "STATUS_CODE_OK",
@@ -3927,6 +3925,195 @@ class TestGenAICompliance:
         body = await r.get_data(as_text=True)
         assert "JSON string attribute content" in body
 
+    async def test_semconv_parts_messages_render_all_turn_roles(self, client):
+        """Parts-based OTel messages should render system/user/tool/assistant turns in AI view."""
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "parts-turns-svc",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "operation": "chat",
+                "input_messages": [
+                    {
+                        "role": "system",
+                        "parts": [{"type": "text", "content": "Follow safety rules."}],
+                    },
+                    {
+                        "role": "user",
+                        "parts": [{"type": "text", "content": "Weather in Paris?"}],
+                    },
+                    {
+                        "role": "tool",
+                        "parts": [
+                            {
+                                "type": "tool_call_response",
+                                "id": "call_weather_1",
+                                "response": "rainy, 57F",
+                            }
+                        ],
+                    },
+                ],
+                "output_messages": [
+                    {
+                        "role": "assistant",
+                        "parts": [
+                            {
+                                "type": "text",
+                                "content": "It is rainy in Paris and about 57F.",
+                            }
+                        ],
+                    }
+                ],
+                "tokens_in": 30,
+                "tokens_out": 12,
+                "duration_ms": 210,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/ai")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert "parts-turns-svc" in body
+        assert "Follow safety rules." in body
+        assert "Weather in Paris?" in body
+        assert "rainy, 57F" in body
+        assert "It is rainy in Paris and about 57F." in body
+        assert ">system<" in body
+        assert ">user<" in body
+        assert ">tool<" in body
+        assert ">assistant<" in body
+
+    async def test_semconv_parts_tool_call_payloads_are_rendered(self, client):
+        """Tool call style message parts should surface readable details in AI conversation view."""
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "parts-toolcall-svc",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "operation": "chat",
+                "input_messages": [
+                    {
+                        "role": "assistant",
+                        "parts": [
+                            {
+                                "type": "tool_call",
+                                "id": "call_weather_22",
+                                "name": "get_weather",
+                                "arguments": {"location": "Paris"},
+                            }
+                        ],
+                    },
+                    {
+                        "role": "assistant",
+                        "parts": [
+                            {
+                                "type": "server_tool_call",
+                                "id": "srv_code_1",
+                                "name": "code_interpreter",
+                            }
+                        ],
+                    },
+                    {
+                        "role": "tool",
+                        "parts": [
+                            {
+                                "type": "tool_call_response",
+                                "id": "call_weather_22",
+                                "response": "rainy, 57F",
+                            }
+                        ],
+                    },
+                ],
+                "output_messages": [
+                    {
+                        "role": "assistant",
+                        "parts": [
+                            {
+                                "type": "text",
+                                "content": "The weather in Paris is rainy.",
+                            }
+                        ],
+                    }
+                ],
+                "tokens_in": 25,
+                "tokens_out": 9,
+                "duration_ms": 175,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/ai")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert "parts-toolcall-svc" in body
+        assert "tool_call:get_weather" in body
+        assert "Paris" in body
+        assert "tool_call:code_interpreter" in body
+        assert "rainy, 57F" in body
+
+    async def test_semconv_message_content_preferred_over_parts(self, client):
+        """When both content and parts are present, explicit content should remain authoritative."""
+        import app as app_module
+
+        normalized_input = app_module._normalize_genai_messages_for_display(
+            [
+                {
+                    "role": "user",
+                    "content": "Preferred content text",
+                    "parts": [{"type": "text", "content": "Fallback parts text should not win"}],
+                }
+            ]
+        )
+        normalized_output = app_module._normalize_genai_messages_for_display(
+            [
+                {
+                    "role": "assistant",
+                    "content": "Assistant preferred text",
+                    "parts": [{"type": "text", "content": "Assistant fallback parts text"}],
+                }
+            ]
+        )
+        assert normalized_input[0]["content"] == "Preferred content text"
+        assert normalized_output[0]["content"] == "Assistant preferred text"
+
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "mixed-content-svc",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "operation": "chat",
+                "input_messages": [
+                    {
+                        "role": "user",
+                        "content": "Preferred content text",
+                        "parts": [{"type": "text", "content": "Fallback parts text should not win"}],
+                    }
+                ],
+                "output_messages": [
+                    {
+                        "role": "assistant",
+                        "content": "Assistant preferred text",
+                        "parts": [{"type": "text", "content": "Assistant fallback parts text"}],
+                    }
+                ],
+                "tokens_in": 10,
+                "tokens_out": 4,
+                "duration_ms": 90,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/ai")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert "mixed-content-svc" in body
+        assert "Preferred content text" in body
+        assert "Assistant preferred text" in body
+
     async def test_system_instructions_displayed_in_ai_view(self, client):
         """gen_ai.system_instructions should be displayed in the AI view conversation tab."""
         r = await client.post(
@@ -4006,6 +4193,183 @@ class TestGenAICompliance:
         finally:
             app_module._sse_subscribers.discard(q)
 
+
+class TestInternalAssistantOtelCompliance:
+    async def test_internal_llm_call_emits_semconv_span(self, monkeypatch):
+        import app as app_module
+
+        model = f"internal-test-{secrets.token_hex(4)}"
+
+        class _FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "usage": {"prompt_tokens": 11, "completion_tokens": 7},
+                    "choices": [{"message": {"content": "internal answer"}}],
+                }
+
+        class _FakeClient:
+            async def post(self, *_args, **_kwargs):
+                return _FakeResponse()
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(app_module, "_get_async_http_client", _fake_get_client)
+        app_module.app.config["TESTING"] = True
+
+        reply, stats = await app_module._call_llm_endpoint(
+            "https://api.openai.com/v1",
+            model,
+            "no-key",
+            [
+                {"role": "system", "content": "You are concise."},
+                {"role": "user", "content": "Hello from internal assistant"},
+            ],
+        )
+        assert reply == "internal answer"
+        assert int(stats.get("prompt_tokens", 0)) == 11
+        assert int(stats.get("completion_tokens", 0)) == 7
+
+        db = app_module.get_db()
+        row = db.execute(
+            "SELECT "
+            "SpanAttributes['gen_ai.provider.name'] AS provider, "
+            "SpanAttributes['gen_ai.operation.name'] AS operation, "
+            "SpanAttributes['gen_ai.request.model'] AS model, "
+            "SpanAttributes['gen_ai.input.messages'] AS input_messages, "
+            "SpanAttributes['gen_ai.output.messages'] AS output_messages, "
+            "SpanAttributes['gen_ai.system_instructions'] AS system_instructions, "
+            "StatusCode "
+            "FROM otel_traces "
+            "WHERE ServiceName=? AND SpanAttributes['gen_ai.request.model']=? "
+            "ORDER BY Timestamp DESC LIMIT 1",
+            [app_module._AI_HELPER_SERVICE_NAME, model],
+        ).fetchone()
+        assert row is not None
+        assert str(row[0]) == "openai"
+        assert str(row[1]) == "chat"
+        assert str(row[2]) == model
+        assert "Hello from internal assistant" in str(row[3])
+        assert "internal answer" in str(row[4])
+        assert "You are concise." in str(row[5])
+        assert str(row[6]) == "STATUS_CODE_OK"
+
+    async def test_internal_llm_call_failure_emits_error_span(self, monkeypatch):
+        import app as app_module
+
+        model = f"internal-fail-{secrets.token_hex(4)}"
+
+        class _FakeClient:
+            async def post(self, *_args, **_kwargs):
+                raise RuntimeError("simulated endpoint failure")
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(app_module, "_get_async_http_client", _fake_get_client)
+        app_module.app.config["TESTING"] = True
+
+        reply, stats = await app_module._call_llm_endpoint(
+            "https://example.internal/v1",
+            model,
+            "no-key",
+            [{"role": "user", "content": "this will fail"}],
+        )
+        assert reply == ""
+        assert "error" in stats
+
+        db = app_module.get_db()
+        row = db.execute(
+            "SELECT "
+            "StatusCode, "
+            "SpanAttributes['error.type'] AS error_type, "
+            "SpanAttributes['error.message'] AS error_message "
+            "FROM otel_traces "
+            "WHERE ServiceName=? AND SpanAttributes['gen_ai.request.model']=? "
+            "ORDER BY Timestamp DESC LIMIT 1",
+            [app_module._AI_HELPER_SERVICE_NAME, model],
+        ).fetchone()
+        assert row is not None
+        assert str(row[0]) == "STATUS_CODE_ERROR"
+        assert str(row[1]) == "RuntimeError"
+        assert "simulated endpoint failure" in str(row[2])
+
+    async def test_internal_streaming_llm_aggregates_deltas_into_single_span(self, monkeypatch):
+        import app as app_module
+
+        model = f"internal-stream-{secrets.token_hex(4)}"
+
+        class _FakeStreamResponse:
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield 'data: {"choices":[{"delta":{"content":"Hello "}}]}'
+                yield 'data: {"choices":[{"delta":{"content":"world"}}]}'
+                yield (
+                    'data: {"usage":{"prompt_tokens":9,"completion_tokens":4},'
+                    '"choices":[{"delta":{},"finish_reason":"stop"}]}'
+                )
+                yield "data: [DONE]"
+
+        class _FakeStreamContext:
+            def __init__(self):
+                self._resp = _FakeStreamResponse()
+
+            async def __aenter__(self):
+                return self._resp
+
+            async def __aexit__(self, _exc_type, _exc, _tb):
+                return False
+
+        class _FakeClient:
+            def stream(self, *_args, **_kwargs):
+                return _FakeStreamContext()
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(app_module, "_get_async_http_client", _fake_get_client)
+        app_module.app.config["TESTING"] = True
+
+        events = []
+        async for event in app_module._stream_llm_endpoint(
+            "https://api.openai.com/v1",
+            model,
+            "no-key",
+            [{"role": "user", "content": "Say hello"}],
+            timeout=10,
+        ):
+            events.append(event)
+
+        deltas = [e.get("text") for e in events if e.get("type") == "delta"]
+        assert deltas == ["Hello ", "world"]
+        done = [e for e in events if e.get("type") == "done"]
+        assert len(done) == 1
+        assert int(done[0]["stats"].get("prompt_tokens", 0)) == 9
+        assert int(done[0]["stats"].get("completion_tokens", 0)) == 4
+
+        db = app_module.get_db()
+        count_row = db.execute(
+            "SELECT COUNT(*) FROM otel_traces " "WHERE ServiceName=? AND SpanAttributes['gen_ai.request.model']=?",
+            [app_module._AI_HELPER_SERVICE_NAME, model],
+        ).fetchone()
+        assert count_row is not None
+        assert int(count_row[0]) == 1
+
+        row = db.execute(
+            "SELECT SpanAttributes['gen_ai.output.messages'] AS output_messages, StatusCode "
+            "FROM otel_traces "
+            "WHERE ServiceName=? AND SpanAttributes['gen_ai.request.model']=? "
+            "ORDER BY Timestamp DESC LIMIT 1",
+            [app_module._AI_HELPER_SERVICE_NAME, model],
+        ).fetchone()
+        assert row is not None
+        assert "Hello world" in str(row[0])
+        assert str(row[1]) == "STATUS_CODE_OK"
 
 
 class TestCustomDashboards:
