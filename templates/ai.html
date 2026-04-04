@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}AI Transparency{% endblock %}
 {% macro fmt_num(n) %}{% if n >= 1000000 %}{{ "%.1f" | format(n / 1000000) }}M{% elif n >= 1000 %}{{ "%.1f" | format(n / 1000) }}K{% else %}{{ n }}{% endif %}{% endmacro %}
+{% macro render_message_content(msg) %}{% set content = msg.get('content', '') if msg is mapping else '' %}{{ content if content is string else content | tojson }}{% endmacro %}
 {% block content %}
 <style>
   .ai-row-grid {
@@ -162,6 +163,10 @@
               aria-expanded="true" aria-controls="aiFiltersPanel">
         <i class="bi bi-funnel me-2 text-secondary"></i>
         <span class="fw-semibold">Filters</span>
+        <span id="ai-tz-badge-btn" class="sobs-tz-header-badge" role="button" tabindex="0" title="Display timezone - click to change">
+          <i class="bi bi-clock"></i>
+          <span id="ai-tz-badge-label">UTC</span>
+        </span>
       </button>
     </h2>
     <div id="aiFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="aiFiltersHeading" data-bs-parent="#aiFiltersAccordion">
@@ -327,9 +332,9 @@
           <span class="small text-secondary">{{ group.models | join(', ') }}</span>
           {% endif %}
           {% if group.first_ts and group.last_ts and group.first_ts != group.last_ts %}
-          <span class="small text-secondary">{{ group.first_ts[:19] }} - {{ group.last_ts[:19] }}</span>
+          <span class="small text-secondary"><span class="sobs-tz-ts" data-utc-ts="{{ group.first_ts }}">{{ group.first_ts[:19] }}</span> - <span class="sobs-tz-ts" data-utc-ts="{{ group.last_ts }}">{{ group.last_ts[:19] }}</span></span>
           {% elif group.last_ts %}
-          <span class="small text-secondary">{{ group.last_ts[:19] }}</span>
+          <span class="small text-secondary sobs-tz-ts" data-utc-ts="{{ group.last_ts }}">{{ group.last_ts[:19] }}</span>
           {% endif %}
         </div>
       </button>
@@ -348,7 +353,7 @@
             <div class="ai-row-cell"><span class="badge bg-secondary">{{ item.span_name or item.operation or 'event' }}</span></div>
             <div class="ai-row-cell summary text-secondary">{{ item.prompt or item.response or item.error_message or item.service }}</div>
             <div class="ai-row-cell duration text-secondary font-monospace">{{ item.duration_ms }}ms</div>
-            <div class="ai-row-cell timestamp text-secondary">{{ item.ts[:19] }}</div>
+            <div class="ai-row-cell timestamp text-secondary sobs-tz-ts" data-utc-ts="{{ item.ts }}">{{ item.ts[:19] }}</div>
           </div>
           {% else %}
           {# LLM call span — full accordion #}
@@ -383,7 +388,7 @@
                     {{ item.tokens_in }}↑ {{ item.tokens_out }}↓{% if item.thinking_tokens %} <span class="text-info" title="Thinking tokens"><i class="bi bi-lightbulb ms-1 me-1"></i>{{ item.thinking_tokens }}</span>{% endif %}
                   </div>
                   <div class="ai-row-cell duration small text-secondary">{{ item.duration_ms }}ms</div>
-                  <div class="ai-row-cell timestamp text-secondary small">{{ item.ts[:19] }}</div>
+                  <div class="ai-row-cell timestamp text-secondary small sobs-tz-ts" data-utc-ts="{{ item.ts }}">{{ item.ts[:19] }}</div>
                 </div>
               </button>
             </h2>
@@ -455,7 +460,7 @@
                           {% elif msg.role == 'tool' %}bg-warning text-dark
                           {% else %}bg-dark{% endif %}"
                           style="min-width:4.5rem;text-align:center;">{{ msg.role or '?' }}</span>
-                        <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:200px;">{{ msg.content if msg.content is string else msg.content | tojson }}</div>
+                        <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:200px;">{{ render_message_content(msg) }}</div>
                       </div>
                       {% endfor %}
                     </div>
@@ -470,7 +475,7 @@
                         {% elif msg.role == 'tool' %}bg-warning text-dark
                         {% else %}bg-dark{% endif %}"
                         style="min-width:4.5rem;text-align:center;">{{ msg.role or '?' }}</span>
-                      <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:300px;">{{ msg.content if msg.content is string else msg.content | tojson }}</div>
+                      <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:300px;">{{ render_message_content(msg) }}</div>
                     </div>
                     {% endfor %}
                     {% elif item.prompt or item.response %}
@@ -636,7 +641,7 @@
             {{ item.tokens_in }}↑ {{ item.tokens_out }}↓{% if item.thinking_tokens %} <span class="text-info" title="Thinking tokens"><i class="bi bi-lightbulb ms-1 me-1"></i>{{ item.thinking_tokens }}</span>{% endif %}
           </div>
           <div class="ai-row-cell duration small text-secondary">{{ item.duration_ms }}ms</div>
-          <div class="ai-row-cell timestamp text-secondary small">{{ item.ts[:19] }}</div>
+          <div class="ai-row-cell timestamp text-secondary small sobs-tz-ts" data-utc-ts="{{ item.ts }}">{{ item.ts[:19] }}</div>
         </div>
       </button>
     </h2>
@@ -712,7 +717,7 @@
                   {% elif msg.role == 'tool' %}bg-warning text-dark
                   {% else %}bg-dark{% endif %}"
                   style="min-width:4.5rem;text-align:center;">{{ msg.role or '?' }}</span>
-                <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:200px;">{{ msg.content if msg.content is string else msg.content | tojson }}</div>
+                <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:200px;">{{ render_message_content(msg) }}</div>
               </div>
               {% endfor %}
             </div>
@@ -729,7 +734,7 @@
                 {% else %}bg-dark{% endif %}"
                 style="min-width:4.5rem;text-align:center;">{{ msg.role or '?' }}</span>
               <!-- Allow slightly more height for responses which are typically longer -->
-              <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:300px;">{{ msg.content if msg.content is string else msg.content | tojson }}</div>
+              <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:300px;">{{ render_message_content(msg) }}</div>
             </div>
             {% endfor %}
             {% elif item.prompt or item.response %}
@@ -1167,6 +1172,23 @@ function escHtml(s) {
 <script>
 // SQL Filter Autocomplete (AI traces)
 (() => {
+  function initAiTimezone() {
+    if (!window.sobsTimezone || typeof window.sobsTimezone.initPage !== 'function') return false;
+    window.sobsTimezone.initPage({
+      fromInputId: 'ai-from-ts',
+      toInputId: 'ai-to-ts',
+      formSelector: '#aiFiltersPanel form[method="get"]',
+      badgeButtonId: 'ai-tz-badge-btn',
+      badgeLabelId: 'ai-tz-badge-label',
+      timestampSelector: '.sobs-tz-ts[data-utc-ts]'
+    });
+    return true;
+  }
+
+  if (!initAiTimezone()) {
+    window.addEventListener('load', initAiTimezone, { once: true });
+  }
+
   const input = document.getElementById("sql-filter-input");
   const dropdown = document.getElementById("sql-ac-dropdown");
   const feedback = document.getElementById("ai-sql-filter-feedback");

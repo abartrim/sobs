@@ -81,14 +81,99 @@ python scripts/load_example.py --base http://localhost:44317 --mode realistic --
 Embed in your HTML:
 
 ```html
-<script src="http://localhost:44317/static/rum.js"></script>
-<script>
-  SOBS.init({
-    endpoint: 'http://localhost:44317/v1/rum',
-    appName: 'my-app'
-  });
+<script src="http://localhost:44317/static/rum.js?app=my-app"></script>
+
+<!-- Optional origin-bound token bootstrap -->
+<script
+  src="http://localhost:44317/static/rum.js"
+  data-sobs-app="my-app"
+  data-sobs-endpoint="http://localhost:44317/v1/rum"
+  data-sobs-client-token-url="/internal/sobs/rum-client-token">
 </script>
 ```
+
+### RUM replay payload contract (rrweb-style)
+
+SOBS expects replay metadata on error events under `replay` and optional screenshot metadata under `artifact`.
+The metadata should reference an uploaded replay/session in your own storage system.
+
+Replay contract:
+
+```json
+{
+  "replay": {
+    "id": "replay-123",
+    "url": "https://example.com/replays/replay-123",
+    "provider": "rrweb"
+  }
+}
+```
+
+Artifact contract:
+
+```json
+{
+  "artifact": {
+    "type": "screenshot",
+    "id": "shot-123",
+    "url": "https://example.com/artifacts/shot-123.png"
+  }
+}
+```
+
+Use either `SOBS.setVisualContext(...)` directly, or the dedicated helpers:
+
+- `SOBS.setReplayContext(replay, { ttlMs, consumeOnce })`
+- `SOBS.setArtifactContext(artifact, { ttlMs, consumeOnce })`
+
+Signed upload endpoint contract for replay/screenshot bytes:
+
+- `POST /v1/rum/assets?type=<replay|screenshot|...>&name=<filename>`
+- Body: raw bytes
+- Required headers:
+  - `X-SOBS-Asset-Timestamp`
+  - `X-SOBS-Asset-Signature`
+
+Signature payload:
+
+```text
+POST
+/v1/rum/assets
+<timestamp>
+<sha256_body_hex>
+<content_type_lowercase>
+<asset_type_lowercase>
+<asset_name>
+```
+
+Optional browser client auth:
+
+- Configure `SOBS_RUM_CLIENT_AUTH_MODE=origin` and `SOBS_RUM_CLIENT_SIGNING_KEY` on SOBS.
+- Mint token from your backend via `POST /v1/rum/client-token`.
+- Feed token to browser using `data-sobs-client-token-url` or `SOBS.setClientAuthToken(token)`.
+
+React notes:
+
+- SOBS RUM works with React because collection is browser-level and independent of framework runtime.
+- For component render failures, pair with a React Error Boundary and call `SOBS.captureException(...)` explicitly.
+
+See [rum/rrweb_replay_example.js](rum/rrweb_replay_example.js) for an end-to-end browser integration pattern.
+
+### Browser replay demo app
+
+For a quick local test page that exercises the new RUM replay/artifact/error flows:
+
+```bash
+./scripts/start_ollama_ai_test.sh
+```
+
+Then open:
+
+- `http://127.0.0.1:5005` (demo app)
+- `http://127.0.0.1:44317/rum`
+- `http://127.0.0.1:44317/errors`
+
+Disable demo app auto-start with `START_EXAMPLE_APP=0`.
 
 ## OTLP Endpoint Reference
 

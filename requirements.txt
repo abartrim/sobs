@@ -6,3 +6,4 @@ cryptography>=42.0.0
 httpx>=0.28.1
 pandas>=2.0.0
 geoip2fast>=1.2.0
+sourcemap>=0.2.1

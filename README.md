@@ -2,7 +2,7 @@
 
 **SOBS** is a lightweight, single-user OpenTelemetry-compatible telemetry container focused on simplicity and transparency. It collects **Logs**, **Errors**, **Traces**, **RUM** (Real User Monitoring), and **AI call transparency** — all in one tiny container you can run as a standalone pod or sidecar.
 
-![Dashboard](https://github.com/user-attachments/assets/fab68924-3526-49a9-9c03-d3f994bca3dd)
+![Summary AI Assistant](static/help/summary_ai_assistant.png)
 
 ## Features
 
@@ -12,16 +12,21 @@
 - 🌐 **RUM** – client-side JS snippet with Web Vitals (LCP, CLS, INP, TTFB, FCP)
 - 🐛 **Error tracking** – with stack traces and one-click resolve
 - 🤖 **AI transparency** – record LLM prompts, responses and token usage
+- 💬 **Contextual AI Assistant** – bottom-right in-app assistant for page-aware help and guided UI actions
 - 🔍 **Search** – grep (regex) and SQL WHERE clause filtering on logs
+- 🏷️ **Tag-aware log SQL assistant** – `has_tag()` helper, SQL filter validation, and field hints/autocomplete on Logs
 - 📊 **Query statistics** – collapsible logs analytics panel with query-scoped level/service distributions
 - 🧠 **Manual advanced log analysis** – on-demand message pattern clustering, keyword signals, and optimization hints
+- 📚 **Saved reports** – persist and re-apply filter sets across Logs, Traces, Errors, Metrics, RUM, and AI pages
+- 🧮 **Natural-language Query page** – NL→SQL over embedded chDB with read-only SQL guardrails and chart/dashboard actions
+- 🔔 **Notifications & Webhooks** – Slack, webhook, email, and browser push channels with rule-based dispatch
 - 📡 **Live tail** – SSE endpoint (`/tail`) for real-time streaming of logs and traces
 - ⚡ **Live logs mode** – optional in-page streaming on Logs with pause-on-scroll and queued event counter
 - 📈 **Metrics & Signals** – top-level Metrics page with derived telemetry signals and anomaly status
 - 🧩 **Auto rule generation** – preview/create metric anomaly rules from recent derived-signal history
 - 🗂️ **Auto dashboard generation** – build a derived-signal dashboard directly from active metric rules
 - ✨ **First-run visual tour** – one-time onboarding modal with flow overview and quick-tour reopen entry
-- 🎨 **Bootstrap 5 dark UI** – served locally, no CDN required
+- 🎨 **Bootstrap 5 theming** – served locally with light/dark/system theme toggle, no CDN required
 - 🐳 **Docker ready** – Dockerfile + docker-compose + Kubernetes manifests
 
 ## Quick Start
@@ -112,11 +117,142 @@ details, security considerations, and limitations.
 ### Client-side RUM
 
 ```html
-<script src="http://YOUR_SOBS_HOST/static/rum.js"></script>
+<!-- One-line auto-init (endpoint inferred from script host) -->
+<script src="http://YOUR_SOBS_HOST/static/rum.js?app=my-app"></script>
+
+<!-- Feature-complete init (auth token, SPA nav, trace propagation, replay/screenshot hooks) -->
+<script
+  src="http://YOUR_SOBS_HOST/static/rum.js"
+  data-sobs-app="shop-web"
+  data-sobs-endpoint="http://YOUR_SOBS_HOST/v1/rum"
+  data-sobs-client-token-url="/internal/sobs/rum-client-token">
+</script>
+
 <script>
-  SOBS.init({ endpoint: 'http://YOUR_SOBS_HOST/v1/rum', appName: 'my-app' });
+  SOBS.init({
+    endpoint: 'http://YOUR_SOBS_HOST/v1/rum',
+    appName: 'shop-web',
+    clientAuthTokenUrl: '/internal/sobs/rum-client-token',
+    trackSPA: true,
+
+    // Optional trace defaults (or call setTraceParent/setTraceContext at runtime)
+    traceparent: window.__TRACEPARENT__ || '',
+    tracePropagationOrigins: ['https://api.example.com'],
+
+    // Optional breadcrumb buffer sizing
+    consoleBufferSize: 20,
+    breadcrumbBufferSize: 40,
+
+    // Optional replay + screenshot capture for enriched error events
+    replay: {
+      enabled: true,
+      scriptUrl: 'https://cdn.jsdelivr.net/npm/rrweb@latest/dist/record/rrweb-record.min.js',
+      maxEvents: 500,
+      screenshot: {
+        enabled: true,
+        scriptUrl: 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
+        mimeType: 'image/jpeg',
+        quality: 0.75,
+        maxEdge: 1400
+      },
+      upload: async function (envelope) {
+        // Your backend uploads replay/screenshot and returns metadata refs.
+        const resp = await fetch('/api/replay/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(envelope)
+        });
+        if (!resp.ok) throw new Error('Replay upload failed');
+        // Expected shape:
+        // { replay: { id, url, provider }, artifact: { type, id, url } }
+        return resp.json();
+      }
+    }
+  });
+
+  // Add app-level breadcrumbs and custom events.
+  SOBS.addBreadcrumb('checkout', 'User clicked Place Order', { step: 'payment' });
+  SOBS.track('feature-flag', { flag: 'new-checkout', variant: 'B' });
+
+  // Attach visual context to the NEXT captured error event.
+  SOBS.setVisualContext({
+    replay: { id: 'replay-123', url: 'https://example.com/replays/replay-123', provider: 'rrweb' },
+    artifact: { type: 'screenshot', id: 'shot-123', url: 'https://example.com/artifacts/shot-123.png' },
+    ttlMs: 15000,
+    consumeOnce: true
+  });
+
+  // Manual capture path (in addition to auto window.onerror/unhandledrejection capture).
+  try {
+    throw new Error('Checkout confirmation failed');
+  } catch (err) {
+    SOBS.captureException(err, { errorSource: 'checkout-flow' });
+  }
+
+  // Runtime helpers:
+  // SOBS.setTraceParent('00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01');
+  // SOBS.setTraceContext('<trace-id-32-hex>', '<span-id-16-hex>');
+  // SOBS.setReplayContext({ id: 'replay-123', url: 'https://.../replay-123', provider: 'rrweb' }, { ttlMs: 15000 });
+  // SOBS.setArtifactContext({ type: 'screenshot', id: 'shot-123', url: 'https://.../shot-123.png' }, { ttlMs: 15000 });
+  // SOBS.clearVisualContext();
+  // SOBS.enableReplay({ enabled: true, scriptUrl: 'https://cdn.../rrweb-record.min.js' });
+  // SOBS.disableReplay();
+  // SOBS.setReplayUpload(async (envelope) => ({ replay: { id: 'r1', url: 'https://...', provider: 'rrweb' } }));
+  // SOBS.setClientAuthToken('<short-lived-rum-token>');
 </script>
 ```
+
+React compatibility:
+
+- Yes, it works with React apps. The RUM script hooks browser-level signals (`window.onerror`, `unhandledrejection`, fetch failures, performance observers), so framework internals do not block capture.
+- For best results in React, still add an Error Boundary and call `SOBS.captureException(error, { errorSource: 'react-error-boundary' })` from `componentDidCatch`.
+- In SPA routing (React Router), leave `trackSPA` enabled (default) so route changes are tracked via History API.
+
+Replay and screenshot payload contract:
+
+```json
+{
+  "replay": {
+    "id": "replay-123",
+    "url": "https://example.com/replays/replay-123",
+    "provider": "rrweb"
+  },
+  "artifact": {
+    "type": "screenshot",
+    "id": "shot-123",
+    "url": "https://example.com/artifacts/shot-123.png"
+  }
+}
+```
+
+For an integration sketch, see [examples/rum/rrweb_replay_example.js](examples/rum/rrweb_replay_example.js).
+
+Signed asset upload endpoint:
+
+- `POST /v1/rum/assets?type=<replay|screenshot|...>&name=<filename>`
+- Body: raw bytes (`application/json`, `image/png`, etc.)
+- Required headers:
+  - `X-SOBS-Asset-Timestamp` (unix epoch seconds)
+  - `X-SOBS-Asset-Signature` (`hex(hmac_sha256(signing_key, canonical_payload))`)
+
+Canonical payload format:
+
+```text
+POST
+/v1/rum/assets
+<timestamp>
+<sha256_body_hex>
+<content_type_lowercase>
+<asset_type_lowercase>
+<asset_name>
+```
+
+Optional browser RUM auth endpoint:
+
+- `POST /v1/rum/client-token`
+- Body: `{ "appName": "my-app", "origin": "https://app.example.com", "ttlSec": 900 }`
+- Requires `SOBS_API_KEY` when API key auth is enabled.
+- Returns a short-lived token bound to app + origin, for use in browser RUM events.
 
 ## OTLP Endpoints
 
@@ -152,6 +288,54 @@ Fresh chDB databases are created with schema compression tuned using ZSTD plus s
 
 Use `/health/db` for readiness checks in orchestrated deployments when you need the probe to exercise DB availability as well as process liveness.
 
+## Saved Reports
+
+SOBS supports saved report presets for page filters.
+
+- Save the current filter state from Logs, Traces, Errors, Metrics, RUM, or AI.
+- Re-apply saved reports from page-level report pickers or from the dedicated **Reports** page.
+- Delete reports from the **Reports** page when no longer needed.
+
+API endpoints:
+
+- `GET /api/reports?page_type=<logs|traces|errors|metrics|rum|ai>`
+- `POST /api/reports`
+- `DELETE /api/reports/<report_id>`
+
+UI routes:
+
+- `GET /reports`
+
+## Query Page (Natural Language → SQL)
+
+SOBS includes a dedicated **Query** page that turns natural-language prompts into read-only SQL against embedded chDB.
+
+- Query availability is automatic when AI endpoint and model settings are configured.
+- SQL is restricted to read-only statements (`SELECT`, `EXPLAIN`, `SHOW`, `DESCRIBE`, `WITH`).
+- Query execution is row-capped by `SOBS_QUERY_MAX_ROWS` (default `1000`).
+- Query results can generate chart JSON and be added to an existing dashboard.
+
+Routes:
+
+- `GET /query`
+- `POST /api/query/ask`
+- `POST /api/query/run`
+- `POST /api/query/refine-chart`
+- `POST /api/query/add-to-dashboard`
+- `GET /api/query/schema`
+
+## Notifications & Webhooks
+
+SOBS provides rule-driven notifications under **Settings → Notifications & Webhooks**.
+
+- Channel types: `webhook`, `slack`, `email`, `browser_push`.
+- Browser push supports VAPID keys from env (`SOBS_VAPID_PRIVATE_KEY`) or DB-backed key generation in the settings UI.
+- Notification checks are exposed as an API for external schedulers (cron, Kubernetes CronJob, etc.).
+
+Operational trigger endpoint:
+
+- `POST /api/notifications/check`
+
 ## Configuration
 
 | Variable                    | Default        | Description                                      |
@@ -163,10 +347,12 @@ Use `/health/db` for readiness checks in orchestrated deployments when you need 
 | `SOBS_EXTERNAL_AUTH_URL`    | _(empty)_      | Optional external Bearer validator for the Web UI |
 | `SOBS_BASE_PATH`            | _(empty)_      | Optional URL prefix (for example `/sobs`) for UI/API routing and generated links |
 | `SOBS_SECRET_KEY`           | `sobs-dev-secret-key` | Secret key used by Quart session handling (set explicitly in production) |
+| `SOBS_SESSION_COOKIE_NAME`  | `sobs_session` | Session cookie name for SOBS UI sessions (prevents collisions with management services using `session`) |
 | `PORT`                      | `44317`        | Listen port                                      |
 | `SOBS_WRITE_QUEUE_MAX`      | `5000`         | Max buffered write operations before ingest returns `503` |
 | `SOBS_WRITE_BATCH_MAX`      | `200`          | Max writes processed per DB batch |
 | `SOBS_WRITE_BATCH_WAIT_MS`  | `20`           | Max milliseconds to wait for filling a write batch |
+| `SOBS_QUERY_MAX_ROWS`       | `1000`         | Hard cap for rows returned by Query page SQL execution |
 | `SOBS_SETTINGS_ENCRYPTION_KEY` | _(empty)_   | Optional app-settings encryption key (base64 URL-safe Fernet key) |
 | `SOBS_SETTINGS_ENCRYPTION_KEY_FILE` | _(empty)_ | Optional absolute file path containing the app-settings encryption key |
 | `SOBS_AI_ENDPOINT_URL`      | _(empty)_      | Optional fallback for AI endpoint URL when not configured in Settings -> AI |
@@ -181,6 +367,8 @@ Use `/health/db` for readiness checks in orchestrated deployments when you need 
 | `SOBS_AI_GUARD_MODEL_FILE`  | _(empty)_      | Optional file path with guard model override |
 | `SOBS_AI_DLP_ENDPOINT_URL`  | _(empty)_      | Optional runtime override for DLP endpoint URL |
 | `SOBS_AI_DLP_ENDPOINT_URL_FILE` | _(empty)_  | Optional file path with DLP endpoint URL override |
+| `SOBS_VAPID_PRIVATE_KEY`    | _(empty)_      | Optional browser-push private key override (takes precedence over DB-stored key) |
+| `SOBS_VAPID_SUBJECT`        | `mailto:sobs@localhost` | Subject claim used when signing VAPID JWTs |
 | `SOBS_CHDB_ENCRYPTION_KEY`  | _(empty)_      | Hex key for runtime-generated encrypted disk config in container startup |
 | `SOBS_CHDB_BASE_DISK_PATH`  | `/data/chdb-disks/plain` | Base local disk path for runtime-generated storage configuration |
 | `SOBS_CHDB_ENCRYPTED_DISK_PATH` | `/data/chdb-disks/encrypted` | Encrypted disk path for runtime-generated storage configuration |
@@ -301,6 +489,170 @@ The stream sends a `retry: 5000` directive on connect and a `: keepalive` commen
 
 `/tail` uses the same Web UI auth mode as all other UI routes. Supply credentials the same way you would for the Web UI:
 
+
+Optional browser RUM client auth (origin-bound tokens):
+
+- `SOBS_RUM_CLIENT_AUTH_MODE=none|origin` (default `none`)
+- `SOBS_RUM_CLIENT_SIGNING_KEY=<secret>` (required when mode is `origin`)
+- `SOBS_RUM_CLIENT_TOKEN_TTL_SEC=900` (optional)
+
+Recommended flow:
+
+1. Your backend calls `POST /v1/rum/client-token` (with API key if enabled).
+2. Your backend returns the token to your own web app.
+3. Browser sends token via `data-sobs-client-token-url` or `SOBS.setClientAuthToken(...)`.
+4. SOBS accepts RUM only when token origin matches request origin/referer.
+
+Optional server-side JS stack source-map remapping:
+
+- `SOBS_SOURCE_MAP_ENABLE=true`
+- `SOBS_SOURCE_MAP_DIR=/path/to/source-maps`
+
+When enabled, SOBS attempts to remap JavaScript stack frames (RUM + direct `/v1/errors`) to original source locations using `.map` files in `SOBS_SOURCE_MAP_DIR`.
+
+App/release/artifact registry (Phase 1 scaffolding):
+
+- `POST /v1/apps`
+- `GET /v1/apps`
+- `GET /v1/apps/{app_id}`
+- `PATCH /v1/apps/{app_id}`
+- `POST /v1/apps/{app_id}/releases`
+- `GET /v1/apps/{app_id}/releases`
+- `GET /v1/releases/{release_id}`
+- `POST /v1/releases/{release_id}/artifacts/meta`
+- `GET /v1/releases/{release_id}/artifacts`
+
+Environment seed support for app/release/artifact registry:
+
+- `SOBS_APP_REGISTRY_SEED_JSON` (inline JSON)
+- `SOBS_APP_REGISTRY_SEED_JSON_FILE` (path to JSON file)
+
+Seed JSON shape:
+
+```json
+{
+  "apps": [
+    {
+      "name": "checkout-web",
+      "slug": "checkout-web",
+      "ownerTeam": "frontend",
+      "releases": [
+        {
+          "version": "1.2.3",
+          "commitSha": "abc123",
+          "environment": "prod",
+          "artifacts": [
+            {
+              "artifactType": "js_sourcemap",
+              "name": "app.min.js.map",
+              "storageRef": "s3://symbols/checkout/1.2.3/app.min.js.map"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+CI helper script for registry onboarding:
+
+```bash
+python scripts/register_release_artifacts.py \
+  --base-url "${SOBS_BASE_URL:-http://127.0.0.1:44317}" \
+  --api-key "$SOBS_API_KEY" \
+  --app-name checkout-web \
+  --app-slug checkout-web \
+  --release-version "${RELEASE_VERSION}" \
+  --commit-sha "${GITHUB_SHA}" \
+  --environment prod \
+  --artifacts-file ./build/sobs-artifacts.json
+```
+
+Equivalent bash entrypoint (same behavior, delegates to Python helper):
+
+```bash
+bash scripts/register_release_artifacts.sh \
+  --base-url "${SOBS_BASE_URL:-http://127.0.0.1:44317}" \
+  --api-key "$SOBS_API_KEY" \
+  --app-name checkout-web \
+  --release-version "${RELEASE_VERSION}" \
+  --commit-sha "${GITHUB_SHA}" \
+  --environment prod \
+  --artifacts-file ./build/sobs-artifacts.json
+```
+
+The helper is idempotent-oriented:
+
+- Reuses existing app by slug/name.
+- Reuses existing release by version+commit+environment+build.
+- Skips artifact metadata already present by `(artifactType, name, storageRef)`.
+
+Environment-first usage is also supported (useful in CI):
+
+- `SOBS_BASE_URL`
+- `SOBS_API_KEY`
+- `SOBS_APP_NAME`
+- `SOBS_APP_SLUG`
+- `SOBS_OWNER_TEAM`
+- `SOBS_APP_REPO_URL`
+- `SOBS_DEFAULT_ENVIRONMENT`
+- `SOBS_RELEASE_VERSION`
+- `SOBS_RELEASE_COMMIT_SHA`
+- `SOBS_RELEASE_BUILD_ID`
+- `SOBS_RELEASE_ENVIRONMENT`
+- `SOBS_RELEASED_AT`
+- `SOBS_RELEASE_METADATA_JSON`
+- `SOBS_RELEASE_ARTIFACTS_JSON` or `SOBS_RELEASE_ARTIFACTS_JSON_FILE`
+
+Artifacts JSON array example (`sobs-artifacts.json`):
+
+```json
+[
+  {
+    "artifactType": "js_sourcemap",
+    "name": "app.min.js.map",
+    "contentType": "application/json",
+    "size": 3210,
+    "storageRef": "s3://symbols/checkout/1.2.3/app.min.js.map",
+    "checksumSha256": "..."
+  }
+]
+```
+
+GitHub Actions example step:
+
+```yaml
+- name: Register SOBS release artifacts
+  env:
+    SOBS_BASE_URL: ${{ secrets.SOBS_BASE_URL }}
+    SOBS_API_KEY: ${{ secrets.SOBS_API_KEY }}
+    SOBS_APP_NAME: checkout-web
+    SOBS_APP_SLUG: checkout-web
+    SOBS_OWNER_TEAM: frontend
+    SOBS_APP_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+    SOBS_DEFAULT_ENVIRONMENT: prod
+    SOBS_RELEASE_VERSION: ${{ github.ref_name }}
+    SOBS_RELEASE_COMMIT_SHA: ${{ github.sha }}
+    SOBS_RELEASE_BUILD_ID: ${{ github.run_id }}
+    SOBS_RELEASE_ENVIRONMENT: prod
+  run: |
+    cat > sobs-artifacts.json <<'JSON'
+    [
+      {
+        "artifactType": "js_sourcemap",
+        "name": "app.min.js.map",
+        "contentType": "application/json",
+        "size": 3210,
+        "storageRef": "s3://symbols/checkout/${{ github.sha }}/app.min.js.map"
+      }
+    ]
+    JSON
+
+    bash scripts/register_release_artifacts.sh \
+      --artifacts-file ./sobs-artifacts.json
+```
+
 ```bash
 # Basic auth
 curl -N http://localhost:44317/tail \
@@ -387,6 +739,10 @@ SOBS_AI_GUARD_MODEL=qwen2.5:7b-instruct \
 
 The script validates Ollama availability at `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`), exports `SOBS_AI_*` env vars, and runs your command (default: `python app.py`).
 
+By default it also starts a local browser demo app for RUM/replay testing at `http://127.0.0.1:5005`.
+You can disable it with `START_EXAMPLE_APP=0`.
+It also exports `SOBS_RUM_ASSET_SIGNING_KEY` so the demo app can upload replay/screenshot assets using signed auth.
+
 This local Ollama path does not use Kubernetes and does not require `kubectl`.
 
 ## Spark Cluster AI Test Script (Advanced)
@@ -420,9 +776,13 @@ The script starts local port-forwards for LLM, embeddings, and DLP, exports `SOB
 
 ## Screenshots
 
-| Logs (grep + SQL search) | AI Transparency |
-|---|---|
-| ![Logs](https://github.com/user-attachments/assets/f6eb544c-11c0-4836-a337-864a46e13e29) | ![AI](https://github.com/user-attachments/assets/caf5a401-d86b-4bea-b6db-28ef983879ba) |
+| Summary | Summary + AI Assistant | AI Transparency |
+|---|---|---|
+| ![Summary](static/help/summary.png) | ![Summary AI Assistant](static/help/summary_ai_assistant.png) | ![AI Transparency](static/help/ai.png) |
+
+| Custom Dashboard | Traces Drilldown | Query |
+|---|---|---|
+| ![Custom Dashboard](static/help/dashboard.png) | ![Traces Drilldown](static/help/traces_drilldown.png) | ![Query](static/help/query.png) |
 
 ## Running Tests
 

@@ -14,7 +14,9 @@ Run as part of the full suite (unit tests excluded from integration marker):
     pytest tests/test_integration.py -v     # integration tests only
 """
 
+import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -60,6 +62,8 @@ def live_server():
     env["PORT"] = str(SERVER_PORT)
     env["SOBS_DATA_DIR"] = data_dir
     env["SOBS_ENABLE_FIRST_RUN_TOUR"] = "0"
+    env["SOBS_AI_ENDPOINT_URL"] = "http://localhost:9999/v1"
+    env["SOBS_AI_MODEL"] = "docs-screenshot-model"
 
     proc = subprocess.Popen(
         [sys.executable, "app.py"],
@@ -494,17 +498,168 @@ class TestDataVisibleInUI:
 
 @pytest.mark.integration
 class TestScreenshots:
-    """Capture full-page screenshots of every UI view for visual regression."""
+    """Capture consistent viewport screenshots of UI views for visual regression."""
+
+    @pytest.fixture(scope="class", autouse=True)
+    def _seed_screenshot_data(self, live_server):
+        """Pump realistic sample traffic so screenshots show populated views."""
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        subprocess.run(
+            [
+                sys.executable,
+                "scripts/load_example.py",
+                "--base",
+                live_server,
+                "--total",
+                "240",
+                "--workers",
+                "24",
+            ],
+            cwd=repo_root,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def _dismiss_tour_modal(self, page: Page) -> None:
+        page.evaluate("""
+            () => {
+                try {
+                    localStorage.setItem('sobs-theme', 'dark');
+                    localStorage.setItem('sobs.firstRunTourSeen.v1', '1');
+                    localStorage.setItem('sobs.firstRunTourShown.v1', '1');
+                } catch (_) {}
+
+                document.documentElement.setAttribute('data-bs-theme', 'dark');
+
+                const doneBtn = document.getElementById('firstRunTourDoneBtn');
+                if (doneBtn && doneBtn.offsetParent !== null) {
+                    doneBtn.click();
+                }
+
+                const modalEl = document.getElementById('firstRunTourModal');
+                if (modalEl) {
+                    modalEl.classList.remove('show');
+                    modalEl.setAttribute('aria-hidden', 'true');
+                    modalEl.style.display = 'none';
+                }
+
+                document.body.classList.remove('modal-open');
+                document.body.style.removeProperty('padding-right');
+                const backdrop = document.querySelector('.modal-backdrop');
+                if (backdrop) backdrop.remove();
+            }
+            """)
+
+    def _first_trace_detail_url(self, live_server: str) -> str:
+        """Return a traces drilldown URL for the first available trace."""
+        resp = requests.get(f"{live_server}/traces?limit=200", timeout=10)
+        assert resp.status_code == 200
+        match = re.search(r'href="(/traces\?trace_id=[^"]+)"', resp.text)
+        assert match is not None
+        return f"{live_server}{match.group(1).replace('&amp;', '&')}"
+
+    def _create_docs_dashboard(self, live_server: str) -> str:
+        """Create a dashboard with one rendered chart and return the dashboard URL."""
+        create_resp = requests.post(
+            f"{live_server}/dashboards",
+            data={
+                "name": "Docs Screenshot Dashboard",
+                "description": "Auto-generated dashboard for docs screenshots",
+            },
+            allow_redirects=False,
+            timeout=10,
+        )
+        assert create_resp.status_code in (302, 303)
+
+        location = create_resp.headers.get("Location", "")
+        match = re.search(r"/dashboards/([^/?#]+)", location)
+        assert match is not None
+        dashboard_id = match.group(1)
+
+        chart_spec = {
+            "template_id": "custom_echarts",
+            "sql": {
+                "mode": "raw",
+                "override_sql": (
+                    "SELECT toStartOfMinute(TimestampTime) AS time, count() AS value "
+                    "FROM otel_logs GROUP BY time ORDER BY time LIMIT 120"
+                ),
+            },
+            "visual": {
+                "custom_mapping_json": json.dumps({"points": {"from": "rows"}}, ensure_ascii=False),
+                "custom_option_json": json.dumps(
+                    {
+                        "tooltip": {"trigger": "axis"},
+                        "xAxis": {"type": "time"},
+                        "yAxis": {"type": "value"},
+                        "series": [
+                            {
+                                "name": "Logs/min",
+                                "type": "line",
+                                "data": "{{points}}",
+                                "showSymbol": False,
+                                "smooth": True,
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        }
+
+        add_resp = requests.post(
+            f"{live_server}/dashboards/{dashboard_id}/charts",
+            data={
+                "title": "Log Volume by Minute",
+                "chart_spec_json": json.dumps(chart_spec, ensure_ascii=False),
+            },
+            allow_redirects=False,
+            timeout=10,
+        )
+        assert add_resp.status_code in (302, 303)
+
+        return f"{live_server}/dashboards/{dashboard_id}"
 
     def _screenshot(self, page: Page, filename: str, url: str) -> None:
+        page.add_init_script("""
+            try {
+                localStorage.setItem('sobs-theme', 'dark');
+                localStorage.setItem('sobs.firstRunTourSeen.v1', '1');
+                localStorage.setItem('sobs.firstRunTourShown.v1', '1');
+            } catch (_) {}
+        """)
+        page.set_viewport_size({"width": 1440, "height": 900})
         page.goto(url)
         page.wait_for_load_state("networkidle")
+        self._dismiss_tour_modal(page)
         os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
-        page.screenshot(path=os.path.join(SCREENSHOTS_DIR, filename), full_page=True)
+        page.screenshot(path=os.path.join(SCREENSHOTS_DIR, filename), full_page=False)
+
+    def _screenshot_summary_with_assistant(self, page: Page, filename: str, live_server: str) -> None:
+        page.add_init_script("""
+            try {
+                localStorage.setItem('sobs-theme', 'dark');
+                localStorage.setItem('sobs.firstRunTourSeen.v1', '1');
+                localStorage.setItem('sobs.firstRunTourShown.v1', '1');
+            } catch (_) {}
+        """)
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(f"{live_server}/")
+        page.wait_for_load_state("networkidle")
+        self._dismiss_tour_modal(page)
+        page.click("#sobsAiBtn")
+        page.wait_for_selector("#sobsAiPanel.open", timeout=5000)
+        expect(page.get_by_text("SOBS observability assistant")).to_be_visible()
+        os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+        page.screenshot(path=os.path.join(SCREENSHOTS_DIR, filename), full_page=False)
 
     def test_screenshot_summary(self, page: Page, live_server):
         self._screenshot(page, "summary.png", f"{live_server}/")
         expect(page.get_by_role("heading", name="Summary")).to_be_visible()
+
+    def test_screenshot_summary_ai_assistant(self, page: Page, live_server):
+        self._screenshot_summary_with_assistant(page, "summary_ai_assistant.png", live_server)
 
     def test_screenshot_logs(self, page: Page, live_server):
         self._screenshot(page, "logs.png", f"{live_server}/logs")
@@ -513,6 +668,11 @@ class TestScreenshots:
     def test_screenshot_traces(self, page: Page, live_server):
         self._screenshot(page, "traces.png", f"{live_server}/traces")
         expect(page.get_by_role("heading", name="Traces")).to_be_visible()
+
+    def test_screenshot_traces_drilldown(self, page: Page, live_server):
+        detail_url = self._first_trace_detail_url(live_server)
+        self._screenshot(page, "traces_drilldown.png", detail_url)
+        expect(page.get_by_text("All Traces")).to_be_visible()
 
     def test_screenshot_errors(self, page: Page, live_server):
         self._screenshot(page, "errors.png", f"{live_server}/errors")
@@ -525,3 +685,13 @@ class TestScreenshots:
     def test_screenshot_ai(self, page: Page, live_server):
         self._screenshot(page, "ai.png", f"{live_server}/ai")
         expect(page.get_by_role("heading", name="AI Transparency")).to_be_visible()
+
+    def test_screenshot_dashboards(self, page: Page, live_server):
+        dashboard_url = self._create_docs_dashboard(live_server)
+        self._screenshot(page, "dashboard.png", dashboard_url)
+        page.wait_for_selector("[id^='chart-'] canvas", timeout=10000)
+        expect(page.get_by_text("Log Volume by Minute")).to_be_visible()
+
+    def test_screenshot_query(self, page: Page, live_server):
+        self._screenshot(page, "query.png", f"{live_server}/query")
+        expect(page.get_by_role("heading", name="Natural-Language Query")).to_be_visible()

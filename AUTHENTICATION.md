@@ -3,7 +3,7 @@
 SOBS supports two independent auth areas:
 
 - Ingest API auth for `/v1/*` via `SOBS_API_KEY`
-- Web UI auth for `/`, `/logs`, `/errors`, `/traces`, `/rum`, `/ai`, `/tail`
+- Web UI auth for `/`, `/logs`, `/errors`, `/traces`, `/rum`, `/ai`, `/tail`, `/reports`, `/query`
 
 Web UI auth mode is exclusive. Configure exactly one mode:
 
@@ -99,6 +99,15 @@ To support this deployment model, external auth mode automatically falls back to
 3. If neither a Bearer header nor a `session` cookie is present, SOBS returns `401` with `WWW-Authenticate: Bearer realm="SOBS"`.
 
 This allows users already authenticated in the management UI to access `/sobs` routes without any extra configuration or manual bearer injection.
+
+### Session cookie name collision prevention
+
+When `SOBS_BASE_PATH=/sobs` is used, SOBS session cookies are path-scoped under `/sobs`.
+To avoid collisions with same-origin management services that also use the default cookie name `session`, SOBS uses a distinct cookie name by default:
+
+- `SOBS_SESSION_COOKIE_NAME=sobs_session` (default)
+
+You can override this value if needed, but it should remain different from the management service cookie name to preserve reliable external-auth fallback behavior.
 
 ## 5) Invalid UI auth configurations
 

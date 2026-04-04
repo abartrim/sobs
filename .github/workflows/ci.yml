@@ -22,6 +22,11 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            .github/workflows/ci.yml
+            .github/cache-key-lint.txt
 
       - name: Install linting dependencies
         run: pip install black isort flake8 mypy flask
@@ -51,6 +56,13 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-integration.txt
+            pyproject.toml
+            .github/workflows/ci.yml
+            .github/cache-key-runtime.txt
 
       - name: Install dependencies
         run: pip install -r requirements.txt pytest pytest-asyncio
@@ -71,6 +83,21 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-integration.txt
+            pyproject.toml
+            .github/workflows/ci.yml
+            .github/cache-key-runtime.txt
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('requirements-integration.txt', '.github/workflows/ci.yml', '.github/cache-key-runtime.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Install dependencies
         run: |

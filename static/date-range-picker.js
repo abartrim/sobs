@@ -108,7 +108,10 @@
     return '<div id="drp-menu-' + uid + '" class="drp-dropdown-menu card border-secondary shadow" ' +
       'style="display:none;position:absolute;z-index:1070;min-width:320px;">' +
       '<div class="card-body p-3">' +
-      '<p class="mb-2 text-secondary small fw-semibold"><i class="bi bi-lightning-charge me-1"></i>Quick ranges</p>' +
+      '<div class="d-flex align-items-center justify-content-between mb-2">' +
+      '<p class="mb-0 text-secondary small fw-semibold"><i class="bi bi-lightning-charge me-1"></i>Quick ranges</p>' +
+      '<span class="small text-secondary" id="drp-tz-indicator-' + uid + '">Times in UTC</span>' +
+      '</div>' +
       '<div class="d-flex flex-wrap gap-1 mb-3">' + rows + '</div>' +
       '<hr class="my-2 border-secondary">' +
       '<p class="mb-2 text-secondary small fw-semibold"><i class="bi bi-calendar3 me-1"></i>Custom range</p>' +
@@ -146,6 +149,18 @@
     var toInput = document.getElementById(toInputId);
     if (!fromInput || !toInput) return;
 
+    function getCurrentTimezone() {
+      if (window.sobsTimezone && typeof window.sobsTimezone.zone === 'function') {
+        var current = String(window.sobsTimezone.zone() || '').trim();
+        if (current) return current;
+      }
+      var saved = String(localStorage.getItem('sobs.timezone') || localStorage.getItem('sobs.rum.timezone') || '').trim();
+      if (saved === 'local') {
+        saved = (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone || 'UTC';
+      }
+      return saved || 'UTC';
+    }
+
     // Normalize any server-rendered timestamp strings for consistent display.
     normalizeInputDisplay(fromInput);
     normalizeInputDisplay(toInput);
@@ -156,6 +171,17 @@
     // Build and insert dropdown HTML at body level so input-group sizing stays compact.
     document.body.insertAdjacentHTML('beforeend', buildDropdownHtml(uid));
     var menu = document.getElementById('drp-menu-' + uid);
+    var tzIndicator = document.getElementById('drp-tz-indicator-' + uid);
+
+    function updateTzIndicator() {
+      if (!tzIndicator) return;
+      tzIndicator.textContent = 'Times in ' + getCurrentTimezone();
+    }
+    updateTzIndicator();
+
+    if (window.sobsTimezone && typeof window.sobsTimezone.onChange === 'function') {
+      window.sobsTimezone.onChange(updateTzIndicator);
+    }
 
     // Mark as initialised
     toggleBtn.setAttribute('data-drp-uid', uid);
@@ -179,6 +205,7 @@
         m.style.display = 'none';
       });
       if (!isOpen) {
+        updateTzIndicator();
         // Pre-fill custom inputs from current text values
         var fromCustom = menu.querySelector('.drp-custom-from');
         var toCustom = menu.querySelector('.drp-custom-to');

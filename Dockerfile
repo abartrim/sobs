@@ -19,6 +19,7 @@ COPY static/ static/
 # Data directory (mount a volume here for persistence)
 RUN mkdir -p /data
 ENV SOBS_DATA_DIR=/data
+ENV PORT=4317
 RUN chmod +x /app/scripts/docker-entrypoint.sh
 
 # Expose default port

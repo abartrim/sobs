@@ -3,27 +3,745 @@
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
 {% set to_ts = to_ts or request.args.get('to_ts', '') %}
+<style>
+  .rum-detail-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: .75rem;
+  }
+  .rum-detail-pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    max-height: 14rem;
+    overflow-y: auto;
+  }
+  .rum-viewer-image {
+    max-width: 100%;
+    max-height: 60vh;
+    border-radius: .5rem;
+    border: 1px solid var(--bs-border-color);
+    background: var(--bs-body-bg);
+  }
+  .rum-viewer-json {
+    max-height: 50vh;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .rum-viewer-player {
+    min-height: min(64vh, 760px);
+    height: auto;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    overflow: visible;
+    background: var(--bs-body-bg);
+    padding: .5rem;
+  }
+  .rum-viewer-player .rr-player {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .rum-viewer-player .rr-controller,
+  .rum-viewer-player .rr-player__controller,
+  .rum-viewer-player .controller {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background: var(--bs-body-bg) !important;
+    color: var(--bs-body-color) !important;
+    border: 1px solid var(--bs-border-color) !important;
+    border-radius: .5rem !important;
+    box-shadow: none !important;
+  }
+  .rum-viewer-player .rr-controller *,
+  .rum-viewer-player .rr-player__controller *,
+  .rum-viewer-player .controller * {
+    color: var(--bs-body-color) !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+  }
+  .rum-viewer-player .rr-controller button,
+  .rum-viewer-player .rr-player__controller button,
+  .rum-viewer-player .controller button {
+    background: color-mix(in srgb, var(--bs-secondary-bg) 65%, transparent) !important;
+    border-color: var(--bs-border-color) !important;
+  }
+  .rum-viewer-player .rr-controller input[type="range"],
+  .rum-viewer-player .rr-player__controller input[type="range"],
+  .rum-viewer-player .controller input[type="range"] {
+    accent-color: var(--bs-primary) !important;
+  }
+  [data-bs-theme='dark'] .rum-viewer-player .rr-controller,
+  [data-bs-theme='dark'] .rum-viewer-player .rr-player__controller,
+  [data-bs-theme='dark'] .rum-viewer-player .controller {
+    background: color-mix(in srgb, var(--bs-dark) 82%, #000) !important;
+    border-color: color-mix(in srgb, var(--bs-border-color) 70%, #9aa4b2) !important;
+  }
+  .rum-replay-timeline {
+    position: relative;
+    margin-bottom: .75rem;
+    height: 1.25rem;
+  }
+  .rum-replay-timeline-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: .5rem;
+    height: 3px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bs-secondary-color) 36%, transparent);
+  }
+  .rum-replay-timeline-marker {
+    position: absolute;
+    top: .2rem;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--bs-danger);
+    border: 2px solid var(--bs-body-bg);
+    transform: translateX(-50%);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--bs-danger) 35%, transparent);
+  }
+  .rum-replay-timeline-label {
+    position: absolute;
+    top: .85rem;
+    left: 0;
+  }
+  .rum-replay-raw summary {
+    cursor: pointer;
+    user-select: none;
+  }
+  .rum-replay-raw[open] summary {
+    margin-bottom: .5rem;
+  }
+  .rum-row-accordion-btn {
+    width: 1.85rem;
+    height: 1.55rem;
+    padding: 0;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: .4rem;
+  }
+  .rum-row-accordion-btn .rum-row-chevron {
+    display: inline-block;
+    transform: rotate(0deg);
+    transition: transform .16s ease;
+  }
+  .rum-row-accordion-btn[aria-expanded='true'] .rum-row-chevron {
+    transform: rotate(180deg);
+  }
+  .rum-row-action-slot {
+    width: 4.05rem;
+    min-width: 4.05rem;
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    justify-content: flex-end;
+  }
+  .rum-row-action-slot.placeholder,
+  .rum-row-action-placeholder {
+    visibility: hidden;
+  }
+  .rum-row-trace-btn {
+    width: 1.85rem;
+    height: 1.55rem;
+    padding: 0;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: .4rem;
+  }
+  .vitals-health-chip {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 999px;
+    padding: .15rem .55rem;
+    font-size: .75rem;
+    line-height: 1.1;
+    background: color-mix(in srgb, var(--bs-secondary-bg) 60%, transparent);
+  }
+  .vitals-meta-line {
+    font-size: .68rem;
+    color: var(--bs-secondary-color);
+    line-height: 1.2;
+  }
+  .vitals-sparkline {
+    display: block;
+    width: 100% !important;
+    min-width: 0;
+  }
+  #vitalsCards > [class*='col-'] {
+    flex: 1 1 200px;
+    max-width: none;
+  }
+  #vitalsCards .stat-card {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  #vitalsExpandedChart {
+    background: transparent;
+  }
+  .rum-error-expand-btn {
+    position: absolute;
+    top: .45rem;
+    right: .45rem;
+    width: 1.35rem;
+    height: 1.35rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border-color: color-mix(in srgb, var(--bs-border-color) 80%, transparent);
+    color: var(--bs-secondary-color);
+    opacity: .75;
+  }
+  .rum-error-expand-btn:hover,
+  .rum-error-expand-btn:focus-visible {
+    opacity: 1;
+    color: var(--bs-body-color);
+  }
+  .rum-session-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .35rem;
+    align-items: center;
+  }
+  .rum-session-row td:first-child {
+    border-left: 4px solid transparent;
+  }
+  .rum-session-row-critical td:first-child {
+    border-left-color: var(--bs-danger);
+  }
+  .rum-session-row-warning td:first-child {
+    border-left-color: #d39e00;
+  }
+  .rum-session-row-healthy td:first-child {
+    border-left-color: var(--bs-success);
+  }
+  .rum-session-status {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .2rem .55rem;
+    border-radius: 999px;
+    font-size: .72rem;
+    line-height: 1.1;
+    border: 1px solid var(--bs-border-color);
+    background: color-mix(in srgb, var(--bs-secondary-bg) 68%, transparent);
+  }
+  .rum-session-status-critical {
+    color: var(--bs-danger);
+    border-color: color-mix(in srgb, var(--bs-danger) 45%, var(--bs-border-color));
+    background: color-mix(in srgb, var(--bs-danger) 10%, transparent);
+  }
+  .rum-session-status-warning {
+    color: color-mix(in srgb, #d39e00 78%, var(--bs-body-color));
+    border-color: color-mix(in srgb, #d39e00 42%, var(--bs-border-color));
+    background: color-mix(in srgb, #ffc107 12%, transparent);
+  }
+  .rum-session-status-healthy {
+    color: var(--bs-success);
+    border-color: color-mix(in srgb, var(--bs-success) 38%, var(--bs-border-color));
+    background: color-mix(in srgb, var(--bs-success) 10%, transparent);
+  }
+  button.rum-session-status,
+  button.rum-session-count-chip,
+  button.rum-session-cap-chip {
+    appearance: none;
+    -webkit-appearance: none;
+    margin: 0;
+    cursor: pointer;
+  }
+  button.rum-session-status:focus-visible,
+  button.rum-session-count-chip:focus-visible,
+  button.rum-session-cap-chip:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+  }
+  .rum-session-row {
+    transition: background-color .14s ease, box-shadow .14s ease;
+  }
+  .rum-session-row:hover td {
+    background: color-mix(in srgb, var(--bs-secondary-bg) 48%, transparent);
+  }
+  .rum-session-row-critical:hover td {
+    background: color-mix(in srgb, var(--bs-danger) 6%, var(--bs-secondary-bg));
+  }
+  .rum-session-row-warning:hover td {
+    background: color-mix(in srgb, #ffc107 7%, var(--bs-secondary-bg));
+  }
+  .rum-session-overview {
+    display: flex;
+    flex-direction: column;
+    gap: .4rem;
+  }
+  .rum-session-primary-row,
+  .rum-session-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .35rem;
+  }
+  .rum-session-primary-row {
+    gap: .45rem;
+  }
+  .rum-session-count-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: .18rem .52rem;
+    border-radius: 999px;
+    font-size: .72rem;
+    line-height: 1.1;
+    font-weight: 600;
+    color: var(--bs-body-color);
+    background: color-mix(in srgb, var(--bs-secondary-bg) 82%, transparent);
+    border: 1px solid color-mix(in srgb, var(--bs-border-color) 80%, transparent);
+  }
+  .rum-session-count-chip-critical {
+    color: #fff;
+    background: color-mix(in srgb, var(--bs-danger) 82%, #111);
+    border-color: color-mix(in srgb, var(--bs-danger) 56%, var(--bs-border-color));
+  }
+  .rum-session-count-chip-warning {
+    color: color-mix(in srgb, #d39e00 82%, var(--bs-body-color));
+    background: color-mix(in srgb, #ffc107 18%, transparent);
+    border-color: color-mix(in srgb, #ffc107 36%, var(--bs-border-color));
+  }
+  .rum-session-cap-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    padding: .16rem .46rem;
+    border-radius: 999px;
+    font-size: .68rem;
+    line-height: 1.05;
+    font-weight: 600;
+    color: var(--bs-secondary-color);
+    background: color-mix(in srgb, var(--bs-secondary-bg) 58%, transparent);
+    border: 1px solid color-mix(in srgb, var(--bs-border-color) 72%, transparent);
+  }
+  .rum-session-cap-chip-trace {
+    color: color-mix(in srgb, #0dcaf0 70%, var(--bs-body-color));
+  }
+  .rum-session-cap-chip-replay {
+    color: color-mix(in srgb, #ffc107 78%, var(--bs-body-color));
+  }
+  .rum-session-cap-chip-artifact {
+    color: color-mix(in srgb, #5b9dff 78%, var(--bs-body-color));
+  }
+  .rum-session-last-event {
+    font-size: .75rem;
+    color: var(--bs-secondary-color);
+  }
+  .rum-session-last-event strong {
+    font-weight: 600;
+    color: color-mix(in srgb, var(--bs-body-color) 82%, var(--bs-secondary-color));
+  }
+  .rum-session-ts {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+    gap: .2rem;
+    font-family: var(--bs-font-monospace);
+  }
+  .rum-session-ts-date {
+    font-size: .84rem;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--bs-body-color) 76%, var(--bs-secondary-color));
+  }
+  .rum-session-ts-time {
+    font-size: .74rem;
+    color: var(--bs-secondary-color);
+  }
+  .rum-session-id {
+    font-size: .78rem;
+    font-family: var(--bs-font-monospace);
+    color: color-mix(in srgb, var(--bs-body-color) 70%, var(--bs-secondary-color));
+    letter-spacing: .01em;
+  }
+  .rum-filters-form {
+    gap: .85rem 1rem !important;
+  }
+  .rum-filter-actions {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: flex-end;
+    gap: .35rem;
+    padding-left: .5rem;
+    margin-left: .15rem;
+    border-left: 1px solid color-mix(in srgb, var(--bs-border-color) 72%, transparent);
+  }
+  .rum-view-toggle .btn {
+    min-width: 5.5rem;
+  }
+  .rum-filters-panel .form-label {
+    margin-bottom: .35rem;
+    font-weight: 600;
+    letter-spacing: .01em;
+  }
+  .rum-tz-header-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    margin-left: .8rem;
+    padding: .1rem .45rem;
+    font-size: .7rem;
+    font-weight: 500;
+    color: var(--bs-secondary-color);
+    background: color-mix(in srgb, var(--bs-secondary-bg) 45%, transparent);
+    border: 1px solid var(--bs-border-color);
+    border-radius: .3rem;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    user-select: none;
+    transition: color .15s, background-color .15s;
+  }
+  .rum-tz-header-badge:hover {
+    color: var(--bs-body-color);
+    background-color: color-mix(in srgb, var(--bs-secondary-bg) 75%, transparent);
+  }
+  .rum-row-accordion-btn,
+  .rum-row-trace-btn {
+    border-color: color-mix(in srgb, var(--bs-border-color) 76%, transparent);
+  }
+  .rum-row-accordion-btn:hover,
+  .rum-row-accordion-btn:focus-visible,
+  .rum-row-trace-btn:hover,
+  .rum-row-trace-btn:focus-visible {
+    color: var(--bs-body-color);
+    background: color-mix(in srgb, var(--bs-secondary-bg) 70%, transparent);
+  }
+  button.rum-chip-btn {
+    border: none;
+    cursor: pointer;
+    line-height: 1;
+    vertical-align: middle;
+  }
+  button.rum-chip-btn:hover {
+    filter: brightness(1.12);
+  }
+  button.rum-chip-btn:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+  }
+  .rum-session-timeline-item {
+    border: 1px solid var(--bs-border-color);
+    border-radius: .6rem;
+    padding: .65rem .8rem;
+    background: color-mix(in srgb, var(--bs-body-bg) 88%, var(--bs-secondary-bg));
+  }
+  .rum-session-timeline-url {
+    max-width: min(100%, 44rem);
+  }
+  .rum-view-toggle .btn {
+    min-width: 5.5rem;
+  }
+  #rumAssetViewerModal {
+    z-index: 1080;
+  }
+  #rumAssetViewerModal .modal-dialog {
+    width: min(98vw, 1680px);
+    max-width: min(98vw, 1680px);
+    height: calc(100vh - 1rem);
+    max-height: calc(100vh - 1rem);
+    margin: .5rem auto;
+  }
+  #rumAssetViewerModal .modal-content {
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+  }
+  #rumAssetViewerModal .modal-header-actions {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+    margin-left: auto;
+  }
+  #rumAssetViewerModal .rum-asset-open-raw-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+  }
+  #rumAssetViewerModal .modal-body {
+    max-height: calc(100vh - 7rem);
+    overflow: auto;
+  }
+  body.rum-replay-modal-open #sobsAiBtn,
+  body.rum-replay-modal-open #sobsAiPanel {
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+</style>
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="fw-semibold mb-0"><i class="bi bi-globe me-2 text-primary"></i>Real User Monitoring</h4>
-  <span class="text-secondary small">{{ total }} events</span>
+  <div class="d-flex align-items-center gap-2" title="Auto-refresh interval">
+    <span class="text-secondary small">{{ total }} {{ 'sessions' if view_mode == 'sessions' else 'events' }}</span>
+    <span id="rumLastUpdated" class="text-secondary small" title="Page last loaded">Last updated: --</span>
+    <span id="rumCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
+    <div class="input-group input-group-sm" style="width:auto;">
+      <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
+      <select id="rumRefreshSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="0">Off</option>
+        <option value="10">10s</option>
+        <option value="30">30s</option>
+        <option value="60">1m</option>
+        <option value="120">2m</option>
+        <option value="300">5m</option>
+      </select>
+    </div>
+  </div>
 </div>
 
 <!-- Web Vitals summary -->
+{% set vital_tooltips = {
+  'LCP': 'Largest Contentful Paint',
+  'INP': 'Interaction to Next Paint',
+  'CLS': 'Cumulative Layout Shift',
+  'TTFB': 'Time to First Byte',
+  'FCP': 'First Contentful Paint',
+  'FID': 'First Input Delay'
+} %}
+{% set vital_thresholds = {
+  'LCP': {'warn': 2500, 'crit': 4000, 'unit': 'ms'},
+  'INP': {'warn': 200, 'crit': 500, 'unit': 'ms'},
+  'CLS': {'warn': 0.1, 'crit': 0.25, 'unit': ''},
+  'TTFB': {'warn': 800, 'crit': 1800, 'unit': 'ms'},
+  'FCP': {'warn': 1800, 'crit': 3000, 'unit': 'ms'},
+  'FID': {'warn': 100, 'crit': 300, 'unit': 'ms'}
+} %}
+{% set vital_order = ['LCP', 'INP', 'CLS', 'TTFB', 'FCP', 'FID'] %}
+{% set vitals_ns = namespace(outlier=0, warning=0, normal=0, total=0) %}
+{% set show_error_card = error_stats and error_stats.total > 0 %}
+<script id="rumVitalsMeta" type="application/json">{{ {'thresholds': vital_thresholds, 'names': vital_tooltips} | tojson }}</script>
+{% for _k, _v in vitals_summary.items() %}
+  {% set vitals_ns.total = vitals_ns.total + 1 %}
+  {% if _v.get('anomaly_state') == 'outlier' %}
+    {% set vitals_ns.outlier = vitals_ns.outlier + 1 %}
+  {% elif _v.get('anomaly_state') == 'warning' %}
+    {% set vitals_ns.warning = vitals_ns.warning + 1 %}
+  {% else %}
+    {% set vitals_ns.normal = vitals_ns.normal + 1 %}
+  {% endif %}
+{% endfor %}
+{% if vitals_summary or show_error_card %}
+{% if show_error_card %}
+{% set err_trend = error_stats.trend %}
+{% set err_arrow = '↑' if err_trend == 'up' else ('↓' if err_trend == 'down' else '→') %}
+{% endif %}
 {% if vitals_summary %}
-<div class="row g-2 mb-3">
-  {% for name, v in vitals_summary.items() %}
-  {% set good = (name == 'LCP' and v.p75 <= 2500) or (name == 'FID' and v.p75 <= 100) or (name == 'CLS' and v.p75 <= 0.1) or (name == 'INP' and v.p75 <= 200) or (name == 'TTFB' and v.p75 <= 800) or (name == 'FCP' and v.p75 <= 1800) %}
-  {% set poor = (name == 'LCP' and v.p75 > 4000) or (name == 'FID' and v.p75 > 300) or (name == 'CLS' and v.p75 > 0.25) or (name == 'INP' and v.p75 > 500) or (name == 'TTFB' and v.p75 > 1800) or (name == 'FCP' and v.p75 > 3000) %}
+<div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+  <span class="small text-secondary">Vitals health:</span>
+  <span class="vitals-health-chip vitals-poor">Poor {{ vitals_ns.outlier }}</span>
+  <span class="vitals-health-chip vitals-needs">Needs {{ vitals_ns.warning }}</span>
+  <span class="vitals-health-chip vitals-good">Good {{ vitals_ns.normal }}</span>
+  <span class="text-secondary small">({{ vitals_ns.total }} metrics)</span>
+</div>
+{% endif %}
+<div class="row g-2 mb-3" id="vitalsCards">
+  {% if vitals_summary %}
+  {% for name in vital_order %}
+  {% set v = vitals_summary.get(name) %}
+  {% if v %}
+  {% set state = v.get('anomaly_state', 'normal') %}
+  {% set t = vital_thresholds.get(name, {'warn': 0, 'crit': 0, 'unit': ''}) %}
   <div class="col-6 col-md-3 col-lg-2">
-    <div class="stat-card p-3 text-center">
-      <div class="fs-5 fw-bold {% if good %}vitals-good{% elif poor %}vitals-poor{% else %}vitals-needs{% endif %}">
-        {{ v.p75 }}{% if name == 'CLS' %}{% else %}ms{% endif %}
+    <div class="stat-card p-3 text-center position-relative">
+      {% if vitals_sparklines and vitals_sparklines.get(name) %}
+      <button class="btn btn-outline-secondary btn-sm rum-error-expand-btn" type="button"
+              data-vital-expand="{{ name }}"
+              aria-expanded="false"
+              title="Expand {{ name }} trend" aria-label="Expand {{ name }} trend">
+        <i class="bi bi-arrows-angle-expand"></i>
+      </button>
+      {% endif %}
+      <div class="fs-5 fw-bold {% if state == 'outlier' %}vitals-poor{% elif state == 'warning' %}vitals-needs{% else %}vitals-good{% endif %}">
+        {{ v.p75 }}{{ t.unit }}
       </div>
-      <div class="text-secondary small">{{ name }} p75</div>
-      <div class="text-muted" style="font-size:.7rem;">{{ v.count }} samples</div>
+      <div class="text-secondary small vital-name-label" data-vital-short="{{ name }}" data-vital-full="{{ vital_tooltips.get(name, name) }}" title="{{ vital_tooltips.get(name, name) }}">{{ vital_tooltips.get(name, name) }} p75</div>
+      <div class="text-muted" style="font-size:.7rem;">{{ v.count }} samples · <span class="{% if state == 'outlier' %}vitals-poor{% elif state == 'warning' %}vitals-needs{% else %}vitals-good{% endif %}">{{ state }}</span></div>
+      <div class="vitals-meta-line mt-1">
+        good ≤ {{ t.warn }}{{ t.unit }} · poor &gt; {{ t.crit }}{{ t.unit }}
+      </div>
+      {% if vitals_sparklines and vitals_sparklines.get(name) %}
+      <div class="vitals-sparkline mt-1" data-metric="{{ name }}" style="height:28px;"></div>
+      {% endif %}
     </div>
   </div>
+  {% endif %}
   {% endfor %}
+  {% endif %}
+  {% if show_error_card %}
+  <div class="col-6 col-md-3 col-lg-2">
+    <div class="stat-card p-3 text-center position-relative">
+      {% if error_stats.sparkline %}
+      <button class="btn btn-outline-secondary btn-sm rum-error-expand-btn" type="button"
+              data-vital-expand="__errors__"
+              aria-expanded="false"
+              title="Expand error trend chart" aria-label="Expand error trend chart">
+        <i class="bi bi-arrows-angle-expand"></i>
+      </button>
+      {% endif %}
+      <div class="fs-5 fw-bold {% if err_trend == 'up' %}vitals-poor{% elif err_trend == 'down' %}vitals-good{% else %}text-secondary{% endif %}">
+        {{ error_stats.total }}
+      </div>
+      <div class="text-secondary small" title="Errors over last 24 hours">Errors (24 h)</div>
+      <div class="text-muted" style="font-size:.7rem;">
+        {{ err_arrow }} {{ 'increasing' if err_trend == 'up' else ('decreasing' if err_trend == 'down' else 'stable') }}
+      </div>
+      <div class="vitals-meta-line mt-1">
+        {{ error_stats.recent }} vs {{ error_stats.prior }} (30m) · script {{ error_stats.by_type.get('error', 0) }} · promise {{ error_stats.by_type.get('unhandledrejection', 0) }}
+      </div>
+      {% if error_stats.sparkline %}
+      <div class="vitals-sparkline mt-1 w-100" id="errorRateSparkline" style="height:28px;"></div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+<div id="vitalsExpandedPanel" class="collapse mb-3">
+  <div class="theme-panel rounded p-3">
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <span class="small text-secondary" id="vitalsExpandedTitle">Trend</span>
+      <button type="button" class="btn-close btn-sm opacity-50" style="font-size:.7rem;"
+              data-bs-toggle="collapse" data-bs-target="#vitalsExpandedPanel"
+              aria-label="Close chart panel"></button>
+    </div>
+    <div id="vitalsExpandedChart" style="height:220px;"></div>
+  </div>
+</div>
+{% if vitals_hotspot %}
+<div class="accordion mb-3" id="vitalsHotspotAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header">
+      <button class="accordion-button py-2 collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#vitalsHotspotPanel"
+              aria-expanded="false">
+        <i class="bi bi-geo-alt me-2 text-warning"></i>
+        <span class="fw-semibold">URL Hotspots</span>
+        <span class="ms-2 text-secondary small fw-normal">Top URLs by poor-rate · last 24 h</span>
+      </button>
+    </h2>
+    <div id="vitalsHotspotPanel" class="accordion-collapse collapse">
+      <div class="accordion-body py-2 px-3">
+        <ul class="nav nav-tabs mb-2" id="hotspotTabs" role="tablist">
+          {% for metric in vitals_hotspot.keys() %}
+          <li class="nav-item" role="presentation">
+            <button class="nav-link py-1 px-3 {% if loop.first %}active{% endif %}"
+                    type="button" role="tab"
+                    data-bs-toggle="tab"
+                    data-bs-target="#hotspot-{{ metric }}"
+                    title="{{ vital_tooltips.get(metric, metric) }}">{{ metric }}</button>
+          </li>
+          {% endfor %}
+        </ul>
+        <div class="tab-content">
+          {% for metric, rows in vitals_hotspot.items() %}
+          <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="hotspot-{{ metric }}" role="tabpanel">
+            <table class="table table-sm table-hover mb-0" style="font-size:.82rem;">
+              <thead><tr>
+                <th>URL</th>
+                <th class="text-end">p75</th>
+                <th class="text-end">Poor %</th>
+                <th class="text-end">Samples</th>
+              </tr></thead>
+              <tbody>
+                {% for r in rows %}
+                <tr>
+                  <td class="text-truncate" style="max-width:340px;" title="{{ r.url }}">{{ r.url }}</td>
+                  <td class="text-end {% if r.poor_rate > 0.75 %}vitals-poor{% elif r.poor_rate > 0.25 %}vitals-needs{% else %}vitals-good{% endif %}">
+                    {{ r.p75 }}{% if metric != 'CLS' %}ms{% endif %}
+                  </td>
+                  <td class="text-end">
+                    <div class="d-flex align-items-center justify-content-end gap-1">
+                      <div style="width:40px;height:7px;border-radius:4px;background:var(--bs-secondary-bg);overflow:hidden;flex-shrink:0;">
+                        <div style="width:{{ (r.poor_rate * 100)|int }}%;height:100%;background:{% if r.poor_rate > 0.75 %}#dc3545{% elif r.poor_rate > 0.25 %}#ffc107{% else %}#198754{% endif %};"></div>
+                      </div>
+                      <span>{{ (r.poor_rate * 100)|int }}%</span>
+                    </div>
+                  </td>
+                  <td class="text-end text-secondary">{{ r.total }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+
+<!-- Error summary panel -->
+{% if error_stats and error_stats.total > 0 and (error_stats.top_messages or error_stats.top_urls) %}
+<div class="accordion mb-3" id="errorPanelAccordion">
+    {% if error_stats.top_messages %}
+    <div class="accordion-item border-secondary">
+      <h2 class="accordion-header">
+        <button class="accordion-button py-2 collapsed" type="button"
+                data-bs-toggle="collapse" data-bs-target="#errorTopMessages"
+                aria-expanded="false">
+          <i class="bi bi-exclamation-triangle me-2 text-danger"></i>
+          <span class="fw-semibold">Top error messages</span>
+          <span class="ms-2 text-secondary small fw-normal">last 24 h</span>
+        </button>
+      </h2>
+      <div id="errorTopMessages" class="accordion-collapse collapse">
+        <div class="accordion-body py-2 px-3">
+          <table class="table table-sm table-hover mb-0" style="font-size:.82rem;">
+            <thead><tr><th>Message</th><th class="text-end" style="width:70px;">Count</th></tr></thead>
+            <tbody>
+              {% for m in error_stats.top_messages %}
+              <tr>
+                <td class="text-truncate" style="max-width:540px;" title="{{ m.message }}">{{ m.message }}</td>
+                <td class="text-end text-danger fw-semibold">{{ m.count }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+    {% if error_stats.top_urls %}
+    <div class="accordion-item border-secondary">
+      <h2 class="accordion-header">
+        <button class="accordion-button py-2 collapsed" type="button"
+                data-bs-toggle="collapse" data-bs-target="#errorTopUrls"
+                aria-expanded="false">
+          <i class="bi bi-geo-alt me-2 text-danger"></i>
+          <span class="fw-semibold">Top erroring URLs</span>
+          <span class="ms-2 text-secondary small fw-normal">last 24 h</span>
+        </button>
+      </h2>
+      <div id="errorTopUrls" class="accordion-collapse collapse">
+        <div class="accordion-body py-2 px-3">
+          <table class="table table-sm table-hover mb-0" style="font-size:.82rem;">
+            <thead><tr><th>URL</th><th class="text-end" style="width:70px;">Errors</th></tr></thead>
+            <tbody>
+              {% for r in error_stats.top_urls %}
+              <tr>
+                <td class="text-truncate" style="max-width:540px;" title="{{ r.url }}">{{ r.url }}</td>
+                <td class="text-end text-danger fw-semibold">{{ r.count }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endif %}
 </div>
 {% endif %}
 
@@ -36,17 +754,31 @@
               aria-expanded="true" aria-controls="rumFiltersPanel">
         <i class="bi bi-funnel me-2 text-primary"></i>
         <span class="fw-semibold">Filters</span>
+        <span id="rum-tz-badge-btn" class="rum-tz-header-badge" role="button" tabindex="0"
+              title="Display timezone — click to change">
+          <i class="bi bi-clock"></i>
+          <span id="rum-tz-badge-label">UTC</span>
+        </span>
       </button>
     </h2>
     <div id="rumFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="rumFiltersHeading" data-bs-parent="#rumFiltersAccordion">
-      <div class="accordion-body py-3">
-    <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+      <div class="accordion-body py-3 rum-filters-panel">
+    <form method="get" class="d-flex flex-wrap align-items-end rum-filters-form">
       <div style="flex: 1 0 140px">
         <label class="form-label small text-secondary">Event type</label>
         <select name="type" class="form-select form-select-sm">
           <option value="">All types</option>
           {% for t in event_types %}
           <option value="{{ t }}" {% if t == event_type %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="flex: 1 0 160px">
+        <label class="form-label small text-secondary">Error source</label>
+        <select name="error_source" class="form-select form-select-sm">
+          <option value="">All sources</option>
+          {% for source in error_sources %}
+          <option value="{{ source }}" {% if source == error_source %}selected{% endif %}>{{ source }}</option>
           {% endfor %}
         </select>
       </div>
@@ -67,7 +799,13 @@
           </div>
         </div>
       </div>
-      <div class="d-flex gap-1" style="flex: 0 0 auto">
+
+      <div class="rum-filter-actions">
+        <input type="hidden" name="view" value="{{ view_mode }}">
+        <div class="btn-group btn-group-sm rum-view-toggle" role="group" aria-label="RUM view mode">
+          <a href="{{ url_for('view_rum', view='sessions', type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, limit=limit, offset=0) }}" class="btn {% if view_mode == 'sessions' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">Sessions</a>
+          <a href="{{ url_for('view_rum', view='events', type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by='Timestamp', sort_dir='desc', limit=limit, offset=0) }}" class="btn {% if view_mode == 'events' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">Events</a>
+        </div>
         <button type="submit" class="btn btn-primary btn-sm"
           data-ai-action-id="rum.filter.apply"
           data-ai-action-type="apply_form_filters"
@@ -76,7 +814,7 @@
           data-ai-risk="low"
           data-ai-confirm="false"
           data-ai-action-role="filter-submit"><i class="bi bi-search"></i></button>
-        <a href="{{ url_for('view_rum') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
+        <a href="{{ url_for('view_rum', view=view_mode) }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
         <div class="btn-group btn-group-sm" id="rum-reports-group">
           <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Saved reports">
             <i class="bi bi-bookmark-star"></i>
@@ -98,7 +836,323 @@
   </div>
 </div>
 
-{% if events %}
+{% set page_count = session_groups | length if view_mode == 'sessions' else events | length %}
+{% if view_mode == 'sessions' and session_groups %}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle">
+    <thead>
+      {% set severity_next_dir = 'asc' if (sort_by == 'severity' and sort_dir == 'desc') else 'desc' %}
+      {% set last_seen_next_dir = 'asc' if (sort_by == 'last_seen' and sort_dir == 'desc') else 'desc' %}
+      {% set events_next_dir = 'asc' if (sort_by == 'events' and sort_dir == 'desc') else 'desc' %}
+      {% set errors_next_dir = 'asc' if (sort_by == 'errors' and sort_dir == 'desc') else 'desc' %}
+      <tr>
+        <th style="width:160px;">
+          <a href="{{ url_for('view_rum', view='sessions', type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by='last_seen', sort_dir=last_seen_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
+            Last Seen {% if sort_by == 'last_seen' %}<small>{{ '↑' if sort_dir == 'asc' else '↓' }}</small>{% endif %}
+          </a>
+        </th>
+        <th style="width:96px;">Session</th>
+        <th style="width:360px;">
+          <a href="{{ url_for('view_rum', view='sessions', type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by='severity', sort_dir=severity_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
+            Overview {% if sort_by == 'severity' %}<small>{{ '↑' if sort_dir == 'asc' else '↓' }}</small>{% endif %}
+          </a>
+        </th>
+        <th style="width:130px;">Latest event</th>
+        <th>Last URL</th>
+        <th style="width:110px;" class="text-end">
+          <a href="{{ url_for('view_rum', view='sessions', type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by='events', sort_dir=events_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
+            Events {% if sort_by == 'events' %}<small>{{ '↑' if sort_dir == 'asc' else '↓' }}</small>{% endif %}
+          </a>
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for session in session_groups %}
+      {% set session_status_label = 'Healthy' %}
+      {% set session_status_class = 'rum-session-status-healthy' %}
+      {% set session_row_class = 'rum-session-row-healthy' %}
+      {% if session.severity_rank >= 3 %}
+        {% set session_status_label = 'Error session' %}
+        {% set session_status_class = 'rum-session-status-critical' %}
+        {% set session_row_class = 'rum-session-row-critical' %}
+        {% set session_status_filter = 'status-critical' %}
+      {% elif session.severity_rank == 2 %}
+        {% set session_status_label = 'Poor vitals' %}
+        {% set session_status_class = 'rum-session-status-critical' %}
+        {% set session_row_class = 'rum-session-row-critical' %}
+        {% set session_status_filter = 'status-critical' %}
+      {% elif session.severity_rank == 1 %}
+        {% set session_status_label = 'Needs attention' %}
+        {% set session_status_class = 'rum-session-status-warning' %}
+        {% set session_row_class = 'rum-session-row-warning' %}
+        {% set session_status_filter = 'status-warning' %}
+      {% else %}
+        {% set session_status_filter = 'status-healthy' %}
+      {% endif %}
+      <tr class="rum-session-row {{ session_row_class }}">
+        <td>
+          <div class="rum-session-ts" data-utc-ts="{{ session.last_ts }}">
+            <span class="rum-session-ts-date">{{ session.last_ts[:10] }}</span>
+            <span class="rum-session-ts-time">{{ session.last_ts[11:23] }}</span>
+          </div>
+        </td>
+        <td><span class="rum-session-id">{{ session.session_id }}</span></td>
+        <td>
+          <div class="rum-session-overview">
+            <div class="rum-session-primary-row">
+              <button type="button" class="rum-session-status {{ session_status_class }} rum-chip-btn" data-chip-session="rum-session-{{ loop.index }}" data-chip-filter="{{ session_status_filter }}" title="Jump to first {{ session_status_label | lower }} event">{{ session_status_label }}</button>
+              <button type="button" class="rum-session-count-chip rum-chip-btn" data-chip-session="rum-session-{{ loop.index }}" data-chip-filter="event-any" title="Jump to first event in session">{{ session.event_count }} events</button>
+              {% if session.error_count %}<button type="button" class="rum-session-count-chip rum-session-count-chip-critical rum-chip-btn" data-chip-session="rum-session-{{ loop.index }}" data-chip-filter="error" title="Jump to most recent error">{{ session.error_count }} error{{ 's' if session.error_count != 1 else '' }}</button>{% endif %}
+              {% if session.poor_vital_count %}<button type="button" class="rum-session-count-chip rum-session-count-chip-critical rum-chip-btn" data-chip-session="rum-session-{{ loop.index }}" data-chip-filter="vital-poor" title="Jump to first poor vital">{{ session.poor_vital_count }} poor vital{{ 's' if session.poor_vital_count != 1 else '' }}</button>{% endif %}
+              {% if session.warn_vital_count %}<button type="button" class="rum-session-count-chip rum-session-count-chip-warning rum-chip-btn" data-chip-session="rum-session-{{ loop.index }}" data-chip-filter="vital-warn" title="Jump to first warned vital">{{ session.warn_vital_count }} warned vital{{ 's' if session.warn_vital_count != 1 else '' }}</button>{% endif %}
+            </div>
+            <div class="rum-session-meta-row">
+              {% if session.trace_id %}<button type="button" class="rum-session-cap-chip rum-session-cap-chip-trace rum-chip-btn" data-chip-session="rum-session-{{ loop.index }}" data-chip-filter="trace" title="Jump to first traced event"><i class="bi bi-diagram-3"></i>trace linked</button>{% endif %}
+              {% if session.has_replay %}<button type="button" class="rum-session-cap-chip rum-session-cap-chip-replay rum-chip-btn" data-chip-session="rum-session-{{ loop.index }}" data-chip-filter="replay" title="Jump to first event with replay"><i class="bi bi-play-circle"></i>replay</button>{% endif %}
+              {% if session.has_artifact %}<button type="button" class="rum-session-cap-chip rum-session-cap-chip-artifact rum-chip-btn" data-chip-session="rum-session-{{ loop.index }}" data-chip-filter="artifact" title="Jump to first event with artifact"><i class="bi bi-image"></i>artifact</button>{% endif %}
+            </div>
+          </div>
+        </td>
+        <td class="small">
+          <button type="button" class="badge {% if session.last_event_type in ('error','unhandledrejection') %}bg-danger{% elif session.last_event_type == 'pageview' %}bg-primary{% elif session.last_event_type == 'web-vital' %}bg-success{% else %}bg-secondary{% endif %} rum-chip-btn"
+                  data-chip-session="rum-session-{{ loop.index }}"
+                  data-chip-filter="type-{{ session.last_event_type }}"
+                  title="Jump to first {{ session.last_event_type }} event">
+            {{ session.last_event_type }}
+          </button>
+        </td>
+        <td class="small text-truncate" style="max-width:420px;" title="{{ session.last_url }}">{{ session.last_url }}</td>
+        <td class="text-end">
+          <span class="rum-row-action-slot">
+            {% if session.trace_id %}
+            <a href="{{ url_for('view_traces', trace_id=session.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+               class="btn btn-outline-secondary btn-sm rum-row-trace-btn"
+               title="Open trace"
+               aria-label="Open trace">
+              <i class="bi bi-diagram-3"></i>
+            </a>
+            {% else %}
+            <button class="btn btn-outline-secondary btn-sm rum-row-trace-btn rum-row-action-placeholder" type="button" tabindex="-1" aria-hidden="true"><i class="bi bi-diagram-3"></i></button>
+            {% endif %}
+            <button class="btn btn-outline-secondary btn-sm rum-row-accordion-btn collapsed"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#rum-session-{{ loop.index }}"
+                    aria-expanded="false"
+                    aria-controls="rum-session-{{ loop.index }}"
+                    aria-label="Expand session"
+                    title="Expand session">
+              <i class="bi bi-chevron-down rum-row-chevron"></i>
+            </button>
+          </span>
+        </td>
+      </tr>
+      <tr class="collapse" id="rum-session-{{ loop.index }}">
+        <td colspan="6" class="border-top-0 pt-0">
+          <div class="theme-panel rounded p-3 mt-1 small">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <div class="text-secondary">Session timeline</div>
+              <div class="small text-secondary font-monospace">{{ session.session_key }}</div>
+            </div>
+            <div class="d-flex flex-column gap-2">
+              {% set session_idx = loop.index %}
+              {% for ev in session.events %}
+              {% set detail_id = 'rum-session-' ~ session_idx ~ '-detail-' ~ loop.index %}
+              <div class="rum-session-timeline-item" data-ev-type="{{ ev.event_type }}"{% if ev.event_type == 'web-vital' %} data-vital-rating="{{ ev.data.get('rating', '') }}"{% endif %}{% if ev.trace_id %} data-has-trace="1"{% endif %}{% if ev.has_replay %} data-has-replay="1"{% endif %}{% if ev.has_artifact %} data-has-artifact="1"{% endif %}>
+                <div class="d-flex align-items-start justify-content-between gap-2">
+                  <div class="flex-grow-1">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                      <span class="small font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ ev.ts }}">{{ ev.ts[:23] }}</span>
+                      <span class="badge {% if ev.event_type in ('error','unhandledrejection') %}bg-danger{% elif ev.event_type == 'pageview' %}bg-primary{% elif ev.event_type == 'web-vital' %}bg-success{% else %}bg-secondary{% endif %}">{{ ev.event_type }}</span>
+                      {% if ev.event_type == 'web-vital' %}
+                      <span>{{ ev.data.get('name','') }}: <strong>{{ ev.data.get('value', '') }}</strong></span>
+                      {% elif ev.event_type in ('error','unhandledrejection') %}
+                      <span class="text-danger">{{ ev.data.get('message','') | truncate(90) }}</span>
+                      {% elif ev.event_type == 'pageview' %}
+                      <span>{{ ev.data.get('title','') | truncate(80) }}</span>
+                      {% else %}
+                      <span>{{ ev.data | tojson | truncate(90) }}</span>
+                      {% endif %}
+                    </div>
+                    <div class="small text-secondary text-truncate mt-1 rum-session-timeline-url" title="{{ ev.url }}">{{ ev.url }}</div>
+                  </div>
+                  <span class="rum-row-action-slot">
+                    {% if ev.trace_id %}
+                    <a href="{{ url_for('view_traces', trace_id=ev.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+                       class="btn btn-outline-secondary btn-sm rum-row-trace-btn"
+                       title="Open trace"
+                       aria-label="Open trace">
+                      <i class="bi bi-diagram-3"></i>
+                    </a>
+                    {% else %}
+                    <button class="btn btn-outline-secondary btn-sm rum-row-trace-btn rum-row-action-placeholder" type="button" tabindex="-1" aria-hidden="true"><i class="bi bi-diagram-3"></i></button>
+                    {% endif %}
+                    {% if ev.event_type in ('error','unhandledrejection') %}
+                    <button class="btn btn-outline-secondary btn-sm rum-row-accordion-btn collapsed"
+                            type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#{{ detail_id }}"
+                            aria-expanded="false"
+                            aria-controls="{{ detail_id }}"
+                            aria-label="View details"
+                            title="View details">
+                      <i class="bi bi-chevron-down rum-row-chevron"></i>
+                    </button>
+                    {% else %}
+                    <button class="btn btn-outline-secondary btn-sm rum-row-accordion-btn rum-row-action-placeholder" type="button" tabindex="-1" aria-hidden="true"><i class="bi bi-chevron-down rum-row-chevron"></i></button>
+                    {% endif %}
+                  </span>
+                </div>
+                {% if ev.event_type in ('error','unhandledrejection') %}
+                {% set breadcrumbs = ev.data.get('breadcrumbs', {}) %}
+                {% set page = ev.data.get('page', {}) %}
+                <div class="collapse mt-3" id="{{ detail_id }}">
+                  <div class="border-top pt-3">
+                    <div class="rum-detail-list mb-3">
+                      </div>
+                    </div>
+
+                    <div class="rum-filter-actions">
+                      <div>
+                        <div class="text-secondary mb-1">Error Type</div>
+                        <div class="font-monospace">{{ ev.data.get('errorType', '—') }}</div>
+                      </div>
+                      <div>
+                        <div class="text-secondary mb-1">Source</div>
+                        <div class="font-monospace">{{ ev.data.get('errorSource', '—') }}</div>
+                      </div>
+                      <div>
+                        <div class="text-secondary mb-1">Location</div>
+                        <div class="font-monospace">{{ ev.data.get('filename', '') }}{% if ev.data.get('lineno') %}:{{ ev.data.get('lineno') }}{% endif %}{% if ev.data.get('colno') %}:{{ ev.data.get('colno') }}{% endif %}</div>
+                      </div>
+                      <div>
+                        <div class="text-secondary mb-1">Page</div>
+                        <div>{{ page.get('title', '—') }}</div>
+                      </div>
+                      <div>
+                        <div class="text-secondary mb-1">Viewport</div>
+                        <div class="font-monospace">{{ page.get('viewport', '—') }}</div>
+                      </div>
+                    </div>
+
+                    {% if ev.data.get('traceId') %}
+                    <div class="mb-3">
+                      <a href="{{ url_for('view_traces', trace_id=ev.data.get('traceId'), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
+                        <i class="bi bi-diagram-3 me-1"></i>Trace {{ ev.data.get('traceId')[:12] }}
+                      </a>
+                    </div>
+                    {% endif %}
+
+                    {% if ev.data.get('artifact') or ev.data.get('replay') %}
+                    {% set artifact = ev.data.get('artifact', {}) %}
+                    {% set replay = ev.data.get('replay', {}) %}
+                    <div class="mb-3">
+                      <div class="text-secondary mb-2">Artifacts</div>
+                      <div class="d-flex flex-wrap gap-2">
+                        {% if artifact.get('url') %}
+                        <button type="button" class="btn btn-sm btn-outline-primary js-rum-viewer-open"
+                                data-rum-view-kind="artifact"
+                                data-rum-view-url="{{ artifact.get('url') }}"
+                                data-rum-view-label="{{ artifact.get('type', 'artifact') | title }}{% if artifact.get('id') %} {{ artifact.get('id') }}{% endif %}">
+                          <i class="bi bi-image me-1"></i>View {{ artifact.get('type', 'artifact') | title }}
+                        </button>
+                        {% endif %}
+                        {% if replay.get('url') %}
+                        <button type="button" class="btn btn-sm btn-outline-warning js-rum-viewer-open"
+                                data-rum-view-kind="replay"
+                                data-rum-view-url="{{ replay.get('url') }}"
+                                data-rum-view-label="Replay{% if replay.get('id') %} {{ replay.get('id') }}{% endif %}">
+                          <i class="bi bi-play-circle me-1"></i>View Replay
+                        </button>
+                        {% endif %}
+                      </div>
+                    </div>
+                    {% endif %}
+
+                    {% if ev.data.get('stack') %}
+                    <div class="mb-3">
+                      <div class="text-secondary mb-1">Stack Trace</div>
+                      <pre class="rum-detail-pre rounded p-2 mb-0">{{ ev.data.get('stack') }}</pre>
+                    </div>
+                    {% endif %}
+
+                    {% if breadcrumbs.get('console') %}
+                    <div class="mb-3">
+                      <div class="text-secondary mb-2">Recent Console</div>
+                      <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                          <thead>
+                            <tr>
+                              <th style="width:150px;">Timestamp</th>
+                              <th style="width:90px;">Level</th>
+                              <th>Message</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for entry in breadcrumbs.get('console', []) %}
+                            <tr>
+                              <td class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
+                              <td><span class="badge {% if entry.get('level') == 'error' %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ entry.get('level', '') }}</span></td>
+                              <td class="text-break">
+                                <div>{{ entry.get('message', '') }}</div>
+                                {% if entry.get('errorType') %}<div class="small text-secondary font-monospace mt-1">Type: {{ entry.get('errorType') }}</div>{% endif %}
+                                {% if entry.get('source') %}<div class="small text-secondary font-monospace">Source: {{ entry.get('source') }}</div>{% endif %}
+                                {% if entry.get('stack') %}
+                                <details class="mt-1">
+                                  <summary class="small text-secondary">Stack</summary>
+                                  <pre class="rum-detail-pre rounded p-2 mt-1 mb-0">{{ entry.get('stack') }}</pre>
+                                </details>
+                                {% endif %}
+                              </td>
+                            </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    {% endif %}
+
+                    {% if breadcrumbs.get('user') %}
+                    <div>
+                      <div class="text-secondary mb-2">Recent Breadcrumbs</div>
+                      <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                          <thead>
+                            <tr>
+                              <th style="width:150px;">Timestamp</th>
+                              <th style="width:150px;">Category</th>
+                              <th style="width:220px;">Message</th>
+                              <th>Data</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for entry in breadcrumbs.get('user', []) %}
+                            <tr>
+                              <td class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
+                              <td class="font-monospace">{{ entry.get('category', '') }}</td>
+                              <td>{{ entry.get('message', '') }}</td>
+                              <td class="text-break font-monospace">{{ entry.get('data', {}) | tojson }}</td>
+                            </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    {% endif %}
+                  </div>
+                </div>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% elif view_mode == 'events' and events %}
 <div class="table-responsive">
   <table class="table table-sm table-hover align-middle">
     <thead>
@@ -106,24 +1160,25 @@
       {% set type_next_dir = 'asc' if (sort_by == 'EventName' and sort_dir == 'desc') else 'desc' %}
       <tr>
         <th style="width:155px;">
-          <a href="{{ url_for('view_rum', type=event_type, from_ts=from_ts, to_ts=to_ts, sort_by='Timestamp', sort_dir=ts_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
+          <a href="{{ url_for('view_rum', view=view_mode, type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by='Timestamp', sort_dir=ts_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
             Timestamp {% if sort_by == 'Timestamp' %}<small>{{ '↑' if sort_dir == 'asc' else '↓' }}</small>{% endif %}
           </a>
         </th>
         <th style="width:80px;">Session</th>
         <th style="width:110px;">
-          <a href="{{ url_for('view_rum', type=event_type, from_ts=from_ts, to_ts=to_ts, sort_by='EventName', sort_dir=type_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
+          <a href="{{ url_for('view_rum', view=view_mode, type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by='EventName', sort_dir=type_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
             Type {% if sort_by == 'EventName' %}<small>{{ '↑' if sort_dir == 'asc' else '↓' }}</small>{% endif %}
           </a>
         </th>
         <th>URL</th>
-        <th style="width:150px;">Details</th>
+        <th style="width:260px;">Details</th>
       </tr>
     </thead>
     <tbody>
       {% for ev in events %}
       <tr>
-        <td class="text-secondary small font-monospace">{{ ev.ts[:23] }}</td>
+        {% set trace_id = ev.data.get('traceId', '') %}
+        <td class="text-secondary small font-monospace rum-ts-inline" data-utc-ts="{{ ev.ts }}">{{ ev.ts[:23] }}</td>
         <td class="small font-monospace text-secondary">{{ ev.session_id }}</td>
         <td>
           <span class="badge {% if ev.event_type in ('error','unhandledrejection') %}bg-danger{% elif ev.event_type == 'pageview' %}bg-primary{% elif ev.event_type == 'web-vital' %}bg-success{% else %}bg-secondary{% endif %}">
@@ -133,14 +1188,223 @@
         <td class="small text-truncate" style="max-width:250px;" title="{{ ev.url }}">{{ ev.url }}</td>
         <td class="small text-secondary">
           {% if ev.event_type == 'web-vital' %}
-            {{ ev.data.get('name','') }}: <strong>{{ ev.data.get('value', '') }}</strong>
+            <div class="d-flex align-items-center justify-content-between gap-2">
+              <span class="text-truncate d-inline-block" style="max-width:220px;">
+                {{ ev.data.get('name','') }}: <strong>{{ ev.data.get('value', '') }}</strong>
+              </span>
+              <span class="rum-row-action-slot">
+                {% if trace_id %}
+                <a href="{{ url_for('view_traces', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+                   class="btn btn-outline-secondary btn-sm rum-row-trace-btn"
+                   title="Open trace"
+                   aria-label="Open trace">
+                  <i class="bi bi-diagram-3"></i>
+                </a>
+                {% else %}
+                <button class="btn btn-outline-secondary btn-sm rum-row-trace-btn rum-row-action-placeholder" type="button" tabindex="-1" aria-hidden="true"><i class="bi bi-diagram-3"></i></button>
+                {% endif %}
+                <button class="btn btn-outline-secondary btn-sm rum-row-accordion-btn rum-row-action-placeholder" type="button" tabindex="-1" aria-hidden="true"><i class="bi bi-chevron-down rum-row-chevron"></i></button>
+              </span>
+            </div>
           {% elif ev.event_type in ('error','unhandledrejection') %}
-            <span class="text-danger">{{ ev.data.get('message','') | truncate(60) }}</span>
+            <div class="d-flex align-items-center justify-content-between gap-2">
+              <span class="text-danger text-truncate d-inline-block" style="max-width:180px;" title="{{ ev.data.get('message','') }}">{{ ev.data.get('message','') | truncate(60) }}</span>
+              <span class="rum-row-action-slot">
+                {% if trace_id %}
+                <a href="{{ url_for('view_traces', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+                   class="btn btn-outline-secondary btn-sm rum-row-trace-btn"
+                   title="Open trace"
+                   aria-label="Open trace">
+                  <i class="bi bi-diagram-3"></i>
+                </a>
+                {% else %}
+                <button class="btn btn-outline-secondary btn-sm rum-row-trace-btn rum-row-action-placeholder" type="button" tabindex="-1" aria-hidden="true"><i class="bi bi-diagram-3"></i></button>
+                {% endif %}
+                <button
+                  class="btn btn-outline-secondary btn-sm rum-row-accordion-btn collapsed"
+                  type="button"
+                  data-bs-toggle="collapse"
+                  data-bs-target="#rum-detail-{{ loop.index }}"
+                  aria-expanded="false"
+                  aria-controls="rum-detail-{{ loop.index }}"
+                  aria-label="View details"
+                  title="View details"
+                >
+                  <i class="bi bi-chevron-down rum-row-chevron"></i>
+                </button>
+              </span>
+            </div>
           {% elif ev.event_type == 'pageview' %}
-            {{ ev.data.get('title','') | truncate(40) }}
+            <div class="d-flex align-items-center justify-content-between gap-2">
+              <span class="text-truncate d-inline-block" style="max-width:220px;">{{ ev.data.get('title','') | truncate(40) }}</span>
+              <span class="rum-row-action-slot">
+                {% if trace_id %}
+                <a href="{{ url_for('view_traces', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+                   class="btn btn-outline-secondary btn-sm rum-row-trace-btn"
+                   title="Open trace"
+                   aria-label="Open trace">
+                  <i class="bi bi-diagram-3"></i>
+                </a>
+                {% else %}
+                <button class="btn btn-outline-secondary btn-sm rum-row-trace-btn rum-row-action-placeholder" type="button" tabindex="-1" aria-hidden="true"><i class="bi bi-diagram-3"></i></button>
+                {% endif %}
+                <button class="btn btn-outline-secondary btn-sm rum-row-accordion-btn rum-row-action-placeholder" type="button" tabindex="-1" aria-hidden="true"><i class="bi bi-chevron-down rum-row-chevron"></i></button>
+              </span>
+            </div>
           {% endif %}
         </td>
       </tr>
+      {% if ev.event_type in ('error','unhandledrejection') %}
+      {% set breadcrumbs = ev.data.get('breadcrumbs', {}) %}
+      {% set page = ev.data.get('page', {}) %}
+      <tr class="collapse" id="rum-detail-{{ loop.index }}">
+        <td colspan="5" class="border-top-0 pt-0">
+          <div class="theme-panel rounded p-3 mt-1 small">
+            <div class="rum-detail-list mb-3">
+              <div>
+                <div class="text-secondary mb-1">Message</div>
+                <div class="fw-semibold text-danger">{{ ev.data.get('message', '—') }}</div>
+              </div>
+              <div>
+                <div class="text-secondary mb-1">Error Type</div>
+                <div class="font-monospace">{{ ev.data.get('errorType', '—') }}</div>
+              </div>
+              <div>
+                <div class="text-secondary mb-1">Source</div>
+                <div class="font-monospace">{{ ev.data.get('errorSource', '—') }}</div>
+              </div>
+              <div>
+                <div class="text-secondary mb-1">Location</div>
+                <div class="font-monospace">{{ ev.data.get('filename', '') }}{% if ev.data.get('lineno') %}:{{ ev.data.get('lineno') }}{% endif %}{% if ev.data.get('colno') %}:{{ ev.data.get('colno') }}{% endif %}</div>
+              </div>
+              <div>
+                <div class="text-secondary mb-1">Page</div>
+                <div>{{ page.get('title', '—') }}</div>
+              </div>
+              <div>
+                <div class="text-secondary mb-1">Viewport</div>
+                <div class="font-monospace">{{ page.get('viewport', '—') }}</div>
+              </div>
+            </div>
+
+            {% if ev.data.get('traceId') %}
+            <div class="mb-3">
+              <a href="{{ url_for('view_traces', trace_id=ev.data.get('traceId'), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
+                <i class="bi bi-diagram-3 me-1"></i>Trace {{ ev.data.get('traceId')[:12] }}
+              </a>
+            </div>
+            {% endif %}
+
+            {% if ev.data.get('artifact') or ev.data.get('replay') %}
+            {% set artifact = ev.data.get('artifact', {}) %}
+            {% set replay = ev.data.get('replay', {}) %}
+            <div class="mb-3">
+              <div class="text-secondary mb-2">Artifacts</div>
+              <div class="d-flex flex-wrap gap-2">
+                {% if artifact.get('url') %}
+                <button type="button" class="btn btn-sm btn-outline-primary js-rum-viewer-open"
+                        data-rum-view-kind="artifact"
+                        data-rum-view-url="{{ artifact.get('url') }}"
+                        data-rum-view-label="{{ artifact.get('type', 'artifact') | title }}{% if artifact.get('id') %} {{ artifact.get('id') }}{% endif %}">
+                  <i class="bi bi-image me-1"></i>View {{ artifact.get('type', 'artifact') | title }}
+                </button>
+                <a href="{{ artifact.get('url') }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
+                  <i class="bi bi-box-arrow-up-right me-1"></i>Open Raw
+                </a>
+                {% endif %}
+                {% if replay.get('url') %}
+                <button type="button" class="btn btn-sm btn-outline-warning js-rum-viewer-open"
+                        data-rum-view-kind="replay"
+                        data-rum-view-url="{{ replay.get('url') }}"
+                        data-rum-view-label="Replay{% if replay.get('id') %} {{ replay.get('id') }}{% endif %}">
+                  <i class="bi bi-play-circle me-1"></i>View Replay
+                </button>
+                <a href="{{ replay.get('url') }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
+                  <i class="bi bi-box-arrow-up-right me-1"></i>Open Raw
+                </a>
+                {% endif %}
+              </div>
+            </div>
+            {% endif %}
+
+            {% if ev.data.get('stack') %}
+            <div class="mb-3">
+              <div class="text-secondary mb-1">Stack Trace</div>
+              <pre class="rum-detail-pre rounded p-2 mb-0">{{ ev.data.get('stack') }}</pre>
+            </div>
+            {% endif %}
+
+            {% if breadcrumbs.get('console') %}
+            <div class="mb-3">
+              <div class="text-secondary mb-2">Recent Console</div>
+              <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th style="width:150px;">Timestamp</th>
+                      <th style="width:90px;">Level</th>
+                      <th>Message</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for entry in breadcrumbs.get('console', []) %}
+                    <tr>
+                      <td class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
+                      <td><span class="badge {% if entry.get('level') == 'error' %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ entry.get('level', '') }}</span></td>
+                      <td class="text-break">
+                        <div>{{ entry.get('message', '') }}</div>
+                        {% if entry.get('errorType') %}
+                        <div class="small text-secondary font-monospace mt-1">Type: {{ entry.get('errorType') }}</div>
+                        {% endif %}
+                        {% if entry.get('source') %}
+                        <div class="small text-secondary font-monospace">Source: {{ entry.get('source') }}</div>
+                        {% endif %}
+                        {% if entry.get('stack') %}
+                        <details class="mt-1">
+                          <summary class="small text-secondary">Stack</summary>
+                          <pre class="rum-detail-pre rounded p-2 mt-1 mb-0">{{ entry.get('stack') }}</pre>
+                        </details>
+                        {% endif %}
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            {% endif %}
+
+            {% if breadcrumbs.get('user') %}
+            <div>
+              <div class="text-secondary mb-2">Recent Breadcrumbs</div>
+              <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th style="width:150px;">Timestamp</th>
+                      <th style="width:150px;">Category</th>
+                      <th style="width:220px;">Message</th>
+                      <th>Data</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for entry in breadcrumbs.get('user', []) %}
+                    <tr>
+                      <td class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
+                      <td class="font-monospace">{{ entry.get('category', '') }}</td>
+                      <td>{{ entry.get('message', '') }}</td>
+                      <td class="text-break font-monospace">{{ entry.get('data', {}) | tojson }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endif %}
       {% endfor %}
     </tbody>
   </table>
@@ -151,22 +1415,22 @@
 {% set next_offset = offset + limit %}
 <nav class="d-flex justify-content-between align-items-center">
   <div class="d-flex align-items-center gap-2">
-    <small class="text-secondary">Showing {{ offset + 1 }}–{{ [offset + events | length, total] | min }} of {{ total }}</small>
+    <small class="text-secondary">Showing {{ offset + 1 }}–{{ [offset + page_count, total] | min }} of {{ total }} {{ 'sessions' if view_mode == 'sessions' else 'events' }}</small>
     <select class="form-select form-select-sm" style="width:auto;" onchange="window.location.href=this.value" aria-label="Rows per page">
       {% for n in [10, 25, 50, 100, 200] %}
-      <option value="{{ url_for('view_rum', type=event_type, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=n, offset=0) }}" {% if limit == n %}selected{% endif %}>{{ n }} / page</option>
+      <option value="{{ url_for('view_rum', view=view_mode, type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=n, offset=0) }}" {% if limit == n %}selected{% endif %}>{{ n }} / page</option>
       {% endfor %}
     </select>
   </div>
   <ul class="pagination pagination-sm mb-0">
     {% if offset > 0 %}
     <li class="page-item">
-      <a class="page-link" href="{{ url_for('view_rum', type=event_type, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=prev_offset) }}">← Prev</a>
+      <a class="page-link" href="{{ url_for('view_rum', view=view_mode, type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=prev_offset) }}">← Prev</a>
     </li>
     {% endif %}
     {% if next_offset < total %}
     <li class="page-item">
-      <a class="page-link" href="{{ url_for('view_rum', type=event_type, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=next_offset) }}">Next →</a>
+      <a class="page-link" href="{{ url_for('view_rum', view=view_mode, type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=next_offset) }}">Next →</a>
     </li>
     {% endif %}
   </ul>
@@ -174,18 +1438,174 @@
 {% else %}
 <div class="text-center py-5 text-secondary">
   <i class="bi bi-globe" style="font-size:2rem;"></i>
-  <p class="mt-2">No RUM events yet. Embed the <a href="{{ url_for('static', filename='rum.js') }}">rum.js</a> snippet in your app.</p>
+  <p class="mt-2">No RUM {{ 'sessions' if view_mode == 'sessions' else 'events' }} yet. Embed the <a href="{{ url_for('static', filename='rum.js') }}">rum.js</a> snippet in your app.</p>
 </div>
 {% endif %}
 
 <!-- Snippet -->
-<div class="card border-secondary mt-4">
-  <div class="card-header small"><i class="bi bi-code-slash me-1"></i>Client-side snippet</div>
-  <div class="card-body">
-    <pre class="mb-0 small text-info"><code>&lt;script src="http://YOUR_SOBS_HOST/static/rum.js"&gt;&lt;/script&gt;
+<div class="accordion mt-4" id="rumSnippetAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header">
+      <button class="accordion-button py-2 collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#rumSnippetPanel"
+              aria-expanded="false" aria-controls="rumSnippetPanel">
+        <i class="bi bi-code-slash me-2 text-info"></i>
+        <span class="fw-semibold">Client-side snippet</span>
+      </button>
+    </h2>
+    <div id="rumSnippetPanel" class="accordion-collapse collapse" data-bs-parent="#rumSnippetAccordion">
+      <div class="accordion-body py-2 px-3">
+        <pre class="mb-0 small text-info"><code>&lt;!-- One-line auto-init (endpoint inferred from script host) --&gt;
+&lt;script src="http://YOUR_SOBS_HOST/static/rum.js?app=my-app"&gt;&lt;/script&gt;
+
+&lt;!-- Feature-complete setup --&gt;
+&lt;script src="http://YOUR_SOBS_HOST/static/rum.js"
+        data-sobs-app="shop-web"
+        data-sobs-endpoint="http://YOUR_SOBS_HOST/v1/rum"
+        data-sobs-client-token-url="/internal/sobs/rum-client-token"&gt;&lt;/script&gt;
+
 &lt;script&gt;
-  SOBS.init({ endpoint: 'http://YOUR_SOBS_HOST/v1/rum', appName: 'my-app' });
+  SOBS.init({
+    endpoint: 'http://YOUR_SOBS_HOST/v1/rum',
+    appName: 'shop-web',
+    clientAuthTokenUrl: '/internal/sobs/rum-client-token',
+    trackSPA: true,
+
+    // Trace correlation + propagation
+    traceparent: window.__TRACEPARENT__ || '',
+    tracePropagationOrigins: ['https://api.example.com'],
+
+    // Breadcrumb sizing
+    consoleBufferSize: 20,
+    breadcrumbBufferSize: 40,
+
+    // Replay + optional screenshot capture for error events
+    replay: {
+      enabled: true,
+      scriptUrl: 'https://cdn.jsdelivr.net/npm/rrweb@latest/dist/record/rrweb-record.min.js',
+      maxEvents: 500,
+      screenshot: {
+        enabled: true,
+        scriptUrl: 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
+        mimeType: 'image/jpeg',
+        quality: 0.75,
+        maxEdge: 1400
+      },
+      upload: async function (envelope) {
+        const resp = await fetch('/api/replay/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(envelope)
+        });
+        if (!resp.ok) throw new Error('Replay upload failed');
+        // Expected: { replay: { id, url, provider }, artifact: { type, id, url } }
+        return resp.json();
+      }
+    }
+  });
+
+  // Manual APIs (auto window.onerror/unhandledrejection are already enabled)
+  SOBS.addBreadcrumb('checkout', 'Clicked Place Order', { step: 'payment' });
+  SOBS.track('feature-flag', { flag: 'new-checkout', variant: 'B' });
+
+  SOBS.setVisualContext({
+    replay: { id: 'replay-123', url: 'https://example.com/replays/replay-123', provider: 'rrweb' },
+    artifact: { type: 'screenshot', id: 'shot-123', url: 'https://example.com/artifacts/shot-123.png' },
+    ttlMs: 15000,
+    consumeOnce: true
+  });
+
+  try {
+    throw new Error('Checkout confirmation failed');
+  } catch (err) {
+    SOBS.captureException(err, { errorSource: 'checkout-flow' });
+  }
+
+  // Additional helpers:
+  // SOBS.setTraceParent('00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01');
+  // SOBS.setTraceContext('&lt;trace-id-32-hex&gt;', '&lt;span-id-16-hex&gt;');
+  // SOBS.setReplayContext({ id: 'replay-123', url: 'https://.../replay-123', provider: 'rrweb' }, { ttlMs: 15000 });
+  // SOBS.setArtifactContext({ type: 'screenshot', id: 'shot-123', url: 'https://.../shot-123.png' }, { ttlMs: 15000 });
+  // SOBS.clearVisualContext();
+  // SOBS.enableReplay({ enabled: true, scriptUrl: 'https://cdn.../rrweb-record.min.js' });
+  // SOBS.disableReplay();
+  // SOBS.setReplayUpload(async (envelope) =&gt; ({ replay: { id: 'r1', url: 'https://...', provider: 'rrweb' } }));
+  // SOBS.setClientAuthToken('&lt;short-lived-rum-token&gt;');
 &lt;/script&gt;</code></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="rumTzModal" tabindex="-1" aria-labelledby="rumTzModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-bottom-0 pb-1">
+        <h5 class="modal-title fs-6" id="rumTzModalLabel">
+          <i class="bi bi-clock me-2 text-primary"></i>Display Timezone
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body pt-1">
+        <p class="small text-secondary mb-3">
+          All timestamps are stored in UTC. Choose a timezone to display them in —
+          your preference is saved in the browser and persists across sessions.
+        </p>
+        <label class="form-label small fw-semibold mb-1" for="rum-tz-modal-input">Timezone</label>
+        <input id="rum-tz-modal-input" type="text" class="form-control form-control-sm"
+               list="rum-tz-list" autocomplete="off"
+               placeholder="e.g. UTC, America/New_York">
+        <datalist id="rum-tz-list"></datalist>
+        <div class="mt-2 small" id="rum-tz-modal-note"></div>
+      </div>
+      <div class="modal-footer border-top-0 pt-0">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" id="rum-tz-apply-btn">Apply</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="rumAssetViewerModal" tabindex="-1" aria-labelledby="rumAssetViewerLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="rumAssetViewerLabel">RUM Asset Viewer</h5>
+        <div class="modal-header-actions">
+          <a id="rumAssetViewerOpenRaw" href="#" target="_blank" rel="noopener noreferrer"
+             class="btn btn-sm btn-outline-secondary rum-asset-open-raw-btn"
+             title="Open raw asset" aria-label="Open raw asset">
+            <i class="bi bi-box-arrow-up-right"></i>
+          </a>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="rumAssetViewerStatus" class="small text-secondary mb-2"></div>
+        <div id="rumAssetViewerError" class="alert alert-danger d-none py-2 small" role="alert"></div>
+
+        <div id="rumAssetViewerImageWrap" class="d-none text-center">
+          <img id="rumAssetViewerImage" class="rum-viewer-image" alt="RUM artifact preview">
+        </div>
+
+        <div id="rumAssetViewerFrameWrap" class="d-none">
+          <iframe id="rumAssetViewerFrame" title="RUM asset preview" class="w-100" style="height:60vh;border:1px solid var(--bs-border-color);border-radius:.5rem;"></iframe>
+        </div>
+
+        <div id="rumAssetViewerReplayWrap" class="d-none">
+          <div id="rumAssetViewerReplayPlayer" class="rum-viewer-player mb-3 d-none"></div>
+          <div id="rumAssetViewerReplayTimeline" class="rum-replay-timeline d-none" aria-label="Replay error marker timeline">
+            <div class="rum-replay-timeline-track"></div>
+            <div id="rumAssetViewerReplayTimelineMarker" class="rum-replay-timeline-marker"></div>
+            <div id="rumAssetViewerReplayTimelineLabel" class="rum-replay-timeline-label small text-secondary"></div>
+          </div>
+          <details id="rumAssetViewerReplayRaw" class="rum-replay-raw">
+            <summary class="small text-secondary">Raw Replay JSON</summary>
+            <pre id="rumAssetViewerReplayJson" class="rum-viewer-json rounded p-2 mb-0 theme-panel"></pre>
+          </details>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 <script>
@@ -239,5 +1659,1047 @@
     }
   });
 })();
+
+// ── RUM Timezone Display + Filter UTC Submit ───────────────────────────────
+(function () {
+  var tzBadgeBtn   = document.getElementById('rum-tz-badge-btn');
+  var tzBadgeLabel = document.getElementById('rum-tz-badge-label');
+  var tzModalInput = document.getElementById('rum-tz-modal-input');
+  var tzModalNote  = document.getElementById('rum-tz-modal-note');
+  var tzApplyBtn   = document.getElementById('rum-tz-apply-btn');
+  var fromInput    = document.getElementById('rum-from-ts');
+  var toInput      = document.getElementById('rum-to-ts');
+  var filtersForm  = document.querySelector('#rumFiltersPanel form[method="get"]');
+  if (!tzBadgeBtn || !tzModalInput || !fromInput || !toInput || !filtersForm) return;
+
+  var STORAGE_KEY     = 'sobs.rum.timezone';
+  var browserZone     = (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone || 'UTC';
+  var changeListeners = [];
+
+  (function populateDatelist() {
+    var datalist = document.getElementById('rum-tz-list');
+    if (!datalist) return;
+    var zones;
+    try { zones = Intl.supportedValuesOf('timeZone'); }
+    catch (e) {
+      zones = ['UTC', 'America/New_York', 'America/Chicago', 'America/Denver',
+               'America/Los_Angeles', 'America/Sao_Paulo', 'Europe/London',
+               'Europe/Paris', 'Europe/Berlin', 'Asia/Kolkata', 'Asia/Tokyo',
+               'Asia/Shanghai', 'Australia/Sydney'];
+    }
+    var priority = ['UTC'];
+    if (browserZone !== 'UTC') priority.push(browserZone);
+    var rest = zones.filter(function (z) { return priority.indexOf(z) === -1; });
+    var frag = document.createDocumentFragment();
+    priority.concat(rest).forEach(function (z) {
+      var opt = document.createElement('option');
+      opt.value = z;
+      if (z === browserZone && z !== 'UTC') opt.label = z + ' (browser local)';
+      frag.appendChild(opt);
+    });
+    datalist.appendChild(frag);
+  }());
+
+  function isValidZone(tz) {
+    if (!tz) return false;
+    try { new Intl.DateTimeFormat('en', { timeZone: tz }); return true; }
+    catch (e) { return false; }
+  }
+
+  function friendlyTzName(tz) {
+    if (tz === 'UTC') return 'UTC';
+    try {
+      var parts = new Intl.DateTimeFormat('en', {
+        timeZone: tz, timeZoneName: 'shortOffset'
+      }).formatToParts(new Date());
+      var tzPart = parts.find(function (p) { return p.type === 'timeZoneName'; });
+      var offset = tzPart ? tzPart.value.replace('GMT', 'UTC') : '';
+      var city   = tz.split('/').pop().replace(/_/g, ' ');
+      return offset ? offset + ' · ' + city : city;
+    } catch (e) { return tz; }
+  }
+
+  function updateBadge(tz) {
+    if (tzBadgeLabel) tzBadgeLabel.textContent = friendlyTzName(tz);
+    if (tzBadgeBtn) tzBadgeBtn.title = 'Display timezone: ' + tz + ' — click to change';
+  }
+
+  function parseUtcTimestamp(value) {
+    var raw = String(value || '').trim();
+    if (!raw) return null;
+    if (raw.indexOf('T') === -1) raw = raw.replace(' ', 'T');
+    if (!/[zZ]|[+\-]\d\d:?\d\d$/.test(raw)) raw += 'Z';
+    var d = new Date(raw);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function parseYmdHm(value, tz) {
+    var m = String(value || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+    if (!m) return null;
+    var y = +m[1], mo = +m[2], d = +m[3], h = +m[4], mi = +m[5], s = +(m[6] || '0');
+    if (tz === 'UTC') return new Date(Date.UTC(y, mo - 1, d, h, mi, s));
+    var guess = new Date(Date.UTC(y, mo - 1, d, h, mi, s));
+    var shown = partsForZone(guess, tz);
+    var shownUtc = Date.UTC(+shown.year, +shown.month - 1, +shown.day,
+                            +shown.hour, +shown.minute, +shown.second);
+    var result = new Date(guess.getTime() - (shownUtc - guess.getTime()));
+    return isNaN(result.getTime()) ? null : result;
+  }
+
+  function partsForZone(dateObj, tz) {
+    var fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    });
+    var p = { year: '', month: '', day: '', hour: '', minute: '', second: '' };
+    fmt.formatToParts(dateObj).forEach(function (part) {
+      if (part.type in p) p[part.type] = part.value;
+    });
+    return p;
+  }
+
+  function formatForInput(dateObj, tz) {
+    var p = partsForZone(dateObj, tz);
+    return p.year + '-' + p.month + '-' + p.day + ' ' + p.hour + ':' + p.minute;
+  }
+
+  function formatForDisplay(dateObj, tz) {
+    var p = partsForZone(dateObj, tz);
+    return p.year + '-' + p.month + '-' + p.day + ' ' + p.hour + ':' + p.minute + ':' + p.second;
+  }
+
+  var selectedTz = 'UTC';
+  var visibleEls = new Set();
+  var tsObserver = null;
+
+  function updateTsEl(el, tz) {
+    var d = parseUtcTimestamp(el.getAttribute('data-utc-ts'));
+    if (!d) return;
+    if (el.classList.contains('rum-session-ts')) {
+      var p = partsForZone(d, tz);
+      var dateEl = el.querySelector('.rum-session-ts-date');
+      var timeEl = el.querySelector('.rum-session-ts-time');
+      if (dateEl) dateEl.textContent = p.year + '-' + p.month + '-' + p.day;
+      if (timeEl) timeEl.textContent = p.hour + ':' + p.minute + ':' + p.second;
+    } else {
+      el.textContent = formatForDisplay(d, tz);
+    }
+    el.setAttribute('title', 'UTC: ' + formatForDisplay(d, 'UTC') + ' | ' + tz + ': ' + formatForDisplay(d, tz));
+  }
+
+  function initObserver() {
+    var els = document.querySelectorAll('.rum-session-ts[data-utc-ts], .rum-ts-inline[data-utc-ts]');
+    if (typeof IntersectionObserver === 'undefined') {
+      els.forEach(function (el) { visibleEls.add(el); updateTsEl(el, selectedTz); });
+      return;
+    }
+    tsObserver = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          visibleEls.add(entry.target);
+          updateTsEl(entry.target, selectedTz);
+        } else {
+          visibleEls.delete(entry.target);
+        }
+      });
+    }, { rootMargin: '200px 0px' });
+    els.forEach(function (el) { tsObserver.observe(el); });
+  }
+
+  function renderTimestamps(tz) {
+    if (tsObserver) {
+      visibleEls.forEach(function (el) { updateTsEl(el, tz); });
+    } else {
+      document.querySelectorAll('.rum-session-ts[data-utc-ts], .rum-ts-inline[data-utc-ts]')
+        .forEach(function (el) { updateTsEl(el, tz); });
+    }
+  }
+
+  function convertFilterInputs(fromTz, toTz) {
+    [fromInput, toInput].forEach(function (inputEl) {
+      var val = String(inputEl.value || '').trim();
+      if (!val) return;
+      var parsed = parseYmdHm(val, fromTz);
+      if (!parsed) return;
+      inputEl.value = formatForInput(parsed, toTz);
+    });
+  }
+
+  var saved = localStorage.getItem(STORAGE_KEY);
+  if (saved === 'local') saved = browserZone;
+  selectedTz = (saved && isValidZone(saved)) ? saved : 'UTC';
+
+  convertFilterInputs('UTC', selectedTz);
+  initObserver();
+  updateBadge(selectedTz);
+
+  window.sobsRumTz = {
+    fmtHHMM: function (utcTs) {
+      var d = parseUtcTimestamp(utcTs);
+      if (!d) {
+        var s = String(utcTs || '').split(' ');
+        return String((s[1] || s[0] || '')).slice(0, 5);
+      }
+      var p = partsForZone(d, selectedTz);
+      return p.hour + ':' + p.minute;
+    },
+    zone: function () { return selectedTz; },
+    onChange: function (cb) { changeListeners.push(cb); },
+  };
+
+  function openTzModal(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var modalEl = document.getElementById('rumTzModal');
+    if (window.bootstrap && window.bootstrap.Modal && modalEl) {
+      window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+  }
+
+  tzBadgeBtn.addEventListener('click', openTzModal);
+  tzBadgeBtn.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') openTzModal(e);
+  });
+
+  var tzModalEl = document.getElementById('rumTzModal');
+  if (tzModalEl) {
+    tzModalEl.addEventListener('show.bs.modal', function () {
+      tzModalInput.value = selectedTz;
+      if (tzModalNote) {
+        tzModalNote.textContent = '';
+        tzModalNote.style.color = '';
+      }
+    });
+  }
+
+  tzModalInput.addEventListener('input', function () {
+    var val = tzModalInput.value.trim();
+    if (!val) {
+      tzModalNote.textContent = '';
+      return;
+    }
+    if (isValidZone(val)) {
+      tzModalNote.textContent = '✓ ' + friendlyTzName(val);
+      tzModalNote.style.color = 'var(--bs-success)';
+    } else {
+      tzModalNote.textContent = '✗ Unknown timezone';
+      tzModalNote.style.color = 'var(--bs-danger)';
+    }
+  });
+
+  tzApplyBtn.addEventListener('click', function () {
+    var next = tzModalInput.value.trim();
+    if (!isValidZone(next)) return;
+    convertFilterInputs(selectedTz, next);
+    selectedTz = next;
+    localStorage.setItem(STORAGE_KEY, selectedTz);
+    renderTimestamps(selectedTz);
+    updateBadge(selectedTz);
+    changeListeners.forEach(function (cb) { cb(selectedTz); });
+    var m = (window.bootstrap && window.bootstrap.Modal)
+      ? window.bootstrap.Modal.getInstance(document.getElementById('rumTzModal')) : null;
+    if (m) m.hide();
+  });
+
+  filtersForm.addEventListener('submit', function () {
+    convertFilterInputs(selectedTz, 'UTC');
+  });
+}());
+
+  // ── RUM Asset / Replay Viewer ──────────────────────────────────────────────
+  (function () {
+    const modalEl = document.getElementById('rumAssetViewerModal');
+    if (!modalEl) return;
+
+    const hasBootstrapModal = !!(window.bootstrap && window.bootstrap.Modal);
+    const modal = hasBootstrapModal
+      ? window.bootstrap.Modal.getOrCreateInstance(modalEl)
+      : {
+          show() {
+            modalEl.style.display = 'block';
+            modalEl.classList.add('show');
+            modalEl.removeAttribute('aria-hidden');
+            document.body.classList.add('modal-open');
+          },
+          hide() {
+            modalEl.classList.remove('show');
+            modalEl.style.display = 'none';
+            modalEl.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('modal-open');
+          }
+        };
+
+    const titleEl = document.getElementById('rumAssetViewerLabel');
+    const rawEl = document.getElementById('rumAssetViewerOpenRaw');
+    const statusEl = document.getElementById('rumAssetViewerStatus');
+    const errorEl = document.getElementById('rumAssetViewerError');
+
+    const imgWrap = document.getElementById('rumAssetViewerImageWrap');
+    const imgEl = document.getElementById('rumAssetViewerImage');
+    const frameWrap = document.getElementById('rumAssetViewerFrameWrap');
+    const frameEl = document.getElementById('rumAssetViewerFrame');
+    const replayWrap = document.getElementById('rumAssetViewerReplayWrap');
+    const replayPlayer = document.getElementById('rumAssetViewerReplayPlayer');
+    const replayRaw = document.getElementById('rumAssetViewerReplayRaw');
+    const replayJson = document.getElementById('rumAssetViewerReplayJson');
+    let replayRawText = '';
+    let replayRawParsed = null;
+
+    if (!hasBootstrapModal) {
+      modalEl.querySelectorAll('[data-bs-dismiss="modal"], .btn-close').forEach((btn) => {
+        btn.addEventListener('click', () => modal.hide());
+      });
+      modalEl.addEventListener('click', function (evt) {
+        if (evt.target === modalEl) modal.hide();
+      });
+    }
+
+    let rrwebPlayerLoadPromise = null;
+
+    function hideAll() {
+      imgWrap.classList.add('d-none');
+      frameWrap.classList.add('d-none');
+      replayWrap.classList.add('d-none');
+      replayPlayer.classList.add('d-none');
+      errorEl.classList.add('d-none');
+      errorEl.textContent = '';
+      statusEl.textContent = '';
+      imgEl.removeAttribute('src');
+      frameEl.removeAttribute('src');
+      replayPlayer.innerHTML = '';
+      if (replayRaw) replayRaw.open = false;
+      replayRawText = '';
+      replayRawParsed = null;
+      replayJson.textContent = '';
+    }
+
+    function setError(message) {
+      errorEl.textContent = String(message || 'Unable to load asset');
+      errorEl.classList.remove('d-none');
+    }
+
+    function looksLikeImage(url) {
+      return /\.(png|jpe?g|webp|gif)(\?|$)/i.test(String(url || ''));
+    }
+
+    function setReplayModalOpenState(isOpen) {
+      document.documentElement.classList.toggle('rum-replay-modal-open', !!isOpen);
+      document.body.classList.toggle('rum-replay-modal-open', !!isOpen);
+    }
+
+    function toEpochMs(value) {
+      var n = Number(value);
+      if (!Number.isNaN(n)) return n;
+      var d = new Date(String(value || ''));
+      return Number.isNaN(d.getTime()) ? null : d.getTime();
+    }
+
+    // Keep timeline rendering optional so replay still works if timeline markup is absent.
+    function renderReplayErrorTimeline() {}
+
+    function loadRrwebPlayer() {
+      if (window.rrwebPlayer) return Promise.resolve(true);
+      if (rrwebPlayerLoadPromise) return rrwebPlayerLoadPromise;
+
+      rrwebPlayerLoadPromise = new Promise((resolve, reject) => {
+        const cssId = 'rum-rrweb-player-css';
+        if (!document.getElementById(cssId)) {
+          const link = document.createElement('link');
+          link.id = cssId;
+          link.rel = 'stylesheet';
+          link.href = 'https://cdn.jsdelivr.net/npm/rrweb-player@latest/dist/style.css';
+          document.head.appendChild(link);
+        }
+
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/rrweb-player@latest/dist/index.js';
+        script.async = true;
+        script.onload = () => resolve(!!window.rrwebPlayer);
+        script.onerror = () => reject(new Error('Failed to load rrweb-player'));
+        document.head.appendChild(script);
+      });
+
+      return rrwebPlayerLoadPromise;
+    }
+
+  async function renderReplay(url) {
+    replayWrap.classList.remove('d-none');
+    statusEl.textContent = 'Loading replay payload...';
+
+    const resp = await fetch(url, { credentials: 'same-origin' });
+    if (!resp.ok) throw new Error('Replay fetch failed with HTTP ' + resp.status);
+
+    const text = await resp.text();
+    replayRawText = text;
+    replayJson.textContent = '';
+
+    let parsed = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch (_) {
+      replayRawParsed = null;
+      statusEl.textContent = 'Replay payload is not JSON. Showing raw content.';
+      return;
+    }
+    replayRawParsed = parsed;
+
+    if (!parsed || !Array.isArray(parsed.events) || !parsed.events.length) {
+      statusEl.textContent = 'Replay JSON loaded (no events array found).';
+      return;
+    }
+
+    const startTs = toEpochMs(parsed.events[0] && parsed.events[0].timestamp);
+    const endTs = toEpochMs(parsed.events[parsed.events.length - 1] && parsed.events[parsed.events.length - 1].timestamp);
+    renderReplayErrorTimeline(parsed, startTs, endTs);
+
+    statusEl.textContent = 'Replay JSON loaded (' + parsed.events.length + ' events).';
+    try {
+      await loadRrwebPlayer();
+      if (!window.rrwebPlayer) return;
+      replayPlayer.classList.remove('d-none');
+      const playerWidth = Math.max(480, Math.floor(replayPlayer.clientWidth || replayWrap.clientWidth || 1100));
+      const playerHeight = Math.max(320, Math.floor(window.innerHeight * 0.5));
+      new window.rrwebPlayer({
+        target: replayPlayer,
+        props: {
+          events: parsed.events,
+          width: playerWidth,
+          height: playerHeight,
+          autoPlay: false,
+          showController: true
+        }
+      });
+      // If controller is not rendered by rrweb-player, surface that in status text.
+      setTimeout(function () {
+        var hasController = !!replayPlayer.querySelector('.rr-controller, .rr-player__controller, .controller');
+        if (!hasController) {
+          statusEl.textContent = 'Replay loaded, but rrweb controls were not rendered by this payload/player version.';
+        }
+      }, 0);
+      statusEl.textContent = 'Replay ready (' + parsed.events.length + ' events).';
+    } catch (err) {
+      statusEl.textContent = 'Replay JSON loaded; rrweb-player unavailable. Showing raw content.';
+    }
+  }
+
+  if (replayRaw) {
+    replayRaw.addEventListener('toggle', function () {
+      if (!replayRaw.open) return;
+      if (replayJson.textContent) return;
+      if (replayRawParsed) {
+        replayJson.textContent = JSON.stringify(replayRawParsed, null, 2);
+        return;
+      }
+      replayJson.textContent = replayRawText || '';
+    });
+  }
+
+  async function openViewer(kind, url, label) {
+    hideAll();
+    titleEl.textContent = label || 'RUM Asset Viewer';
+    rawEl.href = url;
+    setReplayModalOpenState(true);
+    modal.show();
+
+    try {
+      if (kind === 'artifact') {
+        if (looksLikeImage(url)) {
+          imgWrap.classList.remove('d-none');
+          imgEl.src = url;
+          statusEl.textContent = 'Image preview loaded.';
+        } else {
+          frameWrap.classList.remove('d-none');
+          frameEl.src = url;
+          statusEl.textContent = 'Rendering asset in embedded frame.';
+        }
+        return;
+      }
+
+      await renderReplay(url);
+    } catch (err) {
+      setError(err && err.message ? err.message : String(err));
+    }
+  }
+
+  document.addEventListener('click', function (evt) {
+    const btn = evt.target.closest('.js-rum-viewer-open');
+    if (!btn) return;
+    evt.preventDefault();
+    openViewer(
+      btn.getAttribute('data-rum-view-kind') || 'artifact',
+      btn.getAttribute('data-rum-view-url') || '',
+      btn.getAttribute('data-rum-view-label') || 'RUM Asset Viewer'
+    );
+  });
+
+  modalEl.addEventListener('hidden.bs.modal', function () {
+    setReplayModalOpenState(false);
+    hideAll();
+  });
+
+  modalEl.addEventListener('hide.bs.modal', function () {
+    setReplayModalOpenState(false);
+  });
+
+  if (!hasBootstrapModal) {
+    const originalHide = modal.hide.bind(modal);
+    modal.hide = function () {
+      setReplayModalOpenState(false);
+      originalHide();
+      hideAll();
+    };
+  }
+})();
+</script>
+<script>
+(function () {
+  document.addEventListener('click', function (evt) {
+    var chip = evt.target.closest('[data-chip-session]');
+    if (!chip) return;
+    evt.preventDefault();
+    var collapseId = chip.getAttribute('data-chip-session');
+    var filter = chip.getAttribute('data-chip-filter') || '';
+    var collapseEl = document.getElementById(collapseId);
+    if (!collapseEl) return;
+
+    function scrollToMatch() {
+      var items = collapseEl.querySelectorAll('[data-ev-type]');
+      for (var i = 0; i < items.length; i++) {
+        var evType = items[i].getAttribute('data-ev-type');
+        var rating = items[i].getAttribute('data-vital-rating') || '';
+        if (filter === 'error' && (evType === 'error' || evType === 'unhandledrejection')) {
+          items[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+        if (filter === 'event-any') {
+          items[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+        if (filter === 'vital-poor') {
+          if (evType === 'web-vital' && rating === 'poor') {
+            items[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+          }
+        }
+        if (filter === 'vital-warn') {
+          if (evType === 'web-vital' && (rating === 'needs-improvement' || rating === 'poor')) {
+            items[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+          }
+        }
+        if (filter === 'status-critical') {
+          if ((evType === 'error' || evType === 'unhandledrejection') || (evType === 'web-vital' && rating === 'poor')) {
+            items[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+          }
+        }
+        if (filter === 'status-warning') {
+          if (evType === 'web-vital' && (rating === 'needs-improvement' || rating === 'poor')) {
+            items[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+          }
+        }
+        if (filter === 'status-healthy') {
+          if (evType === 'pageview' || evType === 'web-vital') {
+            items[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+          }
+        }
+        if (filter === 'trace' && items[i].getAttribute('data-has-trace') === '1') {
+          items[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+        if (filter === 'replay' && items[i].getAttribute('data-has-replay') === '1') {
+          items[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+        if (filter === 'artifact' && items[i].getAttribute('data-has-artifact') === '1') {
+          items[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+        if (filter.indexOf('type-') === 0) {
+          var wantedType = filter.slice(5);
+          if (evType === wantedType) {
+            items[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+          }
+        }
+      }
+      collapseEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    if (collapseEl.classList.contains('show')) {
+      scrollToMatch();
+    } else {
+      var bsCollapse = bootstrap.Collapse.getOrCreateInstance(collapseEl, { toggle: false });
+      collapseEl.addEventListener('shown.bs.collapse', function handler() {
+        collapseEl.removeEventListener('shown.bs.collapse', handler);
+        scrollToMatch();
+      });
+      bsCollapse.show();
+    }
+  });
+}());
+</script>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='echarts.min.js') }}"></script>
+<script>
+(function () {
+  var lastUpdatedEl = document.getElementById('rumLastUpdated');
+  if (lastUpdatedEl) {
+    var loadedAt = new Date();
+    var timeLabel = loadedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    lastUpdatedEl.textContent = 'Last updated: ' + timeLabel;
+    lastUpdatedEl.title = loadedAt.toLocaleString();
+  }
+
+  var select = document.getElementById('rumRefreshSelect');
+  var countdown = document.getElementById('rumCountdown');
+  if (!select || !countdown) return;
+
+  var _refreshTimer = null;
+  var _countdownTimer = null;
+  var _remaining = 0;
+
+  function _tick() {
+    _remaining -= 1;
+    if (_remaining <= 0) _remaining = parseInt(select.value, 10);
+    countdown.textContent = _remaining >= 60 ? Math.ceil(_remaining / 60) + 'm' : _remaining + 's';
+  }
+
+  function apply() {
+    if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+    if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
+    var sec = parseInt(select.value, 10);
+    if (sec > 0) {
+      _remaining = sec;
+      countdown.textContent = sec >= 60 ? Math.ceil(sec / 60) + 'm' : sec + 's';
+      countdown.style.display = '';
+      _countdownTimer = setInterval(_tick, 1000);
+      _refreshTimer = setInterval(function () {
+        if (window.__sobsFirstRunTourOpen) {
+          return;
+        }
+        _remaining = sec;
+        countdown.textContent = sec >= 60 ? Math.ceil(sec / 60) + 'm' : sec + 's';
+        location.reload();
+      }, sec * 1000);
+    } else {
+      countdown.style.display = 'none';
+      countdown.textContent = '';
+    }
+  }
+
+  select.addEventListener('change', function () {
+    localStorage.setItem('sobs_rum_refresh', select.value);
+    apply();
+  });
+
+  var saved = localStorage.getItem('sobs_rum_refresh');
+  if (saved && saved !== '0') {
+    select.value = saved;
+    apply();
+  }
+}());
+
+(function () {
+  var sparkData = {{ vitals_sparklines | tojson }};
+  var vitalsState = {{ vitals_summary | tojson }};
+  var stateColor = { normal: '#198754', warning: '#ffc107', outlier: '#dc3545' };
+  var sparklineCharts = [];
+  var vitalsCardsEl = document.getElementById('vitalsCards');
+
+  function observeChart(el, chart) {
+    if (typeof ResizeObserver === 'undefined') return;
+    var observer = new ResizeObserver(function () { chart.resize(); });
+    observer.observe(el);
+  }
+
+  document.querySelectorAll('.vitals-sparkline').forEach(function (el) {
+    if (el.id === 'errorRateSparkline') return;
+    var metric = el.getAttribute('data-metric');
+    var points = sparkData[metric] || [];
+    if (!points.length) return;
+
+    var state = (vitalsState[metric] || {}).anomaly_state || 'normal';
+    var color = stateColor[state] || '#198754';
+    var values = points.map(function (p) { return p.v; });
+    var rawTs  = points.map(function (p) { return p.t; });
+
+    var chart = echarts.init(el, (window.SOBS && SOBS.echartsTheme) ? SOBS.echartsTheme() : null);
+    sparklineCharts.push(chart);
+    observeChart(el, chart);
+    chart.setOption({
+      animation: false,
+      grid: { top: 2, bottom: 2, left: 2, right: 2 },
+      xAxis: { type: 'category', data: rawTs, show: false },
+      yAxis: { type: 'value', show: false },
+      series: [{
+        type: 'line',
+        data: values,
+        symbol: 'none',
+        smooth: true,
+        lineStyle: { color: color, width: 1.5 },
+        areaStyle: { color: color, opacity: 0.12 },
+      }],
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'line' },
+        formatter: function (params) {
+          var p = params[0];
+          var label = window.sobsRumTz ? window.sobsRumTz.fmtHHMM(p.axisValue)
+            : (String(p.axisValue || '').split(' ')[1] || p.axisValue || '').slice(0, 5);
+          return label + ': ' + p.value;
+        },
+      },
+    });
+  });
+
+  function resizeAll() {
+    sparklineCharts.forEach(function (chart) { chart.resize(); });
+    // Also resize the error sparkline, which is excluded from sparklineCharts
+    // but lives in the same card row.
+    var errSparkEl = document.getElementById('errorRateSparkline');
+    if (errSparkEl && echarts.getInstanceByDom) {
+      var errInst = echarts.getInstanceByDom(errSparkEl);
+      if (errInst) errInst.resize();
+    }
+
+    // Switch vitals title between full name and acronym when cards get squeezed.
+    document.querySelectorAll('.vital-name-label').forEach(function (labelEl) {
+      var card = labelEl.closest('.stat-card');
+      if (!card) return;
+      var full = labelEl.getAttribute('data-vital-full') || '';
+      var short = labelEl.getAttribute('data-vital-short') || full;
+      var useShort = card.clientWidth < 208;
+      labelEl.textContent = (useShort ? short : full) + ' p75';
+    });
+  }
+
+  // Force a post-layout resize pass so sparklines fill stretched cards.
+  requestAnimationFrame(resizeAll);
+
+  window.addEventListener('resize', resizeAll);
+
+  if (vitalsCardsEl && typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(resizeAll).observe(vitalsCardsEl);
+  }
+}());
+
+(function () {
+  // ─── Vitals data (needs re-emission here for expanded per-metric charts) ──────
+  var sparkData   = {{ vitals_sparklines | tojson }};
+  var vitalsState = {{ vitals_summary    | tojson }};
+  var stateColor  = { normal: '#198754', warning: '#ffc107', outlier: '#dc3545' };
+  var vitalsMetaEl = document.getElementById('rumVitalsMeta');
+  var vitalsMeta = { thresholds: {}, names: {} };
+  if (vitalsMetaEl && vitalsMetaEl.textContent) {
+    try {
+      vitalsMeta = JSON.parse(vitalsMetaEl.textContent);
+    } catch (e) {}
+  }
+  var vitalsThresh = vitalsMeta.thresholds || {};
+  var vitalsNames = vitalsMeta.names || {};
+
+  // ─── Error sparkline card ────────────────────────────────────────────────────
+  var errEl    = document.getElementById('errorRateSparkline');
+  var errData  = {{ error_stats.sparkline | tojson }};
+  var errTrend = '{{ error_stats.trend }}';
+  var errColor = errTrend === 'up' ? '#dc3545' : (errTrend === 'down' ? '#198754' : '#6c757d');
+  var errChart = null;
+  var errSeries = {
+    rawTimes: (errData || []).map(function (p) { return String((p && p.t) || ''); }),
+    values:   (errData || []).map(function (p) { return Number((p && p.v) || 0); }),
+  };
+
+  function focusedErrorSeries(series) {
+    var times = (series && series.rawTimes) || [];
+    var values = (series && series.values) || [];
+    var n = Math.min(times.length, values.length);
+    if (!n) return { rawTimes: [], values: [] };
+
+    var first = -1;
+    var last = -1;
+    for (var i = 0; i < n; i += 1) {
+      if ((values[i] || 0) > 0) {
+        if (first === -1) first = i;
+        last = i;
+      }
+    }
+
+    var minWindow = 36;
+    var maxWindow = 90;
+    var pad = 6;
+    var start;
+    var end;
+
+    if (first === -1) {
+      // No errors in range: keep the most recent window.
+      start = Math.max(0, n - minWindow);
+      end = n - 1;
+    } else {
+      start = Math.max(0, first - pad);
+      end = Math.min(n - 1, last + pad);
+
+      var span = end - start + 1;
+      if (span < minWindow) {
+        start = Math.max(0, end - minWindow + 1);
+        end = Math.min(n - 1, start + minWindow - 1);
+      }
+      span = end - start + 1;
+      if (span > maxWindow) {
+        end = Math.min(n - 1, last + pad);
+        start = Math.max(0, end - maxWindow + 1);
+      }
+    }
+
+    return {
+      rawTimes: times.slice(start, end + 1),
+      values:   values.slice(start, end + 1),
+    };
+  }
+
+  if (errEl && errData.length) {
+    var errSparkSeries = focusedErrorSeries(errSeries);
+    var errSparkTimes  = errSparkSeries.rawTimes;
+    var errSparkValues = errSparkSeries.values;
+    errChart = echarts.init(errEl, (window.SOBS && SOBS.echartsTheme) ? SOBS.echartsTheme() : null);
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(function () { errChart.resize(); }).observe(errEl);
+    }
+    errChart.setOption({
+      animation: false,
+      backgroundColor: 'transparent',
+      grid: { top: 2, bottom: 2, left: 2, right: 2 },
+      xAxis: { type: 'category', data: errSparkTimes, show: false, boundaryGap: false },
+      yAxis: { type: 'value', show: false, min: 0 },
+      series: [{
+        type: 'line', data: errSparkValues, symbol: 'none', smooth: true,
+        lineStyle: { color: errColor, width: 1.8 },
+        areaStyle: { color: errColor, opacity: 0.12 },
+      }],
+      tooltip: {
+        trigger: 'axis',
+        formatter: function (params) {
+          var p = params[0];
+          var label = window.sobsRumTz ? window.sobsRumTz.fmtHHMM(p.axisValue)
+            : (String(p.axisValue || '').split(' ')[1] || p.axisValue || '').slice(0, 5);
+          return label + ': ' + p.value + ' error' + (p.value === 1 ? '' : 's');
+        },
+      },
+    });
+  }
+
+  // ─── Shared expanded panel (all metrics + errors) ───────────────────────────
+  var expandedPanel = document.getElementById('vitalsExpandedPanel');
+  var expandedEl    = document.getElementById('vitalsExpandedChart');
+  var titleEl       = document.getElementById('vitalsExpandedTitle');
+  if (!expandedPanel || !expandedEl) return;
+
+  var expandedChart = null;
+  var currentMetric = null;
+
+  function getAxisColors() {
+    var curTheme = document.documentElement.getAttribute('data-bs-theme') || '';
+    var split = curTheme === 'dark' ? 'rgba(173,181,189,.34)' : 'rgba(108,117,125,.35)';
+    return {
+      text:  curTheme === 'dark' ? '#dee2e6' : '#111827',
+      split: split,
+      line: (getComputedStyle(document.documentElement).getPropertyValue('--bs-border-color') || '').trim() || split,
+    };
+  }
+
+  function renderExpandedChart(metric) {
+    currentMetric = metric;
+    var c = getAxisColors();
+    var xData, yData, seriesColor, titleText, markData = [];
+
+    if (metric === '__errors__') {
+      xData       = errSeries.rawTimes;
+      yData       = errSeries.values;
+      seriesColor = errColor;
+      titleText   = 'Errors — last 180 min (per minute)';
+    } else {
+      var pts      = sparkData[metric] || [];
+      xData        = pts.map(function (p) { return p.t; });
+      yData        = pts.map(function (p) { return p.v; });
+      var state    = ((vitalsState || {})[metric] || {}).anomaly_state || 'normal';
+      seriesColor  = stateColor[state] || '#198754';
+      var fullName = vitalsNames[metric] || metric;
+      titleText    = metric + ' (' + fullName + ') — last 60 min';
+      var thresh   = vitalsThresh[metric];
+      if (thresh && thresh.warn) {
+        markData.push({ yAxis: thresh.warn,
+          lineStyle: { color: '#ffc107', type: 'dashed', width: 1.5 },
+          label: { formatter: 'good', position: 'insideStartTop', color: '#ffc107', fontSize: 10 } });
+      }
+      if (thresh && thresh.crit) {
+        markData.push({ yAxis: thresh.crit,
+          lineStyle: { color: '#dc3545', type: 'dashed', width: 1.5 },
+          label: { formatter: 'poor', position: 'insideStartTop', color: '#dc3545', fontSize: 10 } });
+      }
+    }
+
+    if (titleEl) titleEl.textContent = titleText;
+
+    if (!expandedChart) {
+      expandedChart = echarts.init(expandedEl,
+        (window.SOBS && SOBS.echartsTheme) ? SOBS.echartsTheme() : null);
+      if (typeof ResizeObserver !== 'undefined') {
+        new ResizeObserver(function () { expandedChart.resize(); }).observe(expandedEl);
+      }
+    }
+    expandedChart.setOption({
+      animation: false,
+      backgroundColor: 'transparent',
+      grid: { top: 42, bottom: 54, left: 44, right: 12 },
+      toolbox: {
+        top: 4,
+        right: 4,
+        iconStyle: {
+          borderColor: c.text,
+        },
+        emphasis: {
+          iconStyle: {
+            borderColor: seriesColor,
+          },
+        },
+        feature: {
+          dataZoom: {
+            yAxisIndex: 'none',
+            title: {
+              zoom: 'Drag-select zoom',
+              back: 'Reset zoom selection',
+            },
+          },
+          restore: {
+            title: 'Reset chart',
+          },
+        },
+      },
+      dataZoom: [
+        {
+          type: 'inside',
+          xAxisIndex: 0,
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true,
+          moveOnMouseWheel: true,
+        },
+        {
+          type: 'slider',
+          xAxisIndex: 0,
+          height: 12,
+          bottom: 8,
+          borderColor: c.line,
+          backgroundColor: 'transparent',
+          fillerColor: 'rgba(108,117,125,.24)',
+          handleSize: 10,
+          handleStyle: {
+            color: c.text,
+            borderColor: c.line,
+          },
+          showDetail: false,
+          brushSelect: true,
+        },
+      ],
+      xAxis: {
+        type: 'category', data: xData, boundaryGap: false,
+        axisLabel: {
+          color: c.text, fontSize: 11, fontWeight: 500,
+          formatter: function (val) {
+            return window.sobsRumTz ? window.sobsRumTz.fmtHHMM(val)
+              : String((String(val || '').split(' ')[1] || val || '')).slice(0, 5);
+          },
+        },
+        axisLine:  { lineStyle: { color: c.line } },
+        axisTick:  { lineStyle: { color: c.line } },
+      },
+      yAxis: {
+        type: 'value', min: 0,
+        axisLabel: { color: c.text, fontSize: 11, fontWeight: 500 },
+        axisLine:  { lineStyle: { color: c.line } },
+        axisTick:  { lineStyle: { color: c.line } },
+        splitLine: { lineStyle: { color: c.split } },
+      },
+      series: [{
+        type: 'line', data: yData, symbol: 'circle', symbolSize: 4, smooth: true,
+        lineStyle: { color: seriesColor, width: 2 },
+        itemStyle: { color: seriesColor },
+        areaStyle: { color: seriesColor, opacity: 0.12 },
+        markLine: { silent: true, symbol: ['none', 'none'], data: markData },
+      }],
+      tooltip: {
+        trigger: 'axis',
+        formatter: metric === '__errors__'
+          ? function (params) {
+              var p = params[0];
+              var lbl = window.sobsRumTz ? window.sobsRumTz.fmtHHMM(p.axisValue)
+                : String((String(p.axisValue || '').split(' ')[1] || p.axisValue || '')).slice(0, 5);
+              return lbl + ': ' + p.value + ' error' + (p.value === 1 ? '' : 's');
+            }
+          : function (params) {
+              var p = params[0];
+              var unit = (vitalsThresh[metric] || {}).unit || '';
+              var lbl = window.sobsRumTz ? window.sobsRumTz.fmtHHMM(p.axisValue)
+                : String((String(p.axisValue || '').split(' ')[1] || p.axisValue || '')).slice(0, 5);
+              return lbl + ': ' + p.value + unit;
+            },
+      },
+    }, true);
+    expandedChart.resize();
+  }
+
+  // ─── Expand button click handler ────────────────────────────────────────────
+  document.addEventListener('click', function (evt) {
+    var btn = evt.target.closest('[data-vital-expand]');
+    if (!btn) return;
+    var metric = btn.getAttribute('data-vital-expand');
+    var isOpen = expandedPanel.classList.contains('show');
+    var bsCollapse = bootstrap.Collapse.getOrCreateInstance(expandedPanel, { toggle: false });
+
+    if (isOpen && currentMetric === metric) {
+      bsCollapse.hide();
+    } else if (isOpen) {
+      renderExpandedChart(metric);
+      document.querySelectorAll('[data-vital-expand]').forEach(function (b) {
+        b.setAttribute('aria-expanded', b === btn ? 'true' : 'false');
+      });
+    } else {
+      expandedPanel.addEventListener('shown.bs.collapse', function onShown() {
+        expandedPanel.removeEventListener('shown.bs.collapse', onShown);
+        renderExpandedChart(metric);
+      });
+      bsCollapse.show();
+    }
+  });
+
+  // Sync aria-expanded with Bootstrap collapse state
+  expandedPanel.addEventListener('shown.bs.collapse', function () {
+    document.querySelectorAll('[data-vital-expand="' + currentMetric + '"]').forEach(function (b) {
+      b.setAttribute('aria-expanded', 'true');
+    });
+  });
+  expandedPanel.addEventListener('hidden.bs.collapse', function () {
+    document.querySelectorAll('[data-vital-expand]').forEach(function (b) {
+      b.setAttribute('aria-expanded', 'false');
+    });
+    currentMetric = null;
+  });
+
+  window.addEventListener('resize', function () {
+    if (expandedChart) expandedChart.resize();
+  });
+
+  // Re-render expanded chart when TZ changes.
+  if (window.sobsRumTz) {
+    window.sobsRumTz.onChange(function () {
+      if (expandedChart && currentMetric) renderExpandedChart(currentMetric);
+    });
+  }
+
+}());
 </script>
 {% endblock %}

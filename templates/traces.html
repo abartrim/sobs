@@ -17,6 +17,10 @@
               aria-expanded="true" aria-controls="tracesFiltersPanel">
         <i class="bi bi-funnel me-2 text-warning"></i>
         <span class="fw-semibold">Filters</span>
+        <span id="traces-tz-badge-btn" class="sobs-tz-header-badge" role="button" tabindex="0" title="Display timezone - click to change">
+          <i class="bi bi-clock"></i>
+          <span id="traces-tz-badge-label">UTC</span>
+        </span>
       </button>
     </h2>
     <div id="tracesFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="tracesFiltersHeading" data-bs-parent="#tracesFiltersAccordion">
@@ -88,6 +92,271 @@
 </div>
 
 {% macro fmt_ms(ms) %}{%- set ms = ms | float -%}{%- if ms >= 3600000 -%}{{ (ms / 3600000) | round(2) }}h{%- elif ms >= 60000 -%}{{ (ms / 60000) | round(1) }}m{%- elif ms >= 10000 -%}{{ (ms / 1000) | round(1) }}s{%- else -%}{{ ms | round(1) }}ms{%- endif -%}{% endmacro %}
+<style>
+#traceErrAccordion {
+  overflow-x: hidden;
+}
+
+#traceErrAccordion .accordion-item,
+#traceErrAccordion .accordion-header,
+#traceErrAccordion .accordion-button {
+  max-width: 100%;
+  min-width: 0;
+}
+
+#traceErrAccordion .accordion-button {
+  overflow: hidden;
+}
+
+.trace-error-summary {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.trace-error-message-preview {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trace-error-message-full,
+.trace-error-content {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.trace-error-message-full {
+  color: var(--bs-emphasis-color);
+  background: var(--bs-secondary-bg);
+  border: 1px solid var(--bs-border-color);
+}
+
+.trace-error-content {
+  max-height: 260px;
+  overflow: auto;
+  font-family: monospace;
+  font-size: .78rem;
+  color: var(--bs-body-color);
+  background: var(--bs-tertiary-bg);
+  border: 1px solid var(--bs-border-color);
+}
+
+.trace-error-format-status {
+  min-height: 1rem;
+}
+
+.rum-viewer-image {
+  max-width: 100%;
+  max-height: 60vh;
+  border-radius: .5rem;
+  border: 1px solid var(--bs-border-color);
+  background: var(--bs-body-bg);
+}
+.rum-viewer-json {
+  max-height: 50vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.rum-viewer-player {
+  min-height: min(64vh, 760px);
+  height: auto;
+  border: 1px solid var(--bs-border-color);
+  border-radius: .5rem;
+  overflow: visible;
+  background: var(--bs-body-bg);
+  padding: .5rem;
+}
+.rum-viewer-player .rr-player {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+.rum-viewer-player .rr-controller,
+.rum-viewer-player .rr-player__controller,
+.rum-viewer-player .controller {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  background: var(--bs-body-bg) !important;
+  color: var(--bs-body-color) !important;
+  border: 1px solid var(--bs-border-color) !important;
+  border-radius: .5rem !important;
+  box-shadow: none !important;
+}
+.rum-viewer-player .rr-controller *,
+.rum-viewer-player .rr-player__controller *,
+.rum-viewer-player .controller * {
+  color: var(--bs-body-color) !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+.rum-viewer-player .rr-controller button,
+.rum-viewer-player .rr-player__controller button,
+.rum-viewer-player .controller button {
+  background: color-mix(in srgb, var(--bs-secondary-bg) 65%, transparent) !important;
+  border-color: var(--bs-border-color) !important;
+}
+.rum-viewer-player .rr-controller input[type="range"],
+.rum-viewer-player .rr-player__controller input[type="range"],
+.rum-viewer-player .controller input[type="range"] {
+  accent-color: var(--bs-primary) !important;
+}
+[data-bs-theme='dark'] .rum-viewer-player .rr-controller,
+[data-bs-theme='dark'] .rum-viewer-player .rr-player__controller,
+[data-bs-theme='dark'] .rum-viewer-player .controller {
+  background: color-mix(in srgb, var(--bs-dark) 82%, #000) !important;
+  border-color: color-mix(in srgb, var(--bs-border-color) 70%, #9aa4b2) !important;
+}
+.rum-replay-timeline {
+  position: relative;
+  margin-bottom: .75rem;
+  height: 1.25rem;
+}
+.rum-replay-timeline-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: .5rem;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bs-secondary-color) 36%, transparent);
+}
+.rum-replay-timeline-marker {
+  position: absolute;
+  top: .2rem;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bs-danger);
+  border: 2px solid var(--bs-body-bg);
+  transform: translateX(-50%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bs-danger) 35%, transparent);
+}
+.rum-replay-timeline-label {
+  position: absolute;
+  top: .85rem;
+  left: 0;
+}
+.rum-replay-raw summary {
+  cursor: pointer;
+  user-select: none;
+}
+.rum-replay-raw[open] summary {
+  margin-bottom: .5rem;
+}
+#rumAssetViewerModal {
+  z-index: 1080;
+}
+#rumAssetViewerModal .modal-dialog {
+  width: min(98vw, 1680px);
+  max-width: min(98vw, 1680px);
+  height: calc(100vh - 1rem);
+  max-height: calc(100vh - 1rem);
+  margin: .5rem auto;
+}
+#rumAssetViewerModal .modal-content {
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+#rumAssetViewerModal .modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  margin-left: auto;
+}
+#rumAssetViewerModal .rum-asset-open-raw-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+}
+#rumAssetViewerModal .modal-body {
+  max-height: calc(100vh - 7rem);
+  overflow: auto;
+}
+body.rum-replay-modal-open #sobsAiBtn,
+body.rum-replay-modal-open #sobsAiPanel {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.trace-coverage-strip {
+  position: relative;
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid var(--bs-border-color);
+  background: color-mix(in srgb, var(--bs-secondary-color) 18%, transparent);
+  overflow: hidden;
+}
+
+.trace-coverage-segment {
+  position: absolute;
+  top: 0;
+  height: 100%;
+}
+
+.trace-coverage-segment.active {
+  background: #0d6efd;
+}
+
+.trace-coverage-segment.gap {
+  background: color-mix(in srgb, var(--bs-secondary-color) 35%, transparent);
+}
+
+.trace-coverage-segment.gap.potential {
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, #ffc107 72%, transparent),
+    color-mix(in srgb, #ffc107 72%, transparent) 6px,
+    color-mix(in srgb, #fd7e14 72%, transparent) 6px,
+    color-mix(in srgb, #fd7e14 72%, transparent) 12px
+  );
+}
+
+.trace-coverage-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  color: var(--bs-secondary-color);
+}
+
+.trace-coverage-legend-dot {
+  width: .7rem;
+  height: .7rem;
+  border-radius: 999px;
+  border: 1px solid var(--bs-border-color);
+}
+
+.trace-coverage-legend-dot.active {
+  background: #0d6efd;
+}
+
+.trace-coverage-legend-dot.gap {
+  background: color-mix(in srgb, var(--bs-secondary-color) 35%, transparent);
+}
+
+.trace-coverage-legend-dot.potential {
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, #ffc107 72%, transparent),
+    color-mix(in srgb, #ffc107 72%, transparent) 6px,
+    color-mix(in srgb, #fd7e14 72%, transparent) 6px,
+    color-mix(in srgb, #fd7e14 72%, transparent) 12px
+  );
+}
+</style>
 {% if trace_detail %}
 <!-- ===== Trace Detail: Hierarchical Timeline View ===== -->
 <div class="mb-3">
@@ -96,6 +365,10 @@
     <span class="font-monospace small text-secondary" title="Trace ID">{{ trace_id }}</span>
     <span class="badge bg-secondary">{{ trace_detail.span_tree | length }} span(s)</span>
     <span class="badge bg-info text-dark">{{ fmt_ms(trace_detail.total_ms) }} total</span>
+    <span class="badge bg-primary-subtle text-primary-emphasis"
+          title="Active span coverage across the full trace window (merged non-overlapping span intervals)">
+      {{ fmt_ms(trace_detail.active_ms) }} active ({{ '%.1f'|format(trace_detail.coverage_pct) }}%)
+    </span>
     {% if trace_detail.errors %}
     <span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>{{ trace_detail.errors | length }} error(s)</span>
     {% endif %}
@@ -107,6 +380,27 @@
     <span class="badge bg-success" title="Service anomaly state"><i class="bi bi-check-circle me-1"></i>normal</span>
     {% endif %}
     <a href="{{ url_for('view_traces') }}" class="btn btn-sm btn-outline-secondary ms-auto">← All Traces</a>
+  </div>
+
+  <div class="mb-2">
+    <div class="small text-secondary mb-1">Trace window activity</div>
+    <div class="trace-coverage-strip" title="Blue = active span time. Gray = no active span. Amber hatch = logs/errors seen while no span is active.">
+      {% for seg in trace_detail.timeline_segments %}
+      <div class="trace-coverage-segment {{ seg.kind }}{% if seg.kind == 'gap' and seg.potential %} potential{% endif %}"
+           style="left:{{ seg.start_pct }}%; width:{{ seg.width_pct }}%;"
+           title="{% if seg.kind == 'active' %}Active span interval{% elif seg.potential %}Potential instrumentation gap: activity recorded with no active span{% else %}No active span interval{% endif %}"></div>
+      {% endfor %}
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-3 mt-1 small">
+      <span class="trace-coverage-legend-chip"><span class="trace-coverage-legend-dot active"></span>Active span</span>
+      <span class="trace-coverage-legend-chip"><span class="trace-coverage-legend-dot gap"></span>No active span</span>
+      <span class="trace-coverage-legend-chip"><span class="trace-coverage-legend-dot potential"></span>Potential instrumentation gap</span>
+      {% if trace_detail.has_potential_gap %}
+      <span class="text-warning-emphasis">Activity exists in at least one no-span interval.</span>
+      {% else %}
+      <span class="text-secondary">No activity detected during no-span intervals.</span>
+      {% endif %}
+    </div>
   </div>
 
   <!-- Timeline header ruler -->
@@ -214,29 +508,145 @@
         <h2 class="accordion-header">
           <button class="accordion-button {% if not loop.first %}collapsed{% endif %} py-2"
                   type="button" data-bs-toggle="collapse" data-bs-target="#terr{{ loop.index }}">
-            <div class="d-flex gap-3 align-items-center w-100 me-2">
+            <div class="trace-error-summary d-flex gap-2 align-items-center w-100 me-2">
               <span class="badge {% if err.resolved %}bg-success{% else %}bg-danger{% endif %}">
                 {{ 'Resolved' if err.resolved else 'Open' }}
               </span>
-              <code class="small text-warning">{{ err.err_type }}</code>
-              <span class="small flex-grow-1 text-truncate">{{ err.message }}</span>
-              <span class="badge bg-secondary">{{ err.service or '—' }}</span>
-              {% if err.span_id %}
-              <span class="font-monospace text-secondary" style="font-size:.68rem;" title="Span: {{ err.span_id }}">{{ err.span_id | truncate(8, True, '') }}…</span>
+              <code class="small text-warning flex-shrink-0">{{ err.err_type }}</code>
+              {% if err.summary_from_json %}
+              <span class="badge bg-info-subtle text-info-emphasis flex-shrink-0" title="Header summary extracted from JSON payload">Parsed JSON</span>
               {% endif %}
+              <span class="trace-error-message-preview small flex-grow-1">{{ err.message_summary or err.message }}</span>
+              <span class="badge bg-secondary flex-shrink-0">{{ err.service or '—' }}</span>
+              {% if err.span_id %}
+              <span class="font-monospace text-secondary flex-shrink-0" style="font-size:.68rem;" title="Span: {{ err.span_id }}">{{ err.span_id | truncate(8, True, '') }}…</span>
+              {% endif %}
+              <span class="text-secondary small flex-shrink-0 sobs-tz-ts" data-utc-ts="{{ err.ts }}">{{ err.ts[:19] }}</span>
             </div>
           </button>
         </h2>
         <div id="terr{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}">
           <div class="accordion-body py-2">
+            {% set _msg = (err.message or '') | trim %}
+            {% set _body = (err.raw_body or '') | trim %}
+            {% set _show_body = _body != '' %}
+            {% set _show_message = _msg != '' and (not _show_body or _msg != _body) %}
+
+            {% if _show_message %}
+            <div class="mb-2">
+              <div class="small text-secondary mb-1">Error message</div>
+              {% if err.message_is_json %}
+              <details class="small rounded p-2 theme-panel" open>
+                <summary class="mb-2" style="cursor:pointer;">Formatted JSON</summary>
+                <pre class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.message_pretty_json }}</pre>
+              </details>
+              {% else %}
+              <div class="small rounded p-2 theme-panel" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.message }}</div>
+              {% endif %}
+            </div>
+            {% endif %}
+
+            {% if _show_body %}
+            <div class="mb-2">
+              <div class="small text-secondary mb-1">Body payload</div>
+              {% if err.raw_body_is_json %}
+              <details class="small rounded p-2 theme-panel" open>
+                <summary class="mb-2" style="cursor:pointer;">Formatted JSON</summary>
+                <pre class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.raw_body_pretty_json }}</pre>
+              </details>
+              {% else %}
+              <div class="small rounded p-2 theme-panel" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.raw_body }}</div>
+              {% endif %}
+            </div>
+            {% endif %}
+
             {% if err.stack %}
-            <pre class="stack-trace rounded p-2">{{ err.stack }}</pre>
+            <div class="mb-2">
+              <div class="small text-secondary mb-1">Stack trace</div>
+              {% if err.stack_is_json %}
+              <details class="small rounded p-2 theme-panel" open>
+                <summary class="mb-2" style="cursor:pointer;">Formatted JSON</summary>
+                <pre id="trace-stack-{{ err.id }}" class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.stack_pretty_json }}</pre>
+              </details>
+              {% else %}
+              <pre id="trace-stack-{{ err.id }}" class="stack-trace rounded p-2">{{ err.stack }}</pre>
+              {% endif %}
+            </div>
             {% endif %}
-            {% if err.span_id %}
-            <a href="{{ url_for('view_logs', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info mt-1">
+
+            {% if err.error_source or err.page_title or err.url or err.artifact_url or err.replay_url %}
+            <div class="row g-2 mt-1 mb-2 small">
+              {% if err.error_source %}
+              <div class="col-md-3">
+                <div class="text-secondary mb-1">Source</div>
+                <div class="font-monospace">{{ err.error_source }}</div>
+              </div>
+              {% endif %}
+              {% if err.page_title %}
+              <div class="col-md-3">
+                <div class="text-secondary mb-1">Page</div>
+                <div>{{ err.page_title }}</div>
+              </div>
+              {% endif %}
+              {% if err.viewport %}
+              <div class="col-md-2">
+                <div class="text-secondary mb-1">Viewport</div>
+                <div class="font-monospace">{{ err.viewport }}</div>
+              </div>
+              {% endif %}
+              {% if err.url %}
+              <div class="col-md-4">
+                <div class="text-secondary mb-1">URL</div>
+                <div class="text-break font-monospace">{{ err.url }}</div>
+              </div>
+              {% endif %}
+            </div>
+            {% endif %}
+
+            <div class="d-flex gap-2 mt-2">
+              <a href="{{ url_for('view_logs', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
               <i class="bi bi-journal-text me-1"></i>View Logs
-            </a>
-            {% endif %}
+              </a>
+              {% if err.trace_id %}
+              <a href="{{ url_for('view_traces', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
+                <i class="bi bi-diagram-3 me-1"></i>Trace
+              </a>
+              {% endif %}
+              {% if err.artifact_url %}
+              <button type="button"
+                      class="btn btn-sm btn-outline-primary js-rum-viewer-open"
+                      data-rum-view-kind="artifact"
+                      data-rum-view-url="{{ err.artifact_url }}"
+                      data-rum-view-label="{{ err.artifact_type or 'Artifact' }}">
+                <i class="bi bi-image me-1"></i>{{ err.artifact_type or 'Artifact' }}
+              </button>
+              {% endif %}
+              {% if err.replay_url %}
+              <button type="button"
+                      class="btn btn-sm btn-outline-warning js-rum-viewer-open"
+                      data-rum-view-kind="replay"
+                      data-rum-view-url="{{ err.replay_url }}"
+                      data-rum-view-label="Replay">
+                <i class="bi bi-play-circle me-1"></i>Replay
+              </button>
+              {% endif %}
+              <button class="btn btn-sm btn-outline-warning trace-ai-help-btn"
+                      data-err-type="{{ err.err_type }}"
+                      data-err-message="{{ err.message }}"
+                      data-err-service="{{ err.service or '—' }}"
+                      data-err-ts="{{ err.ts[:19] }}"
+                      data-err-id="{{ err.id }}"
+                      title="Copy error details for AI investigation">
+                <i class="bi bi-robot me-1"></i>AI Help
+              </button>
+              {% if err.stack %}
+              <button class="btn btn-sm btn-outline-secondary trace-copy-stack-btn"
+                      data-stack-id="trace-stack-{{ err.id }}"
+                      title="Copy stack trace">
+                <i class="bi bi-clipboard me-1"></i>Copy stack
+              </button>
+              {% endif %}
+            </div>
           </div>
         </div>
       </div>
@@ -285,7 +695,7 @@
     <tbody>
       {% for span in spans %}
       <tr>
-        <td class="text-secondary small font-monospace">{{ span.ts[:23] }}</td>
+        <td class="text-secondary small font-monospace sobs-tz-ts" data-utc-ts="{{ span.ts }}">{{ span.ts[:23] }}</td>
         <td class="small">{{ span.name }}</td>
         <td><span class="badge bg-secondary">{{ span.service or '—' }}</span></td>
         <td class="small">
@@ -346,9 +756,63 @@
   <p class="mt-2">No spans found</p>
 </div>
 {% endif %}
+
+<div class="modal fade" id="rumAssetViewerModal" tabindex="-1" aria-labelledby="rumAssetViewerLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="rumAssetViewerLabel">RUM Asset Viewer</h5>
+        <div class="modal-header-actions">
+          <a id="rumAssetViewerOpenRaw" href="#" target="_blank" rel="noopener noreferrer"
+             class="btn btn-sm btn-outline-secondary rum-asset-open-raw-btn"
+             title="Open raw asset" aria-label="Open raw asset">
+            <i class="bi bi-box-arrow-up-right"></i>
+          </a>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="rumAssetViewerStatus" class="small text-secondary mb-2"></div>
+        <div id="rumAssetViewerError" class="alert alert-danger d-none py-2 small" role="alert"></div>
+
+        <div id="rumAssetViewerImageWrap" class="d-none text-center">
+          <img id="rumAssetViewerImage" class="rum-viewer-image" alt="RUM artifact preview">
+        </div>
+
+        <div id="rumAssetViewerFrameWrap" class="d-none">
+          <iframe id="rumAssetViewerFrame" title="RUM asset preview" class="w-100" style="height:60vh;border:1px solid var(--bs-border-color);border-radius:.5rem;"></iframe>
+        </div>
+
+        <div id="rumAssetViewerReplayWrap" class="d-none">
+          <div id="rumAssetViewerReplayPlayer" class="rum-viewer-player mb-3 d-none"></div>
+          <div id="rumAssetViewerReplayTimeline" class="rum-replay-timeline d-none" aria-label="Replay error marker timeline">
+            <div class="rum-replay-timeline-track"></div>
+            <div id="rumAssetViewerReplayTimelineMarker" class="rum-replay-timeline-marker"></div>
+            <div id="rumAssetViewerReplayTimelineLabel" class="rum-replay-timeline-label small text-secondary"></div>
+          </div>
+          <details id="rumAssetViewerReplayRaw" class="rum-replay-raw">
+            <summary class="small text-secondary">Raw Replay JSON</summary>
+            <pre id="rumAssetViewerReplayJson" class="rum-viewer-json rounded p-2 mb-0 theme-panel"></pre>
+          </details>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
+if (window.sobsTimezone && typeof window.sobsTimezone.initPage === 'function') {
+  window.sobsTimezone.initPage({
+    fromInputId: 'traces-from-ts',
+    toInputId: 'traces-to-ts',
+    formSelector: '#tracesFiltersPanel form[method="get"]',
+    badgeButtonId: 'traces-tz-badge-btn',
+    badgeLabelId: 'traces-tz-badge-label',
+    timestampSelector: '.sobs-tz-ts[data-utc-ts]'
+  });
+}
+
 /* Tree expand/collapse for trace detail view */
 (function () {
   /* Bootstrap d-flex uses !important, so we need our own !important hide class */
@@ -384,6 +848,330 @@
     });
   });
 }());
+
+document.querySelectorAll('.trace-copy-stack-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const stackId = btn.getAttribute('data-stack-id');
+    const stackEl = stackId ? document.getElementById(stackId) : null;
+    const stack = stackEl ? String(stackEl.innerText || '').trim() : '';
+    if (!stack) return;
+    try {
+      await navigator.clipboard.writeText(stack);
+      const original = btn.innerHTML;
+      btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied';
+      btn.classList.replace('btn-outline-secondary', 'btn-secondary');
+      setTimeout(() => {
+        btn.innerHTML = original;
+        btn.classList.replace('btn-secondary', 'btn-outline-secondary');
+      }, 1800);
+    } catch (e) {
+      alert('Could not copy stack trace: ' + e.message);
+    }
+  });
+});
+
+document.querySelectorAll('.trace-ai-help-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const normalizeText = value => String(value || '').replace(/\r\n?/g, '\n').trim();
+    const toSingleLine = value => normalizeText(value).replace(/\n+/g, ' ');
+    const escapeInlineMd = value => toSingleLine(value).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
+    const fenceFor = value => {
+      const content = normalizeText(value);
+      const runs = content.match(/`+/g) || [];
+      let longestRun = 0;
+      runs.forEach(run => {
+        if (run.length > longestRun) {
+          longestRun = run.length;
+        }
+      });
+      return '`'.repeat(Math.max(3, longestRun + 1));
+    };
+
+    const errType = escapeInlineMd(btn.dataset.errType);
+    const message = escapeInlineMd(btn.dataset.errMessage);
+    const service = escapeInlineMd(btn.dataset.errService);
+    const itemRoot = btn.closest('.accordion-item');
+    const tsEl = itemRoot ? itemRoot.querySelector('.sobs-tz-ts') : null;
+    const ts = escapeInlineMd(tsEl && tsEl.textContent ? tsEl.textContent : btn.dataset.errTs);
+    const utcTs = escapeInlineMd(tsEl && tsEl.dataset && tsEl.dataset.utcTs ? tsEl.dataset.utcTs : btn.dataset.errTs);
+    const tzName = escapeInlineMd(window.sobsTimezone && typeof window.sobsTimezone.zone === 'function' ? window.sobsTimezone.zone() : 'local');
+    const stackEl = document.getElementById('trace-stack-' + btn.dataset.errId);
+    const stack = stackEl ? normalizeText(stackEl.innerText) : '';
+
+    const lines = [
+      '## Error Investigation Request',
+      '',
+      '**Service:** ' + service,
+      '**Timestamp (display):** ' + ts + ' (' + tzName + ')',
+      '**Timestamp (UTC):** ' + utcTs,
+      '**Error Type:** `' + errType + '`',
+      '**Message:** ' + message,
+    ];
+    if (stack) {
+      const fence = fenceFor(stack);
+      lines.push('', '**Stack Trace:**', fence, stack, fence);
+    }
+    lines.push('', '---', 'Please analyze this issue and suggest possible causes and next steps.');
+
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      const origHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied!';
+      btn.classList.replace('btn-outline-warning', 'btn-warning');
+      setTimeout(() => {
+        btn.innerHTML = origHtml;
+        btn.classList.replace('btn-warning', 'btn-outline-warning');
+      }, 2000);
+    } catch (e) {
+      alert('Could not copy to clipboard: ' + e.message);
+    }
+  });
+});
+
+  // ── RUM Asset / Replay Viewer ──────────────────────────────────────────────
+  (function () {
+    const modalEl = document.getElementById('rumAssetViewerModal');
+    if (!modalEl) return;
+
+    const hasBootstrapModal = !!(window.bootstrap && window.bootstrap.Modal);
+    const modal = hasBootstrapModal
+      ? window.bootstrap.Modal.getOrCreateInstance(modalEl)
+      : {
+          show() {
+            modalEl.style.display = 'block';
+            modalEl.classList.add('show');
+            modalEl.removeAttribute('aria-hidden');
+            document.body.classList.add('modal-open');
+          },
+          hide() {
+            modalEl.classList.remove('show');
+            modalEl.style.display = 'none';
+            modalEl.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('modal-open');
+          }
+        };
+
+    const titleEl = document.getElementById('rumAssetViewerLabel');
+    const rawEl = document.getElementById('rumAssetViewerOpenRaw');
+    const statusEl = document.getElementById('rumAssetViewerStatus');
+    const errorEl = document.getElementById('rumAssetViewerError');
+
+    const imgWrap = document.getElementById('rumAssetViewerImageWrap');
+    const imgEl = document.getElementById('rumAssetViewerImage');
+    const frameWrap = document.getElementById('rumAssetViewerFrameWrap');
+    const frameEl = document.getElementById('rumAssetViewerFrame');
+    const replayWrap = document.getElementById('rumAssetViewerReplayWrap');
+    const replayPlayer = document.getElementById('rumAssetViewerReplayPlayer');
+    const replayRaw = document.getElementById('rumAssetViewerReplayRaw');
+    const replayJson = document.getElementById('rumAssetViewerReplayJson');
+    let replayRawText = '';
+    let replayRawParsed = null;
+
+    if (!hasBootstrapModal) {
+      modalEl.querySelectorAll('[data-bs-dismiss="modal"], .btn-close').forEach((btn) => {
+        btn.addEventListener('click', () => modal.hide());
+      });
+      modalEl.addEventListener('click', function (evt) {
+        if (evt.target === modalEl) modal.hide();
+      });
+    }
+
+    let rrwebPlayerLoadPromise = null;
+
+    function hideAll() {
+      imgWrap.classList.add('d-none');
+      frameWrap.classList.add('d-none');
+      replayWrap.classList.add('d-none');
+      replayPlayer.classList.add('d-none');
+      errorEl.classList.add('d-none');
+      errorEl.textContent = '';
+      statusEl.textContent = '';
+      imgEl.removeAttribute('src');
+      frameEl.removeAttribute('src');
+      replayPlayer.innerHTML = '';
+      if (replayRaw) replayRaw.open = false;
+      replayRawText = '';
+      replayRawParsed = null;
+      replayJson.textContent = '';
+    }
+
+    function setError(message) {
+      errorEl.textContent = String(message || 'Unable to load asset');
+      errorEl.classList.remove('d-none');
+    }
+
+    function looksLikeImage(url) {
+      return /\.(png|jpe?g|webp|gif)(\?|$)/i.test(String(url || ''));
+    }
+
+    function setReplayModalOpenState(isOpen) {
+      document.documentElement.classList.toggle('rum-replay-modal-open', !!isOpen);
+      document.body.classList.toggle('rum-replay-modal-open', !!isOpen);
+    }
+
+    function toEpochMs(value) {
+      var n = Number(value);
+      if (!Number.isNaN(n)) return n;
+      var d = new Date(String(value || ''));
+      return Number.isNaN(d.getTime()) ? null : d.getTime();
+    }
+
+    // Keep timeline rendering optional so replay still works if timeline markup is absent.
+    function renderReplayErrorTimeline() {}
+
+    function loadRrwebPlayer() {
+      if (window.rrwebPlayer) return Promise.resolve(true);
+      if (rrwebPlayerLoadPromise) return rrwebPlayerLoadPromise;
+
+      rrwebPlayerLoadPromise = new Promise((resolve, reject) => {
+        const cssId = 'rum-rrweb-player-css';
+        if (!document.getElementById(cssId)) {
+          const link = document.createElement('link');
+          link.id = cssId;
+          link.rel = 'stylesheet';
+          link.href = 'https://cdn.jsdelivr.net/npm/rrweb-player@latest/dist/style.css';
+          document.head.appendChild(link);
+        }
+
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/rrweb-player@latest/dist/index.js';
+        script.async = true;
+        script.onload = () => resolve(!!window.rrwebPlayer);
+        script.onerror = () => reject(new Error('Failed to load rrweb-player'));
+        document.head.appendChild(script);
+      });
+
+      return rrwebPlayerLoadPromise;
+    }
+
+  async function renderReplay(url) {
+    replayWrap.classList.remove('d-none');
+    statusEl.textContent = 'Loading replay payload...';
+
+    const resp = await fetch(url, { credentials: 'same-origin' });
+    if (!resp.ok) throw new Error('Replay fetch failed with HTTP ' + resp.status);
+
+    const text = await resp.text();
+    replayRawText = text;
+    replayJson.textContent = '';
+
+    let parsed = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch (_) {
+      replayRawParsed = null;
+      statusEl.textContent = 'Replay payload is not JSON. Showing raw content.';
+      return;
+    }
+    replayRawParsed = parsed;
+
+    if (!parsed || !Array.isArray(parsed.events) || !parsed.events.length) {
+      statusEl.textContent = 'Replay JSON loaded (no events array found).';
+      return;
+    }
+
+    const startTs = toEpochMs(parsed.events[0] && parsed.events[0].timestamp);
+    const endTs = toEpochMs(parsed.events[parsed.events.length - 1] && parsed.events[parsed.events.length - 1].timestamp);
+    renderReplayErrorTimeline(parsed, startTs, endTs);
+
+    statusEl.textContent = 'Replay JSON loaded (' + parsed.events.length + ' events).';
+    try {
+      await loadRrwebPlayer();
+      if (!window.rrwebPlayer) return;
+      replayPlayer.classList.remove('d-none');
+      const playerWidth = Math.max(480, Math.floor(replayPlayer.clientWidth || replayWrap.clientWidth || 1100));
+      const playerHeight = Math.max(320, Math.floor(window.innerHeight * 0.5));
+      new window.rrwebPlayer({
+        target: replayPlayer,
+        props: {
+          events: parsed.events,
+          width: playerWidth,
+          height: playerHeight,
+          autoPlay: false,
+          showController: true
+        }
+      });
+      // If controller is not rendered by rrweb-player, surface that in status text.
+      setTimeout(function () {
+        var hasController = !!replayPlayer.querySelector('.rr-controller, .rr-player__controller, .controller');
+        if (!hasController) {
+          statusEl.textContent = 'Replay loaded, but rrweb controls were not rendered by this payload/player version.';
+        }
+      }, 0);
+      statusEl.textContent = 'Replay ready (' + parsed.events.length + ' events).';
+    } catch (err) {
+      statusEl.textContent = 'Replay JSON loaded; rrweb-player unavailable. Showing raw content.';
+    }
+  }
+
+  if (replayRaw) {
+    replayRaw.addEventListener('toggle', function () {
+      if (!replayRaw.open) return;
+      if (replayJson.textContent) return;
+      if (replayRawParsed) {
+        replayJson.textContent = JSON.stringify(replayRawParsed, null, 2);
+        return;
+      }
+      replayJson.textContent = replayRawText || '';
+    });
+  }
+
+  async function openViewer(kind, url, label) {
+    hideAll();
+    titleEl.textContent = label || 'RUM Asset Viewer';
+    rawEl.href = url;
+    setReplayModalOpenState(true);
+    modal.show();
+
+    try {
+      if (kind === 'artifact') {
+        if (looksLikeImage(url)) {
+          imgWrap.classList.remove('d-none');
+          imgEl.src = url;
+          statusEl.textContent = 'Image preview loaded.';
+        } else {
+          frameWrap.classList.remove('d-none');
+          frameEl.src = url;
+          statusEl.textContent = 'Rendering asset in embedded frame.';
+        }
+        return;
+      }
+
+      await renderReplay(url);
+    } catch (err) {
+      setError(err && err.message ? err.message : String(err));
+    }
+  }
+
+  document.addEventListener('click', function (evt) {
+    const btn = evt.target.closest('.js-rum-viewer-open');
+    if (!btn) return;
+    evt.preventDefault();
+    openViewer(
+      btn.getAttribute('data-rum-view-kind') || 'artifact',
+      btn.getAttribute('data-rum-view-url') || '',
+      btn.getAttribute('data-rum-view-label') || 'RUM Asset Viewer'
+    );
+  });
+
+  modalEl.addEventListener('hidden.bs.modal', function () {
+    setReplayModalOpenState(false);
+    hideAll();
+  });
+
+  modalEl.addEventListener('hide.bs.modal', function () {
+    setReplayModalOpenState(false);
+  });
+
+  if (!hasBootstrapModal) {
+    const originalHide = modal.hide.bind(modal);
+    modal.hide = function () {
+      setReplayModalOpenState(false);
+      originalHide();
+      hideAll();
+    };
+  }
+})();
 
 // ── Saved Reports: traces page ────────────────────────────────────────────
 (function () {

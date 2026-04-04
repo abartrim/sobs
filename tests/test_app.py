@@ -5,6 +5,8 @@ Run with:  pytest tests/
 
 import asyncio
 import base64
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -27,6 +29,8 @@ from app import app, compress, compress_json, decompress, decompress_json, init_
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
     init_db()
+    yield
+    sobs_app._shutdown_db_resources()
 
 
 @pytest.fixture
@@ -57,6 +61,27 @@ class TestCompression:
 
     async def test_decompress_json_none_returns_empty_dict(self):
         assert decompress_json(None) == {}
+
+
+class TestJsonSanitizer:
+    async def test_coerce_undefined_values_to_none(self):
+        class Undefined:
+            pass
+
+        payload = {
+            "top": Undefined(),
+            "nested": {"value": Undefined()},
+            "items": [1, Undefined(), {"x": Undefined()}],
+            "ok": "value",
+        }
+
+        sanitized = sobs_app._coerce_undefined_for_json(payload)
+
+        assert sanitized["top"] is None
+        assert sanitized["nested"]["value"] is None
+        assert sanitized["items"][1] is None
+        assert sanitized["items"][2]["x"] is None
+        assert sanitized["ok"] == "value"
 
 
 # ---------------------------------------------------------------------------
@@ -715,6 +740,131 @@ class TestErrorsIngest:
         assert "data-err-message" in body
         assert "data-err-service" in body
 
+    async def test_ingest_error_stack_is_source_mapped_when_enabled(self, client, monkeypatch):
+        monkeypatch.setattr(sobs_app, "SOURCE_MAP_ENABLE", True)
+
+        def _fake_lookup(_js_url, line, col):
+            if line == 1 and col == 1234:
+                return ("src/components/Checkout.tsx", 88, 21, "saveOrder")
+            return None
+
+        monkeypatch.setattr(sobs_app, "_sourcemap_lookup_for_file", _fake_lookup)
+
+        r = await client.post(
+            "/v1/errors",
+            json={
+                "service": "source-map-svc",
+                "type": "TypeError",
+                "message": "minified failure",
+                "stack": "TypeError: minified failure\n  at https://cdn.example.com/assets/app.min.js:1:1234",
+            },
+        )
+        assert r.status_code == 200
+
+        page = await client.get("/errors?service=source-map-svc")
+        assert page.status_code == 200
+        body = await page.get_data(as_text=True)
+        assert "[mapped] saveOrder (src/components/Checkout.tsx:88:21)" in body
+
+
+class TestAppReleaseRegistry:
+    async def test_create_and_list_app_release_artifacts(self, client):
+        app_resp = await client.post(
+            "/v1/apps",
+            json={
+                "name": "Checkout Web",
+                "slug": "checkout-web",
+                "ownerTeam": "frontend",
+                "repoUrl": "https://github.com/example/checkout",
+                "defaultEnvironment": "prod",
+            },
+        )
+        assert app_resp.status_code == 201
+        app_data = await app_resp.get_json()
+        app_id = app_data["id"]
+
+        list_apps = await client.get("/v1/apps")
+        assert list_apps.status_code == 200
+        apps = await list_apps.get_json()
+        assert any(a.get("slug") == "checkout-web" for a in apps)
+
+        rel_resp = await client.post(
+            f"/v1/apps/{app_id}/releases",
+            json={
+                "version": "1.2.3",
+                "commitSha": "abc123def456",
+                "environment": "prod",
+            },
+        )
+        assert rel_resp.status_code == 201
+        rel_data = await rel_resp.get_json()
+        release_id = rel_data["id"]
+
+        art_resp = await client.post(
+            f"/v1/releases/{release_id}/artifacts/meta",
+            json={
+                "artifactType": "js_sourcemap",
+                "name": "app.min.js.map",
+                "contentType": "application/json",
+                "size": 3210,
+                "storageRef": "s3://symbols/checkout/1.2.3/app.min.js.map",
+            },
+        )
+        assert art_resp.status_code == 201
+
+        rel_get = await client.get(f"/v1/releases/{release_id}")
+        assert rel_get.status_code == 200
+        rel_payload = await rel_get.get_json()
+        assert rel_payload["release"]["version"] == "1.2.3"
+        assert any(a.get("name") == "app.min.js.map" for a in rel_payload["artifacts"])
+
+    async def test_registry_seed_from_environment(self, monkeypatch):
+        seed = {
+            "apps": [
+                {
+                    "name": "Seeded App",
+                    "slug": "seeded-app",
+                    "ownerTeam": "platform",
+                    "releases": [
+                        {
+                            "version": "2026.04.02",
+                            "commitSha": "deadbeef",
+                            "environment": "prod",
+                            "artifacts": [
+                                {
+                                    "artifactType": "js_sourcemap",
+                                    "name": "main.js.map",
+                                    "storageRef": "s3://seeded/main.js.map",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        monkeypatch.setenv("SOBS_APP_REGISTRY_SEED_JSON", json.dumps(seed))
+        db = sobs_app.get_db()
+        sobs_app._seed_app_release_registry_from_env(db)
+
+        app_row = db.execute(
+            "SELECT Id, Name FROM sobs_apps FINAL WHERE Slug='seeded-app' AND IsDeleted=0 LIMIT 1"
+        ).fetchone()
+        assert app_row is not None
+
+        release_row = db.execute(
+            "SELECT Id FROM sobs_app_releases FINAL "
+            "WHERE AppId=? AND ReleaseVersion='2026.04.02' AND IsDeleted=0 LIMIT 1",
+            [str(app_row[0])],
+        ).fetchone()
+        assert release_row is not None
+
+        artifact_row = db.execute(
+            "SELECT Id FROM sobs_release_artifacts FINAL "
+            "WHERE ReleaseId=? AND Name='main.js.map' AND IsDeleted=0 LIMIT 1",
+            [str(release_row[0])],
+        ).fetchone()
+        assert artifact_row is not None
+
 
 # ---------------------------------------------------------------------------
 # RUM ingest
@@ -752,6 +902,87 @@ class TestRumIngest:
         )
         assert r.status_code == 200
 
+    async def test_ingest_rum_parses_traceparent_when_trace_ids_missing(self, client):
+        traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        session_id = f"sess-traceparent-{time.time_ns()}"
+        r = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": session_id,
+                    "url": "https://example.com/",
+                    "title": "Traceparent parse",
+                    "traceparent": traceparent,
+                }
+            ],
+        )
+        assert r.status_code == 200
+
+        row = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT TraceId, SpanId, TraceFlags FROM hyperdx_sessions "
+                "WHERE EventName='pageview' AND LogAttributes['sessionId']=? "
+                "ORDER BY Timestamp DESC LIMIT 1",
+                [session_id],
+            )
+            .fetchone()
+        )
+        assert row is not None
+        assert str(row["TraceId"]) == "4bf92f3577b34da6a3ce929d0e0e4736"
+        assert str(row["SpanId"]) == "00f067aa0ba902b7"
+        assert int(row["TraceFlags"]) == 1
+
+    async def test_ingest_web_vital_feeds_derived_signal_views(self, client):
+        marker = f"rum-vitals-svc-{time.time_ns()}"
+        r = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "web-vital",
+                    "name": "LCP",
+                    "value": 2400,
+                    "rating": "needs-improvement",
+                    "service": marker,
+                    "url": "https://example.com/checkout",
+                },
+                {
+                    "type": "web-vital",
+                    "name": "LCP",
+                    "value": 3000,
+                    "rating": "poor",
+                    "service": marker,
+                    "url": "https://example.com/checkout",
+                },
+                {
+                    "type": "web-vital",
+                    "name": "CLS",
+                    "value": 0.2,
+                    "rating": "needs-improvement",
+                    "service": marker,
+                    "url": "https://example.com/checkout",
+                },
+            ],
+        )
+        assert r.status_code == 200
+
+        db = sobs_app.get_db()
+        one_min_rows = db.execute(
+            "SELECT count() AS c FROM v_derived_signals_1m "
+            "WHERE SignalSource='rum_vitals' AND ServiceName=? AND SignalName IN ('LCP','CLS')",
+            [marker],
+        ).fetchone()["c"]
+        assert int(one_min_rows) >= 2
+
+        anomaly_rows = db.execute(
+            "SELECT count() AS c FROM v_derived_signals_anomaly "
+            "WHERE SignalSource='rum_vitals' AND ServiceName=? AND SignalName='LCP'",
+            [marker],
+        ).fetchone()["c"]
+        assert int(anomaly_rows) >= 1
+
     async def test_ingest_js_error(self, client):
         r = await client.post(
             "/v1/rum",
@@ -767,6 +998,63 @@ class TestRumIngest:
             ],
         )
         assert r.status_code == 200
+
+    async def test_ingest_js_error_with_breadcrumbs_and_trace(self, client):
+        r = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "error",
+                    "sessionId": "sess-002",
+                    "traceId": "trace-1234567890",
+                    "spanId": "span-1234",
+                    "url": "https://example.com/app",
+                    "message": "Cannot read properties of null",
+                    "errorType": "TypeError",
+                    "errorSource": "window.onerror",
+                    "stack": "TypeError: Cannot read...\n  at main (app.js:5)",
+                    "page": {
+                        "title": "Orders",
+                        "viewport": "1440x900",
+                    },
+                    "artifact": {
+                        "type": "screenshot",
+                        "id": "shot-001",
+                        "url": "https://example.com/artifacts/shot-001.png",
+                    },
+                    "replay": {
+                        "id": "replay-001",
+                        "url": "https://example.com/replays/replay-001",
+                    },
+                    "breadcrumbs": {
+                        "console": [
+                            {
+                                "timestamp": "2024-01-01T00:00:00Z",
+                                "level": "error",
+                                "message": "Widget exploded",
+                            }
+                        ],
+                        "user": [
+                            {
+                                "timestamp": "2024-01-01T00:00:00Z",
+                                "category": "ui.click",
+                                "message": "Clicked button#save",
+                                "data": {"target": "button#save"},
+                            }
+                        ],
+                    },
+                }
+            ],
+        )
+        assert r.status_code == 200
+
+        r = await client.get("/errors")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "window.onerror" in body
+        assert "Orders" in body
+        assert "screenshot" in body
+        assert "Replay" in body
 
     async def test_ingest_dict_payload(self, client):
         r = await client.post(
@@ -787,6 +1075,117 @@ class TestRumIngest:
         r = await client.post("/v1/rum", json=[])
         assert r.status_code == 200
         assert json.loads(await r.get_data())["accepted"] == 0
+
+    async def test_origin_bound_client_token_auth(self, client, monkeypatch):
+        monkeypatch.setattr(sobs_app, "RUM_CLIENT_AUTH_MODE", "origin")
+        monkeypatch.setattr(sobs_app, "RUM_CLIENT_SIGNING_KEY", "rum-client-secret")
+        monkeypatch.setattr(sobs_app, "RUM_CLIENT_TOKEN_TTL_SEC", 900)
+
+        issue = await client.post(
+            "/v1/rum/client-token",
+            json={"appName": "my-app", "origin": "https://example.com"},
+        )
+        assert issue.status_code == 200
+        issued = await issue.get_json()
+        token = issued["token"]
+        assert token
+
+        ok = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": "sess-auth-001",
+                    "appName": "my-app",
+                    "url": "https://example.com/",
+                    "clientAuthToken": token,
+                }
+            ],
+            headers={"Origin": "https://example.com"},
+        )
+        assert ok.status_code == 200
+
+        bad = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": "sess-auth-002",
+                    "appName": "my-app",
+                    "url": "https://example.com/",
+                    "clientAuthToken": token,
+                }
+            ],
+            headers={"Origin": "https://evil.example"},
+        )
+        assert bad.status_code == 401
+
+
+class TestRumAssetUploads:
+    async def test_rejects_missing_signature(self, client, monkeypatch):
+        monkeypatch.setattr(sobs_app, "RUM_ASSET_SIGNING_KEY", "test-secret")
+        r = await client.post(
+            "/v1/rum/assets?type=replay&name=rrweb.json",
+            data=b'{"events":[]}',
+            headers={"Content-Type": "application/json"},
+        )
+        assert r.status_code == 401
+
+    async def test_rejects_invalid_signature(self, client, monkeypatch):
+        monkeypatch.setattr(sobs_app, "RUM_ASSET_SIGNING_KEY", "test-secret")
+        r = await client.post(
+            "/v1/rum/assets?type=replay&name=rrweb.json",
+            data=b'{"events":[]}',
+            headers={
+                "Content-Type": "application/json",
+                "X-SOBS-Asset-Timestamp": str(int(time.time())),
+                "X-SOBS-Asset-Signature": "deadbeef",
+            },
+        )
+        assert r.status_code == 401
+
+    async def test_upload_and_download_with_valid_signature(self, client, monkeypatch):
+        secret = "test-secret"
+        body = b'{"events":[{"type":"meta","ts":1}]}'
+        asset_type = "replay"
+        asset_name = "rrweb-events.json"
+        content_type = "application/json"
+        timestamp = str(int(time.time()))
+
+        monkeypatch.setattr(sobs_app, "RUM_ASSET_SIGNING_KEY", secret)
+        monkeypatch.setattr(sobs_app, "RUM_ASSET_SIGN_WINDOW_SEC", 300)
+
+        payload = sobs_app._rum_asset_signature_payload(
+            method="POST",
+            path="/v1/rum/assets",
+            timestamp=timestamp,
+            body_sha256=hashlib.sha256(body).hexdigest(),
+            content_type=content_type,
+            asset_type=asset_type,
+            asset_name=asset_name,
+        )
+        signature = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+        r = await client.post(
+            f"/v1/rum/assets?type={asset_type}&name={asset_name}",
+            data=body,
+            headers={
+                "Content-Type": content_type,
+                "X-SOBS-Asset-Timestamp": timestamp,
+                "X-SOBS-Asset-Signature": signature,
+            },
+        )
+        assert r.status_code == 201
+        data = await r.get_json()
+        assert data["id"]
+        assert data["type"] == "replay"
+        assert data["url"].startswith("/v1/rum/assets/")
+
+        dl = await client.get(data["url"])
+        assert dl.status_code == 200
+        assert await dl.get_data() == body
 
 
 # ---------------------------------------------------------------------------
@@ -1281,7 +1680,282 @@ class TestUIPages:
         r = await client.get("/rum")
         assert r.status_code == 200
 
+    async def test_rum_page_defaults_to_session_grouped_view(self, client):
+        session_id = f"sess-grouped-{time.time_ns()}"
+        await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": session_id,
+                    "url": "https://example.com/checkout",
+                    "title": "Checkout",
+                },
+                {
+                    "type": "web-vital",
+                    "timestamp": "2024-01-01T00:00:01Z",
+                    "sessionId": session_id,
+                    "url": "https://example.com/checkout",
+                    "name": "LCP",
+                    "value": 2100,
+                    "rating": "good",
+                },
+            ],
+        )
+
+        r = await client.get("/rum")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Session timeline" in body
+        assert "Latest event" in body
+        assert "Healthy" in body
+        assert session_id[:8] in body
+
+    async def test_rum_page_session_view_defaults_to_severity_order(self, client):
+        healthy_session = f"sess-healthy-{time.time_ns()}"
+        error_session = f"sess-error-{time.time_ns()}"
+
+        await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:10Z",
+                    "sessionId": healthy_session,
+                    "url": "https://example.com/healthy",
+                    "title": "Healthy",
+                },
+                {
+                    "type": "web-vital",
+                    "timestamp": "2024-01-01T00:00:11Z",
+                    "sessionId": healthy_session,
+                    "url": "https://example.com/healthy",
+                    "name": "LCP",
+                    "value": 1200,
+                    "rating": "good",
+                },
+            ],
+        )
+        await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "error",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": error_session,
+                    "url": "https://example.com/failing",
+                    "message": "Boom",
+                    "errorType": "TypeError",
+                    "errorSource": "window.onerror",
+                }
+            ],
+        )
+
+        r = await client.get("/rum")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Error session" in body
+        assert body.index(error_session[:8]) < body.index(healthy_session[:8])
+
+    async def test_rum_page_events_view_toggle_renders_flat_table(self, client):
+        r = await client.get("/rum?view=events")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Timestamp" in body
+        assert "Type" in body
+        assert "Details" in body
+
+    async def test_rum_page_renders_enriched_error_details(self, client):
+        await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "error",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": "sess-detail-001",
+                    "traceId": "trace-detail-001",
+                    "url": "https://example.com/app",
+                    "message": "Cannot save order",
+                    "errorType": "TypeError",
+                    "errorSource": "window.onerror",
+                    "stack": "TypeError: Cannot save order\n  at saveOrder (app.js:5)",
+                    "page": {"title": "Order Editor", "viewport": "1280x720"},
+                    "artifact": {
+                        "type": "screenshot",
+                        "id": "shot-002",
+                        "url": "https://example.com/artifacts/shot-002.png",
+                    },
+                    "replay": {
+                        "id": "replay-002",
+                        "url": "https://example.com/replays/replay-002",
+                    },
+                    "breadcrumbs": {
+                        "console": [
+                            {
+                                "timestamp": "2024-01-01T00:00:00Z",
+                                "level": "error",
+                                "message": "Save failed",
+                                "errorType": "TypeError",
+                                "source": "app.js:42:10",
+                                "stack": "TypeError: Save failed\n  at saveOrder (app.js:42:10)",
+                            }
+                        ],
+                        "user": [
+                            {
+                                "timestamp": "2024-01-01T00:00:01Z",
+                                "category": "ui.click",
+                                "message": "Clicked button#save",
+                                "data": {"target": "button#save"},
+                            }
+                        ],
+                    },
+                }
+            ],
+        )
+        r = await client.get("/rum")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Recent Console" in body
+        assert "Type: TypeError" in body
+        assert "Source: app.js:42:10" in body
+        assert "saveOrder (app.js:42:10)" in body
+        assert "Recent Breadcrumbs" in body
+        assert "button#save" in body
+        assert "Trace trace-detail" in body
+        assert "shot-002" in body
+        assert "replay-002" in body
+        assert "View Replay" in body
+
+    async def test_rum_page_filters_by_error_source(self, client):
+        await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "error",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": "sess-source-001",
+                    "url": "https://example.com/app",
+                    "message": "Script boom",
+                    "errorType": "TypeError",
+                    "errorSource": "window.onerror",
+                },
+                {
+                    "type": "error",
+                    "timestamp": "2024-01-01T00:00:01Z",
+                    "sessionId": "sess-source-002",
+                    "url": "https://example.com/app",
+                    "message": "Asset failed",
+                    "errorType": "ResourceError",
+                    "errorSource": "resource-error",
+                },
+            ],
+        )
+        r = await client.get("/rum?error_source=resource-error")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Asset failed" in body
+        assert "Script boom" not in body
+
+    async def test_rum_page_renders_vitals_sparklines_and_hotspots(self, client):
+        marker = f"rum-ui-vitals-{time.time_ns()}"
+        r = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "web-vital",
+                    "name": "LCP",
+                    "value": 4500,
+                    "rating": "poor",
+                    "service": marker,
+                    "url": "https://example.com/checkout",
+                },
+                {
+                    "type": "web-vital",
+                    "name": "LCP",
+                    "value": 4200,
+                    "rating": "poor",
+                    "service": marker,
+                    "url": "https://example.com/checkout",
+                },
+                {
+                    "type": "web-vital",
+                    "name": "LCP",
+                    "value": 1800,
+                    "rating": "good",
+                    "service": marker,
+                    "url": "https://example.com/home",
+                },
+                {
+                    "type": "web-vital",
+                    "name": "LCP",
+                    "value": 4100,
+                    "rating": "poor",
+                    "service": marker,
+                    "url": "https://example.com/checkout",
+                },
+                {
+                    "type": "web-vital",
+                    "name": "CLS",
+                    "value": 0.3,
+                    "rating": "poor",
+                    "service": marker,
+                    "url": "https://example.com/checkout",
+                },
+            ],
+        )
+        assert r.status_code == 200
+
+        r = await client.get("/rum")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "URL Hotspots" in body
+        assert "vitals-sparkline" in body
+        assert "https://example.com/checkout" in body
+
     async def test_ai_page(self, client):
+        pass
+
+    async def test_rum_page_renders_error_stats_panel(self, client):
+        marker = f"rum-error-panel-{time.time_ns()}"
+        r = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "error",
+                    "message": "ReferenceError: marker is not defined",
+                    "errorType": "ReferenceError",
+                    "service": marker,
+                    "url": f"https://example.com/page-{marker}",
+                },
+                {
+                    "type": "error",
+                    "message": "ReferenceError: marker is not defined",
+                    "errorType": "ReferenceError",
+                    "service": marker,
+                    "url": f"https://example.com/page-{marker}",
+                },
+                {
+                    "type": "unhandledrejection",
+                    "message": "Promise rejected",
+                    "service": marker,
+                    "url": f"https://example.com/other-{marker}",
+                },
+            ],
+        )
+        assert r.status_code == 200
+
+        r = await client.get("/rum")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Errors (24 h)" in body
+        assert "errorRateSparkline" in body
+        assert "Top error messages" in body
+        assert "ReferenceError: marker is not defined" in body
+        assert "Top erroring URLs" in body
+        assert f"https://example.com/page-{marker}" in body
+
+    async def test_ai_page_real(self, client):
         r = await client.get("/ai")
         assert r.status_code == 200
 
@@ -1408,7 +2082,17 @@ class TestUIPages:
     async def test_rum_js_served(self, client):
         r = await client.get("/static/rum.js")
         assert r.status_code == 200
-        assert b"SOBS" in await r.get_data()
+        body = await r.get_data()
+        assert b"SOBS" in body
+        assert b"setTraceParent" in body
+        assert b"setVisualContext" in body
+        assert b"setReplayContext" in body
+        assert b"setArtifactContext" in body
+        assert b"setReplayUpload" in body
+        assert b"enableReplay" in body
+        assert b"disableReplay" in body
+        assert b"captureException" in body
+        assert b"setClientAuthToken" in body
 
     async def test_pagination(self, client):
         r = await client.get("/logs?limit=10&offset=0")
@@ -1831,6 +2515,9 @@ class TestUIPages:
         body = await r.get_data(as_text=True)
         assert "failing-span" in body
         assert "error" in body.lower()
+        assert "Related Errors" in body
+        assert "bad value" in body
+        assert "AI Help" in body
 
     async def test_trace_detail_back_link(self, client):
         """The detail view includes a link back to the full traces list."""
@@ -2857,6 +3544,28 @@ class TestGenAICompliance:
         assert "Raw JSON" in body
         assert "raw_attrs" in body or "Span Attributes" in body
 
+    async def test_ai_view_handles_messages_missing_content(self, client):
+        """AI view should not fail when message objects omit the content field."""
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "missing-content-svc",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "input_messages": [{"role": "user"}],
+                "output_messages": [{"role": "assistant", "tool_calls": [{"name": "lookup"}]}],
+                "tokens_in": 8,
+                "tokens_out": 2,
+                "duration_ms": 100,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/ai")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert "missing-content-svc" in body
+
     async def test_ai_view_includes_metrics_tab(self, client):
         """AI view should include Metrics tab with token and timing info."""
         r2 = await client.get("/ai")
@@ -2995,6 +3704,31 @@ class TestGenAICompliance:
         assert r2.status_code == 200
         body = await r2.get_data(as_text=True)
         assert "Tokens/sec" in body
+
+    async def test_ai_view_handles_metadata_query_failure_without_500(self, client, monkeypatch):
+        """AI view should degrade gracefully when non-critical metadata queries fail."""
+        import app as app_module
+
+        real_db = app_module.get_db()
+
+        class _DbProxy:
+            def __init__(self, inner_db):
+                self._inner_db = inner_db
+
+            def execute(self, sql, params=None):
+                sql_text = str(sql)
+                if "SELECT DISTINCT ServiceName FROM otel_traces" in sql_text:
+                    raise RuntimeError("simulated metadata query failure")
+                if params is None:
+                    return self._inner_db.execute(sql)
+                return self._inner_db.execute(sql, params)
+
+        monkeypatch.setattr(app_module, "get_db", lambda: _DbProxy(real_db))
+
+        r = await client.get("/ai")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Some AI metadata failed to load" in body
 
 
 # ---------------------------------------------------------------------------
@@ -3885,6 +4619,17 @@ class TestMetricsAnomalyDetection:
         for view in ("v_derived_signals_1m", "v_derived_signals_anomaly"):
             row = db.execute("SELECT 1 FROM system.tables WHERE database='default' AND name=?", (view,)).fetchone()
             assert row is not None, f"View {view!r} not found in schema"
+
+    async def test_cwv_rules_seeded_in_anomaly_rules(self, client):
+        db = sobs_app.get_db()
+        for signal in ("LCP", "INP", "CLS", "TTFB", "FCP", "FID"):
+            row = db.execute(
+                "SELECT count() AS c FROM sobs_anomaly_rules FINAL "
+                "WHERE IsDeleted=0 AND SignalSource='rum_vitals' AND SignalName=?",
+                [signal],
+            ).fetchone()
+            assert row is not None
+            assert int(row["c"]) >= 1
 
     async def test_metrics_index_page_renders(self, client):
         """Top-level metrics page should be accessible without chart drilldown."""
@@ -7759,3 +8504,127 @@ class TestWebTraffic:
         db = sobs_app.get_db()
         libs = sobs_app._extract_library_versions_from_otel(db)
         assert isinstance(libs, list)
+
+
+class TestKubernetesRoutes:
+    """Integration tests for Kubernetes health view routes."""
+
+    async def test_kubernetes_disabled_by_default(self, client, monkeypatch):
+        """The /kubernetes page returns 404 when feature is not enabled."""
+        monkeypatch.setattr(sobs_app, "_kubernetes_enabled", lambda: False)
+        r = await client.get("/kubernetes")
+        assert r.status_code == 404
+
+    async def test_kubernetes_status_disabled(self, client, monkeypatch):
+        monkeypatch.setattr(sobs_app, "_kubernetes_enabled", lambda: False)
+        r = await client.get("/api/kubernetes/status")
+        assert r.status_code == 404
+        data = json.loads(await r.get_data())
+        assert data["ok"] is False
+
+    async def test_kubernetes_ingest_route_removed(self, client):
+        r = await client.post("/api/kubernetes/ingest", json={"pods": []})
+        assert r.status_code == 404
+
+    async def test_kubernetes_page_enabled(self, client, monkeypatch):
+        monkeypatch.setattr(sobs_app, "_kubernetes_enabled", lambda: True)
+        r = await client.get("/kubernetes")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Kubernetes Health" in text
+        assert "api/kubernetes/status" in text
+
+    async def test_kubernetes_settings_page(self, client):
+        r = await client.get("/settings/kubernetes")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Kubernetes Health View" in text
+        assert "OTEL tables only" in text
+
+    async def test_kubernetes_settings_save(self, client):
+        r = await client.post(
+            "/settings/kubernetes",
+            form={"enabled": "1"},
+        )
+        assert r.status_code in (200, 302)
+
+    async def test_kubernetes_status_from_otel(self, client, monkeypatch):
+        monkeypatch.setattr(sobs_app, "_kubernetes_enabled", lambda: True)
+        monkeypatch.setattr(
+            sobs_app,
+            "_fetch_k8s_from_otel",
+            lambda _db, _query: {
+                "pods": [
+                    {
+                        "namespace": "default",
+                        "name": "my-pod-abc",
+                        "phase": "Running",
+                        "ready": True,
+                        "restarts": 0,
+                        "node": "node-1",
+                        "created": "2024-01-01T00:00:00Z",
+                    }
+                ],
+                "deployments": [
+                    {
+                        "namespace": "default",
+                        "name": "my-deploy",
+                        "desired": 2,
+                        "ready": 2,
+                        "available": 2,
+                        "updated": 2,
+                        "created": "2024-01-01T00:00:00Z",
+                    }
+                ],
+                "nodes": [
+                    {
+                        "name": "node-1",
+                        "status": "Ready",
+                        "version": "v1.29.0",
+                        "created": "2024-01-01T00:00:00Z",
+                    }
+                ],
+                "namespaces": [{"name": "default", "status": "Active", "created": "2024-01-01T00:00:00Z"}],
+                "error": "",
+                "source": "otel",
+            },
+        )
+
+        status_r = await client.get("/api/kubernetes/status")
+        assert status_r.status_code == 200
+        status_data = json.loads(await status_r.get_data())
+        assert status_data["ok"] is True
+        assert status_data["source"] == "otel"
+        assert len(status_data["pods"]) == 1
+        assert status_data["pods"][0]["name"] == "my-pod-abc"
+        assert len(status_data["deployments"]) == 1
+        assert len(status_data["nodes"]) == 1
+
+    async def test_kubernetes_status_no_data(self, client, monkeypatch):
+        monkeypatch.setattr(sobs_app, "_kubernetes_enabled", lambda: True)
+        monkeypatch.setattr(
+            sobs_app,
+            "_fetch_k8s_from_otel",
+            lambda _db, _query: {
+                "pods": [],
+                "deployments": [],
+                "nodes": [],
+                "namespaces": [],
+                "error": "No Kubernetes OTEL data found yet.",
+                "source": "otel",
+            },
+        )
+        r = await client.get("/api/kubernetes/status")
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["ok"] is True
+        assert data["pods"] == []
+        assert data["source"] == "otel"
+
+    async def test_kubernetes_settings_hub_card(self, client, monkeypatch):
+        """Settings hub shows the Kubernetes card."""
+        r = await client.get("/settings")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Kubernetes Health View" in text
+        assert "view_k8s_settings" in text or "settings/kubernetes" in text

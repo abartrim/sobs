@@ -1,0 +1,714 @@
+{% extends "base.html" %}
+{% block title %}Kubernetes Health{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1"><i class="bi bi-hdd-network me-2 text-info"></i>Kubernetes Health</h4>
+    <p class="text-secondary mb-0 small">Cluster status from OpenTelemetry collectors.</p>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span id="dataSourceBadge" class="badge text-bg-secondary">Loading…</span>
+    <span id="lastUpdatedBadge" class="text-secondary small"></span>
+    <span id="k8sCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
+    <div class="input-group input-group-sm" style="width:auto;" title="Auto-refresh interval">
+      <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
+      <select id="k8sRefreshSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="0">Off</option>
+        <option value="10">10s</option>
+        <option value="30" selected>30s</option>
+        <option value="60">1m</option>
+        <option value="120">2m</option>
+      </select>
+    </div>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('kubernetes_help') }}" title="Setup help">
+      <i class="bi bi-info-circle me-1"></i>Setup
+    </a>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_k8s_settings') }}">
+      <i class="bi bi-gear me-1"></i>Settings
+    </a>
+  </div>
+</div>
+
+<!-- Error banner -->
+<div id="errorBanner" class="alert alert-warning d-none mb-3" role="alert">
+  <i class="bi bi-exclamation-triangle me-2"></i>
+  <span id="errorMsg"></span>
+</div>
+
+<!-- Summary cards -->
+<div class="row g-3 mb-4" id="summaryCards">
+  <div class="col-6 col-md-3">
+    <div class="card border-secondary text-center h-100">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold text-info" id="nodeCount">–</div>
+        <div class="small text-secondary">Nodes</div>
+        <div class="small text-success" id="nodeReadyCount"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-secondary text-center h-100">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold text-primary" id="podCount">–</div>
+        <div class="small text-secondary">Pods</div>
+        <div class="small" id="podStatusSummary"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-secondary text-center h-100">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold text-success" id="deployCount">–</div>
+        <div class="small text-secondary">Deployments</div>
+        <div class="small" id="deployStatusSummary"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-secondary text-center h-100">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold text-warning" id="nsCount">–</div>
+        <div class="small text-secondary">Namespaces</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="accordion mb-3" id="k8sAccordion">
+  <!-- Filters -->
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header" id="k8sFiltersHeading">
+      <button class="accordion-button py-2" type="button"
+              data-bs-toggle="collapse" data-bs-target="#k8sFiltersPanel"
+              aria-expanded="true" aria-controls="k8sFiltersPanel">
+        <i class="bi bi-funnel me-2 text-info"></i>
+        <span class="fw-semibold">Filters</span>
+      </button>
+    </h2>
+    <div id="k8sFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="k8sFiltersHeading">
+      <div class="accordion-body py-3">
+        <div class="d-flex flex-wrap gap-2 align-items-end">
+          <div style="flex: 1 0 220px; max-width: 320px;">
+            <label class="form-label small text-secondary mb-1" for="k8sNamespaceFilter">Namespace</label>
+            <select id="k8sNamespaceFilter" class="form-select form-select-sm">
+              <option value="">All namespaces</option>
+            </select>
+          </div>
+          <div style="flex: 1 0 220px; max-width: 320px;">
+            <label class="form-label small text-secondary mb-1" for="k8sNameFilter">Name contains</label>
+            <input id="k8sNameFilter" type="text" class="form-control form-control-sm" placeholder="pod/deployment/node name">
+          </div>
+          <div>
+            <button id="k8sClearFilters" class="btn btn-sm btn-outline-secondary" type="button">
+              <i class="bi bi-x-circle me-1"></i>Clear
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nodes -->
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header" id="k8sNodesHeading">
+      <button class="accordion-button py-2" type="button"
+              data-bs-toggle="collapse" data-bs-target="#k8sNodesPanel"
+              aria-expanded="true" aria-controls="k8sNodesPanel">
+        <i class="bi bi-server me-2 text-secondary"></i>
+        <span class="fw-semibold">Nodes</span>
+        <span class="badge text-bg-secondary ms-2" id="nodeTableCount">0</span>
+      </button>
+    </h2>
+    <div id="k8sNodesPanel" class="accordion-collapse collapse show" aria-labelledby="k8sNodesHeading">
+      <div class="accordion-body py-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="nodes" data-key="name" data-label="Name">Name</button></th>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="nodes" data-key="status" data-label="Status">Status</button></th>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="nodes" data-key="version" data-label="Version">Version</button></th>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="nodes" data-key="created" data-label="Last Seen">Last Seen</button></th>
+                <th>Logs</th>
+              </tr>
+            </thead>
+            <tbody id="nodesBody">
+              <tr><td colspan="5" class="text-center text-secondary">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex justify-content-between align-items-center py-2 px-3 border-top">
+          <small class="text-secondary" id="nodesPageInfo">0 rows</small>
+          <div class="d-flex align-items-center gap-2">
+            <select id="nodesPageSize" class="form-select form-select-sm" style="width:auto;" aria-label="Rows per page">
+              <option value="10">10 / page</option>
+              <option value="25" selected>25 / page</option>
+              <option value="50">50 / page</option>
+            </select>
+            <div class="btn-group btn-group-sm">
+              <button id="nodesPrevBtn" class="btn btn-outline-secondary" type="button">Prev</button>
+              <button id="nodesNextBtn" class="btn btn-outline-secondary" type="button">Next</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deployments -->
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header" id="k8sDeploymentsHeading">
+      <button class="accordion-button py-2 collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#k8sDeploymentsPanel"
+              aria-expanded="false" aria-controls="k8sDeploymentsPanel">
+        <i class="bi bi-collection me-2 text-secondary"></i>
+        <span class="fw-semibold">Deployments</span>
+        <span class="badge text-bg-secondary ms-2" id="deployTableCount">0</span>
+      </button>
+    </h2>
+    <div id="k8sDeploymentsPanel" class="accordion-collapse collapse" aria-labelledby="k8sDeploymentsHeading">
+      <div class="accordion-body py-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="deployments" data-key="namespace" data-label="Namespace">Namespace</button></th>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="deployments" data-key="name" data-label="Name">Name</button></th>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="deployments" data-key="desired" data-label="Desired">Desired</button></th>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="deployments" data-key="ready" data-label="Ready">Ready</button></th>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="deployments" data-key="available" data-label="Available">Available</button></th>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="deployments" data-key="created" data-label="Last Seen">Last Seen</button></th>
+                <th>Logs</th>
+              </tr>
+            </thead>
+            <tbody id="deploymentsBody">
+              <tr><td colspan="7" class="text-center text-secondary">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex justify-content-between align-items-center py-2 px-3 border-top">
+          <small class="text-secondary" id="deploymentsPageInfo">0 rows</small>
+          <div class="d-flex align-items-center gap-2">
+            <select id="deploymentsPageSize" class="form-select form-select-sm" style="width:auto;" aria-label="Rows per page">
+              <option value="10">10 / page</option>
+              <option value="25" selected>25 / page</option>
+              <option value="50">50 / page</option>
+            </select>
+            <div class="btn-group btn-group-sm">
+              <button id="deploymentsPrevBtn" class="btn btn-outline-secondary" type="button">Prev</button>
+              <button id="deploymentsNextBtn" class="btn btn-outline-secondary" type="button">Next</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pods -->
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header" id="k8sPodsHeading">
+      <button class="accordion-button py-2 collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#k8sPodsPanel"
+              aria-expanded="false" aria-controls="k8sPodsPanel">
+        <i class="bi bi-box me-2 text-secondary"></i>
+        <span class="fw-semibold">Pods</span>
+        <span class="badge text-bg-secondary ms-2" id="podTableCount">0</span>
+      </button>
+    </h2>
+    <div id="k8sPodsPanel" class="accordion-collapse collapse" aria-labelledby="k8sPodsHeading">
+      <div class="accordion-body py-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="pods" data-key="namespace" data-label="Namespace">Namespace</button></th>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="pods" data-key="name" data-label="Name">Name</button></th>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="pods" data-key="phase" data-label="Phase">Phase</button></th>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="pods" data-key="ready" data-label="Ready">Ready</button></th>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="pods" data-key="restarts" data-label="Restarts">Restarts</button></th>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="pods" data-key="node" data-label="Node">Node</button></th>
+                <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="pods" data-key="created" data-label="Last Seen">Last Seen</button></th>
+                <th>Logs</th>
+              </tr>
+            </thead>
+            <tbody id="podsBody">
+              <tr><td colspan="8" class="text-center text-secondary">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex justify-content-between align-items-center py-2 px-3 border-top">
+          <small class="text-secondary" id="podsPageInfo">0 rows</small>
+          <div class="d-flex align-items-center gap-2">
+            <select id="podsPageSize" class="form-select form-select-sm" style="width:auto;" aria-label="Rows per page">
+              <option value="10">10 / page</option>
+              <option value="25" selected>25 / page</option>
+              <option value="50">50 / page</option>
+            </select>
+            <div class="btn-group btn-group-sm">
+              <button id="podsPrevBtn" class="btn btn-outline-secondary" type="button">Prev</button>
+              <button id="podsNextBtn" class="btn btn-outline-secondary" type="button">Next</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  'use strict';
+
+  var REFRESH_INTERVAL_MS = 30000;
+  var _timer = null;
+  var _countdownInterval = null;
+  var _allData = {
+    nodes: [],
+    deployments: [],
+    pods: [],
+    namespaces: []
+  };
+  var _meta = {
+    nodes: { total: 0, page: 1, page_size: 25, total_pages: 1 },
+    deployments: { total: 0, page: 1, page_size: 25, total_pages: 1 },
+    pods: { total: 0, page: 1, page_size: 25, total_pages: 1 }
+  };
+  var _tableState = {
+    nodes: { sortKey: 'name', sortDir: 'asc', page: 1, pageSize: 25 },
+    deployments: { sortKey: 'namespace', sortDir: 'asc', page: 1, pageSize: 25 },
+    pods: { sortKey: 'namespace', sortDir: 'asc', page: 1, pageSize: 25 }
+  };
+
+  function phaseBadge(phase) {
+    var cls = {
+      'Running': 'text-bg-success',
+      'Pending': 'text-bg-warning',
+      'Succeeded': 'text-bg-info',
+      'Failed': 'text-bg-danger',
+      'Unknown': 'text-bg-secondary'
+    }[phase] || 'text-bg-secondary';
+    return '<span class="badge ' + cls + '">' + escHtml(phase || 'Unknown') + '</span>';
+  }
+
+  function nodeBadge(status) {
+    var cls = status === 'Ready' ? 'text-bg-success' : 'text-bg-danger';
+    return '<span class="badge ' + cls + '">' + escHtml(status || 'Unknown') + '</span>';
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function fmtDate(ts) {
+    if (!ts) return '–';
+    try { return new Date(ts).toLocaleString(); } catch (e) { return ts; }
+  }
+
+  function sqlQuote(s) {
+    return String(s || '').replace(/'/g, "''");
+  }
+
+  function logsUrl(sql) {
+    return '/logs?sql=' + encodeURIComponent(sql);
+  }
+
+  function getFilterValues() {
+    return {
+      namespace: (document.getElementById('k8sNamespaceFilter').value || '').trim().toLowerCase(),
+      name: (document.getElementById('k8sNameFilter').value || '').trim().toLowerCase()
+    };
+  }
+
+  function parseSortValue(v) {
+    if (v === null || typeof v === 'undefined') return '';
+    if (typeof v === 'boolean') return v ? 1 : 0;
+    var n = Number(v);
+    if (!isNaN(n) && String(v).trim() !== '') return n;
+    var t = Date.parse(v);
+    if (!isNaN(t)) return t;
+    return String(v).toLowerCase();
+  }
+
+  function sortRows(rows, tableName) {
+    var state = _tableState[tableName];
+    var key = state.sortKey;
+    var dir = state.sortDir;
+    return rows.slice().sort(function (a, b) {
+      var av = parseSortValue(a[key]);
+      var bv = parseSortValue(b[key]);
+      if (av < bv) return dir === 'asc' ? -1 : 1;
+      if (av > bv) return dir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }
+
+  function applyFilters(rows, tableName) {
+    var filters = getFilterValues();
+    return rows.filter(function (row) {
+      var name = String(row.name || '').toLowerCase();
+      var namespace = String(row.namespace || '').toLowerCase();
+      var namePass = !filters.name || name.indexOf(filters.name) !== -1;
+      var namespacePass = true;
+      if (tableName !== 'nodes') {
+        namespacePass = !filters.namespace || namespace === filters.namespace;
+      }
+      return namePass && namespacePass;
+    });
+  }
+
+  function paginateRows(rows, tableName) {
+    var state = _tableState[tableName];
+    var totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
+    if (state.page > totalPages) state.page = totalPages;
+    if (state.page < 1) state.page = 1;
+    var start = (state.page - 1) * state.pageSize;
+    return {
+      rows: rows.slice(start, start + state.pageSize),
+      totalPages: totalPages,
+      totalRows: rows.length,
+      start: rows.length ? (start + 1) : 0,
+      end: Math.min(start + state.pageSize, rows.length)
+    };
+  }
+
+  function updateSortButtons() {
+    document.querySelectorAll('.k8s-sort').forEach(function (btn) {
+      var table = btn.getAttribute('data-table');
+      var key = btn.getAttribute('data-key');
+      var label = btn.getAttribute('data-label') || '';
+      var state = _tableState[table];
+      if (state && state.sortKey === key) {
+        btn.textContent = label + (state.sortDir === 'asc' ? ' ↑' : ' ↓');
+      } else {
+        btn.textContent = label;
+      }
+    });
+  }
+
+  function updatePagingUI(tableName, page) {
+    document.getElementById(tableName + 'PageInfo').textContent = page.start + '-' + page.end + ' of ' + page.totalRows;
+    document.getElementById(tableName + 'PrevBtn').disabled = page.totalRows === 0 || page.start <= 1;
+    document.getElementById(tableName + 'NextBtn').disabled = page.totalRows === 0 || page.end >= page.totalRows;
+  }
+
+  function updateTableCount(badgeId, shown, total) {
+    var badge = document.getElementById(badgeId);
+    badge.textContent = shown === total ? String(total) : shown + '/' + total;
+  }
+
+  function populateNamespaceFilter(data) {
+    var select = document.getElementById('k8sNamespaceFilter');
+    var current = select.value;
+    var set = {};
+    (data.namespaces || []).forEach(function (ns) {
+      if (ns && ns.name) set[String(ns.name)] = true;
+    });
+    (data.pods || []).forEach(function (p) {
+      if (p && p.namespace) set[String(p.namespace)] = true;
+    });
+    (data.deployments || []).forEach(function (d) {
+      if (d && d.namespace) set[String(d.namespace)] = true;
+    });
+    var namespaces = Object.keys(set).sort();
+    select.innerHTML = '<option value="">All namespaces</option>';
+    namespaces.forEach(function (ns) {
+      var opt = document.createElement('option');
+      opt.value = ns;
+      opt.textContent = ns;
+      select.appendChild(opt);
+    });
+    if (current && namespaces.indexOf(current) !== -1) {
+      select.value = current;
+    }
+  }
+
+  function rerenderAll() {
+    renderNodes(_allData.nodes || []);
+    renderDeployments(_allData.deployments || []);
+    renderPods(_allData.pods || []);
+    updateSortButtons();
+  }
+
+  function renderNodes(nodes) {
+    var meta = _meta.nodes || { total: nodes.length, page: 1, page_size: nodes.length || 25, total_pages: 1 };
+    var start = nodes.length ? (((meta.page || 1) - 1) * (meta.page_size || 25) + 1) : 0;
+    var end = nodes.length ? (start + nodes.length - 1) : 0;
+    var page = { start: start, end: end, totalRows: meta.total || 0, totalPages: meta.total_pages || 1 };
+    var tbody = document.getElementById('nodesBody');
+    updateTableCount('nodeTableCount', nodes.length, meta.total || nodes.length);
+    updatePagingUI('nodes', page);
+    if (!nodes || nodes.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-secondary">No nodes found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = nodes.map(function (n) {
+      var sql = "LogAttributes['k8s.node.name']='" + sqlQuote(n.name || '') + "'";
+      return '<tr>'
+        + '<td class="font-monospace small">' + escHtml(n.name) + '</td>'
+        + '<td>' + nodeBadge(n.status) + '</td>'
+        + '<td class="small">' + escHtml(n.version || '–') + '</td>'
+        + '<td class="small">' + fmtDate(n.created) + '</td>'
+        + '<td><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
+        + '</tr>';
+    }).join('');
+  }
+
+  function renderDeployments(deploys) {
+    var meta = _meta.deployments || { total: deploys.length, page: 1, page_size: deploys.length || 25, total_pages: 1 };
+    var start = deploys.length ? (((meta.page || 1) - 1) * (meta.page_size || 25) + 1) : 0;
+    var end = deploys.length ? (start + deploys.length - 1) : 0;
+    var page = { start: start, end: end, totalRows: meta.total || 0, totalPages: meta.total_pages || 1 };
+    var tbody = document.getElementById('deploymentsBody');
+    updateTableCount('deployTableCount', deploys.length, meta.total || deploys.length);
+    updatePagingUI('deployments', page);
+    if (!deploys || deploys.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-secondary">No deployments found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = deploys.map(function (d) {
+      var healthy = (d.ready || 0) >= (d.desired || 0);
+      var readyCls = healthy ? 'text-success' : 'text-danger';
+      var sql = "LogAttributes['k8s.namespace.name']='" + sqlQuote(d.namespace || '')
+        + "' AND LogAttributes['k8s.deployment.name']='" + sqlQuote(d.name || '') + "'";
+      return '<tr>'
+        + '<td class="small">' + escHtml(d.namespace || '–') + '</td>'
+        + '<td class="font-monospace small">' + escHtml(d.name) + '</td>'
+        + '<td class="text-center">' + escHtml(d.desired || 0) + '</td>'
+        + '<td class="text-center ' + readyCls + ' fw-semibold">' + escHtml(d.ready || 0) + '</td>'
+        + '<td class="text-center">' + escHtml(d.available || 0) + '</td>'
+        + '<td class="small">' + fmtDate(d.created) + '</td>'
+        + '<td><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
+        + '</tr>';
+    }).join('');
+  }
+
+  function renderPods(pods) {
+    var meta = _meta.pods || { total: pods.length, page: 1, page_size: pods.length || 25, total_pages: 1 };
+    var start = pods.length ? (((meta.page || 1) - 1) * (meta.page_size || 25) + 1) : 0;
+    var end = pods.length ? (start + pods.length - 1) : 0;
+    var page = { start: start, end: end, totalRows: meta.total || 0, totalPages: meta.total_pages || 1 };
+    var tbody = document.getElementById('podsBody');
+    updateTableCount('podTableCount', pods.length, meta.total || pods.length);
+    updatePagingUI('pods', page);
+    if (!pods || pods.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-secondary">No pods found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = pods.map(function (p) {
+      var restartCls = (p.restarts || 0) > 5 ? 'text-danger' : (p.restarts > 0 ? 'text-warning' : '');
+      var sql = "LogAttributes['k8s.namespace.name']='" + sqlQuote(p.namespace || '')
+        + "' AND LogAttributes['k8s.pod.name']='" + sqlQuote(p.name || '') + "'";
+      return '<tr>'
+        + '<td class="small">' + escHtml(p.namespace || '–') + '</td>'
+        + '<td class="font-monospace small">' + escHtml(p.name) + '</td>'
+        + '<td>' + phaseBadge(p.phase) + '</td>'
+        + '<td class="text-center">' + (p.ready ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>') + '</td>'
+        + '<td class="text-center ' + restartCls + '">' + escHtml(p.restarts || 0) + '</td>'
+        + '<td class="small">' + escHtml(p.node || '–') + '</td>'
+        + '<td class="small">' + fmtDate(p.created) + '</td>'
+        + '<td><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
+        + '</tr>';
+    }).join('');
+  }
+
+  function updateSummary(data) {
+    var summary = data.summary || {};
+
+    var nodesTotal = Number(summary.nodes_total || (data.nodes || []).length || 0);
+    var readyNodes = Number(summary.nodes_ready || 0);
+    document.getElementById('nodeCount').textContent = nodesTotal;
+    document.getElementById('nodeReadyCount').textContent = readyNodes + '/' + nodesTotal + ' ready';
+
+    var podsTotal = Number(summary.pods_total || (data.pods || []).length || 0);
+    var runningPods = Number(summary.pods_running || 0);
+    var failedPods = Number(summary.pods_failed || 0);
+    document.getElementById('podCount').textContent = podsTotal;
+    var podSummary = document.getElementById('podStatusSummary');
+    podSummary.className = 'small ' + (failedPods > 0 ? 'text-danger' : 'text-success');
+    podSummary.textContent = runningPods + ' running' + (failedPods > 0 ? ', ' + failedPods + ' failed' : '');
+
+    var deployTotal = Number(summary.deployments_total || (data.deployments || []).length || 0);
+    var unhealthyDeploys = Number(summary.deployments_unhealthy || 0);
+    document.getElementById('deployCount').textContent = deployTotal;
+    var deploySummary = document.getElementById('deployStatusSummary');
+    deploySummary.className = 'small ' + (unhealthyDeploys > 0 ? 'text-danger' : 'text-success');
+    deploySummary.textContent = unhealthyDeploys > 0 ? unhealthyDeploys + ' not fully ready' : 'all healthy';
+
+    var nsTotal = Number(summary.namespaces_total || (data.namespaces || []).length || 0);
+    document.getElementById('nsCount').textContent = nsTotal;
+  }
+
+  function setSourceBadge() {
+    var badge = document.getElementById('dataSourceBadge');
+    badge.className = 'badge text-bg-info';
+    badge.innerHTML = '<i class="bi bi-diagram-3 me-1"></i>OTEL';
+    var ts = document.getElementById('lastUpdatedBadge');
+    ts.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+  }
+
+  function load() {
+    var filters = getFilterValues();
+    var params = new URLSearchParams();
+    if (filters.namespace) params.set('namespace', filters.namespace);
+    if (filters.name) params.set('name', filters.name);
+
+    ['nodes', 'deployments', 'pods'].forEach(function (table) {
+      var s = _tableState[table];
+      params.set(table + '_sort', s.sortKey);
+      params.set(table + '_dir', s.sortDir);
+      params.set(table + '_page', String(s.page));
+      params.set(table + '_page_size', String(s.pageSize));
+    });
+
+    fetch('/api/kubernetes/status?' + params.toString())
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var errorBanner = document.getElementById('errorBanner');
+        var errorMsg = document.getElementById('errorMsg');
+        if (data.error) {
+          errorBanner.classList.remove('d-none');
+          errorMsg.textContent = data.error;
+        } else {
+          errorBanner.classList.add('d-none');
+        }
+        _allData = {
+          nodes: data.nodes || [],
+          deployments: data.deployments || [],
+          pods: data.pods || [],
+          namespaces: data.namespaces || []
+        };
+        _meta = data.meta || _meta;
+        ['nodes', 'deployments', 'pods'].forEach(function (table) {
+          var m = _meta[table] || {};
+          if (m.page) _tableState[table].page = Number(m.page);
+          if (m.page_size) _tableState[table].pageSize = Number(m.page_size);
+          if (m.sort_key) _tableState[table].sortKey = String(m.sort_key);
+          if (m.sort_dir) _tableState[table].sortDir = String(m.sort_dir);
+        });
+        populateNamespaceFilter(_allData);
+        setSourceBadge();
+        updateSummary(data);
+        rerenderAll();
+      })
+      .catch(function (err) {
+        var errorBanner = document.getElementById('errorBanner');
+        errorBanner.classList.remove('d-none');
+        document.getElementById('errorMsg').textContent = 'Failed to load data: ' + err;
+        document.getElementById('dataSourceBadge').className = 'badge text-bg-danger';
+        document.getElementById('dataSourceBadge').textContent = 'Error';
+      });
+  }
+
+  function startAutoRefresh() {
+    if (_timer) clearInterval(_timer);
+    if (REFRESH_INTERVAL_MS > 0) {
+      _timer = setInterval(load, REFRESH_INTERVAL_MS);
+    }
+  }
+
+  function startCountdown(interval) {
+    var countdownEl = document.getElementById('k8sCountdown');
+    if (interval <= 0) {
+      countdownEl.style.display = 'none';
+      if (_countdownInterval) clearInterval(_countdownInterval);
+      return;
+    }
+    var remaining = interval;
+    countdownEl.style.display = 'inline';
+    countdownEl.textContent = remaining + 's';
+    if (_countdownInterval) clearInterval(_countdownInterval);
+    _countdownInterval = setInterval(function () {
+      remaining--;
+      if (remaining <= 0) {
+        clearInterval(_countdownInterval);
+        load();
+        startCountdown(interval);
+      } else {
+        countdownEl.textContent = remaining + 's';
+      }
+    }, 1000);
+  }
+
+  document.querySelectorAll('.k8s-sort').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var table = this.getAttribute('data-table');
+      var key = this.getAttribute('data-key');
+      var state = _tableState[table];
+      if (!state) return;
+      if (state.sortKey === key) {
+        state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        state.sortKey = key;
+        state.sortDir = 'asc';
+      }
+      state.page = 1;
+      load();
+    });
+  });
+
+  ['nodes', 'deployments', 'pods'].forEach(function (table) {
+    document.getElementById(table + 'PageSize').addEventListener('change', function () {
+      _tableState[table].pageSize = parseInt(this.value, 10) || 25;
+      _tableState[table].page = 1;
+      load();
+    });
+    document.getElementById(table + 'PrevBtn').addEventListener('click', function () {
+      _tableState[table].page = Math.max(1, _tableState[table].page - 1);
+      load();
+    });
+    document.getElementById(table + 'NextBtn').addEventListener('click', function () {
+      _tableState[table].page = _tableState[table].page + 1;
+      load();
+    });
+  });
+
+  document.getElementById('k8sNamespaceFilter').addEventListener('change', function () {
+    _tableState.nodes.page = 1;
+    _tableState.deployments.page = 1;
+    _tableState.pods.page = 1;
+    load();
+  });
+
+  document.getElementById('k8sNameFilter').addEventListener('input', function () {
+    _tableState.nodes.page = 1;
+    _tableState.deployments.page = 1;
+    _tableState.pods.page = 1;
+    load();
+  });
+
+  document.getElementById('k8sClearFilters').addEventListener('click', function () {
+    document.getElementById('k8sNamespaceFilter').value = '';
+    document.getElementById('k8sNameFilter').value = '';
+    _tableState.nodes.page = 1;
+    _tableState.deployments.page = 1;
+    _tableState.pods.page = 1;
+    load();
+  });
+
+  var refreshSelect = document.getElementById('k8sRefreshSelect');
+  refreshSelect.addEventListener('change', function () {
+    var interval = parseInt(this.value, 10);
+    REFRESH_INTERVAL_MS = interval * 1000;
+    if (interval > 0) {
+      startAutoRefresh();
+      startCountdown(interval);
+    } else {
+      if (_timer) clearInterval(_timer);
+      if (_countdownInterval) clearInterval(_countdownInterval);
+      document.getElementById('k8sCountdown').style.display = 'none';
+    }
+  });
+
+  load();
+  startAutoRefresh();
+  startCountdown(30);
+  updateSortButtons();
+})();
+</script>
+{% endblock %}

@@ -19,6 +19,10 @@
               aria-expanded="true" aria-controls="metricsFiltersPanel">
         <i class="bi bi-funnel me-2 text-info"></i>
         <span class="fw-semibold">Filters</span>
+        <span id="metrics-tz-badge-btn" class="sobs-tz-header-badge" role="button" tabindex="0" title="Display timezone - click to change">
+          <i class="bi bi-clock"></i>
+          <span id="metrics-tz-badge-label">UTC</span>
+        </span>
       </button>
     </h2>
     <div id="metricsFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="metricsFiltersHeading" data-bs-parent="#metricsFiltersAccordion">
@@ -146,7 +150,7 @@
         {% if rows %}
           {% for r in rows %}
           <tr>
-            <td class="small font-monospace">{{ r.last_time }}</td>
+            <td class="small font-monospace sobs-tz-ts" data-utc-ts="{{ r.last_time }}">{{ r.last_time }}</td>
             <td class="small">{{ r.service }}</td>
             <td class="small">{{ r.source }}</td>
             <td class="small font-monospace">{{ r.signal }}</td>
@@ -212,6 +216,23 @@
 </nav>
 {% endif %}
 <script>
+function initMetricsTimezone() {
+  if (!window.sobsTimezone || typeof window.sobsTimezone.initPage !== 'function') return false;
+  window.sobsTimezone.initPage({
+    fromInputId: 'metrics-from-ts',
+    toInputId: 'metrics-to-ts',
+    formSelector: '#metricsFiltersPanel form[method="get"]',
+    badgeButtonId: 'metrics-tz-badge-btn',
+    badgeLabelId: 'metrics-tz-badge-label',
+    timestampSelector: '.sobs-tz-ts[data-utc-ts]'
+  });
+  return true;
+}
+
+if (!initMetricsTimezone()) {
+  window.addEventListener('load', initMetricsTimezone, { once: true });
+}
+
 // ── Saved Reports: metrics page ───────────────────────────────────────────
 (function () {
   const group = document.getElementById('metrics-reports-group');
