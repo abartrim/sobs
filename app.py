@@ -1427,6 +1427,7 @@ _AI_SETTING_KEYS = (
     "ai.guard_endpoint_url",
     "ai.guard_model",
     "ai.guard_thinking_level",
+    "ai.guard_timeout_seconds",
     "ai.dlp_endpoint_url",
     "ai.github_token",
     "ai.github_repo",
@@ -1442,6 +1443,7 @@ _AI_ENV_OVERRIDES: dict[str, tuple[str, str]] = {
     "ai.guard_endpoint_url": ("SOBS_AI_GUARD_ENDPOINT_URL", "SOBS_AI_GUARD_ENDPOINT_URL_FILE"),
     "ai.guard_model": ("SOBS_AI_GUARD_MODEL", "SOBS_AI_GUARD_MODEL_FILE"),
     "ai.guard_thinking_level": ("SOBS_AI_GUARD_THINKING_LEVEL", "SOBS_AI_GUARD_THINKING_LEVEL_FILE"),
+    "ai.guard_timeout_seconds": ("SOBS_AI_GUARD_TIMEOUT_SECONDS", "SOBS_AI_GUARD_TIMEOUT_SECONDS_FILE"),
     "ai.dlp_endpoint_url": ("SOBS_AI_DLP_ENDPOINT_URL", "SOBS_AI_DLP_ENDPOINT_URL_FILE"),
 }
 
@@ -2821,7 +2823,13 @@ async def _call_llm_endpoint(
                     error_text = f"HTTP {exc.response.status_code}: {exc}"
             except Exception:
                 error_text = str(exc)
-        log.warning("LLM endpoint call failed: %s", exc)
+        log.warning(
+            "LLM endpoint call failed (model=%s, endpoint=%s, type=%s): %r",
+            model,
+            endpoint_url,
+            type(exc).__name__,
+            exc,
+        )
         return "", {"elapsed_ms": elapsed_ms, "error": error_text}
 
 
@@ -3011,6 +3019,17 @@ def _resolve_guard_max_tokens(thinking_level: str) -> int:
     return 256 if thinking_level != "off" else 64
 
 
+def _resolve_guard_timeout_seconds(settings: dict[str, str]) -> int:
+    raw = str(settings.get("ai.guard_timeout_seconds", "") or "").strip()
+    if not raw:
+        return 30
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 30
+    return max(5, min(120, value))
+
+
 async def _check_guard_model(
     settings: dict[str, str],
     user_input: str,
@@ -3043,6 +3062,7 @@ async def _check_guard_model(
     ]
     guard_thinking_level = _resolve_guard_thinking_level(settings, guard_model)
     guard_max_tokens = _resolve_guard_max_tokens(guard_thinking_level)
+    guard_timeout_seconds = _resolve_guard_timeout_seconds(settings)
     reply, guard_stats = await _maybe_await(
         _call_llm_endpoint(
             guard_url,
@@ -3051,7 +3071,7 @@ async def _check_guard_model(
             messages,
             thinking_level=guard_thinking_level,
             max_tokens=guard_max_tokens,
-            timeout=10,
+            timeout=guard_timeout_seconds,
             empty_content_retry_instruction=(
                 "Your previous reply had empty message.content. "
                 "Return exactly one token on line 1: safe or unsafe. "
@@ -15520,7 +15540,7 @@ async def save_ai_settings():
     form = await request.form
     db = get_db()
     for key in _AI_SETTING_KEYS:
-        if key == "ai.guard_thinking_level":
+        if key in {"ai.guard_thinking_level", "ai.guard_timeout_seconds"}:
             # Guard thinking is intentionally not user-configured via the Settings UI.
             continue
         # Strip key prefix for form field name: "ai.endpoint_url" → "endpoint_url"
