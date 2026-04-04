@@ -6,6 +6,15 @@ updates:
       interval: "daily"
       time: "06:00"
       timezone: "UTC"
+    assignees:
+      - "abartrim"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      python-version-updates:
+        patterns:
+          - "*"
     open-pull-requests-limit: 10
     labels:
       - "dependencies"
@@ -17,6 +26,15 @@ updates:
       interval: "daily"
       time: "06:15"
       timezone: "UTC"
+    assignees:
+      - "abartrim"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      npm-version-updates:
+        patterns:
+          - "*"
     open-pull-requests-limit: 10
     labels:
       - "dependencies"
@@ -28,6 +46,15 @@ updates:
       interval: "daily"
       time: "06:30"
       timezone: "UTC"
+    assignees:
+      - "abartrim"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      docker-version-updates:
+        patterns:
+          - "*"
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
@@ -39,6 +66,15 @@ updates:
       interval: "daily"
       time: "06:45"
       timezone: "UTC"
+    assignees:
+      - "abartrim"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      github-actions-version-updates:
+        patterns:
+          - "*"
     open-pull-requests-limit: 10
     labels:
       - "dependencies"
