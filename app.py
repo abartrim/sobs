@@ -4861,18 +4861,40 @@ def _stringify_attrs(values: dict | None) -> dict[str, str]:
     return out
 
 
-def _extract_messages_text(messages_str: str) -> str:
-    """Extract readable text from gen_ai.input.messages or gen_ai.output.messages JSON.
-
-    Accepts either a JSON array of message objects (OTel GenAI convention) or a plain
-    string and returns a human-readable representation for UI display.
-    """
-    if not messages_str:
+def _genai_tool_calls_to_text(tool_calls_value: Any) -> str:
+    if not isinstance(tool_calls_value, list):
         return ""
+    chunks: list[str] = []
+    for item in tool_calls_value:
+        if not isinstance(item, dict):
+            continue
+        function_value = item.get("function")
+        function: dict[str, Any] = function_value if isinstance(function_value, dict) else {}
+        name = str(item.get("name") or function.get("name") or "").strip()
+        arguments = item.get("arguments")
+        if arguments in (None, "", [], {}):
+            arguments = function.get("arguments")
+        label = f"tool_call:{name}" if name else "tool_call"
+        if isinstance(arguments, (dict, list)) and arguments:
+            chunks.append(f"{label} {json.dumps(arguments, ensure_ascii=False)}")
+        elif arguments not in (None, ""):
+            chunks.append(f"{label} {arguments}")
+        else:
+            chunks.append(label)
+    return "\n".join(chunks).strip()
 
-    def _parts_to_text(parts_value: Any) -> str:
-        if not isinstance(parts_value, list):
-            return ""
+
+def _genai_message_content_to_text(message: dict[str, Any]) -> str:
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(part.get("text", "") if isinstance(part, dict) else str(part) for part in content).strip()
+    if content not in (None, ""):
+        return str(content)
+
+    parts_value = message.get("parts")
+    if isinstance(parts_value, list):
         chunks: list[str] = []
         for part in parts_value:
             if isinstance(part, str):
@@ -4888,13 +4910,9 @@ def _extract_messages_text(messages_str: str) -> str:
                     chunks.append(str(text))
                 continue
             if part_type in {"tool_call", "server_tool_call"}:
-                name = str(part.get("name", "")).strip()
-                args = part.get("arguments")
-                label = f"tool_call:{name}" if name else "tool_call"
-                if isinstance(args, dict) and args:
-                    chunks.append(f"{label} {json.dumps(args, ensure_ascii=False)}")
-                else:
-                    chunks.append(label)
+                rendered = _genai_tool_calls_to_text([part])
+                if rendered:
+                    chunks.append(rendered)
                 continue
             if part_type in {"tool_call_response", "server_tool_call_response"}:
                 response = part.get("response")
@@ -4903,28 +4921,64 @@ def _extract_messages_text(messages_str: str) -> str:
                 else:
                     chunks.append(part_type)
                 continue
-            content = part.get("content")
-            if content:
-                chunks.append(str(content))
+            part_content = part.get("content")
+            if part_content:
+                chunks.append(str(part_content))
                 continue
             chunks.append(json.dumps(part, ensure_ascii=False))
-        return "\n".join(chunks).strip()
+        rendered_parts = "\n".join(chunks).strip()
+        if rendered_parts:
+            return rendered_parts
+
+    tool_calls_text = _genai_tool_calls_to_text(message.get("tool_calls"))
+    if tool_calls_text:
+        return tool_calls_text
+
+    function_call = message.get("function_call")
+    if isinstance(function_call, dict):
+        function_text = _genai_tool_calls_to_text([{"function": function_call}])
+        if function_text:
+            return function_text
+
+    return ""
+
+
+def _parse_genai_messages_json(messages_str: str) -> list[Any] | None:
+    if not messages_str:
+        return []
+    try:
+        parsed = json.loads(messages_str)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if isinstance(parsed, list):
+        return parsed
+    if isinstance(parsed, dict):
+        for key in ("messages", "input_messages", "output_messages", "items"):
+            nested = parsed.get(key)
+            if isinstance(nested, list):
+                return nested
+    return []
+
+
+def _extract_messages_text(messages_str: str) -> str:
+    """Extract readable text from gen_ai.input.messages or gen_ai.output.messages JSON.
+
+    Accepts either a JSON array of message objects (OTel GenAI convention) or a plain
+    string and returns a human-readable representation for UI display.
+    """
+    if not messages_str:
+        return ""
 
     try:
-        messages = json.loads(messages_str)
+        messages = _parse_genai_messages_json(messages_str)
+        if messages is None:
+            return messages_str
         if isinstance(messages, list):
             parts = []
             for msg in messages:
                 if isinstance(msg, dict):
                     role = msg.get("role", "")
-                    content = msg.get("content", "")
-                    if not content:
-                        content = _parts_to_text(msg.get("parts"))
-                    if isinstance(content, list):
-                        # Content blocks (e.g. OpenAI vision API)
-                        content = " ".join(
-                            part.get("text", "") if isinstance(part, dict) else str(part) for part in content
-                        )
+                    content = _genai_message_content_to_text(msg)
                     if content:
                         parts.append(f"[{role}] {content}" if role else str(content))
                 elif isinstance(msg, str):
@@ -4944,14 +4998,9 @@ def _normalize_genai_messages_for_display(messages: Any) -> list[dict[str, Any]]
     for message in messages:
         if isinstance(message, dict):
             msg = dict(message)
-            content = msg.get("content")
-            if not content and isinstance(msg.get("parts"), list):
-                content = _extract_messages_text(json.dumps([msg], ensure_ascii=False))
-                if content:
-                    # Remove optional [role] prefix added by _extract_messages_text helper.
-                    role = str(msg.get("role", "")).strip()
-                    role_prefix = f"[{role}] " if role else ""
-                    msg["content"] = str(content).removeprefix(role_prefix)
+            content = _genai_message_content_to_text(msg)
+            if content:
+                msg["content"] = content
             if msg.get("content") is None:
                 msg["content"] = ""
             normalized.append(msg)
@@ -10016,20 +10065,8 @@ async def view_ai():
         # Build structured messages for conversation view
         input_messages = []
         output_messages = []
-        try:
-            if input_messages_raw:
-                parsed = json.loads(input_messages_raw)
-                if isinstance(parsed, list):
-                    input_messages = _normalize_genai_messages_for_display(parsed)
-        except (json.JSONDecodeError, TypeError):
-            pass
-        try:
-            if output_messages_raw:
-                parsed = json.loads(output_messages_raw)
-                if isinstance(parsed, list):
-                    output_messages = _normalize_genai_messages_for_display(parsed)
-        except (json.JSONDecodeError, TypeError):
-            pass
+        input_messages = _normalize_genai_messages_for_display(_parse_genai_messages_json(input_messages_raw))
+        output_messages = _normalize_genai_messages_for_display(_parse_genai_messages_json(output_messages_raw))
         # Build raw attributes dict for JSON inspector
         raw_attrs = dict(attrs)
         row_id = _error_id(ts, r["ServiceName"], provider, req_model + err_type + msg, r["TraceId"], "")
@@ -10042,7 +10079,17 @@ async def view_ai():
                 "model": req_model,
                 "operation": operation,
                 "span_name": span_name,
-                "is_llm_call": bool(req_model and (tokens_in > 0 or tokens_out > 0 or response)),
+                "is_llm_call": bool(
+                    req_model
+                    and (
+                        tokens_in > 0
+                        or tokens_out > 0
+                        or response
+                        or input_messages
+                        or output_messages
+                        or bool(system_instructions_raw.strip())
+                    )
+                ),
                 "prompt": prompt,
                 "response": response,
                 "input_messages": input_messages,

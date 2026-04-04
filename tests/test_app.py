@@ -3358,6 +3358,25 @@ class TestGenAICompliance:
         result2 = app_module._extract_messages_text(msgs2)
         assert "Describe this" in result2
 
+        msgs3 = json.dumps(
+            [
+                {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": "lookup_weather",
+                                "arguments": '{"city":"Paris"}',
+                            }
+                        }
+                    ],
+                }
+            ]
+        )
+        result3 = app_module._extract_messages_text(msgs3)
+        assert "tool_call:lookup_weather" in result3
+        assert "Paris" in result3
+
     async def test_ai_view_shows_error_type(self, client):
         """AI view should display error.type badge when present."""
         r = await client.post(
@@ -3619,6 +3638,35 @@ class TestGenAICompliance:
         assert r2.status_code == 200
         body = await r2.get_data(as_text=True)
         assert "missing-content-svc" in body
+        assert "tool_call:lookup" in body
+
+    async def test_ai_trace_view_treats_message_only_span_as_llm_call(self, client):
+        """Trace AI view should render full conversation tabs for conversational spans even with zero tokens."""
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "trace_id": "message-only-trace-123",
+                "service": "message-only-trace-svc",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "operation": "chat",
+                "input_messages": [{"role": "user", "content": "Zero-token question"}],
+                "output_messages": [{"role": "assistant", "content": "Zero-token answer"}],
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "duration_ms": 25,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/ai?view=trace")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert "message-only-trace-svc" in body
+        assert "Zero-token question" in body
+        assert "Zero-token answer" in body
+        assert "Conversation" in body
+        assert 'data-ai-call="1" data-tokens-in="0" data-tokens-out="0" data-model="gpt-4o"' in body
 
     async def test_ai_view_includes_metrics_tab(self, client):
         """AI view should include Metrics tab with token and timing info."""
