@@ -3668,6 +3668,89 @@ class TestGenAICompliance:
         assert "Conversation" in body
         assert 'data-ai-call="1" data-tokens-in="0" data-tokens-out="0" data-model="gpt-4o"' in body
 
+    async def test_ai_trace_view_shows_turn_timeline_for_helper_spans(self, client):
+        """Trace AI view should synthesize helper spans into a turn timeline summary."""
+        import app as app_module
+
+        chat_id = f"timeline-chat-{time.time_ns()}"
+        turn_id = f"timeline-turn-{time.time_ns()}"
+
+        app_module._emit_ai_helper_log_event(
+            event_name="turn.start",
+            chat_id=chat_id,
+            turn_id=turn_id,
+            page="/ai",
+            model="gpt-4o",
+            guard_model="guard-test",
+            thinking_level="off",
+            body="turn started",
+            attrs={
+                "gen_ai.input.question": "Why is my chat slow?",
+                "gen_ai.input.messages": json.dumps(
+                    [{"role": "user", "content": "Why is my chat slow?"}], ensure_ascii=False
+                ),
+            },
+        )
+        app_module._emit_ai_helper_log_event(
+            event_name="guard.result",
+            chat_id=chat_id,
+            turn_id=turn_id,
+            page="/ai",
+            model="gpt-4o",
+            guard_model="guard-test",
+            thinking_level="off",
+            body="Guard verdict: safe",
+            attrs={
+                "gen_ai.guard.allowed": True,
+                "gen_ai.guard.reason": "safe",
+            },
+        )
+        app_module._emit_ai_helper_log_event(
+            event_name="tool.proposed",
+            chat_id=chat_id,
+            turn_id=turn_id,
+            page="/ai",
+            model="gpt-4o",
+            guard_model="guard-test",
+            thinking_level="off",
+            body="Tool proposed",
+            attrs={
+                "gen_ai.tool.name": "propose_ui_action",
+                "sobs.ai.action.status": "proposed",
+                "sobs.ai.tool.summary": "Open the traces page filtered to this chat",
+            },
+        )
+        app_module._emit_ai_helper_log_event(
+            event_name="turn.complete",
+            chat_id=chat_id,
+            turn_id=turn_id,
+            page="/ai",
+            model="gpt-4o",
+            guard_model="guard-test",
+            thinking_level="off",
+            body="turn complete",
+            attrs={
+                "gen_ai.usage.input_tokens": 123,
+                "gen_ai.usage.output_tokens": 45,
+                "gen_ai.response.latency_ms": 987,
+                "gen_ai.output.messages": json.dumps(
+                    [{"role": "assistant", "content": "Your guard check and tool proposal both succeeded."}],
+                    ensure_ascii=False,
+                ),
+                "gen_ai.turn.summary.action": "Inspect trace telemetry",
+                "gen_ai.turn.summary.result": "Guard passed and a follow-up action was proposed.",
+            },
+        )
+
+        r = await client.get(f"/ai?view=trace&service={app_module._AI_HELPER_SERVICE_NAME}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Turn Timeline" in body
+        assert "Why is my chat slow?" in body
+        assert "Your guard check and tool proposal both succeeded." in body
+        assert "Guard passed" in body
+        assert "Open the traces page filtered to this chat" in body
+
     async def test_ai_view_includes_metrics_tab(self, client):
         """AI view should include Metrics tab with token and timing info."""
         r2 = await client.get("/ai")

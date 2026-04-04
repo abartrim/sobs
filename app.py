@@ -5015,6 +5015,183 @@ def _normalize_genai_messages_for_display(messages: Any) -> list[dict[str, Any]]
     return normalized
 
 
+def _string_attr_truthy(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _first_message_content(messages: list[dict[str, Any]], roles: tuple[str, ...]) -> str:
+    target_roles = {role.strip().lower() for role in roles}
+    for message in messages:
+        role = str(message.get("role") or "").strip().lower()
+        if role not in target_roles:
+            continue
+        content = str(message.get("content") or "").strip()
+        if content:
+            return content
+    return ""
+
+
+def _summarize_ai_tool_action(raw_action: str) -> str:
+    text = str(raw_action or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return text[:180]
+    if not isinstance(parsed, dict):
+        return text[:180]
+    action_type = str(parsed.get("type") or "").strip()
+    sql_where = str(parsed.get("sql_where") or "").strip()
+    target_page = str(parsed.get("target_page") or "").strip()
+    if sql_where:
+        return f"{action_type or 'action'}: {sql_where}"[:180]
+    if target_page:
+        return f"{action_type or 'action'} -> {target_page}"[:180]
+    return action_type[:180]
+
+
+def _build_ai_trace_turn_cards(spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    turns: dict[str, dict[str, Any]] = {}
+    for item in spans:
+        turn_id = str(item.get("turn_id") or "").strip()
+        if not turn_id:
+            continue
+        turn = turns.setdefault(
+            turn_id,
+            {
+                "turn_id": turn_id,
+                "chat_id": str(item.get("chat_id") or "").strip(),
+                "model": str(item.get("model") or "").strip(),
+                "provider": str(item.get("provider") or "").strip(),
+                "status": "in_progress",
+                "user_message": "",
+                "assistant_message": "",
+                "request_summary": "",
+                "action_summary": "",
+                "result_summary": "",
+                "guard_allowed": None,
+                "guard_reason": "",
+                "tools": [],
+                "tool_count": 0,
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "thinking_tokens": 0,
+                "duration_ms": 0.0,
+                "started_at": str(item.get("ts") or ""),
+                "completed_at": "",
+                "event_names": [],
+                "trace_id": str(item.get("trace_id") or "").strip(),
+            },
+        )
+
+        event_name = str(item.get("event_name") or "").strip()
+        if event_name and event_name not in turn["event_names"]:
+            turn["event_names"].append(event_name)
+
+        if not turn["model"]:
+            turn["model"] = str(item.get("model") or "").strip()
+        if not turn["provider"]:
+            turn["provider"] = str(item.get("provider") or "").strip()
+        if not turn["chat_id"]:
+            turn["chat_id"] = str(item.get("chat_id") or "").strip()
+        if not turn["trace_id"]:
+            turn["trace_id"] = str(item.get("trace_id") or "").strip()
+
+        ts = str(item.get("ts") or "")
+        if ts and (not turn["started_at"] or ts < turn["started_at"]):
+            turn["started_at"] = ts
+        if ts and (not turn["completed_at"] or ts > turn["completed_at"]):
+            turn["completed_at"] = ts
+
+        turn["tokens_in"] += int(item.get("tokens_in") or 0)
+        turn["tokens_out"] += int(item.get("tokens_out") or 0)
+        turn["thinking_tokens"] += int(item.get("thinking_tokens") or 0)
+        turn["duration_ms"] = round(float(turn["duration_ms"] or 0) + float(item.get("duration_ms") or 0), 1)
+
+        user_candidate = (
+            str(item.get("input_question") or "").strip()
+            or _first_message_content(cast(list[dict[str, Any]], item.get("input_messages") or []), ("user",))
+            or str(item.get("prompt") or "").strip()
+        )
+        if user_candidate and not turn["user_message"]:
+            turn["user_message"] = user_candidate
+
+        assistant_candidate = (
+            _first_message_content(cast(list[dict[str, Any]], item.get("output_messages") or []), ("assistant",))
+            or str(item.get("response") or "").strip()
+        )
+        if assistant_candidate and (event_name == "turn.complete" or not turn["assistant_message"]):
+            turn["assistant_message"] = assistant_candidate
+
+        request_summary = str(item.get("turn_summary_request") or "").strip()
+        action_summary = str(item.get("turn_summary_action") or "").strip()
+        result_summary = str(item.get("turn_summary_result") or "").strip()
+        if request_summary and not turn["request_summary"]:
+            turn["request_summary"] = request_summary
+        if action_summary and not turn["action_summary"]:
+            turn["action_summary"] = action_summary
+        if result_summary and not turn["result_summary"]:
+            turn["result_summary"] = result_summary
+
+        if event_name == "guard.result":
+            turn["guard_allowed"] = _string_attr_truthy(item.get("guard_allowed"))
+            turn["guard_reason"] = str(item.get("guard_reason") or "").strip()
+        elif event_name == "turn.blocked":
+            turn["status"] = "blocked"
+            turn["guard_reason"] = str(item.get("guard_reason") or item.get("error_message") or "").strip()
+        elif event_name == "turn.error":
+            turn["status"] = "failed"
+        elif event_name == "turn.cancelled":
+            turn["status"] = "cancelled"
+        elif event_name == "turn.complete" and turn["status"] == "in_progress":
+            turn["status"] = "completed"
+
+        if event_name in {"tool.proposed", "tool.executed"}:
+            tool_name = str(item.get("tool_name") or "propose_ui_action").strip()
+            tool_status = str(
+                item.get("tool_status") or ("executed" if event_name == "tool.executed" else "proposed")
+            ).strip()
+            tool_summary = str(item.get("tool_summary") or "").strip() or _summarize_ai_tool_action(
+                str(item.get("tool_action") or "")
+            )
+            tool_key = (
+                str(item.get("tool_action_id") or "").strip(),
+                tool_name,
+                tool_status,
+                tool_summary,
+            )
+            if tool_key not in {
+                (
+                    str(existing.get("action_id") or "").strip(),
+                    str(existing.get("name") or "").strip(),
+                    str(existing.get("status") or "").strip(),
+                    str(existing.get("summary") or "").strip(),
+                )
+                for existing in turn["tools"]
+            }:
+                turn["tools"].append(
+                    {
+                        "name": tool_name,
+                        "status": tool_status,
+                        "summary": tool_summary,
+                        "action_id": str(item.get("tool_action_id") or "").strip(),
+                    }
+                )
+
+    turn_cards = sorted(
+        turns.values(), key=lambda item: (str(item.get("started_at") or ""), str(item.get("turn_id") or ""))
+    )
+    for index, turn in enumerate(turn_cards, start=1):
+        turn["index"] = index
+        turn["tool_count"] = len(cast(list[dict[str, Any]], turn.get("tools") or []))
+        if not str(turn.get("request_summary") or "").strip():
+            turn["request_summary"] = str(turn.get("user_message") or "").strip()
+        if not str(turn.get("result_summary") or "").strip():
+            turn["result_summary"] = str(turn.get("assistant_message") or "").strip()
+    return turn_cards
+
+
 def _map_to_dict(value) -> dict:
     """Best-effort conversion of ClickHouse Map values to Python dicts."""
     if isinstance(value, dict):
@@ -10062,6 +10239,9 @@ async def view_ai():
         temperature = str(attrs.get("gen_ai.request.temperature", ""))
         max_tokens = str(attrs.get("gen_ai.request.max_tokens", ""))
         thinking_tokens = _safe_attr_int(attrs, "gen_ai.usage.thinking_tokens")
+        event_name = str(attrs.get("sobs.ai.event") or "")
+        if not event_name and span_name.startswith("ai."):
+            event_name = span_name[3:]
         # Build structured messages for conversation view
         input_messages = []
         output_messages = []
@@ -10103,6 +10283,20 @@ async def view_ai():
                 "duration_ms": duration_ms,
                 "tokens_per_sec": tokens_per_sec,
                 "trace_id": r["TraceId"],
+                "chat_id": str(attrs.get("gen_ai.chat_id", "")),
+                "turn_id": str(attrs.get("gen_ai.turn_id", "") or attrs.get("gen_ai.response.id", "")),
+                "event_name": event_name,
+                "input_question": str(attrs.get("gen_ai.input.question", "")),
+                "turn_summary_request": str(attrs.get("gen_ai.turn.summary.request", "")),
+                "turn_summary_action": str(attrs.get("gen_ai.turn.summary.action", "")),
+                "turn_summary_result": str(attrs.get("gen_ai.turn.summary.result", "")),
+                "guard_allowed": attrs.get("gen_ai.guard.allowed", ""),
+                "guard_reason": str(attrs.get("gen_ai.guard.reason", "")),
+                "tool_name": str(attrs.get("gen_ai.tool.name", "")),
+                "tool_status": str(attrs.get("sobs.ai.action.status", "")),
+                "tool_summary": str(attrs.get("sobs.ai.tool.summary", "")),
+                "tool_action": str(attrs.get("sobs.ai.tool.action", "")),
+                "tool_action_id": str(attrs.get("sobs.ai.action_id", "")),
                 "error_type": err_type,
                 "error_message": msg,
                 "finish_reason": finish_reason,
@@ -10165,6 +10359,7 @@ async def view_ai():
             grp["services"] = sorted(grp["services"])
             grp["models"] = sorted(grp["models"])
             grp["operations"] = sorted(grp["operations"])
+            grp["turn_cards"] = _build_ai_trace_turn_cards(cast(list[dict[str, Any]], grp["spans"]))
             trace_groups.append(grp)
 
     metadata_errors: list[str] = []

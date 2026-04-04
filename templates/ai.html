@@ -49,11 +49,49 @@
     opacity: .68;
     font-size: .72rem;
   }
+  .ai-turn-board {
+    display: grid;
+    gap: .75rem;
+    margin-bottom: 1rem;
+  }
+  .ai-turn-card {
+    border: 1px solid rgba(13, 110, 253, .28);
+    background: linear-gradient(180deg, rgba(13, 110, 253, .08), rgba(13, 110, 253, .02));
+  }
+  .ai-turn-messages {
+    display: grid;
+    gap: .55rem;
+  }
+  .ai-turn-message {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: .6rem;
+    align-items: start;
+  }
+  .ai-turn-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .45rem;
+  }
+  .ai-turn-tool {
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    padding: .55rem .7rem;
+    background: rgba(255, 193, 7, .06);
+  }
+  .ai-turn-note {
+    border-left: 3px solid rgba(108, 117, 125, .8);
+    padding-left: .65rem;
+  }
   @media (max-width: 991.98px) {
     .ai-row-grid,
     .ai-event-row {
       grid-template-columns: 1fr;
       gap: .3rem;
+    }
+    .ai-turn-message {
+      grid-template-columns: 1fr;
+      gap: .35rem;
     }
     .ai-row-cell.tokens,
     .ai-row-cell.duration,
@@ -347,6 +385,83 @@
     </h2>
     <div id="trace{{ group.id }}" class="accordion-collapse collapse">
       <div class="accordion-body py-2 px-3">
+        {% if group.turn_cards %}
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <div class="small text-secondary fw-semibold">Turn Timeline</div>
+          <div class="small text-secondary">{{ group.turn_cards | length }} turn(s)</div>
+        </div>
+        <div class="ai-turn-board">
+          {% for turn in group.turn_cards %}
+          <div class="card ai-turn-card">
+            <div class="card-body py-2 px-3">
+              <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap mb-2">
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                  <span class="badge bg-primary">Turn {{ turn.index }}</span>
+                  <span class="badge {% if turn.status == 'completed' %}bg-success{% elif turn.status == 'blocked' %}bg-warning text-dark{% elif turn.status == 'failed' %}bg-danger{% elif turn.status == 'cancelled' %}bg-secondary{% else %}bg-info text-dark{% endif %}">
+                    {{ turn.status | replace('_', ' ') | title }}
+                  </span>
+                  {% if turn.model %}<span class="badge bg-dark">{{ turn.model }}</span>{% endif %}
+                  {% if turn.guard_allowed == true %}<span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">Guard passed</span>{% endif %}
+                  {% if turn.guard_allowed == false %}<span class="badge bg-danger-subtle text-danger-emphasis border border-danger-subtle">Guard blocked</span>{% endif %}
+                  {% if turn.tool_count %}<span class="badge bg-warning text-dark">{{ turn.tool_count }} tool{% if turn.tool_count != 1 %}s{% endif %}</span>{% endif %}
+                </div>
+                <div class="ai-turn-meta small text-secondary">
+                  <span>{{ turn.tokens_in }}↑ {{ turn.tokens_out }}↓{% if turn.thinking_tokens %} · {{ turn.thinking_tokens }} thinking{% endif %}</span>
+                  <span>{{ turn.duration_ms }}ms</span>
+                  {% if turn.completed_at %}<span class="sobs-tz-ts" data-utc-ts="{{ turn.completed_at }}">{{ turn.completed_at[:19] }}</span>{% endif %}
+                </div>
+              </div>
+
+              <div class="ai-turn-messages mb-2">
+                <div class="ai-turn-message">
+                  <span class="badge bg-primary" style="min-width:4.5rem;text-align:center;">user</span>
+                  <div class="prompt-box ai-md-content">{{ turn.user_message or turn.request_summary or 'No user message captured.' }}</div>
+                </div>
+                {% if turn.tools %}
+                <div class="ms-md-5">
+                  {% for tool in turn.tools %}
+                  <div class="ai-turn-tool mb-2">
+                    <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                      <span class="badge bg-warning text-dark">tool</span>
+                      <span class="fw-semibold small">{{ tool.name or 'tool' }}</span>
+                      <span class="badge {% if tool.status == 'executed' %}bg-success{% else %}bg-secondary{% endif %}">{{ tool.status or 'proposed' }}</span>
+                    </div>
+                    {% if tool.summary %}<div class="small text-secondary">{{ tool.summary }}</div>{% endif %}
+                  </div>
+                  {% endfor %}
+                </div>
+                {% endif %}
+                <div class="ai-turn-message">
+                  <span class="badge bg-success" style="min-width:4.5rem;text-align:center;">assistant</span>
+                  <div class="prompt-box ai-md-content">{{ turn.assistant_message or turn.result_summary or 'No assistant response captured yet.' }}</div>
+                </div>
+              </div>
+
+              {% if turn.guard_reason or turn.action_summary or turn.result_summary %}
+              <div class="row g-2 small">
+                {% if turn.guard_reason %}
+                <div class="col-md-4">
+                  <div class="ai-turn-note text-secondary"><strong>Guard:</strong> {{ turn.guard_reason }}</div>
+                </div>
+                {% endif %}
+                {% if turn.action_summary %}
+                <div class="col-md-4">
+                  <div class="ai-turn-note text-secondary"><strong>Action:</strong> {{ turn.action_summary }}</div>
+                </div>
+                {% endif %}
+                {% if turn.result_summary %}
+                <div class="col-md-4">
+                  <div class="ai-turn-note text-secondary"><strong>Result:</strong> {{ turn.result_summary }}</div>
+                </div>
+                {% endif %}
+              </div>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="small text-secondary fw-semibold mb-2">Trace Telemetry</div>
+        {% endif %}
           <div class="accordion" id="traceItems{{ group.id }}">
         {% for item in group.spans %}
           {# Use loop.index for guaranteed-unique IDs — hash collisions on 0-token spans cause Bootstrap to open wrong item #}
