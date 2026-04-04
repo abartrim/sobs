@@ -71,13 +71,13 @@
         required; when unavailable, requests are blocked (fail-closed).
       </p>
       <div class="row g-3">
-        <div class="col-md-6">
+        <div class="col-md-5">
           <label class="form-label small fw-semibold">Guard Endpoint URL</label>
           <input type="url" name="guard_endpoint_url" class="form-control form-control-sm font-monospace"
                  placeholder="https://api.openai.com/v1"
                  value="{{ settings.get('ai.guard_endpoint_url', '') }}">
         </div>
-        <div class="col-md-6">
+        <div class="col-md-7">
           <label class="form-label small fw-semibold">Guard Model</label>
           <input type="text" name="guard_model" class="form-control form-control-sm font-monospace"
                  placeholder="gpt-4o-mini"
