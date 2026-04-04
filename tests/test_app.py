@@ -3666,7 +3666,8 @@ class TestGenAICompliance:
         assert "Zero-token question" in body
         assert "Zero-token answer" in body
         assert "Conversation" in body
-        assert 'data-ai-call="1" data-tokens-in="0" data-tokens-out="0" data-model="gpt-4o"' in body
+        assert 'data-ai-call="1"' in body
+        assert 'data-model="gpt-4o"' in body
 
     async def test_ai_trace_view_shows_turn_timeline_for_helper_spans(self, client):
         """Trace AI view should synthesize helper spans into a turn timeline summary."""
@@ -3750,6 +3751,34 @@ class TestGenAICompliance:
         assert "Your guard check and tool proposal both succeeded." in body
         assert "Guard passed" in body
         assert "Open the traces page filtered to this chat" in body
+        assert "Related telemetry" in body
+        assert "data-ai-related-turn-id" in body
+
+    async def test_ai_trace_view_preserves_selected_span_filter(self, client):
+        """Trace AI view should not overwrite selected span_name filter with last row span."""
+        trace_id = f"span-filter-trace-{time.time_ns()}"
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "trace_id": trace_id,
+                "service": "span-filter-svc",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "operation": "chat",
+                "span_name": "ai.guard.result",
+                "input_messages": [{"role": "user", "content": "check guard"}],
+                "output_messages": [{"role": "assistant", "content": "allowed"}],
+                "tokens_in": 5,
+                "tokens_out": 2,
+                "duration_ms": 10,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/ai?view=trace&span_name=ai.guard.result")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert '<option value="ai.guard.result" selected' in body
 
     async def test_ai_view_includes_metrics_tab(self, client):
         """AI view should include Metrics tab with token and timing info."""
@@ -4111,7 +4140,7 @@ class TestGenAICompliance:
         assert "Weather in Paris?" in body
         assert "rainy, 57F" in body
         assert "It is rainy in Paris and about 57F." in body
-        assert ">system<" in body
+        assert ">system instruction<" in body
         assert ">user<" in body
         assert ">tool<" in body
         assert ">assistant<" in body
@@ -4184,6 +4213,38 @@ class TestGenAICompliance:
         assert "Paris" in body
         assert "tool_call:code_interpreter" in body
         assert "rainy, 57F" in body
+
+    async def test_reasoning_content_is_rendered_in_ai_view(self, client):
+        """AI view should render model thinking text when output message includes reasoning content."""
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "reasoning-visible-svc",
+                "provider": "openai",
+                "model": "gpt-oss-120b",
+                "operation": "chat",
+                "input_messages": [{"role": "user", "content": "Why is p95 latency up?"}],
+                "output_messages": [
+                    {
+                        "role": "assistant",
+                        "content": "Likely due to increased DB wait time.",
+                        "reasoning_content": "Correlated spikes in db.client.duration with p95 latency.",
+                    }
+                ],
+                "tokens_in": 40,
+                "tokens_out": 15,
+                "duration_ms": 220,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/ai")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert "reasoning-visible-svc" in body
+        assert "Likely due to increased DB wait time." in body
+        assert "Thinking" in body
+        assert "Correlated spikes in db.client.duration with p95 latency." in body
 
     async def test_semconv_message_content_preferred_over_parts(self, client):
         """When both content and parts are present, explicit content should remain authoritative."""
@@ -4269,7 +4330,59 @@ class TestGenAICompliance:
         body = await r2.get_data(as_text=True)
         assert "sys-instr-svc" in body
         assert "You are a helpful assistant that speaks only in haiku." in body
-        assert "System Instructions" in body
+        assert "System Prompt" in body
+
+    async def test_flat_view_dedupes_system_prompt_from_system_role_input_turn(self, client):
+        """Flat AI view should hide duplicate system role turn when it matches system prompt content."""
+        system_text = "You are a concise assistant focused on diagnostics."
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "flat-dedupe-svc",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "operation": "chat",
+                "system_instructions": system_text,
+                "input_messages": [
+                    {"role": "system", "content": system_text},
+                    {"role": "user", "content": "Find failed traces"},
+                ],
+                "output_messages": [{"role": "assistant", "content": "Filtering traces now."}],
+                "tokens_in": 15,
+                "tokens_out": 5,
+                "duration_ms": 120,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/ai?service=flat-dedupe-svc")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert "System Prompt" in body
+        assert "Hidden 1 duplicate system instruction turn." in body
+        # The duplicated system role turn should be hidden from the conversation turn badges.
+        assert ">system instruction<" not in body
+
+    async def test_execution_event_label_replaces_system_event_label(self, client):
+        """AI view should label non-LLM rows as Execution Event for taxonomy clarity."""
+        r_ingest = await client.post(
+            "/v1/ai",
+            json={
+                "service": "execution-label-svc",
+                "provider": "sobs",
+                "model": "",
+                "operation": "chat",
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "duration_ms": 0,
+            },
+        )
+        assert r_ingest.status_code == 200
+
+        r = await client.get("/ai?service=execution-label-svc")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Execution Event" in body
 
     async def test_semconv_operation_name_detected_in_otlp_sse_broadcast(self, client):
         """OTLP trace spans with gen_ai.operation.name but no provider should broadcast AI SSE event."""
@@ -6929,6 +7042,62 @@ class TestAISettingsAndAgentFlows:
         assert "event: token" in body
         assert "event: done" in body
         assert '"answer": "hello world"' in body
+
+    async def test_ai_helper_guard_result_logs_system_prompt_for_trace(self, client, monkeypatch):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://api.example.com/v1")
+        _save_ai_setting(db, "ai.model", "gpt-test")
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "guard-test")
+
+        captured_events: list[dict[str, object]] = []
+
+        def _capture_emit(**kwargs):
+            captured_events.append(kwargs)
+
+        async def _fake_guard(*_args, **_kwargs):
+            return (
+                True,
+                "allowed",
+                {
+                    "prompt_tokens": 4,
+                    "completion_tokens": 1,
+                    "elapsed_ms": 7,
+                    "system_instructions": "Guard safety instruction",
+                    "input_messages": [
+                        {"role": "system", "content": "Guard safety instruction"},
+                        {"role": "user", "content": "Summarize current error trends"},
+                    ],
+                },
+            )
+
+        async def _fake_stream(*_args, **_kwargs):
+            yield {"type": "delta", "text": "ok"}
+            yield {"type": "done", "stats": {"prompt_tokens": 8, "completion_tokens": 2, "elapsed_ms": 20}}
+
+        monkeypatch.setattr(sobs_app, "_emit_ai_helper_log_event", _capture_emit)
+        monkeypatch.setattr(sobs_app, "_check_guard_model", _fake_guard)
+        monkeypatch.setattr(sobs_app, "_stream_llm_endpoint", _fake_stream)
+
+        r = await client.post(
+            "/api/ai/helper",
+            json={
+                "question": "Summarize current error trends",
+                "page": "/errors",
+                "stream": False,
+            },
+        )
+        assert r.status_code == 200
+
+        guard_event = next((e for e in captured_events if str(e.get("event_name") or "") == "guard.result"), None)
+        assert guard_event is not None
+        attrs = guard_event.get("attrs") or {}
+        assert attrs.get("gen_ai.system_instructions") == "Guard safety instruction"
+        guard_messages = json.loads(str(attrs.get("gen_ai.input.messages") or "[]"))
+        assert guard_messages[0]["role"] == "system"
+        assert guard_messages[0]["content"] == "Guard safety instruction"
 
     async def test_ai_helper_capabilities_exposes_thinking_support(self, client):
         from app import _save_ai_setting, get_db

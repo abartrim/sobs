@@ -3247,6 +3247,9 @@ async def _check_guard_model(
             ),
         )
     )
+    guard_stats = dict(guard_stats or {})
+    guard_stats.setdefault("system_instructions", system_msg)
+    guard_stats.setdefault("input_messages", messages)
     if not reply:
         # Some guard endpoints emit verdict-like reasoning metadata while leaving
         # message.content empty. Re-parse those hints before failing closed.
@@ -3257,7 +3260,7 @@ async def _check_guard_model(
             if fallback_category:
                 reply = f"{reply}\n{fallback_category}"
         else:
-            return False, "guard_unavailable", {}
+            return False, "guard_unavailable", guard_stats
 
     # Llama Guard 3 returns a two-line format:
     #   safe              (allowed)
@@ -4943,6 +4946,62 @@ def _genai_message_content_to_text(message: dict[str, Any]) -> str:
     return ""
 
 
+def _genai_message_reasoning_to_text(message: dict[str, Any]) -> str:
+    """Extract model reasoning/thinking text when providers expose it separately."""
+
+    def _coerce_reasoning_text(value: Any) -> str:
+        if value in (None, ""):
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, list):
+            chunks: list[str] = []
+            for item in value:
+                if isinstance(item, str):
+                    text = item.strip()
+                    if text:
+                        chunks.append(text)
+                    continue
+                if isinstance(item, dict):
+                    text = str(item.get("text") or item.get("content") or "").strip()
+                    if text:
+                        chunks.append(text)
+                    continue
+                text = str(item or "").strip()
+                if text:
+                    chunks.append(text)
+            return "\n".join(chunks).strip()
+        if isinstance(value, dict):
+            direct = str(value.get("text") or value.get("content") or "").strip()
+            if direct:
+                return direct
+            return json.dumps(value, ensure_ascii=False)
+        return str(value).strip()
+
+    # Common provider fields.
+    for key in ("reasoning_content", "reasoning", "thinking"):
+        text = _coerce_reasoning_text(message.get(key))
+        if text:
+            return text
+
+    # Semconv-style parts with explicit reasoning type.
+    parts_value = message.get("parts")
+    if isinstance(parts_value, list):
+        reasoning_chunks: list[str] = []
+        for part in parts_value:
+            if not isinstance(part, dict):
+                continue
+            if str(part.get("type") or "").strip().lower() != "reasoning":
+                continue
+            text = _coerce_reasoning_text(part.get("content") or part.get("text"))
+            if text:
+                reasoning_chunks.append(text)
+        if reasoning_chunks:
+            return "\n".join(reasoning_chunks).strip()
+
+    return ""
+
+
 def _parse_genai_messages_json(messages_str: str) -> list[Any] | None:
     if not messages_str:
         return []
@@ -4994,13 +5053,27 @@ def _normalize_genai_messages_for_display(messages: Any) -> list[dict[str, Any]]
     if not isinstance(messages, list):
         return []
 
+    role_labels = {
+        "system": "system instruction",
+        "user": "user",
+        "assistant": "assistant",
+        "tool": "tool",
+    }
+
     normalized: list[dict[str, Any]] = []
     for message in messages:
         if isinstance(message, dict):
             msg = dict(message)
+            role = str(msg.get("role") or "").strip().lower()
+            if role:
+                msg["role"] = role
+                msg["role_label"] = role_labels.get(role, role)
             content = _genai_message_content_to_text(msg)
+            reasoning = _genai_message_reasoning_to_text(msg)
             if content:
                 msg["content"] = content
+            if reasoning:
+                msg["thinking_content"] = reasoning
             if msg.get("content") is None:
                 msg["content"] = ""
             normalized.append(msg)
@@ -5013,6 +5086,33 @@ def _normalize_genai_messages_for_display(messages: Any) -> list[dict[str, Any]]
         normalized.append({"role": "", "content": json.dumps(message, ensure_ascii=False)})
 
     return normalized
+
+
+def _normalize_for_dedupe(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    return re.sub(r"\s+", " ", text)
+
+
+def _dedupe_system_input_messages(
+    input_messages: list[dict[str, Any]], system_instructions: str
+) -> tuple[list[dict[str, Any]], int]:
+    canonical_system = _normalize_for_dedupe(system_instructions)
+    if not canonical_system:
+        return input_messages, 0
+
+    filtered_messages: list[dict[str, Any]] = []
+    duplicate_count = 0
+    for msg in input_messages:
+        role = str(msg.get("role") or "").strip().lower()
+        if role == "system":
+            content = _normalize_for_dedupe(msg.get("content") or "")
+            if content and content == canonical_system:
+                duplicate_count += 1
+                continue
+        filtered_messages.append(msg)
+    return filtered_messages, duplicate_count
 
 
 def _string_attr_truthy(value: Any) -> bool:
@@ -10235,18 +10335,22 @@ async def view_ai():
         tokens_per_sec = round(tokens_out / (duration_ms / 1000), 1) if duration_ms > 0 and tokens_out > 0 else 0
         # Additional OTel GenAI attributes
         finish_reason = str(attrs.get("gen_ai.response.finish_reason", ""))
-        span_name = str(r["SpanName"] or "")
+        item_span_name = str(r["SpanName"] or "")
         temperature = str(attrs.get("gen_ai.request.temperature", ""))
         max_tokens = str(attrs.get("gen_ai.request.max_tokens", ""))
         thinking_tokens = _safe_attr_int(attrs, "gen_ai.usage.thinking_tokens")
         event_name = str(attrs.get("sobs.ai.event") or "")
-        if not event_name and span_name.startswith("ai."):
-            event_name = span_name[3:]
+        if not event_name and item_span_name.startswith("ai."):
+            event_name = item_span_name[3:]
         # Build structured messages for conversation view
         input_messages = []
         output_messages = []
         input_messages = _normalize_genai_messages_for_display(_parse_genai_messages_json(input_messages_raw))
         output_messages = _normalize_genai_messages_for_display(_parse_genai_messages_json(output_messages_raw))
+        input_messages, deduped_system_message_count = _dedupe_system_input_messages(
+            input_messages,
+            system_instructions_raw,
+        )
         # Build raw attributes dict for JSON inspector
         raw_attrs = dict(attrs)
         row_id = _error_id(ts, r["ServiceName"], provider, req_model + err_type + msg, r["TraceId"], "")
@@ -10258,7 +10362,7 @@ async def view_ai():
                 "provider": provider,
                 "model": req_model,
                 "operation": operation,
-                "span_name": span_name,
+                "span_name": item_span_name,
                 "is_llm_call": bool(
                     req_model
                     and (
@@ -10277,6 +10381,7 @@ async def view_ai():
                 "input_messages_json": input_messages_raw,
                 "output_messages_json": output_messages_raw,
                 "system_instructions": system_instructions_raw,
+                "system_message_deduped_count": deduped_system_message_count,
                 "tokens_in": tokens_in,
                 "tokens_out": tokens_out,
                 "thinking_tokens": thinking_tokens,
@@ -16158,6 +16263,27 @@ def _sse_json_event(event_name: str, payload: dict[str, Any]) -> str:
     return f"event: {event_name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _guard_telemetry_attrs(allowed: bool, guard_reason: str, guard_stats: dict[str, Any]) -> dict[str, Any]:
+    attrs: dict[str, Any] = {
+        "gen_ai.guard.allowed": allowed,
+        "gen_ai.guard.reason": guard_reason,
+        "gen_ai.usage.input_tokens": guard_stats.get("prompt_tokens", 0),
+        "gen_ai.usage.output_tokens": guard_stats.get("completion_tokens", 0),
+        "gen_ai.response.latency_ms": guard_stats.get("elapsed_ms", 0),
+    }
+    system_prompt = str(guard_stats.get("system_instructions") or "").strip()
+    if system_prompt:
+        attrs["gen_ai.system_instructions"] = system_prompt
+
+    input_messages = guard_stats.get("input_messages")
+    if input_messages is not None:
+        if isinstance(input_messages, str):
+            attrs["gen_ai.input.messages"] = input_messages
+        else:
+            attrs["gen_ai.input.messages"] = json.dumps(input_messages, ensure_ascii=False)
+    return attrs
+
+
 def _build_ai_turn_logs_url(chat_id: str, turn_id: str) -> str:
     where = (
         "ServiceName = '"
@@ -16529,13 +16655,7 @@ async def ai_helper():
         guard_model=guard_model,
         thinking_level=thinking_level,
         body=f"Guard verdict: {guard_reason}",
-        attrs={
-            "gen_ai.guard.allowed": allowed,
-            "gen_ai.guard.reason": guard_reason,
-            "gen_ai.usage.input_tokens": guard_stats.get("prompt_tokens", 0),
-            "gen_ai.usage.output_tokens": guard_stats.get("completion_tokens", 0),
-            "gen_ai.response.latency_ms": guard_stats.get("elapsed_ms", 0),
-        },
+        attrs=_guard_telemetry_attrs(allowed, guard_reason, guard_stats),
     )
     if not allowed:
         error_message = f"Request blocked by safety guard: {guard_reason}"
@@ -18321,13 +18441,7 @@ async def api_query_ask():
         guard_model=guard_model,
         thinking_level="off",
         body=f"Guard verdict: {guard_reason}",
-        attrs={
-            "gen_ai.guard.allowed": allowed,
-            "gen_ai.guard.reason": guard_reason,
-            "gen_ai.usage.input_tokens": guard_stats.get("prompt_tokens", 0),
-            "gen_ai.usage.output_tokens": guard_stats.get("completion_tokens", 0),
-            "gen_ai.response.latency_ms": guard_stats.get("elapsed_ms", 0),
-        },
+        attrs=_guard_telemetry_attrs(allowed, guard_reason, guard_stats),
     )
     if not allowed:
         return (
@@ -18801,13 +18915,7 @@ async def api_query_run():
             guard_model=guard_model,
             thinking_level="off",
             body=f"Guard verdict: {guard_reason}",
-            attrs={
-                "gen_ai.guard.allowed": allowed,
-                "gen_ai.guard.reason": guard_reason,
-                "gen_ai.usage.input_tokens": guard_stats.get("prompt_tokens", 0),
-                "gen_ai.usage.output_tokens": guard_stats.get("completion_tokens", 0),
-                "gen_ai.response.latency_ms": guard_stats.get("elapsed_ms", 0),
-            },
+            attrs=_guard_telemetry_attrs(allowed, guard_reason, guard_stats),
         )
         if allowed:
             schema_context = await asyncio.to_thread(ChdbSqlRunner(db).get_schema_context)
