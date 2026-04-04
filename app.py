@@ -1426,6 +1426,7 @@ _AI_SETTING_KEYS = (
     "ai.api_key",
     "ai.guard_endpoint_url",
     "ai.guard_model",
+    "ai.guard_thinking_level",
     "ai.dlp_endpoint_url",
     "ai.github_token",
     "ai.github_repo",
@@ -1440,6 +1441,7 @@ _AI_ENV_OVERRIDES: dict[str, tuple[str, str]] = {
     "ai.api_key": ("SOBS_AI_API_KEY", "SOBS_AI_API_KEY_FILE"),
     "ai.guard_endpoint_url": ("SOBS_AI_GUARD_ENDPOINT_URL", "SOBS_AI_GUARD_ENDPOINT_URL_FILE"),
     "ai.guard_model": ("SOBS_AI_GUARD_MODEL", "SOBS_AI_GUARD_MODEL_FILE"),
+    "ai.guard_thinking_level": ("SOBS_AI_GUARD_THINKING_LEVEL", "SOBS_AI_GUARD_THINKING_LEVEL_FILE"),
     "ai.dlp_endpoint_url": ("SOBS_AI_DLP_ENDPOINT_URL", "SOBS_AI_DLP_ENDPOINT_URL_FILE"),
 }
 
@@ -2723,6 +2725,7 @@ async def _call_llm_endpoint(
     thinking_level: str = "off",
     max_tokens: int = 1024,
     timeout: int = 30,
+    empty_content_retry_instruction: str | None = None,
 ) -> tuple[str, dict]:
     """Call an OpenAI-compatible /chat/completions endpoint.
 
@@ -2766,13 +2769,14 @@ async def _call_llm_endpoint(
         # Some servers/models emit reasoning-only output with empty message.content.
         # Ask once more for explicit final content-only output.
         initial_hint = _empty_content_hint(body)
+        retry_instruction = empty_content_retry_instruction or (
+            "Your previous reply had empty message.content. "
+            "Return a NON-EMPTY final answer now, content only, no reasoning trace."
+        )
         retry_messages = messages + [
             {
                 "role": "user",
-                "content": (
-                    "Your previous reply had empty message.content. "
-                    "Return a NON-EMPTY final answer now, content only, no reasoning trace."
-                ),
+                "content": retry_instruction,
             }
         ]
         retry_payload = {"model": model, "messages": retry_messages, "max_tokens": max_tokens}
@@ -2956,6 +2960,57 @@ def _is_benign_ui_navigation_request(text: str) -> bool:
     return has_intent and has_surface
 
 
+def _parse_guard_reply(reply_text: str, *, strict: bool = False) -> tuple[str, str]:
+    """Parse a guard verdict and optional category from guard-model text."""
+    text = str(reply_text or "").strip()
+    if not text:
+        return "", ""
+
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    first_line = lines[0].upper() if lines else ""
+    category_line = lines[1].upper() if len(lines) > 1 else ""
+
+    if first_line in {"SAFE", "ALLOWED"}:
+        verdict = first_line
+    elif first_line in {"UNSAFE", "BLOCKED"} or first_line.startswith("BLOCKED"):
+        verdict = "UNSAFE"
+    else:
+        if strict:
+            verdict = ""
+        else:
+            lower = text.lower()
+            if re.search(r"\b(unsafe|blocked|disallow|deny|denied)\b", lower):
+                verdict = "UNSAFE"
+            elif re.search(r"\b(safe|allowed|benign)\b", lower):
+                verdict = "SAFE"
+            else:
+                verdict = ""
+
+    category_match = re.search(r"\bS([1-9]|1[0-4]|[0-9]{2,3})\b", text.upper())
+    category = f"S{category_match.group(1)}" if category_match else ""
+    if not category and category_line.startswith("S"):
+        category = category_line
+    return verdict, category
+
+
+def _resolve_guard_thinking_level(settings: dict[str, str], guard_model: str) -> str:
+    """Choose a guard-thinking level that works for both thinking and non-thinking models."""
+    if not _model_supports_thinking(guard_model):
+        return "off"
+
+    guard_raw = str(settings.get("ai.guard_thinking_level", "") or "").strip()
+    if guard_raw:
+        return _normalize_thinking_level(guard_raw)
+    # Guard checks are classification-style tasks: default to low for thinking-capable
+    # models regardless of assistant defaults to keep latency and behavior stable.
+    return "low"
+
+
+def _resolve_guard_max_tokens(thinking_level: str) -> int:
+    # Thinking models can consume output budget on reasoning before final text.
+    return 256 if thinking_level != "off" else 64
+
+
 async def _check_guard_model(
     settings: dict[str, str],
     user_input: str,
@@ -2986,11 +3041,36 @@ async def _check_guard_model(
         {"role": "system", "content": system_msg},
         {"role": "user", "content": combined},
     ]
+    guard_thinking_level = _resolve_guard_thinking_level(settings, guard_model)
+    guard_max_tokens = _resolve_guard_max_tokens(guard_thinking_level)
     reply, guard_stats = await _maybe_await(
-        _call_llm_endpoint(guard_url, guard_model, api_key, messages, max_tokens=64, timeout=10)
+        _call_llm_endpoint(
+            guard_url,
+            guard_model,
+            api_key,
+            messages,
+            thinking_level=guard_thinking_level,
+            max_tokens=guard_max_tokens,
+            timeout=10,
+            empty_content_retry_instruction=(
+                "Your previous reply had empty message.content. "
+                "Return exactly one token on line 1: safe or unsafe. "
+                "If unsafe, optionally include a category code like S2 on line 2. "
+                "No other text."
+            ),
+        )
     )
     if not reply:
-        return False, "guard_unavailable", {}
+        # Some guard endpoints emit verdict-like reasoning metadata while leaving
+        # message.content empty. Re-parse those hints before failing closed.
+        fallback_text = str((guard_stats or {}).get("error") or "")
+        fallback_verdict, fallback_category = _parse_guard_reply(fallback_text, strict=True)
+        if fallback_verdict:
+            reply = fallback_verdict.lower()
+            if fallback_category:
+                reply = f"{reply}\n{fallback_category}"
+        else:
+            return False, "guard_unavailable", {}
 
     # Llama Guard 3 returns a two-line format:
     #   safe              (allowed)
@@ -3013,9 +3093,7 @@ async def _check_guard_model(
         "S13": "Elections",
         "S14": "Code Interpreter Abuse",
     }
-    lines = [ln.strip() for ln in reply.strip().splitlines() if ln.strip()]
-    verdict = lines[0].upper() if lines else ""
-    category_code = lines[1].upper() if len(lines) > 1 else ""
+    verdict, category_code = _parse_guard_reply(reply, strict=True)
     category_label = _GUARD_CATEGORIES.get(category_code, "")
 
     if verdict in ("SAFE", "ALLOWED"):
@@ -15442,6 +15520,9 @@ async def save_ai_settings():
     form = await request.form
     db = get_db()
     for key in _AI_SETTING_KEYS:
+        if key == "ai.guard_thinking_level":
+            # Guard thinking is intentionally not user-configured via the Settings UI.
+            continue
         # Strip key prefix for form field name: "ai.endpoint_url" → "endpoint_url"
         field = key.removeprefix("ai.")
         value = (form.get(field) or "").strip()

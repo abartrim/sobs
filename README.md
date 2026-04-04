@@ -368,6 +368,8 @@ Operational trigger endpoint:
 | `SOBS_AI_GUARD_ENDPOINT_URL_FILE` | _(empty)_ | Optional file path with guard endpoint URL override |
 | `SOBS_AI_GUARD_MODEL`       | _(empty)_      | Optional runtime override for guard model |
 | `SOBS_AI_GUARD_MODEL_FILE`  | _(empty)_      | Optional file path with guard model override |
+| `SOBS_AI_GUARD_THINKING_LEVEL` | _(empty)_   | Optional runtime override for guard thinking level (`off`,`low`,`medium`,`high`) |
+| `SOBS_AI_GUARD_THINKING_LEVEL_FILE` | _(empty)_ | Optional file path with guard thinking level override |
 | `SOBS_AI_DLP_ENDPOINT_URL`  | _(empty)_      | Optional runtime override for DLP endpoint URL |
 | `SOBS_AI_DLP_ENDPOINT_URL_FILE` | _(empty)_  | Optional file path with DLP endpoint URL override |
 | `SOBS_VAPID_PRIVATE_KEY`    | _(empty)_      | Optional browser-push private key override (takes precedence over DB-stored key) |
@@ -409,6 +411,8 @@ AI helper guard checks are fail-closed.
 - If guard endpoint/model settings are missing, requests are blocked.
 - If the guard call fails or returns an invalid response, requests are blocked.
 - The guard model must reply `safe` (allowed) or `unsafe` (blocked) on the first line.
+- Guard thinking can be tuned independently from assistant thinking via environment overrides.
+  For thinking-capable guard models, the default auto behavior uses low effort when no explicit guard thinking level is set.
 - [Llama Guard 3](https://ollama.com/library/llama-guard3) is the recommended guard model.
   It uses the MLCommons hazard taxonomy and returns a two-line response when blocking:
   ```
@@ -737,6 +741,7 @@ Optional model overrides:
 ```bash
 SOBS_AI_MODEL=qwen2.5:7b-instruct \
 SOBS_AI_GUARD_MODEL=qwen2.5:7b-instruct \
+SOBS_AI_GUARD_THINKING_LEVEL=low \
 ./scripts/start_ollama_ai_test.sh -- .venv/bin/python app.py
 ```
 

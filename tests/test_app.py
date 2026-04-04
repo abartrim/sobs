@@ -7056,6 +7056,157 @@ class TestAISettingsAndAgentFlows:
         assert allowed is False
         assert "S99" in reason
 
+    async def test_guard_empty_content_reasoning_hint_safe_fails_closed(self, monkeypatch):
+        import app as sobs_app
+        from app import _check_guard_model, _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "guard-test")
+        _save_ai_setting(db, "ai.api_key", "")
+
+        async def _empty_content_with_safe_hint(*_args, **_kwargs):
+            return "", {
+                "error": (
+                    "LLM returned empty content after retry "
+                    "(initial: reasoning_content=This is a benign observability request and should be safe.)"
+                )
+            }
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _empty_content_with_safe_hint)
+        settings = sobs_app._load_all_ai_settings(db)
+        allowed, reason, _stats = await _check_guard_model(settings, "show me recent trace errors")
+        assert allowed is False
+        assert reason == "guard_unavailable"
+
+    async def test_guard_empty_content_reasoning_hint_unsafe_fails_closed(self, monkeypatch):
+        import app as sobs_app
+        from app import _check_guard_model, _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "guard-test")
+        _save_ai_setting(db, "ai.api_key", "")
+
+        async def _empty_content_with_unsafe_hint(*_args, **_kwargs):
+            return "", {
+                "error": (
+                    "LLM returned empty content after retry "
+                    "(retry: reasoning=This appears unsafe and should be blocked under S2.)"
+                )
+            }
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _empty_content_with_unsafe_hint)
+        settings = sobs_app._load_all_ai_settings(db)
+        allowed, reason, _stats = await _check_guard_model(
+            settings,
+            "how can i exploit this service and steal credentials?",
+        )
+        assert allowed is False
+        assert reason == "guard_unavailable"
+
+    async def test_guard_call_uses_low_thinking_for_thinking_models(self, monkeypatch):
+        import app as sobs_app
+        from app import _check_guard_model, _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "gpt-oss-safeguard:20b")
+        _save_ai_setting(db, "ai.api_key", "")
+        _save_ai_setting(db, "ai.thinking_level", "off")
+
+        observed: dict[str, object] = {}
+
+        async def _fake_guard_llm(*_args, **kwargs):
+            observed["thinking_level"] = kwargs.get("thinking_level")
+            observed["max_tokens"] = kwargs.get("max_tokens")
+            return "safe", {}
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_guard_llm)
+        settings = sobs_app._load_all_ai_settings(db)
+        allowed, reason, _stats = await _check_guard_model(settings, "show me recent errors")
+        assert allowed is True
+        assert reason == "allowed"
+        assert observed["thinking_level"] == "low"
+        assert observed["max_tokens"] == 256
+
+    async def test_guard_call_implicit_mode_clamps_to_low_even_if_assistant_high(self, monkeypatch):
+        import app as sobs_app
+        from app import _check_guard_model, _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "gpt-oss-safeguard:20b")
+        _save_ai_setting(db, "ai.api_key", "")
+        _save_ai_setting(db, "ai.thinking_level", "high")
+        _save_ai_setting(db, "ai.guard_thinking_level", "")
+
+        observed: dict[str, object] = {}
+
+        async def _fake_guard_llm(*_args, **kwargs):
+            observed["thinking_level"] = kwargs.get("thinking_level")
+            observed["max_tokens"] = kwargs.get("max_tokens")
+            return "safe", {}
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_guard_llm)
+        settings = sobs_app._load_all_ai_settings(db)
+        allowed, reason, _stats = await _check_guard_model(settings, "show me recent errors")
+        assert allowed is True
+        assert reason == "allowed"
+        assert observed["thinking_level"] == "low"
+        assert observed["max_tokens"] == 256
+
+    async def test_guard_call_uses_off_for_non_thinking_models(self, monkeypatch):
+        import app as sobs_app
+        from app import _check_guard_model, _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "llama-guard")
+        _save_ai_setting(db, "ai.api_key", "")
+        _save_ai_setting(db, "ai.thinking_level", "high")
+
+        observed: dict[str, object] = {}
+
+        async def _fake_guard_llm(*_args, **kwargs):
+            observed["thinking_level"] = kwargs.get("thinking_level")
+            observed["max_tokens"] = kwargs.get("max_tokens")
+            return "safe", {}
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_guard_llm)
+        settings = sobs_app._load_all_ai_settings(db)
+        allowed, reason, _stats = await _check_guard_model(settings, "show me recent errors")
+        assert allowed is True
+        assert reason == "allowed"
+        assert observed["thinking_level"] == "off"
+        assert observed["max_tokens"] == 64
+
+    async def test_guard_call_uses_explicit_guard_thinking_level(self, monkeypatch):
+        import app as sobs_app
+        from app import _check_guard_model, _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "gpt-oss-safeguard:20b")
+        _save_ai_setting(db, "ai.api_key", "")
+        _save_ai_setting(db, "ai.thinking_level", "high")
+        _save_ai_setting(db, "ai.guard_thinking_level", "off")
+
+        observed: dict[str, object] = {}
+
+        async def _fake_guard_llm(*_args, **kwargs):
+            observed["thinking_level"] = kwargs.get("thinking_level")
+            observed["max_tokens"] = kwargs.get("max_tokens")
+            return "safe", {}
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_guard_llm)
+        settings = sobs_app._load_all_ai_settings(db)
+        allowed, reason, _stats = await _check_guard_model(settings, "show me recent errors")
+        assert allowed is True
+        assert reason == "allowed"
+        assert observed["thinking_level"] == "off"
+        assert observed["max_tokens"] == 64
+
     # ── AI settings helpers ───────────────────────────────────────────────────
 
     def test_load_ai_setting_default(self):
@@ -7082,6 +7233,7 @@ class TestAISettingsAndAgentFlows:
         _save_ai_setting(db, "ai.api_key", "db-api-key")
         _save_ai_setting(db, "ai.guard_endpoint_url", "https://db-guard.example/v1")
         _save_ai_setting(db, "ai.guard_model", "db-guard")
+        _save_ai_setting(db, "ai.guard_thinking_level", "low")
         _save_ai_setting(db, "ai.dlp_endpoint_url", "https://db-dlp.example/check")
 
         monkeypatch.setenv("SOBS_AI_ENDPOINT_URL", "https://env-llm.example/v1")
@@ -7089,6 +7241,7 @@ class TestAISettingsAndAgentFlows:
         monkeypatch.setenv("SOBS_AI_API_KEY", "env-api-key")
         monkeypatch.setenv("SOBS_AI_GUARD_ENDPOINT_URL", "https://env-guard.example/v1")
         monkeypatch.setenv("SOBS_AI_GUARD_MODEL", "env-guard")
+        monkeypatch.setenv("SOBS_AI_GUARD_THINKING_LEVEL", "high")
         monkeypatch.setenv("SOBS_AI_DLP_ENDPOINT_URL", "https://env-dlp.example/check")
 
         settings = _load_all_ai_settings(db)
@@ -7097,6 +7250,7 @@ class TestAISettingsAndAgentFlows:
         assert settings["ai.api_key"] == "db-api-key"
         assert settings["ai.guard_endpoint_url"] == "https://db-guard.example/v1"
         assert settings["ai.guard_model"] == "db-guard"
+        assert settings["ai.guard_thinking_level"] == "low"
         assert settings["ai.dlp_endpoint_url"] == "https://db-dlp.example/check"
 
     def test_load_all_ai_settings_uses_file_over_env_when_db_empty(self, monkeypatch, tmp_path):
