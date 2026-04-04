@@ -449,6 +449,13 @@
                     </script>
                     {% endif %}
 
+                    {% if item.system_instructions %}
+                    <div class="mb-2">
+                      <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-sliders me-1"></i>System Instructions</div>
+                      <div class="prompt-box ai-md-content" style="max-height:150px;">{{ item.system_instructions }}</div>
+                    </div>
+                    {% endif %}
+
                     {% if item.input_messages %}
                     <div class="mb-2">
                       {% for msg in item.input_messages %}
@@ -703,6 +710,13 @@
               }
             }());
             </script>
+            {% endif %}
+
+            {% if item.system_instructions %}
+            <div class="mb-2">
+              <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-sliders me-1"></i>System Instructions</div>
+              <div class="prompt-box ai-md-content" style="max-height:150px;">{{ item.system_instructions }}</div>
+            </div>
             {% endif %}
 
             {% if item.input_messages %}

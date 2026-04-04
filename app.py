@@ -5738,7 +5738,8 @@ async def ingest_traces():
         )
         # Also broadcast as an AI event when the span carries GenAI attributes
         provider = event.attrs.get("gen_ai.provider.name") or event.attrs.get("gen_ai.system", "")
-        if provider:
+        operation_name = str(event.attrs.get("gen_ai.operation.name", ""))
+        if provider or operation_name:
             await _sse_broadcast(
                 {
                     "source": "ai",
@@ -5969,6 +5970,9 @@ async def ingest_ai():
     if payload.get("output_messages") is not None:
         raw = payload["output_messages"]
         span_attrs["gen_ai.output.messages"] = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
+    if payload.get("system_instructions") is not None:
+        raw = payload["system_instructions"]
+        span_attrs["gen_ai.system_instructions"] = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
     # Legacy sobs fields (kept for backward-compat / UI fallback)
     if payload.get("prompt"):
         span_attrs["sobs.gen_ai.prompt"] = str(payload["prompt"])
@@ -6495,7 +6499,7 @@ async def summary():
         "rum": db.execute("SELECT COUNT(*) FROM hyperdx_sessions").fetchone()[0],
         "ai": db.execute(
             "SELECT COUNT(*) FROM otel_traces "
-            "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '')"
+            f"WHERE {_AI_SPAN_CONDITION}"
         ).fetchone()[0],
         "services": [
             r[0]
@@ -6542,7 +6546,7 @@ async def summary():
         "SUM(toUInt64OrZero(SpanAttributes['gen_ai.usage.input_tokens'])) ti, "
         "SUM(toUInt64OrZero(SpanAttributes['gen_ai.usage.output_tokens'])) to_ "
         "FROM otel_traces "
-        "WHERE SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '' "
+        f"WHERE {_AI_SPAN_CONDITION} "
         "GROUP BY model"
     ).fetchall()
     return await render_template(
@@ -6952,6 +6956,15 @@ _AI_TRACE_PROMPT_SQL = (
     "SpanAttributes['gen_ai.input.messages'])"
 )
 _AI_TRACE_RESPONSE_SQL = "coalesce(SpanAttributes['sobs.gen_ai.response'], " "SpanAttributes['gen_ai.output.messages'])"
+
+# Semconv-first condition: a span is an AI span if it carries any of the canonical
+# GenAI semconv attributes (gen_ai.provider.name, gen_ai.operation.name) or the
+# legacy gen_ai.system field used by older instrumentations.
+_AI_SPAN_CONDITION = (
+    "(SpanAttributes['gen_ai.provider.name'] != '' "
+    "OR SpanAttributes['gen_ai.system'] != '' "
+    "OR SpanAttributes['gen_ai.operation.name'] != '')"
+)
 
 
 def _replace_sql_outside_single_quotes(sql: str, replacements: list[tuple[str, str]]) -> str:
@@ -9636,7 +9649,7 @@ async def view_ai():
     conditions = []
     params = []
     error_msg = time_error
-    base_ai_condition = "(SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '')"
+    base_ai_condition = _AI_SPAN_CONDITION
     time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
     where = "WHERE " + base_ai_condition
     if sql_where and not error_msg:
@@ -9704,7 +9717,7 @@ async def view_ai():
                     rows = db.execute(
                         f"SELECT Timestamp, ServiceName, TraceId, SpanName, Duration, SpanAttributes "
                         f"FROM otel_traces WHERE TraceId IN ({placeholders}) "
-                        "AND (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
+                        f"AND {_AI_SPAN_CONDITION} "
                         "ORDER BY Timestamp ASC",
                         trace_ids,
                     ).fetchall()
@@ -9751,6 +9764,7 @@ async def view_ai():
         # Coalesce prompt/response: OTel standard fields first, sobs legacy fields as fallback
         input_messages_raw = str(attrs.get("gen_ai.input.messages", ""))
         output_messages_raw = str(attrs.get("gen_ai.output.messages", ""))
+        system_instructions_raw = str(attrs.get("gen_ai.system_instructions", ""))
         prompt = _extract_messages_text(input_messages_raw) or str(attrs.get("sobs.gen_ai.prompt", ""))
         response = _extract_messages_text(output_messages_raw) or str(attrs.get("sobs.gen_ai.response", ""))
         tokens_in = _safe_attr_int(attrs, "gen_ai.usage.input_tokens")
@@ -9801,6 +9815,7 @@ async def view_ai():
                 "output_messages": output_messages,
                 "input_messages_json": input_messages_raw,
                 "output_messages_json": output_messages_raw,
+                "system_instructions": system_instructions_raw,
                 "tokens_in": tokens_in,
                 "tokens_out": tokens_out,
                 "thinking_tokens": thinking_tokens,
@@ -9882,8 +9897,8 @@ async def view_ai():
         services = [
             row[0]
             for row in db.execute(
-                "SELECT DISTINCT ServiceName FROM otel_traces "
-                "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
+                f"SELECT DISTINCT ServiceName FROM otel_traces "
+                f"WHERE {_AI_SPAN_CONDITION} "
                 "AND ServiceName!='' ORDER BY ServiceName"
             ).fetchall()
         ]
@@ -9895,7 +9910,7 @@ async def view_ai():
             row[0]
             for row in db.execute(
                 "SELECT DISTINCT SpanAttributes['gen_ai.request.model'] AS model FROM otel_traces "
-                "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
+                f"WHERE {_AI_SPAN_CONDITION} "
                 "AND SpanAttributes['gen_ai.request.model'] != '' ORDER BY model"
             ).fetchall()
         ]
@@ -9907,7 +9922,7 @@ async def view_ai():
             row[0]
             for row in db.execute(
                 "SELECT DISTINCT SpanAttributes['gen_ai.operation.name'] AS op FROM otel_traces "
-                "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
+                f"WHERE {_AI_SPAN_CONDITION} "
                 "AND SpanAttributes['gen_ai.operation.name'] != '' ORDER BY op"
             ).fetchall()
         ]
@@ -9918,8 +9933,8 @@ async def view_ai():
         span_names = [
             row[0]
             for row in db.execute(
-                "SELECT DISTINCT SpanName FROM otel_traces "
-                "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
+                f"SELECT DISTINCT SpanName FROM otel_traces "
+                f"WHERE {_AI_SPAN_CONDITION} "
                 "AND SpanName != '' ORDER BY SpanName"
             ).fetchall()
         ]
@@ -9934,7 +9949,7 @@ async def view_ai():
             "COUNT(*) cnt, "
             "countIf(SpanAttributes['error.type'] != '') errors "
             "FROM otel_traces "
-            "WHERE (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '')"
+            f"WHERE {_AI_SPAN_CONDITION}"
         ).fetchone()
         if totals_row:
             totals = {
@@ -9999,7 +10014,7 @@ async def export_ai_training():
         max_rows = 1000
 
     conditions = [
-        "(SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '')",
+        _AI_SPAN_CONDITION,
     ]
     params: list = []
     if service:
@@ -13575,7 +13590,7 @@ async def api_logs_validate_filter():
 @require_basic_auth
 async def api_ai_field_hints():
     db = get_db()
-    base_where = "(SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '')"
+    base_where = _AI_SPAN_CONDITION
 
     fields = [
         {"name": "service", "column": "ServiceName", "type": "string", "values": []},
@@ -13794,7 +13809,7 @@ async def api_ai_validate_filter():
         db.execute(
             "SELECT 1 FROM otel_traces "
             f"WHERE ({safe_sql}) "
-            "AND (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '') "
+            f"AND {_AI_SPAN_CONDITION} "
             "LIMIT 1"
         ).fetchone()
     except Exception as exc:

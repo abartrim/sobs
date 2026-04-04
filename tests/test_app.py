@@ -3784,10 +3784,230 @@ class TestGenAICompliance:
         body = await r.get_data(as_text=True)
         assert "Some AI metadata failed to load" in body
 
+    async def test_semconv_operation_name_only_span_detected_as_ai(self, client):
+        """Spans with only gen_ai.operation.name (no provider) should appear in AI view."""
+        import app as app_module
 
-# ---------------------------------------------------------------------------
-# Custom Dashboards (eChart)
-# ---------------------------------------------------------------------------
+        db = app_module.get_db()
+        app_module._insert_rows_json_each_row(
+            db,
+            "otel_traces",
+            [
+                {
+                    "Timestamp": "2024-02-01T00:00:00",
+                    "TraceId": "semcv001" * 4,
+                    "SpanId": "semspan1" * 2,
+                    "ParentSpanId": "",
+                    "TraceState": "",
+                    "SpanName": "chat gpt-4o",
+                    "SpanKind": "CLIENT",
+                    "ServiceName": "semconv-only-svc",
+                    "ResourceAttributes": {},
+                    "ScopeName": "test",
+                    "ScopeVersion": "",
+                    "SpanAttributes": {
+                        "gen_ai.operation.name": "chat",
+                        "gen_ai.request.model": "gpt-4o",
+                        "gen_ai.usage.input_tokens": "15",
+                        "gen_ai.usage.output_tokens": "8",
+                        "gen_ai.input.messages": json.dumps([{"role": "user", "content": "Semconv-only query"}]),
+                        "gen_ai.output.messages": json.dumps(
+                            [{"role": "assistant", "content": "Semconv-only answer"}]
+                        ),
+                    },
+                    "Duration": 200000000,
+                    "StatusCode": "STATUS_CODE_OK",
+                    "StatusMessage": "",
+                    "Events": {"Timestamp": [], "Name": [], "Attributes": []},
+                    "Links": {"TraceId": [], "SpanId": [], "TraceState": [], "Attributes": []},
+                }
+            ],
+        )
+
+        r = await client.get("/ai")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "semconv-only-svc" in body
+        assert "Semconv-only query" in body
+
+    async def test_semconv_operation_name_with_semconv_span_name(self, client):
+        """Spans using semconv span naming '{operation} {model}' should be detected and parsed."""
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "semconv-span-svc",
+                "provider": "groq",
+                "model": "llama3-8b-8192",
+                "operation": "chat",
+                "input_messages": [{"role": "user", "content": "Semconv span name test"}],
+                "output_messages": [{"role": "assistant", "content": "Passed"}],
+                "tokens_in": 12,
+                "tokens_out": 4,
+                "duration_ms": 180,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/ai")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        # Span name should follow semconv: "chat llama3-8b-8192"
+        assert "semconv-span-svc" in body
+        assert "Semconv span name test" in body
+
+    async def test_semconv_mixed_providers_via_provider_name(self, client):
+        """Mixed providers (groq, openai) identified via gen_ai.provider.name should both appear."""
+        for provider, model, content in [
+            ("groq", "llama3-70b", "Groq user message"),
+            ("openai", "gpt-4o-mini", "OpenAI user message"),
+        ]:
+            r = await client.post(
+                "/v1/ai",
+                json={
+                    "service": f"mixed-{provider}-svc",
+                    "provider": provider,
+                    "model": model,
+                    "input_messages": [{"role": "user", "content": content}],
+                    "output_messages": [{"role": "assistant", "content": "ok"}],
+                    "tokens_in": 10,
+                    "tokens_out": 2,
+                    "duration_ms": 100,
+                },
+            )
+            assert r.status_code == 200
+
+        r2 = await client.get("/ai")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert "Groq user message" in body
+        assert "OpenAI user message" in body
+
+    async def test_semconv_messages_as_json_string_attribute(self, client):
+        """gen_ai.input.messages stored as a JSON string should be parsed and displayed."""
+        import app as app_module
+
+        db = app_module.get_db()
+        messages_json = json.dumps([{"role": "user", "content": "JSON string attribute content"}])
+        app_module._insert_rows_json_each_row(
+            db,
+            "otel_traces",
+            [
+                {
+                    "Timestamp": "2024-02-02T00:00:00",
+                    "TraceId": "jsonstr1" * 4,
+                    "SpanId": "jstrspn1" * 2,
+                    "ParentSpanId": "",
+                    "TraceState": "",
+                    "SpanName": "chat gpt-4o",
+                    "SpanKind": "CLIENT",
+                    "ServiceName": "json-str-svc",
+                    "ResourceAttributes": {},
+                    "ScopeName": "test",
+                    "ScopeVersion": "",
+                    "SpanAttributes": {
+                        "gen_ai.provider.name": "openai",
+                        "gen_ai.operation.name": "chat",
+                        "gen_ai.request.model": "gpt-4o",
+                        "gen_ai.usage.input_tokens": "10",
+                        "gen_ai.usage.output_tokens": "5",
+                        # Stored as a JSON string (not a structured object) per semconv guidance
+                        "gen_ai.input.messages": messages_json,
+                    },
+                    "Duration": 150000000,
+                    "StatusCode": "STATUS_CODE_OK",
+                    "StatusMessage": "",
+                    "Events": {"Timestamp": [], "Name": [], "Attributes": []},
+                    "Links": {"TraceId": [], "SpanId": [], "TraceState": [], "Attributes": []},
+                }
+            ],
+        )
+
+        r = await client.get("/ai")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "JSON string attribute content" in body
+
+    async def test_system_instructions_displayed_in_ai_view(self, client):
+        """gen_ai.system_instructions should be displayed in the AI view conversation tab."""
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "sys-instr-svc",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "operation": "chat",
+                "system_instructions": "You are a helpful assistant that speaks only in haiku.",
+                "input_messages": [{"role": "user", "content": "Tell me about trees"}],
+                "output_messages": [{"role": "assistant", "content": "Leaves fall gently down"}],
+                "tokens_in": 20,
+                "tokens_out": 8,
+                "duration_ms": 250,
+            },
+        )
+        assert r.status_code == 200
+
+        r2 = await client.get("/ai")
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        assert "sys-instr-svc" in body
+        assert "You are a helpful assistant that speaks only in haiku." in body
+        assert "System Instructions" in body
+
+    async def test_semconv_operation_name_detected_in_otlp_sse_broadcast(self, client):
+        """OTLP trace spans with gen_ai.operation.name but no provider should broadcast AI SSE event."""
+        import app as app_module
+
+        q = asyncio.Queue()
+        app_module._sse_subscribers.add(q)
+        try:
+            r = await client.post(
+                "/v1/traces",
+                json={
+                    "resourceSpans": [
+                        {
+                            "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "otel-svc"}}]},
+                            "scopeSpans": [
+                                {
+                                    "scope": {"name": "test"},
+                                    "spans": [
+                                        {
+                                            "traceId": "aa" * 16,
+                                            "spanId": "bb" * 8,
+                                            "name": "chat gpt-4o",
+                                            "startTimeUnixNano": "1000000000",
+                                            "endTimeUnixNano": "2000000000",
+                                            "kind": 3,
+                                            "status": {"code": 1},
+                                            "attributes": [
+                                                {
+                                                    "key": "gen_ai.operation.name",
+                                                    "value": {"stringValue": "chat"},
+                                                },
+                                                {
+                                                    "key": "gen_ai.request.model",
+                                                    "value": {"stringValue": "gpt-4o"},
+                                                },
+                                            ],
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ]
+                },
+            )
+            assert r.status_code == 200
+            # At least one SSE event should have source=ai
+            events = []
+            while not q.empty():
+                events.append(await q.get())
+            ai_events = [e for e in events if e.get("source") == "ai"]
+            assert ai_events, "Expected an AI SSE event for span with gen_ai.operation.name"
+        finally:
+            app_module._sse_subscribers.discard(q)
+
+
+
 class TestCustomDashboards:
     async def test_list_dashboards_empty(self, client):
         r = await client.get("/dashboards")
