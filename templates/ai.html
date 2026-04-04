@@ -2,6 +2,12 @@
 {% block title %}AI Transparency{% endblock %}
 {% macro fmt_num(n) %}{% if n >= 1000000 %}{{ "%.1f" | format(n / 1000000) }}M{% elif n >= 1000 %}{{ "%.1f" | format(n / 1000) }}K{% else %}{{ n }}{% endif %}{% endmacro %}
 {% macro render_message_content(msg) %}{% set content = msg.get('content', '') if msg is mapping else '' %}{{ content if content is string else content | tojson }}{% endmacro %}
+{% macro render_system_instructions(instructions) %}{% if instructions %}
+<div class="mb-2">
+  <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-sliders me-1"></i>System Instructions</div>
+  <div class="prompt-box ai-md-content" style="max-height:150px;">{{ instructions }}</div>
+</div>
+{% endif %}{% endmacro %}
 {% block content %}
 <style>
   .ai-row-grid {
@@ -449,12 +455,7 @@
                     </script>
                     {% endif %}
 
-                    {% if item.system_instructions %}
-                    <div class="mb-2">
-                      <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-sliders me-1"></i>System Instructions</div>
-                      <div class="prompt-box ai-md-content" style="max-height:150px;">{{ item.system_instructions }}</div>
-                    </div>
-                    {% endif %}
+                    {{ render_system_instructions(item.system_instructions) }}
 
                     {% if item.input_messages %}
                     <div class="mb-2">
@@ -712,12 +713,7 @@
             </script>
             {% endif %}
 
-            {% if item.system_instructions %}
-            <div class="mb-2">
-              <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-sliders me-1"></i>System Instructions</div>
-              <div class="prompt-box ai-md-content" style="max-height:150px;">{{ item.system_instructions }}</div>
-            </div>
-            {% endif %}
+            {{ render_system_instructions(item.system_instructions) }}
 
             {% if item.input_messages %}
             <!-- Multi-turn conversation -->

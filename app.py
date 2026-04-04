@@ -6957,9 +6957,9 @@ _AI_TRACE_PROMPT_SQL = (
 )
 _AI_TRACE_RESPONSE_SQL = "coalesce(SpanAttributes['sobs.gen_ai.response'], " "SpanAttributes['gen_ai.output.messages'])"
 
-# Semconv-first condition: a span is an AI span if it carries any of the canonical
-# GenAI semconv attributes (gen_ai.provider.name, gen_ai.operation.name) or the
-# legacy gen_ai.system field used by older instrumentations.
+# Semantic convention-first condition: a span is an AI span if it carries any of the
+# canonical GenAI semantic convention attributes (gen_ai.provider.name, gen_ai.operation.name)
+# or the legacy gen_ai.system field used by older instrumentations.
 _AI_SPAN_CONDITION = (
     "(SpanAttributes['gen_ai.provider.name'] != '' "
     "OR SpanAttributes['gen_ai.system'] != '' "
