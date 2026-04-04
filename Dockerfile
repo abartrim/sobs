@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 LABEL maintainer="sobs"
 LABEL description="Simple Observe – lightweight OpenTelemetry telemetry container"
