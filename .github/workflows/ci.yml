@@ -100,7 +100,7 @@ jobs:
             .github/cache-key-runtime.txt
 
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('requirements-integration.txt', '.github/workflows/ci.yml', '.github/cache-key-runtime.txt') }}
