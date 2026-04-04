@@ -1251,6 +1251,10 @@ class WriteQueueFullError(RuntimeError):
     """Raised when ingest cannot enqueue a write within timeout."""
 
 
+def _json_error(message: str, status_code: int):
+    return jsonify({"error": message}), status_code
+
+
 def get_db() -> ChDbConnection:
     global _global_db, _schema_ready
     if _global_db is None or not _schema_ready:
@@ -5544,11 +5548,11 @@ async def ingest_logs():
     wait = bool(app.config.get("TESTING", False))
     try:
         _queue_write(lambda db: _insert_log_events(db, events), wait=wait)
-    except WriteQueueFullError as exc:
-        return jsonify({"error": str(exc)}), 503
-    except Exception as exc:
+    except WriteQueueFullError:
+        return _json_error("write queue is full", 503)
+    except Exception:
         app.logger.exception("log ingest write failed")
-        return jsonify({"error": str(exc)}), 500
+        return _json_error("log ingest write failed", 500)
     for event in events:
         await _sse_broadcast(
             {
@@ -5714,11 +5718,11 @@ async def ingest_traces():
 
     try:
         _queue_write(_op, wait=wait)
-    except WriteQueueFullError as exc:
-        return jsonify({"error": str(exc)}), 503
-    except Exception as exc:
+    except WriteQueueFullError:
+        return _json_error("write queue is full", 503)
+    except Exception:
         app.logger.exception("trace ingest write failed")
-        return jsonify({"error": str(exc)}), 500
+        return _json_error("trace ingest write failed", 500)
     for event in span_events:
         await _sse_broadcast(
             {
@@ -5766,11 +5770,11 @@ async def ingest_metrics():
     wait = bool(app.config.get("TESTING", False))
     try:
         _queue_write(lambda db: _insert_metric_events(db, events), wait=wait)
-    except WriteQueueFullError as exc:
-        return jsonify({"error": str(exc)}), 503
-    except Exception as exc:
+    except WriteQueueFullError:
+        return _json_error("write queue is full", 503)
+    except Exception:
         app.logger.exception("metric ingest write failed")
-        return jsonify({"error": str(exc)}), 500
+        return _json_error("metric ingest write failed", 500)
     count = len(events)
     return jsonify({"accepted": count}), 200
 
@@ -5928,11 +5932,11 @@ async def ingest_rum():
 
     try:
         _queue_write(_op, wait=wait)
-    except WriteQueueFullError as exc:
-        return jsonify({"error": str(exc)}), 503
-    except Exception as exc:
+    except WriteQueueFullError:
+        return _json_error("write queue is full", 503)
+    except Exception:
         app.logger.exception("rum ingest write failed")
-        return jsonify({"error": str(exc)}), 500
+        return _json_error("rum ingest write failed", 500)
     return jsonify({"accepted": len(session_rows)}), 200
 
 
@@ -6004,11 +6008,11 @@ async def ingest_ai():
 
     try:
         _queue_write(_op, wait=wait)
-    except WriteQueueFullError as exc:
-        return jsonify({"error": str(exc)}), 503
-    except Exception as exc:
+    except WriteQueueFullError:
+        return _json_error("write queue is full", 503)
+    except Exception:
         app.logger.exception("ai ingest write failed")
-        return jsonify({"error": str(exc)}), 500
+        return _json_error("ai ingest write failed", 500)
     await _sse_broadcast(
         {
             "source": "ai",
@@ -6070,11 +6074,11 @@ async def ingest_errors():
 
     try:
         _queue_write(_op, wait=wait)
-    except WriteQueueFullError as exc:
-        return jsonify({"error": str(exc)}), 503
-    except Exception as exc:
+    except WriteQueueFullError:
+        return _json_error("write queue is full", 503)
+    except Exception:
         app.logger.exception("error ingest write failed")
-        return jsonify({"error": str(exc)}), 500
+        return _json_error("error ingest write failed", 500)
     return jsonify({"ok": True}), 200
 
 
@@ -8912,9 +8916,9 @@ async def resolve_error(error_id: str):
             db.execute("INSERT INTO sobs_error_resolutions(ErrorId) VALUES(?)", (error_id,))
 
         _queue_write(_op, wait=True)
-    except Exception as exc:
+    except Exception:
         app.logger.exception("resolve error write failed")
-        return jsonify({"error": str(exc)}), 500
+        return _json_error("resolve error write failed", 500)
     return jsonify({"ok": True})
 
 
@@ -15244,9 +15248,9 @@ async def check_notifications():
         try:
             result = await _check_notification_rule(db, rule, channels_by_id)
             results.append(result)
-        except Exception as exc:
+        except Exception:
             app.logger.exception("Error evaluating notification rule %s", rule.get("id"))
-            results.append({"rule_id": rule.get("id"), "fired": False, "error": str(exc)})
+            results.append({"rule_id": rule.get("id"), "fired": False, "error": "rule evaluation failed"})
 
     fired = [r for r in results if r.get("fired")]
 
@@ -15445,8 +15449,9 @@ async def generate_vapid_key():
                 ),
             }
         )
-    except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
+    except Exception:
+        app.logger.exception("VAPID key generation failed")
+        return jsonify({"ok": False, "error": "failed to generate VAPID keys"}), 500
 
 
 @app.route("/api/notifications/vapid-keys", methods=["DELETE"])
@@ -15489,14 +15494,14 @@ async def health_db():
     try:
         ensure_db_schema()
         get_db().execute("SELECT 1").fetchone()
-    except Exception as exc:
+    except Exception:
         app.logger.exception("DB readiness probe failed")
         return (
             jsonify(
                 {
                     "status": "degraded",
                     "db": "error",
-                    "error": str(exc),
+                    "error": "database unavailable",
                     "write_queue_depth": _write_queue_depth(),
                     "version": "1.0.0",
                 }

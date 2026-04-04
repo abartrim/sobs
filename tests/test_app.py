@@ -116,30 +116,83 @@ class TestHealth:
         data = json.loads(await r.get_data())
         assert data["status"] == "degraded"
         assert data["db"] == "error"
-        assert "db timeout" in data["error"]
+        assert data["error"] == "database unavailable"
         assert isinstance(data["write_queue_depth"], int)
 
 
 class TestWriteQueue:
-    async def test_ingest_returns_503_when_write_queue_full(self, client, monkeypatch):
+    @pytest.mark.parametrize(
+        ("path", "payload"),
+        [
+            ("/v1/errors", {}),
+            ("/v1/logs", {}),
+            ("/v1/traces", {}),
+            ("/v1/metrics", {}),
+            ("/v1/rum", {}),
+            ("/v1/ai", {}),
+        ],
+    )
+    async def test_ingest_returns_503_when_write_queue_full(self, client, monkeypatch, path, payload):
         def _raise_queue_full(_op, wait=False):
             raise sobs_app.WriteQueueFullError("write queue is full")
 
         monkeypatch.setattr(sobs_app, "_queue_write", _raise_queue_full)
-        r = await client.post("/v1/errors", json={"service": "q-full", "message": "drop me"})
+        r = await client.post(path, json=payload)
         assert r.status_code == 503
         data = json.loads(await r.get_data())
-        assert "write queue is full" in data["error"]
+        assert data["error"] == "write queue is full"
 
-    async def test_ingest_returns_500_when_writer_op_fails(self, client, monkeypatch):
+    @pytest.mark.parametrize(
+        ("path", "payload", "expected_error"),
+        [
+            ("/v1/errors", {}, "error ingest write failed"),
+            ("/v1/logs", {}, "log ingest write failed"),
+            ("/v1/traces", {}, "trace ingest write failed"),
+            ("/v1/metrics", {}, "metric ingest write failed"),
+            ("/v1/rum", {}, "rum ingest write failed"),
+            ("/v1/ai", {}, "ai ingest write failed"),
+        ],
+    )
+    async def test_ingest_returns_500_when_writer_op_fails(self, client, monkeypatch, path, payload, expected_error):
         def _raise_write_failure(*_args, **_kwargs):
-            raise RuntimeError("write failed")
+            raise RuntimeError("write failed: secret internal details")
 
-        monkeypatch.setattr(sobs_app, "_insert_rows_json_each_row", _raise_write_failure)
-        r = await client.post("/v1/errors", json={"service": "q-fail", "message": "boom"})
+        monkeypatch.setattr(sobs_app, "_queue_write", _raise_write_failure)
+        r = await client.post(path, json=payload)
         assert r.status_code == 500
         data = json.loads(await r.get_data())
-        assert "write failed" in data["error"]
+        assert data["error"] == expected_error
+        assert "secret internal details" not in data["error"]
+
+    async def test_resolve_error_write_failure_is_sanitized(self, client, monkeypatch):
+        def _raise_write_failure(*_args, **_kwargs):
+            raise RuntimeError("resolve failed: secret internal details")
+
+        monkeypatch.setattr(sobs_app, "_queue_write", _raise_write_failure)
+        r = await client.post("/errors/deadbeefdeadbeefdeadbeefdeadbeef/resolve")
+        assert r.status_code == 500
+        data = json.loads(await r.get_data())
+        assert data["error"] == "resolve error write failed"
+        assert "secret internal details" not in data["error"]
+
+    async def test_notification_check_rule_failure_is_sanitized(self, client, monkeypatch):
+        monkeypatch.setattr(
+            sobs_app,
+            "_load_notification_rules",
+            lambda _db: [{"id": "rule-1", "is_enabled": True}],
+        )
+        monkeypatch.setattr(sobs_app, "_load_notification_channels", lambda _db: [])
+
+        async def _raise_rule_failure(_db, _rule, _channels_by_id):
+            raise RuntimeError("rule failed: secret internal details")
+
+        monkeypatch.setattr(sobs_app, "_check_notification_rule", _raise_rule_failure)
+
+        r = await client.post("/api/notifications/check")
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["results"][0]["error"] == "rule evaluation failed"
+        assert "secret internal details" not in data["results"][0]["error"]
 
     async def test_non_testing_mode_uses_async_queue_and_persists(self, monkeypatch):
         # In non-testing mode ingest should enqueue writes and return immediately.
@@ -7952,6 +8005,19 @@ class TestNotifications:
         assert r.status_code == 404
         data = json.loads(await r.get_data())
         assert data["ok"] is False
+
+    async def test_generate_vapid_keys_failure_is_sanitized(self, client, monkeypatch):
+        def _raise_keygen_failure():
+            raise RuntimeError("keygen failed: secret internal details")
+
+        monkeypatch.setattr(sobs_app, "_generate_vapid_keys", _raise_keygen_failure)
+
+        r = await client.post("/api/notifications/vapid-keygen")
+        assert r.status_code == 500
+        data = json.loads(await r.get_data())
+        assert data["ok"] is False
+        assert data["error"] == "failed to generate VAPID keys"
+        assert "secret internal details" not in data["error"]
 
     async def test_settings_page_shows_notification_counts(self, client):
         r = await client.get("/settings")

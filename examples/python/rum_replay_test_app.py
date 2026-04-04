@@ -10,12 +10,12 @@ import binascii
 import hashlib
 import hmac
 import json
+import logging
 import os
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import logging
 
 from flask import Flask, jsonify, render_template_string, request
 
@@ -378,8 +378,9 @@ def replay_upload():
         )
     except urllib.error.HTTPError as exc:
         return jsonify({"error": f"asset upload failed with HTTP {exc.code}"}), 502
-    except Exception as exc:
-        return jsonify({"error": f"asset upload failed: {exc}"}), 500
+    except Exception:
+        logger.exception("asset upload failed")
+        return jsonify({"error": "asset upload failed"}), 500
 
 
 @app.route("/api/fail", methods=["GET"])
