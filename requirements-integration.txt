@@ -1,6 +1,6 @@
-pytest
-pytest-asyncio
-pytest-playwright
-playwright
-requests
-types-requests
+pytest>=9.0.2
+pytest-asyncio>=1.3.0
+pytest-playwright>=0.7.2
+playwright>=1.58.0
+requests>=2.33.1
+types-requests>=2.33.0.20260402

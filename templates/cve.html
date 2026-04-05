@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}CVE Findings{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0">
+    <i class="bi bi-shield-exclamation me-2 text-danger"></i>CVE / Vulnerability Findings
+    {% if cve_findings %}
+    <span class="badge bg-danger ms-1">{{ cve_findings | length }}</span>
+    {% endif %}
+  </h4>
+  <div class="d-flex align-items-center gap-2">
+    {% if cve_last_scan %}
+    <span class="text-secondary small"><i class="bi bi-clock me-1"></i>Last scan: {{ cve_last_scan[:16] }}</span>
+    {% endif %}
+    {% if cve_enabled %}
+    <button class="btn btn-sm btn-outline-danger py-0" id="cve-scan-btn" onclick="triggerCveScan()">
+      <i class="bi bi-arrow-clockwise me-1"></i>Scan now
+    </button>
+    {% endif %}
+    <a href="{{ url_for('view_web_traffic') }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-map me-1"></i>Web Traffic
+    </a>
+  </div>
+</div>
+
+{% if not cve_enabled %}
+<div class="alert alert-secondary py-2 small" role="alert">
+  <i class="bi bi-shield-slash me-1"></i>
+  CVE scanning is <strong>disabled</strong>.
+  <a href="{{ url_for('view_enrichment_settings') }}" class="alert-link">Enable in Enrichment Settings</a>
+</div>
+{% else %}
+
+<!-- Filters -->
+<div class="accordion mb-3" id="cveFiltersAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header">
+      <button class="accordion-button py-2" type="button"
+              data-bs-toggle="collapse" data-bs-target="#cveFiltersPanel"
+              aria-expanded="true" aria-controls="cveFiltersPanel">
+        <i class="bi bi-funnel me-2 text-primary"></i>
+        <span class="fw-semibold">Filters</span>
+        {% if severity_filter or ecosystem_filter or package_filter %}
+        <span class="badge bg-primary ms-2">Active</span>
+        {% endif %}
+      </button>
+    </h2>
+    <div id="cveFiltersPanel" class="accordion-collapse collapse show" data-bs-parent="#cveFiltersAccordion">
+      <div class="accordion-body py-3">
+        <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+          <div>
+            <label class="form-label small text-secondary mb-1">Severity</label>
+            <select name="severity" class="form-select form-select-sm" style="min-width:120px;">
+              <option value="">All</option>
+              {% for s in severities %}
+              <option value="{{ s }}" {% if severity_filter == s %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="form-label small text-secondary mb-1">Ecosystem</label>
+            <select name="ecosystem" class="form-select form-select-sm" style="min-width:120px;">
+              <option value="">All</option>
+              {% for e in ecosystems %}
+              <option value="{{ e }}" {% if ecosystem_filter == e %}selected{% endif %}>{{ e }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="form-label small text-secondary mb-1">Package</label>
+            <input type="text" name="package" class="form-control form-control-sm"
+                   placeholder="e.g. requests" value="{{ package_filter }}" style="min-width:160px;">
+          </div>
+          <div class="d-flex gap-1" style="flex: 0 0 auto">
+            <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i></button>
+            <a href="{{ url_for('view_enrichment_cve') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="cve-scan-result" class="mb-3"></div>
+
+{% if cve_findings %}
+<!-- Summary badges -->
+<div class="d-flex flex-wrap gap-2 mb-3">
+  <span class="text-secondary small"><strong>{{ cve_findings | length }}</strong> finding{% if cve_findings | length != 1 %}s{% endif %}</span>
+  {% set critical_count = cve_findings | selectattr('severity', 'equalto', 'CRITICAL') | list | length %}
+  {% set high_count = cve_findings | selectattr('severity', 'equalto', 'HIGH') | list | length %}
+  {% set medium_count = cve_findings | selectattr('severity', 'equalto', 'MEDIUM') | list | length %}
+  {% if critical_count %}
+  <span class="badge bg-danger">{{ critical_count }} CRITICAL</span>
+  {% endif %}
+  {% if high_count %}
+  <span class="badge bg-warning text-dark">{{ high_count }} HIGH</span>
+  {% endif %}
+  {% if medium_count %}
+  <span class="badge bg-secondary">{{ medium_count }} MEDIUM</span>
+  {% endif %}
+</div>
+
+<p class="small text-secondary mb-3">
+  Data from <a href="https://osv.dev" target="_blank" rel="noopener">OSV.dev</a> (Apache 2.0, free, no API key).
+  Libraries detected via OTEL <code>telemetry.sdk.*</code> ResourceAttributes and instrumentation scope versions.
+  Scans run daily automatically (30 s after startup).
+</p>
+
+<div class="accordion mb-3" id="cveListAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header">
+      <button class="accordion-button py-2" type="button"
+              data-bs-toggle="collapse" data-bs-target="#cveListPanel"
+              aria-expanded="true" aria-controls="cveListPanel">
+        <i class="bi bi-list-ul me-1 text-danger"></i>
+        <span class="fw-semibold">Findings</span>
+      </button>
+    </h2>
+    <div id="cveListPanel" class="accordion-collapse collapse show">
+      <div class="accordion-body p-0">
+        <div class="list-group list-group-flush">
+          {% for f in cve_findings %}
+          <div class="list-group-item border-secondary py-2">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-1">
+              <span class="fw-semibold small">
+                <a href="https://osv.dev/vulnerability/{{ f.osv_id }}" target="_blank" rel="noopener" class="text-decoration-none">{{ f.osv_id }}</a>
+                {% if f.severity == 'CRITICAL' %}
+                <span class="badge bg-danger ms-1">{{ f.severity }}</span>
+                {% elif f.severity == 'HIGH' %}
+                <span class="badge bg-warning text-dark ms-1">{{ f.severity }}</span>
+                {% elif f.severity %}
+                <span class="badge bg-secondary ms-1">{{ f.severity }}</span>
+                {% endif %}
+              </span>
+              <span class="text-secondary" style="font-size:.7rem;">{{ f.published }}</span>
+            </div>
+            <div class="mt-1 small">
+              <code>{{ f.ecosystem }}/{{ f.package }}@{{ f.version }}</code>
+              {% if f.service %}<span class="text-secondary ms-1">({{ f.service }})</span>{% endif %}
+            </div>
+            {% if f.cve_ids %}
+            <div class="mt-1">
+              {% for cid in f.cve_ids %}
+              <a href="https://nvd.nist.gov/vuln/detail/{{ cid }}" target="_blank" rel="noopener" class="badge bg-secondary text-decoration-none me-1">{{ cid }}</a>
+              {% endfor %}
+            </div>
+            {% endif %}
+            {% if f.summary %}<div class="text-secondary small mt-1">{{ f.summary | truncate(300) }}</div>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% else %}
+<div class="text-center py-5 text-secondary">
+  <i class="bi bi-shield-check" style="font-size:2rem;"></i>
+  <p class="mt-2">
+    {% if severity_filter or ecosystem_filter or package_filter %}
+    No findings match the current filters. <a href="{{ url_for('view_enrichment_cve') }}">Clear filters</a>
+    {% else %}
+    No CVE findings stored yet.
+    {% if cve_last_scan %}Last scan: {{ cve_last_scan[:16] }}.{% endif %}
+    The background scanner runs daily (30 s after startup).
+    {% endif %}
+  </p>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function triggerCveScan() {
+  var btn = document.getElementById('cve-scan-btn');
+  var resultsEl = document.getElementById('cve-scan-result');
+  if (btn) btn.disabled = true;
+  if (resultsEl) resultsEl.innerHTML = '<div class="text-secondary small"><span class="spinner-border spinner-border-sm me-1"></span>Scanning OTEL library versions via OSV.dev…</div>';
+  fetch('/api/enrichment/cve/scan', {method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(data){
+      if (btn) btn.disabled = false;
+      if (!data.ok) {
+        if (resultsEl) resultsEl.innerHTML = '<div class="alert alert-warning small py-2">'+escHtml(data.error||'Scan failed')+'</div>';
+        return;
+      }
+      var libs = data.libraries_found||0, vulns = data.vulns_found||0;
+      var msg = 'Scan complete. Libraries: <strong>'+libs+'</strong>. Vulnerabilities: <strong>'+vulns+'</strong>.';
+      if (vulns>0) msg += ' <button class="btn btn-sm btn-link p-0 align-baseline" onclick="location.reload()">Reload to see findings</button>';
+      if (resultsEl) resultsEl.innerHTML = '<div class="alert alert-'+(vulns>0?'warning':'success')+' small py-2">'+msg+'</div>';
+    })
+    .catch(function(err){
+      if (btn) btn.disabled = false;
+      if (resultsEl) resultsEl.innerHTML = '<div class="alert alert-danger small py-2">Request failed: '+escHtml(String(err))+'</div>';
+    });
+}
+function escHtml(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+</script>
+{% endblock %}

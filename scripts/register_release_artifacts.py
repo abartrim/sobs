@@ -17,6 +17,18 @@ Usage examples:
     --environment prod \
     --artifacts-file ./build/sobs-artifacts.json
 
+Register dependencies (Python requirements.txt):
+  python scripts/register_release_artifacts.py \
+    --app-name checkout-web \
+    --release-version 1.2.3 \
+    --requirements-file requirements.txt
+
+Register dependencies (generic JSON — works for any language):
+  python scripts/register_release_artifacts.py \
+    --app-name checkout-web \
+    --release-version 1.2.3 \
+    --dependencies-json '[{"package":"express","version":"4.18.2","ecosystem":"npm"}]'
+
 You can also configure mostly through env vars:
   SOBS_BASE_URL
   SOBS_API_KEY
@@ -33,6 +45,8 @@ You can also configure mostly through env vars:
   SOBS_RELEASE_METADATA_JSON
   SOBS_RELEASE_ARTIFACTS_JSON
   SOBS_RELEASE_ARTIFACTS_JSON_FILE
+  SOBS_RELEASE_DEPENDENCIES_JSON       -- JSON array [{package,version,ecosystem}, ...]
+  SOBS_RELEASE_DEPENDENCIES_JSON_FILE  -- path to same JSON format
 """
 
 from __future__ import annotations
@@ -137,9 +151,120 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--artifacts-file", default=_env("SOBS_RELEASE_ARTIFACTS_JSON_FILE"))
     p.add_argument("--artifacts-json", default=_env("SOBS_RELEASE_ARTIFACTS_JSON"))
 
+    # Dependency/lockfile registration (stored as ArtifactType="dependencies-lockfile")
+    p.add_argument(
+        "--dependencies-json",
+        default=_env("SOBS_RELEASE_DEPENDENCIES_JSON"),
+        help="JSON array of {package,version,ecosystem} objects",
+    )
+    p.add_argument(
+        "--dependencies-file",
+        default=_env("SOBS_RELEASE_DEPENDENCIES_JSON_FILE"),
+        help="Path to JSON file containing [{package,version,ecosystem}, ...] array",
+    )
+    p.add_argument(
+        "--dependencies-name",
+        default=_env("SOBS_RELEASE_DEPENDENCIES_NAME", "lockfile"),
+        help="Label for this dependency set (e.g. 'requirements.txt', 'package-lock.json')",
+    )
+    p.add_argument(
+        "--requirements-file",
+        default=_env("SOBS_RELEASE_REQUIREMENTS_FILE"),
+        help="Path to a pip requirements.txt (pip-freeze format); auto-converts to dependency list",
+    )
+
     p.add_argument("--timeout", type=int, default=int(_env("SOBS_HTTP_TIMEOUT_SEC", "20") or "20"))
     p.add_argument("--dry-run", action="store_true")
     return p.parse_args()
+
+
+def _parse_requirements_txt(path: str) -> list[dict[str, str]]:
+    """Parse a pip freeze / requirements.txt file into [{package, version, ecosystem}]."""
+    deps: list[dict[str, str]] = []
+    with open(path, encoding="utf-8") as fh:
+        for raw_line in fh:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or line.startswith("-"):
+                continue
+            # Handle pkg==ver, pkg>=ver, pkg~=ver etc.
+            for sep in ("==", ">=", "<=", "~=", "!=", ">", "<"):
+                if sep in line:
+                    parts = line.split(sep, 1)
+                    package = parts[0].strip()
+                    version = parts[1].strip().split(",")[0].strip()
+                    if package:
+                        deps.append({"package": package, "version": version, "ecosystem": "PyPI"})
+                    break
+    return deps
+
+
+def _load_dependencies(args: argparse.Namespace) -> list[dict[str, str]]:
+    """Return normalised [{package, version, ecosystem}] list or empty list."""
+    # Python requirements.txt shorthand
+    if args.requirements_file:
+        deps = _parse_requirements_txt(args.requirements_file)
+        if not args.dependencies_name or args.dependencies_name == "lockfile":
+            args.dependencies_name = args.requirements_file
+        return deps
+
+    raw = str(args.dependencies_json or "").strip()
+    if not raw and args.dependencies_file:
+        with open(args.dependencies_file, encoding="utf-8") as fh:
+            raw = fh.read().strip()
+    if not raw:
+        return []
+
+    parsed = json.loads(raw)
+    if not isinstance(parsed, list):
+        raise ValueError("--dependencies-json must be a JSON array")
+
+    normalized: list[dict[str, str]] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        package = str(item.get("package", item.get("name", ""))).strip()
+        version = str(item.get("version", "")).strip()
+        ecosystem = str(item.get("ecosystem", "")).strip()
+        if package:
+            normalized.append({"package": package, "version": version, "ecosystem": ecosystem})
+    return normalized
+
+
+def _register_dependencies(
+    api: SobsApi,
+    release_id: str,
+    deps: list[dict[str, str]],
+    dep_name: str,
+    dry_run: bool,
+) -> int:
+    """Register a dependency list as a 'dependencies-lockfile' artifact.
+
+    Stored as a single artifact row with the dependency array in MetadataJson,
+    keyed by (ArtifactType='dependencies-lockfile', Name=dep_name).
+    Any previous row with the same key is superseded by the ReplacingMergeTree.
+    """
+    if not deps:
+        return 0
+
+    artifact = {
+        "artifactType": "dependencies-lockfile",
+        "name": dep_name,
+        "contentType": "application/json",
+        "size": 0,
+        "storageRef": "",
+        "checksumSha256": "",
+        "platform": "",
+        "architecture": "",
+        "metadata": {"dependencies": deps},
+        "uploadedAt": "",
+    }
+
+    if dry_run:
+        print(f"[dry-run] would register {len(deps)} dependencies as '{dep_name}'")
+        return len(deps)
+
+    api.post(f"/v1/releases/{urllib.parse.quote(release_id)}/artifacts/meta", artifact)
+    return len(deps)
 
 
 def _parse_optional_json(text: str, default: Any) -> Any:
@@ -318,6 +443,7 @@ def main() -> int:
 
     try:
         artifacts = _load_artifacts(args)
+        deps = _load_dependencies(args)
         api = SobsApi(args.base_url, args.api_key, args.timeout)
 
         app = _find_or_create_app(api, args, args.dry_run)
@@ -331,12 +457,15 @@ def main() -> int:
             raise RuntimeError("release id is missing")
 
         created, skipped = _upsert_artifact_meta(api, release_id, artifacts, args.dry_run)
+        deps_registered = _register_dependencies(api, release_id, deps, args.dependencies_name, args.dry_run)
 
         print("Done.")
         print(f"  app_id={app_id}")
         print(f"  release_id={release_id}")
         print(f"  artifacts_registered={created}")
         print(f"  artifacts_skipped_existing={skipped}")
+        if deps_registered:
+            print(f"  dependencies_registered={deps_registered} (source: {args.dependencies_name})")
         return 0
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

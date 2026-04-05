@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import html
 import inspect
+import ipaddress as _ipaddress
 import json
 import logging
 import os
@@ -6398,6 +6399,60 @@ def _extract_trace_fields(event: dict[str, Any]) -> tuple[str, str, int]:
     return parsed_trace_id or trace_id, parsed_span_id or span_id, parsed_flags
 
 
+# RUM Browser Context Delta Posting Cache
+# Session ID -> { contextHash: str, fullContext: dict }
+_RUM_BROWSER_CONTEXT_CACHE: dict[str, dict[str, Any]] = {}
+_RUM_BROWSER_CONTEXT_CACHE_LOCK = threading.Lock()
+_RUM_BROWSER_CONTEXT_CACHE_MAX = 10000  # Keep recent 10k sessions
+
+
+def _handle_browser_context_delta(event: dict[str, Any]) -> dict[str, str]:
+    """
+    Handle delta posting for browser context.
+
+    If event has full browserContext, cache it.
+    If event has contextUnchanged flag, retrieve from cache.
+    Returns the full browser context attributes to add to LogAttributes.
+    """
+    session_id = str(event.get("sessionId", ""))
+    browser_context = event.get("browserContext", {})
+    context_hash = str(event.get("contextHash", ""))
+    context_unchanged = bool(event.get("contextUnchanged", False))
+
+    if not session_id or not context_hash:
+        return {}
+
+    with _RUM_BROWSER_CONTEXT_CACHE_LOCK:
+        # If we have full context, cache it
+        if browser_context and isinstance(browser_context, dict):
+            _RUM_BROWSER_CONTEXT_CACHE[session_id] = {
+                "contextHash": context_hash,
+                "fullContext": browser_context,
+            }
+            # Trim cache if too large
+            if len(_RUM_BROWSER_CONTEXT_CACHE) > _RUM_BROWSER_CONTEXT_CACHE_MAX:
+                # Remove oldest (arbitrary first items)
+                to_remove = len(_RUM_BROWSER_CONTEXT_CACHE) - _RUM_BROWSER_CONTEXT_CACHE_MAX
+                for _ in range(to_remove):
+                    _RUM_BROWSER_CONTEXT_CACHE.pop(next(iter(_RUM_BROWSER_CONTEXT_CACHE)), None)
+
+        # Retrieve cached context if contextUnchanged or if we received just the hash
+        if context_unchanged or (not browser_context and context_hash):
+            cached = _RUM_BROWSER_CONTEXT_CACHE.get(session_id, {})
+            if cached.get("contextHash") == context_hash:
+                browser_context = cached.get("fullContext", {})
+
+    # Convert browser context dict to LogAttributes string map
+    # Prefix with "browser." to keep organized
+    attrs: dict[str, str] = {}
+    if isinstance(browser_context, dict):
+        for key, value in browser_context.items():
+            if value is not None and value != "":
+                attrs[f"browser.context.{key}"] = str(value)
+
+    return attrs
+
+
 @app.route("/v1/rum", methods=["POST"])
 @require_api_key
 async def ingest_rum():
@@ -6435,6 +6490,11 @@ async def ingest_rum():
         url = event.get("url", "")
         trace_id, span_id, trace_flags = _extract_trace_fields(event)
         attrs = _stringify_attrs(event)
+
+        # Handle browser context delta posting (compress redundant context)
+        browser_context_attrs = _handle_browser_context_delta(event)
+        attrs.update(browser_context_attrs)
+
         if client_ip:
             attrs["client.ip"] = client_ip
         session_rows.append(
@@ -9882,8 +9942,6 @@ async def view_traces():
 # Enrichment – geo-lookup helpers
 # ---------------------------------------------------------------------------
 
-import ipaddress as _ipaddress
-
 
 def _is_private_ip(ip: str) -> bool:
     """Return True for private/loopback/link-local IPs that should not be geolocated."""
@@ -9983,6 +10041,7 @@ def _geo_lookup_batch(ips: list[str], geo_enabled: bool = True) -> dict[str, dic
 # then queries OSV.dev (Apache 2.0) for known vulnerabilities.
 # ---------------------------------------------------------------------------
 
+
 def _lang_to_osv_ecosystem(lang: str) -> str:
     """Map telemetry.sdk.language to an OSV.dev ecosystem name."""
     return {
@@ -10067,7 +10126,11 @@ def _extract_library_versions_from_otel(db: "ChDbConnection") -> list[dict]:
             # Detect ecosystem only from unambiguous well-known prefixes.
             # Leave eco="" when unsure rather than guessing — unknown-ecosystem
             # entries are skipped by _run_cve_scan to avoid false lookups.
-            if scope_name.startswith("io.opentelemetry") or scope_name.startswith("com.") or scope_name.startswith("org."):
+            if (
+                scope_name.startswith("io.opentelemetry")
+                or scope_name.startswith("com.")
+                or scope_name.startswith("org.")
+            ):
                 eco = "Maven"
             elif scope_name.startswith("@"):
                 eco = "npm"
@@ -10651,10 +10714,188 @@ async def api_web_traffic_geo():
 
 
 # ---------------------------------------------------------------------------
+# API – Web Traffic browser context aggregation (GET /api/web-traffic/browsers, etc.)
+# ---------------------------------------------------------------------------
+@app.route("/api/web-traffic/browsers", methods=["GET"])
+@require_basic_auth
+async def api_web_traffic_browsers():
+    """Return browser name/version aggregation from RUM events."""
+    db = get_db()
+    from_ts, to_ts, _ = _parse_time_window_args()
+    time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
+    where = ("WHERE " + " AND ".join(time_conditions)) if time_conditions else ""
+
+    rows = db.execute(
+        f"SELECT LogAttributes['browser.context.browserName'] AS browser, "
+        f"LogAttributes['browser.context.browserVersion'] AS version, COUNT(*) AS cnt "
+        f"FROM hyperdx_sessions {where} "
+        f"GROUP BY browser, version ORDER BY cnt DESC LIMIT 50",
+        time_params,
+    ).fetchall()
+
+    browsers = [
+        {
+            "name": f"{str(r[0])} {str(r[1])}".strip() or "Unknown",
+            "value": int(r[2]),
+        }
+        for r in rows
+    ]
+    return jsonify({"ok": True, "browsers": browsers})
+
+
+@app.route("/api/web-traffic/os", methods=["GET"])
+@require_basic_auth
+async def api_web_traffic_os():
+    """Return OS name/version aggregation from RUM events."""
+    db = get_db()
+    from_ts, to_ts, _ = _parse_time_window_args()
+    time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
+    where = ("WHERE " + " AND ".join(time_conditions)) if time_conditions else ""
+
+    rows = db.execute(
+        f"SELECT LogAttributes['browser.context.osName'] AS os, "
+        f"LogAttributes['browser.context.osVersion'] AS version, COUNT(*) AS cnt "
+        f"FROM hyperdx_sessions {where} "
+        f"GROUP BY os, version ORDER BY cnt DESC LIMIT 50",
+        time_params,
+    ).fetchall()
+
+    operating_systems = [
+        {
+            "name": f"{str(r[0])} {str(r[1])}".strip() or "Unknown",
+            "value": int(r[2]),
+        }
+        for r in rows
+    ]
+    return jsonify({"ok": True, "operating_systems": operating_systems})
+
+
+@app.route("/api/web-traffic/timezones", methods=["GET"])
+@require_basic_auth
+async def api_web_traffic_timezones():
+    """Return timezone aggregation from RUM events."""
+    db = get_db()
+    from_ts, to_ts, _ = _parse_time_window_args()
+    time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
+    where = ("WHERE " + " AND ".join(time_conditions)) if time_conditions else ""
+
+    rows = db.execute(
+        f"SELECT LogAttributes['browser.context.timezone'] AS tz, COUNT(*) AS cnt "
+        f"FROM hyperdx_sessions {where} "
+        f"GROUP BY tz HAVING tz != '' ORDER BY cnt DESC LIMIT 50",
+        time_params,
+    ).fetchall()
+
+    timezones = [{"name": str(r[0]), "value": int(r[1])} for r in rows]
+    return jsonify({"ok": True, "timezones": timezones})
+
+
+@app.route("/api/web-traffic/languages", methods=["GET"])
+@require_basic_auth
+async def api_web_traffic_languages():
+    """Return language aggregation from RUM events."""
+    db = get_db()
+    from_ts, to_ts, _ = _parse_time_window_args()
+    time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
+    where = ("WHERE " + " AND ".join(time_conditions)) if time_conditions else ""
+
+    rows = db.execute(
+        f"SELECT LogAttributes['browser.context.language'] AS lang, COUNT(*) AS cnt "
+        f"FROM hyperdx_sessions {where} "
+        f"GROUP BY lang HAVING lang != '' ORDER BY cnt DESC LIMIT 50",
+        time_params,
+    ).fetchall()
+
+    languages = [{"name": str(r[0]), "value": int(r[1])} for r in rows]
+    return jsonify({"ok": True, "languages": languages})
+
+
+@app.route("/api/web-traffic/devices", methods=["GET"])
+@require_basic_auth
+async def api_web_traffic_devices():
+    """Return device class aggregation from RUM events."""
+    db = get_db()
+    from_ts, to_ts, _ = _parse_time_window_args()
+    time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
+    where = ("WHERE " + " AND ".join(time_conditions)) if time_conditions else ""
+
+    rows = db.execute(
+        f"SELECT LogAttributes['browser.context.deviceClass'] AS device, COUNT(*) AS cnt "
+        f"FROM hyperdx_sessions {where} "
+        f"GROUP BY device HAVING device != '' ORDER BY cnt DESC",
+        time_params,
+    ).fetchall()
+
+    devices = [{"name": str(r[0]), "value": int(r[1])} for r in rows]
+    return jsonify({"ok": True, "devices": devices})
+
+
+# ---------------------------------------------------------------------------
 # API – CVE enrichment endpoints
 # Uses OSV.dev (Apache 2.0, free, no API key required)
 # Reference: https://google.github.io/osv.dev/api/
 # ---------------------------------------------------------------------------
+@app.route("/enrichment/cve")
+@require_basic_auth
+async def view_enrichment_cve():
+    """Dedicated CVE / vulnerability findings page."""
+    db = get_db()
+    cve_enabled = (_get_app_setting(db, _CVE_ENABLED_SETTING) or "true").lower() in ("1", "true", "yes")
+    cve_last_scan = _get_app_setting(db, _CVE_LAST_SCAN_SETTING) or ""
+
+    severity_filter = request.args.get("severity", "").strip()
+    ecosystem_filter = request.args.get("ecosystem", "").strip()
+    package_filter = request.args.get("package", "").strip()
+
+    cve_findings: list[dict] = []
+    ecosystems: list[str] = []
+    severities: list[str] = []
+    if cve_enabled:
+        try:
+            rows = db.execute(
+                "SELECT Package, Ecosystem, Version, ServiceName, OsvId, CveIds, Summary, Severity, Published "
+                "FROM sobs_cve_findings FINAL "
+                "ORDER BY Published DESC LIMIT 500"
+            ).fetchall()
+            for r in rows:
+                cve_findings.append(
+                    {
+                        "package": str(r[0]),
+                        "ecosystem": str(r[1]),
+                        "version": str(r[2]),
+                        "service": str(r[3]),
+                        "osv_id": str(r[4]),
+                        "cve_ids": [c for c in str(r[5]).split(",") if c],
+                        "summary": str(r[6]),
+                        "severity": str(r[7]),
+                        "published": str(r[8]),
+                    }
+                )
+            ecosystems = sorted({f["ecosystem"] for f in cve_findings if f["ecosystem"]})
+            severities = sorted({f["severity"] for f in cve_findings if f["severity"]})
+            if severity_filter:
+                cve_findings = [f for f in cve_findings if f["severity"] == severity_filter]
+            if ecosystem_filter:
+                cve_findings = [f for f in cve_findings if f["ecosystem"] == ecosystem_filter]
+            if package_filter:
+                pkg_lower = package_filter.lower()
+                cve_findings = [f for f in cve_findings if pkg_lower in f["package"].lower()]
+        except Exception:
+            pass
+
+    return await render_template(
+        "cve.html",
+        cve_enabled=cve_enabled,
+        cve_last_scan=cve_last_scan,
+        cve_findings=cve_findings,
+        ecosystems=ecosystems,
+        severities=severities,
+        severity_filter=severity_filter,
+        ecosystem_filter=ecosystem_filter,
+        package_filter=package_filter,
+    )
+
+
 @app.route("/api/enrichment/cve/findings", methods=["GET"])
 @require_basic_auth
 async def api_cve_findings():
@@ -15015,9 +15256,9 @@ _GEO_DB: object | None = None
 _GEO_DB_LOCK = threading.Lock()
 
 # CVE scanner tuning constants
-_CVE_SCAN_INITIAL_DELAY_S = 30   # seconds before the first scan after startup
-_CVE_SCAN_INTERVAL_S = 86400     # seconds between scans (24 hours)
-_CVE_MAX_VULNS_PER_PKG = 10      # max OSV.dev results stored per package
+_CVE_SCAN_INITIAL_DELAY_S = 30  # seconds before the first scan after startup
+_CVE_SCAN_INTERVAL_S = 86400  # seconds between scans (24 hours)
+_CVE_MAX_VULNS_PER_PKG = 10  # max OSV.dev results stored per package
 
 # Background CVE scan task handle
 _CVE_SCAN_TASK: "asyncio.Task[None] | None" = None

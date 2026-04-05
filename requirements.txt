@@ -1,9 +1,9 @@
 quart>=0.20.0
-hypercorn>=0.17.3
-chdb>=4.0.0
-opentelemetry-proto>=1.12.0
-cryptography>=42.0.0
+hypercorn>=0.18.0
+chdb>=4.1.6
+opentelemetry-proto>=1.40.0
+cryptography>=46.0.6
 httpx>=0.28.1
-pandas>=2.0.0
-geoip2fast>=1.2.0
+pandas>=3.0.2
+geoip2fast>=1.2.2
 sourcemap>=0.2.1

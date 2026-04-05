@@ -1176,6 +1176,138 @@ class TestRumIngest:
         )
         assert bad.status_code == 401
 
+    async def test_ingest_pageview_with_full_browser_context(self, client):
+        """Test that full browser context is stored when provided."""
+        session_id = f"sess-bc-full-{time.time_ns()}"
+        r = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": session_id,
+                    "url": "https://example.com/",
+                    "title": "Home",
+                    "browserContext": {
+                        "timezone": "America/New_York",
+                        "language": "en-US",
+                        "platform": "macintel",
+                        "browserName": "chrome",
+                        "browserVersion": "120",
+                        "osName": "macos",
+                        "osVersion": "14.2",
+                        "deviceClass": "desktop",
+                        "screenResolution": "1920x1080",
+                        "screenColorDepth": "24",
+                        "screenDpi": "96",
+                    },
+                    "contextHash": "abc123def456",
+                }
+            ],
+        )
+        assert r.status_code == 200
+        assert json.loads(await r.get_data())["accepted"] == 1
+
+        # Verify browser context attributes are stored
+        row = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT LogAttributes FROM hyperdx_sessions "
+                "WHERE EventName='pageview' AND LogAttributes['sessionId']=? "
+                "ORDER BY Timestamp DESC LIMIT 1",
+                [session_id],
+            )
+            .fetchone()
+        )
+        assert row is not None
+        attrs = sobs_app._map_to_dict(row["LogAttributes"])
+        assert attrs.get("browser.context.timezone") == "America/New_York"
+        assert attrs.get("browser.context.language") == "en-US"
+        assert attrs.get("browser.context.browserName") == "chrome"
+        assert attrs.get("browser.context.osName") == "macos"
+        assert attrs.get("browser.context.deviceClass") == "desktop"
+
+    async def test_ingest_delta_post_with_context_unchanged_flag(self, client):
+        """Test that contextUnchanged flag is handled (context retrieved from cache)."""
+        session_id = f"sess-bc-delta-{time.time_ns()}"
+
+        # First: send full context
+        r1 = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": session_id,
+                    "url": "https://example.com/",
+                    "title": "Page 1",
+                    "browserContext": {
+                        "timezone": "America/Los_Angeles",
+                        "language": "en-US",
+                        "browserName": "firefox",
+                        "osName": "linux",
+                        "deviceClass": "desktop",
+                    },
+                    "contextHash": "hash-001",
+                }
+            ],
+        )
+        assert r1.status_code == 200
+
+        # Second: send delta (contextUnchanged + hash only)
+        r2 = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:01Z",
+                    "sessionId": session_id,
+                    "url": "https://example.com/page2",
+                    "title": "Page 2",
+                    "contextHash": "hash-001",
+                    "contextUnchanged": True,
+                }
+            ],
+        )
+        assert r2.status_code == 200
+
+        # Verify both events have context attributes
+        # (second should have retrieved from cache)
+        rows = list(
+            sobs_app.get_db()
+            .execute(
+                "SELECT EventName, LogAttributes FROM hyperdx_sessions "
+                "WHERE LogAttributes['sessionId']=? "
+                "ORDER BY Timestamp ASC",
+                [session_id],
+            )
+            .fetchall()
+        )
+        assert len(rows) == 2
+
+        # Both should have browser context from first event's cache
+        for row in rows:
+            attrs = sobs_app._map_to_dict(row["LogAttributes"])
+            assert attrs.get("browser.context.timezone") == "America/Los_Angeles"
+            assert attrs.get("browser.context.browserName") == "firefox"
+
+    async def test_ingest_browser_context_without_delta_fields(self, client):
+        """Test that events without browser context still work (backward compatibility)."""
+        r = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": "sess-no-bc",
+                    "url": "https://example.com/",
+                    "title": "No context",
+                }
+            ],
+        )
+        assert r.status_code == 200
+        assert json.loads(await r.get_data())["accepted"] == 1
+
 
 class TestRumAssetUploads:
     async def test_rejects_missing_signature(self, client, monkeypatch):
@@ -9817,6 +9949,64 @@ class TestWebTraffic:
         # Should redirect back to enrichment settings
         assert r.status_code in (302, 200)
 
+    async def test_web_traffic_browsers_api_empty(self, client):
+        r = await client.get("/api/web-traffic/browsers")
+        assert r.status_code == 200
+        body = json.loads(await r.get_data())
+        assert body["ok"] is True
+        assert isinstance(body["browsers"], list)
+
+    async def test_web_traffic_browsers_api_with_context(self, client):
+        # Ingest RUM with browser context
+        await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "sessionId": "sess-browser-001",
+                    "url": "https://example.com/",
+                    "browserContext": {
+                        "browserName": "chrome",
+                        "browserVersion": "120",
+                    },
+                    "contextHash": "hash123",
+                }
+            ],
+        )
+        r = await client.get("/api/web-traffic/browsers")
+        assert r.status_code == 200
+        body = json.loads(await r.get_data())
+        assert body["ok"] is True
+        assert isinstance(body["browsers"], list)
+
+    async def test_web_traffic_os_api(self, client):
+        r = await client.get("/api/web-traffic/os")
+        assert r.status_code == 200
+        body = json.loads(await r.get_data())
+        assert body["ok"] is True
+        assert isinstance(body["operating_systems"], list)
+
+    async def test_web_traffic_timezones_api(self, client):
+        r = await client.get("/api/web-traffic/timezones")
+        assert r.status_code == 200
+        body = json.loads(await r.get_data())
+        assert body["ok"] is True
+        assert isinstance(body["timezones"], list)
+
+    async def test_web_traffic_languages_api(self, client):
+        r = await client.get("/api/web-traffic/languages")
+        assert r.status_code == 200
+        body = json.loads(await r.get_data())
+        assert body["ok"] is True
+        assert isinstance(body["languages"], list)
+
+    async def test_web_traffic_devices_api(self, client):
+        r = await client.get("/api/web-traffic/devices")
+        assert r.status_code == 200
+        body = json.loads(await r.get_data())
+        assert body["ok"] is True
+        assert isinstance(body["devices"], list)
+
     async def test_enrichment_settings_geo_disabled(self, client):
         # Disable geo, then check geo API returns geo_enabled=false
         await client.post(
@@ -9832,6 +10022,7 @@ class TestWebTraffic:
     async def test_geoip2fast_local_lookup(self):
         """geoip2fast should resolve public IPs locally (MIT license, bundled DB)."""
         import app as sobs_app
+
         # Reset cache for this test
         sobs_app._GEO_CACHE.clear()
         result = sobs_app._geo_lookup_batch(["8.8.8.8"], geo_enabled=True)
@@ -9841,6 +10032,7 @@ class TestWebTraffic:
     async def test_geoip2fast_private_ip_not_resolved(self):
         """Private IPs should be tagged as Private/Local without external lookup."""
         import app as sobs_app
+
         result = sobs_app._geo_lookup_batch(["192.168.1.1", "10.0.0.1"], geo_enabled=True)
         for ip in ["192.168.1.1", "10.0.0.1"]:
             assert result[ip]["country"] == "Private/Local"
@@ -9848,6 +10040,7 @@ class TestWebTraffic:
     async def test_extract_library_versions_returns_list(self, client):
         """_extract_library_versions_from_otel should return a list (possibly empty)."""
         import app as sobs_app
+
         db = sobs_app.get_db()
         libs = sobs_app._extract_library_versions_from_otel(db)
         assert isinstance(libs, list)

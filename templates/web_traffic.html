@@ -17,6 +17,9 @@
               aria-expanded="true" aria-controls="trafficFiltersPanel">
         <i class="bi bi-funnel me-2 text-primary"></i>
         <span class="fw-semibold">Filters</span>
+        <span id="wt-tz-badge-btn" class="sobs-tz-header-badge ms-2" role="button" tabindex="0" title="Display timezone – click to change">
+          <i class="bi bi-clock"></i> <span id="wt-tz-badge-label">UTC</span>
+        </span>
       </button>
     </h2>
     <div id="trafficFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="trafficFiltersHeading" data-bs-parent="#trafficFiltersAccordion">
@@ -42,6 +45,17 @@
           <div class="d-flex gap-1" style="flex: 0 0 auto">
             <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i></button>
             <a href="{{ url_for('view_web_traffic') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
+            <div class="btn-group btn-group-sm" id="wt-reports-group">
+              <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Saved reports">
+                <i class="bi bi-bookmark-star"></i>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end" id="wt-reports-menu">
+                <li><span class="dropdown-item text-secondary small">Loading…</span></li>
+              </ul>
+            </div>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="wt-save-report-btn" title="Save as report">
+              <i class="bi bi-bookmark-plus"></i>
+            </button>
           </div>
         </form>
         {% if error_msg %}
@@ -67,129 +81,253 @@
 </div>
 {% endif %}
 
-<div class="row g-3 mb-3">
-  <div class="col-12">
-    <div class="card border-secondary">
-      <div class="card-header d-flex align-items-center justify-content-between">
-        <span class="fw-semibold small"><i class="bi bi-globe2 me-1 text-primary"></i>Visitor Locations</span>
-        <span class="text-secondary small">
-          {% if geo_enabled %}
-          <i class="bi bi-hdd me-1"></i>Local geo DB (geoip2fast, MIT)
-          {% else %}
-          Geo disabled
-          {% endif %}
-        </span>
-      </div>
-      <div class="card-body p-2">
+<div class="accordion mb-3" id="wtMapAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header">
+      <button class="accordion-button py-2 collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#wtMapPanel"
+              aria-expanded="false" aria-controls="wtMapPanel">
+        <i class="bi bi-globe2 me-1 text-primary"></i>
+        <span class="fw-semibold">Visitor Locations</span>
+        {% if geo_enabled %}
+        <span class="text-secondary small ms-2"><i class="bi bi-hdd me-1"></i>Local geo DB</span>
+        {% else %}
+        <span class="text-secondary small ms-2">Geo disabled</span>
+        {% endif %}
+      </button>
+    </h2>
+    <div id="wtMapPanel" class="accordion-collapse collapse">
+      <div class="accordion-body p-2">
         <div id="traffic-map" style="width:100%;height:380px;"></div>
       </div>
     </div>
   </div>
+</div>
 
-  <div class="col-md-6">
-    <div class="card border-secondary h-100">
-      <div class="card-header fw-semibold small"><i class="bi bi-bar-chart-fill me-1 text-success"></i>Top Countries</div>
-      <div class="card-body p-2">
-        <div id="countries-chart" style="width:100%;height:260px;"></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="col-md-6">
-    <div class="card border-secondary h-100">
-      <div class="card-header fw-semibold small"><i class="bi bi-pie-chart-fill me-1 text-info"></i>Event Types</div>
-      <div class="card-body p-2">
-        <div id="events-chart" style="width:100%;height:260px;"></div>
+<div class="accordion mb-3" id="wtChartsAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header">
+      <button class="accordion-button py-2 collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#wtChartsPanel"
+              aria-expanded="false" aria-controls="wtChartsPanel">
+        <i class="bi bi-bar-chart-fill me-1 text-success"></i>
+        <span class="fw-semibold">Top Countries &amp; Event Types</span>
+      </button>
+    </h2>
+    <div id="wtChartsPanel" class="accordion-collapse collapse">
+      <div class="accordion-body p-2">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div id="countries-chart" style="width:100%;height:260px;"></div>
+          </div>
+          <div class="col-md-6">
+            <div id="events-chart" style="width:100%;height:260px;"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </div>
 
 {% if top_urls %}
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold small"><i class="bi bi-link-45deg me-1 text-warning"></i>Top URLs</div>
-  <div class="table-responsive">
-    <table class="table table-sm table-hover mb-0">
-      <thead><tr><th>URL</th><th style="width:80px;">Hits</th></tr></thead>
-      <tbody>
-        {% for url, cnt in top_urls %}
-        <tr>
-          <td class="small text-truncate" style="max-width:520px;" title="{{ url }}">{{ url }}</td>
-          <td class="small fw-semibold">{{ cnt }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<div class="accordion mb-3" id="wtUrlsAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header">
+      <button class="accordion-button py-2 collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#wtUrlsPanel"
+              aria-expanded="false" aria-controls="wtUrlsPanel">
+        <i class="bi bi-link-45deg me-1 text-warning"></i>
+        <span class="fw-semibold">Top URLs</span>
+        <span class="badge bg-secondary ms-2">{{ top_urls | length }}</span>
+      </button>
+    </h2>
+    <div id="wtUrlsPanel" class="accordion-collapse collapse">
+      <div class="accordion-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead><tr><th>URL</th><th style="width:80px;">Hits</th></tr></thead>
+            <tbody>
+              {% for url, cnt in top_urls %}
+              <tr>
+                <td class="small text-truncate" style="max-width:520px;" title="{{ url }}">{{ url }}</td>
+                <td class="small fw-semibold">{{ cnt }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 {% endif %}
 
-<div class="card border-secondary mb-3">
-  <div class="card-header d-flex align-items-center justify-content-between">
-    <span class="fw-semibold small">
-      <i class="bi bi-shield-exclamation me-1 text-danger"></i>CVE / Vulnerability Findings
-      {% if cve_findings %}
-      <span class="badge bg-danger ms-1">{{ cve_findings | length }}</span>
-      {% endif %}
-    </span>
-    <div class="d-flex align-items-center gap-2">
-      {% if cve_last_scan %}
-      <span class="text-secondary" style="font-size:.7rem;">Last scan: {{ cve_last_scan[:16] }}</span>
-      {% endif %}
-      {% if cve_enabled %}
-      <button class="btn btn-sm btn-outline-danger py-0" id="cve-scan-btn" onclick="triggerCveScan()">
-        <i class="bi bi-arrow-clockwise me-1"></i>Scan now
+<!-- Browser Context Accordions -->
+<div class="accordion mb-3" id="wtBrowsersAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header">
+      <button class="accordion-button py-2 collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#wtBrowsersPanel"
+              aria-expanded="false" aria-controls="wtBrowsersPanel">
+        <i class="bi bi-window-desktop me-1 text-info"></i>
+        <span class="fw-semibold">Top Browsers</span>
       </button>
-      {% endif %}
+    </h2>
+    <div id="wtBrowsersPanel" class="accordion-collapse collapse">
+      <div class="accordion-body p-2">
+        <div id="browsers-chart" style="width:100%;height:280px;"></div>
+      </div>
     </div>
   </div>
-  <div class="card-body">
-    {% if not cve_enabled %}
-    <div class="text-secondary small">
-      <i class="bi bi-shield-slash me-1"></i>CVE scanning is disabled.
-      <a href="{{ url_for('view_enrichment_settings') }}" class="text-secondary">Enable in settings</a>
+</div>
+
+<div class="accordion mb-3" id="wtOsAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header">
+      <button class="accordion-button py-2 collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#wtOsPanel"
+              aria-expanded="false" aria-controls="wtOsPanel">
+        <i class="bi bi-ubuntu me-1 text-info"></i>
+        <span class="fw-semibold">Top Operating Systems</span>
+      </button>
+    </h2>
+    <div id="wtOsPanel" class="accordion-collapse collapse">
+      <div class="accordion-body p-2">
+        <div id="os-chart" style="width:100%;height:280px;"></div>
+      </div>
     </div>
-    {% elif cve_findings %}
-    <p class="text-secondary small mb-2">
-      Vulnerabilities found in libraries detected via OTEL <code>telemetry.sdk.*</code> attributes and
-      instrumentation scope versions. Data from <a href="https://osv.dev" target="_blank" rel="noopener">OSV.dev</a>
-      (Apache 2.0). Scans run daily automatically.
-    </p>
-    <div class="list-group list-group-flush">
-      {% for f in cve_findings %}
-      <div class="list-group-item list-group-item-action border-secondary py-2">
-        <div class="d-flex justify-content-between align-items-start flex-wrap gap-1">
-          <span class="fw-semibold small">
-            <a href="https://osv.dev/vulnerability/{{ f.osv_id }}" target="_blank" rel="noopener" class="text-decoration-none">{{ f.osv_id }}</a>
-            {% if f.severity %}<span class="badge bg-danger ms-1">{{ f.severity }}</span>{% endif %}
-          </span>
-          <span class="text-secondary" style="font-size:.7rem;">{{ f.published }}</span>
+  </div>
+</div>
+
+<div class="accordion mb-3" id="wtTimezonesAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header">
+      <button class="accordion-button py-2 collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#wtTimezonesPanel"
+              aria-expanded="false" aria-controls="wtTimezonesPanel">
+        <i class="bi bi-clock-history me-1 text-info"></i>
+        <span class="fw-semibold">Visitor Timezones</span>
+      </button>
+    </h2>
+    <div id="wtTimezonesPanel" class="accordion-collapse collapse">
+      <div class="accordion-body p-2">
+        <div id="timezones-chart" style="width:100%;height:280px;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="accordion mb-3" id="wtLanguagesAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header">
+      <button class="accordion-button py-2 collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#wtLanguagesPanel"
+              aria-expanded="false" aria-controls="wtLanguagesPanel">
+        <i class="bi bi-chat-left-text me-1 text-info"></i>
+        <span class="fw-semibold">Preferred Languages</span>
+      </button>
+    </h2>
+    <div id="wtLanguagesPanel" class="accordion-collapse collapse">
+      <div class="accordion-body p-2">
+        <div id="languages-chart" style="width:100%;height:280px;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="accordion mb-3" id="wtDevicesAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header">
+      <button class="accordion-button py-2 collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#wtDevicesPanel"
+              aria-expanded="false" aria-controls="wtDevicesPanel">
+        <i class="bi bi-phone me-1 text-info"></i>
+        <span class="fw-semibold">Device Classes</span>
+      </button>
+    </h2>
+    <div id="wtDevicesPanel" class="accordion-collapse collapse">
+      <div class="accordion-body p-2">
+        <div id="devices-chart" style="width:100%;height:260px;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="accordion mb-3" id="wtCveAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header">
+      <button class="accordion-button py-2 collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#wtCvePanel"
+              aria-expanded="false" aria-controls="wtCvePanel">
+        <i class="bi bi-shield-exclamation me-1 text-danger"></i>
+        <span class="fw-semibold">CVE / Vulnerability Findings</span>
+        {% if cve_findings %}
+        <span class="badge bg-danger ms-1">{{ cve_findings | length }}</span>
+        {% endif %}
+        {% if cve_last_scan %}
+        <span class="text-secondary ms-auto me-2" style="font-size:.7rem;">Last scan: {{ cve_last_scan[:16] }}</span>
+        {% endif %}
+        <a href="{{ url_for('view_enrichment_cve') }}" onclick="event.stopPropagation()"
+           class="btn btn-sm btn-outline-secondary py-0 ms-1" title="Open full CVE page">
+          <i class="bi bi-box-arrow-up-right"></i>
+        </a>
+        {% if cve_enabled %}
+        <span class="btn btn-sm btn-outline-danger py-0 ms-1" id="cve-scan-btn" onclick="event.stopPropagation();triggerCveScan()">
+          <i class="bi bi-arrow-clockwise me-1"></i>Scan now
+        </span>
+        {% endif %}
+      </button>
+    </h2>
+    <div id="wtCvePanel" class="accordion-collapse collapse">
+      <div class="accordion-body">
+        {% if not cve_enabled %}
+        <div class="text-secondary small">
+          <i class="bi bi-shield-slash me-1"></i>CVE scanning is disabled.
+          <a href="{{ url_for('view_enrichment_settings') }}" class="text-secondary">Enable in settings</a>
         </div>
-        <div class="mt-1 small">
-          <code>{{ f.ecosystem }}/{{ f.package }}@{{ f.version }}</code>
-          {% if f.service %}<span class="text-secondary ms-1">({{ f.service }})</span>{% endif %}
-        </div>
-        {% if f.cve_ids %}
-        <div class="mt-1">
-          {% for cid in f.cve_ids %}
-          <a href="https://nvd.nist.gov/vuln/detail/{{ cid }}" target="_blank" rel="noopener" class="badge bg-secondary text-decoration-none me-1">{{ cid }}</a>
+        {% elif cve_findings %}
+        <p class="text-secondary small mb-2">
+          Vulnerabilities found in libraries detected via OTEL <code>telemetry.sdk.*</code> attributes and
+          instrumentation scope versions. Data from <a href="https://osv.dev" target="_blank" rel="noopener">OSV.dev</a>
+          (Apache 2.0). Scans run daily automatically.
+        </p>
+        <div class="list-group list-group-flush">
+          {% for f in cve_findings %}
+          <div class="list-group-item list-group-item-action border-secondary py-2">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-1">
+              <span class="fw-semibold small">
+                <a href="https://osv.dev/vulnerability/{{ f.osv_id }}" target="_blank" rel="noopener" class="text-decoration-none">{{ f.osv_id }}</a>
+                {% if f.severity %}<span class="badge bg-danger ms-1">{{ f.severity }}</span>{% endif %}
+              </span>
+              <span class="text-secondary" style="font-size:.7rem;">{{ f.published }}</span>
+            </div>
+            <div class="mt-1 small">
+              <code>{{ f.ecosystem }}/{{ f.package }}@{{ f.version }}</code>
+              {% if f.service %}<span class="text-secondary ms-1">({{ f.service }})</span>{% endif %}
+            </div>
+            {% if f.cve_ids %}
+            <div class="mt-1">
+              {% for cid in f.cve_ids %}
+              <a href="https://nvd.nist.gov/vuln/detail/{{ cid }}" target="_blank" rel="noopener" class="badge bg-secondary text-decoration-none me-1">{{ cid }}</a>
+              {% endfor %}
+            </div>
+            {% endif %}
+            {% if f.summary %}<div class="text-secondary small mt-1">{{ f.summary | truncate(200) }}</div>{% endif %}
+          </div>
           {% endfor %}
         </div>
+        {% else %}
+        <div class="text-secondary small">
+          <i class="bi bi-check-circle me-1 text-success"></i>
+          No CVE findings stored yet.
+          {% if cve_last_scan %}Last scan: {{ cve_last_scan[:16] }}.{% endif %}
+          The background scanner runs daily (30s after startup). It extracts library versions from OTEL
+          <code>telemetry.sdk.*</code> attributes and checks <a href="https://osv.dev" target="_blank" rel="noopener">OSV.dev</a>.
+        </div>
         {% endif %}
-        {% if f.summary %}<div class="text-secondary small mt-1">{{ f.summary | truncate(200) }}</div>{% endif %}
+        <div id="cve-scan-result" class="mt-2"></div>
       </div>
-      {% endfor %}
     </div>
-    {% else %}
-    <div class="text-secondary small">
-      <i class="bi bi-check-circle me-1 text-success"></i>
-      No CVE findings stored yet.
-      {% if cve_last_scan %}Last scan: {{ cve_last_scan[:16] }}.{% endif %}
-      The background scanner runs daily (30s after startup). It extracts library versions from OTEL
-      <code>telemetry.sdk.*</code> attributes and checks <a href="https://osv.dev" target="_blank" rel="noopener">OSV.dev</a>.
-    </div>
-    {% endif %}
-    <div id="cve-scan-result" class="mt-2"></div>
   </div>
 </div>
 
@@ -203,6 +341,11 @@
   'use strict';
 
   var geoApiUrl = {{ url_for('api_web_traffic_geo', from_ts=from_ts, to_ts=to_ts) | tojson }};
+  var browsersApiUrl = {{ url_for('api_web_traffic_browsers', from_ts=from_ts, to_ts=to_ts) | tojson }};
+  var osApiUrl = {{ url_for('api_web_traffic_os', from_ts=from_ts, to_ts=to_ts) | tojson }};
+  var timezonesApiUrl = {{ url_for('api_web_traffic_timezones', from_ts=from_ts, to_ts=to_ts) | tojson }};
+  var languagesApiUrl = {{ url_for('api_web_traffic_languages', from_ts=from_ts, to_ts=to_ts) | tojson }};
+  var devicesApiUrl = {{ url_for('api_web_traffic_devices', from_ts=from_ts, to_ts=to_ts) | tojson }};
   var geoEnabled = {{ geo_enabled | tojson }};
   var eventTypesData = {{ event_types | tojson }};
 
@@ -219,7 +362,138 @@
       }]
     });
     window.addEventListener('resize', function() { evChart.resize(); });
+    var chartsPanel = document.getElementById('wtChartsPanel');
+    if (chartsPanel) {
+      chartsPanel.addEventListener('shown.bs.collapse', function() { evChart.resize(); });
+    }
   }
+
+  // Load browser context charts (browsers, OS, timezones, languages, devices)
+  function initBrowserContextCharts() {
+    // Top Browsers
+    fetch(browsersApiUrl)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.ok || !data.browsers.length) return;
+        var el = document.getElementById('browsers-chart');
+        if (!el || !window.echarts) return;
+        var chart = echarts.init(el, null, {renderer: 'canvas'});
+        var top = data.browsers.slice(0, 15);
+        chart.setOption({
+          tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}},
+          grid: {left: '2%', right: '4%', bottom: '3%', top: '3%', containLabel: true},
+          xAxis: {type: 'value'},
+          yAxis: {type: 'category', data: top.map(function(d) { return d.name; }).reverse()},
+          series: [{type: 'bar', data: top.map(function(d) { return d.value; }).reverse(), itemStyle: {color: '#17a2b8'}}]
+        });
+        window.addEventListener('resize', function() { chart.resize(); });
+        var panel = document.getElementById('wtBrowsersPanel');
+        if (panel) {
+          panel.addEventListener('shown.bs.collapse', function() { chart.resize(); });
+        }
+      })
+      .catch(function() {});
+
+    // Top Operating Systems
+    fetch(osApiUrl)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.ok || !data.operating_systems.length) return;
+        var el = document.getElementById('os-chart');
+        if (!el || !window.echarts) return;
+        var chart = echarts.init(el, null, {renderer: 'canvas'});
+        var top = data.operating_systems.slice(0, 15);
+        chart.setOption({
+          tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}},
+          grid: {left: '2%', right: '4%', bottom: '3%', top: '3%', containLabel: true},
+          xAxis: {type: 'value'},
+          yAxis: {type: 'category', data: top.map(function(d) { return d.name; }).reverse()},
+          series: [{type: 'bar', data: top.map(function(d) { return d.value; }).reverse(), itemStyle: {color: '#17a2b8'}}]
+        });
+        window.addEventListener('resize', function() { chart.resize(); });
+        var panel = document.getElementById('wtOsPanel');
+        if (panel) {
+          panel.addEventListener('shown.bs.collapse', function() { chart.resize(); });
+        }
+      })
+      .catch(function() {});
+
+    // Top Timezones
+    fetch(timezonesApiUrl)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.ok || !data.timezones.length) return;
+        var el = document.getElementById('timezones-chart');
+        if (!el || !window.echarts) return;
+        var chart = echarts.init(el, null, {renderer: 'canvas'});
+        var top = data.timezones.slice(0, 15);
+        chart.setOption({
+          tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}},
+          grid: {left: '2%', right: '4%', bottom: '3%', top: '3%', containLabel: true},
+          xAxis: {type: 'value'},
+          yAxis: {type: 'category', data: top.map(function(d) { return d.name; }).reverse()},
+          series: [{type: 'bar', data: top.map(function(d) { return d.value; }).reverse(), itemStyle: {color: '#17a2b8'}}]
+        });
+        window.addEventListener('resize', function() { chart.resize(); });
+        var panel = document.getElementById('wtTimezonesPanel');
+        if (panel) {
+          panel.addEventListener('shown.bs.collapse', function() { chart.resize(); });
+        }
+      })
+      .catch(function() {});
+
+    // Top Languages
+    fetch(languagesApiUrl)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.ok || !data.languages.length) return;
+        var el = document.getElementById('languages-chart');
+        if (!el || !window.echarts) return;
+        var chart = echarts.init(el, null, {renderer: 'canvas'});
+        var top = data.languages.slice(0, 15);
+        chart.setOption({
+          tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}},
+          grid: {left: '2%', right: '4%', bottom: '3%', top: '3%', containLabel: true},
+          xAxis: {type: 'value'},
+          yAxis: {type: 'category', data: top.map(function(d) { return d.name; }).reverse()},
+          series: [{type: 'bar', data: top.map(function(d) { return d.value; }).reverse(), itemStyle: {color: '#17a2b8'}}]
+        });
+        window.addEventListener('resize', function() { chart.resize(); });
+        var panel = document.getElementById('wtLanguagesPanel');
+        if (panel) {
+          panel.addEventListener('shown.bs.collapse', function() { chart.resize(); });
+        }
+      })
+      .catch(function() {});
+
+    // Device Classes
+    fetch(devicesApiUrl)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.ok || !data.devices.length) return;
+        var el = document.getElementById('devices-chart');
+        if (!el || !window.echarts) return;
+        var chart = echarts.init(el, null, {renderer: 'canvas'});
+        chart.setOption({
+          tooltip: {trigger: 'item'},
+          series: [{
+            type: 'pie',
+            radius: ['35%', '65%'],
+            data: data.devices.map(function(d) { return {name: d.name, value: d.value}; }),
+            label: {formatter: '{b}: {c}'},
+          }]
+        });
+        window.addEventListener('resize', function() { chart.resize(); });
+        var panel = document.getElementById('wtDevicesPanel');
+        if (panel) {
+          panel.addEventListener('shown.bs.collapse', function() { chart.resize(); });
+        }
+      })
+      .catch(function() {});
+  }
+
+  // Initialize browser context charts on load
+  initBrowserContextCharts();
 
   if (!geoEnabled) {
     var mapEl = document.getElementById('traffic-map');
@@ -252,12 +526,16 @@
       series: [{type: 'bar', data: top.map(function(d) { return d.value; }).reverse(), itemStyle: {color: '#4e8ef7'}}]
     });
     window.addEventListener('resize', function() { chart.resize(); });
+    var chartsPanel = document.getElementById('wtChartsPanel');
+    if (chartsPanel) {
+      chartsPanel.addEventListener('shown.bs.collapse', function() { chart.resize(); });
+    }
   }
 
   function loadWorldMap(countryCounts) {
     var mapEl = document.getElementById('traffic-map');
-    fetch('https://cdn.jsdelivr.net/npm/echarts@5/map/json/world.json')
-      .then(function(r) { if (!r.ok) throw new Error('Failed to load world map GeoJSON from CDN'); return r.json(); })
+    fetch("{{ url_for('static', filename='world.json') }}")
+      .then(function(r) { if (!r.ok) throw new Error('Failed to load world map GeoJSON'); return r.json(); })
       .then(function(geoJson) {
         if (!window.echarts || !mapEl) return;
         echarts.registerMap('world', geoJson);
@@ -269,12 +547,27 @@
           series: [{type:'map', map:'world', roam:true, emphasis:{label:{show:true}}, data:countryCounts}]
         });
         window.addEventListener('resize', function(){mc.resize();});
+        // re-render when the accordion panel is opened (ECharts needs visible container)
+        var mapPanel = document.getElementById('wtMapPanel');
+        if (mapPanel) {
+          mapPanel.addEventListener('shown.bs.collapse', function() { mc.resize(); });
+        }
       })
       .catch(function() {
-        if (mapEl) mapEl.innerHTML = '<div class="text-center text-secondary py-5 small">World map requires internet access (CDN). Country counts are shown in the bar chart.</div>';
+        if (mapEl) mapEl.innerHTML = '<div class="text-center text-secondary py-5 small"><i class="bi bi-exclamation-circle me-1"></i>Could not load world map data. Country counts are shown in the bar chart above.</div>';
       });
   }
 })();
+
+if (window.sobsTimezone && typeof window.sobsTimezone.initPage === 'function') {
+  window.sobsTimezone.initPage({
+    fromInputId: 'wt-from-ts',
+    toInputId: 'wt-to-ts',
+    formSelector: '#trafficFiltersPanel form[method="get"]',
+    badgeButtonId: 'wt-tz-badge-btn',
+    badgeLabelId: 'wt-tz-badge-label'
+  });
+}
 
 function triggerCveScan() {
   var btn = document.getElementById('cve-scan-btn');
@@ -300,5 +593,53 @@ function triggerCveScan() {
     });
 }
 function escHtml(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
+// ── Saved Reports: web_traffic page ───────────────────────────────────────────
+(function() {
+  'use strict';
+  var group = document.getElementById('wt-reports-group');
+  var saveBtn = document.getElementById('wt-save-report-btn');
+  var menu = document.getElementById('wt-reports-menu');
+  var form = document.querySelector('#trafficFiltersPanel form[method="get"]');
+
+  if (!form || !saveBtn || !menu) return;
+
+  function loadSavedReports() {
+    fetch('/api/reports?page_type=web_traffic')
+      .then(r => r.json())
+      .then(reports => {
+        if (!reports.length) {
+          menu.innerHTML = '<li><span class="dropdown-item text-secondary small">No saved reports</span></li>';
+          return;
+        }
+        menu.innerHTML = reports.map(rep => {
+          var href = '{{ url_for("view_web_traffic") }}?from_ts=' + encodeURIComponent(rep.filters?.from_ts || '') + 
+                     '&to_ts=' + encodeURIComponent(rep.filters?.to_ts || '');
+          return `<li><a class="dropdown-item small" href="${href}" title="${escHtml(rep.description || '')}">${escHtml(rep.name || 'Unnamed')}</a></li>`;
+        }).join('') + 
+        `<li><a class="dropdown-item small text-secondary" href="{{ url_for('list_reports') }}"><i class="bi bi-gear me-1"></i>Manage reports</a></li>`;
+      })
+      .catch(() => {
+        menu.innerHTML = '<li><span class="dropdown-item text-secondary small">Failed to load reports</span></li>';
+      });
+  }
+
+  if (group && menu) {
+    loadSavedReports();
+  }
+
+  if (saveBtn) {
+    saveBtn.addEventListener('click', function() {
+      // Collect filter values from the form
+      var filters = {
+        from_ts: document.getElementById('wt-from-ts')?.value || '',
+        to_ts: document.getElementById('wt-to-ts')?.value || ''
+      };
+      if (window.sobsReportSaveModal && typeof window.sobsReportSaveModal.open === 'function') {
+        window.sobsReportSaveModal.open({ pageType: 'web_traffic', filters });
+      }
+    });
+  }
+})();
 </script>
 {% endblock %}

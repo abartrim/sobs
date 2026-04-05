@@ -76,6 +76,35 @@
     </div>
   </div>
 
+  <!-- GitHub dependency enrichment -->
+  <div class="card border-secondary mb-3">
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="bi bi-github text-secondary"></i>
+      <span class="fw-semibold">GitHub Dependency Enrichment <span class="badge bg-secondary fw-normal ms-1">Planned</span></span>
+    </div>
+    <div class="card-body">
+      <p class="small text-secondary mb-2">
+        When enabled, SOBS will automatically fetch lockfiles (<code>requirements.txt</code>,
+        <code>package-lock.json</code>, <code>go.sum</code>, etc.) from each app's GitHub repository
+        to build a richer library inventory for CVE scanning.
+      </p>
+      <div class="alert alert-secondary py-2 small mb-3" role="note">
+        <strong>How repo URLs are configured:</strong> Each app registered in SOBS has a
+        <em>Repository URL</em> field (set via the Release Registry or the CI helper
+        <code>--repo-url</code> arg). SOBS uses the global GitHub token from
+        <a href="{{ url_for('view_ai_settings') }}" class="alert-link">AI Settings → GitHub token</a>
+        to access all configured repositories — a single personal access token or GitHub App
+        installation token with <code>contents:read</code> scope is sufficient.
+      </div>
+      <div class="small text-secondary">
+        <strong>Required GitHub token scope:</strong><br>
+        <code>contents:read</code> — read access to repository file contents (lockfiles).<br>
+        No write access or issue access is needed for dependency enrichment.
+        Set the token in <a href="{{ url_for('view_ai_settings') }}">AI Settings</a>.
+      </div>
+    </div>
+  </div>
+
   <div class="d-flex gap-2">
     <button type="submit" class="btn btn-primary btn-sm">
       <i class="bi bi-save me-1"></i>Save Enrichment Settings
