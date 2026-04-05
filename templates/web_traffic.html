@@ -253,84 +253,6 @@
   </div>
 </div>
 
-<div class="accordion mb-3" id="wtCveAccordion">
-  <div class="accordion-item border-secondary">
-    <h2 class="accordion-header">
-      <button class="accordion-button py-2 collapsed" type="button"
-              data-bs-toggle="collapse" data-bs-target="#wtCvePanel"
-              aria-expanded="false" aria-controls="wtCvePanel">
-        <i class="bi bi-shield-exclamation me-1 text-danger"></i>
-        <span class="fw-semibold">CVE / Vulnerability Findings</span>
-        {% if cve_findings %}
-        <span class="badge bg-danger ms-1">{{ cve_findings | length }}</span>
-        {% endif %}
-        {% if cve_last_scan %}
-        <span class="text-secondary ms-auto me-2" style="font-size:.7rem;">Last scan: {{ cve_last_scan[:16] }}</span>
-        {% endif %}
-        <a href="{{ url_for('view_enrichment_cve') }}" onclick="event.stopPropagation()"
-           class="btn btn-sm btn-outline-secondary py-0 ms-1" title="Open full CVE page">
-          <i class="bi bi-box-arrow-up-right"></i>
-        </a>
-        {% if cve_enabled %}
-        <span class="btn btn-sm btn-outline-danger py-0 ms-1" id="cve-scan-btn" onclick="event.stopPropagation();triggerCveScan()">
-          <i class="bi bi-arrow-clockwise me-1"></i>Scan now
-        </span>
-        {% endif %}
-      </button>
-    </h2>
-    <div id="wtCvePanel" class="accordion-collapse collapse">
-      <div class="accordion-body">
-        {% if not cve_enabled %}
-        <div class="text-secondary small">
-          <i class="bi bi-shield-slash me-1"></i>CVE scanning is disabled.
-          <a href="{{ url_for('view_enrichment_settings') }}" class="text-secondary">Enable in settings</a>
-        </div>
-        {% elif cve_findings %}
-        <p class="text-secondary small mb-2">
-          Vulnerabilities found in libraries detected via OTEL <code>telemetry.sdk.*</code> attributes and
-          instrumentation scope versions. Data from <a href="https://osv.dev" target="_blank" rel="noopener">OSV.dev</a>
-          (Apache 2.0). Scans run daily automatically.
-        </p>
-        <div class="list-group list-group-flush">
-          {% for f in cve_findings %}
-          <div class="list-group-item list-group-item-action border-secondary py-2">
-            <div class="d-flex justify-content-between align-items-start flex-wrap gap-1">
-              <span class="fw-semibold small">
-                <a href="https://osv.dev/vulnerability/{{ f.osv_id }}" target="_blank" rel="noopener" class="text-decoration-none">{{ f.osv_id }}</a>
-                {% if f.severity %}<span class="badge bg-danger ms-1">{{ f.severity }}</span>{% endif %}
-              </span>
-              <span class="text-secondary" style="font-size:.7rem;">{{ f.published }}</span>
-            </div>
-            <div class="mt-1 small">
-              <code>{{ f.ecosystem }}/{{ f.package }}@{{ f.version }}</code>
-              {% if f.service %}<span class="text-secondary ms-1">({{ f.service }})</span>{% endif %}
-            </div>
-            {% if f.cve_ids %}
-            <div class="mt-1">
-              {% for cid in f.cve_ids %}
-              <a href="https://nvd.nist.gov/vuln/detail/{{ cid }}" target="_blank" rel="noopener" class="badge bg-secondary text-decoration-none me-1">{{ cid }}</a>
-              {% endfor %}
-            </div>
-            {% endif %}
-            {% if f.summary %}<div class="text-secondary small mt-1">{{ f.summary | truncate(200) }}</div>{% endif %}
-          </div>
-          {% endfor %}
-        </div>
-        {% else %}
-        <div class="text-secondary small">
-          <i class="bi bi-check-circle me-1 text-success"></i>
-          No CVE findings stored yet.
-          {% if cve_last_scan %}Last scan: {{ cve_last_scan[:16] }}.{% endif %}
-          The background scanner runs daily (30s after startup). It extracts library versions from OTEL
-          <code>telemetry.sdk.*</code> attributes and checks <a href="https://osv.dev" target="_blank" rel="noopener">OSV.dev</a>.
-        </div>
-        {% endif %}
-        <div id="cve-scan-result" class="mt-2"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
 {% endif %}
 {% endblock %}
 
@@ -349,16 +271,39 @@
   var geoEnabled = {{ geo_enabled | tojson }};
   var eventTypesData = {{ event_types | tojson }};
 
+  function pieLabelTheme() {
+    var styles = window.getComputedStyle ? window.getComputedStyle(document.body) : null;
+    var textColor = styles ? String(styles.getPropertyValue('--bs-body-color') || '').trim() : '';
+    var bgColor = styles ? String(styles.getPropertyValue('--bs-body-bg') || '').trim() : '';
+    return {
+      textColor: textColor || '#dbe5f3',
+      outlineColor: bgColor || '#0f172a'
+    };
+  }
+
   var eventsEl = document.getElementById('events-chart');
   if (eventsEl && window.echarts && eventTypesData.length) {
     var evChart = echarts.init(eventsEl, null, {renderer: 'canvas'});
+    var pieTheme = pieLabelTheme();
     evChart.setOption({
       tooltip: {trigger: 'item'},
       series: [{
         type: 'pie',
         radius: ['35%', '65%'],
         data: eventTypesData.map(function(d) { return {name: d[0], value: d[1]}; }),
-        label: {formatter: '{b}: {c}'},
+        label: {
+          formatter: '{b}: {c}',
+          color: pieTheme.textColor,
+          fontWeight: 600,
+          textBorderColor: pieTheme.outlineColor,
+          textBorderWidth: 3
+        },
+        labelLine: {
+          lineStyle: {
+            color: pieTheme.textColor,
+            opacity: 0.9
+          }
+        }
       }]
     });
     window.addEventListener('resize', function() { evChart.resize(); });
@@ -474,13 +419,26 @@
         var el = document.getElementById('devices-chart');
         if (!el || !window.echarts) return;
         var chart = echarts.init(el, null, {renderer: 'canvas'});
+        var pieTheme = pieLabelTheme();
         chart.setOption({
           tooltip: {trigger: 'item'},
           series: [{
             type: 'pie',
             radius: ['35%', '65%'],
             data: data.devices.map(function(d) { return {name: d.name, value: d.value}; }),
-            label: {formatter: '{b}: {c}'},
+            label: {
+              formatter: '{b}: {c}',
+              color: pieTheme.textColor,
+              fontWeight: 600,
+              textBorderColor: pieTheme.outlineColor,
+              textBorderWidth: 3
+            },
+            labelLine: {
+              lineStyle: {
+                color: pieTheme.textColor,
+                opacity: 0.9
+              }
+            }
           }]
         });
         window.addEventListener('resize', function() { chart.resize(); });
@@ -569,29 +527,6 @@ if (window.sobsTimezone && typeof window.sobsTimezone.initPage === 'function') {
   });
 }
 
-function triggerCveScan() {
-  var btn = document.getElementById('cve-scan-btn');
-  var resultsEl = document.getElementById('cve-scan-result');
-  if (btn) btn.disabled = true;
-  if (resultsEl) resultsEl.innerHTML = '<div class="text-secondary small"><span class="spinner-border spinner-border-sm me-1"></span>Scanning OTEL library versions via OSV.dev…</div>';
-  fetch('/api/enrichment/cve/scan', {method:'POST'})
-    .then(function(r){return r.json();})
-    .then(function(data){
-      if (btn) btn.disabled = false;
-      if (!data.ok) {
-        if (resultsEl) resultsEl.innerHTML = '<div class="alert alert-warning small py-2">'+escHtml(data.error||'Scan failed')+'</div>';
-        return;
-      }
-      var libs = data.libraries_found||0, vulns = data.vulns_found||0;
-      var msg = 'Scan complete. Libraries: <strong>'+libs+'</strong>. Vulnerabilities: <strong>'+vulns+'</strong>.';
-      if (vulns>0) msg += ' <button class="btn btn-sm btn-link p-0 align-baseline" onclick="location.reload()">Reload to see findings</button>';
-      if (resultsEl) resultsEl.innerHTML = '<div class="alert alert-'+(vulns>0?'warning':'success')+' small py-2">'+msg+'</div>';
-    })
-    .catch(function(err){
-      if (btn) btn.disabled = false;
-      if (resultsEl) resultsEl.innerHTML = '<div class="alert alert-danger small py-2">Request failed: '+escHtml(String(err))+'</div>';
-    });
-}
 function escHtml(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 
 // ── Saved Reports: web_traffic page ───────────────────────────────────────────

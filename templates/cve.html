@@ -10,7 +10,7 @@
   </h4>
   <div class="d-flex align-items-center gap-2">
     {% if cve_last_scan %}
-    <span class="text-secondary small"><i class="bi bi-clock me-1"></i>Last scan: {{ cve_last_scan[:16] }}</span>
+    <span class="text-secondary small"><i class="bi bi-clock me-1"></i>Last scan: <span class="sobs-tz-ts" data-utc-ts="{{ cve_last_scan }}">{{ cve_last_scan[:19] }}</span></span>
     {% endif %}
     {% if cve_enabled %}
     <button class="btn btn-sm btn-outline-danger py-0" id="cve-scan-btn" onclick="triggerCveScan()">
@@ -40,6 +40,10 @@
               aria-expanded="true" aria-controls="cveFiltersPanel">
         <i class="bi bi-funnel me-2 text-primary"></i>
         <span class="fw-semibold">Filters</span>
+        <span id="cve-tz-badge-btn" class="sobs-tz-header-badge ms-2" role="button" tabindex="0" title="Display timezone - click to change">
+          <i class="bi bi-clock"></i>
+          <span id="cve-tz-badge-label">UTC</span>
+        </span>
         {% if severity_filter or ecosystem_filter or package_filter %}
         <span class="badge bg-primary ms-2">Active</span>
         {% endif %}
@@ -133,7 +137,7 @@
                 <span class="badge bg-secondary ms-1">{{ f.severity }}</span>
                 {% endif %}
               </span>
-              <span class="text-secondary" style="font-size:.7rem;">{{ f.published }}</span>
+              <span class="text-secondary sobs-tz-ts" data-utc-ts="{{ f.published }}" style="font-size:.7rem;">{{ f.published[:19] }}</span>
             </div>
             <div class="mt-1 small">
               <code>{{ f.ecosystem }}/{{ f.package }}@{{ f.version }}</code>
@@ -163,7 +167,7 @@
     No findings match the current filters. <a href="{{ url_for('view_enrichment_cve') }}">Clear filters</a>
     {% else %}
     No CVE findings stored yet.
-    {% if cve_last_scan %}Last scan: {{ cve_last_scan[:16] }}.{% endif %}
+    {% if cve_last_scan %}Last scan: <span class="sobs-tz-ts" data-utc-ts="{{ cve_last_scan }}">{{ cve_last_scan[:19] }}</span>.{% endif %}
     The background scanner runs daily (30 s after startup).
     {% endif %}
   </p>
@@ -175,6 +179,21 @@
 
 {% block scripts %}
 <script>
+function initCveTimezone() {
+  if (!window.sobsTimezone || typeof window.sobsTimezone.initPage !== 'function') return false;
+  window.sobsTimezone.initPage({
+    formSelector: '#cveFiltersPanel form[method="get"]',
+    badgeButtonId: 'cve-tz-badge-btn',
+    badgeLabelId: 'cve-tz-badge-label',
+    timestampSelector: '.sobs-tz-ts[data-utc-ts]'
+  });
+  return true;
+}
+
+if (!initCveTimezone()) {
+  window.addEventListener('load', initCveTimezone, { once: true });
+}
+
 function triggerCveScan() {
   var btn = document.getElementById('cve-scan-btn');
   var resultsEl = document.getElementById('cve-scan-result');

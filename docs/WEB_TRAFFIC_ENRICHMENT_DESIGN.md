@@ -405,6 +405,7 @@ LIMIT 20
 | `sobs_cve_findings` schema | ✅ Done |
 | CVE background scanner loop (24 h) | ✅ Done |
 | All panels as accordions in web_traffic.html | ✅ Done |
+| Browser-context aggregation APIs (`/api/web-traffic/browsers`, `/os`, `/timezones`, `/languages`, `/devices`) | ✅ Done |
 | TZ selector + date range picker wired up | ✅ Done |
 | World map bundled locally (no CDN dependency) | ✅ Done |
 | `--dependencies-json` / `--requirements-file` in `register_release_artifacts.py` | ✅ Done |
@@ -421,6 +422,6 @@ LIMIT 20
 | `POST /api/enrichment/cve/findings/<osv_id>/disposition` | 🔲 Planned |
 | Disposition join in findings API + page | 🔲 Planned |
 | Per-row disposition controls in web_traffic.html | 🔲 Planned |
-| CVE dedicated page (`/enrichment/cve`) | 🔲 Planned |
-| Note in enrichment settings re: `contents:read` token scope | 🔲 Planned |
-| Tests for all new items | 🔲 Planned |
+| CVE dedicated page (`/enrichment/cve`) | ✅ Done |
+| Note in enrichment settings re: `contents:read` token scope | ✅ Done |
+| Tests for all implemented items in this phase | ✅ Done |

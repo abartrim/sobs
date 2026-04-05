@@ -234,10 +234,45 @@
   </div>
   {% endif %}
 
+  <!-- Security Overview -->
+  <div class="col-lg-6">
+    <div class="card border-secondary h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-shield-exclamation me-1 text-danger"></i>Security Overview (CVE)</span>
+        <a href="{{ url_for('view_enrichment_cve') }}" class="btn btn-sm btn-outline-secondary">View All</a>
+      </div>
+      <div class="card-body">
+        {% if cve_overview.enabled %}
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          <span class="badge {% if cve_overview.total > 0 %}bg-danger{% else %}bg-success{% endif %}">
+            {{ cve_overview.total }} total
+          </span>
+          {% if cve_overview.critical %}<span class="badge bg-danger">{{ cve_overview.critical }} critical</span>{% endif %}
+          {% if cve_overview.high %}<span class="badge bg-warning text-dark">{{ cve_overview.high }} high</span>{% endif %}
+          {% if cve_overview.medium %}<span class="badge bg-secondary">{{ cve_overview.medium }} medium</span>{% endif %}
+          {% if cve_overview.low %}<span class="badge bg-info text-dark">{{ cve_overview.low }} low</span>{% endif %}
+        </div>
+        <div class="small text-secondary">
+          {% if cve_overview.last_scan %}
+          Last scan: {{ cve_overview.last_scan[:19] }}
+          {% else %}
+          No completed scan recorded yet.
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="text-secondary small">
+          CVE scanning is disabled.
+          <a href="{{ url_for('view_enrichment_settings') }}">Enable in enrichment settings</a>.
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
   <!-- Services -->
   {% if stats.services %}
-  <div class="col-12">
-    <div class="card border-secondary">
+  <div class="col-lg-6">
+    <div class="card border-secondary h-100">
       <div class="card-header"><i class="bi bi-layers me-1"></i>Services</div>
       <div class="card-body">
         {% for svc in stats.services %}

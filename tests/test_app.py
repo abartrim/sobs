@@ -9878,6 +9878,42 @@ class TestChartSpecHelpers:
 # Web Traffic – new feature tests
 # ---------------------------------------------------------------------------
 class TestWebTraffic:
+    async def test_summary_page_shows_cve_security_overview_panel(self, client):
+        import app as sobs_app
+
+        db = sobs_app.get_db()
+        old_enabled = sobs_app._get_app_setting(db, sobs_app._CVE_ENABLED_SETTING)
+        old_last_scan = sobs_app._get_app_setting(db, sobs_app._CVE_LAST_SCAN_SETTING)
+        try:
+            sobs_app._set_app_setting(db, sobs_app._CVE_ENABLED_SETTING, "true")
+            sobs_app._set_app_setting(db, sobs_app._CVE_LAST_SCAN_SETTING, "2026-04-04T12:34:56Z")
+
+            r = await client.get("/")
+            assert r.status_code == 200
+            html = (await r.get_data()).decode()
+            assert "Security Overview (CVE)" in html
+            assert "View All" in html
+            assert "Last scan: 2026-04-04T12:34:56" in html
+        finally:
+            sobs_app._set_app_setting(db, sobs_app._CVE_ENABLED_SETTING, old_enabled or "true")
+            sobs_app._set_app_setting(db, sobs_app._CVE_LAST_SCAN_SETTING, old_last_scan or "")
+
+    async def test_summary_page_shows_cve_disabled_message_when_disabled(self, client):
+        import app as sobs_app
+
+        db = sobs_app.get_db()
+        old_enabled = sobs_app._get_app_setting(db, sobs_app._CVE_ENABLED_SETTING)
+        try:
+            sobs_app._set_app_setting(db, sobs_app._CVE_ENABLED_SETTING, "false")
+
+            r = await client.get("/")
+            assert r.status_code == 200
+            html = (await r.get_data()).decode()
+            assert "Security Overview (CVE)" in html
+            assert "CVE scanning is disabled." in html
+        finally:
+            sobs_app._set_app_setting(db, sobs_app._CVE_ENABLED_SETTING, old_enabled or "true")
+
     async def test_web_traffic_page_loads(self, client):
         r = await client.get("/web-traffic")
         assert r.status_code == 200
@@ -9933,6 +9969,33 @@ class TestWebTraffic:
         data = json.loads(await r.get_data())
         assert data["ok"] is True
         assert "libraries_found" in data
+
+    async def test_cve_page_timezone_badge_in_filter_header(self, client):
+        # Ensure CVE enrichment is enabled so filter accordion is rendered.
+        await client.post(
+            "/settings/enrichment",
+            form={"geo_enabled": "on", "cve_enabled": "on"},
+        )
+
+        r = await client.get("/enrichment/cve")
+        assert r.status_code == 200
+        html = (await r.get_data()).decode()
+        assert 'id="cve-tz-badge-btn"' in html
+        assert 'id="cve-tz-badge-label"' in html
+        assert "initCveTimezone" in html
+
+    async def test_cve_page_renders_dates_with_utc_ts_attributes(self, client):
+        import app as sobs_app
+
+        db = sobs_app.get_db()
+        sobs_app._set_app_setting(db, sobs_app._CVE_ENABLED_SETTING, "true")
+        sobs_app._set_app_setting(db, sobs_app._CVE_LAST_SCAN_SETTING, "2026-04-04T12:34:56Z")
+
+        r = await client.get("/enrichment/cve")
+        assert r.status_code == 200
+        html = (await r.get_data()).decode()
+        assert 'class="sobs-tz-ts" data-utc-ts="2026-04-04T12:34:56Z"' in html
+        assert "timestampSelector: '.sobs-tz-ts[data-utc-ts]'" in html
 
     async def test_enrichment_settings_page_loads(self, client):
         r = await client.get("/settings/enrichment")

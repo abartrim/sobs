@@ -7199,6 +7199,41 @@ async def summary():
         f"WHERE {_AI_SPAN_CONDITION} "
         "GROUP BY model"
     ).fetchall()
+
+    # CVE summary for Summary page security panel.
+    cve_enabled = (_get_app_setting(db, _CVE_ENABLED_SETTING) or "true").lower() in ("1", "true", "yes")
+    cve_last_scan = _get_app_setting(db, _CVE_LAST_SCAN_SETTING) or ""
+    cve_overview = {
+        "enabled": cve_enabled,
+        "last_scan": cve_last_scan,
+        "total": 0,
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+    }
+    if cve_enabled:
+        try:
+            cve_rows = db.execute(
+                "SELECT Severity, COUNT(*) AS cnt FROM sobs_cve_findings FINAL GROUP BY Severity"
+            ).fetchall()
+            total = 0
+            for row in cve_rows:
+                sev = str(row["Severity"] or "").upper()
+                cnt = int(row["cnt"])
+                total += cnt
+                if sev == "CRITICAL":
+                    cve_overview["critical"] += cnt
+                elif sev == "HIGH":
+                    cve_overview["high"] += cnt
+                elif sev == "MEDIUM":
+                    cve_overview["medium"] += cnt
+                elif sev == "LOW":
+                    cve_overview["low"] += cnt
+            cve_overview["total"] = total
+        except Exception:
+            app.logger.exception("summary cve overview query failed")
+
     return await render_template(
         "summary.html",
         stats=stats,
@@ -7207,6 +7242,7 @@ async def summary():
         rum_summary=rum_summary,
         ai_summary=ai_summary,
         signal_health=_get_signal_health_by_service(db),
+        cve_overview=cve_overview,
     )
 
 
@@ -10573,12 +10609,12 @@ async def view_rum():
 
 
 # ---------------------------------------------------------------------------
-# Web UI – Web Traffic (IP geo-map, CVE enrichment)
+# Web UI – Web Traffic (IP geo-map, browser context analytics)
 # ---------------------------------------------------------------------------
 @app.route("/web-traffic")
 @require_basic_auth
 async def view_web_traffic():
-    """Web traffic analytics: IP→geo map, top URLs, event breakdown."""
+    """Web traffic analytics: IP→geo map, top URLs, and browser context breakdown."""
     db = get_db()
     from_ts, to_ts, time_error = _parse_time_window_args()
     time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
@@ -10602,57 +10638,16 @@ async def view_web_traffic():
     event_types = [(str(r[0]), int(r[1])) for r in event_type_rows]
 
     geo_enabled = (_get_app_setting(db, _GEO_ENABLED_SETTING) or "true").lower() in ("1", "true", "yes")
-    cve_enabled = (_get_app_setting(db, _CVE_ENABLED_SETTING) or "true").lower() in ("1", "true", "yes")
-    cve_last_scan = _get_app_setting(db, _CVE_LAST_SCAN_SETTING) or ""
-
-    # Top app names from RUM (for CVE lookup hints)
-    app_name_rows = db.execute(
-        f"SELECT LogAttributes['appName'] AS app, COUNT(*) AS cnt "
-        f"FROM hyperdx_sessions {where} "
-        f"GROUP BY app HAVING app != '' ORDER BY cnt DESC LIMIT 10",
-        time_params,
-    ).fetchall()
-    app_names = [str(r[0]) for r in app_name_rows]
-
-    # Stored CVE findings from last scan
-    cve_findings: list[dict] = []
-    if cve_enabled:
-        try:
-            cve_rows = db.execute(
-                "SELECT Package, Ecosystem, Version, ServiceName, OsvId, CveIds, Summary, Severity, Published "
-                "FROM sobs_cve_findings FINAL "
-                "ORDER BY Published DESC LIMIT 50"
-            ).fetchall()
-            for cr in cve_rows:
-                cve_findings.append(
-                    {
-                        "package": str(cr[0]),
-                        "ecosystem": str(cr[1]),
-                        "version": str(cr[2]),
-                        "service": str(cr[3]),
-                        "osv_id": str(cr[4]),
-                        "cve_ids": [c for c in str(cr[5]).split(",") if c],
-                        "summary": str(cr[6]),
-                        "severity": str(cr[7]),
-                        "published": str(cr[8]),
-                    }
-                )
-        except Exception:
-            pass
 
     return await render_template(
         "web_traffic.html",
         total=total,
         top_urls=top_urls,
         event_types=event_types,
-        app_names=app_names,
         from_ts=from_ts,
         to_ts=to_ts,
         error_msg=time_error,
         geo_enabled=geo_enabled,
-        cve_enabled=cve_enabled,
-        cve_last_scan=cve_last_scan,
-        cve_findings=cve_findings,
     )
 
 
