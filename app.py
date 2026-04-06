@@ -23512,8 +23512,8 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
                 SELECT
                     Attributes['namespace'] AS namespace,
                     Attributes['pod'] AS name,
-                    argMaxIf(Attributes['phase'], Value,
-                             MetricName = 'kube_pod_status_phase') AS phase,
+                    anyIf(Attributes['phase'], MetricName = 'kube_pod_status_phase'
+                          AND Value > 0) AS phase,
                     maxIf(Value, MetricName = 'kube_pod_status_ready'
                           AND Attributes['condition'] = 'true') AS ready_signal,
                     0.0 AS cpu_usage,
