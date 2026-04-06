@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_multi_select_filter.html" import render_multi_select %}
 {% block title %}AI Transparency{% endblock %}
 {% macro fmt_num(n) %}{% if n >= 1000000 %}{{ "%.1f" | format(n / 1000000) }}M{% elif n >= 1000 %}{{ "%.1f" | format(n / 1000) }}K{% else %}{{ n }}{% endif %}{% endmacro %}
 {% macro render_message_content(msg) %}{% set content = msg.get('content', '') if msg is mapping else '' %}{{ content if content is string else content | tojson }}{% endmacro %}
@@ -250,50 +251,14 @@
       <div class="accordion-body py-3">
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
       <input type="hidden" name="view" value="{{ view_mode }}">
-      <div style="flex: 1 0 140px">
-        <label class="form-label small text-secondary">Service</label>
-        <select name="service" class="form-select form-select-sm">
-          <option value="">All services</option>
-          {% for s in services %}
-          <option value="{{ s }}" {% if s == service %}selected{% endif %}>{{ s }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div style="flex: 1 0 140px">
-        <label class="form-label small text-secondary">Model</label>
-        <select name="model" class="form-select form-select-sm">
-          <option value="">All models</option>
-          {% for m in models %}
-          <option value="{{ m }}" {% if m == model %}selected{% endif %}>{{ m }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div style="flex: 1 0 140px">
-        <label class="form-label small text-secondary">Operation</label>
-        <select name="operation" class="form-select form-select-sm">
-          <option value="">All operations</option>
-          {% for op in operations %}
-          <option value="{{ op }}" {% if op == operation %}selected{% endif %}>{{ op }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div style="flex: 1 0 130px">
-        <label class="form-label small text-secondary">Row Type</label>
-        <select name="row_type" class="form-select form-select-sm">
-          <option value="" {% if not row_type %}selected{% endif %}>All rows</option>
-          <option value="llm" {% if row_type == 'llm' %}selected{% endif %}>LLM calls</option>
-          <option value="system" {% if row_type == 'system' %}selected{% endif %}>Execution events</option>
-        </select>
-      </div>
-      <div style="flex: 1 0 130px">
-        <label class="form-label small text-secondary">Span / Event</label>
-        <select name="span_name" class="form-select form-select-sm">
-          <option value="">All spans</option>
-          {% for sn in span_names %}
-          <option value="{{ sn }}" {% if sn == span_name %}selected{% endif %}>{{ sn }}</option>
-          {% endfor %}
-        </select>
-      </div>
+      {{ render_multi_select('service', 'Service', services, selected_services, '140px') }}
+      {{ render_multi_select('model', 'Model', models, selected_models, '140px') }}
+      {{ render_multi_select('operation', 'Operation', operations, selected_operations, '140px') }}
+      {{ render_multi_select('row_type', 'Row Type', [
+        {'value': 'llm', 'label': 'LLM calls'},
+        {'value': 'system', 'label': 'Execution events'}
+      ], selected_row_types, '130px') }}
+      {{ render_multi_select('span_name', 'Span / Event', span_names, selected_span_names, '130px') }}
       <div style="flex: 1 0 120px">
         <label class="form-label small text-secondary">Sort by</label>
         <select name="sort_by" class="form-select form-select-sm">

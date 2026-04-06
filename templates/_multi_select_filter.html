@@ -27,15 +27,22 @@
     </button>
     <ul class="dropdown-menu sobs-multi-select-menu" aria-labelledby="btn-{{ filter_name }}">
       {% for opt in options %}
+      {% if opt is mapping %}
+      {% set opt_value = opt.get('value', '') %}
+      {% set opt_label = opt.get('label', opt_value) %}
+      {% else %}
+      {% set opt_value = opt %}
+      {% set opt_label = opt %}
+      {% endif %}
       <li>
         <button
           type="button"
-          class="dropdown-item px-3 py-2 d-flex align-items-center justify-content-between sobs-multi-select-option{% if opt in selected_values %} is-selected{% endif %}"
+          class="dropdown-item px-3 py-2 d-flex align-items-center justify-content-between sobs-multi-select-option{% if opt_value in selected_values %} is-selected{% endif %}"
           data-filter-option="{{ filter_name }}"
-          data-option-value="{{ opt }}"
-          aria-pressed="{{ 'true' if opt in selected_values else 'false' }}">
-          <span class="sobs-multi-select-option-text">{{ opt }}</span>
-          <i class="bi bi-check2 sobs-multi-select-checkmark{% if opt in selected_values %} visible{% endif %}" aria-hidden="true"></i>
+          data-option-value="{{ opt_value }}"
+          aria-pressed="{{ 'true' if opt_value in selected_values else 'false' }}">
+          <span class="sobs-multi-select-option-text">{{ opt_label }}</span>
+          <i class="bi bi-check2 sobs-multi-select-checkmark{% if opt_value in selected_values %} visible{% endif %}" aria-hidden="true"></i>
         </button>
       </li>
       {% endfor %}

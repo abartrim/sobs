@@ -11244,7 +11244,8 @@ def _load_work_item_links_for_ref_ids(db: ChDbConnection, ref_ids: list[str]) ->
 @require_basic_auth
 async def view_errors():
     db = get_db()
-    service = request.args.get("service", "").strip()
+    selected_services = [svc.strip() for svc in request.args.getlist("service") if svc.strip()]
+    service = selected_services[0] if selected_services else ""
     group_by = request.args.get("group_by", "").strip().lower()
     grouped_mode = request.args.get("grouped", "").strip() == "1" or group_by in {
         "group",
@@ -11264,9 +11265,10 @@ async def view_errors():
     resolved_ids = _get_resolved_error_ids(db)
     where_parts = []
     where_params = []
-    if service:
-        where_parts.append("ServiceName=?")
-        where_params.append(service)
+    if selected_services:
+        placeholders = ",".join(["?"] * len(selected_services))
+        where_parts.append(f"ServiceName IN ({placeholders})")
+        where_params.extend(selected_services)
     time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
     where_parts.extend(time_conditions)
     where_params.extend(time_params)
@@ -11371,6 +11373,7 @@ async def view_errors():
         limit=limit,
         offset=offset,
         service=service,
+        selected_services=selected_services,
         from_ts=from_ts,
         to_ts=to_ts,
         error_msg=time_error,
@@ -13866,18 +13869,23 @@ async def api_get_work_items():
 @require_basic_auth
 async def view_ai():
     db = get_db()
-    service = request.args.get("service", "").strip()
-    model = request.args.get("model", "").strip()
-    operation_filter = request.args.get("operation", "").strip()
-    span_name = request.args.get("span_name", "").strip()
-    row_type = request.args.get("row_type", "").strip().lower()
+    selected_services = [svc.strip() for svc in request.args.getlist("service") if svc.strip()]
+    selected_models = [mdl.strip() for mdl in request.args.getlist("model") if mdl.strip()]
+    selected_operations = [op.strip() for op in request.args.getlist("operation") if op.strip()]
+    selected_span_names = [sn.strip() for sn in request.args.getlist("span_name") if sn.strip()]
+    selected_row_types = [rt.strip().lower() for rt in request.args.getlist("row_type") if rt.strip()]
+    selected_row_types = [rt for rt in selected_row_types if rt in ("llm", "system")]
+
+    service = selected_services[0] if selected_services else ""
+    model = selected_models[0] if selected_models else ""
+    operation_filter = selected_operations[0] if selected_operations else ""
+    span_name = selected_span_names[0] if selected_span_names else ""
+    row_type = selected_row_types[0] if selected_row_types else ""
     sql_where = request.args.get("sql", "").strip()
     from_ts, to_ts, time_error = _parse_time_window_args()
     view_mode = request.args.get("view", "flat").strip().lower()
     if view_mode not in ("flat", "trace"):
         view_mode = "flat"
-    if row_type not in ("", "llm", "system"):
-        row_type = ""
     limit = _parse_limit(50)
     offset = _parse_offset()
     sort_by, sort_col, sort_dir = _parse_sort(
@@ -13903,27 +13911,36 @@ async def view_ai():
             error_msg = f"SQL error: {_public_dashboard_query_error(exc)}"
             where = "WHERE " + base_ai_condition
     elif not error_msg:
-        if service:
-            conditions.append("ServiceName=?")
-            params.append(service)
-        if model:
-            conditions.append("SpanAttributes['gen_ai.request.model']=?")
-            params.append(model)
-        if operation_filter:
-            if operation_filter.lower() == "chat":
-                conditions.append(
-                    "(SpanAttributes['gen_ai.operation.name']=? OR SpanAttributes['gen_ai.operation.name']='')"
-                )
-                params.append("chat")
-            else:
-                conditions.append("SpanAttributes['gen_ai.operation.name']=?")
-                params.append(operation_filter)
-        if span_name:
-            conditions.append("SpanName=?")
-            params.append(span_name)
-        if row_type == "llm":
+        if selected_services:
+            placeholders = ",".join(["?"] * len(selected_services))
+            conditions.append(f"ServiceName IN ({placeholders})")
+            params.extend(selected_services)
+        if selected_models:
+            placeholders = ",".join(["?"] * len(selected_models))
+            conditions.append(f"SpanAttributes['gen_ai.request.model'] IN ({placeholders})")
+            params.extend(selected_models)
+        if selected_operations:
+            operation_conditions = []
+            for selected_operation in selected_operations:
+                if selected_operation.lower() == "chat":
+                    operation_conditions.append(
+                        "(SpanAttributes['gen_ai.operation.name']=? OR SpanAttributes['gen_ai.operation.name']='')"
+                    )
+                    params.append("chat")
+                else:
+                    operation_conditions.append("SpanAttributes['gen_ai.operation.name']=?")
+                    params.append(selected_operation)
+            if operation_conditions:
+                conditions.append("(" + " OR ".join(operation_conditions) + ")")
+        if selected_span_names:
+            placeholders = ",".join(["?"] * len(selected_span_names))
+            conditions.append(f"SpanName IN ({placeholders})")
+            params.extend(selected_span_names)
+
+        selected_row_type_set = set(selected_row_types)
+        if selected_row_type_set == {"llm"}:
             conditions.append("SpanAttributes['gen_ai.request.model'] != ''")
-        elif row_type == "system":
+        elif selected_row_type_set == {"system"}:
             conditions.append("SpanAttributes['gen_ai.request.model'] = ''")
         conditions.append(base_ai_condition)
         conditions.extend(time_conditions)
@@ -14233,10 +14250,15 @@ async def view_ai():
         limit=limit,
         offset=offset,
         service=service,
+        selected_services=selected_services,
         model=model,
+        selected_models=selected_models,
         operation=operation_filter,
+        selected_operations=selected_operations,
         span_name=span_name,
+        selected_span_names=selected_span_names,
         row_type=row_type,
+        selected_row_types=selected_row_types,
         sql_where=sql_where,
         view_mode=view_mode,
         services=services,

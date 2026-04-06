@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_filter_macros.html" import render_filter_accordion %}
 {% from "_error_panels.html" import render_error_accordion, render_error_panel_styles %}
+{% from "_multi_select_filter.html" import render_multi_select %}
 {% block title %}Errors{% endblock %}
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
@@ -13,15 +14,7 @@
 <!-- Filter bar -->
 {% call render_filter_accordion('errorsFiltersAccordion', 'errorsFiltersHeading', 'errorsFiltersPanel', 'text-danger', 'errors-tz-badge-btn', 'errors-tz-badge-label') %}
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
-      <div style="flex: 1 0 140px">
-        <label class="form-label small text-secondary">Service</label>
-        <select name="service" class="form-select form-select-sm">
-          <option value="">All services</option>
-          {% for s in services %}
-          <option value="{{ s }}" {% if s == service %}selected{% endif %}>{{ s }}</option>
-          {% endfor %}
-        </select>
-      </div>
+      {{ render_multi_select('service', 'Service', services, selected_services, '140px') }}
       <div style="flex: 1 0 120px">
         <label class="form-label small text-secondary">Status</label>
         <select name="resolved" class="form-select form-select-sm">
