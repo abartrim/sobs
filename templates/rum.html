@@ -135,12 +135,15 @@
     transform: rotate(180deg);
   }
   .rum-row-action-slot {
-    width: 4.05rem;
-    min-width: 4.05rem;
+    width: 4.6rem;
+    min-width: 4.6rem;
     display: inline-flex;
     align-items: center;
     gap: .35rem;
     justify-content: flex-end;
+  }
+  .rum-row-action-slot .btn {
+    flex: 0 0 auto;
   }
   .rum-row-action-slot.placeholder,
   .rum-row-action-placeholder {
@@ -155,6 +158,15 @@
     align-items: center;
     justify-content: center;
     border-radius: .4rem;
+  }
+  .rum-detail-links {
+    display: flex;
+    gap: .5rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .rum-detail-links .btn {
+    flex: 0 0 auto;
   }
   .vitals-health-chip {
     border: 1px solid var(--bs-border-color);
@@ -1048,7 +1060,7 @@
                     </div>
 
                     {% if ev.data.get('traceId') %}
-                    <div class="mb-3 d-flex gap-2">
+                    <div class="mb-3 rum-detail-links">
                       <a href="{{ url_for('view_logs', trace_id=ev.data.get('traceId'), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
                         <i class="bi bi-journal-text me-1"></i>Logs
                       </a>
@@ -1324,7 +1336,7 @@
             </div>
 
             {% if ev.data.get('traceId') %}
-            <div class="mb-3 d-flex gap-2">
+            <div class="mb-3 rum-detail-links">
               <a href="{{ url_for('view_logs', trace_id=ev.data.get('traceId'), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-journal-text me-1"></i>Logs
               </a>

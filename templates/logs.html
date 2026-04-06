@@ -75,20 +75,11 @@
     </h2>
     <div id="logsFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="logsFiltersHeading" data-bs-parent="#logsFiltersAccordion">
       <div class="accordion-body py-3">
-    {% if trace_id %}
-    <div class="alert alert-info py-2 px-3 mb-2 d-flex align-items-center gap-2 small">
-      <i class="bi bi-funnel-fill text-info"></i>
-      <span>Filtering by trace: <code class="ms-1">{{ trace_id }}</code></span>
-      <a href="{{ url_for('view_logs', q=q, level=level, service=service, sql=sql_where, from_ts=from_ts, to_ts=to_ts) }}" class="ms-auto btn btn-sm btn-outline-secondary py-0">
-        <i class="bi bi-x"></i> Clear
-      </a>
-    </div>
-    {% endif %}
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
       <input type="hidden" name="live" id="liveModeInput" value="{{ '1' if live == '1' else '' }}">
       <input type="hidden" name="analyze" value="{{ analyze }}">
       <input type="hidden" name="stats" value="{{ '1' if stats_open else '' }}">
-      <input type="hidden" name="trace_id" value="{{ trace_id }}">
+      <input type="hidden" name="trace_ids" value="{{ trace_ids_csv }}">
       <div style="flex: 2 0 200px">
         <label class="form-label small text-secondary">Grep pattern</label>
         <input type="text" name="q" class="form-control form-control-sm" placeholder="regex search…" value="{{ q }}">
@@ -110,6 +101,27 @@
           <option value="{{ s }}" {% if s == service %}selected{% endif %}>{{ s }}</option>
           {% endfor %}
         </select>
+      </div>
+      <div style="flex: 1 0 220px">
+        <div class="d-flex align-items-center justify-content-between">
+          <label class="form-label small text-secondary mb-1">Trace ID</label>
+           {% if trace_id or trace_ids_csv %}
+          <a class="small text-decoration-none"
+             href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id='', trace_ids='', event_name=event_name, sql=sql_where, from_ts=from_ts, to_ts=to_ts, live=live, analyze=analyze, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, stats='1' if stats_open else '') }}">
+            Clear
+          </a>
+          {% endif %}
+        </div>
+        {% if trace_ids_count > 1 %}
+        <div class="small text-info-emphasis mb-1">Filtering by {{ trace_ids_count }} trace IDs (grouped errors view)</div>
+        {% endif %}
+        <input
+          type="text"
+          name="trace_id"
+          class="form-control form-control-sm font-monospace"
+          placeholder="32-char trace id"
+          value="{{ trace_ids_csv if trace_ids_count > 1 else trace_id }}"
+          autocomplete="off">
       </div>
       {% if event_names %}
       <div style="flex: 1 0 130px">
@@ -220,7 +232,7 @@
             {% endif %}
           </div>
            <a id="advancedAnalysisBtn" class="btn btn-sm btn-outline-info"
-             href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, sql=sql_where, from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=offset, analyze='1', stats='1', stats_updated='1') }}">
+             href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, trace_ids=trace_ids_csv, sql=sql_where, from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=offset, analyze='1', stats='1', stats_updated='1') }}">
             <i class="bi bi-stars me-1"></i>{{ 'Refresh advanced analysis' if run_advanced_analysis else 'Run advanced analysis' }}
           </a>
         </div>
@@ -231,14 +243,14 @@
               <h6 class="text-secondary small mb-0"><i class="bi bi-tag me-1"></i>By Level</h6>
               {% if level %}
               <a class="small text-decoration-none"
-                 href="{{ url_for('view_logs', q=q, level='', service=service, trace_id=trace_id, sql='', from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, analyze=analyze, stats='1') }}">
+                  href="{{ url_for('view_logs', q=q, level='', service=service, trace_id=trace_id, trace_ids=trace_ids_csv, sql='', from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, analyze=analyze, stats='1') }}">
                 Clear
               </a>
               {% endif %}
             </div>
             <div class="d-flex flex-wrap gap-2">
               {% for lvl, cnt in level_stats.items() %}
-              <a href="{{ url_for('view_logs', q=q, level=lvl, service=service, trace_id=trace_id, sql='', from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, analyze=analyze, stats='1') }}"
+              <a href="{{ url_for('view_logs', q=q, level=lvl, service=service, trace_id=trace_id, trace_ids=trace_ids_csv, sql='', from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, analyze=analyze, stats='1') }}"
                  class="badge badge-level-{{ lvl }} text-decoration-none{% if lvl == level %} border border-light{% endif %}">
                 {{ lvl }}: {{ cnt }}
               </a>
@@ -255,14 +267,14 @@
               <h6 class="text-secondary small mb-0"><i class="bi bi-server me-1"></i>By Service</h6>
               {% if service %}
               <a class="small text-decoration-none"
-                 href="{{ url_for('view_logs', q=q, level=level, service='', trace_id=trace_id, sql='', from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, analyze=analyze, stats='1') }}">
+                  href="{{ url_for('view_logs', q=q, level=level, service='', trace_id=trace_id, trace_ids=trace_ids_csv, sql='', from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, analyze=analyze, stats='1') }}">
                 Clear
               </a>
               {% endif %}
             </div>
             <div class="d-flex flex-wrap gap-2">
               {% for svc, cnt in service_stats.items() %}
-              <a href="{{ url_for('view_logs', q=q, level=level, service=svc, trace_id=trace_id, sql='', from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, analyze=analyze, stats='1') }}"
+              <a href="{{ url_for('view_logs', q=q, level=level, service=svc, trace_id=trace_id, trace_ids=trace_ids_csv, sql='', from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, analyze=analyze, stats='1') }}"
                  class="badge bg-secondary text-decoration-none{% if svc == service %} border border-light{% endif %}">
                 {{ svc }}: {{ cnt }}
               </a>
@@ -281,7 +293,7 @@
               {% for tag in tag_stats %}
               {% set safe_key = tag.key | replace("'", "''") %}
               {% set safe_val = tag.value | replace("'", "''") %}
-              <a href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, sql="has_tag('" + safe_key + "','" + safe_val + "')", from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, stats='1') }}"
+              <a href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, trace_ids=trace_ids_csv, sql="has_tag('" + safe_key + "','" + safe_val + "')", from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, stats='1') }}"
                  class="badge bg-info-subtle text-info-emphasis text-decoration-none"
                  title="Filter by {{ tag.key }}={{ tag.value }}">
                 <i class="bi bi-tag me-1"></i>{{ tag.key }}={{ tag.value }}: {{ tag.count }}
@@ -367,17 +379,17 @@
       {% set svc_next_dir = 'asc' if (sort_by == 'ServiceName' and sort_dir == 'desc') else 'desc' %}
       <tr>
         <th style="width:155px;">
-          <a href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, sql=sql_where, from_ts=from_ts, to_ts=to_ts, analyze=analyze, sort_by='Timestamp', sort_dir=ts_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
+          <a href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, trace_ids=trace_ids_csv, sql=sql_where, from_ts=from_ts, to_ts=to_ts, analyze=analyze, sort_by='Timestamp', sort_dir=ts_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
             Timestamp {% if sort_by == 'Timestamp' %}<small>{{ '↑' if sort_dir == 'asc' else '↓' }}</small>{% endif %}
           </a>
         </th>
         <th style="width:90px;">
-          <a href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, sql=sql_where, from_ts=from_ts, to_ts=to_ts, analyze=analyze, sort_by='SeverityText', sort_dir=level_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
+          <a href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, trace_ids=trace_ids_csv, sql=sql_where, from_ts=from_ts, to_ts=to_ts, analyze=analyze, sort_by='SeverityText', sort_dir=level_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
             Level {% if sort_by == 'SeverityText' %}<small>{{ '↑' if sort_dir == 'asc' else '↓' }}</small>{% endif %}
           </a>
         </th>
         <th style="width:100px;">
-          <a href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, sql=sql_where, from_ts=from_ts, to_ts=to_ts, analyze=analyze, sort_by='ServiceName', sort_dir=svc_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
+          <a href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, trace_ids=trace_ids_csv, sql=sql_where, from_ts=from_ts, to_ts=to_ts, analyze=analyze, sort_by='ServiceName', sort_dir=svc_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
             Service {% if sort_by == 'ServiceName' %}<small>{{ '↑' if sort_dir == 'asc' else '↓' }}</small>{% endif %}
           </a>
         </th>
@@ -398,7 +410,7 @@
             {% for tag in log.tags %}
             {% set safe_tag_key = tag.key | replace("'", "''") %}
             {% set safe_tag_val = tag.value | replace("'", "''") %}
-            <a href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, sql="has_tag('" + safe_tag_key + "','" + safe_tag_val + "')", from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, stats='1') }}"
+            <a href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, trace_ids=trace_ids_csv, sql="has_tag('" + safe_tag_key + "','" + safe_tag_val + "')", from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, stats='1') }}"
                class="badge {% if tag.is_auto %}bg-info-subtle text-info-emphasis{% else %}bg-success-subtle text-success-emphasis{% endif %} text-decoration-none"
                title="{{ 'Auto-tag' if tag.is_auto else 'Manual tag' }}: {{ tag.key }}={{ tag.value }}">
               <i class="bi bi-tag me-1"></i>{{ tag.key }}={{ tag.value }}
@@ -431,19 +443,19 @@
     <small class="text-secondary">Showing {{ offset + 1 }}–{{ [offset + logs | length, total] | min }} of {{ total }}</small>
     <select class="form-select form-select-sm" style="width:auto;" onchange="window.location.href=this.value" aria-label="Rows per page">
       {% for n in [10, 25, 50, 100, 200] %}
-      <option value="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, sql=sql_where, from_ts=from_ts, to_ts=to_ts, analyze=analyze, sort_by=sort_by, sort_dir=sort_dir, limit=n, offset=0) }}" {% if limit == n %}selected{% endif %}>{{ n }} / page</option>
+      <option value="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, trace_ids=trace_ids_csv, sql=sql_where, from_ts=from_ts, to_ts=to_ts, analyze=analyze, sort_by=sort_by, sort_dir=sort_dir, limit=n, offset=0) }}" {% if limit == n %}selected{% endif %}>{{ n }} / page</option>
       {% endfor %}
     </select>
   </div>
   <ul class="pagination pagination-sm mb-0">
     {% if offset > 0 %}
     <li class="page-item">
-      <a class="page-link" href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, sql=sql_where, from_ts=from_ts, to_ts=to_ts, live=live, analyze=analyze, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=prev_offset) }}">← Prev</a>
+      <a class="page-link" href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, trace_ids=trace_ids_csv, sql=sql_where, from_ts=from_ts, to_ts=to_ts, live=live, analyze=analyze, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=prev_offset) }}">← Prev</a>
     </li>
     {% endif %}
     {% if next_offset < total %}
     <li class="page-item">
-      <a class="page-link" href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, sql=sql_where, from_ts=from_ts, to_ts=to_ts, live=live, analyze=analyze, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=next_offset) }}">Next →</a>
+      <a class="page-link" href="{{ url_for('view_logs', q=q, level=level, service=service, trace_id=trace_id, trace_ids=trace_ids_csv, sql=sql_where, from_ts=from_ts, to_ts=to_ts, live=live, analyze=analyze, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=next_offset) }}">Next →</a>
     </li>
     {% endif %}
   </ul>
