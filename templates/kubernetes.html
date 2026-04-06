@@ -1,6 +1,33 @@
 {% extends "base.html" %}
 {% block title %}Kubernetes Health{% endblock %}
 {% block content %}
+<style>
+  .k8s-pager-controls {
+    align-items: stretch !important;
+    margin-left: auto;
+    justify-content: flex-end;
+  }
+
+  .k8s-pager-controls .form-select.form-select-sm {
+    min-width: 108px;
+    height: calc(1.5em + 0.5rem + 2px);
+  }
+
+  .k8s-pager-controls .btn-group.btn-group-sm {
+    height: calc(1.5em + 0.5rem + 2px);
+  }
+
+  .k8s-pager-controls .btn-group.btn-group-sm .btn {
+    min-width: 3.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .k8s-table-footer {
+    padding-right: 0.25rem !important;
+  }
+</style>
 <div class="d-flex align-items-center justify-content-between mb-3">
   <div>
     <h4 class="fw-semibold mb-1"><i class="bi bi-hdd-network me-2 text-info"></i>Kubernetes Health</h4>
@@ -167,7 +194,7 @@
                 <th class="text-end">CPU</th>
                 <th class="text-end">Mem</th>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="nodes" data-key="created" data-label="Last Seen">Last Seen</button></th>
-                <th>Logs</th>
+                <th class="text-end">Logs</th>
               </tr>
             </thead>
             <tbody id="nodesBody">
@@ -175,9 +202,9 @@
             </tbody>
           </table>
         </div>
-        <div class="d-flex justify-content-between align-items-center py-2 px-3 border-top">
+        <div class="d-flex justify-content-between align-items-center py-2 px-3 border-top k8s-table-footer">
           <small class="text-secondary" id="nodesPageInfo">0 rows</small>
-          <div class="d-flex align-items-center gap-2">
+          <div class="d-flex gap-2 k8s-pager-controls">
             <select id="nodesPageSize" class="form-select form-select-sm" style="width:auto;" aria-label="Rows per page">
               <option value="10">10 / page</option>
               <option value="25" selected>25 / page</option>
@@ -216,7 +243,7 @@
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="deployments" data-key="ready" data-label="Ready">Ready</button></th>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="deployments" data-key="available" data-label="Available">Available</button></th>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="deployments" data-key="created" data-label="Last Seen">Last Seen</button></th>
-                <th>Logs</th>
+                <th class="text-end">Logs</th>
               </tr>
             </thead>
             <tbody id="deploymentsBody">
@@ -224,9 +251,9 @@
             </tbody>
           </table>
         </div>
-        <div class="d-flex justify-content-between align-items-center py-2 px-3 border-top">
+        <div class="d-flex justify-content-between align-items-center py-2 px-3 border-top k8s-table-footer">
           <small class="text-secondary" id="deploymentsPageInfo">0 rows</small>
-          <div class="d-flex align-items-center gap-2">
+          <div class="d-flex gap-2 k8s-pager-controls">
             <select id="deploymentsPageSize" class="form-select form-select-sm" style="width:auto;" aria-label="Rows per page">
               <option value="10">10 / page</option>
               <option value="25" selected>25 / page</option>
@@ -268,7 +295,7 @@
                 <th class="text-end">Mem</th>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="pods" data-key="node" data-label="Node">Node</button></th>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="pods" data-key="created" data-label="Last Seen">Last Seen</button></th>
-                <th>Logs</th>
+                <th class="text-end">Logs</th>
               </tr>
             </thead>
             <tbody id="podsBody">
@@ -276,9 +303,9 @@
             </tbody>
           </table>
         </div>
-        <div class="d-flex justify-content-between align-items-center py-2 px-3 border-top">
+        <div class="d-flex justify-content-between align-items-center py-2 px-3 border-top k8s-table-footer">
           <small class="text-secondary" id="podsPageInfo">0 rows</small>
-          <div class="d-flex align-items-center gap-2">
+          <div class="d-flex gap-2 k8s-pager-controls">
             <select id="podsPageSize" class="form-select form-select-sm" style="width:auto;" aria-label="Rows per page">
               <option value="10">10 / page</option>
               <option value="25" selected>25 / page</option>
@@ -509,7 +536,7 @@
         + '<td class="small text-end">' + escHtml((Number(n.cpu_usage || 0)).toFixed(1) + '%') + '</td>'
         + '<td class="small text-end">' + escHtml(fmtBytes(n.mem_used)) + '</td>'
         + '<td class="small">' + fmtDate(n.created) + '</td>'
-        + '<td><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
+        + '<td class="text-end"><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
         + '</tr>';
     }).join('');
   }
@@ -538,7 +565,7 @@
         + '<td class="text-center ' + readyCls + ' fw-semibold">' + escHtml(d.ready || 0) + '</td>'
         + '<td class="text-center">' + escHtml(d.available || 0) + '</td>'
         + '<td class="small">' + fmtDate(d.created) + '</td>'
-        + '<td><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
+        + '<td class="text-end"><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
         + '</tr>';
     }).join('');
   }
@@ -569,7 +596,7 @@
         + '<td class="small text-end">' + escHtml(fmtBytes(p.mem_used)) + '</td>'
         + '<td class="small">' + escHtml(p.node || '–') + '</td>'
         + '<td class="small">' + fmtDate(p.created) + '</td>'
-        + '<td><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
+        + '<td class="text-end"><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
         + '</tr>';
     }).join('');
   }
