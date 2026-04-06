@@ -34,7 +34,7 @@
           data-filter-option="{{ filter_name }}"
           data-option-value="{{ opt }}"
           aria-pressed="{{ 'true' if opt in selected_values else 'false' }}">
-          <span>{{ opt }}</span>
+          <span class="sobs-multi-select-option-text">{{ opt }}</span>
           <i class="bi bi-check2 sobs-multi-select-checkmark{% if opt in selected_values %} visible{% endif %}" aria-hidden="true"></i>
         </button>
       </li>
@@ -121,11 +121,16 @@
     let contentWidth = 0;
 
     options.forEach((option) => {
-      contentWidth = Math.max(contentWidth, Math.ceil(option.scrollWidth));
+      const textNode = option.querySelector('.sobs-multi-select-option-text');
+      if (textNode) {
+        contentWidth = Math.max(contentWidth, Math.ceil(textNode.scrollWidth));
+      } else {
+        contentWidth = Math.max(contentWidth, Math.ceil(option.scrollWidth));
+      }
     });
 
     // Extra room for menu padding and the right-side checkmark.
-    const horizontalChrome = 48;
+    const horizontalChrome = 72;
     const desired = Math.max(triggerWidth, contentWidth + horizontalChrome);
     const viewportCap = Math.floor(window.innerWidth * 0.9);
     const absoluteCap = 700;
@@ -206,6 +211,12 @@
     line-height: 1.5;
     font-weight: 400;
     white-space: nowrap;
+  }
+
+  .sobs-multi-select-option-text {
+    flex: 1 1 auto;
+    min-width: max-content;
+    padding-right: 0.5rem;
   }
 
   .sobs-multi-select-option:hover {
