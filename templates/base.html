@@ -527,7 +527,7 @@
     setBusy(true);
 
     try {
-      var response = await fetch('/api/reports', {
+      var response = await fetch({{ url_for('api_create_report') | tojson }}, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

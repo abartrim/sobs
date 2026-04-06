@@ -1881,7 +1881,7 @@ document.addEventListener('click', function(evt) {
   }
 
   group.addEventListener('show.bs.dropdown', function () {
-    fetch('/api/reports?page_type=ai')
+    fetch({{ url_for('api_list_reports') | tojson }} + '?page_type=ai')
       .then(r => r.json())
       .then(reports => {
         if (!reports.length) {

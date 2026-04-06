@@ -301,6 +301,7 @@
 <script>
 (function () {
   var triggerUrl = '{{ url_for("trigger_agent_run") }}';
+  var dismissRunBaseUrl = {{ url_for('dismiss_agent_run', run_id='__RUN_ID__') | tojson }};
 
   function triggerAgentRun(ruleId, ruleName) {
     var extra = prompt('Optional extra context for the agent (leave blank for none):') || '';
@@ -328,7 +329,7 @@
   }
 
   function dismissRun(runId) {
-    fetch('/api/agent/runs/' + runId + '/dismiss', {method: 'POST'})
+    fetch(dismissRunBaseUrl.replace('__RUN_ID__', runId), {method: 'POST'})
       .then(function() { location.reload(); })
       .catch(function(err) { console.error('dismiss failed', err); });
   }

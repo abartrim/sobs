@@ -841,7 +841,7 @@ document.querySelectorAll('.trace-ai-help-btn').forEach(btn => {
 
     let succeeded = false;
     try {
-      const res = await fetch('/api/issues/raise', {
+      const res = await fetch({{ url_for('raise_issue_from_user_observation') | tojson }}, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -929,7 +929,7 @@ document.querySelectorAll('.trace-ai-help-btn').forEach(btn => {
   }
 
   group.addEventListener('show.bs.dropdown', function () {
-    fetch('/api/reports?page_type=traces')
+    fetch({{ url_for('api_list_reports') | tojson }} + '?page_type=traces')
       .then(r => r.json())
       .then(reports => {
         if (!reports.length) {

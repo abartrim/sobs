@@ -1357,7 +1357,7 @@
   }
 
   group.addEventListener('show.bs.dropdown', function () {
-    fetch('/api/reports?page_type=logs')
+    fetch({{ url_for('api_list_reports') | tojson }} + '?page_type=logs')
       .then(r => r.json())
       .then(reports => {
         if (!reports.length) {

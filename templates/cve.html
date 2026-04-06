@@ -283,6 +283,8 @@
 <script>
 var librariesApiUrl = {{ url_for('api_enrichment_libraries') | tojson }};
 var repoHealthApiUrl = {{ url_for('api_enrichment_github_repo_health') | tojson }};
+var cveScanUrl = {{ url_for('api_cve_scan') | tojson }};
+var cveDispositionBaseUrl = {{ url_for('api_cve_set_disposition', osv_id='__OSV_ID__') | tojson }};
 
 function initCveTimezone() {
   if (!window.sobsTimezone || typeof window.sobsTimezone.initPage !== 'function') return false;
@@ -304,7 +306,7 @@ function triggerCveScan() {
   var resultsEl = document.getElementById('cve-scan-result');
   if (btn) btn.disabled = true;
   if (resultsEl) resultsEl.innerHTML = '<div class="text-secondary small"><span class="spinner-border spinner-border-sm me-1"></span>Scanning release metadata and OTEL library versions via OSV.dev…</div>';
-  fetch('/api/enrichment/cve/scan', {method:'POST'})
+  fetch(cveScanUrl, {method:'POST'})
     .then(function(r){return r.json();})
     .then(function(data){
       if (btn) btn.disabled = false;
@@ -359,7 +361,7 @@ function initDispositionControls() {
       };
       btn.disabled = true;
       if (status) status.textContent = 'Saving...';
-      fetch('/api/enrichment/cve/findings/' + encodeURIComponent(osvId) + '/disposition', {
+      fetch(cveDispositionBaseUrl.replace('__OSV_ID__', encodeURIComponent(osvId)), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body)

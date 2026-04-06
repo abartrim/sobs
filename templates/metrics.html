@@ -251,7 +251,7 @@ if (!initMetricsTimezone()) {
   }
 
   group.addEventListener('show.bs.dropdown', function () {
-    fetch('/api/reports?page_type=metrics')
+    fetch({{ url_for('api_list_reports') | tojson }} + '?page_type=metrics')
       .then(r => r.json())
       .then(reports => {
         if (!reports.length) {
