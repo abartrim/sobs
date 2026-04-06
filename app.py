@@ -7504,6 +7504,26 @@ def _insert_typed_metric_events(db, events: list[TypedMetricEvent]) -> int:
 _PROTOBUF_CONTENT_TYPE = "application/x-protobuf"
 
 
+def _decompress_request_body(raw: bytes, content_encoding: str) -> bytes:
+    """Decompress a request body if Content-Encoding indicates compression.
+
+    The OpenTelemetry Collector's ``otlphttp`` exporter can send gzip-compressed
+    payloads (``Content-Encoding: gzip``).  Quart does not auto-decompress
+    request bodies, so we handle it explicitly here.
+
+    Supported encodings: ``gzip``, ``deflate``.  Unknown encodings are returned
+    as-is so that a downstream parse error surfaces a meaningful message.
+    """
+    enc = (content_encoding or "").strip().lower()
+    if enc == "gzip":
+        import gzip as _gzip
+
+        return _gzip.decompress(raw)
+    if enc == "deflate":
+        return zlib.decompress(raw)
+    return raw
+
+
 async def _parse_otlp_request(proto_class):
     """
     Parse an OTLP HTTP request body.
@@ -7514,20 +7534,32 @@ async def _parse_otlp_request(proto_class):
     - ``Content-Type: application/x-protobuf`` → deserialise with *proto_class*.
     - Any other content-type (including ``application/json``) → parse JSON and
       map into the same protobuf class via protobuf JSON mapping.
+
+    Both paths transparently handle ``Content-Encoding: gzip`` and
+    ``Content-Encoding: deflate`` request bodies, which the OpenTelemetry
+    Collector ``otlphttp`` exporter may send when compression is enabled.
     """
     mimetype = (request.mimetype or "").lower()
+    content_encoding = request.headers.get("Content-Encoding", "")
     msg = proto_class()
     if mimetype == _PROTOBUF_CONTENT_TYPE:
         app.logger.debug("OTLP ingest: parse_path=protobuf endpoint=%s", request.path)
         try:
-            msg.ParseFromString(await request.get_data())
+            raw = await request.get_data()
+            body = _decompress_request_body(raw, content_encoding)
+            msg.ParseFromString(body)
         except Exception as exc:
             app.logger.warning("OTLP protobuf parse error [%s]: %s", request.path, exc)
             return None, (jsonify({"error": "failed to parse protobuf body"}), 400)
         return msg, None
     app.logger.debug("OTLP ingest: parse_path=json endpoint=%s", request.path)
-    payload = await request.get_json(force=True, silent=True)
-    if payload is None:
+    try:
+        raw = await request.get_data()
+        body = _decompress_request_body(raw, content_encoding)
+        payload = json.loads(body) if body else {}
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
         payload = {}
     try:
         ParseDict(payload, msg)
@@ -7769,7 +7801,11 @@ async def ingest_metrics():
     msg, err = await _parse_otlp_request(ExportMetricsServiceRequest)
     if err:
         return err
-    events = _proto_metrics_to_events(msg)
+    try:
+        events = _proto_metrics_to_events(msg)
+    except Exception:
+        app.logger.exception("metric proto decode failed")
+        return _json_error("metric ingest write failed", 500)
     wait = bool(app.config.get("TESTING", False))
     try:
         _queue_write(lambda db: _insert_metric_events(db, events), wait=wait)

@@ -704,6 +704,132 @@ class TestOtlpProtobufIngest:
         assert row is not None, "Error row not found in DB"
         assert row[1] == "ValueError"
 
+    def _make_metrics_proto_bytes(self, service="proto-metrics-svc"):
+        from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import ExportMetricsServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.metrics.v1.metrics_pb2 import (
+            AggregationTemporality,
+            Gauge,
+            Histogram,
+            HistogramDataPoint,
+            Metric,
+            NumberDataPoint,
+            ResourceMetrics,
+            ScopeMetrics,
+            Sum,
+        )
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+
+        ts_ns = int(time.time() * 1_000_000_000)
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value=service))])
+
+        gauge_dp = NumberDataPoint(time_unix_nano=ts_ns, as_double=75.5)
+        gauge_metric = Metric(name="cpu.usage", description="CPU utilization", unit="%", gauge=Gauge(data_points=[gauge_dp]))
+
+        sum_dp = NumberDataPoint(
+            time_unix_nano=ts_ns,
+            as_int=1500,
+            start_time_unix_nano=ts_ns - 60_000_000_000,
+        )
+        sum_metric = Metric(
+            name="http.requests",
+            description="Total requests",
+            unit="1",
+            sum=Sum(
+                data_points=[sum_dp],
+                is_monotonic=True,
+                aggregation_temporality=AggregationTemporality.AGGREGATION_TEMPORALITY_CUMULATIVE,
+            ),
+        )
+
+        hist_dp = HistogramDataPoint(
+            time_unix_nano=ts_ns,
+            start_time_unix_nano=ts_ns - 60_000_000_000,
+            count=250,
+            sum=12500.0,
+            bucket_counts=[50, 80, 70, 30, 20],
+            explicit_bounds=[5.0, 10.0, 25.0, 50.0],
+        )
+        hist_metric = Metric(
+            name="request.duration",
+            description="Request duration",
+            unit="ms",
+            histogram=Histogram(
+                data_points=[hist_dp],
+                aggregation_temporality=AggregationTemporality.AGGREGATION_TEMPORALITY_CUMULATIVE,
+            ),
+        )
+
+        msg = ExportMetricsServiceRequest(
+            resource_metrics=[
+                ResourceMetrics(
+                    resource=resource,
+                    scope_metrics=[ScopeMetrics(metrics=[gauge_metric, sum_metric, hist_metric])],
+                )
+            ]
+        )
+        return msg.SerializeToString()
+
+    async def test_protobuf_metrics_ingest_accepted(self, client):
+        body = self._make_metrics_proto_bytes()
+        r = await client.post("/v1/metrics", data=body, headers={"Content-Type": self.PROTOBUF_CT})
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["accepted"] == 3  # gauge + sum + histogram
+
+    async def test_protobuf_metrics_persisted_in_db(self, client):
+        svc = "proto-metrics-db-svc"
+        body = self._make_metrics_proto_bytes(service=svc)
+        r = await client.post("/v1/metrics", data=body, headers={"Content-Type": self.PROTOBUF_CT})
+        assert r.status_code == 200
+        assert json.loads(await r.get_data())["accepted"] == 3
+
+        gauge_row = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT Value, ServiceName FROM otel_metrics_gauge WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
+                (svc,),
+            )
+            .fetchone()
+        )
+        assert gauge_row is not None, "Gauge row not found in DB"
+        assert abs(float(gauge_row["Value"]) - 75.5) < 1e-6
+
+        hist_row = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT Count, Sum FROM otel_metrics_histogram WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
+                (svc,),
+            )
+            .fetchone()
+        )
+        assert hist_row is not None, "Histogram row not found in DB"
+        assert int(hist_row["Count"]) == 250
+        assert abs(float(hist_row["Sum"]) - 12500.0) < 1e-6
+
+    async def test_protobuf_metrics_gzip_ingest_accepted(self, client):
+        """Metrics sent with Content-Encoding: gzip (as the OTel Collector can do) are accepted."""
+        import gzip as _gzip
+
+        body = self._make_metrics_proto_bytes(service="proto-metrics-gz-svc")
+        compressed = _gzip.compress(body)
+        r = await client.post(
+            "/v1/metrics",
+            data=compressed,
+            headers={
+                "Content-Type": self.PROTOBUF_CT,
+                "Content-Encoding": "gzip",
+            },
+        )
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["accepted"] == 3
+
+    async def test_protobuf_invalid_metrics_body_returns_400(self, client):
+        r = await client.post("/v1/metrics", data=b"\xff\xfe garbage metrics", headers={"Content-Type": self.PROTOBUF_CT})
+        assert r.status_code == 400
+        assert "error" in json.loads(await r.get_data())
+
     async def test_protobuf_invalid_body_returns_400(self, client):
         r = await client.post("/v1/logs", data=b"not valid protobuf", headers={"Content-Type": self.PROTOBUF_CT})
         assert r.status_code == 400
