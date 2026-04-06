@@ -6065,6 +6065,254 @@ class TestCustomDashboards:
         body = await r.get_data(as_text=True)
         assert "bar-chart-line" in body
 
+    async def test_named_queries_in_chart_spec_normalized(self, client):
+        """Named queries are normalized and included in the compiled spec."""
+        r = await client.post(
+            "/api/dashboards/spec/compile",
+            json={
+                "spec": {
+                    "template_id": "custom_echarts",
+                    "sql": {"mode": "raw", "override_sql": "SELECT 1 AS value"},
+                    "named_queries": [
+                        {"name": "nodes", "sql": "SELECT 2 AS id", "purpose": "test"},
+                        {"name": "links", "sql": "SELECT 3 AS src", "purpose": ""},
+                    ],
+                    "visual": {"custom_option_json": "{}", "custom_mapping_json": "{}"},
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["template_id"] == "custom_echarts"
+        nqs = data["spec"].get("named_queries", [])
+        assert len(nqs) == 2
+        assert nqs[0]["name"] == "nodes"
+        assert nqs[1]["name"] == "links"
+
+    async def test_named_queries_invalid_name_rejected(self, client):
+        """Named queries with invalid names (bad identifiers) are dropped."""
+        r = await client.post(
+            "/api/dashboards/spec/compile",
+            json={
+                "spec": {
+                    "template_id": "custom_echarts",
+                    "sql": {"mode": "raw", "override_sql": "SELECT 1 AS value"},
+                    "named_queries": [
+                        {"name": "123bad", "sql": "SELECT 1", "purpose": ""},
+                        {"name": "good_name", "sql": "SELECT 2 AS v", "purpose": ""},
+                    ],
+                    "visual": {"custom_option_json": "{}", "custom_mapping_json": "{}"},
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        nqs = data["spec"].get("named_queries", [])
+        assert len(nqs) == 1
+        assert nqs[0]["name"] == "good_name"
+
+    async def test_named_queries_non_select_rejected(self, client):
+        """Named queries with non-SELECT SQL are rejected as invalid."""
+        r = await client.post(
+            "/api/dashboards/spec/compile",
+            json={
+                "spec": {
+                    "template_id": "custom_echarts",
+                    "sql": {"mode": "raw", "override_sql": "SELECT 1 AS value"},
+                    "named_queries": [
+                        {"name": "bad", "sql": "DROP TABLE otel_logs", "purpose": ""},
+                    ],
+                    "visual": {"custom_option_json": "{}", "custom_mapping_json": "{}"},
+                }
+            },
+        )
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert "error" in data
+
+    async def test_dry_run_includes_named_query_results(self, client):
+        """Dry-run returns named_query_results for each named query."""
+        r = await client.post(
+            "/api/dashboards/spec/dry-run",
+            json={
+                "spec": {
+                    "template_id": "custom_echarts",
+                    "sql": {"mode": "raw", "override_sql": "SELECT 1 AS value"},
+                    "named_queries": [
+                        {"name": "extra", "sql": "SELECT 42 AS num", "purpose": "test"},
+                    ],
+                    "visual": {"custom_option_json": "{}", "custom_mapping_json": "{}"},
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "named_query_results" in data
+        results = data["named_query_results"]
+        assert len(results) == 1
+        assert results[0]["name"] == "extra"
+        assert results[0]["columns"] == ["num"]
+        assert results[0]["error"] == ""
+
+    async def test_render_with_named_query_bindings(self, client):
+        """Render endpoint executes named queries and injects their data."""
+        option_json = '{"series":[{"data":"{{rows:extra}}"}]}'
+        r = await client.post(
+            "/api/dashboards/spec/render",
+            json={
+                "spec": {
+                    "template_id": "custom_echarts",
+                    "sql": {"mode": "raw", "override_sql": "SELECT 1 AS value"},
+                    "named_queries": [
+                        {"name": "extra", "sql": "SELECT 99 AS n", "purpose": ""},
+                    ],
+                    "visual": {
+                        "custom_option_json": option_json,
+                        "custom_mapping_json": "{}",
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "option" in data
+        # The extra dataset rows should have been substituted into the series
+        series_data = data["option"]["series"][0]["data"]
+        assert series_data == [[99]]
+
+    async def test_export_chart(self, client):
+        """Export endpoint returns a JSON template for a chart."""
+        # Create dashboard + chart
+        r = await client.post(
+            "/dashboards",
+            form={"name": "Export Test Dashboard", "description": ""},
+            follow_redirects=False,
+        )
+        dashboard_id = r.headers.get("Location", "").rstrip("/").split("/")[-1]
+        await client.post(
+            f"/dashboards/{dashboard_id}/charts",
+            form={
+                "title": "Export Me",
+                "chart_spec_json": json.dumps(
+                    {
+                        "template_id": "custom_echarts",
+                        "sql": {"mode": "raw", "override_sql": "SELECT 1 AS v"},
+                        "visual": {"custom_option_json": "{}", "custom_mapping_json": "{}"},
+                    }
+                ),
+            },
+            follow_redirects=False,
+        )
+        from app import _get_charts, get_db  # noqa: PLC0415
+
+        charts = _get_charts(get_db(), dashboard_id)
+        assert charts
+        chart_id = charts[0]["id"]
+
+        r2 = await client.get(f"/api/dashboards/{dashboard_id}/charts/{chart_id}/export")
+        assert r2.status_code == 200
+        ct = r2.headers.get("Content-Type", "")
+        assert "json" in ct
+        payload = await r2.get_json()
+        assert payload["sobs_chart_template_version"] == 1
+        assert payload["title"] == "Export Me"
+        assert "chart_spec" in payload
+
+    async def test_import_chart(self, client):
+        """Import endpoint adds a chart from a JSON template."""
+        r = await client.post(
+            "/dashboards",
+            form={"name": "Import Test Dashboard", "description": ""},
+            follow_redirects=False,
+        )
+        dashboard_id = r.headers.get("Location", "").rstrip("/").split("/")[-1]
+
+        template_payload = {
+            "sobs_chart_template_version": 1,
+            "title": "Imported Chart",
+            "chart_spec": {
+                "template_id": "custom_echarts",
+                "sql": {"mode": "raw", "override_sql": "SELECT 2 AS v"},
+                "visual": {"custom_option_json": "{}", "custom_mapping_json": "{}"},
+            },
+        }
+        r2 = await client.post(
+            f"/api/dashboards/{dashboard_id}/charts/import",
+            json=template_payload,
+        )
+        assert r2.status_code == 200
+        data = await r2.get_json()
+        assert data["ok"] is True
+        assert "chart_id" in data
+
+        # Verify chart appears on dashboard page
+        r3 = await client.get(f"/dashboards/{dashboard_id}")
+        body = await r3.get_data(as_text=True)
+        assert "Imported Chart" in body
+
+    async def test_import_chart_rejects_invalid_version(self, client):
+        """Import endpoint rejects templates without valid version."""
+        r = await client.post(
+            "/dashboards",
+            form={"name": "Import Version Test", "description": ""},
+            follow_redirects=False,
+        )
+        dashboard_id = r.headers.get("Location", "").rstrip("/").split("/")[-1]
+
+        r2 = await client.post(
+            f"/api/dashboards/{dashboard_id}/charts/import",
+            json={"sobs_chart_template_version": 99, "title": "X", "chart_spec": {}},
+        )
+        assert r2.status_code == 400
+        data = await r2.get_json()
+        assert data["ok"] is False
+
+    async def test_ai_build_requires_question(self, client):
+        """AI build endpoint requires a question."""
+        r = await client.post("/api/dashboards/spec/ai-build", json={})
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["ok"] is False
+        assert "question" in data["error"].lower()
+
+    async def test_ai_build_returns_503_when_ai_not_configured(self, client):
+        """AI build endpoint returns 503 when AI is not configured."""
+        r = await client.post(
+            "/api/dashboards/spec/ai-build",
+            json={"question": "Show me a bar chart of error counts"},
+        )
+        assert r.status_code == 503
+        data = await r.get_json()
+        assert data["ok"] is False
+        assert "AI endpoint" in data["error"]
+
+    async def test_dashboard_view_includes_import_button(self, client):
+        """Dashboard view includes Import Chart button."""
+        r = await client.post(
+            "/dashboards",
+            form={"name": "Import Button Test", "description": ""},
+            follow_redirects=False,
+        )
+        location = r.headers.get("Location", "")
+        r2 = await client.get(location)
+        body = await r2.get_data(as_text=True)
+        assert "Import Chart" in body
+        assert "importChartModal" in body
+
+    async def test_dashboard_view_includes_ai_builder(self, client):
+        """Dashboard view includes AI Chart Builder panel."""
+        r = await client.post(
+            "/dashboards",
+            form={"name": "AI Builder Test", "description": ""},
+            follow_redirects=False,
+        )
+        location = r.headers.get("Location", "")
+        r2 = await client.get(location)
+        body = await r2.get_data(as_text=True)
+        assert "AI Chart Builder" in body
+        assert "aiBuilderBuildBtn" in body
+        assert "Build with AI" in body
+
 
 # ---------------------------------------------------------------------------
 # OTEL Metrics Anomaly Detection Tests

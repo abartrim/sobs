@@ -93,6 +93,9 @@
             data-ai-confirm="false">
       <i class="bi bi-plus-lg me-1"></i>Add Chart
     </button>
+    <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#importChartModal" title="Import chart from JSON template">
+      <i class="bi bi-upload me-1"></i>Import Chart
+    </button>
     <form method="post" action="{{ url_for('delete_dashboard', dashboard_id=dashboard.id) }}"
           onsubmit="return confirm('Delete this dashboard and all its charts?')">
       <button type="submit" class="btn btn-outline-danger btn-sm"
@@ -133,6 +136,12 @@
                   title="Clone chart">
             <i class="bi bi-files"></i>
           </button>
+          <a class="btn btn-sm btn-outline-secondary py-0 px-1"
+             href="{{ url_for('export_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
+             title="Export chart as JSON template"
+             download>
+            <i class="bi bi-download"></i>
+          </a>
           <form method="post"
                 action="{{ url_for('remove_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
                 onsubmit="return confirm('Remove this chart?')">
@@ -210,6 +219,36 @@
   </div>
 </div>
 
+<!-- Import Chart Modal -->
+<div class="modal fade" id="importChartModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-upload me-2"></i>Import Chart Template</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-secondary mb-3">Select a previously exported <code>.json</code> chart template to add it to this dashboard.</p>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Chart Template File</label>
+          <input type="file" id="importChartFileInput" class="form-control form-control-sm" accept=".json,application/json">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Title (optional override)</label>
+          <input type="text" id="importChartTitleInput" class="form-control form-control-sm" placeholder="Leave blank to use template title">
+        </div>
+        <div id="importChartStatus" class="small"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary btn-sm" id="importChartSubmitBtn">
+          <i class="bi bi-upload me-1"></i>Import
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Add Chart Modal -->
 <div class="modal fade" id="addChartModal" tabindex="-1">
   <div class="modal-dialog modal-xl modal-dialog-scrollable" style="max-width:min(96vw, 1480px);">
@@ -227,6 +266,49 @@
           <div class="mb-3">
             <label class="form-label">Title <span class="text-danger">*</span></label>
             <input type="text" id="chartTitleInput" name="title" class="form-control" placeholder="e.g. Request Latency" required>
+          </div>
+          <!-- AI Chart Builder panel -->
+          <div class="card border-primary border-opacity-50 mb-3" id="aiBuilderPanel">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center" style="cursor:pointer;" id="aiBuilderHeader" data-bs-toggle="collapse" data-bs-target="#aiBuilderBody">
+              <span class="small fw-semibold"><i class="bi bi-stars me-1 text-primary"></i>AI Chart Builder <span class="badge bg-primary ms-1" style="font-size:0.65rem;">Beta</span></span>
+              <i class="bi bi-chevron-down small text-secondary" id="aiBuilderChevron"></i>
+            </div>
+            <div class="collapse" id="aiBuilderBody">
+              <div class="card-body p-2">
+                <p class="small text-secondary mb-2">Describe the chart you want in plain English. The AI will generate SQL and an eCharts config for you. You can refine the result manually after.</p>
+                <div class="mb-2">
+                  <label class="form-label small fw-semibold">Chart description</label>
+                  <textarea id="aiBuilderQuestion" class="form-control form-control-sm" rows="3" placeholder="e.g. Show me a bar chart of the top 10 services by error count in the last 24 hours"></textarea>
+                </div>
+                <div class="row g-2 mb-2">
+                  <div class="col-6">
+                    <label class="form-label small">Preferred chart type (optional)</label>
+                    <select id="aiBuilderChartType" class="form-select form-select-sm">
+                      <option value="">Auto (let AI choose)</option>
+                      <option value="line">Line</option>
+                      <option value="bar">Bar</option>
+                      <option value="pie">Pie</option>
+                      <option value="scatter">Scatter</option>
+                      <option value="heatmap">Heatmap</option>
+                      <option value="sankey">Sankey</option>
+                      <option value="graph">Graph</option>
+                      <option value="gauge">Gauge</option>
+                    </select>
+                  </div>
+                  <div class="col-6">
+                    <label class="form-label small">Chart instruction (optional)</label>
+                    <input type="text" id="aiBuilderInstruction" class="form-control form-control-sm" placeholder="e.g. use blue colors">
+                  </div>
+                </div>
+                <div class="d-flex gap-2 align-items-center mb-2">
+                  <button type="button" class="btn btn-primary btn-sm" id="aiBuilderBuildBtn">
+                    <i class="bi bi-stars me-1"></i>Build with AI
+                  </button>
+                  <span id="aiBuilderSpinner" class="d-none"><span class="spinner-border spinner-border-sm me-1" role="status"></span>Generating…</span>
+                </div>
+                <div id="aiBuilderStatus" class="small text-secondary"></div>
+              </div>
+            </div>
           </div>
           <div class="row g-3">
             <div class="col-lg-6">
@@ -335,6 +417,17 @@
                     <textarea id="customOptionJsonInput" class="form-control form-control-sm font-monospace" rows="8" placeholder='{"series":[{"type":"line","data":"POINTS_PLACEHOLDER"}]}'></textarea>
                     <div class="small text-secondary mt-1">Supports placeholders like &#123;&#123;rows&#125;&#125;, &#123;&#123;records&#125;&#125;, &#123;&#123;columns&#125;&#125;, and mapped keys such as &#123;&#123;points&#125;&#125;. Optional source button config: <code>"_drilldown": {"target": "logs|metrics|traces|errors", "extra": {"service": "&#123;&#123;service&#125;&#125;"}}</code>.</div>
                   </div>
+                  <!-- Named Queries section (for multi-dataset charts) -->
+                  <div class="mb-2" id="namedQueriesSection" style="display:none;">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <label class="form-label small mb-0 fw-semibold"><i class="bi bi-database me-1"></i>Named Queries</label>
+                      <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" id="addNamedQueryBtn"><i class="bi bi-plus-lg me-1"></i>Add</button>
+                    </div>
+                    <div id="namedQueriesList" class="d-grid gap-2"></div>
+                    <div class="small text-secondary mt-1">
+                      Use <code>&#123;&#123;rows:name&#125;&#125;</code>, <code>&#123;&#123;records:name&#125;&#125;</code>, or <code>&#123;&#123;columns:name&#125;&#125;</code> in the ECharts JSON to reference each named query's result.
+                    </div>
+                  </div>
                   <div id="standardVisualControls">
                   <div class="row g-2 mb-2">
                     <div class="col-6 form-check ps-4">
@@ -430,6 +523,8 @@
   var specValidateUrl = {{ url_for('validate_chart_spec_api') | tojson }};
   var specRenderUrl = {{ url_for('render_chart_spec_api') | tojson }};
   var specOptionsUrl = {{ url_for('chart_spec_options_api') | tojson }};
+  var aiAskUrl = {{ url_for('ai_build_chart_spec') | tojson }};
+  var importChartUrl = {{ url_for('import_chart', dashboard_id=dashboard.id) | tojson }};
   var templatesMap = {};
   TEMPLATES.forEach(function (t) { templatesMap[t.id] = t; });
   var sourceUrls = {
@@ -832,6 +927,25 @@
   var lastDryRunColumnTypes = [];
   var roleMapState = {};
   var suppressRoleMapReset = false;
+  // Named queries state: array of {name, sql, purpose}
+  var namedQueriesState = [];
+  // AI builder elements
+  var aiBuilderQuestion = document.getElementById('aiBuilderQuestion');
+  var aiBuilderChartType = document.getElementById('aiBuilderChartType');
+  var aiBuilderInstruction = document.getElementById('aiBuilderInstruction');
+  var aiBuilderBuildBtn = document.getElementById('aiBuilderBuildBtn');
+  var aiBuilderSpinner = document.getElementById('aiBuilderSpinner');
+  var aiBuilderStatus = document.getElementById('aiBuilderStatus');
+  // Named queries elements
+  var namedQueriesSection = document.getElementById('namedQueriesSection');
+  var namedQueriesList = document.getElementById('namedQueriesList');
+  var addNamedQueryBtn = document.getElementById('addNamedQueryBtn');
+  // Import chart elements
+  var importChartFileInput = document.getElementById('importChartFileInput');
+  var importChartTitleInput = document.getElementById('importChartTitleInput');
+  var importChartSubmitBtn = document.getElementById('importChartSubmitBtn');
+  var importChartStatus = document.getElementById('importChartStatus');
+  var importChartModal = document.getElementById('importChartModal');
 
   function escapeHtml(value) {
     return String(value || '')
@@ -861,6 +975,183 @@
       .replace(/\n{2,}/g, '\n')
       .trim();
     return normalized;
+  }
+
+  /* ── Named Queries UI ── */
+
+  function readNamedQueryInputs() {
+    var result = [];
+    if (!namedQueriesList) return result;
+    namedQueriesList.querySelectorAll('.named-query-entry').forEach(function (entry) {
+      var nameEl = entry.querySelector('.nq-name');
+      var sqlEl = entry.querySelector('.nq-sql');
+      var purposeEl = entry.querySelector('.nq-purpose');
+      var name = nameEl ? nameEl.value.trim().toLowerCase() : '';
+      var sql = sqlEl ? sqlEl.value.trim() : '';
+      var purpose = purposeEl ? purposeEl.value.trim() : '';
+      if (name && sql) {
+        result.push({ name: name, sql: sql, purpose: purpose });
+      }
+    });
+    namedQueriesState = result;
+    return result;
+  }
+
+  function renderNamedQueriesEditor(queries) {
+    if (!namedQueriesList) return;
+    namedQueriesList.innerHTML = '';
+    (queries || []).forEach(function (nq, idx) {
+      namedQueriesList.appendChild(createNamedQueryRow(nq, idx));
+    });
+  }
+
+  function createNamedQueryRow(nq, idx) {
+    var div = document.createElement('div');
+    div.className = 'named-query-entry border rounded p-2 position-relative';
+    div.style.background = 'var(--bs-tertiary-bg)';
+    var label = 'Query #' + (idx + 1);
+    div.innerHTML = ''
+      + '<div class="d-flex align-items-center gap-2 mb-1">'
+      + '  <input type="text" class="form-control form-control-sm font-monospace nq-name" style="max-width:140px;" placeholder="name (snake_case)" value="' + escapeHtml(nq ? nq.name : '') + '">'
+      + '  <input type="text" class="form-control form-control-sm nq-purpose" placeholder="purpose (optional)" value="' + escapeHtml(nq ? nq.purpose : '') + '">'
+      + '  <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 nq-remove-btn ms-auto" title="Remove named query"><i class="bi bi-x"></i></button>'
+      + '</div>'
+      + '<textarea class="form-control form-control-sm font-monospace nq-sql" rows="3" placeholder="SELECT ..."></textarea>';
+    var sqlEl = div.querySelector('.nq-sql');
+    if (sqlEl && nq && nq.sql) sqlEl.value = nq.sql;
+    var removeBtn = div.querySelector('.nq-remove-btn');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', function () {
+        div.remove();
+        readNamedQueryInputs();
+      });
+    }
+    return div;
+  }
+
+  /* ── AI Chart Builder ── */
+
+  function runAiBuild() {
+    var question = aiBuilderQuestion ? aiBuilderQuestion.value.trim() : '';
+    if (!question) {
+      if (aiBuilderStatus) { aiBuilderStatus.textContent = 'Please enter a chart description.'; aiBuilderStatus.className = 'small text-danger'; }
+      return;
+    }
+    if (aiBuilderSpinner) aiBuilderSpinner.classList.remove('d-none');
+    if (aiBuilderBuildBtn) aiBuilderBuildBtn.disabled = true;
+    if (aiBuilderStatus) { aiBuilderStatus.textContent = 'Generating chart…'; aiBuilderStatus.className = 'small text-secondary'; }
+
+    var payload = {
+      question: question,
+      preferred_chart_type: aiBuilderChartType ? aiBuilderChartType.value : '',
+      chart_instruction: aiBuilderInstruction ? aiBuilderInstruction.value.trim() : '',
+      thinking_level: 'off'
+    };
+
+    fetch(aiAskUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+      .then(function (res) {
+        if (aiBuilderSpinner) aiBuilderSpinner.classList.add('d-none');
+        if (aiBuilderBuildBtn) aiBuilderBuildBtn.disabled = false;
+        if (!res.ok || !res.body.ok) {
+          var errMsg = (res.body && res.body.error) ? res.body.error : 'AI build failed';
+          if (aiBuilderStatus) { aiBuilderStatus.textContent = 'Error: ' + errMsg; aiBuilderStatus.className = 'small text-danger'; }
+          return;
+        }
+        var body = res.body;
+        // Populate editor from AI result
+        var spec = body.spec || {};
+        var visual = spec.visual || {};
+        // Set title if empty
+        if (chartTitleInput && !chartTitleInput.value.trim()) {
+          // Use question as default title (truncated)
+          chartTitleInput.value = question.length > 60 ? question.slice(0, 57) + '…' : question;
+        }
+        // Switch to custom_echarts + raw SQL mode
+        if (templateSelect) templateSelect.value = 'custom_echarts';
+        if (sqlModeSelect) sqlModeSelect.value = 'raw';
+        if (queryInput && body.sql) queryInput.value = body.sql;
+        if (customOptionJsonInput && visual.custom_option_json) {
+          var opt = visual.custom_option_json;
+          try {
+            var parsed = typeof opt === 'string' ? JSON.parse(opt) : opt;
+            customOptionJsonInput.value = JSON.stringify(parsed, null, 2);
+          } catch (_) {
+            customOptionJsonInput.value = typeof opt === 'string' ? opt : JSON.stringify(opt, null, 2);
+          }
+        }
+        if (customMappingJsonInput) customMappingJsonInput.value = visual.custom_mapping_json || '{}';
+        // Restore named queries
+        var nqs = Array.isArray(body.named_queries) ? body.named_queries : [];
+        namedQueriesState = nqs;
+        renderNamedQueriesEditor(nqs);
+        // Update visibility and info
+        suppressRoleMapReset = true;
+        updateTemplateInfo();
+        suppressRoleMapReset = false;
+        refreshBuilderVisibility();
+        var statusMsg = 'Chart generated! SQL and eCharts option have been populated. Review and adjust, then add the chart.';
+        if (body.chart_error) statusMsg += ' (Note: ' + body.chart_error + ')';
+        if (aiBuilderStatus) { aiBuilderStatus.textContent = statusMsg; aiBuilderStatus.className = 'small text-success'; }
+      })
+      .catch(function (err) {
+        if (aiBuilderSpinner) aiBuilderSpinner.classList.add('d-none');
+        if (aiBuilderBuildBtn) aiBuilderBuildBtn.disabled = false;
+        if (aiBuilderStatus) { aiBuilderStatus.textContent = 'Network error: ' + err; aiBuilderStatus.className = 'small text-danger'; }
+      });
+  }
+
+  /* ── Chart Import ── */
+
+  function runChartImport() {
+    if (!importChartFileInput || !importChartFileInput.files || !importChartFileInput.files.length) {
+      if (importChartStatus) { importChartStatus.textContent = 'Please select a JSON file.'; importChartStatus.className = 'small text-danger'; }
+      return;
+    }
+    var file = importChartFileInput.files[0];
+    var reader = new FileReader();
+    reader.onload = function (evt) {
+      var text = evt.target.result;
+      var payload;
+      try {
+        payload = JSON.parse(text);
+      } catch (_) {
+        if (importChartStatus) { importChartStatus.textContent = 'Invalid JSON file.'; importChartStatus.className = 'small text-danger'; }
+        return;
+      }
+      // Override title if user specified one
+      var titleOverride = importChartTitleInput ? importChartTitleInput.value.trim() : '';
+      if (titleOverride) payload.title = titleOverride;
+
+      if (importChartSubmitBtn) importChartSubmitBtn.disabled = true;
+      if (importChartStatus) { importChartStatus.textContent = 'Importing…'; importChartStatus.className = 'small text-secondary'; }
+
+      fetch(importChartUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+        .then(function (res) {
+          if (importChartSubmitBtn) importChartSubmitBtn.disabled = false;
+          if (!res.ok || !res.body.ok) {
+            var errMsg = (res.body && res.body.error) ? res.body.error : 'Import failed';
+            if (importChartStatus) { importChartStatus.textContent = 'Error: ' + errMsg; importChartStatus.className = 'small text-danger'; }
+            return;
+          }
+          // Redirect to dashboard to see the new chart
+          window.location.href = res.body.dashboard_url || window.location.href;
+        })
+        .catch(function (err) {
+          if (importChartSubmitBtn) importChartSubmitBtn.disabled = false;
+          if (importChartStatus) { importChartStatus.textContent = 'Network error: ' + err; importChartStatus.className = 'small text-danger'; }
+        });
+    };
+    reader.readAsText(file);
   }
 
   function readRoleMapInputs() {
@@ -1060,6 +1351,8 @@
     if (dryRunMeta) dryRunMeta.textContent = '';
     renderDryRunTable([], [], []);
     setSpecMessage('', false);
+    namedQueriesState = [];
+    renderNamedQueriesEditor([]);
     suppressRoleMapReset = true;
     updateTemplateInfo();
     suppressRoleMapReset = false;
@@ -1110,6 +1403,13 @@
     }
     roleMapState = (visual.role_map && typeof visual.role_map === 'object') ? visual.role_map : {};
 
+    // Restore named queries
+    var incomingNQ = Array.isArray(nextSpec.named_queries) ? nextSpec.named_queries : [];
+    namedQueriesState = incomingNQ.map(function (nq) {
+      return { name: String(nq.name || ''), sql: String(nq.sql || ''), purpose: String(nq.purpose || '') };
+    });
+    renderNamedQueriesEditor(namedQueriesState);
+
     if (chartSpecJson) chartSpecJson.value = JSON.stringify(nextSpec);
     if (compiledSql) compiledSql.textContent = '';
     if (dryRunMeta) dryRunMeta.textContent = '';
@@ -1139,6 +1439,7 @@
         window_hours: windowHoursInput && windowHoursInput.value ? Number(windowHoursInput.value) : 6,
         limit: limitInput && limitInput.value ? Number(limitInput.value) : 1000
       },
+      named_queries: readNamedQueryInputs(),
       visual: {
         zoom_inside: true,
         zoom_slider: false,
@@ -1164,6 +1465,7 @@
     spec.visual.custom_option_json = customOptionJsonInput && customOptionJsonInput.value
       ? customOptionJsonInput.value
       : '';
+    spec.named_queries = readNamedQueryInputs();
     return spec;
   }
 
@@ -1254,6 +1556,8 @@
     if (standardVisualControls) standardVisualControls.classList.toggle('d-none', isCustomEcharts);
     if (roleMapEditorWrap) roleMapEditorWrap.style.display = isCustomEcharts ? 'none' : roleMapEditorWrap.style.display;
     if (queryInput) queryInput.rows = useBuilder ? 5 : 11;
+    // Named queries section is only visible for custom_echarts
+    if (namedQueriesSection) namedQueriesSection.style.display = isCustomEcharts ? '' : 'none';
   }
 
   function compileSpec() {
@@ -1497,6 +1801,35 @@
         .catch(function () {
           // Validation message already set by helpers.
         });
+    });
+  }
+
+  // AI builder event
+  if (aiBuilderBuildBtn) {
+    aiBuilderBuildBtn.addEventListener('click', function () { runAiBuild(); });
+  }
+
+  // Named queries – add row
+  if (addNamedQueryBtn) {
+    addNamedQueryBtn.addEventListener('click', function () {
+      var entries = namedQueriesList ? namedQueriesList.querySelectorAll('.named-query-entry') : [];
+      var newRow = createNamedQueryRow(null, entries.length);
+      if (namedQueriesList) namedQueriesList.appendChild(newRow);
+    });
+  }
+
+  // Import chart events
+  if (importChartSubmitBtn) {
+    importChartSubmitBtn.addEventListener('click', function () { runChartImport(); });
+  }
+
+  // Reset import modal state on open
+  if (importChartModal) {
+    importChartModal.addEventListener('show.bs.modal', function () {
+      if (importChartFileInput) importChartFileInput.value = '';
+      if (importChartTitleInput) importChartTitleInput.value = '';
+      if (importChartStatus) { importChartStatus.textContent = ''; importChartStatus.className = 'small'; }
+      if (importChartSubmitBtn) importChartSubmitBtn.disabled = false;
     });
   }
 })();

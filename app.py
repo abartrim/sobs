@@ -15072,6 +15072,23 @@ def _normalize_chart_spec(spec_raw: object) -> dict[str, object]:
     merged_visual["role_map"] = role_map
     normalized["visual"] = merged_visual
 
+    # Named queries: additional SQL datasets referenced via {{rows:name}} etc. in eCharts JSON.
+    named_queries_raw = raw.get("named_queries")
+    named_queries: list[dict[str, str]] = []
+    if isinstance(named_queries_raw, list):
+        for item in named_queries_raw:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip().lower()
+            sql_text = str(item.get("sql") or "").strip().rstrip(";")
+            purpose = str(item.get("purpose") or "").strip()
+            if not name or not re.match(r"^[a-z][a-z0-9_]{0,31}$", name):
+                continue
+            if not sql_text:
+                continue
+            named_queries.append({"name": name, "sql": sql_text, "purpose": purpose})
+    normalized["named_queries"] = named_queries
+
     return normalized
 
 
@@ -15476,6 +15493,19 @@ def _compile_chart_spec(spec_raw: object) -> tuple[str, str, dict[str, object]]:
     err = _validate_chart_query(query)
     if err:
         raise ValueError(err)
+
+    # Validate named queries SQL (read-only check only; execution not required here)
+    named_queries = spec.get("named_queries")
+    if isinstance(named_queries, list):
+        for nq in named_queries:
+            if not isinstance(nq, dict):
+                continue
+            nq_sql = str(nq.get("sql") or "").strip()
+            nq_name = str(nq.get("name") or "").strip()
+            if nq_sql:
+                nq_err = _validate_chart_query(nq_sql)
+                if nq_err:
+                    raise ValueError(f"Named query '{nq_name}': {nq_err}")
 
     return template_id, query, spec
 
@@ -16161,6 +16191,7 @@ def _render_chart_from_template(
     columns: list[str],
     rows: list,
     spec: dict[str, object] | None = None,
+    named_datasets: dict[str, dict[str, object]] | None = None,
 ) -> dict:  # type: ignore
     """
     Render chart option by substituting query results into template.
@@ -16172,7 +16203,7 @@ def _render_chart_from_template(
         raise ValueError(f"Unknown template: {template_id}")
 
     if template_id == "custom_echarts":
-        return _render_custom_echarts(template, columns, rows, spec)
+        return _render_custom_echarts(template, columns, rows, spec, named_datasets=named_datasets)
 
     if not rows:
         return {
@@ -16351,6 +16382,7 @@ def _render_custom_echarts(
     columns: list[str],
     rows: list,
     spec: dict[str, object] | None,
+    named_datasets: dict[str, dict[str, object]] | None = None,
 ) -> dict:
     visual = spec.get("visual") if isinstance(spec, dict) and isinstance(spec.get("visual"), dict) else {}
     visual_dict = cast(dict[str, object], visual) if isinstance(visual, dict) else {}
@@ -16390,6 +16422,18 @@ def _render_custom_echarts(
         if binding_key.startswith("_"):
             continue
         bindings[binding_key] = _resolve_custom_binding_expr(expr, columns, records, rows_2d)
+
+    # Expose named dataset results as {{rows:name}}, {{records:name}}, {{columns:name}}
+    if named_datasets:
+        for ds_name, ds_data in named_datasets.items():
+            if not isinstance(ds_data, dict):
+                continue
+            ds_columns = ds_data.get("columns") or []
+            ds_records = ds_data.get("records") or []
+            ds_rows = ds_data.get("rows") or []
+            bindings[f"rows:{ds_name}"] = ds_rows
+            bindings[f"records:{ds_name}"] = ds_records
+            bindings[f"columns:{ds_name}"] = ds_columns
 
     option = _deep_substitute(option_template, bindings)
     if not isinstance(option, dict):
@@ -17012,6 +17056,38 @@ async def dry_run_chart_spec_api():
     except Exception as exc:
         app.logger.exception("Chart spec dry-run failed")
         return jsonify({"error": _public_dashboard_query_error(exc)}), 400
+
+    # Dry-run named queries (limited to 5 rows each)
+    named_query_results: list[dict[str, object]] = []
+    for nq in normalized_spec.get("named_queries") or []:
+        if not isinstance(nq, dict):
+            continue
+        nq_name = str(nq.get("name") or "").strip()
+        nq_sql = str(nq.get("sql") or "").strip()
+        if not nq_name or not nq_sql:
+            continue
+        nq_run = nq_sql if re.search(r"\bLIMIT\b", nq_sql, re.IGNORECASE) else nq_sql + " LIMIT 5"
+        try:
+            nq_result = db.execute(nq_run)
+            nq_rows = nq_result.fetchall()
+            nq_columns = list(nq_rows[0].keys()) if nq_rows else []
+            nq_data = [[row[col] for col in nq_columns] for row in nq_rows]
+            named_query_results.append({
+                "name": nq_name,
+                "purpose": str(nq.get("purpose") or ""),
+                "columns": nq_columns,
+                "rows": nq_data,
+                "error": "",
+            })
+        except Exception as exc:
+            named_query_results.append({
+                "name": nq_name,
+                "purpose": str(nq.get("purpose") or ""),
+                "columns": [],
+                "rows": [],
+                "error": _public_dashboard_query_error(exc),
+            })
+
     return jsonify(
         {
             "template_id": template_id,
@@ -17020,6 +17096,7 @@ async def dry_run_chart_spec_api():
             "columns": columns,
             "column_types": column_types,
             "rows": data,
+            "named_query_results": named_query_results,
         }
     )
 
@@ -17078,7 +17155,29 @@ async def render_chart_spec_api():
         raw_rows = result.fetchall()
         columns = list(raw_rows[0].keys()) if raw_rows else []
         data = [dict(row) for row in raw_rows]
-        option = _render_chart_from_template(template_id, columns, data, normalized_spec)
+
+        # Execute named queries and collect datasets
+        named_datasets: dict[str, dict[str, object]] = {}
+        for nq in normalized_spec.get("named_queries") or []:
+            if not isinstance(nq, dict):
+                continue
+            nq_name = str(nq.get("name") or "").strip()
+            nq_sql = str(nq.get("sql") or "").strip()
+            if not nq_name or not nq_sql:
+                continue
+            nq_run = nq_sql if re.search(r"\bLIMIT\b", nq_sql, re.IGNORECASE) else nq_sql + " LIMIT 1000"
+            try:
+                nq_result = db.execute(nq_run)
+                nq_raw = nq_result.fetchall()
+                nq_columns = list(nq_raw[0].keys()) if nq_raw else []
+                nq_records = [dict(row) for row in nq_raw]
+                nq_rows_2d = [[record.get(col) for col in nq_columns] for record in nq_records]
+                named_datasets[nq_name] = {"columns": nq_columns, "records": nq_records, "rows": nq_rows_2d}
+            except Exception as exc:
+                app.logger.warning("Named query '%s' failed during render: %s", nq_name, exc)
+                named_datasets[nq_name] = {"columns": [], "records": [], "rows": []}
+
+        option = _render_chart_from_template(template_id, columns, data, normalized_spec, named_datasets=named_datasets)
         option = _apply_chart_spec_visual_overrides(template_id, option, normalized_spec)
     except Exception as exc:
         app.logger.exception("Chart spec render failed")
@@ -17121,6 +17220,237 @@ async def render_chart():
     except Exception as exc:
         app.logger.exception("Chart render failed: template=%s query=%s", template_id, query)
         return jsonify({"error": _public_dashboard_query_error(exc)}), 400
+
+
+@app.route("/api/dashboards/spec/ai-build", methods=["POST"])
+@require_basic_auth
+async def ai_build_chart_spec():
+    """Generate a dashboard chart spec from a natural-language description using AI.
+
+    Accepts JSON ``{question, preferred_chart_type, chart_instruction, thinking_level}``
+    and returns ``{ok, spec, sql, named_queries, columns}``.
+    """
+    payload = await request.get_json(silent=True) or {}
+    question = str(payload.get("question") or "").strip()
+    preferred_chart_type = str(payload.get("preferred_chart_type") or "").strip()
+    chart_instruction = str(payload.get("chart_instruction") or "").strip()
+    thinking_level = _normalize_thinking_level(str(payload.get("thinking_level") or "off"))
+
+    if not question:
+        return jsonify({"ok": False, "error": "question is required"}), 400
+
+    db = get_db()
+    settings = _load_all_ai_settings(db)
+    endpoint_url = settings.get("ai.endpoint_url", "").strip()
+    model = settings.get("ai.model", "").strip()
+    if not endpoint_url or not model:
+        return jsonify({"ok": False, "error": "AI endpoint not configured. Visit Settings → AI Configuration."}), 503
+
+    # Build schema context in a background thread
+    runner = ChdbSqlRunner(db)
+    schema_context = await asyncio.to_thread(runner.get_schema_context)
+
+    # Generate primary SQL
+    sql, sql_err, _sql_stats = await _vanna_generate_sql(
+        question,
+        schema_context,
+        settings,
+        preferred_chart_type=preferred_chart_type,
+        chart_instruction=chart_instruction,
+        thinking_level=thinking_level,
+    )
+    if sql_err:
+        return jsonify({"ok": False, "error": f"SQL generation failed: {sql_err}"}), 503
+
+    # Execute primary SQL to get sample columns/rows
+    columns: list[str] = []
+    rows: list[list] = []
+    datasets: list[dict[str, Any]] = []
+    try:
+        primary_df, exec_err = await asyncio.to_thread(_vanna_run_query, db, sql)
+        if primary_df is not None and not primary_df.empty:
+            columns = list(primary_df.columns)
+            rows = _json_safe_rows(primary_df.values.tolist())
+        elif exec_err:
+            app.logger.warning("AI chart build: primary SQL execution error: %s", exec_err)
+    except Exception as exc:
+        app.logger.warning("AI chart build: primary SQL execution exception: %s", exc)
+
+    if columns:
+        datasets.append({
+            "name": "main",
+            "purpose": "primary dataset",
+            "sql": sql,
+            "columns": columns,
+            "rows": rows,
+        })
+
+    # Optionally generate named queries for complex multi-dataset charts
+    named_queries_raw: list[dict[str, str]] = []
+    if columns:
+        named_queries_raw, _, _ = await _vanna_generate_named_queries(
+            question=question,
+            schema_context=schema_context,
+            base_sql=sql,
+            settings=settings,
+            preferred_chart_type=preferred_chart_type,
+            chart_instruction=chart_instruction,
+            thinking_level=thinking_level,
+        )
+        for nq in named_queries_raw:
+            nq_sql = str(nq.get("sql") or "").strip()
+            nq_name = str(nq.get("name") or "").strip()
+            if not nq_sql or not nq_name:
+                continue
+            try:
+                nq_df, _ = await asyncio.to_thread(_vanna_run_query, db, nq_sql)
+                nq_columns = list(nq_df.columns) if nq_df is not None and not nq_df.empty else []
+                nq_rows = _json_safe_rows(nq_df.values.tolist()) if nq_df is not None and not nq_df.empty else []
+                datasets.append({
+                    "name": nq_name,
+                    "purpose": nq.get("purpose", ""),
+                    "sql": nq_sql,
+                    "columns": nq_columns,
+                    "rows": nq_rows,
+                })
+            except Exception:
+                pass
+
+    # Generate eCharts option JSON via LLM
+    chart_spec_json = ""
+    chart_error = ""
+    if columns:
+        sample = [dict(zip(columns, r)) for r in rows[:20]]
+        chart_spec_json, chart_error, _ = await _vanna_generate_chart_spec(
+            columns,
+            sample,
+            question,
+            settings,
+            preferred_chart_type=preferred_chart_type,
+            chart_instruction=chart_instruction,
+            named_datasets=datasets,
+            thinking_level=thinking_level,
+        )
+
+    named_queries: list[dict[str, str]] = [
+        {"name": nq["name"], "sql": nq["sql"], "purpose": nq.get("purpose", "")}
+        for nq in named_queries_raw
+        if nq.get("name") and nq.get("sql")
+    ]
+
+    spec: dict[str, object] = {
+        "template_id": "custom_echarts",
+        "sql": {"mode": "raw", "override_sql": sql},
+        "named_queries": named_queries,
+        "visual": {
+            "custom_option_json": chart_spec_json or "{}",
+            "custom_mapping_json": "{}",
+        },
+    }
+
+    return jsonify(
+        {
+            "ok": True,
+            "spec": spec,
+            "sql": sql,
+            "columns": columns,
+            "named_queries": named_queries,
+            "chart_error": chart_error,
+        }
+    )
+
+
+@app.route("/api/dashboards/<dashboard_id>/charts/<chart_id>/export", methods=["GET"])
+@require_basic_auth
+async def export_chart(dashboard_id: str, chart_id: str):
+    """Export a chart configuration as a downloadable JSON template."""
+    db = get_db()
+    dashboard = _get_dashboard(db, dashboard_id)
+    if not dashboard:
+        return jsonify({"ok": False, "error": "Dashboard not found"}), 404
+
+    charts = _get_charts(db, dashboard_id)
+    chart = next((c for c in charts if c["id"] == chart_id), None)
+    if not chart:
+        return jsonify({"ok": False, "error": "Chart not found"}), 404
+
+    template_payload: dict[str, object] = {
+        "sobs_chart_template_version": 1,
+        "title": chart["title"],
+        "chart_spec": chart["chart_spec"],
+    }
+
+    safe_title = re.sub(r"[^a-zA-Z0-9_-]", "_", chart["title"])[:64] or "chart"
+    filename = f"sobs_chart_{safe_title}.json"
+    from quart import Response as QuartResponse
+
+    return QuartResponse(
+        json.dumps(template_payload, ensure_ascii=False, indent=2),
+        mimetype="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.route("/api/dashboards/<dashboard_id>/charts/import", methods=["POST"])
+@require_basic_auth
+async def import_chart(dashboard_id: str):
+    """Import a chart from a JSON template and add it to the dashboard."""
+    db = get_db()
+    dashboard = _get_dashboard(db, dashboard_id)
+    if not dashboard:
+        return jsonify({"ok": False, "error": "Dashboard not found"}), 404
+
+    payload = await request.get_json(silent=True) or {}
+
+    template_version = payload.get("sobs_chart_template_version")
+    if template_version != 1:
+        return jsonify({"ok": False, "error": "Invalid or unsupported chart template format (expected sobs_chart_template_version: 1)"}), 400
+
+    title = str(payload.get("title") or "").strip()
+    if not title:
+        title = "Imported Chart"
+
+    chart_spec_raw = payload.get("chart_spec")
+    if not chart_spec_raw:
+        return jsonify({"ok": False, "error": "chart_spec is required in template"}), 400
+
+    try:
+        template_id, query, normalized_spec = _compile_chart_spec(chart_spec_raw)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"Chart spec error: {exc}"}), 400
+
+    options_json = json.dumps({"chart_spec": normalized_spec}, ensure_ascii=False)
+    existing = _get_charts(db, dashboard_id)
+    position = max((c["position"] for c in existing), default=-1) + 1
+
+    chart_id_new = str(uuid.uuid4())
+    version = int(time.time() * 1000)
+    _insert_rows_json_each_row(
+        db,
+        "sobs_chart_configs",
+        [
+            {
+                "Id": chart_id_new,
+                "DashboardId": dashboard_id,
+                "Title": title,
+                "ChartType": template_id,
+                "Query": query,
+                "OptionsJson": options_json,
+                "Position": position,
+                "IsDeleted": 0,
+                "Version": version,
+            }
+        ],
+    )
+
+    return jsonify(
+        {
+            "ok": True,
+            "chart_id": chart_id_new,
+            "dashboard_id": dashboard_id,
+            "dashboard_url": url_for("view_custom_dashboard", dashboard_id=dashboard_id),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
