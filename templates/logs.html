@@ -88,7 +88,7 @@
                  autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox">
           <ul id="regex-ac-dropdown" role="listbox"
               class="dropdown-menu p-0 font-monospace small"
-              style="display:none;position:absolute;top:100%;left:0;right:0;z-index:1060;max-height:min(400px,60vh);overflow-y:auto;"></ul>
+              style="display:none;position:absolute;top:100%;left:0;z-index:1060;min-width:100%;max-width:600px;max-height:min(400px,60vh);overflow-y:auto;"></ul>
         </div>
       </div>
       <div style="flex: 1 0 120px">
@@ -195,7 +195,7 @@
                  autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox">
           <ul id="sql-ac-dropdown" role="listbox"
               class="dropdown-menu p-0 font-monospace small"
-              style="display:none;position:absolute;top:100%;left:0;right:0;z-index:1060;max-height:min(400px,60vh);overflow-y:auto;"></ul>
+              style="display:none;position:absolute;top:100%;left:0;z-index:1060;min-width:100%;max-width:700px;max-height:min(400px,60vh);overflow-y:auto;"></ul>
         </div>
         {% if error_msg and sql_where %}
         <div class="form-text small text-danger mt-1">{{ error_msg }}</div>
