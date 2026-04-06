@@ -23227,9 +23227,13 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
         "summary": {
             "nodes_total": 0,
             "nodes_ready": 0,
+            "nodes_cpu_avg": 0.0,
+            "nodes_mem_used_avg": 0.0,
             "pods_total": 0,
             "pods_running": 0,
             "pods_failed": 0,
+            "pods_cpu_total": 0.0,
+            "pods_mem_used_total": 0.0,
             "deployments_total": 0,
             "deployments_unhealthy": 0,
             "namespaces_total": 0,
@@ -23251,6 +23255,8 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
                 Attributes['k8s.node.name'] AS name,
                 maxIf(Value, MetricName = 'k8s.node.condition_ready') AS ready_signal,
                 if(maxIf(Value, MetricName = 'k8s.node.condition_ready') > 0, 'Ready', 'NotReady') AS status,
+                maxIf(Value, MetricName = 'k8s.node.cpu.usage') AS cpu_usage,
+                maxIf(Value, MetricName = 'k8s.node.memory.usage') AS mem_used,
                 any(Attributes['k8s.kubelet.version']) AS version,
                 max(TimeUnix) AS last_seen
             FROM otel_metrics_gauge
@@ -23264,6 +23270,18 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
             f"SELECT count(*) AS cnt FROM ({node_base_sql}) WHERE ready_signal > 0",
             node_params,
         )
+        node_resource_summary = db.execute(
+            f"""
+            SELECT
+                avg(cpu_usage) AS cpu_avg,
+                avg(mem_used) AS mem_avg
+            FROM ({node_base_sql})
+            """,
+            node_params,
+        ).fetchone()
+        if node_resource_summary:
+            result["summary"]["nodes_cpu_avg"] = float(node_resource_summary.get("cpu_avg") or 0)
+            result["summary"]["nodes_mem_used_avg"] = float(node_resource_summary.get("mem_avg") or 0)
         node_sql = (
             f"SELECT * FROM ({node_base_sql}) "
             f"ORDER BY {table_opts['nodes']['sort_col']} {table_opts['nodes']['sort_dir'].upper()} "
@@ -23278,6 +23296,8 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
                 "name": str(row["name"]),
                 "status": "Ready" if float(row["ready_signal"] or 0) > 0 else "NotReady",
                 "version": str(row["version"] or ""),
+                "cpu_usage": float(row["cpu_usage"] or 0),
+                "mem_used": float(row["mem_used"] or 0),
                 "created": str(row["last_seen"]),
             }
             for row in node_rows
@@ -23301,6 +23321,8 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
                 Attributes['k8s.pod.name'] AS name,
                 any(Attributes['k8s.pod.phase']) AS phase,
                 maxIf(Value, MetricName = 'k8s.pod.status_ready') AS ready_signal,
+                maxIf(Value, MetricName = 'k8s.pod.cpu.usage') AS cpu_usage,
+                maxIf(Value, MetricName = 'k8s.pod.memory.usage') AS mem_used,
                 maxIf(toInt64(Value), MetricName = 'k8s.container.restart_count') AS restarts,
                 any(Attributes['k8s.node.name']) AS node,
                 max(TimeUnix) AS last_seen
@@ -23319,6 +23341,18 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
             f"SELECT count(*) AS cnt FROM ({pod_base_sql}) WHERE phase = 'Failed'",
             pod_params,
         )
+        pod_resource_summary = db.execute(
+            f"""
+            SELECT
+                sum(cpu_usage) AS cpu_total,
+                sum(mem_used) AS mem_total
+            FROM ({pod_base_sql})
+            """,
+            pod_params,
+        ).fetchone()
+        if pod_resource_summary:
+            result["summary"]["pods_cpu_total"] = float(pod_resource_summary.get("cpu_total") or 0)
+            result["summary"]["pods_mem_used_total"] = float(pod_resource_summary.get("mem_total") or 0)
         pod_sql = (
             f"SELECT * FROM ({pod_base_sql}) "
             f"ORDER BY {table_opts['pods']['sort_col']} {table_opts['pods']['sort_dir'].upper()} "
@@ -23334,6 +23368,8 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
                 "name": str(row["name"]),
                 "phase": str(row["phase"] or "Unknown"),
                 "ready": float(row["ready_signal"] or 0) > 0,
+                "cpu_usage": float(row["cpu_usage"] or 0),
+                "mem_used": float(row["mem_used"] or 0),
                 "restarts": int(row["restarts"] or 0),
                 "node": str(row["node"] or ""),
                 "created": str(row["last_seen"]),
