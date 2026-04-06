@@ -17795,6 +17795,40 @@ async def api_logs_validate_filter():
 
 
 # ---------------------------------------------------------------------------
+# Logs Regex Validate API  POST /api/logs/validate-regex
+# Used by the regex autocomplete / IntelliSense on the Logs filter panel.
+# ---------------------------------------------------------------------------
+@app.route("/api/logs/validate-regex", methods=["POST"])
+@require_basic_auth
+async def api_logs_validate_regex():
+    """Validate a regex pattern used by /logs?q=... and return a sample match."""
+    payload = await request.get_json(silent=True)
+    pattern = str((payload or {}).get("pattern", "") or "").strip()
+    if not pattern:
+        return jsonify({"ok": True, "sample": None})
+
+    try:
+        re.compile(pattern, re.IGNORECASE)
+    except re.error as exc:
+        return jsonify({"ok": False, "error": str(exc), "sample": None})
+
+    # Attempt a cheap LIMIT 1 probe to surface a real sample match.
+    try:
+        db = get_db()
+        row = db.execute(
+            "SELECT Body FROM otel_logs WHERE match(Body, ?) LIMIT 1",
+            [pattern],
+        ).fetchone()
+        sample = row[0] if row else None
+        _SAMPLE_MAX_LEN = 200
+        if sample and len(sample) > _SAMPLE_MAX_LEN:
+            sample = f"{sample[:_SAMPLE_MAX_LEN - 3]}..."
+        return jsonify({"ok": True, "sample": sample})
+    except Exception:
+        return jsonify({"ok": True, "sample": None})
+
+
+# ---------------------------------------------------------------------------
 # AI Field Hints API  GET /api/ai/field-hints
 # Used by SQL filter autocomplete on the AI Transparency page.
 # ---------------------------------------------------------------------------

@@ -1789,6 +1789,28 @@ class TestUIPages:
         assert bad_data["ok"] is False
         assert bad_data["issues"]
 
+    async def test_logs_validate_regex_api(self, client):
+        # Valid regex should return ok=True.
+        r_ok = await client.post("/api/logs/validate-regex", json={"pattern": "\\d+"})
+        assert r_ok.status_code == 200
+        ok_data = await r_ok.get_json()
+        assert ok_data["ok"] is True
+        assert "error" not in ok_data or ok_data.get("error") is None
+
+        # Invalid regex should return ok=False with an error message.
+        r_bad = await client.post("/api/logs/validate-regex", json={"pattern": "[unclosed"})
+        assert r_bad.status_code == 200
+        bad_data = await r_bad.get_json()
+        assert bad_data["ok"] is False
+        assert bad_data.get("error")
+
+        # Empty pattern should return ok=True with no sample.
+        r_empty = await client.post("/api/logs/validate-regex", json={"pattern": ""})
+        assert r_empty.status_code == 200
+        empty_data = await r_empty.get_json()
+        assert empty_data["ok"] is True
+        assert empty_data.get("sample") is None
+
     async def test_logs_attr_keys_catalog_and_hints(self, client):
         import time as _time
 
