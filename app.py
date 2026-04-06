@@ -7505,23 +7505,30 @@ _PROTOBUF_CONTENT_TYPE = "application/x-protobuf"
 
 
 def _decompress_request_body(raw: bytes, content_encoding: str) -> bytes:
-    """Decompress a request body if Content-Encoding indicates compression.
+    """Decompress a request body according to its Content-Encoding.
 
     The OpenTelemetry Collector's ``otlphttp`` exporter can send gzip-compressed
     payloads (``Content-Encoding: gzip``).  Quart does not auto-decompress
     request bodies, so we handle it explicitly here.
 
-    Supported encodings: ``gzip``, ``deflate``.  Unknown encodings are returned
-    as-is so that a downstream parse error surfaces a meaningful message.
-    """
-    enc = (content_encoding or "").strip().lower()
-    if enc == "gzip":
-        import gzip as _gzip
+    Per RFC 9110, Content-Encoding may contain multiple comma-separated values
+    applied in order (e.g. ``"gzip, deflate"``).  We apply decodings in reverse
+    order (outermost first).
 
-        return _gzip.decompress(raw)
-    if enc == "deflate":
-        return zlib.decompress(raw)
-    return raw
+    Supported individual encodings: ``gzip``, ``deflate``.  Unrecognised
+    encodings are passed through so that a downstream parse error surfaces a
+    meaningful message.
+    """
+    import gzip as _gzip
+
+    encodings = [e.strip().lower() for e in (content_encoding or "").split(",") if e.strip()]
+    data = raw
+    for enc in reversed(encodings):
+        if enc == "gzip":
+            data = _gzip.decompress(data)
+        elif enc == "deflate":
+            data = zlib.decompress(data)
+    return data
 
 
 async def _parse_otlp_request(proto_class):
@@ -7561,7 +7568,8 @@ async def _parse_otlp_request(proto_class):
         app.logger.warning("OTLP json body read/decompress error [%s]: %s", request.path, exc)
         return None, (jsonify({"error": "failed to read request body"}), 400)
     if not isinstance(payload, dict):
-        payload = {}
+        app.logger.warning("OTLP json parse error [%s]: top-level value is not an object", request.path)
+        return None, (jsonify({"error": "failed to parse json body"}), 400)
     try:
         ParseDict(payload, msg)
     except Exception as exc:
@@ -7805,8 +7813,8 @@ async def ingest_metrics():
     try:
         events = _proto_metrics_to_events(msg)
     except Exception:
-        app.logger.exception("metric proto decode failed")
-        return _json_error("metric proto decode failed", 500)
+        app.logger.exception("failed to convert metrics protobuf to events")
+        return _json_error("failed to convert metrics protobuf to events", 500)
     wait = bool(app.config.get("TESTING", False))
     try:
         _queue_write(lambda db: _insert_metric_events(db, events), wait=wait)
