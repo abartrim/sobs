@@ -23225,11 +23225,7 @@ def _k8s_settings_from_form(form: "dict[str, str]") -> dict[str, str]:
     return {"kubernetes.enabled": "1" if form.get("enabled") == "1" else "0"}
 
 
-_K8S_PROM_METRIC_NAMES = (
-    "kube_node_status_condition",
-    "kube_pod_status_ready",
-    "kube_deployment_spec_replicas",
-)
+_K8S_PROM_EXTRA_METRIC_NAMES = ("container_memory_working_set_bytes",)
 
 _K8S_OTEL_ATTR = "k8s.node.name"
 
@@ -23244,15 +23240,17 @@ def _detect_k8s_metric_format(db: "ChDbConnection") -> str:
             return "otel"
     except Exception:
         pass
-    try:
-        prom_names = ", ".join(f"'{n}'" for n in _K8S_PROM_METRIC_NAMES)
-        prom_row = db.execute(
-            f"SELECT count() AS cnt FROM otel_metrics_gauge WHERE MetricName IN ({prom_names}) LIMIT 1"
-        ).fetchone()
-        if int((prom_row or {}).get("cnt") or 0) > 0:
-            return "prometheus"
-    except Exception:
-        pass
+    prom_metric_filter = "MetricName LIKE 'kube_%'"
+    if _K8S_PROM_EXTRA_METRIC_NAMES:
+        prom_names = ", ".join(f"'{n}'" for n in _K8S_PROM_EXTRA_METRIC_NAMES)
+        prom_metric_filter = f"({prom_metric_filter} OR MetricName IN ({prom_names}))"
+    for table in ("otel_metrics_gauge", "otel_metrics_sum"):
+        try:
+            prom_row = db.execute(f"SELECT count() AS cnt FROM {table} WHERE {prom_metric_filter} LIMIT 1").fetchone()
+            if int((prom_row or {}).get("cnt") or 0) > 0:
+                return "prometheus"
+        except Exception:
+            pass
     return "none"
 
 
@@ -23517,7 +23515,8 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
                     maxIf(Value, MetricName = 'kube_pod_status_ready'
                           AND Attributes['condition'] = 'true') AS ready_signal,
                     0.0 AS cpu_usage,
-                    maxIf(Value, MetricName = 'container_memory_working_set_bytes') AS mem_used,
+                      sumIf(Value, MetricName = 'container_memory_working_set_bytes'
+                          AND Attributes['container'] != 'POD') AS mem_used,
                     toInt64(maxIf(Value, MetricName = 'kube_pod_container_status_restarts_total'))
                         AS restarts,
                     anyIf(Attributes['node'], MetricName = 'kube_pod_info') AS node,
@@ -23813,6 +23812,7 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
             namespace_rows = db.execute("""
                 SELECT
                     Attributes['namespace'] AS name,
+                    anyIf(Attributes['phase'], Value > 0) AS status,
                     max(TimeUnix) AS last_seen
                 FROM otel_metrics_gauge
                 WHERE Attributes['namespace'] != ''
@@ -23823,7 +23823,7 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
             result["namespaces"] = [
                 {
                     "name": str(row["name"]),
-                    "status": "Active",
+                    "status": str(row["status"] or "Unknown"),
                     "created": str(row["last_seen"]),
                 }
                 for row in namespace_rows
