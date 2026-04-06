@@ -15,28 +15,19 @@
 {% call render_filter_accordion('errorsFiltersAccordion', 'errorsFiltersHeading', 'errorsFiltersPanel', 'text-danger', 'errors-tz-badge-btn', 'errors-tz-badge-label') %}
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
       {{ render_multi_select('service', 'Service', services, selected_services, '140px') }}
-      <div style="flex: 1 0 120px">
-        <label class="form-label small text-secondary">Status</label>
-        <select name="resolved" class="form-select form-select-sm">
-          <option value="0" {% if resolved == '0' %}selected{% endif %}>Open</option>
-          <option value="1" {% if resolved == '1' %}selected{% endif %}>Resolved</option>
-          <option value=""  {% if resolved == ''  %}selected{% endif %}>All</option>
-        </select>
-      </div>
-      <div style="flex: 1 0 120px">
-        <label class="form-label small text-secondary">Sort by</label>
-        <select name="sort_by" class="form-select form-select-sm">
-          <option value="Timestamp" {% if sort_by == 'Timestamp' %}selected{% endif %}>Timestamp</option>
-          <option value="ServiceName" {% if sort_by == 'ServiceName' %}selected{% endif %}>Service</option>
-        </select>
-      </div>
-      <div style="flex: 1 0 120px">
-        <label class="form-label small text-secondary">Order</label>
-        <select name="sort_dir" class="form-select form-select-sm">
-          <option value="desc" {% if sort_dir == 'desc' %}selected{% endif %}>Descending</option>
-          <option value="asc" {% if sort_dir == 'asc' %}selected{% endif %}>Ascending</option>
-        </select>
-      </div>
+      {{ render_multi_select('resolved', 'Status', [
+        {'value': '0', 'label': 'Open'},
+        {'value': '1', 'label': 'Resolved'},
+        {'value': '', 'label': 'All'}
+      ], [resolved], '120px', true) }}
+      {{ render_multi_select('sort_by', 'Sort by', [
+        {'value': 'Timestamp', 'label': 'Timestamp'},
+        {'value': 'ServiceName', 'label': 'Service'}
+      ], [sort_by], '120px', true) }}
+      {{ render_multi_select('sort_dir', 'Order', [
+        {'value': 'desc', 'label': 'Descending'},
+        {'value': 'asc', 'label': 'Ascending'}
+      ], [sort_dir], '120px', true) }}
       <div class="filter-date-group">
         <div class="filter-date-fields">
           <div class="filter-date-field">

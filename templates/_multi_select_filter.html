@@ -6,7 +6,7 @@
   {{ render_multi_select('level', 'Level', levels, [current_level], '120px') }}
 #}
 
-{% macro render_multi_select(filter_name, label, options, selected_values, flex_basis='120px') %}
+{% macro render_multi_select(filter_name, label, options, selected_values, flex_basis='120px', single_select=false) %}
 <div style="flex: 1 1 {{ flex_basis }}; min-width: 0;">
   <label class="form-label small text-secondary">{{ label }}</label>
   <div class="dropdown sobs-multi-select-wrap" id="dropdown-{{ filter_name }}">
@@ -68,6 +68,7 @@
 <script>
 (function() {
   const filterName = "{{ filter_name }}";
+  const singleSelect = {{ single_select | tojson }};
   const btnId = `btn-${filterName}`;
   const clearBtnId = `clear-${filterName}`;
   const labelId = `label-${filterName}`;
@@ -89,6 +90,15 @@
       .map(option => option.dataset.optionValue || '');
   }
 
+  function getSelectedLabels() {
+    return Array.from(options)
+      .filter(option => option.classList.contains('is-selected'))
+      .map(option => {
+        const textNode = option.querySelector('.sobs-multi-select-option-text');
+        return textNode ? textNode.textContent.trim() : (option.dataset.optionValue || '');
+      });
+  }
+
   function syncOptionVisuals() {
     options.forEach((option) => {
       const isActive = option.classList.contains('is-selected');
@@ -102,20 +112,21 @@
   
   function updateLabel() {
     const checked = getSelectedValues();
+    const checkedLabels = getSelectedLabels();
     
     if (checked.length === 0) {
       label.textContent = `All {{ label | lower }}`;
       label.title = `All {{ label | lower }}`;
     } else if (checked.length === 1) {
-      label.textContent = checked[0];
-      label.title = checked[0];
+      label.textContent = checkedLabels[0] || checked[0];
+      label.title = checkedLabels[0] || checked[0];
     } else {
       label.textContent = `${checked.length} selected`;
-      label.title = checked.join(', ');
+      label.title = checkedLabels.join(', ');
     }
 
     if (clearBtn) {
-      clearBtn.hidden = checked.length <= 1;
+      clearBtn.hidden = singleSelect || checked.length <= 1;
     }
 
     syncOptionVisuals();
@@ -183,7 +194,12 @@
     // Toggle selection state on option click
     options.forEach(option => {
       option.addEventListener('click', () => {
-        option.classList.toggle('is-selected');
+        if (singleSelect) {
+          options.forEach((item) => item.classList.remove('is-selected'));
+          option.classList.add('is-selected');
+        } else {
+          option.classList.toggle('is-selected');
+        }
         updateLabel();
         const event = new CustomEvent('sobs:filters:changed', { bubbles: true });
         option.dispatchEvent(event);
