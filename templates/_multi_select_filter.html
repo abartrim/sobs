@@ -1,0 +1,152 @@
+{# 
+  Reusable multi-select filter component for dropdowns
+  
+  Usage:
+  {% from '_multi_select_filter.html' import render_multi_select %}
+  {{ render_multi_select('level', 'Level', levels, [current_level], '120px') }}
+#}
+
+{% macro render_multi_select(filter_name, label, options, selected_values, flex_basis='120px') %}
+<div style="flex: {{ flex_basis }}">
+  <label class="form-label small text-secondary">{{ label }}</label>
+  <div class="dropdown" id="dropdown-{{ filter_name }}">
+    <button 
+      class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start"
+      type="button"
+      id="btn-{{ filter_name }}"
+      data-bs-toggle="dropdown"
+      aria-expanded="false"
+      style="text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+      <span id="label-{{ filter_name }}">
+        {%- if selected_values %}
+          {{- selected_values | join(', ') -}}
+        {%- else %}
+          All {{ label | lower }}
+        {%- endif -%}
+      </span>
+    </button>
+    <ul class="dropdown-menu" aria-labelledby="btn-{{ filter_name }}">
+      {% for opt in options %}
+      <li>
+        <label class="dropdown-item px-3 py-2 d-flex align-items-center gap-2 user-select-none" style="cursor: pointer; margin-bottom: 0;">
+          <input 
+            type="checkbox" 
+            class="filter-checkbox"
+            name="{{ filter_name }}"
+            value="{{ opt }}"
+            {% if opt in selected_values %}checked{% endif %}
+            data-filter-group="{{ filter_name }}">
+          <span>{{ opt }}</span>
+        </label>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  <!-- Hidden inputs for form submission (initial state) -->
+  <div id="hidden-fields-{{ filter_name }}">
+    {%- for value in selected_values %}
+    <input type="hidden" name="{{ filter_name }}" value="{{ value }}">
+    {%- endfor %}
+  </div>
+</div>
+
+<script>
+(function() {
+  const filterName = "{{ filter_name }}";
+  const selectedValues = {{ selected_values | tojson }};
+  const btnId = `btn-${filterName}`;
+  const labelId = `label-${filterName}`;
+  const hiddenFieldsId = `hidden-fields-${filterName}`;
+  
+  const btn = document.getElementById(btnId);
+  const label = document.getElementById(labelId);
+  const hiddenFieldsContainer = document.getElementById(hiddenFieldsId);
+  
+  // Find all checkboxes for this filter
+  const checkboxes = document.querySelectorAll(`input[data-filter-group="${filterName}"]`);
+  
+  function updateLabel() {
+    const checked = Array.from(checkboxes)
+      .filter(cb => cb.checked)
+      .map(cb => cb.value);
+    
+    if (checked.length === 0) {
+      label.textContent = `All {{ label | lower }}`;
+      btn.classList.remove('btn-primary');
+      btn.classList.add('btn-outline-secondary');
+    } else if (checked.length === 1) {
+      label.textContent = checked[0];
+      btn.classList.remove('btn-outline-secondary');
+      btn.classList.add('btn-primary');
+    } else {
+      label.textContent = `${checked.length} selected`;
+      btn.classList.remove('btn-outline-secondary');
+      btn.classList.add('btn-primary');
+    }
+    
+    // Update hidden fields for form submission
+    hiddenFieldsContainer.innerHTML = '';
+    checked.forEach(value => {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = filterName;
+      input.value = value;
+      hiddenFieldsContainer.appendChild(input);
+    });
+  }
+  
+  // Wait for DOM to be ready if needed
+  function initialize() {
+    // Initialize
+    updateLabel();
+    
+    // Update on checkbox change
+    checkboxes.forEach(checkbox => {
+      checkbox.addEventListener('change', () => {
+        updateLabel();
+        // Auto-submit form when filter changes
+        const form = checkbox.closest('form');
+        if (form) {
+          form.submit();
+        }
+      });
+    });
+    
+    // Prevent dropdown from closing when clicking inside
+    const dropdown = document.getElementById(`dropdown-${filterName}`);
+    const dropdownMenu = dropdown.querySelector('.dropdown-menu');
+    if (dropdownMenu) {
+      dropdownMenu.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+    }
+  }
+  
+  // Run immediately if DOM is ready, otherwise wait
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initialize);
+  } else {
+    initialize();
+  }
+})();
+</script>
+
+<style>
+  .filter-checkbox {
+    cursor: pointer;
+    margin: 0;
+  }
+  
+  .dropdown-item {
+    transition: background-color 0.15s ease-in-out;
+  }
+  
+  .dropdown-item:hover {
+    background-color: rgba(13, 110, 253, 0.08);
+  }
+  
+  .dropdown-item input[type="checkbox"]:checked {
+    accent-color: #0d6efd;
+  }
+</style>
+{% endmacro %}

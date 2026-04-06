@@ -9014,7 +9014,7 @@ def _compute_advanced_log_analysis(rows: list[dict], level_stats: dict, service_
 async def view_logs():
     db = get_db()
     q = request.args.get("q", "").strip()
-    level = request.args.get("level", "").strip().upper()
+    selected_levels = [level_val.strip().upper() for level_val in request.args.getlist("level") if level_val.strip()]
     service = request.args.get("service", "").strip()
     trace_id = request.args.get("trace_id", "").strip()
     trace_ids, trace_id = _parse_trace_filter_values(trace_id, request.args.getlist("trace_ids"))
@@ -9096,9 +9096,10 @@ async def view_logs():
     else:
         conditions = []
         params = []
-        if level:
-            conditions.append("SeverityText=?")
-            params.append(level)
+        if selected_levels:
+            placeholders = ",".join(["?"] * len(selected_levels))
+            conditions.append(f"SeverityText IN ({placeholders})")
+            params.extend(selected_levels)
         if service:
             conditions.append("ServiceName=?")
             params.append(service)
@@ -9243,7 +9244,8 @@ async def view_logs():
         limit=limit,
         offset=offset,
         q=q,
-        level=level,
+        level="",  # Keep empty for backward compatibility; use selected_levels for filtering
+        selected_levels=selected_levels,
         service=service,
         trace_id=trace_id,
         trace_ids_csv=trace_ids_csv,

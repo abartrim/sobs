@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_multi_select_filter.html' import render_multi_select %}
 {% block title %}Logs{% endblock %}
 {% block content %}
 {% set live = request.args.get('live', '') %}
@@ -91,15 +92,7 @@
               style="display:none;position:absolute;top:100%;left:0;z-index:1060;min-width:100%;max-width:600px;max-height:min(400px,60vh);overflow-y:auto;"></ul>
         </div>
       </div>
-      <div style="flex: 1 0 120px">
-        <label class="form-label small text-secondary">Level</label>
-        <select name="level" class="form-select form-select-sm">
-          <option value="">All levels</option>
-          {% for l in levels %}
-          <option value="{{ l }}" {% if l == level %}selected{% endif %}>{{ l }}</option>
-          {% endfor %}
-        </select>
-      </div>
+      {{ render_multi_select('level', 'Level', levels, selected_levels, '120px') }}
       <div style="flex: 1 0 140px">
         <label class="form-label small text-secondary">Service</label>
         <select name="service" class="form-select form-select-sm">
@@ -244,11 +237,11 @@
           </a>
         </div>
         <div class="row g-3">
-          {% if level_stats %}
+              {% if level_stats %}
           <div class="col-md-6">
             <div class="d-flex align-items-center justify-content-between mb-2">
               <h6 class="text-secondary small mb-0"><i class="bi bi-tag me-1"></i>By Level</h6>
-              {% if level %}
+              {% if selected_levels %}
               <a class="small text-decoration-none"
                   href="{{ url_for('view_logs', q=q, level='', service=service, trace_id=trace_id, trace_ids=trace_ids_csv, sql='', from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, analyze=analyze, stats='1') }}">
                 Clear
@@ -258,7 +251,7 @@
             <div class="d-flex flex-wrap gap-2">
               {% for lvl, cnt in level_stats.items() %}
               <a href="{{ url_for('view_logs', q=q, level=lvl, service=service, trace_id=trace_id, trace_ids=trace_ids_csv, sql='', from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, analyze=analyze, stats='1') }}"
-                 class="badge badge-level-{{ lvl }} text-decoration-none{% if lvl == level %} border border-light{% endif %}">
+                 class="badge badge-level-{{ lvl }} text-decoration-none{% if lvl in selected_levels %} border border-light{% endif %}">
                 {{ lvl }}: {{ cnt }}
               </a>
               {% endfor %}
@@ -517,7 +510,7 @@
 
   const activeFilters = {
     q: {{ q|tojson }},
-    level: {{ level|tojson }},
+    levels: {{ selected_levels|tojson }},
     service: {{ service|tojson }},
     sql: {{ sql_where|tojson }}
   };
@@ -671,8 +664,11 @@
   }
 
   function passesFilters(event) {
-    if (activeFilters.level && String(event.level || "").toUpperCase() !== activeFilters.level) {
-      return false;
+    if (activeFilters.levels && activeFilters.levels.length > 0) {
+      const eventLevel = String(event.level || "").toUpperCase();
+      if (!activeFilters.levels.includes(eventLevel)) {
+        return false;
+      }
     }
     if (activeFilters.service && String(event.service || "") !== activeFilters.service) {
       return false;
