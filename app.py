@@ -3914,7 +3914,7 @@ async def _choose_github_issue_outcome(
         "copilot_assignment_status": "not_requested",
         "copilot_assignment_reason": assignment_reason,
         "copilot_assignment_requested_at": 0,
-        "created_new_issue": bool(created),
+        "created_new_issue": bool(created.get("issue_url")),
         "issue_error": creation_error,
     }
     if not created:
@@ -4682,10 +4682,13 @@ async def _create_github_issue_record(
 ) -> dict[str, Any]:
     if not github_token or not github_repo:
         return {}
-    parts = github_repo.strip("/").split("/")
-    if len(parts) < 2:
+    owner, repo = _parse_github_repo_owner_name(github_repo)
+    if not owner or not repo:
+        parts = [p for p in github_repo.strip("/").split("/") if p]
+        if len(parts) >= 2:
+            owner, repo = parts[-2], parts[-1]
+    if not owner or not repo:
         return {}
-    owner, repo = parts[-2], parts[-1]
     issue_payload: dict[str, Any] = {
         "title": title,
         "body": body_md,
