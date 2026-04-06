@@ -72,7 +72,7 @@ _NET_TX_PKTS_PER_CYCLE = 256
 
 
 def send(i: int) -> tuple[str, int]:
-    m = i % 6
+    m = i % 12
     ns = int(time.time() * 1_000_000_000) + i
     trace = f"{i:032x}"[-32:]
     span = f"{i:016x}"[-16:]
@@ -175,233 +175,468 @@ def send(i: int) -> tuple[str, int]:
         r = requests.post(f"{BASE}/v1/ai", json=payload_ai, timeout=8)
         return ("ai", r.status_code)
 
-    # Prometheus-style system metrics: rotate through 5 families per metrics slot.
-    # Families: CPU utilisation, memory usage, disk I/O, network I/O,
-    #           filesystem usage + load average.
-    mi = i % 5
-    svc = f"host-{i % 3}"
-    metrics_list: list[dict[str, Any]] = []
+    if 5 <= m <= 9:
+        # System metrics path
+        mi = m - 5  # Convert to 0-4 range
+        # Prometheus-style system metrics: rotate through 5 families per metrics slot.
+        # Families: CPU utilisation, memory usage, disk I/O, network I/O,
+        #           filesystem usage + load average.
+        svc = f"host-{i % 3}"
+        metrics_list: list[dict[str, Any]] = []
 
-    if mi == 0:
-        # CPU utilisation per core (gauge, %)
-        metrics_list.append(
-            {
-                "name": "system.cpu.utilization",
-                "description": "CPU utilisation by core and state",
-                "unit": "%",
-                "gauge": {
-                    "dataPoints": [
-                        {
-                            "timeUnixNano": str(ns),
-                            "asDouble": round(20 + (i * 7 + core * 13) % 70, 1),
-                            "attributes": [
-                                {"key": "cpu", "value": {"stringValue": f"cpu{core}"}},
-                                {"key": "state", "value": {"stringValue": "user"}},
-                            ],
-                        }
-                        for core in range(4)
-                    ]
-                },
-            }
-        )
-
-    elif mi == 1:
-        # Memory usage by state (gauge, bytes)
-        used = int(_MEM_TOTAL_BYTES * (0.3 + (i % 40) / 100))
-        cached = int(_MEM_TOTAL_BYTES * 0.15)
-        free = _MEM_TOTAL_BYTES - used - cached
-        metrics_list.append(
-            {
-                "name": "system.memory.usage",
-                "description": "Memory usage by state",
-                "unit": "By",
-                "gauge": {
-                    "dataPoints": [
-                        {
-                            "timeUnixNano": str(ns),
-                            "asDouble": float(used),
-                            "attributes": [{"key": "state", "value": {"stringValue": "used"}}],
-                        },
-                        {
-                            "timeUnixNano": str(ns),
-                            "asDouble": float(free),
-                            "attributes": [{"key": "state", "value": {"stringValue": "free"}}],
-                        },
-                        {
-                            "timeUnixNano": str(ns),
-                            "asDouble": float(cached),
-                            "attributes": [{"key": "state", "value": {"stringValue": "cached"}}],
-                        },
-                    ]
-                },
-            }
-        )
-
-    elif mi == 2:
-        # Disk I/O bytes + operations count (sum, monotonic)
-        base_read_bytes = float((i // 5) * _DISK_READ_BYTES_PER_CYCLE)
-        base_write_bytes = float((i // 5) * _DISK_WRITE_BYTES_PER_CYCLE)
-        metrics_list.extend(
-            [
+        if mi == 0:
+            # CPU utilisation per core (gauge, %)
+            metrics_list.append(
                 {
-                    "name": "system.disk.io",
-                    "description": "Disk I/O bytes by device and direction",
-                    "unit": "By",
-                    "sum": {
-                        "isMonotonic": True,
-                        "aggregationTemporality": 2,
+                    "name": "system.cpu.utilization",
+                    "description": "CPU utilisation by core and state",
+                    "unit": "%",
+                    "gauge": {
                         "dataPoints": [
                             {
                                 "timeUnixNano": str(ns),
-                                "asDouble": base_read_bytes,
+                                "asDouble": round(20 + (i * 7 + core * 13) % 70, 1),
                                 "attributes": [
-                                    {"key": "device", "value": {"stringValue": "sda"}},
-                                    {"key": "direction", "value": {"stringValue": "read"}},
+                                    {"key": "cpu", "value": {"stringValue": f"cpu{core}"}},
+                                    {"key": "state", "value": {"stringValue": "user"}},
                                 ],
-                            },
-                            {
-                                "timeUnixNano": str(ns),
-                                "asDouble": base_write_bytes,
-                                "attributes": [
-                                    {"key": "device", "value": {"stringValue": "sda"}},
-                                    {"key": "direction", "value": {"stringValue": "write"}},
-                                ],
-                            },
-                        ],
+                            }
+                            for core in range(4)
+                        ]
                     },
-                },
-                {
-                    "name": "system.disk.operations",
-                    "description": "Disk operations by device and direction",
-                    "unit": "1",
-                    "sum": {
-                        "isMonotonic": True,
-                        "aggregationTemporality": 2,
-                        "dataPoints": [
-                            {
-                                "timeUnixNano": str(ns),
-                                "asDouble": float((i // 5) * _DISK_READ_OPS_PER_CYCLE),
-                                "attributes": [
-                                    {"key": "device", "value": {"stringValue": "sda"}},
-                                    {"key": "direction", "value": {"stringValue": "read"}},
-                                ],
-                            },
-                            {
-                                "timeUnixNano": str(ns),
-                                "asDouble": float((i // 5) * _DISK_WRITE_OPS_PER_CYCLE),
-                                "attributes": [
-                                    {"key": "device", "value": {"stringValue": "sda"}},
-                                    {"key": "direction", "value": {"stringValue": "write"}},
-                                ],
-                            },
-                        ],
-                    },
-                },
-            ]
-        )
+                }
+            )
 
-    elif mi == 3:
-        # Network I/O bytes + packets (sum, monotonic)
-        rx_bytes = float((i // 5) * _NET_RX_BYTES_PER_CYCLE)
-        tx_bytes = float((i // 5) * _NET_TX_BYTES_PER_CYCLE)
-        metrics_list.extend(
-            [
+        elif mi == 1:
+            # Memory usage by state (gauge, bytes)
+            used = int(_MEM_TOTAL_BYTES * (0.3 + (i % 40) / 100))
+            cached = int(_MEM_TOTAL_BYTES * 0.15)
+            free = _MEM_TOTAL_BYTES - used - cached
+            metrics_list.append(
                 {
-                    "name": "system.network.io",
-                    "description": "Network I/O bytes by device and direction",
-                    "unit": "By",
-                    "sum": {
-                        "isMonotonic": True,
-                        "aggregationTemporality": 2,
-                        "dataPoints": [
-                            {
-                                "timeUnixNano": str(ns),
-                                "asDouble": rx_bytes,
-                                "attributes": [
-                                    {"key": "device", "value": {"stringValue": "eth0"}},
-                                    {"key": "direction", "value": {"stringValue": "receive"}},
-                                ],
-                            },
-                            {
-                                "timeUnixNano": str(ns),
-                                "asDouble": tx_bytes,
-                                "attributes": [
-                                    {"key": "device", "value": {"stringValue": "eth0"}},
-                                    {"key": "direction", "value": {"stringValue": "transmit"}},
-                                ],
-                            },
-                        ],
-                    },
-                },
-                {
-                    "name": "system.network.packets",
-                    "description": "Network packets by device and direction",
-                    "unit": "1",
-                    "sum": {
-                        "isMonotonic": True,
-                        "aggregationTemporality": 2,
-                        "dataPoints": [
-                            {
-                                "timeUnixNano": str(ns),
-                                "asDouble": float((i // 5) * _NET_RX_PKTS_PER_CYCLE),
-                                "attributes": [
-                                    {"key": "device", "value": {"stringValue": "eth0"}},
-                                    {"key": "direction", "value": {"stringValue": "receive"}},
-                                ],
-                            },
-                            {
-                                "timeUnixNano": str(ns),
-                                "asDouble": float((i // 5) * _NET_TX_PKTS_PER_CYCLE),
-                                "attributes": [
-                                    {"key": "device", "value": {"stringValue": "eth0"}},
-                                    {"key": "direction", "value": {"stringValue": "transmit"}},
-                                ],
-                            },
-                        ],
-                    },
-                },
-            ]
-        )
-
-    else:
-        # mi == 4: filesystem usage (gauge, bytes) + CPU load average (gauge)
-        used_disk = int(_DISK_TOTAL_BYTES * (0.4 + (i % 20) / 100))
-        load_1m = round(0.5 + (i % 30) / 10, 2)
-        metrics_list.extend(
-            [
-                {
-                    "name": "system.filesystem.usage",
-                    "description": "Filesystem space usage by mount point and state",
+                    "name": "system.memory.usage",
+                    "description": "Memory usage by state",
                     "unit": "By",
                     "gauge": {
                         "dataPoints": [
                             {
                                 "timeUnixNano": str(ns),
-                                "asDouble": float(used_disk),
-                                "attributes": [
-                                    {"key": "mountpoint", "value": {"stringValue": "/"}},
-                                    {"key": "state", "value": {"stringValue": "used"}},
-                                ],
+                                "asDouble": float(used),
+                                "attributes": [{"key": "state", "value": {"stringValue": "used"}}],
                             },
                             {
                                 "timeUnixNano": str(ns),
-                                "asDouble": float(_DISK_TOTAL_BYTES - used_disk),
-                                "attributes": [
-                                    {"key": "mountpoint", "value": {"stringValue": "/"}},
-                                    {"key": "state", "value": {"stringValue": "free"}},
-                                ],
+                                "asDouble": float(free),
+                                "attributes": [{"key": "state", "value": {"stringValue": "free"}}],
+                            },
+                            {
+                                "timeUnixNano": str(ns),
+                                "asDouble": float(cached),
+                                "attributes": [{"key": "state", "value": {"stringValue": "cached"}}],
                             },
                         ]
                     },
+                }
+            )
+
+        elif mi == 2:
+            # Disk I/O bytes + operations count (sum, monotonic)
+            base_read_bytes = float((i // 5) * _DISK_READ_BYTES_PER_CYCLE)
+            base_write_bytes = float((i // 5) * _DISK_WRITE_BYTES_PER_CYCLE)
+            metrics_list.extend(
+                [
+                    {
+                        "name": "system.disk.io",
+                        "description": "Disk I/O bytes by device and direction",
+                        "unit": "By",
+                        "sum": {
+                            "isMonotonic": True,
+                            "aggregationTemporality": 2,
+                            "dataPoints": [
+                                {
+                                    "timeUnixNano": str(ns),
+                                    "asDouble": base_read_bytes,
+                                    "attributes": [
+                                        {"key": "device", "value": {"stringValue": "sda"}},
+                                        {"key": "direction", "value": {"stringValue": "read"}},
+                                    ],
+                                },
+                                {
+                                    "timeUnixNano": str(ns),
+                                    "asDouble": base_write_bytes,
+                                    "attributes": [
+                                        {"key": "device", "value": {"stringValue": "sda"}},
+                                        {"key": "direction", "value": {"stringValue": "write"}},
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                    {
+                        "name": "system.disk.operations",
+                        "description": "Disk operations by device and direction",
+                        "unit": "1",
+                        "sum": {
+                            "isMonotonic": True,
+                            "aggregationTemporality": 2,
+                            "dataPoints": [
+                                {
+                                    "timeUnixNano": str(ns),
+                                    "asDouble": float((i // 5) * _DISK_READ_OPS_PER_CYCLE),
+                                    "attributes": [
+                                        {"key": "device", "value": {"stringValue": "sda"}},
+                                        {"key": "direction", "value": {"stringValue": "read"}},
+                                    ],
+                                },
+                                {
+                                    "timeUnixNano": str(ns),
+                                    "asDouble": float((i // 5) * _DISK_WRITE_OPS_PER_CYCLE),
+                                    "attributes": [
+                                        {"key": "device", "value": {"stringValue": "sda"}},
+                                        {"key": "direction", "value": {"stringValue": "write"}},
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                ]
+            )
+
+        elif mi == 3:
+            # Network I/O bytes + packets (sum, monotonic)
+            rx_bytes = float((i // 5) * _NET_RX_BYTES_PER_CYCLE)
+            tx_bytes = float((i // 5) * _NET_TX_BYTES_PER_CYCLE)
+            metrics_list.extend(
+                [
+                    {
+                        "name": "system.network.io",
+                        "description": "Network I/O bytes by device and direction",
+                        "unit": "By",
+                        "sum": {
+                            "isMonotonic": True,
+                            "aggregationTemporality": 2,
+                            "dataPoints": [
+                                {
+                                    "timeUnixNano": str(ns),
+                                    "asDouble": rx_bytes,
+                                    "attributes": [
+                                        {"key": "device", "value": {"stringValue": "eth0"}},
+                                        {"key": "direction", "value": {"stringValue": "receive"}},
+                                    ],
+                                },
+                                {
+                                    "timeUnixNano": str(ns),
+                                    "asDouble": tx_bytes,
+                                    "attributes": [
+                                        {"key": "device", "value": {"stringValue": "eth0"}},
+                                        {"key": "direction", "value": {"stringValue": "transmit"}},
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                    {
+                        "name": "system.network.packets",
+                        "description": "Network packets by device and direction",
+                        "unit": "1",
+                        "sum": {
+                            "isMonotonic": True,
+                            "aggregationTemporality": 2,
+                            "dataPoints": [
+                                {
+                                    "timeUnixNano": str(ns),
+                                    "asDouble": float((i // 5) * _NET_RX_PKTS_PER_CYCLE),
+                                    "attributes": [
+                                        {"key": "device", "value": {"stringValue": "eth0"}},
+                                        {"key": "direction", "value": {"stringValue": "receive"}},
+                                    ],
+                                },
+                                {
+                                    "timeUnixNano": str(ns),
+                                    "asDouble": float((i // 5) * _NET_TX_PKTS_PER_CYCLE),
+                                    "attributes": [
+                                        {"key": "device", "value": {"stringValue": "eth0"}},
+                                        {"key": "direction", "value": {"stringValue": "transmit"}},
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                ]
+            )
+
+        else:
+            # mi == 4: filesystem usage (gauge, bytes) + CPU load average (gauge)
+            used_disk = int(_DISK_TOTAL_BYTES * (0.4 + (i % 20) / 100))
+            load_1m = round(0.5 + (i % 30) / 10, 2)
+            metrics_list.extend(
+                [
+                    {
+                        "name": "system.filesystem.usage",
+                        "description": "Filesystem space usage by mount point and state",
+                        "unit": "By",
+                        "gauge": {
+                            "dataPoints": [
+                                {
+                                    "timeUnixNano": str(ns),
+                                    "asDouble": float(used_disk),
+                                    "attributes": [
+                                        {"key": "mountpoint", "value": {"stringValue": "/"}},
+                                        {"key": "state", "value": {"stringValue": "used"}},
+                                    ],
+                                },
+                                {
+                                    "timeUnixNano": str(ns),
+                                    "asDouble": float(_DISK_TOTAL_BYTES - used_disk),
+                                    "attributes": [
+                                        {"key": "mountpoint", "value": {"stringValue": "/"}},
+                                        {"key": "state", "value": {"stringValue": "free"}},
+                                    ],
+                                },
+                            ]
+                        },
+                    },
+                    {
+                        "name": "system.cpu.load_average.1m",
+                        "description": "System load average over 1 minute",
+                        "unit": "1",
+                        "gauge": {"dataPoints": [{"timeUnixNano": str(ns), "asDouble": load_1m}]},
+                    },
+                ]
+            )
+
+    elif m == 10:
+        # Kubernetes Node metrics
+        svc = f"k8s-cluster-{i % 2}"
+        node_idx = i % 3
+        node_name = f"node-{node_idx}"
+        node_cpu_pct = round(35 + (i * 11 + node_idx * 7) % 55, 1)
+        node_mem_used = int((4 + node_idx) * 1024**3 * (0.45 + (i % 20) / 100))
+        metrics_list = [
+            {
+                "name": "k8s.node.condition_ready",
+                "description": "Kubernetes node readiness status (0=NotReady, 1=Ready)",
+                "unit": "1",
+                "gauge": {
+                    "dataPoints": [
+                        {
+                            "timeUnixNano": str(ns),
+                            "asDouble": 1.0,  # Ready
+                            "attributes": [
+                                {"key": "k8s.node.name", "value": {"stringValue": node_name}},
+                                {"key": "k8s.cluster.name", "value": {"stringValue": "production"}},
+                            ],
+                        }
+                    ]
                 },
-                {
-                    "name": "system.cpu.load_average.1m",
-                    "description": "System load average over 1 minute",
-                    "unit": "1",
-                    "gauge": {"dataPoints": [{"timeUnixNano": str(ns), "asDouble": load_1m}]},
+            },
+            {
+                "name": "k8s.node.cpu.usage",
+                "description": "Node CPU usage percentage",
+                "unit": "%",
+                "gauge": {
+                    "dataPoints": [
+                        {
+                            "timeUnixNano": str(ns),
+                            "asDouble": node_cpu_pct,
+                            "attributes": [
+                                {"key": "k8s.node.name", "value": {"stringValue": node_name}},
+                                {"key": "k8s.cluster.name", "value": {"stringValue": "production"}},
+                            ],
+                        }
+                    ]
                 },
-            ]
-        )
+            },
+            {
+                "name": "k8s.node.memory.usage",
+                "description": "Node memory usage bytes",
+                "unit": "By",
+                "gauge": {
+                    "dataPoints": [
+                        {
+                            "timeUnixNano": str(ns),
+                            "asDouble": float(node_mem_used),
+                            "attributes": [
+                                {"key": "k8s.node.name", "value": {"stringValue": node_name}},
+                                {"key": "k8s.cluster.name", "value": {"stringValue": "production"}},
+                                {"key": "state", "value": {"stringValue": "used"}},
+                            ],
+                        }
+                    ]
+                },
+            },
+            {
+                "name": "k8s.kubelet.version",
+                "description": "Kubelet version string (parsed as numeric)",
+                "unit": "1",
+                "gauge": {
+                    "dataPoints": [
+                        {
+                            "timeUnixNano": str(ns),
+                            "asDouble": 1.26 + (node_idx * 0.1),  # v1.26.0, v1.26.1, v1.26.2
+                            "attributes": [
+                                {"key": "k8s.node.name", "value": {"stringValue": node_name}},
+                            ],
+                        }
+                    ]
+                },
+            },
+        ]
+
+    elif m == 11:
+        # Kubernetes Pod and Deployment metrics
+        svc = f"k8s-cluster-{i % 2}"
+        ns_name = ["default", "kube-system", "monitoring"][i % 3]
+        pod_idx = i % 5
+        deploy_idx = i % 2
+        pod_name = f"pod-{pod_idx}"
+        pod_cpu_cores = round(0.08 + ((i + pod_idx) % 30) / 100, 3)
+        pod_mem_bytes = float((128 + ((i + pod_idx) % 768)) * 1024**2)
+
+        metrics_list = [
+            {
+                "name": "k8s.pod.status_ready",
+                "description": "Pod readiness status",
+                "unit": "1",
+                "gauge": {
+                    "dataPoints": [
+                        {
+                            "timeUnixNano": str(ns),
+                            "asDouble": float(pod_idx % 2),
+                            "attributes": [
+                                {"key": "k8s.namespace.name", "value": {"stringValue": ns_name}},
+                                {"key": "k8s.pod.name", "value": {"stringValue": pod_name}},
+                                {
+                                    "key": "k8s.pod.phase",
+                                    "value": {"stringValue": "Running" if pod_idx % 2 == 0 else "Pending"},
+                                },
+                            ],
+                        }
+                    ]
+                },
+            },
+            {
+                "name": "k8s.pod.cpu.usage",
+                "description": "Pod CPU usage in cores",
+                "unit": "1",
+                "gauge": {
+                    "dataPoints": [
+                        {
+                            "timeUnixNano": str(ns),
+                            "asDouble": pod_cpu_cores,
+                            "attributes": [
+                                {"key": "k8s.namespace.name", "value": {"stringValue": ns_name}},
+                                {"key": "k8s.pod.name", "value": {"stringValue": pod_name}},
+                            ],
+                        }
+                    ]
+                },
+            },
+            {
+                "name": "k8s.pod.memory.usage",
+                "description": "Pod memory usage bytes",
+                "unit": "By",
+                "gauge": {
+                    "dataPoints": [
+                        {
+                            "timeUnixNano": str(ns),
+                            "asDouble": pod_mem_bytes,
+                            "attributes": [
+                                {"key": "k8s.namespace.name", "value": {"stringValue": ns_name}},
+                                {"key": "k8s.pod.name", "value": {"stringValue": pod_name}},
+                                {"key": "state", "value": {"stringValue": "used"}},
+                            ],
+                        }
+                    ]
+                },
+            },
+            {
+                "name": "k8s.container.restart_count",
+                "description": "Number of container restarts",
+                "unit": "1",
+                "gauge": {
+                    "dataPoints": [
+                        {
+                            "timeUnixNano": str(ns),
+                            "asDouble": float((i // 10) % 5),
+                            "attributes": [
+                                {"key": "k8s.namespace.name", "value": {"stringValue": ns_name}},
+                                {"key": "k8s.pod.name", "value": {"stringValue": pod_name}},
+                                {"key": "k8s.container.name", "value": {"stringValue": f"app-{pod_idx}"}},
+                            ],
+                        }
+                    ]
+                },
+            },
+            {
+                "name": "k8s.deployment.desired",
+                "description": "Desired replica count",
+                "unit": "1",
+                "gauge": {
+                    "dataPoints": [
+                        {
+                            "timeUnixNano": str(ns),
+                            "asDouble": float(3 + deploy_idx),
+                            "attributes": [
+                                {"key": "k8s.namespace.name", "value": {"stringValue": ns_name}},
+                                {"key": "k8s.deployment.name", "value": {"stringValue": f"deployment-{deploy_idx}"}},
+                            ],
+                        }
+                    ]
+                },
+            },
+            {
+                "name": "k8s.deployment.ready",
+                "description": "Ready replica count",
+                "unit": "1",
+                "gauge": {
+                    "dataPoints": [
+                        {
+                            "timeUnixNano": str(ns),
+                            "asDouble": float(2 + (deploy_idx if i % 3 != 1 else 0)),
+                            "attributes": [
+                                {"key": "k8s.namespace.name", "value": {"stringValue": ns_name}},
+                                {"key": "k8s.deployment.name", "value": {"stringValue": f"deployment-{deploy_idx}"}},
+                            ],
+                        }
+                    ]
+                },
+            },
+            {
+                "name": "k8s.deployment.available",
+                "description": "Available replica count",
+                "unit": "1",
+                "gauge": {
+                    "dataPoints": [
+                        {
+                            "timeUnixNano": str(ns),
+                            "asDouble": float(2 + (deploy_idx if i % 3 != 1 else 0)),
+                            "attributes": [
+                                {"key": "k8s.namespace.name", "value": {"stringValue": ns_name}},
+                                {"key": "k8s.deployment.name", "value": {"stringValue": f"deployment-{deploy_idx}"}},
+                            ],
+                        }
+                    ]
+                },
+            },
+            {
+                "name": "k8s.deployment.updated",
+                "description": "Updated replica count",
+                "unit": "1",
+                "gauge": {
+                    "dataPoints": [
+                        {
+                            "timeUnixNano": str(ns),
+                            "asDouble": float(3 + deploy_idx),
+                            "attributes": [
+                                {"key": "k8s.namespace.name", "value": {"stringValue": ns_name}},
+                                {"key": "k8s.deployment.name", "value": {"stringValue": f"deployment-{deploy_idx}"}},
+                            ],
+                        }
+                    ]
+                },
+            },
+        ]
 
     payload_metrics: dict[str, Any] = {
         "resourceMetrics": [

@@ -571,6 +571,7 @@ class TestOtlpProtobufIngest:
     """Verify that application/x-protobuf payloads are accepted and persisted."""
 
     PROTOBUF_CT = "application/x-protobuf"
+    FLOAT_TOLERANCE = 1e-6
 
     def _make_log_proto_bytes(self, message="proto log", level="INFO", service="proto-svc"):
         from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import ExportLogsServiceRequest
@@ -703,6 +704,191 @@ class TestOtlpProtobufIngest:
         )
         assert row is not None, "Error row not found in DB"
         assert row[1] == "ValueError"
+
+    def _make_metrics_proto_bytes(self, service="proto-metrics-svc"):
+        from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import ExportMetricsServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.metrics.v1.metrics_pb2 import (
+            AggregationTemporality,
+            Gauge,
+            Histogram,
+            HistogramDataPoint,
+            Metric,
+            NumberDataPoint,
+            ResourceMetrics,
+            ScopeMetrics,
+            Sum,
+        )
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+
+        ts_ns = int(time.time() * 1_000_000_000)
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value=service))])
+
+        gauge_dp = NumberDataPoint(time_unix_nano=ts_ns, as_double=75.5)
+        gauge_metric = Metric(
+            name="cpu.usage", description="CPU utilization", unit="%", gauge=Gauge(data_points=[gauge_dp])
+        )
+
+        sum_dp = NumberDataPoint(
+            time_unix_nano=ts_ns,
+            as_int=1500,
+            start_time_unix_nano=ts_ns - 60_000_000_000,
+        )
+        sum_metric = Metric(
+            name="http.requests",
+            description="Total requests",
+            unit="1",
+            sum=Sum(
+                data_points=[sum_dp],
+                is_monotonic=True,
+                aggregation_temporality=AggregationTemporality.AGGREGATION_TEMPORALITY_CUMULATIVE,
+            ),
+        )
+
+        hist_dp = HistogramDataPoint(
+            time_unix_nano=ts_ns,
+            start_time_unix_nano=ts_ns - 60_000_000_000,
+            count=250,
+            sum=12500.0,
+            bucket_counts=[50, 80, 70, 30, 20],
+            explicit_bounds=[5.0, 10.0, 25.0, 50.0],
+        )
+        hist_metric = Metric(
+            name="request.duration",
+            description="Request duration",
+            unit="ms",
+            histogram=Histogram(
+                data_points=[hist_dp],
+                aggregation_temporality=AggregationTemporality.AGGREGATION_TEMPORALITY_CUMULATIVE,
+            ),
+        )
+
+        msg = ExportMetricsServiceRequest(
+            resource_metrics=[
+                ResourceMetrics(
+                    resource=resource,
+                    scope_metrics=[ScopeMetrics(metrics=[gauge_metric, sum_metric, hist_metric])],
+                )
+            ]
+        )
+        return msg.SerializeToString()
+
+    async def test_protobuf_metrics_ingest_accepted(self, client):
+        body = self._make_metrics_proto_bytes()
+        r = await client.post("/v1/metrics", data=body, headers={"Content-Type": self.PROTOBUF_CT})
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["accepted"] == 3  # gauge + sum + histogram
+
+    async def test_protobuf_metrics_persisted_in_db(self, client):
+        svc = "proto-metrics-db-svc"
+        body = self._make_metrics_proto_bytes(service=svc)
+        r = await client.post("/v1/metrics", data=body, headers={"Content-Type": self.PROTOBUF_CT})
+        assert r.status_code == 200
+        assert json.loads(await r.get_data())["accepted"] == 3
+
+        gauge_row = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT Value, ServiceName FROM otel_metrics_gauge WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
+                (svc,),
+            )
+            .fetchone()
+        )
+        assert gauge_row is not None, "Gauge row not found in DB"
+        assert abs(float(gauge_row["Value"]) - 75.5) < self.FLOAT_TOLERANCE
+
+        hist_row = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT Count, Sum FROM otel_metrics_histogram WHERE ServiceName=? ORDER BY TimeUnix DESC LIMIT 1",
+                (svc,),
+            )
+            .fetchone()
+        )
+        assert hist_row is not None, "Histogram row not found in DB"
+        assert int(hist_row["Count"]) == 250
+        assert abs(float(hist_row["Sum"]) - 12500.0) < self.FLOAT_TOLERANCE
+
+    async def test_protobuf_metrics_gzip_ingest_accepted(self, client):
+        """Metrics sent with Content-Encoding: gzip (as the OTel Collector can do) are accepted."""
+        import gzip as _gzip
+
+        body = self._make_metrics_proto_bytes(service="proto-metrics-gz-svc")
+        compressed = _gzip.compress(body)
+        r = await client.post(
+            "/v1/metrics",
+            data=compressed,
+            headers={
+                "Content-Type": self.PROTOBUF_CT,
+                "Content-Encoding": "gzip",
+            },
+        )
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["accepted"] == 3
+
+    async def test_protobuf_metrics_deflate_ingest_accepted(self, client):
+        """Metrics sent with Content-Encoding: deflate (RFC 9110 supported encoding) are accepted."""
+        import zlib
+
+        body = self._make_metrics_proto_bytes(service="proto-metrics-deflate-svc")
+        compressed = zlib.compress(body)
+        r = await client.post(
+            "/v1/metrics",
+            data=compressed,
+            headers={
+                "Content-Type": self.PROTOBUF_CT,
+                "Content-Encoding": "deflate",
+            },
+        )
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["accepted"] == 3
+
+    async def test_protobuf_metrics_chained_encoding_ingest_accepted(self, client):
+        """Metrics with chained Content-Encoding (e.g. 'gzip, deflate' per RFC 9110) are accepted."""
+        import gzip as _gzip
+        import zlib
+
+        body = self._make_metrics_proto_bytes(service="proto-metrics-chained-svc")
+        # Per RFC 9110, "Content-Encoding: gzip, deflate" means gzip was applied first,
+        # then deflate. So we compress in that order, producing deflate(gzip(body))
+        gzipped = _gzip.compress(body)
+        compressed = zlib.compress(gzipped)
+        r = await client.post(
+            "/v1/metrics",
+            data=compressed,
+            headers={
+                "Content-Type": self.PROTOBUF_CT,
+                "Content-Encoding": "gzip, deflate",
+            },
+        )
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["accepted"] == 3
+
+    async def test_protobuf_invalid_metrics_body_returns_400(self, client):
+        r = await client.post(
+            "/v1/metrics", data=b"\xff\xfe garbage metrics", headers={"Content-Type": self.PROTOBUF_CT}
+        )
+        assert r.status_code == 400
+        assert "error" in json.loads(await r.get_data())
+
+    async def test_gzip_decompression_bomb_returns_400(self, client):
+        """A gzip payload that expands beyond the size limit must be rejected with 400, not OOM."""
+        import gzip as _gzip
+
+        # Compress a payload that decompresses to well over _MAX_DECOMPRESSED_BODY_BYTES (32 MiB).
+        # 33 MiB of null bytes compresses to a few hundred bytes.
+        bomb = _gzip.compress(b"\x00" * (33 * 1024 * 1024))
+        r = await client.post(
+            "/v1/metrics",
+            data=bomb,
+            headers={"Content-Type": self.PROTOBUF_CT, "Content-Encoding": "gzip"},
+        )
+        assert r.status_code == 400
+        assert "error" in json.loads(await r.get_data())
 
     async def test_protobuf_invalid_body_returns_400(self, client):
         r = await client.post("/v1/logs", data=b"not valid protobuf", headers={"Content-Type": self.PROTOBUF_CT})
@@ -11664,3 +11850,155 @@ class TestKubernetesRoutes:
         text = (await r.get_data()).decode()
         assert "Kubernetes Health View" in text
         assert "view_k8s_settings" in text or "settings/kubernetes" in text
+
+
+class TestKubernetesResourceMetrics:
+    """Tests for K8s node/pod cpu_usage + mem_used fields ingested via OTLP and
+    surfaced in the _fetch_k8s_from_otel response."""
+
+    JSON_CT = "application/json"
+
+    def _k8s_gauge_payload(self, metrics: list[dict]) -> dict:
+        """Build a minimal OTLP JSON ExportMetricsServiceRequest."""
+        ns = int(time.time() * 1_000_000_000)
+        scope_metrics = []
+        for m in metrics:
+            scope_metrics.append(
+                {
+                    "name": m["name"],
+                    "unit": m.get("unit", "1"),
+                    "gauge": {
+                        "dataPoints": [
+                            {
+                                "timeUnixNano": str(ns),
+                                "asDouble": m["value"],
+                                "attributes": [
+                                    {"key": k, "value": {"stringValue": v}} for k, v in m.get("attrs", {}).items()
+                                ],
+                            }
+                        ]
+                    },
+                }
+            )
+        return {
+            "resourceMetrics": [
+                {
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "k8s-otel-test"}}]},
+                    "scopeMetrics": [{"metrics": scope_metrics}],
+                }
+            ]
+        }
+
+    async def _ingest(self, client, metrics: list[dict]) -> None:
+        payload = self._k8s_gauge_payload(metrics)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+
+    async def test_node_resource_fields_in_row(self, client):
+        """Node rows returned by _fetch_k8s_from_otel include cpu_usage and mem_used."""
+        node = "test-node-res-1"
+        await self._ingest(
+            client,
+            [
+                {"name": "k8s.node.condition_ready", "value": 1.0, "attrs": {"k8s.node.name": node}},
+                {"name": "k8s.node.cpu.usage", "unit": "%", "value": 42.5, "attrs": {"k8s.node.name": node}},
+                {
+                    "name": "k8s.node.memory.usage",
+                    "unit": "By",
+                    "value": 1073741824.0,
+                    "attrs": {"k8s.node.name": node},
+                },
+            ],
+        )
+        result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        node_row = next((n for n in result["nodes"] if n["name"] == node), None)
+        assert node_row is not None, f"Node '{node}' not found in result"
+        assert abs(node_row["cpu_usage"] - 42.5) < 1e-6
+        assert abs(node_row["mem_used"] - 1073741824.0) < 1e-6
+
+    async def test_node_summary_cpu_mem_averages(self, client):
+        """summary.nodes_cpu_avg and nodes_mem_used_avg are computed from ingested data."""
+        node = "test-node-res-2"
+        await self._ingest(
+            client,
+            [
+                {"name": "k8s.node.condition_ready", "value": 1.0, "attrs": {"k8s.node.name": node}},
+                {"name": "k8s.node.cpu.usage", "unit": "%", "value": 60.0, "attrs": {"k8s.node.name": node}},
+                {
+                    "name": "k8s.node.memory.usage",
+                    "unit": "By",
+                    "value": 2147483648.0,
+                    "attrs": {"k8s.node.name": node},
+                },
+            ],
+        )
+        result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        assert "nodes_cpu_avg" in result["summary"]
+        assert "nodes_mem_used_avg" in result["summary"]
+        # At least the node we just ingested contributes a non-zero average.
+        assert result["summary"]["nodes_cpu_avg"] > 0
+        assert result["summary"]["nodes_mem_used_avg"] > 0
+
+    async def test_pod_resource_fields_in_row(self, client):
+        """Pod rows returned by _fetch_k8s_from_otel include cpu_usage and mem_used."""
+        pod = "test-pod-res-1"
+        ns_name = "default"
+        await self._ingest(
+            client,
+            [
+                {
+                    "name": "k8s.pod.status_ready",
+                    "value": 1.0,
+                    "attrs": {"k8s.pod.name": pod, "k8s.namespace.name": ns_name, "k8s.pod.phase": "Running"},
+                },
+                {
+                    "name": "k8s.pod.cpu.usage",
+                    "unit": "1",
+                    "value": 0.15,
+                    "attrs": {"k8s.pod.name": pod, "k8s.namespace.name": ns_name},
+                },
+                {
+                    "name": "k8s.pod.memory.usage",
+                    "unit": "By",
+                    "value": 134217728.0,
+                    "attrs": {"k8s.pod.name": pod, "k8s.namespace.name": ns_name},
+                },
+            ],
+        )
+        result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        pod_row = next((p for p in result["pods"] if p["name"] == pod), None)
+        assert pod_row is not None, f"Pod '{pod}' not found in result"
+        assert abs(pod_row["cpu_usage"] - 0.15) < 1e-6
+        assert abs(pod_row["mem_used"] - 134217728.0) < 1e-6
+
+    async def test_pod_summary_cpu_mem_totals(self, client):
+        """summary.pods_cpu_total and pods_mem_used_total are computed from ingested data."""
+        pod = "test-pod-res-2"
+        ns_name = "default"
+        await self._ingest(
+            client,
+            [
+                {
+                    "name": "k8s.pod.status_ready",
+                    "value": 1.0,
+                    "attrs": {"k8s.pod.name": pod, "k8s.namespace.name": ns_name, "k8s.pod.phase": "Running"},
+                },
+                {
+                    "name": "k8s.pod.cpu.usage",
+                    "unit": "1",
+                    "value": 0.25,
+                    "attrs": {"k8s.pod.name": pod, "k8s.namespace.name": ns_name},
+                },
+                {
+                    "name": "k8s.pod.memory.usage",
+                    "unit": "By",
+                    "value": 268435456.0,
+                    "attrs": {"k8s.pod.name": pod, "k8s.namespace.name": ns_name},
+                },
+            ],
+        )
+        result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        assert "pods_cpu_total" in result["summary"]
+        assert "pods_mem_used_total" in result["summary"]
+        assert result["summary"]["pods_cpu_total"] > 0
+        assert result["summary"]["pods_mem_used_total"] > 0

@@ -7502,6 +7502,74 @@ def _insert_typed_metric_events(db, events: list[TypedMetricEvent]) -> int:
 
 
 _PROTOBUF_CONTENT_TYPE = "application/x-protobuf"
+# Maximum number of bytes allowed after decompression (32 MiB). Prevents zip-bomb / decompression
+# bomb DoS where a tiny compressed payload expands to an unbounded amount of memory.
+_MAX_DECOMPRESSED_BODY_BYTES = 32 * 1024 * 1024
+
+
+def _decompress_with_limit(raw: bytes, *, wbits: int) -> bytes:
+    """Incrementally decompress *raw* and enforce ``_MAX_DECOMPRESSED_BODY_BYTES``.
+
+    Using ``gzip.decompress``/``zlib.decompress`` can allocate the full decoded
+    output before we can validate size. This helper streams decompression in
+    chunks and raises ``ValueError`` as soon as the cap is exceeded.
+    """
+    decompressor = zlib.decompressobj(wbits)
+    output_parts: list[bytes] = []
+    total = 0
+    chunk_size = 64 * 1024
+
+    for start in range(0, len(raw), chunk_size):
+        remaining = _MAX_DECOMPRESSED_BODY_BYTES - total
+        piece = decompressor.decompress(raw[start : start + chunk_size], remaining + 1)
+        total += len(piece)
+        if total > _MAX_DECOMPRESSED_BODY_BYTES:
+            raise ValueError(f"decompressed body exceeds {_MAX_DECOMPRESSED_BODY_BYTES} bytes")
+        if piece:
+            output_parts.append(piece)
+
+    remaining = _MAX_DECOMPRESSED_BODY_BYTES - total
+    tail = decompressor.flush(remaining + 1)
+    total += len(tail)
+    if total > _MAX_DECOMPRESSED_BODY_BYTES:
+        raise ValueError(f"decompressed body exceeds {_MAX_DECOMPRESSED_BODY_BYTES} bytes")
+    if tail:
+        output_parts.append(tail)
+    return b"".join(output_parts)
+
+
+def _decompress_request_body(raw: bytes, content_encoding: str) -> bytes:
+    """Decompress a request body according to its Content-Encoding.
+
+    The OpenTelemetry Collector's ``otlphttp`` exporter can send gzip-compressed
+    payloads (``Content-Encoding: gzip``).  Quart does not auto-decompress
+    request bodies, so we handle it explicitly here.
+
+    Per RFC 9110, Content-Encoding may contain multiple comma-separated values
+    applied in order (e.g. ``"gzip, deflate"``).  We apply decodings in reverse
+    order (outermost first).
+
+    Supported individual encodings: ``gzip``, ``deflate``.  Unrecognised
+    encodings are passed through so that a downstream parse error surfaces a
+    meaningful message.
+
+    Raises ``ValueError`` if the decompressed body exceeds
+    ``_MAX_DECOMPRESSED_BODY_BYTES`` to guard against decompression bombs.
+    """
+    encodings = [e.strip().lower() for e in (content_encoding or "").split(",") if e.strip()]
+    data = raw
+    for enc in reversed(encodings):
+        if enc == "gzip":
+            data = _decompress_with_limit(data, wbits=16 + zlib.MAX_WBITS)
+        elif enc == "deflate":
+            # Some senders use raw deflate (no zlib wrapper). Accept both.
+            try:
+                data = _decompress_with_limit(data, wbits=zlib.MAX_WBITS)
+            except zlib.error:
+                data = _decompress_with_limit(data, wbits=-zlib.MAX_WBITS)
+        elif len(data) > _MAX_DECOMPRESSED_BODY_BYTES:
+            raise ValueError(f"decompressed body exceeds {_MAX_DECOMPRESSED_BODY_BYTES} bytes")
+    return data
 
 
 async def _parse_otlp_request(proto_class):
@@ -7514,21 +7582,38 @@ async def _parse_otlp_request(proto_class):
     - ``Content-Type: application/x-protobuf`` → deserialise with *proto_class*.
     - Any other content-type (including ``application/json``) → parse JSON and
       map into the same protobuf class via protobuf JSON mapping.
+
+    Both paths transparently handle ``Content-Encoding: gzip`` and
+    ``Content-Encoding: deflate`` request bodies, which the OpenTelemetry
+    Collector ``otlphttp`` exporter may send when compression is enabled.
     """
     mimetype = (request.mimetype or "").lower()
+    content_encoding = request.headers.get("Content-Encoding", "")
     msg = proto_class()
     if mimetype == _PROTOBUF_CONTENT_TYPE:
         app.logger.debug("OTLP ingest: parse_path=protobuf endpoint=%s", request.path)
         try:
-            msg.ParseFromString(await request.get_data())
+            raw = await request.get_data()
+            body = _decompress_request_body(raw, content_encoding)
+            msg.ParseFromString(body)
         except Exception as exc:
             app.logger.warning("OTLP protobuf parse error [%s]: %s", request.path, exc)
             return None, (jsonify({"error": "failed to parse protobuf body"}), 400)
         return msg, None
     app.logger.debug("OTLP ingest: parse_path=json endpoint=%s", request.path)
-    payload = await request.get_json(force=True, silent=True)
-    if payload is None:
-        payload = {}
+    try:
+        raw = await request.get_data()
+        body = _decompress_request_body(raw, content_encoding)
+        payload = json.loads(body) if body else {}
+    except Exception as exc:
+        app.logger.warning("OTLP json body read/decompress error [%s]: %s", request.path, exc)
+        return None, (jsonify({"error": "failed to read request body"}), 400)
+    # Per OTLP spec, JSON ExportMetricsServiceRequest/ExportLogsServiceRequest/ExportTraceServiceRequest
+    # must have a top-level object (dict) with resource_metrics/resource_logs/resource_spans keys.
+    # Arrays and primitives are invalid and must return 400.
+    if not isinstance(payload, dict):
+        app.logger.warning("OTLP json parse error [%s]: top-level value is not an object", request.path)
+        return None, (jsonify({"error": "failed to parse json body"}), 400)
     try:
         ParseDict(payload, msg)
     except Exception as exc:
@@ -7769,7 +7854,11 @@ async def ingest_metrics():
     msg, err = await _parse_otlp_request(ExportMetricsServiceRequest)
     if err:
         return err
-    events = _proto_metrics_to_events(msg)
+    try:
+        events = _proto_metrics_to_events(msg)
+    except Exception:
+        app.logger.exception("failed to convert metrics protobuf to events")
+        return _json_error("failed to convert metrics protobuf to events", 500)
     wait = bool(app.config.get("TESTING", False))
     try:
         _queue_write(lambda db: _insert_metric_events(db, events), wait=wait)
@@ -23220,9 +23309,13 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
         "summary": {
             "nodes_total": 0,
             "nodes_ready": 0,
+            "nodes_cpu_avg": 0.0,
+            "nodes_mem_used_avg": 0.0,
             "pods_total": 0,
             "pods_running": 0,
             "pods_failed": 0,
+            "pods_cpu_total": 0.0,
+            "pods_mem_used_total": 0.0,
             "deployments_total": 0,
             "deployments_unhealthy": 0,
             "namespaces_total": 0,
@@ -23244,19 +23337,31 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
                 Attributes['k8s.node.name'] AS name,
                 maxIf(Value, MetricName = 'k8s.node.condition_ready') AS ready_signal,
                 if(maxIf(Value, MetricName = 'k8s.node.condition_ready') > 0, 'Ready', 'NotReady') AS status,
+                maxIf(Value, MetricName = 'k8s.node.cpu.usage') AS cpu_usage,
+                maxIf(Value, MetricName = 'k8s.node.memory.usage') AS mem_used,
                 any(Attributes['k8s.kubelet.version']) AS version,
                 max(TimeUnix) AS last_seen
             FROM otel_metrics_gauge
             WHERE {' AND '.join(node_conditions)}
             GROUP BY name
         """
-        node_total = _count_query(f"SELECT count(*) AS cnt FROM ({node_base_sql})", node_params)
-        result["meta"]["nodes"]["total"] = node_total
-        result["summary"]["nodes_total"] = node_total
-        result["summary"]["nodes_ready"] = _count_query(
-            f"SELECT count(*) AS cnt FROM ({node_base_sql}) WHERE ready_signal > 0",
+        node_stats = db.execute(
+            f"""
+            SELECT
+                count() AS total,
+                countIf(ready_signal > 0) AS ready,
+                avg(cpu_usage) AS cpu_avg,
+                avg(mem_used) AS mem_avg
+            FROM ({node_base_sql})
+            """,
             node_params,
-        )
+        ).fetchone()
+        if node_stats:
+            result["meta"]["nodes"]["total"] = int(node_stats.get("total") or 0)
+            result["summary"]["nodes_total"] = int(node_stats.get("total") or 0)
+            result["summary"]["nodes_ready"] = int(node_stats.get("ready") or 0)
+            result["summary"]["nodes_cpu_avg"] = float(node_stats.get("cpu_avg") or 0)
+            result["summary"]["nodes_mem_used_avg"] = float(node_stats.get("mem_avg") or 0)
         node_sql = (
             f"SELECT * FROM ({node_base_sql}) "
             f"ORDER BY {table_opts['nodes']['sort_col']} {table_opts['nodes']['sort_dir'].upper()} "
@@ -23271,6 +23376,8 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
                 "name": str(row["name"]),
                 "status": "Ready" if float(row["ready_signal"] or 0) > 0 else "NotReady",
                 "version": str(row["version"] or ""),
+                "cpu_usage": float(row["cpu_usage"] or 0),
+                "mem_used": float(row["mem_used"] or 0),
                 "created": str(row["last_seen"]),
             }
             for row in node_rows
@@ -23294,6 +23401,8 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
                 Attributes['k8s.pod.name'] AS name,
                 any(Attributes['k8s.pod.phase']) AS phase,
                 maxIf(Value, MetricName = 'k8s.pod.status_ready') AS ready_signal,
+                maxIf(Value, MetricName = 'k8s.pod.cpu.usage') AS cpu_usage,
+                maxIf(Value, MetricName = 'k8s.pod.memory.usage') AS mem_used,
                 maxIf(toInt64(Value), MetricName = 'k8s.container.restart_count') AS restarts,
                 any(Attributes['k8s.node.name']) AS node,
                 max(TimeUnix) AS last_seen
@@ -23301,17 +23410,25 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
             WHERE {' AND '.join(pod_conditions)}
             GROUP BY namespace, name
         """
-        pod_total = _count_query(f"SELECT count(*) AS cnt FROM ({pod_base_sql})", pod_params)
-        result["meta"]["pods"]["total"] = pod_total
-        result["summary"]["pods_total"] = pod_total
-        result["summary"]["pods_running"] = _count_query(
-            f"SELECT count(*) AS cnt FROM ({pod_base_sql}) WHERE phase = 'Running'",
+        pod_stats = db.execute(
+            f"""
+            SELECT
+                count() AS total,
+                countIf(phase = 'Running') AS running,
+                countIf(phase = 'Failed') AS failed,
+                sum(cpu_usage) AS cpu_total,
+                sum(mem_used) AS mem_total
+            FROM ({pod_base_sql})
+            """,
             pod_params,
-        )
-        result["summary"]["pods_failed"] = _count_query(
-            f"SELECT count(*) AS cnt FROM ({pod_base_sql}) WHERE phase = 'Failed'",
-            pod_params,
-        )
+        ).fetchone()
+        if pod_stats:
+            result["meta"]["pods"]["total"] = int(pod_stats.get("total") or 0)
+            result["summary"]["pods_total"] = int(pod_stats.get("total") or 0)
+            result["summary"]["pods_running"] = int(pod_stats.get("running") or 0)
+            result["summary"]["pods_failed"] = int(pod_stats.get("failed") or 0)
+            result["summary"]["pods_cpu_total"] = float(pod_stats.get("cpu_total") or 0)
+            result["summary"]["pods_mem_used_total"] = float(pod_stats.get("mem_total") or 0)
         pod_sql = (
             f"SELECT * FROM ({pod_base_sql}) "
             f"ORDER BY {table_opts['pods']['sort_col']} {table_opts['pods']['sort_dir'].upper()} "
@@ -23327,6 +23444,8 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
                 "name": str(row["name"]),
                 "phase": str(row["phase"] or "Unknown"),
                 "ready": float(row["ready_signal"] or 0) > 0,
+                "cpu_usage": float(row["cpu_usage"] or 0),
+                "mem_used": float(row["mem_used"] or 0),
                 "restarts": int(row["restarts"] or 0),
                 "node": str(row["node"] or ""),
                 "created": str(row["last_seen"]),

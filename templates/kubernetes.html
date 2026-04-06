@@ -1,6 +1,33 @@
 {% extends "base.html" %}
 {% block title %}Kubernetes Health{% endblock %}
 {% block content %}
+<style>
+  .k8s-pager-controls {
+    align-items: stretch !important;
+    margin-left: auto;
+    justify-content: flex-end;
+  }
+
+  .k8s-pager-controls .form-select.form-select-sm {
+    min-width: 108px;
+    height: calc(1.5em + 0.5rem + 2px);
+  }
+
+  .k8s-pager-controls .btn-group.btn-group-sm {
+    height: calc(1.5em + 0.5rem + 2px);
+  }
+
+  .k8s-pager-controls .btn-group.btn-group-sm .btn {
+    min-width: 3.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .k8s-table-footer {
+    padding-right: 0.25rem !important;
+  }
+</style>
 <div class="d-flex align-items-center justify-content-between mb-3">
   <div>
     <h4 class="fw-semibold mb-1"><i class="bi bi-hdd-network me-2 text-info"></i>Kubernetes Health</h4>
@@ -74,6 +101,42 @@
   </div>
 </div>
 
+<!-- Resource strip: compact first-glance utilization without adding chart noise -->
+<div class="row g-2 mb-3" id="resourceStrip">
+  <div class="col-6 col-lg-3">
+    <div class="card border-secondary h-100">
+      <div class="card-body py-2 px-3">
+        <div class="small text-secondary">Node CPU Avg</div>
+        <div class="fw-semibold" id="nodeCpuAvg">–</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card border-secondary h-100">
+      <div class="card-body py-2 px-3">
+        <div class="small text-secondary">Node Mem Avg</div>
+        <div class="fw-semibold" id="nodeMemAvg">–</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card border-secondary h-100">
+      <div class="card-body py-2 px-3">
+        <div class="small text-secondary">Pod CPU Total</div>
+        <div class="fw-semibold" id="podCpuTotal">–</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card border-secondary h-100">
+      <div class="card-body py-2 px-3">
+        <div class="small text-secondary">Pod Mem Total</div>
+        <div class="fw-semibold" id="podMemTotal">–</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="accordion mb-3" id="k8sAccordion">
   <!-- Filters -->
   <div class="accordion-item border-secondary">
@@ -128,18 +191,20 @@
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="nodes" data-key="name" data-label="Name">Name</button></th>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="nodes" data-key="status" data-label="Status">Status</button></th>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="nodes" data-key="version" data-label="Version">Version</button></th>
+                <th class="text-end">CPU</th>
+                <th class="text-end">Mem</th>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="nodes" data-key="created" data-label="Last Seen">Last Seen</button></th>
-                <th>Logs</th>
+                <th class="text-end">Logs</th>
               </tr>
             </thead>
             <tbody id="nodesBody">
-              <tr><td colspan="5" class="text-center text-secondary">Loading…</td></tr>
+              <tr><td colspan="7" class="text-center text-secondary">Loading…</td></tr>
             </tbody>
           </table>
         </div>
-        <div class="d-flex justify-content-between align-items-center py-2 px-3 border-top">
+        <div class="d-flex justify-content-between align-items-center py-2 px-3 border-top k8s-table-footer">
           <small class="text-secondary" id="nodesPageInfo">0 rows</small>
-          <div class="d-flex align-items-center gap-2">
+          <div class="d-flex gap-2 k8s-pager-controls">
             <select id="nodesPageSize" class="form-select form-select-sm" style="width:auto;" aria-label="Rows per page">
               <option value="10">10 / page</option>
               <option value="25" selected>25 / page</option>
@@ -178,7 +243,7 @@
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="deployments" data-key="ready" data-label="Ready">Ready</button></th>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="deployments" data-key="available" data-label="Available">Available</button></th>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="deployments" data-key="created" data-label="Last Seen">Last Seen</button></th>
-                <th>Logs</th>
+                <th class="text-end">Logs</th>
               </tr>
             </thead>
             <tbody id="deploymentsBody">
@@ -186,9 +251,9 @@
             </tbody>
           </table>
         </div>
-        <div class="d-flex justify-content-between align-items-center py-2 px-3 border-top">
+        <div class="d-flex justify-content-between align-items-center py-2 px-3 border-top k8s-table-footer">
           <small class="text-secondary" id="deploymentsPageInfo">0 rows</small>
-          <div class="d-flex align-items-center gap-2">
+          <div class="d-flex gap-2 k8s-pager-controls">
             <select id="deploymentsPageSize" class="form-select form-select-sm" style="width:auto;" aria-label="Rows per page">
               <option value="10">10 / page</option>
               <option value="25" selected>25 / page</option>
@@ -226,19 +291,21 @@
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="pods" data-key="phase" data-label="Phase">Phase</button></th>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="pods" data-key="ready" data-label="Ready">Ready</button></th>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="pods" data-key="restarts" data-label="Restarts">Restarts</button></th>
+                <th class="text-end">CPU</th>
+                <th class="text-end">Mem</th>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="pods" data-key="node" data-label="Node">Node</button></th>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="pods" data-key="created" data-label="Last Seen">Last Seen</button></th>
-                <th>Logs</th>
+                <th class="text-end">Logs</th>
               </tr>
             </thead>
             <tbody id="podsBody">
-              <tr><td colspan="8" class="text-center text-secondary">Loading…</td></tr>
+              <tr><td colspan="10" class="text-center text-secondary">Loading…</td></tr>
             </tbody>
           </table>
         </div>
-        <div class="d-flex justify-content-between align-items-center py-2 px-3 border-top">
+        <div class="d-flex justify-content-between align-items-center py-2 px-3 border-top k8s-table-footer">
           <small class="text-secondary" id="podsPageInfo">0 rows</small>
-          <div class="d-flex align-items-center gap-2">
+          <div class="d-flex gap-2 k8s-pager-controls">
             <select id="podsPageSize" class="form-select form-select-sm" style="width:auto;" aria-label="Rows per page">
               <option value="10">10 / page</option>
               <option value="25" selected>25 / page</option>
@@ -308,6 +375,19 @@
   function fmtDate(ts) {
     if (!ts) return '–';
     try { return new Date(ts).toLocaleString(); } catch (e) { return ts; }
+  }
+
+  function fmtBytes(v) {
+    var n = Number(v || 0);
+    if (!isFinite(n) || n <= 0) return '–';
+    var units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    var idx = 0;
+    while (n >= 1024 && idx < units.length - 1) {
+      n /= 1024;
+      idx += 1;
+    }
+    var decimals = n >= 10 ? 1 : 2;
+    return n.toFixed(decimals) + ' ' + units[idx];
   }
 
   function sqlQuote(s) {
@@ -444,7 +524,7 @@
     updateTableCount('nodeTableCount', nodes.length, meta.total || nodes.length);
     updatePagingUI('nodes', page);
     if (!nodes || nodes.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-secondary">No nodes found</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-secondary">No nodes found</td></tr>';
       return;
     }
     tbody.innerHTML = nodes.map(function (n) {
@@ -453,8 +533,10 @@
         + '<td class="font-monospace small">' + escHtml(n.name) + '</td>'
         + '<td>' + nodeBadge(n.status) + '</td>'
         + '<td class="small">' + escHtml(n.version || '–') + '</td>'
+        + '<td class="small text-end">' + escHtml((Number(n.cpu_usage || 0)).toFixed(1) + '%') + '</td>'
+        + '<td class="small text-end">' + escHtml(fmtBytes(n.mem_used)) + '</td>'
         + '<td class="small">' + fmtDate(n.created) + '</td>'
-        + '<td><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
+        + '<td class="text-end"><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
         + '</tr>';
     }).join('');
   }
@@ -483,7 +565,7 @@
         + '<td class="text-center ' + readyCls + ' fw-semibold">' + escHtml(d.ready || 0) + '</td>'
         + '<td class="text-center">' + escHtml(d.available || 0) + '</td>'
         + '<td class="small">' + fmtDate(d.created) + '</td>'
-        + '<td><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
+        + '<td class="text-end"><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
         + '</tr>';
     }).join('');
   }
@@ -497,7 +579,7 @@
     updateTableCount('podTableCount', pods.length, meta.total || pods.length);
     updatePagingUI('pods', page);
     if (!pods || pods.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-secondary">No pods found</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="text-center text-secondary">No pods found</td></tr>';
       return;
     }
     tbody.innerHTML = pods.map(function (p) {
@@ -510,9 +592,11 @@
         + '<td>' + phaseBadge(p.phase) + '</td>'
         + '<td class="text-center">' + (p.ready ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>') + '</td>'
         + '<td class="text-center ' + restartCls + '">' + escHtml(p.restarts || 0) + '</td>'
+        + '<td class="small text-end">' + escHtml((Number(p.cpu_usage || 0)).toFixed(3)) + '</td>'
+        + '<td class="small text-end">' + escHtml(fmtBytes(p.mem_used)) + '</td>'
         + '<td class="small">' + escHtml(p.node || '–') + '</td>'
         + '<td class="small">' + fmtDate(p.created) + '</td>'
-        + '<td><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
+        + '<td class="text-end"><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
         + '</tr>';
     }).join('');
   }
@@ -542,6 +626,11 @@
 
     var nsTotal = Number(summary.namespaces_total || (data.namespaces || []).length || 0);
     document.getElementById('nsCount').textContent = nsTotal;
+
+    document.getElementById('nodeCpuAvg').textContent = Number(summary.nodes_cpu_avg || 0).toFixed(1) + '%';
+    document.getElementById('nodeMemAvg').textContent = fmtBytes(summary.nodes_mem_used_avg);
+    document.getElementById('podCpuTotal').textContent = Number(summary.pods_cpu_total || 0).toFixed(3) + ' cores';
+    document.getElementById('podMemTotal').textContent = fmtBytes(summary.pods_mem_used_total);
   }
 
   function setSourceBadge() {
