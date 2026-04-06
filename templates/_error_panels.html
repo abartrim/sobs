@@ -77,7 +77,7 @@
     <h2 class="accordion-header">
       <button class="accordion-button {% if not loop.first %}collapsed{% endif %} py-2 error-panel-button"
               type="button" data-bs-toggle="collapse" data-bs-target="#{{ collapse_prefix }}{{ loop.index }}">
-        <div class="error-panel-summary w-100 me-2">
+        <div class="error-panel-summary flex-grow-1 pe-2">
           <span class="badge flex-shrink-0 {% if err.resolved %}bg-success{% else %}bg-danger{% endif %}">
             {{ 'Resolved' if err.resolved else 'Open' }}
           </span>

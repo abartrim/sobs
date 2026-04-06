@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_multi_select_filter.html" import render_multi_select %}
 {% block title %}Metrics{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -28,33 +29,9 @@
     <div id="metricsFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="metricsFiltersHeading" data-bs-parent="#metricsFiltersAccordion">
       <div class="accordion-body py-2">
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
-      <div style="flex: 1 0 120px">
-        <label class="form-label small text-secondary">Source</label>
-        <select name="source" class="form-select form-select-sm">
-          <option value="">All sources</option>
-          {% for s in sources %}
-          <option value="{{ s }}" {% if s == source %}selected{% endif %}>{{ s }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div style="flex: 1 0 140px">
-        <label class="form-label small text-secondary">Service</label>
-        <select name="service" class="form-select form-select-sm">
-          <option value="">All services</option>
-          {% for s in services %}
-          <option value="{{ s }}" {% if s == service %}selected{% endif %}>{{ s }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div style="flex: 1 0 140px">
-        <label class="form-label small text-secondary">Signal</label>
-        <select name="signal" class="form-select form-select-sm">
-          <option value="">All signals</option>
-          {% for s in signals %}
-          <option value="{{ s }}" {% if s == signal %}selected{% endif %}>{{ s }}</option>
-          {% endfor %}
-        </select>
-      </div>
+      {{ render_multi_select('source', 'Source', sources, selected_sources, '120px') }}
+      {{ render_multi_select('service', 'Service', services, selected_services, '140px') }}
+      {{ render_multi_select('signal', 'Signal', signals, selected_signals, '140px') }}
       <div style="flex: 1 0 130px">
         <label class="form-label small text-secondary">Attr FP</label>
         <input type="text" name="attr_fp" class="form-control form-control-sm font-monospace" value="{{ attr_fp }}" placeholder="optional">

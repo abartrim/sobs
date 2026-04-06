@@ -10504,9 +10504,12 @@ def _annotate_rows_with_rules(
 @require_basic_auth
 async def view_metrics():
     db = get_db()
-    service = request.args.get("service", "").strip()
-    signal = request.args.get("signal", "").strip()
-    source = request.args.get("source", "").strip()
+    selected_services = [svc.strip() for svc in request.args.getlist("service") if svc.strip()]
+    selected_signals = [sig.strip() for sig in request.args.getlist("signal") if sig.strip()]
+    selected_sources = [src.strip() for src in request.args.getlist("source") if src.strip()]
+    service = selected_services[0] if selected_services else ""
+    signal = selected_signals[0] if selected_signals else ""
+    source = selected_sources[0] if selected_sources else ""
     attr_fp = request.args.get("attr_fp", "").strip()
     from_ts, to_ts, time_error = _parse_time_window_args()
     limit = _parse_limit(100)
@@ -10534,15 +10537,18 @@ async def view_metrics():
 
     where_parts: list[str] = []
     params: list[str] = []
-    if service:
-        where_parts.append("ServiceName = ?")
-        params.append(service)
-    if signal:
-        where_parts.append("SignalName = ?")
-        params.append(signal)
-    if source:
-        where_parts.append("SignalSource = ?")
-        params.append(source)
+    if selected_services:
+        placeholders = ",".join(["?"] * len(selected_services))
+        where_parts.append(f"ServiceName IN ({placeholders})")
+        params.extend(selected_services)
+    if selected_signals:
+        placeholders = ",".join(["?"] * len(selected_signals))
+        where_parts.append(f"SignalName IN ({placeholders})")
+        params.extend(selected_signals)
+    if selected_sources:
+        placeholders = ",".join(["?"] * len(selected_sources))
+        where_parts.append(f"SignalSource IN ({placeholders})")
+        params.extend(selected_sources)
     if attr_fp:
         where_parts.append("AttrFingerprint = ?")
         params.append(attr_fp)
@@ -10631,8 +10637,11 @@ async def view_metrics():
         limit=limit,
         offset=offset,
         service=service,
+        selected_services=selected_services,
         signal=signal,
+        selected_signals=selected_signals,
         source=source,
+        selected_sources=selected_sources,
         attr_fp=attr_fp,
         from_ts=from_ts,
         to_ts=to_ts,
@@ -11547,7 +11556,8 @@ def _build_trace_timeline_segments(
 @require_basic_auth
 async def view_traces():
     db = get_db()
-    service = request.args.get("service", "").strip()
+    selected_services = [svc.strip() for svc in request.args.getlist("service") if svc.strip()]
+    service = selected_services[0] if selected_services else ""
     trace_id = request.args.get("trace_id", "").strip()
     from_ts, to_ts, time_error = _parse_time_window_args()
     limit = _parse_limit(100)
@@ -11565,9 +11575,10 @@ async def view_traces():
 
     conditions = []
     params = []
-    if service:
-        conditions.append("ServiceName=?")
-        params.append(service)
+    if selected_services:
+        placeholders = ",".join(["?"] * len(selected_services))
+        conditions.append(f"ServiceName IN ({placeholders})")
+        params.extend(selected_services)
     if trace_id:
         conditions.append("TraceId=?")
         params.append(trace_id)
@@ -11755,6 +11766,7 @@ async def view_traces():
         limit=limit,
         offset=offset,
         service=service,
+        selected_services=selected_services,
         trace_id=trace_id,
         from_ts=from_ts,
         to_ts=to_ts,
