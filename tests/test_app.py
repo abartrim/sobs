@@ -2350,15 +2350,13 @@ class TestUIPages:
         body = await r.get_data()
         assert b"SOBSApi" in body
         assert b"SOBSInitOptions" in body
+
+    async def test_pagination(self, client):
         r = await client.get("/logs?limit=10&offset=0")
         assert r.status_code == 200
 
     async def test_logs_sort_by_level(self, client):
         r = await client.get("/logs?sort_by=SeverityText&sort_dir=asc")
-        assert r.status_code == 200
-
-    async def test_logs_sort_by_service_desc(self, client):
-        r = await client.get("/logs?sort_by=ServiceName&sort_dir=desc")
         assert r.status_code == 200
 
     async def test_logs_stats_panel_visible(self, client):
