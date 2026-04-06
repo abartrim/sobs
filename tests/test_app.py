@@ -725,7 +725,9 @@ class TestOtlpProtobufIngest:
         resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value=service))])
 
         gauge_dp = NumberDataPoint(time_unix_nano=ts_ns, as_double=75.5)
-        gauge_metric = Metric(name="cpu.usage", description="CPU utilization", unit="%", gauge=Gauge(data_points=[gauge_dp]))
+        gauge_metric = Metric(
+            name="cpu.usage", description="CPU utilization", unit="%", gauge=Gauge(data_points=[gauge_dp])
+        )
 
         sum_dp = NumberDataPoint(
             time_unix_nano=ts_ns,
@@ -827,7 +829,9 @@ class TestOtlpProtobufIngest:
         assert data["accepted"] == 3
 
     async def test_protobuf_invalid_metrics_body_returns_400(self, client):
-        r = await client.post("/v1/metrics", data=b"\xff\xfe garbage metrics", headers={"Content-Type": self.PROTOBUF_CT})
+        r = await client.post(
+            "/v1/metrics", data=b"\xff\xfe garbage metrics", headers={"Content-Type": self.PROTOBUF_CT}
+        )
         assert r.status_code == 400
         assert "error" in json.loads(await r.get_data())
 
