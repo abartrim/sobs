@@ -828,6 +828,46 @@ class TestOtlpProtobufIngest:
         data = json.loads(await r.get_data())
         assert data["accepted"] == 3
 
+    async def test_protobuf_metrics_deflate_ingest_accepted(self, client):
+        """Metrics sent with Content-Encoding: deflate (RFC 9110 supported encoding) are accepted."""
+        import zlib
+
+        body = self._make_metrics_proto_bytes(service="proto-metrics-deflate-svc")
+        compressed = zlib.compress(body)
+        r = await client.post(
+            "/v1/metrics",
+            data=compressed,
+            headers={
+                "Content-Type": self.PROTOBUF_CT,
+                "Content-Encoding": "deflate",
+            },
+        )
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["accepted"] == 3
+
+    async def test_protobuf_metrics_chained_encoding_ingest_accepted(self, client):
+        """Metrics with chained Content-Encoding (e.g. 'gzip, deflate' per RFC 9110) are accepted."""
+        import gzip as _gzip
+        import zlib
+
+        body = self._make_metrics_proto_bytes(service="proto-metrics-chained-svc")
+        # Per RFC 9110, "Content-Encoding: gzip, deflate" means gzip was applied first,
+        # then deflate. So we compress in that order, producing deflate(gzip(body))
+        gzipped = _gzip.compress(body)
+        compressed = zlib.compress(gzipped)
+        r = await client.post(
+            "/v1/metrics",
+            data=compressed,
+            headers={
+                "Content-Type": self.PROTOBUF_CT,
+                "Content-Encoding": "gzip, deflate",
+            },
+        )
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["accepted"] == 3
+
     async def test_protobuf_invalid_metrics_body_returns_400(self, client):
         r = await client.post(
             "/v1/metrics", data=b"\xff\xfe garbage metrics", headers={"Content-Type": self.PROTOBUF_CT}

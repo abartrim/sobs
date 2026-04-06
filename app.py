@@ -7520,6 +7520,7 @@ def _decompress_request_body(raw: bytes, content_encoding: str) -> bytes:
     meaningful message.
     """
     import gzip as _gzip
+    import zlib as _zlib
 
     encodings = [e.strip().lower() for e in (content_encoding or "").split(",") if e.strip()]
     data = raw
@@ -7527,7 +7528,7 @@ def _decompress_request_body(raw: bytes, content_encoding: str) -> bytes:
         if enc == "gzip":
             data = _gzip.decompress(data)
         elif enc == "deflate":
-            data = zlib.decompress(data)
+            data = _zlib.decompress(data)
     return data
 
 
@@ -7567,6 +7568,9 @@ async def _parse_otlp_request(proto_class):
     except Exception as exc:
         app.logger.warning("OTLP json body read/decompress error [%s]: %s", request.path, exc)
         return None, (jsonify({"error": "failed to read request body"}), 400)
+    # Per OTLP spec, JSON ExportMetricsServiceRequest/ExportLogsServiceRequest/ExportTraceServiceRequest
+    # must have a top-level object (dict) with resource_metrics/resource_logs/resource_spans keys.
+    # Arrays and primitives are invalid and must return 400.
     if not isinstance(payload, dict):
         app.logger.warning("OTLP json parse error [%s]: top-level value is not an object", request.path)
         return None, (jsonify({"error": "failed to parse json body"}), 400)
