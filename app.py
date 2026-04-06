@@ -17139,6 +17139,7 @@ async def rum_js():
     response = await send_from_directory(static_dir, "rum.js", mimetype="application/javascript")
     response.headers["ETag"] = f'"{etag}"'
     response.headers["X-SourceMap"] = "rum.js.map"
+    response.headers["SourceMap"] = "rum.js.map"
     return response
 
 

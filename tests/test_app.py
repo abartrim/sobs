@@ -2520,6 +2520,7 @@ class TestUIPages:
         assert r.status_code == 200
         assert r.headers.get("ETag"), "ETag header should be present on rum.js"
         assert r.headers.get("X-SourceMap") == "rum.js.map"
+        assert r.headers.get("SourceMap") == "rum.js.map"
 
     async def test_rum_min_js_served(self, client):
         r = await client.get("/static/rum.min.js")
@@ -2543,6 +2544,10 @@ class TestUIPages:
 
     async def test_logs_sort_by_level(self, client):
         r = await client.get("/logs?sort_by=SeverityText&sort_dir=asc")
+        assert r.status_code == 200
+
+    async def test_logs_sort_by_service_desc(self, client):
+        r = await client.get("/logs?sort_by=ServiceName&sort_dir=desc")
         assert r.status_code == 200
 
     async def test_logs_stats_panel_visible(self, client):

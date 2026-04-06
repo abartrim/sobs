@@ -3,7 +3,7 @@
     "build:rum:dev": "node scripts/build-rum.js dev",
     "build:rum:prod": "node scripts/build-rum.js prod",
     "build:rum": "node scripts/build-rum.js",
-    "typecheck:rum": "node_modules/.bin/tsc --project tsconfig.rum.json"
+    "typecheck:rum": "tsc --project tsconfig.rum.json"
   },
   "dependencies": {
     "bootstrap": "^5.3.8",
