@@ -46,12 +46,12 @@
       <li>
         <button
           type="button"
-          class="dropdown-item px-3 py-2 d-flex align-items-center justify-content-between sobs-multi-select-option{% if opt_value in selected_values %} is-selected{% endif %}"
+          class="dropdown-item px-3 py-2 d-flex align-items-center sobs-multi-select-option{% if opt_value in selected_values %} is-selected{% endif %}"
           data-filter-option="{{ filter_name }}"
           data-option-value="{{ opt_value }}"
           aria-pressed="{{ 'true' if opt_value in selected_values else 'false' }}">
-          <span class="sobs-multi-select-option-text">{{ opt_label }}</span>
           <i class="bi bi-check2 sobs-multi-select-checkmark{% if opt_value in selected_values %} visible{% endif %}" aria-hidden="true"></i>
+          <span class="sobs-multi-select-option-text">{{ opt_label }}</span>
         </button>
       </li>
       {% endfor %}
@@ -352,6 +352,7 @@
     min-width: 100%;
     width: 100%;
     max-width: min(700px, 90vw);
+    margin-left: -0.35rem;
     max-height: min(360px, 60vh);
     overflow-x: auto;
     overflow-y: auto;
@@ -364,12 +365,13 @@
     line-height: 1.5;
     font-weight: 400;
     white-space: nowrap;
+    gap: 0.35rem;
   }
 
   .sobs-multi-select-option-text {
     flex: 1 1 auto;
     min-width: max-content;
-    padding-right: 0.5rem;
+    padding-right: 0.25rem;
   }
 
   .sobs-multi-select-option:hover {
@@ -384,11 +386,15 @@
   }
 
   .sobs-multi-select-checkmark {
+    width: 1rem;
+    min-width: 1rem;
     opacity: 0;
+    color: var(--bs-secondary-color);
   }
 
   .sobs-multi-select-checkmark.visible {
     opacity: 1;
+    color: var(--bs-body-color);
   }
 
   .sobs-filter-submit-dirty {
