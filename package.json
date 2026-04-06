@@ -1,7 +1,17 @@
 {
+  "scripts": {
+    "build:rum:dev": "node scripts/build-rum.js dev",
+    "build:rum:prod": "node scripts/build-rum.js prod",
+    "build:rum": "node scripts/build-rum.js",
+    "typecheck:rum": "node_modules/.bin/tsc --project tsconfig.rum.json"
+  },
   "dependencies": {
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
     "echarts": "^6.0.0"
+  },
+  "devDependencies": {
+    "terser": "^5.46.1",
+    "typescript": "^6.0.2"
   }
 }

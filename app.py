@@ -17034,11 +17034,53 @@ async def api_delete_report(report_id: str):
 # ---------------------------------------------------------------------------
 # Static RUM script
 # ---------------------------------------------------------------------------
+def _rum_etag(path: str) -> str:
+    """Return a hex ETag based on the file content (deterministic cache busting)."""
+    try:
+        with open(path, "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()[:16]
+    except OSError:
+        return "0"
+
+
 @app.route("/static/rum.js")
 async def rum_js():
-    return await send_from_directory(
-        os.path.join(os.path.dirname(__file__), "static"), "rum.js", mimetype="application/javascript"
-    )
+    static_dir = os.path.join(os.path.dirname(__file__), "static")
+    etag = _rum_etag(os.path.join(static_dir, "rum.js"))
+    response = await send_from_directory(static_dir, "rum.js", mimetype="application/javascript")
+    response.headers["ETag"] = f'"{etag}"'
+    response.headers["X-SourceMap"] = "rum.js.map"
+    return response
+
+
+@app.route("/static/rum.js.map")
+async def rum_js_map():
+    static_dir = os.path.join(os.path.dirname(__file__), "static")
+    map_path = os.path.join(static_dir, "rum.js.map")
+    if not os.path.isfile(map_path):
+        return "", 404
+    return await send_from_directory(static_dir, "rum.js.map", mimetype="application/json")
+
+
+@app.route("/static/rum.min.js")
+async def rum_min_js():
+    static_dir = os.path.join(os.path.dirname(__file__), "static")
+    etag = _rum_etag(os.path.join(static_dir, "rum.min.js"))
+    response = await send_from_directory(static_dir, "rum.min.js", mimetype="application/javascript")
+    response.headers["ETag"] = f'"{etag}"'
+    return response
+
+
+@app.route("/static/rum.min.js.map")
+async def rum_min_js_map():
+    static_dir = os.path.join(os.path.dirname(__file__), "static")
+    return await send_from_directory(static_dir, "rum.min.js.map", mimetype="application/json")
+
+
+@app.route("/static/rum.d.ts")
+async def rum_d_ts():
+    static_dir = os.path.join(os.path.dirname(__file__), "static")
+    return await send_from_directory(static_dir, "rum.d.ts", mimetype="text/plain; charset=utf-8")
 
 
 # ---------------------------------------------------------------------------

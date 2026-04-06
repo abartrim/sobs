@@ -18,6 +18,35 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  rum-build:
+    name: RUM JS Build & Type Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Type-check rum.d.ts
+        run: npm run typecheck:rum
+
+      - name: Build rum assets (dev + prod)
+        run: npm run build:rum
+
+      - name: Verify minified output exists
+        run: |
+          test -f static/rum.min.js   || (echo "rum.min.js missing" && exit 1)
+          test -f static/rum.min.js.map || (echo "rum.min.js.map missing" && exit 1)
+          test -f static/rum.js.map   || (echo "rum.js.map missing" && exit 1)
+
   lint:
     name: Code Style & Linting
     runs-on: ubuntu-latest
