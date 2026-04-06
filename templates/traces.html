@@ -536,7 +536,7 @@ body.rum-replay-modal-open #sobsAiPanel {
             <div class="mb-2">
               <div class="small text-secondary mb-1">Error message</div>
               {% if err.message_is_json %}
-              <details class="small rounded p-2 theme-panel" open>
+              <details class="small rounded p-2 theme-panel">
                 <summary class="mb-2" style="cursor:pointer;">Formatted JSON</summary>
                 <pre class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.message_pretty_json }}</pre>
               </details>
@@ -550,7 +550,7 @@ body.rum-replay-modal-open #sobsAiPanel {
             <div class="mb-2">
               <div class="small text-secondary mb-1">Body payload</div>
               {% if err.raw_body_is_json %}
-              <details class="small rounded p-2 theme-panel" open>
+              <details class="small rounded p-2 theme-panel">
                 <summary class="mb-2" style="cursor:pointer;">Formatted JSON</summary>
                 <pre class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.raw_body_pretty_json }}</pre>
               </details>
@@ -564,12 +564,15 @@ body.rum-replay-modal-open #sobsAiPanel {
             <div class="mb-2">
               <div class="small text-secondary mb-1">Stack trace</div>
               {% if err.stack_is_json %}
-              <details class="small rounded p-2 theme-panel" open>
+              <details class="small rounded p-2 theme-panel">
                 <summary class="mb-2" style="cursor:pointer;">Formatted JSON</summary>
                 <pre id="trace-stack-{{ err.id }}" class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.stack_pretty_json }}</pre>
               </details>
               {% else %}
-              <pre id="trace-stack-{{ err.id }}" class="stack-trace rounded p-2">{{ err.stack }}</pre>
+              <details class="small rounded p-2 theme-panel">
+                <summary class="mb-2" style="cursor:pointer;">Stack Trace</summary>
+                <pre id="trace-stack-{{ err.id }}" class="stack-trace rounded p-2 mb-0">{{ err.stack }}</pre>
+              </details>
               {% endif %}
             </div>
             {% endif %}
@@ -1057,6 +1060,11 @@ document.querySelectorAll('.trace-ai-help-btn').forEach(btn => {
       btn.innerHTML = spin();
     }, 2500);
 
+    const setToastVariant = variant => {
+      toastEl.classList.remove('text-bg-success', 'text-bg-danger', 'text-bg-warning');
+      toastEl.classList.add(variant);
+    };
+
     let succeeded = false;
     try {
       const res = await fetch('/api/issues/raise', {
@@ -1065,39 +1073,58 @@ document.querySelectorAll('.trace-ai-help-btn').forEach(btn => {
         body: JSON.stringify(payload),
       });
       clearInterval(phaseTimer);
-      const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ('HTTP ' + res.status));
+      const data = await res.json().catch(() => ({}));
 
-      succeeded = true;
-      if (data.issue_url) {
+      const candidateUrl = String((data && (data.issue_url || data.canonical_issue_url)) || '').trim();
+      if (candidateUrl) {
+        succeeded = true;
         const link = document.createElement('a');
-        link.href = data.issue_url;
+        link.href = candidateUrl;
         link.target = '_blank';
         link.rel = 'noopener';
         link.className = 'btn btn-sm btn-success';
         link.innerHTML = '<i class="bi bi-check2-circle me-1"></i>View issue \u2192';
         btn.replaceWith(link);
         document.getElementById('raiseIssueToastBody').innerHTML =
-          `Issue ready \u2014 <a href="${data.issue_url}" target="_blank" rel="noopener" class="text-white fw-semibold">view on GitHub \u2197</a>`;
-        toastEl.classList.replace('text-bg-danger', 'text-bg-success');
+          `Issue ready \u2014 <a href="${candidateUrl}" target="_blank" rel="noopener" class="text-white fw-semibold">view on GitHub \u2197</a>`;
+        setToastVariant('text-bg-success');
         toast.show();
-        window.open(data.issue_url, '_blank', 'noopener');
-      } else {
-        btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Recorded';
-        btn.classList.replace('btn-outline-danger', 'btn-secondary');
-        btn.disabled = true;
-        document.getElementById('raiseIssueToastBody').textContent =
-          'Recorded \u2014 no issue URL returned (may be rate-limited or dedupe-suppressed).';
-        toastEl.classList.replace('text-bg-danger', 'text-bg-success');
-        toast.show();
+        window.open(candidateUrl, '_blank', 'noopener');
+        return;
       }
+
+      if (!res.ok || !data.ok) {
+        const dedupDecision = String((data && data.dedup_decision) || '').toLowerCase();
+        const isBlocked = res.status === 429 || dedupDecision === 'suppressed_rate_limit';
+        if (isBlocked) {
+          succeeded = true;
+          btn.innerHTML = '<i class="bi bi-slash-circle me-1"></i>Blocked';
+          btn.classList.replace('btn-outline-danger', 'btn-secondary');
+          btn.disabled = true;
+          document.getElementById('raiseIssueToastBody').textContent =
+            (data && data.error) ? String(data.error) : 'Issue creation blocked by current policy limits.';
+          setToastVariant('text-bg-warning');
+          toast.show();
+          return;
+        }
+        throw new Error((data && data.error) ? data.error : ('HTTP ' + res.status));
+      }
+
+      succeeded = true;
+      btn.innerHTML = '<i class="bi bi-slash-circle me-1"></i>Blocked';
+      btn.classList.replace('btn-outline-danger', 'btn-secondary');
+      btn.disabled = true;
+      document.getElementById('raiseIssueToastBody').textContent =
+        'Issue was suppressed or no link was returned. No new GitHub issue was created.';
+      setToastVariant('text-bg-warning');
+      toast.show();
     } catch (e) {
       clearInterval(phaseTimer);
       btn.innerHTML = originalHtml;
       document.getElementById('raiseIssueToastBody').textContent = 'Could not raise issue: ' + e.message;
-      toastEl.classList.replace('text-bg-success', 'text-bg-danger');
+      setToastVariant('text-bg-danger');
       toast.show();
-      setTimeout(() => toastEl.classList.replace('text-bg-danger', 'text-bg-success'), 7000);
+      setTimeout(() => setToastVariant('text-bg-success'), 7000);
     } finally {
       if (!succeeded) btn.disabled = false;
     }

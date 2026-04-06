@@ -31,7 +31,7 @@ from collections import Counter, OrderedDict
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from functools import wraps
+from functools import lru_cache, wraps
 from typing import Any, Callable, cast
 
 import chdb.dbapi as chdb_driver
@@ -1307,11 +1307,19 @@ _write_worker_lock = threading.Lock()
 _log_attr_keys_lock = threading.Lock()
 _log_attr_keys_cache_loaded = False
 _log_attr_keys_by_record_type: dict[str, set[str]] = {"log": set()}
+_work_items_cache_lock = threading.Lock()
+_work_items_page_cache: dict[tuple[str, str, str, str, str, str, int, int], dict[str, Any]] = {}
+_work_items_filter_cache: dict[str, Any] = {"expires_at": 0.0, "services": [], "rules": []}
+_errors_cache_lock = threading.Lock()
+_errors_services_cache: dict[str, Any] = {"expires_at": 0.0, "services": []}
 
 WRITE_QUEUE_MAX = int(os.environ.get("SOBS_WRITE_QUEUE_MAX", 5000))
 WRITE_BATCH_MAX = int(os.environ.get("SOBS_WRITE_BATCH_MAX", 200))
 WRITE_BATCH_WAIT_MS = int(os.environ.get("SOBS_WRITE_BATCH_WAIT_MS", 20))
 LOG_ATTR_KEYS_MAX = int(os.environ.get("SOBS_LOG_ATTR_KEYS_MAX", 20000))
+WORK_ITEMS_PAGE_CACHE_TTL_SEC = int(os.environ.get("SOBS_WORK_ITEMS_PAGE_CACHE_TTL_SEC", "10"))
+WORK_ITEMS_FILTER_CACHE_TTL_SEC = int(os.environ.get("SOBS_WORK_ITEMS_FILTER_CACHE_TTL_SEC", "30"))
+ERRORS_SERVICES_CACHE_TTL_SEC = int(os.environ.get("SOBS_ERRORS_SERVICES_CACHE_TTL_SEC", "30"))
 
 
 @dataclass
@@ -8387,8 +8395,9 @@ def _compact_text(value: str, limit: int = 220) -> str:
     return text[: max(0, limit - 1)].rstrip() + "..."
 
 
-def _try_pretty_json_text(value: str) -> tuple[bool, str]:
-    raw = str(value or "").strip()
+@lru_cache(maxsize=4096)
+def _try_pretty_json_text(raw_value: str) -> tuple[bool, str]:
+    raw = str(raw_value or "").strip()
     if not raw or raw[:1] not in ("{", "["):
         return False, ""
     try:
@@ -10931,11 +10940,13 @@ def _load_work_item_links_for_ref_ids(db: ChDbConnection, ref_ids: list[str]) ->
     ref_set = {str(r) for r in ref_ids if r}
     if not ref_set:
         return {}
+    placeholders = ", ".join(["?"] * len(ref_set))
     rows = db.execute(
         "SELECT AnomalyRuleId, IssueUrl, CanonicalIssueUrl, IssueNumber, IssueState "
         "FROM sobs_github_work_items FINAL "
-        "WHERE IsDeleted=0 AND IssueUrl != '' AND AnomalyRuleId != '' "
-        "ORDER BY CreatedAt DESC LIMIT 2000",
+        f"WHERE IsDeleted=0 AND IssueUrl != '' AND AnomalyRuleId IN ({placeholders}) "
+        "ORDER BY CreatedAt DESC",
+        list(ref_set),
     ).fetchall()
     result: dict[str, dict] = {}
     for row in rows:
@@ -11011,12 +11022,24 @@ async def view_errors():
                 total += 1
             scan_offset += scan_batch
 
-    services = [
-        row[0]
-        for row in db.execute(
-            "SELECT DISTINCT ServiceName FROM (" + ERROR_SOURCES_SQL + ") WHERE ServiceName!='' ORDER BY ServiceName"
-        ).fetchall()
-    ]
+    now = time.time()
+    services: list[str] = []
+    with _errors_cache_lock:
+        if float(_errors_services_cache.get("expires_at", 0.0)) > now:
+            services = list(_errors_services_cache.get("services", []))
+
+    if not services:
+        services = [
+            row[0]
+            for row in db.execute(
+                "SELECT DISTINCT ServiceName FROM ("
+                + ERROR_SOURCES_SQL
+                + ") WHERE ServiceName!='' ORDER BY ServiceName"
+            ).fetchall()
+        ]
+        with _errors_cache_lock:
+            _errors_services_cache["services"] = list(services)
+            _errors_services_cache["expires_at"] = now + max(1, ERRORS_SERVICES_CACHE_TTL_SEC)
 
     work_item_links = _load_work_item_links_for_ref_ids(db, [e["id"] for e in errors])
 
@@ -13373,37 +13396,76 @@ async def view_work_items():
     total_items = 0
     services = set()
     rules = set()
+    limit = _parse_limit(100)
+    offset = _parse_offset()
+    cache_key = (
+        service_filter,
+        rule_filter,
+        action_type_filter,
+        status_filter,
+        str(from_ts or ""),
+        str(to_ts or ""),
+        int(limit),
+        int(offset),
+    )
+    now = time.time()
 
     try:
         settings = _load_all_ai_settings(db)
-        await _maybe_backfill_github_work_item_links(db, settings)
+        # Backfill may call multiple GitHub APIs; run it in the background so
+        # page rendering is not blocked on network latency.
+        asyncio.create_task(_maybe_backfill_github_work_item_links(db, settings))
 
-        # Get total count
-        count_row = db.execute(
-            f"SELECT count() AS c FROM sobs_github_work_items FINAL {where_clause}", params
-        ).fetchone()
-        total_items = int(count_row["c"]) if count_row else 0
+        page_cache_hit = False
+        with _work_items_cache_lock:
+            cached_page = _work_items_page_cache.get(cache_key)
+            if cached_page and float(cached_page.get("expires_at", 0.0)) > now:
+                total_items = int(cached_page.get("total_items", 0))
+                items = list(cached_page.get("items", []))
+                page_cache_hit = True
 
-        # Get paginated results
-        limit = _parse_limit(100)
-        offset = _parse_offset()
-        rows = db.execute(
-            f"SELECT * FROM sobs_github_work_items FINAL {where_clause} "
-            f"ORDER BY CreatedAt DESC LIMIT {limit} OFFSET {offset}",
-            params,
-        ).fetchall()
-        items = [_serialize_github_work_item_row(r) for r in rows]
+        if not page_cache_hit:
+            count_row = db.execute(
+                f"SELECT count() AS c FROM sobs_github_work_items FINAL {where_clause}", params
+            ).fetchone()
+            total_items = int(count_row["c"]) if count_row else 0
 
-        # Get all unique services and rules for filter dropdowns
-        all_services = db.execute(
-            "SELECT DISTINCT ServiceName FROM sobs_github_work_items FINAL WHERE IsDeleted=0 ORDER BY ServiceName"
-        ).fetchall()
-        services = {str(r["ServiceName"]) for r in all_services if r["ServiceName"]}
+            rows = db.execute(
+                f"SELECT * FROM sobs_github_work_items FINAL {where_clause} "
+                f"ORDER BY CreatedAt DESC LIMIT {limit} OFFSET {offset}",
+                params,
+            ).fetchall()
+            items = [_serialize_github_work_item_row(r) for r in rows]
+            with _work_items_cache_lock:
+                _work_items_page_cache[cache_key] = {
+                    "total_items": total_items,
+                    "items": items,
+                    "expires_at": now + max(1, WORK_ITEMS_PAGE_CACHE_TTL_SEC),
+                }
 
-        all_rules = db.execute(
-            "SELECT DISTINCT AgentRuleName FROM sobs_github_work_items FINAL WHERE IsDeleted=0 ORDER BY AgentRuleName"
-        ).fetchall()
-        rules = {str(r["AgentRuleName"]) for r in all_rules if r["AgentRuleName"]}
+        filter_cache_hit = False
+        with _work_items_cache_lock:
+            if float(_work_items_filter_cache.get("expires_at", 0.0)) > now:
+                services = set(_work_items_filter_cache.get("services", []))
+                rules = set(_work_items_filter_cache.get("rules", []))
+                filter_cache_hit = True
+
+        if not filter_cache_hit:
+            all_services = db.execute(
+                "SELECT DISTINCT ServiceName FROM sobs_github_work_items FINAL "
+                "WHERE IsDeleted=0 ORDER BY ServiceName"
+            ).fetchall()
+            services = {str(r["ServiceName"]) for r in all_services if r["ServiceName"]}
+
+            all_rules = db.execute(
+                "SELECT DISTINCT AgentRuleName FROM sobs_github_work_items FINAL "
+                "WHERE IsDeleted=0 ORDER BY AgentRuleName"
+            ).fetchall()
+            rules = {str(r["AgentRuleName"]) for r in all_rules if r["AgentRuleName"]}
+            with _work_items_cache_lock:
+                _work_items_filter_cache["services"] = sorted(services)
+                _work_items_filter_cache["rules"] = sorted(rules)
+                _work_items_filter_cache["expires_at"] = now + max(1, WORK_ITEMS_FILTER_CACHE_TTL_SEC)
     except Exception as exc:
         app.logger.warning("Error loading work items: %s", exc)
 

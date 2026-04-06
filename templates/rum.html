@@ -1072,7 +1072,10 @@
                     {% if ev.data.get('stack') %}
                     <div class="mb-3">
                       <div class="text-secondary mb-1">Stack Trace</div>
-                      <pre class="rum-detail-pre rounded p-2 mb-0">{{ ev.data.get('stack') }}</pre>
+                      <details>
+                        <summary class="small text-secondary">Stack</summary>
+                        <pre class="rum-detail-pre rounded p-2 mt-1 mb-0">{{ ev.data.get('stack') }}</pre>
+                      </details>
                     </div>
                     {% endif %}
 
@@ -1330,7 +1333,10 @@
             {% if ev.data.get('stack') %}
             <div class="mb-3">
               <div class="text-secondary mb-1">Stack Trace</div>
-              <pre class="rum-detail-pre rounded p-2 mb-0">{{ ev.data.get('stack') }}</pre>
+              <details>
+                <summary class="small text-secondary">Stack</summary>
+                <pre class="rum-detail-pre rounded p-2 mt-1 mb-0">{{ ev.data.get('stack') }}</pre>
+              </details>
             </div>
             {% endif %}
 
