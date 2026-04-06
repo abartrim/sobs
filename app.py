@@ -9,7 +9,6 @@ import asyncio
 import atexit
 import base64
 import copy
-import gzip
 import hashlib
 import hmac
 import html
@@ -7508,6 +7507,37 @@ _PROTOBUF_CONTENT_TYPE = "application/x-protobuf"
 _MAX_DECOMPRESSED_BODY_BYTES = 32 * 1024 * 1024
 
 
+def _decompress_with_limit(raw: bytes, *, wbits: int) -> bytes:
+    """Incrementally decompress *raw* and enforce ``_MAX_DECOMPRESSED_BODY_BYTES``.
+
+    Using ``gzip.decompress``/``zlib.decompress`` can allocate the full decoded
+    output before we can validate size. This helper streams decompression in
+    chunks and raises ``ValueError`` as soon as the cap is exceeded.
+    """
+    decompressor = zlib.decompressobj(wbits)
+    output_parts: list[bytes] = []
+    total = 0
+    chunk_size = 64 * 1024
+
+    for start in range(0, len(raw), chunk_size):
+        remaining = _MAX_DECOMPRESSED_BODY_BYTES - total
+        piece = decompressor.decompress(raw[start : start + chunk_size], remaining + 1)
+        total += len(piece)
+        if total > _MAX_DECOMPRESSED_BODY_BYTES:
+            raise ValueError(f"decompressed body exceeds {_MAX_DECOMPRESSED_BODY_BYTES} bytes")
+        if piece:
+            output_parts.append(piece)
+
+    remaining = _MAX_DECOMPRESSED_BODY_BYTES - total
+    tail = decompressor.flush(remaining + 1)
+    total += len(tail)
+    if total > _MAX_DECOMPRESSED_BODY_BYTES:
+        raise ValueError(f"decompressed body exceeds {_MAX_DECOMPRESSED_BODY_BYTES} bytes")
+    if tail:
+        output_parts.append(tail)
+    return b"".join(output_parts)
+
+
 def _decompress_request_body(raw: bytes, content_encoding: str) -> bytes:
     """Decompress a request body according to its Content-Encoding.
 
@@ -7530,10 +7560,14 @@ def _decompress_request_body(raw: bytes, content_encoding: str) -> bytes:
     data = raw
     for enc in reversed(encodings):
         if enc == "gzip":
-            data = gzip.decompress(data)
+            data = _decompress_with_limit(data, wbits=16 + zlib.MAX_WBITS)
         elif enc == "deflate":
-            data = zlib.decompress(data)
-        if len(data) > _MAX_DECOMPRESSED_BODY_BYTES:
+            # Some senders use raw deflate (no zlib wrapper). Accept both.
+            try:
+                data = _decompress_with_limit(data, wbits=zlib.MAX_WBITS)
+            except zlib.error:
+                data = _decompress_with_limit(data, wbits=-zlib.MAX_WBITS)
+        elif len(data) > _MAX_DECOMPRESSED_BODY_BYTES:
             raise ValueError(f"decompressed body exceeds {_MAX_DECOMPRESSED_BODY_BYTES} bytes")
     return data
 
