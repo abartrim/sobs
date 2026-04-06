@@ -52,6 +52,21 @@
       (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
   }
 
+  // Convert a 256-color cube index (0-5) to an sRGB channel value.
+  function cube6(i) { return i === 0 ? 0 : 55 + i * 40; }
+
+  // Convert a 256-color palette index to an 'rgb(r,g,b)' string.
+  // Returns null for indices 0-15 so that theme-aware FG/BG_COLORS tables are used instead.
+  function ansi256ToRgb(idx) {
+    if (idx < 16) { return null; }
+    if (idx < 232) {
+      var n = idx - 16;
+      return 'rgb(' + cube6(Math.floor(n / 36)) + ',' + cube6(Math.floor((n % 36) / 6)) + ',' + cube6(n % 6) + ')';
+    }
+    var gray = 8 + (idx - 232) * 10;
+    return 'rgb(' + gray + ',' + gray + ',' + gray + ')';
+  }
+
   // Parse ANSI SGR escape sequences into an array of styled text segments.
   // Each segment: { text, fg, bg, fgRgb, bgRgb, bold, dim, italic, underline }
   function parseAnsi(text) {
@@ -113,10 +128,16 @@
             state.fg = code; state.fgRgb = null;
           } else if (code === 38 && j + 1 < codes.length) {
             if (codes[j + 1] === 5 && j + 2 < codes.length) {
-              // 256-color fg: 38;5;n — map only the 16 standard entries
+              // 256-color fg: 38;5;n
               var idx = codes[j + 2];
-              if (idx < 8) { state.fg = 30 + idx; } else if (idx < 16) { state.fg = 90 + (idx - 8); }
-              state.fgRgb = null;
+              var rgb256 = ansi256ToRgb(idx);
+              if (rgb256) {
+                state.fgRgb = rgb256; state.fg = null;
+              } else if (idx < 8) {
+                state.fg = 30 + idx; state.fgRgb = null;
+              } else {
+                state.fg = 90 + (idx - 8); state.fgRgb = null;
+              }
               j += 2;
             } else if (codes[j + 1] === 2 && j + 4 < codes.length) {
               // True-color fg: 38;2;r;g;b
@@ -130,9 +151,16 @@
             state.bg = code; state.bgRgb = null;
           } else if (code === 48 && j + 1 < codes.length) {
             if (codes[j + 1] === 5 && j + 2 < codes.length) {
-              var idx = codes[j + 2];
-              if (idx < 8) { state.bg = 40 + idx; } else if (idx < 16) { state.bg = 100 + (idx - 8); }
-              state.bgRgb = null;
+              // 256-color bg: 48;5;n
+              idx = codes[j + 2];
+              var bgRgb256 = ansi256ToRgb(idx);
+              if (bgRgb256) {
+                state.bgRgb = bgRgb256; state.bg = null;
+              } else if (idx < 8) {
+                state.bg = 40 + idx; state.bgRgb = null;
+              } else {
+                state.bg = 100 + (idx - 8); state.bgRgb = null;
+              }
               j += 2;
             } else if (codes[j + 1] === 2 && j + 4 < codes.length) {
               state.bgRgb = 'rgb(' + codes[j + 2] + ',' + codes[j + 3] + ',' + codes[j + 4] + ')';
