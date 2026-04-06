@@ -4,11 +4,45 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
   <div>
     <h4 class="fw-semibold mb-1">Kubernetes Health Setup</h4>
-    <p class="text-secondary mb-0">Deploy in-cluster OpenTelemetry collectors to observe your Kubernetes cluster health via standard OTEL signals.</p>
+    <p class="text-secondary mb-0">Populate the Kubernetes dashboard using either OTEL-native collectors or a Prometheus scraping setup (kube-state-metrics + cAdvisor).</p>
   </div>
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_kubernetes') }}">
     <i class="bi bi-arrow-left me-1"></i>Back to Health View
   </a>
+</div>
+
+<!-- Deployment path selector -->
+<div class="row g-3 mb-4">
+  <div class="col-lg-6">
+    <div class="card border-info h-100">
+      <div class="card-header fw-semibold text-info">
+        <i class="bi bi-diagram-3 me-1"></i>Option A — OTEL-Native Collectors
+      </div>
+      <div class="card-body small">
+        <p class="text-secondary mb-2">Full OTEL reference architecture with <code>kubeletstats</code>, <code>k8s_cluster</code>, and <code>hostmetrics</code> receivers. Emits <code>k8s.*</code> metric names.</p>
+        <ul class="text-secondary ps-3 mb-0">
+          <li>Requires deploying an OTEL Collector Deployment + DaemonSet</li>
+          <li>Helm-based, works with <code>otel/opentelemetry-collector-contrib</code></li>
+          <li>Metric names: <code>k8s.node.condition_ready</code>, <code>k8s.pod.status_ready</code>, etc.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card border-success h-100">
+      <div class="card-header fw-semibold text-success">
+        <i class="bi bi-graph-up me-1"></i>Option B — Prometheus Scraping (kube-state-metrics + cAdvisor)
+      </div>
+      <div class="card-body small">
+        <p class="text-secondary mb-2">Simpler setup using a single OTEL collector with a Prometheus receiver that scrapes existing Kubernetes exporters.</p>
+        <ul class="text-secondary ps-3 mb-0">
+          <li>Works with <code>kube-state-metrics</code>, <code>kubelet /metrics/cadvisor</code>, <code>node-exporter</code></li>
+          <li>Metric names: <code>kube_node_status_condition</code>, <code>kube_pod_status_phase</code>, etc.</li>
+          <li>Auto-detected — no configuration change needed in SOBS</li>
+        </ul>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Quick-start cards -->
@@ -31,9 +65,9 @@
       <div class="card-body">
         <h6 class="mb-2"><i class="bi bi-check-circle me-1 text-success"></i>What You Get</h6>
         <ul class="small text-secondary mb-0 ps-3">
-          <li>Node status & readiness (from kubeletstats)</li>
-          <li>Pod phases & restart counts (from hostmetrics)</li>
-          <li>Deployment desired/ready replicas (from k8s_cluster)</li>
+          <li>Node status &amp; readiness</li>
+          <li>Pod phases &amp; restart counts</li>
+          <li>Deployment desired/ready replicas</li>
           <li>Namespace-level resource aggregates</li>
         </ul>
       </div>
@@ -41,10 +75,10 @@
   </div>
 </div>
 
-<!-- Setup instructions -->
-<div class="card border-secondary mb-4">
-  <div class="card-header fw-semibold">
-    <i class="bi bi-list-check me-2"></i>Installation Steps
+<!-- Option A: OTEL-native setup -->
+<div class="card border-info mb-4">
+  <div class="card-header fw-semibold text-info">
+    <i class="bi bi-list-check me-2"></i>Option A — OTEL-Native Collector Setup
   </div>
   <div class="card-body">
     <ol class="small">
@@ -83,6 +117,44 @@
   </div>
 </div>
 
+<!-- Option B: Prometheus scraping setup -->
+<div class="card border-success mb-4">
+  <div class="card-header fw-semibold text-success">
+    <i class="bi bi-list-check me-2"></i>Option B — Prometheus Scraping Setup (Simpler)
+  </div>
+  <div class="card-body">
+    <p class="small text-secondary mb-3">
+      If you already have <strong>kube-state-metrics</strong> and <strong>kubelet/cAdvisor</strong> running in your cluster,
+      a single OTEL collector with a <code>prometheus</code> receiver can scrape them and forward to SOBS.
+      SOBS auto-detects Prometheus-format metrics and adjusts queries accordingly — no extra configuration needed.
+    </p>
+    <ol class="small">
+      <li class="mb-3">
+        <strong>Install kube-state-metrics (if not already present):</strong>
+        <div class="bg-dark p-2 rounded-1 font-monospace mt-1"><code class="text-light">helm repo add prometheus-community https://prometheus-community.github.io/helm-charts<br>helm install kube-state-metrics prometheus-community/kube-state-metrics -n kube-system</code></div>
+      </li>
+      <li class="mb-3">
+        <strong>Deploy a single OTEL collector with Prometheus receiver:</strong>
+        <div class="bg-dark p-2 rounded-1 font-monospace mt-1"><code class="text-light">kubectl apply -f k8s/otel-prometheus-receiver.yaml</code></div>
+        <p class="text-secondary mt-1 mb-0">See the reference manifest below for a minimal working configuration.</p>
+      </li>
+      <li class="mb-3">
+        <strong>Enable in SOBS:</strong>
+        <ul class="small mt-2 ps-3 mb-0">
+          <li>Navigate to <strong>Settings → Kubernetes</strong></li>
+          <li>Check <strong>"Enable Kubernetes Health View"</strong> and save</li>
+          <li>SOBS will auto-detect Prometheus metric names and populate the dashboard</li>
+        </ul>
+      </li>
+    </ol>
+    <div class="alert alert-success small py-2 mb-0">
+      <i class="bi bi-info-circle me-1"></i>
+      SOBS checks for OTEL-native metrics first. If none are found, it automatically falls back to querying
+      Prometheus-style <code>kube_*</code> metric names. No configuration flag is needed.
+    </div>
+  </div>
+</div>
+
 <!-- Architecture explanation -->
 <div class="card border-secondary mb-4">
   <div class="card-header fw-semibold">
@@ -91,7 +163,7 @@
   <div class="card-body small">
     <div class="row g-3">
       <div class="col-md-6">
-        <h6 class="fw-semibold mb-2 text-info">Cluster-Wide Deployment (Single Pod)</h6>
+        <h6 class="fw-semibold mb-2 text-info">OTEL-Native: Cluster-Wide Deployment (Single Pod)</h6>
         <p class="text-secondary mb-2">Runs once in the cluster (in the OpenTelemetry Collector namespace).</p>
         <ul class="text-secondary ps-3">
           <li><strong>kubernetesAttributes:</strong> Enriches all signals with pod/node/cluster context</li>
@@ -100,18 +172,18 @@
         </ul>
       </div>
       <div class="col-md-6">
-        <h6 class="fw-semibold mb-2 text-info">Node-Level DaemonSet (One Pod Per Node)</h6>
-        <p class="text-secondary mb-2">Runs on every node in the cluster (via DaemonSet).</p>
+        <h6 class="fw-semibold mb-2 text-success">Prometheus: Single Collector with Prometheus Receiver</h6>
+        <p class="text-secondary mb-2">Scrapes existing Kubernetes exporters and forwards to SOBS via OTLP.</p>
         <ul class="text-secondary ps-3">
-          <li><strong>kubeletMetrics:</strong> Reads pod resource usage (CPU, memory) directly from kubelet</li>
-          <li><strong>hostMetrics:</strong> Collects host-level metrics (disk, network, processes)</li>
-          <li><strong>Container Logs:</strong> Gathers logs from running containers via CRI runtime</li>
+          <li><strong>kube-state-metrics:</strong> Deployment/pod/node/namespace state &amp; counts</li>
+          <li><strong>kubelet /metrics/cadvisor:</strong> Container CPU, memory, network usage</li>
+          <li><strong>node-exporter:</strong> Node-level OS metrics (optional)</li>
         </ul>
       </div>
     </div>
     <div class="mt-3 p-3 bg-dark rounded-1">
-      <div class="small text-secondary mb-2"><strong>Data Flow:</strong></div>
-      <div class="font-monospace text-light small">Kubernetes API ← Collectors → OTLP HTTP (port 4318) → SOBS ClickHouse</div>
+      <div class="small text-secondary mb-2"><strong>Data Flow (Prometheus path):</strong></div>
+      <div class="font-monospace text-light small">kube-state-metrics + cAdvisor → OTEL Prometheus receiver → OTLP HTTP (port 4318) → SOBS ClickHouse</div>
     </div>
   </div>
 </div>
@@ -126,30 +198,50 @@
       <thead>
         <tr>
           <th>Dashboard Section</th>
-          <th>Data Source</th>
-          <th>OTEL Signal</th>
+          <th>OTEL-Native Metric</th>
+          <th>Prometheus Equivalent</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td class="fw-semibold">Nodes</td>
-          <td><code class="small">kubeletstats</code> on each node</td>
+          <td class="fw-semibold">Nodes — ready</td>
           <td><code class="text-info small">k8s.node.condition_ready</code></td>
+          <td><code class="text-success small">kube_node_status_condition{condition="Ready",status="true"}</code></td>
         </tr>
         <tr>
-          <td class="fw-semibold">Pods</td>
-          <td><code class="small">kubeletMetrics</code> + <code class="small">container logs</code></td>
-          <td><code class="text-info small">k8s.pod.name</code>, <code class="text-info small">k8s.container.restart_count</code></td>
+          <td class="fw-semibold">Nodes — memory</td>
+          <td><code class="text-info small">k8s.node.memory.usage</code></td>
+          <td><code class="text-success small">kube_node_status_allocatable{resource="memory"}</code></td>
+        </tr>
+        <tr>
+          <td class="fw-semibold">Pods — phase</td>
+          <td><code class="text-info small">k8s.pod.phase</code> attribute</td>
+          <td><code class="text-success small">kube_pod_status_phase{phase="Running"}</code> (value=1)</td>
+        </tr>
+        <tr>
+          <td class="fw-semibold">Pods — ready</td>
+          <td><code class="text-info small">k8s.pod.status_ready</code></td>
+          <td><code class="text-success small">kube_pod_status_ready{condition="true"}</code></td>
+        </tr>
+        <tr>
+          <td class="fw-semibold">Pods — memory</td>
+          <td><code class="text-info small">k8s.pod.memory.usage</code></td>
+          <td><code class="text-success small">container_memory_working_set_bytes</code></td>
+        </tr>
+        <tr>
+          <td class="fw-semibold">Pods — restarts</td>
+          <td><code class="text-info small">k8s.container.restart_count</code></td>
+          <td><code class="text-success small">kube_pod_container_status_restarts_total</code></td>
         </tr>
         <tr>
           <td class="fw-semibold">Deployments</td>
-          <td><code class="small">clusterMetrics</code> + <code class="small">kubernetesEvents</code></td>
-          <td><code class="text-info small">k8s.deployment.name</code>, <code class="text-info small">k8s.container.ready</code></td>
+          <td><code class="text-info small">k8s.deployment.desired</code> / <code class="text-info small">ready</code></td>
+          <td><code class="text-success small">kube_deployment_spec_replicas</code> / <code class="text-success small">kube_deployment_status_replicas_ready</code></td>
         </tr>
         <tr>
           <td class="fw-semibold">Namespaces</td>
-          <td><code class="small">clusterMetrics</code></td>
-          <td><code class="text-info small">k8s.namespace.name</code></td>
+          <td><code class="text-info small">k8s.namespace.name</code> attribute</td>
+          <td><code class="text-success small">kube_namespace_status_phase</code></td>
         </tr>
       </tbody>
     </table>
@@ -178,15 +270,19 @@
         </div>
       </div>
       <div class="col-md-6">
+        <h6 class="mb-2 text-warning">Metrics arriving but dashboard empty?</h6>
+        <p class="text-secondary mb-2">Verify the metric names present in SOBS via SQL:</p>
+        <div class="bg-dark p-2 rounded-1 font-monospace text-light">
+          <code>SELECT DISTINCT MetricName FROM default.otel_metrics_gauge WHERE MetricName LIKE 'kube_%' LIMIT 20</code>
+        </div>
+        <p class="text-secondary mt-1 mb-0">If you see <code>kube_*</code> names, SOBS should auto-detect the Prometheus format.</p>
+      </div>
+      <div class="col-md-6">
         <h6 class="mb-2 text-warning">Wrong SOBS endpoint?</h6>
         <p class="text-secondary mb-2">Update the Helm values <code>endpoint</code> field and upgrade:</p>
         <div class="bg-dark p-2 rounded-1 font-monospace text-light">
           <code>helm upgrade sobs-k8s-deployment ... --set-string endpoint=http://your-sobs-ip:4318</code>
         </div>
-      </div>
-      <div class="col-md-6">
-        <h6 class="mb-2 text-warning">Settings page doesn't show it enabled?</h6>
-        <p class="text-secondary mb-2">Check that SOBS is receiving metrics and has processed them. Initial data flow takes 30-60s.</p>
       </div>
     </div>
   </div>
@@ -203,7 +299,7 @@
         <h2 class="accordion-header">
           <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#deploymentManifest" aria-expanded="true">
             <i class="bi bi-diagram-2 me-2" style="color: #0d6efd;"></i>
-            <strong>Cluster-Wide Deployment (<code>otel-k8s-deployment.yaml</code>)</strong>
+            <strong>Option A: Cluster-Wide Deployment (<code>otel-k8s-deployment.yaml</code>)</strong>
           </button>
         </h2>
         <div id="deploymentManifest" class="accordion-collapse collapse show" data-bs-parent="#manifestAccordion">
@@ -245,7 +341,7 @@ service:
         <h2 class="accordion-header">
           <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#daemonsetManifest">
             <i class="bi bi-layers me-2" style="color: #198754;"></i>
-            <strong>Node-Level DaemonSet (<code>otel-k8s-daemonset.yaml</code>)</strong>
+            <strong>Option A: Node-Level DaemonSet (<code>otel-k8s-daemonset.yaml</code>)</strong>
           </button>
         </h2>
         <div id="daemonsetManifest" class="accordion-collapse collapse" data-bs-parent="#manifestAccordion">
@@ -302,6 +398,82 @@ service:
       receivers: [otlp]
       processors: [batch]
       exporters: [otlphttp/sobs]</code></pre>
+          </div>
+        </div>
+      </div>
+      <div class="accordion-item border-0">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#prometheusManifest">
+            <i class="bi bi-graph-up me-2" style="color: #198754;"></i>
+            <strong>Option B: Prometheus Receiver Collector (<code>otel-prometheus-receiver.yaml</code>)</strong>
+          </button>
+        </h2>
+        <div id="prometheusManifest" class="accordion-collapse collapse" data-bs-parent="#manifestAccordion">
+          <div class="accordion-body p-0">
+            <pre class="bg-dark text-light p-3 mb-0 rounded-bottom"><code class="small">apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: observability
+data:
+  config.yaml: |
+    receivers:
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: kube-state-metrics
+              static_configs:
+                - targets: ['kube-state-metrics.kube-system.svc:8080']
+            - job_name: kubelet-cadvisor
+              scheme: https
+              tls_config:
+                insecure_skip_verify: true
+              bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+              kubernetes_sd_configs:
+                - role: node
+              relabel_configs:
+                - replacement: /metrics/cadvisor
+                  target_label: __metrics_path__
+
+    exporters:
+      otlphttp/sobs:
+        endpoint: http://sobs:4318
+        compression: gzip
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [prometheus]
+          processors: [batch]
+          exporters: [otlphttp/sobs]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      serviceAccountName: otel-collector
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector-contrib:0.123.0
+          args: ["--config=/conf/config.yaml"]
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config</code></pre>
           </div>
         </div>
       </div>

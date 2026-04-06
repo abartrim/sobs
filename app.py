@@ -23225,6 +23225,37 @@ def _k8s_settings_from_form(form: "dict[str, str]") -> dict[str, str]:
     return {"kubernetes.enabled": "1" if form.get("enabled") == "1" else "0"}
 
 
+_K8S_PROM_METRIC_NAMES = (
+    "kube_node_status_condition",
+    "kube_pod_status_ready",
+    "kube_deployment_spec_replicas",
+)
+
+_K8S_OTEL_ATTR = "k8s.node.name"
+
+
+def _detect_k8s_metric_format(db: "ChDbConnection") -> str:
+    """Return 'otel', 'prometheus', or 'none' based on which k8s metric names are present."""
+    try:
+        otel_row = db.execute(
+            f"SELECT count() AS cnt FROM otel_metrics_gauge WHERE Attributes['{_K8S_OTEL_ATTR}'] != '' LIMIT 1"
+        ).fetchone()
+        if int((otel_row or {}).get("cnt") or 0) > 0:
+            return "otel"
+    except Exception:
+        pass
+    try:
+        prom_names = ", ".join(f"'{n}'" for n in _K8S_PROM_METRIC_NAMES)
+        prom_row = db.execute(
+            f"SELECT count() AS cnt FROM otel_metrics_gauge WHERE MetricName IN ({prom_names}) LIMIT 1"
+        ).fetchone()
+        if int((prom_row or {}).get("cnt") or 0) > 0:
+            return "prometheus"
+    except Exception:
+        pass
+    return "none"
+
+
 def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build Kubernetes status from OTEL metric tables only."""
     query = query or {}
@@ -23326,217 +23357,509 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
     }
     errors: list[str] = []
 
-    try:
-        node_conditions = ["Attributes['k8s.node.name'] != ''"]
-        node_params: list[Any] = []
-        if name_filter:
-            node_conditions.append("positionCaseInsensitive(Attributes['k8s.node.name'], ?) > 0")
-            node_params.append(name_filter)
+    metric_format = _detect_k8s_metric_format(db)
+    result["source"] = metric_format if metric_format != "none" else "otel"
 
-        node_base_sql = f"""
-            SELECT
-                Attributes['k8s.node.name'] AS name,
-                maxIf(Value, MetricName = 'k8s.node.condition_ready') AS ready_signal,
-                if(maxIf(Value, MetricName = 'k8s.node.condition_ready') > 0, 'Ready', 'NotReady') AS status,
-                maxIf(Value, MetricName = 'k8s.node.cpu.usage') AS cpu_usage,
-                maxIf(Value, MetricName = 'k8s.node.memory.usage') AS mem_used,
-                any(Attributes['k8s.kubelet.version']) AS version,
-                max(TimeUnix) AS last_seen
-            FROM otel_metrics_gauge
-            WHERE {' AND '.join(node_conditions)}
-            GROUP BY name
-        """
-        node_stats = db.execute(
-            f"""
-            SELECT
-                count() AS total,
-                countIf(ready_signal > 0) AS ready,
-                avg(cpu_usage) AS cpu_avg,
-                avg(mem_used) AS mem_avg
-            FROM ({node_base_sql})
-            """,
-            node_params,
-        ).fetchone()
-        if node_stats:
-            result["meta"]["nodes"]["total"] = int(node_stats.get("total") or 0)
-            result["summary"]["nodes_total"] = int(node_stats.get("total") or 0)
-            result["summary"]["nodes_ready"] = int(node_stats.get("ready") or 0)
-            result["summary"]["nodes_cpu_avg"] = float(node_stats.get("cpu_avg") or 0)
-            result["summary"]["nodes_mem_used_avg"] = float(node_stats.get("mem_avg") or 0)
-        node_sql = (
-            f"SELECT * FROM ({node_base_sql}) "
-            f"ORDER BY {table_opts['nodes']['sort_col']} {table_opts['nodes']['sort_dir'].upper()} "
-            "LIMIT ? OFFSET ?"
-        )
-        node_rows = db.execute(
-            node_sql,
-            node_params + [table_opts["nodes"]["page_size"], table_opts["nodes"]["offset"]],
-        ).fetchall()
-        result["nodes"] = [
-            {
-                "name": str(row["name"]),
-                "status": "Ready" if float(row["ready_signal"] or 0) > 0 else "NotReady",
-                "version": str(row["version"] or ""),
-                "cpu_usage": float(row["cpu_usage"] or 0),
-                "mem_used": float(row["mem_used"] or 0),
-                "created": str(row["last_seen"]),
-            }
-            for row in node_rows
-        ]
-    except Exception as exc:
-        errors.append(f"nodes: {exc}")
+    if metric_format == "prometheus":
+        # --- Nodes (kube-state-metrics Prometheus format) ---
+        try:
+            node_conditions = [
+                "Attributes['node'] != ''",
+                "MetricName IN ('kube_node_status_condition', 'kube_node_status_allocatable', 'kube_node_info')",
+            ]
+            node_params: list[Any] = []
+            if name_filter:
+                node_conditions.append("positionCaseInsensitive(Attributes['node'], ?) > 0")
+                node_params.append(name_filter)
 
-    try:
-        pod_conditions = ["Attributes['k8s.pod.name'] != ''"]
-        pod_params: list[Any] = []
-        if namespace_filter:
-            pod_conditions.append("Attributes['k8s.namespace.name'] = ?")
-            pod_params.append(namespace_filter)
-        if name_filter:
-            pod_conditions.append("positionCaseInsensitive(Attributes['k8s.pod.name'], ?) > 0")
-            pod_params.append(name_filter)
+            node_base_sql = f"""
+                SELECT
+                    Attributes['node'] AS name,
+                    maxIf(Value, MetricName = 'kube_node_status_condition'
+                          AND Attributes['condition'] = 'Ready'
+                          AND Attributes['status'] = 'true') AS ready_signal,
+                    if(maxIf(Value, MetricName = 'kube_node_status_condition'
+                             AND Attributes['condition'] = 'Ready'
+                             AND Attributes['status'] = 'true') > 0,
+                       'Ready', 'NotReady') AS status,
+                    0.0 AS cpu_usage,
+                    maxIf(Value, MetricName = 'kube_node_status_allocatable'
+                          AND Attributes['resource'] = 'memory') AS mem_used,
+                    anyIf(Attributes['kubelet_version'], MetricName = 'kube_node_info') AS version,
+                    max(TimeUnix) AS last_seen
+                FROM otel_metrics_gauge
+                WHERE {' AND '.join(node_conditions)}
+                GROUP BY name
+            """
+            node_stats = db.execute(
+                f"""
+                SELECT
+                    count() AS total,
+                    countIf(ready_signal > 0) AS ready,
+                    avg(cpu_usage) AS cpu_avg,
+                    avg(mem_used) AS mem_avg
+                FROM ({node_base_sql})
+                """,
+                node_params,
+            ).fetchone()
+            if node_stats:
+                result["meta"]["nodes"]["total"] = int(node_stats.get("total") or 0)
+                result["summary"]["nodes_total"] = int(node_stats.get("total") or 0)
+                result["summary"]["nodes_ready"] = int(node_stats.get("ready") or 0)
+                result["summary"]["nodes_cpu_avg"] = float(node_stats.get("cpu_avg") or 0)
+                result["summary"]["nodes_mem_used_avg"] = float(node_stats.get("mem_avg") or 0)
+            node_sql = (
+                f"SELECT * FROM ({node_base_sql}) "
+                f"ORDER BY {table_opts['nodes']['sort_col']} {table_opts['nodes']['sort_dir'].upper()} "
+                "LIMIT ? OFFSET ?"
+            )
+            node_rows = db.execute(
+                node_sql,
+                node_params + [table_opts["nodes"]["page_size"], table_opts["nodes"]["offset"]],
+            ).fetchall()
+            result["nodes"] = [
+                {
+                    "name": str(row["name"]),
+                    "status": "Ready" if float(row["ready_signal"] or 0) > 0 else "NotReady",
+                    "version": str(row["version"] or ""),
+                    "cpu_usage": float(row["cpu_usage"] or 0),
+                    "mem_used": float(row["mem_used"] or 0),
+                    "created": str(row["last_seen"]),
+                }
+                for row in node_rows
+            ]
+        except Exception as exc:
+            errors.append(f"nodes: {exc}")
+    else:
+        try:
+            node_conditions = ["Attributes['k8s.node.name'] != ''"]
+            node_params = []
+            if name_filter:
+                node_conditions.append("positionCaseInsensitive(Attributes['k8s.node.name'], ?) > 0")
+                node_params.append(name_filter)
 
-        pod_base_sql = f"""
-            SELECT
-                Attributes['k8s.namespace.name'] AS namespace,
-                Attributes['k8s.pod.name'] AS name,
-                any(Attributes['k8s.pod.phase']) AS phase,
-                maxIf(Value, MetricName = 'k8s.pod.status_ready') AS ready_signal,
-                maxIf(Value, MetricName = 'k8s.pod.cpu.usage') AS cpu_usage,
-                maxIf(Value, MetricName = 'k8s.pod.memory.usage') AS mem_used,
-                maxIf(toInt64(Value), MetricName = 'k8s.container.restart_count') AS restarts,
-                any(Attributes['k8s.node.name']) AS node,
-                max(TimeUnix) AS last_seen
-            FROM otel_metrics_gauge
-            WHERE {' AND '.join(pod_conditions)}
-            GROUP BY namespace, name
-        """
-        pod_stats = db.execute(
-            f"""
-            SELECT
-                count() AS total,
-                countIf(phase = 'Running') AS running,
-                countIf(phase = 'Failed') AS failed,
-                sum(cpu_usage) AS cpu_total,
-                sum(mem_used) AS mem_total
-            FROM ({pod_base_sql})
-            """,
-            pod_params,
-        ).fetchone()
-        if pod_stats:
-            result["meta"]["pods"]["total"] = int(pod_stats.get("total") or 0)
-            result["summary"]["pods_total"] = int(pod_stats.get("total") or 0)
-            result["summary"]["pods_running"] = int(pod_stats.get("running") or 0)
-            result["summary"]["pods_failed"] = int(pod_stats.get("failed") or 0)
-            result["summary"]["pods_cpu_total"] = float(pod_stats.get("cpu_total") or 0)
-            result["summary"]["pods_mem_used_total"] = float(pod_stats.get("mem_total") or 0)
-        pod_sql = (
-            f"SELECT * FROM ({pod_base_sql}) "
-            f"ORDER BY {table_opts['pods']['sort_col']} {table_opts['pods']['sort_dir'].upper()} "
-            "LIMIT ? OFFSET ?"
-        )
-        pod_rows = db.execute(
-            pod_sql,
-            pod_params + [table_opts["pods"]["page_size"], table_opts["pods"]["offset"]],
-        ).fetchall()
-        result["pods"] = [
-            {
-                "namespace": str(row["namespace"] or "default"),
-                "name": str(row["name"]),
-                "phase": str(row["phase"] or "Unknown"),
-                "ready": float(row["ready_signal"] or 0) > 0,
-                "cpu_usage": float(row["cpu_usage"] or 0),
-                "mem_used": float(row["mem_used"] or 0),
-                "restarts": int(row["restarts"] or 0),
-                "node": str(row["node"] or ""),
-                "created": str(row["last_seen"]),
-            }
-            for row in pod_rows
-        ]
-    except Exception as exc:
-        errors.append(f"pods: {exc}")
+            node_base_sql = f"""
+                SELECT
+                    Attributes['k8s.node.name'] AS name,
+                    maxIf(Value, MetricName = 'k8s.node.condition_ready') AS ready_signal,
+                    if(maxIf(Value, MetricName = 'k8s.node.condition_ready') > 0, 'Ready', 'NotReady') AS status,
+                    maxIf(Value, MetricName = 'k8s.node.cpu.usage') AS cpu_usage,
+                    maxIf(Value, MetricName = 'k8s.node.memory.usage') AS mem_used,
+                    any(Attributes['k8s.kubelet.version']) AS version,
+                    max(TimeUnix) AS last_seen
+                FROM otel_metrics_gauge
+                WHERE {' AND '.join(node_conditions)}
+                GROUP BY name
+            """
+            node_stats = db.execute(
+                f"""
+                SELECT
+                    count() AS total,
+                    countIf(ready_signal > 0) AS ready,
+                    avg(cpu_usage) AS cpu_avg,
+                    avg(mem_used) AS mem_avg
+                FROM ({node_base_sql})
+                """,
+                node_params,
+            ).fetchone()
+            if node_stats:
+                result["meta"]["nodes"]["total"] = int(node_stats.get("total") or 0)
+                result["summary"]["nodes_total"] = int(node_stats.get("total") or 0)
+                result["summary"]["nodes_ready"] = int(node_stats.get("ready") or 0)
+                result["summary"]["nodes_cpu_avg"] = float(node_stats.get("cpu_avg") or 0)
+                result["summary"]["nodes_mem_used_avg"] = float(node_stats.get("mem_avg") or 0)
+            node_sql = (
+                f"SELECT * FROM ({node_base_sql}) "
+                f"ORDER BY {table_opts['nodes']['sort_col']} {table_opts['nodes']['sort_dir'].upper()} "
+                "LIMIT ? OFFSET ?"
+            )
+            node_rows = db.execute(
+                node_sql,
+                node_params + [table_opts["nodes"]["page_size"], table_opts["nodes"]["offset"]],
+            ).fetchall()
+            result["nodes"] = [
+                {
+                    "name": str(row["name"]),
+                    "status": "Ready" if float(row["ready_signal"] or 0) > 0 else "NotReady",
+                    "version": str(row["version"] or ""),
+                    "cpu_usage": float(row["cpu_usage"] or 0),
+                    "mem_used": float(row["mem_used"] or 0),
+                    "created": str(row["last_seen"]),
+                }
+                for row in node_rows
+            ]
+        except Exception as exc:
+            errors.append(f"nodes: {exc}")
 
-    try:
-        deploy_conditions = ["Attributes['k8s.deployment.name'] != ''"]
-        deploy_params: list[Any] = []
-        if namespace_filter:
-            deploy_conditions.append("Attributes['k8s.namespace.name'] = ?")
-            deploy_params.append(namespace_filter)
-        if name_filter:
-            deploy_conditions.append("positionCaseInsensitive(Attributes['k8s.deployment.name'], ?) > 0")
-            deploy_params.append(name_filter)
+    if metric_format == "prometheus":
+        # --- Pods (kube-state-metrics + cAdvisor Prometheus format) ---
+        try:
+            pod_conditions = [
+                "Attributes['pod'] != ''",
+                "MetricName IN ('kube_pod_status_phase', 'kube_pod_status_ready',"
+                " 'container_memory_working_set_bytes', 'kube_pod_container_status_restarts_total',"
+                " 'kube_pod_info')",
+            ]
+            pod_params: list[Any] = []
+            if namespace_filter:
+                pod_conditions.append("Attributes['namespace'] = ?")
+                pod_params.append(namespace_filter)
+            if name_filter:
+                pod_conditions.append("positionCaseInsensitive(Attributes['pod'], ?) > 0")
+                pod_params.append(name_filter)
 
-        deploy_base_sql = f"""
-            SELECT
-                Attributes['k8s.namespace.name'] AS namespace,
-                Attributes['k8s.deployment.name'] AS name,
-                maxIf(toInt64(Value), MetricName = 'k8s.deployment.desired') AS desired,
-                maxIf(toInt64(Value), MetricName = 'k8s.deployment.ready') AS ready,
-                maxIf(toInt64(Value), MetricName = 'k8s.deployment.available') AS available,
-                maxIf(toInt64(Value), MetricName = 'k8s.deployment.updated') AS updated,
-                max(TimeUnix) AS last_seen
-            FROM otel_metrics_gauge
-            WHERE {' AND '.join(deploy_conditions)}
-            GROUP BY namespace, name
-        """
-        deploy_total = _count_query(f"SELECT count(*) AS cnt FROM ({deploy_base_sql})", deploy_params)
-        result["meta"]["deployments"]["total"] = deploy_total
-        result["summary"]["deployments_total"] = deploy_total
-        result["summary"]["deployments_unhealthy"] = _count_query(
-            f"SELECT count(*) AS cnt FROM ({deploy_base_sql}) WHERE ready < desired",
-            deploy_params,
-        )
-        deploy_sql = (
-            f"SELECT * FROM ({deploy_base_sql}) "
-            f"ORDER BY {table_opts['deployments']['sort_col']} {table_opts['deployments']['sort_dir'].upper()} "
-            "LIMIT ? OFFSET ?"
-        )
-        deploy_rows = db.execute(
-            deploy_sql,
-            deploy_params + [table_opts["deployments"]["page_size"], table_opts["deployments"]["offset"]],
-        ).fetchall()
-        result["deployments"] = [
-            {
-                "namespace": str(row["namespace"] or "default"),
-                "name": str(row["name"]),
-                "desired": int(row["desired"] or 0),
-                "ready": int(row["ready"] or 0),
-                "available": int(row["available"] or 0),
-                "updated": int(row["updated"] or 0),
-                "created": str(row["last_seen"]),
-            }
-            for row in deploy_rows
-        ]
-    except Exception as exc:
-        errors.append(f"deployments: {exc}")
+            pod_base_sql = f"""
+                SELECT
+                    Attributes['namespace'] AS namespace,
+                    Attributes['pod'] AS name,
+                    argMaxIf(Attributes['phase'], Value,
+                             MetricName = 'kube_pod_status_phase') AS phase,
+                    maxIf(Value, MetricName = 'kube_pod_status_ready'
+                          AND Attributes['condition'] = 'true') AS ready_signal,
+                    0.0 AS cpu_usage,
+                    maxIf(Value, MetricName = 'container_memory_working_set_bytes') AS mem_used,
+                    toInt64(maxIf(Value, MetricName = 'kube_pod_container_status_restarts_total'))
+                        AS restarts,
+                    anyIf(Attributes['node'], MetricName = 'kube_pod_info') AS node,
+                    max(TimeUnix) AS last_seen
+                FROM otel_metrics_gauge
+                WHERE {' AND '.join(pod_conditions)}
+                GROUP BY namespace, name
+            """
+            # Also check otel_metrics_sum for restart counter (some exporters store _total there)
+            pod_sum_conditions = [
+                "Attributes['pod'] != ''",
+                "MetricName = 'kube_pod_container_status_restarts_total'",
+            ]
+            pod_sum_params: list[Any] = []
+            if namespace_filter:
+                pod_sum_conditions.append("Attributes['namespace'] = ?")
+                pod_sum_params.append(namespace_filter)
+            if name_filter:
+                pod_sum_conditions.append("positionCaseInsensitive(Attributes['pod'], ?) > 0")
+                pod_sum_params.append(name_filter)
 
-    try:
-        namespace_rows = db.execute("""
-            SELECT
-                Attributes['k8s.namespace.name'] AS name,
-                max(TimeUnix) AS last_seen
-            FROM otel_metrics_gauge
-            WHERE Attributes['k8s.namespace.name'] != ''
-            GROUP BY name
-            ORDER BY name
-            """).fetchall()
-        result["namespaces"] = [
-            {
-                "name": str(row["name"]),
-                "status": "Active",
-                "created": str(row["last_seen"]),
-            }
-            for row in namespace_rows
-        ]
-        result["summary"]["namespaces_total"] = len(result["namespaces"])
-    except Exception as exc:
-        errors.append(f"namespaces: {exc}")
+            pod_sum_sql = f"""
+                SELECT
+                    Attributes['namespace'] AS namespace,
+                    Attributes['pod'] AS name,
+                    '' AS phase,
+                    0.0 AS ready_signal,
+                    0.0 AS cpu_usage,
+                    0.0 AS mem_used,
+                    toInt64(max(Value)) AS restarts,
+                    '' AS node,
+                    max(TimeUnix) AS last_seen
+                FROM otel_metrics_sum
+                WHERE {' AND '.join(pod_sum_conditions)}
+                GROUP BY namespace, name
+            """
+
+            pod_merged_sql = f"""
+                SELECT
+                    namespace,
+                    name,
+                    anyIf(phase, phase != '') AS phase,
+                    max(ready_signal) AS ready_signal,
+                    max(cpu_usage) AS cpu_usage,
+                    max(mem_used) AS mem_used,
+                    max(restarts) AS restarts,
+                    anyIf(node, node != '') AS node,
+                    max(last_seen) AS last_seen
+                FROM ({pod_base_sql} UNION ALL {pod_sum_sql})
+                GROUP BY namespace, name
+            """
+            pod_merged_params = pod_params + pod_sum_params
+
+            pod_stats = db.execute(
+                f"""
+                SELECT
+                    count() AS total,
+                    countIf(phase = 'Running') AS running,
+                    countIf(phase = 'Failed') AS failed,
+                    sum(cpu_usage) AS cpu_total,
+                    sum(mem_used) AS mem_total
+                FROM ({pod_merged_sql})
+                """,
+                pod_merged_params,
+            ).fetchone()
+            if pod_stats:
+                result["meta"]["pods"]["total"] = int(pod_stats.get("total") or 0)
+                result["summary"]["pods_total"] = int(pod_stats.get("total") or 0)
+                result["summary"]["pods_running"] = int(pod_stats.get("running") or 0)
+                result["summary"]["pods_failed"] = int(pod_stats.get("failed") or 0)
+                result["summary"]["pods_cpu_total"] = float(pod_stats.get("cpu_total") or 0)
+                result["summary"]["pods_mem_used_total"] = float(pod_stats.get("mem_total") or 0)
+            pod_sql = (
+                f"SELECT * FROM ({pod_merged_sql}) "
+                f"ORDER BY {table_opts['pods']['sort_col']} {table_opts['pods']['sort_dir'].upper()} "
+                "LIMIT ? OFFSET ?"
+            )
+            pod_rows = db.execute(
+                pod_sql,
+                pod_merged_params + [table_opts["pods"]["page_size"], table_opts["pods"]["offset"]],
+            ).fetchall()
+            result["pods"] = [
+                {
+                    "namespace": str(row["namespace"] or "default"),
+                    "name": str(row["name"]),
+                    "phase": str(row["phase"] or "Unknown"),
+                    "ready": float(row["ready_signal"] or 0) > 0,
+                    "cpu_usage": float(row["cpu_usage"] or 0),
+                    "mem_used": float(row["mem_used"] or 0),
+                    "restarts": int(row["restarts"] or 0),
+                    "node": str(row["node"] or ""),
+                    "created": str(row["last_seen"]),
+                }
+                for row in pod_rows
+            ]
+        except Exception as exc:
+            errors.append(f"pods: {exc}")
+    else:
+        try:
+            pod_conditions = ["Attributes['k8s.pod.name'] != ''"]
+            pod_params = []
+            if namespace_filter:
+                pod_conditions.append("Attributes['k8s.namespace.name'] = ?")
+                pod_params.append(namespace_filter)
+            if name_filter:
+                pod_conditions.append("positionCaseInsensitive(Attributes['k8s.pod.name'], ?) > 0")
+                pod_params.append(name_filter)
+
+            pod_base_sql = f"""
+                SELECT
+                    Attributes['k8s.namespace.name'] AS namespace,
+                    Attributes['k8s.pod.name'] AS name,
+                    any(Attributes['k8s.pod.phase']) AS phase,
+                    maxIf(Value, MetricName = 'k8s.pod.status_ready') AS ready_signal,
+                    maxIf(Value, MetricName = 'k8s.pod.cpu.usage') AS cpu_usage,
+                    maxIf(Value, MetricName = 'k8s.pod.memory.usage') AS mem_used,
+                    maxIf(toInt64(Value), MetricName = 'k8s.container.restart_count') AS restarts,
+                    any(Attributes['k8s.node.name']) AS node,
+                    max(TimeUnix) AS last_seen
+                FROM otel_metrics_gauge
+                WHERE {' AND '.join(pod_conditions)}
+                GROUP BY namespace, name
+            """
+            pod_stats = db.execute(
+                f"""
+                SELECT
+                    count() AS total,
+                    countIf(phase = 'Running') AS running,
+                    countIf(phase = 'Failed') AS failed,
+                    sum(cpu_usage) AS cpu_total,
+                    sum(mem_used) AS mem_total
+                FROM ({pod_base_sql})
+                """,
+                pod_params,
+            ).fetchone()
+            if pod_stats:
+                result["meta"]["pods"]["total"] = int(pod_stats.get("total") or 0)
+                result["summary"]["pods_total"] = int(pod_stats.get("total") or 0)
+                result["summary"]["pods_running"] = int(pod_stats.get("running") or 0)
+                result["summary"]["pods_failed"] = int(pod_stats.get("failed") or 0)
+                result["summary"]["pods_cpu_total"] = float(pod_stats.get("cpu_total") or 0)
+                result["summary"]["pods_mem_used_total"] = float(pod_stats.get("mem_total") or 0)
+            pod_sql = (
+                f"SELECT * FROM ({pod_base_sql}) "
+                f"ORDER BY {table_opts['pods']['sort_col']} {table_opts['pods']['sort_dir'].upper()} "
+                "LIMIT ? OFFSET ?"
+            )
+            pod_rows = db.execute(
+                pod_sql,
+                pod_params + [table_opts["pods"]["page_size"], table_opts["pods"]["offset"]],
+            ).fetchall()
+            result["pods"] = [
+                {
+                    "namespace": str(row["namespace"] or "default"),
+                    "name": str(row["name"]),
+                    "phase": str(row["phase"] or "Unknown"),
+                    "ready": float(row["ready_signal"] or 0) > 0,
+                    "cpu_usage": float(row["cpu_usage"] or 0),
+                    "mem_used": float(row["mem_used"] or 0),
+                    "restarts": int(row["restarts"] or 0),
+                    "node": str(row["node"] or ""),
+                    "created": str(row["last_seen"]),
+                }
+                for row in pod_rows
+            ]
+        except Exception as exc:
+            errors.append(f"pods: {exc}")
+
+    if metric_format == "prometheus":
+        # --- Deployments (kube-state-metrics Prometheus format) ---
+        try:
+            deploy_conditions = [
+                "Attributes['deployment'] != ''",
+                "MetricName IN ('kube_deployment_spec_replicas',"
+                " 'kube_deployment_status_replicas_ready',"
+                " 'kube_deployment_status_replicas_available',"
+                " 'kube_deployment_status_replicas_updated',"
+                " 'kube_deployment_status_replicas')",
+            ]
+            deploy_params: list[Any] = []
+            if namespace_filter:
+                deploy_conditions.append("Attributes['namespace'] = ?")
+                deploy_params.append(namespace_filter)
+            if name_filter:
+                deploy_conditions.append("positionCaseInsensitive(Attributes['deployment'], ?) > 0")
+                deploy_params.append(name_filter)
+
+            deploy_base_sql = f"""
+                SELECT
+                    Attributes['namespace'] AS namespace,
+                    Attributes['deployment'] AS name,
+                    toInt64(maxIf(Value, MetricName = 'kube_deployment_spec_replicas'))
+                        AS desired,
+                    toInt64(maxIf(Value, MetricName = 'kube_deployment_status_replicas_ready'))
+                        AS ready,
+                    toInt64(maxIf(Value, MetricName = 'kube_deployment_status_replicas_available'))
+                        AS available,
+                    toInt64(maxIf(Value, MetricName = 'kube_deployment_status_replicas_updated'))
+                        AS updated,
+                    max(TimeUnix) AS last_seen
+                FROM otel_metrics_gauge
+                WHERE {' AND '.join(deploy_conditions)}
+                GROUP BY namespace, name
+            """
+            deploy_total = _count_query(f"SELECT count(*) AS cnt FROM ({deploy_base_sql})", deploy_params)
+            result["meta"]["deployments"]["total"] = deploy_total
+            result["summary"]["deployments_total"] = deploy_total
+            result["summary"]["deployments_unhealthy"] = _count_query(
+                f"SELECT count(*) AS cnt FROM ({deploy_base_sql}) WHERE ready < desired",
+                deploy_params,
+            )
+            deploy_sql = (
+                f"SELECT * FROM ({deploy_base_sql}) "
+                f"ORDER BY {table_opts['deployments']['sort_col']} {table_opts['deployments']['sort_dir'].upper()} "
+                "LIMIT ? OFFSET ?"
+            )
+            deploy_rows = db.execute(
+                deploy_sql,
+                deploy_params + [table_opts["deployments"]["page_size"], table_opts["deployments"]["offset"]],
+            ).fetchall()
+            result["deployments"] = [
+                {
+                    "namespace": str(row["namespace"] or "default"),
+                    "name": str(row["name"]),
+                    "desired": int(row["desired"] or 0),
+                    "ready": int(row["ready"] or 0),
+                    "available": int(row["available"] or 0),
+                    "updated": int(row["updated"] or 0),
+                    "created": str(row["last_seen"]),
+                }
+                for row in deploy_rows
+            ]
+        except Exception as exc:
+            errors.append(f"deployments: {exc}")
+    else:
+        try:
+            deploy_conditions = ["Attributes['k8s.deployment.name'] != ''"]
+            deploy_params = []
+            if namespace_filter:
+                deploy_conditions.append("Attributes['k8s.namespace.name'] = ?")
+                deploy_params.append(namespace_filter)
+            if name_filter:
+                deploy_conditions.append("positionCaseInsensitive(Attributes['k8s.deployment.name'], ?) > 0")
+                deploy_params.append(name_filter)
+
+            deploy_base_sql = f"""
+                SELECT
+                    Attributes['k8s.namespace.name'] AS namespace,
+                    Attributes['k8s.deployment.name'] AS name,
+                    maxIf(toInt64(Value), MetricName = 'k8s.deployment.desired') AS desired,
+                    maxIf(toInt64(Value), MetricName = 'k8s.deployment.ready') AS ready,
+                    maxIf(toInt64(Value), MetricName = 'k8s.deployment.available') AS available,
+                    maxIf(toInt64(Value), MetricName = 'k8s.deployment.updated') AS updated,
+                    max(TimeUnix) AS last_seen
+                FROM otel_metrics_gauge
+                WHERE {' AND '.join(deploy_conditions)}
+                GROUP BY namespace, name
+            """
+            deploy_total = _count_query(f"SELECT count(*) AS cnt FROM ({deploy_base_sql})", deploy_params)
+            result["meta"]["deployments"]["total"] = deploy_total
+            result["summary"]["deployments_total"] = deploy_total
+            result["summary"]["deployments_unhealthy"] = _count_query(
+                f"SELECT count(*) AS cnt FROM ({deploy_base_sql}) WHERE ready < desired",
+                deploy_params,
+            )
+            deploy_sql = (
+                f"SELECT * FROM ({deploy_base_sql}) "
+                f"ORDER BY {table_opts['deployments']['sort_col']} {table_opts['deployments']['sort_dir'].upper()} "
+                "LIMIT ? OFFSET ?"
+            )
+            deploy_rows = db.execute(
+                deploy_sql,
+                deploy_params + [table_opts["deployments"]["page_size"], table_opts["deployments"]["offset"]],
+            ).fetchall()
+            result["deployments"] = [
+                {
+                    "namespace": str(row["namespace"] or "default"),
+                    "name": str(row["name"]),
+                    "desired": int(row["desired"] or 0),
+                    "ready": int(row["ready"] or 0),
+                    "available": int(row["available"] or 0),
+                    "updated": int(row["updated"] or 0),
+                    "created": str(row["last_seen"]),
+                }
+                for row in deploy_rows
+            ]
+        except Exception as exc:
+            errors.append(f"deployments: {exc}")
+
+    if metric_format == "prometheus":
+        # --- Namespaces (kube-state-metrics Prometheus format) ---
+        try:
+            namespace_rows = db.execute("""
+                SELECT
+                    Attributes['namespace'] AS name,
+                    max(TimeUnix) AS last_seen
+                FROM otel_metrics_gauge
+                WHERE Attributes['namespace'] != ''
+                AND MetricName = 'kube_namespace_status_phase'
+                GROUP BY name
+                ORDER BY name
+                """).fetchall()
+            result["namespaces"] = [
+                {
+                    "name": str(row["name"]),
+                    "status": "Active",
+                    "created": str(row["last_seen"]),
+                }
+                for row in namespace_rows
+            ]
+            result["summary"]["namespaces_total"] = len(result["namespaces"])
+        except Exception as exc:
+            errors.append(f"namespaces: {exc}")
+    else:
+        try:
+            namespace_rows = db.execute("""
+                SELECT
+                    Attributes['k8s.namespace.name'] AS name,
+                    max(TimeUnix) AS last_seen
+                FROM otel_metrics_gauge
+                WHERE Attributes['k8s.namespace.name'] != ''
+                GROUP BY name
+                ORDER BY name
+                """).fetchall()
+            result["namespaces"] = [
+                {
+                    "name": str(row["name"]),
+                    "status": "Active",
+                    "created": str(row["last_seen"]),
+                }
+                for row in namespace_rows
+            ]
+            result["summary"]["namespaces_total"] = len(result["namespaces"])
+        except Exception as exc:
+            errors.append(f"namespaces: {exc}")
 
     if errors:
         result["error"] = "; ".join(errors)
     elif not (result["pods"] or result["deployments"] or result["nodes"] or result["namespaces"]):
         result["error"] = (
-            "No Kubernetes OTEL data found yet. Deploy the reference OTEL Kubernetes collectors to populate this view."
+            "No Kubernetes data found yet. Deploy OTEL collectors (kubeletstats/k8s_cluster) or"
+            " configure an OTEL Prometheus receiver scraping kube-state-metrics and cAdvisor."
         )
 
     return result

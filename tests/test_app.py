@@ -11766,7 +11766,7 @@ class TestKubernetesRoutes:
         assert r.status_code == 200
         text = (await r.get_data()).decode()
         assert "Kubernetes Health View" in text
-        assert "OTEL tables only" in text
+        assert "OTEL metric tables" in text
 
     async def test_kubernetes_settings_save(self, client):
         r = await client.post(
@@ -12007,3 +12007,438 @@ class TestKubernetesResourceMetrics:
         assert "pods_mem_used_total" in result["summary"]
         assert result["summary"]["pods_cpu_total"] > 0
         assert result["summary"]["pods_mem_used_total"] > 0
+
+
+class TestKubernetesPrometheusFormat:
+    """Tests for Kubernetes dashboard with Prometheus-style kube-state-metrics + cAdvisor metrics."""
+
+    JSON_CT = "application/json"
+
+    def _prom_gauge_payload(self, metrics: list[dict]) -> dict:
+        """Build a minimal OTLP JSON ExportMetricsServiceRequest with Prometheus-style gauge metrics."""
+        ns = int(time.time() * 1_000_000_000)
+        scope_metrics = []
+        for m in metrics:
+            scope_metrics.append(
+                {
+                    "name": m["name"],
+                    "unit": m.get("unit", "1"),
+                    "gauge": {
+                        "dataPoints": [
+                            {
+                                "timeUnixNano": str(ns),
+                                "asDouble": m["value"],
+                                "attributes": [
+                                    {"key": k, "value": {"stringValue": str(v)}}
+                                    for k, v in m.get("attrs", {}).items()
+                                ],
+                            }
+                        ]
+                    },
+                }
+            )
+        return {
+            "resourceMetrics": [
+                {
+                    "resource": {
+                        "attributes": [{"key": "service.name", "value": {"stringValue": "kube-state-metrics"}}]
+                    },
+                    "scopeMetrics": [{"metrics": scope_metrics}],
+                }
+            ]
+        }
+
+    def _prom_sum_payload(self, metrics: list[dict]) -> dict:
+        """Build a minimal OTLP JSON ExportMetricsServiceRequest with Prometheus-style sum/counter metrics."""
+        ns = int(time.time() * 1_000_000_000)
+        scope_metrics = []
+        for m in metrics:
+            scope_metrics.append(
+                {
+                    "name": m["name"],
+                    "unit": m.get("unit", "1"),
+                    "sum": {
+                        "isMonotonic": True,
+                        "aggregationTemporality": 2,
+                        "dataPoints": [
+                            {
+                                "timeUnixNano": str(ns),
+                                "asDouble": m["value"],
+                                "attributes": [
+                                    {"key": k, "value": {"stringValue": str(v)}}
+                                    for k, v in m.get("attrs", {}).items()
+                                ],
+                            }
+                        ]
+                    },
+                }
+            )
+        return {
+            "resourceMetrics": [
+                {
+                    "resource": {
+                        "attributes": [{"key": "service.name", "value": {"stringValue": "kube-state-metrics"}}]
+                    },
+                    "scopeMetrics": [{"metrics": scope_metrics}],
+                }
+            ]
+        }
+
+    async def _ingest_gauge(self, client, metrics: list[dict]) -> None:
+        payload = self._prom_gauge_payload(metrics)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+
+    async def _ingest_sum(self, client, metrics: list[dict]) -> None:
+        payload = self._prom_sum_payload(metrics)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+
+    async def test_detect_prometheus_format(self, client):
+        """_detect_k8s_metric_format returns 'prometheus' when kube-state-metrics are present."""
+        node = "prom-detect-node-1"
+        await self._ingest_gauge(
+            client,
+            [
+                {
+                    "name": "kube_node_status_condition",
+                    "value": 1.0,
+                    "attrs": {"node": node, "condition": "Ready", "status": "true"},
+                },
+            ],
+        )
+        fmt = sobs_app._detect_k8s_metric_format(sobs_app.get_db())
+        assert fmt in ("otel", "prometheus")
+
+    async def test_node_ready_from_kube_state_metrics(self, client):
+        """Node ready status resolves from kube_node_status_condition{condition=Ready,status=true}."""
+        node = "prom-node-ready-1"
+        await self._ingest_gauge(
+            client,
+            [
+                {
+                    "name": "kube_node_status_condition",
+                    "value": 1.0,
+                    "attrs": {"node": node, "condition": "Ready", "status": "true"},
+                },
+                {
+                    "name": "kube_node_info",
+                    "value": 1.0,
+                    "attrs": {"node": node, "kubelet_version": "v1.30.0"},
+                },
+            ],
+        )
+        db = sobs_app.get_db()
+        # Force Prometheus format by directly calling with prometheus detection
+        import unittest.mock as mock
+        with mock.patch.object(sobs_app, "_detect_k8s_metric_format", return_value="prometheus"):
+            result = sobs_app._fetch_k8s_from_otel(db, {})
+        node_row = next((n for n in result["nodes"] if n["name"] == node), None)
+        assert node_row is not None, f"Node '{node}' not found in result"
+        assert node_row["status"] == "Ready"
+        assert node_row["version"] == "v1.30.0"
+
+    async def test_node_not_ready_from_kube_state_metrics(self, client):
+        """Node NotReady status resolves when condition=Ready,status=true value is 0."""
+        node = "prom-node-notready-1"
+        await self._ingest_gauge(
+            client,
+            [
+                {
+                    "name": "kube_node_status_condition",
+                    "value": 0.0,
+                    "attrs": {"node": node, "condition": "Ready", "status": "true"},
+                },
+            ],
+        )
+        import unittest.mock as mock
+        with mock.patch.object(sobs_app, "_detect_k8s_metric_format", return_value="prometheus"):
+            result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        node_row = next((n for n in result["nodes"] if n["name"] == node), None)
+        assert node_row is not None, f"Node '{node}' not found in result"
+        assert node_row["status"] == "NotReady"
+
+    async def test_node_memory_from_allocatable(self, client):
+        """Node mem_used is populated from kube_node_status_allocatable{resource=memory}."""
+        node = "prom-node-mem-1"
+        await self._ingest_gauge(
+            client,
+            [
+                {
+                    "name": "kube_node_status_condition",
+                    "value": 1.0,
+                    "attrs": {"node": node, "condition": "Ready", "status": "true"},
+                },
+                {
+                    "name": "kube_node_status_allocatable",
+                    "value": 8589934592.0,
+                    "attrs": {"node": node, "resource": "memory", "unit": "byte"},
+                },
+            ],
+        )
+        import unittest.mock as mock
+        with mock.patch.object(sobs_app, "_detect_k8s_metric_format", return_value="prometheus"):
+            result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        node_row = next((n for n in result["nodes"] if n["name"] == node), None)
+        assert node_row is not None, f"Node '{node}' not found in result"
+        assert abs(node_row["mem_used"] - 8589934592.0) < 1e-3
+
+    async def test_pod_phase_from_kube_state_metrics(self, client):
+        """Pod phase resolves from kube_pod_status_phase where value=1 for active phase."""
+        pod = "prom-pod-phase-1"
+        ns_name = "default"
+        await self._ingest_gauge(
+            client,
+            [
+                {
+                    "name": "kube_pod_status_phase",
+                    "value": 1.0,
+                    "attrs": {"pod": pod, "namespace": ns_name, "phase": "Running"},
+                },
+                {
+                    "name": "kube_pod_status_phase",
+                    "value": 0.0,
+                    "attrs": {"pod": pod, "namespace": ns_name, "phase": "Pending"},
+                },
+                {
+                    "name": "kube_pod_status_ready",
+                    "value": 1.0,
+                    "attrs": {"pod": pod, "namespace": ns_name, "condition": "true"},
+                },
+            ],
+        )
+        import unittest.mock as mock
+        with mock.patch.object(sobs_app, "_detect_k8s_metric_format", return_value="prometheus"):
+            result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        pod_row = next((p for p in result["pods"] if p["name"] == pod), None)
+        assert pod_row is not None, f"Pod '{pod}' not found in result"
+        assert pod_row["phase"] == "Running"
+        assert pod_row["ready"] is True
+
+    async def test_pod_ready_false_from_kube_state_metrics(self, client):
+        """Pod ready=False when kube_pod_status_ready{condition=true} value is 0."""
+        pod = "prom-pod-notready-1"
+        ns_name = "default"
+        await self._ingest_gauge(
+            client,
+            [
+                {
+                    "name": "kube_pod_status_phase",
+                    "value": 1.0,
+                    "attrs": {"pod": pod, "namespace": ns_name, "phase": "Running"},
+                },
+                {
+                    "name": "kube_pod_status_ready",
+                    "value": 0.0,
+                    "attrs": {"pod": pod, "namespace": ns_name, "condition": "true"},
+                },
+            ],
+        )
+        import unittest.mock as mock
+        with mock.patch.object(sobs_app, "_detect_k8s_metric_format", return_value="prometheus"):
+            result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        pod_row = next((p for p in result["pods"] if p["name"] == pod), None)
+        assert pod_row is not None, f"Pod '{pod}' not found in result"
+        assert pod_row["ready"] is False
+
+    async def test_pod_memory_from_cadvisor(self, client):
+        """Pod mem_used is populated from container_memory_working_set_bytes."""
+        pod = "prom-pod-mem-1"
+        ns_name = "default"
+        await self._ingest_gauge(
+            client,
+            [
+                {
+                    "name": "kube_pod_status_phase",
+                    "value": 1.0,
+                    "attrs": {"pod": pod, "namespace": ns_name, "phase": "Running"},
+                },
+                {
+                    "name": "container_memory_working_set_bytes",
+                    "value": 134217728.0,
+                    "attrs": {"pod": pod, "namespace": ns_name, "container": "main"},
+                },
+            ],
+        )
+        import unittest.mock as mock
+        with mock.patch.object(sobs_app, "_detect_k8s_metric_format", return_value="prometheus"):
+            result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        pod_row = next((p for p in result["pods"] if p["name"] == pod), None)
+        assert pod_row is not None, f"Pod '{pod}' not found in result"
+        assert abs(pod_row["mem_used"] - 134217728.0) < 1e-3
+
+    async def test_pod_restarts_from_gauge(self, client):
+        """Pod restart count resolves from kube_pod_container_status_restarts_total gauge."""
+        pod = "prom-pod-restart-1"
+        ns_name = "default"
+        await self._ingest_gauge(
+            client,
+            [
+                {
+                    "name": "kube_pod_status_phase",
+                    "value": 1.0,
+                    "attrs": {"pod": pod, "namespace": ns_name, "phase": "Running"},
+                },
+                {
+                    "name": "kube_pod_container_status_restarts_total",
+                    "value": 5.0,
+                    "attrs": {"pod": pod, "namespace": ns_name, "container": "main"},
+                },
+            ],
+        )
+        import unittest.mock as mock
+        with mock.patch.object(sobs_app, "_detect_k8s_metric_format", return_value="prometheus"):
+            result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        pod_row = next((p for p in result["pods"] if p["name"] == pod), None)
+        assert pod_row is not None, f"Pod '{pod}' not found in result"
+        assert pod_row["restarts"] == 5
+
+    async def test_pod_restarts_from_sum(self, client):
+        """Pod restart count resolves from kube_pod_container_status_restarts_total counter (sum table)."""
+        pod = "prom-pod-restart-sum-1"
+        ns_name = "test-ns"
+        await self._ingest_sum(
+            client,
+            [
+                {
+                    "name": "kube_pod_container_status_restarts_total",
+                    "value": 7.0,
+                    "attrs": {"pod": pod, "namespace": ns_name, "container": "app"},
+                },
+            ],
+        )
+        # Also add phase so pod shows up in gauge-based query
+        await self._ingest_gauge(
+            client,
+            [
+                {
+                    "name": "kube_pod_status_phase",
+                    "value": 1.0,
+                    "attrs": {"pod": pod, "namespace": ns_name, "phase": "Running"},
+                },
+            ],
+        )
+        import unittest.mock as mock
+        with mock.patch.object(sobs_app, "_detect_k8s_metric_format", return_value="prometheus"):
+            result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        pod_row = next((p for p in result["pods"] if p["name"] == pod), None)
+        assert pod_row is not None, f"Pod '{pod}' not found in result"
+        assert pod_row["restarts"] >= 7
+
+    async def test_deployment_replicas_from_kube_state_metrics(self, client):
+        """Deployment replica counts resolve from kube_deployment_spec_replicas and friends."""
+        deploy = "prom-deploy-1"
+        ns_name = "production"
+        await self._ingest_gauge(
+            client,
+            [
+                {
+                    "name": "kube_deployment_spec_replicas",
+                    "value": 3.0,
+                    "attrs": {"deployment": deploy, "namespace": ns_name},
+                },
+                {
+                    "name": "kube_deployment_status_replicas_ready",
+                    "value": 3.0,
+                    "attrs": {"deployment": deploy, "namespace": ns_name},
+                },
+                {
+                    "name": "kube_deployment_status_replicas_available",
+                    "value": 3.0,
+                    "attrs": {"deployment": deploy, "namespace": ns_name},
+                },
+                {
+                    "name": "kube_deployment_status_replicas_updated",
+                    "value": 3.0,
+                    "attrs": {"deployment": deploy, "namespace": ns_name},
+                },
+            ],
+        )
+        import unittest.mock as mock
+        with mock.patch.object(sobs_app, "_detect_k8s_metric_format", return_value="prometheus"):
+            result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        deploy_row = next((d for d in result["deployments"] if d["name"] == deploy), None)
+        assert deploy_row is not None, f"Deployment '{deploy}' not found in result"
+        assert deploy_row["desired"] == 3
+        assert deploy_row["ready"] == 3
+        assert deploy_row["available"] == 3
+        assert deploy_row["updated"] == 3
+        assert deploy_row["namespace"] == ns_name
+
+    async def test_deployment_unhealthy_counted(self, client):
+        """Unhealthy deployment (ready < desired) is counted in summary."""
+        deploy = "prom-deploy-unhealthy-1"
+        ns_name = "staging"
+        await self._ingest_gauge(
+            client,
+            [
+                {
+                    "name": "kube_deployment_spec_replicas",
+                    "value": 2.0,
+                    "attrs": {"deployment": deploy, "namespace": ns_name},
+                },
+                {
+                    "name": "kube_deployment_status_replicas_ready",
+                    "value": 1.0,
+                    "attrs": {"deployment": deploy, "namespace": ns_name},
+                },
+            ],
+        )
+        import unittest.mock as mock
+        with mock.patch.object(sobs_app, "_detect_k8s_metric_format", return_value="prometheus"):
+            result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        assert result["summary"]["deployments_unhealthy"] >= 1
+
+    async def test_namespace_from_kube_namespace_status_phase(self, client):
+        """Namespaces resolve from kube_namespace_status_phase."""
+        ns_name = "prom-ns-active-1"
+        await self._ingest_gauge(
+            client,
+            [
+                {
+                    "name": "kube_namespace_status_phase",
+                    "value": 1.0,
+                    "attrs": {"namespace": ns_name, "phase": "Active"},
+                },
+            ],
+        )
+        import unittest.mock as mock
+        with mock.patch.object(sobs_app, "_detect_k8s_metric_format", return_value="prometheus"):
+            result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        ns_row = next((n for n in result["namespaces"] if n["name"] == ns_name), None)
+        assert ns_row is not None, f"Namespace '{ns_name}' not found in result"
+        assert ns_row["status"] == "Active"
+
+    async def test_source_field_is_prometheus(self, client):
+        """result['source'] is 'prometheus' when Prometheus metrics are detected."""
+        import unittest.mock as mock
+        with mock.patch.object(sobs_app, "_detect_k8s_metric_format", return_value="prometheus"):
+            result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        assert result["source"] == "prometheus"
+
+    async def test_namespace_filter_prometheus(self, client):
+        """namespace query filter works with Prometheus-format pod metrics."""
+        pod = "prom-pod-nsfilter-1"
+        ns_name = "filter-ns-prom"
+        other_ns = "other-ns-prom"
+        await self._ingest_gauge(
+            client,
+            [
+                {
+                    "name": "kube_pod_status_phase",
+                    "value": 1.0,
+                    "attrs": {"pod": pod, "namespace": ns_name, "phase": "Running"},
+                },
+                {
+                    "name": "kube_pod_status_phase",
+                    "value": 1.0,
+                    "attrs": {"pod": "other-pod-prom", "namespace": other_ns, "phase": "Running"},
+                },
+            ],
+        )
+        import unittest.mock as mock
+        with mock.patch.object(sobs_app, "_detect_k8s_metric_format", return_value="prometheus"):
+            result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {"namespace": ns_name})
+        pod_names = [p["name"] for p in result["pods"]]
+        assert pod in pod_names
+        assert "other-pod-prom" not in pod_names

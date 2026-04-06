@@ -9,8 +9,10 @@
 </div>
 
 <p class="text-secondary small mb-3">
-  Kubernetes health in SOBS is sourced from <strong>OTEL tables only</strong>.
-  This view expects Kubernetes telemetry collected by OpenTelemetry Collectors running inside your cluster.
+  Kubernetes health in SOBS is sourced from <strong>OTEL metric tables</strong>.
+  It supports two deployment patterns: <strong>OTEL-native collectors</strong> (kubeletstats/k8s_cluster receivers) and
+  <strong>Prometheus scraping</strong> (kube-state-metrics + cAdvisor via an OTEL Prometheus receiver).
+  SOBS auto-detects which format is present — no configuration change is needed.
 </p>
 
 {% if flash_msg %}
@@ -53,18 +55,19 @@
 
 <div class="card border-secondary mb-3">
   <div class="card-body">
-    <h6 class="fw-semibold mb-2"><i class="bi bi-diagram-3 me-1 text-secondary"></i>Reference In-Cluster Setup</h6>
+    <h6 class="fw-semibold mb-2"><i class="bi bi-diagram-3 me-1 text-secondary"></i>Supported In-Cluster Setups</h6>
     <p class="small text-secondary mb-2">
-      Follow the standard OTEL pattern used by ClickStack-style Kubernetes deployments:
-      one deployment collector for cluster-wide signals and one daemonset collector for node-level signals.
+      <strong>Option A — OTEL-native collectors:</strong> deploy <code>k8s/otel-k8s-deployment.yaml</code> and <code>k8s/otel-k8s-daemonset.yaml</code>.
     </p>
-    <ol class="small mb-2">
-      <li>Deploy <code>k8s/otel-k8s-deployment.yaml</code> (single replica for cluster metrics/events).</li>
-      <li>Deploy <code>k8s/otel-k8s-daemonset.yaml</code> (runs on each node for kubelet/log signals).</li>
-      <li>Point exporter endpoint to SOBS OTLP endpoint (<code>http://sobs:4318</code> in-cluster).</li>
-    </ol>
+    <p class="small text-secondary mb-2">
+      <strong>Option B — Prometheus scraping (simpler):</strong> run a single OTEL collector with a Prometheus receiver that scrapes
+      <code>kube-state-metrics</code> and kubelet <code>/metrics/cadvisor</code>. Metric names like
+      <code>kube_node_status_condition</code>, <code>kube_pod_status_phase</code>, and <code>kube_deployment_spec_replicas</code>
+      are automatically recognised.
+    </p>
     <p class="small text-secondary mb-0">
-      Once collectors are running, this dashboard reads from <code>otel_metrics_*</code> tables automatically.
+      Once any supported collector is running and sending data to SOBS, the dashboard populates automatically.
+      See <a href="{{ url_for('kubernetes_help') }}" class="text-info">Setup &amp; Help</a> for reference manifests.
     </p>
   </div>
 </div>
