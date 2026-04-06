@@ -571,6 +571,7 @@ class TestOtlpProtobufIngest:
     """Verify that application/x-protobuf payloads are accepted and persisted."""
 
     PROTOBUF_CT = "application/x-protobuf"
+    FLOAT_TOLERANCE = 1e-6
 
     def _make_log_proto_bytes(self, message="proto log", level="INFO", service="proto-svc"):
         from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import ExportLogsServiceRequest
@@ -793,7 +794,7 @@ class TestOtlpProtobufIngest:
             .fetchone()
         )
         assert gauge_row is not None, "Gauge row not found in DB"
-        assert abs(float(gauge_row["Value"]) - 75.5) < 1e-6
+        assert abs(float(gauge_row["Value"]) - 75.5) < self.FLOAT_TOLERANCE
 
         hist_row = (
             sobs_app.get_db()
@@ -805,7 +806,7 @@ class TestOtlpProtobufIngest:
         )
         assert hist_row is not None, "Histogram row not found in DB"
         assert int(hist_row["Count"]) == 250
-        assert abs(float(hist_row["Sum"]) - 12500.0) < 1e-6
+        assert abs(float(hist_row["Sum"]) - 12500.0) < self.FLOAT_TOLERANCE
 
     async def test_protobuf_metrics_gzip_ingest_accepted(self, client):
         """Metrics sent with Content-Encoding: gzip (as the OTel Collector can do) are accepted."""
