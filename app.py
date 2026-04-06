@@ -7557,8 +7557,9 @@ async def _parse_otlp_request(proto_class):
         raw = await request.get_data()
         body = _decompress_request_body(raw, content_encoding)
         payload = json.loads(body) if body else {}
-    except Exception:
-        payload = {}
+    except Exception as exc:
+        app.logger.warning("OTLP json body read/decompress error [%s]: %s", request.path, exc)
+        return None, (jsonify({"error": "failed to read request body"}), 400)
     if not isinstance(payload, dict):
         payload = {}
     try:
@@ -7805,7 +7806,7 @@ async def ingest_metrics():
         events = _proto_metrics_to_events(msg)
     except Exception:
         app.logger.exception("metric proto decode failed")
-        return _json_error("metric ingest write failed", 500)
+        return _json_error("metric proto decode failed", 500)
     wait = bool(app.config.get("TESTING", False))
     try:
         _queue_write(lambda db: _insert_metric_events(db, events), wait=wait)
