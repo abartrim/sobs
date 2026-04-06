@@ -3022,6 +3022,106 @@ class TestUIPages:
         assert r.status_code == 200
         assert b"SQL error" in await r.get_data()
 
+    async def test_logs_trace_id_filter(self, client):
+        """Logs page should accept a trace_id parameter and filter by it."""
+        from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import ExportLogsServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.logs.v1.logs_pb2 import LogRecord, ResourceLogs, ScopeLogs
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+
+        now_ns = int(time.time() * 1_000_000_000)
+        target_trace_id_bytes = bytes.fromhex("aabbccddeeff00112233445566778899")
+        other_trace_id_bytes = bytes.fromhex("99887766554433221100ffeeddccbbaa")
+
+        resource = Resource(
+            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="trace-filter-svc"))]
+        )
+        log1 = LogRecord(
+            time_unix_nano=now_ns,
+            severity_text="INFO",
+            body=AnyValue(string_value="log_for_target_trace"),
+            trace_id=target_trace_id_bytes,
+        )
+        log2 = LogRecord(
+            time_unix_nano=now_ns + 1,
+            severity_text="INFO",
+            body=AnyValue(string_value="log_for_other_trace"),
+            trace_id=other_trace_id_bytes,
+        )
+        msg = ExportLogsServiceRequest(
+            resource_logs=[
+                ResourceLogs(
+                    resource=resource,
+                    scope_logs=[ScopeLogs(log_records=[log1, log2])],
+                )
+            ]
+        )
+        r = await client.post(
+            "/v1/logs", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        target_trace_id_hex = target_trace_id_bytes.hex()
+        r = await client.get(f"/logs?trace_id={target_trace_id_hex}")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"log_for_target_trace" in data
+        assert b"log_for_other_trace" not in data
+
+    async def test_logs_trace_id_filter_indicator(self, client):
+        """Logs page should show a trace filter indicator badge when trace_id is set."""
+        trace_id = "aabbccddeeff00112233445566778899"
+        r = await client.get(f"/logs?trace_id={trace_id}")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Filtering by trace" in data
+        assert trace_id.encode() in data
+
+    async def test_errors_page_has_logs_link_with_trace_id(self, client):
+        """Errors page should show a Logs button linking to logs filtered by trace_id when trace_id is available."""
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        trace_id_bytes = bytes.fromhex("ccddee0011223344556677889900aabb")
+        span_id_bytes = bytes.fromhex("1122334455667788")
+        start_ns = int(time.time() * 1_000_000_000)
+
+        span = Span(
+            trace_id=trace_id_bytes,
+            span_id=span_id_bytes,
+            name="errored-span",
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 1_000_000_000,
+            status=Status(code=2),
+            attributes=[
+                KeyValue(key="exception.type", value=AnyValue(string_value="TestError")),
+                KeyValue(key="exception.message", value=AnyValue(string_value="test error for logs link")),
+            ],
+        )
+        resource = Resource(
+            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="err-logs-link-svc"))]
+        )
+        msg = ExportTraceServiceRequest(
+            resource_spans=[
+                ResourceSpans(
+                    resource=resource,
+                    scope_spans=[ScopeSpans(spans=[span])],
+                )
+            ]
+        )
+        r = await client.post(
+            "/v1/traces", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        trace_id_hex = trace_id_bytes.hex()
+        r = await client.get("/errors")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert f"trace_id={trace_id_hex}".encode() in data
+
     async def test_root_mode_uses_root_relative_links(self, client):
         """Default deployment should generate links/assets without a path prefix."""
         r = await client.get("/")

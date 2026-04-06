@@ -8985,6 +8985,7 @@ async def view_logs():
     q = request.args.get("q", "").strip()
     level = request.args.get("level", "").strip().upper()
     service = request.args.get("service", "").strip()
+    trace_id = request.args.get("trace_id", "").strip()
     event_name = request.args.get("event_name", "").strip()
     from_ts, to_ts, time_error = _parse_time_window_args()
     sql_where = request.args.get("sql", "").strip()
@@ -9070,6 +9071,9 @@ async def view_logs():
         if event_name:
             conditions.append("EventName=?")
             params.append(event_name)
+        if trace_id:
+            conditions.append("TraceId=?")
+            params.append(trace_id)
         time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
         conditions.extend(time_conditions)
         params.extend(time_params)
@@ -9203,6 +9207,7 @@ async def view_logs():
         q=q,
         level=level,
         service=service,
+        trace_id=trace_id,
         sql_where=sql_where,
         from_ts=from_ts,
         to_ts=to_ts,

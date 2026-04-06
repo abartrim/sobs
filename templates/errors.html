@@ -195,8 +195,15 @@
         {% endif %}
         <div class="d-flex gap-2 mt-2">
           {% if err.trace_id %}
+          <a href="{{ url_for('view_logs', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-journal-text me-1"></i>Logs
+          </a>
           <a href="{{ url_for('view_traces', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
             <i class="bi bi-diagram-3 me-1"></i>Trace
+          </a>
+          {% else %}
+          <a href="{{ url_for('view_logs', service=err.service, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-journal-text me-1"></i>Logs
           </a>
           {% endif %}
           {% if err.artifact_url %}

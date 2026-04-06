@@ -925,6 +925,12 @@
         <td class="text-end">
           <span class="rum-row-action-slot">
             {% if session.trace_id %}
+            <a href="{{ url_for('view_logs', trace_id=session.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+               class="btn btn-outline-secondary btn-sm"
+               title="View related logs"
+               aria-label="View related logs">
+              <i class="bi bi-journal-text"></i>
+            </a>
             <a href="{{ url_for('view_traces', trace_id=session.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
                class="btn btn-outline-secondary btn-sm rum-row-trace-btn"
                title="Open trace"
@@ -978,6 +984,12 @@
                   </div>
                   <span class="rum-row-action-slot">
                     {% if ev.trace_id %}
+                    <a href="{{ url_for('view_logs', trace_id=ev.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+                       class="btn btn-outline-secondary btn-sm"
+                       title="View related logs"
+                       aria-label="View related logs">
+                      <i class="bi bi-journal-text"></i>
+                    </a>
                     <a href="{{ url_for('view_traces', trace_id=ev.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
                        class="btn btn-outline-secondary btn-sm rum-row-trace-btn"
                        title="Open trace"
@@ -1036,7 +1048,10 @@
                     </div>
 
                     {% if ev.data.get('traceId') %}
-                    <div class="mb-3">
+                    <div class="mb-3 d-flex gap-2">
+                      <a href="{{ url_for('view_logs', trace_id=ev.data.get('traceId'), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-journal-text me-1"></i>Logs
+                      </a>
                       <a href="{{ url_for('view_traces', trace_id=ev.data.get('traceId'), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
                         <i class="bi bi-diagram-3 me-1"></i>Trace {{ ev.data.get('traceId')[:12] }}
                       </a>
@@ -1197,6 +1212,12 @@
               </span>
               <span class="rum-row-action-slot">
                 {% if trace_id %}
+                <a href="{{ url_for('view_logs', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+                   class="btn btn-outline-secondary btn-sm"
+                   title="View related logs"
+                   aria-label="View related logs">
+                  <i class="bi bi-journal-text"></i>
+                </a>
                 <a href="{{ url_for('view_traces', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}"
                    class="btn btn-outline-secondary btn-sm rum-row-trace-btn"
                    title="Open trace"
@@ -1214,6 +1235,12 @@
               <span class="text-danger text-truncate d-inline-block" style="max-width:180px;" title="{{ ev.data.get('message','') }}">{{ ev.data.get('message','') | truncate(60) }}</span>
               <span class="rum-row-action-slot">
                 {% if trace_id %}
+                <a href="{{ url_for('view_logs', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+                   class="btn btn-outline-secondary btn-sm"
+                   title="View related logs"
+                   aria-label="View related logs">
+                  <i class="bi bi-journal-text"></i>
+                </a>
                 <a href="{{ url_for('view_traces', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}"
                    class="btn btn-outline-secondary btn-sm rum-row-trace-btn"
                    title="Open trace"
@@ -1242,6 +1269,12 @@
               <span class="text-truncate d-inline-block" style="max-width:220px;">{{ ev.data.get('title','') | truncate(40) }}</span>
               <span class="rum-row-action-slot">
                 {% if trace_id %}
+                <a href="{{ url_for('view_logs', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+                   class="btn btn-outline-secondary btn-sm"
+                   title="View related logs"
+                   aria-label="View related logs">
+                  <i class="bi bi-journal-text"></i>
+                </a>
                 <a href="{{ url_for('view_traces', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}"
                    class="btn btn-outline-secondary btn-sm rum-row-trace-btn"
                    title="Open trace"
@@ -1291,7 +1324,10 @@
             </div>
 
             {% if ev.data.get('traceId') %}
-            <div class="mb-3">
+            <div class="mb-3 d-flex gap-2">
+              <a href="{{ url_for('view_logs', trace_id=ev.data.get('traceId'), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-journal-text me-1"></i>Logs
+              </a>
               <a href="{{ url_for('view_traces', trace_id=ev.data.get('traceId'), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
                 <i class="bi bi-diagram-3 me-1"></i>Trace {{ ev.data.get('traceId')[:12] }}
               </a>
