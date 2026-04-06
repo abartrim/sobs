@@ -120,12 +120,25 @@
     const triggerWidth = Math.ceil(btn.getBoundingClientRect().width);
     let contentWidth = 0;
 
+    const computed = window.getComputedStyle(btn);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.font = `${computed.fontStyle} ${computed.fontVariant} ${computed.fontWeight} ${computed.fontSize} / ${computed.lineHeight} ${computed.fontFamily}`;
+    }
+
     options.forEach((option) => {
-      const textNode = option.querySelector('.sobs-multi-select-option-text');
-      if (textNode) {
-        contentWidth = Math.max(contentWidth, Math.ceil(textNode.scrollWidth));
+      const text = String(option.dataset.optionValue || '').trim();
+      if (!text) {
+        return;
+      }
+      if (ctx) {
+        contentWidth = Math.max(contentWidth, Math.ceil(ctx.measureText(text).width));
       } else {
-        contentWidth = Math.max(contentWidth, Math.ceil(option.scrollWidth));
+        const textNode = option.querySelector('.sobs-multi-select-option-text');
+        if (textNode) {
+          contentWidth = Math.max(contentWidth, Math.ceil(textNode.scrollWidth));
+        }
       }
     });
 
@@ -133,7 +146,7 @@
     const horizontalChrome = 72;
     const desired = Math.max(triggerWidth, contentWidth + horizontalChrome);
     const viewportCap = Math.floor(window.innerWidth * 0.9);
-    const absoluteCap = 700;
+    const absoluteCap = 900;
     const finalWidth = Math.min(desired, viewportCap, absoluteCap);
 
     dropdownMenu.style.width = `${finalWidth}px`;
@@ -166,6 +179,8 @@
 
       // Recalculate width right before showing in case option content changed.
       dropdown.addEventListener('show.bs.dropdown', updateMenuWidth);
+      dropdown.addEventListener('shown.bs.dropdown', updateMenuWidth);
+      btn.addEventListener('click', updateMenuWidth);
       window.addEventListener('resize', updateMenuWidth);
     }
   }
