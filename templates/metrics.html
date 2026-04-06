@@ -28,7 +28,7 @@
     </h2>
     <div id="metricsFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="metricsFiltersHeading" data-bs-parent="#metricsFiltersAccordion">
       <div class="accordion-body py-2">
-    <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
       {{ render_multi_select('source', 'Source', sources, selected_sources, '120px') }}
       {{ render_multi_select('service', 'Service', services, selected_services, '140px') }}
       {{ render_multi_select('signal', 'Signal', signals, selected_signals, '140px') }}

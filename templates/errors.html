@@ -13,7 +13,7 @@
 
 <!-- Filter bar -->
 {% call render_filter_accordion('errorsFiltersAccordion', 'errorsFiltersHeading', 'errorsFiltersPanel', 'text-danger', 'errors-tz-badge-btn', 'errors-tz-badge-label') %}
-    <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
       {{ render_multi_select('service', 'Service', services, selected_services, '140px') }}
       <div style="flex: 1 0 120px">
         <label class="form-label small text-secondary">Status</label>

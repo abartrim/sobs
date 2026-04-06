@@ -9,7 +9,7 @@
 {% macro render_multi_select(filter_name, label, options, selected_values, flex_basis='120px') %}
 <div style="flex: 1 1 {{ flex_basis }}; min-width: 0;">
   <label class="form-label small text-secondary">{{ label }}</label>
-  <div class="dropdown" id="dropdown-{{ filter_name }}">
+  <div class="dropdown sobs-multi-select-wrap" id="dropdown-{{ filter_name }}">
     <button 
       class="form-select form-select-sm sobs-multi-select-toggle"
       type="button"
@@ -24,6 +24,15 @@
           All {{ label | lower }}
         {%- endif -%}
       </span>
+    </button>
+    <button
+      type="button"
+      id="clear-{{ filter_name }}"
+      class="sobs-multi-select-clear-btn"
+      aria-label="Clear selected {{ label | lower }}"
+      title="Clear selected {{ label | lower }}"
+      hidden>
+      <i class="bi bi-x"></i>
     </button>
     <ul class="dropdown-menu sobs-multi-select-menu" aria-labelledby="btn-{{ filter_name }}">
       {% for opt in options %}
@@ -60,10 +69,12 @@
 (function() {
   const filterName = "{{ filter_name }}";
   const btnId = `btn-${filterName}`;
+  const clearBtnId = `clear-${filterName}`;
   const labelId = `label-${filterName}`;
   const hiddenFieldsId = `hidden-fields-${filterName}`;
   
   const btn = document.getElementById(btnId);
+  const clearBtn = document.getElementById(clearBtnId);
   const label = document.getElementById(labelId);
   const hiddenFieldsContainer = document.getElementById(hiddenFieldsId);
   const dropdown = document.getElementById(`dropdown-${filterName}`);
@@ -101,6 +112,10 @@
     } else {
       label.textContent = `${checked.length} selected`;
       label.title = checked.join(', ');
+    }
+
+    if (clearBtn) {
+      clearBtn.hidden = checked.length <= 1;
     }
 
     syncOptionVisuals();
@@ -170,6 +185,8 @@
       option.addEventListener('click', () => {
         option.classList.toggle('is-selected');
         updateLabel();
+        const event = new CustomEvent('sobs:filters:changed', { bubbles: true });
+        option.dispatchEvent(event);
         // Auto-submit form when filter changes
         const form = option.closest('form');
         if (form) {
@@ -190,6 +207,21 @@
       btn.addEventListener('click', updateMenuWidth);
       window.addEventListener('resize', updateMenuWidth);
     }
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        options.forEach((option) => option.classList.remove('is-selected'));
+        updateLabel();
+        const event = new CustomEvent('sobs:filters:changed', { bubbles: true });
+        clearBtn.dispatchEvent(event);
+        const form = clearBtn.closest('form');
+        if (form) {
+          form.submit();
+        }
+      });
+    }
   }
   
   // Run immediately if DOM is ready, otherwise wait
@@ -199,14 +231,113 @@
     initialize();
   }
 })();
+
+(function () {
+  if (window.__sobsFilterFormEnhancementsInit) {
+    return;
+  }
+  window.__sobsFilterFormEnhancementsInit = true;
+
+  function findSubmitButton(form) {
+    return form.querySelector('[data-ai-action-role="filter-submit"], button[type="submit"]');
+  }
+
+  function flashSubmitButton(form) {
+    const submitButton = findSubmitButton(form);
+    if (!submitButton) {
+      return;
+    }
+    submitButton.classList.remove('sobs-filter-submit-dirty');
+    // Force reflow so repeated flashes retrigger animation.
+    void submitButton.offsetWidth;
+    submitButton.classList.add('sobs-filter-submit-dirty');
+  }
+
+  function shouldAutoSubmitOnChange(target) {
+    if (!target) {
+      return false;
+    }
+    if (target.tagName === 'SELECT') {
+      return true;
+    }
+    if (target.tagName === 'INPUT') {
+      const inputType = (target.type || '').toLowerCase();
+      return ['checkbox', 'radio', 'number', 'range', 'date', 'datetime-local', 'time', 'month', 'week'].includes(inputType);
+    }
+    return false;
+  }
+
+  document.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const form = target.closest('form.sobs-filter-form');
+    if (!form) {
+      return;
+    }
+    flashSubmitButton(form);
+    if (shouldAutoSubmitOnChange(target)) {
+      form.submit();
+    }
+  });
+
+  document.addEventListener('input', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const form = target.closest('form.sobs-filter-form');
+    if (!form) {
+      return;
+    }
+    flashSubmitButton(form);
+  });
+
+  document.addEventListener('sobs:filters:changed', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const form = target.closest('form.sobs-filter-form');
+    if (!form) {
+      return;
+    }
+    flashSubmitButton(form);
+  });
+})();
 </script>
 
 <style>
   .sobs-multi-select-toggle {
     text-align: left;
-    padding-right: 2.25rem;
+    padding-right: 3.5rem;
     background-position: right 0.75rem center;
     cursor: pointer;
+  }
+
+  .sobs-multi-select-wrap {
+    position: relative;
+  }
+
+  .sobs-multi-select-clear-btn {
+    position: absolute;
+    right: 2rem;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 0;
+    background: transparent;
+    color: var(--bs-secondary-color);
+    width: 1rem;
+    height: 1rem;
+    padding: 0;
+    line-height: 1;
+    opacity: 0.75;
+  }
+
+  .sobs-multi-select-clear-btn:hover {
+    opacity: 1;
+    color: var(--bs-body-color);
   }
 
   .sobs-multi-select-label {
@@ -258,6 +389,19 @@
 
   .sobs-multi-select-checkmark.visible {
     opacity: 1;
+  }
+
+  .sobs-filter-submit-dirty {
+    animation: sobsFilterSubmitFlash 850ms ease-out;
+  }
+
+  @keyframes sobsFilterSubmitFlash {
+    0% {
+      box-shadow: 0 0 0 0 rgba(13, 110, 253, 0.55);
+    }
+    100% {
+      box-shadow: 0 0 0 7px rgba(13, 110, 253, 0);
+    }
   }
 </style>
 {% endmacro %}

@@ -16,10 +16,11 @@
 
 .error-panel-summary {
   width: 100%;
-  max-width: 100%;
+  max-width: calc(100% - .25rem);
   min-width: 0;
   overflow: hidden;
   display: flex;
+  flex-wrap: nowrap;
   gap: .5rem;
   align-items: center;
 }
@@ -62,8 +63,10 @@
 
 .error-panel-message-preview {
   display: block;
-  flex: 1 1 0;
+  flex: 1 1 auto;
+  width: 0;
   min-width: 0;
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

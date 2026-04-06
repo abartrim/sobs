@@ -249,7 +249,7 @@
     </h2>
     <div id="aiFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="aiFiltersHeading" data-bs-parent="#aiFiltersAccordion">
       <div class="accordion-body py-3">
-    <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
       <input type="hidden" name="view" value="{{ view_mode }}">
       {{ render_multi_select('service', 'Service', services, selected_services, '140px') }}
       {{ render_multi_select('model', 'Model', models, selected_models, '140px') }}
