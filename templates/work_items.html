@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_filter_macros.html" import render_filter_accordion %}
 {% block title %}Work Items{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -14,25 +15,8 @@
 </div>
 
 <!-- Filters -->
-<div class="accordion mb-3" id="workItemsFiltersAccordion">
-  <div class="accordion-item border-secondary">
-    <h2 class="accordion-header">
-      <button class="accordion-button py-2" type="button"
-              data-bs-toggle="collapse" data-bs-target="#workItemsFiltersPanel"
-              aria-expanded="true" aria-controls="workItemsFiltersPanel">
-        <i class="bi bi-funnel me-2 text-primary"></i>
-        <span class="fw-semibold">Filters</span>
-        <span id="work-items-tz-badge-btn" class="sobs-tz-header-badge ms-2" role="button" tabindex="0" title="Display timezone - click to change">
-          <i class="bi bi-clock"></i>
-          <span id="work-items-tz-badge-label">UTC</span>
-        </span>
-        {% if service_filter or rule_filter or action_type_filter or status_filter or from_ts or to_ts %}
-        <span class="badge bg-primary ms-2">Active</span>
-        {% endif %}
-      </button>
-    </h2>
-    <div id="workItemsFiltersPanel" class="accordion-collapse collapse show" data-bs-parent="#workItemsFiltersAccordion">
-      <div class="accordion-body py-3">
+{% set _work_items_has_active_filters = service_filter or rule_filter or action_type_filter or status_filter or from_ts or to_ts %}
+{% call render_filter_accordion('workItemsFiltersAccordion', 'workItemsFiltersHeading', 'workItemsFiltersPanel', 'text-primary', 'work-items-tz-badge-btn', 'work-items-tz-badge-label', _work_items_has_active_filters) %}
         <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
           <div style="flex: 1 0 140px">
             <label class="form-label small text-secondary mb-1">Service</label>
@@ -101,10 +85,7 @@
             </button>
           </div>
         </form>
-      </div>
-    </div>
-  </div>
-</div>
+{% endcall %}
 
 <!-- Work Items Table -->
 <div class="card border-secondary">

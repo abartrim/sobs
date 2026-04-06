@@ -1,0 +1,138 @@
+.rum-viewer-image {
+  max-width: 100%;
+  max-height: 60vh;
+  border-radius: .5rem;
+  border: 1px solid var(--bs-border-color);
+  background: var(--bs-body-bg);
+}
+.rum-viewer-json {
+  max-height: 50vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.rum-viewer-player {
+  min-height: min(64vh, 760px);
+  height: auto;
+  border: 1px solid var(--bs-border-color);
+  border-radius: .5rem;
+  overflow: visible;
+  background: var(--bs-body-bg);
+  padding: .5rem;
+}
+.rum-viewer-player .rr-player {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+.rum-viewer-player .rr-controller,
+.rum-viewer-player .rr-player__controller,
+.rum-viewer-player .controller {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  background: var(--bs-body-bg) !important;
+  color: var(--bs-body-color) !important;
+  border: 1px solid var(--bs-border-color) !important;
+  border-radius: .5rem !important;
+  box-shadow: none !important;
+}
+.rum-viewer-player .rr-controller *,
+.rum-viewer-player .rr-player__controller *,
+.rum-viewer-player .controller * {
+  color: var(--bs-body-color) !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+.rum-viewer-player .rr-controller button,
+.rum-viewer-player .rr-player__controller button,
+.rum-viewer-player .controller button {
+  background: color-mix(in srgb, var(--bs-secondary-bg) 65%, transparent) !important;
+  border-color: var(--bs-border-color) !important;
+}
+.rum-viewer-player .rr-controller input[type="range"],
+.rum-viewer-player .rr-player__controller input[type="range"],
+.rum-viewer-player .controller input[type="range"] {
+  accent-color: var(--bs-primary) !important;
+}
+[data-bs-theme='dark'] .rum-viewer-player .rr-controller,
+[data-bs-theme='dark'] .rum-viewer-player .rr-player__controller,
+[data-bs-theme='dark'] .rum-viewer-player .controller {
+  background: color-mix(in srgb, var(--bs-dark) 82%, #000) !important;
+  border-color: color-mix(in srgb, var(--bs-border-color) 70%, #9aa4b2) !important;
+}
+.rum-replay-timeline {
+  position: relative;
+  margin-bottom: .75rem;
+  height: 1.25rem;
+}
+.rum-replay-timeline-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: .5rem;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bs-secondary-color) 36%, transparent);
+}
+.rum-replay-timeline-marker {
+  position: absolute;
+  top: .2rem;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bs-danger);
+  border: 2px solid var(--bs-body-bg);
+  transform: translateX(-50%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bs-danger) 35%, transparent);
+}
+.rum-replay-timeline-label {
+  position: absolute;
+  top: .85rem;
+  left: 0;
+}
+.rum-replay-raw summary {
+  cursor: pointer;
+  user-select: none;
+}
+.rum-replay-raw[open] summary {
+  margin-bottom: .5rem;
+}
+#rumAssetViewerModal {
+  z-index: 1080;
+}
+#rumAssetViewerModal .modal-dialog {
+  width: min(98vw, 1680px);
+  max-width: min(98vw, 1680px);
+  height: calc(100vh - 1rem);
+  max-height: calc(100vh - 1rem);
+  margin: .5rem auto;
+}
+#rumAssetViewerModal .modal-content {
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+#rumAssetViewerModal .modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  margin-left: auto;
+}
+#rumAssetViewerModal .rum-asset-open-raw-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+}
+#rumAssetViewerModal .modal-body {
+  max-height: calc(100vh - 7rem);
+  overflow: auto;
+}
+body.rum-replay-modal-open #sobsAiBtn,
+body.rum-replay-modal-open #sobsAiPanel {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

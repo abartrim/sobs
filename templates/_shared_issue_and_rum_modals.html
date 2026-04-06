@@ -1,0 +1,98 @@
+<div class="modal fade" id="rumAssetViewerModal" tabindex="-1" aria-labelledby="rumAssetViewerLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="rumAssetViewerLabel">RUM Asset Viewer</h5>
+        <div class="modal-header-actions">
+          <a id="rumAssetViewerOpenRaw" href="#" target="_blank" rel="noopener noreferrer"
+             class="btn btn-sm btn-outline-secondary rum-asset-open-raw-btn"
+             title="Open raw asset" aria-label="Open raw asset">
+            <i class="bi bi-box-arrow-up-right"></i>
+          </a>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="rumAssetViewerStatus" class="small text-secondary mb-2"></div>
+        <div id="rumAssetViewerError" class="alert alert-danger d-none py-2 small" role="alert"></div>
+
+        <div id="rumAssetViewerImageWrap" class="d-none text-center">
+          <img id="rumAssetViewerImage" class="rum-viewer-image" alt="RUM artifact preview">
+        </div>
+
+        <div id="rumAssetViewerFrameWrap" class="d-none">
+          <iframe id="rumAssetViewerFrame" title="RUM asset preview" class="w-100" style="height:60vh;border:1px solid var(--bs-border-color);border-radius:.5rem;"></iframe>
+        </div>
+
+        <div id="rumAssetViewerReplayWrap" class="d-none">
+          <div id="rumAssetViewerReplayPlayer" class="rum-viewer-player mb-3 d-none"></div>
+          <div id="rumAssetViewerReplayTimeline" class="rum-replay-timeline d-none" aria-label="Replay error marker timeline">
+            <div class="rum-replay-timeline-track"></div>
+            <div id="rumAssetViewerReplayTimelineMarker" class="rum-replay-timeline-marker"></div>
+            <div id="rumAssetViewerReplayTimelineLabel" class="rum-replay-timeline-label small text-secondary"></div>
+          </div>
+          <details id="rumAssetViewerReplayRaw" class="rum-replay-raw">
+            <summary class="small text-secondary">Raw Replay JSON</summary>
+            <pre id="rumAssetViewerReplayJson" class="rum-viewer-json rounded p-2 mb-0 theme-panel"></pre>
+          </details>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Raise Issue Modal -->
+<div class="modal fade" id="raiseIssueModal" tabindex="-1" aria-labelledby="raiseIssueModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-secondary">
+      <div class="modal-header">
+        <h5 class="modal-title" id="raiseIssueModalLabel">
+          <i class="bi bi-github me-2"></i>Raise GitHub Issue
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3 d-flex gap-3">
+          <div class="flex-grow-1">
+            <div class="small text-secondary mb-1">Service</div>
+            <div class="fw-semibold" id="raiseIssueService"></div>
+          </div>
+          <div class="flex-grow-1">
+            <div class="small text-secondary mb-1">Error type</div>
+            <div class="font-monospace small text-danger" id="raiseIssueType"></div>
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="small text-secondary mb-1">Message</div>
+          <div class="small border rounded p-2 bg-body-secondary" id="raiseIssueMessage"
+               style="max-height:80px;overflow-y:auto;word-break:break-word;"></div>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="raiseIssueCopilot">
+          <label class="form-check-label" for="raiseIssueCopilot">
+            Request Copilot assignment
+          </label>
+          <div class="form-text">Copilot will be formally assigned to suggest a fix if no active work already exists.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="raiseIssueConfirmBtn">
+          <i class="bi bi-github me-1"></i>Raise Issue
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Raise-issue result toast -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:1090">
+  <div id="raiseIssueToast" class="toast align-items-center text-bg-success border-0"
+       role="alert" aria-live="assertive" aria-atomic="true">
+    <div class="d-flex">
+      <div class="toast-body" id="raiseIssueToastBody">Issue ready.</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto"
+              data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+  </div>
+</div>
