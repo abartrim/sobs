@@ -9,6 +9,7 @@ import asyncio
 import atexit
 import base64
 import copy
+import gzip
 import hashlib
 import hmac
 import html
@@ -7502,6 +7503,9 @@ def _insert_typed_metric_events(db, events: list[TypedMetricEvent]) -> int:
 
 
 _PROTOBUF_CONTENT_TYPE = "application/x-protobuf"
+# Maximum number of bytes allowed after decompression (32 MiB). Prevents zip-bomb / decompression
+# bomb DoS where a tiny compressed payload expands to an unbounded amount of memory.
+_MAX_DECOMPRESSED_BODY_BYTES = 32 * 1024 * 1024
 
 
 def _decompress_request_body(raw: bytes, content_encoding: str) -> bytes:
@@ -7518,17 +7522,19 @@ def _decompress_request_body(raw: bytes, content_encoding: str) -> bytes:
     Supported individual encodings: ``gzip``, ``deflate``.  Unrecognised
     encodings are passed through so that a downstream parse error surfaces a
     meaningful message.
-    """
-    import gzip as _gzip
-    import zlib as _zlib
 
+    Raises ``ValueError`` if the decompressed body exceeds
+    ``_MAX_DECOMPRESSED_BODY_BYTES`` to guard against decompression bombs.
+    """
     encodings = [e.strip().lower() for e in (content_encoding or "").split(",") if e.strip()]
     data = raw
     for enc in reversed(encodings):
         if enc == "gzip":
-            data = _gzip.decompress(data)
+            data = gzip.decompress(data)
         elif enc == "deflate":
-            data = _zlib.decompress(data)
+            data = zlib.decompress(data)
+        if len(data) > _MAX_DECOMPRESSED_BODY_BYTES:
+            raise ValueError(f"decompressed body exceeds {_MAX_DECOMPRESSED_BODY_BYTES} bytes")
     return data
 
 
@@ -23263,25 +23269,23 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
             WHERE {' AND '.join(node_conditions)}
             GROUP BY name
         """
-        node_total = _count_query(f"SELECT count(*) AS cnt FROM ({node_base_sql})", node_params)
-        result["meta"]["nodes"]["total"] = node_total
-        result["summary"]["nodes_total"] = node_total
-        result["summary"]["nodes_ready"] = _count_query(
-            f"SELECT count(*) AS cnt FROM ({node_base_sql}) WHERE ready_signal > 0",
-            node_params,
-        )
-        node_resource_summary = db.execute(
+        node_stats = db.execute(
             f"""
             SELECT
+                count() AS total,
+                countIf(ready_signal > 0) AS ready,
                 avg(cpu_usage) AS cpu_avg,
                 avg(mem_used) AS mem_avg
             FROM ({node_base_sql})
             """,
             node_params,
         ).fetchone()
-        if node_resource_summary:
-            result["summary"]["nodes_cpu_avg"] = float(node_resource_summary.get("cpu_avg") or 0)
-            result["summary"]["nodes_mem_used_avg"] = float(node_resource_summary.get("mem_avg") or 0)
+        if node_stats:
+            result["meta"]["nodes"]["total"] = int(node_stats.get("total") or 0)
+            result["summary"]["nodes_total"] = int(node_stats.get("total") or 0)
+            result["summary"]["nodes_ready"] = int(node_stats.get("ready") or 0)
+            result["summary"]["nodes_cpu_avg"] = float(node_stats.get("cpu_avg") or 0)
+            result["summary"]["nodes_mem_used_avg"] = float(node_stats.get("mem_avg") or 0)
         node_sql = (
             f"SELECT * FROM ({node_base_sql}) "
             f"ORDER BY {table_opts['nodes']['sort_col']} {table_opts['nodes']['sort_dir'].upper()} "
@@ -23330,29 +23334,25 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
             WHERE {' AND '.join(pod_conditions)}
             GROUP BY namespace, name
         """
-        pod_total = _count_query(f"SELECT count(*) AS cnt FROM ({pod_base_sql})", pod_params)
-        result["meta"]["pods"]["total"] = pod_total
-        result["summary"]["pods_total"] = pod_total
-        result["summary"]["pods_running"] = _count_query(
-            f"SELECT count(*) AS cnt FROM ({pod_base_sql}) WHERE phase = 'Running'",
-            pod_params,
-        )
-        result["summary"]["pods_failed"] = _count_query(
-            f"SELECT count(*) AS cnt FROM ({pod_base_sql}) WHERE phase = 'Failed'",
-            pod_params,
-        )
-        pod_resource_summary = db.execute(
+        pod_stats = db.execute(
             f"""
             SELECT
+                count() AS total,
+                countIf(phase = 'Running') AS running,
+                countIf(phase = 'Failed') AS failed,
                 sum(cpu_usage) AS cpu_total,
                 sum(mem_used) AS mem_total
             FROM ({pod_base_sql})
             """,
             pod_params,
         ).fetchone()
-        if pod_resource_summary:
-            result["summary"]["pods_cpu_total"] = float(pod_resource_summary.get("cpu_total") or 0)
-            result["summary"]["pods_mem_used_total"] = float(pod_resource_summary.get("mem_total") or 0)
+        if pod_stats:
+            result["meta"]["pods"]["total"] = int(pod_stats.get("total") or 0)
+            result["summary"]["pods_total"] = int(pod_stats.get("total") or 0)
+            result["summary"]["pods_running"] = int(pod_stats.get("running") or 0)
+            result["summary"]["pods_failed"] = int(pod_stats.get("failed") or 0)
+            result["summary"]["pods_cpu_total"] = float(pod_stats.get("cpu_total") or 0)
+            result["summary"]["pods_mem_used_total"] = float(pod_stats.get("mem_total") or 0)
         pod_sql = (
             f"SELECT * FROM ({pod_base_sql}) "
             f"ORDER BY {table_opts['pods']['sort_col']} {table_opts['pods']['sort_dir'].upper()} "

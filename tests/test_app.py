@@ -875,6 +875,21 @@ class TestOtlpProtobufIngest:
         assert r.status_code == 400
         assert "error" in json.loads(await r.get_data())
 
+    async def test_gzip_decompression_bomb_returns_400(self, client):
+        """A gzip payload that expands beyond the size limit must be rejected with 400, not OOM."""
+        import gzip as _gzip
+
+        # Compress a payload that decompresses to well over _MAX_DECOMPRESSED_BODY_BYTES (32 MiB).
+        # 33 MiB of null bytes compresses to a few hundred bytes.
+        bomb = _gzip.compress(b"\x00" * (33 * 1024 * 1024))
+        r = await client.post(
+            "/v1/metrics",
+            data=bomb,
+            headers={"Content-Type": self.PROTOBUF_CT, "Content-Encoding": "gzip"},
+        )
+        assert r.status_code == 400
+        assert "error" in json.loads(await r.get_data())
+
     async def test_protobuf_invalid_body_returns_400(self, client):
         r = await client.post("/v1/logs", data=b"not valid protobuf", headers={"Content-Type": self.PROTOBUF_CT})
         assert r.status_code == 400
@@ -11817,3 +11832,155 @@ class TestKubernetesRoutes:
         text = (await r.get_data()).decode()
         assert "Kubernetes Health View" in text
         assert "view_k8s_settings" in text or "settings/kubernetes" in text
+
+
+class TestKubernetesResourceMetrics:
+    """Tests for K8s node/pod cpu_usage + mem_used fields ingested via OTLP and
+    surfaced in the _fetch_k8s_from_otel response."""
+
+    JSON_CT = "application/json"
+
+    def _k8s_gauge_payload(self, metrics: list[dict]) -> dict:
+        """Build a minimal OTLP JSON ExportMetricsServiceRequest."""
+        ns = int(time.time() * 1_000_000_000)
+        scope_metrics = []
+        for m in metrics:
+            scope_metrics.append(
+                {
+                    "name": m["name"],
+                    "unit": m.get("unit", "1"),
+                    "gauge": {
+                        "dataPoints": [
+                            {
+                                "timeUnixNano": str(ns),
+                                "asDouble": m["value"],
+                                "attributes": [
+                                    {"key": k, "value": {"stringValue": v}} for k, v in m.get("attrs", {}).items()
+                                ],
+                            }
+                        ]
+                    },
+                }
+            )
+        return {
+            "resourceMetrics": [
+                {
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "k8s-otel-test"}}]},
+                    "scopeMetrics": [{"metrics": scope_metrics}],
+                }
+            ]
+        }
+
+    async def _ingest(self, client, metrics: list[dict]) -> None:
+        payload = self._k8s_gauge_payload(metrics)
+        r = await client.post("/v1/metrics", json=payload)
+        assert r.status_code == 200
+
+    async def test_node_resource_fields_in_row(self, client):
+        """Node rows returned by _fetch_k8s_from_otel include cpu_usage and mem_used."""
+        node = "test-node-res-1"
+        await self._ingest(
+            client,
+            [
+                {"name": "k8s.node.condition_ready", "value": 1.0, "attrs": {"k8s.node.name": node}},
+                {"name": "k8s.node.cpu.usage", "unit": "%", "value": 42.5, "attrs": {"k8s.node.name": node}},
+                {
+                    "name": "k8s.node.memory.usage",
+                    "unit": "By",
+                    "value": 1073741824.0,
+                    "attrs": {"k8s.node.name": node},
+                },
+            ],
+        )
+        result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        node_row = next((n for n in result["nodes"] if n["name"] == node), None)
+        assert node_row is not None, f"Node '{node}' not found in result"
+        assert abs(node_row["cpu_usage"] - 42.5) < 1e-6
+        assert abs(node_row["mem_used"] - 1073741824.0) < 1e-6
+
+    async def test_node_summary_cpu_mem_averages(self, client):
+        """summary.nodes_cpu_avg and nodes_mem_used_avg are computed from ingested data."""
+        node = "test-node-res-2"
+        await self._ingest(
+            client,
+            [
+                {"name": "k8s.node.condition_ready", "value": 1.0, "attrs": {"k8s.node.name": node}},
+                {"name": "k8s.node.cpu.usage", "unit": "%", "value": 60.0, "attrs": {"k8s.node.name": node}},
+                {
+                    "name": "k8s.node.memory.usage",
+                    "unit": "By",
+                    "value": 2147483648.0,
+                    "attrs": {"k8s.node.name": node},
+                },
+            ],
+        )
+        result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        assert "nodes_cpu_avg" in result["summary"]
+        assert "nodes_mem_used_avg" in result["summary"]
+        # At least the node we just ingested contributes a non-zero average.
+        assert result["summary"]["nodes_cpu_avg"] > 0
+        assert result["summary"]["nodes_mem_used_avg"] > 0
+
+    async def test_pod_resource_fields_in_row(self, client):
+        """Pod rows returned by _fetch_k8s_from_otel include cpu_usage and mem_used."""
+        pod = "test-pod-res-1"
+        ns_name = "default"
+        await self._ingest(
+            client,
+            [
+                {
+                    "name": "k8s.pod.status_ready",
+                    "value": 1.0,
+                    "attrs": {"k8s.pod.name": pod, "k8s.namespace.name": ns_name, "k8s.pod.phase": "Running"},
+                },
+                {
+                    "name": "k8s.pod.cpu.usage",
+                    "unit": "1",
+                    "value": 0.15,
+                    "attrs": {"k8s.pod.name": pod, "k8s.namespace.name": ns_name},
+                },
+                {
+                    "name": "k8s.pod.memory.usage",
+                    "unit": "By",
+                    "value": 134217728.0,
+                    "attrs": {"k8s.pod.name": pod, "k8s.namespace.name": ns_name},
+                },
+            ],
+        )
+        result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        pod_row = next((p for p in result["pods"] if p["name"] == pod), None)
+        assert pod_row is not None, f"Pod '{pod}' not found in result"
+        assert abs(pod_row["cpu_usage"] - 0.15) < 1e-6
+        assert abs(pod_row["mem_used"] - 134217728.0) < 1e-6
+
+    async def test_pod_summary_cpu_mem_totals(self, client):
+        """summary.pods_cpu_total and pods_mem_used_total are computed from ingested data."""
+        pod = "test-pod-res-2"
+        ns_name = "default"
+        await self._ingest(
+            client,
+            [
+                {
+                    "name": "k8s.pod.status_ready",
+                    "value": 1.0,
+                    "attrs": {"k8s.pod.name": pod, "k8s.namespace.name": ns_name, "k8s.pod.phase": "Running"},
+                },
+                {
+                    "name": "k8s.pod.cpu.usage",
+                    "unit": "1",
+                    "value": 0.25,
+                    "attrs": {"k8s.pod.name": pod, "k8s.namespace.name": ns_name},
+                },
+                {
+                    "name": "k8s.pod.memory.usage",
+                    "unit": "By",
+                    "value": 268435456.0,
+                    "attrs": {"k8s.pod.name": pod, "k8s.namespace.name": ns_name},
+                },
+            ],
+        )
+        result = sobs_app._fetch_k8s_from_otel(sobs_app.get_db(), {})
+        assert "pods_cpu_total" in result["summary"]
+        assert "pods_mem_used_total" in result["summary"]
+        assert result["summary"]["pods_cpu_total"] > 0
+        assert result["summary"]["pods_mem_used_total"] > 0
