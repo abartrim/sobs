@@ -85,13 +85,10 @@
         <div class="position-relative">
           <input type="text" name="q" id="regex-filter-input" class="form-control form-control-sm font-monospace"
                  placeholder="regex search…" value="{{ q }}"
-                 autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox" aria-describedby="regex-filter-feedback">
+                 autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox">
           <ul id="regex-ac-dropdown" role="listbox"
               class="dropdown-menu p-0 font-monospace small"
               style="display:none;position:absolute;top:100%;left:0;right:0;z-index:1060;max-height:220px;overflow-y:auto;"></ul>
-        </div>
-        <div id="regex-filter-feedback" class="form-text small text-secondary mt-1">
-          {{ error_msg if (error_msg and not sql_where) else "Enter a regex pattern to filter log messages." }}
         </div>
       </div>
       <div style="flex: 1 0 120px">
@@ -947,7 +944,6 @@
 (() => {
   const input = document.getElementById("regex-filter-input");
   const dropdown = document.getElementById("regex-ac-dropdown");
-  const feedback = document.getElementById("regex-filter-feedback");
   if (!input || !dropdown) return;
 
   let activeIdx = -1;
@@ -955,6 +951,7 @@
   let validateTimer = null;
   let validateSeq = 0;
   let validateController = null;
+  let statusState = null; // { level, message } — shown as pinned row in dropdown
 
   const validateUrl = {{ url_for('api_logs_validate_regex')|tojson }};
 
@@ -1008,14 +1005,25 @@
     return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   }
 
-  function setFeedback(level, message) {
-    if (!feedback) return;
-    feedback.classList.remove("text-secondary", "text-danger", "text-warning", "text-success");
-    if (level === "error")        feedback.classList.add("text-danger");
-    else if (level === "warning") feedback.classList.add("text-warning");
-    else if (level === "success") feedback.classList.add("text-success");
-    else                          feedback.classList.add("text-secondary");
-    feedback.textContent = String(message || "");
+  function renderStatusRow() {
+    const existing = dropdown.querySelector("li[data-status]");
+    if (existing) existing.remove();
+    if (!statusState) return;
+    const li = document.createElement("li");
+    li.setAttribute("data-status", "true");
+    li.setAttribute("role", "presentation");
+    const colorClass = statusState.level === "error" ? "text-danger"
+      : statusState.level === "success" ? "text-success"
+      : "text-secondary";
+    li.className = `px-2 py-1 small border-bottom ${colorClass}`;
+    li.style.cssText = "cursor:default;user-select:none;";
+    li.textContent = statusState.message;
+    dropdown.insertBefore(li, dropdown.firstChild);
+  }
+
+  function setStatusRow(level, message) {
+    statusState = message ? { level, message } : null;
+    if (dropdown.style.display !== "none") renderStatusRow();
   }
 
   function clientValidate(value) {
@@ -1033,7 +1041,7 @@
     const requestSeq = ++validateSeq;
     const patternSnapshot = input.value;
     const local = clientValidate(patternSnapshot);
-    setFeedback(local.level, local.message);
+    setStatusRow(local.level, local.message);
     if (!local.ok || !patternSnapshot.trim()) return;
 
     if (validateController) validateController.abort();
@@ -1051,12 +1059,12 @@
       const data = await res.json();
       if (requestSeq !== validateSeq || input.value !== patternSnapshot) return;
       if (!data.ok) {
-        setFeedback("error", `Invalid regex: ${data.error || "pattern error"}`);
+        setStatusRow("error", `Invalid regex: ${data.error || "pattern error"}`);
       } else if (data.sample) {
         const preview = data.sample.length > 120 ? data.sample.slice(0, 117) + "…" : data.sample;
-        setFeedback("success", `✓ Matches e.g.: ${preview}`);
+        setStatusRow("success", `✓ Matches e.g.: ${preview}`);
       } else {
-        setFeedback("success", "Valid regex pattern — no matching log entries found.");
+        setStatusRow("success", "Valid regex — no matching log entries found.");
       }
     } catch (err) {
       if (err && err.name === "AbortError") return;
@@ -1088,7 +1096,6 @@
   }
 
   function openDropdown(items) {
-    if (!items.length) { closeDropdown(); return; }
     lastItems = items;
     activeIdx = -1;
     dropdown.innerHTML = "";
@@ -1096,18 +1103,20 @@
       const li = document.createElement("li");
       li.setAttribute("role", "option");
       li.setAttribute("aria-selected", "false");
-      li.className = "dropdown-item py-1 px-2 cursor-pointer";
+      li.className = "dropdown-item py-1 px-2";
       li.style.cursor = "pointer";
       li.innerHTML = `<strong>${_esc(item.label)}</strong>` +
         (item.hint ? ` <small class="text-muted ms-1">${_esc(item.hint)}</small>` : "");
       li.addEventListener("mousedown", (e) => { e.preventDefault(); applyItem(item); });
       dropdown.appendChild(li);
     });
+    if (!items.length && !statusState) { dropdown.style.display = "none"; return; }
     dropdown.style.display = "block";
+    renderStatusRow();
   }
 
   function setActive(idx) {
-    const lis = dropdown.querySelectorAll("li");
+    const lis = dropdown.querySelectorAll("li[role='option']");
     lis.forEach((li, i) => {
       li.classList.toggle("active", i === idx);
       li.setAttribute("aria-selected", i === idx ? "true" : "false");
@@ -1136,7 +1145,7 @@
     closeDropdown();
     input.focus();
     const local = clientValidate(input.value);
-    setFeedback(local.level, local.message);
+    setStatusRow(local.level, local.message);
   }
 
   function suggest() {
@@ -1159,17 +1168,17 @@
   }
 
   input.addEventListener("input", () => {
-    suggest();
     const local = clientValidate(input.value);
-    setFeedback(local.level, local.message);
+    setStatusRow(local.level, local.message);
+    suggest();
     if (validateTimer) window.clearTimeout(validateTimer);
     validateTimer = window.setTimeout(validateServerSide, 400);
   });
 
   input.addEventListener("focus", () => {
-    suggest();
     const local = clientValidate(input.value);
-    setFeedback(local.level, local.message);
+    setStatusRow(local.level, local.message);
+    suggest();
     if (input.value.trim()) {
       if (validateTimer) window.clearTimeout(validateTimer);
       validateTimer = window.setTimeout(validateServerSide, 100);
@@ -1206,10 +1215,10 @@
     if (!input.contains(e.target) && !dropdown.contains(e.target)) closeDropdown();
   });
 
-  // Apply initial feedback for pre-filled regex.
+  // Pre-populate statusState for pre-filled regex (shown on first focus, not on load).
   const initial = clientValidate(input.value);
   if (input.value.trim()) {
-    setFeedback(initial.level, initial.message);
+    statusState = { level: initial.level, message: initial.message };
     if (initial.ok) {
       validateTimer = window.setTimeout(validateServerSide, 200);
     }
