@@ -8435,6 +8435,48 @@ class TestAISettingsAndAgentFlows:
         )
         assert r.status_code == 503
 
+    async def test_raise_user_issue_surfaces_github_create_failure(self, client, monkeypatch):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://analysis.example.com/v1")
+        _save_ai_setting(db, "ai.model", "analysis-model")
+
+        async def _fake_run_agent_rule_instance(db_arg, rule, settings, trigger_context):
+            return {
+                "ok": True,
+                "run_id": "run-user-raise-403",
+                "result": {
+                    "status": "completed",
+                    "github_issue_url": "",
+                    "dedup_decision": "create_failed",
+                    "issue_error": "GitHub issue creation failed: Resource not accessible by personal access token",
+                    "copilot_assignment_status": "not_requested",
+                    "copilot_assignment_reason": "GitHub issue creation failed",
+                },
+            }
+
+        monkeypatch.setattr(sobs_app, "_run_agent_rule_instance", _fake_run_agent_rule_instance)
+        monkeypatch.setattr(
+            sobs_app, "_resolve_agent_github_target", lambda *_args, **_kwargs: ("acme/demo", "ghp-test")
+        )
+
+        r = await client.post(
+            "/api/issues/raise",
+            json={
+                "source_page": "errors",
+                "service": "checkout-api",
+                "err_type": "RuntimeError",
+                "message": "something broke",
+                "error_id": "err-403",
+            },
+        )
+        assert r.status_code == 502
+        data = await r.get_json()
+        assert data["ok"] is False
+        assert "resource not accessible" in str(data["error"]).lower()
+        assert data["run_id"] == "run-user-raise-403"
+
     async def test_dismiss_agent_run_not_found(self, client):
         r = await client.post("/api/agent/runs/nonexistent-run-id/dismiss")
         assert r.status_code == 404

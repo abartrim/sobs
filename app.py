@@ -3873,14 +3873,29 @@ async def _choose_github_issue_outcome(
             issue_body,
             ["sobs-agent", "automated"],
         )
+
+    creation_error = str(created.get("error") or "")
+    if created.get("issue_url"):
+        dedup_decision = "new_issue"
+        dedup_confidence = 1.0
+        assignment_reason = ""
+    elif not allow_new_issue:
+        dedup_decision = "suppressed_rate_limit"
+        dedup_confidence = 0.0
+        assignment_reason = "GitHub issue creation suppressed by hourly limit"
+    else:
+        dedup_decision = "create_failed"
+        dedup_confidence = 0.0
+        assignment_reason = creation_error or "GitHub issue creation failed"
+
     outcome = {
         "issue_url": str(created.get("issue_url") or ""),
         "issue_number": int(created.get("issue_number") or 0),
         "issue_title": str(created.get("issue_title") or issue_title),
         "issue_state": str(created.get("issue_state") or ("open" if created else "")),
         "dedup_key": dedup_key,
-        "dedup_decision": "new_issue" if created else "suppressed_rate_limit",
-        "dedup_confidence": 1.0 if created else 0.0,
+        "dedup_decision": dedup_decision,
+        "dedup_confidence": dedup_confidence,
         "canonical_issue_url": str(created.get("issue_url") or ""),
         "canonical_issue_number": int(created.get("issue_number") or 0),
         "related_issue_urls": [],
@@ -3889,13 +3904,15 @@ async def _choose_github_issue_outcome(
         "pr_number": 0,
         "pr_url": "",
         "copilot_assignment_status": "not_requested",
-        "copilot_assignment_reason": "" if created else "GitHub issue creation suppressed by hourly limit",
+        "copilot_assignment_reason": assignment_reason,
         "copilot_assignment_requested_at": 0,
         "created_new_issue": bool(created),
+        "issue_error": creation_error,
     }
     if not created:
         outcome["copilot_assignment_status"] = "blocked" if wants_copilot_assignment else "not_requested"
-        outcome["copilot_assignment_reason"] = "GitHub issue creation failed"
+        if dedup_decision == "create_failed":
+            outcome["copilot_assignment_reason"] = assignment_reason
         return outcome
 
     if wants_copilot_assignment:
@@ -4680,9 +4697,21 @@ async def _create_github_issue_record(
             "issue_title": str(result.get("title") or title),
             "issue_state": str(result.get("state") or "open"),
         }
+    except httpx.HTTPStatusError as exc:
+        detail = ""
+        try:
+            payload = exc.response.json()
+            if isinstance(payload, dict):
+                detail = str(payload.get("message") or "").strip()
+        except Exception:
+            detail = ""
+        if not detail:
+            detail = str(exc)
+        log.warning("GitHub issue creation failed: %s", detail)
+        return {"error": f"GitHub issue creation failed: {detail}"}
     except Exception as exc:
         log.warning("GitHub issue creation failed: %s", exc)
-        return {}
+        return {"error": f"GitHub issue creation failed: {exc}"}
 
 
 def _persist_github_work_item(
@@ -5085,6 +5114,7 @@ async def _run_agent_flow(
         "suggestion": suggestion,
         "github_issue_url": github_issue_url,
         "dedup_decision": str(issue_outcome.get("dedup_decision") or ""),
+        "issue_error": str(issue_outcome.get("issue_error") or ""),
         "copilot_assignment_status": str(issue_outcome.get("copilot_assignment_status") or ""),
         "copilot_assignment_reason": str(issue_outcome.get("copilot_assignment_reason") or ""),
     }
@@ -21191,14 +21221,44 @@ async def raise_issue_from_user_observation():
         )
 
     result = outcome.get("result") if isinstance(outcome.get("result"), dict) else {}
+    issue_url = str(result.get("github_issue_url") or "")
+    dedup_decision = str(result.get("dedup_decision") or "")
+    issue_error = str(result.get("issue_error") or "").strip()
+    if not issue_url and dedup_decision == "create_failed":
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": issue_error or "GitHub issue creation failed. Check repository settings and token scopes.",
+                    "run_id": outcome.get("run_id", ""),
+                    "source": "user",
+                    "source_page": source_page,
+                }
+            ),
+            502,
+        )
+    if not issue_url and dedup_decision == "suppressed_rate_limit":
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "GitHub issue creation suppressed by hourly limit. Try again later.",
+                    "run_id": outcome.get("run_id", ""),
+                    "source": "user",
+                    "source_page": source_page,
+                }
+            ),
+            429,
+        )
+
     return jsonify(
         {
             "ok": True,
             "run_id": outcome.get("run_id", ""),
             "source": "user",
             "source_page": source_page,
-            "issue_url": str(result.get("github_issue_url") or ""),
-            "dedup_decision": str(result.get("dedup_decision") or ""),
+            "issue_url": issue_url,
+            "dedup_decision": dedup_decision,
             "copilot_assignment_status": str(result.get("copilot_assignment_status") or ""),
             "copilot_assignment_reason": str(result.get("copilot_assignment_reason") or ""),
             "status": str(result.get("status") or ""),
