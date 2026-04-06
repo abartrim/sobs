@@ -7,7 +7,7 @@
 #}
 
 {% macro render_multi_select(filter_name, label, options, selected_values, flex_basis='120px') %}
-<div style="flex: {{ flex_basis }}">
+<div style="flex: 1 1 {{ flex_basis }}; min-width: 0;">
   <label class="form-label small text-secondary">{{ label }}</label>
   <div class="dropdown" id="dropdown-{{ filter_name }}">
     <button 
@@ -17,7 +17,7 @@
       data-bs-toggle="dropdown"
       aria-expanded="false"
       style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-      <span id="label-{{ filter_name }}">
+      <span id="label-{{ filter_name }}" class="sobs-multi-select-label">
         {%- if selected_values %}
           {{- selected_values | join(', ') -}}
         {%- else %}
@@ -30,7 +30,7 @@
       <li>
         <button
           type="button"
-          class="dropdown-item px-3 py-2 d-flex align-items-center justify-content-between sobs-multi-select-option{% if opt in selected_values %} active{% endif %}"
+          class="dropdown-item px-3 py-2 d-flex align-items-center justify-content-between sobs-multi-select-option{% if opt in selected_values %} is-selected{% endif %}"
           data-filter-option="{{ filter_name }}"
           data-option-value="{{ opt }}"
           aria-pressed="{{ 'true' if opt in selected_values else 'false' }}">
@@ -65,13 +65,13 @@
   
   function getSelectedValues() {
     return Array.from(options)
-      .filter(option => option.classList.contains('active'))
+      .filter(option => option.classList.contains('is-selected'))
       .map(option => option.dataset.optionValue || '');
   }
 
   function syncOptionVisuals() {
     options.forEach((option) => {
-      const isActive = option.classList.contains('active');
+      const isActive = option.classList.contains('is-selected');
       option.setAttribute('aria-pressed', isActive ? 'true' : 'false');
       const checkmark = option.querySelector('.sobs-multi-select-checkmark');
       if (checkmark) {
@@ -85,10 +85,13 @@
     
     if (checked.length === 0) {
       label.textContent = `All {{ label | lower }}`;
+      label.title = `All {{ label | lower }}`;
     } else if (checked.length === 1) {
       label.textContent = checked[0];
+      label.title = checked[0];
     } else {
       label.textContent = `${checked.length} selected`;
+      label.title = checked.join(', ');
     }
 
     syncOptionVisuals();
@@ -112,7 +115,7 @@
     // Toggle selection state on option click
     options.forEach(option => {
       option.addEventListener('click', () => {
-        option.classList.toggle('active');
+        option.classList.toggle('is-selected');
         updateLabel();
         // Auto-submit form when filter changes
         const form = option.closest('form');
@@ -149,6 +152,14 @@
     cursor: pointer;
   }
 
+  .sobs-multi-select-label {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 400;
+  }
+
   .sobs-multi-select-menu {
     max-height: min(360px, 60vh);
     overflow-y: auto;
@@ -157,9 +168,17 @@
   .sobs-multi-select-option {
     transition: background-color 0.15s ease-in-out;
     cursor: pointer;
+    font-weight: 400;
   }
 
   .sobs-multi-select-option:hover {
+    background-color: rgba(13, 110, 253, 0.08);
+  }
+
+  .sobs-multi-select-option.is-selected,
+  .sobs-multi-select-option.is-selected:focus,
+  .sobs-multi-select-option.is-selected:active {
+    color: inherit;
     background-color: rgba(13, 110, 253, 0.08);
   }
 
