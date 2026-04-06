@@ -3955,7 +3955,7 @@ async def _choose_github_issue_outcome(
         assign_status, assign_reason, requested_at = await _assign_issue_to_copilot(
             github_token,
             github_repo,
-            int(outcome["issue_number"] or 0),
+            int(cast(Any, outcome.get("issue_number")) or 0),
             base_branch=str(settings.get("ai.github_copilot_base_branch") or "").strip(),
             custom_instructions=custom_instructions,
         )
@@ -4176,6 +4176,8 @@ def _build_agent_issue_title(rule: dict, trigger_fields: dict[str, Any]) -> str:
 
 def _serialize_github_work_item_row(row: dict | Any) -> dict[str, Any]:
     r = row if isinstance(row, dict) else dict(row)
+    related_issue_urls_raw = _safe_json_loads(r.get("RelatedIssueUrls", "[]"), [])
+    related_issue_urls = cast(list[Any], related_issue_urls_raw) if isinstance(related_issue_urls_raw, list) else []
     return {
         "id": str(r.get("Id", "")),
         "created_at": str(r.get("CreatedAt", ""))[:19],
@@ -4197,7 +4199,7 @@ def _serialize_github_work_item_row(row: dict | Any) -> dict[str, Any]:
         "issue_url": str(r.get("IssueUrl", "")),
         "canonical_issue_number": int(r.get("CanonicalIssueNumber", 0) or 0),
         "canonical_issue_url": str(r.get("CanonicalIssueUrl", "")),
-        "related_issue_urls": list(_safe_json_loads(r.get("RelatedIssueUrls", "[]"), [])),
+        "related_issue_urls": related_issue_urls,
         "occurrence_count": int(r.get("OccurrenceCount", 1) or 1),
         "issue_state": str(r.get("IssueState", "")),
         "issue_title": str(r.get("IssueTitle", "")),
@@ -4873,6 +4875,7 @@ def _extract_trigger_service_name(trigger_context: dict[str, Any]) -> str:
         return service
 
     extra_raw = trigger_context.get("extra")
+    extra: Any
     if isinstance(extra_raw, dict):
         extra = extra_raw
     else:
@@ -11868,7 +11871,7 @@ async def _fetch_release_deps_from_github(db: "ChDbConnection") -> dict[str, int
         release_version = str(row[2] or "").strip()
         app_info = apps_by_id.get(app_id, {})
         repo_url = str(app_info.get("repo_url") or "").strip()
-        app_enabled = int(app_info.get("enabled") or 0)
+        app_enabled = int(cast(Any, app_info.get("enabled")) or 0)
         if not release_id or not release_version or release_id in existing_release_ids:
             continue
         if not app_enabled or not repo_url:
