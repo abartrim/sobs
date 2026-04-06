@@ -427,3 +427,8 @@
   }
 </style>
 {% endmacro %}
+
+{% macro render_single_select(filter_name, label, options, selected_value, flex_basis='120px') %}
+{% set _selected_values = [selected_value] if selected_value is not none else [] %}
+{{ render_multi_select(filter_name, label, options, _selected_values, flex_basis, true) }}
+{% endmacro %}

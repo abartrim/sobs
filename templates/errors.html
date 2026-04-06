@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "_filter_macros.html" import render_filter_accordion %}
 {% from "_error_panels.html" import render_error_accordion, render_error_panel_styles %}
-{% from "_multi_select_filter.html" import render_multi_select %}
+{% from "_multi_select_filter.html" import render_multi_select, render_single_select %}
 {% block title %}Errors{% endblock %}
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
@@ -15,19 +15,19 @@
 {% call render_filter_accordion('errorsFiltersAccordion', 'errorsFiltersHeading', 'errorsFiltersPanel', 'text-danger', 'errors-tz-badge-btn', 'errors-tz-badge-label') %}
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
       {{ render_multi_select('service', 'Service', services, selected_services, '140px') }}
-      {{ render_multi_select('resolved', 'Status', [
+      {{ render_single_select('resolved', 'Status', [
         {'value': '0', 'label': 'Open'},
         {'value': '1', 'label': 'Resolved'},
         {'value': '', 'label': 'All'}
-      ], [resolved], '120px', true) }}
-      {{ render_multi_select('sort_by', 'Sort by', [
+      ], resolved, '120px') }}
+      {{ render_single_select('sort_by', 'Sort by', [
         {'value': 'Timestamp', 'label': 'Timestamp'},
         {'value': 'ServiceName', 'label': 'Service'}
-      ], [sort_by], '120px', true) }}
-      {{ render_multi_select('sort_dir', 'Order', [
+      ], sort_by, '120px') }}
+      {{ render_single_select('sort_dir', 'Order', [
         {'value': 'desc', 'label': 'Descending'},
         {'value': 'asc', 'label': 'Ascending'}
-      ], [sort_dir], '120px', true) }}
+      ], sort_dir, '120px') }}
       <div class="filter-date-group">
         <div class="filter-date-fields">
           <div class="filter-date-field">

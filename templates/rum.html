@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_multi_select_filter.html" import render_single_select %}
 {% block title %}RUM{% endblock %}
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
@@ -775,25 +776,9 @@
     </h2>
     <div id="rumFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="rumFiltersHeading" data-bs-parent="#rumFiltersAccordion">
       <div class="accordion-body py-3 rum-filters-panel">
-    <form method="get" class="d-flex flex-wrap align-items-end rum-filters-form">
-      <div style="flex: 1 0 140px">
-        <label class="form-label small text-secondary">Event type</label>
-        <select name="type" class="form-select form-select-sm">
-          <option value="">All types</option>
-          {% for t in event_types %}
-          <option value="{{ t }}" {% if t == event_type %}selected{% endif %}>{{ t }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div style="flex: 1 0 160px">
-        <label class="form-label small text-secondary">Error source</label>
-        <select name="error_source" class="form-select form-select-sm">
-          <option value="">All sources</option>
-          {% for source in error_sources %}
-          <option value="{{ source }}" {% if source == error_source %}selected{% endif %}>{{ source }}</option>
-          {% endfor %}
-        </select>
-      </div>
+    <form method="get" class="d-flex flex-wrap align-items-end rum-filters-form sobs-filter-form">
+      {{ render_single_select('type', 'Event type', ([{'value': '', 'label': 'All types'}] + event_types), event_type, '140px') }}
+      {{ render_single_select('error_source', 'Error source', ([{'value': '', 'label': 'All sources'}] + error_sources), error_source, '160px') }}
       <div class="filter-date-group">
         <div class="filter-date-fields">
           <div class="filter-date-field">

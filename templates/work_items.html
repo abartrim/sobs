@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_filter_macros.html" import render_filter_accordion %}
+{% from "_multi_select_filter.html" import render_single_select %}
 {% block title %}Work Items{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -17,41 +18,19 @@
 <!-- Filters -->
 {% set _work_items_has_active_filters = service_filter or rule_filter or action_type_filter or status_filter or from_ts or to_ts %}
 {% call render_filter_accordion('workItemsFiltersAccordion', 'workItemsFiltersHeading', 'workItemsFiltersPanel', 'text-primary', 'work-items-tz-badge-btn', 'work-items-tz-badge-label', _work_items_has_active_filters) %}
-        <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
-          <div style="flex: 1 0 140px">
-            <label class="form-label small text-secondary mb-1">Service</label>
-            <select name="service" class="form-select form-select-sm">
-              <option value="">All</option>
-              {% for s in services %}
-              <option value="{{ s }}" {% if s == service_filter %}selected{% endif %}>{{ s }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div style="flex: 1 0 140px">
-            <label class="form-label small text-secondary mb-1">Agent Rule</label>
-            <select name="rule_name" class="form-select form-select-sm">
-              <option value="">All</option>
-              {% for r in rules %}
-              <option value="{{ r }}" {% if r == rule_filter %}selected{% endif %}>{{ r }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div style="flex: 1 0 120px">
-            <label class="form-label small text-secondary mb-1">Action Type</label>
-            <select name="action_type" class="form-select form-select-sm">
-              <option value="">All</option>
-              <option value="github_issue" {% if action_type_filter == 'github_issue' %}selected{% endif %}>Issue only</option>
-              <option value="github_issue_copilot" {% if action_type_filter == 'github_issue_copilot' %}selected{% endif %}>Issue + Copilot</option>
-            </select>
-          </div>
-          <div style="flex: 1 0 130px">
-            <label class="form-label small text-secondary mb-1">Status</label>
-            <select name="status" class="form-select form-select-sm">
-              <option value="">All</option>
-              <option value="open" {% if status_filter == 'open' %}selected{% endif %}>Open</option>
-              <option value="closed" {% if status_filter == 'closed' %}selected{% endif %}>Closed</option>
-            </select>
-          </div>
+        <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
+          {{ render_single_select('service', 'Service', ([{'value': '', 'label': 'All'}] + services), service_filter, '140px') }}
+          {{ render_single_select('rule_name', 'Agent Rule', ([{'value': '', 'label': 'All'}] + rules), rule_filter, '140px') }}
+          {{ render_single_select('action_type', 'Action Type', [
+            {'value': '', 'label': 'All'},
+            {'value': 'github_issue', 'label': 'Issue only'},
+            {'value': 'github_issue_copilot', 'label': 'Issue + Copilot'}
+          ], action_type_filter, '120px') }}
+          {{ render_single_select('status', 'Status', [
+            {'value': '', 'label': 'All'},
+            {'value': 'open', 'label': 'Open'},
+            {'value': 'closed', 'label': 'Closed'}
+          ], status_filter, '130px') }}
           <div class="filter-date-group">
             <div class="filter-date-fields">
               <div class="filter-date-field">

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_multi_select_filter.html" import render_single_select %}
 {% block title %}Metrics Anomaly Details{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -57,34 +58,10 @@
 
 <div class="card border-secondary mb-3">
   <div class="card-body py-2">
-    <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
-      <div style="flex: 1 0 120px">
-        <label class="form-label small text-secondary">Source</label>
-        <select name="source" class="form-select form-select-sm">
-          <option value="">All sources</option>
-          {% for s in sources %}
-          <option value="{{ s }}" {% if s == source %}selected{% endif %}>{{ s }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div style="flex: 1 0 140px">
-        <label class="form-label small text-secondary">Service</label>
-        <select name="service" class="form-select form-select-sm">
-          <option value="">All services</option>
-          {% for s in services %}
-          <option value="{{ s }}" {% if s == service %}selected{% endif %}>{{ s }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div style="flex: 1 0 140px">
-        <label class="form-label small text-secondary">Signal</label>
-        <select name="signal" class="form-select form-select-sm">
-          <option value="">All signals</option>
-          {% for s in signals %}
-          <option value="{{ s }}" {% if s == signal %}selected{% endif %}>{{ s }}</option>
-          {% endfor %}
-        </select>
-      </div>
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
+      {{ render_single_select('source', 'Source', ([{'value': '', 'label': 'All sources'}] + sources), source, '120px') }}
+      {{ render_single_select('service', 'Service', ([{'value': '', 'label': 'All services'}] + services), service, '140px') }}
+      {{ render_single_select('signal', 'Signal', ([{'value': '', 'label': 'All signals'}] + signals), signal, '140px') }}
       <input type="hidden" name="metric" value="{{ metric }}">
       <div style="flex: 1 0 130px">
         <label class="form-label small text-secondary">Attr FP</label>

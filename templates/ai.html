@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_multi_select_filter.html" import render_multi_select %}
+{% from "_multi_select_filter.html" import render_multi_select, render_single_select %}
 {% block title %}AI Transparency{% endblock %}
 {% macro fmt_num(n) %}{% if n >= 1000000 %}{{ "%.1f" | format(n / 1000000) }}M{% elif n >= 1000 %}{{ "%.1f" | format(n / 1000) }}K{% else %}{{ n }}{% endif %}{% endmacro %}
 {% macro render_message_content(msg) %}{% set content = msg.get('content', '') if msg is mapping else '' %}{{ content if content is string else content | tojson }}{% endmacro %}
@@ -259,21 +259,15 @@
         {'value': 'system', 'label': 'Execution events'}
       ], selected_row_types, '130px') }}
       {{ render_multi_select('span_name', 'Span / Event', span_names, selected_span_names, '130px') }}
-      <div style="flex: 1 0 120px">
-        <label class="form-label small text-secondary">Sort by</label>
-        <select name="sort_by" class="form-select form-select-sm">
-          <option value="Timestamp" {% if sort_by == 'Timestamp' %}selected{% endif %}>Timestamp</option>
-          <option value="Duration" {% if sort_by == 'Duration' %}selected{% endif %}>Duration</option>
-          <option value="ServiceName" {% if sort_by == 'ServiceName' %}selected{% endif %}>Service</option>
-        </select>
-      </div>
-      <div style="flex: 1 0 120px">
-        <label class="form-label small text-secondary">Order</label>
-        <select name="sort_dir" class="form-select form-select-sm">
-          <option value="desc" {% if sort_dir == 'desc' %}selected{% endif %}>Descending</option>
-          <option value="asc" {% if sort_dir == 'asc' %}selected{% endif %}>Ascending</option>
-        </select>
-      </div>
+      {{ render_single_select('sort_by', 'Sort by', [
+        {'value': 'Timestamp', 'label': 'Timestamp'},
+        {'value': 'Duration', 'label': 'Duration'},
+        {'value': 'ServiceName', 'label': 'Service'}
+      ], sort_by, '120px') }}
+      {{ render_single_select('sort_dir', 'Order', [
+        {'value': 'desc', 'label': 'Descending'},
+        {'value': 'asc', 'label': 'Ascending'}
+      ], sort_dir, '120px') }}
       <div class="filter-date-group">
         <div class="filter-date-fields">
           <div class="filter-date-field">
