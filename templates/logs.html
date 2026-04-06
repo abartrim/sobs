@@ -68,6 +68,9 @@
           <i class="bi bi-clock"></i>
           <span id="logs-tz-badge-label">UTC</span>
         </span>
+        <span id="logs-ansi-btn" class="sobs-tz-header-badge" role="button" tabindex="0" aria-pressed="false" title="Colored log output: off — click to enable">
+          <i class="bi bi-palette"></i>
+        </span>
       </button>
     </h2>
     <div id="logsFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="logsFiltersHeading" data-bs-parent="#logsFiltersAccordion">
@@ -379,7 +382,7 @@
         <td><span class="badge badge-level-{{ log.level }}">{{ log.level }}</span></td>
         <td><span class="badge bg-secondary">{{ log.service or '—' }}</span></td>
         <td class="log-body">
-          {{ log.body }}
+          <span class="log-body-text">{{ log.body }}</span>
           {% if log.tags %}
           <div class="d-flex flex-wrap gap-1 mt-1">
             {% for tag in log.tags %}
@@ -456,6 +459,14 @@
       badgeButtonId: 'logs-tz-badge-btn',
       badgeLabelId: 'logs-tz-badge-label',
       timestampSelector: '.sobs-tz-ts[data-utc-ts]'
+    });
+  }
+
+  let ansiCtx = null;
+  if (window.sobsAnsi && typeof window.sobsAnsi.initPage === 'function') {
+    ansiCtx = window.sobsAnsi.initPage({
+      containerId: 'logsTableContainer',
+      buttonId: 'logs-ansi-btn'
     });
   }
 
@@ -695,7 +706,10 @@
 
     const body = document.createElement("td");
     body.className = "log-body";
-    body.textContent = event.body || "";
+    const bodyText = document.createElement("span");
+    bodyText.className = "log-body-text";
+    bodyText.textContent = event.body || "";
+    body.appendChild(bodyText);
 
     tr.appendChild(ts);
     tr.appendChild(level);
@@ -706,6 +720,9 @@
     insertRowBySort(tr, event);
     if (window.sobsTimezone && typeof window.sobsTimezone.refreshTimestamps === 'function') {
       window.sobsTimezone.refreshTimestamps('.sobs-tz-ts[data-utc-ts]');
+    }
+    if (ansiCtx) {
+      ansiCtx.applyToElement(bodyText);
     }
     while (tableBody.children.length > MAX_LIVE_ROWS) {
       tableBody.removeChild(tableBody.lastChild);
