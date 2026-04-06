@@ -93,15 +93,7 @@
         </div>
       </div>
       {{ render_multi_select('level', 'Level', levels, selected_levels, '120px') }}
-      <div style="flex: 1 0 140px">
-        <label class="form-label small text-secondary">Service</label>
-        <select name="service" class="form-select form-select-sm">
-          <option value="">All services</option>
-          {% for s in services %}
-          <option value="{{ s }}" {% if s == service %}selected{% endif %}>{{ s }}</option>
-          {% endfor %}
-        </select>
-      </div>
+      {{ render_multi_select('service', 'Service', services, selected_services, '140px') }}
       <div style="flex: 1 0 220px">
         <div class="d-flex align-items-center justify-content-between">
           <label class="form-label small text-secondary mb-1">Trace ID</label>
@@ -265,7 +257,7 @@
           <div class="col-md-6">
             <div class="d-flex align-items-center justify-content-between mb-2">
               <h6 class="text-secondary small mb-0"><i class="bi bi-server me-1"></i>By Service</h6>
-              {% if service %}
+              {% if selected_services %}
               <a class="small text-decoration-none"
                   href="{{ url_for('view_logs', q=q, level=level, service='', trace_id=trace_id, trace_ids=trace_ids_csv, sql='', from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, analyze=analyze, stats='1') }}">
                 Clear
@@ -275,7 +267,7 @@
             <div class="d-flex flex-wrap gap-2">
               {% for svc, cnt in service_stats.items() %}
               <a href="{{ url_for('view_logs', q=q, level=level, service=svc, trace_id=trace_id, trace_ids=trace_ids_csv, sql='', from_ts=from_ts, to_ts=to_ts, live=live, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0, analyze=analyze, stats='1') }}"
-                 class="badge bg-secondary text-decoration-none{% if svc == service %} border border-light{% endif %}">
+                 class="badge bg-secondary text-decoration-none{% if svc in selected_services %} border border-light{% endif %}">
                 {{ svc }}: {{ cnt }}
               </a>
               {% endfor %}
@@ -511,7 +503,7 @@
   const activeFilters = {
     q: {{ q|tojson }},
     levels: {{ selected_levels|tojson }},
-    service: {{ service|tojson }},
+    services: {{ selected_services|tojson }},
     sql: {{ sql_where|tojson }}
   };
   const activeSort = {
@@ -670,8 +662,11 @@
         return false;
       }
     }
-    if (activeFilters.service && String(event.service || "") !== activeFilters.service) {
-      return false;
+    if (activeFilters.services && activeFilters.services.length > 0) {
+      const eventService = String(event.service || "");
+      if (!activeFilters.services.includes(eventService)) {
+        return false;
+      }
     }
     if (activeFilters.q) {
       try {

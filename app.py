@@ -9015,7 +9015,7 @@ async def view_logs():
     db = get_db()
     q = request.args.get("q", "").strip()
     selected_levels = [level_val.strip().upper() for level_val in request.args.getlist("level") if level_val.strip()]
-    service = request.args.get("service", "").strip()
+    selected_services = [svc.strip() for svc in request.args.getlist("service") if svc.strip()]
     trace_id = request.args.get("trace_id", "").strip()
     trace_ids, trace_id = _parse_trace_filter_values(trace_id, request.args.getlist("trace_ids"))
     trace_ids_csv = ",".join(trace_ids)
@@ -9100,9 +9100,10 @@ async def view_logs():
             placeholders = ",".join(["?"] * len(selected_levels))
             conditions.append(f"SeverityText IN ({placeholders})")
             params.extend(selected_levels)
-        if service:
-            conditions.append("ServiceName=?")
-            params.append(service)
+        if selected_services:
+            placeholders = ",".join(["?"] * len(selected_services))
+            conditions.append(f"ServiceName IN ({placeholders})")
+            params.extend(selected_services)
         if event_name:
             conditions.append("EventName=?")
             params.append(event_name)
@@ -9246,7 +9247,8 @@ async def view_logs():
         q=q,
         level="",  # Keep empty for backward compatibility; use selected_levels for filtering
         selected_levels=selected_levels,
-        service=service,
+        service="",  # Keep empty for backward compatibility; use selected_services for filtering
+        selected_services=selected_services,
         trace_id=trace_id,
         trace_ids_csv=trace_ids_csv,
         trace_ids_count=trace_ids_count,
