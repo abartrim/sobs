@@ -4468,7 +4468,7 @@ class TestGenAICompliance:
         r2 = await client.get("/ai?view=trace&span_name=ai.guard.result")
         assert r2.status_code == 200
         body = await r2.get_data(as_text=True)
-        assert '<option value="ai.guard.result" selected' in body
+        assert 'name="span_name" value="ai.guard.result"' in body
 
     async def test_ai_view_includes_metrics_tab(self, client):
         """AI view should include Metrics tab with token and timing info."""
