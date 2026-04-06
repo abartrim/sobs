@@ -116,15 +116,7 @@
           autocomplete="off">
       </div>
       {% if event_names %}
-      <div style="flex: 1 0 130px">
-        <label class="form-label small text-secondary">Event</label>
-        <select name="event_name" class="form-select form-select-sm">
-          <option value="">All events</option>
-          {% for e in event_names %}
-          <option value="{{ e }}" {% if e == event_name %}selected{% endif %}>{{ e }}</option>
-          {% endfor %}
-        </select>
-      </div>
+      {{ render_multi_select('event_name', 'Event', event_names, selected_event_names, '130px') }}
       {% endif %}
       <div class="filter-date-group">
         <div class="filter-date-fields">

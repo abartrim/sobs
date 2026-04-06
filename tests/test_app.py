@@ -3205,11 +3205,11 @@ class TestUIPages:
         )
         assert r.status_code == 200
         data = await r.get_data()
-        assert b"event_name=turn.feedback" in data
         assert b"q=error" in data
-        # Level and Service are now in hidden inputs (multi-select components)
+        # Level, Service, and Event are now in hidden inputs (multi-select components)
         assert b'name="level"' in data and b'value="INFO"' in data
         assert b'name="service"' in data and b'value="svc-a"' in data
+        assert b'name="event_name"' in data and b'value="turn.feedback"' in data
         assert b"sql=SeverityText" in data
         assert b"from_ts=2026-04-06" in data
         assert b"to_ts=2026-04-06" in data

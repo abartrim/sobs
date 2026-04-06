@@ -9020,7 +9020,8 @@ async def view_logs():
     trace_ids, trace_id = _parse_trace_filter_values(trace_id, request.args.getlist("trace_ids"))
     trace_ids_csv = ",".join(trace_ids)
     trace_ids_count = len(trace_ids)
-    event_name = request.args.get("event_name", "").strip()
+    selected_event_names = [evt.strip() for evt in request.args.getlist("event_name") if evt.strip()]
+    event_name = ""  # Keep empty for backward compatibility; use selected_event_names for filtering
     from_ts, to_ts, time_error = _parse_time_window_args()
     sql_where = request.args.get("sql", "").strip()
     run_advanced_analysis = request.args.get("analyze", "").strip() == "1"
@@ -9104,9 +9105,10 @@ async def view_logs():
             placeholders = ",".join(["?"] * len(selected_services))
             conditions.append(f"ServiceName IN ({placeholders})")
             params.extend(selected_services)
-        if event_name:
-            conditions.append("EventName=?")
-            params.append(event_name)
+        if selected_event_names:
+            placeholders = ",".join(["?"] * len(selected_event_names))
+            conditions.append(f"EventName IN ({placeholders})")
+            params.extend(selected_event_names)
         if trace_ids:
             placeholders = ",".join(["?"] * len(trace_ids))
             conditions.append(f"lower(TraceId) IN ({placeholders})")
@@ -9259,6 +9261,7 @@ async def view_logs():
         levels=levels,
         event_names=event_names,
         event_name=event_name,
+        selected_event_names=selected_event_names,
         error_msg=error_msg,
         sort_by=sort_by,
         sort_dir=sort_dir,
