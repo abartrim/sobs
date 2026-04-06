@@ -59,6 +59,8 @@
   const btn = document.getElementById(btnId);
   const label = document.getElementById(labelId);
   const hiddenFieldsContainer = document.getElementById(hiddenFieldsId);
+  const dropdown = document.getElementById(`dropdown-${filterName}`);
+  const dropdownMenu = dropdown ? dropdown.querySelector('.dropdown-menu') : null;
   
   // Find all selectable options for this filter
   const options = document.querySelectorAll(`button[data-filter-option="${filterName}"]`);
@@ -106,11 +108,37 @@
       hiddenFieldsContainer.appendChild(input);
     });
   }
+
+  function updateMenuWidth() {
+    if (!dropdownMenu || !btn) {
+      return;
+    }
+
+    // Clear any previous explicit size before measuring.
+    dropdownMenu.style.width = '';
+
+    const triggerWidth = Math.ceil(btn.getBoundingClientRect().width);
+    let contentWidth = 0;
+
+    options.forEach((option) => {
+      contentWidth = Math.max(contentWidth, Math.ceil(option.scrollWidth));
+    });
+
+    // Extra room for menu padding and the right-side checkmark.
+    const horizontalChrome = 48;
+    const desired = Math.max(triggerWidth, contentWidth + horizontalChrome);
+    const viewportCap = Math.floor(window.innerWidth * 0.9);
+    const absoluteCap = 700;
+    const finalWidth = Math.min(desired, viewportCap, absoluteCap);
+
+    dropdownMenu.style.width = `${finalWidth}px`;
+  }
   
   // Wait for DOM to be ready if needed
   function initialize() {
     // Initialize
     updateLabel();
+    updateMenuWidth();
     
     // Toggle selection state on option click
     options.forEach(option => {
@@ -126,12 +154,14 @@
     });
     
     // Prevent dropdown from closing when clicking inside
-    const dropdown = document.getElementById(`dropdown-${filterName}`);
-    const dropdownMenu = dropdown.querySelector('.dropdown-menu');
     if (dropdownMenu) {
       dropdownMenu.addEventListener('click', (e) => {
         e.stopPropagation();
       });
+
+      // Recalculate width right before showing in case option content changed.
+      dropdown.addEventListener('show.bs.dropdown', updateMenuWidth);
+      window.addEventListener('resize', updateMenuWidth);
     }
   }
   
@@ -162,7 +192,7 @@
 
   .sobs-multi-select-menu {
     min-width: 100%;
-    width: max-content;
+    width: 100%;
     max-width: min(700px, 90vw);
     max-height: min(360px, 60vh);
     overflow-x: auto;
