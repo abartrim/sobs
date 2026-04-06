@@ -90,13 +90,28 @@ Behavior:
 - External/open-source repo: request user permission first.
 
 ### 4. Issue Publisher
-Primary: GitHub MCP server path.
-Fallback: existing REST issue creation path when MCP unavailable.
+Primary: supported GitHub issue assignment APIs for Copilot cloud agent.
+Fallback: existing REST issue creation path when issue reuse/create is needed but agent assignment is not.
 
 Publishes:
 - Structured issue title/body/labels.
 - Traceability metadata (task id, rule id, app id, signal window).
-- Optional Copilot assignment/request action after issue creation (approval-gated).
+- Optional Copilot assignment/request action after issue creation (approval-gated), using GitHub's supported issue-assignment flow for `copilot-swe-agent[bot]` plus `agent_assignment` parameters.
+
+### 4.5. Incident Deduplication And Assignment Controller
+GitHub issue creation and GitHub Copilot assignment are separate decisions.
+
+Responsibilities:
+- Build a deterministic incident fingerprint from local telemetry and trigger context.
+- Search existing SOBS work-item history and open GitHub issues before opening new work.
+- Ask the configured local LLM to classify candidate matches as `same`, `related`, or `unrelated`.
+- Reuse or link existing issues when confidence is high enough instead of opening duplicates.
+- Prevent Copilot assignment noise by allowing only a small number of active assignments at a time.
+
+Policy:
+- New issue creation is only allowed when no strong duplicate exists.
+- Copilot assignment is only allowed when the chosen issue is not already assigned, not already linked to an active PR, and no near-duplicate issue is already being worked.
+- Rate limits are a relief valve, not the primary control surface. The LLM-backed dedupe step is expected to reduce noise first.
 
 ### 5. Missing Context Resolver
 Detects missing fields and asks user for clarification/config using notification channels.
@@ -209,6 +224,93 @@ Columns:
 - `UpdatedAt` DateTime64(3)
 - `IsDeleted` UInt8
 - `Version` UInt64
+
+#### `sobs_github_work_items` additive fields
+The existing work-item table should be extended so issue creation, dedupe, and agent-assignment decisions are explainable and queryable from the UI and APIs.
+
+Additional columns:
+- `DedupKey` String
+- `DedupDecision` LowCardinality(String) -- new_issue|reused_existing|related_existing|suppressed_duplicate|skipped_active_work
+- `DedupConfidence` Float64
+- `CanonicalIssueUrl` String
+- `CanonicalIssueNumber` UInt64
+- `RelatedIssueUrls` String -- JSON array
+- `OccurrenceCount` UInt32
+- `CopilotAssignmentRequestedAt` DateTime64(3)
+- `CopilotAssignmentStatus` LowCardinality(String) -- not_requested|eligible|requested|active|blocked|failed|completed
+- `CopilotAssignmentReason` String
+- `LinkedPrUrl` String
+- `LinkedPrNumber` UInt64
+
+These fields support both operator visibility in the Work Items page and throttling logic for future assignment decisions.
+
+## Dedupe And Noise-Control Decision Flow
+
+### Step 1: Build Incident Fingerprint
+Construct a stable local fingerprint from:
+- service name
+- trigger source / signal / state
+- normalized exception or error signature when available
+- release version and environment when available
+- short normalized analysis summary
+
+The fingerprint is used as a first-pass candidate search key, not as the final truth.
+
+### Step 2: Gather Candidate Matches
+Before creating or assigning anything, query:
+- recent `sobs_github_work_items`
+- existing open GitHub issues for the target repo
+- open PRs linked to candidate issues
+- assignment state for candidate issues
+
+The search should bias toward recency and identical service/repo scope, then widen to semantically related incidents.
+
+### Step 3: Local LLM Triage
+The configured local LLM should receive the proposed incident and a bounded set of candidate incidents/issues and return structured JSON:
+- `classification`: `same|related|unrelated`
+- `canonical_issue_url`
+- `confidence`
+- `reason`
+- `recommendation`: `reuse|link|create_new|skip_assignment`
+
+The model should not be given unconstrained database access by default. SOBS should provide bounded search results and, if needed later, carefully scoped helper tools to fetch more evidence.
+
+### Step 4: Act On Existing Work
+If the LLM classifies the incident as `same`:
+- do not create a new GitHub issue
+- attach the observation to the canonical issue in SOBS
+- increment local occurrence counters
+- optionally post a GitHub comment or reaction only when configured thresholds are crossed
+
+If classified as `related`:
+- link the new observation to the related issue
+- avoid Copilot assignment when the related issue already has active work
+
+If classified as `unrelated`:
+- create a new issue only if rate limits and policy checks allow
+
+### Step 5: Copilot Assignment Gate
+Copilot assignment should only be requested when all of the following are true:
+- the repo has Copilot cloud agent enabled
+- the issue is actionable and has sufficient telemetry context
+- the issue is not already assigned or otherwise in active agent work
+- there is no linked open PR already addressing the issue
+- global and per-repo active-assignment limits allow another request
+
+Suggested initial limits:
+- `ai.agent_max_issues_per_hour = 1`
+- one active Copilot assignment globally
+- one active Copilot assignment per repo
+
+## Validation Expectations
+
+Validation should prove the following separately:
+- SOBS can create or reuse GitHub issues correctly.
+- SOBS records dedupe and reuse decisions in work items.
+- SOBS suppresses duplicate Copilot requests when existing work is already active.
+- SOBS only requests Copilot assignment when the chosen issue is eligible.
+
+Validation should not treat a mere comment mention as equivalent to formal agent assignment. The product should align with GitHub's explicit agent workflow surfaced in the issue UI.
 
 ## App/Service Watch Eligibility
 A task should not start until data is sufficient.

@@ -774,7 +774,7 @@ class TestErrorsIngest:
         assert r2.status_code == 200
 
     async def test_errors_page_has_ai_help_button(self, client):
-        """Each error on the errors page should include the AI Help clipboard button."""
+        """Each error on the errors page should include Copy for AI and raise issue buttons."""
         await client.post(
             "/v1/errors",
             json={
@@ -788,11 +788,14 @@ class TestErrorsIngest:
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
         assert "ai-help-btn" in body
-        assert "AI Help" in body
+        assert "Copy for AI" in body
+        assert "raise-issue-btn" in body
         assert "bi-robot" in body  # bootstrap icon
         assert "data-err-type" in body  # data attributes for stable JS extraction
         assert "data-err-message" in body
         assert "data-err-service" in body
+        assert "raiseIssueModal" in body  # Bootstrap modal replaces window.confirm
+        assert "window.confirm" not in body
 
     async def test_ingest_error_stack_is_source_mapped_when_enabled(self, client, monkeypatch):
         monkeypatch.setattr(sobs_app, "SOURCE_MAP_ENABLE", True)
@@ -918,6 +921,52 @@ class TestAppReleaseRegistry:
             [str(release_row[0])],
         ).fetchone()
         assert artifact_row is not None
+
+    async def test_collect_library_inventory_includes_release_metadata_dependencies(self, client):
+        app_resp = await client.post(
+            "/v1/apps",
+            json={
+                "name": "Payments API",
+                "slug": f"payments-api-{time.time_ns()}",
+                "ownerTeam": "backend",
+                "defaultEnvironment": "prod",
+            },
+        )
+        assert app_resp.status_code == 201
+        app_id = (await app_resp.get_json())["id"]
+
+        rel_resp = await client.post(
+            f"/v1/apps/{app_id}/releases",
+            json={"version": "2026.04.05", "environment": "prod"},
+        )
+        assert rel_resp.status_code == 201
+        release_id = (await rel_resp.get_json())["id"]
+
+        artifact_resp = await client.post(
+            f"/v1/releases/{release_id}/artifacts/meta",
+            json={
+                "artifactType": "dependencies-lockfile",
+                "name": "requirements.lock",
+                "metadata": {
+                    "dependencies": [
+                        {"package": "requests", "version": "2.32.3", "ecosystem": "PyPI"},
+                        {"package": "urllib3", "version": "2.2.2", "ecosystem": "PyPI"},
+                    ]
+                },
+            },
+        )
+        assert artifact_resp.status_code == 201
+
+        inventory = sobs_app._collect_library_inventory(sobs_app.get_db())
+        requests_dep = next(
+            item for item in inventory if item.get("package") == "requests" and item.get("version") == "2.32.3"
+        )
+        assert requests_dep["ecosystem"] == "PyPI"
+        assert requests_dep["source"] == "release_registry"
+        assert requests_dep["app_name"] == "Payments API"
+        assert requests_dep["service"] == "Payments API"
+        assert requests_dep["release_version"] == "2026.04.05"
+        assert requests_dep["environment"] == "prod"
 
 
 # ---------------------------------------------------------------------------
@@ -2703,7 +2752,10 @@ class TestUIPages:
         assert "error" in body.lower()
         assert "Related Errors" in body
         assert "bad value" in body
-        assert "AI Help" in body
+        assert "Copy for AI" in body
+        assert "trace-raise-issue-btn" in body
+        assert "raiseIssueModal" in body  # Bootstrap modal replaces window.confirm
+        assert "window.confirm" not in body
 
     async def test_trace_detail_back_link(self, client):
         """The detail view includes a link back to the full traces list."""
@@ -6262,6 +6314,79 @@ class TestTagRules:
         assert "Settings" in text
         assert "Tag Rules" in text
         assert "Anomaly Rules" in text
+        assert "GitHub Repositories" in text
+
+    async def test_settings_repositories_page_loads(self, client):
+        r = await client.get("/settings/repositories")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "GitHub Repositories" in text
+        assert "Add Repository Wizard" in text
+        assert "Configured Repositories" in text
+        assert 'id="repo-settings-root"' in text
+        assert 'name="default_environment"' in text
+        assert 'autocomplete="off"' in text
+        assert 'autocomplete="new-password"' in text
+
+    async def test_create_repository_wizard_can_set_token_and_default_agent_repo(self, client):
+        token_value = f"github_pat_test_{time.time_ns()}"
+        r = await client.post(
+            "/settings/repositories",
+            form={
+                "name": f"checkout-api-{time.time_ns()}",
+                "slug": "checkout-api-wizard",
+                "repo_url": "https://github.com/octo/checkout-service",
+                "default_environment": "prod",
+                "github_token": token_value,
+                "github_token_expires_at": "2030-01-01",
+                "set_github_token": "on",
+                "set_agent_repo": "on",
+            },
+        )
+        assert r.status_code in (200, 302)
+
+        from app import _load_ai_setting, get_db
+
+        db = get_db()
+        app_row = db.execute(
+            "SELECT Name, RepoUrl, DefaultEnvironment FROM sobs_apps FINAL WHERE Slug=? AND IsDeleted=0 LIMIT 1",
+            ["checkout-api-wizard"],
+        ).fetchone()
+        assert app_row is not None
+        assert str(app_row["RepoUrl"]) == "https://github.com/octo/checkout-service"
+        assert str(app_row["DefaultEnvironment"]) == "prod"
+        assert _load_ai_setting(db, "ai.github_token") == token_value
+        assert _load_ai_setting(db, "ai.github_token_expires_at") == "2030-01-01T23:59:59+00:00"
+        assert _load_ai_setting(db, "ai.github_repo") == "octo/checkout-service"
+
+    async def test_settings_repositories_page_shows_expired_token_warning(self, client):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.github_token", "github_pat_test")
+        _save_ai_setting(db, "ai.github_token_expires_at", "2000-01-01T23:59:59+00:00")
+
+        r = await client.get("/settings/repositories")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Token expired on 2000-01-01" in text
+
+    async def test_validate_github_token_route_persists_validation_status(self, client, monkeypatch):
+        import app as sobs_app
+
+        async def _fake_validate(_token: str):
+            return "valid", "Token is valid"
+
+        monkeypatch.setattr(sobs_app, "_validate_github_token", _fake_validate)
+        sobs_app._save_ai_setting(sobs_app.get_db(), "ai.github_token", "github_pat_test")
+
+        r = await client.post("/settings/repositories/github-token/validate")
+        assert r.status_code in (200, 302)
+
+        db = sobs_app.get_db()
+        assert sobs_app._load_ai_setting(db, "ai.github_token_last_validation_status") == "valid"
+        assert sobs_app._load_ai_setting(db, "ai.github_token_last_validation_message") == "Token is valid"
+        assert sobs_app._load_ai_setting(db, "ai.github_token_last_validated_at")
 
     async def test_settings_tags_page_loads(self, client):
         r = await client.get("/settings/tags")
@@ -6918,6 +7043,9 @@ class TestAISettingsAndAgentFlows:
         assert "AI" in text
         assert "endpoint_url" in text
         assert "guard" in text.lower()
+        assert "GitHub Token Expiry Date" in text
+        assert "Default Agent Issue Repository" in text
+        assert "GitHub Repositories" in text
 
     async def test_save_ai_settings(self, client):
         r = await client.post(
@@ -7991,6 +8119,194 @@ class TestAISettingsAndAgentFlows:
         assert "https://guard.example.com/v1" in called_urls
         assert "https://analysis.example.com/v1" not in called_urls
 
+    async def test_create_github_issue_only_does_not_mention_copilot_without_issue_number(self, monkeypatch):
+        calls: list[tuple[str, dict]] = []
+
+        class _FakeResponse:
+            def __init__(self, payload: dict):
+                self._payload = payload
+                self.content = b"{}"
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._payload
+
+        class _FakeClient:
+            async def post(self, url, json=None, headers=None, timeout=None):
+                calls.append((str(url), dict(json or {})))
+                if url.endswith("/issues"):
+                    return _FakeResponse({"html_url": "https://github.com/acme/demo/issues/10"})
+                pytest.fail(f"Unexpected copilot mention call: {url}")
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(sobs_app, "_get_async_http_client", _fake_get_client)
+
+        issue_url = await sobs_app._create_github_issue(
+            "ghp-test-token",
+            "acme/demo",
+            "fixture issue",
+            "fixture body",
+            ["security"],
+        )
+
+        assert issue_url == "https://github.com/acme/demo/issues/10"
+        assert len(calls) == 1
+        assert calls[0][0].endswith("/issues")
+        assert calls[0][1]["title"] == "fixture issue"
+        assert calls[0][1]["labels"] == ["security"]
+
+    async def test_assign_issue_to_copilot_uses_supported_issue_assignment_api(self, monkeypatch):
+        calls: list[tuple[str, dict]] = []
+
+        class _FakeResponse:
+            def __init__(self, payload: dict):
+                self._payload = payload
+                self.content = b"{}"
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._payload
+
+        class _FakeClient:
+            async def post(self, url, json=None, headers=None, timeout=None):
+                payload = dict(json or {})
+                calls.append((str(url), payload))
+                if url.endswith("/issues/11/assignees"):
+                    return _FakeResponse(
+                        {
+                            "assignees": [
+                                {"login": "copilot-swe-agent[bot]"},
+                            ]
+                        }
+                    )
+                pytest.fail(f"Unexpected URL: {url}")
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(sobs_app, "_get_async_http_client", _fake_get_client)
+        monkeypatch.setattr(sobs_app, "_github_repo_supports_copilot_assignment", AsyncMock(return_value=True))
+
+        status, reason, requested_at = await sobs_app._assign_issue_to_copilot(
+            "ghp-test-token",
+            "acme/demo",
+            11,
+            base_branch="main",
+            custom_instructions="Apply the smallest safe fix.",
+        )
+
+        assert status == "requested"
+        assert "Copilot assignment requested" in reason
+        assert requested_at > 0
+        assert len(calls) == 1
+        assert calls[0][0].endswith("/issues/11/assignees")
+        assert calls[0][1]["assignees"] == ["copilot-swe-agent[bot]"]
+        assert calls[0][1]["agent_assignment"]["target_repo"] == "acme/demo"
+        assert calls[0][1]["agent_assignment"]["base_branch"] == "main"
+
+    async def test_backfill_github_work_items_refreshes_assignment_and_pr_state(self, monkeypatch):
+        now_ts = sobs_app._normalize_ch_timestamp(datetime.now(timezone.utc))
+        sobs_app._insert_rows_json_each_row(
+            sobs_app.get_db(),
+            "sobs_github_work_items",
+            [
+                {
+                    "Id": "wi-backfill-1",
+                    "CreatedAt": now_ts,
+                    "CompletedAt": now_ts,
+                    "AgentRunId": "run-backfill-1",
+                    "AgentRuleId": "rule-backfill-1",
+                    "AgentRuleName": "Backfill Rule",
+                    "AgentAction": "github_issue_copilot",
+                    "ServiceName": "checkout-api",
+                    "AnomalyRuleId": "anomaly-backfill-1",
+                    "AnomalyState": "critical",
+                    "SignalSource": "metrics",
+                    "SignalName": "latency_p95",
+                    "SignalValue": 350.0,
+                    "GithubRepo": "acme/demo",
+                    "DedupKey": "acme/demo|checkout api|metrics|latency p95|critical",
+                    "DedupDecision": "new_issue",
+                    "DedupConfidence": 1.0,
+                    "IssueNumber": 77,
+                    "IssueUrl": "https://github.com/acme/demo/issues/77",
+                    "CanonicalIssueNumber": 77,
+                    "CanonicalIssueUrl": "https://github.com/acme/demo/issues/77",
+                    "RelatedIssueUrls": "[]",
+                    "OccurrenceCount": 1,
+                    "IssueState": "open",
+                    "IssueTitle": "Old title",
+                    "AnalysisSummary": "old",
+                    "SuggestionSummary": "old",
+                    "CopilotAssignmentRequestedAt": int(time.time() * 1000),
+                    "CopilotAssignmentStatus": "requested",
+                    "CopilotAssignmentReason": "Copilot assignment requested",
+                    "PrLinked": 0,
+                    "PrNumber": 0,
+                    "PrUrl": "",
+                    "IsDeleted": 0,
+                    "Version": int(time.time() * 1000),
+                }
+            ],
+        )
+
+        class _FakeResponse:
+            def __init__(self, payload: dict):
+                self._payload = payload
+                self.content = b"{}"
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._payload
+
+        class _FakeClient:
+            async def get(self, _url, headers=None, timeout=None):
+                return _FakeResponse(
+                    {
+                        "state": "open",
+                        "title": "Updated title",
+                        "assignees": [{"login": "copilot-swe-agent[bot]"}],
+                    }
+                )
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(sobs_app, "_get_async_http_client", _fake_get_client)
+        monkeypatch.setattr(
+            sobs_app,
+            "_search_open_pr_for_issue",
+            AsyncMock(return_value={"pr_number": 19, "pr_url": "https://github.com/acme/demo/pull/19"}),
+        )
+
+        await sobs_app._backfill_github_work_item_links(
+            sobs_app.get_db(),
+            {"ai.github_token": "ghp-test-token"},
+        )
+
+        row = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT * FROM sobs_github_work_items FINAL WHERE Id=?",
+                ["wi-backfill-1"],
+            )
+            .fetchone()
+        )
+        assert row is not None
+        assert str(row["IssueTitle"]) == "Updated title"
+        assert str(row["CopilotAssignmentStatus"]) == "active"
+        assert int(row["PrLinked"]) == 1
+        assert int(row["PrNumber"]) == 19
+        assert str(row["PrUrl"]) == "https://github.com/acme/demo/pull/19"
+
     # ── Agent Runs API ────────────────────────────────────────────────────────
 
     async def test_list_agent_runs_empty(self, client):
@@ -8035,6 +8351,89 @@ class TestAISettingsAndAgentFlows:
     async def test_trigger_agent_run_missing_rule_id(self, client):
         r = await client.post("/api/agent/runs", json={})
         assert r.status_code == 400
+
+    async def test_raise_user_issue_routes_through_agent_pipeline(self, client, monkeypatch):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://analysis.example.com/v1")
+        _save_ai_setting(db, "ai.model", "analysis-model")
+
+        captured: dict[str, object] = {}
+
+        async def _fake_run_agent_rule_instance(db_arg, rule, settings, trigger_context):
+            captured["rule"] = rule
+            captured["trigger_context"] = trigger_context
+            return {
+                "ok": True,
+                "run_id": "run-user-raise-1",
+                "result": {
+                    "status": "completed",
+                    "github_issue_url": "https://github.com/acme/demo/issues/42",
+                    "dedup_decision": "reused_existing",
+                    "copilot_assignment_status": "requested",
+                    "copilot_assignment_reason": "Copilot assignment requested",
+                },
+            }
+
+        monkeypatch.setattr(sobs_app, "_run_agent_rule_instance", _fake_run_agent_rule_instance)
+        monkeypatch.setattr(
+            sobs_app, "_resolve_agent_github_target", lambda *_args, **_kwargs: ("acme/demo", "ghp-test")
+        )
+
+        r = await client.post(
+            "/api/issues/raise",
+            json={
+                "source_page": "errors",
+                "assign_copilot": True,
+                "service": "checkout-api",
+                "err_type": "RuntimeError",
+                "message": "something broke",
+                "error_id": "err-123",
+                "trace_id": "trace-123",
+                "span_id": "span-123",
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert data["issue_url"] == "https://github.com/acme/demo/issues/42"
+        assert data["dedup_decision"] == "reused_existing"
+        assert data["copilot_assignment_status"] == "requested"
+
+        rule = captured["rule"]
+        assert isinstance(rule, dict)
+        actions = rule.get("actions")
+        assert isinstance(actions, list)
+        assert "github_issue" in actions
+        assert "github_issue_copilot" in actions
+        assert "analyze" in actions
+
+        trigger = captured["trigger_context"]
+        assert isinstance(trigger, dict)
+        extra = trigger.get("extra")
+        assert isinstance(extra, dict)
+        assert str(extra["initiated_by"]) == "user"
+        assert str(extra["source"]) == "errors"
+        assert str(trigger["trigger_ref_id"]) == "err-123"
+
+    async def test_raise_user_issue_requires_github_target(self, client, monkeypatch):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://analysis.example.com/v1")
+        _save_ai_setting(db, "ai.model", "analysis-model")
+
+        monkeypatch.setattr(sobs_app, "_resolve_agent_github_target", lambda *_args, **_kwargs: ("", ""))
+        r = await client.post(
+            "/api/issues/raise",
+            json={
+                "source_page": "traces",
+                "service": "checkout-api",
+                "trace_id": "trace-123",
+            },
+        )
+        assert r.status_code == 503
 
     async def test_dismiss_agent_run_not_found(self, client):
         r = await client.post("/api/agent/runs/nonexistent-run-id/dismiss")
@@ -8607,6 +9006,35 @@ class TestAISettingsAndAgentFlows:
         settings = _load_all_ai_settings(db)
         assert settings["ai.model"] == "env-model"
 
+    def test_insert_rows_normalizes_scanned_at(self):
+        captured = {"query": ""}
+
+        class _CaptureDb:
+            def execute(self, query):
+                captured["query"] = query
+
+        sobs_app._insert_rows_json_each_row(
+            _CaptureDb(),
+            "sobs_cve_findings",
+            [
+                {
+                    "Package": "lodash",
+                    "Ecosystem": "npm",
+                    "Version": "4.17.21",
+                    "ServiceName": "svc",
+                    "OsvId": "GHSA-test",
+                    "CveIds": "",
+                    "Summary": "test",
+                    "Severity": "",
+                    "Published": "2024-01-01",
+                    "ScannedAt": "2026-04-05T16:18:50.627+00:00",
+                }
+            ],
+        )
+
+        assert "2026-04-05 16:18:50.627000" in captured["query"]
+        assert "+00:00" not in captured["query"]
+
     # ── Agent rules helpers ───────────────────────────────────────────────────
 
     def test_create_and_load_agent_rule(self):
@@ -9167,6 +9595,16 @@ class TestReports:
         data = json.loads(await r.get_data())
         assert "error" in data
 
+    async def test_api_create_report_rejects_hyphenated_work_items_page_type(self, client):
+        r = await client.post(
+            "/api/reports",
+            json={"name": "Bad Work Items Report", "page_type": "work-items", "filters": {}},
+        )
+        assert r.status_code == 400
+        data = json.loads(await r.get_data())
+        assert "error" in data
+        assert "work_items" in data["error"]
+
     async def test_api_delete_report(self, client):
         # Create then delete
         r = await client.post(
@@ -9226,6 +9664,198 @@ class TestReports:
         assert r.status_code == 200
         text = (await r.get_data()).decode()
         assert "Visible Report" in text
+
+    async def test_api_create_report_supports_work_items_page_type(self, client):
+        r = await client.post(
+            "/api/reports",
+            json={
+                "name": "Work Items View",
+                "description": "Critical work items",
+                "page_type": "work_items",
+                "filters": {"action_type": "github_issue_copilot", "status": "open"},
+            },
+        )
+        assert r.status_code == 201
+        data = json.loads(await r.get_data())
+        assert data["page_type"] == "work_items"
+
+        listed = await client.get("/api/reports?page_type=work_items")
+        assert listed.status_code == 200
+        reports = json.loads(await listed.get_data())
+        assert any(rep["name"] == "Work Items View" for rep in reports)
+
+    async def test_reports_page_apply_link_for_work_items(self, client):
+        await client.post(
+            "/api/reports",
+            json={
+                "name": "Apply Work Items",
+                "page_type": "work_items",
+                "filters": {"service": "checkout-api", "status": "open"},
+            },
+        )
+        r = await client.get("/reports")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Apply Work Items" in text
+        assert "/work-items?" in text
+
+
+class TestWorkItemsPage:
+    async def test_work_items_page_has_report_save_controls(self, client):
+        r = await client.get("/work-items")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert 'id="work-items-reports-group"' in text
+        assert 'id="work-items-save-report-btn"' in text
+        assert 'id="work-items-tz-badge-btn"' in text
+        assert "page_type=work_items" in text
+        assert "pageType: 'work_items'" in text
+
+    async def test_api_work_items_filters_by_signal(self, client):
+        now_ts = sobs_app._normalize_ch_timestamp(datetime.now(timezone.utc))
+        sobs_app._insert_rows_json_each_row(
+            sobs_app.get_db(),
+            "sobs_github_work_items",
+            [
+                {
+                    "Id": "wi-test-1",
+                    "CreatedAt": now_ts,
+                    "CompletedAt": now_ts,
+                    "AgentRunId": "run-test-1",
+                    "AgentRuleId": "rule-a",
+                    "AgentRuleName": "Agent Rule A",
+                    "AgentAction": "github_issue",
+                    "ServiceName": "checkout-api",
+                    "AnomalyRuleId": "anomaly-a",
+                    "AnomalyState": "critical",
+                    "SignalSource": "metrics",
+                    "SignalName": "latency_p95",
+                    "SignalValue": 230.5,
+                    "GithubRepo": "abartrim/sobs",
+                    "DedupKey": "abartrim/sobs|checkout api|metrics|latency p95|critical",
+                    "DedupDecision": "new_issue",
+                    "DedupConfidence": 1.0,
+                    "IssueNumber": 101,
+                    "IssueUrl": "https://github.com/abartrim/sobs/issues/101",
+                    "CanonicalIssueNumber": 101,
+                    "CanonicalIssueUrl": "https://github.com/abartrim/sobs/issues/101",
+                    "RelatedIssueUrls": "[]",
+                    "OccurrenceCount": 1,
+                    "IssueState": "open",
+                    "IssueTitle": "Latency regression",
+                    "AnalysisSummary": "DB saturation",
+                    "SuggestionSummary": "Scale DB",
+                    "CopilotAssignmentRequestedAt": 0,
+                    "CopilotAssignmentStatus": "not_requested",
+                    "CopilotAssignmentReason": "",
+                    "PrLinked": 0,
+                    "PrNumber": 0,
+                    "PrUrl": "",
+                    "IsDeleted": 0,
+                    "Version": int(time.time() * 1000),
+                },
+                {
+                    "Id": "wi-test-2",
+                    "CreatedAt": now_ts,
+                    "CompletedAt": now_ts,
+                    "AgentRunId": "run-test-2",
+                    "AgentRuleId": "rule-b",
+                    "AgentRuleName": "Agent Rule B",
+                    "AgentAction": "github_issue_copilot",
+                    "ServiceName": "payments-api",
+                    "AnomalyRuleId": "anomaly-b",
+                    "AnomalyState": "warning",
+                    "SignalSource": "logs",
+                    "SignalName": "error_rate",
+                    "SignalValue": 12.0,
+                    "GithubRepo": "abartrim/sobs",
+                    "DedupKey": "abartrim/sobs|payments api|logs|error rate|warning",
+                    "DedupDecision": "reused_existing",
+                    "DedupConfidence": 0.88,
+                    "IssueNumber": 102,
+                    "IssueUrl": "https://github.com/abartrim/sobs/issues/102",
+                    "CanonicalIssueNumber": 102,
+                    "CanonicalIssueUrl": "https://github.com/abartrim/sobs/issues/102",
+                    "RelatedIssueUrls": '["https://github.com/abartrim/sobs/issues/101"]',
+                    "OccurrenceCount": 3,
+                    "IssueState": "open",
+                    "IssueTitle": "Error spike",
+                    "AnalysisSummary": "Upstream timeouts",
+                    "SuggestionSummary": "Retry policy",
+                    "CopilotAssignmentRequestedAt": int(time.time() * 1000),
+                    "CopilotAssignmentStatus": "requested",
+                    "CopilotAssignmentReason": "Copilot assignment requested",
+                    "PrLinked": 0,
+                    "PrNumber": 0,
+                    "PrUrl": "",
+                    "IsDeleted": 0,
+                    "Version": int(time.time() * 1000) + 1,
+                },
+            ],
+        )
+
+        r = await client.get("/api/work-items?signal_source=metrics&signal_name=latency_p95")
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["ok"] is True
+        assert len(data["items"]) >= 1
+        assert all(item["signal_source"] == "metrics" for item in data["items"])
+        assert all(item["signal_name"] == "latency_p95" for item in data["items"])
+
+    async def test_api_work_items_includes_dedupe_and_assignment_fields(self, client):
+        now_ts = sobs_app._normalize_ch_timestamp(datetime.now(timezone.utc))
+        sobs_app._insert_rows_json_each_row(
+            sobs_app.get_db(),
+            "sobs_github_work_items",
+            [
+                {
+                    "Id": "wi-test-dedupe-fields",
+                    "CreatedAt": now_ts,
+                    "CompletedAt": now_ts,
+                    "AgentRunId": "run-test-dedupe-fields",
+                    "AgentRuleId": "rule-dedupe-fields",
+                    "AgentRuleName": "Agent Rule Dedupe Fields",
+                    "AgentAction": "github_issue_copilot",
+                    "ServiceName": "payments-api",
+                    "AnomalyRuleId": "anomaly-dedupe-fields",
+                    "AnomalyState": "warning",
+                    "SignalSource": "logs",
+                    "SignalName": "error_rate",
+                    "SignalValue": 12.0,
+                    "GithubRepo": "abartrim/sobs",
+                    "DedupKey": "abartrim/sobs|payments api|logs|error rate|warning",
+                    "DedupDecision": "reused_existing",
+                    "DedupConfidence": 0.88,
+                    "IssueNumber": 103,
+                    "IssueUrl": "https://github.com/abartrim/sobs/issues/103",
+                    "CanonicalIssueNumber": 103,
+                    "CanonicalIssueUrl": "https://github.com/abartrim/sobs/issues/103",
+                    "RelatedIssueUrls": '["https://github.com/abartrim/sobs/issues/101"]',
+                    "OccurrenceCount": 4,
+                    "IssueState": "open",
+                    "IssueTitle": "Error spike follow-up",
+                    "AnalysisSummary": "Repeated upstream timeouts",
+                    "SuggestionSummary": "Retry policy",
+                    "CopilotAssignmentRequestedAt": int(time.time() * 1000),
+                    "CopilotAssignmentStatus": "requested",
+                    "CopilotAssignmentReason": "Copilot assignment requested",
+                    "PrLinked": 0,
+                    "PrNumber": 0,
+                    "PrUrl": "",
+                    "IsDeleted": 0,
+                    "Version": int(time.time() * 1000) + 2,
+                }
+            ],
+        )
+        r = await client.get("/api/work-items?signal_source=logs&signal_name=error_rate")
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["ok"] is True
+        item = next(item for item in data["items"] if item["issue_number"] == 103)
+        assert item["dedup_decision"] == "reused_existing"
+        assert item["occurrence_count"] >= 1
+        assert item["copilot_assignment_status"] == "requested"
+        assert item["related_issue_urls"] == ["https://github.com/abartrim/sobs/issues/101"]
 
 
 # ChdbSqlRunner & Vanna Query Service
@@ -9920,6 +10550,432 @@ class TestWebTraffic:
         data = await r.get_data()
         assert b"Web Traffic" in data
 
+    async def test_web_traffic_page_does_not_render_detected_libraries_panel(self, client):
+        await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "sessionId": f"sess-wt-lib-{time.time_ns()}",
+                    "url": "https://example.com/library-panel",
+                }
+            ],
+        )
+
+        r = await client.get("/web-traffic")
+        assert r.status_code == 200
+        html = (await r.get_data()).decode()
+        assert "Detected Libraries" not in html
+        assert 'id="wt-libraries-tbody"' not in html
+
+    async def test_cve_page_renders_detected_libraries_panel(self, client):
+        db = sobs_app.get_db()
+        sobs_app._set_app_setting(db, sobs_app._CVE_ENABLED_SETTING, "true")
+
+        r = await client.get("/enrichment/cve")
+        assert r.status_code == 200
+        html = (await r.get_data()).decode()
+        assert "Detected Libraries" in html
+        assert 'id="cve-libraries-tbody"' in html
+
+    async def test_enrichment_libraries_api_empty(self, client):
+        r = await client.get("/api/enrichment/libraries")
+        assert r.status_code == 200
+        body = json.loads(await r.get_data())
+        assert body["ok"] is True
+        assert isinstance(body["libraries"], list)
+        assert "scanned_at" in body
+
+    async def test_enrichment_libraries_api_with_release_metadata_and_cve_counts(self, client):
+        app_resp = await client.post(
+            "/v1/apps",
+            json={
+                "name": "Library API App",
+                "slug": f"library-api-app-{time.time_ns()}",
+                "ownerTeam": "platform",
+                "defaultEnvironment": "prod",
+            },
+        )
+        assert app_resp.status_code == 201
+        app_id = (await app_resp.get_json())["id"]
+
+        rel_resp = await client.post(
+            f"/v1/apps/{app_id}/releases",
+            json={"version": "2026.04.06", "environment": "prod"},
+        )
+        assert rel_resp.status_code == 201
+        release_id = (await rel_resp.get_json())["id"]
+
+        artifact_resp = await client.post(
+            f"/v1/releases/{release_id}/artifacts/meta",
+            json={
+                "artifactType": "dependencies-lockfile",
+                "name": "requirements.lock",
+                "metadata": {
+                    "dependencies": [
+                        {"package": "urllib3", "version": "2.2.2", "ecosystem": "PyPI"},
+                    ]
+                },
+            },
+        )
+        assert artifact_resp.status_code == 201
+
+        sobs_app._insert_rows_json_each_row(
+            sobs_app.get_db(),
+            "sobs_cve_findings",
+            [
+                {
+                    "Package": "urllib3",
+                    "Ecosystem": "PyPI",
+                    "Version": "2.2.2",
+                    "ServiceName": "Library API App",
+                    "OsvId": f"OSV-TEST-{time.time_ns()}",
+                    "CveIds": "CVE-2026-1111",
+                    "Summary": "Test vulnerability",
+                    "Severity": "HIGH",
+                    "Published": "2026-04-01",
+                    "ScannedAt": "2026-04-06 10:00:00",
+                }
+            ],
+        )
+
+        r = await client.get("/api/enrichment/libraries")
+        assert r.status_code == 200
+        body = json.loads(await r.get_data())
+        assert body["ok"] is True
+        lib = next(item for item in body["libraries"] if item["package"] == "urllib3" and item["version"] == "2.2.2")
+        assert lib["source"] == "release_registry"
+        assert lib["cve_count"] >= 1
+        assert lib["status"] == "vulnerable"
+
+    async def test_fetch_release_deps_from_github_backfills_requirements_lockfile(self, client, monkeypatch):
+        app_resp = await client.post(
+            "/v1/apps",
+            json={
+                "name": "GitHub Backfill App",
+                "slug": f"github-backfill-app-{time.time_ns()}",
+                "ownerTeam": "platform",
+                "repoUrl": "https://github.com/acme/demo-service",
+                "defaultEnvironment": "prod",
+            },
+        )
+        assert app_resp.status_code == 201
+        app_id = (await app_resp.get_json())["id"]
+
+        rel_resp = await client.post(
+            f"/v1/apps/{app_id}/releases",
+            json={"version": "1.2.3", "environment": "prod"},
+        )
+        assert rel_resp.status_code == 201
+        release_id = (await rel_resp.get_json())["id"]
+
+        db = sobs_app.get_db()
+        sobs_app._save_ai_setting(db, "ai.github_token", "ghp-test-token")
+
+        req_text = "requests==2.32.3\nurllib3==2.2.2\n"
+        encoded = base64.b64encode(req_text.encode("utf-8")).decode("ascii")
+
+        class _FakeResponse:
+            def __init__(self, status_code: int, payload: dict | None = None):
+                self.status_code = status_code
+                self._payload = payload or {}
+                self.content = b"{}"
+
+            def json(self):
+                return self._payload
+
+        class _FakeClient:
+            async def get(self, url, params=None, headers=None, timeout=None):
+                assert "Authorization" in (headers or {})
+                assert params and params.get("ref") == "refs/tags/1.2.3"
+                if url.endswith("/requirements.txt"):
+                    return _FakeResponse(
+                        200,
+                        {
+                            "encoding": "base64",
+                            "content": encoded,
+                        },
+                    )
+                return _FakeResponse(404, {})
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(sobs_app, "_get_async_http_client", _fake_get_client)
+
+        summary = await sobs_app._fetch_release_deps_from_github(db)
+        assert summary["attempted"] >= 1
+        assert summary["inserted"] >= 1
+
+        row = db.execute(
+            "SELECT Name, MetadataJson FROM sobs_release_artifacts FINAL "
+            "WHERE ReleaseId=? AND ArtifactType='dependencies-lockfile' AND IsDeleted=0 "
+            "ORDER BY UploadedAt DESC LIMIT 1",
+            [release_id],
+        ).fetchone()
+        assert row is not None
+        assert str(row["Name"]) == "requirements.txt"
+        metadata = json.loads(str(row["MetadataJson"]))
+        deps = metadata.get("dependencies", [])
+        assert any(d.get("package") == "requests" and d.get("version") == "2.32.3" for d in deps)
+
+    async def test_cve_scan_reports_github_backfill_counts(self, client, monkeypatch):
+        app_resp = await client.post(
+            "/v1/apps",
+            json={
+                "name": "GitHub Scan App",
+                "slug": f"github-scan-app-{time.time_ns()}",
+                "ownerTeam": "platform",
+                "repoUrl": "https://github.com/acme/scan-service",
+                "defaultEnvironment": "prod",
+            },
+        )
+        assert app_resp.status_code == 201
+        app_id = (await app_resp.get_json())["id"]
+
+        rel_resp = await client.post(
+            f"/v1/apps/{app_id}/releases",
+            json={"version": "9.9.9", "environment": "prod"},
+        )
+        assert rel_resp.status_code == 201
+
+        db = sobs_app.get_db()
+        sobs_app._save_ai_setting(db, "ai.github_token", "ghp-test-token")
+        sobs_app._set_app_setting(db, sobs_app._GITHUB_BACKFILL_MAX_RELEASES_SETTING, "77")
+
+        req_text = "requests==2.32.3\n"
+        encoded = base64.b64encode(req_text.encode("utf-8")).decode("ascii")
+
+        class _FakeResponse:
+            def __init__(self, status_code: int, payload: dict | None = None):
+                self.status_code = status_code
+                self._payload = payload or {}
+                self.content = b"{}"
+
+            def json(self):
+                return self._payload
+
+        class _FakeClient:
+            async def get(self, url, params=None, headers=None, timeout=None):
+                if url.endswith("/requirements.txt") and params and params.get("ref") == "refs/tags/9.9.9":
+                    return _FakeResponse(200, {"encoding": "base64", "content": encoded})
+                return _FakeResponse(404, {})
+
+            async def post(self, url, json=None, timeout=None):
+                # OSV query stub: no vulnerabilities.
+                return _FakeResponse(200, {"vulns": []})
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(sobs_app, "_get_async_http_client", _fake_get_client)
+
+        summary = await sobs_app._run_cve_scan(db)
+        assert summary["ok"] is True
+        assert summary["github_backfill_attempted"] >= 1
+        assert summary["github_backfill_inserted"] >= 1
+        assert summary["github_backfill_max_releases"] == 77
+        assert summary["libraries_found"] >= 1
+
+    async def test_fetch_release_deps_from_github_falls_back_to_v_prefixed_tag(self, client, monkeypatch):
+        app_resp = await client.post(
+            "/v1/apps",
+            json={
+                "name": "GitHub Tag Fallback App",
+                "slug": f"github-tag-fallback-app-{time.time_ns()}",
+                "ownerTeam": "platform",
+                "repoUrl": "https://github.com/acme/tagged-service",
+                "defaultEnvironment": "prod",
+            },
+        )
+        assert app_resp.status_code == 201
+        app_id = (await app_resp.get_json())["id"]
+
+        rel_resp = await client.post(
+            f"/v1/apps/{app_id}/releases",
+            json={"version": "2.0.0", "environment": "prod"},
+        )
+        assert rel_resp.status_code == 201
+        release_id = (await rel_resp.get_json())["id"]
+
+        db = sobs_app.get_db()
+        sobs_app._save_ai_setting(db, "ai.github_token", "ghp-test-token")
+
+        req_text = "requests==2.32.3\n"
+        encoded = base64.b64encode(req_text.encode("utf-8")).decode("ascii")
+        seen_refs: list[str] = []
+
+        class _FakeResponse:
+            def __init__(self, status_code: int, payload: dict | None = None):
+                self.status_code = status_code
+                self._payload = payload or {}
+                self.content = b"{}"
+
+            def json(self):
+                return self._payload
+
+        class _FakeClient:
+            async def get(self, url, params=None, headers=None, timeout=None):
+                ref = (params or {}).get("ref", "")
+                seen_refs.append(str(ref))
+                if url.endswith("/requirements.txt") and ref == "refs/tags/v2.0.0":
+                    return _FakeResponse(200, {"encoding": "base64", "content": encoded})
+                return _FakeResponse(404, {})
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(sobs_app, "_get_async_http_client", _fake_get_client)
+
+        summary = await sobs_app._fetch_release_deps_from_github(db)
+        assert summary["attempted"] >= 1
+        assert summary["inserted"] >= 1
+        assert "refs/tags/2.0.0" in seen_refs
+        assert "refs/tags/v2.0.0" in seen_refs
+
+        row = db.execute(
+            "SELECT StorageRef FROM sobs_release_artifacts FINAL "
+            "WHERE ReleaseId=? AND ArtifactType='dependencies-lockfile' AND IsDeleted=0 "
+            "ORDER BY UploadedAt DESC LIMIT 1",
+            [release_id],
+        ).fetchone()
+        assert row is not None
+        assert "ref=refs%2Ftags%2Fv2.0.0" in str(row["StorageRef"])
+
+    async def test_fetch_release_deps_from_github_falls_back_to_branch_ref(self, client, monkeypatch):
+        app_resp = await client.post(
+            "/v1/apps",
+            json={
+                "name": "GitHub Branch Fallback App",
+                "slug": f"github-branch-fallback-app-{time.time_ns()}",
+                "ownerTeam": "platform",
+                "repoUrl": "https://github.com/acme/branch-service",
+                "defaultEnvironment": "prod",
+            },
+        )
+        assert app_resp.status_code == 201
+        app_id = (await app_resp.get_json())["id"]
+
+        rel_resp = await client.post(
+            f"/v1/apps/{app_id}/releases",
+            json={"version": "main", "environment": "prod"},
+        )
+        assert rel_resp.status_code == 201
+        release_id = (await rel_resp.get_json())["id"]
+
+        db = sobs_app.get_db()
+        sobs_app._save_ai_setting(db, "ai.github_token", "ghp-test-token")
+
+        req_text = "urllib3==2.2.2\n"
+        encoded = base64.b64encode(req_text.encode("utf-8")).decode("ascii")
+        seen_refs: list[str] = []
+
+        class _FakeResponse:
+            def __init__(self, status_code: int, payload: dict | None = None):
+                self.status_code = status_code
+                self._payload = payload or {}
+                self.content = b"{}"
+
+            def json(self):
+                return self._payload
+
+        class _FakeClient:
+            async def get(self, url, params=None, headers=None, timeout=None):
+                ref = str((params or {}).get("ref", ""))
+                seen_refs.append(ref)
+                if url.endswith("/requirements.txt") and ref == "refs/heads/main":
+                    return _FakeResponse(200, {"encoding": "base64", "content": encoded})
+                return _FakeResponse(404, {})
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(sobs_app, "_get_async_http_client", _fake_get_client)
+
+        summary = await sobs_app._fetch_release_deps_from_github(db)
+        assert summary["attempted"] >= 1
+        assert summary["inserted"] >= 1
+        assert "refs/tags/main" in seen_refs
+        assert "refs/heads/main" in seen_refs
+
+        row = db.execute(
+            "SELECT StorageRef FROM sobs_release_artifacts FINAL "
+            "WHERE ReleaseId=? AND ArtifactType='dependencies-lockfile' AND IsDeleted=0 "
+            "ORDER BY UploadedAt DESC LIMIT 1",
+            [release_id],
+        ).fetchone()
+        assert row is not None
+        assert "ref=refs%2Fheads%2Fmain" in str(row["StorageRef"])
+
+    async def test_fetch_release_deps_from_github_respects_max_release_scan_cap(self, client, monkeypatch):
+        db = sobs_app.get_db()
+        sobs_app._save_ai_setting(db, "ai.github_token", "ghp-test-token")
+        sobs_app._set_app_setting(db, sobs_app._GITHUB_BACKFILL_MAX_RELEASES_SETTING, "1")
+
+        app_one = await client.post(
+            "/v1/apps",
+            json={
+                "name": "Cap App One",
+                "slug": f"cap-app-one-{time.time_ns()}",
+                "ownerTeam": "platform",
+                "repoUrl": "https://github.com/acme/cap-one",
+                "defaultEnvironment": "prod",
+            },
+        )
+        assert app_one.status_code == 201
+        app_one_id = (await app_one.get_json())["id"]
+
+        rel_one = await client.post(
+            f"/v1/apps/{app_one_id}/releases",
+            json={"version": "1.0.0", "environment": "prod"},
+        )
+        assert rel_one.status_code == 201
+
+        app_two = await client.post(
+            "/v1/apps",
+            json={
+                "name": "Cap App Two",
+                "slug": f"cap-app-two-{time.time_ns()}",
+                "ownerTeam": "platform",
+                "repoUrl": "https://github.com/acme/cap-two",
+                "defaultEnvironment": "prod",
+            },
+        )
+        assert app_two.status_code == 201
+        app_two_id = (await app_two.get_json())["id"]
+
+        rel_two = await client.post(
+            f"/v1/apps/{app_two_id}/releases",
+            json={"version": "2.0.0", "environment": "prod"},
+        )
+        assert rel_two.status_code == 201
+
+        class _FakeResponse:
+            def __init__(self, status_code: int):
+                self.status_code = status_code
+                self.content = b"{}"
+
+            def json(self):
+                return {}
+
+        class _FakeClient:
+            async def get(self, *_args, **_kwargs):
+                return _FakeResponse(404)
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(sobs_app, "_get_async_http_client", _fake_get_client)
+
+        summary = await sobs_app._fetch_release_deps_from_github(db)
+        assert summary["attempted"] == 1
+
+        sobs_app._set_app_setting(
+            db,
+            sobs_app._GITHUB_BACKFILL_MAX_RELEASES_SETTING,
+            str(sobs_app._GITHUB_BACKFILL_MAX_RELEASES_DEFAULT),
+        )
+
     async def test_web_traffic_geo_api_empty(self, client):
         r = await client.get("/api/web-traffic/geo")
         assert r.status_code == 200
@@ -9963,12 +11019,243 @@ class TestWebTraffic:
         assert isinstance(data["findings"], list)
         assert "last_scan" in data
 
+    async def test_github_repo_health_endpoint_filters_to_release_versions(self, client, monkeypatch):
+        app_resp = await client.post(
+            "/v1/apps",
+            json={
+                "name": "Repo Health App",
+                "slug": f"repo-health-app-{time.time_ns()}",
+                "ownerTeam": "platform",
+                "repoUrl": "https://github.com/acme/repo-health",
+                "defaultEnvironment": "prod",
+            },
+        )
+        assert app_resp.status_code == 201
+        app_id = (await app_resp.get_json())["id"]
+
+        rel_resp = await client.post(
+            f"/v1/apps/{app_id}/releases",
+            json={"version": "1.2.3", "environment": "prod"},
+        )
+        assert rel_resp.status_code == 201
+
+        db = sobs_app.get_db()
+        sobs_app._save_ai_setting(db, "ai.github_token", "ghp-test-token")
+
+        class _FakeResponse:
+            def __init__(self, status_code: int, payload: list[dict] | None = None):
+                self.status_code = status_code
+                self._payload = payload or []
+                self.content = b"[]"
+
+            def json(self):
+                return self._payload
+
+        class _FakeClient:
+            async def get(self, url, params=None, headers=None, timeout=None):
+                if not url.endswith("/issues"):
+                    return _FakeResponse(404, [])
+                return _FakeResponse(
+                    200,
+                    [
+                        {
+                            "title": "Patch release 1.2.3",
+                            "body": "security update for CVE",
+                            "labels": [{"name": "security"}],
+                        },
+                        {
+                            "title": "Release 1.2.3 rollout PR",
+                            "body": "",
+                            "pull_request": {"url": "https://api.github.com/pulls/1"},
+                            "labels": [],
+                        },
+                        {
+                            "title": "General backlog cleanup",
+                            "body": "not version related",
+                            "labels": [],
+                        },
+                        {
+                            "title": "Security hardening",
+                            "body": "targets 9.9.9",
+                            "labels": [{"name": "security"}],
+                        },
+                    ],
+                )
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(sobs_app, "_get_async_http_client", _fake_get_client)
+
+        r = await client.get("/api/enrichment/github/repo-health")
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["ok"] is True
+        assert data["version_scoped"] is True
+        assert isinstance(data["repos"], list)
+        assert data["repos"]
+        repo_row = next((row for row in data["repos"] if row.get("repo") == "acme/repo-health"), None)
+        assert repo_row is not None
+        assert repo_row["open_issues"] == 1
+        assert repo_row["open_prs"] == 1
+        assert repo_row["security_items"] == 1
+        assert "1.2.3" in repo_row["versions"]
+        assert data["open_issues"] >= repo_row["open_issues"]
+        assert data["open_prs"] >= repo_row["open_prs"]
+        assert data["security_items"] >= repo_row["security_items"]
+
+    async def test_cve_disposition_endpoint_updates_finding_and_filters_default_view(self, client):
+        db = sobs_app.get_db()
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "sobs_cve_findings",
+            [
+                {
+                    "Package": "requests",
+                    "Ecosystem": "PyPI",
+                    "Version": "2.32.3",
+                    "ServiceName": "svc-cve-disposition",
+                    "OsvId": f"OSV-DISP-{time.time_ns()}",
+                    "CveIds": "CVE-2026-2222",
+                    "Summary": "Disposition test finding",
+                    "Severity": "HIGH",
+                    "Published": "2026-04-01",
+                    "ScannedAt": "2026-04-05 10:00:00",
+                }
+            ],
+        )
+        osv_id = db.execute(
+            "SELECT OsvId FROM sobs_cve_findings FINAL "
+            "WHERE Package='requests' AND Ecosystem='PyPI' AND Version='2.32.3' "
+            "ORDER BY ScannedAt DESC LIMIT 1"
+        ).fetchone()[0]
+
+        set_resp = await client.post(
+            f"/api/enrichment/cve/findings/{osv_id}/disposition",
+            json={
+                "package": "requests",
+                "ecosystem": "PyPI",
+                "version": "2.32.3",
+                "disposition": "accepted",
+                "note": "Known and accepted",
+            },
+        )
+        assert set_resp.status_code == 200
+        set_data = json.loads(await set_resp.get_data())
+        assert set_data["ok"] is True
+        assert set_data["disposition"] == "accepted"
+
+        default_view = await client.get("/api/enrichment/cve/findings")
+        assert default_view.status_code == 200
+        default_data = json.loads(await default_view.get_data())
+        assert not any(f.get("osv_id") == osv_id for f in default_data["findings"])
+
+        show_all_view = await client.get("/api/enrichment/cve/findings?show_all=1")
+        assert show_all_view.status_code == 200
+        show_all_data = json.loads(await show_all_view.get_data())
+        found = next(f for f in show_all_data["findings"] if f.get("osv_id") == osv_id)
+        assert found["disposition"] == "accepted"
+        assert found["disposition_note"] == "Known and accepted"
+
+    async def test_cve_disposition_endpoint_rejects_invalid_value(self, client):
+        r = await client.post(
+            "/api/enrichment/cve/findings/OSV-INVALID/disposition",
+            json={
+                "package": "requests",
+                "ecosystem": "PyPI",
+                "version": "2.32.3",
+                "disposition": "ignore",
+            },
+        )
+        assert r.status_code == 400
+        data = json.loads(await r.get_data())
+        assert data["ok"] is False
+        assert "allowed" in data
+
+    async def test_cve_fixed_disposition_auto_expires_when_new_version_detected(self, client):
+        db = sobs_app.get_db()
+        osv_id = f"OSV-FIXED-{time.time_ns()}"
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "sobs_cve_findings",
+            [
+                {
+                    "Package": "requests",
+                    "Ecosystem": "PyPI",
+                    "Version": "2.31.0",
+                    "ServiceName": "svc-fixed-expiry",
+                    "OsvId": osv_id,
+                    "CveIds": "CVE-2026-4444",
+                    "Summary": "Fixed-expiry test finding",
+                    "Severity": "HIGH",
+                    "Published": "2026-04-01",
+                    "ScannedAt": "2026-04-05 12:00:00",
+                }
+            ],
+        )
+
+        set_resp = await client.post(
+            f"/api/enrichment/cve/findings/{osv_id}/disposition",
+            json={
+                "package": "requests",
+                "ecosystem": "PyPI",
+                "version": "2.31.0",
+                "disposition": "fixed",
+                "note": "upgraded",
+            },
+        )
+        assert set_resp.status_code == 200
+
+        app_resp = await client.post(
+            "/v1/apps",
+            json={
+                "name": "Fixed Expiry App",
+                "slug": f"fixed-expiry-app-{time.time_ns()}",
+                "ownerTeam": "backend",
+                "defaultEnvironment": "prod",
+            },
+        )
+        assert app_resp.status_code == 201
+        app_id = (await app_resp.get_json())["id"]
+
+        rel_resp = await client.post(
+            f"/v1/apps/{app_id}/releases",
+            json={"version": "2026.04.07", "environment": "prod"},
+        )
+        assert rel_resp.status_code == 201
+        release_id = (await rel_resp.get_json())["id"]
+
+        artifact_resp = await client.post(
+            f"/v1/releases/{release_id}/artifacts/meta",
+            json={
+                "artifactType": "dependencies-lockfile",
+                "name": "requirements.lock",
+                "metadata": {
+                    "dependencies": [
+                        {"package": "requests", "version": "2.32.3", "ecosystem": "PyPI"},
+                    ]
+                },
+            },
+        )
+        assert artifact_resp.status_code == 201
+
+        r = await client.get("/api/enrichment/cve/findings")
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        finding = next(f for f in data["findings"] if f.get("osv_id") == osv_id)
+        assert finding["raw_disposition"] == "fixed"
+        assert finding["disposition"] == "open"
+        assert finding["disposition_expired"] is True
+
     async def test_cve_scan_endpoint(self, client):
         r = await client.post("/api/enrichment/cve/scan")
         assert r.status_code == 200
         data = json.loads(await r.get_data())
         assert data["ok"] is True
         assert "libraries_found" in data
+        assert "github_backfill_attempted" in data
+        assert "github_backfill_inserted" in data
+        assert "github_backfill_max_releases" in data
 
     async def test_cve_page_timezone_badge_in_filter_header(self, client):
         # Ensure CVE enrichment is enabled so filter accordion is rendered.
@@ -9984,18 +11271,61 @@ class TestWebTraffic:
         assert 'id="cve-tz-badge-label"' in html
         assert "initCveTimezone" in html
 
+    async def test_cve_page_renders_disposition_controls(self, client):
+        db = sobs_app.get_db()
+        sobs_app._set_app_setting(db, sobs_app._CVE_ENABLED_SETTING, "true")
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "sobs_cve_findings",
+            [
+                {
+                    "Package": "urllib3",
+                    "Ecosystem": "PyPI",
+                    "Version": "2.2.2",
+                    "ServiceName": "svc-cve-ui",
+                    "OsvId": f"OSV-UI-{time.time_ns()}",
+                    "CveIds": "CVE-2026-3333",
+                    "Summary": "UI control test",
+                    "Severity": "MEDIUM",
+                    "Published": "2026-04-01",
+                    "ScannedAt": "2026-04-05 11:00:00",
+                }
+            ],
+        )
+
+        r = await client.get("/enrichment/cve?show_all=1")
+        assert r.status_code == 200
+        html = (await r.get_data()).decode()
+        assert "Show triaged (accepted / false positive / fixed)" in html
+        assert "cve-disposition-select" in html
+        assert "cve-disposition-save" in html
+
     async def test_cve_page_renders_dates_with_utc_ts_attributes(self, client):
         import app as sobs_app
 
         db = sobs_app.get_db()
         sobs_app._set_app_setting(db, sobs_app._CVE_ENABLED_SETTING, "true")
         sobs_app._set_app_setting(db, sobs_app._CVE_LAST_SCAN_SETTING, "2026-04-04T12:34:56Z")
+        sobs_app._set_app_setting(db, sobs_app._GITHUB_BACKFILL_MAX_RELEASES_SETTING, "88")
+        sobs_app._set_app_setting(db, sobs_app._CVE_LAST_BACKFILL_ATTEMPTED_SETTING, "15")
+        sobs_app._set_app_setting(db, sobs_app._CVE_LAST_BACKFILL_INSERTED_SETTING, "3")
+        sobs_app._set_app_setting(db, sobs_app._CVE_LAST_BACKFILL_CAP_SETTING, "88")
 
         r = await client.get("/enrichment/cve")
         assert r.status_code == 200
         html = (await r.get_data()).decode()
         assert 'class="sobs-tz-ts" data-utc-ts="2026-04-04T12:34:56Z"' in html
         assert "timestampSelector: '.sobs-tz-ts[data-utc-ts]'" in html
+        assert 'id="cve-repo-health-panel"' in html
+        assert "GitHub Repo Health (Version-Scoped)" in html
+        assert 'id="cve-backfill-cap"' in html
+        assert 'id="cve-backfill-panel"' in html
+        assert "GitHub Backfill Telemetry" in html
+        assert "Attempted:" in html
+        assert "Inserted:" in html
+        assert "88" in html
+        assert "15" in html
+        assert "3" in html
 
     async def test_enrichment_settings_page_loads(self, client):
         r = await client.get("/settings/enrichment")
@@ -10007,10 +11337,17 @@ class TestWebTraffic:
     async def test_enrichment_settings_save(self, client):
         r = await client.post(
             "/settings/enrichment",
-            form={"geo_enabled": "on", "cve_enabled": "on"},
+            form={
+                "geo_enabled": "on",
+                "cve_enabled": "on",
+                "github_backfill_max_releases": "123",
+            },
         )
         # Should redirect back to enrichment settings
         assert r.status_code in (302, 200)
+
+        db = sobs_app.get_db()
+        assert sobs_app._get_app_setting(db, sobs_app._GITHUB_BACKFILL_MAX_RELEASES_SETTING) == "123"
 
     async def test_web_traffic_browsers_api_empty(self, client):
         r = await client.get("/api/web-traffic/browsers")
@@ -10107,6 +11444,42 @@ class TestWebTraffic:
         db = sobs_app.get_db()
         libs = sobs_app._extract_library_versions_from_otel(db)
         assert isinstance(libs, list)
+
+    async def test_collect_library_inventory_includes_scope_versions_from_logs(self, client):
+        db = sobs_app.get_db()
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "otel_logs",
+            [
+                {
+                    "Timestamp": "2026-04-05T12:00:00Z",
+                    "TraceId": f"trace-{time.time_ns()}",
+                    "SpanId": "span-log-scope",
+                    "TraceFlags": 1,
+                    "SeverityText": "INFO",
+                    "SeverityNumber": 9,
+                    "ServiceName": "inventory-log-svc",
+                    "Body": "inventory scope marker",
+                    "ScopeName": "@opentelemetry/instrumentation-fetch",
+                    "ScopeVersion": "0.52.0",
+                    "ResourceAttributes": {},
+                    "ScopeAttributes": {},
+                    "LogAttributes": {},
+                    "EventName": "inventory.scope",
+                }
+            ],
+        )
+
+        inventory = sobs_app._collect_library_inventory(db)
+        scope_item = next(
+            item
+            for item in inventory
+            if item.get("package") == "@opentelemetry/instrumentation-fetch"
+            and item.get("version") == "0.52.0"
+            and item.get("service") == "inventory-log-svc"
+        )
+        assert scope_item["ecosystem"] == "npm"
+        assert scope_item["source"] == "otel_scope"
 
 
 class TestKubernetesRoutes:

@@ -31,6 +31,85 @@
 </div>
 {% else %}
 
+<div class="accordion mb-3" id="cveLibrariesAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header">
+      <button class="accordion-button py-2 collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#cveLibrariesPanel"
+              aria-expanded="false" aria-controls="cveLibrariesPanel">
+        <i class="bi bi-box-seam me-1 text-info"></i>
+        <span class="fw-semibold">Detected Libraries</span>
+        <span class="badge bg-secondary ms-2" id="cve-libraries-count">0</span>
+      </button>
+    </h2>
+    <div id="cveLibrariesPanel" class="accordion-collapse collapse">
+      <div class="accordion-body p-0">
+        <div class="p-3 small text-secondary" id="cve-libraries-loading">Loading libraries…</div>
+        <div class="table-responsive d-none" id="cve-libraries-table-wrap">
+          <table class="table table-sm table-hover mb-0">
+            <thead>
+              <tr>
+                <th>Package</th>
+                <th>Ecosystem</th>
+                <th>Version</th>
+                <th>Service</th>
+                <th>Source</th>
+                <th style="width:90px;">CVEs</th>
+              </tr>
+            </thead>
+            <tbody id="cve-libraries-tbody"></tbody>
+          </table>
+        </div>
+        <div class="p-3 small text-secondary d-none" id="cve-libraries-empty">No detected libraries yet.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="cve-backfill-panel" class="card border-secondary mb-3">
+  <div class="card-header d-flex align-items-center gap-2 py-2">
+    <i class="bi bi-github text-secondary"></i>
+    <span class="fw-semibold">GitHub Backfill Telemetry</span>
+  </div>
+  <div class="card-body py-2">
+    <div class="small text-secondary d-flex flex-wrap gap-3">
+      <span id="cve-backfill-cap" title="Maximum release rows checked per scan for GitHub lockfile backfill">
+        <i class="bi bi-speedometer2 me-1"></i>Cap: <strong id="cve-backfill-cap-value">{{ cve_last_backfill_cap or github_backfill_max_releases }}</strong>
+      </span>
+      <span id="cve-backfill-attempted">
+        <i class="bi bi-search me-1"></i>Attempted: <strong id="cve-backfill-attempted-value">{{ cve_last_backfill_attempted }}</strong>
+      </span>
+      <span id="cve-backfill-inserted">
+        <i class="bi bi-plus-circle me-1"></i>Inserted: <strong id="cve-backfill-inserted-value">{{ cve_last_backfill_inserted }}</strong>
+      </span>
+    </div>
+  </div>
+</div>
+
+<div id="cve-repo-health-panel" class="card border-secondary mb-3">
+  <div class="card-header d-flex align-items-center gap-2 py-2">
+    <i class="bi bi-shield-check text-success"></i>
+    <span class="fw-semibold">GitHub Repo Health (Version-Scoped)</span>
+  </div>
+  <div class="card-body py-2">
+    <div id="cve-repo-health-loading" class="small text-secondary">Loading repo health…</div>
+    <div id="cve-repo-health-content" class="d-none">
+      <div class="small text-secondary d-flex flex-wrap gap-3 mb-2">
+        <span><i class="bi bi-bug me-1"></i>Issues: <strong id="cve-repo-open-issues">0</strong></span>
+        <span><i class="bi bi-git me-1"></i>PRs: <strong id="cve-repo-open-prs">0</strong></span>
+        <span><i class="bi bi-shield-lock me-1"></i>Security items: <strong id="cve-repo-security-items">0</strong></span>
+        <span><i class="bi bi-diagram-3 me-1"></i>Repos scanned: <strong id="cve-repo-scanned">0</strong></span>
+      </div>
+      <div class="small text-secondary mb-2" id="cve-repo-health-meta"></div>
+      <div class="small">
+        <span class="text-secondary">Top repos:</span>
+        <ul class="mb-0 mt-1" id="cve-repo-health-list"></ul>
+      </div>
+    </div>
+    <div id="cve-repo-health-error" class="small text-secondary d-none"></div>
+  </div>
+</div>
+
 <!-- Filters -->
 <div class="accordion mb-3" id="cveFiltersAccordion">
   <div class="accordion-item border-secondary">
@@ -44,7 +123,7 @@
           <i class="bi bi-clock"></i>
           <span id="cve-tz-badge-label">UTC</span>
         </span>
-        {% if severity_filter or ecosystem_filter or package_filter %}
+        {% if severity_filter or ecosystem_filter or package_filter or show_all %}
         <span class="badge bg-primary ms-2">Active</span>
         {% endif %}
       </button>
@@ -74,6 +153,10 @@
             <label class="form-label small text-secondary mb-1">Package</label>
             <input type="text" name="package" class="form-control form-control-sm"
                    placeholder="e.g. requests" value="{{ package_filter }}" style="min-width:160px;">
+          </div>
+          <div class="form-check mt-3 ms-1">
+            <input class="form-check-input" type="checkbox" name="show_all" value="1" id="cve-show-all" {% if show_all %}checked{% endif %}>
+            <label class="form-check-label small text-secondary" for="cve-show-all">Show triaged (accepted / false positive / fixed)</label>
           </div>
           <div class="d-flex gap-1" style="flex: 0 0 auto">
             <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i></button>
@@ -107,7 +190,7 @@
 
 <p class="small text-secondary mb-3">
   Data from <a href="https://osv.dev" target="_blank" rel="noopener">OSV.dev</a> (Apache 2.0, free, no API key).
-  Libraries detected via OTEL <code>telemetry.sdk.*</code> ResourceAttributes and instrumentation scope versions.
+  Libraries detected via release metadata and OTEL <code>telemetry.sdk.*</code>/scope versions.
   Scans run daily automatically (30 s after startup).
 </p>
 
@@ -129,6 +212,12 @@
             <div class="d-flex justify-content-between align-items-start flex-wrap gap-1">
               <span class="fw-semibold small">
                 <a href="https://osv.dev/vulnerability/{{ f.osv_id }}" target="_blank" rel="noopener" class="text-decoration-none">{{ f.osv_id }}</a>
+                {% if f.disposition and f.disposition != 'open' %}
+                <span class="badge bg-info text-dark ms-1">{{ f.disposition }}</span>
+                {% endif %}
+                {% if f.disposition_expired %}
+                <span class="badge bg-warning text-dark ms-1">fixed expired (new version detected)</span>
+                {% endif %}
                 {% if f.severity == 'CRITICAL' %}
                 <span class="badge bg-danger ms-1">{{ f.severity }}</span>
                 {% elif f.severity == 'HIGH' %}
@@ -151,6 +240,19 @@
             </div>
             {% endif %}
             {% if f.summary %}<div class="text-secondary small mt-1">{{ f.summary | truncate(300) }}</div>{% endif %}
+            <div class="mt-2 d-flex flex-wrap align-items-center gap-2">
+              <select class="form-select form-select-sm cve-disposition-select" style="max-width:180px;"
+                      data-osv-id="{{ f.osv_id }}" data-package="{{ f.package }}" data-ecosystem="{{ f.ecosystem }}" data-version="{{ f.version }}">
+                <option value="open" {% if f.disposition == 'open' %}selected{% endif %}>open</option>
+                <option value="accepted" {% if f.disposition == 'accepted' %}selected{% endif %}>accepted</option>
+                <option value="false_positive" {% if f.disposition == 'false_positive' %}selected{% endif %}>false_positive</option>
+                <option value="fixed" {% if f.disposition == 'fixed' %}selected{% endif %}>fixed</option>
+              </select>
+              <input class="form-control form-control-sm cve-disposition-note" style="max-width:280px;" type="text"
+                     placeholder="optional note" value="{{ f.disposition_note or '' }}">
+              <button class="btn btn-outline-primary btn-sm cve-disposition-save" type="button">Save</button>
+              <span class="small text-secondary cve-disposition-status"></span>
+            </div>
           </div>
           {% endfor %}
         </div>
@@ -179,6 +281,9 @@
 
 {% block scripts %}
 <script>
+var librariesApiUrl = {{ url_for('api_enrichment_libraries') | tojson }};
+var repoHealthApiUrl = {{ url_for('api_enrichment_github_repo_health') | tojson }};
+
 function initCveTimezone() {
   if (!window.sobsTimezone || typeof window.sobsTimezone.initPage !== 'function') return false;
   window.sobsTimezone.initPage({
@@ -198,7 +303,7 @@ function triggerCveScan() {
   var btn = document.getElementById('cve-scan-btn');
   var resultsEl = document.getElementById('cve-scan-result');
   if (btn) btn.disabled = true;
-  if (resultsEl) resultsEl.innerHTML = '<div class="text-secondary small"><span class="spinner-border spinner-border-sm me-1"></span>Scanning OTEL library versions via OSV.dev…</div>';
+  if (resultsEl) resultsEl.innerHTML = '<div class="text-secondary small"><span class="spinner-border spinner-border-sm me-1"></span>Scanning release metadata and OTEL library versions via OSV.dev…</div>';
   fetch('/api/enrichment/cve/scan', {method:'POST'})
     .then(function(r){return r.json();})
     .then(function(data){
@@ -208,7 +313,20 @@ function triggerCveScan() {
         return;
       }
       var libs = data.libraries_found||0, vulns = data.vulns_found||0;
-      var msg = 'Scan complete. Libraries: <strong>'+libs+'</strong>. Vulnerabilities: <strong>'+vulns+'</strong>.';
+      var backfillAttempted = data.github_backfill_attempted||0;
+      var backfillInserted = data.github_backfill_inserted||0;
+      var backfillCap = data.github_backfill_max_releases||0;
+      var msg = 'Scan complete. Libraries: <strong>'+libs+'</strong>. Vulnerabilities: <strong>'+vulns+'</strong>. '
+        + 'GitHub backfill: <strong>'+backfillInserted+'</strong> inserted / <strong>'+backfillAttempted+'</strong> attempted '
+        + '(cap: <strong>'+backfillCap+'</strong>).';
+      var capEl = document.getElementById('cve-backfill-cap-value');
+      var attemptedEl = document.getElementById('cve-backfill-attempted-value');
+      var insertedEl = document.getElementById('cve-backfill-inserted-value');
+      if (capEl) capEl.textContent = String(backfillCap);
+      if (attemptedEl) attemptedEl.textContent = String(backfillAttempted);
+      if (insertedEl) insertedEl.textContent = String(backfillInserted);
+      initCveLibrariesTable();
+      loadRepoHealthSummary();
       if (vulns>0) msg += ' <button class="btn btn-sm btn-link p-0 align-baseline" onclick="location.reload()">Reload to see findings</button>';
       if (resultsEl) resultsEl.innerHTML = '<div class="alert alert-'+(vulns>0?'warning':'success')+' small py-2">'+msg+'</div>';
     })
@@ -217,6 +335,208 @@ function triggerCveScan() {
       if (resultsEl) resultsEl.innerHTML = '<div class="alert alert-danger small py-2">Request failed: '+escHtml(String(err))+'</div>';
     });
 }
+
+function initDispositionControls() {
+  var saveButtons = document.querySelectorAll('.cve-disposition-save');
+  saveButtons.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var row = btn.closest('.mt-2');
+      if (!row) return;
+      var select = row.querySelector('.cve-disposition-select');
+      var note = row.querySelector('.cve-disposition-note');
+      var status = row.querySelector('.cve-disposition-status');
+      if (!select) return;
+      var osvId = select.getAttribute('data-osv-id') || '';
+      var pkg = select.getAttribute('data-package') || '';
+      var eco = select.getAttribute('data-ecosystem') || '';
+      var ver = select.getAttribute('data-version') || '';
+      var body = {
+        package: pkg,
+        ecosystem: eco,
+        version: ver,
+        disposition: select.value,
+        note: note ? note.value : ''
+      };
+      btn.disabled = true;
+      if (status) status.textContent = 'Saving...';
+      fetch('/api/enrichment/cve/findings/' + encodeURIComponent(osvId) + '/disposition', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          btn.disabled = false;
+          if (!data.ok) {
+            if (status) status.textContent = 'Failed';
+            return;
+          }
+          if (status) status.textContent = 'Saved';
+          var showAllCheckbox = document.getElementById('cve-show-all');
+          if (select.value !== 'open' && !(showAllCheckbox && showAllCheckbox.checked)) {
+            location.reload();
+          }
+        })
+        .catch(function() {
+          btn.disabled = false;
+          if (status) status.textContent = 'Failed';
+        });
+    });
+  });
+}
+
+function sourceBadgeClass(source) {
+  if (source === 'release_registry') return 'text-bg-primary';
+  if (source === 'otel_sdk') return 'text-bg-info';
+  if (source === 'otel_scope') return 'text-bg-secondary';
+  return 'text-bg-light';
+}
+
+function initCveLibrariesTable() {
+  var loadingEl = document.getElementById('cve-libraries-loading');
+  var wrapEl = document.getElementById('cve-libraries-table-wrap');
+  var emptyEl = document.getElementById('cve-libraries-empty');
+  var tbodyEl = document.getElementById('cve-libraries-tbody');
+  var countEl = document.getElementById('cve-libraries-count');
+
+  if (!loadingEl || !wrapEl || !emptyEl || !tbodyEl || !countEl) return;
+
+  loadingEl.classList.remove('d-none');
+  wrapEl.classList.add('d-none');
+  emptyEl.classList.add('d-none');
+  tbodyEl.innerHTML = '';
+
+  fetch(librariesApiUrl)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      loadingEl.classList.add('d-none');
+      if (!data.ok || !Array.isArray(data.libraries)) {
+        emptyEl.textContent = 'Failed to load detected libraries.';
+        emptyEl.classList.remove('d-none');
+        return;
+      }
+
+      countEl.textContent = String(data.libraries.length);
+      if (!data.libraries.length) {
+        emptyEl.classList.remove('d-none');
+        return;
+      }
+
+      var top = data.libraries.slice(0, 100);
+      tbodyEl.innerHTML = top.map(function(lib) {
+        var src = String(lib.source || '');
+        var cveCount = Number(lib.cve_count || 0);
+        var cveBadge = cveCount > 0 ?
+          '<span class="badge text-bg-danger">' + cveCount + '</span>' :
+          '<span class="badge text-bg-success">0</span>';
+        return '' +
+          '<tr>' +
+            '<td class="small text-break">' + escHtml(lib.package || '') + '</td>' +
+            '<td class="small">' + escHtml(lib.ecosystem || '-') + '</td>' +
+            '<td class="small">' + escHtml(lib.version || '') + '</td>' +
+            '<td class="small text-break">' + escHtml(lib.service || '-') + '</td>' +
+            '<td class="small"><span class="badge ' + sourceBadgeClass(src) + '">' + escHtml(src || 'unknown') + '</span></td>' +
+            '<td class="small">' + cveBadge + '</td>' +
+          '</tr>';
+      }).join('');
+
+      wrapEl.classList.remove('d-none');
+    })
+    .catch(function() {
+      loadingEl.classList.add('d-none');
+      emptyEl.textContent = 'Failed to load detected libraries.';
+      emptyEl.classList.remove('d-none');
+    });
+}
+
+function loadRepoHealthSummary() {
+  var loadingEl = document.getElementById('cve-repo-health-loading');
+  var contentEl = document.getElementById('cve-repo-health-content');
+  var errorEl = document.getElementById('cve-repo-health-error');
+  var issuesEl = document.getElementById('cve-repo-open-issues');
+  var prsEl = document.getElementById('cve-repo-open-prs');
+  var securityEl = document.getElementById('cve-repo-security-items');
+  var scannedEl = document.getElementById('cve-repo-scanned');
+  var metaEl = document.getElementById('cve-repo-health-meta');
+  var listEl = document.getElementById('cve-repo-health-list');
+
+  if (!loadingEl || !contentEl || !errorEl || !issuesEl || !prsEl || !securityEl || !scannedEl || !metaEl || !listEl) return;
+
+  loadingEl.classList.remove('d-none');
+  contentEl.classList.add('d-none');
+  errorEl.classList.add('d-none');
+  listEl.innerHTML = '';
+
+  fetch(repoHealthApiUrl)
+    .then(function(r) { return r.json().then(function(body) { return {status: r.status, body: body}; }); })
+    .then(function(result) {
+      loadingEl.classList.add('d-none');
+      var data = result.body || {};
+      if (result.status !== 200 || !data.ok) {
+        errorEl.textContent = String(data.error || 'Failed to load GitHub repo health.');
+        errorEl.classList.remove('d-none');
+        return;
+      }
+
+      issuesEl.textContent = String(data.open_issues || 0);
+      prsEl.textContent = String(data.open_prs || 0);
+      securityEl.textContent = String(data.security_items || 0);
+      scannedEl.textContent = String(data.scanned_repos || 0);
+      metaEl.textContent = 'Version-scoped to registered release versions only. Last synced: ' + String(data.last_synced_at || '');
+
+      var repos = Array.isArray(data.repos) ? data.repos.slice(0, 8) : [];
+      if (!repos.length) {
+        listEl.innerHTML = '<li class="text-secondary">No matching open items for current release versions.</li>';
+      } else {
+        listEl.innerHTML = repos.map(function(repo) {
+          var label = escHtml(repo.repo || '');
+          var versionsArr = Array.isArray(repo.versions) ? repo.versions : [];
+          var versions = versionsArr.join(', ');
+          var primaryVersion = String(versionsArr[0] || '');
+          var issues = Number(repo.open_issues || 0);
+          var prs = Number(repo.open_prs || 0);
+          var sec = Number(repo.security_items || 0);
+          var baseTerm = 'repo:' + String(repo.repo || '');
+          var versionTerm = primaryVersion ? ('"' + primaryVersion + '" OR "v' + primaryVersion + '"') : '';
+          var queryCore = baseTerm + (versionTerm ? (' ' + versionTerm) : '');
+          var issuesUrl = 'https://github.com/search?q=' + encodeURIComponent(queryCore + ' is:issue is:open') + '&type=issues';
+          var prsUrl = 'https://github.com/search?q=' + encodeURIComponent(queryCore + ' is:pr is:open') + '&type=issues';
+          var securityUrl = 'https://github.com/search?q=' + encodeURIComponent(queryCore + ' is:open (security OR vulnerability OR cve OR ghsa OR dependabot)') + '&type=issues';
+          var versionLinks = versionsArr.map(function(version) {
+            var v = String(version || '');
+            var vTerm = '"' + v + '" OR "v' + v + '"';
+            var vIssuesUrl = 'https://github.com/search?q=' + encodeURIComponent(baseTerm + ' ' + vTerm + ' is:issue is:open') + '&type=issues';
+            var vPrsUrl = 'https://github.com/search?q=' + encodeURIComponent(baseTerm + ' ' + vTerm + ' is:pr is:open') + '&type=issues';
+            var vSecurityUrl = 'https://github.com/search?q=' + encodeURIComponent(baseTerm + ' ' + vTerm + ' is:open (security OR vulnerability OR cve OR ghsa OR dependabot)') + '&type=issues';
+            return '<span class="ms-1">'
+              + '<span class="text-secondary">' + escHtml(v) + ':</span>'
+              + ' <a class="badge text-bg-light text-decoration-none" target="_blank" rel="noopener" title="Open issues for version ' + escHtml(v) + '" href="' + vIssuesUrl + '">i</a>'
+              + ' <a class="badge text-bg-light text-decoration-none" target="_blank" rel="noopener" title="Open pull requests for version ' + escHtml(v) + '" href="' + vPrsUrl + '">p</a>'
+              + ' <a class="badge text-bg-light text-decoration-none" target="_blank" rel="noopener" title="Open security-related items for version ' + escHtml(v) + '" href="' + vSecurityUrl + '">s</a>'
+              + '</span>';
+          }).join('');
+          return '<li><span class="fw-semibold">' + label + '</span> '
+            + '<span class="text-secondary">(versions: ' + escHtml(versions) + ')</span> '
+            + '<span class="text-secondary">issues=' + issues + ', prs=' + prs + ', security=' + sec + '</span> '
+            + '<a class="badge text-bg-light text-decoration-none ms-1" target="_blank" rel="noopener" href="' + issuesUrl + '">issues</a> '
+            + '<a class="badge text-bg-light text-decoration-none ms-1" target="_blank" rel="noopener" href="' + prsUrl + '">PRs</a> '
+            + '<a class="badge text-bg-light text-decoration-none ms-1" target="_blank" rel="noopener" href="' + securityUrl + '">security</a>'
+            + '<span class="d-block small mt-1">Version links (i/p/s): ' + versionLinks + '</span></li>';
+        }).join('');
+      }
+
+      contentEl.classList.remove('d-none');
+    })
+    .catch(function() {
+      loadingEl.classList.add('d-none');
+      errorEl.textContent = 'Failed to load GitHub repo health.';
+      errorEl.classList.remove('d-none');
+    });
+}
+
+initDispositionControls();
+initCveLibrariesTable();
+loadRepoHealthSummary();
 function escHtml(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 </script>
 {% endblock %}

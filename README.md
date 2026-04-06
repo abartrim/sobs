@@ -21,6 +21,8 @@ It is functional and being used, needs more polish and the custom (non-OTEL) tab
 - 📊 **Query statistics** – collapsible logs analytics panel with query-scoped level/service distributions
 - 🧠 **Manual advanced log analysis** – on-demand message pattern clustering, keyword signals, and optimization hints
 - 📚 **Saved reports** – persist and re-apply filter sets across Logs, Traces, Errors, Metrics, RUM, and AI pages
+- 🧷 **GitHub work items** – track agent-created or agent-reused GitHub issues in a dedicated Work Items UI
+- 🧠 **Issue dedupe and noise control** – local-LLM-assisted reuse/link/create decisions before opening more GitHub work
 - 🧮 **Natural-language Query page** – NL→SQL over embedded chDB with read-only SQL guardrails and chart/dashboard actions
 - 🔔 **Notifications & Webhooks** – Slack, webhook, email, and browser push channels with rule-based dispatch
 - 📡 **Live tail** – SSE endpoint (`/tail`) for real-time streaming of logs and traces
@@ -338,6 +340,24 @@ SOBS provides rule-driven notifications under **Settings → Notifications & Web
 Operational trigger endpoint:
 
 - `POST /api/notifications/check`
+
+## Agent Work Items And GitHub Issue Control
+
+SOBS can create GitHub work items from agent-rule execution, but issue creation and Copilot assignment are treated as separate decisions.
+
+Current direction:
+- Search existing local work items and open GitHub issues before creating a new issue.
+- Use the configured local LLM to classify candidate matches as `same`, `related`, or `unrelated`.
+- Reuse or link existing issues when confidence is high enough.
+- Request Copilot work only when the chosen issue is actionable, not already being worked, and within configured assignment limits.
+
+Copilot assignment uses GitHub's supported issue-assignment flow rather than a plain issue comment mention. In GitHub terms, SOBS assigns `copilot-swe-agent[bot]` with `agent_assignment` options when the repo is eligible for Copilot cloud agent.
+
+Operational goal:
+- limit noise first with dedupe and related-issue linking
+- keep Copilot assignment conservative, typically one active assignment at a time during validation and early rollout
+
+The Work Items page is intended to make these decisions visible so operators can see when SOBS created a new GitHub issue, reused an existing one, suppressed a duplicate, or skipped assignment because work was already in flight.
 
 ## Configuration
 

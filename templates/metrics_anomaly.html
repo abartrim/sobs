@@ -241,6 +241,105 @@
     </table>
   </div>
 </div>
+
+<!-- Work Items Related to This Signal (if anomaly rules are triggering) -->
+<div id="anomaly-work-items-panel" class="card border-secondary mb-3">
+  <div class="card-header d-flex align-items-center gap-2 py-2">
+    <i class="bi bi-github text-secondary"></i>
+    <span class="fw-semibold">Issues Created by Agent Rules on This Signal</span>
+    <span class="badge bg-secondary ms-auto" id="anomaly-work-items-count">0</span>
+  </div>
+  <div class="card-body py-2">
+    <div class="small text-secondary d-none" id="anomaly-work-items-loading">Loading work items…</div>
+    <div id="anomaly-work-items-content" class="d-none">
+      <div class="small mb-2 text-secondary" id="anomaly-work-items-meta"></div>
+      <div class="table-responsive" id="anomaly-work-items-table-wrap">
+        <table class="table table-sm table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Created</th>
+              <th>Agent Rule</th>
+              <th>Action</th>
+              <th style="width:70px;">Issue</th>
+            </tr>
+          </thead>
+          <tbody id="anomaly-work-items-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="small text-secondary d-none" id="anomaly-work-items-empty">No issues created yet from anomalies on this signal.</div>
+    <div class="small text-secondary d-none" id="anomaly-work-items-error"></div>
+  </div>
+</div>
+
+<script>
+async function loadAnomalyWorkItemsBySignal(signalSource, signalName) {
+  const loadingEl = document.getElementById('anomaly-work-items-loading');
+  const contentEl = document.getElementById('anomaly-work-items-content');
+  const emptyEl = document.getElementById('anomaly-work-items-empty');
+  const errorEl = document.getElementById('anomaly-work-items-error');
+  const countEl = document.getElementById('anomaly-work-items-count');
+  const metaEl = document.getElementById('anomaly-work-items-meta');
+  const tbodyEl = document.getElementById('anomaly-work-items-tbody');
+
+  if (!signalSource || !signalName) {
+    emptyEl.classList.remove('d-none');
+    return;
+  }
+
+  loadingEl.classList.remove('d-none');
+  contentEl.classList.add('d-none');
+  emptyEl.classList.add('d-none');
+  errorEl.classList.add('d-none');
+
+  try {
+    const response = await fetch(`/api/work-items?signal_source=${encodeURIComponent(signalSource)}&signal_name=${encodeURIComponent(signalName)}&limit=10`);
+    const data = await response.json();
+
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || 'Failed to load work items');
+    }
+
+    const items = data.items || [];
+    loadingEl.classList.add('d-none');
+
+    if (items.length === 0) {
+      emptyEl.classList.remove('d-none');
+      return;
+    }
+
+    countEl.textContent = items.length;
+    metaEl.textContent = `${items.length} issue${items.length === 1 ? '' : 's'} created by agent rules triggered on "${signalName}"`;
+    
+    tbodyEl.innerHTML = items.map(item => `
+      <tr>
+        <td class="font-monospace small sobs-tz-ts" data-utc-ts="${item.created_at}">${item.created_at.substring(0, 16)}</td>
+        <td class="small">${item.agent_rule_name}</td>
+        <td class="small">
+          ${item.agent_action === 'github_issue_copilot' 
+            ? '<span class="badge bg-primary"><i class="bi bi-robot me-1"></i>Copilot</span>' 
+            : '<span class="badge bg-secondary">Issue</span>'}
+        </td>
+        <td class="small">
+          ${item.issue_url 
+            ? `<a href="${item.issue_url}" target="_blank" rel="noopener" class="text-decoration-none" title="${item.issue_title}"><i class="bi bi-github me-1"></i>#${item.issue_number}</a>` 
+            : '<span class="text-secondary">—</span>'}
+        </td>
+      </tr>
+    `).join('');
+
+    contentEl.classList.remove('d-none');
+  } catch (error) {
+    loadingEl.classList.add('d-none');
+    errorEl.classList.remove('d-none');
+    errorEl.textContent = error.message;
+  }
+}
+
+// Initialize when page loads (called from page script with actual signal info)
+// loadAnomalyWorkItemsBySignal('{{ source }}', '{{ signal }}');
+</script>
+
 {% endblock %}
 
 {% block scripts %}
@@ -256,6 +355,15 @@
       timestampSelector: '.sobs-tz-ts[data-utc-ts]'
     });
   }
+
+  // Load work items related to this signal
+  (function() {
+    var signal = {{ signal | tojson }};
+    var source = {{ source | tojson }};
+    if (signal && source && typeof loadAnomalyWorkItemsBySignal === 'function') {
+      loadAnomalyWorkItemsBySignal(source, signal);
+    }
+  })();
 
   (function () {
     var chartEl = document.getElementById('metricsAnomalyChart');

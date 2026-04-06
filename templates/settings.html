@@ -223,6 +223,27 @@
     </div>
   </div>
 
+  <!-- GitHub Repositories -->
+  <div class="col-md-6 col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body d-flex flex-column">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-github fs-4 text-secondary"></i>
+          <h5 class="card-title mb-0">GitHub Repositories</h5>
+        </div>
+        <p class="card-text text-secondary small flex-grow-1">
+          Single source of truth for repository URLs and tracked releases used by CVE GitHub backfill
+          and version-scoped repo health. Configure repos once here for all enrichment workflows.
+        </p>
+        <div class="d-flex align-items-center justify-content-end mt-2">
+          <a href="{{ url_for('view_settings_repositories') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-pencil-square me-1"></i>Manage Repositories
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Kubernetes Health View -->
   <div class="col-md-6 col-lg-4">
     <div class="card border-secondary h-100">

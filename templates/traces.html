@@ -636,8 +636,23 @@ body.rum-replay-modal-open #sobsAiPanel {
                       data-err-service="{{ err.service or '—' }}"
                       data-err-ts="{{ err.ts[:19] }}"
                       data-err-id="{{ err.id }}"
+                      data-trace-id="{{ err.trace_id }}"
+                      data-span-id="{{ err.span_id }}"
+                      data-err-url="{{ err.url }}"
                       title="Copy error details for AI investigation">
-                <i class="bi bi-robot me-1"></i>AI Help
+                <i class="bi bi-robot me-1"></i>Copy for AI
+              </button>
+              <button class="btn btn-sm btn-outline-danger trace-raise-issue-btn"
+                      data-err-type="{{ err.err_type }}"
+                      data-err-message="{{ err.message }}"
+                      data-err-service="{{ err.service or '—' }}"
+                      data-err-ts="{{ err.ts[:19] }}"
+                      data-err-id="{{ err.id }}"
+                      data-trace-id="{{ err.trace_id }}"
+                      data-span-id="{{ err.span_id }}"
+                      data-err-url="{{ err.url }}"
+                      title="Raise or reuse a GitHub issue using agent dedupe checks">
+                <i class="bi bi-github me-1"></i>Raise issue
               </button>
               {% if err.stack %}
               <button class="btn btn-sm btn-outline-secondary trace-copy-stack-btn"
@@ -799,6 +814,62 @@ body.rum-replay-modal-open #sobsAiPanel {
     </div>
   </div>
 </div>
+
+<!-- Raise Issue Modal -->
+<div class="modal fade" id="raiseIssueModal" tabindex="-1" aria-labelledby="raiseIssueModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-secondary">
+      <div class="modal-header">
+        <h5 class="modal-title" id="raiseIssueModalLabel">
+          <i class="bi bi-github me-2"></i>Raise GitHub Issue
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3 d-flex gap-3">
+          <div class="flex-grow-1">
+            <div class="small text-secondary mb-1">Service</div>
+            <div class="fw-semibold" id="raiseIssueService"></div>
+          </div>
+          <div class="flex-grow-1">
+            <div class="small text-secondary mb-1">Error type</div>
+            <div class="font-monospace small text-danger" id="raiseIssueType"></div>
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="small text-secondary mb-1">Message</div>
+          <div class="small border rounded p-2 bg-body-secondary" id="raiseIssueMessage"
+               style="max-height:80px;overflow-y:auto;word-break:break-word;"></div>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="raiseIssueCopilot">
+          <label class="form-check-label" for="raiseIssueCopilot">
+            Request Copilot assignment
+          </label>
+          <div class="form-text">Copilot will be formally assigned to suggest a fix if no active work already exists.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="raiseIssueConfirmBtn">
+          <i class="bi bi-github me-1"></i>Raise Issue
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Raise-issue result toast -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:1090">
+  <div id="raiseIssueToast" class="toast align-items-center text-bg-success border-0"
+       role="alert" aria-live="assertive" aria-atomic="true">
+    <div class="d-flex">
+      <div class="toast-body" id="raiseIssueToastBody">Issue ready.</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto"
+              data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -927,6 +998,111 @@ document.querySelectorAll('.trace-ai-help-btn').forEach(btn => {
     }
   });
 });
+
+(function () {
+  'use strict';
+  const modalEl = document.getElementById('raiseIssueModal');
+  const toastEl = document.getElementById('raiseIssueToast');
+  if (!modalEl || !toastEl) return;
+
+  const modal = new bootstrap.Modal(modalEl);
+  const toast = bootstrap.Toast.getOrCreateInstance(toastEl, { delay: 6000 });
+  const confirmBtn = document.getElementById('raiseIssueConfirmBtn');
+  const PHASES = ['Analysing…', 'Checking duplicates…', 'Creating issue…', 'Assigning Copilot…'];
+  let activeBtn = null;
+
+  document.querySelectorAll('.trace-raise-issue-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeBtn = btn;
+      document.getElementById('raiseIssueService').textContent = btn.dataset.errService || '\u2014';
+      document.getElementById('raiseIssueType').textContent = btn.dataset.errType || '';
+      document.getElementById('raiseIssueMessage').textContent = btn.dataset.errMessage || '';
+      document.getElementById('raiseIssueCopilot').checked = false;
+      confirmBtn.innerHTML = '<i class="bi bi-github me-1"></i>Raise Issue';
+      confirmBtn.disabled = false;
+      modal.show();
+    });
+  });
+
+  confirmBtn.addEventListener('click', async () => {
+    if (!activeBtn) return;
+    const btn = activeBtn;
+    const assignCopilot = document.getElementById('raiseIssueCopilot').checked;
+    modal.hide();
+
+    const stackEl = document.getElementById('trace-stack-' + btn.dataset.errId);
+    const stack = stackEl ? String(stackEl.innerText || '').trim() : '';
+    const payload = {
+      source_page: 'traces',
+      assign_copilot: assignCopilot,
+      service: btn.dataset.errService || '',
+      err_type: btn.dataset.errType || '',
+      message: btn.dataset.errMessage || '',
+      timestamp: btn.dataset.errTs || '',
+      error_id: btn.dataset.errId || '',
+      trace_id: btn.dataset.traceId || '',
+      span_id: btn.dataset.spanId || '',
+      url: btn.dataset.errUrl || '',
+      stack,
+    };
+
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    const phases = assignCopilot ? PHASES : PHASES.slice(0, 3);
+    let phaseIdx = 0;
+    const spin = () => `<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>${phases[phaseIdx]}`;
+    btn.innerHTML = spin();
+    const phaseTimer = setInterval(() => {
+      phaseIdx = (phaseIdx + 1) % phases.length;
+      btn.innerHTML = spin();
+    }, 2500);
+
+    let succeeded = false;
+    try {
+      const res = await fetch('/api/issues/raise', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      clearInterval(phaseTimer);
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ('HTTP ' + res.status));
+
+      succeeded = true;
+      if (data.issue_url) {
+        const link = document.createElement('a');
+        link.href = data.issue_url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.className = 'btn btn-sm btn-success';
+        link.innerHTML = '<i class="bi bi-check2-circle me-1"></i>View issue \u2192';
+        btn.replaceWith(link);
+        document.getElementById('raiseIssueToastBody').innerHTML =
+          `Issue ready \u2014 <a href="${data.issue_url}" target="_blank" rel="noopener" class="text-white fw-semibold">view on GitHub \u2197</a>`;
+        toastEl.classList.replace('text-bg-danger', 'text-bg-success');
+        toast.show();
+        window.open(data.issue_url, '_blank', 'noopener');
+      } else {
+        btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Recorded';
+        btn.classList.replace('btn-outline-danger', 'btn-secondary');
+        btn.disabled = true;
+        document.getElementById('raiseIssueToastBody').textContent =
+          'Recorded \u2014 no issue URL returned (may be rate-limited or dedupe-suppressed).';
+        toastEl.classList.replace('text-bg-danger', 'text-bg-success');
+        toast.show();
+      }
+    } catch (e) {
+      clearInterval(phaseTimer);
+      btn.innerHTML = originalHtml;
+      document.getElementById('raiseIssueToastBody').textContent = 'Could not raise issue: ' + e.message;
+      toastEl.classList.replace('text-bg-success', 'text-bg-danger');
+      toast.show();
+      setTimeout(() => toastEl.classList.replace('text-bg-danger', 'text-bg-success'), 7000);
+    } finally {
+      if (!succeeded) btn.disabled = false;
+    }
+  });
+})();
 
   // ── RUM Asset / Replay Viewer ──────────────────────────────────────────────
   (function () {

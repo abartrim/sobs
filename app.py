@@ -1077,6 +1077,20 @@ CREATE TABLE IF NOT EXISTS sobs_cve_findings (
 ORDER BY (Package, Ecosystem, Version, OsvId)
 SETTINGS index_granularity = 8192;
 
+CREATE TABLE IF NOT EXISTS sobs_cve_dispositions (
+    OsvId String CODEC(ZSTD(1)),
+    Package String CODEC(ZSTD(1)),
+    Ecosystem LowCardinality(String) CODEC(ZSTD(1)),
+    Version String CODEC(ZSTD(1)),
+    Disposition LowCardinality(String) CODEC(ZSTD(1)),
+    Note String CODEC(ZSTD(1)),
+    CreatedAt DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1)),
+    UpdatedAt DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1)),
+    Version_ UInt64 DEFAULT 0 CODEC(T64, ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version_)
+ORDER BY (OsvId, Package, Ecosystem, Version)
+SETTINGS index_granularity = 8192;
+
 CREATE TABLE IF NOT EXISTS sobs_apps (
     Id String CODEC(ZSTD(1)),
     Name String CODEC(ZSTD(1)),
@@ -1126,6 +1140,46 @@ CREATE TABLE IF NOT EXISTS sobs_release_artifacts (
     Version UInt64 DEFAULT 0 CODEC(T64, ZSTD(1))
 ) ENGINE = ReplacingMergeTree(Version)
 ORDER BY (ReleaseId, ArtifactType, Name, Id)
+SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS sobs_github_work_items (
+    Id String CODEC(ZSTD(1)),
+    CreatedAt DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1)),
+    CompletedAt DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1)),
+    AgentRunId String CODEC(ZSTD(1)),
+    AgentRuleId String CODEC(ZSTD(1)),
+    AgentRuleName String CODEC(ZSTD(1)),
+    AgentAction LowCardinality(String) CODEC(ZSTD(1)),
+    ServiceName String CODEC(ZSTD(1)),
+    AnomalyRuleId String CODEC(ZSTD(1)),
+    AnomalyState LowCardinality(String) CODEC(ZSTD(1)),
+    SignalSource String CODEC(ZSTD(1)),
+    SignalName String CODEC(ZSTD(1)),
+    SignalValue Float64 CODEC(ZSTD(1)),
+    GithubRepo String CODEC(ZSTD(1)),
+    DedupKey String CODEC(ZSTD(1)),
+    DedupDecision LowCardinality(String) DEFAULT 'new_issue' CODEC(ZSTD(1)),
+    DedupConfidence Float64 DEFAULT 0 CODEC(ZSTD(1)),
+    IssueNumber UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    IssueUrl String CODEC(ZSTD(1)),
+    CanonicalIssueNumber UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    CanonicalIssueUrl String CODEC(ZSTD(1)),
+    RelatedIssueUrls String CODEC(ZSTD(1)),
+    OccurrenceCount UInt32 DEFAULT 1 CODEC(T64, ZSTD(1)),
+    IssueState LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
+    IssueTitle String CODEC(ZSTD(1)),
+    AnalysisSummary String CODEC(ZSTD(1)),
+    SuggestionSummary String CODEC(ZSTD(1)),
+    CopilotAssignmentRequestedAt UInt64 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    CopilotAssignmentStatus LowCardinality(String) DEFAULT 'not_requested' CODEC(ZSTD(1)),
+    CopilotAssignmentReason String CODEC(ZSTD(1)),
+    PrLinked UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    PrNumber UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    PrUrl String CODEC(ZSTD(1)),
+    IsDeleted UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Version UInt64 DEFAULT 0 CODEC(T64, ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY (CreatedAt, AgentRunId)
 SETTINGS index_granularity = 8192;
 
 """
@@ -1325,6 +1379,7 @@ def _ensure_post_schema_state(db: ChDbConnection) -> None:
     _ensure_anomaly_rule_schema(db)
     _ensure_notification_schema(db)
     _ensure_ai_memory_schema(db)
+    _ensure_github_work_item_schema(db)
     _prime_log_attr_key_cache(db)
     _seed_app_release_registry_from_env(db)
     _seed_cwv_anomaly_rules(db)
@@ -1442,6 +1497,30 @@ def _ensure_ai_memory_schema(db: ChDbConnection) -> None:
         db.execute(statement)
 
 
+def _ensure_github_work_item_schema(db: ChDbConnection) -> None:
+    migration_statements = [
+        "ALTER TABLE sobs_github_work_items ADD COLUMN IF NOT EXISTS DedupKey String DEFAULT ''",
+        (
+            "ALTER TABLE sobs_github_work_items ADD COLUMN IF NOT EXISTS "
+            "DedupDecision LowCardinality(String) DEFAULT 'new_issue'"
+        ),
+        "ALTER TABLE sobs_github_work_items ADD COLUMN IF NOT EXISTS DedupConfidence Float64 DEFAULT 0",
+        "ALTER TABLE sobs_github_work_items ADD COLUMN IF NOT EXISTS CanonicalIssueNumber UInt32 DEFAULT 0",
+        "ALTER TABLE sobs_github_work_items ADD COLUMN IF NOT EXISTS CanonicalIssueUrl String DEFAULT ''",
+        "ALTER TABLE sobs_github_work_items ADD COLUMN IF NOT EXISTS RelatedIssueUrls String DEFAULT '[]'",
+        "ALTER TABLE sobs_github_work_items ADD COLUMN IF NOT EXISTS OccurrenceCount UInt32 DEFAULT 1",
+        ("ALTER TABLE sobs_github_work_items ADD COLUMN IF NOT EXISTS " "IssueState LowCardinality(String) DEFAULT ''"),
+        "ALTER TABLE sobs_github_work_items ADD COLUMN IF NOT EXISTS CopilotAssignmentRequestedAt UInt64 DEFAULT 0",
+        (
+            "ALTER TABLE sobs_github_work_items ADD COLUMN IF NOT EXISTS "
+            "CopilotAssignmentStatus LowCardinality(String) DEFAULT 'not_requested'"
+        ),
+        "ALTER TABLE sobs_github_work_items ADD COLUMN IF NOT EXISTS CopilotAssignmentReason String DEFAULT ''",
+    ]
+    for statement in migration_statements:
+        db.execute(statement)
+
+
 # ---------------------------------------------------------------------------
 # AI Settings helpers
 # ---------------------------------------------------------------------------
@@ -1457,8 +1536,16 @@ _AI_SETTING_KEYS = (
     "ai.guard_timeout_seconds",
     "ai.dlp_endpoint_url",
     "ai.github_token",
+    "ai.github_token_expires_at",
+    "ai.github_token_last_validated_at",
+    "ai.github_token_last_validation_status",
+    "ai.github_token_last_validation_message",
     "ai.github_repo",
     "ai.agent_max_issues_per_hour",
+    "ai.agent_max_assignments_per_hour",
+    "ai.agent_max_active_assignments",
+    "ai.github_copilot_base_branch",
+    "ai.github_copilot_custom_instructions",
     "ai.system_prompt",
 )
 _AI_SENSITIVE_SETTING_KEYS = frozenset(("ai.api_key", "ai.github_token"))
@@ -1474,7 +1561,39 @@ _AI_ENV_OVERRIDES: dict[str, tuple[str, str]] = {
     "ai.dlp_endpoint_url": ("SOBS_AI_DLP_ENDPOINT_URL", "SOBS_AI_DLP_ENDPOINT_URL_FILE"),
 }
 
+
+def _is_sensitive_ai_setting_key(key: str) -> bool:
+    normalized = str(key or "").strip().lower()
+    return normalized in _AI_SENSITIVE_SETTING_KEYS or normalized.startswith("ai.github_token.repo.")
+
+
+def _github_repo_token_key(owner: str, repo: str) -> str:
+    return f"ai.github_token.repo.{owner.strip().lower()}/{repo.strip().lower()}"
+
+
+def _load_repo_scoped_github_token(db: ChDbConnection, owner: str, repo: str) -> str:
+    if not owner or not repo:
+        return ""
+    return _load_ai_setting(db, _github_repo_token_key(owner, repo), "").strip()
+
+
+def _save_repo_scoped_github_token(db: ChDbConnection, owner: str, repo: str, token: str) -> None:
+    if not owner or not repo or not token.strip():
+        return
+    _save_ai_setting(db, _github_repo_token_key(owner, repo), token.strip())
+
+
 _AI_AGENT_MAX_ISSUES_DEFAULT = 5
+_AI_AGENT_MAX_ASSIGNMENTS_PER_HOUR_DEFAULT = 1
+_AI_AGENT_MAX_ACTIVE_ASSIGNMENTS_DEFAULT = 1
+_GITHUB_COPILOT_ASSIGNEE = "copilot-swe-agent[bot]"
+_GITHUB_COPILOT_GRAPHQL_FEATURES = "issues_copilot_assignment_api_support,coding_agent_model_selection"
+_GITHUB_ISSUE_DEDUPE_CANDIDATE_LIMIT = 10
+_GITHUB_WORK_ITEM_BACKFILL_INTERVAL_SEC = 300
+_GITHUB_WORK_ITEM_BACKFILL_MAX_ITEMS = 25
+_GITHUB_WORK_ITEM_BACKFILL_LAST_TS = 0.0
+_GITHUB_WORK_ITEM_BACKFILL_RUNNING = False
+_GITHUB_TOKEN_EXPIRY_WARNING_DAYS = 14
 _AI_THINKING_LEVELS = ("off", "low", "medium", "high")
 _AI_GUARD_BLOCK_KEYWORDS = frozenset(
     [
@@ -1602,7 +1721,7 @@ def _load_ai_setting(db: ChDbConnection, key: str, default: str = "") -> str:
     ).fetchone()
     if row:
         raw_value = str(row["Value"])
-        value = _decrypt_secret_value(raw_value) if key in _AI_SENSITIVE_SETTING_KEYS else raw_value
+        value = _decrypt_secret_value(raw_value) if _is_sensitive_ai_setting_key(key) else raw_value
         if value:
             return value
 
@@ -1617,7 +1736,7 @@ def _load_ai_setting(db: ChDbConnection, key: str, default: str = "") -> str:
 
 def _save_ai_setting(db: ChDbConnection, key: str, value: str) -> None:
     version = int(time.time() * 1000)
-    stored_value = _encrypt_secret_value(value) if key in _AI_SENSITIVE_SETTING_KEYS else value
+    stored_value = _encrypt_secret_value(value) if _is_sensitive_ai_setting_key(key) else value
     _insert_rows_json_each_row(
         db,
         "sobs_ai_settings",
@@ -1632,7 +1751,7 @@ def _load_all_ai_settings(db: ChDbConnection) -> dict[str, str]:
         k = str(row["Key"])
         if k in result:
             raw_value = str(row["Value"])
-            result[k] = _decrypt_secret_value(raw_value) if k in _AI_SENSITIVE_SETTING_KEYS else raw_value
+            result[k] = _decrypt_secret_value(raw_value) if _is_sensitive_ai_setting_key(k) else raw_value
 
     # Precedence: DB value first, then file-backed env, then direct env.
     for key, (env_name, env_file_name) in _AI_ENV_OVERRIDES.items():
@@ -1643,6 +1762,105 @@ def _load_all_ai_settings(db: ChDbConnection) -> dict[str, str]:
             result[key] = env_fallback
 
     return result
+
+
+def _parse_iso_datetime(value: str) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _normalize_github_token_expiry_input(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    # Support either date input (YYYY-MM-DD) or full ISO timestamp.
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+        return f"{raw}T23:59:59+00:00"
+    parsed = _parse_iso_datetime(raw)
+    if not parsed:
+        return ""
+    return parsed.isoformat()
+
+
+def _github_token_expiry_date_input_value(value: str) -> str:
+    parsed = _parse_iso_datetime(value)
+    return parsed.date().isoformat() if parsed else ""
+
+
+def _github_token_expiry_status(
+    expires_at: str, warning_days: int = _GITHUB_TOKEN_EXPIRY_WARNING_DAYS
+) -> dict[str, Any]:
+    parsed = _parse_iso_datetime(expires_at)
+    if not parsed:
+        return {
+            "state": "unknown",
+            "expires_at": "",
+            "days_remaining": None,
+            "message": "Token expiry date not set",
+        }
+
+    now_utc = datetime.now(timezone.utc)
+    seconds_remaining = int((parsed - now_utc).total_seconds())
+    days_remaining = seconds_remaining // 86400
+
+    if seconds_remaining < 0:
+        return {
+            "state": "expired",
+            "expires_at": parsed.isoformat(),
+            "days_remaining": days_remaining,
+            "message": f"Token expired on {parsed.date().isoformat()}",
+        }
+    if days_remaining <= warning_days:
+        return {
+            "state": "warning",
+            "expires_at": parsed.isoformat(),
+            "days_remaining": days_remaining,
+            "message": f"Token expires in {days_remaining} day(s)",
+        }
+    return {
+        "state": "healthy",
+        "expires_at": parsed.isoformat(),
+        "days_remaining": days_remaining,
+        "message": f"Token healthy ({days_remaining} day(s) remaining)",
+    }
+
+
+async def _validate_github_token(github_token: str) -> tuple[str, str]:
+    token = str(github_token or "").strip()
+    if not token:
+        return "missing", "No token configured"
+
+    client = await _get_async_http_client()
+    try:
+        response = await client.get(
+            "https://api.github.com/rate_limit",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=15.0,
+        )
+    except Exception as exc:
+        return "error", f"Validation request failed: {exc.__class__.__name__}"
+
+    if response.status_code == 200:
+        return "valid", "Token is valid"
+    if response.status_code == 401:
+        return "invalid", "Token rejected (401 Unauthorized)"
+    if response.status_code == 403:
+        return "error", "GitHub returned 403 (forbidden or rate-limited)"
+    return "error", f"GitHub returned HTTP {response.status_code}"
 
 
 def _query_page_enabled(settings: dict[str, str] | None = None) -> bool:
@@ -3371,66 +3589,355 @@ async def _create_github_issue(
     body_md: str,
     labels: list[str] | None = None,
 ) -> str:
-    """Create a GitHub issue and optionally assign to Copilot. Returns the issue HTML URL."""
-    if not github_token or not github_repo:
-        return ""
-    parts = github_repo.strip("/").split("/")
-    if len(parts) < 2:
-        return ""
-    owner, repo = parts[-2], parts[-1]
-    issue_payload: dict[str, Any] = {
-        "title": title,
-        "body": body_md,
-        "labels": labels or ["sobs-agent", "automated"],
-    }
+    """Create a GitHub issue and return the HTML URL."""
+    result = await _create_github_issue_record(github_token, github_repo, title, body_md, labels)
+    return str(result.get("issue_url", ""))
+
+
+async def _github_repo_supports_copilot_assignment(github_token: str, github_repo: str) -> bool:
+    owner, repo = _parse_github_repo_owner_name(github_repo)
+    if not github_token or not owner or not repo:
+        return False
     client = await _get_async_http_client()
+    query = {
+        "query": (
+            "query($owner:String!, $name:String!) {"
+            " repository(owner:$owner, name:$name) {"
+            "  suggestedActors(capabilities:[CAN_BE_ASSIGNED], first:100) {"
+            "   nodes {"
+            "    __typename "
+            "    login "
+            "    ... on Bot { id } "
+            "    ... on User { id }"
+            "   }"
+            "  }"
+            " }"
+            "}"
+        ),
+        "variables": {"owner": owner, "name": repo},
+    }
     try:
         resp = await client.post(
-            f"https://api.github.com/repos/{owner}/{repo}/issues",
-            json=issue_payload,
-            headers={
-                "Authorization": f"Bearer {github_token}",
-                "Accept": "application/vnd.github+json",
-                "Content-Type": "application/json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            "https://api.github.com/graphql",
+            json=query,
+            headers=_github_api_headers(
+                github_token,
+                include_content_type=True,
+                extra={"GraphQL-Features": _GITHUB_COPILOT_GRAPHQL_FEATURES},
+            ),
             timeout=15,
         )
         resp.raise_for_status()
-        result = resp.json()
-        issue_url = str(result.get("html_url", ""))
-        issue_number = int(result.get("number", 0))
-        if issue_number:
-            await _mention_copilot_in_issue(github_token, owner, repo, issue_number)
-        return issue_url
+        payload = resp.json() if resp.content else {}
     except Exception as exc:
-        log.warning("GitHub issue creation failed: %s", exc)
-        return ""
+        log.warning("GitHub Copilot support probe failed for %s/%s: %s", owner, repo, exc)
+        return False
+
+    nodes = (((payload.get("data") or {}).get("repository") or {}).get("suggestedActors") or {}).get("nodes") or []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        login = str(node.get("login") or "").strip().lower()
+        if login in {"copilot-swe-agent", _GITHUB_COPILOT_ASSIGNEE.lower()}:
+            return True
+    return False
 
 
-async def _mention_copilot_in_issue(github_token: str, owner: str, repo: str, issue_number: int) -> None:
-    """Best-effort: post a comment mentioning @github-copilot to request a suggested fix.
+async def _assign_issue_to_copilot(
+    github_token: str,
+    github_repo: str,
+    issue_number: int,
+    *,
+    base_branch: str = "",
+    custom_instructions: str = "",
+) -> tuple[str, str, int]:
+    if not github_token or not github_repo or issue_number <= 0:
+        return "blocked", "missing GitHub token, repo, or issue number", 0
+    if not await _github_repo_supports_copilot_assignment(github_token, github_repo):
+        return "blocked", "Copilot cloud agent is not enabled for the target repository", 0
 
-    This is not a formal GitHub assignee action; it triggers Copilot via the mention
-    mechanism in the comment thread.
-    """
-    comment_body = "@github-copilot Please review this issue and suggest a fix."
+    owner, repo = _parse_github_repo_owner_name(github_repo)
+    if not owner or not repo:
+        return "blocked", "invalid GitHub repository target", 0
+
+    agent_assignment: dict[str, Any] = {"target_repo": f"{owner}/{repo}"}
+    if base_branch:
+        agent_assignment["base_branch"] = base_branch
+    if custom_instructions:
+        agent_assignment["custom_instructions"] = custom_instructions[:4000]
+
+    payload = {
+        "assignees": [_GITHUB_COPILOT_ASSIGNEE],
+        "agent_assignment": agent_assignment,
+    }
     client = await _get_async_http_client()
+    requested_at = int(time.time() * 1000)
     try:
         resp = await client.post(
-            f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/comments",
-            json={"body": comment_body},
-            headers={
-                "Authorization": f"Bearer {github_token}",
-                "Accept": "application/vnd.github+json",
-                "Content-Type": "application/json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
-            timeout=10,
+            f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/assignees",
+            json=payload,
+            headers=_github_api_headers(github_token, include_content_type=True),
+            timeout=20,
         )
         resp.raise_for_status()
+        body = resp.json() if resp.content else {}
+        assignees = [
+            str(item.get("login") or "").strip().lower()
+            for item in (body.get("assignees") or [])
+            if isinstance(item, dict)
+        ]
+        if _GITHUB_COPILOT_ASSIGNEE.lower() not in assignees and "copilot-swe-agent" not in assignees:
+            return "failed", "GitHub did not report Copilot as an assignee after assignment request", requested_at
+        return "requested", "Copilot assignment requested", requested_at
+    except httpx.HTTPStatusError as exc:
+        detail = exc.response.text[:500] if exc.response is not None else str(exc)
+        log.warning("GitHub Copilot issue assignment failed: %s", detail)
+        return "failed", detail or str(exc), requested_at
     except Exception as exc:
-        log.warning("GitHub Copilot mention comment failed: %s", exc)
+        log.warning("GitHub Copilot issue assignment failed: %s", exc)
+        return "failed", str(exc), requested_at
+
+
+async def _choose_github_issue_outcome(
+    db: ChDbConnection,
+    settings: dict[str, str],
+    rule: dict,
+    trigger_context: dict,
+    *,
+    github_repo: str,
+    github_token: str,
+    wants_copilot_assignment: bool,
+    analysis: str,
+    suggestion: str,
+    issue_title: str,
+    issue_body: str,
+    allow_new_issue: bool,
+) -> dict[str, Any]:
+    trigger_fields = _extract_agent_trigger_fields(trigger_context)
+    dedup_key = _build_github_work_item_dedup_key(github_repo, trigger_fields)
+    local_candidates = _load_recent_work_item_candidates(db, github_repo)
+    open_issues = await _fetch_open_github_issues(github_token, github_repo)
+    open_issues_by_url = {str(item.get("issue_url") or ""): item for item in open_issues}
+
+    candidates: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    for local_item in local_candidates:
+        issue_url = str(local_item.get("issue_url") or "")
+        if not issue_url or issue_url in seen_urls:
+            continue
+        open_item = open_issues_by_url.get(issue_url)
+        if not open_item:
+            continue
+        candidate = {
+            "candidate_id": issue_url,
+            "issue_url": issue_url,
+            "issue_number": int(open_item.get("issue_number") or local_item.get("issue_number") or 0),
+            "issue_title": str(open_item.get("issue_title") or local_item.get("issue_title") or ""),
+            "issue_body": str(open_item.get("issue_body") or ""),
+            "issue_state": str(open_item.get("issue_state") or local_item.get("issue_state") or "open"),
+            "service_name": str(local_item.get("service") or ""),
+            "signal_source": str(local_item.get("signal_source") or ""),
+            "signal_name": str(local_item.get("signal_name") or ""),
+            "anomaly_state": str(local_item.get("anomaly_state") or ""),
+            "dedup_key": str(local_item.get("dedup_key") or ""),
+            "copilot_assignment_status": str(local_item.get("copilot_assignment_status") or ""),
+            "pr_linked": bool(local_item.get("pr_linked")),
+            "pr_url": str(local_item.get("pr_url") or ""),
+            "assignees": list(open_item.get("assignees") or []),
+        }
+        candidates.append(candidate)
+        seen_urls.add(issue_url)
+    for open_item in open_issues:
+        issue_url = str(open_item.get("issue_url") or "")
+        if not issue_url or issue_url in seen_urls:
+            continue
+        candidates.append(
+            {
+                "candidate_id": issue_url,
+                "issue_url": issue_url,
+                "issue_number": int(open_item.get("issue_number") or 0),
+                "issue_title": str(open_item.get("issue_title") or ""),
+                "issue_body": str(open_item.get("issue_body") or ""),
+                "issue_state": str(open_item.get("issue_state") or "open"),
+                "service_name": "",
+                "signal_source": "",
+                "signal_name": "",
+                "anomaly_state": "",
+                "dedup_key": "",
+                "copilot_assignment_status": "",
+                "pr_linked": False,
+                "pr_url": "",
+                "assignees": list(open_item.get("assignees") or []),
+            }
+        )
+
+    proposed = {
+        "github_repo": github_repo,
+        "service_name": str(trigger_fields.get("service_name") or ""),
+        "signal_source": str(trigger_fields.get("signal_source") or ""),
+        "signal_name": str(trigger_fields.get("signal_name") or ""),
+        "anomaly_state": str(trigger_fields.get("anomaly_state") or ""),
+        "dedup_key": dedup_key,
+        "issue_title": issue_title,
+        "analysis_summary": (analysis or "")[:300],
+        "suggestion_summary": (suggestion or "")[:300],
+    }
+    classification = await _classify_issue_dedupe_with_llm(settings, proposed, candidates)
+    classification_name = str(classification.get("classification") or "unrelated")
+    candidate_id = str(classification.get("candidate_id") or "")
+    matched = next((item for item in candidates if str(item.get("candidate_id") or "") == candidate_id), None)
+    if classification_name in {"same", "related"} and matched:
+        issue_url = str(matched.get("issue_url") or "")
+        issue_number = int(matched.get("issue_number") or 0)
+        pr_info = await _search_open_pr_for_issue(github_token, github_repo, issue_number)
+        assignment_status = str(matched.get("copilot_assignment_status") or "not_requested")
+        assignees = [str(item).lower() for item in (matched.get("assignees") or [])]
+        if _GITHUB_COPILOT_ASSIGNEE.lower() in assignees or "copilot-swe-agent" in assignees:
+            assignment_status = "active"
+        occurrence_row = db.execute(
+            "SELECT count() AS c FROM sobs_github_work_items FINAL WHERE IsDeleted=0 AND IssueUrl=?",
+            [issue_url],
+        ).fetchone()
+        occurrence_count = int(occurrence_row["c"]) + 1 if occurrence_row else 1
+        outcome = {
+            "issue_url": issue_url,
+            "issue_number": issue_number,
+            "issue_title": str(matched.get("issue_title") or issue_title),
+            "issue_state": str(matched.get("issue_state") or "open"),
+            "dedup_key": dedup_key,
+            "dedup_decision": "reused_existing" if classification_name == "same" else "related_existing",
+            "dedup_confidence": float(classification.get("confidence") or 0.0),
+            "canonical_issue_url": issue_url,
+            "canonical_issue_number": issue_number,
+            "related_issue_urls": [issue_url],
+            "occurrence_count": occurrence_count,
+            "pr_linked": bool(pr_info and pr_info.get("pr_url")),
+            "pr_number": int((pr_info or {}).get("pr_number", 0) or 0),
+            "pr_url": str((pr_info or {}).get("pr_url", "") or ""),
+            "copilot_assignment_status": assignment_status,
+            "copilot_assignment_reason": str(classification.get("reason") or ""),
+            "copilot_assignment_requested_at": 0,
+            "created_new_issue": False,
+        }
+        if wants_copilot_assignment:
+            max_assignments_per_hour = _parse_bounded_int_setting(
+                settings,
+                "ai.agent_max_assignments_per_hour",
+                _AI_AGENT_MAX_ASSIGNMENTS_PER_HOUR_DEFAULT,
+                1,
+                20,
+            )
+            max_active_assignments = _parse_bounded_int_setting(
+                settings,
+                "ai.agent_max_active_assignments",
+                _AI_AGENT_MAX_ACTIVE_ASSIGNMENTS_DEFAULT,
+                1,
+                10,
+            )
+            if outcome["pr_linked"]:
+                outcome["copilot_assignment_status"] = "blocked"
+                outcome["copilot_assignment_reason"] = "existing linked pull request already covers this issue"
+            elif assignment_status in {"requested", "active"}:
+                outcome["copilot_assignment_status"] = "blocked"
+                outcome["copilot_assignment_reason"] = "issue is already being worked by Copilot"
+            elif _count_copilot_assignments_last_hour(db) >= max_assignments_per_hour:
+                outcome["copilot_assignment_status"] = "blocked"
+                outcome["copilot_assignment_reason"] = "Copilot assignment hourly limit reached"
+            elif _count_active_copilot_assignments(db) >= max_active_assignments:
+                outcome["copilot_assignment_status"] = "blocked"
+                outcome["copilot_assignment_reason"] = "active Copilot assignment limit reached"
+            else:
+                custom_instructions = str(settings.get("ai.github_copilot_custom_instructions") or "").strip()
+                if suggestion:
+                    custom_instructions = (
+                        (custom_instructions + "\n\n") if custom_instructions else ""
+                    ) + f"Use this suggested fix guidance when relevant:\n{suggestion[:1500]}"
+                assign_status, assign_reason, requested_at = await _assign_issue_to_copilot(
+                    github_token,
+                    github_repo,
+                    issue_number,
+                    base_branch=str(settings.get("ai.github_copilot_base_branch") or "").strip(),
+                    custom_instructions=custom_instructions,
+                )
+                outcome["copilot_assignment_status"] = assign_status
+                outcome["copilot_assignment_reason"] = assign_reason
+                outcome["copilot_assignment_requested_at"] = requested_at
+        return outcome
+
+    created: dict[str, Any] = {}
+    if allow_new_issue:
+        created = await _create_github_issue_record(
+            github_token,
+            github_repo,
+            issue_title,
+            issue_body,
+            ["sobs-agent", "automated"],
+        )
+    outcome = {
+        "issue_url": str(created.get("issue_url") or ""),
+        "issue_number": int(created.get("issue_number") or 0),
+        "issue_title": str(created.get("issue_title") or issue_title),
+        "issue_state": str(created.get("issue_state") or ("open" if created else "")),
+        "dedup_key": dedup_key,
+        "dedup_decision": "new_issue" if created else "suppressed_rate_limit",
+        "dedup_confidence": 1.0 if created else 0.0,
+        "canonical_issue_url": str(created.get("issue_url") or ""),
+        "canonical_issue_number": int(created.get("issue_number") or 0),
+        "related_issue_urls": [],
+        "occurrence_count": 1,
+        "pr_linked": False,
+        "pr_number": 0,
+        "pr_url": "",
+        "copilot_assignment_status": "not_requested",
+        "copilot_assignment_reason": "" if created else "GitHub issue creation suppressed by hourly limit",
+        "copilot_assignment_requested_at": 0,
+        "created_new_issue": bool(created),
+    }
+    if not created:
+        outcome["copilot_assignment_status"] = "blocked" if wants_copilot_assignment else "not_requested"
+        outcome["copilot_assignment_reason"] = "GitHub issue creation failed"
+        return outcome
+
+    if wants_copilot_assignment:
+        max_assignments_per_hour = _parse_bounded_int_setting(
+            settings,
+            "ai.agent_max_assignments_per_hour",
+            _AI_AGENT_MAX_ASSIGNMENTS_PER_HOUR_DEFAULT,
+            1,
+            20,
+        )
+        max_active_assignments = _parse_bounded_int_setting(
+            settings,
+            "ai.agent_max_active_assignments",
+            _AI_AGENT_MAX_ACTIVE_ASSIGNMENTS_DEFAULT,
+            1,
+            10,
+        )
+        if _count_copilot_assignments_last_hour(db) >= max_assignments_per_hour:
+            outcome["copilot_assignment_status"] = "blocked"
+            outcome["copilot_assignment_reason"] = "Copilot assignment hourly limit reached"
+            return outcome
+        if _count_active_copilot_assignments(db) >= max_active_assignments:
+            outcome["copilot_assignment_status"] = "blocked"
+            outcome["copilot_assignment_reason"] = "active Copilot assignment limit reached"
+            return outcome
+
+        custom_instructions = str(settings.get("ai.github_copilot_custom_instructions") or "").strip()
+        if suggestion:
+            custom_instructions = (
+                (custom_instructions + "\n\n") if custom_instructions else ""
+            ) + f"Use this suggested fix guidance when relevant:\n{suggestion[:1500]}"
+        assign_status, assign_reason, requested_at = await _assign_issue_to_copilot(
+            github_token,
+            github_repo,
+            int(outcome["issue_number"] or 0),
+            base_branch=str(settings.get("ai.github_copilot_base_branch") or "").strip(),
+            custom_instructions=custom_instructions,
+        )
+        outcome["copilot_assignment_status"] = assign_status
+        outcome["copilot_assignment_reason"] = assign_reason
+        outcome["copilot_assignment_requested_at"] = requested_at
+    return outcome
 
 
 # ---------------------------------------------------------------------------
@@ -3439,7 +3946,7 @@ async def _mention_copilot_in_issue(github_token: str, owner: str, repo: str, is
 
 _AGENT_TRIGGER_TYPES = ("anomaly_rule", "tag_rule", "manual")
 _AGENT_TRIGGER_STATES = ("warning", "critical", "any")
-_AGENT_ACTIONS = ("analyze", "github_issue", "dlp_check")
+_AGENT_ACTIONS = ("analyze", "github_issue", "github_issue_copilot", "dlp_check")
 
 
 def _load_agent_rules(db: ChDbConnection) -> list[dict]:
@@ -3539,6 +4046,743 @@ def _count_github_issues_last_hour(db: ChDbConnection) -> int:
     return int(row["c"]) if row else 0
 
 
+def _count_copilot_assignments_last_hour(db: ChDbConnection) -> int:
+    cutoff_ms = max(0, int(time.time() * 1000) - 3600 * 1000)
+    row = db.execute(
+        "SELECT count() AS c FROM sobs_github_work_items FINAL "
+        "WHERE IsDeleted=0 AND CopilotAssignmentRequestedAt >= ? AND CopilotAssignmentRequestedAt > 0",
+        [cutoff_ms],
+    ).fetchone()
+    return int(row["c"]) if row else 0
+
+
+def _count_active_copilot_assignments(db: ChDbConnection) -> int:
+    row = db.execute(
+        "SELECT count() AS c FROM sobs_github_work_items FINAL "
+        "WHERE IsDeleted=0 AND CopilotAssignmentStatus IN ('requested', 'active')"
+    ).fetchone()
+    return int(row["c"]) if row else 0
+
+
+def _github_api_headers(
+    github_token: str, *, include_content_type: bool = False, extra: dict[str, str] | None = None
+) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {github_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if include_content_type:
+        headers["Content-Type"] = "application/json"
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+def _parse_bounded_int_setting(
+    settings: dict[str, str],
+    key: str,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    try:
+        parsed = int(settings.get(key, "") or default)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
+def _extract_agent_trigger_fields(trigger_context: dict) -> dict[str, Any]:
+    trigger_context_parsed = trigger_context.get("extra", {})
+    if isinstance(trigger_context_parsed, str):
+        trigger_context_parsed = _safe_json_loads(trigger_context_parsed, {})
+    if not isinstance(trigger_context_parsed, dict):
+        trigger_context_parsed = {}
+
+    service_name = str(trigger_context_parsed.get("service") or trigger_context.get("service") or "").strip()
+    anomaly_rule_id = str(trigger_context.get("trigger_ref_id") or "").strip()
+    anomaly_state = str(trigger_context_parsed.get("state") or trigger_context.get("trigger_state") or "").strip()
+    signal_source = str(trigger_context_parsed.get("source") or "").strip()
+    signal_name = str(trigger_context_parsed.get("signal") or "").strip()
+    try:
+        signal_value = float(trigger_context_parsed.get("value") or 0.0)
+    except (TypeError, ValueError):
+        signal_value = 0.0
+
+    return {
+        "service_name": service_name,
+        "anomaly_rule_id": anomaly_rule_id,
+        "anomaly_state": anomaly_state,
+        "signal_source": signal_source,
+        "signal_name": signal_name,
+        "signal_value": signal_value,
+        "extra": trigger_context_parsed,
+    }
+
+
+def _normalize_issue_match_text(value: Any) -> str:
+    text = re.sub(r"[^a-z0-9]+", " ", str(value or "").lower())
+    return " ".join(text.split())
+
+
+def _build_github_work_item_dedup_key(github_repo: str, trigger_fields: dict[str, Any]) -> str:
+    return "|".join(
+        [
+            _normalize_issue_match_text(github_repo),
+            _normalize_issue_match_text(trigger_fields.get("service_name")),
+            _normalize_issue_match_text(trigger_fields.get("signal_source")),
+            _normalize_issue_match_text(trigger_fields.get("signal_name")),
+            _normalize_issue_match_text(trigger_fields.get("anomaly_state")),
+        ]
+    ).strip("|")
+
+
+def _build_agent_issue_title(rule: dict, trigger_fields: dict[str, Any]) -> str:
+    service_name = str(trigger_fields.get("service_name") or "").strip()
+    signal_name = str(trigger_fields.get("signal_name") or "").strip()
+    signal_source = str(trigger_fields.get("signal_source") or "").strip()
+    anomaly_state = str(trigger_fields.get("anomaly_state") or "detected").strip()
+    focus = service_name or str(rule.get("name") or "Agent Rule")
+    if signal_source and signal_name:
+        return f"[SOBS Agent] {focus} — {signal_source}/{signal_name} {anomaly_state} anomaly"
+    return f"[SOBS Agent] {focus} — {anomaly_state} state detected"
+
+
+def _serialize_github_work_item_row(row: dict | Any) -> dict[str, Any]:
+    r = row if isinstance(row, dict) else dict(row)
+    return {
+        "id": str(r.get("Id", "")),
+        "created_at": str(r.get("CreatedAt", ""))[:19],
+        "completed_at": str(r.get("CompletedAt", ""))[:19],
+        "agent_rule_id": str(r.get("AgentRuleId", "")),
+        "agent_rule_name": str(r.get("AgentRuleName", "")),
+        "agent_action": str(r.get("AgentAction", "")),
+        "service": str(r.get("ServiceName", "")),
+        "anomaly_rule_id": str(r.get("AnomalyRuleId", "")),
+        "anomaly_state": str(r.get("AnomalyState", "")),
+        "signal_source": str(r.get("SignalSource", "")),
+        "signal_name": str(r.get("SignalName", "")),
+        "signal_value": float(r.get("SignalValue", 0.0) or 0.0),
+        "github_repo": str(r.get("GithubRepo", "")),
+        "dedup_key": str(r.get("DedupKey", "")),
+        "dedup_decision": str(r.get("DedupDecision", "")),
+        "dedup_confidence": float(r.get("DedupConfidence", 0.0) or 0.0),
+        "issue_number": int(r.get("IssueNumber", 0) or 0),
+        "issue_url": str(r.get("IssueUrl", "")),
+        "canonical_issue_number": int(r.get("CanonicalIssueNumber", 0) or 0),
+        "canonical_issue_url": str(r.get("CanonicalIssueUrl", "")),
+        "related_issue_urls": list(_safe_json_loads(r.get("RelatedIssueUrls", "[]"), [])),
+        "occurrence_count": int(r.get("OccurrenceCount", 1) or 1),
+        "issue_state": str(r.get("IssueState", "")),
+        "issue_title": str(r.get("IssueTitle", "")),
+        "analysis_summary": str(r.get("AnalysisSummary", "")),
+        "suggestion_summary": str(r.get("SuggestionSummary", "")),
+        "copilot_assignment_requested_at": int(r.get("CopilotAssignmentRequestedAt", 0) or 0),
+        "copilot_assignment_status": str(r.get("CopilotAssignmentStatus", "not_requested")),
+        "copilot_assignment_reason": str(r.get("CopilotAssignmentReason", "")),
+        "pr_linked": bool(int(r.get("PrLinked", 0) or 0)),
+        "pr_number": int(r.get("PrNumber", 0) or 0),
+        "pr_url": str(r.get("PrUrl", "")),
+    }
+
+
+async def _fetch_open_github_issues(
+    github_token: str,
+    github_repo: str,
+    limit: int = _GITHUB_ISSUE_DEDUPE_CANDIDATE_LIMIT,
+) -> list[dict[str, Any]]:
+    if not github_token or not github_repo:
+        return []
+    owner, repo = _parse_github_repo_owner_name(github_repo)
+    if not owner or not repo:
+        return []
+    client = await _get_async_http_client()
+    try:
+        resp = await client.get(
+            f"https://api.github.com/repos/{owner}/{repo}/issues",
+            params={"state": "open", "per_page": str(max(1, min(100, limit)))},
+            headers=_github_api_headers(github_token),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        payload = resp.json() if resp.content else []
+    except Exception as exc:
+        log.warning("GitHub open issue fetch failed for %s/%s: %s", owner, repo, exc)
+        return []
+    if not isinstance(payload, list):
+        return []
+
+    issues: list[dict[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, dict) or isinstance(item.get("pull_request"), dict):
+            continue
+        issues.append(
+            {
+                "issue_number": int(item.get("number", 0) or 0),
+                "issue_url": str(item.get("html_url") or ""),
+                "issue_title": str(item.get("title") or ""),
+                "issue_body": str(item.get("body") or ""),
+                "issue_state": str(item.get("state") or "open"),
+                "assignees": [str(a.get("login") or "") for a in (item.get("assignees") or []) if isinstance(a, dict)],
+            }
+        )
+    return issues
+
+
+async def _search_open_pr_for_issue(github_token: str, github_repo: str, issue_number: int) -> dict[str, Any] | None:
+    if not github_token or not github_repo or issue_number <= 0:
+        return None
+    owner, repo = _parse_github_repo_owner_name(github_repo)
+    if not owner or not repo:
+        return None
+    client = await _get_async_http_client()
+    try:
+        resp = await client.get(
+            "https://api.github.com/search/issues",
+            params={
+                "q": f'repo:{owner}/{repo} is:pr is:open "#{issue_number}" in:body',
+                "per_page": "1",
+            },
+            headers=_github_api_headers(github_token),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        payload = resp.json() if resp.content else {}
+    except Exception:
+        return None
+    items = payload.get("items") if isinstance(payload, dict) else []
+    if not isinstance(items, list) or not items:
+        return None
+    item = items[0] if isinstance(items[0], dict) else {}
+    if not item:
+        return None
+    return {
+        "pr_number": int(item.get("number", 0) or 0),
+        "pr_url": str(item.get("html_url") or ""),
+    }
+
+
+def _parse_issue_ref_from_url(issue_url: str) -> tuple[str, str, int]:
+    match = re.search(r"github\.com/([^/]+)/([^/]+)/issues/(\d+)", str(issue_url or ""))
+    if not match:
+        return "", "", 0
+    return match.group(1), match.group(2), int(match.group(3))
+
+
+def _derive_copilot_assignment_status(
+    current_status: str,
+    issue_state: str,
+    assignees: list[str],
+    pr_linked: bool,
+) -> tuple[str, str]:
+    normalized_current = str(current_status or "").strip().lower() or "not_requested"
+    normalized_state = str(issue_state or "").strip().lower()
+    normalized_assignees = [str(item or "").strip().lower() for item in assignees]
+    copilot_assigned = (
+        _GITHUB_COPILOT_ASSIGNEE.lower() in normalized_assignees or "copilot-swe-agent" in normalized_assignees
+    )
+
+    if normalized_state == "closed":
+        if normalized_current in {"requested", "active"}:
+            return "completed", "issue is closed"
+        return normalized_current, ""
+    if pr_linked and normalized_current in {"not_requested", "blocked"}:
+        return "blocked", "linked pull request already exists"
+    if copilot_assigned:
+        return "active", "Copilot is assigned on the issue"
+    if normalized_current in {"requested", "active"}:
+        return "requested", "Copilot assignment requested"
+    return normalized_current, ""
+
+
+async def _backfill_github_work_item_links(db: ChDbConnection, settings: dict[str, str]) -> None:
+    started_at = time.monotonic()
+    scanned_count = 0
+    updated_count = 0
+    skipped_count = 0
+    error_count = 0
+    default_token = str(settings.get("ai.github_token") or "").strip()
+    if not default_token:
+        app.logger.info(
+            "github_work_item_backfill_summary %s",
+            _safe_json_dumps(
+                {
+                    "scanned": scanned_count,
+                    "updated": updated_count,
+                    "skipped": skipped_count,
+                    "errors": error_count,
+                    "duration_ms": int((time.monotonic() - started_at) * 1000),
+                    "max_items": int(_GITHUB_WORK_ITEM_BACKFILL_MAX_ITEMS),
+                    "reason": "missing_default_token",
+                }
+            ),
+        )
+        return
+
+    rows = db.execute(
+        "SELECT * FROM sobs_github_work_items FINAL "
+        "WHERE IsDeleted=0 AND IssueUrl != '' "
+        "AND (IssueState = '' OR IssueState = 'open' OR CopilotAssignmentStatus IN ('requested','active')) "
+        "ORDER BY CreatedAt DESC LIMIT ?",
+        [int(_GITHUB_WORK_ITEM_BACKFILL_MAX_ITEMS)],
+    ).fetchall()
+    scanned_count = len(rows)
+    if not rows:
+        app.logger.info(
+            "github_work_item_backfill_summary %s",
+            _safe_json_dumps(
+                {
+                    "scanned": scanned_count,
+                    "updated": updated_count,
+                    "skipped": skipped_count,
+                    "errors": error_count,
+                    "duration_ms": int((time.monotonic() - started_at) * 1000),
+                    "max_items": int(_GITHUB_WORK_ITEM_BACKFILL_MAX_ITEMS),
+                }
+            ),
+        )
+        return
+
+    client = await _get_async_http_client()
+    updates: list[dict[str, Any]] = []
+
+    for row_obj in rows:
+        row = dict(row_obj)
+        issue_url = str(row.get("IssueUrl") or "").strip()
+        if not issue_url:
+            skipped_count += 1
+            continue
+        owner = ""
+        repo = ""
+        issue_number = 0
+
+        github_repo = str(row.get("GithubRepo") or "").strip()
+        if github_repo:
+            owner, repo = _parse_github_repo_owner_name(github_repo)
+        if not owner or not repo:
+            owner, repo, issue_number = _parse_issue_ref_from_url(issue_url)
+        if issue_number <= 0:
+            try:
+                issue_number = int(row.get("IssueNumber") or 0)
+            except (TypeError, ValueError):
+                issue_number = 0
+        if not owner or not repo or issue_number <= 0:
+            skipped_count += 1
+            continue
+
+        scoped_token = _load_repo_scoped_github_token(db, owner, repo)
+        github_token = scoped_token or default_token
+        if not github_token:
+            skipped_count += 1
+            continue
+
+        try:
+            issue_resp = await client.get(
+                f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}",
+                headers=_github_api_headers(github_token),
+                timeout=15,
+            )
+            issue_resp.raise_for_status()
+            issue_payload = issue_resp.json() if issue_resp.content else {}
+        except Exception:
+            error_count += 1
+            skipped_count += 1
+            continue
+
+        issue_state = str(issue_payload.get("state") or row.get("IssueState") or "")
+        issue_title = str(issue_payload.get("title") or row.get("IssueTitle") or "")
+        assignees = [
+            str(item.get("login") or "") for item in (issue_payload.get("assignees") or []) if isinstance(item, dict)
+        ]
+
+        pr_info = await _search_open_pr_for_issue(github_token, f"{owner}/{repo}", issue_number)
+        pr_url = str((pr_info or {}).get("pr_url") or "")
+        pr_number = int((pr_info or {}).get("pr_number") or 0)
+        pr_linked = bool(pr_url)
+
+        next_assignment_status, next_assignment_reason = _derive_copilot_assignment_status(
+            str(row.get("CopilotAssignmentStatus") or ""),
+            issue_state,
+            assignees,
+            pr_linked,
+        )
+
+        changed = False
+        if str(row.get("IssueState") or "") != issue_state:
+            changed = True
+        if str(row.get("IssueTitle") or "") != issue_title:
+            changed = True
+        if int(row.get("PrLinked") or 0) != (1 if pr_linked else 0):
+            changed = True
+        if int(row.get("PrNumber") or 0) != pr_number:
+            changed = True
+        if str(row.get("PrUrl") or "") != pr_url:
+            changed = True
+        if str(row.get("CopilotAssignmentStatus") or "") != next_assignment_status:
+            changed = True
+        if str(row.get("CopilotAssignmentReason") or "") != next_assignment_reason:
+            changed = True
+
+        if not changed:
+            skipped_count += 1
+            continue
+
+        updated = dict(row)
+        updated["IssueState"] = issue_state
+        updated["IssueTitle"] = issue_title
+        updated["PrLinked"] = 1 if pr_linked else 0
+        updated["PrNumber"] = pr_number
+        updated["PrUrl"] = pr_url
+        updated["CopilotAssignmentStatus"] = next_assignment_status
+        updated["CopilotAssignmentReason"] = next_assignment_reason
+        updated["Version"] = int(time.time() * 1000)
+        updates.append(updated)
+
+    if updates:
+        _insert_rows_json_each_row(db, "sobs_github_work_items", updates)
+        updated_count = len(updates)
+
+    app.logger.info(
+        "github_work_item_backfill_summary %s",
+        _safe_json_dumps(
+            {
+                "scanned": scanned_count,
+                "updated": updated_count,
+                "skipped": skipped_count,
+                "errors": error_count,
+                "duration_ms": int((time.monotonic() - started_at) * 1000),
+                "max_items": int(_GITHUB_WORK_ITEM_BACKFILL_MAX_ITEMS),
+            }
+        ),
+    )
+
+
+def _emit_agent_issue_decision_summary(
+    run_id: str,
+    rule: dict[str, Any],
+    trigger_context: dict[str, Any],
+    issue_outcome: dict[str, Any],
+    github_issue_url: str,
+    wants_issue: bool,
+    wants_copilot_assignment: bool,
+    github_repo: str,
+) -> None:
+    if not wants_issue:
+        return
+
+    summary = {
+        "run_id": str(run_id or ""),
+        "rule_id": str(rule.get("id") or ""),
+        "rule_name": str(rule.get("name") or ""),
+        "trigger_type": str(trigger_context.get("trigger_type") or ""),
+        "trigger_ref_id": str(trigger_context.get("trigger_ref_id") or ""),
+        "github_repo": str(github_repo or ""),
+        "issue_url": str(github_issue_url or issue_outcome.get("issue_url") or ""),
+        "dedup_decision": str(issue_outcome.get("dedup_decision") or ""),
+        "dedup_confidence": float(issue_outcome.get("dedup_confidence") or 0.0),
+        "copilot_requested": bool(wants_copilot_assignment),
+        "copilot_assignment_status": str(issue_outcome.get("copilot_assignment_status") or ""),
+        "copilot_assignment_reason": str(issue_outcome.get("copilot_assignment_reason") or ""),
+        "created_new_issue": bool(issue_outcome.get("created_new_issue")),
+        "occurrence_count": int(issue_outcome.get("occurrence_count") or 0),
+    }
+    app.logger.info("agent_issue_decision_summary %s", _safe_json_dumps(summary))
+
+
+async def _maybe_backfill_github_work_item_links(db: ChDbConnection, settings: dict[str, str]) -> None:
+    global _GITHUB_WORK_ITEM_BACKFILL_LAST_TS, _GITHUB_WORK_ITEM_BACKFILL_RUNNING
+    now = time.time()
+    if _GITHUB_WORK_ITEM_BACKFILL_RUNNING:
+        return
+    if now - _GITHUB_WORK_ITEM_BACKFILL_LAST_TS < _GITHUB_WORK_ITEM_BACKFILL_INTERVAL_SEC:
+        return
+    _GITHUB_WORK_ITEM_BACKFILL_RUNNING = True
+    _GITHUB_WORK_ITEM_BACKFILL_LAST_TS = now
+    try:
+        await _backfill_github_work_item_links(db, settings)
+    except Exception as exc:
+        app.logger.warning("GitHub work-item backfill failed: %s", exc)
+    finally:
+        _GITHUB_WORK_ITEM_BACKFILL_RUNNING = False
+
+
+def _load_recent_work_item_candidates(
+    db: ChDbConnection,
+    github_repo: str,
+    limit: int = _GITHUB_ISSUE_DEDUPE_CANDIDATE_LIMIT,
+) -> list[dict[str, Any]]:
+    rows = db.execute(
+        "SELECT * FROM sobs_github_work_items FINAL "
+        "WHERE IsDeleted=0 AND GithubRepo=? AND IssueUrl != '' "
+        "ORDER BY CreatedAt DESC LIMIT ?",
+        [github_repo, max(1, int(limit))],
+    ).fetchall()
+    return [_serialize_github_work_item_row(r) for r in rows]
+
+
+def _fallback_issue_dedupe_decision(
+    proposed: dict[str, Any],
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    proposed_key = str(proposed.get("dedup_key") or "")
+    proposed_service = _normalize_issue_match_text(proposed.get("service_name"))
+    proposed_signal = _normalize_issue_match_text(proposed.get("signal_name"))
+    for candidate in candidates:
+        candidate_key = str(candidate.get("dedup_key") or "")
+        if proposed_key and candidate_key and proposed_key == candidate_key:
+            return {
+                "classification": "same",
+                "candidate_id": str(candidate.get("candidate_id") or ""),
+                "confidence": 0.92,
+                "reason": "deterministic dedupe key match",
+            }
+    for candidate in candidates:
+        if (
+            proposed_service
+            and proposed_service == _normalize_issue_match_text(candidate.get("service_name"))
+            and proposed_signal
+            and proposed_signal == _normalize_issue_match_text(candidate.get("signal_name"))
+        ):
+            return {
+                "classification": "related",
+                "candidate_id": str(candidate.get("candidate_id") or ""),
+                "confidence": 0.73,
+                "reason": "same service and signal family",
+            }
+    return {
+        "classification": "unrelated",
+        "candidate_id": "",
+        "confidence": 0.0,
+        "reason": "no strong local match",
+    }
+
+
+def _extract_first_json_object(text: str) -> dict[str, Any]:
+    raw = str(text or "").strip()
+    if not raw:
+        return {}
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.DOTALL).strip()
+    parsed = _safe_json_loads(raw, {})
+    if isinstance(parsed, dict):
+        return parsed
+    match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
+    if not match:
+        return {}
+    parsed = _safe_json_loads(match.group(0), {})
+    return parsed if isinstance(parsed, dict) else {}
+
+
+async def _classify_issue_dedupe_with_llm(
+    settings: dict[str, str],
+    proposed: dict[str, Any],
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    endpoint_url = str(settings.get("ai.endpoint_url") or "").strip()
+    model = str(settings.get("ai.model") or "").strip()
+    api_key = str(settings.get("ai.api_key") or "").strip()
+    thinking_level = str(settings.get("ai.thinking_level") or "off").strip() or "off"
+    if not endpoint_url or not model or not candidates:
+        return _fallback_issue_dedupe_decision(proposed, candidates)
+
+    compact_candidates = [
+        {
+            "candidate_id": str(item.get("candidate_id") or ""),
+            "issue_url": str(item.get("issue_url") or ""),
+            "issue_title": str(item.get("issue_title") or ""),
+            "service_name": str(item.get("service_name") or ""),
+            "signal_source": str(item.get("signal_source") or ""),
+            "signal_name": str(item.get("signal_name") or ""),
+            "anomaly_state": str(item.get("anomaly_state") or ""),
+            "dedup_key": str(item.get("dedup_key") or ""),
+            "copilot_assignment_status": str(item.get("copilot_assignment_status") or ""),
+            "has_open_pr": bool(item.get("pr_linked") or item.get("pr_url")),
+            "assignees": list(item.get("assignees") or []),
+        }
+        for item in candidates[:_GITHUB_ISSUE_DEDUPE_CANDIDATE_LIMIT]
+    ]
+    prompt = {
+        "task": "Classify whether the proposed observability incident matches any existing GitHub issue.",
+        "return_json_only": True,
+        "required_keys": ["classification", "candidate_id", "confidence", "reason"],
+        "allowed_classifications": ["same", "related", "unrelated"],
+        "proposed_incident": proposed,
+        "candidates": compact_candidates,
+    }
+    reply_text, _stats = await _call_llm_endpoint(
+        endpoint_url,
+        model,
+        api_key,
+        [
+            {
+                "role": "system",
+                "content": (
+                    "You classify observability incidents against existing GitHub issues. "
+                    "Return a single JSON object only. Prefer 'same' only for clear duplicates, "
+                    "'related' for likely same fault family but materially different work, otherwise 'unrelated'."
+                ),
+            },
+            {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+        ],
+        thinking_level=thinking_level,
+        max_tokens=400,
+        timeout=25,
+    )
+    parsed = _extract_first_json_object(reply_text)
+    classification = str(parsed.get("classification") or "").strip().lower()
+    if classification not in {"same", "related", "unrelated"}:
+        return _fallback_issue_dedupe_decision(proposed, candidates)
+    candidate_id = str(parsed.get("candidate_id") or "").strip()
+    try:
+        confidence = float(parsed.get("confidence") or 0.0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return {
+        "classification": classification,
+        "candidate_id": candidate_id,
+        "confidence": max(0.0, min(1.0, confidence)),
+        "reason": str(parsed.get("reason") or "").strip(),
+    }
+
+
+async def _create_github_issue_record(
+    github_token: str,
+    github_repo: str,
+    title: str,
+    body_md: str,
+    labels: list[str] | None = None,
+) -> dict[str, Any]:
+    if not github_token or not github_repo:
+        return {}
+    parts = github_repo.strip("/").split("/")
+    if len(parts) < 2:
+        return {}
+    owner, repo = parts[-2], parts[-1]
+    issue_payload: dict[str, Any] = {
+        "title": title,
+        "body": body_md,
+        "labels": labels or ["sobs-agent", "automated"],
+    }
+    client = await _get_async_http_client()
+    try:
+        resp = await client.post(
+            f"https://api.github.com/repos/{owner}/{repo}/issues",
+            json=issue_payload,
+            headers=_github_api_headers(github_token, include_content_type=True),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        return {
+            "issue_url": str(result.get("html_url", "")),
+            "issue_number": int(result.get("number", 0) or 0),
+            "issue_title": str(result.get("title") or title),
+            "issue_state": str(result.get("state") or "open"),
+        }
+    except Exception as exc:
+        log.warning("GitHub issue creation failed: %s", exc)
+        return {}
+
+
+def _persist_github_work_item(
+    db: ChDbConnection,
+    run_id: str,
+    rule: dict,
+    trigger_context: dict,
+    github_issue_url: str,
+    analysis: str,
+    suggestion: str,
+    agent_action: str,
+    *,
+    issue_title: str = "",
+    issue_state: str = "",
+    dedup_key: str = "",
+    dedup_decision: str = "new_issue",
+    dedup_confidence: float = 0.0,
+    canonical_issue_url: str = "",
+    canonical_issue_number: int = 0,
+    related_issue_urls: list[str] | None = None,
+    occurrence_count: int = 1,
+    copilot_assignment_requested_at: int = 0,
+    copilot_assignment_status: str = "not_requested",
+    copilot_assignment_reason: str = "",
+    pr_linked: bool = False,
+    pr_number: int = 0,
+    pr_url: str = "",
+) -> None:
+    """Persist a GitHub issue decision as a work item for tracking and cross-linking."""
+
+    try:
+        issue_number = 0
+        try:
+            parts = github_issue_url.rstrip("/").split("/")
+            if parts and parts[-1].isdigit():
+                issue_number = int(parts[-1])
+        except Exception:
+            pass
+
+        trigger_fields = _extract_agent_trigger_fields(trigger_context)
+        service_name = str(trigger_fields.get("service_name") or "")
+        anomaly_rule_id = str(trigger_fields.get("anomaly_rule_id") or "")
+        anomaly_state = str(trigger_fields.get("anomaly_state") or "")
+        signal_source = str(trigger_fields.get("signal_source") or "")
+        signal_name = str(trigger_fields.get("signal_name") or "")
+        signal_value = float(trigger_fields.get("signal_value") or 0.0)
+
+        github_repo = ""
+        issue_source_url = canonical_issue_url or github_issue_url
+        try:
+            parts = issue_source_url.split("/")
+            if len(parts) >= 4:
+                github_repo = f"{parts[-4]}/{parts[-3]}"
+        except Exception:
+            pass
+
+        canonical_number = int(canonical_issue_number or issue_number or 0)
+        resolved_issue_url = github_issue_url or canonical_issue_url
+
+        work_item = {
+            "Id": run_id,
+            "AgentRunId": run_id,
+            "AgentRuleId": rule.get("id", ""),
+            "AgentRuleName": rule.get("name", ""),
+            "AgentAction": agent_action,
+            "ServiceName": service_name,
+            "AnomalyRuleId": anomaly_rule_id,
+            "AnomalyState": anomaly_state,
+            "SignalSource": signal_source,
+            "SignalName": signal_name,
+            "SignalValue": signal_value,
+            "GithubRepo": github_repo,
+            "DedupKey": dedup_key,
+            "DedupDecision": dedup_decision,
+            "DedupConfidence": float(dedup_confidence or 0.0),
+            "IssueNumber": issue_number,
+            "IssueUrl": resolved_issue_url,
+            "CanonicalIssueNumber": canonical_number,
+            "CanonicalIssueUrl": canonical_issue_url or resolved_issue_url,
+            "RelatedIssueUrls": _safe_json_dumps(related_issue_urls or []),
+            "OccurrenceCount": max(1, int(occurrence_count or 1)),
+            "IssueState": issue_state,
+            "IssueTitle": issue_title,
+            "AnalysisSummary": analysis[:500] if analysis else "",
+            "SuggestionSummary": suggestion[:500] if suggestion else "",
+            "CopilotAssignmentRequestedAt": int(copilot_assignment_requested_at or 0),
+            "CopilotAssignmentStatus": copilot_assignment_status,
+            "CopilotAssignmentReason": copilot_assignment_reason,
+            "PrLinked": 1 if pr_linked else 0,
+            "PrNumber": int(pr_number or 0),
+            "PrUrl": pr_url,
+            "IsDeleted": 0,
+            "Version": int(time.time() * 1000),
+        }
+
+        _insert_rows_json_each_row(db, "sobs_github_work_items", [work_item])
+    except Exception as exc:
+        app.logger.warning("Failed to persist work item: %s", exc)
+
+
 def _build_agent_context_summary(db: ChDbConnection, trigger_context: dict) -> str:
     """Build a plain-text summary of current observability state for the LLM."""
     lines: list[str] = []
@@ -3586,6 +4830,71 @@ def _build_agent_context_summary(db: ChDbConnection, trigger_context: dict) -> s
     return "\n".join(lines)
 
 
+def _extract_trigger_service_name(trigger_context: dict[str, Any]) -> str:
+    service = str(trigger_context.get("service") or "").strip()
+    if service:
+        return service
+
+    extra_raw = trigger_context.get("extra")
+    if isinstance(extra_raw, dict):
+        extra = extra_raw
+    else:
+        extra = _safe_json_loads(str(extra_raw or ""), {})
+
+    if isinstance(extra, dict):
+        for key in ("service", "service_name", "ServiceName"):
+            value = str(extra.get(key) or "").strip()
+            if value:
+                return value
+    return ""
+
+
+def _resolve_agent_github_target(
+    db: ChDbConnection,
+    settings: dict[str, str],
+    trigger_context: dict[str, Any],
+) -> tuple[str, str]:
+    """Resolve (repo, token) for agent GitHub issue creation.
+
+    Priority:
+    1) Repo inferred from trigger service mapped via sobs_apps Name/Slug/RepoUrl
+       with repo-scoped token when configured.
+    2) Global ai.github_repo + per-repo token for that repo if present.
+    3) Global ai.github_token fallback.
+    """
+
+    default_repo = str(settings.get("ai.github_repo", "")).strip()
+    default_token = str(settings.get("ai.github_token", "")).strip()
+
+    service_name = _extract_trigger_service_name(trigger_context)
+    if service_name:
+        row = db.execute(
+            "SELECT RepoUrl FROM sobs_apps FINAL "
+            "WHERE IsDeleted=0 AND Enabled=1 AND RepoUrl != '' "
+            "AND (lower(Name)=lower(?) OR lower(Slug)=lower(?)) "
+            "ORDER BY UpdatedAt DESC LIMIT 1",
+            [service_name, service_name],
+        ).fetchone()
+        if row:
+            owner, repo = _parse_github_repo_owner_name(str(row["RepoUrl"] or ""))
+            if owner and repo:
+                scoped_token = _load_repo_scoped_github_token(db, owner, repo)
+                return f"{owner}/{repo}", (scoped_token or default_token)
+
+    if default_repo:
+        owner, repo = _parse_github_repo_owner_name(default_repo)
+        if not owner or not repo:
+            parts = [p for p in default_repo.strip("/").split("/") if p]
+            if len(parts) >= 2:
+                owner, repo = parts[-2], parts[-1]
+        if owner and repo:
+            scoped_token = _load_repo_scoped_github_token(db, owner, repo)
+            return f"{owner}/{repo}", (scoped_token or default_token)
+        return default_repo, default_token
+
+    return "", default_token
+
+
 async def _run_agent_flow(
     db: ChDbConnection,
     rule: dict,
@@ -3606,8 +4915,7 @@ async def _run_agent_flow(
     model = settings.get("ai.model", "gpt-4o-mini").strip()
     api_key = settings.get("ai.api_key", "").strip()
     dlp_url = settings.get("ai.dlp_endpoint_url", "").strip()
-    github_token = settings.get("ai.github_token", "").strip()
-    github_repo = settings.get("ai.github_repo", "").strip()
+    github_repo, github_token = _resolve_agent_github_target(db, settings, trigger_context)
     actions = set(rule.get("actions", []))
     try:
         parsed_max = int(settings.get("ai.agent_max_issues_per_hour", "") or _AI_AGENT_MAX_ISSUES_DEFAULT)
@@ -3658,7 +4966,11 @@ async def _run_agent_flow(
     dlp_result = "skipped"
     github_issue_url = ""
 
-    if "github_issue" in actions and github_token and github_repo:
+    wants_issue = "github_issue" in actions or "github_issue_copilot" in actions
+    wants_copilot_assignment = "github_issue_copilot" in actions
+    issue_outcome: dict[str, Any] = {}
+
+    if wants_issue and github_token and github_repo:
         issue_text = f"{context_summary}\n\nAnalysis: {analysis}\n\nSuggestion: {suggestion}"
 
         if "dlp_check" in actions and dlp_url:
@@ -3682,30 +4994,68 @@ async def _run_agent_flow(
                     "suggestion": suggestion,
                 }
 
-        # Rate-gate GitHub issue creation
         issues_this_hour = _count_github_issues_last_hour(db)
-        if issues_this_hour < max_issues:
-            rule_name = rule.get("name", "Agent Rule")
-            trigger_state = trigger_context.get("trigger_state", "")
-            issue_title = f"[SOBS Agent] {rule_name} — {trigger_state} state detected"
-            issue_body = (
-                f"## SOBS Automated Agent Report\n\n"
-                f"**Rule:** {rule_name}  \n"
-                f"**Trigger state:** {trigger_state}  \n\n"
-                f"### Telemetry Context\n```\n{context_summary}\n```\n\n"
-                f"### Root Cause Analysis\n{analysis}\n\n"
-                f"### Suggested Fix\n{suggestion}\n\n"
-                f"---\n*Generated automatically by [SOBS](https://github.com/abartrim/sobs). "
-                f"Please review before acting.*"
-            )
-            github_issue_url = await _create_github_issue(
-                github_token,
-                github_repo,
-                issue_title,
-                issue_body,
-            )
+        allow_new_issue = issues_this_hour < max_issues
+        trigger_fields = _extract_agent_trigger_fields(trigger_context)
+        issue_title = _build_agent_issue_title(rule, trigger_fields)
+        issue_body = (
+            f"## SOBS Automated Agent Report\n\n"
+            f"**Rule:** {rule.get('name', 'Agent Rule')}  \n"
+            f"**Trigger state:** {trigger_context.get('trigger_state', '')}  \n"
+            f"**Service:** {trigger_fields.get('service_name', '')}  \n"
+            f"**Signal:** {trigger_fields.get('signal_source', '')}/{trigger_fields.get('signal_name', '')}  \n\n"
+            f"### Telemetry Context\n```\n{context_summary}\n```\n\n"
+            f"### Root Cause Analysis\n{analysis}\n\n"
+            f"### Suggested Fix\n{suggestion}\n\n"
+            f"---\n*Generated automatically by [SOBS](https://github.com/abartrim/sobs). "
+            f"Please review before acting.*"
+        )
+        issue_outcome = await _choose_github_issue_outcome(
+            db,
+            settings,
+            rule,
+            trigger_context,
+            github_repo=github_repo,
+            github_token=github_token,
+            wants_copilot_assignment=wants_copilot_assignment,
+            analysis=analysis,
+            suggestion=suggestion,
+            issue_title=issue_title,
+            issue_body=issue_body,
+            allow_new_issue=allow_new_issue,
+        )
+        github_issue_url = str(issue_outcome.get("issue_url") or "")
 
     completed_ts = _normalize_ch_timestamp(datetime.now(timezone.utc))
+
+    if wants_issue and (github_issue_url or issue_outcome):
+        agent_action = "github_issue_copilot" if wants_copilot_assignment else "github_issue"
+        _persist_github_work_item(
+            db,
+            run_id,
+            rule,
+            trigger_context,
+            github_issue_url,
+            analysis,
+            suggestion,
+            agent_action,
+            issue_title=str(issue_outcome.get("issue_title") or ""),
+            issue_state=str(issue_outcome.get("issue_state") or ""),
+            dedup_key=str(issue_outcome.get("dedup_key") or ""),
+            dedup_decision=str(issue_outcome.get("dedup_decision") or "new_issue"),
+            dedup_confidence=float(issue_outcome.get("dedup_confidence") or 0.0),
+            canonical_issue_url=str(issue_outcome.get("canonical_issue_url") or github_issue_url),
+            canonical_issue_number=int(issue_outcome.get("canonical_issue_number") or 0),
+            related_issue_urls=list(issue_outcome.get("related_issue_urls") or []),
+            occurrence_count=int(issue_outcome.get("occurrence_count") or 1),
+            copilot_assignment_requested_at=int(issue_outcome.get("copilot_assignment_requested_at") or 0),
+            copilot_assignment_status=str(issue_outcome.get("copilot_assignment_status") or "not_requested"),
+            copilot_assignment_reason=str(issue_outcome.get("copilot_assignment_reason") or ""),
+            pr_linked=bool(issue_outcome.get("pr_linked")),
+            pr_number=int(issue_outcome.get("pr_number") or 0),
+            pr_url=str(issue_outcome.get("pr_url") or ""),
+        )
+
     _update_run(
         {
             "Status": "completed",
@@ -3717,6 +5067,16 @@ async def _run_agent_flow(
             "CompletedAt": completed_ts,
         }
     )
+    _emit_agent_issue_decision_summary(
+        run_id,
+        rule,
+        trigger_context,
+        issue_outcome,
+        github_issue_url,
+        wants_issue,
+        wants_copilot_assignment,
+        github_repo,
+    )
     return {
         "status": "completed",
         "guard_decision": guard_decision,
@@ -3724,6 +5084,9 @@ async def _run_agent_flow(
         "analysis": analysis,
         "suggestion": suggestion,
         "github_issue_url": github_issue_url,
+        "dedup_decision": str(issue_outcome.get("dedup_decision") or ""),
+        "copilot_assignment_status": str(issue_outcome.get("copilot_assignment_status") or ""),
+        "copilot_assignment_reason": str(issue_outcome.get("copilot_assignment_reason") or ""),
     }
 
 
@@ -5371,7 +6734,16 @@ def _error_id(ts: str, service: str, err_type: str, message: str, trace_id: str,
 def _insert_rows_json_each_row(db, table_name: str, rows: list[dict]) -> int:
     if not rows:
         return 0
-    dt_keys = {"Timestamp", "TimeUnix", "UpdatedAt", "CreatedAt", "CompletedAt", "ReleasedAt", "UploadedAt"}
+    dt_keys = {
+        "Timestamp",
+        "TimeUnix",
+        "UpdatedAt",
+        "CreatedAt",
+        "CompletedAt",
+        "ReleasedAt",
+        "UploadedAt",
+        "ScannedAt",
+    }
     normalized_rows = []
     for row in rows:
         item = dict(row)
@@ -9520,6 +10892,33 @@ async def view_metrics_anomaly():
 # ---------------------------------------------------------------------------
 # Web UI – Errors
 # ---------------------------------------------------------------------------
+def _load_work_item_links_for_ref_ids(db: ChDbConnection, ref_ids: list[str]) -> dict[str, dict]:
+    """Return {trigger_ref_id: {issue_url, issue_number, issue_state}} for already-raised issues.
+
+    trigger_ref_id is stored as AnomalyRuleId (populated from trigger_context["trigger_ref_id"]
+    which is error_id for errors-page raises and trace_id for traces-page raises).
+    """
+    ref_set = {str(r) for r in ref_ids if r}
+    if not ref_set:
+        return {}
+    rows = db.execute(
+        "SELECT AnomalyRuleId, IssueUrl, CanonicalIssueUrl, IssueNumber, IssueState "
+        "FROM sobs_github_work_items FINAL "
+        "WHERE IsDeleted=0 AND IssueUrl != '' AND AnomalyRuleId != '' "
+        "ORDER BY CreatedAt DESC LIMIT 2000",
+    ).fetchall()
+    result: dict[str, dict] = {}
+    for row in rows:
+        ref = str(row["AnomalyRuleId"] or "")
+        if ref in ref_set and ref not in result:
+            result[ref] = {
+                "issue_url": str(row["IssueUrl"] or row["CanonicalIssueUrl"] or ""),
+                "issue_number": int(row["IssueNumber"] or 0),
+                "issue_state": str(row["IssueState"] or ""),
+            }
+    return result
+
+
 @app.route("/errors")
 @require_basic_auth
 async def view_errors():
@@ -9589,6 +10988,8 @@ async def view_errors():
         ).fetchall()
     ]
 
+    work_item_links = _load_work_item_links_for_ref_ids(db, [e["id"] for e in errors])
+
     return await render_template(
         "errors.html",
         errors=errors,
@@ -9603,6 +11004,7 @@ async def view_errors():
         services=services,
         sort_by=sort_by,
         sort_dir=sort_dir,
+        work_item_links=work_item_links,
     )
 
 
@@ -9956,6 +11358,19 @@ async def view_traces():
                 "has_potential_gap": has_potential_gap,
             }
 
+    # Build work-item pre-check map for trace-detail errors so "Raise issue" shows as
+    # "View issue →" when an issue already exists for this error or trace.
+    trace_work_item_links: dict[str, dict] = {}
+    if trace_detail:
+        trace_errors_local = trace_detail.get("errors") or []
+        ref_ids = list(
+            {e["id"] for e in trace_errors_local if e.get("id")}
+            | {e["trace_id"] for e in trace_errors_local if e.get("trace_id")}
+        )
+        if trace_id:
+            ref_ids.append(trace_id)
+        trace_work_item_links = _load_work_item_links_for_ref_ids(db, ref_ids)
+
     return await render_template(
         "traces.html",
         spans=spans,
@@ -9971,6 +11386,7 @@ async def view_traces():
         sort_by=sort_by,
         sort_dir=sort_dir,
         trace_detail=trace_detail,
+        work_item_links=trace_work_item_links,
     )
 
 
@@ -10073,7 +11489,7 @@ def _geo_lookup_batch(ips: list[str], geo_enabled: bool = True) -> dict[str, dic
 
 # ---------------------------------------------------------------------------
 # Enrichment – CVE scanner helpers
-# Extracts library/SDK versions from OTEL ResourceAttributes and ScopeVersion,
+# Extracts library/SDK versions from release metadata and OTEL telemetry,
 # then queries OSV.dev (Apache 2.0) for known vulnerabilities.
 # ---------------------------------------------------------------------------
 
@@ -10094,23 +11510,504 @@ def _lang_to_osv_ecosystem(lang: str) -> str:
     }.get((lang or "").lower(), "")
 
 
-def _extract_library_versions_from_otel(db: "ChDbConnection") -> list[dict]:
-    """Scan OTEL telemetry tables for library/SDK version info.
+def _inventory_scope_ecosystem(scope_name: str) -> str:
+    if scope_name.startswith("io.opentelemetry") or scope_name.startswith("com.") or scope_name.startswith("org."):
+        return "Maven"
+    if scope_name.startswith("@"):
+        return "npm"
+    if scope_name.startswith("opentelemetry-") and "_" not in scope_name.split("/")[-1]:
+        return "PyPI"
+    return ""
 
-    Extracts:
-    - telemetry.sdk.name / version / language from ResourceAttributes (otel_traces + otel_logs)
-    - ScopeName / ScopeVersion (instrumentation library names/versions) from otel_traces
 
-    Returns a deduplicated list of dicts: {package, version, ecosystem, service}.
+def _parse_github_repo_owner_name(repo_url: str) -> tuple[str, str]:
+    """Extract owner/repo from a GitHub repo URL.
+
+    Supports HTTPS, SSH, and plain owner/repo styles.
     """
-    libs: dict[str, dict] = {}
+    cleaned = (repo_url or "").strip()
+    if not cleaned:
+        return "", ""
 
-    def _add(package: str, version: str, ecosystem: str, service: str) -> None:
-        key = f"{ecosystem}::{package}::{version}"
-        if package and version and key not in libs:
-            libs[key] = {"package": package, "version": version, "ecosystem": ecosystem, "service": service}
+    direct_parts = [p for p in cleaned.split("/") if p]
+    if len(direct_parts) == 2 and "://" not in cleaned and not cleaned.startswith("git@"):
+        return direct_parts[0], direct_parts[1].removesuffix(".git")
 
-    # telemetry.sdk.* from traces
+    if cleaned.startswith("git@github.com:"):
+        path = cleaned.split(":", 1)[1]
+    else:
+        parsed = urllib.parse.urlparse(cleaned)
+        if parsed.netloc.lower() != "github.com":
+            return "", ""
+        path = parsed.path.lstrip("/")
+
+    if path.endswith(".git"):
+        path = path[:-4]
+    parts = [p for p in path.split("/") if p]
+    if len(parts) < 2:
+        return "", ""
+    return parts[0], parts[1]
+
+
+def _parse_requirements_dependencies(content: str) -> list[dict[str, str]]:
+    deps: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for raw in (content or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if " #" in line:
+            line = line.split(" #", 1)[0].strip()
+        line = line.split(";", 1)[0].strip()
+        if "==" not in line:
+            continue
+        name, version = line.split("==", 1)
+        pkg = name.strip()
+        ver = version.strip()
+        if not pkg or not ver:
+            continue
+        key = (pkg.lower(), ver)
+        if key in seen:
+            continue
+        seen.add(key)
+        deps.append({"package": pkg, "version": ver, "ecosystem": "PyPI"})
+    return deps
+
+
+def _parse_package_lock_dependencies(content: str) -> list[dict[str, str]]:
+    deps: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    body = _safe_json_loads(content, {})
+    if not isinstance(body, dict):
+        return deps
+
+    packages = body.get("packages")
+    if isinstance(packages, dict):
+        for pkg_path, info in packages.items():
+            if not isinstance(info, dict) or pkg_path in ("", "."):
+                continue
+            if not pkg_path.startswith("node_modules/"):
+                continue
+            name = pkg_path.split("node_modules/")[-1]
+            version = str(info.get("version") or "").strip()
+            if not name or not version:
+                continue
+            key = (name.lower(), version)
+            if key in seen:
+                continue
+            seen.add(key)
+            deps.append({"package": name, "version": version, "ecosystem": "npm"})
+
+    if deps:
+        return deps
+
+    legacy = body.get("dependencies")
+    if not isinstance(legacy, dict):
+        return deps
+    for name, info in legacy.items():
+        if not isinstance(info, dict):
+            continue
+        version = str(info.get("version") or "").strip()
+        if not name or not version:
+            continue
+        key = (str(name).lower(), version)
+        if key in seen:
+            continue
+        seen.add(key)
+        deps.append({"package": str(name), "version": version, "ecosystem": "npm"})
+    return deps
+
+
+def _parse_go_sum_dependencies(content: str) -> list[dict[str, str]]:
+    deps: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for raw in (content or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        module_name = parts[0].strip()
+        module_version = parts[1].strip()
+        if module_version.endswith("/go.mod"):
+            module_version = module_version[: -len("/go.mod")]
+        if not module_name or not module_version:
+            continue
+        key = (module_name.lower(), module_version)
+        if key in seen:
+            continue
+        seen.add(key)
+        deps.append({"package": module_name, "version": module_version, "ecosystem": "Go"})
+    return deps
+
+
+def _parse_gemfile_lock_dependencies(content: str) -> list[dict[str, str]]:
+    deps: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    in_specs = False
+    for raw in (content or "").splitlines():
+        if raw.strip() == "specs:":
+            in_specs = True
+            continue
+        if not in_specs:
+            continue
+        if raw and not raw.startswith(" "):
+            break
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = re.match(r"^([A-Za-z0-9_\-\.]+)\s+\(([^)]+)\)", line)
+        if not match:
+            continue
+        name = match.group(1).strip()
+        version = match.group(2).split(",", 1)[0].strip()
+        if not name or not version:
+            continue
+        key = (name.lower(), version)
+        if key in seen:
+            continue
+        seen.add(key)
+        deps.append({"package": name, "version": version, "ecosystem": "RubyGems"})
+    return deps
+
+
+def _decode_github_contents_payload(payload: dict[str, Any]) -> bytes:
+    content = payload.get("content")
+    encoding = str(payload.get("encoding") or "").lower()
+    if not isinstance(content, str) or encoding != "base64":
+        return b""
+    try:
+        return base64.b64decode(content, validate=False)
+    except Exception:
+        return b""
+
+
+def _github_ref_candidates(release_version: str) -> list[str]:
+    """Return Git refs to try for a release version, in priority order."""
+    version = (release_version or "").strip()
+    if not version:
+        return []
+
+    candidates = [f"refs/tags/{version}"]
+    if not version.startswith("v"):
+        candidates.append(f"refs/tags/v{version}")
+    # Some teams publish snapshot builds from branches instead of tags.
+    candidates.append(f"refs/heads/{version}")
+    # GitHub Contents API also accepts a raw branch/commit-ish ref string.
+    candidates.append(version)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for ref in candidates:
+        if ref in seen:
+            continue
+        seen.add(ref)
+        deduped.append(ref)
+    return deduped
+
+
+def _github_backfill_max_releases(db: "ChDbConnection") -> int:
+    raw_value = _get_app_setting(db, _GITHUB_BACKFILL_MAX_RELEASES_SETTING) or ""
+    try:
+        parsed = int(str(raw_value).strip() or _GITHUB_BACKFILL_MAX_RELEASES_DEFAULT)
+    except (TypeError, ValueError):
+        return _GITHUB_BACKFILL_MAX_RELEASES_DEFAULT
+    return max(_GITHUB_BACKFILL_MAX_RELEASES_MIN, min(_GITHUB_BACKFILL_MAX_RELEASES_MAX, parsed))
+
+
+def _github_version_tokens(version: str) -> set[str]:
+    v = str(version or "").strip().lower()
+    if not v:
+        return set()
+    tokens = {v}
+    if not v.startswith("v"):
+        tokens.add(f"v{v}")
+    return tokens
+
+
+def _text_mentions_version_tokens(text: str, tokens: set[str]) -> bool:
+    if not text or not tokens:
+        return False
+    lower = text.lower()
+    for token in tokens:
+        # Use non-alnum boundaries to reduce unrelated partial matches.
+        if re.search(rf"(^|[^0-9a-z]){re.escape(token)}([^0-9a-z]|$)", lower):
+            return True
+    return False
+
+
+def _github_item_is_security_related(item: dict[str, Any]) -> bool:
+    security_keywords = ("security", "vulnerability", "cve", "ghsa", "dependabot")
+    title = str(item.get("title") or "").lower()
+    body = str(item.get("body") or "").lower()
+    if any(k in title or k in body for k in security_keywords):
+        return True
+    labels = item.get("labels", [])
+    if isinstance(labels, list):
+        for label in labels:
+            if not isinstance(label, dict):
+                continue
+            name = str(label.get("name") or "").lower()
+            if any(k in name for k in security_keywords):
+                return True
+    return False
+
+
+async def _fetch_release_deps_from_github(db: "ChDbConnection") -> dict[str, int]:
+    """Backfill dependencies-lockfile artifacts from GitHub tags when missing."""
+    github_token = _load_ai_setting(db, "ai.github_token", "").strip()
+    max_releases = _github_backfill_max_releases(db)
+    if not github_token:
+        return {"attempted": 0, "inserted": 0, "max_releases": max_releases}
+
+    try:
+        existing_rows = db.execute(
+            "SELECT DISTINCT ReleaseId FROM sobs_release_artifacts FINAL "
+            "WHERE ArtifactType='dependencies-lockfile' AND IsDeleted=0"
+        ).fetchall()
+        existing_release_ids = {str(row[0]) for row in existing_rows}
+    except Exception:
+        app.logger.debug("github deps fetch: failed reading existing dependency artifacts", exc_info=True)
+        existing_release_ids = set()
+
+    try:
+        release_rows = db.execute(
+            "SELECT Id, AppId, ReleaseVersion "
+            "FROM sobs_app_releases FINAL "
+            "WHERE IsDeleted=0 "
+            f"ORDER BY ReleasedAt DESC LIMIT {max_releases}"
+        ).fetchall()
+        app_rows = db.execute("SELECT Id, RepoUrl, Enabled " "FROM sobs_apps FINAL " "WHERE IsDeleted=0").fetchall()
+    except Exception:
+        app.logger.debug("github deps fetch: failed loading releases", exc_info=True)
+        return {"attempted": 0, "inserted": 0, "max_releases": max_releases}
+
+    apps_by_id = {
+        str(r[0]): {
+            "repo_url": str(r[1] or "").strip(),
+            "enabled": int(r[2] or 0),
+        }
+        for r in app_rows
+    }
+
+    candidates: list[tuple[str, str, str]] = [
+        ("requirements.txt", "text/plain", "requirements"),
+        ("package-lock.json", "application/json", "package_lock"),
+        ("go.sum", "text/plain", "go_sum"),
+        ("Gemfile.lock", "text/plain", "gemfile_lock"),
+    ]
+    parser_by_kind: dict[str, Callable[[str], list[dict[str, str]]]] = {
+        "requirements": _parse_requirements_dependencies,
+        "package_lock": _parse_package_lock_dependencies,
+        "go_sum": _parse_go_sum_dependencies,
+        "gemfile_lock": _parse_gemfile_lock_dependencies,
+    }
+
+    client = await _get_async_http_client()
+    inserted_rows: list[dict[str, Any]] = []
+    attempted = 0
+    inserted = 0
+
+    for row in release_rows:
+        release_id = str(row[0] or "")
+        app_id = str(row[1] or "")
+        release_version = str(row[2] or "").strip()
+        app_info = apps_by_id.get(app_id, {})
+        repo_url = str(app_info.get("repo_url") or "").strip()
+        app_enabled = int(app_info.get("enabled") or 0)
+        if not release_id or not release_version or release_id in existing_release_ids:
+            continue
+        if not app_enabled or not repo_url:
+            continue
+
+        owner, repo = _parse_github_repo_owner_name(repo_url)
+        if not owner or not repo:
+            continue
+
+        attempted += 1
+        found_for_release = False
+        for ref in _github_ref_candidates(release_version):
+            for lockfile_path, content_type, parser_kind in candidates:
+                encoded_path = urllib.parse.quote(lockfile_path, safe="/")
+                url = f"https://api.github.com/repos/{owner}/{repo}/contents/{encoded_path}"
+                try:
+                    resp = await client.get(
+                        url,
+                        params={"ref": ref},
+                        headers={
+                            "Authorization": f"Bearer {github_token}",
+                            "Accept": "application/vnd.github+json",
+                            "X-GitHub-Api-Version": "2022-11-28",
+                        },
+                        timeout=12,
+                    )
+                except Exception:
+                    continue
+
+                if resp.status_code == 404:
+                    continue
+                if resp.status_code != 200:
+                    break
+
+                body = resp.json() if resp.content else {}
+                if not isinstance(body, dict):
+                    continue
+
+                raw_bytes = _decode_github_contents_payload(body)
+                if not raw_bytes:
+                    continue
+
+                parser = parser_by_kind[parser_kind]
+                deps = parser(raw_bytes.decode("utf-8", errors="replace"))
+                if not deps:
+                    continue
+
+                checksum = hashlib.sha256(raw_bytes).hexdigest()
+                storage_ref = f"github://{owner}/{repo}/{lockfile_path}?ref={urllib.parse.quote(ref, safe='')}"
+                artifact_id = str(uuid.uuid4())
+                inserted_rows.append(
+                    {
+                        "Id": artifact_id,
+                        "ReleaseId": release_id,
+                        "ArtifactType": "dependencies-lockfile",
+                        "Name": lockfile_path,
+                        "ContentType": content_type,
+                        "Size": len(raw_bytes),
+                        "StorageRef": storage_ref,
+                        "ChecksumSha256": checksum,
+                        "Platform": "",
+                        "Architecture": "",
+                        "MetadataJson": json.dumps(
+                            {
+                                "source": "github_contents_api",
+                                "repo": f"{owner}/{repo}",
+                                "ref": ref,
+                                "path": lockfile_path,
+                                "dependencies": deps,
+                            },
+                            separators=(",", ":"),
+                        ),
+                        "UploadedAt": _normalize_ch_timestamp(datetime.now(timezone.utc)),
+                        "IsDeleted": 0,
+                        "Version": int(time.time() * 1000),
+                    }
+                )
+                existing_release_ids.add(release_id)
+                inserted += 1
+                found_for_release = True
+                break
+            if found_for_release:
+                break
+
+    if inserted_rows:
+        try:
+            _insert_rows_json_each_row(db, "sobs_release_artifacts", inserted_rows)
+        except Exception:
+            app.logger.warning("github deps fetch: failed storing dependency artifacts", exc_info=True)
+            inserted = 0
+
+    return {"attempted": attempted, "inserted": inserted, "max_releases": max_releases}
+
+
+def _collect_library_inventory(db: "ChDbConnection") -> list[dict[str, str]]:
+    """Collect deduplicated library inventory from release metadata and OTEL telemetry.
+
+    Source priority:
+    1. release_registry dependencies-lockfile artifacts registered by CI
+    2. telemetry.sdk.* attributes from traces/logs
+    3. ScopeName / ScopeVersion from traces/logs
+    """
+
+    inventory: dict[str, dict[str, str]] = {}
+    source_priority = {"release_registry": 0, "otel_sdk": 1, "otel_scope": 2}
+
+    def _service_label(item: dict[str, str]) -> str:
+        return str(item.get("service") or item.get("app_name") or "")
+
+    def _key(item: dict[str, str]) -> str:
+        return "::".join(
+            [
+                str(item.get("ecosystem") or ""),
+                str(item.get("package") or ""),
+                str(item.get("version") or ""),
+                _service_label(item),
+            ]
+        )
+
+    def _add(item: dict[str, str]) -> None:
+        package = str(item.get("package") or "").strip()
+        version = str(item.get("version") or "").strip()
+        if not package or not version:
+            return
+        normalized = {
+            "package": package,
+            "version": version,
+            "ecosystem": str(item.get("ecosystem") or "").strip(),
+            "service": str(item.get("service") or "").strip(),
+            "source": str(item.get("source") or "").strip(),
+            "app_name": str(item.get("app_name") or "").strip(),
+            "release_version": str(item.get("release_version") or "").strip(),
+            "environment": str(item.get("environment") or "").strip(),
+        }
+        item_key = _key(normalized)
+        current = inventory.get(item_key)
+        if not current:
+            inventory[item_key] = normalized
+            return
+        if source_priority.get(normalized["source"], 99) < source_priority.get(current.get("source", ""), 99):
+            inventory[item_key] = normalized
+
+    # Tier 1: dependencies-lockfile artifacts registered via CI/release metadata.
+    try:
+        artifact_rows = db.execute(
+            "SELECT ReleaseId, Name, MetadataJson "
+            "FROM sobs_release_artifacts FINAL "
+            "WHERE ArtifactType='dependencies-lockfile' AND IsDeleted=0 "
+            "ORDER BY UploadedAt DESC LIMIT 500"
+        ).fetchall()
+        release_rows = db.execute(
+            "SELECT Id, AppId, ReleaseVersion, Environment " "FROM sobs_app_releases FINAL WHERE IsDeleted=0"
+        ).fetchall()
+        app_rows = db.execute("SELECT Id, Name, Slug FROM sobs_apps FINAL WHERE IsDeleted=0").fetchall()
+        releases_by_id = {
+            str(row["Id"]): {
+                "app_id": str(row["AppId"] or ""),
+                "release_version": str(row["ReleaseVersion"] or ""),
+                "environment": str(row["Environment"] or ""),
+            }
+            for row in release_rows
+        }
+        apps_by_id = {
+            str(row["Id"]): {"name": str(row["Name"] or ""), "slug": str(row["Slug"] or "")} for row in app_rows
+        }
+        for row in artifact_rows:
+            release_info = releases_by_id.get(str(row["ReleaseId"] or ""), {})
+            app_info = apps_by_id.get(str(release_info.get("app_id") or ""), {})
+            metadata = _safe_json_loads(row["MetadataJson"], {})
+            dependencies = metadata.get("dependencies", []) if isinstance(metadata, dict) else []
+            if not isinstance(dependencies, list):
+                continue
+            for dep in dependencies:
+                if not isinstance(dep, dict):
+                    continue
+                app_name = str(app_info.get("name") or app_info.get("slug") or "")
+                _add(
+                    {
+                        "package": str(dep.get("package", dep.get("name", "")) or ""),
+                        "version": str(dep.get("version", "") or ""),
+                        "ecosystem": str(dep.get("ecosystem", "") or ""),
+                        "service": app_name,
+                        "source": "release_registry",
+                        "app_name": app_name,
+                        "release_version": str(release_info.get("release_version") or ""),
+                        "environment": str(release_info.get("environment") or ""),
+                    }
+                )
+    except Exception:
+        app.logger.debug("release registry dependency inventory query failed", exc_info=True)
+
+    # Tier 2: telemetry.sdk.* from traces.
     try:
         rows = db.execute(
             "SELECT "
@@ -10123,12 +12020,20 @@ def _extract_library_versions_from_otel(db: "ChDbConnection") -> list[dict]:
             "GROUP BY sdk_name, sdk_version, sdk_lang, ServiceName "
             "LIMIT 200"
         ).fetchall()
-        for r in rows:
-            _add(str(r[0] or ""), str(r[1] or ""), _lang_to_osv_ecosystem(str(r[2] or "")), str(r[3] or ""))
+        for row in rows:
+            _add(
+                {
+                    "package": str(row[0] or ""),
+                    "version": str(row[1] or ""),
+                    "ecosystem": _lang_to_osv_ecosystem(str(row[2] or "")),
+                    "service": str(row[3] or ""),
+                    "source": "otel_sdk",
+                }
+            )
     except Exception:
-        pass
+        app.logger.debug("otel trace sdk inventory query failed", exc_info=True)
 
-    # telemetry.sdk.* from logs
+    # Tier 2: telemetry.sdk.* from logs.
     try:
         rows = db.execute(
             "SELECT "
@@ -10141,12 +12046,20 @@ def _extract_library_versions_from_otel(db: "ChDbConnection") -> list[dict]:
             "GROUP BY sdk_name, sdk_version, sdk_lang, ServiceName "
             "LIMIT 200"
         ).fetchall()
-        for r in rows:
-            _add(str(r[0] or ""), str(r[1] or ""), _lang_to_osv_ecosystem(str(r[2] or "")), str(r[3] or ""))
+        for row in rows:
+            _add(
+                {
+                    "package": str(row[0] or ""),
+                    "version": str(row[1] or ""),
+                    "ecosystem": _lang_to_osv_ecosystem(str(row[2] or "")),
+                    "service": str(row[3] or ""),
+                    "source": "otel_sdk",
+                }
+            )
     except Exception:
-        pass
+        app.logger.debug("otel log sdk inventory query failed", exc_info=True)
 
-    # Instrumentation library versions via ScopeName / ScopeVersion
+    # Tier 3: instrumentation library versions via ScopeName / ScopeVersion from traces.
     try:
         rows = db.execute(
             "SELECT ScopeName, ScopeVersion, ServiceName "
@@ -10155,35 +12068,96 @@ def _extract_library_versions_from_otel(db: "ChDbConnection") -> list[dict]:
             "GROUP BY ScopeName, ScopeVersion, ServiceName "
             "LIMIT 300"
         ).fetchall()
-        for r in rows:
-            scope_name = str(r[0] or "")
-            scope_ver = str(r[1] or "")
-            svc = str(r[2] or "")
-            # Detect ecosystem only from unambiguous well-known prefixes.
-            # Leave eco="" when unsure rather than guessing — unknown-ecosystem
-            # entries are skipped by _run_cve_scan to avoid false lookups.
-            if (
-                scope_name.startswith("io.opentelemetry")
-                or scope_name.startswith("com.")
-                or scope_name.startswith("org.")
-            ):
-                eco = "Maven"
-            elif scope_name.startswith("@"):
-                eco = "npm"
-            elif scope_name.startswith("opentelemetry-") and "_" not in scope_name.split("/")[-1]:
-                # opentelemetry-api, opentelemetry-sdk, etc. are PyPI names
-                eco = "PyPI"
-            else:
-                eco = ""
-            _add(scope_name, scope_ver, eco, svc)
+        for row in rows:
+            scope_name = str(row[0] or "")
+            _add(
+                {
+                    "package": scope_name,
+                    "version": str(row[1] or ""),
+                    "ecosystem": _inventory_scope_ecosystem(scope_name),
+                    "service": str(row[2] or ""),
+                    "source": "otel_scope",
+                }
+            )
     except Exception:
-        pass
+        app.logger.debug("otel trace scope inventory query failed", exc_info=True)
 
-    return list(libs.values())
+    # Tier 3: instrumentation library versions via ScopeName / ScopeVersion from logs.
+    try:
+        rows = db.execute(
+            "SELECT ScopeName, ScopeVersion, ServiceName "
+            "FROM otel_logs "
+            "WHERE ScopeVersion != '' AND ScopeName != '' "
+            "GROUP BY ScopeName, ScopeVersion, ServiceName "
+            "LIMIT 300"
+        ).fetchall()
+        for row in rows:
+            scope_name = str(row[0] or "")
+            _add(
+                {
+                    "package": scope_name,
+                    "version": str(row[1] or ""),
+                    "ecosystem": _inventory_scope_ecosystem(scope_name),
+                    "service": str(row[2] or ""),
+                    "source": "otel_scope",
+                }
+            )
+    except Exception:
+        app.logger.debug("otel log scope inventory query failed", exc_info=True)
+
+    return list(inventory.values())
+
+
+def _extract_library_versions_from_otel(db: "ChDbConnection") -> list[dict]:
+    """Backward-compatible wrapper for existing OTEL/library inventory callers."""
+    inventory = _collect_library_inventory(db)
+    return [
+        {
+            "package": str(item.get("package") or ""),
+            "version": str(item.get("version") or ""),
+            "ecosystem": str(item.get("ecosystem") or ""),
+            "service": str(item.get("service") or item.get("app_name") or ""),
+        }
+        for item in inventory
+    ]
+
+
+def _inventory_versions_by_package(db: "ChDbConnection") -> dict[str, set[str]]:
+    """Map ecosystem/package to currently observed versions in merged inventory."""
+    versions_by_package: dict[str, set[str]] = {}
+    for item in _collect_library_inventory(db):
+        package = str(item.get("package") or "").strip()
+        ecosystem = str(item.get("ecosystem") or "").strip()
+        version = str(item.get("version") or "").strip()
+        if not package or not ecosystem or not version:
+            continue
+        versions_by_package.setdefault(f"{ecosystem}::{package}", set()).add(version)
+    return versions_by_package
+
+
+def _effective_cve_disposition(
+    raw_disposition: str,
+    package: str,
+    ecosystem: str,
+    version: str,
+    versions_by_package: dict[str, set[str]],
+) -> tuple[str, bool]:
+    """Return effective disposition and whether it was auto-expired.
+
+    A `fixed` disposition expires once a different version for the same
+    package+ecosystem appears in the merged inventory.
+    """
+    disposition = str(raw_disposition or "open")
+    if disposition != "fixed":
+        return disposition, False
+    current_versions = versions_by_package.get(f"{ecosystem}::{package}", set())
+    if any(v != version for v in current_versions):
+        return "open", True
+    return disposition, False
 
 
 async def _run_cve_scan(db: "ChDbConnection | None" = None) -> dict:
-    """Scan OTEL telemetry for library versions and check OSV.dev for CVEs.
+    """Scan release metadata and OTEL telemetry for library versions and check OSV.dev for CVEs.
 
     Stores results in sobs_cve_findings.  Returns a summary dict.
     Returns early if CVE enrichment is disabled.
@@ -10193,10 +12167,36 @@ async def _run_cve_scan(db: "ChDbConnection | None" = None) -> dict:
     if not cve_enabled:
         return {"ok": False, "reason": "disabled"}
 
-    libraries = _extract_library_versions_from_otel(resolved_db)
+    github_backfill = await _fetch_release_deps_from_github(resolved_db)
+    _set_app_setting(
+        resolved_db,
+        _CVE_LAST_BACKFILL_ATTEMPTED_SETTING,
+        str(int(github_backfill.get("attempted", 0) or 0)),
+    )
+    _set_app_setting(
+        resolved_db,
+        _CVE_LAST_BACKFILL_INSERTED_SETTING,
+        str(int(github_backfill.get("inserted", 0) or 0)),
+    )
+    _set_app_setting(
+        resolved_db,
+        _CVE_LAST_BACKFILL_CAP_SETTING,
+        str(int(github_backfill.get("max_releases", _github_backfill_max_releases(resolved_db)) or 0)),
+    )
+
+    libraries = _collect_library_inventory(resolved_db)
     if not libraries:
         _set_app_setting(resolved_db, _CVE_LAST_SCAN_SETTING, _now_iso())
-        return {"ok": True, "libraries_found": 0, "vulns_found": 0}
+        return {
+            "ok": True,
+            "libraries_found": 0,
+            "vulns_found": 0,
+            "github_backfill_attempted": github_backfill.get("attempted", 0),
+            "github_backfill_inserted": github_backfill.get("inserted", 0),
+            "github_backfill_max_releases": github_backfill.get(
+                "max_releases", _github_backfill_max_releases(resolved_db)
+            ),
+        }
 
     client = await _get_async_http_client()
     scan_ts = _now_iso()
@@ -10250,11 +12250,19 @@ async def _run_cve_scan(db: "ChDbConnection | None" = None) -> dict:
             app.logger.warning("Failed to store CVE findings", exc_info=True)
 
     _set_app_setting(resolved_db, _CVE_LAST_SCAN_SETTING, scan_ts)
-    return {"ok": True, "libraries_found": len(libraries), "vulns_found": new_count, "scanned_at": scan_ts}
+    return {
+        "ok": True,
+        "libraries_found": len(libraries),
+        "vulns_found": new_count,
+        "scanned_at": scan_ts,
+        "github_backfill_attempted": github_backfill.get("attempted", 0),
+        "github_backfill_inserted": github_backfill.get("inserted", 0),
+        "github_backfill_max_releases": github_backfill.get("max_releases", _github_backfill_max_releases(resolved_db)),
+    }
 
 
 async def _cve_scanner_loop() -> None:
-    """Background task: scan for CVEs in OTEL library versions every 24 hours."""
+    """Background task: scan for CVEs in collected library inventory every 24 hours."""
     await asyncio.sleep(_CVE_SCAN_INITIAL_DELAY_S)
     while True:
         try:
@@ -10825,6 +12833,217 @@ async def api_web_traffic_devices():
     return jsonify({"ok": True, "devices": devices})
 
 
+@app.route("/api/enrichment/libraries", methods=["GET"])
+@require_basic_auth
+async def api_enrichment_libraries():
+    """Return merged library inventory with CVE counts and provenance."""
+    db = get_db()
+    try:
+        inventory = _collect_library_inventory(db)
+        cve_rows = db.execute(
+            "SELECT Package, Ecosystem, Version, countDistinct(OsvId) AS cve_count "
+            "FROM sobs_cve_findings FINAL "
+            "GROUP BY Package, Ecosystem, Version"
+        ).fetchall()
+        cve_count_by_key = {f"{str(r[0])}::{str(r[1])}::{str(r[2])}": int(r[3]) for r in cve_rows}
+        source_order = {"release_registry": 0, "otel_sdk": 1, "otel_scope": 2}
+
+        libraries: list[dict[str, Any]] = []
+        for item in inventory:
+            package = str(item.get("package") or "")
+            ecosystem = str(item.get("ecosystem") or "")
+            version = str(item.get("version") or "")
+            service = str(item.get("service") or item.get("app_name") or "")
+            source = str(item.get("source") or "")
+            cve_count = cve_count_by_key.get(f"{package}::{ecosystem}::{version}", 0)
+            if not ecosystem:
+                status = "unknown_ecosystem"
+            elif cve_count > 0:
+                status = "vulnerable"
+            else:
+                status = "clean"
+            libraries.append(
+                {
+                    "package": package,
+                    "ecosystem": ecosystem,
+                    "version": version,
+                    "service": service,
+                    "source": source,
+                    "app_name": str(item.get("app_name") or ""),
+                    "release_version": str(item.get("release_version") or ""),
+                    "environment": str(item.get("environment") or ""),
+                    "cve_count": cve_count,
+                    "status": status,
+                }
+            )
+
+        libraries.sort(
+            key=lambda x: (
+                -int(x.get("cve_count", 0)),
+                source_order.get(str(x.get("source") or ""), 99),
+                str(x.get("package") or "").lower(),
+                str(x.get("version") or "").lower(),
+                str(x.get("service") or "").lower(),
+            )
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "libraries": libraries,
+                "scanned_at": _get_app_setting(db, _CVE_LAST_SCAN_SETTING) or "",
+            }
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/enrichment/github/repo-health", methods=["GET"])
+@require_basic_auth
+async def api_enrichment_github_repo_health():
+    """Return version-scoped GitHub repo health counts for CVE workflow context."""
+    db = get_db()
+    default_github_token = _load_ai_setting(db, "ai.github_token", "").strip()
+
+    try:
+        app_rows = db.execute(
+            "SELECT Id, Name, Slug, RepoUrl "
+            "FROM sobs_apps FINAL "
+            "WHERE IsDeleted=0 AND Enabled=1 AND RepoUrl != '' "
+            "ORDER BY Name ASC"
+        ).fetchall()
+        release_rows = db.execute(
+            "SELECT AppId, ReleaseVersion "
+            "FROM sobs_app_releases FINAL "
+            "WHERE IsDeleted=0 "
+            "ORDER BY ReleasedAt DESC LIMIT 4000"
+        ).fetchall()
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+    versions_by_app: dict[str, list[str]] = {}
+    for row in release_rows:
+        app_id = str(row[0] or "")
+        rel_ver = str(row[1] or "").strip()
+        if not app_id or not rel_ver:
+            continue
+        versions = versions_by_app.setdefault(app_id, [])
+        if rel_ver not in versions and len(versions) < 5:
+            versions.append(rel_ver)
+
+    repo_targets: list[dict[str, Any]] = []
+    for row in app_rows:
+        app_id = str(row[0] or "")
+        app_name = str(row[1] or row[2] or "")
+        repo_url = str(row[3] or "")
+        owner, repo = _parse_github_repo_owner_name(repo_url)
+        versions = versions_by_app.get(app_id, [])
+        if not owner or not repo or not versions:
+            continue
+        repo_targets.append(
+            {
+                "app_name": app_name,
+                "owner": owner,
+                "repo": repo,
+                "versions": versions,
+            }
+        )
+
+    repo_targets = repo_targets[:_GITHUB_REPO_HEALTH_MAX_REPOS]
+    client = await _get_async_http_client()
+
+    total_open_issues = 0
+    total_open_prs = 0
+    total_security_items = 0
+    scanned_repos = 0
+    repos_summary: list[dict[str, Any]] = []
+
+    for target in repo_targets:
+        owner = str(target["owner"])
+        repo = str(target["repo"])
+        github_token = _load_repo_scoped_github_token(db, owner, repo) or default_github_token
+        if not github_token:
+            continue
+        versions = [str(v) for v in target.get("versions", []) if str(v).strip()]
+        version_tokens: set[str] = set()
+        for version in versions:
+            version_tokens.update(_github_version_tokens(version))
+        if not version_tokens:
+            continue
+
+        scanned_repos += 1
+        try:
+            resp = await client.get(
+                f"https://api.github.com/repos/{owner}/{repo}/issues",
+                params={"state": "open", "per_page": str(_GITHUB_REPO_HEALTH_MAX_ITEMS_PER_REPO)},
+                headers={
+                    "Authorization": f"Bearer {github_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                continue
+            items = resp.json() if resp.content else []
+            if not isinstance(items, list):
+                continue
+        except Exception:
+            continue
+
+        repo_issues = 0
+        repo_prs = 0
+        repo_security = 0
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            text = f"{str(item.get('title') or '')}\n{str(item.get('body') or '')}"
+            if not _text_mentions_version_tokens(text, version_tokens):
+                continue
+            is_pr = isinstance(item.get("pull_request"), dict)
+            if is_pr:
+                repo_prs += 1
+            else:
+                repo_issues += 1
+            if _github_item_is_security_related(item):
+                repo_security += 1
+
+        total_open_issues += repo_issues
+        total_open_prs += repo_prs
+        total_security_items += repo_security
+        repos_summary.append(
+            {
+                "repo": f"{owner}/{repo}",
+                "app_name": str(target.get("app_name") or ""),
+                "versions": versions,
+                "open_issues": repo_issues,
+                "open_prs": repo_prs,
+                "security_items": repo_security,
+            }
+        )
+
+    repos_summary.sort(
+        key=lambda r: (
+            -(int(r.get("security_items", 0)) + int(r.get("open_issues", 0)) + int(r.get("open_prs", 0))),
+            str(r.get("repo") or "").lower(),
+        )
+    )
+
+    return jsonify(
+        {
+            "ok": True,
+            "scanned_repos": scanned_repos,
+            "total_repos_considered": len(repo_targets),
+            "open_issues": total_open_issues,
+            "open_prs": total_open_prs,
+            "security_items": total_security_items,
+            "version_scoped": True,
+            "last_synced_at": _now_iso(),
+            "repos": repos_summary,
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # API – CVE enrichment endpoints
 # Uses OSV.dev (Apache 2.0, free, no API key required)
@@ -10837,22 +13056,56 @@ async def view_enrichment_cve():
     db = get_db()
     cve_enabled = (_get_app_setting(db, _CVE_ENABLED_SETTING) or "true").lower() in ("1", "true", "yes")
     cve_last_scan = _get_app_setting(db, _CVE_LAST_SCAN_SETTING) or ""
+    github_backfill_max_releases = _github_backfill_max_releases(db)
+    try:
+        cve_last_backfill_attempted = int(_get_app_setting(db, _CVE_LAST_BACKFILL_ATTEMPTED_SETTING) or "0")
+    except (TypeError, ValueError):
+        cve_last_backfill_attempted = 0
+    try:
+        cve_last_backfill_inserted = int(_get_app_setting(db, _CVE_LAST_BACKFILL_INSERTED_SETTING) or "0")
+    except (TypeError, ValueError):
+        cve_last_backfill_inserted = 0
+    try:
+        cve_last_backfill_cap = int(_get_app_setting(db, _CVE_LAST_BACKFILL_CAP_SETTING) or "0")
+    except (TypeError, ValueError):
+        cve_last_backfill_cap = 0
 
     severity_filter = request.args.get("severity", "").strip()
     ecosystem_filter = request.args.get("ecosystem", "").strip()
     package_filter = request.args.get("package", "").strip()
+    show_all = request.args.get("show_all", "").strip().lower() in ("1", "true", "yes", "on")
 
     cve_findings: list[dict] = []
     ecosystems: list[str] = []
     severities: list[str] = []
     if cve_enabled:
         try:
+            versions_by_package = _inventory_versions_by_package(db)
+            disposition_rows = db.execute(
+                "SELECT OsvId, Package, Ecosystem, Version, Disposition, Note " "FROM sobs_cve_dispositions FINAL"
+            ).fetchall()
+            dispositions_by_key = {
+                f"{str(r[0])}::{str(r[1])}::{str(r[2])}::{str(r[3])}": {
+                    "disposition": str(r[4] or "open"),
+                    "note": str(r[5] or ""),
+                }
+                for r in disposition_rows
+            }
             rows = db.execute(
                 "SELECT Package, Ecosystem, Version, ServiceName, OsvId, CveIds, Summary, Severity, Published "
                 "FROM sobs_cve_findings FINAL "
                 "ORDER BY Published DESC LIMIT 500"
             ).fetchall()
             for r in rows:
+                finding_key = f"{str(r[4])}::{str(r[0])}::{str(r[1])}::{str(r[2])}"
+                raw_disposition = dispositions_by_key.get(finding_key, {}).get("disposition", "open")
+                disposition, disposition_expired = _effective_cve_disposition(
+                    str(raw_disposition or "open"),
+                    str(r[0]),
+                    str(r[1]),
+                    str(r[2]),
+                    versions_by_package,
+                )
                 cve_findings.append(
                     {
                         "package": str(r[0]),
@@ -10864,6 +13117,10 @@ async def view_enrichment_cve():
                         "summary": str(r[6]),
                         "severity": str(r[7]),
                         "published": str(r[8]),
+                        "disposition": disposition,
+                        "raw_disposition": str(raw_disposition or "open"),
+                        "disposition_expired": disposition_expired,
+                        "disposition_note": dispositions_by_key.get(finding_key, {}).get("note", ""),
                     }
                 )
             ecosystems = sorted({f["ecosystem"] for f in cve_findings if f["ecosystem"]})
@@ -10875,6 +13132,12 @@ async def view_enrichment_cve():
             if package_filter:
                 pkg_lower = package_filter.lower()
                 cve_findings = [f for f in cve_findings if pkg_lower in f["package"].lower()]
+            if not show_all:
+                cve_findings = [
+                    f
+                    for f in cve_findings
+                    if f.get("disposition", "open") not in ("accepted", "false_positive", "fixed")
+                ]
         except Exception:
             pass
 
@@ -10882,12 +13145,17 @@ async def view_enrichment_cve():
         "cve.html",
         cve_enabled=cve_enabled,
         cve_last_scan=cve_last_scan,
+        github_backfill_max_releases=github_backfill_max_releases,
+        cve_last_backfill_attempted=cve_last_backfill_attempted,
+        cve_last_backfill_inserted=cve_last_backfill_inserted,
+        cve_last_backfill_cap=cve_last_backfill_cap,
         cve_findings=cve_findings,
         ecosystems=ecosystems,
         severities=severities,
         severity_filter=severity_filter,
         ecosystem_filter=ecosystem_filter,
         package_filter=package_filter,
+        show_all=show_all,
     )
 
 
@@ -10900,29 +13168,117 @@ async def api_cve_findings():
     if not cve_enabled:
         return jsonify({"ok": False, "error": "CVE enrichment is disabled"}), 403
     try:
+        show_all = request.args.get("show_all", "").strip().lower() in ("1", "true", "yes", "on")
+        versions_by_package = _inventory_versions_by_package(db)
+        disposition_rows = db.execute(
+            "SELECT OsvId, Package, Ecosystem, Version, Disposition, Note " "FROM sobs_cve_dispositions FINAL"
+        ).fetchall()
+        dispositions_by_key = {
+            f"{str(r[0])}::{str(r[1])}::{str(r[2])}::{str(r[3])}": {
+                "disposition": str(r[4] or "open"),
+                "note": str(r[5] or ""),
+            }
+            for r in disposition_rows
+        }
         rows = db.execute(
             "SELECT Package, Ecosystem, Version, ServiceName, OsvId, CveIds, Summary, Severity, Published "
             "FROM sobs_cve_findings FINAL "
             "ORDER BY Published DESC LIMIT 100"
         ).fetchall()
-        findings = [
-            {
-                "package": str(r[0]),
-                "ecosystem": str(r[1]),
-                "version": str(r[2]),
-                "service": str(r[3]),
-                "osv_id": str(r[4]),
-                "cve_ids": [c for c in str(r[5]).split(",") if c],
-                "summary": str(r[6]),
-                "severity": str(r[7]),
-                "published": str(r[8]),
-            }
-            for r in rows
-        ]
+        findings = []
+        for r in rows:
+            finding_key = f"{str(r[4])}::{str(r[0])}::{str(r[1])}::{str(r[2])}"
+            disposition_data = dispositions_by_key.get(finding_key, {})
+            raw_disposition = str(disposition_data.get("disposition", "open") or "open")
+            disposition, disposition_expired = _effective_cve_disposition(
+                raw_disposition,
+                str(r[0]),
+                str(r[1]),
+                str(r[2]),
+                versions_by_package,
+            )
+            if (not show_all) and disposition in ("accepted", "false_positive", "fixed"):
+                continue
+            findings.append(
+                {
+                    "package": str(r[0]),
+                    "ecosystem": str(r[1]),
+                    "version": str(r[2]),
+                    "service": str(r[3]),
+                    "osv_id": str(r[4]),
+                    "cve_ids": [c for c in str(r[5]).split(",") if c],
+                    "summary": str(r[6]),
+                    "severity": str(r[7]),
+                    "published": str(r[8]),
+                    "disposition": disposition,
+                    "raw_disposition": raw_disposition,
+                    "disposition_expired": disposition_expired,
+                    "disposition_note": str(disposition_data.get("note", "") or ""),
+                }
+            )
         last_scan = _get_app_setting(db, _CVE_LAST_SCAN_SETTING) or ""
         return jsonify({"ok": True, "findings": findings, "last_scan": last_scan})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/enrichment/cve/findings/<osv_id>/disposition", methods=["POST"])
+@require_basic_auth
+async def api_cve_set_disposition(osv_id: str):
+    """Set disposition and optional note for a CVE finding."""
+    db = get_db()
+    payload = await request.get_json(force=True, silent=True) or {}
+    package = str(payload.get("package", "")).strip()
+    ecosystem = str(payload.get("ecosystem", "")).strip()
+    version = str(payload.get("version", "")).strip()
+    disposition = str(payload.get("disposition", "")).strip().lower()
+    note = str(payload.get("note", "")).strip()
+
+    if not osv_id.strip() or not package or not ecosystem or not version:
+        return jsonify({"ok": False, "error": "osv_id, package, ecosystem, and version are required"}), 400
+    if disposition not in _CVE_DISPOSITION_VALUES:
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": f"invalid disposition: {disposition}",
+                    "allowed": sorted(_CVE_DISPOSITION_VALUES),
+                }
+            ),
+            400,
+        )
+
+    existing = db.execute(
+        "SELECT CreatedAt, Version_ FROM sobs_cve_dispositions FINAL "
+        "WHERE OsvId=? AND Package=? AND Ecosystem=? AND Version=? LIMIT 1",
+        [osv_id, package, ecosystem, version],
+    ).fetchone()
+    now_ts = _now_iso()
+    current_version = int(time.time() * 1000)
+    row = {
+        "OsvId": osv_id,
+        "Package": package,
+        "Ecosystem": ecosystem,
+        "Version": version,
+        "Disposition": disposition,
+        "Note": note,
+        "CreatedAt": str(existing["CreatedAt"]) if existing else now_ts,
+        "UpdatedAt": now_ts,
+        "Version_": max(current_version, int(existing["Version_"]) + 1 if existing else current_version),
+    }
+    _insert_rows_json_each_row(db, "sobs_cve_dispositions", [row])
+    return jsonify(
+        {
+            "ok": True,
+            "osv_id": osv_id,
+            "package": package,
+            "ecosystem": ecosystem,
+            "version": version,
+            "disposition": disposition,
+            "note": note,
+            "updated_at": row["UpdatedAt"],
+        }
+    )
 
 
 @app.route("/api/enrichment/cve/scan", methods=["POST"])
@@ -10930,7 +13286,7 @@ async def api_cve_findings():
 async def api_cve_scan():
     """Trigger an immediate CVE scan (normally scheduled every 24 hours).
 
-    Scans OTEL telemetry for library versions via ResourceAttributes/ScopeVersion,
+    Scans release metadata and OTEL telemetry for library versions,
     then queries OSV.dev (Apache 2.0) for known CVEs.  Stores results in
     sobs_cve_findings.
     """
@@ -10938,6 +13294,155 @@ async def api_cve_scan():
         summary = await _run_cve_scan()
         return jsonify(summary)
     except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Web UI – Work Items (Auto-Created GitHub Issues)
+# ---------------------------------------------------------------------------
+@app.route("/work-items")
+@require_basic_auth
+async def view_work_items():
+    """Display work items created by agent rules."""
+    db = get_db()
+
+    # Filters
+    service_filter = request.args.get("service", "").strip()
+    rule_filter = request.args.get("rule_name", "").strip()
+    action_type_filter = request.args.get("action_type", "").strip()
+    status_filter = request.args.get("status", "").strip()
+    from_ts, to_ts, time_error = _parse_time_window_args()
+
+    # Build query
+    conditions = ["IsDeleted = 0"]
+    params = []
+
+    if service_filter:
+        conditions.append("ServiceName = ?")
+        params.append(service_filter)
+    if rule_filter:
+        conditions.append("AgentRuleName = ?")
+        params.append(rule_filter)
+    if action_type_filter:
+        conditions.append("AgentAction = ?")
+        params.append(action_type_filter)
+    if status_filter:
+        conditions.append("IssueState = ?")
+        params.append(status_filter)
+    if from_ts:
+        conditions.append("CreatedAt >= ?")
+        params.append(from_ts)
+    if to_ts:
+        conditions.append("CreatedAt <= ?")
+        params.append(to_ts)
+
+    where_clause = "WHERE " + " AND ".join(conditions) if conditions else "WHERE 1=1"
+
+    # Query work items
+    items = []
+    total_items = 0
+    services = set()
+    rules = set()
+
+    try:
+        settings = _load_all_ai_settings(db)
+        await _maybe_backfill_github_work_item_links(db, settings)
+
+        # Get total count
+        count_row = db.execute(
+            f"SELECT count() AS c FROM sobs_github_work_items FINAL {where_clause}", params
+        ).fetchone()
+        total_items = int(count_row["c"]) if count_row else 0
+
+        # Get paginated results
+        limit = _parse_limit(100)
+        offset = _parse_offset()
+        rows = db.execute(
+            f"SELECT * FROM sobs_github_work_items FINAL {where_clause} "
+            f"ORDER BY CreatedAt DESC LIMIT {limit} OFFSET {offset}",
+            params,
+        ).fetchall()
+        items = [_serialize_github_work_item_row(r) for r in rows]
+
+        # Get all unique services and rules for filter dropdowns
+        all_services = db.execute(
+            "SELECT DISTINCT ServiceName FROM sobs_github_work_items FINAL WHERE IsDeleted=0 ORDER BY ServiceName"
+        ).fetchall()
+        services = {str(r["ServiceName"]) for r in all_services if r["ServiceName"]}
+
+        all_rules = db.execute(
+            "SELECT DISTINCT AgentRuleName FROM sobs_github_work_items FINAL WHERE IsDeleted=0 ORDER BY AgentRuleName"
+        ).fetchall()
+        rules = {str(r["AgentRuleName"]) for r in all_rules if r["AgentRuleName"]}
+    except Exception as exc:
+        app.logger.warning("Error loading work items: %s", exc)
+
+    return await render_template(
+        "work_items.html",
+        items=items,
+        total_items=total_items,
+        services=sorted(services),
+        rules=sorted(rules),
+        service_filter=service_filter,
+        rule_filter=rule_filter,
+        action_type_filter=action_type_filter,
+        status_filter=status_filter,
+        from_ts=from_ts,
+        to_ts=to_ts,
+        time_error=time_error,
+    )
+
+
+@app.route("/api/work-items", methods=["GET"])
+@require_basic_auth
+async def api_get_work_items():
+    """Get work items filtered by optional criteria."""
+    db = get_db()
+
+    # Parse filters
+    anomaly_rule_id = request.args.get("anomaly_rule_id", "").strip()
+    service_name = request.args.get("service", "").strip()
+    agent_rule_id = request.args.get("rule_id", "").strip()
+    signal_source = request.args.get("signal_source", "").strip()
+    signal_name = request.args.get("signal_name", "").strip()
+    limit = _parse_limit(100)
+
+    conditions = ["IsDeleted = 0"]
+    params = []
+
+    if anomaly_rule_id:
+        conditions.append("AnomalyRuleId = ?")
+        params.append(anomaly_rule_id)
+    if service_name:
+        conditions.append("ServiceName = ?")
+        params.append(service_name)
+    if agent_rule_id:
+        conditions.append("AgentRuleId = ?")
+        params.append(agent_rule_id)
+    if signal_source:
+        conditions.append("SignalSource = ?")
+        params.append(signal_source)
+    if signal_name:
+        conditions.append("SignalName = ?")
+        params.append(signal_name)
+
+    where_clause = " AND ".join(conditions)
+
+    try:
+        settings = _load_all_ai_settings(db)
+        await _maybe_backfill_github_work_item_links(db, settings)
+
+        rows = db.execute(
+            f"SELECT * FROM sobs_github_work_items FINAL "
+            f"WHERE {where_clause} "
+            f"ORDER BY CreatedAt DESC "
+            f"LIMIT {limit}",
+            params,
+        ).fetchall()
+        items = [_serialize_github_work_item_row(r) for r in rows]
+        return jsonify({"ok": True, "items": items})
+    except Exception as exc:
+        app.logger.warning("Error fetching work items: %s", exc)
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
@@ -14266,7 +16771,7 @@ async def metrics_anomaly():
 # ---------------------------------------------------------------------------
 
 # Valid page types for reports
-_REPORT_PAGE_TYPES = {"logs", "traces", "errors", "metrics", "rum", "ai"}
+_REPORT_PAGE_TYPES = {"logs", "traces", "errors", "metrics", "rum", "ai", "work_items"}
 
 
 def _parse_report_filters(raw_filters_json: Any) -> dict[str, Any]:
@@ -15234,12 +17739,16 @@ _PUSH_RECORD_SIZE = 4096
 # Reference: https://github.com/rabuchaim/geoip2fast
 #
 # CVE data: OSV.dev (Apache 2.0, free, no API key required).
-# Library versions are extracted from OTEL ResourceAttributes / ScopeVersion.
+# Library versions are extracted from release metadata plus OTEL data.
 # Reference: https://google.github.io/osv.dev/api/
 # ---------------------------------------------------------------------------
 _GEO_ENABLED_SETTING = "enrichment.geo_enabled"
 _CVE_ENABLED_SETTING = "enrichment.cve_enabled"
 _CVE_LAST_SCAN_SETTING = "enrichment.cve_last_scan"
+_GITHUB_BACKFILL_MAX_RELEASES_SETTING = "enrichment.github_backfill_max_releases"
+_CVE_LAST_BACKFILL_ATTEMPTED_SETTING = "enrichment.cve_last_scan_github_backfill_attempted"
+_CVE_LAST_BACKFILL_INSERTED_SETTING = "enrichment.cve_last_scan_github_backfill_inserted"
+_CVE_LAST_BACKFILL_CAP_SETTING = "enrichment.cve_last_scan_github_backfill_cap"
 
 # Simple bounded in-process geo cache: {ip: geo_dict}
 _GEO_CACHE: OrderedDict[str, dict] = OrderedDict()
@@ -15254,6 +17763,12 @@ _GEO_DB_LOCK = threading.Lock()
 _CVE_SCAN_INITIAL_DELAY_S = 30  # seconds before the first scan after startup
 _CVE_SCAN_INTERVAL_S = 86400  # seconds between scans (24 hours)
 _CVE_MAX_VULNS_PER_PKG = 10  # max OSV.dev results stored per package
+_CVE_DISPOSITION_VALUES = {"open", "accepted", "false_positive", "fixed"}
+_GITHUB_BACKFILL_MAX_RELEASES_DEFAULT = 300
+_GITHUB_BACKFILL_MAX_RELEASES_MIN = 1
+_GITHUB_BACKFILL_MAX_RELEASES_MAX = 2000
+_GITHUB_REPO_HEALTH_MAX_REPOS = 25
+_GITHUB_REPO_HEALTH_MAX_ITEMS_PER_REPO = 100
 
 # Background CVE scan task handle
 _CVE_SCAN_TASK: "asyncio.Task[None] | None" = None
@@ -16919,11 +19434,22 @@ async def view_ai_settings():
     settings = _load_all_ai_settings(db)
     anomaly_rules = _load_anomaly_rules(db)
     tag_rules = _load_tag_rules(db)
+    token_expiry_status = _github_token_expiry_status(str(settings.get("ai.github_token_expires_at", "")).strip())
+    token_validation_status = {
+        "status": str(settings.get("ai.github_token_last_validation_status", "")).strip(),
+        "message": str(settings.get("ai.github_token_last_validation_message", "")).strip(),
+        "last_validated_at": str(settings.get("ai.github_token_last_validated_at", "")).strip(),
+    }
     return await render_template(
         "settings_ai.html",
         settings=settings,
         anomaly_rules=anomaly_rules,
         tag_rules=tag_rules,
+        github_token_expires_date=_github_token_expiry_date_input_value(
+            str(settings.get("ai.github_token_expires_at", "")).strip()
+        ),
+        github_token_expiry_status=token_expiry_status,
+        github_token_validation_status=token_validation_status,
     )
 
 
@@ -16932,14 +19458,32 @@ async def view_ai_settings():
 async def save_ai_settings():
     form = await request.form
     db = get_db()
+    previous_token = _load_ai_setting(db, "ai.github_token", "").strip()
     for key in _AI_SETTING_KEYS:
-        if key in {"ai.guard_thinking_level", "ai.guard_timeout_seconds"}:
+        if key in {
+            "ai.guard_thinking_level",
+            "ai.guard_timeout_seconds",
+            "ai.github_token_expires_at",
+            "ai.github_token_last_validated_at",
+            "ai.github_token_last_validation_status",
+            "ai.github_token_last_validation_message",
+        }:
             # Guard thinking is intentionally not user-configured via the Settings UI.
             continue
         # Strip key prefix for form field name: "ai.endpoint_url" → "endpoint_url"
         field = key.removeprefix("ai.")
         value = (form.get(field) or "").strip()
         _save_ai_setting(db, key, value)
+
+    github_token = (form.get("github_token") or "").strip()
+    github_token_expiry = _normalize_github_token_expiry_input(form.get("github_token_expires_at") or "")
+    _save_ai_setting(db, "ai.github_token_expires_at", github_token_expiry if github_token else "")
+
+    if github_token != previous_token:
+        _save_ai_setting(db, "ai.github_token_last_validated_at", "")
+        _save_ai_setting(db, "ai.github_token_last_validation_status", "")
+        _save_ai_setting(db, "ai.github_token_last_validation_message", "")
+
     await flash("AI settings saved", "success")
     return redirect(url_for("view_ai_settings"))
 
@@ -16954,11 +19498,15 @@ async def view_enrichment_settings():
     geo_enabled = (_get_app_setting(db, _GEO_ENABLED_SETTING) or "true").lower() in ("1", "true", "yes")
     cve_enabled = (_get_app_setting(db, _CVE_ENABLED_SETTING) or "true").lower() in ("1", "true", "yes")
     cve_last_scan = _get_app_setting(db, _CVE_LAST_SCAN_SETTING) or ""
+    github_backfill_max_releases = _github_backfill_max_releases(db)
     return await render_template(
         "settings_enrichment.html",
         geo_enabled=geo_enabled,
         cve_enabled=cve_enabled,
         cve_last_scan=cve_last_scan,
+        github_backfill_max_releases=github_backfill_max_releases,
+        github_backfill_min_releases=_GITHUB_BACKFILL_MAX_RELEASES_MIN,
+        github_backfill_max_releases_limit=_GITHUB_BACKFILL_MAX_RELEASES_MAX,
     )
 
 
@@ -16971,8 +19519,249 @@ async def save_enrichment_settings():
     _set_app_setting(db, _GEO_ENABLED_SETTING, geo_enabled)
     cve_enabled = "true" if form.get("cve_enabled") else "false"
     _set_app_setting(db, _CVE_ENABLED_SETTING, cve_enabled)
+    try:
+        github_backfill_max_releases = int(
+            (form.get("github_backfill_max_releases") or str(_GITHUB_BACKFILL_MAX_RELEASES_DEFAULT)).strip()
+        )
+    except (TypeError, ValueError):
+        github_backfill_max_releases = _GITHUB_BACKFILL_MAX_RELEASES_DEFAULT
+    github_backfill_max_releases = max(
+        _GITHUB_BACKFILL_MAX_RELEASES_MIN,
+        min(_GITHUB_BACKFILL_MAX_RELEASES_MAX, github_backfill_max_releases),
+    )
+    _set_app_setting(db, _GITHUB_BACKFILL_MAX_RELEASES_SETTING, str(github_backfill_max_releases))
     await flash("Enrichment settings saved", "success")
     return redirect(url_for("view_enrichment_settings"))
+
+
+# ---------------------------------------------------------------------------
+# GitHub Repository Management  GET/POST /settings/repositories
+# ---------------------------------------------------------------------------
+@app.route("/settings/repositories", methods=["GET"])
+@require_basic_auth
+async def view_settings_repositories():
+    db = get_db()
+    ai_settings = _load_all_ai_settings(db)
+    github_token_expires_at = str(ai_settings.get("ai.github_token_expires_at", "")).strip()
+    github_token_expiry_status = _github_token_expiry_status(github_token_expires_at)
+    github_token_validation_status = {
+        "status": str(ai_settings.get("ai.github_token_last_validation_status", "")).strip(),
+        "message": str(ai_settings.get("ai.github_token_last_validation_message", "")).strip(),
+        "last_validated_at": str(ai_settings.get("ai.github_token_last_validated_at", "")).strip(),
+    }
+    app_rows = [
+        dict(r) for r in db.execute("SELECT * FROM sobs_apps FINAL WHERE IsDeleted=0 ORDER BY Name ASC").fetchall()
+    ]
+    release_rows = db.execute(
+        "SELECT AppId, ReleaseVersion, ReleasedAt "
+        "FROM sobs_app_releases FINAL "
+        "WHERE IsDeleted=0 "
+        "ORDER BY ReleasedAt DESC LIMIT 5000"
+    ).fetchall()
+
+    releases_by_app: dict[str, list[str]] = {}
+    for row in release_rows:
+        app_id = str(row["AppId"])
+        version = str(row["ReleaseVersion"] or "").strip()
+        if not app_id or not version:
+            continue
+        versions = releases_by_app.setdefault(app_id, [])
+        if version not in versions:
+            versions.append(version)
+
+    apps = []
+    for row in app_rows:
+        app = _serialize_app_row(row)
+        app_versions = releases_by_app.get(app["id"], [])
+        owner, repo = _parse_github_repo_owner_name(app["repoUrl"])
+        repo_token_configured = bool(_load_repo_scoped_github_token(db, owner, repo)) if owner and repo else False
+        apps.append(
+            {
+                "id": app["id"],
+                "name": app["name"],
+                "slug": app["slug"],
+                "repo_url": app["repoUrl"],
+                "enabled": app["enabled"],
+                "release_count": len(app_versions),
+                "latest_versions": app_versions[:5],
+                "repo_token_configured": repo_token_configured,
+            }
+        )
+
+    return await render_template(
+        "settings_repositories.html",
+        apps=apps,
+        github_token_configured=bool(str(ai_settings.get("ai.github_token", "")).strip()),
+        default_agent_repo=str(ai_settings.get("ai.github_repo", "")).strip(),
+        github_token_expires_date=_github_token_expiry_date_input_value(github_token_expires_at),
+        github_token_expiry_status=github_token_expiry_status,
+        github_token_validation_status=github_token_validation_status,
+        github_token_expiry_warning_days=_GITHUB_TOKEN_EXPIRY_WARNING_DAYS,
+    )
+
+
+@app.route("/settings/repositories", methods=["POST"])
+@require_basic_auth
+async def create_settings_repository():
+    db = get_db()
+    form = await request.form
+    name = str(form.get("name", "")).strip()
+    slug_raw = str(form.get("slug", "")).strip()
+    repo_url = str(form.get("repo_url", "")).strip()
+    default_environment = str(form.get("default_environment", "")).strip()
+    github_token = str(form.get("github_token", "")).strip()
+    github_token_expiry = _normalize_github_token_expiry_input(form.get("github_token_expires_at") or "")
+    set_github_token = bool(form.get("set_github_token"))
+    set_repo_token = bool(form.get("set_repo_token"))
+    set_agent_repo = bool(form.get("set_agent_repo"))
+
+    if not name or not repo_url:
+        await flash("App name and repository URL are required", "warning")
+        return redirect(url_for("view_settings_repositories"))
+
+    slug = _app_slug(slug_raw or name)
+    existing = db.execute(
+        "SELECT Id FROM sobs_apps FINAL WHERE Slug=? AND IsDeleted=0 LIMIT 1",
+        [slug],
+    ).fetchone()
+    if existing:
+        await flash("App slug already exists", "warning")
+        return redirect(url_for("view_settings_repositories"))
+
+    version = int(time.time() * 1000)
+    row = {
+        "Id": uuid.uuid4().hex,
+        "Name": name,
+        "Slug": slug,
+        "OwnerTeam": "",
+        "RepoUrl": repo_url,
+        "DefaultEnvironment": default_environment,
+        "Enabled": 1,
+        "MetadataJson": "{}",
+        "IsDeleted": 0,
+        "Version": version,
+        "CreatedAt": _now_iso(),
+        "UpdatedAt": _now_iso(),
+    }
+    _insert_rows_json_each_row(db, "sobs_apps", [row])
+
+    if set_github_token and github_token:
+        _save_ai_setting(db, "ai.github_token", github_token)
+        _save_ai_setting(db, "ai.github_token_expires_at", github_token_expiry)
+        _save_ai_setting(db, "ai.github_token_last_validated_at", "")
+        _save_ai_setting(db, "ai.github_token_last_validation_status", "")
+        _save_ai_setting(db, "ai.github_token_last_validation_message", "")
+
+    if set_repo_token and github_token:
+        owner, repo = _parse_github_repo_owner_name(repo_url)
+        if owner and repo:
+            _save_repo_scoped_github_token(db, owner, repo, github_token)
+
+    if set_agent_repo:
+        owner, repo = _parse_github_repo_owner_name(repo_url)
+        if owner and repo:
+            _save_ai_setting(db, "ai.github_repo", f"{owner}/{repo}")
+
+    await flash("Repository added", "success")
+    return redirect(url_for("view_settings_repositories"))
+
+
+@app.route("/settings/repositories/github-token/validate", methods=["POST"])
+@require_basic_auth
+async def validate_settings_repository_github_token():
+    db = get_db()
+    github_token = _load_ai_setting(db, "ai.github_token", "").strip()
+    if not github_token:
+        await flash("No GitHub token configured to validate", "warning")
+        return redirect(url_for("view_settings_repositories"))
+
+    status, message = await _validate_github_token(github_token)
+    _save_ai_setting(db, "ai.github_token_last_validated_at", _now_iso())
+    _save_ai_setting(db, "ai.github_token_last_validation_status", status)
+    _save_ai_setting(db, "ai.github_token_last_validation_message", message)
+
+    category = "success" if status == "valid" else "warning"
+    await flash(f"GitHub token validation: {message}", category)
+    return redirect(url_for("view_settings_repositories"))
+
+
+@app.route("/settings/repositories/<app_id>", methods=["POST"])
+@require_basic_auth
+async def update_settings_repository(app_id: str):
+    db = get_db()
+    form = await request.form
+    repo_url = str(form.get("repo_url", "")).strip()
+    repo_token = str(form.get("repo_token", "")).strip()
+    set_repo_token = bool(form.get("set_repo_token"))
+
+    current = _find_app_by_id(db, app_id)
+    if not current:
+        await flash("Repository entry not found", "warning")
+        return redirect(url_for("view_settings_repositories"))
+
+    if not repo_url:
+        await flash("Repository URL is required", "warning")
+        return redirect(url_for("view_settings_repositories"))
+
+    version = int(time.time() * 1000)
+    row = {
+        "Id": app_id,
+        "Name": str(current.get("Name", "")),
+        "Slug": str(current.get("Slug", "")),
+        "OwnerTeam": str(current.get("OwnerTeam", "")),
+        "RepoUrl": repo_url,
+        "DefaultEnvironment": str(current.get("DefaultEnvironment", "")),
+        "Enabled": int(current.get("Enabled", 1) or 0),
+        "MetadataJson": str(current.get("MetadataJson", "{}") or "{}"),
+        "IsDeleted": 0,
+        "Version": version,
+        "CreatedAt": str(current.get("CreatedAt", "")) or _now_iso(),
+        "UpdatedAt": _now_iso(),
+    }
+    _insert_rows_json_each_row(db, "sobs_apps", [row])
+
+    if set_repo_token and repo_token:
+        owner, repo = _parse_github_repo_owner_name(repo_url)
+        if owner and repo:
+            _save_repo_scoped_github_token(db, owner, repo, repo_token)
+
+    await flash("Repository updated", "success")
+    return redirect(url_for("view_settings_repositories"))
+
+
+@app.route("/settings/repositories/<app_id>/releases", methods=["POST"])
+@require_basic_auth
+async def add_settings_repository_release(app_id: str):
+    db = get_db()
+    form = await request.form
+    release_version = str(form.get("version", "")).strip()
+    environment = str(form.get("environment", "")).strip()
+
+    app_row = _find_app_by_id(db, app_id)
+    if not app_row:
+        await flash("Repository entry not found", "warning")
+        return redirect(url_for("view_settings_repositories"))
+
+    if not release_version:
+        await flash("Release version is required", "warning")
+        return redirect(url_for("view_settings_repositories"))
+
+    version = int(time.time() * 1000)
+    row = {
+        "Id": uuid.uuid4().hex,
+        "AppId": app_id,
+        "ReleaseVersion": release_version,
+        "CommitSha": "",
+        "BuildId": "",
+        "Environment": environment,
+        "ReleasedAt": _now_iso(),
+        "MetadataJson": "{}",
+        "IsDeleted": 0,
+        "Version": version,
+    }
+    _insert_rows_json_each_row(db, "sobs_app_releases", [row])
+    await flash("Release added", "success")
+    return redirect(url_for("view_settings_repositories"))
 
 
 # ---------------------------------------------------------------------------
@@ -18286,6 +21075,137 @@ async def ai_helper_execute_action():
 #                 POST /api/agent/runs          (trigger manual run)
 #                 POST /api/agent/runs/<id>/dismiss
 # ---------------------------------------------------------------------------
+def _build_user_issue_trigger_context(source_page: str, payload: dict[str, Any]) -> dict[str, Any]:
+    source = str(source_page or "").strip().lower()
+    if source not in {"errors", "traces"}:
+        source = "errors"
+
+    service = str(payload.get("service") or "").strip()
+    trace_id = str(payload.get("trace_id") or "").strip()
+    span_id = str(payload.get("span_id") or "").strip()
+    error_id = str(payload.get("error_id") or "").strip()
+    err_type = str(payload.get("err_type") or "").strip()
+    span_name = str(payload.get("span_name") or "").strip()
+    status = str(payload.get("status") or "").strip()
+    message = str(payload.get("message") or "").strip()
+    stack = str(payload.get("stack") or "").strip()
+
+    if source == "errors":
+        signal_source = "errors"
+        signal_name = err_type or "exception"
+        anomaly_state = "critical"
+        signal_value = 1.0
+        trigger_ref_id = error_id
+    else:
+        signal_source = "traces"
+        signal_name = span_name or "trace_span"
+        anomaly_state = "critical" if "ERROR" in status.upper() else "warning"
+        try:
+            signal_value = float(payload.get("duration_ms") or 0.0)
+        except (TypeError, ValueError):
+            signal_value = 0.0
+        trigger_ref_id = trace_id or span_id
+
+    extra = {
+        "initiated_by": "user",
+        "source_page": source,
+        "source": signal_source,
+        "signal": signal_name,
+        "state": anomaly_state,
+        "value": signal_value,
+        "service": service,
+        "trace_id": trace_id,
+        "span_id": span_id,
+        "error_id": error_id,
+        "err_type": err_type,
+        "message": message[:1200],
+        "stack": stack[:3000],
+        "url": str(payload.get("url") or "").strip(),
+        "timestamp": str(payload.get("timestamp") or "").strip(),
+    }
+
+    return {
+        "rule_name": f"User Raised Issue ({source})",
+        "trigger_state": anomaly_state,
+        "trigger_type": "manual",
+        "trigger_ref_id": trigger_ref_id,
+        "service": service,
+        "extra": extra,
+    }
+
+
+@app.route("/api/issues/raise", methods=["POST"])
+@require_basic_auth
+async def raise_issue_from_user_observation():
+    payload = await request.get_json(force=True, silent=True) or {}
+    source_page = str(payload.get("source_page") or "errors").strip().lower()
+    assign_copilot = _parse_bool(payload.get("assign_copilot"), False)
+
+    db = get_db()
+    settings = _load_all_ai_settings(db)
+    if not settings.get("ai.endpoint_url") or not settings.get("ai.model"):
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "AI endpoint not configured. Visit Settings -> AI Configuration.",
+                }
+            ),
+            503,
+        )
+
+    trigger_context = _build_user_issue_trigger_context(source_page, payload)
+    github_repo, github_token = _resolve_agent_github_target(db, settings, trigger_context)
+    if not github_repo or not github_token:
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "GitHub repo/token not configured for issue creation. Visit Settings -> AI Configuration.",
+                }
+            ),
+            503,
+        )
+
+    actions = ["analyze", "github_issue", "dlp_check"]
+    if assign_copilot:
+        actions.append("github_issue_copilot")
+    rule = {
+        "id": f"user-observation-{source_page}",
+        "name": f"User Raised Issue ({source_page})",
+        "actions": actions,
+        "rate_limit_minutes": 0,
+    }
+
+    outcome = await _maybe_await(_run_agent_rule_instance(db, rule, settings, trigger_context))
+    if not outcome.get("ok"):
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": outcome.get("error", "agent flow failed"),
+                    "run_id": outcome.get("run_id", ""),
+                }
+            ),
+            500,
+        )
+
+    result = outcome.get("result") if isinstance(outcome.get("result"), dict) else {}
+    return jsonify(
+        {
+            "ok": True,
+            "run_id": outcome.get("run_id", ""),
+            "source": "user",
+            "source_page": source_page,
+            "issue_url": str(result.get("github_issue_url") or ""),
+            "dedup_decision": str(result.get("dedup_decision") or ""),
+            "copilot_assignment_status": str(result.get("copilot_assignment_status") or ""),
+            "copilot_assignment_reason": str(result.get("copilot_assignment_reason") or ""),
+            "status": str(result.get("status") or ""),
+        }
+    )
+
+
 @app.route("/api/agent/runs", methods=["GET"])
 @require_basic_auth
 async def list_agent_runs():

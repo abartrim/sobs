@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+{% block title %}Work Items{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0">
+    <i class="bi bi-github me-2 text-secondary"></i>Work Items
+    {% if total_items %}
+    <span class="badge bg-secondary ms-1">{{ total_items }}</span>
+    {% endif %}
+  </h4>
+  <div class="d-flex align-items-center gap-2">
+    <span class="text-secondary small"><i class="bi bi-clock me-1"></i>Auto-created by agent rules</span>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="accordion mb-3" id="workItemsFiltersAccordion">
+  <div class="accordion-item border-secondary">
+    <h2 class="accordion-header">
+      <button class="accordion-button py-2" type="button"
+              data-bs-toggle="collapse" data-bs-target="#workItemsFiltersPanel"
+              aria-expanded="true" aria-controls="workItemsFiltersPanel">
+        <i class="bi bi-funnel me-2 text-primary"></i>
+        <span class="fw-semibold">Filters</span>
+        <span id="work-items-tz-badge-btn" class="sobs-tz-header-badge ms-2" role="button" tabindex="0" title="Display timezone - click to change">
+          <i class="bi bi-clock"></i>
+          <span id="work-items-tz-badge-label">UTC</span>
+        </span>
+        {% if service_filter or rule_filter or action_type_filter or status_filter or from_ts or to_ts %}
+        <span class="badge bg-primary ms-2">Active</span>
+        {% endif %}
+      </button>
+    </h2>
+    <div id="workItemsFiltersPanel" class="accordion-collapse collapse show" data-bs-parent="#workItemsFiltersAccordion">
+      <div class="accordion-body py-3">
+        <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+          <div style="flex: 1 0 140px">
+            <label class="form-label small text-secondary mb-1">Service</label>
+            <select name="service" class="form-select form-select-sm">
+              <option value="">All</option>
+              {% for s in services %}
+              <option value="{{ s }}" {% if s == service_filter %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div style="flex: 1 0 140px">
+            <label class="form-label small text-secondary mb-1">Agent Rule</label>
+            <select name="rule_name" class="form-select form-select-sm">
+              <option value="">All</option>
+              {% for r in rules %}
+              <option value="{{ r }}" {% if r == rule_filter %}selected{% endif %}>{{ r }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div style="flex: 1 0 120px">
+            <label class="form-label small text-secondary mb-1">Action Type</label>
+            <select name="action_type" class="form-select form-select-sm">
+              <option value="">All</option>
+              <option value="github_issue" {% if action_type_filter == 'github_issue' %}selected{% endif %}>Issue only</option>
+              <option value="github_issue_copilot" {% if action_type_filter == 'github_issue_copilot' %}selected{% endif %}>Issue + Copilot</option>
+            </select>
+          </div>
+          <div style="flex: 1 0 130px">
+            <label class="form-label small text-secondary mb-1">Status</label>
+            <select name="status" class="form-select form-select-sm">
+              <option value="">All</option>
+              <option value="open" {% if status_filter == 'open' %}selected{% endif %}>Open</option>
+              <option value="closed" {% if status_filter == 'closed' %}selected{% endif %}>Closed</option>
+            </select>
+          </div>
+          <div class="filter-date-group">
+            <div class="filter-date-fields">
+              <div class="filter-date-field">
+                <label class="form-label small text-secondary">From</label>
+                <input type="text" name="from_ts" id="work-items-from-ts" class="form-control form-control-sm" value="{{ from_ts }}" placeholder="2026-04-01">
+              </div>
+              <div class="filter-date-field">
+                <label class="form-label small text-secondary">To</label>
+                <div class="input-group input-group-sm drp-combo">
+                  <input type="text" name="to_ts" id="work-items-to-ts" class="form-control drp-combo-input" value="{{ to_ts }}" placeholder="2026-04-05">
+                  <button type="button" class="input-group-text drp-combo-trigger" data-drp-toggle data-drp-from="work-items-from-ts" data-drp-to="work-items-to-ts" title="Date/time picker" aria-label="Date/time picker">
+                    <i class="bi bi-calendar3"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="d-flex gap-1" style="flex: 0 0 auto">
+            <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i></button>
+            <a href="{{ url_for('view_work_items') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
+            <div class="btn-group btn-group-sm" id="work-items-reports-group">
+              <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Saved reports">
+                <i class="bi bi-bookmark-star"></i>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end" id="work-items-reports-menu">
+                <li><span class="dropdown-item text-secondary small">Loading…</span></li>
+              </ul>
+            </div>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="work-items-save-report-btn" title="Save as report">
+              <i class="bi bi-bookmark-plus"></i>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Work Items Table -->
+<div class="card border-secondary">
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Created</th>
+          <th>Service</th>
+          <th>Signal</th>
+          <th>Anomaly</th>
+          <th>Agent Rule</th>
+          <th style="width:100px;">Action</th>
+          <th style="width:70px;">Issue</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if items %}
+          {% for item in items %}
+          <tr>
+            <td class="font-monospace small sobs-tz-ts" data-utc-ts="{{ item.created_at }}">{{ item.created_at[:16] }}</td>
+            <td class="small">
+              {{ item.service }}
+            </td>
+            <td class="small">
+              <span class="text-secondary">{{ item.signal_source }}</span>
+              <br>
+              <span class="font-monospace">{{ item.signal_name }}</span>
+            </td>
+            <td class="small">
+              <span class="badge {% if item.anomaly_state == 'critical' %}bg-danger{% elif item.anomaly_state == 'warning' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                {{ item.anomaly_state }}
+              </span>
+              <br>
+              <span class="text-secondary small" style="font-size: 0.75rem;">rule: {{ item.anomaly_rule_id[:8] }}</span>
+            </td>
+            <td class="small">{{ item.agent_rule_name }}</td>
+            <td class="small">
+              {% if item.agent_action == 'github_issue_copilot' %}
+              <span class="badge bg-primary"><i class="bi bi-robot me-1"></i>Copilot</span>
+              {% else %}
+              <span class="badge bg-secondary">Issue</span>
+              {% endif %}
+              {% if item.dedup_decision and item.dedup_decision != 'new_issue' %}
+              <br>
+              <span class="badge bg-info text-dark mt-1">{{ item.dedup_decision.replace('_', ' ') }}</span>
+              {% endif %}
+            </td>
+            <td class="small">
+              {% if item.issue_url %}
+              <a href="{{ item.issue_url }}" target="_blank" rel="noopener" class="text-decoration-none" title="{{ item.issue_title }}">
+                <i class="bi bi-github me-1"></i>#{{ item.issue_number }}
+              </a>
+              {% if item.copilot_assignment_status and item.agent_action == 'github_issue_copilot' %}
+              <br>
+              <span class="badge {% if item.copilot_assignment_status in ['requested', 'active'] %}bg-success{% elif item.copilot_assignment_status == 'blocked' %}bg-warning text-dark{% elif item.copilot_assignment_status == 'failed' %}bg-danger{% else %}bg-secondary{% endif %} mt-1">
+                {{ item.copilot_assignment_status.replace('_', ' ') }}
+              </span>
+              {% endif %}
+              {% if item.pr_url %}
+              <br>
+              <a href="{{ item.pr_url }}" target="_blank" rel="noopener" class="small text-decoration-none">
+                <i class="bi bi-git"></i> PR #{{ item.pr_number }}
+              </a>
+              {% endif %}
+              {% else %}
+              <span class="text-secondary">—</span>
+              {% endif %}
+            </td>
+            <td class="text-end">
+              <button class="btn btn-sm btn-link py-0 px-1" data-bs-toggle="modal" data-bs-target="#workItemDetailModal" onclick="showWorkItemDetail('{{ item.id }}', '{{ item.issue_url }}', '{{ item.issue_title | replace('\"', '&quot;') }}', '{{ item.analysis_summary | replace('\"', '&quot;') }}', '{{ item.suggestion_summary | replace('\"', '&quot;') }}')">
+                <i class="bi bi-arrow-right"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+        <tr>
+          <td colspan="8" class="text-center text-secondary py-3">
+            <i class="bi bi-inbox me-1"></i>No work items found
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Work Item Detail Modal -->
+<div class="modal fade" id="workItemDetailModal" tabindex="-1" aria-labelledby="workItemDetailTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content border-secondary">
+      <div class="modal-header">
+        <h5 class="modal-title" id="workItemDetailTitle">Work Item Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small text-secondary">Issue Title</label>
+          <div class="small font-monospace" id="workItemTitle" style="word-break: break-word;"></div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small text-secondary">Root Cause Analysis</label>
+          <div class="small" id="workItemAnalysis" style="white-space: pre-wrap; word-break: break-word;"></div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small text-secondary">Suggested Fix</label>
+          <div class="small" id="workItemSuggestion" style="white-space: pre-wrap; word-break: break-word;"></div>
+        </div>
+        <div>
+          <label class="form-label small text-secondary">GitHub Issue</label>
+          <div class="small">
+            <a id="workItemGithubLink" href="#" target="_blank" rel="noopener" class="text-decoration-none">
+              <i class="bi bi-github me-1"></i><span id="workItemGithubUrl"></span>
+            </a>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showWorkItemDetail(id, issueUrl, issueTitle, analysis, suggestion) {
+  document.getElementById('workItemTitle').textContent = issueTitle;
+  document.getElementById('workItemAnalysis').textContent = analysis || '(no analysis)';
+  document.getElementById('workItemSuggestion').textContent = suggestion || '(no suggestion)';
+  document.getElementById('workItemGithubLink').href = issueUrl;
+  document.getElementById('workItemGithubUrl').textContent = issueUrl;
+}
+
+function initWorkItemsTimezone() {
+  if (!window.sobsTimezone || typeof window.sobsTimezone.initPage !== 'function') return false;
+  window.sobsTimezone.initPage({
+    formSelector: '#workItemsFiltersPanel form[method="get"]',
+    fromInputId: 'work-items-from-ts',
+    toInputId: 'work-items-to-ts',
+    badgeButtonId: 'work-items-tz-badge-btn',
+    badgeLabelId: 'work-items-tz-badge-label',
+    timestampSelector: '.sobs-tz-ts[data-utc-ts]'
+  });
+  return true;
+}
+
+if (!initWorkItemsTimezone()) {
+  window.addEventListener('load', initWorkItemsTimezone, { once: true });
+}
+
+(function () {
+  'use strict';
+  var group = document.getElementById('work-items-reports-group');
+  var saveBtn = document.getElementById('work-items-save-report-btn');
+  var menu = document.getElementById('work-items-reports-menu');
+  var form = document.querySelector('#workItemsFiltersPanel form[method="get"]');
+  var pageBaseUrl = {{ url_for('view_work_items') | tojson }};
+
+  if (!group || !saveBtn || !menu || !form) return;
+
+  function escHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  group.addEventListener('show.bs.dropdown', function () {
+    fetch('/api/reports?page_type=work_items')
+      .then(function (r) { return r.json(); })
+      .then(function (reports) {
+        if (!reports.length) {
+          menu.innerHTML = '<li><span class="dropdown-item text-secondary small">No saved reports</span></li>';
+          return;
+        }
+        menu.innerHTML = reports.map(function (rep) {
+          var params = new URLSearchParams(rep.filters || {});
+          var url = pageBaseUrl + '?' + params.toString();
+          return '<li><a class="dropdown-item small" href="' + url + '" title="' + escHtml(rep.description || '') + '">' + escHtml(rep.name || 'Unnamed') + '</a></li>';
+        }).join('') +
+          '<li><hr class="dropdown-divider my-1"></li>' +
+          '<li><a class="dropdown-item small text-secondary" href="{{ url_for('list_reports') }}"><i class="bi bi-gear me-1"></i>Manage reports</a></li>';
+      })
+      .catch(function () {
+        menu.innerHTML = '<li><span class="dropdown-item text-danger small">Failed to load</span></li>';
+      });
+  });
+
+  saveBtn.addEventListener('click', function () {
+    var data = new FormData(form);
+    var filters = {};
+    for (const [k, v] of data.entries()) {
+      if (v) filters[k] = v;
+    }
+    if (window.sobsReportSaveModal && typeof window.sobsReportSaveModal.open === 'function') {
+      window.sobsReportSaveModal.open({ pageType: 'work_items', filters: filters });
+    }
+  });
+})();
+</script>
+{% endblock %}

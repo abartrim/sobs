@@ -6,7 +6,7 @@
 </div>
 
 <p class="text-secondary small mb-3">
-  Reports are saved filter configurations that can be quickly applied from the Logs, Traces, Errors, Metrics, RUM, and AI pages.
+  Reports are saved filter configurations that can be quickly applied from the Logs, Traces, Errors, Metrics, RUM, AI, and Work Items pages.
   Use the <strong>Save as report</strong> button on any filter bar to save your current filters, then load them here or from the dropdown on each page.
 </p>
 
@@ -22,7 +22,7 @@
 {% endwith %}
 
 {% if reports %}
-{% set page_labels = {'logs': ('journal-text', 'text-info', 'Logs'), 'traces': ('diagram-3', 'text-warning', 'Traces'), 'errors': ('bug', 'text-danger', 'Errors'), 'metrics': ('graph-up', 'text-success', 'Metrics'), 'rum': ('phone', 'text-primary', 'RUM'), 'ai': ('robot', 'text-secondary', 'AI')} %}
+{% set page_labels = {'logs': ('journal-text', 'text-info', 'Logs'), 'traces': ('diagram-3', 'text-warning', 'Traces'), 'errors': ('bug', 'text-danger', 'Errors'), 'metrics': ('graph-up', 'text-success', 'Metrics'), 'rum': ('phone', 'text-primary', 'RUM'), 'ai': ('robot', 'text-secondary', 'AI'), 'work_items': ('github', 'text-secondary', 'Work Items')} %}
 {% set current_page_type = namespace(value='') %}
 {% for report in reports %}
 {% if report.page_type != current_page_type.value %}
@@ -50,7 +50,7 @@
       {% endif %}
     </div>
     <div class="d-flex gap-2 align-items-center flex-shrink-0">
-      {% set page_url_map = {'logs': url_for('view_logs'), 'traces': url_for('view_traces'), 'errors': url_for('view_errors'), 'metrics': url_for('view_metrics'), 'rum': url_for('view_rum'), 'ai': url_for('view_ai')} %}
+      {% set page_url_map = {'logs': url_for('view_logs'), 'traces': url_for('view_traces'), 'errors': url_for('view_errors'), 'metrics': url_for('view_metrics'), 'rum': url_for('view_rum'), 'ai': url_for('view_ai'), 'work_items': url_for('view_work_items')} %}
       {% if report.page_type in page_url_map %}
       <a href="{{ page_url_map[report.page_type] }}?{{ report.filters | urlencode }}" class="btn btn-sm btn-outline-primary">
         <i class="bi bi-play me-1"></i>Apply

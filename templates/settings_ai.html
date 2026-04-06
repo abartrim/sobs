@@ -117,11 +117,13 @@
     </div>
     <div class="card-body">
       <p class="small text-secondary mb-3">
-        Agent flows can optionally create a GitHub issue with sanitised details and
-        mention <code>@github-copilot</code> in a comment to request a suggested fix. Requires a
+        Agent flows can optionally create or reuse a GitHub issue with sanitised details and,
+        when enabled, formally assign the issue to GitHub Copilot cloud agent using GitHub's
+        supported issue-assignment API. Requires a
         <strong>fine-grained personal access token</strong> with
-        <em>Issues: Read and write</em> permission on the target repository.
-        A hard cap of <em>max issues per hour</em> prevents flooding.
+        <em>Metadata: Read</em> plus <em>Actions, Contents, Issues, and Pull requests: Read and write</em>
+        permission on the target repository.
+        Dedupe runs before creation, and separate limits control issue creation versus Copilot assignment.
       </p>
       <div class="row g-3">
         <div class="col-md-4">
@@ -130,19 +132,70 @@
                  autocomplete="off"
                  placeholder="github_pat_…"
                  value="{{ settings.get('ai.github_token', '') }}">
+          <div class="form-text">Use the Repositories wizard for guided setup and token validation checks.</div>
         </div>
         <div class="col-md-4">
-          <label class="form-label small fw-semibold">Repository (<code>owner/repo</code>)</label>
+          <label class="form-label small fw-semibold">GitHub Token Expiry Date</label>
+          <input type="date" name="github_token_expires_at" class="form-control form-control-sm"
+                 value="{{ github_token_expires_date }}">
+          <div class="form-text">
+            {% if github_token_expiry_status.state == 'expired' %}
+              <span class="text-danger">{{ github_token_expiry_status.message }}</span>
+            {% elif github_token_expiry_status.state == 'warning' %}
+              <span class="text-warning">{{ github_token_expiry_status.message }}</span>
+            {% elif github_token_expiry_status.state == 'healthy' %}
+              <span class="text-success">{{ github_token_expiry_status.message }}</span>
+            {% else %}
+              {{ github_token_expiry_status.message }}
+            {% endif %}
+          </div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">Default Agent Issue Repository (<code>owner/repo</code>)</label>
           <input type="text" name="github_repo" class="form-control form-control-sm font-monospace"
                  placeholder="myorg/myrepo"
                  value="{{ settings.get('ai.github_repo', '') }}">
+          <div class="form-text">
+            Used only by agent flows for issue creation. CVE/enrichment repo sources are managed in
+            <a href="{{ url_for('view_settings_repositories') }}">GitHub Repositories</a>.
+            {% if github_token_validation_status.status %}
+              Last validation: {{ github_token_validation_status.status }}{% if github_token_validation_status.last_validated_at %} ({{ github_token_validation_status.last_validated_at }}){% endif %}.
+            {% endif %}
+          </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-12">
           <label class="form-label small fw-semibold">Max Issues per Hour</label>
           <input type="number" name="agent_max_issues_per_hour" class="form-control form-control-sm"
                  min="1" max="20"
                  value="{{ settings.get('ai.agent_max_issues_per_hour', '5') or '5' }}">
-          <div class="form-text">Hard ceiling to prevent issue flooding (max 20).</div>
+          <div class="form-text">Hard ceiling for opening brand new GitHub issues after dedupe (max 20).</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">Max Copilot Assignments per Hour</label>
+          <input type="number" name="agent_max_assignments_per_hour" class="form-control form-control-sm"
+                 min="1" max="20"
+                 value="{{ settings.get('ai.agent_max_assignments_per_hour', '1') or '1' }}">
+          <div class="form-text">Relief valve for how many new Copilot starts SOBS may request in one hour.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">Max Active Copilot Assignments</label>
+          <input type="number" name="agent_max_active_assignments" class="form-control form-control-sm"
+                 min="1" max="10"
+                 value="{{ settings.get('ai.agent_max_active_assignments', '1') or '1' }}">
+          <div class="form-text">Keep this low to avoid overlapping Copilot work on similar incidents.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">Copilot Base Branch (optional)</label>
+          <input type="text" name="github_copilot_base_branch" class="form-control form-control-sm font-monospace"
+                 placeholder="main"
+                 value="{{ settings.get('ai.github_copilot_base_branch', '') }}">
+          <div class="form-text">Leave blank to let GitHub use the repository default branch for agent work.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">Copilot Extra Instructions (optional)</label>
+          <textarea name="github_copilot_custom_instructions" rows="3" class="form-control form-control-sm"
+                    placeholder="Prefer the smallest safe fix. Add or update tests when practical.">{{ settings.get('ai.github_copilot_custom_instructions', '') }}</textarea>
+          <div class="form-text">Appended to the issue context when SOBS formally assigns an issue to Copilot.</div>
         </div>
       </div>
     </div>
@@ -189,9 +242,12 @@
         <li><strong>Agent Flows</strong> — Configurable rules that automatically invoke the LLM when
           anomaly rules fire or tag rules match. Results appear in
           <a href="{{ url_for('view_agent_rules') }}">Agent Rules</a> and can optionally create
-          GitHub issues.</li>
+          or reuse GitHub issues, then request Copilot work when the issue is eligible.</li>
         <li><strong>DLP</strong> — When enabled, issue text is scanned for PII/secrets before
           being posted to GitHub.</li>
+        <li><strong>Dedupe &amp; Work Control</strong> — Before opening new GitHub work, SOBS checks recent
+          work items and open GitHub issues, asks the local LLM whether they are the same, related, or unrelated,
+          and suppresses Copilot assignment when work is already in progress.</li>
         <li><strong>Tools/Thinking Models</strong> — AI helper tool actions and thinking controls are
           intended for instruct/tools-capable models.</li>
       </ul>

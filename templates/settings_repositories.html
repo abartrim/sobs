@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% block title %}GitHub Repositories{% endblock %}
+{% block content %}
+<div id="repo-settings-root" data-color-mode="{{ 'dark' if request.cookies.get('theme') == 'dark' else 'light' }}">
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-github me-2 text-secondary"></i>GitHub Repositories</h4>
+  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Back to Settings
+  </a>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% for category, message in messages %}
+<div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show py-2 small" role="alert">
+  {{ message }}
+  <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endfor %}
+{% endwith %}
+
+<div class="card border-secondary mb-3">
+  <div class="card-header d-flex align-items-center gap-2">
+    <i class="bi bi-info-circle text-primary"></i>
+    <span class="fw-semibold">Single Source of Truth</span>
+  </div>
+  <div class="card-body small text-secondary">
+    Configure repositories here once. CVE enrichment backfill and version-scoped GitHub repo health both use this list.
+    AI Settings <code>github_repo</code> remains a default target for agent-created issues only.
+    <div class="mt-2 d-flex flex-wrap gap-2 align-items-center">
+      {% if github_token_configured %}
+      <span class="badge text-bg-success"><i class="bi bi-check-circle me-1"></i>GitHub token configured</span>
+      {% else %}
+      <span class="badge text-bg-secondary">GitHub token not configured</span>
+      {% endif %}
+      <span class="badge text-bg-light text-dark">Default agent repo: {{ default_agent_repo or 'not set' }}</span>
+      {% if github_token_configured %}
+        {% if github_token_expiry_status.state == 'expired' %}
+        <span class="badge text-bg-danger">{{ github_token_expiry_status.message }}</span>
+        {% elif github_token_expiry_status.state == 'warning' %}
+        <span class="badge text-bg-warning text-dark">{{ github_token_expiry_status.message }}</span>
+        {% elif github_token_expiry_status.state == 'healthy' %}
+        <span class="badge text-bg-success">{{ github_token_expiry_status.message }}</span>
+        {% else %}
+        <span class="badge text-bg-secondary">{{ github_token_expiry_status.message }}</span>
+        {% endif %}
+        {% if github_token_validation_status.status %}
+        <span class="badge text-bg-light text-dark">Validation: {{ github_token_validation_status.status }}</span>
+        {% endif %}
+      {% endif %}
+    </div>
+    {% if github_token_configured %}
+    <div class="mt-2 small text-secondary d-flex flex-wrap align-items-center gap-2">
+      <span>Expiry alert threshold: {{ github_token_expiry_warning_days }} days</span>
+      {% if github_token_validation_status.last_validated_at %}
+      <span>Last validated: <code>{{ github_token_validation_status.last_validated_at }}</code></span>
+      {% endif %}
+      {% if github_token_validation_status.message %}
+      <span>{{ github_token_validation_status.message }}</span>
+      {% endif %}
+      <form method="post" action="{{ url_for('validate_settings_repository_github_token') }}" class="d-inline">
+        <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2">Validate Token</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header d-flex align-items-center gap-2">
+    <i class="bi bi-magic text-success"></i>
+    <span class="fw-semibold">Add Repository Wizard</span>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('create_settings_repository') }}" class="row g-2 align-items-end" autocomplete="off">
+      <div class="col-12">
+        <div class="small text-secondary mb-2"><span class="badge text-bg-light text-dark me-1">Step 1</span>Repository and app details</div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">App Name</label>
+        <input type="text" name="name" class="form-control form-control-sm" placeholder="checkout-api" autocomplete="organization" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">Slug (optional)</label>
+        <input type="text" name="slug" class="form-control form-control-sm" placeholder="checkout-api" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small fw-semibold">Repository URL</label>
+        <input type="url" name="repo_url" class="form-control form-control-sm font-monospace" placeholder="https://github.com/org/repo" autocomplete="url" spellcheck="false" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">Default Env</label>
+        <input type="text" name="default_environment" class="form-control form-control-sm" placeholder="prod" autocomplete="off" autocapitalize="none" spellcheck="false" inputmode="text">
+      </div>
+
+      <div class="col-12 mt-3">
+        <div class="small text-secondary mb-2"><span class="badge text-bg-light text-dark me-1">Step 2</span>GitHub token setup (optional but recommended)</div>
+        <div class="small text-secondary mb-2">
+          Need a token? Create a fine-grained PAT with <code>contents:read</code> (and optionally issues write for agents):
+          <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Open GitHub token page</a>
+        </div>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label small fw-semibold">GitHub token (optional)</label>
+        <input type="password" name="github_token" class="form-control form-control-sm font-monospace" autocomplete="new-password" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="github_pat_...">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">Token expiry date</label>
+        <input type="date" name="github_token_expires_at" class="form-control form-control-sm" autocomplete="off" value="{{ github_token_expires_date }}">
+      </div>
+      <div class="col-md-3">
+        <div class="form-check mt-4">
+          <input class="form-check-input" type="checkbox" name="set_github_token" id="set_github_token">
+          <label class="form-check-label small" for="set_github_token">Save token as global fallback</label>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="form-check mt-4">
+          <input class="form-check-input" type="checkbox" name="set_repo_token" id="set_repo_token" checked>
+          <label class="form-check-label small" for="set_repo_token">Save token for this repo</label>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="form-check mt-4">
+          <input class="form-check-input" type="checkbox" name="set_agent_repo" id="set_agent_repo" checked>
+          <label class="form-check-label small" for="set_agent_repo">Set as default agent repo</label>
+        </div>
+      </div>
+
+      <div class="col-md-1 d-grid">
+        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check2"></i></button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card border-secondary">
+  <div class="card-header d-flex align-items-center gap-2">
+    <i class="bi bi-list-ul text-info"></i>
+    <span class="fw-semibold">Configured Repositories</span>
+    <span class="badge text-bg-secondary ms-2">{{ apps | length }}</span>
+  </div>
+  <div class="card-body p-0">
+    {% if apps %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0 align-middle">
+        <thead>
+          <tr>
+            <th>App</th>
+            <th>Repo</th>
+            <th>Releases</th>
+            <th style="width:130px;">Status</th>
+            <th style="width:260px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for app in apps %}
+          <tr>
+            <td>
+              <div class="small fw-semibold">{{ app.name }}</div>
+              <div class="text-secondary" style="font-size:.75rem;">{{ app.slug }}</div>
+            </td>
+            <td>
+              <a href="{{ app.repo_url }}" target="_blank" rel="noopener" class="small font-monospace text-decoration-none">{{ app.repo_url }}</a>
+            </td>
+            <td>
+              <div class="small">{{ app.release_count }} total</div>
+              <div class="text-secondary" style="font-size:.75rem;">{{ app.latest_versions | join(', ') if app.latest_versions else 'none' }}</div>
+            </td>
+            <td>
+              {% if app.enabled %}
+              <span class="badge text-bg-success">enabled</span>
+              {% else %}
+              <span class="badge text-bg-secondary">disabled</span>
+              {% endif %}
+            </td>
+            <td>
+              <form method="post" action="{{ url_for('update_settings_repository', app_id=app.id) }}" class="d-flex gap-1 align-items-center mb-1">
+                <input type="url" name="repo_url" class="form-control form-control-sm font-monospace" value="{{ app.repo_url }}" autocomplete="url" spellcheck="false" required>
+                <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+              </form>
+              <form method="post" action="{{ url_for('update_settings_repository', app_id=app.id) }}" class="d-flex gap-1 align-items-center mb-1">
+                <input type="hidden" name="repo_url" value="{{ app.repo_url }}">
+                <input type="password" name="repo_token" class="form-control form-control-sm font-monospace" placeholder="repo PAT (optional)" autocomplete="new-password" autocorrect="off" autocapitalize="none" spellcheck="false">
+                <label class="small d-flex align-items-center gap-1 mb-0">
+                  <input type="checkbox" name="set_repo_token" value="1" checked>
+                  save
+                </label>
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Token</button>
+              </form>
+              <div class="small text-secondary mb-1">
+                PAT status: {{ 'configured' if app.repo_token_configured else 'not set' }}
+              </div>
+              <form method="post" action="{{ url_for('add_settings_repository_release', app_id=app.id) }}" class="d-flex gap-1 align-items-center">
+                <input type="text" name="version" class="form-control form-control-sm" placeholder="release version" autocomplete="off" spellcheck="false" required>
+                <input type="text" name="environment" class="form-control form-control-sm" placeholder="env" autocomplete="off" autocapitalize="none" spellcheck="false">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Add release</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="p-3 small text-secondary">No repositories configured yet.</div>
+    {% endif %}
+  </div>
+</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  #repo-settings-root input::-webkit-credentials-auto-fill-button,
+  #repo-settings-root input::-webkit-contacts-auto-fill-button {
+    visibility: hidden;
+    display: none !important;
+    pointer-events: none;
+  }
+
+  #repo-settings-root[data-color-mode='dark'] input:-webkit-autofill,
+  #repo-settings-root[data-color-mode='dark'] textarea:-webkit-autofill,
+  #repo-settings-root[data-color-mode='dark'] select:-webkit-autofill {
+    -webkit-text-fill-color: var(--bs-body-color);
+    -webkit-box-shadow: 0 0 0 1000px var(--bs-body-bg) inset;
+    caret-color: var(--bs-body-color);
+  }
+
+  #repo-settings-root[data-color-mode='light'] input:-webkit-autofill,
+  #repo-settings-root[data-color-mode='light'] textarea:-webkit-autofill,
+  #repo-settings-root[data-color-mode='light'] select:-webkit-autofill {
+    -webkit-text-fill-color: var(--bs-body-color);
+    -webkit-box-shadow: 0 0 0 1000px var(--bs-body-bg) inset;
+    caret-color: var(--bs-body-color);
+  }
+</style>
+<script>
+  (function () {
+    var root = document.getElementById('repo-settings-root');
+    if (!root) {
+      return;
+    }
+
+    function syncColorMode() {
+      var mode = document.documentElement.getAttribute('data-bs-theme') || 'light';
+      root.setAttribute('data-color-mode', mode);
+      document.dispatchEvent(new CustomEvent('sobs:color-mode', {
+        detail: { page: 'settings-repositories', mode: mode }
+      }));
+    }
+
+    syncColorMode();
+    var observer = new MutationObserver(function (mutations) {
+      for (var i = 0; i < mutations.length; i += 1) {
+        if (mutations[i].attributeName === 'data-bs-theme') {
+          syncColorMode();
+          break;
+        }
+      }
+    });
+    observer.observe(document.documentElement, { attributes: true });
+  })();
+</script>
+{% endblock %}

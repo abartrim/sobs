@@ -276,6 +276,11 @@
         </a>
       </li>
       <li class="nav-item">
+        <a href="{{ url_for('view_work_items') }}" class="nav-link {% if request.endpoint == 'view_work_items' %}active{% endif %}" title="Work Items">
+          <i class="bi bi-github"></i><span class="sb-label">Work Items</span>
+        </a>
+      </li>
+      <li class="nav-item">
         <a href="{{ url_for('view_ai') }}" class="nav-link {% if request.endpoint == 'view_ai' %}active{% endif %}" title="AI">
           <i class="bi bi-cpu"></i><span class="sb-label">AI</span>
         </a>

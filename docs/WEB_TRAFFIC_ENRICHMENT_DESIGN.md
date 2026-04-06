@@ -3,9 +3,11 @@
 ## Overview
 
 The Web Traffic & Enrichment subsystem adds a `/web-traffic` page with IP-to-geo visualisation,
-a top-URLs and event-type breakdown, a library/dependency inventory, and automated CVE scanning.
-All data sources are open/free (MIT or Apache 2.0) and the system operates without API keys or
-external service registrations.
+a top-URLs and event-type breakdown, browser-context analytics, and automated CVE scanning via the
+dedicated `/enrichment/cve` page. The merged library/dependency inventory is now collected in the
+backend for scanning, while the standalone libraries API/panel remains a follow-up item. All data
+sources are open/free (MIT or Apache 2.0) and the system operates without API keys or external
+service registrations.
 
 ---
 
@@ -46,7 +48,8 @@ The enrichment scanner iterates every app where `RepoUrl LIKE 'https://github.co
 - **Authentication**: single global `ai.github_token` (set in AI Settings); requires
   `contents:read` scope. The same token is reused for all configured repos, so use a
   GitHub App installation token or a fine-grained PAT with per-repo access as needed.
-- **API call**: `GET /repos/{owner}/{repo}/contents/{file}?ref=refs/tags/{version}`
+- **API call**: `GET /repos/{owner}/{repo}/contents/{file}` with ref fallback
+  (`refs/tags/{version}` → `refs/tags/v{version}` → `refs/heads/{version}` → `{version}`)
   using the existing `_get_async_http_client()` helper.
 - **Lockfile priority** (first match wins per app): `requirements.txt` → PyPI,
   `package-lock.json` → npm, `go.sum` → Go, `Gemfile.lock` → RubyGems.
@@ -134,11 +137,15 @@ Default UI view hides `accepted`, `false_positive`, `fixed`. A "Show all" toggle
 
 ## API Endpoints
 
+Current implementation note: the CVE findings, CVE scan, libraries inventory, and CVE disposition
+workflow endpoints are live.
+
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/web-traffic` | Web traffic page |
 | `GET` | `/api/web-traffic/geo` | IP → country aggregation (geoip2fast, local) |
 | `GET` | `/api/enrichment/libraries` | Merged library inventory with CVE counts and provenance |
+| `GET` | `/api/enrichment/github/repo-health` | Version-scoped GitHub issues/PRs/security summary for registered release versions |
 | `GET` | `/api/enrichment/cve/findings` | Stored CVE findings (with disposition joined) |
 | `POST` | `/api/enrichment/cve/scan` | Trigger immediate CVE scan |
 | `POST` | `/api/enrichment/cve/findings/<osv_id>/disposition` | Set disposition + optional note |
@@ -209,6 +216,7 @@ All settings are stored in `sobs_settings` via `_get_app_setting` / `_set_app_se
 | `enrichment.geo_enabled` | `true` | Enable IP geolocation lookups |
 | `enrichment.cve_enabled` | `true` | Enable CVE background scanning |
 | `enrichment.cve_last_scan` | `""` | ISO timestamp of last completed scan |
+| `enrichment.github_backfill_max_releases` | `300` | Max releases checked per CVE scan for GitHub lockfile backfill |
 
 `ai.github_token` (in AI settings) is shared with the repo dependency fetch feature.
 It requires `contents:read` (for repo dep fetching) in addition to `Issues: read/write`
@@ -393,6 +401,15 @@ LIMIT 20
 
 ## Implementation status
 
+### Later stage backlog (not in current phase)
+
+- **GitHub Repo Connect wizard (OAuth/GitHub App repo picker)** — deferred.
+  - Goal: reduce manual form entry by letting users connect GitHub, browse accessible repos,
+    and import selected repos into SOBS in one flow.
+  - Scope (later): auth start/callback, repo list fetch, multi-select import, and persistence
+    into `sobs_apps`/release tracking.
+  - Out of scope for now: automatic PAT creation; manual token entry remains supported.
+
 | Item | Status |
 |------|--------|
 | `/web-traffic` page, geo map, top URLs, event types chart | ✅ Done (PR #72) |
@@ -411,17 +428,21 @@ LIMIT 20
 | `--dependencies-json` / `--requirements-file` in `register_release_artifacts.py` | ✅ Done |
 | Proxy header documentation | ✅ Done |
 | Geo cache bound fix (batch eviction) | 🔲 Planned |
-| `otel_logs` ScopeVersion coverage in library extraction | 🔲 Planned |
+| `otel_logs` ScopeVersion coverage in library extraction | ✅ Done |
 | `service.version` extraction on ingest | 🔲 Planned |
-| `_fetch_release_deps_from_github` (GitHub Contents API) | 🔲 Planned |
-| Multiple repos support (per-app RepoUrl, shared token) | 🔲 Planned |
-| `_collect_library_inventory` (three-tier merge) | 🔲 Planned |
-| `GET /api/enrichment/libraries` endpoint | 🔲 Planned |
-| Detected Libraries panel in web_traffic.html | 🔲 Planned |
-| `sobs_cve_dispositions` schema | 🔲 Planned |
-| `POST /api/enrichment/cve/findings/<osv_id>/disposition` | 🔲 Planned |
-| Disposition join in findings API + page | 🔲 Planned |
-| Per-row disposition controls in web_traffic.html | 🔲 Planned |
+| `_fetch_release_deps_from_github` (GitHub Contents API) | ✅ Done |
+| Multiple repos support (per-app RepoUrl, shared token) | ✅ Done |
+| Configurable GitHub backfill scan cap | ✅ Done |
+| GitHub repo health panel (version-scoped issues/PRs/security) | ✅ Done |
+| `_collect_library_inventory` (three-tier merge) | ✅ Done |
+| `GET /api/enrichment/libraries` endpoint | ✅ Done |
+| Detected Libraries panel in cve.html | ✅ Done |
+| `sobs_cve_dispositions` schema | ✅ Done |
+| `POST /api/enrichment/cve/findings/<osv_id>/disposition` | ✅ Done |
+| Disposition join in findings API + page | ✅ Done |
+| `fixed` disposition auto-expiry on version change | ✅ Done |
+| Per-row disposition controls in cve.html | ✅ Done |
 | CVE dedicated page (`/enrichment/cve`) | ✅ Done |
 | Note in enrichment settings re: `contents:read` token scope | ✅ Done |
+| GitHub Repo Connect wizard (OAuth/App repo picker) | 🔲 Later stage |
 | Tests for all implemented items in this phase | ✅ Done |
