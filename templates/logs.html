@@ -88,7 +88,7 @@
                  autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox">
           <ul id="regex-ac-dropdown" role="listbox"
               class="dropdown-menu p-0 font-monospace small"
-              style="display:none;position:absolute;top:100%;left:0;right:0;z-index:1060;max-height:220px;overflow-y:auto;"></ul>
+              style="display:none;position:absolute;top:100%;left:0;right:0;z-index:1060;max-height:min(400px,60vh);overflow-y:auto;"></ul>
         </div>
       </div>
       <div style="flex: 1 0 120px">
@@ -192,14 +192,14 @@
                data-ai-confirm="false"
                data-ai-action-role="sql-where-input"
                  placeholder="level='ERROR' AND service='api'" value="{{ sql_where }}"
-                 autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox" aria-describedby="sql-filter-feedback">
+                 autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox">
           <ul id="sql-ac-dropdown" role="listbox"
               class="dropdown-menu p-0 font-monospace small"
-              style="display:none;position:absolute;top:100%;left:0;right:0;z-index:1060;max-height:220px;overflow-y:auto;"></ul>
+              style="display:none;position:absolute;top:100%;left:0;right:0;z-index:1060;max-height:min(400px,60vh);overflow-y:auto;"></ul>
         </div>
-        <div id="sql-filter-feedback" class="form-text small text-secondary mt-1 sql-feedback" title="{{ error_msg if (error_msg and sql_where) else '' }}">
-          {{ (error_msg if (error_msg and sql_where) else "Use fields, SQL operators, or functions like has_tag().") }}
-        </div>
+        {% if error_msg and sql_where %}
+        <div class="form-text small text-danger mt-1">{{ error_msg }}</div>
+        {% endif %}
       </div>
     </form>
     {% if error_msg and not sql_where %}
@@ -1122,6 +1122,7 @@
       li.setAttribute("aria-selected", i === idx ? "true" : "false");
     });
     activeIdx = idx;
+    if (idx >= 0 && lis[idx]) lis[idx].scrollIntoView({ block: "nearest" });
   }
 
   function applyItem(item) {
@@ -1231,7 +1232,6 @@
 (() => {
   const input = document.getElementById("sql-filter-input");
   const dropdown = document.getElementById("sql-ac-dropdown");
-  const feedback = document.getElementById("sql-filter-feedback");
   if (!input || !dropdown) return;
 
   let hints = null;          // cached field hints from API
@@ -1240,6 +1240,7 @@
   let validateTimer = null;  // debounced server-side validation timer
   let validateSeq = 0;       // monotonic request counter for stale-response protection
   let validateController = null; // abort in-flight validation fetch when superseded
+  let statusState = null;    // { level, message } — shown as pinned row in dropdown
 
   const fieldHintsUrl = {{ url_for('api_logs_field_hints')|tojson }};
   const validateUrl = {{ url_for('api_logs_validate_filter')|tojson }};
@@ -1260,21 +1261,28 @@
     return `${simplified.slice(0, 157).trim()}...`;
   }
 
-  function setFeedback(level, message) {
-    if (!feedback) return;
-    feedback.classList.remove("text-secondary", "text-danger", "text-warning", "text-success");
-    if (level === "error") {
-      feedback.classList.add("text-danger");
-    } else if (level === "warning") {
-      feedback.classList.add("text-warning");
-    } else if (level === "success") {
-      feedback.classList.add("text-success");
-    } else {
-      feedback.classList.add("text-secondary");
-    }
-    const compact = compactSqlMessage(message);
-    feedback.textContent = compact;
-    feedback.title = String(message || compact);
+  function renderStatusRow() {
+    const existing = dropdown.querySelector("li[data-status]");
+    if (existing) existing.remove();
+    if (!statusState) return;
+    const li = document.createElement("li");
+    li.setAttribute("data-status", "true");
+    li.setAttribute("role", "presentation");
+    const colorClass = statusState.level === "error" ? "text-danger"
+      : statusState.level === "success" ? "text-success"
+      : "text-warning";
+    li.className = `px-2 py-1 small border-bottom ${colorClass}`;
+    li.style.cssText = "cursor:default;user-select:none;";
+    const fullMessage = String(statusState.message || "");
+    const compact = compactSqlMessage(fullMessage);
+    li.textContent = compact;
+    li.title = fullMessage;
+    dropdown.insertBefore(li, dropdown.firstChild);
+  }
+
+  function setStatusRow(level, message) {
+    statusState = message ? { level, message } : null;
+    if (dropdown.style.display !== "none") renderStatusRow();
   }
 
   function localValidate(text) {
@@ -1319,7 +1327,7 @@
     const sqlSnapshot = input.value;
 
     const local = localValidate(input.value);
-    setFeedback(local.level, local.message);
+    setStatusRow(local.level, local.message);
     if (!local.ok || !input.value.trim()) return;
 
     if (validateController) {
@@ -1342,14 +1350,14 @@
       }
       if (!data.ok) {
         const first = (data.issues || [])[0];
-        setFeedback(first && first.level ? first.level : "error", first && first.message ? first.message : "Invalid SQL filter.");
+        setStatusRow(first && first.level ? first.level : "error", first && first.message ? first.message : "Invalid SQL filter.");
         return;
       }
       const warn = (data.issues || []).find((i) => i.level === "warning");
       if (warn) {
-        setFeedback("warning", warn.message);
+        setStatusRow("warning", warn.message);
       } else {
-        setFeedback("success", "Filter is valid.");
+        setStatusRow("success", "Filter is valid.");
       }
     } catch (_err) {
       if (_err && _err.name === "AbortError") {
@@ -1380,7 +1388,6 @@
   }
 
   function openDropdown(items) {
-    if (!items.length) { closeDropdown(); return; }
     lastItems = items;
     activeIdx = -1;
     dropdown.innerHTML = "";
@@ -1388,7 +1395,7 @@
       const li = document.createElement("li");
       li.setAttribute("role", "option");
       li.setAttribute("aria-selected", "false");
-      li.className = "dropdown-item py-1 px-2 cursor-pointer";
+      li.className = "dropdown-item py-1 px-2";
       li.style.cursor = "pointer";
       li.innerHTML = `<span class="me-1 text-secondary small">${_esc(item.prefix || "")}</span><strong>${_esc(item.label)}</strong>` +
         (item.hint ? ` <small class="text-muted ms-1">${_esc(item.hint)}</small>` : "");
@@ -1398,16 +1405,19 @@
       });
       dropdown.appendChild(li);
     });
+    if (!items.length && !statusState) { dropdown.style.display = "none"; return; }
     dropdown.style.display = "block";
+    renderStatusRow();
   }
 
   function setActive(idx) {
-    const lis = dropdown.querySelectorAll("li");
+    const lis = dropdown.querySelectorAll("li[role='option']");
     lis.forEach((li, i) => {
       li.classList.toggle("active", i === idx);
       li.setAttribute("aria-selected", i === idx ? "true" : "false");
     });
     activeIdx = idx;
+    if (idx >= 0 && lis[idx]) lis[idx].scrollIntoView({ block: "nearest" });
   }
 
   function _esc(s) {
@@ -1612,9 +1622,9 @@
   }
 
   input.addEventListener("input", () => {
-    suggest();
     const local = localValidate(input.value);
-    setFeedback(local.level, local.message);
+    setStatusRow(local.level, local.message);
+    suggest();
     if (validateTimer) window.clearTimeout(validateTimer);
     validateTimer = window.setTimeout(validateServerSide, 350);
   });
@@ -1650,9 +1660,11 @@
     }
   });
 
-  // Initial validation state for pre-filled sql query params.
-  const initial = localValidate(input.value);
-  setFeedback(initial.level, initial.message);
+  // Pre-populate statusState for pre-filled sql (shown on first focus, not on load).
+  if (input.value.trim()) {
+    const initial = localValidate(input.value);
+    statusState = { level: initial.level, message: initial.message };
+  }
 })();
 
 // ── Saved Reports: logs page ──────────────────────────────────────────────

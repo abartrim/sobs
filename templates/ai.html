@@ -351,7 +351,7 @@
             aria-haspopup="listbox">
           <ul id="sql-ac-dropdown" role="listbox"
               class="dropdown-menu p-0 font-monospace small"
-              style="display:none;position:absolute;top:100%;left:0;right:0;z-index:1060;max-height:220px;overflow-y:auto;"></ul>
+              style="display:none;position:absolute;top:100%;left:0;right:0;z-index:1060;max-height:min(400px,60vh);overflow-y:auto;"></ul>
         </div>
       </div>
       <div class="d-flex gap-1" style="flex: 0 0 auto">
@@ -1695,6 +1695,7 @@ document.addEventListener('click', function(evt) {
       li.setAttribute("aria-selected", i === idx ? "true" : "false");
     });
     activeIdx = idx;
+    if (idx >= 0 && lis[idx]) lis[idx].scrollIntoView({ block: "nearest" });
   }
 
   function _esc(s) {
