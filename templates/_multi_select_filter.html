@@ -25,7 +25,7 @@
         {%- endif -%}
       </span>
     </button>
-    <ul class="dropdown-menu w-100 sobs-multi-select-menu" aria-labelledby="btn-{{ filter_name }}">
+    <ul class="dropdown-menu sobs-multi-select-menu" aria-labelledby="btn-{{ filter_name }}">
       {% for opt in options %}
       <li>
         <button
@@ -161,14 +161,21 @@
   }
 
   .sobs-multi-select-menu {
+    min-width: 100%;
+    width: max-content;
+    max-width: min(700px, 90vw);
     max-height: min(360px, 60vh);
+    overflow-x: auto;
     overflow-y: auto;
   }
 
   .sobs-multi-select-option {
     transition: background-color 0.15s ease-in-out;
     cursor: pointer;
+    font-size: 0.875rem;
+    line-height: 1.5;
     font-weight: 400;
+    white-space: nowrap;
   }
 
   .sobs-multi-select-option:hover {
