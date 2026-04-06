@@ -733,6 +733,31 @@ document.querySelectorAll('.ai-help-btn').forEach(btn => {
       toastEl.classList.add(variant);
     };
 
+    const toSafeGithubIssueUrl = raw => {
+      try {
+        const parsed = new URL(String(raw || '').trim(), window.location.origin);
+        const host = parsed.hostname.toLowerCase();
+        if (parsed.protocol !== 'https:') return '';
+        if (host !== 'github.com' && host !== 'www.github.com') return '';
+        return parsed.href;
+      } catch (_err) {
+        return '';
+      }
+    };
+
+    const setIssueReadyToast = issueUrl => {
+      const bodyEl = document.getElementById('raiseIssueToastBody');
+      if (!bodyEl) return;
+      bodyEl.textContent = 'Issue ready - ';
+      const anchor = document.createElement('a');
+      anchor.href = issueUrl;
+      anchor.target = '_blank';
+      anchor.rel = 'noopener';
+      anchor.className = 'text-white fw-semibold';
+      anchor.textContent = 'view on GitHub';
+      bodyEl.appendChild(anchor);
+    };
+
     let succeeded = false;
     try {
       const res = await fetch('/api/issues/raise', {
@@ -743,7 +768,11 @@ document.querySelectorAll('.ai-help-btn').forEach(btn => {
       clearInterval(phaseTimer);
       const data = await res.json().catch(() => ({}));
 
-      const candidateUrl = String((data && (data.issue_url || data.canonical_issue_url)) || '').trim();
+      const rawCandidateUrl = String((data && (data.issue_url || data.canonical_issue_url)) || '').trim();
+      const candidateUrl = toSafeGithubIssueUrl(rawCandidateUrl);
+      if (rawCandidateUrl && !candidateUrl) {
+        throw new Error('Received an unsafe issue URL from API response.');
+      }
       if (candidateUrl) {
         succeeded = true;
         const link = document.createElement('a');
@@ -753,8 +782,7 @@ document.querySelectorAll('.ai-help-btn').forEach(btn => {
         link.className = 'btn btn-sm btn-success';
         link.innerHTML = '<i class="bi bi-check2-circle me-1"></i>View issue \u2192';
         btn.replaceWith(link);
-        document.getElementById('raiseIssueToastBody').innerHTML =
-          `Issue ready \u2014 <a href="${candidateUrl}" target="_blank" rel="noopener" class="text-white fw-semibold">view on GitHub \u2197</a>`;
+        setIssueReadyToast(candidateUrl);
         setToastVariant('text-bg-success');
         toast.show();
         window.open(candidateUrl, '_blank', 'noopener');

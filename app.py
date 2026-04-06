@@ -21289,6 +21289,12 @@ async def raise_issue_from_user_observation():
     issue_url = str(result.get("github_issue_url") or "")
     dedup_decision = str(result.get("dedup_decision") or "")
     issue_error = str(result.get("issue_error") or "").strip()
+    if issue_url:
+        owner, repo, issue_number = _parse_issue_ref_from_url(issue_url)
+        if not owner or not repo or issue_number <= 0:
+            issue_error = issue_error or "Agent returned an invalid issue URL"
+            dedup_decision = "create_failed"
+            issue_url = ""
     if not issue_url and dedup_decision == "create_failed":
         return (
             jsonify(

@@ -64,9 +64,14 @@ die() {
 
 run() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    printf '[DRYRUN] %s\n' "$*"
+    printf '[DRYRUN]'
+    local arg
+    for arg in "$@"; do
+      printf ' %q' "$arg"
+    done
+    printf '\n'
   else
-    eval "$@"
+    "$@"
   fi
 }
 
@@ -77,7 +82,7 @@ run_retry() {
   shift
   local i
   for ((i = 1; i <= attempts; i += 1)); do
-    if run "$*"; then
+    if run "$@"; then
       return 0
     fi
     if [[ "$i" -lt "$attempts" ]]; then
@@ -90,6 +95,14 @@ run_retry() {
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
+}
+
+validate_identifier() {
+  local label="$1"
+  local value="$2"
+  if [[ ! "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+    die "$label contains unsupported characters. Allowed: letters, digits, dot, underscore, hyphen."
+  fi
 }
 
 parse_args() {
@@ -134,6 +147,8 @@ parse_args() {
   done
 
   [[ -n "$ORG" ]] || die "--org is required"
+  validate_identifier "--org" "$ORG"
+  validate_identifier "--prefix" "$PREFIX"
 
   if [[ -z "$WORKDIR" ]]; then
     WORKDIR="$PWD/sobs-validation-bootstrap"
@@ -209,7 +224,7 @@ check_environment() {
     fi
   fi
 
-  run "mkdir -p \"$WORKDIR\""
+  run mkdir -p "$WORKDIR"
 }
 
 write_common_files() {
@@ -355,7 +370,7 @@ seed_agent_repo() {
 
   write_common_files "$repo_path" "${PREFIX}-agent-playground"
 
-  run "mkdir -p \"$repo_path/.github/ISSUE_TEMPLATE\""
+  run mkdir -p "$repo_path/.github/ISSUE_TEMPLATE"
 
   cat >"$repo_path/.github/ISSUE_TEMPLATE/bug_report.md" <<'EOF'
 ---
@@ -398,27 +413,27 @@ init_or_pull_repo() {
   # If local repo exists, pull latest
   if [[ -d "$repo_path/.git" ]]; then
     log "Local repo exists, pulling latest: $repo_path"
-    run "git -C \"$repo_path\" fetch origin main || true"
-    run "git -C \"$repo_path\" checkout main || true"
-    run "git -C \"$repo_path\" reset --hard origin/main 2>/dev/null || true"
+    run git -C "$repo_path" fetch origin main || true
+    run git -C "$repo_path" checkout main || true
+    run git -C "$repo_path" reset --hard origin/main 2>/dev/null || true
     return 0
   fi
 
   # If GitHub repo exists, clone it
   if gh repo view "$org_repo" >/dev/null 2>&1; then
     log "Cloning existing GitHub repo: $org_repo"
-    run "mkdir -p \"$repo_path\""
-    run "git clone https://github.com/$org_repo.git \"$repo_path\""
+    run mkdir -p "$repo_path"
+    run git clone "https://github.com/$org_repo.git" "$repo_path"
     return 0
   fi
 
   # Otherwise, create fresh locally and seed
   log "Creating new local repo: $repo_path"
-  run "mkdir -p \"$repo_path\""
-  run "git -C \"$repo_path\" init -b main"
+  run mkdir -p "$repo_path"
+  run git -C "$repo_path" init -b main
   "$seed_fn" "$repo_path"
-  run "git -C \"$repo_path\" add ."
-  run "git -C \"$repo_path\" commit -m 'chore: seed ${repo_name} fixture'"
+  run git -C "$repo_path" add .
+  run git -C "$repo_path" commit -m "chore: seed ${repo_name} fixture"
 }
 
 update_repo_content() {
@@ -430,8 +445,8 @@ update_repo_content() {
   
   # Commit if there are changes
   if ! git -C "$repo_path" diff-index --quiet HEAD --; then
-    run "git -C \"$repo_path\" add ."
-    run "git -C \"$repo_path\" commit -m 'chore: update fixture content' || true"
+    run git -C "$repo_path" add .
+    run git -C "$repo_path" commit -m "chore: update fixture content" || true
   fi
 }
 
@@ -442,36 +457,40 @@ push_repo_to_github() {
 
   # Create on GitHub if doesn't exist
   if ! gh repo view "$org_repo" >/dev/null 2>&1; then
-    run "gh repo create \"$org_repo\" --private"
+    run gh repo create "$org_repo" --private
   fi
 
   # Ensure remote is set
   if ! git -C "$repo_path" remote get-url origin >/dev/null 2>&1; then
-    run "git -C \"$repo_path\" remote add origin \"https://github.com/$org_repo.git\""
+    run git -C "$repo_path" remote add origin "https://github.com/$org_repo.git"
   fi
 
   # Push with retry
-  run_retry 3 2 "git -C \"$repo_path\" push -u origin main" || true
-  run_retry 3 2 "git -C \"$repo_path\" push origin --tags" || true
+  run_retry 3 2 git -C "$repo_path" push -u origin main || true
+  run_retry 3 2 git -C "$repo_path" push origin --tags || true
 }
 
 create_release_refs() {
   local repo_path="$1"
 
   # Tag format coverage for ref fallback testing: v-prefixed + plain.
-  run "git -C \"$repo_path\" tag -f v0.1.0 || true"
-  run "git -C \"$repo_path\" tag -f 0.1.0 || true"
+  run git -C "$repo_path" tag -f v0.1.0 || true
+  run git -C "$repo_path" tag -f 0.1.0 || true
 
   # Branch ref fallback coverage: create/update 0.2.0 branch
-  run "git -C \"$repo_path\" checkout -B 0.2.0"
-  run "printf '\n# branch fixture\n' >> \"$repo_path/README.md\""
-  run "git -C \"$repo_path\" add README.md"
-  run "git -C \"$repo_path\" commit -m 'test: branch-based ref fixture' || true"
-  run "git -C \"$repo_path\" checkout main"
+  run git -C "$repo_path" checkout -B 0.2.0
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    printf '[DRYRUN] append branch fixture marker to %q\n' "$repo_path/README.md"
+  else
+    printf '\n# branch fixture\n' >> "$repo_path/README.md"
+  fi
+  run git -C "$repo_path" add README.md
+  run git -C "$repo_path" commit -m "test: branch-based ref fixture" || true
+  run git -C "$repo_path" checkout main
 
   # Push tags and branch (force branch to overwrite remote if exists)
-  run "git -C \"$repo_path\" push origin --tags" || true
-  run "git -C \"$repo_path\" push --force origin 0.2.0" || true
+  run git -C "$repo_path" push origin --tags || true
+  run git -C "$repo_path" push --force origin 0.2.0 || true
 }
 
 seed_agent_labels_and_issues() {
@@ -489,15 +508,15 @@ seed_agent_labels_and_issues() {
     local name="${pair%%:*}"
     local desc="${pair#*:}"
     if ! gh label view "$name" --repo "$ORG/$repo_name" >/dev/null 2>&1; then
-      run "gh label create \"$name\" --repo \"$ORG/$repo_name\" --description \"$desc\"" || true
+      run gh label create "$name" --repo "$ORG/$repo_name" --description "$desc" || true
     fi
   done
 
-  if ! gh issue list --repo "$ORG/$repo_name" --state all --limit 100 --search 'in:title "Fixture: vulnerable dependency should be upgraded"' --json title --jq 'length' | grep -Eq '^[1-9][0-9]*$'; then
-    run "gh issue create --repo \"$ORG/$repo_name\" --title 'Fixture: vulnerable dependency should be upgraded' --body 'Generated test issue for SOBS agent fix workflow.' --label security --label triage"
+  if ! gh issue list --repo "$ORG/$repo_name" --state all --limit 100 --search "in:title \"Fixture: vulnerable dependency should be upgraded\"" --json title --jq 'length' | grep -Eq '^[1-9][0-9]*$'; then
+    run gh issue create --repo "$ORG/$repo_name" --title "Fixture: vulnerable dependency should be upgraded" --body "Generated test issue for SOBS agent fix workflow." --label security --label triage
   fi
-  if ! gh issue list --repo "$ORG/$repo_name" --state all --limit 100 --search 'in:title "Fixture: create PR from suggested patch"' --json title --jq 'length' | grep -Eq '^[1-9][0-9]*$'; then
-    run "gh issue create --repo \"$ORG/$repo_name\" --title 'Fixture: create PR from suggested patch' --body 'Use this issue to validate agent PR authoring flow.' --label agent-fix"
+  if ! gh issue list --repo "$ORG/$repo_name" --state all --limit 100 --search "in:title \"Fixture: create PR from suggested patch\"" --json title --jq 'length' | grep -Eq '^[1-9][0-9]*$'; then
+    run gh issue create --repo "$ORG/$repo_name" --title "Fixture: create PR from suggested patch" --body "Use this issue to validate agent PR authoring flow." --label agent-fix
   fi
 }
 
@@ -515,7 +534,7 @@ ensure_repo_health_issue() {
         for label in "${label_parts[@]}"; do
           label="${label// /}"  # trim whitespace
           if ! gh label view "$label" --repo "$repo_full" >/dev/null 2>&1; then
-            run "gh label create \"$label\" --repo \"$repo_full\"" || true
+            run gh label create "$label" --repo "$repo_full" || true
           fi
         done
       fi
@@ -532,7 +551,7 @@ ensure_repo_health_issue() {
       cmd+=(--label "$label")
     done
   fi
-  run "${cmd[*]}"
+  run "${cmd[@]}"
 }
 
 seed_version_scoped_repo_health_fixtures() {
@@ -575,13 +594,17 @@ seed_version_scoped_repo_health_fixtures() {
   local pr_branch="fixture/repo-health-v0-1-0"
   local pr_title="Repo health fixture PR: v0.1.0 docs update"
   if ! gh pr list --repo "$vuln_full" --state open --head "$pr_branch" --json number --jq 'length' | grep -Eq '^[1-9][0-9]*$'; then
-    run "git -C \"$vuln_path\" checkout -B \"$pr_branch\""
-    run "printf '\nRepo health PR fixture for v0.1.0 and 0.1.0\n' >> \"$vuln_path/README.md\""
-    run "git -C \"$vuln_path\" add README.md"
-    run "git -C \"$vuln_path\" commit -m 'test: repo health PR fixture v0.1.0' || true"
-    run "git -C \"$vuln_path\" push -u origin \"$pr_branch\" --force-with-lease"
-    run "gh pr create --repo \"$vuln_full\" --base main --head \"$pr_branch\" --title \"$pr_title\" --body 'Version-scoped PR fixture for SOBS repo health (v0.1.0, 0.1.0). Security follow-up.'"
-    run "git -C \"$vuln_path\" checkout main"
+    run git -C "$vuln_path" checkout -B "$pr_branch"
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      printf '[DRYRUN] append repo-health PR fixture marker to %q\n' "$vuln_path/README.md"
+    else
+      printf '\nRepo health PR fixture for v0.1.0 and 0.1.0\n' >> "$vuln_path/README.md"
+    fi
+    run git -C "$vuln_path" add README.md
+    run git -C "$vuln_path" commit -m "test: repo health PR fixture v0.1.0" || true
+    run git -C "$vuln_path" push -u origin "$pr_branch" --force-with-lease
+    run gh pr create --repo "$vuln_full" --base main --head "$pr_branch" --title "$pr_title" --body "Version-scoped PR fixture for SOBS repo health (v0.1.0, 0.1.0). Security follow-up."
+    run git -C "$vuln_path" checkout main
   fi
 }
 
@@ -631,8 +654,8 @@ main() {
   init_or_pull_repo "$fixed_path" "$fixed_repo" "$ORG/$fixed_repo" seed_fixed_repo
   update_repo_content "$fixed_path" seed_fixed_repo
   push_repo_to_github "$fixed_repo" "$fixed_path" "$ORG/$fixed_repo"
-  run "git -C \"$fixed_path\" tag -f v1.0.0 || true"
-  run "git -C \"$fixed_path\" push origin --tags" || true
+  run git -C "$fixed_path" tag -f v1.0.0 || true
+  run git -C "$fixed_path" push origin --tags || true
 
   # Setup agent playground
   init_or_pull_repo "$agent_path" "$agent_repo" "$ORG/$agent_repo" seed_agent_repo

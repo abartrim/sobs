@@ -176,7 +176,15 @@
               {% endif %}
             </td>
             <td class="text-end">
-              <button class="btn btn-sm btn-link py-0 px-1" data-bs-toggle="modal" data-bs-target="#workItemDetailModal" onclick="showWorkItemDetail('{{ item.id }}', '{{ item.issue_url }}', '{{ item.issue_title | replace('\"', '&quot;') }}', '{{ item.analysis_summary | replace('\"', '&quot;') }}', '{{ item.suggestion_summary | replace('\"', '&quot;') }}')">
+              <button
+                class="btn btn-sm btn-link py-0 px-1 work-item-detail-btn"
+                data-bs-toggle="modal"
+                data-bs-target="#workItemDetailModal"
+                data-work-item-id="{{ item.id }}"
+                data-work-item-url="{{ item.issue_url }}"
+                data-work-item-title="{{ item.issue_title }}"
+                data-work-item-analysis="{{ item.analysis_summary }}"
+                data-work-item-suggestion="{{ item.suggestion_summary }}">
                 <i class="bi bi-arrow-right"></i>
               </button>
             </td>
@@ -235,13 +243,51 @@
 
 {% block scripts %}
 <script>
+function toSafeGithubIssueUrl(raw) {
+  try {
+    var parsed = new URL(String(raw || '').trim(), window.location.origin);
+    var host = parsed.hostname.toLowerCase();
+    if (parsed.protocol !== 'https:') return '';
+    if (host !== 'github.com' && host !== 'www.github.com') return '';
+    return parsed.href;
+  } catch (_err) {
+    return '';
+  }
+}
+
 function showWorkItemDetail(id, issueUrl, issueTitle, analysis, suggestion) {
   document.getElementById('workItemTitle').textContent = issueTitle;
   document.getElementById('workItemAnalysis').textContent = analysis || '(no analysis)';
   document.getElementById('workItemSuggestion').textContent = suggestion || '(no suggestion)';
-  document.getElementById('workItemGithubLink').href = issueUrl;
-  document.getElementById('workItemGithubUrl').textContent = issueUrl;
+  var safeUrl = toSafeGithubIssueUrl(issueUrl);
+  var githubLink = document.getElementById('workItemGithubLink');
+  var githubUrl = document.getElementById('workItemGithubUrl');
+  if (safeUrl) {
+    githubLink.href = safeUrl;
+    githubLink.classList.remove('disabled');
+    githubLink.removeAttribute('aria-disabled');
+    githubLink.style.pointerEvents = '';
+    githubUrl.textContent = safeUrl;
+  } else {
+    githubLink.href = '#';
+    githubLink.classList.add('disabled');
+    githubLink.setAttribute('aria-disabled', 'true');
+    githubLink.style.pointerEvents = 'none';
+    githubUrl.textContent = '(no valid issue URL)';
+  }
 }
+
+document.querySelectorAll('.work-item-detail-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    showWorkItemDetail(
+      btn.dataset.workItemId || '',
+      btn.dataset.workItemUrl || '',
+      btn.dataset.workItemTitle || '',
+      btn.dataset.workItemAnalysis || '',
+      btn.dataset.workItemSuggestion || ''
+    );
+  });
+});
 
 function initWorkItemsTimezone() {
   if (!window.sobsTimezone || typeof window.sobsTimezone.initPage !== 'function') return false;
