@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_multi_select_filter.html' import render_single_select %}
 {% block title %}Tag Rules{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -35,13 +36,14 @@
             <input type="number" min="1" max="5000" name="min_count" class="form-control form-control-sm" value="{{ auto_summary.min_count if auto_summary else 30 }}">
           </div>
           <div class="col-md-3">
-            <label class="form-label small text-secondary">Service scope</label>
-            <select name="service_filter" class="form-select form-select-sm">
-              <option value="">All services</option>
-              {% for s in services %}
-              <option value="{{ s }}" {% if auto_summary and auto_summary.service_filter == s %}selected{% endif %}>{{ s }}</option>
-              {% endfor %}
-            </select>
+            {{ render_single_select(
+              'service_filter',
+              'Service scope',
+              [{'value': '', 'label': 'All services'}] + services,
+              auto_summary.service_filter if auto_summary else '',
+              '100%',
+              false
+            ) }}
           </div>
           <div class="col-md-3">
             <label class="form-label small text-secondary d-block mb-1">Record types</label>
@@ -168,12 +170,14 @@
 
       <!-- Match operator -->
       <div class="col-md-2">
-        <label class="form-label small text-secondary">Operator <span class="text-danger">*</span></label>
-        <select name="match_operator" class="form-select form-select-sm" required>
-          {% for op in match_operators %}
-          <option value="{{ op }}">{{ op }}</option>
-          {% endfor %}
-        </select>
+        {{ render_single_select(
+          'match_operator',
+          'Operator',
+          match_operators,
+          match_operators[0] if match_operators else '',
+          '100%',
+          false
+        ) }}
       </div>
 
       <!-- Match value -->

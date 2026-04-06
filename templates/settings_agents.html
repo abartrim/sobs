@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_multi_select_filter.html' import render_single_select %}
 {% block title %}Agent Rules{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -64,12 +65,14 @@
           <div class="form-text">Which rule must fire to trigger this agent flow.</div>
         </div>
         <div class="col-md-2">
-          <label class="form-label small fw-semibold">Trigger State</label>
-          <select name="trigger_state" class="form-select form-select-sm">
-            {% for ts in trigger_states %}
-            <option value="{{ ts }}">{{ ts | title }}</option>
-            {% endfor %}
-          </select>
+          {{ render_single_select(
+            'trigger_state',
+            'Trigger State',
+            trigger_states,
+            trigger_states[0] if trigger_states else '',
+            '100%',
+            false
+          ) }}
         </div>
         <div class="col-md-3">
           <label class="form-label small fw-semibold">Rate Limit (minutes)</label>

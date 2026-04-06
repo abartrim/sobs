@@ -6,7 +6,8 @@
   {{ render_multi_select('level', 'Level', levels, [current_level], '120px') }}
 #}
 
-{% macro render_multi_select(filter_name, label, options, selected_values, flex_basis='120px', single_select=false) %}
+{% macro render_multi_select(filter_name, label, options, selected_values, flex_basis='120px', single_select=false, auto_submit=true, input_name=None) %}
+{% set _input_name = input_name if input_name is not none else filter_name %}
 <div style="flex: 1 1 {{ flex_basis }}; min-width: 0;">
   <label class="form-label small text-secondary">{{ label }}</label>
   <div class="dropdown sobs-multi-select-wrap" id="dropdown-{{ filter_name }}">
@@ -46,7 +47,7 @@
       <li>
         <button
           type="button"
-          class="dropdown-item px-3 py-2 d-flex align-items-center sobs-multi-select-option{% if opt_value in selected_values %} is-selected{% endif %}"
+          class="dropdown-item px-2 py-2 d-flex align-items-center sobs-multi-select-option{% if opt_value in selected_values %} is-selected{% endif %}"
           data-filter-option="{{ filter_name }}"
           data-option-value="{{ opt_value }}"
           aria-pressed="{{ 'true' if opt_value in selected_values else 'false' }}">
@@ -60,7 +61,7 @@
   <!-- Hidden inputs for form submission (initial state) -->
   <div id="hidden-fields-{{ filter_name }}">
     {%- for value in selected_values %}
-    <input type="hidden" name="{{ filter_name }}" value="{{ value }}">
+    <input type="hidden" name="{{ _input_name }}" value="{{ value }}">
     {%- endfor %}
   </div>
 </div>
@@ -68,7 +69,9 @@
 <script>
 (function() {
   const filterName = "{{ filter_name }}";
+  const inputName = "{{ _input_name }}";
   const singleSelect = {{ single_select | tojson }};
+  const autoSubmit = {{ auto_submit | tojson }};
   const btnId = `btn-${filterName}`;
   const clearBtnId = `clear-${filterName}`;
   const labelId = `label-${filterName}`;
@@ -136,7 +139,7 @@
     checked.forEach(value => {
       const input = document.createElement('input');
       input.type = 'hidden';
-      input.name = filterName;
+      input.name = inputName;
       input.value = value;
       hiddenFieldsContainer.appendChild(input);
     });
@@ -205,7 +208,7 @@
         option.dispatchEvent(event);
         // Auto-submit form when filter changes
         const form = option.closest('form');
-        if (form) {
+        if (autoSubmit && form) {
           form.submit();
         }
       });
@@ -233,7 +236,7 @@
         const event = new CustomEvent('sobs:filters:changed', { bubbles: true });
         clearBtn.dispatchEvent(event);
         const form = clearBtn.closest('form');
-        if (form) {
+        if (autoSubmit && form) {
           form.submit();
         }
       });
@@ -368,7 +371,7 @@
     min-width: 100%;
     width: 100%;
     max-width: min(700px, 90vw);
-    margin-left: -0.35rem;
+    margin-left: -0.45rem;
     max-height: min(360px, 60vh);
     overflow-x: auto;
     overflow-y: auto;
@@ -381,7 +384,7 @@
     line-height: 1.5;
     font-weight: 400;
     white-space: nowrap;
-    gap: 0.35rem;
+    gap: 0.24rem;
   }
 
   .sobs-multi-select-option-text {
@@ -402,8 +405,8 @@
   }
 
   .sobs-multi-select-checkmark {
-    width: 1rem;
-    min-width: 1rem;
+    width: 0.84rem;
+    min-width: 0.84rem;
     opacity: 0;
     color: var(--bs-secondary-color);
   }
@@ -428,7 +431,7 @@
 </style>
 {% endmacro %}
 
-{% macro render_single_select(filter_name, label, options, selected_value, flex_basis='120px') %}
+{% macro render_single_select(filter_name, label, options, selected_value, flex_basis='120px', auto_submit=true, input_name=None) %}
 {% set _selected_values = [selected_value] if selected_value is not none else [] %}
-{{ render_multi_select(filter_name, label, options, _selected_values, flex_basis, true) }}
+{{ render_multi_select(filter_name, label, options, _selected_values, flex_basis, true, auto_submit, input_name) }}
 {% endmacro %}

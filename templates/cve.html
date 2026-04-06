@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_multi_select_filter.html" import render_multi_select %}
 {% block title %}CVE Findings{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -130,25 +131,9 @@
     </h2>
     <div id="cveFiltersPanel" class="accordion-collapse collapse show" data-bs-parent="#cveFiltersAccordion">
       <div class="accordion-body py-3">
-        <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
-          <div>
-            <label class="form-label small text-secondary mb-1">Severity</label>
-            <select name="severity" class="form-select form-select-sm" style="min-width:120px;">
-              <option value="">All</option>
-              {% for s in severities %}
-              <option value="{{ s }}" {% if severity_filter == s %}selected{% endif %}>{{ s }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div>
-            <label class="form-label small text-secondary mb-1">Ecosystem</label>
-            <select name="ecosystem" class="form-select form-select-sm" style="min-width:120px;">
-              <option value="">All</option>
-              {% for e in ecosystems %}
-              <option value="{{ e }}" {% if ecosystem_filter == e %}selected{% endif %}>{{ e }}</option>
-              {% endfor %}
-            </select>
-          </div>
+        <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
+          {{ render_multi_select('severity', 'Severity', severities, selected_severities, '120px') }}
+          {{ render_multi_select('ecosystem', 'Ecosystem', ecosystems, selected_ecosystems, '120px') }}
           <div>
             <label class="form-label small text-secondary mb-1">Package</label>
             <input type="text" name="package" class="form-control form-control-sm"

@@ -13459,8 +13459,10 @@ async def view_enrichment_cve():
     except (TypeError, ValueError):
         cve_last_backfill_cap = 0
 
-    severity_filter = request.args.get("severity", "").strip()
-    ecosystem_filter = request.args.get("ecosystem", "").strip()
+    selected_severities = [s.strip() for s in request.args.getlist("severity") if s.strip()]
+    selected_ecosystems = [e.strip() for e in request.args.getlist("ecosystem") if e.strip()]
+    severity_filter = selected_severities[0] if selected_severities else ""
+    ecosystem_filter = selected_ecosystems[0] if selected_ecosystems else ""
     package_filter = request.args.get("package", "").strip()
     show_all = request.args.get("show_all", "").strip().lower() in ("1", "true", "yes", "on")
 
@@ -13514,10 +13516,12 @@ async def view_enrichment_cve():
                 )
             ecosystems = sorted({f["ecosystem"] for f in cve_findings if f["ecosystem"]})
             severities = sorted({f["severity"] for f in cve_findings if f["severity"]})
-            if severity_filter:
-                cve_findings = [f for f in cve_findings if f["severity"] == severity_filter]
-            if ecosystem_filter:
-                cve_findings = [f for f in cve_findings if f["ecosystem"] == ecosystem_filter]
+            if selected_severities:
+                selected_severity_set = set(selected_severities)
+                cve_findings = [f for f in cve_findings if f["severity"] in selected_severity_set]
+            if selected_ecosystems:
+                selected_ecosystem_set = set(selected_ecosystems)
+                cve_findings = [f for f in cve_findings if f["ecosystem"] in selected_ecosystem_set]
             if package_filter:
                 pkg_lower = package_filter.lower()
                 cve_findings = [f for f in cve_findings if pkg_lower in f["package"].lower()]
@@ -13543,6 +13547,8 @@ async def view_enrichment_cve():
         severities=severities,
         severity_filter=severity_filter,
         ecosystem_filter=ecosystem_filter,
+        selected_severities=selected_severities,
+        selected_ecosystems=selected_ecosystems,
         package_filter=package_filter,
         show_all=show_all,
     )
@@ -23828,8 +23834,29 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
             return int(v or 0)
         return int(row[0] or 0)
 
+    def _normalized_values(raw: Any) -> list[str]:
+        if isinstance(raw, (list, tuple, set)):
+            return [str(v).strip() for v in raw if str(v).strip()]
+        if raw is None:
+            return []
+        value = str(raw).strip()
+        return [value] if value else []
+
+    def _append_or_equals(conditions: list[str], params: list[Any], field_sql: str, values: list[str]) -> None:
+        if not values:
+            return
+        placeholders = " OR ".join([f"{field_sql} = ?"] * len(values))
+        conditions.append(f"({placeholders})")
+        params.extend(values)
+
     name_filter = str(query.get("name", "")).strip()
     namespace_filter = str(query.get("namespace", "")).strip()
+    namespace_values = _normalized_values(query.get("namespace_values"))
+    if not namespace_values and namespace_filter:
+        namespace_values = [namespace_filter]
+    node_values = _normalized_values(query.get("node_values"))
+    deployment_values = _normalized_values(query.get("deployment_values"))
+    pod_values = _normalized_values(query.get("pod_values"))
 
     table_defaults: dict[str, dict[str, Any]] = {
         "nodes": {"sort": "name", "page": 1, "page_size": 25},
@@ -23920,6 +23947,7 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
                 "MetricName IN ('kube_node_status_condition', 'kube_node_status_allocatable', 'kube_node_info')",
             ]
             node_params: list[Any] = []
+            _append_or_equals(node_conditions, node_params, "Attributes['node']", node_values)
             if name_filter:
                 node_conditions.append("positionCaseInsensitive(Attributes['node'], ?) > 0")
                 node_params.append(name_filter)
@@ -23986,6 +24014,7 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
         try:
             node_conditions = ["Attributes['k8s.node.name'] != ''"]
             node_params = []
+            _append_or_equals(node_conditions, node_params, "Attributes['k8s.node.name']", node_values)
             if name_filter:
                 node_conditions.append("positionCaseInsensitive(Attributes['k8s.node.name'], ?) > 0")
                 node_params.append(name_filter)
@@ -24053,9 +24082,8 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
                 " 'kube_pod_info')",
             ]
             pod_params: list[Any] = []
-            if namespace_filter:
-                pod_conditions.append("Attributes['namespace'] = ?")
-                pod_params.append(namespace_filter)
+            _append_or_equals(pod_conditions, pod_params, "Attributes['namespace']", namespace_values)
+            _append_or_equals(pod_conditions, pod_params, "Attributes['pod']", pod_values)
             if name_filter:
                 pod_conditions.append("positionCaseInsensitive(Attributes['pod'], ?) > 0")
                 pod_params.append(name_filter)
@@ -24085,9 +24113,8 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
                 "MetricName = 'kube_pod_container_status_restarts_total'",
             ]
             pod_sum_params: list[Any] = []
-            if namespace_filter:
-                pod_sum_conditions.append("Attributes['namespace'] = ?")
-                pod_sum_params.append(namespace_filter)
+            _append_or_equals(pod_sum_conditions, pod_sum_params, "Attributes['namespace']", namespace_values)
+            _append_or_equals(pod_sum_conditions, pod_sum_params, "Attributes['pod']", pod_values)
             if name_filter:
                 pod_sum_conditions.append("positionCaseInsensitive(Attributes['pod'], ?) > 0")
                 pod_sum_params.append(name_filter)
@@ -24172,9 +24199,8 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
         try:
             pod_conditions = ["Attributes['k8s.pod.name'] != ''"]
             pod_params = []
-            if namespace_filter:
-                pod_conditions.append("Attributes['k8s.namespace.name'] = ?")
-                pod_params.append(namespace_filter)
+            _append_or_equals(pod_conditions, pod_params, "Attributes['k8s.namespace.name']", namespace_values)
+            _append_or_equals(pod_conditions, pod_params, "Attributes['k8s.pod.name']", pod_values)
             if name_filter:
                 pod_conditions.append("positionCaseInsensitive(Attributes['k8s.pod.name'], ?) > 0")
                 pod_params.append(name_filter)
@@ -24251,9 +24277,8 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
                 " 'kube_deployment_status_replicas')",
             ]
             deploy_params: list[Any] = []
-            if namespace_filter:
-                deploy_conditions.append("Attributes['namespace'] = ?")
-                deploy_params.append(namespace_filter)
+            _append_or_equals(deploy_conditions, deploy_params, "Attributes['namespace']", namespace_values)
+            _append_or_equals(deploy_conditions, deploy_params, "Attributes['deployment']", deployment_values)
             if name_filter:
                 deploy_conditions.append("positionCaseInsensitive(Attributes['deployment'], ?) > 0")
                 deploy_params.append(name_filter)
@@ -24309,9 +24334,8 @@ def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = No
         try:
             deploy_conditions = ["Attributes['k8s.deployment.name'] != ''"]
             deploy_params = []
-            if namespace_filter:
-                deploy_conditions.append("Attributes['k8s.namespace.name'] = ?")
-                deploy_params.append(namespace_filter)
+            _append_or_equals(deploy_conditions, deploy_params, "Attributes['k8s.namespace.name']", namespace_values)
+            _append_or_equals(deploy_conditions, deploy_params, "Attributes['k8s.deployment.name']", deployment_values)
             if name_filter:
                 deploy_conditions.append("positionCaseInsensitive(Attributes['k8s.deployment.name'], ?) > 0")
                 deploy_params.append(name_filter)
@@ -24480,6 +24504,10 @@ async def api_kubernetes_status():
 
     query_opts: dict[str, Any] = {
         "namespace": request.args.get("namespace", "").strip(),
+        "namespace_values": [v.strip() for v in request.args.getlist("namespace") if v.strip()],
+        "node_values": [v.strip() for v in request.args.getlist("node") if v.strip()],
+        "deployment_values": [v.strip() for v in request.args.getlist("deployment") if v.strip()],
+        "pod_values": [v.strip() for v in request.args.getlist("pod") if v.strip()],
         "name": request.args.get("name", "").strip(),
         "nodes_sort": request.args.get("nodes_sort", "name").strip(),
         "nodes_dir": request.args.get("nodes_dir", "asc").strip().lower(),

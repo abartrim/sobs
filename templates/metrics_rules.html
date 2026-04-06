@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_multi_select_filter.html' import render_single_select %}
 {% block title %}Metrics Rules{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -31,13 +32,15 @@
             <input type="number" min="1" max="5000" name="min_points" class="form-control form-control-sm" value="{{ auto_summary.min_points if auto_summary else 30 }}">
           </div>
           <div class="col-md-3">
-            <label class="form-label small text-secondary">Service scope</label>
-            <select name="service_filter" class="form-select form-select-sm">
-              <option value="">All services</option>
-              {% for s in services %}
-              <option value="{{ s }}" {% if auto_summary and auto_summary.service_filter == s %}selected{% endif %}>{{ s }}</option>
-              {% endfor %}
-            </select>
+            {{ render_single_select(
+              'auto_service_filter',
+              'Service scope',
+              [{'value': '', 'label': 'All services'}] + services,
+              auto_summary.service_filter if auto_summary else '',
+              '100%',
+              false,
+              'service_filter'
+            ) }}
           </div>
           <div class="col-md-3">
             <div class="form-check mt-4">
@@ -144,13 +147,15 @@
             <input type="number" min="1" max="24" name="max_charts" class="form-control form-control-sm" value="{{ auto_dashboard_summary.max_charts if auto_dashboard_summary else 12 }}">
           </div>
           <div class="col-md-3">
-            <label class="form-label small text-secondary">Service scope</label>
-            <select name="service_filter" class="form-select form-select-sm">
-              <option value="">All services</option>
-              {% for s in services %}
-              <option value="{{ s }}" {% if auto_dashboard_summary and auto_dashboard_summary.service_filter == s %}selected{% endif %}>{{ s }}</option>
-              {% endfor %}
-            </select>
+            {{ render_single_select(
+              'auto_dashboard_service_filter',
+              'Service scope',
+              [{'value': '', 'label': 'All services'}] + services,
+              auto_dashboard_summary.service_filter if auto_dashboard_summary else '',
+              '100%',
+              false,
+              'service_filter'
+            ) }}
           </div>
           <div class="col-md-2 d-flex gap-2">
             <button type="submit" class="btn btn-outline-info btn-sm flex-grow-1" name="action" value="preview"

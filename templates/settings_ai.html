@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_multi_select_filter.html' import render_single_select %}
 {% block title %}AI Configuration{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -36,14 +37,20 @@
                  value="{{ settings.get('ai.model', '') }}">
         </div>
         <div class="col-md-3">
-          <label class="form-label small fw-semibold">Default Thinking Level</label>
-          <select name="thinking_level" class="form-select form-select-sm">
-            {% set thinking = settings.get('ai.thinking_level', 'off') %}
-            <option value="off" {% if thinking == 'off' %}selected{% endif %}>Off</option>
-            <option value="low" {% if thinking == 'low' %}selected{% endif %}>Low</option>
-            <option value="medium" {% if thinking == 'medium' %}selected{% endif %}>Medium</option>
-            <option value="high" {% if thinking == 'high' %}selected{% endif %}>High</option>
-          </select>
+          {% set thinking = settings.get('ai.thinking_level', 'off') %}
+          {{ render_single_select(
+            'thinking_level',
+            'Default Thinking Level',
+            [
+              {'value': 'off', 'label': 'Off'},
+              {'value': 'low', 'label': 'Low'},
+              {'value': 'medium', 'label': 'Medium'},
+              {'value': 'high', 'label': 'High'}
+            ],
+            thinking,
+            '100%',
+            false
+          ) }}
           <div class="form-text">Applied only when the selected model supports thinking/reasoning controls.</div>
         </div>
         <div class="col-md-3">
