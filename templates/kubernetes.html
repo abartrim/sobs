@@ -328,6 +328,7 @@
 (function () {
   'use strict';
 
+  var K8S_STATUS_URL = {{ url_for('api_kubernetes_status') | tojson }};
   var REFRESH_INTERVAL_MS = 30000;
   var _timer = null;
   var _countdownInterval = null;
@@ -655,7 +656,7 @@
       params.set(table + '_page_size', String(s.pageSize));
     });
 
-    fetch('/api/kubernetes/status?' + params.toString())
+    fetch(K8S_STATUS_URL + '?' + params.toString())
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var errorBanner = document.getElementById('errorBanner');

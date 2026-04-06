@@ -3044,6 +3044,278 @@ class TestUIPages:
         assert r.status_code == 200
         assert b"SQL error" in await r.get_data()
 
+    async def test_logs_trace_id_filter(self, client):
+        """Logs page should accept a trace_id parameter and filter by it."""
+        from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import ExportLogsServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.logs.v1.logs_pb2 import LogRecord, ResourceLogs, ScopeLogs
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+
+        now_ns = int(time.time() * 1_000_000_000)
+        target_trace_id_bytes = bytes.fromhex("aabbccddeeff00112233445566778899")
+        other_trace_id_bytes = bytes.fromhex("99887766554433221100ffeeddccbbaa")
+
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value="trace-filter-svc"))])
+        log1 = LogRecord(
+            time_unix_nano=now_ns,
+            severity_text="INFO",
+            body=AnyValue(string_value="log_for_target_trace"),
+            trace_id=target_trace_id_bytes,
+        )
+        log2 = LogRecord(
+            time_unix_nano=now_ns + 1,
+            severity_text="INFO",
+            body=AnyValue(string_value="log_for_other_trace"),
+            trace_id=other_trace_id_bytes,
+        )
+        msg = ExportLogsServiceRequest(
+            resource_logs=[
+                ResourceLogs(
+                    resource=resource,
+                    scope_logs=[ScopeLogs(log_records=[log1, log2])],
+                )
+            ]
+        )
+        r = await client.post(
+            "/v1/logs", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        target_trace_id_hex = target_trace_id_bytes.hex()
+        r = await client.get(f"/logs?trace_id={target_trace_id_hex}")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"log_for_target_trace" in data
+        assert b"log_for_other_trace" not in data
+
+    async def test_logs_trace_ids_filter(self, client):
+        """Logs page should accept trace_ids and filter across all listed trace IDs."""
+        from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import ExportLogsServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.logs.v1.logs_pb2 import LogRecord, ResourceLogs, ScopeLogs
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+
+        now_ns = int(time.time() * 1_000_000_000)
+        trace_a = bytes.fromhex("11111111111111111111111111111111")
+        trace_b = bytes.fromhex("22222222222222222222222222222222")
+        trace_c = bytes.fromhex("33333333333333333333333333333333")
+
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value="trace-ids-svc"))])
+        log_a = LogRecord(
+            time_unix_nano=now_ns,
+            severity_text="INFO",
+            body=AnyValue(string_value="log_for_trace_a"),
+            trace_id=trace_a,
+        )
+        log_b = LogRecord(
+            time_unix_nano=now_ns + 1,
+            severity_text="INFO",
+            body=AnyValue(string_value="log_for_trace_b"),
+            trace_id=trace_b,
+        )
+        log_c = LogRecord(
+            time_unix_nano=now_ns + 2,
+            severity_text="INFO",
+            body=AnyValue(string_value="log_for_trace_c"),
+            trace_id=trace_c,
+        )
+        msg = ExportLogsServiceRequest(
+            resource_logs=[
+                ResourceLogs(
+                    resource=resource,
+                    scope_logs=[ScopeLogs(log_records=[log_a, log_b, log_c])],
+                )
+            ]
+        )
+        r = await client.post(
+            "/v1/logs", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        r = await client.get(f"/logs?trace_ids={trace_a.hex()},{trace_b.hex()}")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"log_for_trace_a" in data
+        assert b"log_for_trace_b" in data
+        assert b"log_for_trace_c" not in data
+        assert b"Filtering by 2 trace IDs" in data
+
+    async def test_logs_trace_id_csv_filter_case_insensitive(self, client):
+        """Logs page should accept comma-separated trace_id values and match case-insensitively."""
+        from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import ExportLogsServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.logs.v1.logs_pb2 import LogRecord, ResourceLogs, ScopeLogs
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+
+        now_ns = int(time.time() * 1_000_000_000)
+        trace_a = bytes.fromhex("abcdefabcdefabcdefabcdefabcdefab")
+        trace_b = bytes.fromhex("0123456789abcdef0123456789abcdef")
+
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value="trace-csv-svc"))])
+        log_a = LogRecord(
+            time_unix_nano=now_ns,
+            severity_text="INFO",
+            body=AnyValue(string_value="log_for_trace_csv_a"),
+            trace_id=trace_a,
+        )
+        log_b = LogRecord(
+            time_unix_nano=now_ns + 1,
+            severity_text="INFO",
+            body=AnyValue(string_value="log_for_trace_csv_b"),
+            trace_id=trace_b,
+        )
+        msg = ExportLogsServiceRequest(
+            resource_logs=[
+                ResourceLogs(
+                    resource=resource,
+                    scope_logs=[ScopeLogs(log_records=[log_a, log_b])],
+                )
+            ]
+        )
+        r = await client.post(
+            "/v1/logs", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        mixed_case_csv = f"{trace_a.hex().upper()},{trace_b.hex()}"
+        r = await client.get(f"/logs?trace_id={mixed_case_csv}")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"log_for_trace_csv_a" in data
+        assert b"log_for_trace_csv_b" in data
+
+    async def test_logs_trace_id_filter_indicator(self, client):
+        """Logs page should render trace_id as a visible filter field when set."""
+        trace_id = "aabbccddeeff00112233445566778899"
+        r = await client.get(f"/logs?trace_id={trace_id}")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Trace ID" in data
+        assert trace_id.encode() in data
+
+    async def test_logs_trace_id_clear_preserves_query_state(self, client):
+        """Trace-id clear link should preserve current logs query state while clearing only trace_id."""
+        trace_id = "aabbccddeeff00112233445566778899"
+        r = await client.get(
+            "/logs"
+            f"?trace_id={trace_id}&q=error&level=INFO&service=svc-a"
+            "&event_name=turn.feedback&sql=SeverityText='INFO'&from_ts=2026-04-06+00:00"
+            "&to_ts=2026-04-06+00:05&live=1&sort_by=ServiceName&sort_dir=asc"
+            "&limit=25&offset=50&analyze=1&stats=1"
+        )
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"event_name=turn.feedback" in data
+        assert b"q=error" in data
+        assert b"level=INFO" in data
+        assert b"service=svc-a" in data
+        assert b"sql=SeverityText" in data
+        assert b"from_ts=2026-04-06" in data
+        assert b"to_ts=2026-04-06" in data
+        assert b"live=1" in data
+        assert b"sort_by=ServiceName" in data
+        assert b"sort_dir=asc" in data
+        assert b"limit=25" in data
+        assert b"analyze=1" in data
+        assert b"stats=1" in data
+
+    async def test_errors_page_has_logs_link_with_trace_id(self, client):
+        """Errors page should show a Logs button linking to logs filtered by trace_id when trace_id is available."""
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        trace_id_bytes = bytes.fromhex("ccddee0011223344556677889900aabb")
+        span_id_bytes = bytes.fromhex("1122334455667788")
+        start_ns = int(time.time() * 1_000_000_000)
+
+        span = Span(
+            trace_id=trace_id_bytes,
+            span_id=span_id_bytes,
+            name="errored-span",
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 1_000_000_000,
+            status=Status(code=2),
+            attributes=[
+                KeyValue(key="exception.type", value=AnyValue(string_value="TestError")),
+                KeyValue(key="exception.message", value=AnyValue(string_value="test error for logs link")),
+            ],
+        )
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value="err-logs-link-svc"))])
+        msg = ExportTraceServiceRequest(
+            resource_spans=[
+                ResourceSpans(
+                    resource=resource,
+                    scope_spans=[ScopeSpans(spans=[span])],
+                )
+            ]
+        )
+        r = await client.post(
+            "/v1/traces", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        trace_id_hex = trace_id_bytes.hex()
+        r = await client.get("/errors")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert f"trace_id={trace_id_hex}".encode() in data
+
+    async def test_errors_grouped_logs_link_uses_all_group_trace_ids(self, client):
+        """Grouped Errors logs links should include all trace IDs from the matching group."""
+        from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import ExportLogsServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.logs.v1.logs_pb2 import LogRecord, ResourceLogs, ScopeLogs
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+
+        now_ns = int(time.time() * 1_000_000_000)
+        trace_a = bytes.fromhex("44444444444444444444444444444444")
+        trace_b = bytes.fromhex("55555555555555555555555555555555")
+
+        resource = Resource(
+            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="grouped-errors-svc"))]
+        )
+        attrs = [
+            KeyValue(key="exception.type", value=AnyValue(string_value="GroupedError")),
+            KeyValue(key="exception.message", value=AnyValue(string_value="same grouped error")),
+        ]
+        log_a = LogRecord(
+            time_unix_nano=now_ns,
+            severity_text="ERROR",
+            body=AnyValue(string_value="same grouped error"),
+            trace_id=trace_a,
+            attributes=attrs,
+        )
+        log_b = LogRecord(
+            time_unix_nano=now_ns + 1,
+            severity_text="ERROR",
+            body=AnyValue(string_value="same grouped error"),
+            trace_id=trace_b,
+            attributes=attrs,
+        )
+        msg = ExportLogsServiceRequest(
+            resource_logs=[
+                ResourceLogs(
+                    resource=resource,
+                    scope_logs=[ScopeLogs(log_records=[log_a, log_b])],
+                )
+            ]
+        )
+        r = await client.post(
+            "/v1/logs", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        r = await client.get("/errors?grouped=1")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"trace_ids=" in data
+        a_hex = trace_a.hex().encode()
+        b_hex = trace_b.hex().encode()
+        assert a_hex in data
+        assert b_hex in data
+
     async def test_root_mode_uses_root_relative_links(self, client):
         """Default deployment should generate links/assets without a path prefix."""
         r = await client.get("/")

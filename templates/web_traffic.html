@@ -539,7 +539,7 @@ function escHtml(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt
   if (!form || !saveBtn || !menu) return;
 
   function loadSavedReports() {
-    fetch('/api/reports?page_type=web_traffic')
+    fetch({{ url_for('api_list_reports') | tojson }} + '?page_type=web_traffic')
       .then(r => r.json())
       .then(reports => {
         if (!reports.length) {

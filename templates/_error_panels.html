@@ -1,0 +1,278 @@
+{% macro render_error_panel_styles(accordion_id='errAccordion') -%}
+#{{ accordion_id }} {
+  overflow-x: hidden;
+}
+
+#{{ accordion_id }} .accordion-item,
+#{{ accordion_id }} .accordion-header,
+#{{ accordion_id }} .accordion-button {
+  max-width: 100%;
+  min-width: 0;
+}
+
+#{{ accordion_id }} .accordion-button.error-panel-button {
+  overflow: hidden;
+}
+
+.error-panel-summary {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  gap: .5rem;
+  align-items: center;
+}
+
+.error-panel-summary > * {
+  min-width: 0;
+}
+
+.error-panel-type,
+.error-panel-service,
+.error-panel-span-id,
+.error-panel-timestamp {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.error-panel-type {
+  max-width: 18ch;
+}
+
+.error-panel-service {
+  max-width: 16ch;
+}
+
+.error-panel-span-id {
+  max-width: 10ch;
+}
+
+@media (max-width: 991.98px) {
+  .error-panel-type {
+    max-width: 13ch;
+  }
+
+  .error-panel-service {
+    max-width: 11ch;
+  }
+}
+
+.error-panel-message-preview {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+{%- endmacro %}
+
+{% macro render_error_accordion(errors, from_ts='', to_ts='', accordion_id='errAccordion', collapse_prefix='err', stack_prefix='stack-', ai_btn_class='ai-help-btn', raise_btn_class='raise-issue-btn', copy_btn_class='copy-stack-btn', resolve_btn_class='resolve-btn', show_resolve=false, show_raise_issue=true, logs_btn_outline='secondary', logs_label='Logs', trace_btn_outline='info', trace_label='Trace', show_span_id_in_header=false) -%}
+<div class="accordion" id="{{ accordion_id }}">
+  {% for err in errors %}
+  <div class="accordion-item border-secondary mb-1">
+    <h2 class="accordion-header">
+      <button class="accordion-button {% if not loop.first %}collapsed{% endif %} py-2 error-panel-button"
+              type="button" data-bs-toggle="collapse" data-bs-target="#{{ collapse_prefix }}{{ loop.index }}">
+        <div class="error-panel-summary w-100 me-2">
+          <span class="badge flex-shrink-0 {% if err.resolved %}bg-success{% else %}bg-danger{% endif %}">
+            {{ 'Resolved' if err.resolved else 'Open' }}
+          </span>
+          <code class="small text-warning error-panel-type" title="{{ err.err_type }}">{{ err.err_type }}</code>
+          {% if err.summary_from_json %}
+          <span class="badge bg-info-subtle text-info-emphasis flex-shrink-0" title="Header summary extracted from JSON payload">Parsed JSON</span>
+          {% endif %}
+          <span class="error-panel-message-preview small" title="{{ err.message }}">{{ err.message_summary or err.message }}</span>
+          <span class="badge bg-secondary error-panel-service" title="{{ err.service or '—' }}">{{ err.service or '—' }}</span>
+          {% if show_span_id_in_header and err.span_id %}
+          <span class="font-monospace text-secondary error-panel-span-id" style="font-size:.68rem;" title="Span: {{ err.span_id }}">{{ err.span_id | truncate(8, True, '') }}…</span>
+          {% endif %}
+          <span class="text-secondary small error-panel-timestamp sobs-tz-ts" data-utc-ts="{{ err.ts }}">{{ err.ts[:19] }}</span>
+        </div>
+      </button>
+    </h2>
+    <div id="{{ collapse_prefix }}{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}">
+      <div class="accordion-body py-2">
+        {% set _msg = (err.message or '') | trim %}
+        {% set _body = (err.raw_body or '') | trim %}
+        {% set _show_body = _body != '' %}
+        {% set _show_message = _msg != '' and (not _show_body or _msg != _body) %}
+
+        {% if _show_message %}
+        <div class="mb-2">
+          <div class="small text-secondary mb-1">Error message</div>
+          {% if err.message_is_json %}
+          <details class="small rounded p-2 theme-panel">
+            <summary class="mb-2" style="cursor:pointer;">Formatted JSON</summary>
+            <pre class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.message_pretty_json }}</pre>
+          </details>
+          {% else %}
+          <div class="small rounded p-2 theme-panel" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.message }}</div>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {% if _show_body %}
+        <div class="mb-2">
+          <div class="small text-secondary mb-1">Body payload</div>
+          {% if err.raw_body_is_json %}
+          <details class="small rounded p-2 theme-panel">
+            <summary class="mb-2" style="cursor:pointer;">Formatted JSON</summary>
+            <pre class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.raw_body_pretty_json }}</pre>
+          </details>
+          {% else %}
+          <div class="small rounded p-2 theme-panel" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.raw_body }}</div>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {% if err.stack %}
+        <div class="mb-2">
+          <div class="small text-secondary mb-1">Stack trace</div>
+          {% if err.stack_is_json %}
+          <details class="small rounded p-2 theme-panel">
+            <summary class="mb-2" style="cursor:pointer;">Formatted JSON</summary>
+            <pre id="{{ stack_prefix }}{{ err.id }}" class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.stack_pretty_json }}</pre>
+          </details>
+          {% else %}
+          <details class="small rounded p-2 theme-panel">
+            <summary class="mb-2" style="cursor:pointer;">Stack Trace</summary>
+            <pre id="{{ stack_prefix }}{{ err.id }}" class="stack-trace rounded p-2 mb-0">{{ err.stack }}</pre>
+          </details>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {% if err.error_source or err.page_title or err.url or err.artifact_url or err.replay_url %}
+        <div class="row g-2 mt-1 mb-2 small">
+          {% if err.error_source %}
+          <div class="col-md-3">
+            <div class="text-secondary mb-1">Source</div>
+            <div class="font-monospace">{{ err.error_source }}</div>
+          </div>
+          {% endif %}
+          {% if err.page_title %}
+          <div class="col-md-3">
+            <div class="text-secondary mb-1">Page</div>
+            <div>{{ err.page_title }}</div>
+          </div>
+          {% endif %}
+          {% if err.viewport %}
+          <div class="col-md-2">
+            <div class="text-secondary mb-1">Viewport</div>
+            <div class="font-monospace">{{ err.viewport }}</div>
+          </div>
+          {% endif %}
+          {% if err.url %}
+          <div class="col-md-4">
+            <div class="text-secondary mb-1">URL</div>
+            <div class="text-break font-monospace">{{ err.url }}</div>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="d-flex gap-2 mt-2">
+          {% set _trace_ids_csv = err.trace_ids_csv if err.trace_ids_csv is defined else '' %}
+          {% if _trace_ids_csv %}
+          <a href="{{ url_for('view_logs', trace_ids=_trace_ids_csv, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-{{ logs_btn_outline }}">
+            <i class="bi bi-journal-text me-1"></i>{{ logs_label }}
+          </a>
+          {% if err.trace_id %}
+          <a href="{{ url_for('view_traces', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-{{ trace_btn_outline }}">
+            <i class="bi bi-diagram-3 me-1"></i>{{ trace_label }}
+          </a>
+          {% endif %}
+          {% elif err.trace_id %}
+          <a href="{{ url_for('view_logs', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-{{ logs_btn_outline }}">
+            <i class="bi bi-journal-text me-1"></i>{{ logs_label }}
+          </a>
+          <a href="{{ url_for('view_traces', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-{{ trace_btn_outline }}">
+            <i class="bi bi-diagram-3 me-1"></i>{{ trace_label }}
+          </a>
+          {% else %}
+          <a href="{{ url_for('view_logs', service=err.service, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-{{ logs_btn_outline }}">
+            <i class="bi bi-journal-text me-1"></i>{{ logs_label }}
+          </a>
+          {% endif %}
+
+          {% if err.artifact_url %}
+          <button type="button" class="btn btn-sm btn-outline-primary js-rum-viewer-open"
+                  data-rum-view-kind="artifact"
+                  data-rum-view-url="{{ err.artifact_url }}"
+                  data-rum-view-label="{{ err.artifact_type or 'Artifact' }}">
+            <i class="bi bi-image me-1"></i>{{ err.artifact_type or 'Artifact' }}
+          </button>
+          {% endif %}
+
+          {% if err.replay_url %}
+          <button type="button" class="btn btn-sm btn-outline-warning js-rum-viewer-open"
+                  data-rum-view-kind="replay"
+                  data-rum-view-url="{{ err.replay_url }}"
+                  data-rum-view-label="Replay">
+            <i class="bi bi-play-circle me-1"></i>Replay
+          </button>
+          {% endif %}
+
+          {% if show_resolve and not err.resolved %}
+          <button class="btn btn-sm btn-outline-success {{ resolve_btn_class }}" data-resolve-url="{{ url_for('resolve_error', error_id=err.id) }}"
+                  data-ai-action-id="errors.resolve.mark"
+                  data-ai-action-type="invoke_click"
+                  data-ai-handler="invokeClick"
+                  data-ai-label="Mark error resolved"
+                  data-ai-risk="medium"
+                  data-ai-confirm="true"
+                  data-ai-action-role="resolve-error-btn">
+            <i class="bi bi-check2 me-1"></i>Resolve
+          </button>
+          {% endif %}
+
+          {% if caller is defined %}
+          {{ caller(err) }}
+          {% endif %}
+
+          <button class="btn btn-sm btn-outline-warning {{ ai_btn_class }}"
+                  data-err-type="{{ err.err_type }}"
+                  data-err-message="{{ err.message }}"
+                  data-err-service="{{ err.service or '—' }}"
+                  data-err-ts="{{ err.ts[:19] }}"
+                  data-err-id="{{ err.id }}"
+                  data-trace-id="{{ err.trace_id }}"
+                  data-span-id="{{ err.span_id }}"
+                  data-err-url="{{ err.url }}"
+                  title="Copy error details for AI investigation">
+            <i class="bi bi-robot me-1"></i>Copy for AI
+          </button>
+
+          {% if show_raise_issue %}
+          <button class="btn btn-sm btn-outline-danger {{ raise_btn_class }}"
+                  data-err-type="{{ err.err_type }}"
+                  data-err-message="{{ err.message }}"
+                  data-err-service="{{ err.service or '—' }}"
+                  data-err-ts="{{ err.ts[:19] }}"
+                  data-err-id="{{ err.id }}"
+                  data-trace-id="{{ err.trace_id }}"
+                  data-span-id="{{ err.span_id }}"
+                  data-err-url="{{ err.url }}"
+                  title="Raise or reuse a GitHub issue using agent dedupe checks">
+            <i class="bi bi-github me-1"></i>Raise issue
+          </button>
+          {% endif %}
+
+          {% if err.stack %}
+          <button class="btn btn-sm btn-outline-secondary {{ copy_btn_class }}"
+                  data-stack-id="{{ stack_prefix }}{{ err.id }}"
+                  title="Copy stack trace">
+            <i class="bi bi-clipboard me-1"></i>Copy stack
+          </button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{%- endmacro %}

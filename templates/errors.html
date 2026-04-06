@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_filter_macros.html" import render_filter_accordion %}
+{% from "_error_panels.html" import render_error_accordion, render_error_panel_styles %}
 {% block title %}Errors{% endblock %}
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
@@ -89,190 +90,52 @@
 {% endcall %}
 
 <style>
+{{ render_error_panel_styles('errAccordion') }}
 {% include "_rum_asset_viewer_styles.css" %}
 </style>
 
 {% if errors %}
-<div class="accordion" id="errAccordion">
-  {% for err in errors %}
-  <div class="accordion-item border-secondary mb-1">
-    <h2 class="accordion-header">
-      <button class="accordion-button {% if not loop.first %}collapsed{% endif %} py-2"
-              style="min-width:0;"
-              type="button" data-bs-toggle="collapse" data-bs-target="#err{{ err.id }}">
-        <div class="d-flex gap-3 align-items-center w-100 me-2 overflow-hidden" style="min-width:0;">
-          <span class="badge flex-shrink-0 {% if err.resolved %}bg-success{% else %}bg-danger{% endif %}">
-            {{ 'Resolved' if err.resolved else 'Open' }}
-          </span>
-          <code class="small text-warning text-truncate d-inline-block" style="max-width:16rem;" title="{{ err.err_type }}">{{ err.err_type }}</code>
-          {% if err.summary_from_json %}
-          <span class="badge bg-info-subtle text-info-emphasis flex-shrink-0" title="Header summary extracted from JSON payload">Parsed JSON</span>
-          {% endif %}
-          <span class="small text-truncate d-block" style="flex:1 1 0;min-width:0;width:0;" title="{{ err.message }}">{{ err.message_summary or err.message }}</span>
-          <span class="badge bg-secondary text-truncate d-inline-block" style="max-width:10rem;" title="{{ err.service or '—' }}">{{ err.service or '—' }}</span>
-          <span class="text-secondary small flex-shrink-0 sobs-tz-ts" data-utc-ts="{{ err.ts }}">{{ err.ts[:19] }}</span>
-        </div>
-      </button>
-    </h2>
-    <div id="err{{ err.id }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}">
-      <div class="accordion-body py-2">
-        {% set _msg = (err.message or '') | trim %}
-        {% set _body = (err.raw_body or '') | trim %}
-        {% set _show_body = _body != '' %}
-        {% set _show_message = _msg != '' and (not _show_body or _msg != _body) %}
-
-        {% if _show_message %}
-        <div class="mb-2">
-          <div class="small text-secondary mb-1">Error message</div>
-          {% if err.message_is_json %}
-          <details class="small rounded p-2 theme-panel">
-            <summary class="mb-2" style="cursor:pointer;">Formatted JSON</summary>
-            <pre class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.message_pretty_json }}</pre>
-          </details>
-          {% else %}
-          <div class="small rounded p-2 theme-panel" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.message }}</div>
-          {% endif %}
-        </div>
-        {% endif %}
-
-        {% if _show_body %}
-        <div class="mb-2">
-          <div class="small text-secondary mb-1">Body payload</div>
-          {% if err.raw_body_is_json %}
-          <details class="small rounded p-2 theme-panel">
-            <summary class="mb-2" style="cursor:pointer;">Formatted JSON</summary>
-            <pre class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.raw_body_pretty_json }}</pre>
-          </details>
-          {% else %}
-          <div class="small rounded p-2 theme-panel" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.raw_body }}</div>
-          {% endif %}
-        </div>
-        {% endif %}
-
-        {% if err.stack %}
-        <div class="mb-2">
-          <div class="small text-secondary mb-1">Stack trace</div>
-          {% if err.stack_is_json %}
-          <details class="small rounded p-2 theme-panel">
-            <summary class="mb-2" style="cursor:pointer;">Formatted JSON</summary>
-            <pre id="stack-{{ err.id }}" class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.stack_pretty_json }}</pre>
-          </details>
-          {% else %}
-          <details class="small rounded p-2 theme-panel">
-            <summary class="mb-2" style="cursor:pointer;">Stack Trace</summary>
-            <pre id="stack-{{ err.id }}" class="stack-trace rounded p-2 mb-0">{{ err.stack }}</pre>
-          </details>
-          {% endif %}
-        </div>
-        {% endif %}
-        {% if err.error_source or err.page_title or err.url or err.artifact_url or err.replay_url %}
-        <div class="row g-2 mt-1 mb-2 small">
-          {% if err.error_source %}
-          <div class="col-md-3">
-            <div class="text-secondary mb-1">Source</div>
-            <div class="font-monospace">{{ err.error_source }}</div>
-          </div>
-          {% endif %}
-          {% if err.page_title %}
-          <div class="col-md-3">
-            <div class="text-secondary mb-1">Page</div>
-            <div>{{ err.page_title }}</div>
-          </div>
-          {% endif %}
-          {% if err.viewport %}
-          <div class="col-md-2">
-            <div class="text-secondary mb-1">Viewport</div>
-            <div class="font-monospace">{{ err.viewport }}</div>
-          </div>
-          {% endif %}
-          {% if err.url %}
-          <div class="col-md-4">
-            <div class="text-secondary mb-1">URL</div>
-            <div class="text-break font-monospace">{{ err.url }}</div>
-          </div>
-          {% endif %}
-        </div>
-        {% endif %}
-        <div class="d-flex gap-2 mt-2">
-          {% if err.trace_id %}
-          <a href="{{ url_for('view_traces', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
-            <i class="bi bi-diagram-3 me-1"></i>Trace
-          </a>
-          {% endif %}
-          {% if err.artifact_url %}
-          <button type="button" class="btn btn-sm btn-outline-primary js-rum-viewer-open"
-                  data-rum-view-kind="artifact"
-                  data-rum-view-url="{{ err.artifact_url }}"
-                  data-rum-view-label="{{ err.artifact_type or 'Artifact' }}">
-            <i class="bi bi-image me-1"></i>{{ err.artifact_type or 'Artifact' }}
-          </button>
-          {% endif %}
-          {% if err.replay_url %}
-          <button type="button" class="btn btn-sm btn-outline-warning js-rum-viewer-open"
-                  data-rum-view-kind="replay"
-                  data-rum-view-url="{{ err.replay_url }}"
-                  data-rum-view-label="Replay">
-            <i class="bi bi-play-circle me-1"></i>Replay
-          </button>
-          {% endif %}
-          {% if not err.resolved %}
-          <button class="btn btn-sm btn-outline-success resolve-btn" data-resolve-url="{{ url_for('resolve_error', error_id=err.id) }}"
-                  data-ai-action-id="errors.resolve.mark"
-                  data-ai-action-type="invoke_click"
-                  data-ai-handler="invokeClick"
-                  data-ai-label="Mark error resolved"
-                  data-ai-risk="medium"
-                  data-ai-confirm="true"
-                  data-ai-action-role="resolve-error-btn">
-            <i class="bi bi-check2 me-1"></i>Resolve
-          </button>
-          {% endif %}
-          <button class="btn btn-sm btn-outline-warning ai-help-btn"
-                  data-err-type="{{ err.err_type }}"
-                  data-err-message="{{ err.message }}"
-                  data-err-service="{{ err.service or '—' }}"
-                  data-err-ts="{{ err.ts[:19] }}"
-                  data-err-id="{{ err.id }}"
-                  data-trace-id="{{ err.trace_id }}"
-                  data-span-id="{{ err.span_id }}"
-                  data-err-url="{{ err.url }}"
-                  title="Copy error details for AI investigation">
-            <i class="bi bi-robot me-1"></i>Copy for AI
-          </button>
-          {% set _wi = work_item_links.get(err.id) %}
-          {% if _wi and _wi.issue_url %}
-          <a href="{{ _wi.issue_url }}" target="_blank" rel="noopener"
-             class="btn btn-sm btn-success"
-             title="Issue already exists — view on GitHub">
-            <i class="bi bi-check2-circle me-1"></i>View issue →
-          </a>
-          {% else %}
-          <button class="btn btn-sm btn-outline-danger raise-issue-btn"
-                  data-err-type="{{ err.err_type }}"
-                  data-err-message="{{ err.message }}"
-                  data-err-service="{{ err.service or '\u2014' }}"
-                  data-err-ts="{{ err.ts[:19] }}"
-                  data-err-id="{{ err.id }}"
-                  data-trace-id="{{ err.trace_id }}"
-                  data-span-id="{{ err.span_id }}"
-                  data-err-url="{{ err.url }}"
-                  title="Raise or reuse a GitHub issue using agent dedupe checks">
-            <i class="bi bi-github me-1"></i>Raise issue
-          </button>
-          {% endif %}
-          {% if err.stack %}
-          <button class="btn btn-sm btn-outline-secondary copy-stack-btn"
-                  data-stack-id="stack-{{ err.id }}"
-                  title="Copy stack trace">
-            <i class="bi bi-clipboard me-1"></i>Copy stack
-          </button>
-          {% endif %}
-        </div>
-      </div>
-    </div>
-  </div>
-  {% endfor %}
-</div>
+{% call(err) render_error_accordion(
+  errors,
+  from_ts=from_ts,
+  to_ts=to_ts,
+  accordion_id='errAccordion',
+  collapse_prefix='err',
+  stack_prefix='stack-',
+  ai_btn_class='ai-help-btn',
+  raise_btn_class='raise-issue-btn',
+  copy_btn_class='copy-stack-btn',
+  resolve_btn_class='resolve-btn',
+  show_resolve=true,
+  show_raise_issue=false,
+  logs_btn_outline='secondary',
+  logs_label='Logs',
+  trace_btn_outline='info',
+  trace_label='Trace',
+  show_span_id_in_header=false
+) %}
+  {% set _wi = work_item_links.get(err.id) %}
+  {% if _wi and _wi.issue_url %}
+  <a href="{{ _wi.issue_url }}" target="_blank" rel="noopener"
+     class="btn btn-sm btn-success"
+     title="Issue already exists — view on GitHub">
+    <i class="bi bi-check2-circle me-1"></i>View issue →
+  </a>
+  {% else %}
+  <button class="btn btn-sm btn-outline-danger raise-issue-btn"
+          data-err-type="{{ err.err_type }}"
+          data-err-message="{{ err.message }}"
+          data-err-service="{{ err.service or '—' }}"
+          data-err-ts="{{ err.ts[:19] }}"
+          data-err-id="{{ err.id }}"
+          data-trace-id="{{ err.trace_id }}"
+          data-span-id="{{ err.span_id }}"
+          data-err-url="{{ err.url }}"
+          title="Raise or reuse a GitHub issue using agent dedupe checks">
+    <i class="bi bi-github me-1"></i>Raise issue
+  </button>
+  {% endif %}
+{% endcall %}
 
 <!-- Pagination -->
 {% set prev_offset = [offset - limit, 0] | max %}
@@ -509,7 +372,7 @@ document.querySelectorAll('.ai-help-btn').forEach(btn => {
 
     let succeeded = false;
     try {
-      const res = await fetch('/api/issues/raise', {
+      const res = await fetch({{ url_for('raise_issue_from_user_observation') | tojson }}, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -597,7 +460,7 @@ document.querySelectorAll('.ai-help-btn').forEach(btn => {
   }
 
   group.addEventListener('show.bs.dropdown', function () {
-    fetch('/api/reports?page_type=errors')
+    fetch({{ url_for('api_list_reports') | tojson }} + '?page_type=errors')
       .then(r => r.json())
       .then(reports => {
         if (!reports.length) {

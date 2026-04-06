@@ -845,7 +845,7 @@ function escHtml(s) {
     previewContainer.innerHTML = '';
     createBtn.classList.add('d-none');
     try {
-      var resp = await fetch('/api/notifications/rules/auto-generate', {
+      var resp = await fetch({{ url_for('auto_generate_notification_rules') | tojson }}, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'action=preview'
@@ -889,7 +889,7 @@ function escHtml(s) {
     createBtn.disabled = true;
     createBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating\u2026';
     try {
-      var resp = await fetch('/api/notifications/rules/auto-generate', {
+      var resp = await fetch({{ url_for('auto_generate_notification_rules') | tojson }}, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'action=create'

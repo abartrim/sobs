@@ -8718,6 +8718,37 @@ def _build_error_item(row: dict) -> dict:
     }
 
 
+def _error_group_key(item: dict) -> tuple[str, str, str]:
+    """Return a stable grouping key used to fan out grouped error links."""
+    service = re.sub(r"\s+", " ", str(item.get("service", "") or "")).strip().lower()
+    err_type = re.sub(r"\s+", " ", str(item.get("err_type", "") or "")).strip().lower()
+    message_basis = str(item.get("message_summary") or item.get("message") or "")
+    message = re.sub(r"\s+", " ", message_basis).strip().lower()[:220]
+    return service, err_type, message
+
+
+def _parse_trace_filter_values(trace_id: str, raw_trace_ids: list[str]) -> tuple[list[str], str]:
+    """Return normalized unique trace IDs from trace_id and trace_ids query params."""
+
+    def _iter_parts(value: str) -> list[str]:
+        return [p.strip() for p in str(value or "").split(",") if p.strip()]
+
+    parsed: list[str] = []
+    for raw_value in raw_trace_ids:
+        for part in _iter_parts(raw_value):
+            norm = part.lower()
+            if norm and norm not in parsed:
+                parsed.append(norm)
+
+    for part in _iter_parts(trace_id):
+        norm = part.lower()
+        if norm and norm not in parsed:
+            parsed.insert(0, norm)
+
+    primary = parsed[0] if parsed else ""
+    return parsed, primary
+
+
 def _get_resolved_error_ids(db) -> set[str]:
     return {str(r[0]) for r in db.execute("SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId").fetchall()}
 
@@ -8985,6 +9016,10 @@ async def view_logs():
     q = request.args.get("q", "").strip()
     level = request.args.get("level", "").strip().upper()
     service = request.args.get("service", "").strip()
+    trace_id = request.args.get("trace_id", "").strip()
+    trace_ids, trace_id = _parse_trace_filter_values(trace_id, request.args.getlist("trace_ids"))
+    trace_ids_csv = ",".join(trace_ids)
+    trace_ids_count = len(trace_ids)
     event_name = request.args.get("event_name", "").strip()
     from_ts, to_ts, time_error = _parse_time_window_args()
     sql_where = request.args.get("sql", "").strip()
@@ -9070,6 +9105,13 @@ async def view_logs():
         if event_name:
             conditions.append("EventName=?")
             params.append(event_name)
+        if trace_ids:
+            placeholders = ",".join(["?"] * len(trace_ids))
+            conditions.append(f"lower(TraceId) IN ({placeholders})")
+            params.extend(trace_ids)
+        elif trace_id:
+            conditions.append("lower(TraceId)=?")
+            params.append(trace_id.lower())
         time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
         conditions.extend(time_conditions)
         params.extend(time_params)
@@ -9203,6 +9245,9 @@ async def view_logs():
         q=q,
         level=level,
         service=service,
+        trace_id=trace_id,
+        trace_ids_csv=trace_ids_csv,
+        trace_ids_count=trace_ids_count,
         sql_where=sql_where,
         from_ts=from_ts,
         to_ts=to_ts,
@@ -11193,6 +11238,13 @@ def _load_work_item_links_for_ref_ids(db: ChDbConnection, ref_ids: list[str]) ->
 async def view_errors():
     db = get_db()
     service = request.args.get("service", "").strip()
+    group_by = request.args.get("group_by", "").strip().lower()
+    grouped_mode = request.args.get("grouped", "").strip() == "1" or group_by in {
+        "group",
+        "message",
+        "fingerprint",
+        "signature",
+    }
     from_ts, to_ts, time_error = _parse_time_window_args()
     resolved = request.args.get("resolved", "0").strip()
     limit = _parse_limit(100)
@@ -11268,6 +11320,40 @@ async def view_errors():
         with _errors_cache_lock:
             _errors_services_cache["services"] = list(services)
             _errors_services_cache["expires_at"] = now + max(1, ERRORS_SERVICES_CACHE_TTL_SEC)
+
+    if grouped_mode and errors:
+        # In grouped mode, fan out a row's Logs link to all trace IDs in that group.
+        probe_limit = max(1000, min(5000, limit * 50))
+        probe_rows = db.execute(
+            "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes "
+            f"FROM ({ERROR_SOURCES_SQL}) {where_sql} {order_clause} LIMIT ?",
+            where_params + [probe_limit],
+        ).fetchall()
+        trace_ids_by_group: dict[tuple[str, str, str], list[str]] = {}
+        target_resolved = resolved == "1"
+        filter_by_resolved = resolved in ("0", "1")
+        for row in probe_rows:
+            item = _build_error_item(dict(row))
+            item["resolved"] = item["id"] in resolved_ids
+            if filter_by_resolved and item["resolved"] != target_resolved:
+                continue
+            group_key = _error_group_key(item)
+            trace_value = str(item.get("trace_id") or "").strip()
+            if not trace_value:
+                continue
+            trace_bucket = trace_ids_by_group.setdefault(group_key, [])
+            if trace_value not in trace_bucket:
+                trace_bucket.append(trace_value)
+
+        for item in errors:
+            group_key = _error_group_key(item)
+            trace_values = list(trace_ids_by_group.get(group_key, []))
+            primary_trace = str(item.get("trace_id") or "").strip()
+            if primary_trace and primary_trace not in trace_values:
+                trace_values.insert(0, primary_trace)
+            if trace_values:
+                item["trace_ids"] = trace_values
+                item["trace_ids_csv"] = ",".join(trace_values)
 
     work_item_links = _load_work_item_links_for_ref_ids(db, [e["id"] for e in errors])
 

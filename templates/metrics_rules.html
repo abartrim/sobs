@@ -453,7 +453,7 @@
         var origHTML = btn.innerHTML;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
         try {
-          var resp = await fetch('/api/notifications/rules/auto-generate', {
+          var resp = await fetch({{ url_for('auto_generate_notification_rules') | tojson }}, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: 'action=create&metric_rule_id=' + encodeURIComponent(ruleId)
