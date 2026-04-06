@@ -1498,7 +1498,7 @@
         maxEdge: 1400
       },
       upload: async function (envelope) {
-        const resp = await fetch('/api/replay/upload', {
+        const resp = await fetch('api/replay/upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(envelope)
