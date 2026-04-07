@@ -8,7 +8,10 @@
 {% set to_ts = to_ts or request.args.get('to_ts', '') %}
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="fw-semibold mb-0"><i class="bi bi-diagram-3 me-2 text-warning"></i>Traces</h4>
-  <span class="text-secondary small">{{ total }} spans</span>
+  <div class="d-flex align-items-center gap-3">
+    <span class="text-secondary small">{{ total }} spans</span>
+    {% if trace_detail %}<a href="{{ url_for('view_traces') }}" class="btn btn-sm btn-outline-secondary">← All Traces</a>{% endif %}
+  </div>
 </div>
 
 <!-- Filter bar -->
@@ -138,6 +141,77 @@
     color-mix(in srgb, #fd7e14 72%, transparent) 12px
   );
 }
+
+.trace-window-overlay-strip {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--bs-border-color);
+  background: color-mix(in srgb, var(--bs-secondary-color) 10%, transparent);
+  overflow: hidden;
+}
+
+.trace-window-overlay-segment {
+  position: absolute;
+  top: 0;
+  height: 100%;
+}
+
+.trace-window-overlay-segment.complete {
+  background: color-mix(in srgb, #198754 78%, transparent);
+}
+
+.trace-window-overlay-segment.partial {
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, #ffc107 72%, transparent),
+    color-mix(in srgb, #ffc107 72%, transparent) 6px,
+    color-mix(in srgb, #fd7e14 72%, transparent) 6px,
+    color-mix(in srgb, #fd7e14 72%, transparent) 12px
+  );
+}
+
+.trace-window-legend-dot {
+  width: .7rem;
+  height: .7rem;
+  border-radius: 999px;
+  border: 1px solid var(--bs-border-color);
+}
+
+.trace-window-legend-dot.complete {
+  background: color-mix(in srgb, #198754 78%, transparent);
+}
+
+.trace-window-legend-dot.partial {
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, #ffc107 72%, transparent),
+    color-mix(in srgb, #ffc107 72%, transparent) 6px,
+    color-mix(in srgb, #fd7e14 72%, transparent) 6px,
+    color-mix(in srgb, #fd7e14 72%, transparent) 12px
+  );
+}
+
+/* Health chips */
+.metric-health-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .2rem .55rem;
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: .73rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.metric-health-chip.level-ok   { background: color-mix(in srgb,#198754 12%,transparent); border-color:color-mix(in srgb,#198754 40%,transparent); color:#198754; }
+.metric-health-chip.level-warn { background: color-mix(in srgb,#ffc107 15%,transparent); border-color:color-mix(in srgb,#ffc107 55%,transparent); color:#997404; }
+.metric-health-chip.level-crit { background: color-mix(in srgb,#dc3545 12%,transparent); border-color:color-mix(in srgb,#dc3545 40%,transparent); color:#dc3545; }
+
+/* Per-dark-mode health chip text tweaks */
+[data-bs-theme=dark] .metric-health-chip.level-ok   { color:#75b798; }
+[data-bs-theme=dark] .metric-health-chip.level-warn { color:#ffda6a; }
+[data-bs-theme=dark] .metric-health-chip.level-crit { color:#f1aeb5; }
 </style>
 {% if trace_detail %}
 <!-- ===== Trace Detail: Hierarchical Timeline View ===== -->
@@ -145,6 +219,9 @@
   <!-- Trace header summary -->
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
     <span class="font-monospace small text-secondary" title="Trace ID">{{ trace_id }}</span>
+    <span class="badge bg-secondary-subtle text-secondary-emphasis" title="Actual trace timestamps">
+      <i class="bi bi-clock-history me-1"></i>{{ trace_detail.trace_start_ts }} to {{ trace_detail.trace_end_ts }}
+    </span>
     <span class="badge bg-secondary">{{ trace_detail.span_tree | length }} span(s)</span>
     <span class="badge bg-info text-dark">{{ fmt_ms(trace_detail.total_ms) }} total</span>
     <span class="badge bg-primary-subtle text-primary-emphasis"
@@ -161,7 +238,205 @@
     {% elif trace_detail.anomaly_state == 'normal' %}
     <span class="badge bg-success" title="Service anomaly state"><i class="bi bi-check-circle me-1"></i>normal</span>
     {% endif %}
-    <a href="{{ url_for('view_traces') }}" class="btn btn-sm btn-outline-secondary ms-auto">← All Traces</a>
+    <span class="badge bg-dark" title="Overlapping preserved raw metric windows">
+      {{ (trace_detail.raw_windows or []) | length }} preserved window(s)
+    </span>
+  </div>
+
+  {% set mc = trace_detail.metrics_context or {} %}
+  {% set ts_data = mc.timeseries or {'ticks_ms': [], 'by_metric': {}} %}
+  <div class="card mb-3">
+    <div class="card-header py-2" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#trace-metrics-panel">
+      <div class="d-flex justify-content-between align-items-center">
+        <span class="small fw-semibold"><i class="bi bi-speedometer2 me-1"></i>Trace metrics retention context</span>
+        <div class="d-flex align-items-center gap-1">
+                    {% if mc.header_chip %}
+                    <div class="metric-health-chip level-{{ mc.header_chip.level }} py-0 px-2" style="font-size:.75rem;">
+                      <i class="bi {{ mc.header_chip.icon }}"></i>
+                      <span>{{ mc.header_chip.value }}</span>
+                    </div>
+                    {% endif %}
+          {% if mc.match_mode == 'pod_exact' %}
+          <span class="badge bg-success">pod + namespace</span>
+          {% elif mc.match_mode == 'node_namespace' %}
+          <span class="badge bg-primary">node + namespace</span>
+          {% elif mc.match_mode == 'deployment_namespace' %}
+          <span class="badge bg-primary-subtle text-primary-emphasis">deployment + namespace</span>
+          {% elif mc.match_mode == 'service_exact' %}
+          <span class="badge bg-secondary">service exact</span>
+          {% elif mc.match_mode == 'service_family' %}
+          <span class="badge bg-warning text-dark">service family</span>
+          {% elif mc.match_mode == 'time_window_only' %}
+          <span class="badge bg-dark">time-window only</span>
+          {% else %}
+          <span class="badge bg-secondary">no match</span>
+          {% endif %}
+          {% if mc.source_mode == 'raw' %}
+          <span class="badge bg-success">raw</span>
+          {% elif mc.source_mode == 'pinned' %}
+          <span class="badge bg-warning text-dark">pinned</span>
+          {% elif mc.source_mode == 'mixed' %}
+          <span class="badge bg-info text-dark">raw+pinned</span>
+          {% else %}
+          <span class="badge bg-secondary">no data</span>
+          {% endif %}
+          {% if mc.match_dimensions %}
+          {% for d in mc.match_dimensions %}<span class="badge text-bg-light border">{{ d }}</span>{% endfor %}
+          {% endif %}
+          <i class="bi bi-chevron-down ms-2" style="transition: transform 0.2s; font-size: 0.9rem;" data-chevron-icon></i>
+        </div>
+      </div>
+    </div>
+
+    <div id="trace-metrics-panel" class="collapse show">
+      <div class="card-body py-2 px-3">
+
+      {# ── Health chips ──────────────────────────────────────────────── #}
+      {% if mc.health_chips %}
+      <div class="d-flex flex-wrap gap-2 mb-3 pt-1">
+        {% for chip in mc.health_chips %}
+        <div class="metric-health-chip level-{{ chip.level }}">
+          <i class="bi {{ chip.icon }}"></i>
+          <span>{{ chip.label }}</span>
+          <strong>{{ chip.value }}</strong>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {# ── Timeline trend chart ──────────────────────────────────────── #}
+      {% if ts_data.ticks_ms and mc.series %}
+      <div class="mb-3">
+        <div class="small text-secondary mb-1">Metric trend — ±5 min around trace <span class="text-primary-emphasis">(blue band = trace span)</span></div>
+        <div id="trace-metric-timeline-chart"
+             class="trace-metric-timeline-chart"
+             style="width:100%; height:120px; min-height:120px;"></div>
+        <script>
+          (function() {
+            window._traceMetricChartData = {
+              ticks: {{ ts_data.ticks_ms | tojson }},
+              series: {{ ts_data.by_metric | tojson }},
+              traceStart: {{ trace_detail.trace_start_ms or 0 }},
+              traceEnd: {{ trace_detail.trace_end_ms or 0 }}
+            };
+          })();
+        </script>
+      </div>
+      {% endif %}
+
+      <div class="small text-secondary mb-2">{{ mc.total_points }} point(s) across {{ mc.series|length }} series, sampled from {{ (ts_data.ticks_ms | list | length) if ts_data.ticks_ms else 0 }} time buckets.</div>
+
+      {# ── Grouped metric accordion with sparklines ─────────────────── #}
+      {% if mc.metric_groups %}
+      <div class="accordion accordion-flush border rounded" id="mc-groups-accordion">
+        {% for group in mc.metric_groups %}
+        <div class="accordion-item bg-transparent">
+          <h2 class="accordion-header">
+            <button class="accordion-button py-2 bg-transparent shadow-none{% if not loop.first %} collapsed{% endif %}"
+                    type="button" data-bs-toggle="collapse"
+                    data-bs-target="#mcGroup{{ loop.index }}"
+                    style="font-size:.8rem;">
+              <i class="bi {{ group.icon }} me-2 text-secondary"></i>
+              <span class="fw-semibold">{{ group.label }}</span>
+              <span class="badge bg-secondary ms-2">{{ group.metrics | length }}</span>
+            </button>
+          </h2>
+          <div id="mcGroup{{ loop.index }}"
+               class="accordion-collapse collapse{% if loop.first %} show{% endif %}">
+            <div class="accordion-body p-0">
+              <table class="table table-sm align-middle mb-0" style="table-layout:auto; width:100%;">
+                <colgroup>
+                  <col>
+                  <col style="width:96px;">
+                  <col style="width:70px;">
+                  <col>
+                </colgroup>
+                <tbody>
+                  {% for m in group.metrics %}
+                  <tr>
+                    <td class="small font-monospace py-1 ps-3"
+                        style="max-width:min(56vw, 620px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+                        title="{{ m.service }} · {{ m.metric }}">{{ m.metric }}</td>
+                    <td class="py-1" style="padding-left:4px; padding-right:4px;">
+                      {% if m.metric in ts_data.by_metric %}
+                      <div class="metric-sparkline"
+                           data-vals="{{ ts_data.by_metric[m.metric] | tojson }}"
+                           style="width:90px;height:28px;display:inline-block;"></div>
+                      {% else %}
+                      <span class="text-secondary small" style="font-size:.7rem;">no timeseries</span>
+                      {% endif %}
+                    </td>
+                    <td class="small text-body-secondary py-1">{{ m.avg }}</td>
+                    <td class="small text-body-secondary py-1 font-monospace" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ m.min }}–{{ m.max }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% elif mc.series %}
+      <div class="small text-secondary">{{ mc.series | length }} metric series in window (no grouping).</div>
+      {% else %}
+      <div class="small text-secondary">No metric points found in raw or pinned tables for this trace context window.</div>
+      {% endif %}
+
+      {# ── Preserved windows ─────────────────────────────────────────── #}
+      <div class="small fw-semibold mt-3 mb-1"><i class="bi bi-archive me-1"></i>Overlapping preserved metric windows</div>
+      {% if trace_detail.raw_windows %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Signal</th>
+              <th>Window</th>
+              <th>Scope</th>
+              <th>Copy Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for w in trace_detail.raw_windows %}
+            <tr>
+              <td>
+                <div class="small fw-semibold">{{ w.signal_type }}</div>
+                {% if w.signal_ref %}
+                <div class="small text-secondary font-monospace">{{ w.signal_ref }}</div>
+                {% endif %}
+              </td>
+              <td class="small font-monospace">
+                {{ w.window_start }}<br>
+                {{ w.window_end }}
+              </td>
+              <td class="small">
+                {% if w.service_name %}<span class="badge bg-secondary">{{ w.service_name }}</span>{% endif %}
+                {% if w.namespace %}<span class="badge bg-secondary-subtle text-secondary-emphasis">ns: {{ w.namespace }}</span>{% endif %}
+                {% if w.node_name %}<span class="badge bg-secondary-subtle text-secondary-emphasis">node: {{ w.node_name }}</span>{% endif %}
+                {% if not w.service_name and not w.namespace and not w.node_name %}<span class="text-secondary">global</span>{% endif %}
+              </td>
+              <td>
+                {% if w.copy_complete %}
+                <span class="badge bg-success">{{ w.copied_count }}/{{ w.expected_count }} copied</span>
+                {% elif w.copied_count > 0 %}
+                <span class="badge bg-warning text-dark">{{ w.copied_count }}/{{ w.expected_count }} copied</span>
+                {% else %}
+                <span class="badge bg-secondary">pending</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="small text-secondary mb-0">
+        No preserved windows overlap this trace timeframe yet. A window appears here after a related signal registers and overlaps this trace interval.
+      </div>
+      {% endif %}
+
+      </div>
+    </div>
   </div>
 
   <div class="mb-2">
@@ -184,6 +459,25 @@
       {% endif %}
     </div>
   </div>
+
+  {% if trace_detail.raw_window_segments %}
+  <div class="mb-2">
+    <div class="small text-secondary mb-1">Preserved-window overlay on trace timeline</div>
+    <div class="trace-window-overlay-strip" title="Green = copied preserved window. Amber hatch = pending/partial copy.">
+      {% for seg in trace_detail.raw_window_segments %}
+      <div class="trace-window-overlay-segment {% if seg.copy_complete %}complete{% else %}partial{% endif %}"
+           style="left:{{ seg.start_pct }}%; width:{{ seg.width_pct }}%;"
+           title="{{ seg.title }}"></div>
+      {% endfor %}
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-3 mt-1 small">
+      <span class="trace-coverage-legend-chip"><span class="trace-window-legend-dot complete"></span>Window copied</span>
+      <span class="trace-coverage-legend-chip"><span class="trace-window-legend-dot partial"></span>Window pending/partial</span>
+    </div>
+  </div>
+  {% endif %}
+
+
 
   <!-- Timeline header ruler -->
   <div class="d-flex align-items-center mb-1 px-2" style="padding-left:8px;">
@@ -410,6 +704,7 @@
 {% include "_shared_issue_and_rum_modals.html" %}
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='echarts.min.js') }}"></script>
 <script>
 if (window.sobsTimezone && typeof window.sobsTimezone.initPage === 'function') {
   window.sobsTimezone.initPage({
@@ -697,7 +992,7 @@ document.querySelectorAll('.trace-ai-help-btn').forEach(btn => {
   // ── RUM Asset / Replay Viewer (shared) ───────────────────────────────────
   {% include "_rum_asset_viewer_script.js" %}
 
-// ── Saved Reports: traces page ────────────────────────────────────────────
+  // ── Saved Reports: traces page ────────────────────────────────────────────
 (function () {
   const group = document.getElementById('traces-reports-group');
   const saveBtn = document.getElementById('traces-save-report-btn');
@@ -747,5 +1042,221 @@ document.querySelectorAll('.trace-ai-help-btn').forEach(btn => {
     }
   });
 })();
+
+// ── Metric timeline chart + sparklines ───────────────────────────────────
+(function () {
+  'use strict';
+  if (typeof echarts === 'undefined') return;
+
+  var isDark = (window.SOBS && SOBS.echartsTheme) ? SOBS.echartsTheme() === 'dark' : false;
+  var cssVar = (window.SOBS && SOBS.cssVar) ? SOBS.cssVar : function (v) { return v; };
+
+  // Metric timeline chart — full-width, 120px tall, ±5min context window.
+  var tlEl = document.getElementById('trace-metric-timeline-chart');
+  if (tlEl && window._traceMetricChartData) {
+    var ticks = window._traceMetricChartData.ticks;
+    var seriesMap = window._traceMetricChartData.series;
+    var traceStart = window._traceMetricChartData.traceStart;
+    var traceEnd = window._traceMetricChartData.traceEnd;
+
+    if (ticks && ticks.length > 0 && seriesMap && typeof seriesMap === 'object') {
+      var ec = echarts.init(tlEl, isDark ? 'dark' : null, { renderer: 'canvas' });
+
+      // Build one line series per metric name.
+      var metricNames = Object.keys(seriesMap);
+      var palette = ['#0d6efd','#198754','#ffc107','#dc3545','#6f42c1','#20c997'];
+
+      // Detect magnitude skew; if high, auto-normalize each series to 0-100 for comparability.
+      var seriesMagnitudes = metricNames.map(function (name) {
+        var vals = (seriesMap[name] || []).filter(function (v) { return v != null; });
+        if (!vals.length) return 0;
+        var maxAbs = vals.reduce(function (m, v) { return Math.max(m, Math.abs(v)); }, 0);
+        return maxAbs;
+      }).filter(function (m) { return m > 0; });
+      var minMagnitude = seriesMagnitudes.length ? Math.min.apply(null, seriesMagnitudes) : 0;
+      var maxMagnitude = seriesMagnitudes.length ? Math.max.apply(null, seriesMagnitudes) : 0;
+      var magnitudeRatio = (minMagnitude > 0) ? (maxMagnitude / minMagnitude) : 1;
+      var useNormalized = magnitudeRatio >= 100;
+
+      var ecSeries = metricNames.map(function (name, i) {
+        var isCpu = name.toLowerCase().indexOf('cpu') >= 0;
+        var vals = seriesMap[name] || [];
+        var nonNullVals = vals.filter(function (v) { return v != null; });
+        var sMin = nonNullVals.length ? Math.min.apply(null, nonNullVals) : 0;
+        var sMax = nonNullVals.length ? Math.max.apply(null, nonNullVals) : 0;
+        var denom = sMax - sMin;
+        var data = ticks.map(function (t, idx) {
+          if (vals[idx] == null) return null;
+          if (!useNormalized) return [t, vals[idx]];
+          var scaled = denom > 0 ? ((vals[idx] - sMin) / denom) * 100 : 50;
+          return [t, scaled, vals[idx]];
+        }).filter(Boolean);
+        var shortName = name.split('_').slice(-2).join('_');
+        return {
+          name: shortName,
+          type: 'line',
+          data: data,
+          encode: useNormalized ? { x: 0, y: 1 } : undefined,
+          smooth: 0.3,
+          symbolSize: 0,
+          lineStyle: { width: isCpu ? 2.5 : 1.5, color: isCpu ? '#dc3545' : palette[i % palette.length] },
+          itemStyle: { color: isCpu ? '#dc3545' : palette[i % palette.length] },
+        };
+      });
+      // Sort series: CPU first, then by name; add mark area to first one.
+      ecSeries.sort(function (a, b) {
+        var aCpu = a.name.toLowerCase().indexOf('cpu') >= 0;
+        var bCpu = b.name.toLowerCase().indexOf('cpu') >= 0;
+        if (aCpu && !bCpu) return -1;
+        if (!aCpu && bCpu) return 1;
+        return a.name.localeCompare(b.name);
+      });
+      if (ecSeries.length > 0 && traceStart > 0 && traceEnd > traceStart) {
+        ecSeries[0].markArea = {
+          silent: true,
+          itemStyle: { color: 'rgba(13,110,253,0.09)', borderWidth: 0 },
+          data: [[{ xAxis: traceStart }, { xAxis: traceEnd }]]
+        };
+      }
+
+      ec.setOption({
+        animation: false,
+        backgroundColor: 'transparent',
+        legend: {
+          show: true,
+          type: 'scroll',
+          bottom: 0,
+          itemWidth: 10,
+          itemHeight: 6,
+          textStyle: { fontSize: 10 },
+        },
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'line', lineStyle: { opacity: 0.5 } },
+          textStyle: { fontSize: 11 },
+          formatter: function (params) {
+            if (!params || !params.length) return '';
+            var d = new Date(params[0].value[0]);
+            var t = d.toISOString().substr(11, 12);
+            var lines = ['<span style="font-size:10px;color:#888;">' + t + '</span>'];
+            if (useNormalized) {
+              lines.push('<span style="font-size:10px;color:#888;">auto-scaled view (0-100 per metric)</span>');
+            }
+            params.forEach(function (p) {
+              if (!p.value) return;
+              var v = useNormalized ? p.value[2] : p.value[1];
+              var scaled = useNormalized ? p.value[1] : null;
+              var vStr = v == null ? '—' : v >= 1e9 ? (v/1e9).toFixed(2)+'G' : v >= 1e6 ? (v/1e6).toFixed(2)+'M' : v >= 1e3 ? (v/1e3).toFixed(1)+'k' : v.toFixed(4);
+              lines.push('<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + p.color + ';margin-right:4px;"></span>'
+                + p.seriesName + ': <b>' + vStr + '</b>' + (useNormalized && scaled != null ? ' <span style="color:#888;">(' + scaled.toFixed(1) + '%)</span>' : ''));
+            });
+            return lines.join('<br>');
+          },
+        },
+        grid: { top: 8, bottom: 36, left: 48, right: 8, containLabel: false },
+        xAxis: {
+          type: 'time',
+          min: ticks[0],
+          max: ticks[ticks.length - 1],
+          axisLabel: {
+            fontSize: 9,
+            formatter: function (val) {
+              var d = new Date(val);
+              return d.toISOString().substr(11, 8);
+            },
+          },
+          splitLine: { show: false },
+          axisLine: { lineStyle: { opacity: 0.3 } },
+        },
+        yAxis: {
+          type: 'value',
+          scale: true,
+          min: useNormalized ? 0 : null,
+          max: useNormalized ? 100 : null,
+          axisLabel: {
+            fontSize: 9,
+            formatter: function (v) {
+              if (useNormalized) return v.toFixed(0) + '%';
+              return v >= 1e9 ? (v/1e9).toFixed(1)+'G'
+                   : v >= 1e6 ? (v/1e6).toFixed(1)+'M'
+                   : v >= 1e3 ? (v/1e3).toFixed(0)+'k'
+                   : String(v);
+            },
+          },
+          splitLine: { lineStyle: { opacity: 0.2 } },
+        },
+        series: ecSeries,
+      });
+
+      window.addEventListener('resize', function () { ec.resize(); });
+    }
+  }
+
+  // Inline sparklines inside the grouped metric table rows.
+  document.querySelectorAll('.metric-sparkline[data-vals]').forEach(function (el) {
+    var valsStr = el.dataset.vals || '[]';
+    var vals = [];
+    try {
+      vals = JSON.parse(valsStr);
+    } catch (e) {
+      return;
+    }
+    
+    if (!vals || !vals.length) return;
+    var filled = vals.map(function (v) { return v === null ? 0 : v; });
+    var allSame = filled.every(function (v) { return v === filled[0]; });
+    var color = allSame ? '#6c757d' : '#0d6efd';
+
+    var sp = echarts.init(el, isDark ? 'dark' : null, { renderer: 'canvas' });
+    sp.setOption({
+      animation: false,
+      backgroundColor: 'transparent',
+      grid: { top: 1, bottom: 1, left: 1, right: 1 },
+      xAxis: {
+        type: 'category',
+        show: false,
+        data: filled.map(function (_, i) { return i; }),
+        boundaryGap: false,
+      },
+      yAxis: { type: 'value', show: false, scale: !allSame },
+      tooltip: {
+        show: true,
+        trigger: 'axis',
+        axisPointer: { type: 'none' },
+        textStyle: { fontSize: 10 },
+        formatter: function (params) {
+          var v = params[0] && params[0].value;
+          if (v == null) return '—';
+          return v >= 1e9 ? (v/1e9).toFixed(2)+'G'
+               : v >= 1e6 ? (v/1e6).toFixed(2)+'M'
+               : v >= 1e3 ? (v/1e3).toFixed(1)+'k'
+               : Number(v).toFixed(4);
+        },
+      },
+      series: [{
+        type: 'line',
+        data: filled,
+        smooth: 0.4,
+        symbol: 'none',
+        lineStyle: { width: 1.5, color: color },
+        areaStyle: { color: color, opacity: isDark ? 0.12 : 0.08 },
+      }],
+    });
+  });
+
+  // Chevron rotation for trace metrics accordion.
+  var traceMetricsPanel = document.getElementById('trace-metrics-panel');
+  if (traceMetricsPanel) {
+    var chevronIcon = traceMetricsPanel.closest('.card').querySelector('[data-chevron-icon]');
+    if (chevronIcon) {
+      traceMetricsPanel.addEventListener('show.bs.collapse', function () {
+        chevronIcon.style.transform = 'rotate(0deg)';
+      });
+      traceMetricsPanel.addEventListener('hide.bs.collapse', function () {
+        chevronIcon.style.transform = 'rotate(-90deg)';
+      });
+    }
+  }
+}());
 </script>
 {% endblock %}

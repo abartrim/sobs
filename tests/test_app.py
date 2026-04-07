@@ -13390,3 +13390,231 @@ class TestKubernetesPrometheusFormat:
         pod_names = [p["name"] for p in result["pods"]]
         assert pod in pod_names
         assert "other-pod-prom" not in pod_names
+
+
+# ---------------------------------------------------------------------------
+# Raw Metrics Retention Window Tests
+# ---------------------------------------------------------------------------
+
+
+class TestRawMetricsRetentionWindows:
+    """Tests for the Kubernetes metrics retention window implementation."""
+
+    def test_pinned_tables_exist(self):
+        """All three pinned metric tables should be created on startup."""
+        db = sobs_app.get_db()
+        for table in ("otel_metrics_gauge_pinned", "otel_metrics_sum_pinned", "otel_metrics_histogram_pinned"):
+            row = db.execute("SELECT 1 FROM system.tables WHERE database='default' AND name=?", [table]).fetchone()
+            assert row is not None, f"Table {table!r} should exist"
+
+    def test_window_registry_table_exists(self):
+        """sobs_raw_windows table should be created on startup."""
+        db = sobs_app.get_db()
+        row = db.execute("SELECT 1 FROM system.tables WHERE database='default' AND name='sobs_raw_windows'").fetchone()
+        assert row is not None
+
+    def test_copy_state_table_exists(self):
+        """sobs_raw_window_copy_state table should be created on startup."""
+        db = sobs_app.get_db()
+        row = db.execute(
+            "SELECT 1 FROM system.tables WHERE database='default' AND name='sobs_raw_window_copy_state'"
+        ).fetchone()
+        assert row is not None
+
+    def test_register_raw_window_inserts_row(self):
+        """_register_raw_window should insert a deterministic row into sobs_raw_windows."""
+        db = sobs_app.get_db()
+        signal_ts = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+        window_id = sobs_app._register_raw_window(
+            db,
+            signal_ts=signal_ts,
+            signal_type="test_signal",
+            signal_ref="ref-abc",
+            service_name="my-service",
+        )
+        assert window_id  # non-empty
+
+        rows = db.execute(
+            "SELECT Id, SignalType, SignalRef, ServiceName FROM sobs_raw_windows FINAL WHERE Id=?",
+            [window_id],
+        ).fetchall()
+        assert len(rows) == 1
+        assert str(rows[0]["SignalType"]) == "test_signal"
+        assert str(rows[0]["SignalRef"]) == "ref-abc"
+        assert str(rows[0]["ServiceName"]) == "my-service"
+
+    def test_register_raw_window_is_idempotent(self):
+        """Calling _register_raw_window twice with the same args should produce one row."""
+        db = sobs_app.get_db()
+        signal_ts = datetime(2024, 6, 1, 12, 30, 0, tzinfo=timezone.utc)
+        id1 = sobs_app._register_raw_window(db, signal_ts=signal_ts, signal_type="notif", signal_ref="rule-1")
+        id2 = sobs_app._register_raw_window(db, signal_ts=signal_ts, signal_type="notif", signal_ref="rule-1")
+        assert id1 == id2  # deterministic window ID
+
+    def test_copy_worker_runs_without_error(self):
+        """_run_raw_window_copy_worker should return a stats dict without raising."""
+        db = sobs_app.get_db()
+        stats = sobs_app._run_raw_window_copy_worker(db)
+        assert isinstance(stats, dict)
+        assert "copies_ok" in stats
+        assert "copies_error" in stats
+        assert stats["copies_error"] == 0
+
+    def test_copy_worker_copies_gauge_rows(self):
+        """Copy worker should move gauge rows within a window into the pinned table."""
+        import time as _time
+
+        db = sobs_app.get_db()
+
+        # Insert a gauge row with a known timestamp
+        signal_ts = datetime.now(timezone.utc)
+        now_dt64 = signal_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "otel_metrics_gauge",
+            [
+                {
+                    "TimeUnix": now_dt64,
+                    "ServiceName": "retention-test-svc",
+                    "MetricName": "test.metric",
+                    "MetricDescription": "",
+                    "MetricUnit": "1",
+                    "Attributes": {},
+                    "Value": 42.0,
+                    "Flags": 0,
+                    "AttrFingerprint": "fp-retention",
+                }
+            ],
+        )
+
+        # Register a window centred on now
+        window_id = sobs_app._register_raw_window(
+            db,
+            signal_ts=signal_ts,
+            signal_type="test_copy",
+            signal_ref=f"copy-test-ref-{_time.time_ns()}",
+            service_name="retention-test-svc",
+        )
+
+        # Run the copy worker
+        stats = sobs_app._run_raw_window_copy_worker(db)
+        assert stats["windows_attempted"] >= 1
+
+        # Verify the row landed in the pinned table
+        pinned = db.execute(
+            "SELECT count() AS cnt FROM otel_metrics_gauge_pinned "
+            "WHERE ServiceName='retention-test-svc' AND MetricName='test.metric'"
+        ).fetchone()
+        assert int(pinned["cnt"]) >= 1
+
+        # Verify copy state was recorded
+        state = db.execute(
+            "SELECT WindowId, SourceTable FROM sobs_raw_window_copy_state FINAL WHERE WindowId=?",
+            [window_id],
+        ).fetchall()
+        assert any(str(r["SourceTable"]) == "otel_metrics_gauge" for r in state)
+
+    def test_copy_worker_does_not_duplicate_rows_on_rerun(self):
+        """Re-running worker should not duplicate already copied pinned rows."""
+        import time as _time
+
+        db = sobs_app.get_db()
+        uniq = str(_time.time_ns())
+        signal_ts = datetime.now(timezone.utc)
+        now_dt64 = signal_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "otel_metrics_gauge",
+            [
+                {
+                    "TimeUnix": now_dt64,
+                    "ServiceName": f"retention-dedupe-{uniq}",
+                    "MetricName": f"test.metric.{uniq}",
+                    "MetricDescription": "",
+                    "MetricUnit": "1",
+                    "Attributes": {},
+                    "Value": 11.0,
+                    "Flags": 0,
+                    "AttrFingerprint": f"fp-dedupe-{uniq}",
+                }
+            ],
+        )
+
+        window_id = sobs_app._register_raw_window(
+            db,
+            signal_ts=signal_ts,
+            signal_type="test_dedupe",
+            signal_ref=f"dedupe-ref-{uniq}",
+            service_name=f"retention-dedupe-{uniq}",
+        )
+
+        first_stats = sobs_app._run_raw_window_copy_worker(db)
+        assert first_stats["copies_error"] == 0
+
+        second_stats = sobs_app._run_raw_window_copy_worker(db)
+        assert second_stats["copies_error"] == 0
+
+        pinned = db.execute(
+            "SELECT count() AS cnt FROM otel_metrics_gauge_pinned "
+            "WHERE ServiceName=? AND MetricName=? AND AttrFingerprint=?",
+            [f"retention-dedupe-{uniq}", f"test.metric.{uniq}", f"fp-dedupe-{uniq}"],
+        ).fetchone()
+        assert int(pinned["cnt"]) == 1
+
+        state = db.execute(
+            "SELECT count() AS cnt FROM sobs_raw_window_copy_state FINAL WHERE WindowId=? AND SourceTable=?",
+            [window_id, "otel_metrics_gauge"],
+        ).fetchone()
+        assert int(state["cnt"]) >= 1
+
+    def test_copy_worker_backfills_state_when_rows_already_pinned(self):
+        """If pinned rows exist but copy-state is missing, worker should only backfill copy-state."""
+        import time as _time
+
+        db = sobs_app.get_db()
+        uniq = str(_time.time_ns())
+        signal_ts = datetime.now(timezone.utc)
+        now_dt64 = signal_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        service = f"retention-state-{uniq}"
+        metric = f"test.metric.state.{uniq}"
+        fp = f"fp-state-{uniq}"
+
+        row = {
+            "TimeUnix": now_dt64,
+            "ServiceName": service,
+            "MetricName": metric,
+            "MetricDescription": "",
+            "MetricUnit": "1",
+            "Attributes": {},
+            "Value": 7.0,
+            "Flags": 0,
+            "AttrFingerprint": fp,
+        }
+        sobs_app._insert_rows_json_each_row(db, "otel_metrics_gauge", [row])
+        sobs_app._insert_rows_json_each_row(db, "otel_metrics_gauge_pinned", [row])
+
+        window_id = sobs_app._register_raw_window(
+            db,
+            signal_ts=signal_ts,
+            signal_type="test_state_backfill",
+            signal_ref=f"state-backfill-ref-{uniq}",
+            service_name=service,
+        )
+
+        stats = sobs_app._run_raw_window_copy_worker(db)
+        assert stats["copies_error"] == 0
+
+        pinned = db.execute(
+            "SELECT count() AS cnt FROM otel_metrics_gauge_pinned "
+            "WHERE ServiceName=? AND MetricName=? AND AttrFingerprint=?",
+            [service, metric, fp],
+        ).fetchone()
+        assert int(pinned["cnt"]) == 1
+
+        state = db.execute(
+            "SELECT count() AS cnt FROM sobs_raw_window_copy_state FINAL WHERE WindowId=? AND SourceTable=?",
+            [window_id, "otel_metrics_gauge"],
+        ).fetchone()
+        assert int(state["cnt"]) >= 1

@@ -108,7 +108,7 @@ async def _startup_async_http_client() -> None:
 
 @app.after_serving
 async def _shutdown_async_http_client() -> None:
-    global _ASYNC_HTTP_CLIENT, _CVE_SCAN_TASK
+    global _ASYNC_HTTP_CLIENT, _CVE_SCAN_TASK, _RAW_WINDOW_COPY_TASK
     if _ASYNC_HTTP_CLIENT is not None:
         await _ASYNC_HTTP_CLIENT.aclose()
         _ASYNC_HTTP_CLIENT = None
@@ -119,6 +119,13 @@ async def _shutdown_async_http_client() -> None:
         except asyncio.CancelledError:
             pass
         _CVE_SCAN_TASK = None
+    if _RAW_WINDOW_COPY_TASK is not None and not _RAW_WINDOW_COPY_TASK.done():
+        _RAW_WINDOW_COPY_TASK.cancel()
+        try:
+            await _RAW_WINDOW_COPY_TASK
+        except asyncio.CancelledError:
+            pass
+        _RAW_WINDOW_COPY_TASK = None
     _shutdown_db_resources()
 
 
@@ -1182,6 +1189,85 @@ CREATE TABLE IF NOT EXISTS sobs_github_work_items (
 ORDER BY (CreatedAt, AgentRunId)
 SETTINGS index_granularity = 8192;
 
+CREATE TABLE IF NOT EXISTS sobs_raw_windows (
+    Id String CODEC(ZSTD(1)),
+    SignalTs DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    WindowStart DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    WindowEnd DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    SignalType LowCardinality(String) CODEC(ZSTD(1)),
+    SignalRef String CODEC(ZSTD(1)),
+    ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+    Namespace LowCardinality(String) CODEC(ZSTD(1)),
+    NodeName LowCardinality(String) CODEC(ZSTD(1)),
+    CreatedAt DateTime64(9) DEFAULT now64(9) CODEC(Delta(8), ZSTD(1)),
+    Version UInt64 DEFAULT toUnixTimestamp64Milli(now64(9)) CODEC(T64, ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY (WindowStart, WindowEnd, SignalType, SignalRef, ServiceName)
+SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS sobs_raw_window_copy_state (
+    WindowId String CODEC(ZSTD(1)),
+    SourceTable LowCardinality(String) CODEC(ZSTD(1)),
+    LastCopiedAt DateTime64(9) DEFAULT now64(9) CODEC(Delta(8), ZSTD(1)),
+    Version UInt64 DEFAULT toUnixTimestamp64Milli(now64(9)) CODEC(T64, ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY (WindowId, SourceTable)
+SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS otel_metrics_gauge_pinned (
+    TimeUnix DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    TimeUnixMs DateTime DEFAULT toDateTime(TimeUnix) CODEC(Delta(4), ZSTD(1)),
+    ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricDescription String CODEC(ZSTD(1)),
+    MetricUnit LowCardinality(String) CODEC(ZSTD(1)),
+    Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    Value Float64 CODEC(ZSTD(1)),
+    Flags UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AttrFingerprint String CODEC(ZSTD(1))
+) ENGINE = MergeTree()
+PARTITION BY toDate(TimeUnixMs)
+ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
+CREATE TABLE IF NOT EXISTS otel_metrics_sum_pinned (
+    TimeUnix DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    TimeUnixMs DateTime DEFAULT toDateTime(TimeUnix) CODEC(Delta(4), ZSTD(1)),
+    ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricDescription String CODEC(ZSTD(1)),
+    MetricUnit LowCardinality(String) CODEC(ZSTD(1)),
+    Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    Value Float64 CODEC(ZSTD(1)),
+    Flags UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    IsMonotonic UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AggregationTemporality Int32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AttrFingerprint String CODEC(ZSTD(1))
+) ENGINE = MergeTree()
+PARTITION BY toDate(TimeUnixMs)
+ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
+CREATE TABLE IF NOT EXISTS otel_metrics_histogram_pinned (
+    TimeUnix DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    TimeUnixMs DateTime DEFAULT toDateTime(TimeUnix) CODEC(Delta(4), ZSTD(1)),
+    ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricDescription String CODEC(ZSTD(1)),
+    MetricUnit LowCardinality(String) CODEC(ZSTD(1)),
+    Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    Count UInt64 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Sum Float64 CODEC(ZSTD(1)),
+    BucketCounts Array(UInt64) CODEC(ZSTD(1)),
+    ExplicitBounds Array(Float64) CODEC(ZSTD(1)),
+    Flags UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AggregationTemporality Int32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AttrFingerprint String CODEC(ZSTD(1))
+) ENGINE = MergeTree()
+PARTITION BY toDate(TimeUnixMs)
+ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
 """
 
 
@@ -1388,6 +1474,7 @@ def _ensure_post_schema_state(db: ChDbConnection) -> None:
     _ensure_notification_schema(db)
     _ensure_ai_memory_schema(db)
     _ensure_github_work_item_schema(db)
+    _ensure_raw_metrics_retention(db)
     _prime_log_attr_key_cache(db)
     _seed_app_release_registry_from_env(db)
     _seed_cwv_anomaly_rules(db)
@@ -1527,6 +1614,351 @@ def _ensure_github_work_item_schema(db: ChDbConnection) -> None:
     ]
     for statement in migration_statements:
         db.execute(statement)
+
+
+# ---------------------------------------------------------------------------
+# Raw metrics retention – baseline TTL + pinned window tables
+# ---------------------------------------------------------------------------
+
+_RAW_METRICS_BASELINE_TTL_HOURS: int
+_RAW_METRICS_PINNED_TTL_DAYS: int
+
+
+def _parse_positive_int_env(name: str, default: str, unit: str) -> int:
+    raw = os.environ.get(name, default)
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a positive integer ({unit})") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer ({unit})")
+    return value
+
+
+_RAW_METRICS_BASELINE_TTL_HOURS = _parse_positive_int_env("SOBS_RAW_METRICS_TTL_HOURS", "48", "hours")
+_RAW_METRICS_PINNED_TTL_DAYS = _parse_positive_int_env("SOBS_PINNED_METRICS_TTL_DAYS", "14", "days")
+_RAW_METRICS_WINDOW_MINUTES = 5
+_RAW_WINDOW_COPY_INTERVAL_S = 60
+_RAW_WINDOW_COPY_MAX_PER_RUN = 10
+
+_RAW_METRIC_TABLES = ("otel_metrics_gauge", "otel_metrics_sum", "otel_metrics_histogram")
+_PINNED_METRIC_TABLES = (
+    "otel_metrics_gauge_pinned",
+    "otel_metrics_sum_pinned",
+    "otel_metrics_histogram_pinned",
+)
+
+_RAW_WINDOW_COPY_TASK: "asyncio.Task[None] | None" = None
+
+
+def _ensure_raw_metrics_retention(db: ChDbConnection) -> None:
+    """Apply baseline TTL to raw metric tables and pinned TTL to pinned tables."""
+    baseline_hours = _RAW_METRICS_BASELINE_TTL_HOURS
+    pinned_days = _RAW_METRICS_PINNED_TTL_DAYS
+    statements = [
+        f"ALTER TABLE otel_metrics_gauge MODIFY TTL TimeUnixMs + INTERVAL {baseline_hours} HOUR",
+        f"ALTER TABLE otel_metrics_sum MODIFY TTL TimeUnixMs + INTERVAL {baseline_hours} HOUR",
+        f"ALTER TABLE otel_metrics_histogram MODIFY TTL TimeUnixMs + INTERVAL {baseline_hours} HOUR",
+        f"ALTER TABLE otel_metrics_gauge_pinned MODIFY TTL TimeUnixMs + INTERVAL {pinned_days} DAY",
+        f"ALTER TABLE otel_metrics_sum_pinned MODIFY TTL TimeUnixMs + INTERVAL {pinned_days} DAY",
+        f"ALTER TABLE otel_metrics_histogram_pinned MODIFY TTL TimeUnixMs + INTERVAL {pinned_days} DAY",
+    ]
+    for stmt in statements:
+        try:
+            db.execute(stmt)
+        except Exception:
+            app.logger.debug("raw metrics retention alter skipped: %s", stmt, exc_info=True)
+
+
+def _register_raw_window(
+    db: ChDbConnection,
+    signal_ts: datetime,
+    signal_type: str,
+    signal_ref: str,
+    service_name: str = "",
+    namespace: str = "",
+    node_name: str = "",
+) -> str:
+    """Register a raw preservation window around a signal. Returns the window Id."""
+    window_start = signal_ts - timedelta(minutes=_RAW_METRICS_WINDOW_MINUTES)
+    window_end = signal_ts + timedelta(minutes=_RAW_METRICS_WINDOW_MINUTES)
+
+    dedup_key = "|".join(
+        [
+            signal_ts.strftime("%Y-%m-%dT%H:%M"),
+            signal_type[:64],
+            signal_ref[:128],
+            service_name[:64],
+            namespace[:64],
+            node_name[:64],
+        ]
+    )
+    window_id = hashlib.sha256(dedup_key.encode()).hexdigest()[:32]
+
+    ts_fmt = "%Y-%m-%d %H:%M:%S.%f"
+    _insert_rows_json_each_row(
+        db,
+        "sobs_raw_windows",
+        [
+            {
+                "Id": window_id,
+                "SignalTs": signal_ts.strftime(ts_fmt)[:-3],
+                "WindowStart": window_start.strftime(ts_fmt)[:-3],
+                "WindowEnd": window_end.strftime(ts_fmt)[:-3],
+                "SignalType": signal_type[:64],
+                "SignalRef": signal_ref[:256],
+                "ServiceName": service_name[:128],
+                "Namespace": namespace[:128],
+                "NodeName": node_name[:128],
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    return window_id
+
+
+def _window_copy_counts(db: ChDbConnection, window_ids: list[str]) -> dict[str, int]:
+    """Return copied source-table counts by window id."""
+    if not window_ids:
+        return {}
+    placeholders = ",".join(["?"] * len(window_ids))
+    rows = db.execute(
+        "SELECT WindowId, countDistinct(SourceTable) AS c "
+        "FROM sobs_raw_window_copy_state FINAL "
+        f"WHERE WindowId IN ({placeholders}) "
+        "GROUP BY WindowId",
+        window_ids,
+    ).fetchall()
+    return {str(r["WindowId"]): int(r["c"] or 0) for r in rows}
+
+
+def _list_trace_overlapping_raw_windows(
+    db: ChDbConnection,
+    service_names: list[str],
+    start_ts: str,
+    end_ts: str,
+    limit: int = 25,
+) -> list[dict[str, object]]:
+    """Return retention windows that overlap a trace time range."""
+    where_parts = [
+        "WindowEnd >= parseDateTime64BestEffort(?, 9)",
+        "WindowStart <= parseDateTime64BestEffort(?, 9)",
+    ]
+    params: list[object] = [start_ts, end_ts]
+    if service_names:
+        placeholders = ",".join(["?"] * len(service_names))
+        where_parts.append(f"(ServiceName = '' OR ServiceName IN ({placeholders}))")
+        params.extend(service_names)
+    where_sql = " AND ".join(where_parts)
+    rows = db.execute(
+        "SELECT Id, SignalType, SignalRef, ServiceName, Namespace, NodeName, WindowStart, WindowEnd "
+        "FROM sobs_raw_windows FINAL "
+        f"WHERE {where_sql} "
+        "ORDER BY WindowStart DESC "
+        "LIMIT ?",
+        params + [max(1, min(limit, 100))],
+    ).fetchall()
+    if not rows:
+        return []
+
+    expected_count = len(_RAW_METRIC_TABLES)
+    window_ids = [str(r["Id"]) for r in rows]
+    copied_counts = _window_copy_counts(db, window_ids)
+
+    out: list[dict[str, object]] = []
+    for r in rows:
+        window_id = str(r["Id"])
+        copied_count = copied_counts.get(window_id, 0)
+        out.append(
+            {
+                "id": window_id,
+                "signal_type": str(r["SignalType"]),
+                "signal_ref": str(r["SignalRef"]),
+                "service_name": str(r["ServiceName"]),
+                "namespace": str(r["Namespace"]),
+                "node_name": str(r["NodeName"]),
+                "window_start": str(r["WindowStart"]),
+                "window_end": str(r["WindowEnd"]),
+                "copied_count": copied_count,
+                "expected_count": expected_count,
+                "copy_complete": copied_count >= expected_count,
+            }
+        )
+    return out
+
+
+def _run_raw_window_copy_worker(db: ChDbConnection) -> dict[str, int]:
+    """
+    Copy raw metric rows that fall within registered windows into pinned tables.
+
+    Reads at most _RAW_WINDOW_COPY_MAX_PER_RUN uncopied (window, table) pairs,
+    performs INSERT INTO … SELECT …, and records completion in
+    sobs_raw_window_copy_state.  Idempotent: re-running is safe.
+    """
+    stats: dict[str, int] = {"windows_attempted": 0, "copies_ok": 0, "copies_error": 0}
+
+    try:
+        windows = db.execute(
+            "SELECT Id, WindowStart, WindowEnd, ServiceName, Namespace, NodeName "
+            "FROM sobs_raw_windows FINAL "
+            "ORDER BY WindowStart DESC "
+            f"LIMIT {_RAW_WINDOW_COPY_MAX_PER_RUN * 20}"
+        ).fetchall()
+    except Exception:
+        app.logger.debug("raw window copy: failed to fetch windows", exc_info=True)
+        return stats
+
+    if not windows:
+        return stats
+
+    copies_attempted = 0
+    for window_row in windows:
+        if copies_attempted >= _RAW_WINDOW_COPY_MAX_PER_RUN:
+            break
+
+        window_id = str(window_row["Id"])
+        window_start = str(window_row["WindowStart"])
+        window_end = str(window_row["WindowEnd"])
+        service_name = str(window_row.get("ServiceName") or "")
+        namespace = str(window_row.get("Namespace") or "")
+        node_name = str(window_row.get("NodeName") or "")
+
+        for raw_table, pinned_table in zip(_RAW_METRIC_TABLES, _PINNED_METRIC_TABLES):
+            if copies_attempted >= _RAW_WINDOW_COPY_MAX_PER_RUN:
+                break
+
+            try:
+                already_copied = db.execute(
+                    "SELECT 1 FROM sobs_raw_window_copy_state FINAL WHERE WindowId=? AND SourceTable=? LIMIT 1",
+                    [window_id, raw_table],
+                ).fetchone()
+            except Exception:
+                app.logger.debug(
+                    "raw window copy: failed to check copy state for window=%s table=%s",
+                    window_id,
+                    raw_table,
+                    exc_info=True,
+                )
+                continue
+
+            if already_copied is not None:
+                continue
+
+            stats["windows_attempted"] += 1
+
+            where_clauses = [
+                "TimeUnix >= parseDateTime64BestEffort(?, 9)",
+                "TimeUnix <= parseDateTime64BestEffort(?, 9)",
+            ]
+            params: list[object] = [window_start, window_end]
+
+            if service_name:
+                where_clauses.append("ServiceName = ?")
+                params.append(service_name)
+            if namespace:
+                where_clauses.append("Attributes['k8s.namespace.name'] = ?")
+                params.append(namespace)
+            if node_name:
+                where_clauses.append("Attributes['k8s.node.name'] = ?")
+                params.append(node_name)
+
+            where_sql = " AND ".join(where_clauses)
+
+            # Histogram has different columns from gauge/sum.
+            if raw_table == "otel_metrics_histogram":
+                select_cols = (
+                    "TimeUnix, TimeUnixMs, ServiceName, MetricName, MetricDescription, "
+                    "MetricUnit, Attributes, Count, Sum, BucketCounts, ExplicitBounds, "
+                    "Flags, AggregationTemporality, AttrFingerprint"
+                )
+            elif raw_table == "otel_metrics_sum":
+                select_cols = (
+                    "TimeUnix, TimeUnixMs, ServiceName, MetricName, MetricDescription, "
+                    "MetricUnit, Attributes, Value, Flags, IsMonotonic, "
+                    "AggregationTemporality, AttrFingerprint"
+                )
+            else:
+                select_cols = (
+                    "TimeUnix, TimeUnixMs, ServiceName, MetricName, MetricDescription, "
+                    "MetricUnit, Attributes, Value, Flags, AttrFingerprint"
+                )
+
+            try:
+                count_row = db.execute(f"SELECT count() AS cnt FROM {raw_table} WHERE {where_sql}", params).fetchone()
+                matched_rows = int((count_row or {}).get("cnt", 0))
+                if matched_rows <= 0:
+                    continue
+
+                # Only copy rows that are not already present in the pinned table.
+                missing_row = db.execute(
+                    f"SELECT count() AS cnt FROM {raw_table} WHERE {where_sql} "
+                    f"AND (ServiceName, MetricName, AttrFingerprint, TimeUnix) NOT IN ("
+                    f"SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix "
+                    f"FROM {pinned_table} WHERE {where_sql})",
+                    params * 2,
+                ).fetchone()
+                missing_rows = int((missing_row or {}).get("cnt", 0))
+                if missing_rows <= 0:
+                    _insert_rows_json_each_row(
+                        db,
+                        "sobs_raw_window_copy_state",
+                        [
+                            {
+                                "WindowId": window_id,
+                                "SourceTable": raw_table,
+                                "Version": int(time.time() * 1000),
+                            }
+                        ],
+                    )
+                    copies_attempted += 1
+                    stats["copies_ok"] += 1
+                    continue
+
+                db.execute(
+                    f"INSERT INTO {pinned_table} ({select_cols}) "
+                    f"SELECT {select_cols} FROM {raw_table} WHERE {where_sql} "
+                    f"AND (ServiceName, MetricName, AttrFingerprint, TimeUnix) NOT IN ("
+                    f"SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix "
+                    f"FROM {pinned_table} WHERE {where_sql})",
+                    params * 2,
+                )
+                _insert_rows_json_each_row(
+                    db,
+                    "sobs_raw_window_copy_state",
+                    [
+                        {
+                            "WindowId": window_id,
+                            "SourceTable": raw_table,
+                            "Version": int(time.time() * 1000),
+                        }
+                    ],
+                )
+                copies_attempted += 1
+                stats["copies_ok"] += 1
+            except Exception:
+                copies_attempted += 1
+                app.logger.debug("raw window copy error: window=%s table=%s", window_id, raw_table, exc_info=True)
+                stats["copies_error"] += 1
+
+    return stats
+
+
+async def _raw_window_copy_loop() -> None:
+    """Background task: run the raw window copy worker every 60 seconds."""
+    while True:
+        try:
+            db = get_db()
+            stats = _run_raw_window_copy_worker(db)
+            if stats["copies_ok"] or stats["copies_error"]:
+                app.logger.info(
+                    "raw window copy: attempted=%d ok=%d errors=%d",
+                    stats["windows_attempted"],
+                    stats["copies_ok"],
+                    stats["copies_error"],
+                )
+        except Exception:
+            app.logger.debug("raw window copy loop error", exc_info=True)
+        await asyncio.sleep(_RAW_WINDOW_COPY_INTERVAL_S)
 
 
 # ---------------------------------------------------------------------------
@@ -6830,6 +7262,9 @@ _WRITABLE_TABLES: frozenset[str] = frozenset(
         "otel_metrics_gauge",
         "otel_metrics_sum",
         "otel_metrics_histogram",
+        "otel_metrics_gauge_pinned",
+        "otel_metrics_sum_pinned",
+        "otel_metrics_histogram_pinned",
         "hyperdx_sessions",
         # SOBS internal state tables
         "sobs_ai_memories",
@@ -6849,6 +7284,8 @@ _WRITABLE_TABLES: frozenset[str] = frozenset(
         "sobs_notification_channels",
         "sobs_notification_log",
         "sobs_notification_rules",
+        "sobs_raw_window_copy_state",
+        "sobs_raw_windows",
         "sobs_record_tags",
         "sobs_release_artifacts",
         "sobs_reports",
@@ -11552,6 +11989,523 @@ def _build_trace_timeline_segments(
     return segments
 
 
+def _build_trace_window_overlay_segments(
+    spans: list[dict],
+    windows: list[dict[str, object]],
+) -> list[dict[str, float | str | bool]]:
+    """Return window overlay segments aligned to the trace timeline axis."""
+    if not spans or not windows:
+        return []
+
+    trace_start_ms = min(float(s.get("start_ms", 0.0) or 0.0) for s in spans)
+    trace_end_ms = max(
+        (float(s.get("start_ms", 0.0) or 0.0) + max(float(s.get("duration_ms", 0.0) or 0.0), 0.0)) for s in spans
+    )
+    trace_total_ms = max(trace_end_ms - trace_start_ms, 1.0)
+
+    def _to_pct(value_ms: float) -> float:
+        return (value_ms - trace_start_ms) / trace_total_ms * 100.0
+
+    segments: list[dict[str, float | str | bool]] = []
+    for w in windows:
+        ws = _ts_str_to_epoch_ms(str(w.get("window_start") or ""))
+        we = _ts_str_to_epoch_ms(str(w.get("window_end") or ""))
+        if we <= 0 or ws <= 0:
+            continue
+
+        start_ms = max(ws, trace_start_ms)
+        end_ms = min(we, trace_end_ms)
+        if end_ms <= start_ms:
+            continue
+
+        start_pct = _to_pct(start_ms)
+        width_pct = _to_pct(end_ms) - start_pct
+        if width_pct <= 0:
+            continue
+
+        copied_count = int(str(w.get("copied_count") or 0))
+        expected_count = int(str(w.get("expected_count") or 0))
+        copy_complete = bool(w.get("copy_complete"))
+        signal_type = str(w.get("signal_type") or "")
+        signal_ref = str(w.get("signal_ref") or "")
+        title = (
+            f"{signal_type or 'window'}"
+            + (f" ({signal_ref})" if signal_ref else "")
+            + f" [{copied_count}/{expected_count}]"
+        )
+
+        segments.append(
+            {
+                "start_pct": round(start_pct, 3),
+                "width_pct": round(width_pct, 3),
+                "copy_complete": copy_complete,
+                "title": title,
+            }
+        )
+
+    segments.sort(key=lambda item: float(item["start_pct"]))
+    return segments
+
+
+# ---------------------------------------------------------------------------
+# Metric series grouping and health chip helpers
+# ---------------------------------------------------------------------------
+
+_METRIC_GROUP_DEFS: list[tuple[str, str, str, list[str]]] = [
+    (
+        "resource",
+        "Resource Pressure",
+        "bi-cpu",
+        [
+            "cpu",
+            "memory",
+            "mem_usage",
+            "node.cpu",
+            "node.memory",
+            "system.cpu",
+            "system.memory",
+        ],
+    ),
+    (
+        "io",
+        "I/O & Storage",
+        "bi-hdd",
+        [
+            "blkio",
+            "fs_read",
+            "fs_write",
+            "disk",
+            "network",
+            "bandwidth",
+        ],
+    ),
+    (
+        "k8s",
+        "Kubernetes State",
+        "bi-layers",
+        [
+            "kube_pod",
+            "kube_node",
+            "kube_deploy",
+            "pod_phase",
+            "pod_status",
+            "replica",
+            "feature_enabled",
+            "tasks_state",
+        ],
+    ),
+    (
+        "infra",
+        "Infrastructure",
+        "bi-server",
+        [
+            "apiserver",
+            "etcd",
+            "scheduler",
+            "controller_manager",
+        ],
+    ),
+]
+
+
+def _group_metric_series(series: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Partition metric series into labelled display groups."""
+    buckets: dict[str, list[dict[str, object]]] = {key: [] for key, *_ in _METRIC_GROUP_DEFS}
+    other: list[dict[str, object]] = []
+    for s in series:
+        m = str(s.get("metric", "")).lower()
+        placed = False
+        for key, _label, _icon, patterns in _METRIC_GROUP_DEFS:
+            if any(p in m for p in patterns):
+                buckets[key].append(s)
+                placed = True
+                break
+        if not placed:
+            other.append(s)
+    result: list[dict[str, object]] = []
+    for key, label, icon, _ in _METRIC_GROUP_DEFS:
+        if buckets[key]:
+            result.append({"label": label, "icon": icon, "key": key, "metrics": buckets[key]})
+    if other:
+        result.append({"label": "Other", "icon": "bi-graph-up", "key": "other", "metrics": other})
+    return result
+
+
+def _compute_health_chips(series: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Derive at-a-glance health indicator chips from metric aggregates."""
+    chips: list[dict[str, object]] = []
+    for s in series:
+        m = str(s.get("metric", "")).lower()
+        avg = float(str(s.get("avg", "0") or "0"))
+        max_v = float(str(s.get("max", "0") or "0"))
+        if "cpu" in m and ("utiliz" in m or "usage" in m):
+            level = "crit" if avg > 80 else "warn" if avg > 60 else "ok"
+            chips.append({"label": "CPU", "value": f"{avg:.1f}%", "level": level, "icon": "bi-cpu"})
+        elif "memory_failures" in m or "mem_failures" in m:
+            level = "crit" if max_v > 1000 else "warn" if max_v > 0 else "ok"
+            chips.append(
+                {"label": "Mem Faults", "value": str(int(max_v)), "level": level, "icon": "bi-exclamation-triangle"}
+            )
+        elif "memory" in m and "usage" in m and "failures" not in m:
+            gb = avg / (1024**3)
+            val_str = f"{gb:.1f}GB" if gb >= 0.1 else f"{avg / 1_048_576:.0f}MB"
+            chips.append({"label": "Memory", "value": val_str, "level": "ok", "icon": "bi-memory"})
+        elif "pod_status_phase" in m or "pod_phase" in m:
+            level = "ok" if avg >= 0.9 else "warn" if avg >= 0.5 else "crit"
+            chips.append({"label": "Pod Phase", "value": f"{avg:.2f}", "level": level, "icon": "bi-layers"})
+        elif "tasks_state" in m:
+            level = "crit" if max_v > 0 else "ok"
+            chips.append({"label": "Container Tasks", "value": str(int(max_v)), "level": level, "icon": "bi-box"})
+        if len(chips) >= 6:
+            break
+    return chips
+
+
+def _fetch_trace_metric_context(
+    db: ChDbConnection,
+    service_names: list[str],
+    start_ts: str,
+    end_ts: str,
+    limit_metrics: int = 12,
+    namespace_values: list[str] | None = None,
+    pod_values: list[str] | None = None,
+    node_values: list[str] | None = None,
+    deployment_values: list[str] | None = None,
+) -> dict[str, object]:
+    """Fetch metric context using ranked matching and raw/pinned fallback.
+
+    Match order:
+    1. Pod + namespace
+    2. Node + namespace
+    3. Deployment + namespace
+    4. Exact service
+    5. Service-family best effort
+    6. Time window only
+    """
+
+    def _uniq(values: list[str] | None) -> list[str]:
+        if not values:
+            return []
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in values:
+            value = str(raw or "").strip()
+            if value and value not in seen:
+                out.append(value)
+                seen.add(value)
+        return out
+
+    def _service_families(values: list[str]) -> list[str]:
+        families: list[str] = []
+        seen: set[str] = set()
+        for svc in values:
+            candidate = svc
+            if "-" in svc:
+                # Drop the last component (e.g. app-api -> app)
+                candidate = svc.rsplit("-", 1)[0]
+            candidate = candidate.strip()
+            if candidate and candidate not in seen:
+                families.append(candidate)
+                seen.add(candidate)
+        return families
+
+    def _attr_clause(primary_key: str, legacy_key: str, values: list[str]) -> tuple[str, list[object]]:
+        if not values:
+            return "", []
+        placeholders = ",".join(["?"] * len(values))
+        params_local: list[object] = list(values)
+        clause = f"Attributes['{primary_key}'] IN ({placeholders})"
+        if legacy_key and legacy_key != primary_key:
+            clause = f"({clause} OR Attributes['{legacy_key}'] IN ({placeholders}))"
+            params_local.extend(values)
+        return clause, params_local
+
+    def _query_timeseries(
+        extra_clauses: list[str],
+        extra_params: list[object],
+        top_metric_names: list[str],
+        num_buckets: int = 24,
+    ) -> dict[str, object]:
+        """Bucket the matched metrics into time slots for sparklines / timeline chart."""
+        if not top_metric_names:
+            return {"ticks_ms": [], "by_metric": {}}
+        start_ms_int = int(_ts_str_to_epoch_ms(start_ts))
+        end_ms_int = int(_ts_str_to_epoch_ms(end_ts))
+        if end_ms_int <= start_ms_int:
+            return {"ticks_ms": [], "by_metric": {}}
+        duration_ms = end_ms_int - start_ms_int
+        bucket_ms = max(1, duration_ms // num_buckets)
+        ticks_ms = [int(start_ms_int + (i + 0.5) * bucket_ms) for i in range(num_buckets)]
+        metric_phs = ",".join(["?"] * len(top_metric_names))
+        ts_where_parts = [
+            "TimeUnix >= parseDateTime64BestEffort(?, 9)",
+            "TimeUnix <= parseDateTime64BestEffort(?, 9)",
+            f"MetricName IN ({metric_phs})",
+        ] + list(extra_clauses)
+        ts_where_sql = " AND ".join(ts_where_parts)
+        ts_params: list[object] = [start_ts, end_ts] + list(top_metric_names) + list(extra_params)
+        ts_union = (
+            f"SELECT MetricName, TimeUnix, toFloat64(Value) AS Value "
+            f"FROM otel_metrics_gauge WHERE {ts_where_sql} "
+            f"UNION ALL SELECT MetricName, TimeUnix, toFloat64(Value) AS Value "
+            f"FROM otel_metrics_gauge_pinned WHERE {ts_where_sql} "
+            f"UNION ALL SELECT MetricName, TimeUnix, toFloat64(Value) AS Value "
+            f"FROM otel_metrics_sum WHERE {ts_where_sql} "
+            f"UNION ALL SELECT MetricName, TimeUnix, toFloat64(Value) AS Value "
+            f"FROM otel_metrics_sum_pinned WHERE {ts_where_sql} "
+            f"UNION ALL SELECT MetricName, TimeUnix, "
+            f"if(Count=0,0.0,toFloat64(Sum)/toFloat64(Count)) AS Value "
+            f"FROM otel_metrics_histogram WHERE {ts_where_sql} "
+            f"UNION ALL SELECT MetricName, TimeUnix, "
+            f"if(Count=0,0.0,toFloat64(Sum)/toFloat64(Count)) AS Value "
+            f"FROM otel_metrics_histogram_pinned WHERE {ts_where_sql}"
+        )
+        ts_rows = db.execute(
+            f"SELECT MetricName, "
+            f"intDiv(toUnixTimestamp64Milli(TimeUnix) - {start_ms_int}, {bucket_ms}) AS BucketIdx, "
+            f"round(avg(Value), 6) AS AvgVal "
+            f"FROM ({ts_union}) AS src "
+            f"WHERE BucketIdx >= 0 AND BucketIdx < {num_buckets} "
+            f"GROUP BY MetricName, BucketIdx "
+            f"ORDER BY MetricName, BucketIdx",
+            ts_params * 6,
+        ).fetchall()
+        by_metric: dict[str, list[float | None]] = {mn: [None] * num_buckets for mn in top_metric_names}
+        for r in ts_rows:
+            mname = str(r["MetricName"])
+            idx = int(r["BucketIdx"] or 0)
+            if mname in by_metric and 0 <= idx < num_buckets:
+                by_metric[mname][idx] = float(r["AvgVal"] or 0.0)
+        return {"ticks_ms": ticks_ms, "by_metric": by_metric}
+
+    def _query(extra_clauses: list[str], extra_params: list[object]) -> dict[str, object]:
+        where_parts = [
+            "TimeUnix >= parseDateTime64BestEffort(?, 9)",
+            "TimeUnix <= parseDateTime64BestEffort(?, 9)",
+        ]
+        params: list[object] = [start_ts, end_ts]
+        where_parts.extend(extra_clauses)
+        params.extend(extra_params)
+        where_sql = " AND ".join(where_parts)
+
+        point_union_sql = (
+            "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 0 AS SourceRank "
+            f"FROM otel_metrics_gauge WHERE {where_sql} "
+            "UNION ALL "
+            "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 1 AS SourceRank "
+            f"FROM otel_metrics_gauge_pinned WHERE {where_sql} "
+            "UNION ALL "
+            "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 0 AS SourceRank "
+            f"FROM otel_metrics_sum WHERE {where_sql} "
+            "UNION ALL "
+            "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 1 AS SourceRank "
+            f"FROM otel_metrics_sum_pinned WHERE {where_sql} "
+            "UNION ALL "
+            "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, "
+            "if(Count = 0, 0.0, toFloat64(Sum) / toFloat64(Count)) AS Value, 0 AS SourceRank "
+            f"FROM otel_metrics_histogram WHERE {where_sql} "
+            "UNION ALL "
+            "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, "
+            "if(Count = 0, 0.0, toFloat64(Sum) / toFloat64(Count)) AS Value, 1 AS SourceRank "
+            f"FROM otel_metrics_histogram_pinned WHERE {where_sql}"
+        )
+
+        dedup_subquery_sql = (
+            "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, "
+            "argMin(Value, SourceRank) AS Value, min(SourceRank) AS DedupRank "
+            f"FROM ({point_union_sql}) AS points "
+            "GROUP BY ServiceName, MetricName, AttrFingerprint, TimeUnix"
+        )
+
+        stats_row = db.execute(
+            "SELECT count() AS c, min(DedupRank) AS min_rank, max(DedupRank) AS max_rank "
+            f"FROM ({dedup_subquery_sql}) AS dedup",
+            params * 6,
+        ).fetchone()
+
+        total_points = int((stats_row or {}).get("c", 0))
+        if total_points <= 0:
+            return {"source_mode": "none", "total_points": 0, "series": []}
+
+        min_rank = int((stats_row or {}).get("min_rank", 1))
+        max_rank = int((stats_row or {}).get("max_rank", 1))
+        if min_rank == 0 and max_rank == 0:
+            source_mode = "raw"
+        elif min_rank == 1 and max_rank == 1:
+            source_mode = "pinned"
+        else:
+            source_mode = "mixed"
+
+        rows = db.execute(
+            "SELECT ServiceName, MetricName, count() AS points, "
+            "round(avg(Value), 4) AS avg_value, round(min(Value), 4) AS min_value, round(max(Value), 4) AS max_value "
+            f"FROM ({dedup_subquery_sql}) AS dedup "
+            "GROUP BY ServiceName, MetricName "
+            "ORDER BY points DESC, MetricName ASC "
+            "LIMIT ?",
+            (params * 6) + [max(1, min(limit_metrics, 50))],
+        ).fetchall()
+
+        series = [
+            {
+                "service": str(r["ServiceName"]),
+                "metric": str(r["MetricName"]),
+                "points": int(r["points"] or 0),
+                "avg": float(r["avg_value"] or 0.0),
+                "min": float(r["min_value"] or 0.0),
+                "max": float(r["max_value"] or 0.0),
+            }
+            for r in rows
+        ]
+
+        return {
+            "source_mode": source_mode,
+            "total_points": total_points,
+            "series": series,
+        }
+
+    trace_services = _uniq(service_names)
+    trace_namespaces = _uniq(namespace_values)
+    trace_pods = _uniq(pod_values)
+    trace_nodes = _uniq(node_values)
+    trace_deployments = _uniq(deployment_values)
+    service_families = _service_families(trace_services)
+
+    attempts: list[dict[str, list[str] | list[object] | str]] = []
+
+    ns_clause, ns_params = _attr_clause("k8s.namespace.name", "namespace", trace_namespaces)
+    pod_clause, pod_params = _attr_clause("k8s.pod.name", "pod", trace_pods)
+    node_clause, node_params = _attr_clause("k8s.node.name", "node", trace_nodes)
+    deploy_clause, deploy_params = _attr_clause("k8s.deployment.name", "deployment", trace_deployments)
+
+    if ns_clause and pod_clause:
+        attempts.append(
+            {
+                "mode": "pod_exact",
+                "label": "pod + namespace",
+                "clauses": [ns_clause, pod_clause],
+                "params": ns_params + pod_params,
+                "dimensions": ["namespace", "pod"],
+            }
+        )
+
+    if ns_clause and node_clause:
+        attempts.append(
+            {
+                "mode": "node_namespace",
+                "label": "node + namespace",
+                "clauses": [ns_clause, node_clause],
+                "params": ns_params + node_params,
+                "dimensions": ["namespace", "node"],
+            }
+        )
+
+    if ns_clause and deploy_clause:
+        attempts.append(
+            {
+                "mode": "deployment_namespace",
+                "label": "deployment + namespace",
+                "clauses": [ns_clause, deploy_clause],
+                "params": ns_params + deploy_params,
+                "dimensions": ["namespace", "deployment"],
+            }
+        )
+
+    if trace_services:
+        svc_placeholders = ",".join(["?"] * len(trace_services))
+        attempts.append(
+            {
+                "mode": "service_exact",
+                "label": "service exact",
+                "clauses": [f"ServiceName IN ({svc_placeholders})"],
+                "params": list(trace_services),
+                "dimensions": ["service"],
+            }
+        )
+
+    if service_families:
+        fam_placeholders = ",".join(["?"] * len(service_families))
+        service_family_clause = (
+            f"(ServiceName IN ({fam_placeholders}) OR "
+            f"Attributes['service.name'] IN ({fam_placeholders}) OR "
+            f"Attributes['service'] IN ({fam_placeholders}))"
+        )
+        attempts.append(
+            {
+                "mode": "service_family",
+                "label": "service family",
+                "clauses": [service_family_clause],
+                "params": list(service_families) + list(service_families) + list(service_families),
+                "dimensions": ["service_family"],
+            }
+        )
+
+    # Final fallback: show nearby time-window metric context even without identity match.
+    attempts.append(
+        {
+            "mode": "time_window_only",
+            "label": "time window only",
+            "clauses": [],
+            "params": [],
+            "dimensions": ["time_window"],
+        }
+    )
+
+    for attempt in attempts:
+        clauses = cast(list[str], attempt["clauses"])
+        params = cast(list[object], attempt["params"])
+        dims = cast(list[str], attempt["dimensions"])
+        ctx = _query(extra_clauses=clauses, extra_params=params)
+        if cast(int, ctx.get("total_points", 0) or 0) > 0:
+            ctx["match_mode"] = str(attempt["mode"])
+            ctx["match_label"] = str(attempt["label"])
+            ctx["match_dimensions"] = dims
+            # Enrich with time-series, groups, and health chips.
+            raw_series = cast(list[dict[str, object]], ctx.get("series") or [])
+            top_names = [str(s["metric"]) for s in raw_series[:6]]
+            # Ensure CPU is in timeseries if available.
+            cpu_metric = next(
+                (str(s["metric"]) for s in raw_series if "cpu" in str(s["metric"]).lower()),
+                None,
+            )
+            final_top_names = top_names
+            if cpu_metric and cpu_metric not in top_names:
+                if len(top_names) >= 6:
+                    final_top_names = [cpu_metric] + top_names[:5]
+                else:
+                    final_top_names = [cpu_metric] + top_names
+            elif cpu_metric:
+                final_top_names = [cpu_metric] + [m for m in top_names if m != cpu_metric]
+            timeseries: dict[str, object] = {"ticks_ms": [], "by_metric": {}}
+            try:
+                timeseries = _query_timeseries(
+                    extra_clauses=clauses,
+                    extra_params=params,
+                    top_metric_names=final_top_names,
+                )
+            except Exception:
+                pass
+            ctx["timeseries"] = timeseries
+            ctx["metric_groups"] = _group_metric_series(raw_series)
+            health_chips = _compute_health_chips(raw_series)
+            ctx["health_chips"] = health_chips
+            # Extract first CPU chip for header display.
+            ctx["header_chip"] = next(
+                (c for c in health_chips if "CPU" in str(c.get("label"))),
+                None,
+            )
+            return ctx
+
+    return {
+        "source_mode": "none",
+        "total_points": 0,
+        "series": [],
+        "match_mode": "none",
+        "match_label": "no match",
+        "match_dimensions": [],
+    }
+
+
 @app.route("/traces")
 @require_basic_auth
 async def view_traces():
@@ -11649,6 +12603,10 @@ async def view_traces():
                         "http_method": str(attrs.get("http.method", attrs.get("http.request.method", ""))),
                         "http_url": str(attrs.get("http.url", attrs.get("url.full", ""))),
                         "http_status": str(attrs.get("http.status_code", attrs.get("http.response.status_code", ""))),
+                        "namespace": str(attrs.get("k8s.namespace.name", attrs.get("namespace", ""))),
+                        "pod": str(attrs.get("k8s.pod.name", attrs.get("pod", ""))),
+                        "node": str(attrs.get("k8s.node.name", attrs.get("node", ""))),
+                        "deployment": str(attrs.get("k8s.deployment.name", attrs.get("deployment", ""))),
                     }
                 )
 
@@ -11731,8 +12689,72 @@ async def view_traces():
             except Exception as exc:
                 log.warning("view_traces: failed to fetch anomaly state for trace %s: %s", trace_id, exc)
 
+            trace_windows: list[dict[str, object]] = []
+            try:
+                trace_services = sorted(
+                    {str(s.get("service") or "").strip() for s in all_trace_spans if s.get("service")}
+                )
+                trace_start_ts = datetime.fromtimestamp(trace_start_ms / 1000.0, tz=timezone.utc).isoformat()
+                trace_end_ts = datetime.fromtimestamp(trace_end_ms / 1000.0, tz=timezone.utc).isoformat()
+                trace_windows = _list_trace_overlapping_raw_windows(
+                    db,
+                    service_names=trace_services,
+                    start_ts=trace_start_ts,
+                    end_ts=trace_end_ts,
+                )
+            except Exception as exc:
+                log.warning("view_traces: failed to fetch raw windows for trace %s: %s", trace_id, exc)
+
+            trace_metrics_context: dict[str, object] = {
+                "source_mode": "none",
+                "total_points": 0,
+                "series": [],
+                "match_mode": "none",
+                "match_label": "no match",
+                "match_dimensions": [],
+            }
+            try:
+                trace_services = sorted(
+                    {str(s.get("service") or "").strip() for s in all_trace_spans if s.get("service")}
+                )
+                trace_namespaces = sorted(
+                    {str(s.get("namespace") or "").strip() for s in all_trace_spans if s.get("namespace")}
+                )
+                trace_pods = sorted({str(s.get("pod") or "").strip() for s in all_trace_spans if s.get("pod")})
+                trace_nodes = sorted({str(s.get("node") or "").strip() for s in all_trace_spans if s.get("node")})
+                trace_deployments = sorted(
+                    {str(s.get("deployment") or "").strip() for s in all_trace_spans if s.get("deployment")}
+                )
+                # Expand the metric window by ±5 minutes around the trace so short
+                # traces (e.g. 35ms) still capture surrounding metric data points.
+                _METRIC_PAD_MS = 5 * 60 * 1000
+                metric_ctx_start_ts = datetime.fromtimestamp(
+                    (trace_start_ms - _METRIC_PAD_MS) / 1000.0, tz=timezone.utc
+                ).isoformat()
+                metric_ctx_end_ts = datetime.fromtimestamp(
+                    (trace_end_ms + _METRIC_PAD_MS) / 1000.0, tz=timezone.utc
+                ).isoformat()
+                trace_metrics_context = _fetch_trace_metric_context(
+                    db,
+                    service_names=trace_services,
+                    start_ts=metric_ctx_start_ts,
+                    end_ts=metric_ctx_end_ts,
+                    namespace_values=trace_namespaces,
+                    pod_values=trace_pods,
+                    node_values=trace_nodes,
+                    deployment_values=trace_deployments,
+                )
+            except Exception as exc:
+                log.warning("view_traces: failed to fetch metrics context for trace %s: %s", trace_id, exc)
+
+            trace_window_segments = _build_trace_window_overlay_segments(all_trace_spans, trace_windows)
+
             trace_detail = {
                 "span_tree": _build_span_tree(all_trace_spans),
+                "trace_start_ts": str(all_trace_spans[0]["ts"]),
+                "trace_end_ts": str(all_trace_spans[-1]["ts"]),
+                "trace_start_ms": round(trace_start_ms),
+                "trace_end_ms": round(trace_end_ms),
                 "errors": trace_errors,
                 "errors_truncated": errors_truncated,
                 "error_span_ids": error_span_ids,
@@ -11744,6 +12766,9 @@ async def view_traces():
                 "span_sum_ms": round(trace_span_sum_ms, 2),
                 "timeline_segments": timeline_segments,
                 "has_potential_gap": has_potential_gap,
+                "raw_windows": trace_windows,
+                "raw_window_segments": trace_window_segments,
+                "metrics_context": trace_metrics_context,
             }
 
     # Build work-item pre-check map for trace-detail errors so "Raise issue" shows as
@@ -12669,9 +13694,10 @@ async def _cve_scanner_loop() -> None:
 
 @app.before_serving
 async def _startup_enrichment() -> None:
-    """Start the background CVE scanner."""
-    global _CVE_SCAN_TASK
+    """Start the background CVE scanner and raw metrics window copy worker."""
+    global _CVE_SCAN_TASK, _RAW_WINDOW_COPY_TASK
     _CVE_SCAN_TASK = asyncio.create_task(_cve_scanner_loop())
+    _RAW_WINDOW_COPY_TASK = asyncio.create_task(_raw_window_copy_loop())
 
 
 # ---------------------------------------------------------------------------
@@ -19196,6 +20222,17 @@ async def _check_notification_rule(db: ChDbConnection, rule: dict, channels_by_i
         ],
     )
 
+    # Register a raw preservation window around this signal
+    try:
+        _register_raw_window(
+            db,
+            signal_ts=datetime.now(timezone.utc),
+            signal_type="notification",
+            signal_ref=str(rule.get("id", "")),
+        )
+    except Exception:
+        app.logger.debug("failed to register raw window for notification rule %s", rule.get("id"), exc_info=True)
+
     return {
         "rule_id": rule["id"],
         "rule_name": rule["name"],
@@ -20079,6 +21116,17 @@ async def check_notifications():
                 "trigger_ref_id": trigger_ref_id,
                 "extra": json.dumps(event, ensure_ascii=False),
             }
+            # Register a raw preservation window when an anomaly or tag event triggers an agent
+            try:
+                _register_raw_window(
+                    db,
+                    signal_ts=datetime.now(timezone.utc),
+                    signal_type=trigger_type,
+                    signal_ref=trigger_ref_id,
+                    service_name=str(event.get("service") or ""),
+                )
+            except Exception:
+                app.logger.debug("failed to register raw window for agent trigger %s", trigger_ref_id, exc_info=True)
             agent_results.append(
                 await _maybe_await(_run_agent_rule_instance(db, agent_rule, settings, trigger_context))
             )
