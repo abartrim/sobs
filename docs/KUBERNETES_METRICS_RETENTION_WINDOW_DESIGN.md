@@ -58,6 +58,35 @@ Run a periodic worker (every 60s) that:
 - applies optional scope filters (`service`, `namespace`, `node`) when present,
 - marks completion in copy-state table.
 
+## Flow Diagram
+
+```mermaid
+flowchart TD
+  A[Anomaly rule event or notification rule fire] --> B[Register raw window]
+  B --> C[sobs_raw_windows]
+
+  D[Background copy loop<br/>every 60s] --> E[Read recent windows]
+  E --> F{For each raw metric table\nwindow already copied?}
+
+  F -- yes --> G[Skip pair]
+  F -- no --> H[Query raw rows in window\nDateTime64 precision + optional service/namespace/node filters]
+
+  H --> I{Rows matched?}
+  I -- no --> J[Leave uncopied for future run]
+  I -- yes --> K[Insert rows into pinned table]
+  K --> L[Record completion in sobs_raw_window_copy_state]
+
+  L --> M[Raw TTL expires old baseline rows]
+  M --> N[Pinned tables retain incident windows longer]
+
+  C -. source .-> E
+```
+
+### Notes
+- Window registration is triggered by rule outcomes (notification and anomaly/tag-triggered agent flows).
+- Detection logic is unchanged; this flow only affects retention and investigation fidelity.
+- Copy-state is written only after successful row copy, so zero-row windows remain eligible for later runs.
+
 ## Why This Design
 - Fastest path to control growth: fixed raw TTL is deterministic and immediate.
 - Preserves evidence where it matters: only around meaningful signals.
