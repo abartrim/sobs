@@ -13148,6 +13148,7 @@ class TestKubernetesPrometheusFormat:
 # Raw Metrics Retention Window Tests
 # ---------------------------------------------------------------------------
 
+
 class TestRawMetricsRetentionWindows:
     """Tests for the Kubernetes metrics retention window implementation."""
 
@@ -13155,17 +13156,13 @@ class TestRawMetricsRetentionWindows:
         """All three pinned metric tables should be created on startup."""
         db = sobs_app.get_db()
         for table in ("otel_metrics_gauge_pinned", "otel_metrics_sum_pinned", "otel_metrics_histogram_pinned"):
-            row = db.execute(
-                "SELECT 1 FROM system.tables WHERE database='default' AND name=?", [table]
-            ).fetchone()
+            row = db.execute("SELECT 1 FROM system.tables WHERE database='default' AND name=?", [table]).fetchone()
             assert row is not None, f"Table {table!r} should exist"
 
     def test_window_registry_table_exists(self):
         """sobs_raw_windows table should be created on startup."""
         db = sobs_app.get_db()
-        row = db.execute(
-            "SELECT 1 FROM system.tables WHERE database='default' AND name='sobs_raw_windows'"
-        ).fetchone()
+        row = db.execute("SELECT 1 FROM system.tables WHERE database='default' AND name='sobs_raw_windows'").fetchone()
         assert row is not None
 
     def test_copy_state_table_exists(self):
@@ -13202,12 +13199,8 @@ class TestRawMetricsRetentionWindows:
         """Calling _register_raw_window twice with the same args should produce one row."""
         db = sobs_app.get_db()
         signal_ts = datetime(2024, 6, 1, 12, 30, 0, tzinfo=timezone.utc)
-        id1 = sobs_app._register_raw_window(
-            db, signal_ts=signal_ts, signal_type="notif", signal_ref="rule-1"
-        )
-        id2 = sobs_app._register_raw_window(
-            db, signal_ts=signal_ts, signal_type="notif", signal_ref="rule-1"
-        )
+        id1 = sobs_app._register_raw_window(db, signal_ts=signal_ts, signal_type="notif", signal_ref="rule-1")
+        id2 = sobs_app._register_raw_window(db, signal_ts=signal_ts, signal_type="notif", signal_ref="rule-1")
         assert id1 == id2  # deterministic window ID
 
     def test_copy_worker_runs_without_error(self):
@@ -13226,14 +13219,15 @@ class TestRawMetricsRetentionWindows:
         db = sobs_app.get_db()
 
         # Insert a gauge row with a known timestamp
-        now_ns = int(_time.time() * 1_000_000_000)
+        signal_ts = datetime.now(timezone.utc)
+        now_dt64 = signal_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
 
         sobs_app._insert_rows_json_each_row(
             db,
             "otel_metrics_gauge",
             [
                 {
-                    "TimeUnix": str(now_ns),
+                    "TimeUnix": now_dt64,
                     "ServiceName": "retention-test-svc",
                     "MetricName": "test.metric",
                     "MetricDescription": "",
@@ -13247,22 +13241,22 @@ class TestRawMetricsRetentionWindows:
         )
 
         # Register a window centred on now
-        signal_ts = datetime.now(timezone.utc)
         window_id = sobs_app._register_raw_window(
             db,
             signal_ts=signal_ts,
             signal_type="test_copy",
-            signal_ref="copy-test-ref",
+            signal_ref=f"copy-test-ref-{_time.time_ns()}",
             service_name="retention-test-svc",
         )
 
         # Run the copy worker
         stats = sobs_app._run_raw_window_copy_worker(db)
-        assert stats["copies_ok"] >= 1
+        assert stats["windows_attempted"] >= 1
 
         # Verify the row landed in the pinned table
         pinned = db.execute(
-            "SELECT count() AS cnt FROM otel_metrics_gauge_pinned WHERE ServiceName='retention-test-svc'"
+            "SELECT count() AS cnt FROM otel_metrics_gauge_pinned "
+            "WHERE ServiceName='retention-test-svc' AND MetricName='test.metric'"
         ).fetchone()
         assert int(pinned["cnt"]) >= 1
 

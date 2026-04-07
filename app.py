@@ -1622,14 +1622,21 @@ def _ensure_github_work_item_schema(db: ChDbConnection) -> None:
 
 _RAW_METRICS_BASELINE_TTL_HOURS: int
 _RAW_METRICS_PINNED_TTL_DAYS: int
-try:
-    _RAW_METRICS_BASELINE_TTL_HOURS = int(os.environ.get("SOBS_RAW_METRICS_TTL_HOURS", "48"))
-except ValueError:
-    raise ValueError("SOBS_RAW_METRICS_TTL_HOURS must be a positive integer (hours)")
-try:
-    _RAW_METRICS_PINNED_TTL_DAYS = int(os.environ.get("SOBS_PINNED_METRICS_TTL_DAYS", "14"))
-except ValueError:
-    raise ValueError("SOBS_PINNED_METRICS_TTL_DAYS must be a positive integer (days)")
+
+
+def _parse_positive_int_env(name: str, default: str, unit: str) -> int:
+    raw = os.environ.get(name, default)
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a positive integer ({unit})") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer ({unit})")
+    return value
+
+
+_RAW_METRICS_BASELINE_TTL_HOURS = _parse_positive_int_env("SOBS_RAW_METRICS_TTL_HOURS", "48", "hours")
+_RAW_METRICS_PINNED_TTL_DAYS = _parse_positive_int_env("SOBS_PINNED_METRICS_TTL_DAYS", "14", "days")
 _RAW_METRICS_WINDOW_MINUTES = 5
 _RAW_WINDOW_COPY_INTERVAL_S = 60
 _RAW_WINDOW_COPY_MAX_PER_RUN = 10
@@ -1725,7 +1732,7 @@ def _run_raw_window_copy_worker(db: ChDbConnection) -> dict[str, int]:
             "SELECT Id, WindowStart, WindowEnd, ServiceName, Namespace, NodeName "
             "FROM sobs_raw_windows FINAL "
             "ORDER BY WindowStart DESC "
-            f"LIMIT {_RAW_WINDOW_COPY_MAX_PER_RUN * len(_RAW_METRIC_TABLES)}"
+            f"LIMIT {_RAW_WINDOW_COPY_MAX_PER_RUN * 20}"
         ).fetchall()
     except Exception:
         app.logger.debug("raw window copy: failed to fetch windows", exc_info=True)
@@ -1734,38 +1741,44 @@ def _run_raw_window_copy_worker(db: ChDbConnection) -> dict[str, int]:
     if not windows:
         return stats
 
-    copied_pairs: set[tuple[str, str]] = set()
-    try:
-        states = db.execute(
-            "SELECT WindowId, SourceTable FROM sobs_raw_window_copy_state FINAL"
-        ).fetchall()
-        for row in states:
-            copied_pairs.add((str(row["WindowId"]), str(row["SourceTable"])))
-    except Exception:
-        app.logger.debug("raw window copy: failed to fetch copy state", exc_info=True)
-
-    work_done = 0
+    copies_attempted = 0
     for window_row in windows:
-        if work_done >= _RAW_WINDOW_COPY_MAX_PER_RUN:
+        if copies_attempted >= _RAW_WINDOW_COPY_MAX_PER_RUN:
             break
+
         window_id = str(window_row["Id"])
-        # WindowStart/WindowEnd come back as high-precision strings (e.g.
-        # "2026-04-07 01:41:19.517000000").  toDateTime() only accepts
-        # "YYYY-MM-DD HH:MM:SS", so truncate at the decimal point.
-        window_start = str(window_row["WindowStart"]).split(".")[0]
-        window_end = str(window_row["WindowEnd"]).split(".")[0]
+        window_start = str(window_row["WindowStart"])
+        window_end = str(window_row["WindowEnd"])
         service_name = str(window_row.get("ServiceName") or "")
         namespace = str(window_row.get("Namespace") or "")
         node_name = str(window_row.get("NodeName") or "")
 
         for raw_table, pinned_table in zip(_RAW_METRIC_TABLES, _PINNED_METRIC_TABLES):
-            if (window_id, raw_table) in copied_pairs:
+            if copies_attempted >= _RAW_WINDOW_COPY_MAX_PER_RUN:
+                break
+
+            try:
+                already_copied = db.execute(
+                    "SELECT 1 FROM sobs_raw_window_copy_state FINAL WHERE WindowId=? AND SourceTable=? LIMIT 1",
+                    [window_id, raw_table],
+                ).fetchone()
+            except Exception:
+                app.logger.debug(
+                    "raw window copy: failed to check copy state for window=%s table=%s",
+                    window_id,
+                    raw_table,
+                    exc_info=True,
+                )
+                continue
+
+            if already_copied is not None:
                 continue
 
             stats["windows_attempted"] += 1
+
             where_clauses = [
-                "TimeUnixMs >= toDateTime(?)",
-                "TimeUnixMs <= toDateTime(?)",
+                "TimeUnix >= parseDateTime64BestEffort(?, 9)",
+                "TimeUnix <= parseDateTime64BestEffort(?, 9)",
             ]
             params: list[object] = [window_start, window_end]
 
@@ -1781,7 +1794,7 @@ def _run_raw_window_copy_worker(db: ChDbConnection) -> dict[str, int]:
 
             where_sql = " AND ".join(where_clauses)
 
-            # Histogram has different columns from gauge/sum
+            # Histogram has different columns from gauge/sum.
             if raw_table == "otel_metrics_histogram":
                 select_cols = (
                     "TimeUnix, TimeUnixMs, ServiceName, MetricName, MetricDescription, "
@@ -1801,6 +1814,11 @@ def _run_raw_window_copy_worker(db: ChDbConnection) -> dict[str, int]:
                 )
 
             try:
+                count_row = db.execute(f"SELECT count() AS cnt FROM {raw_table} WHERE {where_sql}", params).fetchone()
+                matched_rows = int((count_row or {}).get("cnt", 0))
+                if matched_rows <= 0:
+                    continue
+
                 db.execute(
                     f"INSERT INTO {pinned_table} ({select_cols}) "
                     f"SELECT {select_cols} FROM {raw_table} WHERE {where_sql}",
@@ -1817,15 +1835,12 @@ def _run_raw_window_copy_worker(db: ChDbConnection) -> dict[str, int]:
                         }
                     ],
                 )
-                copied_pairs.add((window_id, raw_table))
+                copies_attempted += 1
                 stats["copies_ok"] += 1
             except Exception:
-                app.logger.debug(
-                    "raw window copy error: window=%s table=%s", window_id, raw_table, exc_info=True
-                )
+                copies_attempted += 1
+                app.logger.debug("raw window copy error: window=%s table=%s", window_id, raw_table, exc_info=True)
                 stats["copies_error"] += 1
-
-        work_done += 1
 
     return stats
 
