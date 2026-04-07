@@ -13266,3 +13266,107 @@ class TestRawMetricsRetentionWindows:
             [window_id],
         ).fetchall()
         assert any(str(r["SourceTable"]) == "otel_metrics_gauge" for r in state)
+
+    def test_copy_worker_does_not_duplicate_rows_on_rerun(self):
+        """Re-running worker should not duplicate already copied pinned rows."""
+        import time as _time
+
+        db = sobs_app.get_db()
+        uniq = str(_time.time_ns())
+        signal_ts = datetime.now(timezone.utc)
+        now_dt64 = signal_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "otel_metrics_gauge",
+            [
+                {
+                    "TimeUnix": now_dt64,
+                    "ServiceName": f"retention-dedupe-{uniq}",
+                    "MetricName": f"test.metric.{uniq}",
+                    "MetricDescription": "",
+                    "MetricUnit": "1",
+                    "Attributes": {},
+                    "Value": 11.0,
+                    "Flags": 0,
+                    "AttrFingerprint": f"fp-dedupe-{uniq}",
+                }
+            ],
+        )
+
+        window_id = sobs_app._register_raw_window(
+            db,
+            signal_ts=signal_ts,
+            signal_type="test_dedupe",
+            signal_ref=f"dedupe-ref-{uniq}",
+            service_name=f"retention-dedupe-{uniq}",
+        )
+
+        first_stats = sobs_app._run_raw_window_copy_worker(db)
+        assert first_stats["copies_error"] == 0
+
+        second_stats = sobs_app._run_raw_window_copy_worker(db)
+        assert second_stats["copies_error"] == 0
+
+        pinned = db.execute(
+            "SELECT count() AS cnt FROM otel_metrics_gauge_pinned "
+            "WHERE ServiceName=? AND MetricName=? AND AttrFingerprint=?",
+            [f"retention-dedupe-{uniq}", f"test.metric.{uniq}", f"fp-dedupe-{uniq}"],
+        ).fetchone()
+        assert int(pinned["cnt"]) == 1
+
+        state = db.execute(
+            "SELECT count() AS cnt FROM sobs_raw_window_copy_state FINAL WHERE WindowId=? AND SourceTable=?",
+            [window_id, "otel_metrics_gauge"],
+        ).fetchone()
+        assert int(state["cnt"]) >= 1
+
+    def test_copy_worker_backfills_state_when_rows_already_pinned(self):
+        """If pinned rows exist but copy-state is missing, worker should only backfill copy-state."""
+        import time as _time
+
+        db = sobs_app.get_db()
+        uniq = str(_time.time_ns())
+        signal_ts = datetime.now(timezone.utc)
+        now_dt64 = signal_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        service = f"retention-state-{uniq}"
+        metric = f"test.metric.state.{uniq}"
+        fp = f"fp-state-{uniq}"
+
+        row = {
+            "TimeUnix": now_dt64,
+            "ServiceName": service,
+            "MetricName": metric,
+            "MetricDescription": "",
+            "MetricUnit": "1",
+            "Attributes": {},
+            "Value": 7.0,
+            "Flags": 0,
+            "AttrFingerprint": fp,
+        }
+        sobs_app._insert_rows_json_each_row(db, "otel_metrics_gauge", [row])
+        sobs_app._insert_rows_json_each_row(db, "otel_metrics_gauge_pinned", [row])
+
+        window_id = sobs_app._register_raw_window(
+            db,
+            signal_ts=signal_ts,
+            signal_type="test_state_backfill",
+            signal_ref=f"state-backfill-ref-{uniq}",
+            service_name=service,
+        )
+
+        stats = sobs_app._run_raw_window_copy_worker(db)
+        assert stats["copies_error"] == 0
+
+        pinned = db.execute(
+            "SELECT count() AS cnt FROM otel_metrics_gauge_pinned "
+            "WHERE ServiceName=? AND MetricName=? AND AttrFingerprint=?",
+            [service, metric, fp],
+        ).fetchone()
+        assert int(pinned["cnt"]) == 1
+
+        state = db.execute(
+            "SELECT count() AS cnt FROM sobs_raw_window_copy_state FINAL WHERE WindowId=? AND SourceTable=?",
+            [window_id, "otel_metrics_gauge"],
+        ).fetchone()
+        assert int(state["cnt"]) >= 1
