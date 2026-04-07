@@ -1889,10 +1889,38 @@ def _run_raw_window_copy_worker(db: ChDbConnection) -> dict[str, int]:
                 if matched_rows <= 0:
                     continue
 
+                # Only copy rows that are not already present in the pinned table.
+                missing_row = db.execute(
+                    f"SELECT count() AS cnt FROM {raw_table} WHERE {where_sql} "
+                    f"AND (ServiceName, MetricName, AttrFingerprint, TimeUnix) NOT IN ("
+                    f"SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix "
+                    f"FROM {pinned_table} WHERE {where_sql})",
+                    params * 2,
+                ).fetchone()
+                missing_rows = int((missing_row or {}).get("cnt", 0))
+                if missing_rows <= 0:
+                    _insert_rows_json_each_row(
+                        db,
+                        "sobs_raw_window_copy_state",
+                        [
+                            {
+                                "WindowId": window_id,
+                                "SourceTable": raw_table,
+                                "Version": int(time.time() * 1000),
+                            }
+                        ],
+                    )
+                    copies_attempted += 1
+                    stats["copies_ok"] += 1
+                    continue
+
                 db.execute(
                     f"INSERT INTO {pinned_table} ({select_cols}) "
-                    f"SELECT {select_cols} FROM {raw_table} WHERE {where_sql}",
-                    params,
+                    f"SELECT {select_cols} FROM {raw_table} WHERE {where_sql} "
+                    f"AND (ServiceName, MetricName, AttrFingerprint, TimeUnix) NOT IN ("
+                    f"SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix "
+                    f"FROM {pinned_table} WHERE {where_sql})",
+                    params * 2,
                 )
                 _insert_rows_json_each_row(
                     db,
@@ -12666,8 +12694,8 @@ async def view_traces():
                 trace_services = sorted(
                     {str(s.get("service") or "").strip() for s in all_trace_spans if s.get("service")}
                 )
-                trace_start_ts = str(all_trace_spans[0]["ts"])
-                trace_end_ts = str(all_trace_spans[-1]["ts"])
+                trace_start_ts = datetime.fromtimestamp(trace_start_ms / 1000.0, tz=timezone.utc).isoformat()
+                trace_end_ts = datetime.fromtimestamp(trace_end_ms / 1000.0, tz=timezone.utc).isoformat()
                 trace_windows = _list_trace_overlapping_raw_windows(
                     db,
                     service_names=trace_services,
