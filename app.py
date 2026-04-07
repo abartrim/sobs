@@ -9,6 +9,7 @@ import asyncio
 import atexit
 import base64
 import copy
+import difflib
 import hashlib
 import hmac
 import html
@@ -157,7 +158,7 @@ def _normalize_base_path(value: str) -> str:
 
 def _merge_script_name(script_name: str, base_path: str) -> str:
     """Append base path to SCRIPT_NAME once."""
-    if not base_path:
+    if not script_name:
         return script_name or ""
     current = script_name or ""
     if current.endswith(base_path):
@@ -1268,6 +1269,144 @@ PARTITION BY toDate(TimeUnixMs)
 ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
+CREATE VIEW IF NOT EXISTS v_otel_metrics_signal_context AS
+WITH metric_points AS (
+    SELECT
+        'gauge' AS MetricKind,
+        TimeUnix,
+        ServiceName,
+        MetricName,
+        MetricDescription,
+        MetricUnit,
+        Attributes,
+        AttrFingerprint,
+        toFloat64(Value) AS Value,
+        0 AS SourceRank
+    FROM otel_metrics_gauge
+    UNION ALL
+    SELECT
+        'gauge' AS MetricKind,
+        TimeUnix,
+        ServiceName,
+        MetricName,
+        MetricDescription,
+        MetricUnit,
+        Attributes,
+        AttrFingerprint,
+        toFloat64(Value) AS Value,
+        1 AS SourceRank
+    FROM otel_metrics_gauge_pinned
+    UNION ALL
+    SELECT
+        'sum' AS MetricKind,
+        TimeUnix,
+        ServiceName,
+        MetricName,
+        MetricDescription,
+        MetricUnit,
+        Attributes,
+        AttrFingerprint,
+        toFloat64(Value) AS Value,
+        0 AS SourceRank
+    FROM otel_metrics_sum
+    UNION ALL
+    SELECT
+        'sum' AS MetricKind,
+        TimeUnix,
+        ServiceName,
+        MetricName,
+        MetricDescription,
+        MetricUnit,
+        Attributes,
+        AttrFingerprint,
+        toFloat64(Value) AS Value,
+        1 AS SourceRank
+    FROM otel_metrics_sum_pinned
+    UNION ALL
+    SELECT
+        'histogram' AS MetricKind,
+        TimeUnix,
+        ServiceName,
+        MetricName,
+        MetricDescription,
+        MetricUnit,
+        Attributes,
+        AttrFingerprint,
+        if(Count = 0, 0.0, toFloat64(Sum) / toFloat64(Count)) AS Value,
+        0 AS SourceRank
+    FROM otel_metrics_histogram
+    UNION ALL
+    SELECT
+        'histogram' AS MetricKind,
+        TimeUnix,
+        ServiceName,
+        MetricName,
+        MetricDescription,
+        MetricUnit,
+        Attributes,
+        AttrFingerprint,
+        if(Count = 0, 0.0, toFloat64(Sum) / toFloat64(Count)) AS Value,
+        1 AS SourceRank
+    FROM otel_metrics_histogram_pinned
+), dedup_points AS (
+    SELECT
+        MetricKind,
+        TimeUnix,
+        ServiceName,
+        MetricName,
+        MetricDescription,
+        MetricUnit,
+        Attributes,
+        AttrFingerprint,
+        argMin(Value, SourceRank) AS Value,
+        min(SourceRank) AS StorageRank
+    FROM metric_points
+    GROUP BY
+        MetricKind,
+        TimeUnix,
+        ServiceName,
+        MetricName,
+        MetricDescription,
+        MetricUnit,
+        Attributes,
+        AttrFingerprint
+)
+SELECT
+    w.Id AS WindowId,
+    w.SignalTs,
+    w.WindowStart,
+    w.WindowEnd,
+    w.SignalType,
+    w.SignalRef,
+    w.ServiceName AS SignalServiceName,
+    w.Namespace,
+    w.NodeName,
+    m.TimeUnix,
+    m.ServiceName AS MetricServiceName,
+    m.MetricName,
+    m.MetricDescription,
+    m.MetricUnit,
+    m.MetricKind,
+    m.Attributes,
+    m.AttrFingerprint,
+    m.Value,
+    multiIf(m.StorageRank = 0, 'raw', m.StorageRank = 1, 'pinned', 'mixed') AS StorageTier
+FROM sobs_raw_windows AS w
+INNER JOIN dedup_points AS m
+    ON m.TimeUnix >= w.WindowStart
+    AND m.TimeUnix <= w.WindowEnd
+    AND (w.ServiceName = '' OR m.ServiceName = w.ServiceName)
+    AND (
+        w.Namespace = ''
+        OR m.Attributes['k8s.namespace.name'] = w.Namespace
+        OR m.Attributes['namespace'] = w.Namespace
+    )
+    AND (
+        w.NodeName = ''
+        OR m.Attributes['k8s.node.name'] = w.NodeName
+        OR m.Attributes['node'] = w.NodeName
+    );
+
 """
 
 
@@ -1392,7 +1531,8 @@ _write_thread: threading.Thread | None = None
 _write_worker_lock = threading.Lock()
 _log_attr_keys_lock = threading.Lock()
 _log_attr_keys_cache_loaded = False
-_log_attr_keys_by_record_type: dict[str, set[str]] = {"log": set()}
+_ATTR_KEY_RECORD_TYPES = ("log", "span", "resource", "scope")
+_log_attr_keys_by_record_type: dict[str, set[str]] = {record_type: set() for record_type in _ATTR_KEY_RECORD_TYPES}
 _work_items_cache_lock = threading.Lock()
 _work_items_page_cache: dict[tuple[str, str, str, str, str, str, int, int], dict[str, Any]] = {}
 _work_items_filter_cache: dict[str, Any] = {"expires_at": 0.0, "services": [], "rules": []}
@@ -1495,18 +1635,23 @@ def _prime_log_attr_key_cache(db: ChDbConnection) -> None:
     with _log_attr_keys_lock:
         if _log_attr_keys_cache_loaded:
             return
-        _log_attr_keys_by_record_type["log"] = _load_log_attr_keys_from_db(db, "log")
+        for record_type in _ATTR_KEY_RECORD_TYPES:
+            _log_attr_keys_by_record_type[record_type] = _load_log_attr_keys_from_db(db, record_type)
         _log_attr_keys_cache_loaded = True
 
 
-def _get_cached_log_attr_keys(db: ChDbConnection, record_type: str = "log") -> list[str]:
+def _get_cached_attr_keys(db: ChDbConnection, record_type: str) -> list[str]:
     _prime_log_attr_key_cache(db)
     with _log_attr_keys_lock:
         keys = sorted(_log_attr_keys_by_record_type.get(record_type, set()))
     return keys
 
 
-def _remember_log_attr_keys(db: ChDbConnection, attrs_maps: list[dict], record_type: str = "log") -> None:
+def _get_cached_log_attr_keys(db: ChDbConnection, record_type: str = "log") -> list[str]:
+    return _get_cached_attr_keys(db, record_type)
+
+
+def _remember_attr_keys(db: ChDbConnection, attrs_maps: list[dict], record_type: str) -> None:
     if not attrs_maps:
         return
     _prime_log_attr_key_cache(db)
@@ -1548,13 +1693,21 @@ def _remember_log_attr_keys(db: ChDbConnection, attrs_maps: list[dict], record_t
             app.logger.exception("failed to persist discovered log attribute keys")
 
 
-def _extract_log_attr_maps(rows: list[dict]) -> list[dict]:
+def _remember_log_attr_keys(db: ChDbConnection, attrs_maps: list[dict], record_type: str = "log") -> None:
+    _remember_attr_keys(db, attrs_maps, record_type)
+
+
+def _extract_attr_maps(rows: list[dict], attr_field: str) -> list[dict]:
     maps: list[dict] = []
     for row in rows:
-        raw_attrs = row.get("LogAttributes", {})
+        raw_attrs = row.get(attr_field, {})
         if isinstance(raw_attrs, dict):
             maps.append(raw_attrs)
     return maps
+
+
+def _extract_log_attr_maps(rows: list[dict]) -> list[dict]:
+    return _extract_attr_maps(rows, "LogAttributes")
 
 
 def _ensure_anomaly_rule_schema(db: ChDbConnection) -> None:
@@ -7619,6 +7772,8 @@ class LogEvent:
     service: str
     body: str
     attrs: dict
+    resource_attrs: dict
+    scope_attrs: dict
     trace_id: str
     span_id: str
 
@@ -7634,6 +7789,8 @@ class SpanEvent:
     duration_ms: float
     status: str
     attrs: dict
+    resource_attrs: dict
+    scope_attrs: dict
 
 
 @dataclass
@@ -7701,9 +7858,10 @@ def _proto_logs_to_events(msg: ExportLogsServiceRequest) -> list[LogEvent]:
         resource_attrs = _proto_kvlist_to_dict(resource_log.resource.attributes)
         service = str(resource_attrs.get("service.name", ""))
         for scope_log in resource_log.scope_logs:
+            scope_attrs = _proto_kvlist_to_dict(scope_log.scope.attributes)
             for record in scope_log.log_records:
                 record_attrs = _proto_kvlist_to_dict(record.attributes)
-                merged_attrs = {**resource_attrs, **record_attrs}
+                merged_attrs = {**resource_attrs, **scope_attrs, **record_attrs}
                 body_val = _proto_any_value_to_python(record.body)
                 body_str = body_val if isinstance(body_val, str) else json.dumps(body_val, ensure_ascii=False)
                 events.append(
@@ -7713,6 +7871,8 @@ def _proto_logs_to_events(msg: ExportLogsServiceRequest) -> list[LogEvent]:
                         service=service,
                         body=body_str,
                         attrs=merged_attrs,
+                        resource_attrs=resource_attrs,
+                        scope_attrs=scope_attrs,
                         trace_id=record.trace_id.hex() if record.trace_id else "",
                         span_id=record.span_id.hex() if record.span_id else "",
                     )
@@ -7727,13 +7887,14 @@ def _proto_traces_to_events(msg: ExportTraceServiceRequest) -> tuple[list[SpanEv
         resource_attrs = _proto_kvlist_to_dict(resource_span.resource.attributes)
         service = str(resource_attrs.get("service.name", ""))
         for scope_span in resource_span.scope_spans:
+            scope_attrs = _proto_kvlist_to_dict(scope_span.scope.attributes)
             for span in scope_span.spans:
                 start_ns = int(span.start_time_unix_nano or 0)
                 end_ns = int(span.end_time_unix_nano or 0)
                 duration_ms = (end_ns - start_ns) / 1_000_000 if end_ns > start_ns else 0
                 status = "OK" if span.status.code == 1 else ("ERROR" if span.status.code == 2 else "UNSET")
                 span_attrs = _proto_kvlist_to_dict(span.attributes)
-                merged_attrs = {**resource_attrs, **span_attrs}
+                merged_attrs = {**resource_attrs, **scope_attrs, **span_attrs}
                 span_event = SpanEvent(
                     ts=_ns_to_iso(start_ns),
                     trace_id=span.trace_id.hex() if span.trace_id else "",
@@ -7744,6 +7905,8 @@ def _proto_traces_to_events(msg: ExportTraceServiceRequest) -> tuple[list[SpanEv
                     duration_ms=duration_ms,
                     status=status,
                     attrs=merged_attrs,
+                    resource_attrs=resource_attrs,
+                    scope_attrs=scope_attrs,
                 )
                 span_events.append(span_event)
                 if "ERROR" in status.upper():
@@ -7882,17 +8045,19 @@ def _insert_log_events(db, events: list[LogEvent]) -> int:
                 "ServiceName": event.service,
                 "Body": event.body,
                 "ResourceSchemaUrl": "",
-                "ResourceAttributes": {},
+                "ResourceAttributes": _stringify_attrs(event.resource_attrs),
                 "ScopeSchemaUrl": "",
                 "ScopeName": "",
                 "ScopeVersion": "",
-                "ScopeAttributes": {},
+                "ScopeAttributes": _stringify_attrs(event.scope_attrs),
                 "LogAttributes": _stringify_attrs(event.attrs),
                 "EventName": str(event.attrs.get("event.name", "")),
             }
         )
     count = _insert_rows_json_each_row(db, "otel_logs", rows)
     _remember_log_attr_keys(db, _extract_log_attr_maps(rows), record_type="log")
+    _remember_attr_keys(db, _extract_attr_maps(rows, "ResourceAttributes"), record_type="resource")
+    _remember_attr_keys(db, _extract_attr_maps(rows, "ScopeAttributes"), record_type="scope")
     try:
         rules = _load_tag_rules(db)
         if rules:
@@ -7915,7 +8080,7 @@ def _insert_span_events(db, span_events: list[SpanEvent]) -> int:
                 "SpanName": event.name,
                 "SpanKind": event.attrs.get("span.kind", "INTERNAL"),
                 "ServiceName": event.service,
-                "ResourceAttributes": {"service.name": event.service} if event.service else {},
+                "ResourceAttributes": _stringify_attrs(event.resource_attrs),
                 "ScopeName": "",
                 "ScopeVersion": "",
                 "SpanAttributes": _stringify_attrs(event.attrs),
@@ -7927,6 +8092,8 @@ def _insert_span_events(db, span_events: list[SpanEvent]) -> int:
             }
         )
     count = _insert_rows_json_each_row(db, "otel_traces", rows)
+    _remember_attr_keys(db, _extract_attr_maps(rows, "SpanAttributes"), record_type="span")
+    _remember_attr_keys(db, _extract_attr_maps(rows, "ResourceAttributes"), record_type="resource")
     try:
         rules = _load_tag_rules(db)
         if rules:
@@ -12166,6 +12333,7 @@ def _fetch_trace_metric_context(
     service_names: list[str],
     start_ts: str,
     end_ts: str,
+    window_ids: list[str],
     limit_metrics: int = 12,
     namespace_values: list[str] | None = None,
     pod_values: list[str] | None = None,
@@ -12220,10 +12388,22 @@ def _fetch_trace_metric_context(
             params_local.extend(values)
         return clause, params_local
 
+    start_ms_norm = int(_ts_str_to_epoch_ms(start_ts))
+    end_ms_norm = int(_ts_str_to_epoch_ms(end_ts))
+    if end_ms_norm > start_ms_norm > 0:
+        query_start_ts = datetime.fromtimestamp(start_ms_norm / 1000.0, tz=timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S.%f"
+        )
+        query_end_ts = datetime.fromtimestamp(end_ms_norm / 1000.0, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+    else:
+        query_start_ts = start_ts
+        query_end_ts = end_ts
+
     def _query_timeseries(
         extra_clauses: list[str],
         extra_params: list[object],
         top_metric_names: list[str],
+        time_parse_mode: str = "utc",
         num_buckets: int = 24,
     ) -> dict[str, object]:
         """Bucket the matched metrics into time slots for sparklines / timeline chart."""
@@ -12237,13 +12417,19 @@ def _fetch_trace_metric_context(
         bucket_ms = max(1, duration_ms // num_buckets)
         ticks_ms = [int(start_ms_int + (i + 0.5) * bucket_ms) for i in range(num_buckets)]
         metric_phs = ",".join(["?"] * len(top_metric_names))
+        if time_parse_mode == "utc":
+            start_clause = "TimeUnix >= parseDateTime64BestEffort(?, 9, 'UTC')"
+            end_clause = "TimeUnix <= parseDateTime64BestEffort(?, 9, 'UTC')"
+        else:
+            start_clause = "TimeUnix >= parseDateTime64BestEffort(?, 9)"
+            end_clause = "TimeUnix <= parseDateTime64BestEffort(?, 9)"
         ts_where_parts = [
-            "TimeUnix >= parseDateTime64BestEffort(?, 9)",
-            "TimeUnix <= parseDateTime64BestEffort(?, 9)",
+            start_clause,
+            end_clause,
             f"MetricName IN ({metric_phs})",
         ] + list(extra_clauses)
         ts_where_sql = " AND ".join(ts_where_parts)
-        ts_params: list[object] = [start_ts, end_ts] + list(top_metric_names) + list(extra_params)
+        ts_params: list[object] = [query_start_ts, query_end_ts] + list(top_metric_names) + list(extra_params)
         ts_union = (
             f"SELECT MetricName, TimeUnix, toFloat64(Value) AS Value "
             f"FROM otel_metrics_gauge WHERE {ts_where_sql} "
@@ -12279,91 +12465,101 @@ def _fetch_trace_metric_context(
         return {"ticks_ms": ticks_ms, "by_metric": by_metric}
 
     def _query(extra_clauses: list[str], extra_params: list[object]) -> dict[str, object]:
-        where_parts = [
-            "TimeUnix >= parseDateTime64BestEffort(?, 9)",
-            "TimeUnix <= parseDateTime64BestEffort(?, 9)",
-        ]
-        params: list[object] = [start_ts, end_ts]
-        where_parts.extend(extra_clauses)
-        params.extend(extra_params)
-        where_sql = " AND ".join(where_parts)
+        for time_parse_mode in ("utc", "default"):
+            if time_parse_mode == "utc":
+                start_clause = "TimeUnix >= parseDateTime64BestEffort(?, 9, 'UTC')"
+                end_clause = "TimeUnix <= parseDateTime64BestEffort(?, 9, 'UTC')"
+            else:
+                start_clause = "TimeUnix >= parseDateTime64BestEffort(?, 9)"
+                end_clause = "TimeUnix <= parseDateTime64BestEffort(?, 9)"
 
-        point_union_sql = (
-            "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 0 AS SourceRank "
-            f"FROM otel_metrics_gauge WHERE {where_sql} "
-            "UNION ALL "
-            "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 1 AS SourceRank "
-            f"FROM otel_metrics_gauge_pinned WHERE {where_sql} "
-            "UNION ALL "
-            "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 0 AS SourceRank "
-            f"FROM otel_metrics_sum WHERE {where_sql} "
-            "UNION ALL "
-            "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 1 AS SourceRank "
-            f"FROM otel_metrics_sum_pinned WHERE {where_sql} "
-            "UNION ALL "
-            "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, "
-            "if(Count = 0, 0.0, toFloat64(Sum) / toFloat64(Count)) AS Value, 0 AS SourceRank "
-            f"FROM otel_metrics_histogram WHERE {where_sql} "
-            "UNION ALL "
-            "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, "
-            "if(Count = 0, 0.0, toFloat64(Sum) / toFloat64(Count)) AS Value, 1 AS SourceRank "
-            f"FROM otel_metrics_histogram_pinned WHERE {where_sql}"
-        )
+            where_parts = [start_clause, end_clause]
+            params: list[object] = [query_start_ts, query_end_ts]
+            where_parts.extend(extra_clauses)
+            params.extend(extra_params)
+            where_sql = " AND ".join(where_parts)
+            point_union_sql = (
+                "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 0 AS SourceRank "
+                f"FROM otel_metrics_gauge WHERE {where_sql} "
+                "UNION ALL "
+                "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 1 AS SourceRank "
+                f"FROM otel_metrics_gauge_pinned WHERE {where_sql} "
+                "UNION ALL "
+                "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 0 AS SourceRank "
+                f"FROM otel_metrics_sum WHERE {where_sql} "
+                "UNION ALL "
+                "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 1 AS SourceRank "
+                f"FROM otel_metrics_sum_pinned WHERE {where_sql} "
+                "UNION ALL "
+                "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, "
+                "if(Count = 0, 0.0, toFloat64(Sum) / toFloat64(Count)) AS Value, 0 AS SourceRank "
+                f"FROM otel_metrics_histogram WHERE {where_sql} "
+                "UNION ALL "
+                "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, "
+                "if(Count = 0, 0.0, toFloat64(Sum) / toFloat64(Count)) AS Value, 1 AS SourceRank "
+                f"FROM otel_metrics_histogram_pinned WHERE {where_sql}"
+            )
 
-        dedup_subquery_sql = (
-            "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, "
-            "argMin(Value, SourceRank) AS Value, min(SourceRank) AS DedupRank "
-            f"FROM ({point_union_sql}) AS points "
-            "GROUP BY ServiceName, MetricName, AttrFingerprint, TimeUnix"
-        )
+            dedup_subquery_sql = (
+                "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, "
+                "argMin(Value, SourceRank) AS Value, min(SourceRank) AS DedupRank "
+                f"FROM ({point_union_sql}) AS points "
+                "GROUP BY ServiceName, MetricName, AttrFingerprint, TimeUnix"
+            )
 
-        stats_row = db.execute(
-            "SELECT count() AS c, min(DedupRank) AS min_rank, max(DedupRank) AS max_rank "
-            f"FROM ({dedup_subquery_sql}) AS dedup",
-            params * 6,
-        ).fetchone()
+            stats_row = db.execute(
+                "SELECT count() AS c, min(DedupRank) AS min_rank, max(DedupRank) AS max_rank "
+                f"FROM ({dedup_subquery_sql}) AS dedup",
+                params * 6,
+            ).fetchone()
 
-        total_points = int((stats_row or {}).get("c", 0))
-        if total_points <= 0:
-            return {"source_mode": "none", "total_points": 0, "series": []}
+            total_points = int((stats_row or {}).get("c", 0))
+            if total_points <= 0:
+                continue
 
-        min_rank = int((stats_row or {}).get("min_rank", 1))
-        max_rank = int((stats_row or {}).get("max_rank", 1))
-        if min_rank == 0 and max_rank == 0:
-            source_mode = "raw"
-        elif min_rank == 1 and max_rank == 1:
-            source_mode = "pinned"
-        else:
-            source_mode = "mixed"
+            min_rank = int((stats_row or {}).get("min_rank", 1))
+            max_rank = int((stats_row or {}).get("max_rank", 1))
+            if min_rank == 0 and max_rank == 0:
+                source_mode = "raw"
+            elif min_rank == 1 and max_rank == 1:
+                source_mode = "pinned"
+            else:
+                source_mode = "mixed"
 
-        rows = db.execute(
-            "SELECT ServiceName, MetricName, count() AS points, "
-            "round(avg(Value), 4) AS avg_value, round(min(Value), 4) AS min_value, round(max(Value), 4) AS max_value "
-            f"FROM ({dedup_subquery_sql}) AS dedup "
-            "GROUP BY ServiceName, MetricName "
-            "ORDER BY points DESC, MetricName ASC "
-            "LIMIT ?",
-            (params * 6) + [max(1, min(limit_metrics, 50))],
-        ).fetchall()
+            rows = db.execute(
+                "SELECT ServiceName, MetricName, count() AS points, "
+                "round(avg(Value), 4) AS avg_value, "
+                "round(min(Value), 4) AS min_value, "
+                "round(max(Value), 4) AS max_value "
+                f"FROM ({dedup_subquery_sql}) AS dedup "
+                "GROUP BY ServiceName, MetricName "
+                "ORDER BY points DESC, MetricName ASC "
+                "LIMIT ?",
+                (params * 6) + [max(1, min(limit_metrics, 50))],
+            ).fetchall()
 
-        series = [
-            {
-                "service": str(r["ServiceName"]),
-                "metric": str(r["MetricName"]),
-                "points": int(r["points"] or 0),
-                "avg": float(r["avg_value"] or 0.0),
-                "min": float(r["min_value"] or 0.0),
-                "max": float(r["max_value"] or 0.0),
+            series = [
+                {
+                    "service": str(r["ServiceName"]),
+                    "metric": str(r["MetricName"]),
+                    "points": int(r["points"] or 0),
+                    "avg": float(r["avg_value"] or 0.0),
+                    "min": float(r["min_value"] or 0.0),
+                    "max": float(r["max_value"] or 0.0),
+                }
+                for r in rows
+            ]
+
+            return {
+                "source_mode": source_mode,
+                "total_points": total_points,
+                "series": series,
+                "time_parse_mode": time_parse_mode,
             }
-            for r in rows
-        ]
 
-        return {
-            "source_mode": source_mode,
-            "total_points": total_points,
-            "series": series,
-        }
+        return {"source_mode": "none", "total_points": 0, "series": [], "time_parse_mode": "none"}
 
+    _ = window_ids  # kept for API compatibility; raw SQL path intentionally ignores this
     trace_services = _uniq(service_names)
     trace_namespaces = _uniq(namespace_values)
     trace_pods = _uniq(pod_values)
@@ -12482,6 +12678,7 @@ def _fetch_trace_metric_context(
                     extra_clauses=clauses,
                     extra_params=params,
                     top_metric_names=final_top_names,
+                    time_parse_mode=str(ctx.get("time_parse_mode") or "utc"),
                 )
             except Exception:
                 pass
@@ -12739,6 +12936,7 @@ async def view_traces():
                     service_names=trace_services,
                     start_ts=metric_ctx_start_ts,
                     end_ts=metric_ctx_end_ts,
+                    window_ids=[str(w.get("id") or "") for w in trace_windows if str(w.get("id") or "")],
                     namespace_values=trace_namespaces,
                     pod_values=trace_pods,
                     node_values=trace_nodes,
@@ -18083,36 +18281,12 @@ async def dry_run_chart_spec_api():
         app.logger.exception("Chart spec dry-run failed")
         return jsonify({"error": _public_dashboard_query_error(exc)}), 400
 
-    # Dry-run named queries (limited to 5 rows each)
-    named_query_results: list[dict[str, object]] = []
-    for nq in normalized_spec.get("named_queries") or []:
-        if not isinstance(nq, dict):
-            continue
-        nq_name = str(nq.get("name") or "").strip()
-        nq_sql = str(nq.get("sql") or "").strip()
-        if not nq_name or not nq_sql:
-            continue
-        nq_run = nq_sql if re.search(r"\bLIMIT\b", nq_sql, re.IGNORECASE) else nq_sql + " LIMIT 5"
-        try:
-            nq_result = db.execute(nq_run)
-            nq_rows = nq_result.fetchall()
-            nq_columns = list(nq_rows[0].keys()) if nq_rows else []
-            nq_data = [[row[col] for col in nq_columns] for row in nq_rows]
-            named_query_results.append({
-                "name": nq_name,
-                "purpose": str(nq.get("purpose") or ""),
-                "columns": nq_columns,
-                "rows": nq_data,
-                "error": "",
-            })
-        except Exception as exc:
-            named_query_results.append({
-                "name": nq_name,
-                "purpose": str(nq.get("purpose") or ""),
-                "columns": [],
-                "rows": [],
-                "error": _public_dashboard_query_error(exc),
-            })
+    named_query_results = _execute_chart_spec_named_queries(
+        db,
+        normalized_spec.get("named_queries"),
+        default_limit=5,
+        include_records=False,
+    )
 
     return jsonify(
         {
@@ -18184,24 +18358,23 @@ async def render_chart_spec_api():
 
         # Execute named queries and collect datasets
         named_datasets: dict[str, dict[str, object]] = {}
-        for nq in normalized_spec.get("named_queries") or []:
-            if not isinstance(nq, dict):
-                continue
+        named_query_results = _execute_chart_spec_named_queries(
+            db,
+            normalized_spec.get("named_queries"),
+            default_limit=1000,
+            include_records=True,
+        )
+        for nq in named_query_results:
             nq_name = str(nq.get("name") or "").strip()
-            nq_sql = str(nq.get("sql") or "").strip()
-            if not nq_name or not nq_sql:
+            if not nq_name:
                 continue
-            nq_run = nq_sql if re.search(r"\bLIMIT\b", nq_sql, re.IGNORECASE) else nq_sql + " LIMIT 1000"
-            try:
-                nq_result = db.execute(nq_run)
-                nq_raw = nq_result.fetchall()
-                nq_columns = list(nq_raw[0].keys()) if nq_raw else []
-                nq_records = [dict(row) for row in nq_raw]
-                nq_rows_2d = [[record.get(col) for col in nq_columns] for record in nq_records]
-                named_datasets[nq_name] = {"columns": nq_columns, "records": nq_records, "rows": nq_rows_2d}
-            except Exception as exc:
-                app.logger.warning("Named query '%s' failed during render: %s", nq_name, exc)
-                named_datasets[nq_name] = {"columns": [], "records": [], "rows": []}
+            if str(nq.get("error") or ""):
+                app.logger.warning("Named query '%s' failed during render: %s", nq_name, nq.get("error"))
+            named_datasets[nq_name] = {
+                "columns": nq.get("columns") or [],
+                "records": nq.get("records") or [],
+                "rows": nq.get("rows") or [],
+            }
 
         option = _render_chart_from_template(template_id, columns, data, normalized_spec, named_datasets=named_datasets)
         option = _apply_chart_spec_visual_overrides(template_id, option, normalized_spec)
@@ -18248,6 +18421,196 @@ async def render_chart():
         return jsonify({"error": _public_dashboard_query_error(exc)}), 400
 
 
+async def _vanna_validate_and_execute_with_repair(
+    db: "ChDbConnection",
+    question: str,
+    schema_context: str,
+    initial_sql: str,
+    settings: dict[str, str],
+    thinking_level: str = "off",
+) -> tuple[str, "pd.DataFrame | None", str, int, dict[str, Any]]:
+    """Validate/execute SQL with EXPLAIN + bounded AI repair retries.
+
+    Returns ``(final_sql, dataframe, error, retry_count, last_repair_stats)``.
+    """
+    max_attempts = 3
+    current_sql = str(initial_sql or "").strip()
+    retry_count = 0
+    last_repair_error = ""
+    last_repair_stats: dict[str, Any] = {}
+    exec_error = ""
+
+    explain_error = await asyncio.to_thread(_vanna_explain_sql, db, current_sql)
+    if explain_error:
+        auto_repaired = _auto_repair_incomplete_cte_sql(current_sql)
+        if auto_repaired and auto_repaired != current_sql:
+            current_sql = auto_repaired
+            retry_count += 1
+            explain_error = await asyncio.to_thread(_vanna_explain_sql, db, current_sql)
+
+        if explain_error:
+            repaired_sql, repair_error, repair_stats = await _vanna_repair_sql(
+                question=question,
+                schema_context=schema_context,
+                previous_sql=current_sql,
+                execution_error=explain_error,
+                settings=settings,
+                attempt_number=0,
+                thinking_level=thinking_level,
+            )
+            last_repair_stats = repair_stats
+            if repaired_sql and not repair_error:
+                current_sql = repaired_sql
+                retry_count += 1
+            else:
+                last_repair_error = repair_error
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            df, exec_error = await asyncio.to_thread(_vanna_run_query, db, current_sql)
+        except Exception as exc:
+            df, exec_error = None, f"Query execution error: {exc}"
+
+        if df is not None and not exec_error:
+            return current_sql, df, "", retry_count, last_repair_stats
+
+        if attempt >= max_attempts:
+            break
+
+        auto_repaired = _auto_repair_incomplete_cte_sql(current_sql)
+        if auto_repaired and auto_repaired != current_sql:
+            current_sql = auto_repaired
+            retry_count += 1
+            continue
+
+        repaired_sql, repair_error, repair_stats = await _vanna_repair_sql(
+            question=question,
+            schema_context=schema_context,
+            previous_sql=current_sql,
+            execution_error=exec_error or "Unknown SQL execution error.",
+            settings=settings,
+            attempt_number=attempt,
+            thinking_level=thinking_level,
+        )
+        last_repair_stats = repair_stats
+        if repaired_sql and not repair_error:
+            current_sql = repaired_sql
+            retry_count += 1
+            continue
+        last_repair_error = repair_error
+        break
+
+    final_error = exec_error or "Query execution failed"
+    if last_repair_error:
+        final_error = f"{final_error} | SQL repair error: {last_repair_error}"
+    return current_sql, None, final_error, retry_count, last_repair_stats
+
+
+async def _vanna_execute_named_queries(
+    db: "ChDbConnection",
+    named_queries: list[dict[str, str]],
+    question: str,
+    schema_context: str,
+    settings: dict[str, str],
+    thinking_level: str = "off",
+    *,
+    include_field_types: bool = False,
+    use_repair: bool = False,
+) -> list[dict[str, Any]]:
+    """Execute named queries and return normalized per-dataset results."""
+    results: list[dict[str, Any]] = []
+    for nq in named_queries:
+        nq_sql = str(nq.get("sql") or "").strip()
+        nq_name = str(nq.get("name") or "").strip()
+        nq_purpose = str(nq.get("purpose") or "")
+        if not nq_sql or not nq_name:
+            continue
+
+        nq_final_sql = nq_sql
+        nq_error = ""
+        nq_retry_count = 0
+        nq_df: pd.DataFrame | None = None
+
+        if use_repair:
+            nq_final_sql, nq_df, nq_error, nq_retry_count, _ = await _vanna_validate_and_execute_with_repair(
+                db=db,
+                question=question,
+                schema_context=schema_context,
+                initial_sql=nq_sql,
+                settings=settings,
+                thinking_level=thinking_level,
+            )
+        else:
+            try:
+                nq_df, nq_error = await asyncio.to_thread(_vanna_run_query, db, nq_sql)
+            except Exception as exc:
+                nq_df, nq_error = None, f"Query execution error: {exc}"
+
+        nq_columns = list(nq_df.columns) if nq_df is not None else []
+        nq_rows = _json_safe_rows(nq_df.values.tolist()) if nq_df is not None and not nq_df.empty else []
+        item: dict[str, Any] = {
+            "name": nq_name,
+            "purpose": nq_purpose,
+            "sql": nq_final_sql,
+            "columns": nq_columns,
+            "rows": nq_rows,
+            "error": nq_error,
+            "retry_count": nq_retry_count,
+        }
+        if include_field_types:
+            item["field_types"] = _infer_query_field_types(nq_df) if nq_df is not None and not nq_df.empty else []
+        results.append(item)
+    return results
+
+
+def _execute_chart_spec_named_queries(
+    db: "ChDbConnection",
+    named_queries: object,
+    *,
+    default_limit: int,
+    include_records: bool,
+) -> list[dict[str, object]]:
+    """Execute spec named queries with uniform output shape for dry-run/render."""
+    results: list[dict[str, object]] = []
+    if not isinstance(named_queries, list):
+        return results
+    for nq in named_queries:
+        if not isinstance(nq, dict):
+            continue
+        nq_name = str(nq.get("name") or "").strip()
+        nq_sql = str(nq.get("sql") or "").strip()
+        if not nq_name or not nq_sql:
+            continue
+        nq_run = nq_sql if re.search(r"\bLIMIT\b", nq_sql, re.IGNORECASE) else f"{nq_sql} LIMIT {default_limit}"
+        try:
+            nq_result = db.execute(nq_run)
+            nq_rows = nq_result.fetchall()
+            nq_columns = list(nq_rows[0].keys()) if nq_rows else []
+            nq_data = [[row[col] for col in nq_columns] for row in nq_rows]
+            item: dict[str, object] = {
+                "name": nq_name,
+                "purpose": str(nq.get("purpose") or ""),
+                "columns": nq_columns,
+                "rows": nq_data,
+                "error": "",
+            }
+            if include_records:
+                item["records"] = [dict(row) for row in nq_rows]
+            results.append(item)
+        except Exception as exc:
+            item = {
+                "name": nq_name,
+                "purpose": str(nq.get("purpose") or ""),
+                "columns": [],
+                "rows": [],
+                "error": _public_dashboard_query_error(exc),
+            }
+            if include_records:
+                item["records"] = []
+            results.append(item)
+    return results
+
+
 @app.route("/api/dashboards/spec/ai-build", methods=["POST"])
 @require_basic_auth
 async def ai_build_chart_spec():
@@ -18288,31 +18651,45 @@ async def ai_build_chart_spec():
     if sql_err:
         return jsonify({"ok": False, "error": f"SQL generation failed: {sql_err}"}), 503
 
-    # Execute primary SQL to get sample columns/rows
+    # Validate/execute primary SQL and auto-repair if needed.
+    sql, primary_df, primary_error, sql_retry_count, _ = await _vanna_validate_and_execute_with_repair(
+        db=db,
+        question=question,
+        schema_context=schema_context,
+        initial_sql=sql,
+        settings=settings,
+        thinking_level=thinking_level,
+    )
+    if primary_error or primary_df is None:
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": primary_error or "Generated SQL could not be executed.",
+                    "sql": sql,
+                }
+            ),
+            422,
+        )
+
+    # Primary query data for chart generation context.
     columns: list[str] = []
     rows: list[list] = []
     datasets: list[dict[str, Any]] = []
-    try:
-        primary_df, exec_err = await asyncio.to_thread(_vanna_run_query, db, sql)
-        if primary_df is not None and not primary_df.empty:
-            columns = list(primary_df.columns)
-            rows = _json_safe_rows(primary_df.values.tolist())
-        elif exec_err:
-            app.logger.warning("AI chart build: primary SQL execution error: %s", exec_err)
-    except Exception as exc:
-        app.logger.warning("AI chart build: primary SQL execution exception: %s", exc)
-
-    if columns:
-        datasets.append({
+    columns = list(primary_df.columns)
+    rows = _json_safe_rows(primary_df.values.tolist()) if not primary_df.empty else []
+    datasets.append(
+        {
             "name": "main",
             "purpose": "primary dataset",
             "sql": sql,
             "columns": columns,
             "rows": rows,
-        })
+        }
+    )
 
     # Optionally generate named queries for complex multi-dataset charts
-    named_queries_raw: list[dict[str, str]] = []
+    named_query_results: list[dict[str, Any]] = []
     if columns:
         named_queries_raw, _, _ = await _vanna_generate_named_queries(
             question=question,
@@ -18323,24 +18700,26 @@ async def ai_build_chart_spec():
             chart_instruction=chart_instruction,
             thinking_level=thinking_level,
         )
-        for nq in named_queries_raw:
-            nq_sql = str(nq.get("sql") or "").strip()
-            nq_name = str(nq.get("name") or "").strip()
-            if not nq_sql or not nq_name:
-                continue
-            try:
-                nq_df, _ = await asyncio.to_thread(_vanna_run_query, db, nq_sql)
-                nq_columns = list(nq_df.columns) if nq_df is not None and not nq_df.empty else []
-                nq_rows = _json_safe_rows(nq_df.values.tolist()) if nq_df is not None and not nq_df.empty else []
-                datasets.append({
-                    "name": nq_name,
-                    "purpose": nq.get("purpose", ""),
-                    "sql": nq_sql,
-                    "columns": nq_columns,
-                    "rows": nq_rows,
-                })
-            except Exception:
-                pass
+        named_query_results = await _vanna_execute_named_queries(
+            db=db,
+            named_queries=named_queries_raw,
+            question=question,
+            schema_context=schema_context,
+            settings=settings,
+            thinking_level=thinking_level,
+            use_repair=True,
+        )
+        for nq in named_query_results:
+            if not str(nq.get("error") or ""):
+                datasets.append(
+                    {
+                        "name": str(nq.get("name") or ""),
+                        "purpose": str(nq.get("purpose") or ""),
+                        "sql": str(nq.get("sql") or ""),
+                        "columns": nq.get("columns") or [],
+                        "rows": nq.get("rows") or [],
+                    }
+                )
 
     # Generate eCharts option JSON via LLM
     chart_spec_json = ""
@@ -18359,9 +18738,13 @@ async def ai_build_chart_spec():
         )
 
     named_queries: list[dict[str, str]] = [
-        {"name": nq["name"], "sql": nq["sql"], "purpose": nq.get("purpose", "")}
-        for nq in named_queries_raw
-        if nq.get("name") and nq.get("sql")
+        {
+            "name": str(nq.get("name") or ""),
+            "sql": str(nq.get("sql") or ""),
+            "purpose": str(nq.get("purpose") or ""),
+        }
+        for nq in named_query_results
+        if not str(nq.get("error") or "") and nq.get("name") and nq.get("sql")
     ]
 
     spec: dict[str, object] = {
@@ -18379,8 +18762,10 @@ async def ai_build_chart_spec():
             "ok": True,
             "spec": spec,
             "sql": sql,
+            "retry_count": sql_retry_count,
             "columns": columns,
             "named_queries": named_queries,
+            "named_query_results": named_query_results,
             "chart_error": chart_error,
         }
     )
@@ -18430,7 +18815,15 @@ async def import_chart(dashboard_id: str):
 
     template_version = payload.get("sobs_chart_template_version")
     if template_version != 1:
-        return jsonify({"ok": False, "error": "Invalid or unsupported chart template format (expected sobs_chart_template_version: 1)"}), 400
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "Invalid or unsupported chart template format (expected sobs_chart_template_version: 1)",
+                }
+            ),
+            400,
+        )
 
     title = str(payload.get("title") or "").strip()
     if not title:
@@ -23292,9 +23685,14 @@ _QUERY_ALLOWED_TABLES_BUILTIN: frozenset[str] = frozenset(
         "otel_traces",
         "hyperdx_sessions",
         "otel_metrics_gauge",
+        "otel_metrics_gauge_pinned",
         "otel_metrics_sum",
+        "otel_metrics_sum_pinned",
         "otel_metrics_histogram",
+        "otel_metrics_histogram_pinned",
+        "sobs_raw_windows",
         "v_otel_metrics_1m",
+        "v_otel_metrics_signal_context",
         "v_otel_metrics_anomaly",
         "v_derived_signals_anomaly",
     ]
@@ -23319,6 +23717,16 @@ def _build_query_allowed_tables() -> frozenset[str]:
 
 
 _QUERY_ALLOWED_TABLES: frozenset[str] = _build_query_allowed_tables()
+
+
+def _suggest_allowed_table_names(blocked_ref: str, max_suggestions: int = 5) -> list[str]:
+    """Return close matches from the current query allowlist for a blocked table."""
+    parts = str(blocked_ref or "").lower().split(".")
+    table_name = parts[-1] if parts else ""
+    if not table_name:
+        return []
+    return difflib.get_close_matches(table_name, sorted(_QUERY_ALLOWED_TABLES), n=max_suggestions, cutoff=0.45)
+
 
 # Extracts CTE alias names.  Handles all three forms:
 #   WITH alias AS (          – standard CTE
@@ -23391,10 +23799,15 @@ class ChdbSqlRunner:
 
         blocked = ChdbSqlRunner._check_table_refs(stripped)
         if blocked:
+            suggestions = _suggest_allowed_table_names(blocked)
+            suggestion_text = f" Closest allowed names: {', '.join(suggestions)}." if suggestions else ""
             raise ValueError(
                 f"Access to table or view '{blocked}' is not permitted. "
                 "Only approved observability tables may be queried via the Query page. "
                 f"Allowed tables: {', '.join(sorted(_QUERY_ALLOWED_TABLES))}."
+                f"{suggestion_text}"
+                " If this is a valid custom table/view, add it via "
+                "SOBS_QUERY_ALLOWED_TABLES."
             )
 
     @staticmethod
@@ -23483,20 +23896,66 @@ class ChdbSqlRunner:
             return pd.DataFrame(columns=["name", "type", "default_kind", "comment"])
         return pd.DataFrame([dict(r) for r in rows])
 
-    def get_schema_context(self, database: str = "default", max_tables: int = 30) -> str:
-        """Build a concise schema description string suitable for embedding in LLM prompts.
+    @staticmethod
+    def _compact_clickhouse_type(type_name: str) -> str:
+        """Return a compact ClickHouse-oriented type string for prompts."""
+        compact = str(type_name or "").strip()
+        compact = re.sub(r"\bLowCardinality\((.+)\)$", r"\1", compact)
+        compact = re.sub(r"\bNullable\((.+)\)$", r"\1?", compact)
+        compact = re.sub(r"\bDateTime64\(\d+\)", "DateTime64", compact)
+        return compact
 
-        Returns a formatted string listing every **allowed** table and its columns/types, e.g.::
+    @staticmethod
+    def _schema_column_tags(column_name: str, type_name: str) -> str:
+        """Return concise semantic tags that help SQL generation."""
+        lower_name = str(column_name or "").lower()
+        lower_type = str(type_name or "").lower()
+        tags: list[str] = []
+
+        if "date" in lower_type or "time" in lower_type:
+            tags.append("ts")
+        if lower_name.endswith("id") or lower_name in {"id", "traceid", "spanid", "sessionid"}:
+            tags.append("id")
+        if any(token in lower_name for token in ("count", "value", "duration", "latency", "score", "sum", "avg")):
+            tags.append("metric")
+        if any(token in lower_type for token in ("map", "array", "tuple", "json")):
+            tags.append("json")
+        if not tags and any(token in lower_type for token in ("string", "enum", "bool")):
+            tags.append("dim")
+
+        return f"[{','.join(tags)}]" if tags else ""
+
+    def _compact_schema_line(self, table: str, database: str) -> str:
+        """Return a compact one-line schema summary for a single table."""
+        df = self.describe_table(table, database)
+        fields: list[str] = []
+        for _, col_row in df.iterrows():
+            col_name = str(col_row.get("name", "") or "").strip()
+            if not col_name:
+                continue
+            compact_type = self._compact_clickhouse_type(str(col_row.get("type", "") or ""))
+            tags = self._schema_column_tags(col_name, compact_type)
+            fields.append(f"{col_name}:{compact_type}{tags}")
+        return f"{table}({', '.join(fields)})"
+
+    def _compact_attr_key_line(self, record_type: str, label: str, max_keys: int = 20) -> str:
+        keys = _get_cached_attr_keys(self._db, record_type)
+        if not keys:
+            return ""
+        shown = keys[:max_keys]
+        suffix = ", ..." if len(keys) > max_keys else ""
+        return f"{label}: {', '.join(shown)}{suffix}"
+
+    def get_schema_context(self, database: str = "default", max_tables: int = 30) -> str:
+        """Build a compact ClickHouse-focused schema string for LLM prompts.
+
+        Format example::
 
             Database: default
-            Table: otel_logs
-              - Timestamp: DateTime64(9)
-              - ServiceName: LowCardinality(String)
-              ...
+            otel_logs(TimestampTime:DateTime64[ts], ServiceName:String[dim], Body:String[dim])
 
-        Only tables present in ``_QUERY_ALLOWED_TABLES`` are included, so the LLM
-        prompt never references internal settings tables.  At most *max_tables* entries
-        are included to keep prompts manageable.
+        Only tables present in ``_QUERY_ALLOWED_TABLES`` are included so the prompt
+        stays aligned with runtime access control.
         """
         all_tables = self.get_tables(database)
         # Restrict schema context to the allowlist (defence-in-depth: the LLM
@@ -23507,15 +23966,37 @@ class ChdbSqlRunner:
 
         lines: list[str] = [f"Database: {database}"]
         for table in tables:
-            lines.append(f"\nTable: {table}")
             try:
-                df = self.describe_table(table, database)
-                for _, col_row in df.iterrows():
-                    comment = str(col_row.get("comment", "") or "").strip()
-                    comment_str = f"  -- {comment}" if comment else ""
-                    lines.append(f"  - {col_row['name']}: {col_row['type']}{comment_str}")
+                lines.append(self._compact_schema_line(table, database))
             except Exception as exc:
-                lines.append(f"  (describe error: {exc})")
+                lines.append(f"{table}(describe_error:{exc})")
+
+        lines.extend(
+            [
+                "",
+                "Signal windows:",
+                "sobs_raw_windows => important signal/anomaly windows with "
+                "WindowStart, WindowEnd, SignalType, SignalRef, ServiceName",
+                "v_otel_metrics_signal_context => deduplicated raw+pinned "
+                "metric points that fall inside each signal window",
+                "",
+                "OTEL map access:",
+                "otel_logs => LogAttributes['key'], ResourceAttributes['key'], ScopeAttributes['key']",
+                "otel_traces => SpanAttributes['key'], ResourceAttributes['key']",
+                "In this dataset, resource/scope keys are often also available in LogAttributes or SpanAttributes.",
+            ]
+        )
+
+        attr_lines = [
+            self._compact_attr_key_line("log", "Observed LogAttributes keys"),
+            self._compact_attr_key_line("span", "Observed SpanAttributes keys"),
+            self._compact_attr_key_line("resource", "Observed ResourceAttributes keys"),
+            self._compact_attr_key_line("scope", "Observed ScopeAttributes keys"),
+        ]
+        attr_lines = [line for line in attr_lines if line]
+        if attr_lines:
+            lines.append("Observed OTEL attribute keys:")
+            lines.extend(attr_lines)
         return "\n".join(lines)
 
 
@@ -23531,6 +24012,14 @@ Rules:
 - You MUST return a non-empty SQL query as your final answer.
 - Use only SELECT statements (or WITH … SELECT). Never use INSERT, UPDATE,
     DELETE, DROP, CREATE, or any DDL.
+- Use ONLY tables/views and columns that are present in the provided schema
+    context and allowed-table list.
+- Do NOT invent, guess, hallucinate, or rename tables, views, or fields.
+- If the user's wording does not exactly match the schema, map it to the
+    closest real table/column names from the provided schema.
+- For signal, anomaly, alert, or incident-window questions, prefer
+    `sobs_raw_windows` for window metadata and
+    `v_otel_metrics_signal_context` for metrics that occurred inside those windows.
 - For complex analytical, correlation, or chart-oriented questions with
     multiple metrics or transforms, prefer 2-4 compact, clearly named CTEs
     instead of one large SELECT.
@@ -23543,6 +24032,21 @@ Rules:
 - Use ClickHouse-compatible syntax (e.g. toDate(), now(), formatDateTime(), arrayJoin(), etc.).
 - When the question asks for a chart or visualisation, still return only the SQL that produces the data.
 - Limit results to at most 1000 rows unless the user explicitly asks for more (add LIMIT 1000 unless already present).
+
+CTE pattern example (structure only):
+WITH filtered AS (
+    SELECT TimestampTime, ServiceName
+    FROM default.otel_logs
+    WHERE TimestampTime >= now() - INTERVAL 24 HOUR
+), counts AS (
+    SELECT ServiceName, count() AS error_count
+    FROM filtered
+    GROUP BY ServiceName
+)
+SELECT ServiceName, error_count
+FROM counts
+ORDER BY error_count DESC
+LIMIT 20
 
 Schema context:
 {schema}
@@ -23676,7 +24180,10 @@ async def _vanna_generate_sql(
         return "", "AI endpoint not configured. Visit Settings → AI Configuration.", {}
 
     system_prompt = _QUERY_SQL_SYSTEM_PROMPT.format(schema=schema_context)
-    user_content = question
+    allowlist_hint = "\n".join(f"- {name}" for name in sorted(_QUERY_ALLOWED_TABLES))
+    user_content = (
+        f"{question}\n\n" "Allowed queryable tables/views (must stay within this list):\n" f"{allowlist_hint}"
+    )
     chart_guidance: list[str] = []
     if preferred_chart_type:
         chart_guidance.append(f"Preferred chart type: {preferred_chart_type}")
@@ -23697,7 +24204,7 @@ async def _vanna_generate_sql(
                     chart_guidance.append(f"Desired chart data example: {ds_example}")
 
     if chart_guidance:
-        user_content = f"{question}\n\n" "Chart generation guidance (shape SQL output to fit this):\n" + "\n".join(
+        user_content = f"{user_content}\n\n" "Chart generation guidance (shape SQL output to fit this):\n" + "\n".join(
             [f"- {line}" for line in chart_guidance]
         )
 
@@ -24425,165 +24932,48 @@ async def api_query_ask():
     datasets: list[dict[str, Any]] = []
     retry_count = 0
     exec_error = ""
-    main_df: pd.DataFrame | None = None
     last_repair_stats: dict[str, Any] = {}
     named_stats: dict[str, Any] = {}
     chart_stats: dict[str, Any] = {}
     if do_execute:
-        max_attempts = 3
-        current_sql = sql
-        last_repair_error = ""
+        exec_started = time.monotonic()
+        sql, main_df, exec_error, retry_count, last_repair_stats = await _vanna_validate_and_execute_with_repair(
+            db=db,
+            question=question,
+            schema_context=schema_context,
+            initial_sql=sql,
+            settings=settings,
+            thinking_level=thinking_level,
+        )
+        exec_elapsed_ms = int((time.monotonic() - exec_started) * 1000)
+        row_count = int(len(main_df)) if main_df is not None else 0
+        _emit_ai_helper_log_event(
+            event_name="query.sql.executed",
+            chat_id=trace_id,
+            turn_id=turn_id,
+            page="/query",
+            model=model,
+            guard_model=guard_model,
+            thinking_level="off",
+            body=sql,
+            severity="INFO" if not exec_error else "ERROR",
+            attrs={
+                "gen_ai.operation.name": "query_sql_execute",
+                "sobs.query.exec.attempt": max(1, retry_count + 1),
+                "sobs.query.exec.status": "ok" if not exec_error else "error",
+                "sobs.query.exec.row_count": row_count,
+                "sobs.query.exec.error": exec_error,
+                "gen_ai.response.latency_ms": exec_elapsed_ms,
+                "sobs.gen_ai.prompt": question,
+                "sobs.gen_ai.response": sql,
+            },
+        )
 
-        # Pre-flight: EXPLAIN the generated SQL to catch parse/planning errors
-        # cheaply before spending a full execution attempt on broken SQL.
-        explain_error = await asyncio.to_thread(_vanna_explain_sql, db, current_sql)
-        if explain_error:
-            _emit_ai_helper_log_event(
-                event_name="query.sql.explain_failed",
-                chat_id=trace_id,
-                turn_id=turn_id,
-                page="/query",
-                model=model,
-                guard_model=guard_model,
-                thinking_level="off",
-                body=explain_error,
-                severity="WARN",
-                attrs={"gen_ai.operation.name": "query_sql_explain", "sobs.query.exec.error": explain_error},
-            )
-
-            auto_repaired = _auto_repair_incomplete_cte_sql(current_sql)
-            if auto_repaired and auto_repaired != current_sql:
-                current_sql = auto_repaired
-                retry_count += 1
-                explain_error = await asyncio.to_thread(_vanna_explain_sql, db, current_sql)
-
-            if not explain_error:
-                pass
-            else:
-                repaired_sql, repair_error, repair_stats = await _vanna_repair_sql(
-                    question=question,
-                    schema_context=schema_context,
-                    previous_sql=current_sql,
-                    execution_error=explain_error,
-                    settings=settings,
-                    attempt_number=0,
-                    thinking_level=thinking_level,
-                )
-                _emit_ai_helper_log_event(
-                    event_name="query.sql.repaired",
-                    chat_id=trace_id,
-                    turn_id=turn_id,
-                    page="/query",
-                    model=model,
-                    guard_model=guard_model,
-                    thinking_level="off",
-                    body=repaired_sql if repaired_sql else repair_error,
-                    attrs={
-                        "gen_ai.operation.name": "query_sql_repair",
-                        "gen_ai.usage.input_tokens": repair_stats.get("prompt_tokens", 0),
-                        "gen_ai.usage.output_tokens": repair_stats.get("completion_tokens", 0),
-                        "gen_ai.response.latency_ms": repair_stats.get("elapsed_ms", 0),
-                    },
-                )
-                if repaired_sql and not repair_error:
-                    current_sql = repaired_sql
-                    retry_count += 1
-                last_repair_stats = repair_stats
-
-        for attempt in range(1, max_attempts + 1):
-            sql = current_sql
-            exec_started = time.monotonic()
-            try:
-                df, exec_error = await asyncio.to_thread(_vanna_run_query, db, current_sql)
-            except Exception as exc:
-                df, exec_error = None, f"Query execution error: {exc}"
-
-            exec_elapsed_ms = int((time.monotonic() - exec_started) * 1000)
-            exec_ok = bool(df is not None and not exec_error)
-            row_count = 0
-            if df is not None:
-                try:
-                    row_count = int(len(df))
-                except Exception:
-                    row_count = 0
-
-            _emit_ai_helper_log_event(
-                event_name="query.sql.executed",
-                chat_id=trace_id,
-                turn_id=turn_id,
-                page="/query",
-                model=model,
-                guard_model=guard_model,
-                thinking_level="off",
-                body=current_sql,
-                severity="INFO" if exec_ok else "ERROR",
-                attrs={
-                    "gen_ai.operation.name": "query_sql_execute",
-                    "sobs.query.exec.attempt": attempt,
-                    "sobs.query.exec.status": "ok" if exec_ok else "error",
-                    "sobs.query.exec.row_count": row_count,
-                    "sobs.query.exec.error": exec_error,
-                    "gen_ai.response.latency_ms": exec_elapsed_ms,
-                    "sobs.gen_ai.prompt": question,
-                    "sobs.gen_ai.response": current_sql,
-                },
-            )
-
-            if df is not None:
-                main_df = df
-                if not df.empty:
-                    columns = list(df.columns)
-                    field_types = _infer_query_field_types(df)
-                    rows = _json_safe_rows(df.values.tolist())
-                exec_error = ""
-                break
-
-            if attempt >= max_attempts:
-                break
-
-            auto_repaired = _auto_repair_incomplete_cte_sql(current_sql)
-            if auto_repaired and auto_repaired != current_sql:
-                current_sql = auto_repaired
-                retry_count += 1
-                continue
-
-            repaired_sql, repair_error, repair_stats = await _vanna_repair_sql(
-                question=question,
-                schema_context=schema_context,
-                previous_sql=current_sql,
-                execution_error=exec_error or "Unknown SQL execution error.",
-                settings=settings,
-                attempt_number=attempt,
-                thinking_level=thinking_level,
-            )
-            _emit_ai_helper_log_event(
-                event_name="query.sql.repaired",
-                chat_id=trace_id,
-                turn_id=turn_id,
-                page="/query",
-                model=model,
-                guard_model=guard_model,
-                thinking_level="off",
-                body=repaired_sql if repaired_sql else repair_error,
-                attrs={
-                    "gen_ai.operation.name": "query_sql_repair",
-                    "gen_ai.usage.input_tokens": repair_stats.get("prompt_tokens", 0),
-                    "gen_ai.usage.output_tokens": repair_stats.get("completion_tokens", 0),
-                    "gen_ai.response.latency_ms": repair_stats.get("elapsed_ms", 0),
-                },
-            )
-            if repair_error:
-                last_repair_error = repair_error
-                last_repair_stats = repair_stats
-                break
-            current_sql = repaired_sql
-            retry_count += 1
-            last_repair_stats = repair_stats
-
-        if exec_error and last_repair_error:
-            exec_error = f"{exec_error} | SQL repair error: {last_repair_error}"
-
-        if main_df is not None:
+        if main_df is not None and not exec_error:
+            if not main_df.empty:
+                columns = list(main_df.columns)
+                field_types = _infer_query_field_types(main_df)
+                rows = _json_safe_rows(main_df.values.tolist())
             datasets.append(
                 {
                     "name": "main",
@@ -24626,34 +25016,26 @@ async def api_query_ask():
             },
         )
 
-        for nq in named_queries:
-            ds_name = str(nq.get("name") or "dataset")
-            ds_sql = str(nq.get("sql") or "").strip()
-            ds_purpose = str(nq.get("purpose") or "")
-            if not ds_sql:
-                continue
-            try:
-                ds_df, ds_error = await asyncio.to_thread(_vanna_run_query, db, ds_sql)
-            except Exception as exc:
-                ds_df, ds_error = None, f"Query execution error: {exc}"
-
-            ds_columns: list[str] = []
-            ds_field_types: list[dict[str, str]] = []
-            ds_rows: list[list] = []
-            if ds_df is not None and not ds_df.empty:
-                ds_columns = list(ds_df.columns)
-                ds_field_types = _infer_query_field_types(ds_df)
-                ds_rows = _json_safe_rows(ds_df.values.tolist())
-
+        named_results = await _vanna_execute_named_queries(
+            db=db,
+            named_queries=named_queries,
+            question=question,
+            schema_context=schema_context,
+            settings=settings,
+            thinking_level=thinking_level,
+            include_field_types=True,
+            use_repair=False,
+        )
+        for ds in named_results:
             datasets.append(
                 {
-                    "name": ds_name,
-                    "purpose": ds_purpose,
-                    "sql": ds_sql,
-                    "columns": ds_columns,
-                    "field_types": ds_field_types,
-                    "rows": ds_rows,
-                    "error": ds_error,
+                    "name": str(ds.get("name") or "dataset"),
+                    "purpose": str(ds.get("purpose") or ""),
+                    "sql": str(ds.get("sql") or ""),
+                    "columns": ds.get("columns") or [],
+                    "field_types": ds.get("field_types") or [],
+                    "rows": ds.get("rows") or [],
+                    "error": str(ds.get("error") or ""),
                 }
             )
 
@@ -24891,34 +25273,26 @@ async def api_query_run():
                 },
             )
 
-            for nq in named_queries:
-                ds_name = str(nq.get("name") or "dataset")
-                ds_sql = str(nq.get("sql") or "").strip()
-                ds_purpose = str(nq.get("purpose") or "")
-                if not ds_sql:
-                    continue
-                try:
-                    ds_df, ds_error = await asyncio.to_thread(_vanna_run_query, db, ds_sql)
-                except Exception as exc:
-                    ds_df, ds_error = None, f"Query execution error: {exc}"
-
-                ds_columns: list[str] = []
-                ds_field_types: list[dict[str, str]] = []
-                ds_rows: list[list] = []
-                if ds_df is not None and not ds_df.empty:
-                    ds_columns = list(ds_df.columns)
-                    ds_field_types = _infer_query_field_types(ds_df)
-                    ds_rows = _json_safe_rows(ds_df.values.tolist())
-
+            named_results = await _vanna_execute_named_queries(
+                db=db,
+                named_queries=named_queries,
+                question=question or sql,
+                schema_context=schema_context,
+                settings=settings,
+                thinking_level=thinking_level,
+                include_field_types=True,
+                use_repair=False,
+            )
+            for ds in named_results:
                 datasets.append(
                     {
-                        "name": ds_name,
-                        "purpose": ds_purpose,
-                        "sql": ds_sql,
-                        "columns": ds_columns,
-                        "field_types": ds_field_types,
-                        "rows": ds_rows,
-                        "error": ds_error,
+                        "name": str(ds.get("name") or "dataset"),
+                        "purpose": str(ds.get("purpose") or ""),
+                        "sql": str(ds.get("sql") or ""),
+                        "columns": ds.get("columns") or [],
+                        "field_types": ds.get("field_types") or [],
+                        "rows": ds.get("rows") or [],
+                        "error": str(ds.get("error") or ""),
                     }
                 )
 

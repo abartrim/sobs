@@ -1095,8 +1095,16 @@
         suppressRoleMapReset = false;
         refreshBuilderVisibility();
         var statusMsg = 'Chart generated! SQL and eCharts option have been populated. Review and adjust, then add the chart.';
+        var statusClass = 'small text-success';
+        var namedResults = Array.isArray(body.named_query_results) ? body.named_query_results : [];
+        var failedNamed = namedResults.filter(function (item) { return item && item.error; });
         if (body.chart_error) statusMsg += ' (Note: ' + body.chart_error + ')';
-        if (aiBuilderStatus) { aiBuilderStatus.textContent = statusMsg; aiBuilderStatus.className = 'small text-success'; }
+        if (failedNamed.length) {
+          statusMsg += ' (' + failedNamed.length + ' named quer' + (failedNamed.length === 1 ? 'y' : 'ies') + ' failed validation/execution and were excluded from the generated spec.)';
+          statusClass = 'small text-warning';
+        }
+        if (body.chart_error && statusClass === 'small text-success') statusClass = 'small text-warning';
+        if (aiBuilderStatus) { aiBuilderStatus.textContent = statusMsg; aiBuilderStatus.className = statusClass; }
       })
       .catch(function (err) {
         if (aiBuilderSpinner) aiBuilderSpinner.classList.add('d-none');
@@ -1439,7 +1447,6 @@
         window_hours: windowHoursInput && windowHoursInput.value ? Number(windowHoursInput.value) : 6,
         limit: limitInput && limitInput.value ? Number(limitInput.value) : 1000
       },
-      named_queries: readNamedQueryInputs(),
       visual: {
         zoom_inside: true,
         zoom_slider: false,

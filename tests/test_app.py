@@ -15,7 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -1855,6 +1855,61 @@ class TestUIPages:
         hints_data = await hints.get_json()
         assert attr_key in (hints_data.get("attr_keys") or [])
 
+    async def test_trace_and_resource_attr_keys_are_persisted(self, client):
+        import time as _time
+
+        from app import get_db
+
+        ts_ns = int(_time.time() * 1_000_000_000)
+        span_key = f"span.attr.test.{ts_ns}"
+        resource_key = f"resource.attr.test.{ts_ns}"
+        await client.post(
+            "/v1/traces",
+            json={
+                "resourceSpans": [
+                    {
+                        "resource": {
+                            "attributes": [
+                                {"key": "service.name", "value": {"stringValue": "trace-attr-svc"}},
+                                {"key": resource_key, "value": {"stringValue": "r-ok"}},
+                            ]
+                        },
+                        "scopeSpans": [
+                            {
+                                "scope": {"name": "test-scope", "attributes": []},
+                                "spans": [
+                                    {
+                                        "traceId": "0123456789abcdef0123456789abcdef",
+                                        "spanId": "0123456789abcdef",
+                                        "name": "attr key trace",
+                                        "kind": 1,
+                                        "startTimeUnixNano": str(ts_ns),
+                                        "endTimeUnixNano": str(ts_ns + 1000),
+                                        "attributes": [
+                                            {"key": span_key, "value": {"stringValue": "s-ok"}},
+                                        ],
+                                        "status": {"code": 1},
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+        db = get_db()
+        span_row = db.execute(
+            "SELECT count() FROM sobs_log_attr_keys FINAL WHERE RecordType='span' AND AttrKey=? AND IsDeleted=0",
+            [span_key],
+        ).fetchone()
+        resource_row = db.execute(
+            "SELECT count() FROM sobs_log_attr_keys FINAL WHERE RecordType='resource' AND AttrKey=? AND IsDeleted=0",
+            [resource_key],
+        ).fetchone()
+        assert span_row is not None and int(span_row[0]) >= 1
+        assert resource_row is not None and int(resource_row[0]) >= 1
+
     async def test_logs_has_tag_filter(self, client):
         """has_tag() in sql WHERE should filter by record tags."""
         import time as _time
@@ -2942,6 +2997,107 @@ class TestUIPages:
         assert "normal" in body or "outlier" in body or "error" in body
         # JavaScript for tree toggle included
         assert "traceTree" in body
+
+    async def test_trace_detail_renders_signal_window_metric_context_labels(self, client, monkeypatch):
+        """Trace detail shows match/source labels for window-scoped metric retention context."""
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        db = sobs_app.get_db()
+        now_ns = int(time.time() * 1_000_000_000)
+        now_dt = datetime.fromtimestamp(now_ns / 1_000_000_000, tz=timezone.utc)
+        now_dt64 = now_dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        service = "trace-ui-metrics-svc"
+        namespace = "trace-ui-ns"
+        node = "trace-ui-node"
+        window_id = sobs_app._register_raw_window(
+            db,
+            signal_ts=now_dt,
+            signal_type="ui_trace_signal",
+            signal_ref="trace-ui-ref",
+            service_name=service,
+            namespace=namespace,
+            node_name=node,
+        )
+
+        captured: dict[str, object] = {}
+
+        def _fake_list_trace_overlapping_raw_windows(_db, service_names, start_ts, end_ts, limit=25):
+            return [
+                {
+                    "id": window_id,
+                    "signal_type": "ui_trace_signal",
+                    "signal_ref": "trace-ui-ref",
+                    "service_name": service,
+                    "namespace": namespace,
+                    "node_name": node,
+                    "window_start": now_dt64,
+                    "window_end": now_dt64,
+                    "copied_count": 1,
+                    "expected_count": 3,
+                    "copy_complete": False,
+                }
+            ]
+
+        def _fake_fetch_trace_metric_context(
+            _db,
+            service_names,
+            start_ts,
+            end_ts,
+            window_ids,
+            limit_metrics=12,
+            namespace_values=None,
+            pod_values=None,
+            node_values=None,
+            deployment_values=None,
+        ):
+            captured["window_ids"] = list(window_ids)
+            return {
+                "source_mode": "pinned",
+                "total_points": 3,
+                "series": [],
+                "match_mode": "service_exact",
+                "match_label": "service exact",
+                "match_dimensions": ["service"],
+            }
+
+        monkeypatch.setattr(sobs_app, "_fetch_trace_metric_context", _fake_fetch_trace_metric_context)
+        monkeypatch.setattr(sobs_app, "_list_trace_overlapping_raw_windows", _fake_list_trace_overlapping_raw_windows)
+
+        trace_id_bytes = bytes.fromhex("1234567890abcdef1234567890abcdef")
+        span_id_bytes = bytes.fromhex("1234567890abcdef")
+        span = Span(
+            trace_id=trace_id_bytes,
+            span_id=span_id_bytes,
+            name="trace-ui-span",
+            start_time_unix_nano=now_ns,
+            end_time_unix_nano=now_ns + 500_000_000,
+            status=Status(code=1),
+            attributes=[
+                KeyValue(key="k8s.namespace.name", value=AnyValue(string_value=namespace)),
+                KeyValue(key="k8s.node.name", value=AnyValue(string_value=node)),
+            ],
+        )
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value=service))])
+        msg = ExportTraceServiceRequest(
+            resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])]
+        )
+        r_ingest = await client.post(
+            "/v1/traces", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r_ingest.status_code == 200
+
+        r = await client.get(f"/traces?trace_id={trace_id_bytes.hex()}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert captured.get("window_ids")
+        assert window_id in (captured.get("window_ids") or [])
+        assert "Trace metrics retention context" in body
+        assert "service exact" in body
+        assert "pinned" in body
 
     async def test_trace_detail_with_error_span(self, client):
         """An ERROR span is highlighted with an error tag in the trace detail view."""
@@ -6285,6 +6441,170 @@ class TestCustomDashboards:
         data = await r.get_json()
         assert data["ok"] is False
         assert "AI endpoint" in data["error"]
+
+    async def test_ai_build_repairs_primary_sql_and_reports_named_query_failures(self, client, monkeypatch):
+        """AI build repairs broken primary SQL and surfaces named-query errors."""
+        monkeypatch.setattr(
+            sobs_app,
+            "_load_all_ai_settings",
+            lambda _db: {
+                "ai.endpoint_url": "http://example.com/v1/chat/completions",
+                "ai.model": "fake-model",
+                "ai.api_key": "fake-key",
+            },
+        )
+
+        async def _fake_generate_sql(*_a, **_kw):
+            return "SELECT bad_col FROM missing_table", "", {}
+
+        def _fake_explain_sql(_db, sql):
+            text = str(sql)
+            if "bad_col" in text or "nope" in text:
+                return "Unknown identifier"
+            return ""
+
+        async def _fake_repair_sql(
+            question, schema_context, previous_sql, execution_error, settings, attempt_number, thinking_level="off"
+        ):
+            text = str(previous_sql)
+            if "bad_col" in text:
+                return "SELECT 1 AS value", "", {}
+            return "", "LLM did not return a repaired SQL statement.", {}
+
+        def _fake_run_query(_db, sql):
+            import pandas as pd
+
+            text = str(sql)
+            if "SELECT 1 AS value" in text:
+                return pd.DataFrame([{"value": 1}]), ""
+            if "SELECT 2 AS n" in text:
+                return pd.DataFrame([{"n": 2}]), ""
+            return None, "Query execution error: Unknown identifier"
+
+        async def _fake_generate_named_queries(*_a, **_kw):
+            return (
+                [
+                    {"name": "good_ds", "sql": "SELECT 2 AS n", "purpose": "ok"},
+                    {"name": "bad_ds", "sql": "SELECT nope FROM nowhere", "purpose": "bad"},
+                ],
+                "",
+                {},
+            )
+
+        async def _fake_generate_chart_spec(*_a, **_kw):
+            return '{"series":[{"type":"bar","data":"{{rows}}"}]}', "", {}
+
+        monkeypatch.setattr(sobs_app, "_vanna_generate_sql", _fake_generate_sql)
+        monkeypatch.setattr(sobs_app, "_vanna_explain_sql", _fake_explain_sql)
+        monkeypatch.setattr(sobs_app, "_vanna_repair_sql", _fake_repair_sql)
+        monkeypatch.setattr(sobs_app, "_vanna_run_query", _fake_run_query)
+        monkeypatch.setattr(sobs_app, "_vanna_generate_named_queries", _fake_generate_named_queries)
+        monkeypatch.setattr(sobs_app, "_vanna_generate_chart_spec", _fake_generate_chart_spec)
+
+        r = await client.post(
+            "/api/dashboards/spec/ai-build",
+            json={"question": "Build a chart"},
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert data["sql"] == "SELECT 1 AS value"
+        assert data["retry_count"] >= 1
+        assert data["named_queries"] == [{"name": "good_ds", "sql": "SELECT 2 AS n", "purpose": "ok"}]
+        assert len(data["named_query_results"]) == 2
+        bad = next(item for item in data["named_query_results"] if item["name"] == "bad_ds")
+        assert bad["error"] != ""
+
+    async def test_ai_build_returns_422_when_sql_unrecoverable(self, client, monkeypatch):
+        """AI build fails with 422 when generated SQL cannot be repaired/executed."""
+        monkeypatch.setattr(
+            sobs_app,
+            "_load_all_ai_settings",
+            lambda _db: {
+                "ai.endpoint_url": "http://example.com/v1/chat/completions",
+                "ai.model": "fake-model",
+                "ai.api_key": "fake-key",
+            },
+        )
+
+        async def _fake_generate_sql(*_a, **_kw):
+            return "SELECT broken FROM nowhere", "", {}
+
+        def _fake_explain_sql(_db, _sql):
+            return "Syntax error near FROM"
+
+        async def _fake_repair_sql(*_a, **_kw):
+            return "", "LLM did not return a repaired SQL statement.", {}
+
+        def _fake_run_query(_db, _sql):
+            return None, "Query execution error: Syntax error"
+
+        monkeypatch.setattr(sobs_app, "_vanna_generate_sql", _fake_generate_sql)
+        monkeypatch.setattr(sobs_app, "_vanna_explain_sql", _fake_explain_sql)
+        monkeypatch.setattr(sobs_app, "_vanna_repair_sql", _fake_repair_sql)
+        monkeypatch.setattr(sobs_app, "_vanna_run_query", _fake_run_query)
+
+        r = await client.post(
+            "/api/dashboards/spec/ai-build",
+            json={"question": "Build a chart"},
+        )
+        assert r.status_code == 422
+        data = await r.get_json()
+        assert data["ok"] is False
+        assert "repair" in data["error"].lower() or "execution" in data["error"].lower()
+
+    async def test_ai_build_surfaces_named_query_errors_without_silent_drop(self, client, monkeypatch):
+        """Named query failures are returned to caller rather than silently ignored."""
+        monkeypatch.setattr(
+            sobs_app,
+            "_load_all_ai_settings",
+            lambda _db: {
+                "ai.endpoint_url": "http://example.com/v1/chat/completions",
+                "ai.model": "fake-model",
+                "ai.api_key": "fake-key",
+            },
+        )
+
+        async def _fake_generate_sql(*_a, **_kw):
+            return "SELECT 1 AS value", "", {}
+
+        def _fake_explain_sql(_db, sql):
+            return "Unknown identifier" if "bad_named" in str(sql) else ""
+
+        async def _fake_repair_sql(*_a, **_kw):
+            return "", "repair failed", {}
+
+        def _fake_run_query(_db, sql):
+            import pandas as pd
+
+            if "SELECT 1 AS value" in str(sql):
+                return pd.DataFrame([{"value": 1}]), ""
+            return None, "Query execution error: bad named query"
+
+        async def _fake_generate_named_queries(*_a, **_kw):
+            return ([{"name": "bad_named", "sql": "SELECT bad_named", "purpose": "bad"}], "", {})
+
+        async def _fake_generate_chart_spec(*_a, **_kw):
+            return "{}", "", {}
+
+        monkeypatch.setattr(sobs_app, "_vanna_generate_sql", _fake_generate_sql)
+        monkeypatch.setattr(sobs_app, "_vanna_explain_sql", _fake_explain_sql)
+        monkeypatch.setattr(sobs_app, "_vanna_repair_sql", _fake_repair_sql)
+        monkeypatch.setattr(sobs_app, "_vanna_run_query", _fake_run_query)
+        monkeypatch.setattr(sobs_app, "_vanna_generate_named_queries", _fake_generate_named_queries)
+        monkeypatch.setattr(sobs_app, "_vanna_generate_chart_spec", _fake_generate_chart_spec)
+
+        r = await client.post(
+            "/api/dashboards/spec/ai-build",
+            json={"question": "Build a chart"},
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert data["named_queries"] == []
+        assert len(data["named_query_results"]) == 1
+        assert data["named_query_results"][0]["name"] == "bad_named"
+        assert data["named_query_results"][0]["error"] != ""
 
     async def test_dashboard_view_includes_import_button(self, client):
         """Dashboard view includes Import Chart button."""
@@ -10807,6 +11127,14 @@ class TestChdbSqlRunner:
         """Querying an allowed view (v_otel_metrics_1m) is permitted."""
         sobs_app.ChdbSqlRunner.validate_sql("SELECT * FROM v_otel_metrics_1m LIMIT 1")
 
+    def test_validate_sql_signal_window_table_is_allowed(self):
+        """Querying sobs_raw_windows is permitted because it is an intentional NLQ surface."""
+        sobs_app.ChdbSqlRunner.validate_sql("SELECT SignalType, WindowStart FROM sobs_raw_windows LIMIT 1")
+
+    def test_validate_sql_signal_context_view_is_allowed(self):
+        """Querying the signal-window metrics helper view is permitted."""
+        sobs_app.ChdbSqlRunner.validate_sql("SELECT MetricName, StorageTier FROM v_otel_metrics_signal_context LIMIT 1")
+
     # ------------------------------------------------------------------
     # Table allowlist – blocked tables
     # ------------------------------------------------------------------
@@ -10903,8 +11231,8 @@ class TestChdbSqlRunner:
     # Table allowlist – schema context
     # ------------------------------------------------------------------
 
-    def test_get_schema_context_excludes_sobs_tables(self):
-        """get_schema_context never exposes internal sobs_* tables to the LLM."""
+    def test_get_schema_context_excludes_internal_sobs_tables(self):
+        """get_schema_context excludes internal sobs_* tables that are not part of the NLQ surface."""
         db = sobs_app.get_db()
         runner = sobs_app.ChdbSqlRunner(db)
         ctx = runner.get_schema_context()
@@ -10919,6 +11247,8 @@ class TestChdbSqlRunner:
         ctx = runner.get_schema_context()
         assert "otel_logs" in ctx
         assert "otel_traces" in ctx
+        assert "sobs_raw_windows" in ctx
+        assert "v_otel_metrics_signal_context" in ctx
 
     # ------------------------------------------------------------------
     # Schema introspection
@@ -10969,15 +11299,18 @@ class TestChdbSqlRunner:
         ctx = runner.get_schema_context()
         assert isinstance(ctx, str)
         assert "Database: default" in ctx
-        assert "otel_logs" in ctx
+        assert "otel_logs(" in ctx
 
     def test_get_schema_context_includes_column_info(self):
         """get_schema_context includes at least one column description."""
         db = sobs_app.get_db()
         runner = sobs_app.ChdbSqlRunner(db)
         ctx = runner.get_schema_context()
-        # Should contain lines like "  - Timestamp: DateTime64(9)"
-        assert "  - " in ctx
+        # Should contain compact entries like "otel_logs(TimestampTime:DateTime64[ts], ...)"
+        assert ":" in ctx
+        assert "(" in ctx
+        assert "OTEL map access:" in ctx
+        assert "LogAttributes['key']" in ctx
 
 
 class TestVannaRunQuery:
@@ -11060,8 +11393,13 @@ class TestQueryAllowedTablesEnvVar:
         assert "otel_logs" in builtin
         assert "otel_traces" in builtin
         assert "otel_metrics_gauge" in builtin
+        assert "otel_metrics_gauge_pinned" in builtin
         assert "otel_metrics_sum" in builtin
+        assert "otel_metrics_sum_pinned" in builtin
         assert "otel_metrics_histogram" in builtin
+        assert "otel_metrics_histogram_pinned" in builtin
+        assert "sobs_raw_windows" in builtin
+        assert "v_otel_metrics_signal_context" in builtin
 
 
 class TestValidateUserSqlWhere:
@@ -11552,14 +11890,6 @@ class TestQueryRoutes:
 
 
 class TestChartSpecHelpers:
-    @staticmethod
-    def _configured_query_settings() -> dict[str, str]:
-        return {
-            "ai.endpoint_url": "https://fake.llm/v1",
-            "ai.model": "test-model",
-            "ai.api_key": "",
-        }
-
     async def test_generate_chart_spec_repairs_malformed_json_with_llm(self, monkeypatch):
         calls = {"n": 0}
 
@@ -11578,7 +11908,7 @@ class TestChartSpecHelpers:
             columns=["name", "count"],
             sample_rows=[{"name": "otel_logs", "count": 1}],
             question="list tables",
-            settings=self._configured_query_settings(),
+            settings=TestQueryRoutes._configured_query_settings(),
             preferred_chart_type="boxplot",
             thinking_level="high",
         )
@@ -11604,7 +11934,7 @@ class TestChartSpecHelpers:
             columns=["name", "count"],
             sample_rows=[{"name": "otel_logs", "count": 1}],
             question="list tables",
-            settings=self._configured_query_settings(),
+            settings=TestQueryRoutes._configured_query_settings(),
             thinking_level="high",
         )
 
@@ -13400,6 +13730,14 @@ class TestKubernetesPrometheusFormat:
 class TestRawMetricsRetentionWindows:
     """Tests for the Kubernetes metrics retention window implementation."""
 
+    def test_signal_context_view_exists(self):
+        """The query-friendly signal-window metrics view should be created on startup."""
+        db = sobs_app.get_db()
+        row = db.execute(
+            "SELECT 1 FROM system.tables WHERE database='default' AND name='v_otel_metrics_signal_context'"
+        ).fetchone()
+        assert row is not None
+
     def test_pinned_tables_exist(self):
         """All three pinned metric tables should be created on startup."""
         db = sobs_app.get_db()
@@ -13618,3 +13956,264 @@ class TestRawMetricsRetentionWindows:
             [window_id, "otel_metrics_gauge"],
         ).fetchone()
         assert int(state["cnt"]) >= 1
+
+    def test_signal_context_view_joins_windows_to_metric_points(self):
+        """v_otel_metrics_signal_context should expose metric points that fall inside a registered window."""
+        import time as _time
+
+        db = sobs_app.get_db()
+        uniq = str(_time.time_ns())
+        signal_ts = datetime.now(timezone.utc)
+        ts_str = signal_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        service = f"signal-context-{uniq}"
+        metric = f"test.metric.signal.{uniq}"
+
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "otel_metrics_gauge_pinned",
+            [
+                {
+                    "TimeUnix": ts_str,
+                    "ServiceName": service,
+                    "MetricName": metric,
+                    "MetricDescription": "signal window metric",
+                    "MetricUnit": "1",
+                    "Attributes": {"k8s.namespace.name": "default", "k8s.node.name": "node-a"},
+                    "Value": 9.5,
+                    "Flags": 0,
+                    "AttrFingerprint": f"fp-signal-{uniq}",
+                }
+            ],
+        )
+
+        window_id = sobs_app._register_raw_window(
+            db,
+            signal_ts=signal_ts,
+            signal_type="anomaly",
+            signal_ref=f"sig-{uniq}",
+            service_name=service,
+            namespace="default",
+            node_name="node-a",
+        )
+
+        row = db.execute(
+            "SELECT WindowId, MetricServiceName, MetricName, StorageTier "
+            "FROM v_otel_metrics_signal_context "
+            "WHERE WindowId=? AND MetricName=? "
+            "ORDER BY TimeUnix DESC LIMIT 1",
+            [window_id, metric],
+        ).fetchone()
+        assert row is not None
+        assert str(row["WindowId"]) == window_id
+        assert str(row["MetricServiceName"]) == service
+        assert str(row["MetricName"]) == metric
+        assert str(row["StorageTier"]) == "pinned"
+
+    def test_fetch_trace_metric_context_uses_window_ids(self):
+        """Trace metric context should return points only from the provided signal windows."""
+        import time as _time
+
+        db = sobs_app.get_db()
+        uniq = str(_time.time_ns())
+        signal_ts = datetime.now(timezone.utc)
+        ts_str = signal_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        service = f"trace-context-{uniq}"
+        metric = f"trace.metric.{uniq}"
+
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "otel_metrics_gauge_pinned",
+            [
+                {
+                    "TimeUnix": ts_str,
+                    "ServiceName": service,
+                    "MetricName": metric,
+                    "MetricDescription": "trace context metric",
+                    "MetricUnit": "1",
+                    "Attributes": {
+                        "k8s.namespace.name": "default",
+                        "k8s.node.name": "node-trace",
+                        "k8s.pod.name": "pod-trace",
+                    },
+                    "Value": 3.25,
+                    "Flags": 0,
+                    "AttrFingerprint": f"fp-trace-{uniq}",
+                }
+            ],
+        )
+
+        window_id = sobs_app._register_raw_window(
+            db,
+            signal_ts=signal_ts,
+            signal_type="trace_anomaly",
+            signal_ref=f"trace-sig-{uniq}",
+            service_name=service,
+            namespace="default",
+            node_name="node-trace",
+        )
+
+        start_ts = datetime.fromtimestamp((signal_ts.timestamp() - 60), tz=timezone.utc).isoformat()
+        end_ts = datetime.fromtimestamp((signal_ts.timestamp() + 60), tz=timezone.utc).isoformat()
+        ctx = sobs_app._fetch_trace_metric_context(
+            db,
+            service_names=[service],
+            start_ts=start_ts,
+            end_ts=end_ts,
+            window_ids=[window_id],
+            namespace_values=["default"],
+            pod_values=["pod-trace"],
+            node_values=["node-trace"],
+        )
+
+        assert int(ctx.get("total_points", 0) or 0) >= 1
+        assert str(ctx.get("source_mode") or "") in {"pinned", "mixed"}
+        assert str(ctx.get("match_mode") or "") in {
+            "pod_exact",
+            "node_namespace",
+            "service_exact",
+            "time_window_only",
+        }
+        series = ctx.get("series") or []
+        assert any(str(item.get("metric") or "") == metric for item in series)
+
+    def test_fetch_trace_metric_context_falls_back_without_windows(self):
+        """Trace metric context should still return data when no signal windows overlap."""
+        import time as _time
+
+        db = sobs_app.get_db()
+        uniq = str(_time.time_ns())
+        signal_ts = datetime.now(timezone.utc)
+        ts_str = signal_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        service = f"trace-context-fallback-{uniq}"
+        metric = f"trace.metric.fallback.{uniq}"
+
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "otel_metrics_gauge",
+            [
+                {
+                    "TimeUnix": ts_str,
+                    "ServiceName": service,
+                    "MetricName": metric,
+                    "MetricDescription": "trace context fallback metric",
+                    "MetricUnit": "1",
+                    "Attributes": {
+                        "k8s.namespace.name": "default",
+                        "k8s.node.name": "node-fallback",
+                        "k8s.pod.name": "pod-fallback",
+                    },
+                    "Value": 4.75,
+                    "Flags": 0,
+                    "AttrFingerprint": f"fp-trace-fallback-{uniq}",
+                }
+            ],
+        )
+
+        start_ts = datetime.fromtimestamp((signal_ts.timestamp() - 60), tz=timezone.utc).isoformat()
+        end_ts = datetime.fromtimestamp((signal_ts.timestamp() + 60), tz=timezone.utc).isoformat()
+        ctx = sobs_app._fetch_trace_metric_context(
+            db,
+            service_names=[service],
+            start_ts=start_ts,
+            end_ts=end_ts,
+            window_ids=[],
+            namespace_values=["default"],
+            pod_values=["pod-fallback"],
+            node_values=["node-fallback"],
+        )
+
+        assert int(ctx.get("total_points", 0) or 0) >= 1
+        assert str(ctx.get("source_mode") or "") in {"raw", "mixed", "pinned"}
+        series = ctx.get("series") or []
+        assert any(str(item.get("metric") or "") == metric for item in series)
+
+    def test_fetch_trace_metric_context_no_windows_no_filters_no_sql_error(self):
+        """No-window fallback should not emit invalid SQL when no identity filters are provided."""
+        db = sobs_app.get_db()
+        now = datetime.now(timezone.utc)
+        start_ts = datetime.fromtimestamp((now.timestamp() - 60), tz=timezone.utc).isoformat()
+        end_ts = datetime.fromtimestamp((now.timestamp() + 60), tz=timezone.utc).isoformat()
+
+        ctx = sobs_app._fetch_trace_metric_context(
+            db,
+            service_names=[],
+            start_ts=start_ts,
+            end_ts=end_ts,
+            window_ids=[],
+            namespace_values=[],
+            pod_values=[],
+            node_values=[],
+            deployment_values=[],
+        )
+
+        assert isinstance(ctx, dict)
+        assert "source_mode" in ctx
+        assert "match_mode" in ctx
+
+    def test_fetch_trace_metric_context_window_mode_respects_time_bounds(self):
+        """Window-backed trace context should still honor the provided trace time range."""
+        import time as _time
+
+        db = sobs_app.get_db()
+        uniq = str(_time.time_ns())
+        signal_ts = datetime.now(timezone.utc)
+        t_in = signal_ts
+        t_out = signal_ts + timedelta(seconds=140)
+        service = f"trace-window-time-{uniq}"
+        metric = f"trace.metric.window.time.{uniq}"
+
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "otel_metrics_gauge_pinned",
+            [
+                {
+                    "TimeUnix": t_in.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                    "ServiceName": service,
+                    "MetricName": metric,
+                    "MetricDescription": "in-range",
+                    "MetricUnit": "1",
+                    "Attributes": {"k8s.namespace.name": "default", "k8s.node.name": "node-time"},
+                    "Value": 10.0,
+                    "Flags": 0,
+                    "AttrFingerprint": f"fp-in-{uniq}",
+                },
+                {
+                    "TimeUnix": t_out.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                    "ServiceName": service,
+                    "MetricName": metric,
+                    "MetricDescription": "out-of-range",
+                    "MetricUnit": "1",
+                    "Attributes": {"k8s.namespace.name": "default", "k8s.node.name": "node-time"},
+                    "Value": 1000.0,
+                    "Flags": 0,
+                    "AttrFingerprint": f"fp-out-{uniq}",
+                },
+            ],
+        )
+
+        window_id = sobs_app._register_raw_window(
+            db,
+            signal_ts=signal_ts,
+            signal_type="trace_time",
+            signal_ref=f"sig-time-{uniq}",
+            service_name=service,
+            namespace="default",
+            node_name="node-time",
+        )
+
+        start_ts = datetime.fromtimestamp((signal_ts.timestamp() - 10), tz=timezone.utc).isoformat()
+        end_ts = datetime.fromtimestamp((signal_ts.timestamp() + 10), tz=timezone.utc).isoformat()
+        ctx = sobs_app._fetch_trace_metric_context(
+            db,
+            service_names=[service],
+            start_ts=start_ts,
+            end_ts=end_ts,
+            window_ids=[window_id],
+            namespace_values=["default"],
+            node_values=["node-time"],
+        )
+
+        series = ctx.get("series") or []
+        match = next((item for item in series if str(item.get("metric") or "") == metric), None)
+        assert match is not None
+        assert float(match.get("avg") or 0.0) < 100.0
