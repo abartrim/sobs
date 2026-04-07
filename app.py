@@ -108,7 +108,7 @@ async def _startup_async_http_client() -> None:
 
 @app.after_serving
 async def _shutdown_async_http_client() -> None:
-    global _ASYNC_HTTP_CLIENT, _CVE_SCAN_TASK
+    global _ASYNC_HTTP_CLIENT, _CVE_SCAN_TASK, _RAW_WINDOW_COPY_TASK
     if _ASYNC_HTTP_CLIENT is not None:
         await _ASYNC_HTTP_CLIENT.aclose()
         _ASYNC_HTTP_CLIENT = None
@@ -119,6 +119,13 @@ async def _shutdown_async_http_client() -> None:
         except asyncio.CancelledError:
             pass
         _CVE_SCAN_TASK = None
+    if _RAW_WINDOW_COPY_TASK is not None and not _RAW_WINDOW_COPY_TASK.done():
+        _RAW_WINDOW_COPY_TASK.cancel()
+        try:
+            await _RAW_WINDOW_COPY_TASK
+        except asyncio.CancelledError:
+            pass
+        _RAW_WINDOW_COPY_TASK = None
     _shutdown_db_resources()
 
 
@@ -1182,6 +1189,85 @@ CREATE TABLE IF NOT EXISTS sobs_github_work_items (
 ORDER BY (CreatedAt, AgentRunId)
 SETTINGS index_granularity = 8192;
 
+CREATE TABLE IF NOT EXISTS sobs_raw_windows (
+    Id String CODEC(ZSTD(1)),
+    SignalTs DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    WindowStart DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    WindowEnd DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    SignalType LowCardinality(String) CODEC(ZSTD(1)),
+    SignalRef String CODEC(ZSTD(1)),
+    ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+    Namespace LowCardinality(String) CODEC(ZSTD(1)),
+    NodeName LowCardinality(String) CODEC(ZSTD(1)),
+    CreatedAt DateTime64(9) DEFAULT now64(9) CODEC(Delta(8), ZSTD(1)),
+    Version UInt64 DEFAULT toUnixTimestamp64Milli(now64(9)) CODEC(T64, ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY (WindowStart, WindowEnd, SignalType, SignalRef, ServiceName)
+SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS sobs_raw_window_copy_state (
+    WindowId String CODEC(ZSTD(1)),
+    SourceTable LowCardinality(String) CODEC(ZSTD(1)),
+    LastCopiedAt DateTime64(9) DEFAULT now64(9) CODEC(Delta(8), ZSTD(1)),
+    Version UInt64 DEFAULT toUnixTimestamp64Milli(now64(9)) CODEC(T64, ZSTD(1))
+) ENGINE = ReplacingMergeTree(Version)
+ORDER BY (WindowId, SourceTable)
+SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS otel_metrics_gauge_pinned (
+    TimeUnix DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    TimeUnixMs DateTime DEFAULT toDateTime(TimeUnix) CODEC(Delta(4), ZSTD(1)),
+    ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricDescription String CODEC(ZSTD(1)),
+    MetricUnit LowCardinality(String) CODEC(ZSTD(1)),
+    Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    Value Float64 CODEC(ZSTD(1)),
+    Flags UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AttrFingerprint String CODEC(ZSTD(1))
+) ENGINE = MergeTree()
+PARTITION BY toDate(TimeUnixMs)
+ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
+CREATE TABLE IF NOT EXISTS otel_metrics_sum_pinned (
+    TimeUnix DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    TimeUnixMs DateTime DEFAULT toDateTime(TimeUnix) CODEC(Delta(4), ZSTD(1)),
+    ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricDescription String CODEC(ZSTD(1)),
+    MetricUnit LowCardinality(String) CODEC(ZSTD(1)),
+    Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    Value Float64 CODEC(ZSTD(1)),
+    Flags UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    IsMonotonic UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AggregationTemporality Int32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AttrFingerprint String CODEC(ZSTD(1))
+) ENGINE = MergeTree()
+PARTITION BY toDate(TimeUnixMs)
+ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
+CREATE TABLE IF NOT EXISTS otel_metrics_histogram_pinned (
+    TimeUnix DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    TimeUnixMs DateTime DEFAULT toDateTime(TimeUnix) CODEC(Delta(4), ZSTD(1)),
+    ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricDescription String CODEC(ZSTD(1)),
+    MetricUnit LowCardinality(String) CODEC(ZSTD(1)),
+    Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    Count UInt64 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    Sum Float64 CODEC(ZSTD(1)),
+    BucketCounts Array(UInt64) CODEC(ZSTD(1)),
+    ExplicitBounds Array(Float64) CODEC(ZSTD(1)),
+    Flags UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AggregationTemporality Int32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    AttrFingerprint String CODEC(ZSTD(1))
+) ENGINE = MergeTree()
+PARTITION BY toDate(TimeUnixMs)
+ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
 """
 
 
@@ -1388,6 +1474,7 @@ def _ensure_post_schema_state(db: ChDbConnection) -> None:
     _ensure_notification_schema(db)
     _ensure_ai_memory_schema(db)
     _ensure_github_work_item_schema(db)
+    _ensure_raw_metrics_retention(db)
     _prime_log_attr_key_cache(db)
     _seed_app_release_registry_from_env(db)
     _seed_cwv_anomaly_rules(db)
@@ -1527,6 +1614,238 @@ def _ensure_github_work_item_schema(db: ChDbConnection) -> None:
     ]
     for statement in migration_statements:
         db.execute(statement)
+
+
+# ---------------------------------------------------------------------------
+# Raw metrics retention – baseline TTL + pinned window tables
+# ---------------------------------------------------------------------------
+
+_RAW_METRICS_BASELINE_TTL_HOURS: int
+_RAW_METRICS_PINNED_TTL_DAYS: int
+try:
+    _RAW_METRICS_BASELINE_TTL_HOURS = int(os.environ.get("SOBS_RAW_METRICS_TTL_HOURS", "48"))
+except ValueError:
+    raise ValueError("SOBS_RAW_METRICS_TTL_HOURS must be a positive integer (hours)")
+try:
+    _RAW_METRICS_PINNED_TTL_DAYS = int(os.environ.get("SOBS_PINNED_METRICS_TTL_DAYS", "14"))
+except ValueError:
+    raise ValueError("SOBS_PINNED_METRICS_TTL_DAYS must be a positive integer (days)")
+_RAW_METRICS_WINDOW_MINUTES = 5
+_RAW_WINDOW_COPY_INTERVAL_S = 60
+_RAW_WINDOW_COPY_MAX_PER_RUN = 10
+
+_RAW_METRIC_TABLES = ("otel_metrics_gauge", "otel_metrics_sum", "otel_metrics_histogram")
+_PINNED_METRIC_TABLES = (
+    "otel_metrics_gauge_pinned",
+    "otel_metrics_sum_pinned",
+    "otel_metrics_histogram_pinned",
+)
+
+_RAW_WINDOW_COPY_TASK: "asyncio.Task[None] | None" = None
+
+
+def _ensure_raw_metrics_retention(db: ChDbConnection) -> None:
+    """Apply baseline TTL to raw metric tables and pinned TTL to pinned tables."""
+    baseline_hours = _RAW_METRICS_BASELINE_TTL_HOURS
+    pinned_days = _RAW_METRICS_PINNED_TTL_DAYS
+    statements = [
+        f"ALTER TABLE otel_metrics_gauge MODIFY TTL TimeUnixMs + INTERVAL {baseline_hours} HOUR",
+        f"ALTER TABLE otel_metrics_sum MODIFY TTL TimeUnixMs + INTERVAL {baseline_hours} HOUR",
+        f"ALTER TABLE otel_metrics_histogram MODIFY TTL TimeUnixMs + INTERVAL {baseline_hours} HOUR",
+        f"ALTER TABLE otel_metrics_gauge_pinned MODIFY TTL TimeUnixMs + INTERVAL {pinned_days} DAY",
+        f"ALTER TABLE otel_metrics_sum_pinned MODIFY TTL TimeUnixMs + INTERVAL {pinned_days} DAY",
+        f"ALTER TABLE otel_metrics_histogram_pinned MODIFY TTL TimeUnixMs + INTERVAL {pinned_days} DAY",
+    ]
+    for stmt in statements:
+        try:
+            db.execute(stmt)
+        except Exception:
+            app.logger.debug("raw metrics retention alter skipped: %s", stmt, exc_info=True)
+
+
+def _register_raw_window(
+    db: ChDbConnection,
+    signal_ts: datetime,
+    signal_type: str,
+    signal_ref: str,
+    service_name: str = "",
+    namespace: str = "",
+    node_name: str = "",
+) -> str:
+    """Register a raw preservation window around a signal. Returns the window Id."""
+    window_start = signal_ts - timedelta(minutes=_RAW_METRICS_WINDOW_MINUTES)
+    window_end = signal_ts + timedelta(minutes=_RAW_METRICS_WINDOW_MINUTES)
+
+    dedup_key = "|".join(
+        [
+            signal_ts.strftime("%Y-%m-%dT%H:%M"),
+            signal_type[:64],
+            signal_ref[:128],
+            service_name[:64],
+            namespace[:64],
+            node_name[:64],
+        ]
+    )
+    window_id = hashlib.sha256(dedup_key.encode()).hexdigest()[:32]
+
+    ts_fmt = "%Y-%m-%d %H:%M:%S.%f"
+    _insert_rows_json_each_row(
+        db,
+        "sobs_raw_windows",
+        [
+            {
+                "Id": window_id,
+                "SignalTs": signal_ts.strftime(ts_fmt)[:-3],
+                "WindowStart": window_start.strftime(ts_fmt)[:-3],
+                "WindowEnd": window_end.strftime(ts_fmt)[:-3],
+                "SignalType": signal_type[:64],
+                "SignalRef": signal_ref[:256],
+                "ServiceName": service_name[:128],
+                "Namespace": namespace[:128],
+                "NodeName": node_name[:128],
+                "Version": int(time.time() * 1000),
+            }
+        ],
+    )
+    return window_id
+
+
+def _run_raw_window_copy_worker(db: ChDbConnection) -> dict[str, int]:
+    """
+    Copy raw metric rows that fall within registered windows into pinned tables.
+
+    Reads at most _RAW_WINDOW_COPY_MAX_PER_RUN uncopied (window, table) pairs,
+    performs INSERT INTO … SELECT …, and records completion in
+    sobs_raw_window_copy_state.  Idempotent: re-running is safe.
+    """
+    stats: dict[str, int] = {"windows_attempted": 0, "copies_ok": 0, "copies_error": 0}
+
+    try:
+        windows = db.execute(
+            "SELECT Id, WindowStart, WindowEnd, ServiceName, Namespace, NodeName "
+            "FROM sobs_raw_windows FINAL "
+            "ORDER BY WindowStart DESC "
+            f"LIMIT {_RAW_WINDOW_COPY_MAX_PER_RUN * len(_RAW_METRIC_TABLES)}"
+        ).fetchall()
+    except Exception:
+        app.logger.debug("raw window copy: failed to fetch windows", exc_info=True)
+        return stats
+
+    if not windows:
+        return stats
+
+    copied_pairs: set[tuple[str, str]] = set()
+    try:
+        states = db.execute(
+            "SELECT WindowId, SourceTable FROM sobs_raw_window_copy_state FINAL"
+        ).fetchall()
+        for row in states:
+            copied_pairs.add((str(row["WindowId"]), str(row["SourceTable"])))
+    except Exception:
+        app.logger.debug("raw window copy: failed to fetch copy state", exc_info=True)
+
+    work_done = 0
+    for window_row in windows:
+        if work_done >= _RAW_WINDOW_COPY_MAX_PER_RUN:
+            break
+        window_id = str(window_row["Id"])
+        # WindowStart/WindowEnd come back as high-precision strings (e.g.
+        # "2026-04-07 01:41:19.517000000").  toDateTime() only accepts
+        # "YYYY-MM-DD HH:MM:SS", so truncate at the decimal point.
+        window_start = str(window_row["WindowStart"]).split(".")[0]
+        window_end = str(window_row["WindowEnd"]).split(".")[0]
+        service_name = str(window_row.get("ServiceName") or "")
+        namespace = str(window_row.get("Namespace") or "")
+        node_name = str(window_row.get("NodeName") or "")
+
+        for raw_table, pinned_table in zip(_RAW_METRIC_TABLES, _PINNED_METRIC_TABLES):
+            if (window_id, raw_table) in copied_pairs:
+                continue
+
+            stats["windows_attempted"] += 1
+            where_clauses = [
+                "TimeUnixMs >= toDateTime(?)",
+                "TimeUnixMs <= toDateTime(?)",
+            ]
+            params: list[object] = [window_start, window_end]
+
+            if service_name:
+                where_clauses.append("ServiceName = ?")
+                params.append(service_name)
+            if namespace:
+                where_clauses.append("Attributes['k8s.namespace.name'] = ?")
+                params.append(namespace)
+            if node_name:
+                where_clauses.append("Attributes['k8s.node.name'] = ?")
+                params.append(node_name)
+
+            where_sql = " AND ".join(where_clauses)
+
+            # Histogram has different columns from gauge/sum
+            if raw_table == "otel_metrics_histogram":
+                select_cols = (
+                    "TimeUnix, TimeUnixMs, ServiceName, MetricName, MetricDescription, "
+                    "MetricUnit, Attributes, Count, Sum, BucketCounts, ExplicitBounds, "
+                    "Flags, AggregationTemporality, AttrFingerprint"
+                )
+            elif raw_table == "otel_metrics_sum":
+                select_cols = (
+                    "TimeUnix, TimeUnixMs, ServiceName, MetricName, MetricDescription, "
+                    "MetricUnit, Attributes, Value, Flags, IsMonotonic, "
+                    "AggregationTemporality, AttrFingerprint"
+                )
+            else:
+                select_cols = (
+                    "TimeUnix, TimeUnixMs, ServiceName, MetricName, MetricDescription, "
+                    "MetricUnit, Attributes, Value, Flags, AttrFingerprint"
+                )
+
+            try:
+                db.execute(
+                    f"INSERT INTO {pinned_table} ({select_cols}) "
+                    f"SELECT {select_cols} FROM {raw_table} WHERE {where_sql}",
+                    params,
+                )
+                _insert_rows_json_each_row(
+                    db,
+                    "sobs_raw_window_copy_state",
+                    [
+                        {
+                            "WindowId": window_id,
+                            "SourceTable": raw_table,
+                            "Version": int(time.time() * 1000),
+                        }
+                    ],
+                )
+                copied_pairs.add((window_id, raw_table))
+                stats["copies_ok"] += 1
+            except Exception:
+                app.logger.debug(
+                    "raw window copy error: window=%s table=%s", window_id, raw_table, exc_info=True
+                )
+                stats["copies_error"] += 1
+
+        work_done += 1
+
+    return stats
+
+
+async def _raw_window_copy_loop() -> None:
+    """Background task: run the raw window copy worker every 60 seconds."""
+    while True:
+        try:
+            db = get_db()
+            stats = _run_raw_window_copy_worker(db)
+            if stats["copies_ok"] or stats["copies_error"]:
+                app.logger.info(
+                    "raw window copy: attempted=%d ok=%d errors=%d",
+                    stats["windows_attempted"],
+                    stats["copies_ok"],
+                    stats["copies_error"],
+                )
+        except Exception:
+            app.logger.debug("raw window copy loop error", exc_info=True)
+        await asyncio.sleep(_RAW_WINDOW_COPY_INTERVAL_S)
 
 
 # ---------------------------------------------------------------------------
@@ -6830,6 +7149,9 @@ _WRITABLE_TABLES: frozenset[str] = frozenset(
         "otel_metrics_gauge",
         "otel_metrics_sum",
         "otel_metrics_histogram",
+        "otel_metrics_gauge_pinned",
+        "otel_metrics_sum_pinned",
+        "otel_metrics_histogram_pinned",
         "hyperdx_sessions",
         # SOBS internal state tables
         "sobs_ai_memories",
@@ -6849,6 +7171,8 @@ _WRITABLE_TABLES: frozenset[str] = frozenset(
         "sobs_notification_channels",
         "sobs_notification_log",
         "sobs_notification_rules",
+        "sobs_raw_window_copy_state",
+        "sobs_raw_windows",
         "sobs_record_tags",
         "sobs_release_artifacts",
         "sobs_reports",
@@ -12669,9 +12993,10 @@ async def _cve_scanner_loop() -> None:
 
 @app.before_serving
 async def _startup_enrichment() -> None:
-    """Start the background CVE scanner."""
-    global _CVE_SCAN_TASK
+    """Start the background CVE scanner and raw metrics window copy worker."""
+    global _CVE_SCAN_TASK, _RAW_WINDOW_COPY_TASK
     _CVE_SCAN_TASK = asyncio.create_task(_cve_scanner_loop())
+    _RAW_WINDOW_COPY_TASK = asyncio.create_task(_raw_window_copy_loop())
 
 
 # ---------------------------------------------------------------------------
@@ -18866,6 +19191,17 @@ async def _check_notification_rule(db: ChDbConnection, rule: dict, channels_by_i
         ],
     )
 
+    # Register a raw preservation window around this signal
+    try:
+        _register_raw_window(
+            db,
+            signal_ts=datetime.now(timezone.utc),
+            signal_type="notification",
+            signal_ref=str(rule.get("id", "")),
+        )
+    except Exception:
+        app.logger.debug("failed to register raw window for notification rule %s", rule.get("id"), exc_info=True)
+
     return {
         "rule_id": rule["id"],
         "rule_name": rule["name"],
@@ -19749,6 +20085,17 @@ async def check_notifications():
                 "trigger_ref_id": trigger_ref_id,
                 "extra": json.dumps(event, ensure_ascii=False),
             }
+            # Register a raw preservation window when an anomaly or tag event triggers an agent
+            try:
+                _register_raw_window(
+                    db,
+                    signal_ts=datetime.now(timezone.utc),
+                    signal_type=trigger_type,
+                    signal_ref=trigger_ref_id,
+                    service_name=str(event.get("service") or ""),
+                )
+            except Exception:
+                app.logger.debug("failed to register raw window for agent trigger %s", trigger_ref_id, exc_info=True)
             agent_results.append(
                 await _maybe_await(_run_agent_rule_instance(db, agent_rule, settings, trigger_context))
             )
