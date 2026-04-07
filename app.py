@@ -1269,6 +1269,67 @@ PARTITION BY toDate(TimeUnixMs)
 ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
+CREATE VIEW IF NOT EXISTS v_otel_metrics_dedup AS
+SELECT
+    TimeUnix,
+    ServiceName,
+    MetricName,
+    Attributes,
+    AttrFingerprint,
+    toFloat64(Value) AS Value,
+    0 AS SourceRank
+FROM otel_metrics_gauge
+UNION ALL
+SELECT
+    TimeUnix,
+    ServiceName,
+    MetricName,
+    Attributes,
+    AttrFingerprint,
+    toFloat64(Value) AS Value,
+    1 AS SourceRank
+FROM otel_metrics_gauge_pinned
+UNION ALL
+SELECT
+    TimeUnix,
+    ServiceName,
+    MetricName,
+    Attributes,
+    AttrFingerprint,
+    toFloat64(Value) AS Value,
+    0 AS SourceRank
+FROM otel_metrics_sum
+UNION ALL
+SELECT
+    TimeUnix,
+    ServiceName,
+    MetricName,
+    Attributes,
+    AttrFingerprint,
+    toFloat64(Value) AS Value,
+    1 AS SourceRank
+FROM otel_metrics_sum_pinned
+UNION ALL
+SELECT
+    TimeUnix,
+    ServiceName,
+    MetricName,
+    Attributes,
+    AttrFingerprint,
+    if(Count = 0, 0.0, toFloat64(Sum) / toFloat64(Count)) AS Value,
+    0 AS SourceRank
+FROM otel_metrics_histogram
+UNION ALL
+SELECT
+    TimeUnix,
+    ServiceName,
+    MetricName,
+    Attributes,
+    AttrFingerprint,
+    if(Count = 0, 0.0, toFloat64(Sum) / toFloat64(Count)) AS Value,
+    1 AS SourceRank
+FROM otel_metrics_histogram_pinned;
+
 CREATE VIEW IF NOT EXISTS v_otel_metrics_signal_context AS
 WITH metric_points AS (
     SELECT
@@ -12430,31 +12491,20 @@ def _fetch_trace_metric_context(
         ] + list(extra_clauses)
         ts_where_sql = " AND ".join(ts_where_parts)
         ts_params: list[object] = [query_start_ts, query_end_ts] + list(top_metric_names) + list(extra_params)
-        ts_union = (
-            f"SELECT MetricName, TimeUnix, toFloat64(Value) AS Value "
-            f"FROM otel_metrics_gauge WHERE {ts_where_sql} "
-            f"UNION ALL SELECT MetricName, TimeUnix, toFloat64(Value) AS Value "
-            f"FROM otel_metrics_gauge_pinned WHERE {ts_where_sql} "
-            f"UNION ALL SELECT MetricName, TimeUnix, toFloat64(Value) AS Value "
-            f"FROM otel_metrics_sum WHERE {ts_where_sql} "
-            f"UNION ALL SELECT MetricName, TimeUnix, toFloat64(Value) AS Value "
-            f"FROM otel_metrics_sum_pinned WHERE {ts_where_sql} "
-            f"UNION ALL SELECT MetricName, TimeUnix, "
-            f"if(Count=0,0.0,toFloat64(Sum)/toFloat64(Count)) AS Value "
-            f"FROM otel_metrics_histogram WHERE {ts_where_sql} "
-            f"UNION ALL SELECT MetricName, TimeUnix, "
-            f"if(Count=0,0.0,toFloat64(Sum)/toFloat64(Count)) AS Value "
-            f"FROM otel_metrics_histogram_pinned WHERE {ts_where_sql}"
+        ts_dedup = (
+            f"SELECT MetricName, TimeUnix, argMin(Value, SourceRank) AS Value "
+            f"FROM v_otel_metrics_dedup WHERE {ts_where_sql} "
+            f"GROUP BY MetricName, TimeUnix, AttrFingerprint"
         )
         ts_rows = db.execute(
             f"SELECT MetricName, "
             f"intDiv(toUnixTimestamp64Milli(TimeUnix) - {start_ms_int}, {bucket_ms}) AS BucketIdx, "
             f"round(avg(Value), 6) AS AvgVal "
-            f"FROM ({ts_union}) AS src "
+            f"FROM ({ts_dedup}) AS src "
             f"WHERE BucketIdx >= 0 AND BucketIdx < {num_buckets} "
             f"GROUP BY MetricName, BucketIdx "
             f"ORDER BY MetricName, BucketIdx",
-            ts_params * 6,
+            ts_params,
         ).fetchall()
         by_metric: dict[str, list[float | None]] = {mn: [None] * num_buckets for mn in top_metric_names}
         for r in ts_rows:
@@ -12478,39 +12528,18 @@ def _fetch_trace_metric_context(
             where_parts.extend(extra_clauses)
             params.extend(extra_params)
             where_sql = " AND ".join(where_parts)
-            point_union_sql = (
-                "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 0 AS SourceRank "
-                f"FROM otel_metrics_gauge WHERE {where_sql} "
-                "UNION ALL "
-                "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 1 AS SourceRank "
-                f"FROM otel_metrics_gauge_pinned WHERE {where_sql} "
-                "UNION ALL "
-                "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 0 AS SourceRank "
-                f"FROM otel_metrics_sum WHERE {where_sql} "
-                "UNION ALL "
-                "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, toFloat64(Value) AS Value, 1 AS SourceRank "
-                f"FROM otel_metrics_sum_pinned WHERE {where_sql} "
-                "UNION ALL "
-                "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, "
-                "if(Count = 0, 0.0, toFloat64(Sum) / toFloat64(Count)) AS Value, 0 AS SourceRank "
-                f"FROM otel_metrics_histogram WHERE {where_sql} "
-                "UNION ALL "
-                "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, "
-                "if(Count = 0, 0.0, toFloat64(Sum) / toFloat64(Count)) AS Value, 1 AS SourceRank "
-                f"FROM otel_metrics_histogram_pinned WHERE {where_sql}"
-            )
 
             dedup_subquery_sql = (
                 "SELECT ServiceName, MetricName, AttrFingerprint, TimeUnix, "
                 "argMin(Value, SourceRank) AS Value, min(SourceRank) AS DedupRank "
-                f"FROM ({point_union_sql}) AS points "
+                f"FROM v_otel_metrics_dedup WHERE {where_sql} "
                 "GROUP BY ServiceName, MetricName, AttrFingerprint, TimeUnix"
             )
 
             stats_row = db.execute(
                 "SELECT count() AS c, min(DedupRank) AS min_rank, max(DedupRank) AS max_rank "
                 f"FROM ({dedup_subquery_sql}) AS dedup",
-                params * 6,
+                params,
             ).fetchone()
 
             total_points = int((stats_row or {}).get("c", 0))
@@ -12535,7 +12564,7 @@ def _fetch_trace_metric_context(
                 "GROUP BY ServiceName, MetricName "
                 "ORDER BY points DESC, MetricName ASC "
                 "LIMIT ?",
-                (params * 6) + [max(1, min(limit_metrics, 50))],
+                params + [max(1, min(limit_metrics, 50))],
             ).fetchall()
 
             series = [
@@ -23694,6 +23723,7 @@ _QUERY_ALLOWED_TABLES_BUILTIN: frozenset[str] = frozenset(
         "v_otel_metrics_1m",
         "v_otel_metrics_signal_context",
         "v_otel_metrics_anomaly",
+        "v_otel_metrics_dedup",
         "v_derived_signals_anomaly",
     ]
 )
