@@ -330,6 +330,11 @@ APP_REGISTRY_SEED_JSON_FILE_ENV = "SOBS_APP_REGISTRY_SEED_JSON_FILE"
 CHDB_CONFIG_FILE_ENV = "SOBS_CLICKHOUSE_CONFIG_FILE"
 CHDB_EXPECT_DISK_ENV = "SOBS_CHDB_EXPECT_DISK"
 CHDB_EXPECT_POLICY_ENV = "SOBS_CHDB_EXPECT_STORAGE_POLICY"
+CHDB_MAX_SERVER_MB_ENV = "SOBS_CHDB_MAX_SERVER_MB"
+CHDB_MARK_CACHE_MB_ENV = "SOBS_CHDB_MARK_CACHE_MB"
+CHDB_MAX_THREADS_ENV = "SOBS_CHDB_MAX_THREADS"
+CHDB_SPILL_GROUP_BY_MB_ENV = "SOBS_CHDB_SPILL_GROUP_BY_MB"
+CHDB_SPILL_SORT_MB_ENV = "SOBS_CHDB_SPILL_SORT_MB"
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(RUM_ASSET_DIR, exist_ok=True)
@@ -1474,12 +1479,23 @@ INNER JOIN dedup_points AS m
 def _build_chdb_connect_target(path: str) -> str:
     """Build chDB connect target, optionally adding startup args via query params."""
     config_file = os.environ.get(CHDB_CONFIG_FILE_ENV, "").strip()
-    if not config_file:
-        return path
-    if not os.path.isabs(config_file):
-        raise RuntimeError(f"{CHDB_CONFIG_FILE_ENV} must be an absolute path to a mounted ClickHouse config.xml")
-    encoded = urllib.parse.quote(config_file, safe="/")
-    return f"file:{path}?config-file={encoded}"
+    if config_file:
+        if not os.path.isabs(config_file):
+            raise RuntimeError(f"{CHDB_CONFIG_FILE_ENV} must be an absolute path to a mounted ClickHouse config.xml")
+        encoded = urllib.parse.quote(config_file, safe="/")
+        return f"file:{path}?config-file={encoded}"
+
+    # Apply low-memory defaults; override via env vars for larger deployments.
+    # Tested: chDB honours these URL query params as server-level startup settings.
+    max_server_mb = int(os.environ.get(CHDB_MAX_SERVER_MB_ENV, "512"))
+    mark_cache_mb = int(os.environ.get(CHDB_MARK_CACHE_MB_ENV, "32"))
+    params = urllib.parse.urlencode(
+        {
+            "max_server_memory_usage": max_server_mb * 1024 * 1024,
+            "mark_cache_size": mark_cache_mb * 1024 * 1024,
+        }
+    )
+    return f"file:{path}?{params}"
 
 
 def _validate_chdb_startup_configuration(conn: "ChDbConnection") -> None:
@@ -1548,6 +1564,19 @@ class ChDbConnection:
         self._conn = chdb_driver.connect(connect_target)
         self._lock = threading.Lock()
         self._closed = False
+        # Apply session-level memory settings for low-memory embedded operation.
+        # max_threads reduces per-query parallelism; the spill settings allow
+        # GROUP BY / ORDER BY to overflow to disk rather than OOM the container.
+        try:
+            _max_threads = int(os.environ.get(CHDB_MAX_THREADS_ENV, "2"))
+            _spill_gb_mb = int(os.environ.get(CHDB_SPILL_GROUP_BY_MB_ENV, "50"))
+            _spill_sort_mb = int(os.environ.get(CHDB_SPILL_SORT_MB_ENV, "50"))
+            _cur = self._conn.cursor()
+            _cur.execute(f"SET max_threads = {_max_threads}")
+            _cur.execute(f"SET max_bytes_before_external_group_by = {_spill_gb_mb * 1024 * 1024}")
+            _cur.execute(f"SET max_bytes_before_external_sort = {_spill_sort_mb * 1024 * 1024}")
+        except Exception as _e:
+            log.warning("chDB: failed to apply session memory settings: %s", _e)
         try:
             _validate_chdb_startup_configuration(self)
         except Exception:
@@ -1599,6 +1628,8 @@ _work_items_page_cache: dict[tuple[str, str, str, str, str, str, int, int], dict
 _work_items_filter_cache: dict[str, Any] = {"expires_at": 0.0, "services": [], "rules": []}
 _errors_cache_lock = threading.Lock()
 _errors_services_cache: dict[str, Any] = {"expires_at": 0.0, "services": []}
+_summary_stats_cache_lock = threading.Lock()
+_summary_stats_cache: dict[str, Any] = {"expires_at": 0.0, "data": {}}
 
 WRITE_QUEUE_MAX = int(os.environ.get("SOBS_WRITE_QUEUE_MAX", 5000))
 WRITE_BATCH_MAX = int(os.environ.get("SOBS_WRITE_BATCH_MAX", 200))
@@ -1607,6 +1638,7 @@ LOG_ATTR_KEYS_MAX = int(os.environ.get("SOBS_LOG_ATTR_KEYS_MAX", 20000))
 WORK_ITEMS_PAGE_CACHE_TTL_SEC = int(os.environ.get("SOBS_WORK_ITEMS_PAGE_CACHE_TTL_SEC", "10"))
 WORK_ITEMS_FILTER_CACHE_TTL_SEC = int(os.environ.get("SOBS_WORK_ITEMS_FILTER_CACHE_TTL_SEC", "30"))
 ERRORS_SERVICES_CACHE_TTL_SEC = int(os.environ.get("SOBS_ERRORS_SERVICES_CACHE_TTL_SEC", "30"))
+SUMMARY_STATS_CACHE_TTL_SEC = int(os.environ.get("SOBS_SUMMARY_STATS_CACHE_TTL_SEC", "60"))
 
 
 @dataclass
@@ -5689,6 +5721,7 @@ def _build_agent_context_summary(db: ChDbConnection, trigger_context: dict) -> s
             "SELECT ServiceName, Name AS Signal, anomaly_state "
             "FROM v_derived_signals_anomaly "
             "WHERE anomaly_state != 'normal' "
+            "AND time >= now() - INTERVAL 2 HOUR "
             "LIMIT 5"
         ).fetchall()
         if anom_rows:
@@ -9575,27 +9608,44 @@ async def summary():
     db = get_db()
     resolved_ids = _get_resolved_error_ids(db)
     error_items = []
-    for row in db.execute(f"SELECT * FROM ({ERROR_SOURCES_SQL}) ORDER BY Timestamp DESC").fetchall():
+    for row in db.execute(
+        f"SELECT * FROM ({ERROR_SOURCES_SQL})"
+        " WHERE Timestamp >= now() - INTERVAL 48 HOUR"
+        " ORDER BY Timestamp DESC"
+        " LIMIT 500"
+    ).fetchall():
         item = _build_error_item(dict(row))
         item["resolved"] = item["id"] in resolved_ids
         error_items.append(item)
 
     unresolved_count = sum(0 if item["resolved"] else 1 for item in error_items)
+    _now = time.monotonic()
+    with _summary_stats_cache_lock:
+        _cached_stats: dict[str, Any] = (
+            _summary_stats_cache["data"] if _summary_stats_cache["expires_at"] > _now else {}
+        )
+    if not _cached_stats:
+        _cached_stats = {
+            "logs": db.execute("SELECT COUNT(*) FROM otel_logs").fetchone()[0],
+            "spans": db.execute("SELECT COUNT(*) FROM otel_traces").fetchone()[0],
+            "rum": db.execute("SELECT COUNT(*) FROM hyperdx_sessions").fetchone()[0],
+            "ai": db.execute("SELECT COUNT(*) FROM otel_traces " f"WHERE {_AI_SPAN_CONDITION}").fetchone()[0],
+            "services": [
+                r[0]
+                for r in db.execute(
+                    "SELECT DISTINCT ServiceName FROM otel_logs WHERE ServiceName!='' "
+                    "UNION DISTINCT SELECT DISTINCT ServiceName FROM otel_traces WHERE ServiceName!='' "
+                    "UNION DISTINCT SELECT DISTINCT ServiceName FROM hyperdx_sessions WHERE ServiceName!=''"
+                ).fetchall()
+            ],
+        }
+        with _summary_stats_cache_lock:
+            _summary_stats_cache["expires_at"] = _now + SUMMARY_STATS_CACHE_TTL_SEC
+            _summary_stats_cache["data"] = _cached_stats
     stats = {
-        "logs": db.execute("SELECT COUNT(*) FROM otel_logs").fetchone()[0],
+        **_cached_stats,
         "errors": unresolved_count,
         "errors_total": len(error_items),
-        "spans": db.execute("SELECT COUNT(*) FROM otel_traces").fetchone()[0],
-        "rum": db.execute("SELECT COUNT(*) FROM hyperdx_sessions").fetchone()[0],
-        "ai": db.execute("SELECT COUNT(*) FROM otel_traces " f"WHERE {_AI_SPAN_CONDITION}").fetchone()[0],
-        "services": [
-            r[0]
-            for r in db.execute(
-                "SELECT DISTINCT ServiceName FROM otel_logs WHERE ServiceName!='' "
-                "UNION DISTINCT SELECT DISTINCT ServiceName FROM otel_traces WHERE ServiceName!='' "
-                "UNION DISTINCT SELECT DISTINCT ServiceName FROM hyperdx_sessions WHERE ServiceName!=''"
-            ).fetchall()
-        ],
     }
     # Recent errors (last 5)
     recent_errors = [
@@ -10220,18 +10270,37 @@ def _validate_user_sql_where(sql_where: str) -> None:
 
 
 def _list_derived_signal_dimensions(db: ChDbConnection) -> tuple[list[str], list[str], list[str]]:
+    # ServiceName: query raw tables with LowCardinality indexes — avoids a full
+    # 12-way UNION ALL scan through the derived-signals view.
     services = [
         row[0]
-        for row in db.execute("SELECT DISTINCT ServiceName FROM v_derived_signals_1m ORDER BY ServiceName").fetchall()
+        for row in db.execute(
+            "SELECT DISTINCT ServiceName FROM otel_logs WHERE ServiceName != ''"
+            " UNION DISTINCT SELECT DISTINCT ServiceName FROM otel_traces WHERE ServiceName != ''"
+            " UNION DISTINCT SELECT DISTINCT ServiceName FROM hyperdx_sessions WHERE ServiceName != ''"
+            " ORDER BY ServiceName"
+        ).fetchall()
     ]
-    signals = [
-        row[0]
-        for row in db.execute("SELECT DISTINCT SignalName FROM v_derived_signals_1m ORDER BY SignalName").fetchall()
-    ]
-    sources = [
-        row[0]
-        for row in db.execute("SELECT DISTINCT SignalSource FROM v_derived_signals_1m ORDER BY SignalSource").fetchall()
-    ]
+    # SignalName / SignalSource are a static enumeration determined by the view
+    # definition — no DB query needed.
+    signals = sorted(
+        [
+            "log_volume",
+            "error_volume",
+            "error_ratio",
+            "trace_volume",
+            "trace_error_ratio",
+            "latency_p95_ms",
+            "exception_volume",
+            "LCP",
+            "FID",
+            "CLS",
+            "INP",
+            "TTFB",
+            "FCP",
+        ]
+    )
+    sources = ["errors", "logs", "rum_vitals", "traces"]
     return services, signals, sources
 
 
@@ -13055,6 +13124,7 @@ async def view_traces():
                     anomaly_row = db.execute(
                         "SELECT anomaly_state FROM v_derived_signals_anomaly "
                         "WHERE ServiceName=? AND SignalSource='traces' "
+                        "AND time >= now() - INTERVAL 48 HOUR "
                         "ORDER BY time DESC LIMIT 1",
                         [svc],
                     ).fetchone()
@@ -15378,9 +15448,7 @@ async def view_ai():
                 else:
                     trace_conditions.append("TraceId != ''")
                     trace_where = "WHERE " + " AND ".join(trace_conditions)
-                total = db.execute(f"SELECT COUNT(DISTINCT TraceId) FROM otel_traces {trace_where}", params).fetchone()[
-                    0
-                ]
+                total = db.execute(f"SELECT uniq(TraceId) FROM otel_traces {trace_where}", params).fetchone()[0]
                 trace_rows = db.execute(
                     f"SELECT TraceId, MAX(Timestamp) AS LastTs FROM otel_traces "
                     f"{trace_where} GROUP BY TraceId "
@@ -18382,16 +18450,18 @@ async def chart_spec_options_api():
 
     if source_view == "v_derived_signals_anomaly":
         services = _distinct_values(
-            "SELECT DISTINCT ServiceName AS v " "FROM v_derived_signals_anomaly " "ORDER BY v " f"LIMIT {limit}"
+            "SELECT DISTINCT ServiceName AS v "
+            "FROM v_derived_signals_anomaly "
+            "WHERE time >= now() - INTERVAL 24 HOUR "
+            "ORDER BY v "
+            f"LIMIT {limit}"
         )
-        signal_where = ""
-        if signal_source:
-            signal_where = f"WHERE SignalSource = {_sql_literal(signal_source)} "
         signals = _distinct_values(
             "SELECT DISTINCT SignalName AS v "
             "FROM v_derived_signals_anomaly "
-            f"{signal_where}"
-            "ORDER BY v "
+            f"{'WHERE' if signal_source else 'WHERE'} time >= now() - INTERVAL 24 HOUR"
+            + (f" AND SignalSource = {_sql_literal(signal_source)}" if signal_source else "")
+            + " ORDER BY v "
             f"LIMIT {limit}"
         )
     elif source_view in {"otel_logs", "otel_traces"}:
@@ -20846,6 +20916,7 @@ def _collect_anomaly_agent_events(db: ChDbConnection) -> dict[str, dict[str, obj
         "SELECT ServiceName, SignalSource, SignalName, AttrFingerprint, "
         "argMax(value, time) AS value, argMax(SampleCount, time) AS SampleCount "
         "FROM v_derived_signals_anomaly "
+        "WHERE time >= now() - INTERVAL 24 HOUR "
         "GROUP BY ServiceName, SignalSource, SignalName, AttrFingerprint"
     ).fetchall()
     if not rows:
