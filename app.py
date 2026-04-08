@@ -1811,12 +1811,43 @@ FROM otel_metrics_histogram
 GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
 """)
 
-    backfill_state = str(_get_app_setting(db, _OTEL_METRICS_1M_BACKFILL_STATE_SETTING) or "").strip().lower()
+    def _safe_get_setting(key: str) -> str:
+        try:
+            return str(_get_app_setting(db, key) or "").strip()
+        except Exception as exc:
+            app.logger.warning("otel_metrics_1m_agg migration setting read failed for %s: %s", key, exc)
+            return ""
+
+    def _safe_set_setting(key: str, value: str) -> bool:
+        try:
+            _set_app_setting(db, key, value)
+            return True
+        except Exception as exc:
+            app.logger.warning("otel_metrics_1m_agg migration setting write failed for %s: %s", key, exc)
+            return False
+
+    def _safe_del_setting(key: str) -> bool:
+        try:
+            _del_app_setting(db, key)
+            return True
+        except Exception as exc:
+            app.logger.warning("otel_metrics_1m_agg migration setting delete failed for %s: %s", key, exc)
+            return False
+
+    backfill_state = _safe_get_setting(_OTEL_METRICS_1M_BACKFILL_STATE_SETTING).lower()
     if backfill_state != "completed":
-        cutoff_date = str(_get_app_setting(db, _OTEL_METRICS_1M_BACKFILL_CUTOFF_SETTING) or "").strip()
+        cutoff_date = _safe_get_setting(_OTEL_METRICS_1M_BACKFILL_CUTOFF_SETTING)
+        backfill_paused = False
         if not cutoff_date:
             cutoff_date = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
-            _set_app_setting(db, _OTEL_METRICS_1M_BACKFILL_CUTOFF_SETTING, cutoff_date)
+            if not _safe_set_setting(_OTEL_METRICS_1M_BACKFILL_CUTOFF_SETTING, cutoff_date):
+                # Avoid expensive backfill work if migration metadata can't be persisted.
+                _safe_set_setting(_OTEL_METRICS_1M_BACKFILL_STATE_SETTING, "partial")
+                _safe_set_setting(
+                    _OTEL_METRICS_1M_BACKFILL_ERROR_SETTING,
+                    "settings:failed_to_persist_cutoff_date",
+                )
+                backfill_paused = True
 
         backfill_specs = [
             ("otel_metrics_gauge", "gauge", "avgState(Value)", "sumState(toUInt64(1))"),
@@ -1828,59 +1859,58 @@ GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
                 "sumState(Count)",
             ),
         ]
-        backfill_paused = False
-
-        for table_name, metric_kind, value_expr, count_expr in backfill_specs:
-            last_done = str(_get_app_setting(db, _otel_metrics_1m_backfill_cursor_setting(table_name)) or "").strip()
-            day_rows = db.execute(
-                f"SELECT DISTINCT toDate(TimeUnix) AS BucketDate "
-                f"FROM {table_name} "
-                "WHERE toDate(TimeUnix) <= toDate(?) "
-                "ORDER BY BucketDate",
-                [cutoff_date],
-            ).fetchall()
-            for day_row in day_rows:
-                bucket_date = str(day_row["BucketDate"] or "").strip()
-                if not bucket_date or (last_done and bucket_date <= last_done):
-                    continue
-                try:
-                    db.execute(
-                        f"INSERT INTO otel_metrics_1m_agg "
-                        f"SELECT "
-                        f"ServiceName, "
-                        f"MetricName, "
-                        f"AttrFingerprint, "
-                        f"'{metric_kind}' AS MetricKind, "
-                        f"toStartOfMinute(TimeUnix) AS MinuteBucket, "
-                        f"{value_expr} AS Value, "
-                        f"{count_expr} AS SampleCount "
-                        f"FROM {table_name} "
-                        f"WHERE toDate(TimeUnix) = toDate(?) "
-                        f"GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket",
-                        [bucket_date],
-                    )
-                    _set_app_setting(db, _otel_metrics_1m_backfill_cursor_setting(table_name), bucket_date)
-                except Exception as exc:
-                    _set_app_setting(db, _OTEL_METRICS_1M_BACKFILL_STATE_SETTING, "partial")
-                    _set_app_setting(
-                        db,
-                        _OTEL_METRICS_1M_BACKFILL_ERROR_SETTING,
-                        f"{table_name}:{bucket_date}: {type(exc).__name__}: {exc}",
-                    )
-                    app.logger.warning(
-                        "otel_metrics_1m_agg backfill paused for %s on %s: %s",
-                        table_name,
-                        bucket_date,
-                        exc,
-                    )
-                    backfill_paused = True
-                    break
-            if backfill_paused:
-                break
 
         if not backfill_paused:
-            _set_app_setting(db, _OTEL_METRICS_1M_BACKFILL_STATE_SETTING, "completed")
-            _del_app_setting(db, _OTEL_METRICS_1M_BACKFILL_ERROR_SETTING)
+            for table_name, metric_kind, value_expr, count_expr in backfill_specs:
+                last_done = _safe_get_setting(_otel_metrics_1m_backfill_cursor_setting(table_name))
+                day_rows = db.execute(
+                    f"SELECT DISTINCT toDate(TimeUnix) AS BucketDate "
+                    f"FROM {table_name} "
+                    "WHERE toDate(TimeUnix) <= toDate(?) "
+                    "ORDER BY BucketDate",
+                    [cutoff_date],
+                ).fetchall()
+                for day_row in day_rows:
+                    bucket_date = str(day_row["BucketDate"] or "").strip()
+                    if not bucket_date or (last_done and bucket_date <= last_done):
+                        continue
+                    try:
+                        db.execute(
+                            f"INSERT INTO otel_metrics_1m_agg "
+                            f"SELECT "
+                            f"ServiceName, "
+                            f"MetricName, "
+                            f"AttrFingerprint, "
+                            f"'{metric_kind}' AS MetricKind, "
+                            f"toStartOfMinute(TimeUnix) AS MinuteBucket, "
+                            f"{value_expr} AS Value, "
+                            f"{count_expr} AS SampleCount "
+                            f"FROM {table_name} "
+                            f"WHERE toDate(TimeUnix) = toDate(?) "
+                            f"GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket",
+                            [bucket_date],
+                        )
+                        _safe_set_setting(_otel_metrics_1m_backfill_cursor_setting(table_name), bucket_date)
+                    except Exception as exc:
+                        _safe_set_setting(_OTEL_METRICS_1M_BACKFILL_STATE_SETTING, "partial")
+                        _safe_set_setting(
+                            _OTEL_METRICS_1M_BACKFILL_ERROR_SETTING,
+                            f"{table_name}:{bucket_date}: {type(exc).__name__}: {exc}",
+                        )
+                        app.logger.warning(
+                            "otel_metrics_1m_agg backfill paused for %s on %s: %s",
+                            table_name,
+                            bucket_date,
+                            exc,
+                        )
+                        backfill_paused = True
+                        break
+                if backfill_paused:
+                    break
+
+        if not backfill_paused:
+            _safe_set_setting(_OTEL_METRICS_1M_BACKFILL_STATE_SETTING, "completed")
+            _safe_del_setting(_OTEL_METRICS_1M_BACKFILL_ERROR_SETTING)
 
     db.executescript("""
 CREATE OR REPLACE VIEW v_otel_metrics_1m AS
