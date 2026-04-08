@@ -338,7 +338,7 @@ finally:
         assert "ok=1" in result.stdout
         assert "chDB connect target:" in result.stderr
 
-    async def test_init_db_upgrades_legacy_metric_rollup_view_and_backfills_history(self):
+    async def test_init_db_upgrades_legacy_metric_rollup_view_without_auto_backfill(self):
         data_dir = tempfile.mkdtemp(prefix="sobs-chdb-upgrade-")
         script = '''
 import app as sobs_app
@@ -401,12 +401,6 @@ try:
     )
     db.execute('TRUNCATE TABLE otel_metrics_1m_agg')
     db.execute(legacy_rollup_view)
-    sobs_app._del_app_setting(db, sobs_app._OTEL_METRICS_1M_BACKFILL_STATE_SETTING)
-    sobs_app._del_app_setting(db, sobs_app._OTEL_METRICS_1M_BACKFILL_CUTOFF_SETTING)
-    sobs_app._del_app_setting(db, sobs_app._OTEL_METRICS_1M_BACKFILL_ERROR_SETTING)
-    sobs_app._del_app_setting(db, sobs_app._otel_metrics_1m_backfill_cursor_setting('otel_metrics_gauge'))
-    sobs_app._del_app_setting(db, sobs_app._otel_metrics_1m_backfill_cursor_setting('otel_metrics_sum'))
-    sobs_app._del_app_setting(db, sobs_app._otel_metrics_1m_backfill_cursor_setting('otel_metrics_histogram'))
     sobs_app._shutdown_db_resources()
     sobs_app.init_db()
     db = sobs_app.get_db()
@@ -434,10 +428,10 @@ finally:
 
         result = self._run_probe_script(script, {"SOBS_DATA_DIR": data_dir})
         assert result.returncode == 0, result.stderr
-        assert "value=42.5" in result.stdout
-        assert "metric_kind=gauge" in result.stdout
-        assert "sample_count=1" in result.stdout
-        assert "agg_count=1" in result.stdout
+        assert "value=missing" in result.stdout
+        assert "metric_kind=missing" in result.stdout
+        assert "sample_count=missing" in result.stdout
+        assert "agg_count=0" in result.stdout
         assert "uses_agg=True" in result.stdout
 
     async def test_metric_rollup_backfill_failure_is_non_fatal(self):
@@ -500,7 +494,13 @@ finally:
     sobs_app._shutdown_db_resources()
 """
 
-        result = self._run_probe_script(script, {"SOBS_DATA_DIR": data_dir})
+        result = self._run_probe_script(
+            script,
+            {
+                "SOBS_DATA_DIR": data_dir,
+                "SOBS_ENABLE_OTEL_METRICS_1M_BACKFILL": "1",
+            },
+        )
         assert result.returncode == 0, result.stderr
         assert "state=partial" in result.stdout
         assert "error_contains_memory=True" in result.stdout

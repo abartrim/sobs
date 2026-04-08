@@ -81,14 +81,9 @@ jobs:
         run: mypy app.py
 
   test:
-    name: Tests (Shard ${{ matrix.shard_index }} of ${{ matrix.shard_count }})
+    name: Tests
     runs-on: ubuntu-latest
     needs: lint
-    strategy:
-      fail-fast: false
-      matrix:
-        shard_index: [0, 1]
-        shard_count: [2]
     env:
       SOBS_CHDB_MAX_SERVER_MB: "256"
       SOBS_CHDB_MARK_CACHE_MB: "8"
@@ -115,58 +110,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt pytest pytest-asyncio
 
-      - name: Run unit tests (sharded)
-        env:
-          SHARD_INDEX: ${{ matrix.shard_index }}
-          SHARD_COUNT: ${{ matrix.shard_count }}
-        run: |
-          python - <<'PY'
-          import os
-          import subprocess
-          import sys
-          import zlib
-
-          shard_index = int(os.environ["SHARD_INDEX"])
-          shard_count = int(os.environ["SHARD_COUNT"])
-
-          collect_cmd = [sys.executable, "-m", "pytest", "tests/test_app.py", "--collect-only", "-q"]
-          collected = subprocess.check_output(collect_cmd, text=True)
-          nodeids = [
-              line.strip()
-              for line in collected.splitlines()
-              if "::" in line and not line.startswith("=") and not line.endswith("selected")
-          ]
-
-          def shard_key(nodeid: str) -> str:
-            parts = nodeid.split("::")
-            if len(parts) >= 3:
-              # Keep entire test classes together to avoid split state assumptions.
-              return "::".join(parts[:2])
-            return parts[0]
-
-          grouped: dict[str, list[str]] = {}
-          for nodeid in nodeids:
-            key = shard_key(nodeid)
-            grouped.setdefault(key, []).append(nodeid)
-
-          shard_nodeids: list[str] = []
-          for key, group in grouped.items():
-            bucket = zlib.crc32(key.encode("utf-8")) % shard_count
-            if bucket == shard_index:
-              shard_nodeids.extend(group)
-
-          print(
-            f"Collected {len(nodeids)} tests in {len(grouped)} groups; "
-            f"running shard {shard_index + 1}/{shard_count} with {len(shard_nodeids)} tests"
-          )
-
-          if not shard_nodeids:
-              raise SystemExit(0)
-
-          import pytest
-
-          raise SystemExit(pytest.main(["-v", *shard_nodeids]))
-          PY
+        - name: Run unit tests
+        run: pytest tests/test_app.py -v
 
   integration:
     name: Integration Tests

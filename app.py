@@ -1742,6 +1742,7 @@ def ensure_db_schema():
 _OTEL_METRICS_1M_BACKFILL_STATE_SETTING = "otel_metrics_1m_agg.backfill.state"
 _OTEL_METRICS_1M_BACKFILL_CUTOFF_SETTING = "otel_metrics_1m_agg.backfill.cutoff_date"
 _OTEL_METRICS_1M_BACKFILL_ERROR_SETTING = "otel_metrics_1m_agg.backfill.error"
+_OTEL_METRICS_1M_AUTO_BACKFILL_ENV = "SOBS_ENABLE_OTEL_METRICS_1M_BACKFILL"
 
 
 def _otel_metrics_1m_backfill_cursor_setting(table_name: str) -> str:
@@ -1753,9 +1754,10 @@ def _ensure_otel_metrics_1m_materialized(db: ChDbConnection) -> None:
 
     Fresh databases get these objects from ``SCHEMA`` directly. Existing databases
     may already have legacy runtime views, so this helper ensures the aggregate
-    table/materialized views exist, backfills historical rows in bounded day-sized
-    chunks when needed, and replaces the compatibility views to read from the
-    aggregate storage. Backfill is best-effort and must not block request serving.
+    table/materialized views exist and replaces the compatibility views to read
+    from the aggregate storage. Historical backfill is optional and disabled by
+    default; for the current deployment footprint we handle legacy tenant
+    backfills manually instead of on every startup.
     """
 
     db.executescript("""
@@ -1835,7 +1837,7 @@ GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
             return False
 
     backfill_state = _safe_get_setting(_OTEL_METRICS_1M_BACKFILL_STATE_SETTING).lower()
-    if backfill_state != "completed":
+    if _env_flag(_OTEL_METRICS_1M_AUTO_BACKFILL_ENV, False) and backfill_state != "completed":
         cutoff_date = _safe_get_setting(_OTEL_METRICS_1M_BACKFILL_CUTOFF_SETTING)
         backfill_paused = False
         if not cutoff_date:
