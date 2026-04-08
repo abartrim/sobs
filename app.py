@@ -1524,8 +1524,8 @@ def _build_chdb_connect_target(path: str) -> str:
     # Important: use the plain directory path with query params, not a file: URL.
     # For directory-backed chDB stores, file:/... opens a different logical DB
     # than the plain path on this runtime.
-    max_server_mb = int(os.environ.get(CHDB_MAX_SERVER_MB_ENV, "512"))
-    mark_cache_mb = int(os.environ.get(CHDB_MARK_CACHE_MB_ENV, "32"))
+    max_server_mb = int(os.environ.get(CHDB_MAX_SERVER_MB_ENV, "256"))
+    mark_cache_mb = int(os.environ.get(CHDB_MARK_CACHE_MB_ENV, "8"))
     params = urllib.parse.urlencode(
         {
             "max_server_memory_usage": max_server_mb * 1024 * 1024,
@@ -1605,9 +1605,9 @@ class ChDbConnection:
         # max_threads reduces per-query parallelism; the spill settings allow
         # GROUP BY / ORDER BY to overflow to disk rather than OOM the container.
         try:
-            _max_threads = int(os.environ.get(CHDB_MAX_THREADS_ENV, "2"))
-            _spill_gb_mb = int(os.environ.get(CHDB_SPILL_GROUP_BY_MB_ENV, "50"))
-            _spill_sort_mb = int(os.environ.get(CHDB_SPILL_SORT_MB_ENV, "50"))
+            _max_threads = int(os.environ.get(CHDB_MAX_THREADS_ENV, "1"))
+            _spill_gb_mb = int(os.environ.get(CHDB_SPILL_GROUP_BY_MB_ENV, "32"))
+            _spill_sort_mb = int(os.environ.get(CHDB_SPILL_SORT_MB_ENV, "32"))
             _cur = self._conn.cursor()
             _cur.execute(f"SET max_threads = {_max_threads}")
             _cur.execute(f"SET max_bytes_before_external_group_by = {_spill_gb_mb * 1024 * 1024}")
