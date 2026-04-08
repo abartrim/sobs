@@ -20,11 +20,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-# Point to a temp DB before importing the app
-os.environ["SOBS_DATA_DIR"] = tempfile.mkdtemp()
+# Point to a temp DB before importing the app unless caller provides one.
+os.environ.setdefault("SOBS_DATA_DIR", tempfile.mkdtemp())
 
 import app as sobs_app  # noqa: E402
 from app import app, compress, compress_json, decompress, decompress_json, init_db  # noqa: E402
+
+_LIVE_TEST_DEFAULT_ENDPOINT = "http://127.0.0.1:11434/v1"
+_LIVE_TEST_DEFAULT_BASE_MODEL = "gpt-oss:20b-cloud"
+_LIVE_TEST_DEFAULT_GUARD_MODEL = "llama-guard3:1b"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -5285,6 +5289,66 @@ class TestGenAICompliance:
 
 
 class TestInternalAssistantOtelCompliance:
+    async def test_internal_llm_empty_content_retries_with_higher_token_budget(self, monkeypatch):
+        import app as app_module
+
+        model = f"internal-empty-{secrets.token_hex(4)}"
+        seen_payloads: list[dict[str, object]] = []
+
+        class _FakeResponse:
+            def __init__(self, body: dict[str, object]):
+                self._body = body
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._body
+
+        class _FakeClient:
+            async def post(self, *_args, **kwargs):
+                payload = kwargs.get("json") or {}
+                if isinstance(payload, dict):
+                    seen_payloads.append(payload)
+                if len(seen_payloads) == 1:
+                    return _FakeResponse(
+                        {
+                            "usage": {"prompt_tokens": 100, "completion_tokens": 1024},
+                            "choices": [
+                                {
+                                    "message": {"content": "", "reasoning": "thinking..."},
+                                    "finish_reason": "length",
+                                }
+                            ],
+                        }
+                    )
+                return _FakeResponse(
+                    {
+                        "usage": {"prompt_tokens": 20, "completion_tokens": 12},
+                        "choices": [{"message": {"content": "SELECT 1"}, "finish_reason": "stop"}],
+                    }
+                )
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(app_module, "_get_async_http_client", _fake_get_client)
+        app_module.app.config["TESTING"] = True
+
+        reply, stats = await app_module._call_llm_endpoint(
+            "https://api.openai.com/v1",
+            model,
+            "no-key",
+            [{"role": "user", "content": "Return only SQL."}],
+            max_tokens=1024,
+        )
+
+        assert reply == "SELECT 1"
+        assert int(stats.get("completion_tokens", 0)) == 12
+        assert len(seen_payloads) == 2
+        assert int(seen_payloads[0].get("max_tokens") or 0) == 1024
+        assert int(seen_payloads[1].get("max_tokens") or 0) == 2048
+
     async def test_internal_llm_call_emits_semconv_span(self, monkeypatch):
         import app as app_module
 
@@ -6605,6 +6669,350 @@ class TestCustomDashboards:
         assert len(data["named_query_results"]) == 1
         assert data["named_query_results"][0]["name"] == "bad_named"
         assert data["named_query_results"][0]["error"] != ""
+
+    async def test_ai_build_uses_fallback_option_when_chart_json_fails(self, client, monkeypatch):
+        """AI build always returns usable custom_option_json + mapping when chart generation fails."""
+        monkeypatch.setattr(
+            sobs_app,
+            "_load_all_ai_settings",
+            lambda _db: {
+                "ai.endpoint_url": "http://example.com/v1/chat/completions",
+                "ai.model": "fake-model",
+                "ai.api_key": "fake-key",
+            },
+        )
+
+        async def _fake_generate_sql(*_a, **_kw):
+            return "SELECT 'svc-a' AS service, 7 AS error_count", "", {}
+
+        def _fake_explain_sql(_db, _sql):
+            return ""
+
+        async def _fake_repair_sql(*_a, **_kw):
+            return "", "", {}
+
+        def _fake_run_query(_db, _sql):
+            import pandas as pd
+
+            return pd.DataFrame([{"service": "svc-a", "error_count": 7}]), ""
+
+        async def _fake_generate_named_queries(*_a, **_kw):
+            return ([], "", {})
+
+        async def _fake_generate_chart_spec(*_a, **_kw):
+            return "", "Chart spec JSON parse error: bad json", {}
+
+        monkeypatch.setattr(sobs_app, "_vanna_generate_sql", _fake_generate_sql)
+        monkeypatch.setattr(sobs_app, "_vanna_explain_sql", _fake_explain_sql)
+        monkeypatch.setattr(sobs_app, "_vanna_repair_sql", _fake_repair_sql)
+        monkeypatch.setattr(sobs_app, "_vanna_run_query", _fake_run_query)
+        monkeypatch.setattr(sobs_app, "_vanna_generate_named_queries", _fake_generate_named_queries)
+        monkeypatch.setattr(sobs_app, "_vanna_generate_chart_spec", _fake_generate_chart_spec)
+
+        r = await client.post(
+            "/api/dashboards/spec/ai-build",
+            json={"question": "Build a chart"},
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert "fallback chart option template" in str(data.get("chart_error") or "").lower()
+
+        visual = ((data.get("spec") or {}).get("visual")) or {}
+        mapping = json.loads(str(visual.get("custom_mapping_json") or "{}"))
+        option = json.loads(str(visual.get("custom_option_json") or "{}"))
+
+        assert mapping.get("points", {}).get("from") == "rows"
+        assert option.get("series", [{}])[0].get("data") == "{{points}}"
+
+    @pytest.mark.integration
+    async def test_ai_build_live_optional(self, client):
+        """Optional live test for /api/dashboards/spec/ai-build with a real LLM endpoint.
+
+        Enable with:
+          SOBS_RUN_LIVE_CHART_TEST=1
+
+        Settings can be provided via SOBS_LIVE_CHART_* vars, or fallback to SOBS_AI_*.
+        """
+        run_flag = str(os.getenv("SOBS_RUN_LIVE_CHART_TEST", "")).strip().lower()
+        if run_flag not in {"1", "true", "yes", "on"}:
+            pytest.skip("Set SOBS_RUN_LIVE_CHART_TEST=1 to run live chart model calls")
+
+        endpoint_url = (
+            str(os.getenv("SOBS_LIVE_CHART_ENDPOINT_URL", "")).strip()
+            or str(os.getenv("SOBS_AI_ENDPOINT_URL", "")).strip()
+            or _LIVE_TEST_DEFAULT_ENDPOINT
+        )
+        model = (
+            str(os.getenv("SOBS_LIVE_CHART_MODEL", "")).strip()
+            or str(os.getenv("SOBS_AI_MODEL", "")).strip()
+            or _LIVE_TEST_DEFAULT_BASE_MODEL
+        )
+        api_key = str(os.getenv("SOBS_LIVE_CHART_API_KEY", "")).strip() or str(os.getenv("SOBS_AI_API_KEY", "")).strip()
+
+        from app import _save_ai_setting, get_db  # noqa: PLC0415
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", endpoint_url)
+        _save_ai_setting(db, "ai.model", model)
+        _save_ai_setting(db, "ai.api_key", api_key)
+        _save_ai_setting(db, "ai.endpoint_timeout_seconds", str(os.getenv("SOBS_LIVE_CHART_TIMEOUT_SECONDS", "90")))
+
+        thinking_level = str(os.getenv("SOBS_LIVE_CHART_THINKING_LEVEL", "off")).strip() or "off"
+        question = str(
+            os.getenv("SOBS_LIVE_CHART_QUESTION", "Top 10 services by error count in the last hour.")
+        ).strip()
+        preferred_chart_type = str(os.getenv("SOBS_LIVE_CHART_TYPE", "bar")).strip()
+        chart_instruction = str(
+            os.getenv("SOBS_LIVE_CHART_INSTRUCTION", "Use clear labels and readable legend.")
+        ).strip()
+
+        # Seed a tiny amount of telemetry so the generated SQL has data/columns to chart.
+        seed_suffix = str(time.time_ns())
+        for service_name in (f"live-chart-api-{seed_suffix}", f"live-chart-worker-{seed_suffix}"):
+            ingest = await client.post(
+                "/v1/errors",
+                json={
+                    "service": service_name,
+                    "type": "LiveChartTestError",
+                    "message": f"seed-{service_name}",
+                },
+            )
+            assert ingest.status_code == 200
+
+        r = await client.post(
+            "/api/dashboards/spec/ai-build",
+            json={
+                "question": question,
+                "preferred_chart_type": preferred_chart_type,
+                "chart_instruction": chart_instruction,
+                "thinking_level": thinking_level,
+            },
+        )
+        assert r.status_code == 200
+
+        body = await r.get_json()
+        assert body["ok"] is True
+        assert str(body.get("sql") or "").strip() != ""
+
+        visual = ((body.get("spec") or {}).get("visual")) or {}
+        option_text = str(visual.get("custom_option_json") or "{}").strip()
+        option = json.loads(option_text)
+        assert isinstance(option, dict)
+
+        if option == {}:
+            # Some prompts can produce SQL with no returned rows/columns; retry with a deterministic aggregate prompt.
+            fallback_question = str(
+                os.getenv(
+                    "SOBS_LIVE_CHART_FALLBACK_QUESTION",
+                    "Show a chart of total log count (single value count) from otel_logs.",
+                )
+            ).strip()
+            fallback_type = str(os.getenv("SOBS_LIVE_CHART_FALLBACK_TYPE", "gauge")).strip() or "gauge"
+            r2 = await client.post(
+                "/api/dashboards/spec/ai-build",
+                json={
+                    "question": fallback_question,
+                    "preferred_chart_type": fallback_type,
+                    "chart_instruction": chart_instruction,
+                    "thinking_level": thinking_level,
+                },
+            )
+            assert r2.status_code == 200
+            body2 = await r2.get_json()
+            assert body2["ok"] is True
+            visual2 = ((body2.get("spec") or {}).get("visual")) or {}
+            option2 = json.loads(str(visual2.get("custom_option_json") or "{}").strip())
+            assert isinstance(option2, dict)
+            assert option2 != {}
+            return
+
+        assert option != {}
+
+    @pytest.mark.integration
+    async def test_chart_spec_live_concurrency_report_optional(self):
+        """Optional live load test for chart-option generation with JSON/Markdown report output.
+
+        Enable with:
+          SOBS_RUN_LIVE_CHART_LOAD_TEST=1
+
+        Config:
+          SOBS_LIVE_CHART_INTERACTIONS (default 20)
+          SOBS_LIVE_CHART_CONCURRENCY (default 4)
+          SOBS_LIVE_CHART_REPORT_PATH (default /tmp/sobs_chart_live_report.json)
+          SOBS_LIVE_CHART_REPORT_MD_PATH (optional markdown summary path)
+        """
+        from app import _vanna_generate_chart_spec
+
+        run_flag = str(os.getenv("SOBS_RUN_LIVE_CHART_LOAD_TEST", "")).strip().lower()
+        if run_flag not in {"1", "true", "yes", "on"}:
+            pytest.skip("Set SOBS_RUN_LIVE_CHART_LOAD_TEST=1 to run live chart load test")
+
+        endpoint_url = (
+            str(os.getenv("SOBS_LIVE_CHART_ENDPOINT_URL", "")).strip()
+            or str(os.getenv("SOBS_AI_ENDPOINT_URL", "")).strip()
+            or _LIVE_TEST_DEFAULT_ENDPOINT
+        )
+        model = (
+            str(os.getenv("SOBS_LIVE_CHART_MODEL", "")).strip()
+            or str(os.getenv("SOBS_AI_MODEL", "")).strip()
+            or _LIVE_TEST_DEFAULT_BASE_MODEL
+        )
+        api_key = str(os.getenv("SOBS_LIVE_CHART_API_KEY", "")).strip() or str(os.getenv("SOBS_AI_API_KEY", "")).strip()
+
+        def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+            try:
+                value = int(str(os.getenv(name, str(default))).strip())
+            except (TypeError, ValueError):
+                value = default
+            return max(minimum, min(maximum, value))
+
+        interactions = _env_int("SOBS_LIVE_CHART_INTERACTIONS", 20, 1, 500)
+        concurrency = _env_int("SOBS_LIVE_CHART_CONCURRENCY", 4, 1, 100)
+        report_path = str(os.getenv("SOBS_LIVE_CHART_REPORT_PATH", "/tmp/sobs_chart_live_report.json")).strip()
+        report_md_path = str(os.getenv("SOBS_LIVE_CHART_REPORT_MD_PATH", "")).strip()
+
+        settings = {
+            "ai.endpoint_url": endpoint_url,
+            "ai.model": model,
+            "ai.api_key": api_key,
+            "ai.endpoint_timeout_seconds": str(os.getenv("SOBS_LIVE_CHART_TIMEOUT_SECONDS", "90")).strip(),
+        }
+        thinking_level = str(os.getenv("SOBS_LIVE_CHART_THINKING_LEVEL", "off")).strip() or "off"
+
+        sem = asyncio.Semaphore(concurrency)
+        latencies_ms: list[int] = []
+        parse_failures = 0
+        chart_errors = 0
+        empty_specs = 0
+        fallback_like_specs = 0
+        fatal_error = ""
+        started = time.time()
+
+        columns = ["service", "errors"]
+        sample_rows = [
+            {"service": "api", "errors": 34},
+            {"service": "worker", "errors": 21},
+            {"service": "ingest", "errors": 17},
+            {"service": "frontend", "errors": 9},
+        ]
+        prompt_a = "Build a clear bar chart for top services by error count."
+        prompt_b = "Create a line chart with clean tooltip and legend for this dataset."
+
+        async def _run_one(idx: int) -> None:
+            nonlocal parse_failures, chart_errors, empty_specs, fallback_like_specs, fatal_error
+            question = prompt_a if (idx % 2 == 0) else prompt_b
+            preferred_type = "bar" if (idx % 2 == 0) else "line"
+            try:
+                async with sem:
+                    spec, err, stats = await _vanna_generate_chart_spec(
+                        columns=columns,
+                        sample_rows=sample_rows,
+                        question=question,
+                        settings=settings,
+                        preferred_chart_type=preferred_type,
+                        chart_instruction="Readable labels and concise tooltip",
+                        thinking_level=thinking_level,
+                    )
+            except Exception as exc:  # pragma: no cover - defensive for flaky external endpoints
+                fatal_error = str(exc)
+                return
+
+            elapsed = int(stats.get("elapsed_ms", 0) or 0)
+            if elapsed >= 0:
+                latencies_ms.append(elapsed)
+
+            if err:
+                chart_errors += 1
+            if not spec:
+                empty_specs += 1
+                return
+
+            try:
+                parsed = json.loads(spec)
+            except Exception:
+                parse_failures += 1
+                return
+
+            if isinstance(parsed, dict):
+                series = parsed.get("series")
+                if (
+                    isinstance(series, list)
+                    and len(series) > 0
+                    and isinstance(series[0], dict)
+                    and str(series[0].get("data") or "") == "{{points}}"
+                ):
+                    fallback_like_specs += 1
+
+        tasks = [asyncio.create_task(_run_one(i)) for i in range(interactions)]
+        await asyncio.gather(*tasks)
+
+        duration_ms = int((time.time() - started) * 1000)
+        latencies_sorted = sorted(latencies_ms)
+
+        def _percentile(values: list[int], q: float) -> int:
+            if not values:
+                return 0
+            pos = max(0, min(len(values) - 1, int(round((len(values) - 1) * q))))
+            return int(values[pos])
+
+        report = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "endpoint_url": endpoint_url,
+            "model": model,
+            "interactions": interactions,
+            "concurrency": concurrency,
+            "duration_ms": duration_ms,
+            "metrics": {
+                "completed": interactions,
+                "chart_errors": chart_errors,
+                "empty_specs": empty_specs,
+                "parse_failures": parse_failures,
+                "fallback_like_specs": fallback_like_specs,
+                "fatal_error": fatal_error,
+            },
+            "latency_ms": {
+                "count": len(latencies_sorted),
+                "min": (latencies_sorted[0] if latencies_sorted else 0),
+                "p50": _percentile(latencies_sorted, 0.50),
+                "p95": _percentile(latencies_sorted, 0.95),
+                "max": (latencies_sorted[-1] if latencies_sorted else 0),
+            },
+        }
+
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+
+        if report_md_path:
+            md = [
+                "# Live Chart Spec Report",
+                "",
+                f"- Model: {model}",
+                f"- Endpoint: {endpoint_url}",
+                f"- Interactions: {interactions}",
+                f"- Concurrency: {concurrency}",
+                f"- Duration (ms): {duration_ms}",
+                "",
+                "## Metrics",
+                f"- Chart errors: {chart_errors}",
+                f"- Empty specs: {empty_specs}",
+                f"- Parse failures: {parse_failures}",
+                f"- Fallback-like specs: {fallback_like_specs}",
+                f"- Fatal error: {fatal_error or 'none'}",
+                "",
+                "## Latency (ms)",
+                f"- min: {report['latency_ms']['min']}",
+                f"- p50: {report['latency_ms']['p50']}",
+                f"- p95: {report['latency_ms']['p95']}",
+                f"- max: {report['latency_ms']['max']}",
+            ]
+            with open(report_md_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(md) + "\n")
+
+        assert fatal_error == "", f"Unexpected fatal error during live chart load test: {fatal_error}"
+        assert chart_errors == 0, f"chart_errors={chart_errors}; see {report_path}"
+        assert empty_specs == 0, f"empty_specs={empty_specs}; see {report_path}"
+        assert parse_failures == 0, f"parse_failures={parse_failures}; see {report_path}"
 
     async def test_dashboard_view_includes_import_button(self, client):
         """Dashboard view includes Import Chart button."""
@@ -9573,6 +9981,16 @@ class TestAISettingsAndAgentFlows:
         assert _heuristic_guard_check("How do I filter by service name?") is True
         assert _heuristic_guard_check("What SQL query finds p99 latency?") is True
 
+    def test_benign_observability_keywords_cover_noisy_service_prompts(self):
+        from app import _is_benign_observability_question
+
+        assert _is_benign_observability_question(
+            "Show top noisy services by count of error burst windows in the past 24 hours"
+        )
+        assert _is_benign_observability_question(
+            "Correlate deployment windows with error spikes and latency for the last day"
+        )
+
     async def test_guard_model_safe_unsafe_replies(self, monkeypatch):
         """Guard models that reply 'safe'/'unsafe' are parsed correctly,
         including Llama Guard 3 two-line format with category codes."""
@@ -9610,6 +10028,17 @@ class TestAISettingsAndAgentFlows:
         assert allowed is True
         assert reason == "allowed"
 
+        # S1 can be a noisy false-positive for observability words like burst/spike;
+        # benign telemetry analysis prompts should still be allowed.
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", lambda *_a, **_kw: ("unsafe\nS1", {}))
+        settings = sobs_app._load_all_ai_settings(db)
+        allowed, reason, _stats = await _check_guard_model(
+            settings,
+            "Show top noisy services by count of error burst windows in the past 24 hours",
+        )
+        assert allowed is True
+        assert reason == "allowed"
+
         # High-risk prompt should still be blocked even in noisy categories.
         monkeypatch.setattr(sobs_app, "_call_llm_endpoint", lambda *_a, **_kw: ("unsafe\nS2", {}))
         settings = sobs_app._load_all_ai_settings(db)
@@ -9640,6 +10069,88 @@ class TestAISettingsAndAgentFlows:
         allowed, reason, _stats = await _check_guard_model(settings, "show me metrics")
         assert allowed is False
         assert "S99" in reason
+
+    def test_parse_oss_safeguard_reply_json(self):
+        from app import _parse_oss_safeguard_reply
+
+        verdict, category = _parse_oss_safeguard_reply(
+            '{"violation": 1, "policy_category": "H2.f", "rule_ids": ["H2.f"], "confidence": "high"}',
+            strict=True,
+        )
+        assert verdict == "UNSAFE"
+        assert category == "H2.f"
+
+        verdict, category = _parse_oss_safeguard_reply(
+            '{"violation": 0, "policy_category": null, "rule_ids": [], "confidence": "low"}',
+            strict=True,
+        )
+        assert verdict == "SAFE"
+        assert category == ""
+
+    def test_parse_oss_safeguard_reply_strict_invalid(self):
+        from app import _parse_oss_safeguard_reply
+
+        verdict, category = _parse_oss_safeguard_reply("not json", strict=True)
+        assert verdict == ""
+        assert category == ""
+
+    async def test_guard_uses_oss_policy_prompt_and_json_reason(self, monkeypatch):
+        import app as sobs_app
+        from app import _check_guard_model, _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "gpt-oss-safeguard:20b")
+        _save_ai_setting(db, "ai.api_key", "")
+
+        observed: dict[str, object] = {}
+
+        async def _fake_guard_llm(_url, _model, _api_key, messages, **_kwargs):
+            observed["messages"] = messages
+            return (
+                '{"violation": 1, "policy_category": "H2.f", "rule_ids": ["H2.f"], '
+                '"confidence": "high", "rationale": "test"}',
+                {},
+            )
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_guard_llm)
+        settings = sobs_app._load_all_ai_settings(db)
+        allowed, reason, _stats = await _check_guard_model(settings, "show me recent errors")
+
+        assert allowed is False
+        assert reason == "blocked (policy_category=H2.f)"
+
+        messages = observed["messages"]
+        assert isinstance(messages, list) and len(messages) == 2
+        assert "## INSTRUCTIONS" in messages[0]["content"]
+        assert "## OUTPUT FORMAT" in messages[0]["content"]
+
+    async def test_guard_uses_llama_prompt_template(self, monkeypatch):
+        import app as sobs_app
+        from app import _check_guard_model, _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.guard_endpoint_url", "https://guard.example.com/v1")
+        _save_ai_setting(db, "ai.guard_model", "llama-guard")
+        _save_ai_setting(db, "ai.api_key", "")
+
+        observed: dict[str, object] = {}
+
+        async def _fake_guard_llm(_url, _model, _api_key, messages, **_kwargs):
+            observed["messages"] = messages
+            return "unsafe\nS10", {}
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_guard_llm)
+        settings = sobs_app._load_all_ai_settings(db)
+        allowed, reason, _stats = await _check_guard_model(settings, "show me recent errors")
+
+        assert allowed is False
+        assert "S10" in reason
+
+        messages = observed["messages"]
+        assert isinstance(messages, list) and len(messages) == 2
+        assert "<BEGIN UNSAFE CONTENT CATEGORIES>" in messages[1]["content"]
+        assert "<BEGIN CONVERSATION>" in messages[1]["content"]
 
     async def test_guard_empty_content_reasoning_hint_safe_fails_closed(self, monkeypatch):
         import app as sobs_app
@@ -9809,13 +10320,14 @@ class TestAISettingsAndAgentFlows:
         guard_url = (
             str(os.getenv("SOBS_LIVE_GUARD_ENDPOINT_URL", "")).strip()
             or str(os.getenv("SOBS_AI_GUARD_ENDPOINT_URL", "")).strip()
+            or _LIVE_TEST_DEFAULT_ENDPOINT
         )
         guard_model = (
-            str(os.getenv("SOBS_LIVE_GUARD_MODEL", "")).strip() or str(os.getenv("SOBS_AI_GUARD_MODEL", "")).strip()
+            str(os.getenv("SOBS_LIVE_GUARD_MODEL", "")).strip()
+            or str(os.getenv("SOBS_AI_GUARD_MODEL", "")).strip()
+            or _LIVE_TEST_DEFAULT_GUARD_MODEL
         )
         api_key = str(os.getenv("SOBS_LIVE_GUARD_API_KEY", "")).strip() or str(os.getenv("SOBS_AI_API_KEY", "")).strip()
-        if not guard_url or not guard_model:
-            pytest.skip("Missing live guard settings: guard endpoint URL/model are required")
 
         settings = {
             "ai.guard_endpoint_url": guard_url,
@@ -9870,13 +10382,14 @@ class TestAISettingsAndAgentFlows:
         guard_url = (
             str(os.getenv("SOBS_LIVE_GUARD_ENDPOINT_URL", "")).strip()
             or str(os.getenv("SOBS_AI_GUARD_ENDPOINT_URL", "")).strip()
+            or _LIVE_TEST_DEFAULT_ENDPOINT
         )
         guard_model = (
-            str(os.getenv("SOBS_LIVE_GUARD_MODEL", "")).strip() or str(os.getenv("SOBS_AI_GUARD_MODEL", "")).strip()
+            str(os.getenv("SOBS_LIVE_GUARD_MODEL", "")).strip()
+            or str(os.getenv("SOBS_AI_GUARD_MODEL", "")).strip()
+            or _LIVE_TEST_DEFAULT_GUARD_MODEL
         )
         api_key = str(os.getenv("SOBS_LIVE_GUARD_API_KEY", "")).strip() or str(os.getenv("SOBS_AI_API_KEY", "")).strip()
-        if not guard_url or not guard_model:
-            pytest.skip("Missing live guard settings: guard endpoint URL/model are required")
 
         def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
             try:
@@ -11131,6 +11644,14 @@ class TestChdbSqlRunner:
         """Querying sobs_raw_windows is permitted because it is an intentional NLQ surface."""
         sobs_app.ChdbSqlRunner.validate_sql("SELECT SignalType, WindowStart FROM sobs_raw_windows LIMIT 1")
 
+    def test_validate_sql_anomaly_rules_table_is_allowed(self):
+        """Querying sobs_anomaly_rules is permitted for rule-definition NLQ prompts."""
+        sobs_app.ChdbSqlRunner.validate_sql("SELECT Name, SignalName, WarningThreshold FROM sobs_anomaly_rules LIMIT 1")
+
+    def test_validate_sql_derived_signals_1m_view_is_allowed(self):
+        """Querying v_derived_signals_1m is permitted for pre-score signal trend prompts."""
+        sobs_app.ChdbSqlRunner.validate_sql("SELECT SignalSource, SignalName, Value FROM v_derived_signals_1m LIMIT 1")
+
     def test_validate_sql_signal_context_view_is_allowed(self):
         """Querying the signal-window metrics helper view is permitted."""
         sobs_app.ChdbSqlRunner.validate_sql("SELECT MetricName, StorageTier FROM v_otel_metrics_signal_context LIMIT 1")
@@ -11247,8 +11768,20 @@ class TestChdbSqlRunner:
         ctx = runner.get_schema_context()
         assert "otel_logs" in ctx
         assert "otel_traces" in ctx
+        assert "sobs_anomaly_rules" in ctx
         assert "sobs_raw_windows" in ctx
+        assert "v_derived_signals_1m" in ctx
         assert "v_otel_metrics_signal_context" in ctx
+
+    def test_get_schema_context_includes_signal_terminology_disambiguation(self):
+        """Schema context documents rule vs signal vs signal-window semantics for NLQ."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        ctx = runner.get_schema_context()
+        assert "Signal terminology:" in ctx
+        assert "sobs_anomaly_rules => metric/anomaly rule definitions" in ctx
+        assert "v_derived_signals_1m => derived 1-minute signal values" in ctx
+        assert "raw-metric preservation windows registered around active signals" in ctx
 
     # ------------------------------------------------------------------
     # Schema introspection
@@ -11398,7 +11931,9 @@ class TestQueryAllowedTablesEnvVar:
         assert "otel_metrics_sum_pinned" in builtin
         assert "otel_metrics_histogram" in builtin
         assert "otel_metrics_histogram_pinned" in builtin
+        assert "sobs_anomaly_rules" in builtin
         assert "sobs_raw_windows" in builtin
+        assert "v_derived_signals_1m" in builtin
         assert "v_otel_metrics_signal_context" in builtin
 
 
@@ -11614,7 +12149,13 @@ class TestQueryRoutes:
         monkeypatch.setattr(sobs_app, "_check_guard_model", AsyncMock(return_value=(True, "allowed", {})))
 
         async def _fake_llm(*_a, **_kw):
-            return "{}", {}
+            return (
+                (
+                    '{"xAxis":{"type":"time"},"yAxis":{"type":"value"},'
+                    '"series":[{"type":"line","data":[["2026-04-01",3]]}]}'
+                ),
+                {},
+            )
 
         monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_llm)
 
@@ -11626,7 +12167,8 @@ class TestQueryRoutes:
         data = json.loads(await r.get_data())
         assert data["ok"] is True
         assert data["error"] == ""
-        assert data["chart_spec"] == "{}"
+        parsed_spec = json.loads(data["chart_spec"])
+        assert parsed_spec.get("series", [{}])[0].get("type") == "line"
 
     async def test_query_api_calls_guard_before_llm(self, client, monkeypatch):
         monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
@@ -11890,13 +12432,54 @@ class TestQueryRoutes:
 
 
 class TestChartSpecHelpers:
+    async def test_generate_chart_spec_rejects_empty_object(self, monkeypatch):
+        async def _fake_llm(*_a, **_kw):
+            return "{}", {}
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_llm)
+
+        spec, err, _stats = await sobs_app._vanna_generate_chart_spec(
+            columns=["name", "count"],
+            sample_rows=[{"name": "otel_logs", "count": 1}],
+            question="list tables",
+            settings=TestQueryRoutes._configured_query_settings(),
+            thinking_level="high",
+        )
+
+        assert spec == ""
+        assert "empty chart spec object" in err.lower()
+
+    async def test_generate_chart_spec_repairs_missing_commas_locally(self, monkeypatch):
+        calls = {"n": 0}
+
+        async def _fake_llm(*_a, **_kw):
+            calls["n"] += 1
+            return '{"title":{"text":"Tables"}\n"series":[{"type":"bar","data":[1,2]}]}', {}
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_llm)
+
+        spec, err, stats = await sobs_app._vanna_generate_chart_spec(
+            columns=["name", "count"],
+            sample_rows=[{"name": "otel_logs", "count": 1}],
+            question="list tables",
+            settings=TestQueryRoutes._configured_query_settings(),
+            preferred_chart_type="boxplot",
+            thinking_level="high",
+        )
+
+        assert err == ""
+        assert spec != ""
+        assert json.loads(spec)["series"][0]["type"] == "bar"
+        assert stats.get("chart_json_repair") is None
+        assert calls["n"] == 1
+
     async def test_generate_chart_spec_repairs_malformed_json_with_llm(self, monkeypatch):
         calls = {"n": 0}
 
         async def _fake_llm(*_a, **_kw):
             calls["n"] += 1
             if calls["n"] == 1:
-                return '{"title":{"text":"Tables"}\n"series":[{"type":"bar","data":[1,2]}]}', {}
+                return '{"title":{"text":"Tables"}', {}
             assert len(_a) >= 4
             messages = _a[3]
             assert "repair malformed apache echarts option json" in messages[0]["content"].lower()
@@ -11925,7 +12508,7 @@ class TestChartSpecHelpers:
         async def _fake_llm(*_a, **_kw):
             calls["n"] += 1
             if calls["n"] == 1:
-                return '{"series":[{"type":"bar" "data":[1,2]}]}', {}
+                return '{"series":[{"type":"bar","data":[1,2]}', {}
             return "still not json", {"error": "bad output"}
 
         monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_llm)

@@ -1094,8 +1094,10 @@
         updateTemplateInfo();
         suppressRoleMapReset = false;
         refreshBuilderVisibility();
-        var statusMsg = 'Chart generated! SQL and eCharts option have been populated. Review and adjust, then add the chart.';
-        var statusClass = 'small text-success';
+        var statusMsg = body.chart_error
+          ? 'SQL generated. A fallback eCharts option was populated; review and adjust before adding the chart.'
+          : 'Chart generated! SQL and eCharts option have been populated. Review and adjust, then add the chart.';
+        var statusClass = body.chart_error ? 'small text-warning' : 'small text-success';
         var namedResults = Array.isArray(body.named_query_results) ? body.named_query_results : [];
         var failedNamed = namedResults.filter(function (item) { return item && item.error; });
         if (body.chart_error) statusMsg += ' (Note: ' + body.chart_error + ')';
@@ -1103,7 +1105,6 @@
           statusMsg += ' (' + failedNamed.length + ' named quer' + (failedNamed.length === 1 ? 'y' : 'ies') + ' failed validation/execution and were excluded from the generated spec.)';
           statusClass = 'small text-warning';
         }
-        if (body.chart_error && statusClass === 'small text-success') statusClass = 'small text-warning';
         if (aiBuilderStatus) { aiBuilderStatus.textContent = statusMsg; aiBuilderStatus.className = statusClass; }
       })
       .catch(function (err) {
