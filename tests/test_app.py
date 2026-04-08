@@ -14801,20 +14801,16 @@ class TestRawMetricsRetentionWindows:
         assert match is not None
         assert float(match.get("avg") or 0.0) < 100.0
 
-    def test_fetch_trace_metric_context_timeseries_covers_all_series_rows(self):
-        """Sparkline timeseries should be produced for every returned metric row."""
+    def test_fetch_trace_metric_context_timeseries_respects_limit(self):
+        """Sparkline timeseries should be produced for top metrics up to limit (currently :6)."""
         import time as _time
 
         db = sobs_app.get_db()
         uniq = str(_time.time_ns())
         signal_ts = datetime.now(timezone.utc)
         ts_str = signal_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
-        service = f"trace-timeseries-cover-{uniq}"
-        metric_names = [
-            f"kube_pod_status_phase_running.{uniq}",
-            f"tasks_state.{uniq}",
-            f"container_cpu_usage.{uniq}",
-        ]
+        service = f"trace-timeseries-limit-{uniq}"
+        metric_names = [f"metric_{i}.{uniq}" for i in range(8)]  # More than the [:6] sparkline limit
 
         sobs_app._insert_rows_json_each_row(
             db,
@@ -14853,10 +14849,14 @@ class TestRawMetricsRetentionWindows:
         )
 
         series = ctx.get("series") or []
-        returned_metric_names = {str(item.get("metric") or "") for item in series}
-        assert returned_metric_names
-        assert set(metric_names).issubset(returned_metric_names)
+        returned_metric_names = [str(item.get("metric") or "") for item in series]
+        # All metrics should be in the series list (returned from context query)
+        assert set(metric_names).issubset(set(returned_metric_names))
 
         ts = ctx.get("timeseries") or {}
         by_metric = ts.get("by_metric") or {}
-        assert set(metric_names).issubset(set(by_metric.keys()))
+        # But sparklines (timeseries) should only be generated for top 6
+        sparkline_metrics = returned_metric_names[:6]
+        assert set(sparkline_metrics).issubset(set(by_metric.keys()))
+        # Metrics beyond top 6 should NOT have sparklines (memory optimization)
+        assert not any(m in by_metric for m in returned_metric_names[6:])

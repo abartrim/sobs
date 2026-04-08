@@ -538,39 +538,74 @@ PARTITION BY toDate(TimeUnixMs)
 ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
-CREATE VIEW IF NOT EXISTS v_otel_metrics_1m AS
-SELECT
+-- Materialized table for pre-aggregated 1-minute metrics using AggregatingMergeTree.
+-- This reduces memory pressure on trace context queries by pre-storing aggregated state.
+CREATE TABLE IF NOT EXISTS otel_metrics_1m_agg (
+    ServiceName String,
+    MetricName String,
+    AttrFingerprint String,
+    MetricKind String,
+    MinuteBucket DateTime,
+    Value AggregateFunction(avg, Float64),
+    SampleCount AggregateFunction(sum, UInt64)
+) ENGINE = AggregatingMergeTree()
+ORDER BY (ServiceName, MetricName, AttrFingerprint, MetricKind, MinuteBucket)
+PARTITION BY toYYYYMM(MinuteBucket);
+
+-- Materialized view to insert gauge metrics into the aggregated table.
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_otel_metrics_1m_gauge
+TO otel_metrics_1m_agg
+AS SELECT
     ServiceName,
     MetricName,
     AttrFingerprint,
     'gauge' AS MetricKind,
     toStartOfMinute(TimeUnix) AS MinuteBucket,
-    avg(Value) AS Value,
-    count() AS SampleCount
+    avgState(Value) AS Value,
+    sumState(toUInt64(1)) AS SampleCount
 FROM otel_metrics_gauge
-GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket
-UNION ALL
-SELECT
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
+
+-- Materialized view to insert sum metrics into the aggregated table.
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_otel_metrics_1m_sum
+TO otel_metrics_1m_agg
+AS SELECT
     ServiceName,
     MetricName,
     AttrFingerprint,
     'sum' AS MetricKind,
     toStartOfMinute(TimeUnix) AS MinuteBucket,
-    avg(Value) AS Value,
-    count() AS SampleCount
+    avgState(Value) AS Value,
+    sumState(toUInt64(1)) AS SampleCount
 FROM otel_metrics_sum
-GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket
-UNION ALL
-SELECT
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
+
+-- Materialized view to insert histogram metrics into the aggregated table.
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_otel_metrics_1m_histogram
+TO otel_metrics_1m_agg
+AS SELECT
     ServiceName,
     MetricName,
     AttrFingerprint,
     'histogram' AS MetricKind,
     toStartOfMinute(TimeUnix) AS MinuteBucket,
-    avg(if(Count > 0, Sum / Count, 0)) AS Value,
-    sum(Count) AS SampleCount
+    avgState(if(Count > 0, Sum / Count, 0)) AS Value,
+    sumState(Count) AS SampleCount
 FROM otel_metrics_histogram
 GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
+
+-- View for backward compatibility: queries the materialized table with avgMerge to restore original semantics.
+CREATE VIEW IF NOT EXISTS v_otel_metrics_1m AS
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    MetricKind,
+    MinuteBucket,
+    avgMerge(Value) AS Value,
+    sumMerge(SampleCount) AS SampleCount
+FROM otel_metrics_1m_agg
+GROUP BY ServiceName, MetricName, AttrFingerprint, MetricKind, MinuteBucket;
 
 CREATE VIEW IF NOT EXISTS v_otel_metrics_anomaly AS
 SELECT
@@ -12914,9 +12949,11 @@ def _fetch_trace_metric_context(
             # Enrich with time-series, groups, and health chips.
             raw_series = cast(list[dict[str, object]], ctx.get("series") or [])
             # Keep sparklines aligned with visible metric rows. The context query
-            # already caps series count (limit_metrics), so requesting all names
-            # here stays bounded while preventing "no timeseries" on lower rows.
-            top_names = [str(s["metric"]) for s in raw_series]
+            # already caps series count (limit_metrics). Limit sparklines to top 6 to
+            # reduce memory pressure from concurrent timeseries queries. The materialized
+            # v_otel_metrics_1m table improves query efficiency; full sparkline coverage
+            # will be addressed in P4 via materialized views for pre-bucketed sparkline data.
+            top_names = [str(s["metric"]) for s in raw_series[:6]]
             # Ensure CPU is in timeseries if available.
             cpu_metric = next(
                 (str(s["metric"]) for s in raw_series if "cpu" in str(s["metric"]).lower()),
@@ -23962,6 +23999,7 @@ _QUERY_ALLOWED_TABLES_BUILTIN: frozenset[str] = frozenset(
         "otel_metrics_histogram_pinned",
         "sobs_anomaly_rules",
         "sobs_raw_windows",
+        "otel_metrics_1m_agg",
         "v_derived_signals_1m",
         "v_otel_metrics_1m",
         "v_otel_metrics_signal_context",
