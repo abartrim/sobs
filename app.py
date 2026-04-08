@@ -19393,6 +19393,7 @@ async def view_settings():
     notification_channels = _load_notification_channels(db)
     notification_rules = _load_notification_rules(db)
     k8s_settings = _load_k8s_settings(db)
+    backup_enabled = (_get_app_setting(db, "data_management.backup_enabled") or "0") == "1"
     return await render_template(
         "settings.html",
         tag_rule_count=len(tag_rules),
@@ -19402,6 +19403,7 @@ async def view_settings():
         notification_channel_count=len(notification_channels),
         notification_rule_count=len(notification_rules),
         kubernetes_view_enabled=k8s_settings.get("kubernetes.enabled") == "1",
+        backup_enabled=backup_enabled,
     )
 
 
@@ -26652,6 +26654,332 @@ async def api_kubernetes_status():
     data = _fetch_k8s_from_otel(db, query_opts)
     data["ok"] = True
     return jsonify(data)
+
+
+# ---------------------------------------------------------------------------
+# Data Management Settings  GET/POST /settings/data-management
+# ---------------------------------------------------------------------------
+
+_DM_SETTING_KEYS = (
+    "data_management.backup_enabled",
+    "data_management.s3_bucket",
+    "data_management.s3_access_key_id",
+    "data_management.s3_secret_access_key",
+    "data_management.s3_region",
+    "data_management.s3_path_prefix",
+    "data_management.s3_encrypt_backup",
+    "data_management.backup_encryption_password",
+    "data_management.backup_schedule_full",
+    "data_management.backup_schedule_incremental",
+    "data_management.ttl_logs_days",
+    "data_management.ttl_traces_days",
+    "data_management.ttl_metrics_hours",
+    "data_management.ttl_sessions_days",
+    "data_management.ttl_backup_coupling_enabled",
+)
+
+_DM_SENSITIVE_SETTING_KEYS = frozenset({
+    "data_management.s3_secret_access_key",
+    "data_management.backup_encryption_password",
+})
+
+# Tables managed by data-management TTL settings and the timestamp column to
+# use in the ALTER TABLE … MODIFY TTL expression.
+_DM_TTL_TABLES: tuple[tuple[str, str, str], ...] = (
+    # (table_name, timestamp_expr, setting_key)
+    ("otel_logs", "Timestamp", "data_management.ttl_logs_days"),
+    ("otel_traces", "Timestamp", "data_management.ttl_traces_days"),
+    ("hyperdx_sessions", "Timestamp", "data_management.ttl_sessions_days"),
+)
+
+# Metric tables use millisecond timestamps, handled separately.
+_DM_METRIC_TABLES: tuple[tuple[str, str], ...] = (
+    ("otel_metrics_gauge", "TimeUnixMs"),
+    ("otel_metrics_sum", "TimeUnixMs"),
+    ("otel_metrics_histogram", "TimeUnixMs"),
+)
+
+
+def _is_sensitive_dm_setting_key(key: str) -> bool:
+    return key in _DM_SENSITIVE_SETTING_KEYS
+
+
+def _load_dm_settings(db: "ChDbConnection") -> dict[str, str]:
+    """Load all data-management settings from sobs_app_settings."""
+    result: dict[str, str] = {k: "" for k in _DM_SETTING_KEYS}
+    for key in _DM_SETTING_KEYS:
+        raw = _get_app_setting_raw(db, key)
+        if raw:
+            result[key] = _decrypt_secret_value(raw) if _is_sensitive_dm_setting_key(key) else raw
+    return result
+
+
+def _get_app_setting_raw(db: "ChDbConnection", key: str) -> str:
+    """Return the raw (possibly encrypted) stored value without decryption."""
+    row = db.execute(
+        "SELECT Value FROM sobs_app_settings FINAL WHERE Key = ? LIMIT 1",
+        (key,),
+    ).fetchone()
+    return str(row[0]).strip() if row else ""
+
+
+def _set_dm_setting(db: "ChDbConnection", key: str, value: str) -> None:
+    stored = _encrypt_secret_value(value) if _is_sensitive_dm_setting_key(key) else value
+    _insert_rows_json_each_row(
+        db,
+        "sobs_app_settings",
+        [{"Key": key, "Value": stored, "UpdatedAt": int(time.time() * 1000)}],
+    )
+
+
+def _dm_settings_from_form(form: "dict[str, str]") -> dict[str, str]:
+    """Parse data-management settings from a submitted HTML form."""
+    return {
+        "data_management.backup_enabled": "1" if form.get("backup_enabled") == "1" else "0",
+        "data_management.s3_bucket": form.get("s3_bucket", "").strip(),
+        "data_management.s3_access_key_id": form.get("s3_access_key_id", "").strip(),
+        "data_management.s3_secret_access_key": form.get("s3_secret_access_key", "").strip(),
+        "data_management.s3_region": form.get("s3_region", "").strip(),
+        "data_management.s3_path_prefix": form.get("s3_path_prefix", "").strip(),
+        "data_management.s3_encrypt_backup": "1" if form.get("s3_encrypt_backup") == "1" else "0",
+        "data_management.backup_encryption_password": form.get("backup_encryption_password", "").strip(),
+        "data_management.backup_schedule_full": form.get("backup_schedule_full", "").strip(),
+        "data_management.backup_schedule_incremental": form.get("backup_schedule_incremental", "").strip(),
+        "data_management.ttl_logs_days": form.get("ttl_logs_days", "").strip(),
+        "data_management.ttl_traces_days": form.get("ttl_traces_days", "").strip(),
+        "data_management.ttl_metrics_hours": form.get("ttl_metrics_hours", "").strip(),
+        "data_management.ttl_sessions_days": form.get("ttl_sessions_days", "").strip(),
+        "data_management.ttl_backup_coupling_enabled": (
+            "1" if form.get("ttl_backup_coupling_enabled") == "1" else "0"
+        ),
+    }
+
+
+def _dm_backup_enabled(db: "ChDbConnection | None" = None) -> bool:
+    """Return True if the backup feature is enabled in settings."""
+    resolved_db = db if db is not None else get_db()
+    return (_get_app_setting(resolved_db, "data_management.backup_enabled") or "0") == "1"
+
+
+def _apply_dm_ttl(db: "ChDbConnection", settings: dict[str, str]) -> list[str]:
+    """Apply TTL settings to ClickHouse tables.  Returns list of errors (empty = success)."""
+    errors: list[str] = []
+    for table, ts_col, setting_key in _DM_TTL_TABLES:
+        raw_days = settings.get(setting_key, "").strip()
+        if not raw_days:
+            continue
+        try:
+            days = int(raw_days)
+            if days <= 0:
+                errors.append(f"{table}: TTL days must be a positive integer")
+                continue
+            stmt = f"ALTER TABLE {table} MODIFY TTL {ts_col} + INTERVAL {days} DAY"
+            db.execute(stmt)
+        except Exception as exc:
+            errors.append(f"{table}: {exc}")
+
+    raw_hours = settings.get("data_management.ttl_metrics_hours", "").strip()
+    if raw_hours:
+        try:
+            hours = int(raw_hours)
+            if hours <= 0:
+                errors.append("metrics: TTL hours must be a positive integer")
+            else:
+                for table, ts_col in _DM_METRIC_TABLES:
+                    try:
+                        stmt = (
+                            f"ALTER TABLE {table} MODIFY TTL "
+                            f"toDateTime(intDiv({ts_col}, 1000)) + INTERVAL {hours} HOUR"
+                        )
+                        db.execute(stmt)
+                    except Exception as exc:
+                        errors.append(f"{table}: {exc}")
+        except (ValueError, TypeError):
+            errors.append("metrics: TTL hours must be a positive integer")
+
+    return errors
+
+
+def _build_s3_backup_dest(settings: dict[str, str], backup_name: str) -> str:
+    """Build a ClickHouse S3 backup destination string from settings."""
+    bucket = settings.get("data_management.s3_bucket", "").strip().rstrip("/")
+    prefix = settings.get("data_management.s3_path_prefix", "").strip().strip("/")
+    region = settings.get("data_management.s3_region", "").strip()
+    access_key = settings.get("data_management.s3_access_key_id", "").strip()
+    secret_key = settings.get("data_management.s3_secret_access_key", "").strip()
+
+    path = f"{bucket}/{prefix}/{backup_name}" if prefix else f"{bucket}/{backup_name}"
+    # Ensure path starts with https:// if not already a full URL
+    if not path.startswith("http"):
+        endpoint = f"https://s3.{region}.amazonaws.com/{path}" if region else f"https://s3.amazonaws.com/{path}"
+    else:
+        endpoint = path
+
+    if access_key and secret_key:
+        return f"S3('{endpoint}', '{access_key}', '{secret_key}')"
+    return f"S3('{endpoint}')"
+
+
+def _list_dm_backups(db: "ChDbConnection", settings: dict[str, str]) -> list[dict[str, str]]:
+    """List available backups from ClickHouse system.backups table."""
+    try:
+        rows = db.execute(
+            "SELECT name, status, start_time, end_time, num_files, total_size, error "
+            "FROM system.backups ORDER BY start_time DESC LIMIT 100"
+        ).fetchall()
+        result = []
+        for row in rows:
+            result.append(
+                {
+                    "name": str(row[0]) if row[0] else "",
+                    "status": str(row[1]) if row[1] else "",
+                    "start_time": str(row[2]) if row[2] else "",
+                    "end_time": str(row[3]) if row[3] else "",
+                    "num_files": str(row[4]) if row[4] else "0",
+                    "total_size": str(row[5]) if row[5] else "0",
+                    "error": str(row[6]) if row[6] else "",
+                }
+            )
+        return result
+    except Exception:
+        return []
+
+
+def _run_dm_backup(
+    db: "ChDbConnection", settings: dict[str, str], backup_type: str = "full"
+) -> dict[str, str]:
+    """Run a ClickHouse BACKUP ALL command to S3.  Returns {ok, message}."""
+    if not settings.get("data_management.s3_bucket", "").strip():
+        return {"ok": "false", "message": "S3 bucket is not configured"}
+
+    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    backup_name = f"sobs-{backup_type}-{ts}"
+    dest = _build_s3_backup_dest(settings, backup_name)
+
+    base_clauses = []
+    if backup_type == "incremental":
+        # Attempt to find the most recent completed backup to use as base
+        backups = _list_dm_backups(db, settings)
+        completed = [b for b in backups if b.get("status") == "BACKUP_COMPLETE"]
+        if completed:
+            base_name = completed[0]["name"]
+            base_dest = _build_s3_backup_dest(settings, base_name)
+            base_clauses = [f"BASE_BACKUP {base_dest}"]
+
+    encrypt_clause = ""
+    if settings.get("data_management.s3_encrypt_backup") == "1":
+        enc_password = settings.get("data_management.backup_encryption_password", "").strip()
+        if not enc_password:
+            return {"ok": "false", "message": "Backup encryption is enabled but no encryption password is configured"}
+        safe_pw = enc_password.replace("'", "\\'")
+        encrypt_clause = f" SETTINGS compression_method='lz4', encryption_password='{safe_pw}'"
+
+    base_sql = f", {base_clauses[0]}" if base_clauses else ""
+    sql = f"BACKUP ALL TO {dest}{base_sql}{encrypt_clause}"
+    try:
+        db.execute(sql)
+        return {"ok": "true", "message": f"Backup '{backup_name}' started successfully"}
+    except Exception as exc:
+        return {"ok": "false", "message": str(exc)}
+
+
+def _run_dm_restore(
+    db: "ChDbConnection", settings: dict[str, str], backup_name: str
+) -> dict[str, str]:
+    """Restore from a named backup.  Returns {ok, message}."""
+    if not backup_name:
+        return {"ok": "false", "message": "backup_name is required"}
+    if not settings.get("data_management.s3_bucket", "").strip():
+        return {"ok": "false", "message": "S3 bucket is not configured"}
+
+    dest = _build_s3_backup_dest(settings, backup_name)
+    sql = f"RESTORE ALL FROM {dest}"
+    try:
+        db.execute(sql)
+        return {"ok": "true", "message": f"Restore from '{backup_name}' started successfully"}
+    except Exception as exc:
+        return {"ok": "false", "message": str(exc)}
+
+
+@app.route("/settings/data-management", methods=["GET"])
+@require_basic_auth
+async def view_dm_settings():
+    """Data management settings page (TTL, backup, restore)."""
+    db = get_db()
+    settings = _load_dm_settings(db)
+    flash_msg = request.args.get("msg", "")
+    flash_type = request.args.get("msg_type", "success")
+    return await render_template(
+        "settings_data_management.html",
+        dm_settings=settings,
+        flash_msg=flash_msg,
+        flash_type=flash_type,
+    )
+
+
+@app.route("/settings/data-management", methods=["POST"])
+@require_basic_auth
+async def save_dm_settings():
+    """Save data management settings and optionally apply TTL to tables."""
+    form = await request.form
+    new_settings = _dm_settings_from_form(dict(form))
+    db = get_db()
+    for key, value in new_settings.items():
+        if value:
+            _set_dm_setting(db, key, value)
+        else:
+            _del_app_setting(db, key)
+
+    # Apply TTL immediately if the form requested it
+    if form.get("apply_ttl") == "1":
+        errors = _apply_dm_ttl(db, new_settings)
+        if errors:
+            msg = "Settings saved but TTL errors: " + "; ".join(errors[:3])
+            redirect_url = url_for("view_dm_settings") + f"?msg={msg}&msg_type=warning"
+            return redirect(redirect_url)
+
+    redirect_url = url_for("view_dm_settings") + "?msg=Settings+saved&msg_type=success"
+    return redirect(redirect_url)
+
+
+@app.route("/api/data-management/backup/list", methods=["GET"])
+@require_basic_auth
+async def api_dm_backup_list():
+    """Return the list of available backups from system.backups."""
+    db = get_db()
+    settings = _load_dm_settings(db)
+    backups = _list_dm_backups(db, settings)
+    return jsonify({"ok": True, "backups": backups})
+
+
+@app.route("/api/data-management/backup/run", methods=["POST"])
+@require_basic_auth
+async def api_dm_backup_run():
+    """Trigger a ClickHouse BACKUP ALL to the configured S3 destination."""
+    if not _dm_backup_enabled():
+        return jsonify({"ok": False, "message": "Backup feature is disabled"}), 403
+    data = await request.get_json(silent=True) or {}
+    backup_type = str(data.get("type", "full")).lower()
+    if backup_type not in ("full", "incremental"):
+        backup_type = "full"
+    db = get_db()
+    settings = _load_dm_settings(db)
+    result = _run_dm_backup(db, settings, backup_type)
+    return jsonify({"ok": result["ok"] == "true", "message": result["message"]})
+
+
+@app.route("/api/data-management/restore", methods=["POST"])
+@require_basic_auth
+async def api_dm_restore():
+    """Restore from a named backup on the configured S3 destination."""
+    if not _dm_backup_enabled():
+        return jsonify({"ok": False, "message": "Backup feature is disabled"}), 403
+    data = await request.get_json(silent=True) or {}
+    backup_name = str(data.get("backup_name", "")).strip()
+    db = get_db()
+    settings = _load_dm_settings(db)
+    result = _run_dm_restore(db, settings, backup_name)
+    return jsonify({"ok": result["ok"] == "true", "message": result["message"]})
 
 
 if __name__ == "__main__":

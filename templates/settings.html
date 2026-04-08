@@ -277,6 +277,40 @@
       </div>
     </div>
   </div>
+
+  <!-- Data Management -->
+  <div class="col-md-6 col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body d-flex flex-column">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-database-down fs-4 text-danger"></i>
+          <h5 class="card-title mb-0">Data Management</h5>
+        </div>
+        <p class="card-text text-secondary small flex-grow-1">
+          Configure ClickHouse TTL for automatic data expiration, schedule full and incremental
+          S3 backups (with optional encryption), restore from previous backups, and couple TTL
+          windows with backup cycles to ensure expired data always has a backup.
+        </p>
+        <div class="d-flex align-items-center justify-content-between mt-2">
+          {% if backup_enabled %}
+          <span class="badge text-bg-success"><i class="bi bi-check-circle me-1"></i>Backup enabled</span>
+          {% else %}
+          <span class="badge text-bg-secondary">Backup disabled</span>
+          {% endif %}
+          <a href="{{ url_for('view_dm_settings') }}" class="btn btn-sm btn-outline-danger"
+             data-ai-action-id="settings.nav.data_management"
+             data-ai-action-type="navigate"
+             data-ai-handler="navigate"
+             data-ai-args='{"target_page":"/settings/data-management"}'
+             data-ai-label="Open data management settings"
+             data-ai-risk="high"
+             data-ai-confirm="true">
+            <i class="bi bi-pencil-square me-1"></i>Configure Data Management
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="mt-4">

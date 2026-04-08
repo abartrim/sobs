@@ -1,0 +1,440 @@
+{% extends "base.html" %}
+{% block title %}Data Management Settings{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-database-down me-2 text-danger"></i>Data Management</h4>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Settings
+  </a>
+</div>
+
+<p class="text-secondary small mb-3">
+  Configure ClickHouse TTL for automatic data expiration, S3 backup scheduling with optional
+  encryption, and backup-TTL coupling to ensure expired data always has a backup on record.
+  Backup and restore features are optional and can be disabled entirely.
+</p>
+
+{% if flash_msg %}
+<div class="alert alert-{{ flash_type }} alert-dismissible fade show" role="alert">
+  {{ flash_msg }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
+
+<form method="post" action="{{ url_for('save_dm_settings') }}">
+
+  <!-- ── TTL Configuration ───────────────────────────────────────────────── -->
+  <div class="card border-secondary mb-3">
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="bi bi-hourglass-split text-warning"></i>
+      <span class="fw-semibold">ClickHouse TTL</span>
+    </div>
+    <div class="card-body">
+      <p class="small text-secondary mb-3">
+        Set TTL (time-to-live) values for each telemetry table. After saving, click
+        <strong>Apply TTL to Tables</strong> to immediately execute the
+        <code>ALTER TABLE … MODIFY TTL</code> statements. Leave a field blank to skip
+        that table. Changes take effect on the next ClickHouse merge cycle.
+      </p>
+
+      <div class="row g-3">
+        <div class="col-sm-6 col-md-3">
+          <label for="ttl_logs_days" class="form-label small fw-semibold">
+            <i class="bi bi-file-text me-1 text-secondary"></i>Logs (days)
+          </label>
+          <input type="number" id="ttl_logs_days" name="ttl_logs_days" min="1"
+                 class="form-control form-control-sm"
+                 value="{{ dm_settings.get('data_management.ttl_logs_days', '') }}"
+                 placeholder="e.g. 30">
+          <div class="form-text">Table: <code>otel_logs</code></div>
+        </div>
+
+        <div class="col-sm-6 col-md-3">
+          <label for="ttl_traces_days" class="form-label small fw-semibold">
+            <i class="bi bi-diagram-2 me-1 text-secondary"></i>Traces (days)
+          </label>
+          <input type="number" id="ttl_traces_days" name="ttl_traces_days" min="1"
+                 class="form-control form-control-sm"
+                 value="{{ dm_settings.get('data_management.ttl_traces_days', '') }}"
+                 placeholder="e.g. 30">
+          <div class="form-text">Table: <code>otel_traces</code></div>
+        </div>
+
+        <div class="col-sm-6 col-md-3">
+          <label for="ttl_metrics_hours" class="form-label small fw-semibold">
+            <i class="bi bi-graph-up me-1 text-secondary"></i>Metrics (hours)
+          </label>
+          <input type="number" id="ttl_metrics_hours" name="ttl_metrics_hours" min="1"
+                 class="form-control form-control-sm"
+                 value="{{ dm_settings.get('data_management.ttl_metrics_hours', '') }}"
+                 placeholder="e.g. 48">
+          <div class="form-text">Tables: <code>otel_metrics_*</code></div>
+        </div>
+
+        <div class="col-sm-6 col-md-3">
+          <label for="ttl_sessions_days" class="form-label small fw-semibold">
+            <i class="bi bi-person-circle me-1 text-secondary"></i>Sessions (days)
+          </label>
+          <input type="number" id="ttl_sessions_days" name="ttl_sessions_days" min="1"
+                 class="form-control form-control-sm"
+                 value="{{ dm_settings.get('data_management.ttl_sessions_days', '') }}"
+                 placeholder="e.g. 14">
+          <div class="form-text">Table: <code>hyperdx_sessions</code></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Backup Settings ────────────────────────────────────────────────── -->
+  <div class="card border-secondary mb-3">
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="bi bi-cloud-arrow-up text-primary"></i>
+      <span class="fw-semibold">S3 Backup</span>
+    </div>
+    <div class="card-body">
+      <div class="mb-3">
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" role="switch" id="backupEnabled"
+                 name="backup_enabled" value="1"
+                 {% if dm_settings.get('data_management.backup_enabled') == '1' %}checked{% endif %}>
+          <label class="form-check-label fw-semibold" for="backupEnabled">
+            Enable Backup &amp; Restore
+          </label>
+        </div>
+        <div class="form-text text-secondary">
+          When disabled, the backup and restore API endpoints return <code>403</code>.
+          TTL settings are always available regardless of this toggle.
+        </div>
+      </div>
+
+      <div id="backupFields">
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label for="s3_bucket" class="form-label small fw-semibold">S3 Bucket URL</label>
+            <input type="text" id="s3_bucket" name="s3_bucket" class="form-control form-control-sm font-monospace"
+                   value="{{ dm_settings.get('data_management.s3_bucket', '') }}"
+                   placeholder="https://s3.us-east-1.amazonaws.com/my-sobs-backups"
+                   autocomplete="off" spellcheck="false">
+            <div class="form-text">
+              Full S3 endpoint URL or bucket name. E.g.
+              <code>https://s3.us-east-1.amazonaws.com/my-sobs-backups</code>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <label for="s3_region" class="form-label small fw-semibold">Region</label>
+            <input type="text" id="s3_region" name="s3_region" class="form-control form-control-sm"
+                   value="{{ dm_settings.get('data_management.s3_region', '') }}"
+                   placeholder="us-east-1">
+          </div>
+          <div class="col-md-3">
+            <label for="s3_path_prefix" class="form-label small fw-semibold">Path Prefix (optional)</label>
+            <input type="text" id="s3_path_prefix" name="s3_path_prefix" class="form-control form-control-sm font-monospace"
+                   value="{{ dm_settings.get('data_management.s3_path_prefix', '') }}"
+                   placeholder="backups/sobs">
+          </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label for="s3_access_key_id" class="form-label small fw-semibold">Access Key ID</label>
+            <input type="text" id="s3_access_key_id" name="s3_access_key_id"
+                   class="form-control form-control-sm font-monospace"
+                   value="{{ dm_settings.get('data_management.s3_access_key_id', '') }}"
+                   autocomplete="off" spellcheck="false">
+          </div>
+          <div class="col-md-6">
+            <label for="s3_secret_access_key" class="form-label small fw-semibold">Secret Access Key</label>
+            <input type="password" id="s3_secret_access_key" name="s3_secret_access_key"
+                   class="form-control form-control-sm font-monospace"
+                   value="{{ dm_settings.get('data_management.s3_secret_access_key', '') }}"
+                   autocomplete="new-password" spellcheck="false"
+                   placeholder="Leave blank to keep existing value">
+            <div class="form-text text-secondary">
+              Stored encrypted if <code>SOBS_SETTINGS_ENCRYPTION_KEY</code> is configured.
+            </div>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="s3EncryptBackup"
+                   name="s3_encrypt_backup" value="1"
+                   {% if dm_settings.get('data_management.s3_encrypt_backup') == '1' %}checked{% endif %}>
+            <label class="form-check-label small fw-semibold" for="s3EncryptBackup">
+              Encrypt backup archives
+            </label>
+          </div>
+          <div class="form-text text-secondary">
+            Enables ClickHouse native encryption for backup archives written to S3.
+          </div>
+        </div>
+
+        <div id="encryptPasswordField" {% if dm_settings.get('data_management.s3_encrypt_backup') != '1' %}style="display:none"{% endif %}>
+          <label for="backup_encryption_password" class="form-label small fw-semibold">Backup Encryption Password</label>
+          <input type="password" id="backup_encryption_password" name="backup_encryption_password"
+                 class="form-control form-control-sm font-monospace"
+                 value="{{ dm_settings.get('data_management.backup_encryption_password', '') }}"
+                 autocomplete="new-password" spellcheck="false"
+                 placeholder="Required when encryption is enabled">
+          <div class="form-text text-secondary">
+            Used as <code>encryption_password</code> in the ClickHouse BACKUP statement.
+            Stored encrypted if <code>SOBS_SETTINGS_ENCRYPTION_KEY</code> is configured.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Schedule ───────────────────────────────────────────────────────── -->
+  <div class="card border-secondary mb-3">
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="bi bi-calendar-check text-success"></i>
+      <span class="fw-semibold">Backup Schedule (documentation)</span>
+    </div>
+    <div class="card-body">
+      <p class="small text-secondary mb-3">
+        SOBS does not run an internal scheduler. Record these cron expressions in your external
+        scheduler (cron, Kubernetes CronJob, GitHub Actions schedule, etc.) and call the
+        <code>POST /api/data-management/backup/run</code> endpoint with
+        <code>{"type":"full"}</code> or <code>{"type":"incremental"}</code>.
+      </p>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label for="backup_schedule_full" class="form-label small fw-semibold">
+            Full backup schedule (cron)
+          </label>
+          <input type="text" id="backup_schedule_full" name="backup_schedule_full"
+                 class="form-control form-control-sm font-monospace"
+                 value="{{ dm_settings.get('data_management.backup_schedule_full', '') }}"
+                 placeholder="0 2 * * 0">
+          <div class="form-text">Weekly Sunday at 02:00 UTC</div>
+        </div>
+        <div class="col-md-6">
+          <label for="backup_schedule_incremental" class="form-label small fw-semibold">
+            Incremental backup schedule (cron)
+          </label>
+          <input type="text" id="backup_schedule_incremental" name="backup_schedule_incremental"
+                 class="form-control form-control-sm font-monospace"
+                 value="{{ dm_settings.get('data_management.backup_schedule_incremental', '') }}"
+                 placeholder="0 2 * * 1-6">
+          <div class="form-text">Mon–Sat at 02:00 UTC</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TTL / Backup Coupling ──────────────────────────────────────────── -->
+  <div class="card border-secondary mb-3">
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="bi bi-link-45deg text-warning"></i>
+      <span class="fw-semibold">TTL–Backup Coupling</span>
+    </div>
+    <div class="card-body">
+      <div class="mb-2">
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" role="switch"
+                 id="ttlBackupCouplingEnabled"
+                 name="ttl_backup_coupling_enabled" value="1"
+                 {% if dm_settings.get('data_management.ttl_backup_coupling_enabled') == '1' %}checked{% endif %}>
+          <label class="form-check-label fw-semibold" for="ttlBackupCouplingEnabled">
+            Remind me to verify backup coverage before TTL expires
+          </label>
+        </div>
+      </div>
+      <p class="small text-secondary mb-0">
+        When enabled, the data management page displays a warning whenever a configured
+        TTL window is shorter than the backup retention implied by your schedule.
+        This is an advisory indicator only — SOBS does not block TTL or backup operations.
+      </p>
+      {% if dm_settings.get('data_management.ttl_backup_coupling_enabled') == '1' %}
+      {% set ttl_days = dm_settings.get('data_management.ttl_logs_days', '') or
+                        dm_settings.get('data_management.ttl_traces_days', '') %}
+      {% set sched_full = dm_settings.get('data_management.backup_schedule_full', '') %}
+      {% if ttl_days and not sched_full %}
+      <div class="alert alert-warning py-2 small mt-2 mb-0">
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        TTL is configured but no full-backup schedule is recorded. Ensure backups run before
+        data expires.
+      </div>
+      {% endif %}
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── Save ───────────────────────────────────────────────────────────── -->
+  <div class="d-flex gap-2 flex-wrap">
+    <button type="submit" class="btn btn-sm btn-primary" name="apply_ttl" value="0">
+      <i class="bi bi-floppy me-1"></i>Save Settings
+    </button>
+    <button type="submit" class="btn btn-sm btn-warning" name="apply_ttl" value="1">
+      <i class="bi bi-hourglass-split me-1"></i>Save &amp; Apply TTL to Tables
+    </button>
+    <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary">Cancel</a>
+  </div>
+
+</form>
+
+<!-- ── Backup Actions ─────────────────────────────────────────────────── -->
+{% if dm_settings.get('data_management.backup_enabled') == '1' %}
+<hr class="my-4">
+<h5 class="fw-semibold mb-3"><i class="bi bi-cloud-arrow-up me-2 text-primary"></i>Run Backup / Restore</h5>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="fw-semibold mb-2">Full Backup</h6>
+        <p class="small text-secondary mb-3">
+          Back up all SOBS tables to the configured S3 destination.
+        </p>
+        <button class="btn btn-sm btn-outline-primary w-100" id="btnRunFullBackup">
+          <i class="bi bi-cloud-upload me-1"></i>Run Full Backup Now
+        </button>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="fw-semibold mb-2">Incremental Backup</h6>
+        <p class="small text-secondary mb-3">
+          Back up only data changed since the most recent completed backup.
+        </p>
+        <button class="btn btn-sm btn-outline-success w-100" id="btnRunIncrementalBackup">
+          <i class="bi bi-cloud-plus me-1"></i>Run Incremental Backup Now
+        </button>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="fw-semibold mb-2">Restore from Backup</h6>
+        <p class="small text-secondary mb-2">
+          Restore all tables from a selected backup. <strong class="text-danger">This overwrites
+          existing data.</strong>
+        </p>
+        <div class="input-group input-group-sm mb-2">
+          <input type="text" id="restoreBackupName" class="form-control font-monospace"
+                 placeholder="Backup name (from list below)">
+          <button class="btn btn-outline-danger" id="btnRunRestore">
+            <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="backupActionMsg" class="d-none alert mb-3"></div>
+
+<!-- ── Backup List ────────────────────────────────────────────────────── -->
+<div class="card border-secondary">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span class="fw-semibold"><i class="bi bi-list-ul me-1"></i>Available Backups</span>
+    <button class="btn btn-sm btn-outline-secondary" id="btnRefreshBackups">
+      <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+    </button>
+  </div>
+  <div class="card-body p-0" id="backupListContainer">
+    <div class="text-center text-secondary small py-3">
+      <span class="spinner-border spinner-border-sm me-1"></span>Loading backups…
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const BYTES_TO_MB = 1048576;
+  const MSG_TIMEOUT_MS = 8000;
+  const msgEl = document.getElementById('backupActionMsg');
+
+  function showMsg(text, type) {
+    msgEl.className = 'alert alert-' + type + ' mb-3';
+    msgEl.textContent = text;
+    msgEl.classList.remove('d-none');
+    setTimeout(() => msgEl.classList.add('d-none'), MSG_TIMEOUT_MS);
+  }
+
+  async function callApi(url, method, body) {
+    const resp = await fetch(url, {
+      method,
+      headers: {'Content-Type': 'application/json'},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return resp.json();
+  }
+
+  async function loadBackups() {
+    const container = document.getElementById('backupListContainer');
+    try {
+      const data = await callApi('/api/data-management/backup/list', 'GET', null);
+      if (!data.ok || !data.backups || data.backups.length === 0) {
+        container.innerHTML = '<p class="text-secondary small py-3 px-3 mb-0">No backups found.</p>';
+        return;
+      }
+      let html = '<div class="table-responsive"><table class="table table-sm table-hover mb-0 align-middle small">'
+        + '<thead><tr><th>Name</th><th>Status</th><th>Started</th><th>Ended</th><th>Files</th><th>Size</th></tr></thead><tbody>';
+      data.backups.forEach(b => {
+        const size = b.total_size ? (parseInt(b.total_size, 10) / BYTES_TO_MB).toFixed(1) + ' MB' : '—';
+        html += '<tr>'
+          + '<td class="font-monospace">' + escHtml(b.name) + '</td>'
+          + '<td>' + escHtml(b.status) + '</td>'
+          + '<td>' + escHtml(b.start_time) + '</td>'
+          + '<td>' + escHtml(b.end_time) + '</td>'
+          + '<td>' + escHtml(b.num_files) + '</td>'
+          + '<td>' + size + '</td>'
+          + '</tr>';
+      });
+      html += '</tbody></table></div>';
+      container.innerHTML = html;
+    } catch (e) {
+      container.innerHTML = '<p class="text-danger small py-3 px-3 mb-0">Failed to load backups: ' + escHtml(String(e)) + '</p>';
+    }
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  document.getElementById('btnRefreshBackups').addEventListener('click', loadBackups);
+
+  document.getElementById('btnRunFullBackup').addEventListener('click', async () => {
+    showMsg('Starting full backup…', 'info');
+    const data = await callApi('/api/data-management/backup/run', 'POST', {type: 'full'});
+    showMsg(data.message || (data.ok ? 'Backup started' : 'Error'), data.ok ? 'success' : 'danger');
+    if (data.ok) loadBackups();
+  });
+
+  document.getElementById('btnRunIncrementalBackup').addEventListener('click', async () => {
+    showMsg('Starting incremental backup…', 'info');
+    const data = await callApi('/api/data-management/backup/run', 'POST', {type: 'incremental'});
+    showMsg(data.message || (data.ok ? 'Backup started' : 'Error'), data.ok ? 'success' : 'danger');
+    if (data.ok) loadBackups();
+  });
+
+  document.getElementById('btnRunRestore').addEventListener('click', async () => {
+    const name = document.getElementById('restoreBackupName').value.trim();
+    if (!name) { showMsg('Enter a backup name to restore', 'warning'); return; }
+    if (!confirm('Restore from "' + name + '"? This will overwrite existing data.')) return;
+    showMsg('Starting restore…', 'info');
+    const data = await callApi('/api/data-management/restore', 'POST', {backup_name: name});
+    showMsg(data.message || (data.ok ? 'Restore started' : 'Error'), data.ok ? 'success' : 'danger');
+  });
+
+  // Show/hide encryption password field based on toggle
+  const encToggle = document.getElementById('s3EncryptBackup');
+  const encPwField = document.getElementById('encryptPasswordField');
+  if (encToggle && encPwField) {
+    encToggle.addEventListener('change', () => {
+      encPwField.style.display = encToggle.checked ? '' : 'none';
+    });
+  }
+
+  loadBackups();
+})();
+</script>
+{% endif %}
+{% endblock %}
