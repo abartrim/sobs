@@ -12080,7 +12080,9 @@ async def view_errors():
     limit = _parse_limit(100)
     offset = _parse_offset()
     sort_by, sort_col, sort_dir = _parse_sort(
-        {"Timestamp": "Timestamp", "ServiceName": "ServiceName", "count": "Timestamp"},
+        # In grouped mode 'count' and 'last_seen' are Python-sorted and don't map to a real SQL
+        # column — they both map to 'Timestamp' here purely to satisfy validation.
+        {"Timestamp": "Timestamp", "ServiceName": "ServiceName", "count": "Timestamp", "last_seen": "Timestamp"},
         "count" if grouped_mode else "Timestamp",
     )
     resolved_ids = _get_resolved_error_ids(db)
@@ -12097,6 +12099,8 @@ async def view_errors():
 
     if grouped_mode:
         # True deduplication: probe a large set and group by error fingerprint.
+        # The probe limit caps in-memory work; for very high-volume deployments
+        # the probe covers the most recent probe_limit raw events before grouping.
         probe_limit = max(2000, min(10000, limit * 100))
         probe_rows = db.execute(
             "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes "
@@ -12113,8 +12117,9 @@ async def view_errors():
                 continue
             group_key = _error_group_key(item)
             if group_key not in groups:
+                # Probe rows are DESC, so the first row for a key is the most recent occurrence.
                 groups[group_key] = {
-                    "representative": item,  # most recent occurrence (ORDER BY Timestamp DESC)
+                    "representative": item,
                     "count": 0,
                     "first_seen": item["ts"],
                     "last_seen": item["ts"],
@@ -12145,7 +12150,7 @@ async def view_errors():
             group_items.sort(key=lambda x: x["count"], reverse=(sort_dir == "desc"))
         elif sort_by == "ServiceName":
             group_items.sort(key=lambda x: x.get("service", ""), reverse=(sort_dir == "desc"))
-        else:  # Timestamp: sort by last_seen
+        else:  # last_seen (or legacy Timestamp alias): sort by most-recently seen group first
             group_items.sort(key=lambda x: x.get("last_seen", ""), reverse=(sort_dir == "desc"))
 
         total = len(group_items)
