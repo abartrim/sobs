@@ -84,12 +84,6 @@ jobs:
     name: Tests
     runs-on: ubuntu-latest
     needs: lint
-    env:
-      SOBS_CHDB_MAX_SERVER_MB: "256"
-      SOBS_CHDB_MARK_CACHE_MB: "8"
-      SOBS_CHDB_MAX_THREADS: "1"
-      SOBS_CHDB_SPILL_GROUP_BY_MB: "32"
-      SOBS_CHDB_SPILL_SORT_MB: "32"
     permissions:
       contents: read
     steps:
@@ -108,7 +102,7 @@ jobs:
             .github/cache-key-runtime.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest pytest-asyncio
+        run: pip install -r requirements.txt pytest pytest-asyncio psutil
 
       - name: Run unit tests
         run: pytest tests/test_app.py -v
@@ -117,12 +111,6 @@ jobs:
     name: Integration Tests
     runs-on: ubuntu-latest
     needs: test
-    env:
-      SOBS_CHDB_MAX_SERVER_MB: "256"
-      SOBS_CHDB_MARK_CACHE_MB: "8"
-      SOBS_CHDB_MAX_THREADS: "1"
-      SOBS_CHDB_SPILL_GROUP_BY_MB: "32"
-      SOBS_CHDB_SPILL_SORT_MB: "32"
     permissions:
       contents: read
     steps:
