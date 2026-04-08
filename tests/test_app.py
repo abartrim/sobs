@@ -14800,3 +14800,63 @@ class TestRawMetricsRetentionWindows:
         match = next((item for item in series if str(item.get("metric") or "") == metric), None)
         assert match is not None
         assert float(match.get("avg") or 0.0) < 100.0
+
+    def test_fetch_trace_metric_context_timeseries_covers_all_series_rows(self):
+        """Sparkline timeseries should be produced for every returned metric row."""
+        import time as _time
+
+        db = sobs_app.get_db()
+        uniq = str(_time.time_ns())
+        signal_ts = datetime.now(timezone.utc)
+        ts_str = signal_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        service = f"trace-timeseries-cover-{uniq}"
+        metric_names = [
+            f"kube_pod_status_phase_running.{uniq}",
+            f"tasks_state.{uniq}",
+            f"container_cpu_usage.{uniq}",
+        ]
+
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "otel_metrics_gauge",
+            [
+                {
+                    "TimeUnix": ts_str,
+                    "ServiceName": service,
+                    "MetricName": metric,
+                    "MetricDescription": "trace context metric",
+                    "MetricUnit": "1",
+                    "Attributes": {
+                        "k8s.namespace.name": "default",
+                        "k8s.node.name": "node-ts",
+                        "k8s.pod.name": "pod-ts",
+                    },
+                    "Value": float(idx + 1),
+                    "Flags": 0,
+                    "AttrFingerprint": f"fp-ts-{idx}-{uniq}",
+                }
+                for idx, metric in enumerate(metric_names)
+            ],
+        )
+
+        start_ts = datetime.fromtimestamp((signal_ts.timestamp() - 60), tz=timezone.utc).isoformat()
+        end_ts = datetime.fromtimestamp((signal_ts.timestamp() + 60), tz=timezone.utc).isoformat()
+        ctx = sobs_app._fetch_trace_metric_context(
+            db,
+            service_names=[service],
+            start_ts=start_ts,
+            end_ts=end_ts,
+            window_ids=[],
+            namespace_values=["default"],
+            pod_values=["pod-ts"],
+            node_values=["node-ts"],
+        )
+
+        series = ctx.get("series") or []
+        returned_metric_names = {str(item.get("metric") or "") for item in series}
+        assert returned_metric_names
+        assert set(metric_names).issubset(returned_metric_names)
+
+        ts = ctx.get("timeseries") or {}
+        by_metric = ts.get("by_metric") or {}
+        assert set(metric_names).issubset(set(by_metric.keys()))

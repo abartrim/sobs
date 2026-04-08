@@ -1483,10 +1483,12 @@ def _build_chdb_connect_target(path: str) -> str:
         if not os.path.isabs(config_file):
             raise RuntimeError(f"{CHDB_CONFIG_FILE_ENV} must be an absolute path to a mounted ClickHouse config.xml")
         encoded = urllib.parse.quote(config_file, safe="/")
-        return f"file:{path}?config-file={encoded}"
+        return f"{path}?config-file={encoded}"
 
     # Apply low-memory defaults; override via env vars for larger deployments.
-    # Tested: chDB honours these URL query params as server-level startup settings.
+    # Important: use the plain directory path with query params, not a file: URL.
+    # For directory-backed chDB stores, file:/... opens a different logical DB
+    # than the plain path on this runtime.
     max_server_mb = int(os.environ.get(CHDB_MAX_SERVER_MB_ENV, "512"))
     mark_cache_mb = int(os.environ.get(CHDB_MARK_CACHE_MB_ENV, "32"))
     params = urllib.parse.urlencode(
@@ -1495,7 +1497,7 @@ def _build_chdb_connect_target(path: str) -> str:
             "mark_cache_size": mark_cache_mb * 1024 * 1024,
         }
     )
-    return f"file:{path}?{params}"
+    return f"{path}?{params}"
 
 
 def _validate_chdb_startup_configuration(conn: "ChDbConnection") -> None:
@@ -12695,34 +12697,41 @@ def _fetch_trace_metric_context(
         bucket_ms = max(1, duration_ms // num_buckets)
         ticks_ms = [int(start_ms_int + (i + 0.5) * bucket_ms) for i in range(num_buckets)]
         metric_phs = ",".join(["?"] * len(top_metric_names))
-        if time_parse_mode == "utc":
-            start_clause = "TimeUnix >= parseDateTime64BestEffort(?, 9, 'UTC')"
-            end_clause = "TimeUnix <= parseDateTime64BestEffort(?, 9, 'UTC')"
-        else:
-            start_clause = "TimeUnix >= parseDateTime64BestEffort(?, 9)"
-            end_clause = "TimeUnix <= parseDateTime64BestEffort(?, 9)"
-        ts_where_parts = [
-            start_clause,
-            end_clause,
-            f"MetricName IN ({metric_phs})",
-        ] + list(extra_clauses)
-        ts_where_sql = " AND ".join(ts_where_parts)
-        ts_params: list[object] = [query_start_ts, query_end_ts] + list(top_metric_names) + list(extra_params)
-        ts_dedup = (
-            f"SELECT MetricName, TimeUnix, argMin(Value, SourceRank) AS Value "
-            f"FROM v_otel_metrics_dedup WHERE {ts_where_sql} "
-            f"GROUP BY MetricName, TimeUnix, AttrFingerprint"
-        )
-        ts_rows = db.execute(
-            f"SELECT MetricName, "
-            f"intDiv(toUnixTimestamp64Milli(TimeUnix) - {start_ms_int}, {bucket_ms}) AS BucketIdx, "
-            f"round(avg(Value), 6) AS AvgVal "
-            f"FROM ({ts_dedup}) AS src "
-            f"WHERE BucketIdx >= 0 AND BucketIdx < {num_buckets} "
-            f"GROUP BY MetricName, BucketIdx "
-            f"ORDER BY MetricName, BucketIdx",
-            ts_params,
-        ).fetchall()
+        # Prefer explicit UTC parsing for live telemetry; fallback to default
+        # parser to keep fixtures/older datasets working.
+        parse_modes = ["utc", "default"] if time_parse_mode != "default" else ["default", "utc"]
+        ts_rows: list[Any] = []
+        for mode in parse_modes:
+            if mode == "utc":
+                start_clause = "TimeUnix >= parseDateTime64BestEffort(?, 9, 'UTC')"
+                end_clause = "TimeUnix <= parseDateTime64BestEffort(?, 9, 'UTC')"
+            else:
+                start_clause = "TimeUnix >= parseDateTime64BestEffort(?, 9)"
+                end_clause = "TimeUnix <= parseDateTime64BestEffort(?, 9)"
+            ts_where_parts = [
+                start_clause,
+                end_clause,
+                f"MetricName IN ({metric_phs})",
+            ] + list(extra_clauses)
+            ts_where_sql = " AND ".join(ts_where_parts)
+            ts_params: list[object] = [query_start_ts, query_end_ts] + list(top_metric_names) + list(extra_params)
+            ts_dedup = (
+                f"SELECT MetricName, TimeUnix, argMin(Value, SourceRank) AS Value "
+                f"FROM v_otel_metrics_dedup WHERE {ts_where_sql} "
+                f"GROUP BY MetricName, TimeUnix, AttrFingerprint"
+            )
+            ts_rows = db.execute(
+                f"SELECT MetricName, "
+                f"intDiv(toUnixTimestamp64Milli(TimeUnix) - {start_ms_int}, {bucket_ms}) AS BucketIdx, "
+                f"round(avg(Value), 6) AS AvgVal "
+                f"FROM ({ts_dedup}) AS src "
+                f"WHERE BucketIdx >= 0 AND BucketIdx < {num_buckets} "
+                f"GROUP BY MetricName, BucketIdx "
+                f"ORDER BY MetricName, BucketIdx",
+                ts_params,
+            ).fetchall()
+            if ts_rows:
+                break
         by_metric: dict[str, list[float | None]] = {mn: [None] * num_buckets for mn in top_metric_names}
         for r in ts_rows:
             mname = str(r["MetricName"])
@@ -12904,7 +12913,10 @@ def _fetch_trace_metric_context(
             ctx["match_dimensions"] = dims
             # Enrich with time-series, groups, and health chips.
             raw_series = cast(list[dict[str, object]], ctx.get("series") or [])
-            top_names = [str(s["metric"]) for s in raw_series[:6]]
+            # Keep sparklines aligned with visible metric rows. The context query
+            # already caps series count (limit_metrics), so requesting all names
+            # here stays bounded while preventing "no timeseries" on lower rows.
+            top_names = [str(s["metric"]) for s in raw_series]
             # Ensure CPU is in timeseries if available.
             cpu_metric = next(
                 (str(s["metric"]) for s in raw_series if "cpu" in str(s["metric"]).lower()),
@@ -12912,10 +12924,7 @@ def _fetch_trace_metric_context(
             )
             final_top_names = top_names
             if cpu_metric and cpu_metric not in top_names:
-                if len(top_names) >= 6:
-                    final_top_names = [cpu_metric] + top_names[:5]
-                else:
-                    final_top_names = [cpu_metric] + top_names
+                final_top_names = [cpu_metric] + top_names
             elif cpu_metric:
                 final_top_names = [cpu_metric] + [m for m in top_names if m != cpu_metric]
             timeseries: dict[str, object] = {"ticks_ms": [], "by_metric": {}}

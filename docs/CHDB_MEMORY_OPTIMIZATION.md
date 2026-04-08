@@ -94,7 +94,7 @@ def _build_chdb_connect_target(path: str) -> str:
                 f"{CHDB_CONFIG_FILE_ENV} must be an absolute path to a mounted ClickHouse config.xml"
             )
         encoded = urllib.parse.quote(config_file, safe="/")
-        return f"file:{path}?config-file={encoded}"
+        return f"{path}?config-file={encoded}"
 
     # Apply sane low-memory defaults; override via env vars for larger deployments
     max_server_mb = int(os.environ.get("SOBS_CHDB_MAX_SERVER_MB", "512"))
@@ -103,8 +103,18 @@ def _build_chdb_connect_target(path: str) -> str:
         "max_server_memory_usage": max_server_mb * 1024 * 1024,
         "mark_cache_size": mark_cache_mb * 1024 * 1024,
     })
-    return f"file:{path}?{params}"
+    return f"{path}?{params}"
 ```
+
+### 1c. Important connect-target format caveat (directory-backed chDB)
+
+  During local validation, a runtime-specific path behavior was observed:
+
+  - `file:/.../data/sobs.chdb?...` opened a different logical DB state for a directory-backed store
+  - `/.../data/sobs.chdb?...` opened the expected existing dataset and still applied server settings
+
+  For SOBS with `sobs.chdb` as a directory, the connect target should use the plain directory path
+  with query parameters (no `file:` scheme prefix).
 
 | Env var | 256 MB profile | 1 GB profile | Description |
 |---|---|---|---|
@@ -313,6 +323,36 @@ the pre-aggregated table which is proportional to `(services × signals × time_
 
 This eliminates the dominant memory consumer in the visual path entirely and is the recommended
 approach once the P0–P2 fixes stabilise the container.
+
+---
+
+## Local Profiling Results (April 8, 2026)
+
+Profile run: local SOBS + ajba tenant snapshot, interactive usage for ~207 seconds.
+
+- Samples: 195 (1 second interval)
+- RSS MB: avg 599.70, p50 521.17, p95 850.02, peak 863.25, min 424.19
+- CPU %: avg 21.57, p50 0.0, p95 196.48, peak 200.3
+
+Interpretation:
+
+- Memory remains well above the 256 MB target under interactive usage.
+- Workload is bursty: mostly idle between requests, with short heavy multi-core spikes on demand.
+- This is consistent with expensive visual-path query bursts (aggregation/windowed scans).
+
+Immediate follow-up profiling plan:
+
+1. Correlate resource spikes with specific endpoints/pages by capturing request logs and resource
+   CSV in the same run.
+2. Focus reproduction on detailed trace metric context and metrics/anomaly pages.
+3. Rank top endpoint/query contributors by peak RSS deltas and apply targeted SQL rewrites.
+
+Related regression note:
+
+- Detailed trace metric sparklines (Kubernetes metrics group) regressed due to timestamp parsing
+  mode mismatch.
+- Fix applied in `app.py`: sparkline timeseries query now prefers `parseDateTime64BestEffort(..., 'UTC')`
+  and only falls back to default parser when UTC mode returns no rows.
 
 ---
 
