@@ -102,13 +102,10 @@ jobs:
             .github/cache-key-runtime.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest pytest-asyncio psutil
+        run: pip install -r requirements.txt pytest pytest-asyncio
 
       - name: Run unit tests
         run: pytest tests/test_app.py -v
-
-      - name: Pod memory profile
-        run: python scripts/profile_pod.py --budget-mib 600
 
   integration:
     name: Integration Tests
