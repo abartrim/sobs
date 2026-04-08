@@ -14,7 +14,7 @@ DURATION_SEC=300
 INTERVAL_SEC=1
 WAIT_SEC=120
 PID=""
-PROCESS_REGEX="python.*app.py"
+PROCESS_REGEX="(^|[[:space:]])(([^[:space:]]*/)?app\.py)([[:space:]]|$)"
 OUT_DIR="data/profiles"
 
 while [[ $# -gt 0 ]]; do
@@ -55,7 +55,21 @@ TS="$(date +%Y%m%d-%H%M%S)"
 CSV="$OUT_DIR/sobs-resource-profile-$TS.csv"
 
 find_pid() {
-  pgrep -f "$PROCESS_REGEX" | head -n 1 || true
+  ps -axo pid=,command= | awk -v re="$PROCESS_REGEX" '
+    {
+      pid=$1
+      $1=""
+      sub(/^ +/, "", $0)
+      cmd=$0
+      if (cmd ~ /rum_replay_test_app\.py|tests\/test_app\.py/) {
+        next
+      }
+      if (cmd ~ re) {
+        print pid
+        exit
+      }
+    }
+  ' || true
 }
 
 if [[ -z "$PID" ]]; then

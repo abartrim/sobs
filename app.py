@@ -1739,11 +1739,231 @@ def ensure_db_schema():
         _schema_ready = True
 
 
+def _ensure_otel_metrics_1m_materialized(db: ChDbConnection) -> None:
+    """Migrate minute-rollup metrics to the materialized aggregate table.
+
+    Fresh databases get these objects from ``SCHEMA`` directly. Existing databases
+    may already have legacy runtime views, so this helper ensures the aggregate
+    table/materialized views exist, backfills historical rows once when needed,
+    and replaces the compatibility views to read from the aggregate storage.
+    """
+
+    db.executescript("""
+CREATE TABLE IF NOT EXISTS otel_metrics_1m_agg (
+    ServiceName String,
+    MetricName String,
+    AttrFingerprint String,
+    MetricKind String,
+    MinuteBucket DateTime,
+    Value AggregateFunction(avg, Float64),
+    SampleCount AggregateFunction(sum, UInt64)
+) ENGINE = AggregatingMergeTree()
+ORDER BY (ServiceName, MetricName, AttrFingerprint, MetricKind, MinuteBucket)
+PARTITION BY toYYYYMM(MinuteBucket);
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_otel_metrics_1m_gauge
+TO otel_metrics_1m_agg
+AS SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    'gauge' AS MetricKind,
+    toStartOfMinute(TimeUnix) AS MinuteBucket,
+    avgState(Value) AS Value,
+    sumState(toUInt64(1)) AS SampleCount
+FROM otel_metrics_gauge
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_otel_metrics_1m_sum
+TO otel_metrics_1m_agg
+AS SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    'sum' AS MetricKind,
+    toStartOfMinute(TimeUnix) AS MinuteBucket,
+    avgState(Value) AS Value,
+    sumState(toUInt64(1)) AS SampleCount
+FROM otel_metrics_sum
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_otel_metrics_1m_histogram
+TO otel_metrics_1m_agg
+AS SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    'histogram' AS MetricKind,
+    toStartOfMinute(TimeUnix) AS MinuteBucket,
+    avgState(if(Count > 0, Sum / Count, 0)) AS Value,
+    sumState(Count) AS SampleCount
+FROM otel_metrics_histogram
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
+""")
+
+    agg_has_rows = db.execute("SELECT 1 FROM otel_metrics_1m_agg LIMIT 1").fetchone() is not None
+    if not agg_has_rows:
+        raw_has_rows = any(
+            db.execute(f"SELECT 1 FROM {table_name} LIMIT 1").fetchone() is not None
+            for table_name in ("otel_metrics_gauge", "otel_metrics_sum", "otel_metrics_histogram")
+        )
+        if raw_has_rows:
+            db.executescript("""
+INSERT INTO otel_metrics_1m_agg
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    'gauge' AS MetricKind,
+    toStartOfMinute(TimeUnix) AS MinuteBucket,
+    avgState(Value) AS Value,
+    sumState(toUInt64(1)) AS SampleCount
+FROM otel_metrics_gauge
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
+
+INSERT INTO otel_metrics_1m_agg
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    'sum' AS MetricKind,
+    toStartOfMinute(TimeUnix) AS MinuteBucket,
+    avgState(Value) AS Value,
+    sumState(toUInt64(1)) AS SampleCount
+FROM otel_metrics_sum
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
+
+INSERT INTO otel_metrics_1m_agg
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    'histogram' AS MetricKind,
+    toStartOfMinute(TimeUnix) AS MinuteBucket,
+    avgState(if(Count > 0, Sum / Count, 0)) AS Value,
+    sumState(Count) AS SampleCount
+FROM otel_metrics_histogram
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
+""")
+
+    db.executescript("""
+CREATE OR REPLACE VIEW v_otel_metrics_1m AS
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    MetricKind,
+    MinuteBucket,
+    avgMerge(Value) AS Value,
+    sumMerge(SampleCount) AS SampleCount
+FROM otel_metrics_1m_agg
+GROUP BY ServiceName, MetricName, AttrFingerprint, MetricKind, MinuteBucket;
+
+CREATE OR REPLACE VIEW v_otel_metrics_anomaly AS
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    MetricKind,
+    MinuteBucket AS time,
+    Value AS value,
+    SampleCount,
+    round(avg(Value) OVER w, 6) AS baseline_mean,
+    round(
+        sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ),
+        6
+    ) AS baseline_stddev,
+    round(
+        avg(Value) OVER w - 2.0 * sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ),
+        6
+    ) AS baseline_lower,
+    round(
+        avg(Value) OVER w + 2.0 * sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value) OVER w)
+            )
+        ),
+        6
+    ) AS baseline_upper,
+    round(
+        if(
+            sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w
+                        * avg(Value) OVER w)
+                )
+            ) > 0,
+            abs(Value - avg(Value) OVER w) / sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w
+                        * avg(Value) OVER w)
+                )
+            ),
+            0
+        ),
+        4
+    ) AS anomaly_score,
+    multiIf(
+        sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value)
+                    OVER w)
+            )
+        ) > 0
+            AND abs(Value - avg(Value) OVER w) > 3.0 * sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w
+                        * avg(Value) OVER w)
+                )
+            ),
+        'outlier',
+        sqrt(
+            greatest(
+                0.0,
+                avg(Value * Value) OVER w - (avg(Value) OVER w * avg(Value)
+                    OVER w)
+            )
+        ) > 0
+            AND abs(Value - avg(Value) OVER w) > 2.0 * sqrt(
+                greatest(
+                    0.0,
+                    avg(Value * Value) OVER w - (avg(Value) OVER w
+                        * avg(Value) OVER w)
+                )
+            ),
+        'warning',
+        'normal'
+    ) AS anomaly_state
+FROM v_otel_metrics_1m
+WINDOW w AS (
+    PARTITION BY ServiceName, MetricName, AttrFingerprint
+    ORDER BY MinuteBucket
+    ROWS BETWEEN 59 PRECEDING AND CURRENT ROW
+);
+""")
+
+
 def _ensure_post_schema_state(db: ChDbConnection) -> None:
     _ensure_anomaly_rule_schema(db)
     _ensure_notification_schema(db)
     _ensure_ai_memory_schema(db)
     _ensure_github_work_item_schema(db)
+    _ensure_otel_metrics_1m_materialized(db)
     _ensure_raw_metrics_retention(db)
     _prime_log_attr_key_cache(db)
     _seed_app_release_registry_from_env(db)
@@ -24289,6 +24509,9 @@ class ChdbSqlRunner:
                 "sobs_anomaly_rules => metric/anomaly rule definitions (threshold/comparator config),",
                 "not time-series values",
                 "v_derived_signals_1m => derived 1-minute signal values used as rule inputs",
+                "v_otel_metrics_1m => finalized 1-minute metric rollups for charts and trend queries",
+                "otel_metrics_1m_agg => aggregate-state backing table for 1-minute metrics; query with ",
+                "avgMerge(Value) and sumMerge(SampleCount) grouped by the dimension columns when using it directly",
                 "v_derived_signals_anomaly and v_otel_metrics_anomaly => anomaly-scored signal/metric outputs",
                 "",
                 "Signal windows:",
@@ -24339,6 +24562,11 @@ Rules:
     closest real table/column names from the provided schema.
 - Terminology disambiguation:
   - `sobs_anomaly_rules` = metric/anomaly rule definitions (configuration rows).
+    - `v_otel_metrics_1m` = finalized 1-minute metric rollups for trend/chart queries.
+    - `otel_metrics_1m_agg` = aggregate-state backing table for those 1-minute metric rollups.
+        If you query it directly, you MUST use `avgMerge(Value)` and `sumMerge(SampleCount)` and
+        `GROUP BY ServiceName, MetricName, AttrFingerprint, MetricKind, MinuteBucket` (or a subset
+        that still includes every selected non-aggregated column).
   - `v_derived_signals_1m` = derived signal time series before anomaly scoring.
   - `v_derived_signals_anomaly` and `v_otel_metrics_anomaly` = scored outputs with
       anomaly_state and anomaly_score.
@@ -24348,6 +24576,8 @@ Rules:
     query `sobs_anomaly_rules` first.
 - If asked about signal trends/values over time, prefer `v_derived_signals_1m`
     unless anomaly state/score is explicitly requested.
+- Prefer `v_otel_metrics_1m` over `otel_metrics_1m_agg` for normal charts unless the user
+    explicitly wants aggregate-state internals or a query that benefits from direct `avgMerge` access.
 - For signal, anomaly, alert, or incident-window questions, prefer
     `sobs_raw_windows` for window metadata and
     `v_otel_metrics_signal_context` for metrics that occurred inside those windows.

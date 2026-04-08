@@ -338,6 +338,102 @@ finally:
         assert "ok=1" in result.stdout
         assert "chDB connect target:" in result.stderr
 
+    async def test_init_db_upgrades_legacy_metric_rollup_view_and_backfills_history(self):
+        data_dir = tempfile.mkdtemp(prefix="sobs-chdb-upgrade-")
+        script = '''
+import app as sobs_app
+
+legacy_rollup_view = """
+CREATE OR REPLACE VIEW v_otel_metrics_1m AS
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    'gauge' AS MetricKind,
+    toStartOfMinute(TimeUnix) AS MinuteBucket,
+    avg(Value) AS Value,
+    count() AS SampleCount
+FROM otel_metrics_gauge
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    'sum' AS MetricKind,
+    toStartOfMinute(TimeUnix) AS MinuteBucket,
+    avg(Value) AS Value,
+    count() AS SampleCount
+FROM otel_metrics_sum
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket
+UNION ALL
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    'histogram' AS MetricKind,
+    toStartOfMinute(TimeUnix) AS MinuteBucket,
+    avg(if(Count > 0, Sum / Count, 0)) AS Value,
+    sum(Count) AS SampleCount
+FROM otel_metrics_histogram
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket
+"""
+
+sobs_app.init_db()
+db = sobs_app.get_db()
+try:
+    sobs_app._insert_rows_json_each_row(
+        db,
+        'otel_metrics_gauge',
+        [
+            {
+                'TimeUnix': '2026-04-08 10:00:00.000000',
+                'ServiceName': 'legacy-svc',
+                'MetricName': 'legacy.metric',
+                'MetricDescription': 'legacy metric',
+                'MetricUnit': '1',
+                'Attributes': {'env': 'test'},
+                'Value': 42.5,
+                'Flags': 0,
+                'AttrFingerprint': 'legacy-fp',
+            }
+        ],
+    )
+    db.execute('TRUNCATE TABLE otel_metrics_1m_agg')
+    db.execute(legacy_rollup_view)
+    sobs_app._shutdown_db_resources()
+    sobs_app.init_db()
+    db = sobs_app.get_db()
+    row = db.execute(
+        "SELECT MetricKind, Value, SampleCount FROM v_otel_metrics_1m "
+        "WHERE ServiceName='legacy-svc' AND MetricName='legacy.metric' "
+        "ORDER BY MinuteBucket DESC LIMIT 1"
+    ).fetchone()
+    agg_row = db.execute(
+        "SELECT count() AS c FROM otel_metrics_1m_agg "
+        "WHERE ServiceName='legacy-svc' AND MetricName='legacy.metric'"
+    ).fetchone()
+    view_row = db.execute(
+        "SELECT create_table_query FROM system.tables "
+        "WHERE database='default' AND name='v_otel_metrics_1m'"
+    ).fetchone()
+    print(f"value={row['Value'] if row else 'missing'}")
+    print(f"metric_kind={row['MetricKind'] if row else 'missing'}")
+    print(f"sample_count={row['SampleCount'] if row else 'missing'}")
+    print(f"agg_count={agg_row['c'] if agg_row else 0}")
+    print(f"uses_agg={'otel_metrics_1m_agg' in str(view_row['create_table_query'])}")
+finally:
+    sobs_app._shutdown_db_resources()
+'''
+
+        result = self._run_probe_script(script, {"SOBS_DATA_DIR": data_dir})
+        assert result.returncode == 0, result.stderr
+        assert "value=42.5" in result.stdout
+        assert "metric_kind=gauge" in result.stdout
+        assert "sample_count=1" in result.stdout
+        assert "agg_count=1" in result.stdout
+        assert "uses_agg=True" in result.stdout
+
     async def test_chdb_external_config_encrypted_disk_policy_active(self):
         base_dir = tempfile.mkdtemp(prefix="sobs-chdb-encrypted-")
         encryption_key = secrets.token_hex(16)
@@ -11639,6 +11735,15 @@ class TestChdbSqlRunner:
     def test_validate_sql_view_is_allowed(self):
         """Querying an allowed view (v_otel_metrics_1m) is permitted."""
         sobs_app.ChdbSqlRunner.validate_sql("SELECT * FROM v_otel_metrics_1m LIMIT 1")
+
+    def test_validate_sql_aggregate_metrics_table_is_allowed(self):
+        """Aggregate-state table is permitted when queries merge states explicitly."""
+        sobs_app.ChdbSqlRunner.validate_sql(
+            "SELECT ServiceName, MinuteBucket, avgMerge(Value) AS Value, "
+            "sumMerge(SampleCount) AS SampleCount "
+            "FROM otel_metrics_1m_agg "
+            "GROUP BY ServiceName, MinuteBucket LIMIT 1"
+        )
 
     def test_validate_sql_signal_window_table_is_allowed(self):
         """Querying sobs_raw_windows is permitted because it is an intentional NLQ surface."""
