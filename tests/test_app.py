@@ -3479,6 +3479,47 @@ class TestUIPages:
         assert a_hex in data
         assert b_hex in data
 
+    async def test_errors_grouped_mode_deduplicates_and_shows_count(self, client):
+        """Grouped errors view should deduplicate identical errors and show an occurrence count."""
+        now = int(time.time())
+
+        # Post three identical errors from the same service with the same type and message
+        for i in range(3):
+            await client.post(
+                "/v1/errors",
+                json={
+                    "service": "dedup-test-svc",
+                    "type": "DedupError",
+                    "message": "dedup test error message",
+                    "timestamp": f"2024-06-01T12:0{i}:00Z",
+                },
+            )
+
+        # Post one different error to ensure it is counted separately
+        await client.post(
+            "/v1/errors",
+            json={
+                "service": "dedup-test-svc",
+                "type": "OtherError",
+                "message": "a different error message",
+                "timestamp": "2024-06-01T12:05:00Z",
+            },
+        )
+
+        r = await client.get("/errors?grouped=1&service=dedup-test-svc&resolved=")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+
+        # The count badge for 3 occurrences should appear
+        assert "×3" in body
+        # The deduplicated error message should appear
+        assert "dedup test error message" in body
+        # First/last seen labels should appear for the grouped entry
+        assert "First seen:" in body
+        assert "Last seen:" in body
+        # The page should show "groups" not "records" in the header
+        assert "matching groups" in body
+
     async def test_root_mode_uses_root_relative_links(self, client):
         """Default deployment should generate links/assets without a path prefix."""
         r = await client.get("/")

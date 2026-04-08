@@ -12080,10 +12080,9 @@ async def view_errors():
     limit = _parse_limit(100)
     offset = _parse_offset()
     sort_by, sort_col, sort_dir = _parse_sort(
-        {"Timestamp": "Timestamp", "ServiceName": "ServiceName"},
-        "Timestamp",
+        {"Timestamp": "Timestamp", "ServiceName": "ServiceName", "count": "Timestamp"},
+        "count" if grouped_mode else "Timestamp",
     )
-    order_clause = f"ORDER BY {sort_col} {'ASC' if sort_dir == 'asc' else 'DESC'}"
     resolved_ids = _get_resolved_error_ids(db)
     where_parts = []
     where_params = []
@@ -12095,43 +12094,101 @@ async def view_errors():
     where_parts.extend(time_conditions)
     where_params.extend(time_params)
     where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
-    source_sql = (
-        "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes "
-        f"FROM ({ERROR_SOURCES_SQL}) {where_sql} "
-        f"{order_clause} LIMIT ? OFFSET ?"
-    )
 
-    if resolved not in ("0", "1"):
-        total = db.execute(
-            f"SELECT COUNT(*) FROM ({ERROR_SOURCES_SQL}) {where_sql}",
-            where_params,
-        ).fetchone()[0]
-        rows = db.execute(source_sql, where_params + [limit, offset]).fetchall()
-        errors = []
-        for row in rows:
+    if grouped_mode:
+        # True deduplication: probe a large set and group by error fingerprint.
+        probe_limit = max(2000, min(10000, limit * 100))
+        probe_rows = db.execute(
+            "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes "
+            f"FROM ({ERROR_SOURCES_SQL}) {where_sql} ORDER BY Timestamp DESC LIMIT ?",
+            where_params + [probe_limit],
+        ).fetchall()
+        target_resolved = resolved == "1"
+        filter_by_resolved = resolved in ("0", "1")
+        groups: dict[tuple[str, str, str], dict] = {}
+        for row in probe_rows:
             item = _build_error_item(dict(row))
             item["resolved"] = item["id"] in resolved_ids
-            errors.append(item)
+            if filter_by_resolved and item["resolved"] != target_resolved:
+                continue
+            group_key = _error_group_key(item)
+            if group_key not in groups:
+                groups[group_key] = {
+                    "representative": item,  # most recent occurrence (ORDER BY Timestamp DESC)
+                    "count": 0,
+                    "first_seen": item["ts"],
+                    "last_seen": item["ts"],
+                    "trace_ids": [],
+                }
+            g = groups[group_key]
+            g["count"] += 1
+            if item["ts"] < g["first_seen"]:
+                g["first_seen"] = item["ts"]
+            if item["ts"] > g["last_seen"]:
+                g["last_seen"] = item["ts"]
+            trace_value = str(item.get("trace_id") or "").strip()
+            if trace_value and trace_value not in g["trace_ids"]:
+                g["trace_ids"].append(trace_value)
+
+        group_items: list[dict] = []
+        for g in groups.values():
+            item = dict(g["representative"])
+            item["count"] = g["count"]
+            item["first_seen"] = g["first_seen"]
+            item["last_seen"] = g["last_seen"]
+            if g["trace_ids"]:
+                item["trace_ids"] = g["trace_ids"]
+                item["trace_ids_csv"] = ",".join(g["trace_ids"])
+            group_items.append(item)
+
+        if sort_by == "count":
+            group_items.sort(key=lambda x: x["count"], reverse=(sort_dir == "desc"))
+        elif sort_by == "ServiceName":
+            group_items.sort(key=lambda x: x.get("service", ""), reverse=(sort_dir == "desc"))
+        else:  # Timestamp: sort by last_seen
+            group_items.sort(key=lambda x: x.get("last_seen", ""), reverse=(sort_dir == "desc"))
+
+        total = len(group_items)
+        errors = group_items[offset: offset + limit]
     else:
-        # Keep behavior identical while avoiding full in-memory materialization.
-        target_resolved = resolved == "1"
-        scan_batch = max(200, limit)
-        scan_offset = 0
-        total = 0
-        errors = []
-        while True:
-            batch = db.execute(source_sql, where_params + [scan_batch, scan_offset]).fetchall()
-            if not batch:
-                break
-            for row in batch:
+        order_clause = f"ORDER BY {sort_col} {'ASC' if sort_dir == 'asc' else 'DESC'}"
+        source_sql = (
+            "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes "
+            f"FROM ({ERROR_SOURCES_SQL}) {where_sql} "
+            f"{order_clause} LIMIT ? OFFSET ?"
+        )
+
+        if resolved not in ("0", "1"):
+            total = db.execute(
+                f"SELECT COUNT(*) FROM ({ERROR_SOURCES_SQL}) {where_sql}",
+                where_params,
+            ).fetchone()[0]
+            rows = db.execute(source_sql, where_params + [limit, offset]).fetchall()
+            errors = []
+            for row in rows:
                 item = _build_error_item(dict(row))
                 item["resolved"] = item["id"] in resolved_ids
-                if item["resolved"] != target_resolved:
-                    continue
-                if total >= offset and len(errors) < limit:
-                    errors.append(item)
-                total += 1
-            scan_offset += scan_batch
+                errors.append(item)
+        else:
+            # Keep behavior identical while avoiding full in-memory materialization.
+            target_resolved = resolved == "1"
+            scan_batch = max(200, limit)
+            scan_offset = 0
+            total = 0
+            errors = []
+            while True:
+                batch = db.execute(source_sql, where_params + [scan_batch, scan_offset]).fetchall()
+                if not batch:
+                    break
+                for row in batch:
+                    item = _build_error_item(dict(row))
+                    item["resolved"] = item["id"] in resolved_ids
+                    if item["resolved"] != target_resolved:
+                        continue
+                    if total >= offset and len(errors) < limit:
+                        errors.append(item)
+                    total += 1
+                scan_offset += scan_batch
 
     now = time.time()
     services: list[str] = []
@@ -12152,40 +12209,6 @@ async def view_errors():
             _errors_services_cache["services"] = list(services)
             _errors_services_cache["expires_at"] = now + max(1, ERRORS_SERVICES_CACHE_TTL_SEC)
 
-    if grouped_mode and errors:
-        # In grouped mode, fan out a row's Logs link to all trace IDs in that group.
-        probe_limit = max(1000, min(5000, limit * 50))
-        probe_rows = db.execute(
-            "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes "
-            f"FROM ({ERROR_SOURCES_SQL}) {where_sql} {order_clause} LIMIT ?",
-            where_params + [probe_limit],
-        ).fetchall()
-        trace_ids_by_group: dict[tuple[str, str, str], list[str]] = {}
-        target_resolved = resolved == "1"
-        filter_by_resolved = resolved in ("0", "1")
-        for row in probe_rows:
-            item = _build_error_item(dict(row))
-            item["resolved"] = item["id"] in resolved_ids
-            if filter_by_resolved and item["resolved"] != target_resolved:
-                continue
-            group_key = _error_group_key(item)
-            trace_value = str(item.get("trace_id") or "").strip()
-            if not trace_value:
-                continue
-            trace_bucket = trace_ids_by_group.setdefault(group_key, [])
-            if trace_value not in trace_bucket:
-                trace_bucket.append(trace_value)
-
-        for item in errors:
-            group_key = _error_group_key(item)
-            trace_values = list(trace_ids_by_group.get(group_key, []))
-            primary_trace = str(item.get("trace_id") or "").strip()
-            if primary_trace and primary_trace not in trace_values:
-                trace_values.insert(0, primary_trace)
-            if trace_values:
-                item["trace_ids"] = trace_values
-                item["trace_ids_csv"] = ",".join(trace_values)
-
     work_item_links = _load_work_item_links_for_ref_ids(db, [e["id"] for e in errors])
 
     return await render_template(
@@ -12203,6 +12226,7 @@ async def view_errors():
         services=services,
         sort_by=sort_by,
         sort_dir=sort_dir,
+        grouped_mode=grouped_mode,
         work_item_links=work_item_links,
     )
 
