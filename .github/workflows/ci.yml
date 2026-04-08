@@ -107,6 +107,9 @@ jobs:
       - name: Run unit tests
         run: pytest tests/test_app.py -v
 
+      - name: Pod memory profile
+        run: python scripts/profile_pod.py --budget-mib 600
+
   integration:
     name: Integration Tests
     runs-on: ubuntu-latest
