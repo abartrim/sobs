@@ -81,9 +81,14 @@ jobs:
         run: mypy app.py
 
   test:
-    name: Tests
+    name: Tests (Shard ${{ matrix.shard_index }} of ${{ matrix.shard_count }})
     runs-on: ubuntu-latest
     needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        shard_index: [0, 1]
+        shard_count: [2]
     env:
       SOBS_CHDB_MAX_SERVER_MB: "256"
       SOBS_CHDB_MARK_CACHE_MB: "8"
@@ -110,8 +115,36 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt pytest pytest-asyncio
 
-      - name: Run unit tests
-        run: pytest tests/test_app.py -v
+      - name: Run unit tests (sharded)
+        env:
+          SHARD_INDEX: ${{ matrix.shard_index }}
+          SHARD_COUNT: ${{ matrix.shard_count }}
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+          import sys
+
+          shard_index = int(os.environ["SHARD_INDEX"])
+          shard_count = int(os.environ["SHARD_COUNT"])
+
+          collect_cmd = [sys.executable, "-m", "pytest", "tests/test_app.py", "--collect-only", "-q"]
+          collected = subprocess.check_output(collect_cmd, text=True)
+          nodeids = [
+              line.strip()
+              for line in collected.splitlines()
+              if "::" in line and not line.startswith("=") and not line.endswith("selected")
+          ]
+
+          shard_nodeids = [nodeid for i, nodeid in enumerate(nodeids) if i % shard_count == shard_index]
+          print(f"Collected {len(nodeids)} tests; running shard {shard_index + 1}/{shard_count} with {len(shard_nodeids)} tests")
+
+          if not shard_nodeids:
+              raise SystemExit(0)
+
+          run_cmd = [sys.executable, "-m", "pytest", "-v", *shard_nodeids]
+          raise SystemExit(subprocess.call(run_cmd))
+          PY
 
   integration:
     name: Integration Tests
