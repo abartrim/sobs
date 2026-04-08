@@ -24089,6 +24089,91 @@ class ChdbSqlRunner:
             return pd.DataFrame(columns=["name", "type", "default_kind", "comment"])
         return pd.DataFrame([dict(r) for r in rows])
 
+    def describe_table_extended(self, table: str, database: str = "default") -> list[dict]:
+        """Return extended column metadata for *table* including key and nullability info.
+
+        Each entry contains: name, type, is_nullable, is_primary_key,
+        is_sorting_key, default_kind, comment.
+        """
+        result = self._db.execute(
+            "SELECT name, type, default_kind, comment, "
+            "is_in_primary_key, is_in_sorting_key, is_in_partition_key "
+            "FROM system.columns WHERE database=? AND table=? ORDER BY position",
+            [database, table],
+        )
+        rows = result.fetchall()
+        columns: list[dict] = []
+        for row in rows:
+            r = dict(row)
+            type_str = str(r.get("type", "") or "")
+            columns.append(
+                {
+                    "name": str(r.get("name", "") or ""),
+                    "type": type_str,
+                    "is_nullable": "Nullable(" in type_str,
+                    "is_primary_key": bool(r.get("is_in_primary_key", 0)),
+                    "is_sorting_key": bool(r.get("is_in_sorting_key", 0)),
+                    "is_partition_key": bool(r.get("is_in_partition_key", 0)),
+                    "default_kind": str(r.get("default_kind", "") or ""),
+                    "comment": str(r.get("comment", "") or ""),
+                }
+            )
+        return columns
+
+    def get_table_ddl(self, table: str, database: str = "default") -> str:
+        """Return the DDL (CREATE TABLE statement) for *table*.
+
+        Returns an empty string if the DDL cannot be retrieved.
+        """
+        try:
+            fqn = f"{database}.{table}" if database and database != "default" else table
+            result = self._db.execute(f"SHOW CREATE TABLE `{fqn}`")
+            rows = result.fetchall()
+            if rows:
+                return str(rows[0][0])
+        except Exception:
+            pass
+        return ""
+
+    def get_table_sample(self, table: str, database: str = "default", limit: int = 5) -> dict:
+        """Return sample rows from *table* as ``{"columns": [...], "rows": [[...], ...]}``.
+
+        Only allowed tables are sampled.  Returns empty columns/rows on error.
+        """
+        if table not in _QUERY_ALLOWED_TABLES:
+            return {"columns": [], "rows": []}
+        try:
+            fqn = f"{database}.{table}" if database and database != "default" else table
+            sql = f"SELECT * FROM `{fqn}` LIMIT {int(limit)}"
+            df = self.run_sql(sql)
+            cols = list(df.columns)
+            rows = []
+            for _, row in df.iterrows():
+                rows.append([_json_safe_scalar(v) for v in row])
+            return {"columns": cols, "rows": rows}
+        except Exception:
+            return {"columns": [], "rows": []}
+
+    def get_allowed_tables_info(self, database: str = "default") -> list[dict]:
+        """Return metadata for all allowed tables that exist in *database*.
+
+        Each entry contains: name, column_count, columns list.
+        Tables are filtered to ``_QUERY_ALLOWED_TABLES``.
+        """
+        existing = set(self.get_tables(database))
+        allowed_existing = sorted(t for t in _QUERY_ALLOWED_TABLES if t in existing)
+        result: list[dict] = []
+        for table in allowed_existing:
+            cols = self.describe_table_extended(table, database)
+            result.append(
+                {
+                    "name": table,
+                    "column_count": len(cols),
+                    "columns": cols,
+                }
+            )
+        return result
+
     @staticmethod
     def _compact_clickhouse_type(type_name: str) -> str:
         """Return a compact ClickHouse-oriented type string for prompts."""
@@ -25854,6 +25939,113 @@ async def api_query_schema():
     runner = ChdbSqlRunner(db)
     schema = await asyncio.to_thread(runner.get_schema_context)
     return jsonify({"ok": True, "schema": schema})
+
+
+# ---------------------------------------------------------------------------
+# Table Explorer  GET /table-explorer
+# API             GET /api/table-explorer/tables
+#                 GET /api/table-explorer/table/<name>
+# ---------------------------------------------------------------------------
+
+
+@app.route("/table-explorer")
+@require_basic_auth
+async def view_table_explorer():
+    """Render the visual database table explorer page."""
+    if not _query_page_enabled():
+        return (
+            "Table Explorer is unavailable until AI and guard settings are configured.",
+            404,
+        )
+    return await render_template("table_explorer.html")
+
+
+@app.route("/api/table-explorer/tables", methods=["GET"])
+@require_basic_auth
+async def api_table_explorer_tables():
+    """Return metadata for all allowed tables (name, column count, columns).
+
+    Response shape::
+
+        {
+            "ok": true,
+            "tables": [
+                {
+                    "name": "otel_logs",
+                    "column_count": 12,
+                    "columns": [
+                        {
+                            "name": "Timestamp",
+                            "type": "DateTime64(9)",
+                            "is_nullable": false,
+                            "is_primary_key": false,
+                            "is_sorting_key": true,
+                            "is_partition_key": false,
+                            "default_kind": "",
+                            "comment": ""
+                        },
+                        ...
+                    ]
+                },
+                ...
+            ]
+        }
+    """
+    if not _query_page_enabled():
+        return jsonify({"ok": False, "error": "Table Explorer is unavailable."}), 404
+    db = get_db()
+    runner = ChdbSqlRunner(db)
+    try:
+        tables = await asyncio.to_thread(runner.get_allowed_tables_info)
+        return jsonify({"ok": True, "tables": tables})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/table-explorer/table/<name>", methods=["GET"])
+@require_basic_auth
+async def api_table_explorer_table(name: str):
+    """Return detailed info for a single allowed table: columns, DDL, and sample rows.
+
+    Response shape::
+
+        {
+            "ok": true,
+            "table": "otel_logs",
+            "columns": [...],
+            "ddl": "CREATE TABLE otel_logs ...",
+            "sample": {
+                "columns": ["Timestamp", "ServiceName", ...],
+                "rows": [["2024-01-01 00:00:00", "my-svc", ...], ...]
+            }
+        }
+    """
+    if not _query_page_enabled():
+        return jsonify({"ok": False, "error": "Table Explorer is unavailable."}), 404
+
+    # Validate table is in the allowlist
+    if name not in _QUERY_ALLOWED_TABLES:
+        return jsonify({"ok": False, "error": f"Table '{name}' is not accessible."}), 403
+
+    db = get_db()
+    runner = ChdbSqlRunner(db)
+    try:
+        columns, ddl, sample = await asyncio.gather(
+            asyncio.to_thread(runner.describe_table_extended, name),
+            asyncio.to_thread(runner.get_table_ddl, name),
+            asyncio.to_thread(runner.get_table_sample, name),
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "table": name,
+                "columns": columns,
+                "ddl": ddl,
+                "sample": sample,
+            }
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @app.route("/api/chart-types", methods=["GET"])

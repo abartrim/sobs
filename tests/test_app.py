@@ -12431,6 +12431,223 @@ class TestQueryRoutes:
         assert stored_option.get("title", {}).get("text") == "Tables"
 
 
+class TestTableExplorer:
+    """Integration tests for the Table Explorer feature (/table-explorer and /api/table-explorer/*)."""
+
+    @staticmethod
+    def _configured_query_settings() -> dict[str, str]:
+        return {
+            "ai.endpoint_url": "https://fake.llm/v1",
+            "ai.model": "test-model",
+            "ai.api_key": "",
+            "ai.guard_endpoint_url": "https://fake.guard/v1",
+            "ai.guard_model": "guard-model",
+        }
+
+    # ------------------------------------------------------------------
+    # View route
+    # ------------------------------------------------------------------
+
+    async def test_table_explorer_page_disabled_by_default(self, client, monkeypatch):
+        """The /table-explorer page returns 404 when required AI settings are missing."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: {})
+        r = await client.get("/table-explorer")
+        assert r.status_code == 404
+
+    async def test_table_explorer_page_enabled_when_configured(self, client, monkeypatch):
+        """The /table-explorer page renders successfully when query page is enabled."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/table-explorer")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Table Explorer" in text
+        assert "tableSearchInput" in text
+        assert "tableList" in text
+
+    # ------------------------------------------------------------------
+    # /api/table-explorer/tables
+    # ------------------------------------------------------------------
+
+    async def test_api_tables_disabled_without_settings(self, client, monkeypatch):
+        """The tables API returns 404 when query page is disabled."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: {})
+        r = await client.get("/api/table-explorer/tables")
+        assert r.status_code == 404
+
+    async def test_api_tables_returns_list(self, client, monkeypatch):
+        """The tables API returns a list of allowed tables with column metadata."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/api/table-explorer/tables")
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["ok"] is True
+        tables = data["tables"]
+        assert isinstance(tables, list)
+        # At least otel_logs should be present
+        names = [t["name"] for t in tables]
+        assert "otel_logs" in names
+
+    async def test_api_tables_each_has_columns(self, client, monkeypatch):
+        """Each table entry includes a 'columns' list with at least one entry."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/api/table-explorer/tables")
+        data = json.loads(await r.get_data())
+        for tbl in data["tables"]:
+            assert "columns" in tbl
+            assert isinstance(tbl["columns"], list)
+            assert len(tbl["columns"]) > 0
+
+    async def test_api_tables_column_has_required_fields(self, client, monkeypatch):
+        """Column entries have name, type, is_nullable, is_primary_key, is_sorting_key."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/api/table-explorer/tables")
+        data = json.loads(await r.get_data())
+        otel_logs = next(t for t in data["tables"] if t["name"] == "otel_logs")
+        col = otel_logs["columns"][0]
+        for field in ("name", "type", "is_nullable", "is_primary_key", "is_sorting_key"):
+            assert field in col, f"Missing field '{field}' in column entry"
+
+    async def test_api_tables_excludes_blocked_tables(self, client, monkeypatch):
+        """The tables API must not expose internal sobs_* settings tables."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/api/table-explorer/tables")
+        data = json.loads(await r.get_data())
+        names = [t["name"] for t in data["tables"]]
+        assert "sobs_ai_settings" not in names
+        assert "sobs_app_settings" not in names
+        assert "sobs_notification_channels" not in names
+
+    # ------------------------------------------------------------------
+    # /api/table-explorer/table/<name>
+    # ------------------------------------------------------------------
+
+    async def test_api_table_detail_disabled_without_settings(self, client, monkeypatch):
+        """The table detail API returns 404 when query page is disabled."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: {})
+        r = await client.get("/api/table-explorer/table/otel_logs")
+        assert r.status_code == 404
+
+    async def test_api_table_detail_blocked_for_internal_tables(self, client, monkeypatch):
+        """The table detail API returns 403 for internal sobs_* tables."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/api/table-explorer/table/sobs_ai_settings")
+        assert r.status_code == 403
+        data = json.loads(await r.get_data())
+        assert data["ok"] is False
+
+    async def test_api_table_detail_returns_columns_and_sample(self, client, monkeypatch):
+        """The table detail API returns columns, ddl, and sample for an allowed table."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/api/table-explorer/table/otel_logs")
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["ok"] is True
+        assert data["table"] == "otel_logs"
+        assert "columns" in data
+        assert isinstance(data["columns"], list)
+        assert len(data["columns"]) > 0
+        assert "sample" in data
+        assert "columns" in data["sample"]
+        assert "rows" in data["sample"]
+        assert "ddl" in data
+
+    async def test_api_table_detail_ddl_contains_create(self, client, monkeypatch):
+        """The DDL field for an allowed table should contain CREATE TABLE."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/api/table-explorer/table/otel_logs")
+        data = json.loads(await r.get_data())
+        assert "CREATE TABLE" in data.get("ddl", "").upper()
+
+    # ------------------------------------------------------------------
+    # ChdbSqlRunner extended methods
+    # ------------------------------------------------------------------
+
+    def test_describe_table_extended_returns_list(self):
+        """describe_table_extended returns a list of column dicts for otel_logs."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        cols = runner.describe_table_extended("otel_logs")
+        assert isinstance(cols, list)
+        assert len(cols) > 0
+
+    def test_describe_table_extended_column_fields(self):
+        """Each column dict has required fields including is_nullable and is_primary_key."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        cols = runner.describe_table_extended("otel_logs")
+        for col in cols:
+            for field in ("name", "type", "is_nullable", "is_primary_key", "is_sorting_key"):
+                assert field in col, f"Missing field '{field}'"
+
+    def test_describe_table_extended_nonexistent_returns_empty(self):
+        """describe_table_extended returns empty list for a nonexistent table."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        cols = runner.describe_table_extended("this_table_xyz_does_not_exist")
+        assert isinstance(cols, list)
+        assert len(cols) == 0
+
+    def test_get_table_ddl_returns_string(self):
+        """get_table_ddl returns a non-empty string for an existing table."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        ddl = runner.get_table_ddl("otel_logs")
+        assert isinstance(ddl, str)
+        assert len(ddl) > 0
+        assert "otel_logs" in ddl
+
+    def test_get_table_ddl_nonexistent_returns_empty(self):
+        """get_table_ddl returns empty string for a nonexistent table."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        ddl = runner.get_table_ddl("this_table_xyz_does_not_exist")
+        assert ddl == ""
+
+    def test_get_table_sample_returns_dict(self):
+        """get_table_sample returns a dict with columns and rows for an allowed table."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        sample = runner.get_table_sample("otel_logs")
+        assert isinstance(sample, dict)
+        assert "columns" in sample
+        assert "rows" in sample
+        assert isinstance(sample["columns"], list)
+        assert isinstance(sample["rows"], list)
+
+    def test_get_table_sample_blocked_for_non_allowed(self):
+        """get_table_sample returns empty result for a non-allowed table."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        sample = runner.get_table_sample("sobs_ai_settings")
+        assert sample["columns"] == []
+        assert sample["rows"] == []
+
+    def test_get_allowed_tables_info_returns_list(self):
+        """get_allowed_tables_info returns a non-empty list."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        tables = runner.get_allowed_tables_info()
+        assert isinstance(tables, list)
+        assert len(tables) > 0
+
+    def test_get_allowed_tables_info_includes_otel_logs(self):
+        """get_allowed_tables_info includes otel_logs."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        tables = runner.get_allowed_tables_info()
+        names = [t["name"] for t in tables]
+        assert "otel_logs" in names
+
+    def test_get_allowed_tables_info_excludes_blocked_tables(self):
+        """get_allowed_tables_info does not include internal settings tables."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        tables = runner.get_allowed_tables_info()
+        names = [t["name"] for t in tables]
+        assert "sobs_ai_settings" not in names
+        assert "sobs_app_settings" not in names
+
+
 class TestChartSpecHelpers:
     async def test_generate_chart_spec_rejects_empty_object(self, monkeypatch):
         async def _fake_llm(*_a, **_kw):
