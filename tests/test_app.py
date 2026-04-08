@@ -387,7 +387,7 @@ try:
         'otel_metrics_gauge',
         [
             {
-                'TimeUnix': '2026-04-08 10:00:00.000000',
+                'TimeUnix': '2026-04-07 10:00:00.000000',
                 'ServiceName': 'legacy-svc',
                 'MetricName': 'legacy.metric',
                 'MetricDescription': 'legacy metric',
@@ -401,6 +401,12 @@ try:
     )
     db.execute('TRUNCATE TABLE otel_metrics_1m_agg')
     db.execute(legacy_rollup_view)
+    sobs_app._del_app_setting(db, sobs_app._OTEL_METRICS_1M_BACKFILL_STATE_SETTING)
+    sobs_app._del_app_setting(db, sobs_app._OTEL_METRICS_1M_BACKFILL_CUTOFF_SETTING)
+    sobs_app._del_app_setting(db, sobs_app._OTEL_METRICS_1M_BACKFILL_ERROR_SETTING)
+    sobs_app._del_app_setting(db, sobs_app._otel_metrics_1m_backfill_cursor_setting('otel_metrics_gauge'))
+    sobs_app._del_app_setting(db, sobs_app._otel_metrics_1m_backfill_cursor_setting('otel_metrics_sum'))
+    sobs_app._del_app_setting(db, sobs_app._otel_metrics_1m_backfill_cursor_setting('otel_metrics_histogram'))
     sobs_app._shutdown_db_resources()
     sobs_app.init_db()
     db = sobs_app.get_db()
@@ -432,6 +438,72 @@ finally:
         assert "metric_kind=gauge" in result.stdout
         assert "sample_count=1" in result.stdout
         assert "agg_count=1" in result.stdout
+        assert "uses_agg=True" in result.stdout
+
+    async def test_metric_rollup_backfill_failure_is_non_fatal(self):
+        data_dir = tempfile.mkdtemp(prefix="sobs-chdb-backfill-failure-")
+        script = """
+import types
+from datetime import datetime, timedelta, timezone
+
+import app as sobs_app
+
+sobs_app.init_db()
+db = sobs_app.get_db()
+try:
+    day_str = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+    sobs_app._insert_rows_json_each_row(
+        db,
+        'otel_metrics_gauge',
+        [
+            {
+                'TimeUnix': f"{day_str} 10:00:00.000000",
+                'ServiceName': 'oom-svc',
+                'MetricName': 'oom.metric',
+                'MetricDescription': 'oom metric',
+                'MetricUnit': '1',
+                'Attributes': {'env': 'test'},
+                'Value': 1.0,
+                'Flags': 0,
+                'AttrFingerprint': 'oom-fp',
+            }
+        ],
+    )
+    db.execute('TRUNCATE TABLE otel_metrics_1m_agg')
+    sobs_app._del_app_setting(db, sobs_app._OTEL_METRICS_1M_BACKFILL_STATE_SETTING)
+    sobs_app._del_app_setting(db, sobs_app._OTEL_METRICS_1M_BACKFILL_CUTOFF_SETTING)
+    sobs_app._del_app_setting(db, sobs_app._OTEL_METRICS_1M_BACKFILL_ERROR_SETTING)
+    sobs_app._del_app_setting(db, sobs_app._otel_metrics_1m_backfill_cursor_setting('otel_metrics_gauge'))
+    sobs_app._del_app_setting(db, sobs_app._otel_metrics_1m_backfill_cursor_setting('otel_metrics_sum'))
+    sobs_app._del_app_setting(db, sobs_app._otel_metrics_1m_backfill_cursor_setting('otel_metrics_histogram'))
+
+    original_execute = db.execute
+
+    def flaky_execute(self, query, params=None):
+        if str(query).lstrip().startswith('INSERT INTO otel_metrics_1m_agg'):
+            raise Exception('Code: 241. DB::Exception: MEMORY_LIMIT_EXCEEDED')
+        return original_execute(query, params)
+
+    db.execute = types.MethodType(flaky_execute, db)
+    sobs_app._ensure_otel_metrics_1m_materialized(db)
+
+    state = sobs_app._get_app_setting(db, sobs_app._OTEL_METRICS_1M_BACKFILL_STATE_SETTING)
+    error = sobs_app._get_app_setting(db, sobs_app._OTEL_METRICS_1M_BACKFILL_ERROR_SETTING)
+    view_row = db.execute(
+        "SELECT create_table_query FROM system.tables "
+        "WHERE database='default' AND name='v_otel_metrics_1m'"
+    ).fetchone()
+    print(f"state={state}")
+    print(f"error_contains_memory={'MEMORY_LIMIT_EXCEEDED' in str(error)}")
+    print(f"uses_agg={'otel_metrics_1m_agg' in str(view_row['create_table_query'])}")
+finally:
+    sobs_app._shutdown_db_resources()
+"""
+
+        result = self._run_probe_script(script, {"SOBS_DATA_DIR": data_dir})
+        assert result.returncode == 0, result.stderr
+        assert "state=partial" in result.stdout
+        assert "error_contains_memory=True" in result.stdout
         assert "uses_agg=True" in result.stdout
 
     async def test_chdb_external_config_encrypted_disk_policy_active(self):
