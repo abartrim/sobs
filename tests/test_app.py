@@ -13815,15 +13815,13 @@ class TestWebTraffic:
 class TestDbStats:
     """Tests for the chDB database stats panel on the summary page."""
 
-    async def test_summary_page_shows_database_stats_panel(self, client):
-        """Summary page renders the Database Stats card."""
+    async def test_summary_page_does_not_show_database_stats_panel(self, client):
+        """Summary page no longer renders the Database Stats card."""
         r = await client.get("/")
         assert r.status_code == 200
         html = (await r.get_data()).decode()
-        assert "Database Stats" in html
-        assert "Compressed size" in html
-        assert "Compression ratio" in html
-        assert "Active queries" in html
+        assert "Database Stats" not in html
+        assert "Compressed size" not in html
 
     def test_get_db_stats_returns_expected_keys(self):
         """_get_db_stats returns a dict with the required metric keys."""
@@ -13863,6 +13861,36 @@ class TestDbStats:
         assert result["compressed_bytes"] is None
         assert result["active_queries"] is None
         assert result["tables"] == []
+
+
+class TestDbStatsOnDataManagement:
+    """Tests for Database Stats panel on the Data Management settings page."""
+
+    async def test_data_management_page_shows_database_stats_section(self, client):
+        """Data Management page renders the Database Stats & Retention section."""
+        r = await client.get("/settings/data-management")
+        assert r.status_code == 200
+        html = (await r.get_data()).decode()
+        assert "Database Stats" in html
+        assert "Compressed size" in html
+        assert "Compression ratio" in html
+        assert "Active queries" in html
+
+    async def test_data_management_page_has_retention_section_header(self, client):
+        """Data Management page includes the 'Database Stats & Retention' section header."""
+        r = await client.get("/settings/data-management")
+        assert r.status_code == 200
+        html = (await r.get_data()).decode()
+        assert "Database Stats" in html
+        assert "Retention" in html
+
+    async def test_data_management_page_has_backups_storage_section_header(self, client):
+        """Data Management page includes the 'Backups & Storage' section header."""
+        r = await client.get("/settings/data-management")
+        assert r.status_code == 200
+        html = (await r.get_data()).decode()
+        assert "Backups" in html
+        assert "Storage" in html
 
 
 class TestKubernetesRoutes:

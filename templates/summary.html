@@ -283,68 +283,6 @@
   </div>
   {% endif %}
 
-  <!-- Database Stats -->
-  <div class="col-lg-6">
-    <div class="card border-secondary h-100">
-      <div class="card-header">
-        <i class="bi bi-database me-1 text-info"></i>Database Stats
-      </div>
-      <div class="card-body p-0">
-        <table class="table table-sm mb-0">
-          <tbody>
-            <tr>
-              <td class="text-secondary">Compressed size</td>
-              <td class="fw-semibold">{{ fmt_bytes(db_stats.compressed_bytes) }}</td>
-            </tr>
-            <tr>
-              <td class="text-secondary">Uncompressed size</td>
-              <td class="fw-semibold">{{ fmt_bytes(db_stats.uncompressed_bytes) }}</td>
-            </tr>
-            <tr>
-              <td class="text-secondary">Compression ratio</td>
-              <td class="fw-semibold">
-                {% if db_stats.compression_ratio is not none %}{{ db_stats.compression_ratio }}×{% else %}—{% endif %}
-              </td>
-            </tr>
-            <tr>
-              <td class="text-secondary">Total rows (active parts)</td>
-              <td class="fw-semibold">
-                {% if db_stats.total_rows is not none %}{{ "{:,}".format(db_stats.total_rows) }}{% else %}—{% endif %}
-              </td>
-            </tr>
-            <tr>
-              <td class="text-secondary">Active queries</td>
-              <td class="fw-semibold">
-                {% if db_stats.active_queries is not none %}
-                  <span class="{% if db_stats.active_queries > 0 %}text-warning{% else %}text-success{% endif %}">
-                    {{ db_stats.active_queries }}
-                  </span>
-                {% else %}—{% endif %}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        {% if db_stats.tables %}
-        <div class="px-3 pb-2 pt-1">
-          <div class="text-secondary small mb-1">Top tables by size</div>
-          <table class="table table-sm table-hover mb-0">
-            <thead><tr><th>Table</th><th>Size</th><th>Ratio</th><th>Rows</th></tr></thead>
-            <tbody>
-              {% for t in db_stats.tables %}
-              <tr>
-                <td class="small font-monospace text-truncate" style="max-width:140px;" title="{{ t.table }}">{{ t.table }}</td>
-                <td class="small">{{ fmt_bytes(t.compressed_bytes) }}</td>
-                <td class="small">{% if t.compression_ratio is not none %}{{ t.compression_ratio }}×{% else %}—{% endif %}</td>
-                <td class="small">{{ "{:,}".format(t.rows) }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        {% endif %}
-      </div>
-    </div>
-  </div>
 </div>
 {% endblock %}
 

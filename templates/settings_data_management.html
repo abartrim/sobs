@@ -26,6 +26,75 @@
 </div>
 {% endif %}
 
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Section 1: Database Stats & Retention                                  -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h5 class="fw-semibold mt-1 mb-3">
+  <i class="bi bi-database me-2 text-info"></i>Database Stats &amp; Retention
+</h5>
+
+<!-- ── Database Stats ────────────────────────────────────────────────── -->
+<div class="card border-secondary mb-3">
+  <div class="card-header d-flex align-items-center gap-2">
+    <i class="bi bi-bar-chart-line text-info"></i>
+    <span class="fw-semibold">Database Stats</span>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <tbody>
+        <tr>
+          <td class="text-secondary">Compressed size</td>
+          <td class="fw-semibold">{{ fmt_bytes(db_stats.compressed_bytes) }}</td>
+        </tr>
+        <tr>
+          <td class="text-secondary">Uncompressed size</td>
+          <td class="fw-semibold">{{ fmt_bytes(db_stats.uncompressed_bytes) }}</td>
+        </tr>
+        <tr>
+          <td class="text-secondary">Compression ratio</td>
+          <td class="fw-semibold">
+            {% if db_stats.compression_ratio is not none %}{{ db_stats.compression_ratio }}×{% else %}—{% endif %}
+          </td>
+        </tr>
+        <tr>
+          <td class="text-secondary">Total rows (active parts)</td>
+          <td class="fw-semibold">
+            {% if db_stats.total_rows is not none %}{{ "{:,}".format(db_stats.total_rows) }}{% else %}—{% endif %}
+          </td>
+        </tr>
+        <tr>
+          <td class="text-secondary">Active queries</td>
+          <td class="fw-semibold">
+            {% if db_stats.active_queries is not none %}
+              <span class="{% if db_stats.active_queries > 0 %}text-warning{% else %}text-success{% endif %}">
+                {{ db_stats.active_queries }}
+              </span>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    {% if db_stats.tables %}
+    <div class="px-3 pb-2 pt-1">
+      <div class="text-secondary small mb-1">Top tables by size</div>
+      <table class="table table-sm table-hover mb-0">
+        <thead><tr><th>Table</th><th>Size</th><th>Ratio</th><th>Rows</th></tr></thead>
+        <tbody>
+          {% for t in db_stats.tables %}
+          <tr>
+            <td class="small font-monospace text-truncate" style="max-width:140px;" title="{{ t.table }}">{{ t.table }}</td>
+            <td class="small">{{ fmt_bytes(t.compressed_bytes) }}</td>
+            <td class="small">{% if t.compression_ratio is not none %}{{ t.compression_ratio }}×{% else %}—{% endif %}</td>
+            <td class="small">{{ "{:,}".format(t.rows) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
 <form method="post" action="{{ url_for('save_dm_settings') }}">
 
   <!-- ── TTL Configuration ───────────────────────────────────────────────── -->
@@ -89,6 +158,13 @@
       </div>
     </div>
   </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <!-- Section 2: Backups & Storage                                          -->
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <h5 class="fw-semibold mt-4 mb-3">
+    <i class="bi bi-cloud-arrow-up me-2 text-primary"></i>Backups &amp; Storage
+  </h5>
 
   <!-- ── Backup Settings ────────────────────────────────────────────────── -->
   <div class="card border-secondary mb-3">

@@ -9878,8 +9878,6 @@ async def summary():
         except Exception:
             app.logger.exception("summary cve overview query failed")
 
-    db_stats = _get_db_stats(db)
-
     return await render_template(
         "summary.html",
         stats=stats,
@@ -9889,8 +9887,6 @@ async def summary():
         ai_summary=ai_summary,
         signal_health=_get_signal_health_by_service(db),
         cve_overview=cve_overview,
-        db_stats=db_stats,
-        fmt_bytes=_fmt_bytes,
     )
 
 
@@ -27532,12 +27528,15 @@ async def view_dm_settings():
     }
     flash_msg = request.args.get("msg", "")
     flash_type = request.args.get("msg_type", "success")
+    db_stats = _get_db_stats(db)
     return await render_template(
         "settings_data_management.html",
         dm_settings=settings,
         dm_secret_present=dm_secret_present,
         flash_msg=flash_msg,
         flash_type=flash_type,
+        db_stats=db_stats,
+        fmt_bytes=_fmt_bytes,
     )
 
 
