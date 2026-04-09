@@ -20,26 +20,39 @@ Usage
       threshold.
    c. Trigger a test notification to verify the channel.
 
+Webhook URL caveat
+------------------
+- If SOBS runs in Docker, use `http://host.docker.internal:<WEBHOOK_PORT>/webhook`.
+- If SOBS runs directly on your host (not in Docker), use `http://localhost:<WEBHOOK_PORT>/webhook`.
+
 Environment variables
 ---------------------
 SOBS_URL            Base URL of your SOBS instance (default: http://localhost:44317)
-SOBS_API_KEY        API key if SOBS_API_KEY is set on the server (default: empty)
+SOBS_API_KEY        Optional API key for ingest endpoints (not used by this script)
+SOBS_BASIC_AUTH_USERNAME  Optional Web UI basic auth username
+SOBS_BASIC_AUTH_PASSWORD  Optional Web UI basic auth password
+SOBS_BEARER_TOKEN   Optional bearer token for external auth mode
 WEBHOOK_PORT        Port this receiver listens on (default: 5050)
 """
 
+import base64
 import json
 import os
 import textwrap
 
 try:
-    import requests
-    from flask import Flask, jsonify, request as flask_request
+    from flask import Flask, jsonify
+    from flask import request as flask_request
+
     _HAS_DEPS = True
 except ImportError:
     _HAS_DEPS = False
 
 SOBS_URL = os.environ.get("SOBS_URL", "http://localhost:44317").rstrip("/")
 SOBS_API_KEY = os.environ.get("SOBS_API_KEY", "")
+SOBS_BASIC_AUTH_USERNAME = os.environ.get("SOBS_BASIC_AUTH_USERNAME", "")
+SOBS_BASIC_AUTH_PASSWORD = os.environ.get("SOBS_BASIC_AUTH_PASSWORD", "")
+SOBS_BEARER_TOKEN = os.environ.get("SOBS_BEARER_TOKEN", "")
 WEBHOOK_PORT = int(os.environ.get("WEBHOOK_PORT", "5050"))
 
 # ---------------------------------------------------------------------------
@@ -61,8 +74,15 @@ if _HAS_DEPS:
 # 2. Helper – print curl commands to configure SOBS
 # ---------------------------------------------------------------------------
 
+
 def _auth_header() -> str:
-    return f'-H "X-API-Key: {SOBS_API_KEY}"' if SOBS_API_KEY else ""
+    if SOBS_BEARER_TOKEN:
+        return f'-H "Authorization: Bearer {SOBS_BEARER_TOKEN}"'
+    if SOBS_BASIC_AUTH_USERNAME and SOBS_BASIC_AUTH_PASSWORD:
+        raw = f"{SOBS_BASIC_AUTH_USERNAME}:{SOBS_BASIC_AUTH_PASSWORD}".encode("utf-8")
+        encoded = base64.b64encode(raw).decode("ascii")
+        return f'-H "Authorization: Basic {encoded}"'
+    return ""
 
 
 def print_setup_commands():
@@ -76,6 +96,10 @@ def print_setup_commands():
 
     These commands configure SOBS to send a notification
     whenever a metric rule threshold is crossed.
+
+    Note: notification settings routes use Web UI auth (Basic/Bearer),
+    not X-API-Key. Set SOBS_BASIC_AUTH_USERNAME/SOBS_BASIC_AUTH_PASSWORD
+    or SOBS_BEARER_TOKEN if your SOBS instance requires auth.
 
     Replace the webhook URL if you are not running inside Docker
     (use http://localhost:{WEBHOOK_PORT}/webhook for bare-metal runs).
@@ -95,7 +119,7 @@ def print_setup_commands():
 
     ---------------------------------------------------------
     Step 2 – Test the channel (replace CHANNEL_ID with the
-              UUID returned when the channel was created)
+          channel ID shown in Settings -> Notifications)
     ---------------------------------------------------------
     curl -s -X POST {SOBS_URL}/api/notifications/channels/<CHANNEL_ID>/test \\
       {auth} \\
@@ -139,6 +163,7 @@ SLACK_CURL_EXAMPLE = textwrap.dedent("""
     # Generate an Incoming Webhook URL in your Slack app settings and substitute
     # it for <your-slack-incoming-webhook-url> below.
     curl -s -X POST {sobs_url}/settings/notifications/channels \\
+  {auth} \\
       -d "name=slack-ops" \\
       -d "channel_type=slack" \\
       -d "slack_webhook_url=<your-slack-incoming-webhook-url>" \\
@@ -153,6 +178,7 @@ SLACK_CURL_EXAMPLE = textwrap.dedent("""
 EMAIL_CURL_EXAMPLE = textwrap.dedent("""
     # Create an e-mail notification channel (TLS SMTP)
     curl -s -X POST {sobs_url}/settings/notifications/channels \\
+      {auth} \\
       -d "name=email-ops" \\
       -d "channel_type=email" \\
       -d "smtp_host=smtp.example.com" \\
@@ -171,9 +197,10 @@ EMAIL_CURL_EXAMPLE = textwrap.dedent("""
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    auth = _auth_header()
     print_setup_commands()
-    print(SLACK_CURL_EXAMPLE.format(sobs_url=SOBS_URL))
-    print(EMAIL_CURL_EXAMPLE.format(sobs_url=SOBS_URL))
+    print(SLACK_CURL_EXAMPLE.format(sobs_url=SOBS_URL, auth=auth))
+    print(EMAIL_CURL_EXAMPLE.format(sobs_url=SOBS_URL, auth=auth))
 
     if not _HAS_DEPS:
         print("Install Flask to start the webhook receiver: pip install flask")

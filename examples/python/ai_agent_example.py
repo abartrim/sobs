@@ -55,6 +55,7 @@ if SOBS_API_KEY:
 # 1. AI Transparency – record an LLM call to SOBS
 # ---------------------------------------------------------------------------
 
+
 def record_ai_call(
     prompt: str,
     response: str,
@@ -102,6 +103,7 @@ def simulate_llm_call(prompt: str) -> tuple[str, int, int]:
 # 2. AI Contextual Helper – ask the SOBS assistant a question
 # ---------------------------------------------------------------------------
 
+
 def ask_sobs_helper(question: str, chat_id: str | None = None) -> dict:
     """
     Send a question to the SOBS AI assistant.
@@ -123,7 +125,7 @@ def ask_sobs_helper(question: str, chat_id: str | None = None) -> dict:
         chat_id     – conversation ID (pass back for follow-up questions)
         actions     – list of suggested UI actions (optional)
     """
-    payload: dict = {"message": question}
+    payload: dict = {"question": question}
     if chat_id:
         payload["chat_id"] = chat_id
 
@@ -139,6 +141,7 @@ def ask_sobs_helper(question: str, chat_id: str | None = None) -> dict:
 # ---------------------------------------------------------------------------
 # 3. Example – GitHub agent / work item flow
 # ---------------------------------------------------------------------------
+
 
 def check_agent_settings() -> None:
     """
@@ -160,6 +163,7 @@ def check_agent_settings() -> None:
 # ---------------------------------------------------------------------------
 # 4. Entrypoint
 # ---------------------------------------------------------------------------
+
 
 def main():
     print(f"SOBS endpoint: {SOBS_ENDPOINT}")
@@ -199,9 +203,7 @@ def main():
     # ---- AI Contextual Helper ----
     print("\n[AI Helper] Asking SOBS assistant …")
     try:
-        result = ask_sobs_helper(
-            "Are there any error spikes in the last 30 minutes? Which services are affected?"
-        )
+        result = ask_sobs_helper("Are there any error spikes in the last 30 minutes? Which services are affected?")
         print(f"  Answer: {result.get('answer', '(no answer)')}")
         chat_id = result.get("chat_id")
 

@@ -132,6 +132,10 @@ needed to:
 2. Test the channel.
 3. Trigger a manual notification check.
 
+Webhook URL caveat:
+- If SOBS runs in Docker, use `http://host.docker.internal:<WEBHOOK_PORT>/webhook`.
+- If SOBS runs directly on your host (not in Docker), use `http://localhost:<WEBHOOK_PORT>/webhook`.
+
 Configure notification channels and rules interactively at
 `http://localhost:44317/settings`.
 
