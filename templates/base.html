@@ -622,6 +622,23 @@
   window.SOBS.cssVar = function (name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   };
+  // Copy text (or a Promise resolving to text) to the clipboard.
+  // When a Promise is supplied, ClipboardItem is used so the user-activation
+  // token is captured at call-time rather than after the async resolution,
+  // which matters for browsers that enforce user-activation on clipboard writes.
+  window.SOBS.copyToClipboard = async function (textOrPromise) {
+    if (typeof textOrPromise !== 'string' &&
+        typeof ClipboardItem !== 'undefined' &&
+        navigator.clipboard && navigator.clipboard.write) {
+      var blobPromise = Promise.resolve(textOrPromise).then(function (t) {
+        return new Blob([t], { type: 'text/plain' });
+      });
+      await navigator.clipboard.write([new ClipboardItem({ 'text/plain': blobPromise })]);
+    } else {
+      var text = typeof textOrPromise === 'string' ? textOrPromise : await textOrPromise;
+      await navigator.clipboard.writeText(text);
+    }
+  };
 }());
 
 /* ===== Sidebar ===== */
