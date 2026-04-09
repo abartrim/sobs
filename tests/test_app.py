@@ -15490,3 +15490,43 @@ class TestDataManagementSettings:
         assert sobs_app._is_sensitive_dm_setting_key("data_management.s3_secret_access_key") is True
         assert sobs_app._is_sensitive_dm_setting_key("data_management.s3_bucket") is False
         assert sobs_app._is_sensitive_dm_setting_key("data_management.backup_enabled") is False
+
+
+# ---------------------------------------------------------------------------
+# Sidebar version tag and icon semantics
+# ---------------------------------------------------------------------------
+class TestSidebarVersionAndIcons:
+    """Tests for sidebar build/version tag and Summary/Dashboards icon semantics."""
+
+    async def test_sidebar_shows_default_version_when_env_not_set(self, client, monkeypatch):
+        """Sidebar renders 'SOBS dev' fallback when SOBS_BUILD_VERSION is unset."""
+        monkeypatch.setattr(sobs_app, "BUILD_VERSION", "")
+        r = await client.get("/")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "SOBS dev" in text
+
+    async def test_sidebar_shows_version_from_env(self, client, monkeypatch):
+        """Sidebar renders the version string injected via SOBS_BUILD_VERSION."""
+        monkeypatch.setattr(sobs_app, "BUILD_VERSION", "v2.5.0-beta")
+        r = await client.get("/")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "SOBS v2.5.0-beta" in text
+
+    async def test_sidebar_summary_uses_house_icon(self, client):
+        """Summary nav link uses bi-house icon."""
+        r = await client.get("/")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert 'bi bi-house' in text
+        assert 'title="Summary"' in text
+
+    async def test_sidebar_dashboards_uses_speedometer_icon(self, client):
+        """Dashboards nav link uses bi-speedometer2 icon."""
+        r = await client.get("/")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        # The speedometer2 icon should be present and associated with Dashboards
+        assert 'bi bi-speedometer2' in text
+        assert 'title="Dashboards"' in text

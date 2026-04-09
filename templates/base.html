@@ -252,12 +252,12 @@
     <ul class="nav flex-column gap-1">
       <li class="nav-item">
         <a href="{{ url_for('summary') }}" class="nav-link {% if request.endpoint == 'summary' %}active{% endif %}" title="Summary">
-          <i class="bi bi-speedometer2"></i><span class="sb-label">Summary</span>
+          <i class="bi bi-house"></i><span class="sb-label">Summary</span>
         </a>
       </li>
       <li class="nav-item">
         <a href="{{ url_for('list_dashboards') }}" class="nav-link {% if request.endpoint in ('list_dashboards', 'view_custom_dashboard', 'new_dashboard_form') %}active{% endif %}" title="Dashboards">
-          <i class="bi bi-bar-chart-line"></i><span class="sb-label">Dashboards</span>
+          <i class="bi bi-speedometer2"></i><span class="sb-label">Dashboards</span>
         </a>
       </li>
       <li class="nav-item">
@@ -358,7 +358,7 @@
         </ul>
       </div>
       <br>
-      <small class="text-secondary">Simple Observe Stack v1.0</small>
+      <small class="text-secondary">SOBS {{ sobs_version }}</small>
     </div>
   </nav>
 

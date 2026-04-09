@@ -325,6 +325,7 @@ RUM_CLIENT_SIGNING_KEY = os.environ.get("SOBS_RUM_CLIENT_SIGNING_KEY", "")
 RUM_CLIENT_TOKEN_TTL_SEC = int(os.environ.get("SOBS_RUM_CLIENT_TOKEN_TTL_SEC", "900"))
 SOURCE_MAP_DIR = os.environ.get("SOBS_SOURCE_MAP_DIR", "").strip()
 SOURCE_MAP_ENABLE = _env_flag("SOBS_SOURCE_MAP_ENABLE", False)
+BUILD_VERSION = os.environ.get("SOBS_BUILD_VERSION", "").strip()
 APP_REGISTRY_SEED_JSON_ENV = "SOBS_APP_REGISTRY_SEED_JSON"
 APP_REGISTRY_SEED_JSON_FILE_ENV = "SOBS_APP_REGISTRY_SEED_JSON_FILE"
 CHDB_CONFIG_FILE_ENV = "SOBS_CLICKHOUSE_CONFIG_FILE"
@@ -2641,14 +2642,15 @@ def _kubernetes_enabled() -> bool:
 
 
 @app.context_processor
-def inject_feature_flags() -> dict[str, bool]:
+def inject_feature_flags() -> dict:
     try:
         return {
             "query_enabled": _query_page_enabled(),
             "kubernetes_enabled": _kubernetes_enabled(),
+            "sobs_version": BUILD_VERSION or "dev",
         }
     except Exception:
-        return {"query_enabled": False, "kubernetes_enabled": False}
+        return {"query_enabled": False, "kubernetes_enabled": False, "sobs_version": BUILD_VERSION or "dev"}
 
 
 # ---------------------------------------------------------------------------
