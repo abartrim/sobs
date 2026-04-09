@@ -13813,7 +13813,7 @@ class TestWebTraffic:
 # Database Stats – summary page
 # ---------------------------------------------------------------------------
 class TestDbStats:
-    """Tests for the chDB database stats panel on the summary page."""
+    """Tests for summary-page removal and shared DB stats helpers."""
 
     async def test_summary_page_does_not_show_database_stats_panel(self, client):
         """Summary page no longer renders the Database Stats card."""
@@ -13881,16 +13881,14 @@ class TestDbStatsOnDataManagement:
         r = await client.get("/settings/data-management")
         assert r.status_code == 200
         html = (await r.get_data()).decode()
-        assert "Database Stats" in html
-        assert "Retention" in html
+        assert "Database Stats &amp; Retention" in html
 
     async def test_data_management_page_has_backups_storage_section_header(self, client):
         """Data Management page includes the 'Backups & Storage' section header."""
         r = await client.get("/settings/data-management")
         assert r.status_code == 200
         html = (await r.get_data()).decode()
-        assert "Backups" in html
-        assert "Storage" in html
+        assert "Backups &amp; Storage" in html
 
 
 class TestKubernetesRoutes:
