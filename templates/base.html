@@ -337,6 +337,11 @@
           <i class="bi bi-stars"></i><span class="sb-label">Quick Tour</span>
         </button>
       </li>
+      <li class="nav-item">
+        <button id="reopenSetupWizardBtn" type="button" class="nav-link btn btn-link text-start w-100" title="Setup Wizard">
+          <i class="bi bi-tools"></i><span class="sb-label">Setup Wizard</span>
+        </button>
+      </li>
     </ul>
     <div class="mt-auto pt-3 border-top border-secondary sb-footer">
       <div class="btn-group btn-group-sm mb-2 sb-theme-full" role="group" aria-label="Theme">
@@ -446,6 +451,7 @@
 
 {% if config.get('ENABLE_FIRST_RUN_TOUR', True) and request.endpoint not in ('chart_editor_help', 'metrics_rules_help', 'auto_metrics_rules_help') %}
   {% include "_first_run_tour.html" %}
+  {% include "_setup_wizard.html" %}
 {% endif %}
 <script>
 (function () {
