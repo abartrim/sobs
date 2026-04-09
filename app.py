@@ -595,8 +595,8 @@ AS SELECT
 FROM otel_metrics_histogram
 GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
 
--- View for backward compatibility: queries the materialized table with avgMerge to restore original semantics.
-CREATE VIEW IF NOT EXISTS v_otel_metrics_1m AS
+-- Canonical 1-minute metrics view backed by aggregate-state rollups.
+CREATE OR REPLACE VIEW v_otel_metrics_1m AS
 SELECT
     ServiceName,
     MetricName,
@@ -1525,7 +1525,7 @@ def _build_chdb_connect_target(path: str) -> str:
     # Important: use the plain directory path with query params, not a file: URL.
     # For directory-backed chDB stores, file:/... opens a different logical DB
     # than the plain path on this runtime.
-    max_server_mb = int(os.environ.get(CHDB_MAX_SERVER_MB_ENV, "512"))
+    max_server_mb = int(os.environ.get(CHDB_MAX_SERVER_MB_ENV, "768"))
     mark_cache_mb = int(os.environ.get(CHDB_MARK_CACHE_MB_ENV, "64"))
     # ClickHouse defaults uncompressed_cache_size to max(128MB, RAM*1%), which
     # exhausts a 160MB cap before any query runs. Default to 4MB for embedded use.
@@ -9646,6 +9646,18 @@ def _get_resolved_error_ids(db) -> set[str]:
     return {str(r[0]) for r in db.execute("SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId").fetchall()}
 
 
+def _active_part_rows(db, table_name: str) -> int:
+    row = db.execute(
+        "SELECT COALESCE(sum(rows), 0) AS c "
+        "FROM system.parts "
+        "WHERE active = 1 AND database = currentDatabase() AND table = ?",
+        [table_name],
+    ).fetchone()
+    if not row:
+        return 0
+    return int(row["c"] or 0)
+
+
 # ---------------------------------------------------------------------------
 # Web UI – Summary
 # ---------------------------------------------------------------------------
@@ -9665,18 +9677,26 @@ async def summary():
         item["resolved"] = item["id"] in resolved_ids
         error_items.append(item)
 
-    unresolved_count = sum(0 if item["resolved"] else 1 for item in error_items)
     _now = time.monotonic()
     with _summary_stats_cache_lock:
         _cached_stats: dict[str, Any] = (
             _summary_stats_cache["data"] if _summary_stats_cache["expires_at"] > _now else {}
         )
     if not _cached_stats:
+        all_error_rows = db.execute(f"SELECT * FROM ({ERROR_SOURCES_SQL})").fetchall()
+        unresolved_total = 0
+        for row in all_error_rows:
+            error_id = _build_error_item(dict(row))["id"]
+            if error_id not in resolved_ids:
+                unresolved_total += 1
+
         _cached_stats = {
-            "logs": db.execute("SELECT COUNT(*) FROM otel_logs").fetchone()[0],
-            "spans": db.execute("SELECT COUNT(*) FROM otel_traces").fetchone()[0],
-            "rum": db.execute("SELECT COUNT(*) FROM hyperdx_sessions").fetchone()[0],
+            "logs": _active_part_rows(db, "otel_logs"),
+            "spans": _active_part_rows(db, "otel_traces"),
+            "rum": _active_part_rows(db, "hyperdx_sessions"),
             "ai": db.execute("SELECT COUNT(*) FROM otel_traces " f"WHERE {_AI_SPAN_CONDITION}").fetchone()[0],
+            "errors_total": len(all_error_rows),
+            "errors": unresolved_total,
             "services": [
                 r[0]
                 for r in db.execute(
@@ -9691,8 +9711,6 @@ async def summary():
             _summary_stats_cache["data"] = _cached_stats
     stats = {
         **_cached_stats,
-        "errors": unresolved_count,
-        "errors_total": len(error_items),
     }
     # Recent errors (last 5)
     recent_errors = [
@@ -10043,7 +10061,10 @@ async def view_logs():
                 "SELECT Timestamp, SeverityText, ServiceName, Body, TraceId, SpanId " f"FROM otel_logs {query_where} "
             )
 
-            total = db.execute(f"SELECT COUNT(*) FROM otel_logs {query_where}", query_params).fetchone()[0]
+            if not query_where:
+                total = _active_part_rows(db, "otel_logs")
+            else:
+                total = db.execute(f"SELECT COUNT(*) FROM otel_logs {query_where}", query_params).fetchone()[0]
             rows = db.execute(
                 f"{select_base}{order_clause} LIMIT ? OFFSET ?",
                 query_params + [limit, offset],
@@ -12958,11 +12979,9 @@ def _fetch_trace_metric_context(
             ctx["match_dimensions"] = dims
             # Enrich with time-series, groups, and health chips.
             raw_series = cast(list[dict[str, object]], ctx.get("series") or [])
-            # Keep sparklines aligned with visible metric rows. The context query
-            # already caps series count (limit_metrics). Limit sparklines to top 6 to
-            # reduce memory pressure from concurrent timeseries queries. The materialized
-            # v_otel_metrics_1m table improves query efficiency; full sparkline coverage
-            # will be addressed in P4 via materialized views for pre-bucketed sparkline data.
+            # Keep sparklines aligned with visible metric rows from the context query.
+            # We preserve the currently available top metric set and prioritize CPU when
+            # present, so users can quickly compare core workload signals.
             top_names = [str(s["metric"]) for s in raw_series[:6]]
             # Ensure CPU is in timeseries if available.
             cpu_metric = next(
@@ -13039,7 +13058,10 @@ async def view_traces():
     conditions.extend(time_conditions)
     params.extend(time_params)
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    total = db.execute(f"SELECT COUNT(*) FROM otel_traces {where}", params).fetchone()[0]
+    if not where:
+        total = _active_part_rows(db, "otel_traces")
+    else:
+        total = db.execute(f"SELECT COUNT(*) FROM otel_traces {where}", params).fetchone()[0]
     rows = db.execute(
         f"SELECT Timestamp, TraceId, SpanId, ParentSpanId, SpanName, ServiceName, Duration, StatusCode, SpanAttributes "
         f"FROM otel_traces {where} {order_clause} LIMIT ? OFFSET ?",
@@ -14326,7 +14348,10 @@ async def view_rum():
                     }
                 )
     else:
-        total = db.execute(f"SELECT COUNT(*) FROM hyperdx_sessions {where}", params).fetchone()[0]
+        if not where:
+            total = _active_part_rows(db, "hyperdx_sessions")
+        else:
+            total = db.execute(f"SELECT COUNT(*) FROM hyperdx_sessions {where}", params).fetchone()[0]
         rows = db.execute(
             f"SELECT Timestamp, EventName, Body, LogAttributes, TraceId, SpanId FROM hyperdx_sessions {where} "
             f"{order_clause} LIMIT ? OFFSET ?",
@@ -14544,7 +14569,10 @@ async def view_web_traffic():
     time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
     where = ("WHERE " + " AND ".join(time_conditions)) if time_conditions else ""
 
-    total = db.execute(f"SELECT COUNT(*) FROM hyperdx_sessions {where}", time_params).fetchone()[0]
+    if not where:
+        total = _active_part_rows(db, "hyperdx_sessions")
+    else:
+        total = db.execute(f"SELECT COUNT(*) FROM hyperdx_sessions {where}", time_params).fetchone()[0]
 
     top_urls_rows = db.execute(
         f"SELECT LogAttributes['url'] AS url, COUNT(*) AS cnt "
