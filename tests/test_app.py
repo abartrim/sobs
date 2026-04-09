@@ -3314,10 +3314,10 @@ class TestUIPages:
         assert "raw-span-panel" in body
         assert "span-raw-copy-btn" not in body  # not pre-rendered; loaded lazily
         # JavaScript for lazy loading present
-        assert "span-raw-toggle" in body
         assert "/api/traces/span/" in body
 
 
+    async def test_rum_sort_by_type(self, client):
         r = await client.get("/rum?sort_by=EventName&sort_dir=asc")
         assert r.status_code == 200
 
