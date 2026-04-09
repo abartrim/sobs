@@ -106,6 +106,28 @@
   </div>
 </div>
 
+{% if signal or source %}
+<div class="card border-secondary mb-3">
+  <div class="card-body py-2 d-flex flex-wrap gap-3 align-items-center">
+    <span class="small text-secondary fw-semibold">Signal:</span>
+    {% if signal and source %}
+    <span title="{{ source }}:{{ signal }}{% if signal_description(source, signal) %} – {{ signal_description(source, signal) }}{% endif %}">
+      <span class="fw-semibold">{{ signal_label(source, signal) }}</span>
+      <span class="text-secondary font-monospace signal-raw-id-inline"> ({{ source }}:{{ signal }})</span>
+      {% if signal_description(source, signal) %}
+      <span class="text-secondary small ms-1">— {{ signal_description(source, signal) }}</span>
+      {% endif %}
+    </span>
+    {% elif signal %}
+    <span class="fw-semibold">{{ signal }}</span>
+    {% endif %}
+    {% if source and not signal %}
+    <span class="badge bg-secondary" title="{{ source }}">{{ source_label(source) }}</span>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 {% if point_state or point_score %}
 <div class="card border-secondary mb-3">
   <div class="card-body py-2 d-flex flex-wrap gap-3 align-items-center">
@@ -166,8 +188,11 @@
           <tr>
             <td class="font-monospace small sobs-tz-ts" data-utc-ts="{{ r.time }}">{{ r.time }}</td>
             <td class="small">{{ r.service }}</td>
-            <td class="small font-monospace">{{ r.metric }}</td>
-            <td class="small">{{ r.metric_kind }}</td>
+            <td class="small" title="{{ r.metric }}">
+              {{ signal_label(r.metric_kind, r.metric) }}
+              <span class="text-secondary font-monospace signal-raw-id">{{ r.metric }}</span>
+            </td>
+            <td class="small" title="{{ r.metric_kind }}">{{ source_label(r.metric_kind) }}</td>
             <td class="small font-monospace">{{ r.value }}</td>
             <td class="small font-monospace">{{ r.baseline_mean }}</td>
             <td class="small font-monospace">{{ r.baseline_lower }} .. {{ r.baseline_upper }}</td>

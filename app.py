@@ -9878,8 +9878,6 @@ async def summary():
         except Exception:
             app.logger.exception("summary cve overview query failed")
 
-    db_stats = _get_db_stats(db)
-
     return await render_template(
         "summary.html",
         stats=stats,
@@ -9889,8 +9887,6 @@ async def summary():
         ai_summary=ai_summary,
         signal_health=_get_signal_health_by_service(db),
         cve_overview=cve_overview,
-        db_stats=db_stats,
-        fmt_bytes=_fmt_bytes,
     )
 
 
@@ -11541,6 +11537,115 @@ def _annotate_rows_with_rules(
             str(row.get("anomaly_state", "normal")),
             str(row.get("rule_state", "normal")),
         )
+
+
+# ---------------------------------------------------------------------------
+# Signal label registry – human-friendly names for derived signal identifiers
+# ---------------------------------------------------------------------------
+
+# Mapping of (source, signal_name) → {label, description}.
+# Used by templates and API responses to show readable names alongside raw IDs.
+_SIGNAL_LABELS: dict[tuple[str, str], dict[str, str]] = {
+    # Logs-derived signals
+    ("logs", "log_volume"): {
+        "label": "Log Volume",
+        "description": "Log lines ingested per minute",
+    },
+    ("logs", "error_volume"): {
+        "label": "Error Volume",
+        "description": "Error-level log lines per minute",
+    },
+    ("logs", "error_ratio"): {
+        "label": "Error Ratio",
+        "description": "Fraction of log lines that are errors",
+    },
+    # Traces-derived signals
+    ("traces", "trace_volume"): {
+        "label": "Trace Volume",
+        "description": "Completed spans per minute",
+    },
+    ("traces", "trace_error_ratio"): {
+        "label": "Trace Error Ratio",
+        "description": "Fraction of spans with an error status",
+    },
+    ("traces", "latency_p95_ms"): {
+        "label": "Latency p95",
+        "description": "95th-percentile span duration (ms)",
+    },
+    # Errors-derived signals
+    ("errors", "exception_volume"): {
+        "label": "Exception Volume",
+        "description": "Exception events per minute",
+    },
+    # RUM Web Vitals
+    ("rum_vitals", "LCP"): {
+        "label": "Largest Contentful Paint",
+        "description": "Core Web Vital: LCP (ms) – measures loading performance",
+    },
+    ("rum_vitals", "INP"): {
+        "label": "Interaction to Next Paint",
+        "description": "Core Web Vital: INP (ms) – measures interactivity",
+    },
+    ("rum_vitals", "CLS"): {
+        "label": "Cumulative Layout Shift",
+        "description": "Core Web Vital: CLS (unitless) – measures visual stability",
+    },
+    ("rum_vitals", "TTFB"): {
+        "label": "Time to First Byte",
+        "description": "Core Web Vital: TTFB (ms) – measures server response time",
+    },
+    ("rum_vitals", "FCP"): {
+        "label": "First Contentful Paint",
+        "description": "Core Web Vital: FCP (ms) – measures perceived load speed",
+    },
+    ("rum_vitals", "FID"): {
+        "label": "First Input Delay",
+        "description": "Core Web Vital: FID (ms) – measures input responsiveness",
+    },
+}
+
+# Human-friendly labels for signal sources.
+_SOURCE_LABELS: dict[str, str] = {
+    "logs": "Logs",
+    "traces": "Traces",
+    "errors": "Errors",
+    "rum_vitals": "RUM Vitals",
+    "metrics": "Metrics",
+}
+
+
+def signal_label(source: str, signal: str) -> str:
+    """Return a human-friendly label for a (source, signal) pair.
+
+    Falls back to a title-cased version of *signal* when the pair is not
+    registered.
+    """
+    entry = _SIGNAL_LABELS.get((source, signal))
+    if entry:
+        return entry["label"]
+    # Capitalise underscored names as a best-effort fallback.
+    return signal.replace("_", " ").title()
+
+
+def signal_description(source: str, signal: str) -> str:
+    """Return a short description for a (source, signal) pair, or empty string."""
+    entry = _SIGNAL_LABELS.get((source, signal))
+    return entry["description"] if entry else ""
+
+
+def source_label(source: str) -> str:
+    """Return a human-friendly label for a signal source.
+
+    Falls back to the raw *source* identifier when not registered.
+    """
+    return _SOURCE_LABELS.get(source, source.replace("_", " ").title())
+
+
+# Expose label helpers as Jinja2 globals so every template can call them
+# without explicit route-level injection.
+app.jinja_env.globals["signal_label"] = signal_label
+app.jinja_env.globals["signal_description"] = signal_description
+app.jinja_env.globals["source_label"] = source_label
 
 
 # ---------------------------------------------------------------------------
@@ -19604,7 +19709,7 @@ async def metrics_anomaly():
 # ---------------------------------------------------------------------------
 
 # Valid page types for reports
-_REPORT_PAGE_TYPES = {"logs", "traces", "errors", "metrics", "rum", "ai", "work_items"}
+_REPORT_PAGE_TYPES = {"logs", "traces", "errors", "metrics", "rum", "ai", "work_items", "web_traffic"}
 
 
 def _parse_report_filters(raw_filters_json: Any) -> dict[str, Any]:
@@ -19764,6 +19869,228 @@ async def api_delete_report(report_id: str):
         ],
     )
     return jsonify({"deleted": True})
+
+
+# Export schema version for forward-compatibility
+_REPORTS_EXPORT_VERSION = "1"
+
+# Maximum number of reports that may be imported in a single request
+_REPORTS_IMPORT_MAX = 500
+
+# Maximum raw request body size accepted by report import
+_REPORTS_IMPORT_MAX_BYTES = 5 * 1024 * 1024
+
+
+@app.route("/api/reports/export", methods=["GET"])
+@require_basic_auth
+async def api_export_reports():
+    """Export one or more saved reports as a portable JSON payload.
+
+    Query parameters:
+      ids – comma-separated list of report UUIDs.  Omit to export all reports.
+
+    Returns a ``Content-Disposition: attachment`` JSON file so the browser
+    triggers a download automatically.
+    """
+    db = get_db()
+    raw_ids = request.args.get("ids", "").strip()
+    if raw_ids:
+        wanted = {s.strip() for s in raw_ids.split(",") if s.strip()}
+        all_reports = _get_reports(db)
+        reports = [r for r in all_reports if r["id"] in wanted]
+    else:
+        reports = _get_reports(db)
+
+    payload = {
+        "sobs_reports_export": True,
+        "version": _REPORTS_EXPORT_VERSION,
+        "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "reports": [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "description": r["description"],
+                "page_type": r["page_type"],
+                "filters": r["filters"],
+            }
+            for r in reports
+        ],
+    }
+    json_bytes = json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
+    filename = "sobs_reports_export.json"
+    return Response(
+        json_bytes,
+        status=200,
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
+
+
+@app.route("/api/reports/import", methods=["POST"])
+@require_basic_auth
+async def api_import_reports():
+    """Import reports from a previously exported JSON payload.
+
+    Accepts either ``application/json`` body or a ``multipart/form-data``
+    upload with a ``file`` field containing the JSON file.
+
+    Body / file must be the JSON object produced by ``/api/reports/export``.
+
+    Optional query / body parameter ``on_conflict`` controls duplicate
+    handling when a report with the same name already exists for the same
+    page_type:
+      - ``rename``  (default) – append " (imported)" / " (2)" etc. to the name.
+      - ``replace`` – delete the existing report and insert the new one.
+      - ``skip``    – leave the existing report unchanged and skip the new one.
+
+    Returns a JSON summary: ``{imported, skipped, replaced, errors}``.
+    """
+
+    def _payload_too_large_response():
+        return jsonify({"error": f"Import payload too large (max {_REPORTS_IMPORT_MAX_BYTES} bytes)"}), 413
+
+    if (request.content_length or 0) > _REPORTS_IMPORT_MAX_BYTES:
+        return _payload_too_large_response()
+
+    # ── Parse body ────────────────────────────────────────────────────────────
+    content_type = request.content_type or ""
+    on_conflict = (request.args.get("on_conflict") or "").strip().lower()
+
+    if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
+        files = await request.files
+        forms = await request.form
+        if not on_conflict:
+            on_conflict = forms.get("on_conflict", "rename").strip().lower()
+        uploaded = files.get("file")
+        if not uploaded:
+            return jsonify({"error": "No file uploaded"}), 400
+        try:
+            raw_bytes = uploaded.read()
+            if len(raw_bytes) > _REPORTS_IMPORT_MAX_BYTES:
+                return _payload_too_large_response()
+            body = json.loads(raw_bytes)
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid JSON file"}), 400
+    else:
+        body = await request.get_json(silent=True)
+        if body is None:
+            return jsonify({"error": "Invalid or missing JSON body"}), 400
+        if not on_conflict:
+            on_conflict = (body.get("on_conflict") or "rename").strip().lower()
+
+    # ── Validate envelope ────────────────────────────────────────────────────
+    if not isinstance(body, dict) or not body.get("sobs_reports_export"):
+        return jsonify({"error": "Not a valid SOBS reports export file"}), 400
+    if str(body.get("version", "")) != _REPORTS_EXPORT_VERSION:
+        return jsonify({"error": f"Unsupported export version: {body.get('version')!r}"}), 400
+    if on_conflict not in ("rename", "replace", "skip"):
+        return jsonify({"error": "on_conflict must be one of: rename, replace, skip"}), 400
+
+    incoming = body.get("reports")
+    if not isinstance(incoming, list):
+        return jsonify({"error": "'reports' must be a list"}), 400
+    if len(incoming) > _REPORTS_IMPORT_MAX:
+        return jsonify({"error": f"Too many reports (max {_REPORTS_IMPORT_MAX})"}), 400
+
+    # ── Build index of existing reports by (page_type, lower(name)) ──────────
+    db = get_db()
+    existing = _get_reports(db)
+    existing_index: dict[tuple[str, str], dict] = {(r["page_type"], r["name"].lower()): r for r in existing}
+
+    n_imported = 0
+    n_skipped = 0
+    n_replaced = 0
+    n_errors = 0
+    version_base = int(time.time() * 1000)
+
+    for idx, item in enumerate(incoming):
+        if not isinstance(item, dict):
+            n_errors += 1
+            continue
+        name = (item.get("name") or "").strip()
+        description = (item.get("description") or "").strip()
+        page_type = (item.get("page_type") or "").strip()
+        filters = item.get("filters") or {}
+
+        if not name:
+            n_errors += 1
+            continue
+        if page_type not in _REPORT_PAGE_TYPES:
+            n_errors += 1
+            continue
+        if not isinstance(filters, dict):
+            n_errors += 1
+            continue
+
+        conflict_key = (page_type, name.lower())
+        conflict = existing_index.get(conflict_key)
+
+        if conflict:
+            if on_conflict == "skip":
+                n_skipped += 1
+                continue
+            elif on_conflict == "replace":
+                # Soft-delete the existing report
+                _insert_rows_json_each_row(
+                    db,
+                    "sobs_reports",
+                    [
+                        {
+                            "Id": conflict["id"],
+                            "Name": conflict["name"],
+                            "Description": conflict["description"],
+                            "PageType": conflict["page_type"],
+                            "FiltersJson": json.dumps(conflict["filters"], ensure_ascii=False),
+                            "IsDeleted": 1,
+                            "Version": version_base + idx * 2,
+                        }
+                    ],
+                )
+                n_replaced += 1
+                # Remove from index so we don't double-delete
+                del existing_index[conflict_key]
+            else:
+                # rename – find a unique name
+                candidate = f"{name} (imported)"
+                suffix = 2
+                while (page_type, candidate.lower()) in existing_index:
+                    candidate = f"{name} (imported {suffix})"
+                    suffix += 1
+                name = candidate
+
+        new_id = str(uuid.uuid4())
+        _insert_rows_json_each_row(
+            db,
+            "sobs_reports",
+            [
+                {
+                    "Id": new_id,
+                    "Name": name,
+                    "Description": description,
+                    "PageType": page_type,
+                    "FiltersJson": json.dumps(filters, ensure_ascii=False),
+                    "IsDeleted": 0,
+                    "Version": version_base + idx * 2 + 1,
+                }
+            ],
+        )
+        # Track freshly-imported name to avoid collisions within the same batch
+        existing_index[(page_type, name.lower())] = {"id": new_id, "name": name, "page_type": page_type}
+        if conflict and on_conflict == "replace":
+            # Replacement inserts are counted as replaced, not imported.
+            continue
+        n_imported += 1
+
+    return jsonify(
+        {
+            "imported": n_imported,
+            "skipped": n_skipped,
+            "replaced": n_replaced,
+            "errors": n_errors,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -27606,12 +27933,15 @@ async def view_dm_settings():
     }
     flash_msg = request.args.get("msg", "")
     flash_type = request.args.get("msg_type", "success")
+    db_stats = _get_db_stats(db)
     return await render_template(
         "settings_data_management.html",
         dm_settings=settings,
         dm_secret_present=dm_secret_present,
         flash_msg=flash_msg,
         flash_type=flash_type,
+        db_stats=db_stats,
+        fmt_bytes=_fmt_bytes,
     )
 
 

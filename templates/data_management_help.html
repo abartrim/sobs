@@ -16,7 +16,7 @@
     <div class="card border-secondary h-100">
       <div class="card-body">
         <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Configure</h6>
-        <p class="small text-secondary mb-0">Set TTL windows, S3 destination, and optional backup encryption.</p>
+        <p class="small text-secondary mb-0">Use Database Stats and ClickHouse TTL together, then configure S3 backup destination and optional encryption.</p>
       </div>
     </div>
   </div>
@@ -35,6 +35,21 @@
         <p class="small text-secondary mb-0">Restore by backup name from system list or from S3 inventory when needed.</p>
       </div>
     </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Page Layout And Save Actions</div>
+  <div class="card-body small">
+    <p class="mb-2 text-secondary">
+      Data Management is split into two sections so retention and backup workflows are clearly separated.
+    </p>
+    <ul class="mb-0 ps-3 text-secondary">
+      <li><strong>Database Stats &amp; Retention</strong>: Database Stats and ClickHouse TTL render side-by-side on larger screens and stack on smaller screens.</li>
+      <li><strong>TTL–Backup Coupling</strong>: lives with the TTL controls and acts as an advisory warning.</li>
+      <li><strong>Save &amp; Apply TTL to Tables</strong>: use this in the retention section to persist values and run TTL DDL immediately.</li>
+      <li><strong>Save Settings</strong>: use this in the Backups &amp; Storage section to persist backup/storage configuration.</li>
+    </ul>
   </div>
 </div>
 
@@ -58,7 +73,7 @@
     <h6 class="small text-uppercase text-secondary mb-2">A. Restore when backup list is available</h6>
     <ol class="mb-3 ps-3">
       <li>Go to <strong>Settings → Data Management</strong>.</li>
-      <li>Enable backup/restore if not already enabled, then save.</li>
+      <li>Enable backup/restore if not already enabled, then click <strong>Save Settings</strong> in the <strong>Backups &amp; Storage</strong> section.</li>
       <li>Use the backup list panel to pick a backup name.</li>
       <li>Paste that name into restore input and confirm.</li>
     </ol>
@@ -117,6 +132,7 @@
     <ul class="mb-0 ps-3">
       <li>Logs/traces/sessions TTL use day-based intervals.</li>
       <li>Metrics TTL uses hour-based intervals and converts millisecond timestamps appropriately.</li>
+      <li>TTL values shown on the Data Management form are the currently stored values from settings.</li>
       <li>Core OTEL telemetry tables remain aligned to OTEL schema expectations; custom tables/views are used for app features and derived analytics.</li>
     </ul>
   </div>

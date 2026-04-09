@@ -26,69 +26,196 @@
 </div>
 {% endif %}
 
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Section 1: Database Stats & Retention                                  -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h5 class="fw-semibold mt-1 mb-3">
+  <i class="bi bi-database me-2 text-info"></i>Database Stats &amp; Retention
+</h5>
+
 <form method="post" action="{{ url_for('save_dm_settings') }}">
 
-  <!-- ── TTL Configuration ───────────────────────────────────────────────── -->
-  <div class="card border-secondary mb-3">
-    <div class="card-header d-flex align-items-center gap-2">
-      <i class="bi bi-hourglass-split text-warning"></i>
-      <span class="fw-semibold">ClickHouse TTL</span>
-    </div>
-    <div class="card-body">
-      <p class="small text-secondary mb-3">
-        Set TTL (time-to-live) values for each telemetry table. After saving, click
-        <strong>Apply TTL to Tables</strong> to immediately execute the
-        <code>ALTER TABLE … MODIFY TTL</code> statements. Leave a field blank to skip
-        that table. Changes take effect on the next ClickHouse merge cycle.
-      </p>
-
-      <div class="row g-3">
-        <div class="col-sm-6 col-md-3">
-          <label for="ttl_logs_days" class="form-label small fw-semibold">
-            <i class="bi bi-file-text me-1 text-secondary"></i>Logs (days)
-          </label>
-          <input type="number" id="ttl_logs_days" name="ttl_logs_days" min="1"
-                 class="form-control form-control-sm"
-                 value="{{ dm_settings.get('data_management.ttl_logs_days', '') }}"
-                 placeholder="e.g. 30">
-          <div class="form-text">Table: <code>otel_logs</code></div>
+  <div class="row g-3 align-items-start mb-3">
+    <div class="col-12 col-xl-5">
+      <!-- ── Database Stats ────────────────────────────────────────────── -->
+      <div class="card border-secondary h-100">
+        <div class="card-header d-flex align-items-center gap-2">
+          <i class="bi bi-bar-chart-line text-info"></i>
+          <span class="fw-semibold">Database Stats</span>
         </div>
-
-        <div class="col-sm-6 col-md-3">
-          <label for="ttl_traces_days" class="form-label small fw-semibold">
-            <i class="bi bi-diagram-2 me-1 text-secondary"></i>Traces (days)
-          </label>
-          <input type="number" id="ttl_traces_days" name="ttl_traces_days" min="1"
-                 class="form-control form-control-sm"
-                 value="{{ dm_settings.get('data_management.ttl_traces_days', '') }}"
-                 placeholder="e.g. 30">
-          <div class="form-text">Table: <code>otel_traces</code></div>
-        </div>
-
-        <div class="col-sm-6 col-md-3">
-          <label for="ttl_metrics_hours" class="form-label small fw-semibold">
-            <i class="bi bi-graph-up me-1 text-secondary"></i>Metrics (hours)
-          </label>
-          <input type="number" id="ttl_metrics_hours" name="ttl_metrics_hours" min="1"
-                 class="form-control form-control-sm"
-                 value="{{ dm_settings.get('data_management.ttl_metrics_hours', '') }}"
-                 placeholder="e.g. 48">
-          <div class="form-text">Tables: <code>otel_metrics_*</code></div>
-        </div>
-
-        <div class="col-sm-6 col-md-3">
-          <label for="ttl_sessions_days" class="form-label small fw-semibold">
-            <i class="bi bi-person-circle me-1 text-secondary"></i>Sessions (days)
-          </label>
-          <input type="number" id="ttl_sessions_days" name="ttl_sessions_days" min="1"
-                 class="form-control form-control-sm"
-                 value="{{ dm_settings.get('data_management.ttl_sessions_days', '') }}"
-                 placeholder="e.g. 14">
-          <div class="form-text">Table: <code>hyperdx_sessions</code></div>
+        <div class="card-body p-0">
+          <table class="table table-sm mb-0">
+            <tbody>
+              <tr>
+                <td class="text-secondary">Compressed size</td>
+                <td class="fw-semibold">{{ fmt_bytes(db_stats.compressed_bytes) }}</td>
+              </tr>
+              <tr>
+                <td class="text-secondary">Uncompressed size</td>
+                <td class="fw-semibold">{{ fmt_bytes(db_stats.uncompressed_bytes) }}</td>
+              </tr>
+              <tr>
+                <td class="text-secondary">Compression ratio</td>
+                <td class="fw-semibold">
+                  {% if db_stats.compression_ratio is not none %}{{ db_stats.compression_ratio }}×{% else %}—{% endif %}
+                </td>
+              </tr>
+              <tr>
+                <td class="text-secondary">Total rows (active parts)</td>
+                <td class="fw-semibold">
+                  {% if db_stats.total_rows is not none %}{{ "{:,}".format(db_stats.total_rows) }}{% else %}—{% endif %}
+                </td>
+              </tr>
+              <tr>
+                <td class="text-secondary">Active queries</td>
+                <td class="fw-semibold">
+                  {% if db_stats.active_queries is not none %}
+                    <span class="{% if db_stats.active_queries > 0 %}text-warning{% else %}text-success{% endif %}">
+                      {{ db_stats.active_queries }}
+                    </span>
+                  {% else %}—{% endif %}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          {% if db_stats.tables %}
+          <div class="px-3 pb-2 pt-1">
+            <div class="text-secondary small mb-1">Top tables by size</div>
+            <table class="table table-sm table-hover mb-0">
+              <thead><tr><th>Table</th><th>Size</th><th>Ratio</th><th>Rows</th></tr></thead>
+              <tbody>
+                {% for t in db_stats.tables %}
+                <tr>
+                  <td class="small font-monospace text-truncate" style="max-width:140px;" title="{{ t.table }}">{{ t.table }}</td>
+                  <td class="small">{{ fmt_bytes(t.compressed_bytes) }}</td>
+                  <td class="small">{% if t.compression_ratio is not none %}{{ t.compression_ratio }}×{% else %}—{% endif %}</td>
+                  <td class="small">{{ "{:,}".format(t.rows) }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
         </div>
       </div>
     </div>
+
+    <div class="col-12 col-xl-7">
+      <!-- ── TTL Configuration ─────────────────────────────────────────────── -->
+      <div class="card border-secondary mb-3">
+        <div class="card-header d-flex align-items-center gap-2">
+          <i class="bi bi-hourglass-split text-warning"></i>
+          <span class="fw-semibold">ClickHouse TTL</span>
+        </div>
+        <div class="card-body">
+          <p class="small text-secondary mb-3">
+            Set TTL (time-to-live) values for each telemetry table. After saving, click
+            <strong>Apply TTL to Tables</strong> to immediately execute the
+            <code>ALTER TABLE … MODIFY TTL</code> statements. Leave a field blank to skip
+            that table. Changes take effect on the next ClickHouse merge cycle.
+          </p>
+
+          <div class="row g-3">
+            <div class="col-sm-6 col-md-3">
+              <label for="ttl_logs_days" class="form-label small fw-semibold">
+                <i class="bi bi-file-text me-1 text-secondary"></i>Logs (days)
+              </label>
+              <input type="number" id="ttl_logs_days" name="ttl_logs_days" min="1"
+                     class="form-control form-control-sm"
+                     value="{{ dm_settings.get('data_management.ttl_logs_days', '') }}"
+                     placeholder="e.g. 30">
+              <div class="form-text">Table: <code>otel_logs</code></div>
+            </div>
+
+            <div class="col-sm-6 col-md-3">
+              <label for="ttl_traces_days" class="form-label small fw-semibold">
+                <i class="bi bi-diagram-2 me-1 text-secondary"></i>Traces (days)
+              </label>
+              <input type="number" id="ttl_traces_days" name="ttl_traces_days" min="1"
+                     class="form-control form-control-sm"
+                     value="{{ dm_settings.get('data_management.ttl_traces_days', '') }}"
+                     placeholder="e.g. 30">
+              <div class="form-text">Table: <code>otel_traces</code></div>
+            </div>
+
+            <div class="col-sm-6 col-md-3">
+              <label for="ttl_metrics_hours" class="form-label small fw-semibold">
+                <i class="bi bi-graph-up me-1 text-secondary"></i>Metrics (hours)
+              </label>
+              <input type="number" id="ttl_metrics_hours" name="ttl_metrics_hours" min="1"
+                     class="form-control form-control-sm"
+                     value="{{ dm_settings.get('data_management.ttl_metrics_hours', '') }}"
+                     placeholder="e.g. 48">
+              <div class="form-text">Tables: <code>otel_metrics_*</code></div>
+            </div>
+
+            <div class="col-sm-6 col-md-3">
+              <label for="ttl_sessions_days" class="form-label small fw-semibold">
+                <i class="bi bi-person-circle me-1 text-secondary"></i>Sessions (days)
+              </label>
+              <input type="number" id="ttl_sessions_days" name="ttl_sessions_days" min="1"
+                     class="form-control form-control-sm"
+                     value="{{ dm_settings.get('data_management.ttl_sessions_days', '') }}"
+                     placeholder="e.g. 14">
+              <div class="form-text">Table: <code>hyperdx_sessions</code></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── TTL / Backup Coupling ──────────────────────────────────────── -->
+      <div class="card border-secondary mb-3">
+        <div class="card-header d-flex align-items-center gap-2">
+          <i class="bi bi-link-45deg text-warning"></i>
+          <span class="fw-semibold">TTL–Backup Coupling</span>
+        </div>
+        <div class="card-body">
+          <div class="mb-2">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch"
+                     id="ttlBackupCouplingEnabled"
+                     name="ttl_backup_coupling_enabled" value="1"
+                     {% if dm_settings.get('data_management.ttl_backup_coupling_enabled') == '1' %}checked{% endif %}>
+              <label class="form-check-label fw-semibold" for="ttlBackupCouplingEnabled">
+                Remind me to verify backup coverage before TTL expires
+              </label>
+            </div>
+          </div>
+          <p class="small text-secondary mb-0">
+            When enabled, the data management page displays a warning whenever a configured
+            TTL window is shorter than the backup retention implied by your schedule.
+            This is an advisory indicator only — SOBS does not block TTL or backup operations.
+          </p>
+          {% if dm_settings.get('data_management.ttl_backup_coupling_enabled') == '1' %}
+          {% set ttl_days = dm_settings.get('data_management.ttl_logs_days', '') or
+                            dm_settings.get('data_management.ttl_traces_days', '') %}
+          {% set sched_full = dm_settings.get('data_management.backup_schedule_full', '') %}
+          {% if ttl_days and not sched_full %}
+          <div class="alert alert-warning py-2 small mt-2 mb-0">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            TTL is configured but no full-backup schedule is recorded. Ensure backups run before
+            data expires.
+          </div>
+          {% endif %}
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- ── TTL Action ─────────────────────────────────────────────────── -->
+      <div class="d-flex gap-2 flex-wrap mb-3">
+        <button type="submit" class="btn btn-sm btn-warning" name="apply_ttl" value="1">
+          <i class="bi bi-hourglass-split me-1"></i>Save &amp; Apply TTL to Tables
+        </button>
+      </div>
+    </div>
   </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <!-- Section 2: Backups & Storage                                          -->
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <h5 class="fw-semibold mt-4 mb-3">
+    <i class="bi bi-cloud-arrow-up me-2 text-primary"></i>Backups &amp; Storage
+  </h5>
 
   <!-- ── Backup Settings ────────────────────────────────────────────────── -->
   <div class="card border-secondary mb-3">
@@ -295,51 +422,10 @@
     </div>
   </div>
 
-  <!-- ── TTL / Backup Coupling ──────────────────────────────────────────── -->
-  <div class="card border-secondary mb-3">
-    <div class="card-header d-flex align-items-center gap-2">
-      <i class="bi bi-link-45deg text-warning"></i>
-      <span class="fw-semibold">TTL–Backup Coupling</span>
-    </div>
-    <div class="card-body">
-      <div class="mb-2">
-        <div class="form-check form-switch">
-          <input class="form-check-input" type="checkbox" role="switch"
-                 id="ttlBackupCouplingEnabled"
-                 name="ttl_backup_coupling_enabled" value="1"
-                 {% if dm_settings.get('data_management.ttl_backup_coupling_enabled') == '1' %}checked{% endif %}>
-          <label class="form-check-label fw-semibold" for="ttlBackupCouplingEnabled">
-            Remind me to verify backup coverage before TTL expires
-          </label>
-        </div>
-      </div>
-      <p class="small text-secondary mb-0">
-        When enabled, the data management page displays a warning whenever a configured
-        TTL window is shorter than the backup retention implied by your schedule.
-        This is an advisory indicator only — SOBS does not block TTL or backup operations.
-      </p>
-      {% if dm_settings.get('data_management.ttl_backup_coupling_enabled') == '1' %}
-      {% set ttl_days = dm_settings.get('data_management.ttl_logs_days', '') or
-                        dm_settings.get('data_management.ttl_traces_days', '') %}
-      {% set sched_full = dm_settings.get('data_management.backup_schedule_full', '') %}
-      {% if ttl_days and not sched_full %}
-      <div class="alert alert-warning py-2 small mt-2 mb-0">
-        <i class="bi bi-exclamation-triangle me-1"></i>
-        TTL is configured but no full-backup schedule is recorded. Ensure backups run before
-        data expires.
-      </div>
-      {% endif %}
-      {% endif %}
-    </div>
-  </div>
-
-  <!-- ── Save ───────────────────────────────────────────────────────────── -->
-  <div class="d-flex gap-2 flex-wrap">
+  <!-- ── Backup / Storage Actions ─────────────────────────────────────── -->
+  <div class="d-flex gap-2 flex-wrap mb-3">
     <button type="submit" class="btn btn-sm btn-primary" name="apply_ttl" value="0">
       <i class="bi bi-floppy me-1"></i>Save Settings
-    </button>
-    <button type="submit" class="btn btn-sm btn-warning" name="apply_ttl" value="1">
-      <i class="bi bi-hourglass-split me-1"></i>Save &amp; Apply TTL to Tables
     </button>
     <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary">Cancel</a>
   </div>

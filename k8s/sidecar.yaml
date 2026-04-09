@@ -2,6 +2,21 @@
 # SOBS as a sidecar container in an existing Pod
 # Add this container block to your existing Deployment's spec.containers list.
 #
+# Before applying, create the required Kubernetes resources:
+#
+#   kubectl create secret generic sobs-secret \
+#     --from-literal=secret-key="$(openssl rand -hex 32)" \
+#     --from-literal=api-key="" \
+#     --from-literal=ai-api-key="" \
+#     --from-literal=settings-encryption-key=""
+#
+#   kubectl create configmap sobs-config \
+#     --from-literal=ai-endpoint-url="" \
+#     --from-literal=ai-model="" \
+#     --from-literal=ai-guard-endpoint-url="" \
+#     --from-literal=ai-guard-model="" \
+#     --from-literal=ai-dlp-endpoint-url=""
+#
 # Example – add to your app Deployment:
 #
 #   spec:
@@ -14,8 +29,30 @@
 #         ports:
 #           - containerPort: 4317
 #         env:
+#           - name: PORT
+#             value: "4317"
 #           - name: SOBS_DATA_DIR
 #             value: /data
+#           # Core security
+#           - name: SOBS_SECRET_KEY
+#             valueFrom:
+#               secretKeyRef:
+#                 name: sobs-secret
+#                 key: secret-key
+#                 optional: true
+#           - name: SOBS_API_KEY
+#             valueFrom:
+#               secretKeyRef:
+#                 name: sobs-secret
+#                 key: api-key
+#                 optional: true
+#           - name: SOBS_SETTINGS_ENCRYPTION_KEY
+#             valueFrom:
+#               secretKeyRef:
+#                 name: sobs-secret
+#                 key: settings-encryption-key
+#                 optional: true
+#           # AI assistant
 #           - name: SOBS_AI_ENDPOINT_URL
 #             valueFrom:
 #               configMapKeyRef:
@@ -52,21 +89,36 @@
 #                 name: sobs-config
 #                 key: ai-dlp-endpoint-url
 #                 optional: true
-#           - name: SOBS_AI_API_KEY_FILE
-#             value: /var/run/secrets/sobs/ai-api-key
+#           # Retention / raw metrics TTL (optional – defaults shown)
+#           # - name: SOBS_RAW_METRICS_TTL_HOURS
+#           #   value: "48"
+#           # - name: SOBS_PINNED_METRICS_TTL_DAYS
+#           #   value: "14"
 #         volumeMounts:
 #           - name: sobs-data
 #             mountPath: /data
 #           - name: sobs-secret-files
 #             mountPath: /var/run/secrets/sobs
 #             readOnly: true
+#         livenessProbe:
+#           httpGet:
+#             path: /health
+#             port: 4317
+#           initialDelaySeconds: 5
+#           periodSeconds: 30
+#         readinessProbe:
+#           httpGet:
+#             path: /health
+#             port: 4317
+#           initialDelaySeconds: 5
+#           periodSeconds: 10
 #         resources:
 #           requests:
-#             memory: "32Mi"
-#             cpu: "20m"
+#             memory: "64Mi"
+#             cpu: "50m"
 #           limits:
-#             memory: "128Mi"
-#             cpu: "100m"
+#             memory: "256Mi"
+#             cpu: "200m"
 #     volumes:
 #       - name: sobs-data
 #         emptyDir: {}
