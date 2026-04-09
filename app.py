@@ -12291,7 +12291,7 @@ async def view_errors():
             group_items.sort(key=lambda x: x.get("last_seen", ""), reverse=(sort_dir == "desc"))
 
         total = len(group_items)
-        errors = group_items[offset: offset + limit]
+        errors = group_items[offset : offset + limit]
     else:
         order_clause = f"ORDER BY {sort_col} {'ASC' if sort_dir == 'asc' else 'DESC'}"
         source_sql = (
