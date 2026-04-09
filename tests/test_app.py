@@ -8222,6 +8222,27 @@ class TestMetricsAnomalyDetection:
         assert result["rule_state"] == "warning"
         assert result["rule_seasonal"] is True
 
+    def test_evaluate_seasonal_rule_normalizes_offset_timestamp_to_utc(self):
+        """Offset-aware timestamps are normalized to UTC before bucket lookup."""
+        import json
+
+        # 02:30 at -05:00 is 07:30 UTC, so bucket key must be 7.
+        buckets = {"7": {"warning": 10.0, "critical": 20.0}}
+        buckets_json = json.dumps({"strategy": "hour_of_day", "buckets": buckets})
+        rule = {
+            "id": "test-id",
+            "name": "test-utc-hour",
+            "comparator": "gt",
+            "warning_threshold": 999.0,
+            "critical_threshold": 9999.0,
+            "min_sample_count": 1,
+            "seasonal_buckets_json": buckets_json,
+        }
+        result = sobs_app._evaluate_seasonal_rule(rule, 15.0, 1, "2024-01-01T02:30:00-05:00")
+        assert result is not None
+        assert result["rule_state"] == "warning"
+        assert result["rule_seasonal"] is True
+
     def test_annotate_rows_with_seasonal_rule(self):
         """_annotate_rows_with_rules dispatches seasonal evaluation correctly."""
         import json
@@ -8311,6 +8332,68 @@ class TestMetricsAnomalyDetection:
         assert rows[0]["rule_name"] == "threshold-test"
         assert rows[0]["rule_state"] == "warning"
         assert rows[0]["rule_seasonal"] is False
+
+    def test_annotate_rows_prefers_seasonal_on_equal_severity(self):
+        """When equal severity matches exist, seasonal is selected deterministically."""
+        import json
+
+        seasonal_rule = {
+            "id": "r-seasonal",
+            "name": "seasonal-rule",
+            "rule_type": "seasonal",
+            "source": "errors",
+            "signal": "exception_volume",
+            "service": "svc",
+            "attr_fp": "",
+            "comparator": "gt",
+            "warning_threshold": 999.0,
+            "critical_threshold": 9999.0,
+            "min_sample_count": 1,
+            "seasonal_buckets_json": json.dumps(
+                {"strategy": "hour_of_day", "buckets": {"12": {"warning": 10.0, "critical": 20.0}}}
+            ),
+        }
+        threshold_rule = {
+            "id": "r-threshold",
+            "name": "threshold-rule",
+            "rule_type": "threshold",
+            "source": "errors",
+            "signal": "exception_volume",
+            "service": "svc",
+            "attr_fp": "",
+            "comparator": "gt",
+            "warning_threshold": 10.0,
+            "critical_threshold": 20.0,
+            "min_sample_count": 1,
+            "seasonal_buckets_json": "",
+        }
+        rows = [
+            {
+                "source": "errors",
+                "signal": "exception_volume",
+                "service": "svc",
+                "attr_fp": "",
+                "value": 15.0,
+                "sample_count": 5,
+                "time": "2024-01-01 12:30:00",
+                "anomaly_state": "normal",
+            }
+        ]
+        # Threshold comes first to verify precedence is not list-order dependent.
+        sobs_app._annotate_rows_with_rules(
+            rows,
+            [threshold_rule, seasonal_rule],
+            source_key="source",
+            signal_key="signal",
+            service_key="service",
+            attr_fp_key="attr_fp",
+            value_key="value",
+            sample_count_key="sample_count",
+            time_key="time",
+        )
+        assert rows[0]["rule_name"] == "seasonal-rule"
+        assert rows[0]["rule_state"] == "warning"
+        assert rows[0]["rule_seasonal"] is True
 
     async def test_auto_metrics_rules_preview_seasonal_mode(self, client):
         """Seasonal mode preview produces candidates with rule_type='seasonal'."""
@@ -8421,6 +8504,51 @@ class TestMetricsAnomalyDetection:
             (marker,),
         ).fetchone()["c"]
         assert int(count2) == first_count
+
+    async def test_auto_metrics_rules_threshold_and_seasonal_can_coexist(self, client):
+        """Auto-generation should allow both threshold and seasonal rules for one series."""
+        marker = f"seasonal-coexist-svc-{time.time_ns()}"
+        for _ in range(10):
+            r = await client.post(
+                "/v1/errors",
+                json={"service": marker, "type": "RuntimeError", "message": "seasonal coexist seed", "stack": "x"},
+            )
+            assert r.status_code == 200
+
+        threshold_create = await client.post(
+            "/metrics/rules/auto",
+            form={
+                "action": "create",
+                "hours": "24",
+                "min_points": "1",
+                "service_filter": marker,
+                "mode": "threshold",
+            },
+        )
+        assert threshold_create.status_code in (302, 303)
+
+        seasonal_create = await client.post(
+            "/metrics/rules/auto",
+            form={
+                "action": "create",
+                "hours": "24",
+                "min_points": "1",
+                "service_filter": marker,
+                "mode": "seasonal",
+                "seasonal_strategy": "hour_of_day",
+            },
+        )
+        assert seasonal_create.status_code in (302, 303)
+
+        db = sobs_app.get_db()
+        rows = db.execute(
+            "SELECT RuleType, count() AS c FROM sobs_anomaly_rules FINAL "
+            "WHERE IsDeleted = 0 AND ServiceName = ? GROUP BY RuleType",
+            (marker,),
+        ).fetchall()
+        counts = {str(row["RuleType"]): int(row["c"]) for row in rows}
+        assert counts.get("threshold", 0) >= 1
+        assert counts.get("seasonal", 0) >= 1
 
     def test_build_seasonal_bucket_expr_hour_of_day(self):
         assert sobs_app._build_seasonal_bucket_expr("hour_of_day") == "toHour(time)"

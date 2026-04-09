@@ -10564,6 +10564,7 @@ def _build_auto_metric_rule_candidates(
             str(rule.get("signal", "")),
             str(rule.get("service", "")),
             str(rule.get("attr_fp", "")),
+            str(rule.get("rule_type", "threshold") or "threshold"),
         )
         for rule in active_rules
     }
@@ -10576,7 +10577,7 @@ def _build_auto_metric_rule_candidates(
         source = str(row["SignalSource"])
         signal = str(row["SignalName"])
         attr_fp = str(row["AttrFingerprint"])
-        key = (source, signal, service, attr_fp)
+        key = (source, signal, service, attr_fp, "threshold")
         if key in existing_series:
             skipped_existing += 1
             continue
@@ -10704,7 +10705,7 @@ def _build_seasonal_metric_rule_candidates(
     # Index bucket data by series key.
     bucket_index: dict[tuple[str, str, str, str], dict[str, dict[str, float]]] = {}
     for br in bucket_rows:
-        key = (
+        bucket_series_key = (
             str(br["SignalSource"]),
             str(br["SignalName"]),
             str(br["ServiceName"]),
@@ -10720,7 +10721,7 @@ def _build_seasonal_metric_rule_candidates(
             float(br["q80"]),
             float(br["q95"]),
         )
-        bucket_index.setdefault(key, {})[bk] = {"warning": w, "critical": c}
+        bucket_index.setdefault(bucket_series_key, {})[bk] = {"warning": w, "critical": c}
 
     active_rules = _load_anomaly_rules(db)
     existing_series = {
@@ -10729,6 +10730,7 @@ def _build_seasonal_metric_rule_candidates(
             str(rule.get("signal", "")),
             str(rule.get("service", "")),
             str(rule.get("attr_fp", "")),
+            str(rule.get("rule_type", "threshold") or "threshold"),
         )
         for rule in active_rules
     }
@@ -10742,8 +10744,8 @@ def _build_seasonal_metric_rule_candidates(
         source = str(row["SignalSource"])
         signal = str(row["SignalName"])
         attr_fp = str(row["AttrFingerprint"])
-        key = (source, signal, service, attr_fp)
-        if key in existing_series:
+        rule_scope_key = (source, signal, service, attr_fp, "seasonal")
+        if rule_scope_key in existing_series:
             skipped_existing += 1
             continue
 
@@ -10763,10 +10765,8 @@ def _build_seasonal_metric_rule_candidates(
             skipped_invalid += 1
             continue
 
-        series_buckets = bucket_index.get(key, {})
-        seasonal_buckets_json = json.dumps(
-            {"strategy": strategy, "buckets": series_buckets}
-        )
+        series_buckets = bucket_index.get((source, signal, service, attr_fp), {})
+        seasonal_buckets_json = json.dumps({"strategy": strategy, "buckets": series_buckets})
 
         created_candidates.append(
             {
@@ -11534,8 +11534,14 @@ def _evaluate_seasonal_rule(
     that evaluation never silently skips a data point.
     """
     buckets_json = str(rule.get("seasonal_buckets_json") or "")
-    warning_threshold: object = rule.get("warning_threshold", 0.0)
-    critical_threshold: object = rule.get("critical_threshold", 0.0)
+    try:
+        warning_threshold = float(str(rule.get("warning_threshold", 0.0)))
+    except (TypeError, ValueError):
+        warning_threshold = 0.0
+    try:
+        critical_threshold = float(str(rule.get("critical_threshold", 0.0)))
+    except (TypeError, ValueError):
+        critical_threshold = 0.0
     is_seasonal = False
 
     if buckets_json:
@@ -11547,6 +11553,12 @@ def _evaluate_seasonal_rule(
                 try:
                     time_str = str(time_value).strip()
                     dt = datetime.fromisoformat(time_str.replace(" ", "T"))
+                    # Backend timestamps are UTC; treat naive values as UTC and
+                    # normalize offset-aware values to UTC before bucket lookup.
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    else:
+                        dt = dt.astimezone(timezone.utc)
                     if strategy == "day_of_week":
                         bucket_key = str(dt.isoweekday())  # 1 (Mon) … 7 (Sun)
                     else:
@@ -11735,6 +11747,11 @@ def _annotate_rows_with_rules(
         attr_fp_key=attr_fp_key,
         time_key=time_key,
     )
+    rule_type_precedence = {
+        "seasonal": 3,
+        "composite": 2,
+        "threshold": 1,
+    }
     for row in rows:
         row["rule_name"] = ""
         row["rule_state"] = "normal"
@@ -11742,7 +11759,7 @@ def _annotate_rows_with_rules(
         row["rule_seasonal"] = False
         row["effective_state"] = str(row.get("anomaly_state", "normal"))
         best_match: dict[str, object] | None = None
-        best_rank = -1
+        best_rank: tuple[int, int, str] = (-1, -1, "")
         row_source = str(row.get(source_key, ""))
         row_signal = str(row.get(signal_key, ""))
         row_service = str(row.get(service_key, ""))
@@ -11777,7 +11794,12 @@ def _annotate_rows_with_rules(
                 evaluation = _evaluate_threshold_rule(rule, row.get(value_key), row.get(sample_count_key))
             if not evaluation:
                 continue
-            rank = _ANOMALY_SEVERITY_RANK.get(str(evaluation.get("rule_state", "normal")), 0)
+            severity = _ANOMALY_SEVERITY_RANK.get(str(evaluation.get("rule_state", "normal")), 0)
+            type_rank = rule_type_precedence.get(rule_type, 0)
+            # Deterministic tie-breaker when multiple rules fire with equal
+            # severity: prefer richer rule types (seasonal > composite > threshold),
+            # then lexical rule name for stable behavior.
+            rank = (severity, type_rank, str(evaluation.get("rule_name", "")))
             if rank > best_rank:
                 best_match = evaluation
                 best_rank = rank
