@@ -9741,9 +9741,9 @@ def _fmt_bytes(n: int | None) -> str:
     """Format a byte count into a human-readable string."""
     if n is None:
         return "—"
-    if n >= 1024 ** 3:
+    if n >= 1024**3:
         return f"{n / 1024 ** 3:.1f} GB"
-    if n >= 1024 ** 2:
+    if n >= 1024**2:
         return f"{n / 1024 ** 2:.1f} MB"
     if n >= 1024:
         return f"{n / 1024:.1f} KB"
