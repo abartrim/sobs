@@ -13809,6 +13809,62 @@ class TestWebTraffic:
         assert scope_item["source"] == "otel_scope"
 
 
+# ---------------------------------------------------------------------------
+# Database Stats – summary page
+# ---------------------------------------------------------------------------
+class TestDbStats:
+    """Tests for the chDB database stats panel on the summary page."""
+
+    async def test_summary_page_shows_database_stats_panel(self, client):
+        """Summary page renders the Database Stats card."""
+        r = await client.get("/")
+        assert r.status_code == 200
+        html = (await r.get_data()).decode()
+        assert "Database Stats" in html
+        assert "Compressed size" in html
+        assert "Compression ratio" in html
+        assert "Active queries" in html
+
+    def test_get_db_stats_returns_expected_keys(self):
+        """_get_db_stats returns a dict with the required metric keys."""
+        import app as sobs_app
+
+        db = sobs_app.get_db()
+        result = sobs_app._get_db_stats(db)
+        assert isinstance(result, dict)
+        assert "compressed_bytes" in result
+        assert "uncompressed_bytes" in result
+        assert "compression_ratio" in result
+        assert "total_rows" in result
+        assert "active_queries" in result
+        assert "tables" in result
+        assert isinstance(result["tables"], list)
+
+    def test_fmt_bytes_formats_correctly(self):
+        """_fmt_bytes returns human-readable byte strings."""
+        import app as sobs_app
+
+        assert sobs_app._fmt_bytes(None) == "—"
+        assert sobs_app._fmt_bytes(0) == "0 B"
+        assert sobs_app._fmt_bytes(512) == "512 B"
+        assert "KB" in sobs_app._fmt_bytes(2048)
+        assert "MB" in sobs_app._fmt_bytes(2 * 1024 * 1024)
+        assert "GB" in sobs_app._fmt_bytes(2 * 1024 * 1024 * 1024)
+
+    def test_get_db_stats_handles_system_table_errors_gracefully(self, monkeypatch):
+        """_get_db_stats returns safe defaults when system tables are unavailable."""
+        import app as sobs_app
+
+        class _ErrorDB:
+            def execute(self, *_a, **_kw):
+                raise RuntimeError("system table unavailable")
+
+        result = sobs_app._get_db_stats(_ErrorDB())
+        assert result["compressed_bytes"] is None
+        assert result["active_queries"] is None
+        assert result["tables"] == []
+
+
 class TestKubernetesRoutes:
     """Integration tests for Kubernetes health view routes."""
 
