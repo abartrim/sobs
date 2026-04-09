@@ -16901,13 +16901,16 @@ class TestIncidentView:
         assert "60" in body
 
     async def test_incident_page_window_minutes_clamped(self, client):
-        """window_minutes above max (180) is accepted without server error."""
+        """window_minutes above max (180) is clamped to 180 and the page renders without error."""
         r = await client.get(
             "/incident?trace_id=aabbccddeeff001122334455667788ee&window_minutes=9999"
         )
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
         assert "Incident View" in body
+        # The displayed window should be the clamped maximum (180 min total, ±90 min)
+        assert "180" in body
+        assert "9999" not in body
 
     async def test_incident_page_shows_related_error_from_trace(self, client):
         """When errors are ingested with a matching trace_id, they appear in the incident view."""

@@ -14069,13 +14069,9 @@ async def view_incident():
     from_ts, to_ts, time_error = _parse_time_window_args()
 
     try:
-        window_minutes = max(
-            1,
-            min(
-                _INCIDENT_WINDOW_MAX_MINUTES,
-                int(request.args.get("window_minutes", str(_INCIDENT_WINDOW_DEFAULT_MINUTES)).strip() or str(_INCIDENT_WINDOW_DEFAULT_MINUTES)),
-            ),
-        )
+        _wm_raw = request.args.get("window_minutes", "").strip()
+        _wm_int = int(_wm_raw) if _wm_raw else _INCIDENT_WINDOW_DEFAULT_MINUTES
+        window_minutes = max(1, min(_INCIDENT_WINDOW_MAX_MINUTES, _wm_int))
     except (TypeError, ValueError):
         window_minutes = _INCIDENT_WINDOW_DEFAULT_MINUTES
 

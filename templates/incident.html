@@ -254,10 +254,10 @@
         {% if service %}<div><span class="text-secondary">Service:</span> {{ service }}</div>{% endif %}
       </div>
       <div class="d-flex flex-wrap gap-2 mt-2">
-        <a href="{{ request.url | replace('window_minutes=' + window_minutes | string, 'window_minutes=15') if 'window_minutes=' in request.url else request.url + '&window_minutes=15' }}" class="btn btn-sm btn-outline-secondary">15 min</a>
-        <a href="{{ request.url | replace('window_minutes=' + window_minutes | string, 'window_minutes=30') if 'window_minutes=' in request.url else request.url + '&window_minutes=30' }}" class="btn btn-sm btn-outline-secondary">30 min</a>
-        <a href="{{ request.url | replace('window_minutes=' + window_minutes | string, 'window_minutes=60') if 'window_minutes=' in request.url else request.url + '&window_minutes=60' }}" class="btn btn-sm btn-outline-secondary">60 min</a>
-        <a href="{{ request.url | replace('window_minutes=' + window_minutes | string, 'window_minutes=180') if 'window_minutes=' in request.url else request.url + '&window_minutes=180' }}" class="btn btn-sm btn-outline-secondary">180 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, from_ts=from_ts, to_ts=to_ts, window_minutes=15) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 15 %} active{% endif %}">15 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, from_ts=from_ts, to_ts=to_ts, window_minutes=30) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 30 %} active{% endif %}">30 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, from_ts=from_ts, to_ts=to_ts, window_minutes=60) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 60 %} active{% endif %}">60 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, from_ts=from_ts, to_ts=to_ts, window_minutes=180) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 180 %} active{% endif %}">180 min</a>
       </div>
     </div>
   </div>
@@ -306,7 +306,7 @@
       lines.push('## Primary Event');
       {% if primary_error %}
       lines.push('- **Type:** `{{ primary_error.err_type }}`');
-      lines.push('- **Message:** {{ primary_error.message | replace("`", "\\`") | truncate(200) }}');
+      lines.push('- **Message:** ' + JSON.stringify({{ primary_error.message | truncate(200) | tojson }}).slice(1,-1));
       lines.push('- **Timestamp:** {{ (primary_error.ts or '')[:19] }}');
       {% if primary_error.trace_id %}
       lines.push('- **Trace ID:** `{{ primary_error.trace_id }}`');
