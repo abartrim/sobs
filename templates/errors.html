@@ -222,7 +222,7 @@ document.querySelectorAll('.copy-stack-btn').forEach(btn => {
     const stack = stackEl ? String(stackEl.innerText || '').trim() : '';
     if (!stack) return;
     try {
-      await navigator.clipboard.writeText(stack);
+      await window.SOBS.copyToClipboard(stack);
       const original = btn.innerHTML;
       btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied';
       btn.classList.replace('btn-outline-secondary', 'btn-secondary');
@@ -281,7 +281,7 @@ document.querySelectorAll('.ai-help-btn').forEach(btn => {
     lines.push('', '---', 'Please analyze this issue and suggest possible causes and next steps.');
 
     try {
-      await navigator.clipboard.writeText(lines.join('\n'));
+      await window.SOBS.copyToClipboard(lines.join('\n'));
       const origHtml = btn.innerHTML;
       btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied!';
       btn.classList.replace('btn-outline-warning', 'btn-warning');
