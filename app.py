@@ -19722,7 +19722,7 @@ async def api_export_reports():
     payload = {
         "sobs_reports_export": True,
         "version": _REPORTS_EXPORT_VERSION,
-        "exported_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "reports": [
             {
                 "id": r["id"],

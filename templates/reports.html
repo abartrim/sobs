@@ -200,7 +200,7 @@
       pageFeedback.innerHTML = '<i class="bi bi-check-circle me-1"></i>Import complete: ' + summary +
         ' <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
       // Reload to reflect newly imported reports
-      window.setTimeout(function () { window.location.reload(); }, 900);
+      window.setTimeout(function () { window.location.reload(); }, 1000);
     } catch (_err) {
       showModalMsg('danger', 'An error occurred during import.');
     } finally {
