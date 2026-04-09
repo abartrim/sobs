@@ -15179,6 +15179,14 @@ class TestDataManagementSettings:
         assert "Data Management" in text
         assert "settings/data-management" in text or "view_dm_settings" in text
 
+    async def test_data_management_help_page_loads(self, client):
+        """Data Management help route should render with restore guidance."""
+        r = await client.get("/settings/help/data-management")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Data Management Help" in text
+        assert "Restore Runbook" in text
+
     async def test_data_management_settings_page_loads(self, client):
         """GET /settings/data-management returns 200 with expected content."""
         r = await client.get("/settings/data-management")
@@ -15187,6 +15195,31 @@ class TestDataManagementSettings:
         assert "ClickHouse TTL" in text
         assert "S3 Backup" in text
         assert "TTL" in text and "Backup" in text
+
+    async def test_data_management_settings_page_shows_restore_visibility_hint_when_disabled(self, client):
+        """When backup is disabled, page should explain why restore UI is hidden."""
+        db = sobs_app.get_db()
+        sobs_app._del_app_setting(db, "data_management.backup_enabled")
+
+        r = await client.get("/settings/data-management")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Backup and restore controls are hidden until" in text
+
+    async def test_data_management_settings_page_does_not_render_secret_values(self, client):
+        """Sensitive settings should never be rendered back into the page HTML."""
+        db = sobs_app.get_db()
+        sobs_app._set_dm_setting(db, "data_management.s3_secret_access_key", "supersecretvalue")
+        sobs_app._set_dm_setting(db, "data_management.backup_encryption_password", "encryptpw")
+
+        r = await client.get("/settings/data-management")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+
+        assert "supersecretvalue" not in text
+        assert "encryptpw" not in text
+        assert "A secret access key is currently stored." in text
+        assert "A backup encryption password is currently stored." in text
 
     async def test_data_management_settings_save(self, client):
         """POST /settings/data-management saves settings and redirects."""
@@ -15206,6 +15239,53 @@ class TestDataManagementSettings:
             },
         )
         assert r.status_code in (200, 302)
+
+    async def test_data_management_settings_save_preserves_existing_secret_when_blank(self, client):
+        """Blank secret fields should keep the existing stored secret value."""
+        db = sobs_app.get_db()
+        sobs_app._set_dm_setting(db, "data_management.s3_secret_access_key", "existing-secret")
+
+        r = await client.post(
+            "/settings/data-management",
+            form={
+                "backup_enabled": "1",
+                "s3_bucket": "https://s3.us-east-1.amazonaws.com/test-bucket",
+                "s3_region": "us-east-1",
+                "s3_access_key_id": "AKIATEST",
+                "s3_secret_access_key": "",
+                "ttl_logs_days": "30",
+                "ttl_traces_days": "30",
+                "ttl_metrics_hours": "48",
+                "ttl_sessions_days": "14",
+                "apply_ttl": "0",
+            },
+        )
+        assert r.status_code in (200, 302)
+
+        saved = sobs_app._load_dm_settings(db)
+        assert saved.get("data_management.s3_secret_access_key") == "existing-secret"
+
+    async def test_data_management_settings_save_can_clear_secret_explicitly(self, client):
+        """Explicit clear control should remove a stored secret setting."""
+        db = sobs_app.get_db()
+        sobs_app._set_dm_setting(db, "data_management.s3_secret_access_key", "to-be-cleared")
+
+        r = await client.post(
+            "/settings/data-management",
+            form={
+                "backup_enabled": "1",
+                "s3_bucket": "https://s3.us-east-1.amazonaws.com/test-bucket",
+                "s3_region": "us-east-1",
+                "s3_access_key_id": "AKIATEST",
+                "s3_secret_access_key": "",
+                "clear_s3_secret_access_key": "1",
+                "apply_ttl": "0",
+            },
+        )
+        assert r.status_code in (200, 302)
+
+        saved = sobs_app._load_dm_settings(db)
+        assert saved.get("data_management.s3_secret_access_key") == ""
 
     async def test_data_management_settings_save_backup_disabled(self, client):
         """POST /settings/data-management with backup disabled."""
@@ -15275,6 +15355,30 @@ class TestDataManagementSettings:
         assert data["ok"] is False
         assert "backup_name" in data["message"]
 
+    async def test_restore_rejects_unsafe_backup_name(self, client, monkeypatch):
+        """Unsafe backup_name values should be rejected before SQL execution."""
+        monkeypatch.setattr(sobs_app, "_dm_backup_enabled", lambda db=None: True)
+        monkeypatch.setattr(
+            sobs_app,
+            "_load_dm_settings",
+            lambda db: {
+                "data_management.s3_bucket": "my-sobs-backups",
+                "data_management.s3_access_key_id": "",
+                "data_management.s3_secret_access_key": "",
+                "data_management.s3_region": "us-east-1",
+                "data_management.s3_path_prefix": "",
+            },
+        )
+
+        r = await client.post(
+            "/api/data-management/restore",
+            json={"backup_name": "bad'name"},
+        )
+        assert r.status_code == 400
+        data = json.loads(await r.get_data())
+        assert data["ok"] is False
+        assert "unsupported characters" in data["message"]
+
     def test_dm_settings_from_form_backup_enabled(self):
         """_dm_settings_from_form parses backup_enabled correctly."""
         settings = sobs_app._dm_settings_from_form({"backup_enabled": "1"})
@@ -15312,6 +15416,18 @@ class TestDataManagementSettings:
         assert "AKIATEST" in dest
         assert "secret123" in dest
         assert "test-backup" in dest
+
+    def test_build_s3_backup_dest_rejects_unsafe_bucket(self):
+        """Unsafe S3 destination values should be rejected."""
+        settings = {
+            "data_management.s3_bucket": "my-bucket'bad",
+            "data_management.s3_region": "us-east-1",
+            "data_management.s3_path_prefix": "",
+            "data_management.s3_access_key_id": "",
+            "data_management.s3_secret_access_key": "",
+        }
+        with pytest.raises(ValueError, match="s3_bucket"):
+            sobs_app._build_s3_backup_dest(settings, "test-backup")
 
     def test_is_sensitive_dm_setting_key(self):
         """Secret access key is identified as sensitive."""

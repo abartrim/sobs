@@ -3,9 +3,14 @@
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="fw-semibold mb-0"><i class="bi bi-database-down me-2 text-danger"></i>Data Management</h4>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Settings
-  </a>
+  <div class="d-flex gap-2">
+    <a class="btn btn-sm btn-outline-info" href="{{ url_for('data_management_help') }}">
+      <i class="bi bi-question-circle me-1"></i>Help
+    </a>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}">
+      <i class="bi bi-arrow-left me-1"></i>Back to Settings
+    </a>
+  </div>
 </div>
 
 <p class="text-secondary small mb-3">
@@ -146,11 +151,22 @@
             <label for="s3_secret_access_key" class="form-label small fw-semibold">Secret Access Key</label>
             <input type="password" id="s3_secret_access_key" name="s3_secret_access_key"
                    class="form-control form-control-sm font-monospace"
-                   value="{{ dm_settings.get('data_management.s3_secret_access_key', '') }}"
                    autocomplete="new-password" spellcheck="false"
                    placeholder="Leave blank to keep existing value">
             <div class="form-text text-secondary">
+              {% if dm_secret_present.get('s3_secret_access_key') %}
+              A secret access key is currently stored.
+              {% else %}
+              No secret access key is currently stored.
+              {% endif %}
               Stored encrypted if <code>SOBS_SETTINGS_ENCRYPTION_KEY</code> is configured.
+            </div>
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" value="1" id="clearS3SecretAccessKey"
+                     name="clear_s3_secret_access_key">
+              <label class="form-check-label small" for="clearS3SecretAccessKey">
+                Clear stored secret access key on save
+              </label>
             </div>
           </div>
         </div>
@@ -173,12 +189,23 @@
           <label for="backup_encryption_password" class="form-label small fw-semibold">Backup Encryption Password</label>
           <input type="password" id="backup_encryption_password" name="backup_encryption_password"
                  class="form-control form-control-sm font-monospace"
-                 value="{{ dm_settings.get('data_management.backup_encryption_password', '') }}"
                  autocomplete="new-password" spellcheck="false"
                  placeholder="Required when encryption is enabled">
           <div class="form-text text-secondary">
+            {% if dm_secret_present.get('backup_encryption_password') %}
+            A backup encryption password is currently stored.
+            {% else %}
+            No backup encryption password is currently stored.
+            {% endif %}
             Used as <code>encryption_password</code> in the ClickHouse BACKUP statement.
             Stored encrypted if <code>SOBS_SETTINGS_ENCRYPTION_KEY</code> is configured.
+          </div>
+          <div class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" value="1" id="clearBackupEncryptionPassword"
+                   name="clear_backup_encryption_password">
+            <label class="form-check-label small" for="clearBackupEncryptionPassword">
+              Clear stored backup encryption password on save
+            </label>
           </div>
         </div>
       </div>
@@ -218,6 +245,51 @@
                  value="{{ dm_settings.get('data_management.backup_schedule_incremental', '') }}"
                  placeholder="0 2 * * 1-6">
           <div class="form-text">Mon–Sat at 02:00 UTC</div>
+        </div>
+      </div>
+
+      <hr class="my-3">
+      <div class="row g-3 align-items-end">
+        <div class="col-12">
+          <h6 class="fw-semibold mb-1"><i class="bi bi-magic me-1"></i>Quick Cron Builder</h6>
+          <p class="small text-secondary mb-0">Generate cron strings and apply them to the fields above.</p>
+        </div>
+
+        <div class="col-md-4">
+          <label for="cronTarget" class="form-label small fw-semibold">Target field</label>
+          <select id="cronTarget" class="form-select form-select-sm">
+            <option value="backup_schedule_full">Full backup schedule</option>
+            <option value="backup_schedule_incremental">Incremental backup schedule</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label for="cronPreset" class="form-label small fw-semibold">Preset</label>
+          <select id="cronPreset" class="form-select form-select-sm">
+            <option value="weekly_sun">Weekly (Sun)</option>
+            <option value="daily">Daily</option>
+            <option value="weekdays">Weekdays (Mon-Fri)</option>
+            <option value="every6h">Every 6 hours</option>
+            <option value="hourly">Hourly</option>
+            <option value="monthly_first">Monthly (1st day)</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label for="cronHour" class="form-label small fw-semibold">Hour (UTC)</label>
+          <input type="number" id="cronHour" class="form-control form-control-sm" min="0" max="23" value="2">
+        </div>
+        <div class="col-6 col-md-2">
+          <label for="cronMinute" class="form-label small fw-semibold">Minute</label>
+          <input type="number" id="cronMinute" class="form-control form-control-sm" min="0" max="59" value="0">
+        </div>
+
+        <div class="col-12 d-flex gap-2 flex-wrap">
+          <button type="button" class="btn btn-sm btn-outline-success" id="btnBuildCron">
+            <i class="bi bi-wrench-adjustable-circle me-1"></i>Build Cron
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="btnCopyCron">
+            <i class="bi bi-clipboard me-1"></i>Copy Cron
+          </button>
+          <span id="cronPreview" class="badge text-bg-light border text-secondary font-monospace"></span>
         </div>
       </div>
     </div>
@@ -273,6 +345,13 @@
   </div>
 
 </form>
+
+{% if dm_settings.get('data_management.backup_enabled') != '1' %}
+<div class="alert alert-info mt-3 mb-0 small">
+  <i class="bi bi-info-circle me-1"></i>
+  Backup and restore controls are hidden until <strong>Enable Backup &amp; Restore</strong> is enabled and saved.
+</div>
+{% endif %}
 
 <!-- ── Backup Actions ─────────────────────────────────────────────────── -->
 {% if dm_settings.get('data_management.backup_enabled') == '1' %}
@@ -399,6 +478,71 @@
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  function clampInt(value, min, max, fallback) {
+    var n = parseInt(String(value || ''), 10);
+    if (Number.isNaN(n)) return fallback;
+    if (n < min) return min;
+    if (n > max) return max;
+    return n;
+  }
+
+  function buildCronFromPreset(preset, hourRaw, minuteRaw) {
+    var hour = clampInt(hourRaw, 0, 23, 2);
+    var minute = clampInt(minuteRaw, 0, 59, 0);
+    var hh = String(hour);
+    var mm = String(minute);
+
+    if (preset === 'hourly') return mm + ' * * * *';
+    if (preset === 'every6h') return mm + ' */6 * * *';
+    if (preset === 'daily') return mm + ' ' + hh + ' * * *';
+    if (preset === 'weekdays') return mm + ' ' + hh + ' * * 1-5';
+    if (preset === 'monthly_first') return mm + ' ' + hh + ' 1 * *';
+    return mm + ' ' + hh + ' * * 0';
+  }
+
+  function initCronBuilder() {
+    var targetEl = document.getElementById('cronTarget');
+    var presetEl = document.getElementById('cronPreset');
+    var hourEl = document.getElementById('cronHour');
+    var minuteEl = document.getElementById('cronMinute');
+    var previewEl = document.getElementById('cronPreview');
+    var buildBtn = document.getElementById('btnBuildCron');
+    var copyBtn = document.getElementById('btnCopyCron');
+    if (!targetEl || !presetEl || !hourEl || !minuteEl || !previewEl || !buildBtn || !copyBtn) return;
+
+    function updatePreview() {
+      var cron = buildCronFromPreset(presetEl.value, hourEl.value, minuteEl.value);
+      previewEl.textContent = cron;
+      return cron;
+    }
+
+    function applyCronToTarget() {
+      var cron = updatePreview();
+      var field = document.getElementById(targetEl.value);
+      if (!field) return;
+      field.value = cron;
+      showMsg('Applied cron to selected schedule field', 'success');
+    }
+
+    async function copyCronPreview() {
+      var cron = updatePreview();
+      try {
+        await navigator.clipboard.writeText(cron);
+        showMsg('Cron copied to clipboard', 'success');
+      } catch (_err) {
+        showMsg('Copy failed. Select and copy manually.', 'warning');
+      }
+    }
+
+    buildBtn.addEventListener('click', applyCronToTarget);
+    copyBtn.addEventListener('click', copyCronPreview);
+    presetEl.addEventListener('change', updatePreview);
+    hourEl.addEventListener('input', updatePreview);
+    minuteEl.addEventListener('input', updatePreview);
+
+    updatePreview();
+  }
+
   document.getElementById('btnRefreshBackups').addEventListener('click', loadBackups);
 
   document.getElementById('btnRunFullBackup').addEventListener('click', async () => {
@@ -433,8 +577,75 @@
     });
   }
 
+  initCronBuilder();
+  window.__dmCronBuilderInit = true;
   loadBackups();
 })();
 </script>
 {% endif %}
+
+<script>
+(function () {
+  'use strict';
+
+  if (window.__dmCronBuilderInit) return;
+
+  function clampInt(value, min, max, fallback) {
+    var n = parseInt(String(value || ''), 10);
+    if (Number.isNaN(n)) return fallback;
+    if (n < min) return min;
+    if (n > max) return max;
+    return n;
+  }
+
+  function buildCronFromPreset(preset, hourRaw, minuteRaw) {
+    var hour = clampInt(hourRaw, 0, 23, 2);
+    var minute = clampInt(minuteRaw, 0, 59, 0);
+    var hh = String(hour);
+    var mm = String(minute);
+
+    if (preset === 'hourly') return mm + ' * * * *';
+    if (preset === 'every6h') return mm + ' */6 * * *';
+    if (preset === 'daily') return mm + ' ' + hh + ' * * *';
+    if (preset === 'weekdays') return mm + ' ' + hh + ' * * 1-5';
+    if (preset === 'monthly_first') return mm + ' ' + hh + ' 1 * *';
+    return mm + ' ' + hh + ' * * 0';
+  }
+
+  var targetEl = document.getElementById('cronTarget');
+  var presetEl = document.getElementById('cronPreset');
+  var hourEl = document.getElementById('cronHour');
+  var minuteEl = document.getElementById('cronMinute');
+  var previewEl = document.getElementById('cronPreview');
+  var buildBtn = document.getElementById('btnBuildCron');
+  var copyBtn = document.getElementById('btnCopyCron');
+  if (!targetEl || !presetEl || !hourEl || !minuteEl || !previewEl || !buildBtn || !copyBtn) return;
+
+  function updatePreview() {
+    var cron = buildCronFromPreset(presetEl.value, hourEl.value, minuteEl.value);
+    previewEl.textContent = cron;
+    return cron;
+  }
+
+  buildBtn.addEventListener('click', function () {
+    var field = document.getElementById(targetEl.value);
+    if (!field) return;
+    field.value = updatePreview();
+  });
+
+  copyBtn.addEventListener('click', async function () {
+    try {
+      await navigator.clipboard.writeText(updatePreview());
+    } catch (_err) {
+      // No-op fallback: users can copy from preview chip manually.
+    }
+  });
+
+  presetEl.addEventListener('change', updatePreview);
+  hourEl.addEventListener('input', updatePreview);
+  minuteEl.addEventListener('input', updatePreview);
+  updatePreview();
+  window.__dmCronBuilderInit = true;
+})();
+</script>
 {% endblock %}

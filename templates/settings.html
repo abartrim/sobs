@@ -297,16 +297,21 @@
           {% else %}
           <span class="badge text-bg-secondary">Backup disabled</span>
           {% endif %}
-          <a href="{{ url_for('view_dm_settings') }}" class="btn btn-sm btn-outline-danger"
-             data-ai-action-id="settings.nav.data_management"
-             data-ai-action-type="navigate"
-             data-ai-handler="navigate"
-             data-ai-args='{"target_page":"/settings/data-management"}'
-             data-ai-label="Open data management settings"
-             data-ai-risk="high"
-             data-ai-confirm="true">
-            <i class="bi bi-pencil-square me-1"></i>Configure Data Management
-          </a>
+          <div class="d-flex gap-2">
+            <a href="{{ url_for('data_management_help') }}" class="btn btn-sm btn-outline-info">
+              <i class="bi bi-question-circle me-1"></i>Help
+            </a>
+            <a href="{{ url_for('view_dm_settings') }}" class="btn btn-sm btn-outline-danger"
+               data-ai-action-id="settings.nav.data_management"
+               data-ai-action-type="navigate"
+               data-ai-handler="navigate"
+               data-ai-args='{"target_page":"/settings/data-management"}'
+               data-ai-label="Open data management settings"
+               data-ai-risk="high"
+               data-ai-confirm="true">
+              <i class="bi bi-pencil-square me-1"></i>Configure Data Management
+            </a>
+          </div>
         </div>
       </div>
     </div>
@@ -318,27 +323,55 @@
   <div class="card border-secondary">
     <div class="card-body small text-secondary">
       <p class="mb-2">
-        SOBS stores all telemetry in ClickHouse-compatible tables that align with the
-        <strong>OpenTelemetry (OTEL) semantic conventions</strong> and are designed to support
-        future migration to <strong>Clickstack</strong> without data loss.
+        SOBS stores core telemetry in OTEL-aligned tables and adds a small set of
+        custom rule/derived tables and views for product behavior (anomaly detection,
+        derived signals, and curated query surfaces).
       </p>
-      <ul class="mb-2">
-        <li><code>otel_logs</code> — Logs and log-derived events (errors, RUM exceptions)</li>
-        <li><code>otel_traces</code> — Distributed trace spans (including AI transparency spans)</li>
-        <li><code>otel_metrics_gauge / sum / histogram</code> — OTEL metric data points</li>
-        <li><code>hyperdx_sessions</code> — Real User Monitoring (RUM) session events</li>
-        <li><code>sobs_record_tags</code> — Record-level tags (manual and auto-tagged), keyed by stable record ID</li>
-        <li><code>sobs_tag_rules</code> — Auto-tagging rules evaluated at ingest time</li>
-        <li><code>sobs_anomaly_rules</code> — Anomaly detection threshold/composite rules</li>
-        <li><code>sobs_ai_settings</code> — AI/LLM endpoint and safety configuration</li>
-        <li><code>sobs_agent_rules</code> — Automated agent flow trigger rules</li>
-        <li><code>sobs_agent_runs</code> — History of agent flow executions and results</li>
-      </ul>
-      <p class="mb-0">
-        Tags are stored out-of-band in <code>sobs_record_tags</code>, keeping the core OTEL tables
-        schema-compatible with upstream tooling. The stable <em>RecordId</em> is an MD5 of
-        (ServiceName, Timestamp, TraceId, SpanId) for log-type records, and (TraceId, SpanId) for
-        trace spans (including AI spans) — ensuring deterministic join keys across migrations.
+      <div class="row g-3 mb-2">
+        <div class="col-lg-6">
+          <h6 class="small text-uppercase text-secondary mb-2">Core OTEL-Aligned Tables</h6>
+          <ul class="mb-0">
+            <li><code>otel_logs</code> - logs and log-derived events</li>
+            <li><code>otel_traces</code> - distributed spans (including AI spans)</li>
+            <li><code>otel_metrics_gauge/sum/histogram</code> - metric point storage</li>
+            <li><code>hyperdx_sessions</code> - RUM session events</li>
+          </ul>
+        </div>
+        <div class="col-lg-6">
+          <h6 class="small text-uppercase text-secondary mb-2">Custom SOBS Data Layer</h6>
+          <ul class="mb-0">
+            <li><code>sobs_anomaly_rules</code> - rule definitions</li>
+            <li><code>sobs_raw_windows</code> - signal windows for analysis</li>
+            <li><code>otel_metrics_1m_agg</code> and <code>v_otel_metrics_1m</code> - 1-minute metric rollups</li>
+            <li><code>v_derived_signals_1m</code> and <code>v_derived_signals_anomaly</code> - derived signal views</li>
+          </ul>
+        </div>
+      </div>
+
+      <details class="mt-3">
+        <summary class="fw-semibold">Runtime Query Allowlist (authoritative)</summary>
+        <p class="mt-2 mb-2">
+          Query/Table Explorer access is constrained to this runtime list from
+          <code>_QUERY_ALLOWED_TABLES</code> plus operator extensions from
+          <code>SOBS_QUERY_ALLOWED_TABLES</code>.
+        </p>
+        <ul class="mb-2">
+          {% for table_name in query_allowed_tables %}
+          <li>
+            <code>{{ table_name }}</code>
+            {% if table_name.startswith('v_') %}
+            <span class="badge text-bg-light border text-secondary ms-1">view</span>
+            {% else %}
+            <span class="badge text-bg-light border text-secondary ms-1">table</span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </details>
+
+      <p class="mb-0 mt-2">
+        Metadata reads against <code>system.tables</code> and <code>system.columns</code>
+        are also permitted for schema discovery.
       </p>
     </div>
   </div>

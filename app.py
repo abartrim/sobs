@@ -18323,6 +18323,12 @@ async def kubernetes_help():
     return await render_template("kubernetes_help.html")
 
 
+@app.route("/settings/help/data-management")
+@require_basic_auth
+async def data_management_help():
+    return await render_template("data_management_help.html")
+
+
 @app.route("/dashboards/<dashboard_id>/delete", methods=["POST"])
 @require_basic_auth
 async def delete_dashboard(dashboard_id: str):
@@ -19651,6 +19657,7 @@ async def view_settings():
         notification_rule_count=len(notification_rules),
         kubernetes_view_enabled=k8s_settings.get("kubernetes.enabled") == "1",
         backup_enabled=backup_enabled,
+        query_allowed_tables=sorted(_QUERY_ALLOWED_TABLES),
     )
 
 
@@ -27142,6 +27149,13 @@ _DM_SENSITIVE_SETTING_KEYS = frozenset(
     }
 )
 
+_DM_S3_ENDPOINT_RE = re.compile(r"^[A-Za-z0-9:/._-]+$")
+_DM_S3_PREFIX_RE = re.compile(r"^[A-Za-z0-9._/-]*$")
+_DM_AWS_REGION_RE = re.compile(r"^[a-z0-9-]*$")
+_DM_AWS_ACCESS_KEY_RE = re.compile(r"^[A-Za-z0-9]*$")
+_DM_AWS_SECRET_KEY_RE = re.compile(r"^[A-Za-z0-9/+=]*$")
+_DM_BACKUP_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,200}$")
+
 # Tables managed by data-management TTL settings and the timestamp column to
 # use in the ALTER TABLE … MODIFY TTL expression.
 _DM_TTL_TABLES: tuple[tuple[str, str, str], ...] = (
@@ -27163,13 +27177,45 @@ def _is_sensitive_dm_setting_key(key: str) -> bool:
     return key in _DM_SENSITIVE_SETTING_KEYS
 
 
-def _load_dm_settings(db: "ChDbConnection") -> dict[str, str]:
+def _sql_quote_literal(value: str) -> str:
+    """Return a safely quoted SQL string literal for ClickHouse statements."""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _require_dm_safe_value(field_name: str, value: str, pattern: re.Pattern[str]) -> None:
+    if value and not pattern.fullmatch(value):
+        raise ValueError(f"{field_name} contains unsupported characters")
+
+
+def _validate_dm_backup_name(backup_name: str) -> None:
+    if not _DM_BACKUP_NAME_RE.fullmatch(backup_name):
+        raise ValueError("backup_name contains unsupported characters")
+
+
+def _validate_dm_s3_settings(settings: dict[str, str]) -> None:
+    bucket = settings.get("data_management.s3_bucket", "").strip().rstrip("/")
+    prefix = settings.get("data_management.s3_path_prefix", "").strip().strip("/")
+    region = settings.get("data_management.s3_region", "").strip()
+    access_key = settings.get("data_management.s3_access_key_id", "").strip()
+    secret_key = settings.get("data_management.s3_secret_access_key", "").strip()
+
+    _require_dm_safe_value("s3_bucket", bucket, _DM_S3_ENDPOINT_RE)
+    _require_dm_safe_value("s3_path_prefix", prefix, _DM_S3_PREFIX_RE)
+    _require_dm_safe_value("s3_region", region, _DM_AWS_REGION_RE)
+    _require_dm_safe_value("s3_access_key_id", access_key, _DM_AWS_ACCESS_KEY_RE)
+    _require_dm_safe_value("s3_secret_access_key", secret_key, _DM_AWS_SECRET_KEY_RE)
+
+
+def _load_dm_settings(db: "ChDbConnection", *, include_sensitive_values: bool = True) -> dict[str, str]:
     """Load all data-management settings from sobs_app_settings."""
     result: dict[str, str] = {k: "" for k in _DM_SETTING_KEYS}
     for key in _DM_SETTING_KEYS:
         raw = _get_app_setting_raw(db, key)
         if raw:
-            result[key] = _decrypt_secret_value(raw) if _is_sensitive_dm_setting_key(key) else raw
+            if _is_sensitive_dm_setting_key(key):
+                result[key] = _decrypt_secret_value(raw) if include_sensitive_values else ""
+            else:
+                result[key] = raw
     return result
 
 
@@ -27259,6 +27305,9 @@ def _apply_dm_ttl(db: "ChDbConnection", settings: dict[str, str]) -> list[str]:
 
 def _build_s3_backup_dest(settings: dict[str, str], backup_name: str) -> str:
     """Build a ClickHouse S3 backup destination string from settings."""
+    _validate_dm_backup_name(backup_name)
+    _validate_dm_s3_settings(settings)
+
     bucket = settings.get("data_management.s3_bucket", "").strip().rstrip("/")
     prefix = settings.get("data_management.s3_path_prefix", "").strip().strip("/")
     region = settings.get("data_management.s3_region", "").strip()
@@ -27273,8 +27322,8 @@ def _build_s3_backup_dest(settings: dict[str, str], backup_name: str) -> str:
         endpoint = path
 
     if access_key and secret_key:
-        return f"S3('{endpoint}', '{access_key}', '{secret_key}')"
-    return f"S3('{endpoint}')"
+        return f"S3({_sql_quote_literal(endpoint)}, {_sql_quote_literal(access_key)}, {_sql_quote_literal(secret_key)})"
+    return f"S3({_sql_quote_literal(endpoint)})"
 
 
 def _list_dm_backups(db: "ChDbConnection", settings: dict[str, str]) -> list[dict[str, str]]:
@@ -27315,7 +27364,9 @@ def _run_dm_backup(db: "ChDbConnection", settings: dict[str, str], backup_type: 
     if backup_type == "incremental":
         # Attempt to find the most recent completed backup to use as base
         backups = _list_dm_backups(db, settings)
-        completed = [b for b in backups if b.get("status") == "BACKUP_COMPLETE"]
+        completed = [
+            b for b in backups if b.get("status") == "BACKUP_COMPLETE" and str(b.get("name") or "").startswith("sobs-")
+        ]
         if completed:
             base_name = completed[0]["name"]
             base_dest = _build_s3_backup_dest(settings, base_name)
@@ -27326,8 +27377,9 @@ def _run_dm_backup(db: "ChDbConnection", settings: dict[str, str], backup_type: 
         enc_password = settings.get("data_management.backup_encryption_password", "").strip()
         if not enc_password:
             return {"ok": "false", "message": "Backup encryption is enabled but no encryption password is configured"}
-        safe_pw = enc_password.replace("'", "\\'")
-        encrypt_clause = f" SETTINGS compression_method='lz4', encryption_password='{safe_pw}'"
+        encrypt_clause = (
+            f" SETTINGS compression_method='lz4', " f"encryption_password={_sql_quote_literal(enc_password)}"
+        )
 
     base_sql = f", {base_clauses[0]}" if base_clauses else ""
     sql = f"BACKUP ALL TO {dest}{base_sql}{encrypt_clause}"
@@ -27359,12 +27411,17 @@ def _run_dm_restore(db: "ChDbConnection", settings: dict[str, str], backup_name:
 async def view_dm_settings():
     """Data management settings page (TTL, backup, restore)."""
     db = get_db()
-    settings = _load_dm_settings(db)
+    settings = _load_dm_settings(db, include_sensitive_values=False)
+    dm_secret_present = {
+        "s3_secret_access_key": bool(_get_app_setting_raw(db, "data_management.s3_secret_access_key")),
+        "backup_encryption_password": bool(_get_app_setting_raw(db, "data_management.backup_encryption_password")),
+    }
     flash_msg = request.args.get("msg", "")
     flash_type = request.args.get("msg_type", "success")
     return await render_template(
         "settings_data_management.html",
         dm_settings=settings,
+        dm_secret_present=dm_secret_present,
         flash_msg=flash_msg,
         flash_type=flash_type,
     )
@@ -27377,7 +27434,20 @@ async def save_dm_settings():
     form = await request.form
     new_settings = _dm_settings_from_form(dict(form))
     db = get_db()
+
+    clear_sensitive_keys: set[str] = set()
+    if form.get("clear_s3_secret_access_key") == "1":
+        clear_sensitive_keys.add("data_management.s3_secret_access_key")
+    if form.get("clear_backup_encryption_password") == "1":
+        clear_sensitive_keys.add("data_management.backup_encryption_password")
+
     for key, value in new_settings.items():
+        if key in clear_sensitive_keys:
+            _del_app_setting(db, key)
+            continue
+        if _is_sensitive_dm_setting_key(key) and not value:
+            # Preserve existing sensitive values when form fields are intentionally left blank.
+            continue
         if value:
             _set_dm_setting(db, key, value)
         else:
@@ -27429,6 +27499,11 @@ async def api_dm_restore():
         return jsonify({"ok": False, "message": "Backup feature is disabled"}), 403
     data = await request.get_json(silent=True) or {}
     backup_name = str(data.get("backup_name", "")).strip()
+    if backup_name:
+        try:
+            _validate_dm_backup_name(backup_name)
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
     db = get_db()
     settings = _load_dm_settings(db)
     result = _run_dm_restore(db, settings, backup_name)

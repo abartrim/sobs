@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Data Management Help{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1">Data Management Help</h4>
+    <p class="text-secondary mb-0">TTL, backup, restore, and scheduler integration guidance with practical examples.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_dm_settings') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Data Management
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Configure</h6>
+        <p class="small text-secondary mb-0">Set TTL windows, S3 destination, and optional backup encryption.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Schedule</h6>
+        <p class="small text-secondary mb-0">Use external cron/Kubernetes/GitHub schedules to call backup APIs.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Recover</h6>
+        <p class="small text-secondary mb-0">Restore by backup name from system list or from S3 inventory when needed.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Where The Restore UI Appears</div>
+  <div class="card-body small">
+    <p class="mb-2">
+      Restore controls are shown on the <strong>Data Management</strong> page only when
+      <strong>Enable Backup &amp; Restore</strong> is turned on and saved.
+    </p>
+    <ul class="mb-0 ps-3 text-secondary">
+      <li>If backup is disabled, backup/restore API endpoints return <code>403</code>.</li>
+      <li>If backup is enabled but S3 details are incomplete, restore UI appears but API calls return a validation error.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Restore Runbook</div>
+  <div class="card-body small">
+    <h6 class="small text-uppercase text-secondary mb-2">A. Restore when backup list is available</h6>
+    <ol class="mb-3 ps-3">
+      <li>Go to <strong>Settings → Data Management</strong>.</li>
+      <li>Enable backup/restore if not already enabled, then save.</li>
+      <li>Use the backup list panel to pick a backup name.</li>
+      <li>Paste that name into restore input and confirm.</li>
+    </ol>
+
+    <h6 class="small text-uppercase text-secondary mb-2">B. Restore when backup list is unavailable or incomplete</h6>
+    <ol class="mb-3 ps-3">
+      <li>List backup objects directly in S3 (console, inventory, or CLI) under your configured prefix.</li>
+      <li>Identify the backup name (for example <code>sobs-full-20260408T020000Z</code>).</li>
+      <li>Use that exact backup name in restore input or API call.</li>
+    </ol>
+
+    <div class="bg-dark p-2 rounded-1 font-monospace mb-2">
+      <code class="text-light">curl -u USER:PASS -X POST http://localhost:44317/api/data-management/restore \
+  -H "Content-Type: application/json" \
+  -d '{"backup_name":"sobs-full-20260408T020000Z"}'</code>
+    </div>
+
+    <div class="alert alert-warning py-2 mb-0">
+      <i class="bi bi-exclamation-triangle me-1"></i>
+      Restore overwrites existing data. Validate target environment and take a fresh backup first.
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Scheduler Examples</div>
+  <div class="card-body small">
+    <p class="text-secondary mb-2">SOBS stores cron strings for documentation and planning. Execution is external.</p>
+
+    <h6 class="small text-uppercase text-secondary mb-2">Cron examples</h6>
+    <ul class="ps-3 mb-3">
+      <li><code>0 2 * * 0</code> - Weekly Sunday 02:00 UTC (full backup)</li>
+      <li><code>0 2 * * 1-6</code> - Monday-Saturday 02:00 UTC (incremental)</li>
+      <li><code>0 */6 * * *</code> - Every 6 hours</li>
+    </ul>
+
+    <h6 class="small text-uppercase text-secondary mb-2">Kubernetes CronJob pattern</h6>
+    <div class="bg-dark p-2 rounded-1 font-monospace mb-2">
+      <code class="text-light">curl -u USER:PASS -X POST http://sobs:44317/api/data-management/backup/run \
+  -H "Content-Type: application/json" \
+  -d '{"type":"incremental"}'</code>
+    </div>
+
+    <h6 class="small text-uppercase text-secondary mb-2">GitHub Actions schedule pattern</h6>
+    <div class="bg-dark p-2 rounded-1 font-monospace">
+      <code class="text-light">on:
+  schedule:
+    - cron: "0 2 * * 0"</code>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-0">
+  <div class="card-header fw-semibold">TTL And OTEL Notes</div>
+  <div class="card-body small text-secondary">
+    <ul class="mb-0 ps-3">
+      <li>Logs/traces/sessions TTL use day-based intervals.</li>
+      <li>Metrics TTL uses hour-based intervals and converts millisecond timestamps appropriately.</li>
+      <li>Core OTEL telemetry tables remain aligned to OTEL schema expectations; custom tables/views are used for app features and derived analytics.</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}
