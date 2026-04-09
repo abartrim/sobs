@@ -1634,9 +1634,9 @@
     return String(val);
   }
 
-  // Allow Shift+Enter (plus Ctrl/Cmd+Enter) to submit
+  // Enter submits; Shift+Enter inserts newline
   questionInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+    if (e.key === 'Enter' && (!e.shiftKey || e.ctrlKey || e.metaKey) && !e.isComposing) {
       e.preventDefault();
       form.dispatchEvent(new Event('submit'));
     }
