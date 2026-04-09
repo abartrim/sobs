@@ -13516,6 +13516,80 @@ async def view_traces():
 
 
 # ---------------------------------------------------------------------------
+# Raw span payload API  GET /api/traces/span/<span_id>
+# Returns the full raw record for a single span as JSON.  The payload is
+# truncated to _RAW_SPAN_MAX_BYTES so that very large attribute blobs do not
+# overwhelm the browser.  The endpoint is used by the lazy-loaded accordion
+# on the trace detail page and is intentionally additive – it does not change
+# any existing UI behaviour.
+# ---------------------------------------------------------------------------
+
+_RAW_SPAN_MAX_BYTES = 32 * 1024  # 32 KB display cap
+
+
+@app.route("/api/traces/span/<span_id>", methods=["GET"])
+@require_basic_auth
+async def api_raw_span(span_id: str):
+    """Return the raw record for a single span as a JSON object."""
+    span_id = span_id.strip()
+    if not span_id:
+        return jsonify({"error": "span_id is required"}), 400
+
+    db = get_db()
+    row = db.execute(
+        "SELECT Timestamp, TraceId, SpanId, ParentSpanId, TraceState, "
+        "SpanName, SpanKind, ServiceName, ResourceAttributes, "
+        "ScopeName, ScopeVersion, SpanAttributes, Duration, "
+        "StatusCode, StatusMessage "
+        "FROM otel_traces WHERE SpanId=? LIMIT 1",
+        [span_id],
+    ).fetchone()
+
+    if row is None:
+        return jsonify({"error": "span not found"}), 404
+
+    span_attrs = dict(_map_to_dict(row["SpanAttributes"]))
+    resource_attrs = dict(_map_to_dict(row["ResourceAttributes"]))
+
+    payload: dict[str, object] = {
+        "timestamp": str(row["Timestamp"]),
+        "trace_id": str(row["TraceId"]),
+        "span_id": str(row["SpanId"]),
+        "parent_span_id": str(row["ParentSpanId"]),
+        "trace_state": str(row["TraceState"]),
+        "name": str(row["SpanName"]),
+        "kind": str(row["SpanKind"]),
+        "service": str(row["ServiceName"]),
+        "scope_name": str(row["ScopeName"]),
+        "scope_version": str(row["ScopeVersion"]),
+        "duration_ns": int(row["Duration"]),
+        "duration_ms": round(int(row["Duration"]) / 1_000_000, 3),
+        "status_code": str(row["StatusCode"]),
+        "status_message": str(row["StatusMessage"]),
+        "attributes": span_attrs,
+        "resource_attributes": resource_attrs,
+    }
+
+    raw = json.dumps(payload, ensure_ascii=False, indent=2)
+    truncated = False
+    if len(raw.encode()) > _RAW_SPAN_MAX_BYTES:
+        truncated = True
+        # Truncate large attribute values to keep the overall payload small.
+        _ATTR_TRUNCATE = 512
+        payload["attributes"] = {
+            k: (v[:_ATTR_TRUNCATE] + "…" if isinstance(v, str) and len(v) > _ATTR_TRUNCATE else v)
+            for k, v in span_attrs.items()
+        }
+        payload["resource_attributes"] = {
+            k: (v[:_ATTR_TRUNCATE] + "…" if isinstance(v, str) and len(v) > _ATTR_TRUNCATE else v)
+            for k, v in resource_attrs.items()
+        }
+        raw = json.dumps(payload, ensure_ascii=False, indent=2)
+
+    return jsonify({"span": payload, "raw": raw, "truncated": truncated})
+
+
+# ---------------------------------------------------------------------------
 # Enrichment – geo-lookup helpers
 # ---------------------------------------------------------------------------
 

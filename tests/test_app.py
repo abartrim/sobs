@@ -3216,7 +3216,108 @@ class TestUIPages:
         body = await r.get_data(as_text=True)
         assert "All Traces" in body
 
-    async def test_rum_sort_by_type(self, client):
+    async def test_raw_span_endpoint_returns_span_data(self, client):
+        """GET /api/traces/span/<span_id> returns raw span JSON with expected fields."""
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        span_bytes = bytes.fromhex("abcd1234abcd1234")
+        trace_id_bytes = bytes.fromhex("11223344556677880011223344556677")
+        start_ns = 1704067200_000_000_000
+
+        span = Span(
+            trace_id=trace_id_bytes,
+            span_id=span_bytes,
+            name="raw-span-op",
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 500_000_000,
+            status=Status(code=1),
+            attributes=[
+                KeyValue(key="http.method", value=AnyValue(string_value="GET")),
+                KeyValue(key="http.status_code", value=AnyValue(string_value="200")),
+            ],
+        )
+        resource = Resource(
+            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="raw-span-svc"))]
+        )
+        msg = ExportTraceServiceRequest(
+            resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])]
+        )
+        r = await client.post(
+            "/v1/traces", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        span_id_hex = span_bytes.hex()
+        r = await client.get(f"/api/traces/span/{span_id_hex}")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "span" in data
+        assert "raw" in data
+        assert "truncated" in data
+        span_data = data["span"]
+        assert span_data["span_id"] == span_id_hex
+        assert span_data["name"] == "raw-span-op"
+        assert span_data["service"] == "raw-span-svc"
+        assert span_data["status_code"] in ("STATUS_CODE_OK", "Ok", "1", "ok", "OK")
+        assert "attributes" in span_data
+        assert "resource_attributes" in span_data
+        assert span_data["attributes"].get("http.method") == "GET"
+        # raw field is a JSON-pretty-printed string
+        import json as _json
+        parsed = _json.loads(data["raw"])
+        assert parsed["span_id"] == span_id_hex
+
+    async def test_raw_span_endpoint_not_found(self, client):
+        """GET /api/traces/span/<span_id> returns 404 for unknown span_id."""
+        r = await client.get("/api/traces/span/0000000000000000")
+        assert r.status_code == 404
+        data = await r.get_json()
+        assert "error" in data
+
+    async def test_trace_detail_includes_raw_span_toggle(self, client):
+        """Trace detail view includes the raw span toggle button and panel markup."""
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        span_bytes = bytes.fromhex("beef000011223344")
+        trace_id_bytes = bytes.fromhex("aabbccdd11223344aabbccdd11223344")
+        start_ns = 1704067200_000_000_000
+
+        span = Span(
+            trace_id=trace_id_bytes,
+            span_id=span_bytes,
+            name="raw-toggle-span",
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 1_000_000_000,
+            status=Status(code=1),
+        )
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value="raw-toggle-svc"))])
+        msg = ExportTraceServiceRequest(
+            resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])]
+        )
+        r = await client.post(
+            "/v1/traces", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        trace_id_hex = trace_id_bytes.hex()
+        r = await client.get(f"/traces?trace_id={trace_id_hex}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        # Raw toggle button and lazy-load panel present
+        assert "span-raw-toggle" in body
+        assert "raw-span-panel" in body
+        assert "span-raw-copy-btn" not in body  # not pre-rendered; loaded lazily
+        # JavaScript for lazy loading present
+        assert "span-raw-toggle" in body
+        assert "/api/traces/span/" in body
+
+
         r = await client.get("/rum?sort_by=EventName&sort_dir=asc")
         assert r.status_code == 200
 
