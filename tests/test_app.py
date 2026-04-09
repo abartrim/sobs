@@ -33,9 +33,15 @@ _LIVE_TEST_DEFAULT_GUARD_MODEL = "llama-guard3:1b"
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
+    previous_testing = app.config.get("TESTING")
+    app.config["TESTING"] = True
     init_db()
     yield
     sobs_app._shutdown_db_resources()
+    if previous_testing is None:
+        app.config.pop("TESTING", None)
+    else:
+        app.config["TESTING"] = previous_testing
 
 
 @pytest.fixture
@@ -431,6 +437,34 @@ except RuntimeError as exc:
 
 
 class TestDbBootstrap:
+    async def test_init_db_skips_example_seed_when_testing(self):
+        data_dir = tempfile.mkdtemp(prefix="sobs-chdb-testing-init-")
+        script = """
+import app as sobs_app
+
+sobs_app.app.config['TESTING'] = True
+sobs_app.init_db()
+
+dashboard_row = sobs_app.get_db().execute(
+    \"SELECT count() AS c FROM sobs_dashboards FINAL WHERE IsDeleted = 0 AND Name = ?\",
+    ['Example Derived Signals'],
+).fetchone()
+rule_row = sobs_app.get_db().execute(
+    \"SELECT count() AS c FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 AND ServiceName = ?\",
+    ['trace-svc-0'],
+).fetchone()
+
+print(f\"dashboards={dashboard_row['c']}\")
+print(f\"rules={rule_row['c']}\")
+sobs_app._shutdown_db_resources()
+"""
+
+        result = TestStorageConfiguration._run_probe_script(script, {"SOBS_DATA_DIR": data_dir})
+
+        assert result.returncode == 0, result.stderr
+        assert "dashboards=0" in result.stdout
+        assert "rules=0" in result.stdout
+
     async def test_first_dashboard_and_rum_request_bootstrap_schema(self, client):
         """Schema tables must exist and key routes must be functional after init_db()."""
         r = await client.get("/")
@@ -3479,6 +3513,45 @@ class TestUIPages:
         assert a_hex in data
         assert b_hex in data
 
+    async def test_errors_grouped_mode_deduplicates_and_shows_count(self, client):
+        """Grouped errors view should deduplicate identical errors and show an occurrence count."""
+        # Post three identical errors from the same service with the same type and message
+        for i in range(3):
+            await client.post(
+                "/v1/errors",
+                json={
+                    "service": "dedup-test-svc",
+                    "type": "DedupError",
+                    "message": "dedup test error message",
+                    "timestamp": f"2024-06-01T12:0{i}:00Z",
+                },
+            )
+
+        # Post one different error to ensure it is counted separately
+        await client.post(
+            "/v1/errors",
+            json={
+                "service": "dedup-test-svc",
+                "type": "OtherError",
+                "message": "a different error message",
+                "timestamp": "2024-06-01T12:05:00Z",
+            },
+        )
+
+        r = await client.get("/errors?grouped=1&service=dedup-test-svc&resolved=")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+
+        # The count badge for 3 occurrences should appear
+        assert "×3" in body
+        # The deduplicated error message should appear
+        assert "dedup test error message" in body
+        # First/last seen labels should appear for the grouped entry
+        assert "First seen:" in body
+        assert "Last seen:" in body
+        # The page should show "groups" not "records" in the header
+        assert "matching groups" in body
+
     async def test_root_mode_uses_root_relative_links(self, client):
         """Default deployment should generate links/assets without a path prefix."""
         r = await client.get("/")
@@ -4781,7 +4854,11 @@ class TestGenAICompliance:
 
             def execute(self, sql, params=None):
                 sql_text = str(sql)
-                if "SELECT DISTINCT ServiceName FROM otel_traces" in sql_text:
+                # Match both legacy and current metadata queries so this test
+                # keeps validating graceful degradation as query shape evolves.
+                if "SELECT DISTINCT ServiceName FROM otel_traces" in sql_text or (
+                    "SELECT DISTINCT ServiceName AS v" in sql_text and "recent_ai" in sql_text
+                ):
                     raise RuntimeError("simulated metadata query failure")
                 if params is None:
                     return self._inner_db.execute(sql)
@@ -11640,6 +11717,15 @@ class TestChdbSqlRunner:
         """Querying an allowed view (v_otel_metrics_1m) is permitted."""
         sobs_app.ChdbSqlRunner.validate_sql("SELECT * FROM v_otel_metrics_1m LIMIT 1")
 
+    def test_validate_sql_aggregate_metrics_table_is_allowed(self):
+        """Aggregate-state table is permitted when queries merge states explicitly."""
+        sobs_app.ChdbSqlRunner.validate_sql(
+            "SELECT ServiceName, MinuteBucket, avgMerge(Value) AS Value, "
+            "sumMerge(SampleCount) AS SampleCount "
+            "FROM otel_metrics_1m_agg "
+            "GROUP BY ServiceName, MinuteBucket LIMIT 1"
+        )
+
     def test_validate_sql_signal_window_table_is_allowed(self):
         """Querying sobs_raw_windows is permitted because it is an intentional NLQ surface."""
         sobs_app.ChdbSqlRunner.validate_sql("SELECT SignalType, WindowStart FROM sobs_raw_windows LIMIT 1")
@@ -15017,3 +15103,63 @@ class TestRawMetricsRetentionWindows:
         match = next((item for item in series if str(item.get("metric") or "") == metric), None)
         assert match is not None
         assert float(match.get("avg") or 0.0) < 100.0
+
+    def test_fetch_trace_metric_context_timeseries_respects_limit(self):
+        """Sparkline timeseries should be produced for top metrics up to limit (currently :6)."""
+        import time as _time
+
+        db = sobs_app.get_db()
+        uniq = str(_time.time_ns())
+        signal_ts = datetime.now(timezone.utc)
+        ts_str = signal_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        service = f"trace-timeseries-limit-{uniq}"
+        metric_names = [f"metric_{i}.{uniq}" for i in range(8)]  # More than the [:6] sparkline limit
+
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "otel_metrics_gauge",
+            [
+                {
+                    "TimeUnix": ts_str,
+                    "ServiceName": service,
+                    "MetricName": metric,
+                    "MetricDescription": "trace context metric",
+                    "MetricUnit": "1",
+                    "Attributes": {
+                        "k8s.namespace.name": "default",
+                        "k8s.node.name": "node-ts",
+                        "k8s.pod.name": "pod-ts",
+                    },
+                    "Value": float(idx + 1),
+                    "Flags": 0,
+                    "AttrFingerprint": f"fp-ts-{idx}-{uniq}",
+                }
+                for idx, metric in enumerate(metric_names)
+            ],
+        )
+
+        start_ts = datetime.fromtimestamp((signal_ts.timestamp() - 60), tz=timezone.utc).isoformat()
+        end_ts = datetime.fromtimestamp((signal_ts.timestamp() + 60), tz=timezone.utc).isoformat()
+        ctx = sobs_app._fetch_trace_metric_context(
+            db,
+            service_names=[service],
+            start_ts=start_ts,
+            end_ts=end_ts,
+            window_ids=[],
+            namespace_values=["default"],
+            pod_values=["pod-ts"],
+            node_values=["node-ts"],
+        )
+
+        series = ctx.get("series") or []
+        returned_metric_names = [str(item.get("metric") or "") for item in series]
+        # All metrics should be in the series list (returned from context query)
+        assert set(metric_names).issubset(set(returned_metric_names))
+
+        ts = ctx.get("timeseries") or {}
+        by_metric = ts.get("by_metric") or {}
+        # But sparklines (timeseries) should only be generated for top 6
+        sparkline_metrics = returned_metric_names[:6]
+        assert set(sparkline_metrics).issubset(set(by_metric.keys()))
+        # Metrics beyond top 6 should NOT have sparklines (memory optimization)
+        assert not any(m in by_metric for m in returned_metric_names[6:])

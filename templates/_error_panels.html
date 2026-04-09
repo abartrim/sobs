@@ -84,6 +84,9 @@
           <span class="badge flex-shrink-0 {% if err.resolved %}bg-success{% else %}bg-danger{% endif %}">
             {{ 'Resolved' if err.resolved else 'Open' }}
           </span>
+          {% if err.count is defined and err.count > 1 %}
+          <span class="badge bg-dark text-white flex-shrink-0" title="{{ err.count }} occurrences">×{{ err.count }}</span>
+          {% endif %}
           <code class="small text-warning error-panel-type" title="{{ err.err_type }}">{{ err.err_type }}</code>
           {% if err.summary_from_json %}
           <span class="badge bg-info-subtle text-info-emphasis flex-shrink-0" title="Header summary extracted from JSON payload">Parsed JSON</span>
@@ -103,6 +106,14 @@
         {% set _body = (err.raw_body or '') | trim %}
         {% set _show_body = _body != '' %}
         {% set _show_message = _msg != '' and (not _show_body or _msg != _body) %}
+
+        {% if err.count is defined and err.count > 1 %}
+        <div class="d-flex flex-wrap gap-3 mb-2 small rounded p-2 theme-panel">
+          <div><span class="text-secondary">Occurrences:</span> <strong class="text-danger">{{ err.count }}</strong></div>
+          <div><span class="text-secondary">First seen:</span> <span class="sobs-tz-ts" data-utc-ts="{{ err.first_seen }}">{{ err.first_seen[:19] }}</span></div>
+          <div><span class="text-secondary">Last seen:</span> <span class="sobs-tz-ts" data-utc-ts="{{ err.last_seen }}">{{ err.last_seen[:19] }}</span></div>
+        </div>
+        {% endif %}
 
         {% if _show_message %}
         <div class="mb-2">
