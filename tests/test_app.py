@@ -16054,10 +16054,10 @@ class TestSidebarVersionAndIcons:
         # The anchor with title="Summary" must contain the house icon
         assert 'title="Summary"' in text
         summary_link_start = text.index('title="Summary"')
-        summary_link_end = text.index('</a>', summary_link_start)
+        summary_link_end = text.index("</a>", summary_link_start)
         summary_link_html = text[summary_link_start:summary_link_end]
-        assert 'bi-house' in summary_link_html
-        assert 'bi-speedometer2' not in summary_link_html
+        assert "bi-house" in summary_link_html
+        assert "bi-speedometer2" not in summary_link_html
 
     async def test_sidebar_dashboards_uses_speedometer_icon(self, client):
         """Dashboards nav link uses bi-speedometer2 icon and not the old bar-chart icon."""
@@ -16067,7 +16067,7 @@ class TestSidebarVersionAndIcons:
         # The anchor with title="Dashboards" must contain the speedometer2 icon
         assert 'title="Dashboards"' in text
         dashboards_link_start = text.index('title="Dashboards"')
-        dashboards_link_end = text.index('</a>', dashboards_link_start)
+        dashboards_link_end = text.index("</a>", dashboards_link_start)
         dashboards_link_html = text[dashboards_link_start:dashboards_link_end]
-        assert 'bi-speedometer2' in dashboards_link_html
-        assert 'bi-bar-chart-line' not in dashboards_link_html
+        assert "bi-speedometer2" in dashboards_link_html
+        assert "bi-bar-chart-line" not in dashboards_link_html
