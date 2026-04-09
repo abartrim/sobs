@@ -16031,20 +16031,22 @@ class TestSidebarVersionAndIcons:
     """Tests for sidebar build/version tag and Summary/Dashboards icon semantics."""
 
     async def test_sidebar_shows_default_version_when_env_not_set(self, client, monkeypatch):
-        """Sidebar renders 'SOBS dev' fallback when SOBS_BUILD_VERSION is unset."""
+        """Sidebar renders full label and 'vdev' fallback when SOBS_BUILD_VERSION is unset."""
         monkeypatch.setattr(sobs_app, "BUILD_VERSION", "")
         r = await client.get("/")
         assert r.status_code == 200
         text = (await r.get_data()).decode()
-        assert "SOBS dev" in text
+        assert "Simple Observability Stack" in text
+        assert "dev" in text
 
     async def test_sidebar_shows_version_from_env(self, client, monkeypatch):
-        """Sidebar renders the version string injected via SOBS_BUILD_VERSION."""
+        """Sidebar renders compact version string injected via SOBS_BUILD_VERSION."""
         monkeypatch.setattr(sobs_app, "BUILD_VERSION", "v2.5.0-beta")
         r = await client.get("/")
         assert r.status_code == 200
         text = (await r.get_data()).decode()
-        assert "SOBS v2.5.0-beta" in text
+        assert "Simple Observability Stack" in text
+        assert "v2.5.0-beta" in text
 
     async def test_sidebar_summary_uses_house_icon(self, client):
         """Summary nav link uses bi-house icon and not the old speedometer icon."""

@@ -67,9 +67,15 @@ Open `http://localhost:44317` in your browser.
 
 On first open, SOBS shows a lightweight visual onboarding tour (ingest → analyze → act). You can reopen it any time from the left nav via **Quick Tour**.
 
-Prebuilt image published by CI:
+Prebuilt images published by CI to GHCR:
 
-`ghcr.io/abartrim/sobs:latest`
+| Tag | When published |
+|-----|----------------|
+| `ghcr.io/abartrim/sobs:latest` | Every push to `main` |
+| `ghcr.io/abartrim/sobs:vX.Y.Z` | On a `vX.Y.Z` GitHub Release tag |
+| `ghcr.io/abartrim/sobs:<sha>` | Every push to `main` (short SHA) |
+
+The version shown in the sidebar footer of the UI reflects `SOBS_BUILD_VERSION`, which is stamped into the image at build time from the release tag.
 
 ## System Requirements
 

@@ -1,7 +1,10 @@
 FROM python:3.14-slim
 
+ARG SOBS_BUILD_VERSION=dev
+
 LABEL maintainer="sobs"
 LABEL description="Simple Observe – lightweight OpenTelemetry telemetry container"
+LABEL org.opencontainers.image.version="${SOBS_BUILD_VERSION}"
 
 WORKDIR /app
 
@@ -20,6 +23,7 @@ COPY static/ static/
 RUN mkdir -p /data
 ENV SOBS_DATA_DIR=/data
 ENV PORT=4317
+ENV SOBS_BUILD_VERSION=${SOBS_BUILD_VERSION}
 RUN chmod +x /app/scripts/docker-entrypoint.sh
 
 # Expose default port

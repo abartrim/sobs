@@ -67,3 +67,41 @@ cp tests/screenshots/query.png static/help/query.png
 cp tests/screenshots/summary.png static/help/summary.png
 cp tests/screenshots/summary_ai_assistant.png static/help/summary_ai_assistant.png
 ```
+
+## Releasing
+
+Releases are driven by a Git tag pushed to GitHub. CI picks up any tag matching `v*`, runs the full test pipeline, then builds and publishes a multi-arch Docker image stamped with the version.
+
+### Steps
+
+1. **Ensure `main` is green** — all CI checks must pass before tagging.
+
+2. **Create and push a version tag:**
+
+   ```bash
+   git tag v1.2.3
+   git push origin v1.2.3
+   ```
+
+3. **Create a GitHub Release** from that tag (via the GitHub UI or CLI). The release description becomes the public changelog entry.
+
+   ```bash
+   gh release create v1.2.3 --title "v1.2.3" --notes "Release notes here"
+   ```
+
+4. **CI publishes the image automatically.** The `docker` job in `.github/workflows/ci.yml` detects `refs/tags/v*`, passes `SOBS_BUILD_VERSION=v1.2.3` as a Docker build arg, and pushes to GHCR with both the version tag and a new `latest`:
+
+   - `ghcr.io/abartrim/sobs:v1.2.3`
+   - `ghcr.io/abartrim/sobs:latest`
+
+5. **Verify** the version appears in the sidebar footer of a freshly pulled container:
+
+   ```bash
+   docker pull ghcr.io/abartrim/sobs:v1.2.3
+   docker run -p 44317:4317 ghcr.io/abartrim/sobs:v1.2.3
+   # Open http://localhost:44317 — sidebar footer should show "v1.2.3"
+   ```
+
+### Version format
+
+Use [Semantic Versioning](https://semver.org/): `vMAJOR.MINOR.PATCH` (e.g. `v1.2.3`). Pre-release suffixes like `v1.2.3-beta` are supported. Images built from `main` without a tag show `dev` in the sidebar.
