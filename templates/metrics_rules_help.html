@@ -4,7 +4,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Metric Rules Help</h4>
-    <p class="text-secondary mb-0">How to create threshold and composite rules to detect anomalies in derived signals.</p>
+    <p class="text-secondary mb-0">How to create threshold and composite rules to detect anomalies in derived signals, and how they interact with seasonal auto-rules.</p>
   </div>
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_metrics_rules') }}">
     <i class="bi bi-arrow-left me-1"></i>Back to Rules
@@ -17,7 +17,7 @@
     <div class="card border-secondary h-100">
       <div class="card-body">
         <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Choose a Rule Type</h6>
-        <p class="small text-secondary mb-0">Use <strong>Threshold</strong> for a single signal breach. Use <strong>Composite</strong> to require two conditions to fire simultaneously.</p>
+        <p class="small text-secondary mb-0">Use <strong>Threshold</strong> for a single signal breach. Use <strong>Composite</strong> to require two conditions to fire simultaneously. Seasonal rules are created from the Auto Rules panel.</p>
       </div>
     </div>
   </div>
@@ -64,6 +64,18 @@
         <tr><td class="font-monospace">Min Sample</td><td><span class="badge text-bg-danger">required</span></td><td>Minimum number of data points in the window before the rule fires. Use a higher value to suppress noise on sparse signals. Default: <code>1</code>.</td></tr>
       </tbody>
     </table>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header">Rule Interaction Semantics</div>
+  <div class="card-body">
+    <ul class="small mb-0">
+      <li>Manual create supports <strong>threshold</strong> and <strong>composite</strong>. Seasonal rules are generated via Auto Rules.</li>
+      <li>Threshold, composite, and seasonal rules can coexist for the same scope (<code>source + signal + service + attr fp</code>).</li>
+      <li>If multiple rules fire at the same severity for a point, precedence is deterministic: <code>seasonal &gt; composite &gt; threshold</code>.</li>
+      <li>Timestamp-based seasonal bucket matching is evaluated in <strong>UTC</strong> in backend logic.</li>
+    </ul>
   </div>
 </div>
 
