@@ -4815,7 +4815,11 @@ class TestGenAICompliance:
 
             def execute(self, sql, params=None):
                 sql_text = str(sql)
-                if "SELECT DISTINCT ServiceName FROM otel_traces" in sql_text:
+                # Match both legacy and current metadata queries so this test
+                # keeps validating graceful degradation as query shape evolves.
+                if "SELECT DISTINCT ServiceName FROM otel_traces" in sql_text or (
+                    "SELECT DISTINCT ServiceName AS v" in sql_text and "recent_ai" in sql_text
+                ):
                     raise RuntimeError("simulated metadata query failure")
                 if params is None:
                     return self._inner_db.execute(sql)

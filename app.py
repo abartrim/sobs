@@ -332,6 +332,7 @@ CHDB_EXPECT_DISK_ENV = "SOBS_CHDB_EXPECT_DISK"
 CHDB_EXPECT_POLICY_ENV = "SOBS_CHDB_EXPECT_STORAGE_POLICY"
 CHDB_MAX_SERVER_MB_ENV = "SOBS_CHDB_MAX_SERVER_MB"
 CHDB_MARK_CACHE_MB_ENV = "SOBS_CHDB_MARK_CACHE_MB"
+CHDB_UNCOMPRESSED_CACHE_MB_ENV = "SOBS_CHDB_UNCOMPRESSED_CACHE_MB"
 CHDB_MAX_THREADS_ENV = "SOBS_CHDB_MAX_THREADS"
 CHDB_SPILL_GROUP_BY_MB_ENV = "SOBS_CHDB_SPILL_GROUP_BY_MB"
 CHDB_SPILL_SORT_MB_ENV = "SOBS_CHDB_SPILL_SORT_MB"
@@ -1524,12 +1525,21 @@ def _build_chdb_connect_target(path: str) -> str:
     # Important: use the plain directory path with query params, not a file: URL.
     # For directory-backed chDB stores, file:/... opens a different logical DB
     # than the plain path on this runtime.
-    max_server_mb = int(os.environ.get(CHDB_MAX_SERVER_MB_ENV, "256"))
-    mark_cache_mb = int(os.environ.get(CHDB_MARK_CACHE_MB_ENV, "8"))
+    max_server_mb = int(os.environ.get(CHDB_MAX_SERVER_MB_ENV, "512"))
+    mark_cache_mb = int(os.environ.get(CHDB_MARK_CACHE_MB_ENV, "64"))
+    # ClickHouse defaults uncompressed_cache_size to max(128MB, RAM*1%), which
+    # exhausts a 160MB cap before any query runs. Default to 4MB for embedded use.
+    uncompressed_cache_mb = int(os.environ.get(CHDB_UNCOMPRESSED_CACHE_MB_ENV, "64"))
     params = urllib.parse.urlencode(
         {
             "max_server_memory_usage": max_server_mb * 1024 * 1024,
             "mark_cache_size": mark_cache_mb * 1024 * 1024,
+            "uncompressed_cache_size": uncompressed_cache_mb * 1024 * 1024,
+            # Reduce background thread-pool sizes for an embedded single-process
+            # deployment; defaults (16 / 128 / 16) inflate RSS at init time.
+            "background_pool_size": 2,
+            "background_schedule_pool_size": 16,
+            "background_io_pool_size": 2,
         }
     )
     return f"{path}?{params}"
@@ -15703,52 +15713,53 @@ async def view_ai():
     operations: list[str] = []
     span_names: list[str] = []
     totals: dict[str, int] = {"ti": 0, "to_": 0, "cnt": 0, "errors": 0}
+    metadata_sample_rows = 25000
+
+    metadata_time_conditions, metadata_time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
+    metadata_base_conditions = [_AI_SPAN_CONDITION]
+    if metadata_time_conditions:
+        metadata_base_conditions.extend(metadata_time_conditions)
+    metadata_base_where = " AND ".join(metadata_base_conditions)
+    metadata_source_sql = (
+        "SELECT Timestamp, ServiceName, SpanName, SpanAttributes "
+        "FROM otel_traces "
+        f"WHERE {metadata_base_where} "
+        "ORDER BY Timestamp DESC LIMIT ?"
+    )
+    metadata_source_params = list(metadata_time_params) + [metadata_sample_rows]
+
+    def _fetch_distinct_ai_metadata_values(select_expr: str, extra_where: str = "") -> list[str]:
+        where_suffix = f"WHERE {extra_where}" if extra_where else ""
+        rows = db.execute(
+            f"SELECT DISTINCT {select_expr} AS v " f"FROM ({metadata_source_sql}) recent_ai {where_suffix}",
+            metadata_source_params,
+        ).fetchall()
+        values = [str(row[0]) for row in rows if str(row[0]).strip()]
+        return sorted(set(values))
 
     try:
-        services = [
-            row[0]
-            for row in db.execute(
-                f"SELECT DISTINCT ServiceName FROM otel_traces "
-                f"WHERE {_AI_SPAN_CONDITION} "
-                "AND ServiceName!='' ORDER BY ServiceName"
-            ).fetchall()
-        ]
+        services = _fetch_distinct_ai_metadata_values("ServiceName", "ServiceName != ''")
     except Exception as exc:
         metadata_errors.append(f"services={_public_dashboard_query_error(exc)}")
 
     try:
-        models = [
-            row[0]
-            for row in db.execute(
-                "SELECT DISTINCT SpanAttributes['gen_ai.request.model'] AS model FROM otel_traces "
-                f"WHERE {_AI_SPAN_CONDITION} "
-                "AND SpanAttributes['gen_ai.request.model'] != '' ORDER BY model"
-            ).fetchall()
-        ]
+        models = _fetch_distinct_ai_metadata_values(
+            "SpanAttributes['gen_ai.request.model']",
+            "SpanAttributes['gen_ai.request.model'] != ''",
+        )
     except Exception as exc:
         metadata_errors.append(f"models={_public_dashboard_query_error(exc)}")
 
     try:
-        operations = [
-            row[0]
-            for row in db.execute(
-                "SELECT DISTINCT SpanAttributes['gen_ai.operation.name'] AS op FROM otel_traces "
-                f"WHERE {_AI_SPAN_CONDITION} "
-                "AND SpanAttributes['gen_ai.operation.name'] != '' ORDER BY op"
-            ).fetchall()
-        ]
+        operations = _fetch_distinct_ai_metadata_values(
+            "SpanAttributes['gen_ai.operation.name']",
+            "SpanAttributes['gen_ai.operation.name'] != ''",
+        )
     except Exception as exc:
         metadata_errors.append(f"operations={_public_dashboard_query_error(exc)}")
 
     try:
-        span_names = [
-            row[0]
-            for row in db.execute(
-                f"SELECT DISTINCT SpanName FROM otel_traces "
-                f"WHERE {_AI_SPAN_CONDITION} "
-                "AND SpanName != '' ORDER BY SpanName"
-            ).fetchall()
-        ]
+        span_names = _fetch_distinct_ai_metadata_values("SpanName", "SpanName != ''")
     except Exception as exc:
         metadata_errors.append(f"span_names={_public_dashboard_query_error(exc)}")
 
