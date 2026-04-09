@@ -3240,9 +3240,7 @@ class TestUIPages:
                 KeyValue(key="http.status_code", value=AnyValue(string_value="200")),
             ],
         )
-        resource = Resource(
-            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="raw-span-svc"))]
-        )
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value="raw-span-svc"))])
         msg = ExportTraceServiceRequest(
             resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])]
         )
@@ -3268,6 +3266,7 @@ class TestUIPages:
         assert span_data["attributes"].get("http.method") == "GET"
         # raw field is a JSON-pretty-printed string
         import json as _json
+
         parsed = _json.loads(data["raw"])
         assert parsed["span_id"] == span_id_hex
 
@@ -3277,6 +3276,74 @@ class TestUIPages:
         assert r.status_code == 404
         data = await r.get_json()
         assert "error" in data
+
+    async def test_raw_span_endpoint_disambiguates_by_trace_id(self, client):
+        """Endpoint returns the correct row when span_id exists in multiple traces."""
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        shared_span_id = bytes.fromhex("deadbeef00000001")
+        trace_a = bytes.fromhex("11111111111111111111111111111111")
+        trace_b = bytes.fromhex("22222222222222222222222222222222")
+        start_ns = 1704067200_000_000_000
+
+        span_a = Span(
+            trace_id=trace_a,
+            span_id=shared_span_id,
+            name="shared-span-a",
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 100_000_000,
+            status=Status(code=1),
+        )
+        span_b = Span(
+            trace_id=trace_b,
+            span_id=shared_span_id,
+            name="shared-span-b",
+            start_time_unix_nano=start_ns + 200_000_000,
+            end_time_unix_nano=start_ns + 400_000_000,
+            status=Status(code=1),
+        )
+
+        resource_a = Resource(
+            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="raw-disambiguate-a"))]
+        )
+        resource_b = Resource(
+            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="raw-disambiguate-b"))]
+        )
+
+        msg_a = ExportTraceServiceRequest(
+            resource_spans=[ResourceSpans(resource=resource_a, scope_spans=[ScopeSpans(spans=[span_a])])]
+        )
+        msg_b = ExportTraceServiceRequest(
+            resource_spans=[ResourceSpans(resource=resource_b, scope_spans=[ScopeSpans(spans=[span_b])])]
+        )
+
+        r = await client.post(
+            "/v1/traces", data=msg_a.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+        r = await client.post(
+            "/v1/traces", data=msg_b.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        span_id_hex = shared_span_id.hex()
+        trace_a_hex = trace_a.hex()
+        trace_b_hex = trace_b.hex()
+
+        ra = await client.get(f"/api/traces/span/{span_id_hex}?trace_id={trace_a_hex}")
+        assert ra.status_code == 200
+        data_a = await ra.get_json()
+        assert data_a["span"]["trace_id"] == trace_a_hex
+        assert data_a["span"]["service"] == "raw-disambiguate-a"
+
+        rb = await client.get(f"/api/traces/span/{span_id_hex}?trace_id={trace_b_hex}")
+        assert rb.status_code == 200
+        data_b = await rb.get_json()
+        assert data_b["span"]["trace_id"] == trace_b_hex
+        assert data_b["span"]["service"] == "raw-disambiguate-b"
 
     async def test_trace_detail_includes_raw_span_toggle(self, client):
         """Trace detail view includes the raw span toggle button and panel markup."""
@@ -3313,10 +3380,11 @@ class TestUIPages:
         # Raw toggle button and lazy-load panel present
         assert "span-raw-toggle" in body
         assert "raw-span-panel" in body
-        assert "span-raw-copy-btn" not in body  # not pre-rendered; loaded lazily
+        assert "raw-span-loading" in body
+        assert 'data-loaded="0"' in body
+        assert "data-trace-id=" in body
         # JavaScript for lazy loading present
         assert "/api/traces/span/" in body
-
 
     async def test_rum_sort_by_type(self, client):
         r = await client.get("/rum?sort_by=EventName&sort_dir=asc")

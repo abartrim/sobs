@@ -571,6 +571,7 @@
               style="font-size:.72rem; line-height:1;"
               title="View raw span record"
               data-span-id="{{ span.span_id }}"
+              data-trace-id="{{ span.trace_id }}"
               data-raw-target="raw-span-{{ loop.index }}"
               aria-label="Toggle raw span record"
               aria-expanded="false">
@@ -755,18 +756,39 @@ if (window.sobsTimezone && typeof window.sobsTimezone.initPage === 'function') {
       icon.classList.toggle('bi-chevron-right', isExpanded);
 
       var next = row.nextElementSibling;
-      while (next && next.classList.contains('trace-tree-row') &&
-             parseInt(next.dataset.depth, 10) > depth) {
-        var childDepth = parseInt(next.dataset.depth, 10);
-        if (isExpanded) {
-          // Collapsing: hide ALL descendants
-          next.classList.add('tree-hidden');
-        } else {
-          // Expanding: only reveal direct children; leave deeper rows as-is
-          // so their own collapsed state is preserved
-          if (childDepth === depth + 1) {
-            next.classList.remove('tree-hidden');
+      while (next) {
+        if (next.classList.contains('trace-tree-row')) {
+          var childDepth = parseInt(next.dataset.depth, 10);
+          if (!(childDepth > depth)) {
+            break;
           }
+          if (isExpanded) {
+            // Collapsing: hide ALL descendants.
+            next.classList.add('tree-hidden');
+            // Also close any open raw payload panel for the hidden row.
+            var rawToggle = next.querySelector('.span-raw-toggle');
+            if (rawToggle) {
+              var rawPanelId = rawToggle.dataset.rawTarget;
+              var rawPanel = rawPanelId ? document.getElementById(rawPanelId) : null;
+              if (rawPanel) {
+                rawPanel.classList.add('d-none');
+                rawPanel.dataset.open = '0';
+              }
+              rawToggle.setAttribute('aria-expanded', 'false');
+              var rawIcon = rawToggle.querySelector('i');
+              if (rawIcon) rawIcon.classList.remove('text-warning');
+            }
+          } else {
+            // Expanding: only reveal direct children; leave deeper rows as-is
+            // so their own collapsed state is preserved.
+            if (childDepth === depth + 1) {
+              next.classList.remove('tree-hidden');
+            }
+          }
+        } else if (isExpanded && next.classList.contains('raw-span-panel')) {
+          // Ensure stray visible raw panels are hidden when collapsing a parent.
+          next.classList.add('d-none');
+          next.dataset.open = '0';
         }
         next = next.nextElementSibling;
       }
@@ -801,7 +823,12 @@ if (window.sobsTimezone && typeof window.sobsTimezone.initPage === 'function') {
       if (panel.dataset.loaded === '1') return;
 
       var spanId = btn.dataset.spanId;
-      fetch('/api/traces/span/' + encodeURIComponent(spanId))
+      var traceId = btn.dataset.traceId || '';
+      var rawSpanUrl = '/api/traces/span/' + encodeURIComponent(spanId);
+      if (traceId) {
+        rawSpanUrl += '?trace_id=' + encodeURIComponent(traceId);
+      }
+      fetch(rawSpanUrl)
         .then(function (res) { return res.json(); })
         .then(function (data) {
           panel.dataset.loaded = '1';

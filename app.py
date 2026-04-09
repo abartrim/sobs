@@ -13640,15 +13640,25 @@ async def api_raw_span(span_id: str):
     if not span_id:
         return jsonify({"error": "span_id is required"}), 400
 
+    trace_id = (request.args.get("trace_id") or "").strip()
+
     db = get_db()
-    row = db.execute(
+    base_sql = (
         "SELECT Timestamp, TraceId, SpanId, ParentSpanId, TraceState, "
         "SpanName, SpanKind, ServiceName, ResourceAttributes, "
         "ScopeName, ScopeVersion, SpanAttributes, Duration, "
         "StatusCode, StatusMessage "
-        "FROM otel_traces WHERE SpanId=? LIMIT 1",
-        [span_id],
-    ).fetchone()
+        "FROM otel_traces WHERE SpanId=?"
+    )
+    params: list[str] = [span_id]
+    if trace_id:
+        # Prefer a trace-qualified match when available so duplicate span IDs
+        # across traces return the expected row.
+        base_sql += " AND TraceId=?"
+        params.append(trace_id)
+    # Keep fallback deterministic even when multiple rows share a span_id.
+    base_sql += " ORDER BY Timestamp DESC LIMIT 1"
+    row = db.execute(base_sql, params).fetchone()
 
     if row is None:
         return jsonify({"error": "span not found"}), 404
