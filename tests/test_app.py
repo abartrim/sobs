@@ -11625,7 +11625,6 @@ class TestReports:
         assert "export-all-btn" in text
         assert "importReportsModal" in text
 
-
     async def test_work_items_page_has_report_save_controls(self, client):
         r = await client.get("/work-items")
         assert r.status_code == 200

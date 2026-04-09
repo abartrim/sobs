@@ -19798,9 +19798,7 @@ async def api_import_reports():
     # ── Build index of existing reports by (page_type, lower(name)) ──────────
     db = get_db()
     existing = _get_reports(db)
-    existing_index: dict[tuple[str, str], dict] = {
-        (r["page_type"], r["name"].lower()): r for r in existing
-    }
+    existing_index: dict[tuple[str, str], dict] = {(r["page_type"], r["name"].lower()): r for r in existing}
 
     n_imported = 0
     n_skipped = 0
