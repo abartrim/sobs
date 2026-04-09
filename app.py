@@ -10623,6 +10623,7 @@ def _build_auto_metric_rule_candidates(
 
 # Supported seasonal strategies for auto-rule generation.
 _SEASONAL_STRATEGIES = ("hour_of_day", "day_of_week")
+_SEASONAL_MIN_BUCKET_POINTS = 3
 
 
 def _build_seasonal_bucket_expr(strategy: str) -> str:
@@ -10681,7 +10682,20 @@ def _build_seasonal_metric_rule_candidates(
         params + [min_points],
     ).fetchall()
 
-    # Per-series-per-bucket quantiles (min 1 point per bucket).
+    # Only compute bucket stats for series that pass the min_points gate.
+    # This avoids scanning and materializing buckets for sparse series that
+    # can never become candidates in this run.
+    eligible_series_subquery = (
+        "SELECT ServiceName, SignalSource, SignalName, "
+        f"{attr_select} AS AttrFingerprint "
+        "FROM v_derived_signals_anomaly"
+        f"{where_sql}"
+        " GROUP BY ServiceName, SignalSource, SignalName"
+        f"{attr_group}"
+        " HAVING count() >= ?"
+    )
+
+    # Per-series-per-bucket quantiles (requires minimum support per bucket).
     bucket_rows = db.execute(
         "SELECT ServiceName, SignalSource, SignalName, "
         f"{attr_select} AS AttrFingerprint, "
@@ -10694,12 +10708,14 @@ def _build_seasonal_metric_rule_candidates(
         "quantile(0.95)(toFloat64(value)) AS q95 "
         "FROM v_derived_signals_anomaly"
         f"{where_sql}"
+        " AND (ServiceName, SignalSource, SignalName, "
+        f"{attr_select}) IN ({eligible_series_subquery})"
         " GROUP BY ServiceName, SignalSource, SignalName"
         f"{attr_group}"
         ", bucket_key"
-        " HAVING point_count >= 1"
+        " HAVING point_count >= ?"
         f" ORDER BY ServiceName, SignalSource, SignalName{attr_group}, bucket_key",
-        params,
+        params + params + [min_points, _SEASONAL_MIN_BUCKET_POINTS],
     ).fetchall()
 
     # Index bucket data by series key.
@@ -21916,7 +21932,7 @@ def _agent_rule_trigger_state_matches(trigger_state: str, event_state: str) -> b
 def _collect_anomaly_agent_events(db: ChDbConnection) -> dict[str, dict[str, object]]:
     rows = db.execute(
         "SELECT ServiceName, SignalSource, SignalName, AttrFingerprint, "
-        "argMax(value, time) AS value, argMax(SampleCount, time) AS SampleCount "
+        "argMax(value, time) AS value, argMax(SampleCount, time) AS SampleCount, argMax(time, time) AS time "
         "FROM v_derived_signals_anomaly "
         "WHERE time >= now() - INTERVAL 24 HOUR "
         "GROUP BY ServiceName, SignalSource, SignalName, AttrFingerprint"
@@ -21934,6 +21950,7 @@ def _collect_anomaly_agent_events(db: ChDbConnection) -> dict[str, dict[str, obj
         attr_fp_key="AttrFingerprint",
         value_key="value",
         sample_count_key="SampleCount",
+        time_key="time",
     )
 
     events_by_rule: dict[str, dict[str, object]] = {}

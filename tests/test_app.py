@@ -11760,6 +11760,58 @@ class TestNotifications:
         assert data["ok"] is True
         assert any(ar.get("run_id") == "test-run-id" for ar in data.get("agent_runs", []))
 
+    def test_collect_anomaly_agent_events_applies_seasonal_bucket(self, monkeypatch):
+        class _FakeResult:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def fetchall(self):
+                return self._rows
+
+        class _FakeDb:
+            def execute(self, sql, _params=None):
+                # Ensure collector returns the latest timestamp so seasonal rules
+                # can evaluate the correct UTC time bucket.
+                assert "argMax(time, time) AS time" in sql
+                return _FakeResult(
+                    [
+                        {
+                            "ServiceName": "svc-a",
+                            "SignalSource": "traces",
+                            "SignalName": "trace_error_ratio",
+                            "AttrFingerprint": "",
+                            "value": 25.0,
+                            "SampleCount": 5,
+                            "time": "2024-01-01 12:30:00",
+                        }
+                    ]
+                )
+
+        seasonal_rule = {
+            "id": "seasonal-agent-rule",
+            "name": "seasonal-agent-rule",
+            "rule_type": "seasonal",
+            "source": "traces",
+            "signal": "trace_error_ratio",
+            "service": "svc-a",
+            "attr_fp": "",
+            "comparator": "gt",
+            # Global thresholds should not trigger.
+            "warning_threshold": 999.0,
+            "critical_threshold": 9999.0,
+            "min_sample_count": 1,
+            # Hour 12 bucket should trigger critical/outlier for value=25.
+            "seasonal_buckets_json": json.dumps(
+                {"strategy": "hour_of_day", "buckets": {"12": {"warning": 10.0, "critical": 20.0}}}
+            ),
+        }
+
+        monkeypatch.setattr(sobs_app, "_load_anomaly_rules", lambda _db: [seasonal_rule])
+        events = sobs_app._collect_anomaly_agent_events(_FakeDb())
+        assert "seasonal-agent-rule" in events
+        assert events["seasonal-agent-rule"]["state"] == "critical"
+        assert events["seasonal-agent-rule"]["service"] == "svc-a"
+
     def test_notification_channel_config_encryption_roundtrip(self, monkeypatch):
         db = sobs_app.get_db()
         monkeypatch.setattr(sobs_app, "_SETTINGS_ENCRYPTION_SECRET", "unit-test-secret-key")
