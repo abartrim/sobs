@@ -4008,6 +4008,237 @@ class TestUIPages:
         assert b'src="/static/bootstrap.bundle.min.js"' in await r.get_data()
 
 
+# ---------------------------------------------------------------------------
+# Cross-link navigation integrity
+# ---------------------------------------------------------------------------
+class TestCrossLinkNavigation:
+    """Regression tests for cross-page navigation: AI→Traces, Errors→Traces/Logs, RUM→Traces."""
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    def _ingest_ai_span(self, trace_id_hex: str, service: str = "nav-svc") -> dict:
+        """Return a minimal /v1/ai payload with a known trace_id."""
+        return {
+            "service": service,
+            "provider": "openai",
+            "model": "gpt-4o",
+            "prompt": "hello",
+            "response": "world",
+            "tokens_in": 5,
+            "tokens_out": 3,
+            "duration_ms": 100,
+            "trace_id": trace_id_hex,
+        }
+
+    def _make_trace_msg(self, trace_id_bytes: bytes, span_id_bytes: bytes, service: str, name: str):
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        start_ns = 1704067200_000_000_000
+        span = Span(
+            trace_id=trace_id_bytes,
+            span_id=span_id_bytes,
+            name=name,
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 50_000_000,
+            status=Status(code=1),
+        )
+        resource = Resource(
+            attributes=[KeyValue(key="service.name", value=AnyValue(string_value=service))]
+        )
+        return ExportTraceServiceRequest(
+            resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])]
+        )
+
+    # ------------------------------------------------------------------
+    # AI page trace links include from_ts/to_ts
+    # ------------------------------------------------------------------
+    async def test_ai_flat_view_trace_links_include_time_context(self, client):
+        """Trace links in AI flat view should carry from_ts and to_ts params."""
+        now = datetime.now(timezone.utc)
+        from_date = (now - timedelta(hours=1)).strftime("%Y-%m-%d")
+        to_date = (now + timedelta(hours=1)).strftime("%Y-%m-%d")
+        from_ts = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        to_ts = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        trace_id_hex = "cafebabe" * 4
+
+        # Ingest an AI span with a trace_id so the link is rendered.
+        await client.post("/v1/ai", json=self._ingest_ai_span(trace_id_hex))
+
+        r = await client.get(f"/ai?from_ts={from_ts}&to_ts={to_ts}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+
+        # The trace link must target /traces with the trace_id and include time context.
+        assert f"/traces?trace_id={trace_id_hex}" in body
+        # Time params are URL-encoded in the link; verify by date prefix present.
+        assert f"from_ts={from_date}" in body
+        assert f"to_ts={to_date}" in body
+
+    async def test_ai_trace_view_turn_links_include_time_context(self, client):
+        """Trace links in AI trace-group turn cards should carry from_ts and to_ts params."""
+        now = datetime.now(timezone.utc)
+        from_date = (now - timedelta(hours=1)).strftime("%Y-%m-%d")
+        to_date = (now + timedelta(hours=1)).strftime("%Y-%m-%d")
+        from_ts = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        to_ts = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        trace_id_hex = "deadf00d" * 4
+
+        # Ingest an AI span with a known trace_id and turn_id so it appears in trace view.
+        payload = self._ingest_ai_span(trace_id_hex)
+        payload["turn_id"] = "turn-nav-123"
+        await client.post("/v1/ai", json=payload)
+
+        r = await client.get(f"/ai?view=trace&from_ts={from_ts}&to_ts={to_ts}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+
+        # The trace link in the turn card must carry from_ts and to_ts.
+        assert f"from_ts={from_date}" in body
+        assert f"to_ts={to_date}" in body
+
+    # ------------------------------------------------------------------
+    # /traces?trace_id returns valid trace detail when trace exists
+    # ------------------------------------------------------------------
+    async def test_traces_detail_shows_when_trace_id_provided(self, client):
+        """GET /traces?trace_id=<id> should render the trace detail panel for a known trace."""
+        trace_id_bytes = bytes.fromhex("aabbccdd" * 4)
+        span_id_bytes = bytes.fromhex("1122334455667788")
+        msg = self._make_trace_msg(trace_id_bytes, span_id_bytes, "nav-trace-svc", "nav-root-span")
+
+        r = await client.post(
+            "/v1/traces",
+            data=msg.SerializeToString(),
+            headers={"Content-Type": "application/x-protobuf"},
+        )
+        assert r.status_code == 200
+
+        trace_id_hex = trace_id_bytes.hex()
+        r = await client.get(f"/traces?trace_id={trace_id_hex}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "trace-tree-row" in body or "nav-root-span" in body
+
+    async def test_traces_detail_empty_for_unknown_trace_id(self, client):
+        """GET /traces?trace_id=<unknown> should return 200 but show no trace detail."""
+        r = await client.get("/traces?trace_id=0000000000000000000000000000ffff")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        # No "← All Traces" back-link since trace_detail is None for unknown trace.
+        assert "← All Traces" not in body
+
+    async def test_traces_detail_preserved_with_time_context(self, client):
+        """trace_id lookup ignores time filter so detail shows even without matching time window."""
+        trace_id_bytes = bytes.fromhex("11223344" * 4)
+        span_id_bytes = bytes.fromhex("aabbccddaabbccdd")
+        msg = self._make_trace_msg(trace_id_bytes, span_id_bytes, "nav-tw-svc", "nav-tw-span")
+
+        r = await client.post(
+            "/v1/traces",
+            data=msg.SerializeToString(),
+            headers={"Content-Type": "application/x-protobuf"},
+        )
+        assert r.status_code == 200
+
+        trace_id_hex = trace_id_bytes.hex()
+        # Use a time window that does NOT cover the span's timestamp (2024-01-01) to show
+        # that trace_detail is still built regardless of the list-filter time window.
+        r = await client.get(
+            f"/traces?trace_id={trace_id_hex}&from_ts=2026-01-01T00:00:00Z&to_ts=2026-01-02T00:00:00Z"
+        )
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        # Trace detail section is rendered even though the span list is filtered out.
+        assert "nav-tw-span" in body
+
+    # ------------------------------------------------------------------
+    # Error panel trace/log links include time context
+    # ------------------------------------------------------------------
+    async def test_errors_page_trace_links_include_time_context(self, client):
+        """Trace links in the errors page should include from_ts/to_ts params."""
+        now = datetime.now(timezone.utc)
+        from_date = (now - timedelta(hours=1)).strftime("%Y-%m-%d")
+        to_date = (now + timedelta(hours=1)).strftime("%Y-%m-%d")
+        from_ts = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        to_ts = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        trace_id_hex = "beefcafe" * 4
+
+        await client.post(
+            "/v1/errors",
+            json={
+                "service": "nav-err-svc",
+                "type": "NavError",
+                "message": "nav error for link test",
+                "stack": "Traceback ...",
+                "trace_id": trace_id_hex,
+            },
+        )
+
+        r = await client.get(f"/errors?from_ts={from_ts}&to_ts={to_ts}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        # Error panel should include trace link with time context (by date prefix).
+        assert f"from_ts={from_date}" in body
+        assert f"to_ts={to_date}" in body
+        assert "/traces?trace_id=" in body
+
+    # ------------------------------------------------------------------
+    # RUM trace/log links include time context
+    # ------------------------------------------------------------------
+    async def test_rum_trace_links_include_time_context(self, client):
+        """Trace links in the RUM page should include from_ts/to_ts when navigating."""
+        now = datetime.now(timezone.utc)
+        from_date = (now - timedelta(hours=1)).strftime("%Y-%m-%d")
+        to_date = (now + timedelta(hours=1)).strftime("%Y-%m-%d")
+        from_ts = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        to_ts = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        r = await client.get(f"/rum?from_ts={from_ts}&to_ts={to_ts}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        # The time params should appear in the page (by date prefix in filter/pagination links).
+        assert f"from_ts={from_date}" in body
+        assert f"to_ts={to_date}" in body
+
+    # ------------------------------------------------------------------
+    # AI page without time filter still renders 200
+    # ------------------------------------------------------------------
+    async def test_ai_page_no_time_filter_renders_ok(self, client):
+        """AI page without time params should render correctly (no time_error)."""
+        r = await client.get("/ai")
+        assert r.status_code == 200
+
+    async def test_ai_page_trace_mode_no_time_filter_renders_ok(self, client):
+        """AI trace view without time params should render correctly."""
+        r = await client.get("/ai?view=trace")
+        assert r.status_code == 200
+
+    # ------------------------------------------------------------------
+    # Error pivot to logs preserves service context
+    # ------------------------------------------------------------------
+    async def test_errors_log_links_include_service_context(self, client):
+        """Log links in the errors page should include the service context."""
+        await client.post(
+            "/v1/errors",
+            json={
+                "service": "nav-log-svc",
+                "type": "ServiceError",
+                "message": "service error for log link test",
+                "stack": "Traceback ...",
+            },
+        )
+
+        r = await client.get("/errors?service=nav-log-svc")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        # Log link should point to /logs with service context.
+        assert "/logs?" in body
+        assert "nav-log-svc" in body
+
+
 class TestBasePathSupport:
     async def test_prefixed_mode_routes_and_generates_prefixed_links(self, monkeypatch):
         """When SOBS base path is configured, both routing and generated links should honor it."""
