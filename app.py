@@ -24338,7 +24338,7 @@ class ChdbSqlRunner:
             return pd.DataFrame(columns=["name", "type", "default_kind", "comment"])
         return pd.DataFrame([dict(r) for r in rows])
 
-    def describe_table_extended(self, table: str, database: str = "default") -> list[dict]:
+    def describe_table_extended(self, table: str) -> list[dict]:
         """Return extended column metadata for *table* including key and nullability info.
 
         Each entry contains: name, type, is_nullable, is_primary_key,
@@ -24348,7 +24348,7 @@ class ChdbSqlRunner:
             "SELECT name, type, default_kind, comment, "
             "is_in_primary_key, is_in_sorting_key, is_in_partition_key "
             "FROM system.columns WHERE database=? AND table=? ORDER BY position",
-            [database, table],
+            ["default", table],
         )
         rows = result.fetchall()
         columns: list[dict] = []
@@ -24369,14 +24369,13 @@ class ChdbSqlRunner:
             )
         return columns
 
-    def get_table_ddl(self, table: str, database: str = "default") -> str:
+    def get_table_ddl(self, table: str) -> str:
         """Return the DDL (CREATE TABLE statement) for *table*.
 
         Returns an empty string if the DDL cannot be retrieved.
         """
         try:
-            fqn = f"{database}.{table}" if database and database != "default" else table
-            result = self._db.execute(f"SHOW CREATE TABLE `{fqn}`")
+            result = self._db.execute(f"SHOW CREATE TABLE `{table}`")
             rows = result.fetchall()
             if rows:
                 return str(rows[0][0])
@@ -24384,7 +24383,7 @@ class ChdbSqlRunner:
             pass
         return ""
 
-    def get_table_sample(self, table: str, database: str = "default", limit: int = 5) -> dict:
+    def get_table_sample(self, table: str, limit: int = 5) -> dict:
         """Return sample rows from *table* as ``{"columns": [...], "rows": [[...], ...]}``.
 
         Only allowed tables are sampled.  Returns empty columns/rows on error.
@@ -24392,8 +24391,7 @@ class ChdbSqlRunner:
         if table not in _QUERY_ALLOWED_TABLES:
             return {"columns": [], "rows": []}
         try:
-            fqn = f"{database}.{table}" if database and database != "default" else table
-            sql = f"SELECT * FROM `{fqn}` LIMIT {int(limit)}"
+            sql = f"SELECT * FROM `{table}` LIMIT {int(limit)}"
             df = self.run_sql(sql)
             cols = list(df.columns)
             rows = []
@@ -24403,17 +24401,17 @@ class ChdbSqlRunner:
         except Exception:
             return {"columns": [], "rows": []}
 
-    def get_allowed_tables_info(self, database: str = "default") -> list[dict]:
-        """Return metadata for all allowed tables that exist in *database*.
+    def get_allowed_tables_info(self) -> list[dict]:
+        """Return metadata for all allowed tables that exist in the default database.
 
         Each entry contains: name, column_count, columns list.
         Tables are filtered to ``_QUERY_ALLOWED_TABLES``.
         """
-        existing = set(self.get_tables(database))
+        existing = set(self.get_tables("default"))
         allowed_existing = sorted(t for t in _QUERY_ALLOWED_TABLES if t in existing)
         result: list[dict] = []
         for table in allowed_existing:
-            cols = self.describe_table_extended(table, database)
+            cols = self.describe_table_extended(table)
             result.append(
                 {
                     "name": table,
@@ -24422,6 +24420,18 @@ class ChdbSqlRunner:
                 }
             )
         return result
+
+    def get_table_detail(self, table: str) -> dict:
+        """Return serialized table detail payload for a single allowed table.
+
+        Accesses the shared DB handle serially in one thread to avoid
+        concurrent use of a non-thread-safe connection.
+        """
+        return {
+            "columns": self.describe_table_extended(table),
+            "ddl": self.get_table_ddl(table),
+            "sample": self.get_table_sample(table),
+        }
 
     @staticmethod
     def _compact_clickhouse_type(type_name: str) -> str:
@@ -26289,18 +26299,14 @@ async def api_table_explorer_table(name: str):
     db = get_db()
     runner = ChdbSqlRunner(db)
     try:
-        columns, ddl, sample = await asyncio.gather(
-            asyncio.to_thread(runner.describe_table_extended, name),
-            asyncio.to_thread(runner.get_table_ddl, name),
-            asyncio.to_thread(runner.get_table_sample, name),
-        )
+        detail = await asyncio.to_thread(runner.get_table_detail, name)
         return jsonify(
             {
                 "ok": True,
                 "table": name,
-                "columns": columns,
-                "ddl": ddl,
-                "sample": sample,
+                "columns": detail["columns"],
+                "ddl": detail["ddl"],
+                "sample": detail["sample"],
             }
         )
     except Exception as exc:

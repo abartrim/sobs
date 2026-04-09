@@ -2,14 +2,15 @@
 {% block title %}Table Explorer{% endblock %}
 
 {% block content %}
+<div class="table-explorer-page">
 <div class="d-flex align-items-center justify-content-between mb-3">
   <div class="d-flex align-items-center gap-2">
     <i class="bi bi-grid-3x3 fs-4 text-primary"></i>
     <h4 class="mb-0">Table Explorer</h4>
   </div>
   <div class="d-flex align-items-center gap-2">
-    <a href="{{ url_for('view_query') }}" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-database-check me-1"></i>Back to Query
+    <a href="{{ url_for('view_query') }}" class="btn btn-sm btn-outline-secondary" onclick="if (window.history.length > 1) { window.history.back(); return false; }">
+      <i class="bi bi-arrow-left me-1"></i>Back
     </a>
   </div>
 </div>
@@ -34,13 +35,62 @@
 <div id="explorerError" class="alert alert-danger d-none" role="alert"></div>
 
 <!-- Table list -->
-<div id="tableList"></div>
+<div id="tableList" class="table-explorer-list"></div>
 
 <!-- Empty state -->
 <div id="explorerEmpty" class="d-none text-center text-secondary py-5">
   <i class="bi bi-inbox fs-2 d-block mb-2"></i>
   <div class="small">No tables match your search.</div>
 </div>
+
+<style>
+.table-explorer-list,
+.table-explorer-list .card,
+.table-explorer-list .collapse,
+.table-explorer-list .card-body {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.table-explorer-page {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.table-explorer-list .card-header {
+  min-width: 0;
+}
+
+.table-explorer-list .card-header .font-monospace {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-schema-scroll,
+.table-sample-scroll {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-schema-scroll table,
+.table-sample-scroll table {
+  min-width: 100%;
+  width: max-content;
+}
+
+.table-schema-scroll th,
+.table-schema-scroll td,
+.table-sample-scroll th,
+.table-sample-scroll td {
+  white-space: nowrap;
+}
+</style>
 
 <script>
 (function () {
@@ -107,7 +157,7 @@
     if (!cols || !cols.length) {
       return '<div class="text-secondary small p-2">No column information available.</div>';
     }
-    var html = '<div class="table-responsive">'
+    var html = '<div class="table-responsive table-schema-scroll">'
       + '<table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">'
       + '<thead class="table-light"><tr>'
       + '<th class="fw-semibold">Column</th>'
@@ -137,7 +187,7 @@
     if (!sample.rows || !sample.rows.length) {
       return '<div class="text-secondary small p-2">Table appears to be empty.</div>';
     }
-    var html = '<div class="table-responsive">'
+    var html = '<div class="table-responsive table-sample-scroll">'
       + '<table class="table table-sm table-hover mb-0" style="font-size:0.78rem;">'
       + '<thead class="table-light"><tr>';
     sample.columns.forEach(function (c) {
@@ -370,4 +420,5 @@
   loadTables();
 })();
 </script>
+</div>
 {% endblock %}
