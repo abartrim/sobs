@@ -104,7 +104,7 @@
                   <td title="{{ c.source }}">{{ source_label(c.source) }}</td>
                   <td title="{{ c.signal }}{% if signal_description(c.source, c.signal) %} – {{ signal_description(c.source, c.signal) }}{% endif %}">
                     {{ signal_label(c.source, c.signal) }}
-                    <span class="text-secondary font-monospace" style="font-size:0.7em;display:block;">{{ c.signal }}</span>
+                    <span class="text-secondary font-monospace signal-raw-id">{{ c.signal }}</span>
                   </td>
                   <td>{{ c.service or 'any' }}</td>
                   <td class="font-monospace small">{{ c.attr_fp or '—' }}</td>
@@ -213,7 +213,7 @@
                   <td title="{{ c.source }}">{{ source_label(c.source) }}</td>
                   <td title="{{ c.signal }}{% if signal_description(c.source, c.signal) %} – {{ signal_description(c.source, c.signal) }}{% endif %}">
                     {{ signal_label(c.source, c.signal) }}
-                    <span class="text-secondary font-monospace" style="font-size:0.7em;display:block;">{{ c.signal }}</span>
+                    <span class="text-secondary font-monospace signal-raw-id">{{ c.signal }}</span>
                   </td>
                   <td>{{ c.service or 'any' }}</td>
                   <td class="font-monospace small">{{ c.attr_fp or '—' }}</td>
@@ -394,7 +394,7 @@
             <td title="{{ rule.source }}">{{ source_label(rule.source) }}</td>
             <td title="{{ rule.signal }}{% if signal_description(rule.source, rule.signal) %} – {{ signal_description(rule.source, rule.signal) }}{% endif %}">
               {{ signal_label(rule.source, rule.signal) }}
-              <span class="text-secondary font-monospace" style="font-size:0.7em;display:block;">{{ rule.signal }}</span>
+              <span class="text-secondary font-monospace signal-raw-id">{{ rule.signal }}</span>
             </td>
             <td>{{ rule.service or 'any' }}</td>
             <td class="font-monospace small">{{ rule.attr_fp or '—' }}</td>

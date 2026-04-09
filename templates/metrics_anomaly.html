@@ -190,7 +190,7 @@
             <td class="small">{{ r.service }}</td>
             <td class="small" title="{{ r.metric }}">
               {{ signal_label(r.metric_kind, r.metric) }}
-              <span class="text-secondary font-monospace" style="font-size:0.7em;display:block;">{{ r.metric }}</span>
+              <span class="text-secondary font-monospace signal-raw-id">{{ r.metric }}</span>
             </td>
             <td class="small" title="{{ r.metric_kind }}">{{ source_label(r.metric_kind) }}</td>
             <td class="small font-monospace">{{ r.value }}</td>
