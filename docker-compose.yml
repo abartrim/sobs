@@ -11,27 +11,104 @@ services:
       - sobs_data:/data
     environment:
       - PORT=4317
-      # Optional API key – leave empty to disable auth
+      # -----------------------------------------------------------------------
+      # Core
+      # -----------------------------------------------------------------------
+      # Secret key for Quart session signing – always set explicitly in production.
+      - SOBS_SECRET_KEY=change-me-in-production
+      # Data directory for embedded chDB state (mapped to the named volume below).
+      - SOBS_DATA_DIR=/data
+
+      # -----------------------------------------------------------------------
+      # Authentication (all optional – leave empty to disable)
+      # -----------------------------------------------------------------------
+      # API key for ingest endpoints (send as X-API-Key header or ?api_key=).
       - SOBS_API_KEY=
-      # Optional AI settings managed by env/secret providers
+      # Basic Auth for the Web UI (set both or neither).
+      # - SOBS_BASIC_AUTH_USERNAME=admin
+      # - SOBS_BASIC_AUTH_PASSWORD=changeme
+      # External Bearer token validator URL for the Web UI.
+      # - SOBS_EXTERNAL_AUTH_URL=https://auth.example.com/validate
+
+      # -----------------------------------------------------------------------
+      # AI assistant (configure in Settings → AI or via env/secret providers)
+      # -----------------------------------------------------------------------
+      # Direct env-var values (lower precedence than _FILE variants below).
       - SOBS_AI_ENDPOINT_URL=
       - SOBS_AI_MODEL=
       - SOBS_AI_API_KEY=
+      # Guard model – screens prompts/responses before they reach the main LLM.
       - SOBS_AI_GUARD_ENDPOINT_URL=
       - SOBS_AI_GUARD_MODEL=
+      # Data-loss-prevention proxy endpoint (optional).
       - SOBS_AI_DLP_ENDPOINT_URL=
-      # Optional file-based secret/config values (for mounted Docker/K8s secrets)
+      # Thinking level for reasoning-capable models: off | low | medium | high
+      # - SOBS_AI_THINKING_LEVEL=off
+      # File-based secret overrides (recommended for Docker secrets / K8s secrets).
       # - SOBS_AI_ENDPOINT_URL_FILE=/run/secrets/sobs_ai_endpoint_url
       # - SOBS_AI_MODEL_FILE=/run/secrets/sobs_ai_model
       # - SOBS_AI_API_KEY_FILE=/run/secrets/sobs_ai_api_key
       # - SOBS_AI_GUARD_ENDPOINT_URL_FILE=/run/secrets/sobs_ai_guard_endpoint_url
       # - SOBS_AI_GUARD_MODEL_FILE=/run/secrets/sobs_ai_guard_model
       # - SOBS_AI_DLP_ENDPOINT_URL_FILE=/run/secrets/sobs_ai_dlp_endpoint_url
-      # Optional encrypted disk setup generated inside container at startup
+
+      # -----------------------------------------------------------------------
+      # App Settings encryption (encrypt sensitive DB-stored settings at rest)
+      # -----------------------------------------------------------------------
+      # - SOBS_SETTINGS_ENCRYPTION_KEY=<hex-key>
+      # - SOBS_SETTINGS_ENCRYPTION_KEY_FILE=/run/secrets/sobs_settings_key
+
+      # -----------------------------------------------------------------------
+      # Notifications / push (optional)
+      # -----------------------------------------------------------------------
+      # VAPID private key for browser push notifications.
+      # Generate with: python -c "from py_vapid import Vapid; v=Vapid(); v.generate_keys(); print(v.private_key.hex())"
+      # - SOBS_VAPID_PRIVATE_KEY=<hex-encoded-private-key>
+      # - SOBS_VAPID_SUBJECT=mailto:ops@example.com
+
+      # -----------------------------------------------------------------------
+      # RUM (Real User Monitoring)
+      # -----------------------------------------------------------------------
+      # Client auth mode for browser RUM token endpoint: none | origin
+      # - SOBS_RUM_CLIENT_AUTH_MODE=origin
+      # Signing key used when SOBS_RUM_CLIENT_AUTH_MODE=origin.
+      # - SOBS_RUM_CLIENT_SIGNING_KEY=<random-secret>
+      # HMAC signing key for signed asset uploads (replay / screenshot bytes).
+      # - SOBS_RUM_ASSET_SIGNING_KEY=<random-secret>
+
+      # -----------------------------------------------------------------------
+      # Source maps (optional)
+      # -----------------------------------------------------------------------
+      # Enable the source-map upload endpoint.
+      # - SOBS_SOURCE_MAP_ENABLE=1
+      # Local directory where uploaded source maps are stored.
+      # - SOBS_SOURCE_MAP_DIR=/data/source-maps
+
+      # -----------------------------------------------------------------------
+      # Retention / raw metrics TTL
+      # -----------------------------------------------------------------------
+      # Baseline TTL for raw metric data points (default 48 h).
+      # - SOBS_RAW_METRICS_TTL_HOURS=48
+      # TTL for pinned / retention-window metric data (default 14 days).
+      # - SOBS_PINNED_METRICS_TTL_DAYS=14
+
+      # -----------------------------------------------------------------------
+      # Encrypted disk (generated inside the container at startup – optional)
+      # -----------------------------------------------------------------------
       # - SOBS_CHDB_ENCRYPTION_KEY=00112233445566778899aabbccddeeff
       # - SOBS_CHDB_BASE_DISK_PATH=/data/chdb-disks/plain
       # - SOBS_CHDB_ENCRYPTED_DISK_PATH=/data/chdb-disks/encrypted
       # - SOBS_CHDB_STORAGE_POLICY_NAME=encrypted_only
+
+      # -----------------------------------------------------------------------
+      # Performance tuning (optional – defaults shown)
+      # -----------------------------------------------------------------------
+      # - SOBS_CHDB_MAX_SERVER_MB=768
+      # - SOBS_CHDB_MARK_CACHE_MB=64
+      # - SOBS_CHDB_UNCOMPRESSED_CACHE_MB=64
+      # - SOBS_CHDB_MAX_THREADS=1
+      # - SOBS_WRITE_QUEUE_MAX=5000
+      # - SOBS_WRITE_BATCH_MAX=200
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4317/health')"]
