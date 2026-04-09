@@ -42,11 +42,25 @@
               'service_filter'
             ) }}
           </div>
-          <div class="col-md-3">
+          <div class="col-md-2">
+            <label class="form-label small text-secondary" for="autoRuleMode">Mode</label>
+            <select id="autoRuleMode" name="mode" class="form-select form-select-sm" onchange="document.getElementById('seasonalStrategyRow').style.display=this.value==='seasonal'?'':'none'">
+              <option value="threshold" {% if not auto_summary or auto_summary.mode == 'threshold' %}selected{% endif %}>Threshold</option>
+              <option value="seasonal" {% if auto_summary and auto_summary.mode == 'seasonal' %}selected{% endif %}>Seasonal</option>
+            </select>
+          </div>
+          <div class="col-md-2" id="seasonalStrategyRow" style="display:{{ 'none' if not auto_summary or auto_summary.mode != 'seasonal' else '' }}">
+            <label class="form-label small text-secondary" for="autoSeasonalStrategy">Strategy</label>
+            <select id="autoSeasonalStrategy" name="seasonal_strategy" class="form-select form-select-sm">
+              <option value="hour_of_day" {% if not auto_summary or auto_summary.seasonal_strategy == 'hour_of_day' %}selected{% endif %}>Hour of day</option>
+              <option value="day_of_week" {% if auto_summary and auto_summary.seasonal_strategy == 'day_of_week' %}selected{% endif %}>Day of week</option>
+            </select>
+          </div>
+          <div class="col-md-1">
             <div class="form-check mt-4">
               <input class="form-check-input" type="checkbox" value="1" id="includeAttrFp" name="include_attr_fp" {% if auto_summary and auto_summary.include_attr_fp %}checked{% endif %}>
-              <label class="form-check-label small text-secondary" for="includeAttrFp">
-                Include Attr FP scoped rules
+              <label class="form-check-label small text-secondary" for="includeAttrFp" title="Include Attr FP scoped rules">
+                Attr FP
               </label>
             </div>
           </div>
@@ -90,6 +104,7 @@
                   <th>Signal</th>
                   <th>Service</th>
                   <th>Attr FP</th>
+                  <th>Mode</th>
                   <th>Comparator</th>
                   <th>Warning</th>
                   <th>Critical</th>
@@ -108,6 +123,15 @@
                   </td>
                   <td>{{ c.service or 'any' }}</td>
                   <td class="font-monospace small">{{ c.attr_fp or '—' }}</td>
+                  <td>
+                    {% if c.rule_type == 'seasonal' %}
+                    <span class="badge bg-info text-dark" title="{{ c.seasonal_strategy | replace('_', ' ') | title }}: {{ c.seasonal_bucket_count }} bucket(s)">
+                      <i class="bi bi-calendar3 me-1"></i>seasonal
+                    </span>
+                    {% else %}
+                    <span class="badge bg-secondary">threshold</span>
+                    {% endif %}
+                  </td>
                   <td>{{ c.comparator }}</td>
                   <td>{{ c.warning_threshold }}</td>
                   <td>{{ c.critical_threshold }}</td>
@@ -390,7 +414,13 @@
               data-service="{{ (rule.service or 'any')|lower }}"
               data-sample="{{ rule.min_sample_count }}">
             <td>{{ rule.name }}</td>
-            <td><span class="badge text-bg-secondary text-capitalize">{{ rule.rule_type }}</span></td>
+            <td>
+              {% if rule.rule_type == 'seasonal' %}
+              <span class="badge bg-info text-dark text-capitalize"><i class="bi bi-calendar3 me-1"></i>{{ rule.rule_type }}</span>
+              {% else %}
+              <span class="badge text-bg-secondary text-capitalize">{{ rule.rule_type }}</span>
+              {% endif %}
+            </td>
             <td title="{{ rule.source }}">{{ source_label(rule.source) }}</td>
             <td title="{{ rule.signal }}{% if signal_description(rule.source, rule.signal) %} – {{ signal_description(rule.source, rule.signal) }}{% endif %}">
               {{ signal_label(rule.source, rule.signal) }}
@@ -399,7 +429,7 @@
             <td>{{ rule.service or 'any' }}</td>
             <td class="font-monospace small">{{ rule.attr_fp or '—' }}</td>
             <td class="font-monospace small">{{ rule.comparator }} / {{ rule.warning_threshold }} / {{ rule.critical_threshold }}</td>
-            <td class="font-monospace small">{% if rule.rule_type == 'composite' %}{{ rule.secondary_source }}:{{ rule.secondary_signal }} {{ rule.secondary_comparator }} / {{ rule.secondary_warning_threshold }} / {{ rule.secondary_critical_threshold }}{% else %}—{% endif %}</td>
+            <td class="font-monospace small">{% if rule.rule_type == 'composite' %}{{ rule.secondary_source }}:{{ rule.secondary_signal }} {{ rule.secondary_comparator }} / {{ rule.secondary_warning_threshold }} / {{ rule.secondary_critical_threshold }}{% elif rule.rule_type == 'seasonal' and rule.seasonal_buckets_json %}<span title="{{ rule.seasonal_buckets_json }}">{{ rule.seasonal_buckets_json | tojson | length }} chars</span>{% else %}—{% endif %}</td>
             <td class="font-monospace small">{{ rule.min_sample_count }}</td>
             <td>
               <div class="d-flex gap-2">
