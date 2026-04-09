@@ -480,6 +480,7 @@ CREATE TABLE IF NOT EXISTS sobs_anomaly_rules (
     SecondaryWarningThreshold Float64 DEFAULT 0 CODEC(ZSTD(1)),
     SecondaryCriticalThreshold Float64 DEFAULT 0 CODEC(ZSTD(1)),
     MinSampleCount UInt32 DEFAULT 1 CODEC(T64, ZSTD(1)),
+    SeasonalBucketsJson String DEFAULT '' CODEC(ZSTD(1)),
     IsDeleted UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
     Version UInt64 DEFAULT 0 CODEC(T64, ZSTD(1))
 ) ENGINE = ReplacingMergeTree(Version)
@@ -1871,6 +1872,7 @@ def _ensure_anomaly_rule_schema(db: ChDbConnection) -> None:
         ),
         "ALTER TABLE sobs_anomaly_rules ADD COLUMN IF NOT EXISTS SecondaryWarningThreshold Float64 DEFAULT 0",
         "ALTER TABLE sobs_anomaly_rules ADD COLUMN IF NOT EXISTS SecondaryCriticalThreshold Float64 DEFAULT 0",
+        "ALTER TABLE sobs_anomaly_rules ADD COLUMN IF NOT EXISTS SeasonalBucketsJson String DEFAULT ''",
     ]
     for statement in migration_statements:
         db.execute(statement)
@@ -10562,6 +10564,7 @@ def _build_auto_metric_rule_candidates(
             str(rule.get("signal", "")),
             str(rule.get("service", "")),
             str(rule.get("attr_fp", "")),
+            str(rule.get("rule_type", "threshold") or "threshold"),
         )
         for rule in active_rules
     }
@@ -10574,7 +10577,7 @@ def _build_auto_metric_rule_candidates(
         source = str(row["SignalSource"])
         signal = str(row["SignalName"])
         attr_fp = str(row["AttrFingerprint"])
-        key = (source, signal, service, attr_fp)
+        key = (source, signal, service, attr_fp, "threshold")
         if key in existing_series:
             skipped_existing += 1
             continue
@@ -10613,6 +10616,195 @@ def _build_auto_metric_rule_candidates(
 
     return created_candidates, {
         "examined": len(stats_rows),
+        "existing": skipped_existing,
+        "invalid": skipped_invalid,
+    }
+
+
+# Supported seasonal strategies for auto-rule generation.
+_SEASONAL_STRATEGIES = ("hour_of_day", "day_of_week")
+_SEASONAL_MIN_BUCKET_POINTS = 3
+
+
+def _build_seasonal_bucket_expr(strategy: str) -> str:
+    """Return a ClickHouse expression for the seasonal bucket key."""
+    if strategy == "day_of_week":
+        return "toDayOfWeek(time)"  # 1 (Mon) … 7 (Sun)
+    return "toHour(time)"  # 0 … 23
+
+
+def _build_seasonal_metric_rule_candidates(
+    db: ChDbConnection,
+    *,
+    hours: int,
+    min_points: int,
+    service_filter: str = "",
+    include_attr_fp: bool = False,
+    strategy: str = "hour_of_day",
+) -> tuple[list[dict[str, object]], dict[str, int]]:
+    """Build auto-rule candidates using per-bucket (seasonal) thresholds.
+
+    For each signal series that has enough data points over the lookback window,
+    the function computes warning/critical thresholds independently for every
+    hour-of-day (or day-of-week) bucket.  The resulting candidate carries a
+    ``seasonal_buckets_json`` payload that the evaluator uses at runtime to pick
+    the threshold corresponding to the current time bucket.
+    """
+    strategy = strategy if strategy in _SEASONAL_STRATEGIES else "hour_of_day"
+    bucket_expr = _build_seasonal_bucket_expr(strategy)
+
+    where_parts: list[str] = ["time >= now() - INTERVAL ? HOUR"]
+    params: list[object] = [hours]
+    if service_filter:
+        where_parts.append("ServiceName = ?")
+        params.append(service_filter)
+
+    where_sql = " WHERE " + " AND ".join(where_parts)
+    attr_select = "AttrFingerprint" if include_attr_fp else "''"
+    attr_group = ", AttrFingerprint" if include_attr_fp else ""
+
+    # Per-series totals for the min_points filter.
+    series_rows = db.execute(
+        "SELECT ServiceName, SignalSource, SignalName, "
+        f"{attr_select} AS AttrFingerprint, "
+        "count() AS point_count, "
+        "quantile(0.05)(toFloat64(value)) AS q05, "
+        "quantile(0.20)(toFloat64(value)) AS q20, "
+        "quantile(0.50)(toFloat64(value)) AS q50, "
+        "quantile(0.80)(toFloat64(value)) AS q80, "
+        "quantile(0.95)(toFloat64(value)) AS q95 "
+        "FROM v_derived_signals_anomaly"
+        f"{where_sql}"
+        " GROUP BY ServiceName, SignalSource, SignalName"
+        f"{attr_group}"
+        " HAVING point_count >= ?"
+        " ORDER BY point_count DESC",
+        params + [min_points],
+    ).fetchall()
+
+    # Only compute bucket stats for series that pass the min_points gate.
+    # This avoids scanning and materializing buckets for sparse series that
+    # can never become candidates in this run.
+    eligible_series_subquery = (
+        "SELECT ServiceName, SignalSource, SignalName, "
+        f"{attr_select} AS AttrFingerprint "
+        "FROM v_derived_signals_anomaly"
+        f"{where_sql}"
+        " GROUP BY ServiceName, SignalSource, SignalName"
+        f"{attr_group}"
+        " HAVING count() >= ?"
+    )
+
+    # Per-series-per-bucket quantiles (requires minimum support per bucket).
+    bucket_rows = db.execute(
+        "SELECT ServiceName, SignalSource, SignalName, "
+        f"{attr_select} AS AttrFingerprint, "
+        f"{bucket_expr} AS bucket_key, "
+        "count() AS point_count, "
+        "quantile(0.05)(toFloat64(value)) AS q05, "
+        "quantile(0.20)(toFloat64(value)) AS q20, "
+        "quantile(0.50)(toFloat64(value)) AS q50, "
+        "quantile(0.80)(toFloat64(value)) AS q80, "
+        "quantile(0.95)(toFloat64(value)) AS q95 "
+        "FROM v_derived_signals_anomaly"
+        f"{where_sql}"
+        " AND (ServiceName, SignalSource, SignalName, "
+        f"{attr_select}) IN ({eligible_series_subquery})"
+        " GROUP BY ServiceName, SignalSource, SignalName"
+        f"{attr_group}"
+        ", bucket_key"
+        " HAVING point_count >= ?"
+        f" ORDER BY ServiceName, SignalSource, SignalName{attr_group}, bucket_key",
+        params + params + [min_points, _SEASONAL_MIN_BUCKET_POINTS],
+    ).fetchall()
+
+    # Index bucket data by series key.
+    bucket_index: dict[tuple[str, str, str, str], dict[str, dict[str, float]]] = {}
+    for br in bucket_rows:
+        bucket_series_key = (
+            str(br["SignalSource"]),
+            str(br["SignalName"]),
+            str(br["ServiceName"]),
+            str(br["AttrFingerprint"]),
+        )
+        bk = str(int(br["bucket_key"]))
+        comparator = _infer_auto_rule_comparator(str(br["SignalName"]))
+        w, c = _auto_rule_thresholds(
+            comparator,
+            float(br["q05"]),
+            float(br["q20"]),
+            float(br["q50"]),
+            float(br["q80"]),
+            float(br["q95"]),
+        )
+        bucket_index.setdefault(bucket_series_key, {})[bk] = {"warning": w, "critical": c}
+
+    active_rules = _load_anomaly_rules(db)
+    existing_series = {
+        (
+            str(rule.get("source", "")),
+            str(rule.get("signal", "")),
+            str(rule.get("service", "")),
+            str(rule.get("attr_fp", "")),
+            str(rule.get("rule_type", "threshold") or "threshold"),
+        )
+        for rule in active_rules
+    }
+
+    created_candidates: list[dict[str, object]] = []
+    skipped_existing = 0
+    skipped_invalid = 0
+
+    for row in series_rows:
+        service = str(row["ServiceName"])
+        source = str(row["SignalSource"])
+        signal = str(row["SignalName"])
+        attr_fp = str(row["AttrFingerprint"])
+        rule_scope_key = (source, signal, service, attr_fp, "seasonal")
+        if rule_scope_key in existing_series:
+            skipped_existing += 1
+            continue
+
+        point_count = int(row["point_count"])
+        q05 = float(row["q05"])
+        q20 = float(row["q20"])
+        q50 = float(row["q50"])
+        q80 = float(row["q80"])
+        q95 = float(row["q95"])
+        comparator = _infer_auto_rule_comparator(signal)
+        warning, critical = _auto_rule_thresholds(comparator, q05, q20, q50, q80, q95)
+
+        if comparator == "gt" and critical < warning:
+            skipped_invalid += 1
+            continue
+        if comparator == "lt" and critical > warning:
+            skipped_invalid += 1
+            continue
+
+        series_buckets = bucket_index.get((source, signal, service, attr_fp), {})
+        seasonal_buckets_json = json.dumps({"strategy": strategy, "buckets": series_buckets})
+
+        created_candidates.append(
+            {
+                "name": _format_auto_rule_name(source, signal, service, attr_fp),
+                "rule_type": "seasonal",
+                "source": source,
+                "signal": signal,
+                "service": service,
+                "attr_fp": attr_fp,
+                "comparator": comparator,
+                "warning_threshold": warning,
+                "critical_threshold": critical,
+                "min_sample_count": 3,
+                "point_count": point_count,
+                "seasonal_buckets_json": seasonal_buckets_json,
+                "seasonal_bucket_count": len(series_buckets),
+                "seasonal_strategy": strategy,
+            }
+        )
+
+    return created_candidates, {
+        "examined": len(series_rows),
         "existing": skipped_existing,
         "invalid": skipped_invalid,
     }
@@ -10988,7 +11180,8 @@ def _load_anomaly_rules(db: ChDbConnection) -> list[dict[str, object]]:
     rows = db.execute(
         "SELECT Id, Name, RuleType, SignalSource, SignalName, ServiceName, AttrFingerprint, Comparator, "
         "WarningThreshold, CriticalThreshold, SecondarySignalSource, SecondarySignalName, "
-        "SecondaryComparator, SecondaryWarningThreshold, SecondaryCriticalThreshold, MinSampleCount "
+        "SecondaryComparator, SecondaryWarningThreshold, SecondaryCriticalThreshold, MinSampleCount, "
+        "SeasonalBucketsJson "
         "FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 ORDER BY Name"
     ).fetchall()
     return [
@@ -11009,6 +11202,7 @@ def _load_anomaly_rules(db: ChDbConnection) -> list[dict[str, object]]:
             "secondary_warning_threshold": float(row["SecondaryWarningThreshold"]),
             "secondary_critical_threshold": float(row["SecondaryCriticalThreshold"]),
             "min_sample_count": int(row["MinSampleCount"]),
+            "seasonal_buckets_json": str(row.get("SeasonalBucketsJson") or ""),
         }
         for row in rows
     ]
@@ -11342,6 +11536,78 @@ def _evaluate_threshold_rule(rule: dict[str, object], value: object, sample_coun
     }
 
 
+def _evaluate_seasonal_rule(
+    rule: dict[str, object],
+    value: object,
+    sample_count: object,
+    time_value: object,
+) -> dict[str, object] | None:
+    """Evaluate a *seasonal* rule against *value* using per-bucket thresholds.
+
+    The bucket key is derived from *time_value* according to the strategy stored
+    in ``seasonal_buckets_json``.  When no matching bucket is found, the rule
+    falls back to the global ``warning_threshold`` / ``critical_threshold`` so
+    that evaluation never silently skips a data point.
+    """
+    buckets_json = str(rule.get("seasonal_buckets_json") or "")
+    try:
+        warning_threshold = float(str(rule.get("warning_threshold", 0.0)))
+    except (TypeError, ValueError):
+        warning_threshold = 0.0
+    try:
+        critical_threshold = float(str(rule.get("critical_threshold", 0.0)))
+    except (TypeError, ValueError):
+        critical_threshold = 0.0
+    is_seasonal = False
+
+    if buckets_json:
+        try:
+            buckets_data = json.loads(buckets_json)
+            strategy = str(buckets_data.get("strategy", "hour_of_day"))
+            buckets: dict[str, dict[str, float]] = buckets_data.get("buckets", {})
+            if buckets and time_value is not None:
+                try:
+                    time_str = str(time_value).strip()
+                    dt = datetime.fromisoformat(time_str.replace(" ", "T"))
+                    # Backend timestamps are UTC; treat naive values as UTC and
+                    # normalize offset-aware values to UTC before bucket lookup.
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    else:
+                        dt = dt.astimezone(timezone.utc)
+                    if strategy == "day_of_week":
+                        bucket_key = str(dt.isoweekday())  # 1 (Mon) … 7 (Sun)
+                    else:
+                        bucket_key = str(dt.hour)  # 0 … 23
+                    bucket = buckets.get(bucket_key)
+                    if bucket:
+                        warning_threshold = float(bucket.get("warning", warning_threshold))
+                        critical_threshold = float(bucket.get("critical", critical_threshold))
+                        is_seasonal = True
+                except (ValueError, AttributeError, TypeError):
+                    pass
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    evaluation = _evaluate_threshold_condition(
+        str(rule.get("name", "")),
+        str(rule.get("comparator", "gt")),
+        warning_threshold,
+        critical_threshold,
+        value,
+        sample_count,
+        rule.get("min_sample_count", 1),
+    )
+    if not evaluation:
+        return None
+    return {
+        "rule_id": str(rule.get("id", "")),
+        "rule_name": str(rule.get("name", "")),
+        "rule_seasonal": is_seasonal,
+        **evaluation,
+    }
+
+
 def _build_series_rule_lookups(
     rows: list[dict[str, object]],
     *,
@@ -11497,13 +11763,19 @@ def _annotate_rows_with_rules(
         attr_fp_key=attr_fp_key,
         time_key=time_key,
     )
+    rule_type_precedence = {
+        "seasonal": 3,
+        "composite": 2,
+        "threshold": 1,
+    }
     for row in rows:
         row["rule_name"] = ""
         row["rule_state"] = "normal"
         row["rule_reason"] = ""
+        row["rule_seasonal"] = False
         row["effective_state"] = str(row.get("anomaly_state", "normal"))
         best_match: dict[str, object] | None = None
-        best_rank = -1
+        best_rank: tuple[int, int, str] = (-1, -1, "")
         row_source = str(row.get(source_key, ""))
         row_signal = str(row.get(signal_key, ""))
         row_service = str(row.get(service_key, ""))
@@ -11511,7 +11783,8 @@ def _annotate_rows_with_rules(
         for rule in rules:
             if not _rule_matches_series(rule, row_source, row_signal, row_service, row_attr_fp):
                 continue
-            if str(rule.get("rule_type", "threshold")) == "composite":
+            rule_type = str(rule.get("rule_type", "threshold"))
+            if rule_type == "composite":
                 evaluation = _evaluate_composite_rule(
                     rule,
                     row,
@@ -11525,11 +11798,24 @@ def _annotate_rows_with_rules(
                     sample_count_key=sample_count_key,
                     time_key=time_key,
                 )
+            elif rule_type == "seasonal":
+                time_value = row.get(time_key) if time_key else None
+                evaluation = _evaluate_seasonal_rule(
+                    rule,
+                    row.get(value_key),
+                    row.get(sample_count_key),
+                    time_value,
+                )
             else:
                 evaluation = _evaluate_threshold_rule(rule, row.get(value_key), row.get(sample_count_key))
             if not evaluation:
                 continue
-            rank = _ANOMALY_SEVERITY_RANK.get(str(evaluation.get("rule_state", "normal")), 0)
+            severity = _ANOMALY_SEVERITY_RANK.get(str(evaluation.get("rule_state", "normal")), 0)
+            type_rank = rule_type_precedence.get(rule_type, 0)
+            # Deterministic tie-breaker when multiple rules fire with equal
+            # severity: prefer richer rule types (seasonal > composite > threshold),
+            # then lexical rule name for stable behavior.
+            rank = (severity, type_rank, str(evaluation.get("rule_name", "")))
             if rank > best_rank:
                 best_match = evaluation
                 best_rank = rank
@@ -11957,18 +12243,34 @@ async def auto_metrics_rules():
 
     service_filter = (form.get("service_filter") or "").strip()
     include_attr_fp = (form.get("include_attr_fp") or "") in {"1", "true", "on", "yes"}
+    mode = (form.get("mode") or "threshold").strip().lower()
+    if mode not in {"threshold", "seasonal"}:
+        mode = "threshold"
+    seasonal_strategy = (form.get("seasonal_strategy") or "hour_of_day").strip().lower()
+    if seasonal_strategy not in _SEASONAL_STRATEGIES:
+        seasonal_strategy = "hour_of_day"
 
     db = get_db()
     services, signals, sources = _list_derived_signal_dimensions(db)
     existing_rules = _load_anomaly_rules(db)
 
-    candidates, stats = _build_auto_metric_rule_candidates(
-        db,
-        hours=hours,
-        min_points=min_points,
-        service_filter=service_filter,
-        include_attr_fp=include_attr_fp,
-    )
+    if mode == "seasonal":
+        candidates, stats = _build_seasonal_metric_rule_candidates(
+            db,
+            hours=hours,
+            min_points=min_points,
+            service_filter=service_filter,
+            include_attr_fp=include_attr_fp,
+            strategy=seasonal_strategy,
+        )
+    else:
+        candidates, stats = _build_auto_metric_rule_candidates(
+            db,
+            hours=hours,
+            min_points=min_points,
+            service_filter=service_filter,
+            include_attr_fp=include_attr_fp,
+        )
 
     summary = {
         "action": action,
@@ -11976,6 +12278,8 @@ async def auto_metrics_rules():
         "min_points": min_points,
         "service_filter": service_filter,
         "include_attr_fp": include_attr_fp,
+        "mode": mode,
+        "seasonal_strategy": seasonal_strategy,
         "examined": stats["examined"],
         "existing": stats["existing"],
         "invalid": stats["invalid"],
@@ -11994,7 +12298,7 @@ async def auto_metrics_rules():
                 {
                     "Id": str(uuid.uuid4()),
                     "Name": str(candidate["name"]),
-                    "RuleType": "threshold",
+                    "RuleType": str(candidate.get("rule_type", "threshold")),
                     "SignalSource": str(candidate["source"]),
                     "SignalName": str(candidate["signal"]),
                     "ServiceName": str(candidate["service"]),
@@ -12008,6 +12312,7 @@ async def auto_metrics_rules():
                     "SecondaryWarningThreshold": 0.0,
                     "SecondaryCriticalThreshold": 0.0,
                     "MinSampleCount": int(candidate["min_sample_count"]),
+                    "SeasonalBucketsJson": str(candidate.get("seasonal_buckets_json") or ""),
                     "IsDeleted": 0,
                     "Version": now_version + idx,
                 }
@@ -21807,7 +22112,7 @@ def _agent_rule_trigger_state_matches(trigger_state: str, event_state: str) -> b
 def _collect_anomaly_agent_events(db: ChDbConnection) -> dict[str, dict[str, object]]:
     rows = db.execute(
         "SELECT ServiceName, SignalSource, SignalName, AttrFingerprint, "
-        "argMax(value, time) AS value, argMax(SampleCount, time) AS SampleCount "
+        "argMax(value, time) AS value, argMax(SampleCount, time) AS SampleCount, argMax(time, time) AS time "
         "FROM v_derived_signals_anomaly "
         "WHERE time >= now() - INTERVAL 24 HOUR "
         "GROUP BY ServiceName, SignalSource, SignalName, AttrFingerprint"
@@ -21825,6 +22130,7 @@ def _collect_anomaly_agent_events(db: ChDbConnection) -> dict[str, dict[str, obj
         attr_fp_key="AttrFingerprint",
         value_key="value",
         sample_count_key="SampleCount",
+        time_key="time",
     )
 
     events_by_rule: dict[str, dict[str, object]] = {}

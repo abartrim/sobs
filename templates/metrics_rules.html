@@ -4,9 +4,24 @@
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="fw-semibold mb-0"><i class="bi bi-sliders me-2 text-info"></i>Metrics Rules</h4>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Metrics
-  </a>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-outline-info"
+            type="button"
+            data-bs-toggle="modal"
+            data-bs-target="#metricsRulesTourModal"
+            title="Rules walkthrough"
+            aria-label="Open metrics rules walkthrough"
+            data-ai-action-id="metrics.rules.tour.open"
+            data-ai-action-type="open_modal"
+            data-ai-handler="openModal"
+            data-ai-args='{"modal_id":"metricsRulesTourModal"}'
+            data-ai-label="Open metrics rules walkthrough modal">
+      <i class="bi bi-mortarboard me-1"></i>Walkthrough
+    </button>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics') }}">
+      <i class="bi bi-arrow-left me-1"></i>Back to Metrics
+    </a>
+  </div>
 </div>
 
 <div class="accordion mb-3" id="metricsRulesAutoAccordion">
@@ -42,11 +57,25 @@
               'service_filter'
             ) }}
           </div>
-          <div class="col-md-3">
+          <div class="col-md-2">
+            <label class="form-label small text-secondary" for="autoRuleMode">Mode</label>
+            <select id="autoRuleMode" name="mode" class="form-select form-select-sm" onchange="document.getElementById('seasonalStrategyRow').style.display=this.value==='seasonal'?'':'none'">
+              <option value="threshold" {% if not auto_summary or auto_summary.mode == 'threshold' %}selected{% endif %}>Threshold</option>
+              <option value="seasonal" {% if auto_summary and auto_summary.mode == 'seasonal' %}selected{% endif %}>Seasonal</option>
+            </select>
+          </div>
+          <div class="col-md-2" id="seasonalStrategyRow" style="display:{{ 'none' if not auto_summary or auto_summary.mode != 'seasonal' else '' }}">
+            <label class="form-label small text-secondary" for="autoSeasonalStrategy">Strategy</label>
+            <select id="autoSeasonalStrategy" name="seasonal_strategy" class="form-select form-select-sm">
+              <option value="hour_of_day" {% if not auto_summary or auto_summary.seasonal_strategy == 'hour_of_day' %}selected{% endif %}>Hour of day</option>
+              <option value="day_of_week" {% if auto_summary and auto_summary.seasonal_strategy == 'day_of_week' %}selected{% endif %}>Day of week</option>
+            </select>
+          </div>
+          <div class="col-md-1">
             <div class="form-check mt-4">
               <input class="form-check-input" type="checkbox" value="1" id="includeAttrFp" name="include_attr_fp" {% if auto_summary and auto_summary.include_attr_fp %}checked{% endif %}>
-              <label class="form-check-label small text-secondary" for="includeAttrFp">
-                Include Attr FP scoped rules
+              <label class="form-check-label small text-secondary" for="includeAttrFp" title="Include Attr FP scoped rules">
+                Attr FP
               </label>
             </div>
           </div>
@@ -90,6 +119,7 @@
                   <th>Signal</th>
                   <th>Service</th>
                   <th>Attr FP</th>
+                  <th>Mode</th>
                   <th>Comparator</th>
                   <th>Warning</th>
                   <th>Critical</th>
@@ -108,6 +138,15 @@
                   </td>
                   <td>{{ c.service or 'any' }}</td>
                   <td class="font-monospace small">{{ c.attr_fp or '—' }}</td>
+                  <td>
+                    {% if c.rule_type == 'seasonal' %}
+                    <span class="badge bg-info text-dark" title="{{ c.seasonal_strategy | replace('_', ' ') | title }}: {{ c.seasonal_bucket_count }} bucket(s)">
+                      <i class="bi bi-calendar3 me-1"></i>seasonal
+                    </span>
+                    {% else %}
+                    <span class="badge bg-secondary">threshold</span>
+                    {% endif %}
+                  </td>
                   <td>{{ c.comparator }}</td>
                   <td>{{ c.warning_threshold }}</td>
                   <td>{{ c.critical_threshold }}</td>
@@ -232,9 +271,23 @@
 <div class="card border-secondary mb-3">
   <div class="card-header d-flex align-items-center justify-content-between">
     <span>Create Rule</span>
-    <a href="{{ url_for('metrics_rules_help') }}" target="_blank" class="link-secondary text-decoration-none" title="Metric Rules Help" aria-label="Metric Rules Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
+    <div class="d-flex align-items-center gap-2">
+      <button type="button"
+              class="btn btn-sm btn-outline-info py-0 px-2"
+              data-bs-toggle="modal"
+              data-bs-target="#metricsRulesTourModal"
+              title="Open walkthrough"
+              aria-label="Open walkthrough">
+        <i class="bi bi-play-circle"></i>
+      </button>
+      <a href="{{ url_for('metrics_rules_help') }}" target="_blank" class="link-secondary text-decoration-none" title="Metric Rules Help" aria-label="Metric Rules Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
+    </div>
   </div>
   <div class="card-body">
+    <p class="small text-secondary mb-3">
+      Manual create supports <strong>Threshold</strong> and <strong>Composite</strong> rules. Seasonal rules are generated via the Auto Rules panel.
+      Threshold, composite, and seasonal rules can coexist for the same signal scope; on equal severity, precedence is <code>seasonal &gt; composite &gt; threshold</code>.
+    </p>
     <form method="post" action="{{ url_for('create_metrics_rule') }}" class="row g-2 align-items-end">
       <div class="col-md-3">
         <label class="form-label small text-secondary">Name</label>
@@ -390,7 +443,13 @@
               data-service="{{ (rule.service or 'any')|lower }}"
               data-sample="{{ rule.min_sample_count }}">
             <td>{{ rule.name }}</td>
-            <td><span class="badge text-bg-secondary text-capitalize">{{ rule.rule_type }}</span></td>
+            <td>
+              {% if rule.rule_type == 'seasonal' %}
+              <span class="badge bg-info text-dark text-capitalize"><i class="bi bi-calendar3 me-1"></i>{{ rule.rule_type }}</span>
+              {% else %}
+              <span class="badge text-bg-secondary text-capitalize">{{ rule.rule_type }}</span>
+              {% endif %}
+            </td>
             <td title="{{ rule.source }}">{{ source_label(rule.source) }}</td>
             <td title="{{ rule.signal }}{% if signal_description(rule.source, rule.signal) %} – {{ signal_description(rule.source, rule.signal) }}{% endif %}">
               {{ signal_label(rule.source, rule.signal) }}
@@ -399,7 +458,13 @@
             <td>{{ rule.service or 'any' }}</td>
             <td class="font-monospace small">{{ rule.attr_fp or '—' }}</td>
             <td class="font-monospace small">{{ rule.comparator }} / {{ rule.warning_threshold }} / {{ rule.critical_threshold }}</td>
-            <td class="font-monospace small">{% if rule.rule_type == 'composite' %}{{ rule.secondary_source }}:{{ rule.secondary_signal }} {{ rule.secondary_comparator }} / {{ rule.secondary_warning_threshold }} / {{ rule.secondary_critical_threshold }}{% else %}—{% endif %}</td>
+            <td class="font-monospace small">
+              {% if rule.rule_type == 'composite' %}
+                {{ rule.secondary_source }}:{{ rule.secondary_signal }} {{ rule.secondary_comparator }} / {{ rule.secondary_warning_threshold }} / {{ rule.secondary_critical_threshold }}
+              {% elif rule.rule_type == 'seasonal' and rule.seasonal_buckets_json %}
+                <span title="{{ rule.seasonal_buckets_json }}">{{ rule.seasonal_buckets_json | length }} chars</span>
+              {% else %}—{% endif %}
+            </td>
             <td class="font-monospace small">{{ rule.min_sample_count }}</td>
             <td>
               <div class="d-flex gap-2">
@@ -428,6 +493,220 @@
         {% endif %}
       </tbody>
     </table>
+  </div>
+</div>
+
+<style>
+  #metricsRulesTourModal {
+    --metrics-tour-left-offset: 0px;
+    --metrics-tour-side-gap: 12px;
+  }
+  #metricsRulesTourModal .modal-dialog {
+    max-width: none;
+    width: auto;
+    margin-left: calc(var(--metrics-tour-left-offset) + var(--metrics-tour-side-gap));
+    margin-right: var(--metrics-tour-side-gap);
+  }
+  #metricsRulesTourModal .modal-body {
+    min-height: 360px;
+  }
+  #metricsRulesTourCarousel .carousel-item {
+    min-height: 300px;
+  }
+  #metricsRulesTourCarousel .carousel-indicators [data-bs-target] {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+  }
+  .rules-tour-card {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.5rem;
+    background: rgba(var(--bs-secondary-rgb), 0.08);
+    padding: 0.75rem;
+  }
+  .rules-tour-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    font-size: 0.78rem;
+    color: var(--bs-secondary-color);
+  }
+  .rules-tour-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 0.35rem;
+  }
+  .rules-tour-chip {
+    border: 1px solid var(--bs-border-color);
+    background: rgba(var(--bs-secondary-rgb), 0.08);
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.75rem;
+    color: var(--bs-secondary-color);
+  }
+  .rules-tour-flow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+  }
+  @media (max-width: 768px) {
+    #metricsRulesTourModal .modal-dialog {
+      margin-left: .5rem;
+      margin-right: .5rem;
+    }
+    #metricsRulesTourModal .modal-body {
+      min-height: 420px;
+    }
+    #metricsRulesTourCarousel .carousel-item {
+      min-height: 355px;
+    }
+  }
+</style>
+
+<div class="modal fade" id="metricsRulesTourModal" tabindex="-1" aria-labelledby="metricsRulesTourTitle" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content border-secondary">
+      <div class="modal-header">
+        <h5 class="modal-title" id="metricsRulesTourTitle"><i class="bi bi-mortarboard me-2"></i>Metrics Rules Walkthrough</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="metricsRulesTourCarousel" class="carousel slide" data-bs-interval="false" data-bs-touch="true">
+          <div class="carousel-indicators position-static mb-3">
+            <button type="button" data-bs-target="#metricsRulesTourCarousel" data-bs-slide-to="0" class="active" aria-current="true" aria-label="Intro"></button>
+            <button type="button" data-bs-target="#metricsRulesTourCarousel" data-bs-slide-to="1" aria-label="Threshold"></button>
+            <button type="button" data-bs-target="#metricsRulesTourCarousel" data-bs-slide-to="2" aria-label="Composite"></button>
+            <button type="button" data-bs-target="#metricsRulesTourCarousel" data-bs-slide-to="3" aria-label="Seasonal"></button>
+          </div>
+
+          <div class="carousel-inner">
+            <div class="carousel-item active">
+              <h6 class="mb-2">How Metrics Rules Work (Simple)</h6>
+              <p class="small text-secondary mb-2">
+                SOBS turns raw telemetry into minute-level derived signals, then evaluates rules. When a rule changes state to warning or outlier,
+                you can connect notification rules and agent automation to raise or reuse GitHub issues.
+              </p>
+              <div class="rules-tour-flow mb-2">
+                <span class="rules-tour-chip">Derived Signals</span>
+                <i class="bi bi-arrow-right text-secondary"></i>
+                <span class="rules-tour-chip">Metrics Rules</span>
+                <i class="bi bi-arrow-right text-secondary"></i>
+                <span class="rules-tour-chip">Notification Rules</span>
+                <i class="bi bi-arrow-right text-secondary"></i>
+                <span class="rules-tour-chip">Auto Issue / Copilot</span>
+              </div>
+              <div class="row g-3 mt-1">
+                <div class="col-md-4">
+                  <div class="rules-tour-card h-100">
+                    <h6 class="small text-uppercase text-secondary mb-1">Threshold</h6>
+                    <p class="small mb-0">One signal compared to warning and critical thresholds.</p>
+                  </div>
+                </div>
+                <div class="col-md-4">
+                  <div class="rules-tour-card h-100">
+                    <h6 class="small text-uppercase text-secondary mb-1">Composite</h6>
+                    <p class="small mb-0">Primary and secondary signals must both be active.</p>
+                  </div>
+                </div>
+                <div class="col-md-4">
+                  <div class="rules-tour-card h-100">
+                    <h6 class="small text-uppercase text-secondary mb-1">Seasonal</h6>
+                    <p class="small mb-0">Thresholds vary by hour/day bucket to reduce false positives on periodic traffic.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="carousel-item">
+              <h6 class="mb-2">Example 1: Threshold Rule</h6>
+              <p class="small text-secondary mb-2">Signal: trace error ratio. Warning = 0.08, Critical = 0.12, Min sample = 10.</p>
+              <div class="rules-tour-card mb-2">
+                <svg viewBox="0 0 540 150" width="100%" height="150" role="img" aria-label="Threshold sparkline">
+                  <rect x="0" y="0" width="540" height="150" fill="rgba(108,117,125,0.06)"></rect>
+                  <line x1="10" y1="50" x2="530" y2="50" stroke="#dc3545" stroke-dasharray="4 4" stroke-width="1.5"></line>
+                  <line x1="10" y1="78" x2="530" y2="78" stroke="#ffc107" stroke-dasharray="4 4" stroke-width="1.5"></line>
+                  <polyline fill="none" stroke="#8ecae6" stroke-width="2" points="10,110 55,108 100,105 145,103 190,99 235,95 280,89 325,86 370,80 415,72 460,60 505,42"></polyline>
+                  <circle cx="460" cy="60" r="4" fill="#ffc107"></circle>
+                  <circle cx="505" cy="42" r="5" fill="#dc3545"></circle>
+                  <text x="14" y="45" fill="#dc3545" font-size="11">critical</text>
+                  <text x="14" y="73" fill="#ffc107" font-size="11">warning</text>
+                </svg>
+                <div class="rules-tour-legend mt-2">
+                  <span><span class="rules-tour-dot" style="background:#8ecae6"></span>signal trend</span>
+                  <span><span class="rules-tour-dot" style="background:#ffc107"></span>warning event</span>
+                  <span><span class="rules-tour-dot" style="background:#dc3545"></span>outlier event</span>
+                </div>
+              </div>
+              <div class="small text-secondary">
+                Trigger example: after sustained rise, one point crosses warning then another crosses critical. A notification rule can send Slack/email,
+                and an agent rule can auto raise or dedupe a GitHub issue when state is warning or critical.
+              </div>
+            </div>
+
+            <div class="carousel-item">
+              <h6 class="mb-2">Example 2: Composite Rule</h6>
+              <p class="small text-secondary mb-2">Primary: error ratio. Secondary: trace volume. Both must be active at the same time.</p>
+              <div class="rules-tour-card mb-2">
+                <svg viewBox="0 0 540 170" width="100%" height="170" role="img" aria-label="Composite sparkline">
+                  <rect x="0" y="0" width="540" height="170" fill="rgba(108,117,125,0.06)"></rect>
+                  <line x1="10" y1="58" x2="530" y2="58" stroke="#ffc107" stroke-dasharray="4 4" stroke-width="1.25"></line>
+                  <line x1="10" y1="128" x2="530" y2="128" stroke="#0dcaf0" stroke-dasharray="4 4" stroke-width="1.25"></line>
+                  <polyline fill="none" stroke="#ffb703" stroke-width="2" points="10,130 55,126 100,122 145,117 190,104 235,92 280,78 325,66 370,55 415,52 460,49 505,47"></polyline>
+                  <polyline fill="none" stroke="#219ebc" stroke-width="2" points="10,150 55,148 100,145 145,144 190,143 235,142 280,136 325,132 370,129 415,122 460,116 505,111"></polyline>
+                  <circle cx="415" cy="52" r="4" fill="#ffb703"></circle>
+                  <circle cx="415" cy="122" r="4" fill="#219ebc"></circle>
+                  <circle cx="415" cy="88" r="6" fill="#dc3545"></circle>
+                  <text x="14" y="53" fill="#ffc107" font-size="11">primary threshold</text>
+                  <text x="14" y="123" fill="#0dcaf0" font-size="11">secondary threshold</text>
+                  <text x="430" y="90" fill="#dc3545" font-size="11">composite fires</text>
+                </svg>
+              </div>
+              <div class="small text-secondary">
+                Trigger example: high error ratio alone does not fire if traffic is low; once trace volume threshold is also crossed, composite rule activates.
+                This is useful for reducing low-traffic noise before creating notifications/issues.
+              </div>
+            </div>
+
+            <div class="carousel-item">
+              <h6 class="mb-2">Example 3: Seasonal Rule</h6>
+              <p class="small text-secondary mb-2">Signal: request latency. Different thresholds by hour-of-day (UTC), so peak hours can have higher baseline.</p>
+              <div class="rules-tour-card mb-2">
+                <svg viewBox="0 0 540 160" width="100%" height="160" role="img" aria-label="Seasonal sparkline">
+                  <rect x="0" y="0" width="540" height="160" fill="rgba(108,117,125,0.06)"></rect>
+                  <path d="M10 95 C70 85, 120 80, 170 88 S280 120, 330 108 S430 70, 530 92" fill="none" stroke="#6c757d" stroke-width="6" opacity="0.25"></path>
+                  <path d="M10 110 C70 98, 120 92, 170 100 S280 130, 330 118 S430 82, 530 105" fill="none" stroke="#8ecae6" stroke-width="2"></path>
+                  <circle cx="262" cy="129" r="4" fill="#ffc107"></circle>
+                  <circle cx="415" cy="80" r="5" fill="#dc3545"></circle>
+                  <line x1="240" y1="135" x2="285" y2="135" stroke="#ffc107" stroke-width="2"></line>
+                  <line x1="392" y1="88" x2="438" y2="88" stroke="#dc3545" stroke-width="2"></line>
+                  <text x="289" y="139" fill="#ffc107" font-size="11">night bucket warning</text>
+                  <text x="441" y="92" fill="#dc3545" font-size="11">peak bucket outlier</text>
+                </svg>
+                <div class="rules-tour-legend mt-2">
+                  <span><span class="rules-tour-dot" style="background:#6c757d"></span>seasonal baseline envelope</span>
+                  <span><span class="rules-tour-dot" style="background:#8ecae6"></span>actual series</span>
+                  <span><span class="rules-tour-dot" style="background:#dc3545"></span>bucket-triggered event</span>
+                </div>
+              </div>
+              <div class="small text-secondary">
+                Trigger example: point breaches the active UTC bucket threshold. This usually catches true anomalies while ignoring predictable daily swings.
+                The same event can then feed notification channels and agent issue automation.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <small id="metricsRulesTourSlideLabel" class="text-secondary">Page 1 of 4</small>
+        <div class="d-flex gap-2">
+          <button class="btn btn-outline-secondary btn-sm" type="button" id="metricsRulesTourPrev"><i class="bi bi-arrow-left me-1"></i>Prev</button>
+          <button class="btn btn-info btn-sm" type="button" id="metricsRulesTourNext">Next<i class="bi bi-arrow-right ms-1"></i></button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -637,6 +916,97 @@
     });
 
     redraw();
+  }
+
+  /* -- Metrics rules walkthrough modal -- */
+  var tourModalEl = document.getElementById('metricsRulesTourModal');
+  var tourCarouselEl = document.getElementById('metricsRulesTourCarousel');
+  var tourPrevBtn = document.getElementById('metricsRulesTourPrev');
+  var tourNextBtn = document.getElementById('metricsRulesTourNext');
+  var tourLabel = document.getElementById('metricsRulesTourSlideLabel');
+  var sidebarEl = document.getElementById('sbSidebar');
+  var mainContentEl = document.querySelector('.main-content');
+
+  function syncTourModalBounds() {
+    if (!tourModalEl) return;
+    // On mobile breakpoints, keep the standard centered modal margins.
+    if (window.innerWidth <= 768) {
+      tourModalEl.style.setProperty('--metrics-tour-left-offset', '0px');
+      return;
+    }
+
+    var leftOffset = 0;
+    if (mainContentEl) {
+      var mainRect = mainContentEl.getBoundingClientRect();
+      leftOffset = Math.max(0, Math.round(mainRect.left));
+    } else if (sidebarEl) {
+      var sbRect = sidebarEl.getBoundingClientRect();
+      var sidebarVisible = sbRect.width > 1 && sbRect.right > 0 && sbRect.left < window.innerWidth;
+      leftOffset = sidebarVisible ? Math.max(0, Math.round(sbRect.right)) : 0;
+    }
+
+    tourModalEl.style.setProperty('--metrics-tour-left-offset', String(leftOffset) + 'px');
+  }
+
+  if (tourModalEl && tourCarouselEl && window.bootstrap) {
+    var tourCarousel = window.bootstrap.Carousel.getOrCreateInstance(tourCarouselEl, { interval: false, ride: false });
+    var tourItems = tourCarouselEl.querySelectorAll('.carousel-item');
+    var totalSlides = tourItems.length;
+
+    function activeIndex() {
+      var idx = 0;
+      Array.prototype.forEach.call(tourItems, function (item, i) {
+        if (item.classList.contains('active')) idx = i;
+      });
+      return idx;
+    }
+
+    function refreshTourFooter() {
+      var idx = activeIndex();
+      if (tourLabel) tourLabel.textContent = 'Page ' + (idx + 1) + ' of ' + totalSlides;
+      if (tourPrevBtn) tourPrevBtn.disabled = idx === 0;
+      if (tourNextBtn) {
+        if (idx === totalSlides - 1) {
+          tourNextBtn.innerHTML = 'Done<i class="bi bi-check2 ms-1"></i>';
+        } else {
+          tourNextBtn.innerHTML = 'Next<i class="bi bi-arrow-right ms-1"></i>';
+        }
+      }
+    }
+
+    if (tourPrevBtn) {
+      tourPrevBtn.addEventListener('click', function () {
+        tourCarousel.prev();
+      });
+    }
+    if (tourNextBtn) {
+      tourNextBtn.addEventListener('click', function () {
+        var idx = activeIndex();
+        if (idx >= totalSlides - 1) {
+          var modal = window.bootstrap.Modal.getOrCreateInstance(tourModalEl);
+          modal.hide();
+          return;
+        }
+        tourCarousel.next();
+      });
+    }
+
+    tourCarouselEl.addEventListener('slid.bs.carousel', refreshTourFooter);
+    tourModalEl.addEventListener('shown.bs.modal', function () {
+      syncTourModalBounds();
+      tourCarousel.to(0);
+      refreshTourFooter();
+    });
+    tourModalEl.addEventListener('show.bs.modal', syncTourModalBounds);
+
+    window.addEventListener('resize', syncTourModalBounds);
+    if (sidebarEl && window.MutationObserver) {
+      var sidebarObserver = new MutationObserver(syncTourModalBounds);
+      sidebarObserver.observe(sidebarEl, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    syncTourModalBounds();
+    refreshTourFooter();
   }
 })();
 </script>

@@ -62,7 +62,20 @@
           <td>Limit candidate discovery to one service, or leave as All services for global generation.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Include Attr FP</td>
+          <td class="font-monospace">Mode</td>
+          <td>
+            <strong>Threshold</strong> generates static quantile-based warning/critical thresholds (existing behaviour).
+            <strong>Seasonal</strong> computes separate thresholds for every time bucket and stores them in the rule so that
+            evaluation at query time uses the threshold for the current hour or day-of-week, reducing false positives on
+            periodic traffic patterns.
+          </td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Strategy</td>
+          <td>Only shown when Mode = Seasonal. <strong>Hour of day</strong> creates 24 independent buckets (0–23); <strong>Day of week</strong> creates 7 buckets (Mon–Sun).</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Attr FP</td>
           <td>When enabled, candidates can be generated per attribute fingerprint (for example route-level or method-level slices).</td>
         </tr>
         <tr>
@@ -71,10 +84,32 @@
         </tr>
         <tr>
           <td class="font-monospace">Create</td>
-          <td>Creates new rules from the current candidate set, skipping any rule names that already exist.</td>
+          <td>Creates new rules from the current candidate set, skipping any existing rule with the same scope and mode (<code>source + signal + service + attr fp + rule type</code>).</td>
         </tr>
       </tbody>
     </table>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header">Seasonal Mode</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">
+      When <strong>Seasonal</strong> mode is selected, auto-generation computes warning and critical thresholds
+      independently for every time bucket (hour 0–23 or day-of-week 1–7) over the lookback window.
+      At evaluation time the engine looks up the bucket matching the data point's timestamp and applies
+      its threshold. Timestamp bucket matching is normalized to <strong>UTC</strong> in backend logic so behavior is stable
+      regardless of client locale. If no bucket is available the rule falls back to the global threshold so no data
+      point is ever silently skipped.
+    </p>
+    <ul class="small mb-0">
+      <li>Reduces false positives on periodic traffic patterns (e.g. nightly batch jobs, lunch-hour spikes).</li>
+      <li>Rules are still backed by the same <code>MinSampleCount</code> guard — sparse buckets fall back gracefully.</li>
+      <li><strong>Threshold</strong> and <strong>Seasonal</strong> rules can coexist for the same signal scope, enabling static and time-aware baselines side by side.</li>
+      <li>If multiple rules fire at the same severity, rule precedence is deterministic: <code>seasonal &gt; composite &gt; threshold</code>.</li>
+      <li>A <span class="badge bg-info text-dark"><i class="bi bi-calendar3"></i></span> indicator appears next to the rule badge in the Metrics Anomaly detail view whenever a state was produced by a seasonal bucket.</li>
+      <li>Backward compatible: all existing <em>threshold</em> rules evaluate exactly as before.</li>
+    </ul>
   </div>
 </div>
 

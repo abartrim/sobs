@@ -207,6 +207,9 @@
               <span class="badge {% if r.rule_state == 'outlier' %}bg-danger{% elif r.rule_state == 'warning' %}bg-warning text-dark{% else %}bg-secondary{% endif %}" title="{{ r.rule_reason }}">
                 {{ r.rule_name }}
               </span>
+              {% if r.rule_seasonal %}
+              <span class="badge bg-info text-dark ms-1" title="State determined by seasonal baseline"><i class="bi bi-calendar3"></i></span>
+              {% endif %}
               {% else %}
               <span class="text-secondary">—</span>
               {% endif %}
