@@ -2301,9 +2301,71 @@ class TestUIPages:
         assert "Regex error" in body
 
     async def test_metrics_regex_filter(self, client):
-        """Metrics page should accept a q parameter for signal name filtering."""
-        r = await client.get("/metrics?q=cpu")
+        """Metrics page should accept a q parameter and filter by signal name."""
+        svc = f"regex-metrics-svc-{time.time_ns()}"
+        unique_signal = f"regex.metric.unique.{time.time_ns()}"
+        other_signal = f"regex.metric.other.{time.time_ns()}"
+
+        payload_unique = {
+            "resourceMetrics": [
+                {
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": svc}}]},
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": unique_signal,
+                                    "description": "regex test metric",
+                                    "unit": "ms",
+                                    "gauge": {
+                                        "dataPoints": [
+                                            {
+                                                "timeUnixNano": str(int(time.time() * 1_000_000_000)),
+                                                "asDouble": 1.0,
+                                            }
+                                        ]
+                                    },
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+        payload_other = {
+            "resourceMetrics": [
+                {
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": svc}}]},
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": other_signal,
+                                    "description": "regex test metric",
+                                    "unit": "ms",
+                                    "gauge": {
+                                        "dataPoints": [
+                                            {
+                                                "timeUnixNano": str(int(time.time() * 1_000_000_000)),
+                                                "asDouble": 2.0,
+                                            }
+                                        ]
+                                    },
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+        await client.post("/v1/metrics", json=payload_unique)
+        await client.post("/v1/metrics", json=payload_other)
+
+        r = await client.get(f"/metrics?service={svc}&q={unique_signal}")
         assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert unique_signal in body
+        assert other_signal not in body
 
     async def test_metrics_invalid_regex_returns_error_msg(self, client):
         """Metrics page should return an error message for an invalid regex."""
@@ -2313,9 +2375,33 @@ class TestUIPages:
         assert "Regex error" in body
 
     async def test_rum_regex_filter(self, client):
-        """RUM page should accept a q parameter for event body filtering."""
-        r = await client.get("/rum?q=click")
+        """RUM page should accept a q parameter and filter event bodies."""
+        token = str(time.time_ns())
+        unique_url = f"https://example.com/regex-rum-{token}"
+        other_url = f"https://example.com/other-rum-{token}"
+        await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "sessionId": f"rum-regex-{token}",
+                    "url": unique_url,
+                },
+                {
+                    "type": "pageview",
+                    "timestamp": "2024-01-01T00:00:01Z",
+                    "sessionId": f"rum-regex-{token}-2",
+                    "url": other_url,
+                },
+            ],
+        )
+
+        r = await client.get(f"/rum?view=events&q=regex-rum-{token}")
         assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert unique_url in body
+        assert other_url not in body
 
     async def test_rum_invalid_regex_returns_error_msg(self, client):
         """RUM page should return an error message for an invalid regex."""
@@ -2326,10 +2412,39 @@ class TestUIPages:
 
     async def test_errors_validate_regex_api(self, client):
         """POST /api/errors/validate-regex should validate regex patterns."""
+        await client.post(
+            "/v1/errors",
+            json={
+                "service": "regex-validate-svc-a",
+                "type": "ValueError",
+                "message": "scope-check-a",
+                "timestamp": "2024-01-01T00:10:00Z",
+            },
+        )
+        await client.post(
+            "/v1/errors",
+            json={
+                "service": "regex-validate-svc-b",
+                "type": "ValueError",
+                "message": "scope-check-b",
+                "timestamp": "2024-01-01T00:10:01Z",
+            },
+        )
+
         r_ok = await client.post("/api/errors/validate-regex", json={"pattern": "\\d+"})
         assert r_ok.status_code == 200
         data = await r_ok.get_json()
         assert data["ok"] is True
+
+        # Validation previews should respect scoped filters when provided.
+        r_scoped = await client.post(
+            "/api/errors/validate-regex",
+            json={"pattern": "scope-check-b", "scope": {"service": "regex-validate-svc-a"}},
+        )
+        assert r_scoped.status_code == 200
+        data = await r_scoped.get_json()
+        assert data["ok"] is True
+        assert data.get("sample") is None
 
         r_bad = await client.post("/api/errors/validate-regex", json={"pattern": "[unclosed"})
         assert r_bad.status_code == 200

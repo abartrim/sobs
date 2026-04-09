@@ -472,6 +472,11 @@ _sobsInitRegexFilter({
   inputId: "errors-regex-filter-input",
   dropdownId: "errors-regex-ac-dropdown",
   validateUrl: {{ url_for('api_errors_validate_regex') | tojson }},
+  scope: {
+    service: {{ service | tojson }},
+    from_ts: {{ from_ts | tojson }},
+    to_ts: {{ to_ts | tojson }}
+  },
   noMatchMessage: "Valid regex — no matching errors found.",
   hintMessage: "Enter a regex pattern to search error messages."
 });

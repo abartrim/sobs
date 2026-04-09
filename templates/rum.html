@@ -1665,6 +1665,12 @@ _sobsInitRegexFilter({
   inputId: "rum-regex-filter-input",
   dropdownId: "rum-regex-ac-dropdown",
   validateUrl: {{ url_for('api_rum_validate_regex') | tojson }},
+  scope: {
+    type: {{ event_type | tojson }},
+    error_source: {{ error_source | tojson }},
+    from_ts: {{ from_ts | tojson }},
+    to_ts: {{ to_ts | tojson }}
+  },
   noMatchMessage: "Valid regex — no matching RUM events found.",
   hintMessage: "Enter a regex pattern to search RUM event data."
 });

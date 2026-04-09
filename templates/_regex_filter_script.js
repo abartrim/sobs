@@ -1,5 +1,5 @@
-// Shared regex filter IntelliSense/autocomplete for Errors, Traces, Metrics, and RUM pages.
-// Call _sobsInitRegexFilter({ inputId, dropdownId, validateUrl, noMatchMessage, hintMessage })
+// Shared regex filter IntelliSense/autocomplete for Logs, Errors, Traces, Metrics, and RUM pages.
+// Call _sobsInitRegexFilter({ inputId, dropdownId, validateUrl, noMatchMessage, hintMessage, scope })
 // after including this script to activate the filter on a given page.
 function _sobsInitRegexFilter(opts) {
   const input = document.getElementById(opts.inputId);
@@ -9,6 +9,8 @@ function _sobsInitRegexFilter(opts) {
   const validateUrl = opts.validateUrl;
   const noMatchMessage = opts.noMatchMessage || "Valid regex — no matching records found.";
   const hintMessage = opts.hintMessage || "Enter a regex pattern to filter records.";
+  const scope = (opts.scope && typeof opts.scope === "object") ? opts.scope : null;
+  const suggestionLimit = Number.isFinite(opts.suggestionLimit) ? Math.max(5, Number(opts.suggestionLimit)) : 30;
 
   let activeIdx = -1;
   let lastItems = [];
@@ -19,24 +21,42 @@ function _sobsInitRegexFilter(opts) {
 
   // Common regex constructs to suggest.
   const REGEX_SNIPPETS = [
+    { label: "\\d",     hint: "digit [0-9]",                insert: "\\d",     ctx: ["\\"] },
     { label: "\\d+",    hint: "one or more digits",         insert: "\\d+",    ctx: ["\\", "general"] },
+    { label: "\\d{n,m}",hint: "digit count range",          insert: "\\d{",    ctx: ["\\"] },
+    { label: "\\w",     hint: "word char [a-zA-Z0-9_]",    insert: "\\w",     ctx: ["\\"] },
     { label: "\\w+",    hint: "one or more word chars",     insert: "\\w+",    ctx: ["\\", "general"] },
+    { label: "\\s",     hint: "whitespace",                 insert: "\\s",     ctx: ["\\"] },
     { label: "\\s+",    hint: "one or more whitespace",     insert: "\\s+",    ctx: ["\\"] },
     { label: "\\S+",    hint: "one or more non-whitespace", insert: "\\S+",    ctx: ["\\"] },
-    { label: "\\d",     hint: "digit [0-9]",                insert: "\\d",     ctx: ["\\"] },
-    { label: "\\w",     hint: "word char [a-zA-Z0-9_]",    insert: "\\w",     ctx: ["\\"] },
+    { label: "\\D+",    hint: "one or more non-digits",     insert: "\\D+",    ctx: ["\\"] },
+    { label: "\\W+",    hint: "one or more non-word chars", insert: "\\W+",    ctx: ["\\"] },
+    { label: "\\n",     hint: "newline",                    insert: "\\n",     ctx: ["\\"] },
+    { label: "\\t",     hint: "tab",                        insert: "\\t",     ctx: ["\\"] },
+    { label: "\\b",     hint: "word boundary",              insert: "\\b",     ctx: ["\\"] },
     { label: "[a-z]",   hint: "lowercase letters",          insert: "[a-z]",   ctx: ["[", "general"] },
     { label: "[A-Z]",   hint: "uppercase letters",          insert: "[A-Z]",   ctx: ["["] },
     { label: "[0-9]",   hint: "digits (explicit)",          insert: "[0-9]",   ctx: ["["] },
+    { label: "[a-zA-Z]",hint: "any letter",                 insert: "[a-zA-Z]",ctx: ["["] },
     { label: "[^...]",  hint: "any char except ...",        insert: "[^",      ctx: ["["] },
     { label: "(?:...)", hint: "non-capturing group",        insert: "(?:",     ctx: ["(", "general"] },
     { label: "(?i)...", hint: "case-insensitive prefix",    insert: "(?i)",    ctx: ["("] },
+    { label: "(?=...)", hint: "positive lookahead",         insert: "(?=",     ctx: ["("] },
+    { label: "(?!...)", hint: "negative lookahead",         insert: "(?!",     ctx: ["("] },
     { label: "(a|b)",   hint: "alternation",                insert: "(",       ctx: ["("] },
+    { label: "{n}",     hint: "exactly n times",            insert: "{",       ctx: ["{"] },
+    { label: "{n,}",    hint: "at least n times",           insert: "{",       ctx: ["{"] },
     { label: "{n,m}",   hint: "between n and m times",      insert: "{",       ctx: ["{"] },
+    { label: "^",       hint: "start of string",            insert: "^",       ctx: ["^"] },
+    { label: "$",       hint: "end of string",              insert: "$",       ctx: ["$"] },
     { label: ".*",      hint: "any chars (greedy)",         insert: ".*",      ctx: ["general"] },
     { label: ".+",      hint: "one or more any chars",      insert: ".+",      ctx: ["general"] },
     { label: "error|warn", hint: "error/warn terms",        insert: "error|warn", ctx: ["general"] },
+    { label: "exception|error|fatal", hint: "error type terms", insert: "exception|error|fatal", ctx: ["general"] },
+    { label: "\\d{4}-\\d{2}-\\d{2}", hint: "date YYYY-MM-DD", insert: "\\d{4}-\\d{2}-\\d{2}", ctx: ["general"] },
+    { label: "\\d+\\.\\d+", hint: "decimal number", insert: "\\d+\\.\\d+", ctx: ["general"] },
     { label: "https?://\\S+", hint: "URL",                  insert: "https?://\\S+", ctx: ["general"] },
+    { label: "\\b\\d{1,3}(\\.\\d{1,3}){3}\\b", hint: "IPv4 address", insert: "\\b\\d{1,3}(\\.\\d{1,3}){3}\\b", ctx: ["general"] },
   ];
 
   function _esc(s) {
@@ -91,7 +111,7 @@ function _sobsInitRegexFilter(opts) {
         credentials: "same-origin",
         signal: validateController.signal,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pattern: patternSnapshot }),
+        body: JSON.stringify(scope ? { pattern: patternSnapshot, scope } : { pattern: patternSnapshot }),
       });
       if (!res.ok) return;
       const data = await res.json();
@@ -119,6 +139,8 @@ function _sobsInitRegexFilter(opts) {
     if (last === "[")  return "[";
     if (last === "(")  return "(";
     if (last === "{")  return "{";
+    if (last === "^" && text.length === 1) return "^";
+    if (last === "$")  return "$";
     return "general";
   }
 
@@ -164,7 +186,7 @@ function _sobsInitRegexFilter(opts) {
     const cursor = input.selectionStart;
     const before = val.slice(0, cursor);
     const after = val.slice(cursor);
-    const singleCharTriggers = ["\\", "[", "(", "{"];
+    const singleCharTriggers = ["\\", "[", "(", "{", "^", "$"];
     const lastChar = before[before.length - 1];
     let newBefore;
     if (singleCharTriggers.includes(lastChar) && item.insert.startsWith(lastChar)) {
@@ -196,7 +218,7 @@ function _sobsInitRegexFilter(opts) {
     } else {
       items = REGEX_SNIPPETS.filter((s) => s.ctx.includes(ctx));
     }
-    openDropdown(items.slice(0, 20));
+    openDropdown(items.slice(0, suggestionLimit));
   }
 
   input.addEventListener("input", () => {

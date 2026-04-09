@@ -1150,6 +1150,12 @@ document.querySelectorAll('.trace-ai-help-btn').forEach(btn => {
     inputId: "traces-regex-filter-input",
     dropdownId: "traces-regex-ac-dropdown",
     validateUrl: {{ url_for('api_traces_validate_regex') | tojson }},
+    scope: {
+      service: {{ service | tojson }},
+      trace_id: {{ trace_id | tojson }},
+      from_ts: {{ from_ts | tojson }},
+      to_ts: {{ to_ts | tojson }}
+    },
     noMatchMessage: "Valid regex — no matching span names found.",
     hintMessage: "Enter a regex pattern to search span names."
   });

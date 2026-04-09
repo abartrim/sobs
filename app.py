@@ -21004,6 +21004,9 @@ async def api_logs_validate_filter():
 # Regex Validate API helpers
 # ---------------------------------------------------------------------------
 _REGEX_SAMPLE_MAX_LEN = 200
+_REGEX_SCOPE_MAX_LEN = 200
+_REGEX_VALIDATE_RECENT_HOURS = 24
+_REGEX_VALIDATE_CANDIDATE_LIMIT = 2000
 
 
 def _truncate_sample(sample: str | None) -> str | None:
@@ -21011,6 +21014,62 @@ def _truncate_sample(sample: str | None) -> str | None:
     if sample and len(sample) > _REGEX_SAMPLE_MAX_LEN:
         return f"{sample[:_REGEX_SAMPLE_MAX_LEN - 3]}..."
     return sample
+
+
+def _regex_scope_text(scope: dict[str, Any], key: str, max_len: int = _REGEX_SCOPE_MAX_LEN) -> str:
+    """Read a bounded text value from regex validation scope payload."""
+    raw = str((scope or {}).get(key, "") or "").strip()
+    if not raw:
+        return ""
+    return raw[:max_len]
+
+
+def _regex_scope_time_conditions(scope: dict[str, Any], column: str) -> tuple[list[str], list[Any]]:
+    """Use requested time window when valid; otherwise default to a recent bounded window."""
+    from_ts = ""
+    to_ts = ""
+
+    from_raw = _regex_scope_text(scope, "from_ts", 64)
+    to_raw = _regex_scope_text(scope, "to_ts", 64)
+    if from_raw:
+        try:
+            from_ts = _normalize_ch_timestamp(from_raw)
+        except Exception:
+            from_ts = ""
+    if to_raw:
+        try:
+            to_ts = _normalize_ch_timestamp(to_raw)
+        except Exception:
+            to_ts = ""
+
+    conditions, params = _time_window_conditions(column, from_ts, to_ts)
+    if not conditions:
+        return [f"{column} >= now() - INTERVAL ? HOUR"], [_REGEX_VALIDATE_RECENT_HOURS]
+    return conditions, params
+
+
+def _regex_best_effort_sample(
+    db: Any,
+    *,
+    from_sql: str,
+    sample_column: str,
+    order_column: str,
+    pattern: str,
+    where_parts: list[str],
+    where_params: list[Any],
+) -> str | None:
+    """Return a bounded sample match by probing only recent candidate rows."""
+    where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+    sql = (
+        f"SELECT {sample_column} FROM ("
+        f"SELECT {sample_column} FROM {from_sql} "
+        f"{where_sql} ORDER BY {order_column} DESC LIMIT ?"
+        ") "
+        f"WHERE match({sample_column}, ?) LIMIT 1"
+    )
+    params = [*where_params, _REGEX_VALIDATE_CANDIDATE_LIMIT, pattern]
+    row = db.execute(sql, params).fetchone()
+    return _truncate_sample(row[0] if row else None)
 
 
 # ---------------------------------------------------------------------------
@@ -21023,6 +21082,9 @@ async def api_logs_validate_regex():
     """Validate a regex pattern used by /logs?q=... and return a sample match."""
     payload = await request.get_json(silent=True)
     pattern = str((payload or {}).get("pattern", "") or "").strip()
+    scope = (payload or {}).get("scope")
+    if not isinstance(scope, dict):
+        scope = {}
     if not pattern:
         return jsonify({"ok": True, "sample": None})
 
@@ -21034,11 +21096,36 @@ async def api_logs_validate_regex():
     # Attempt a cheap LIMIT 1 probe to surface a real sample match.
     try:
         db = get_db()
-        row = db.execute(
-            "SELECT Body FROM otel_logs WHERE match(Body, ?) LIMIT 1",
-            [pattern],
-        ).fetchone()
-        sample = _truncate_sample(row[0] if row else None)
+        where_parts: list[str] = []
+        where_params: list[Any] = []
+
+        service = _regex_scope_text(scope, "service")
+        level = _regex_scope_text(scope, "level")
+        trace_id = _regex_scope_text(scope, "trace_id", 64)
+
+        if service:
+            where_parts.append("ServiceName = ?")
+            where_params.append(service)
+        if level:
+            where_parts.append("SeverityText = ?")
+            where_params.append(level)
+        if trace_id:
+            where_parts.append("TraceId = ?")
+            where_params.append(trace_id)
+
+        time_parts, time_params = _regex_scope_time_conditions(scope, "Timestamp")
+        where_parts.extend(time_parts)
+        where_params.extend(time_params)
+
+        sample = _regex_best_effort_sample(
+            db,
+            from_sql="otel_logs",
+            sample_column="Body",
+            order_column="Timestamp",
+            pattern=pattern,
+            where_parts=where_parts,
+            where_params=where_params,
+        )
         return jsonify({"ok": True, "sample": sample})
     except Exception:
         return jsonify({"ok": True, "sample": None})
@@ -21054,6 +21141,9 @@ async def api_errors_validate_regex():
     """Validate a regex pattern used by /errors?q=... and return a sample match."""
     payload = await request.get_json(silent=True)
     pattern = str((payload or {}).get("pattern", "") or "").strip()
+    scope = (payload or {}).get("scope")
+    if not isinstance(scope, dict):
+        scope = {}
     if not pattern:
         return jsonify({"ok": True, "sample": None})
 
@@ -21064,12 +21154,27 @@ async def api_errors_validate_regex():
 
     try:
         db = get_db()
-        row = db.execute(
-            f"SELECT Body FROM ({ERROR_SOURCES_SQL}) WHERE match(Body, ?) LIMIT 1",
-            [pattern],
-        ).fetchone()
-        sample = row[0] if row else None
-        sample = _truncate_sample(sample)
+        where_parts: list[str] = []
+        where_params: list[Any] = []
+
+        service = _regex_scope_text(scope, "service")
+        if service:
+            where_parts.append("ServiceName = ?")
+            where_params.append(service)
+
+        time_parts, time_params = _regex_scope_time_conditions(scope, "Timestamp")
+        where_parts.extend(time_parts)
+        where_params.extend(time_params)
+
+        sample = _regex_best_effort_sample(
+            db,
+            from_sql=f"({ERROR_SOURCES_SQL})",
+            sample_column="Body",
+            order_column="Timestamp",
+            pattern=pattern,
+            where_parts=where_parts,
+            where_params=where_params,
+        )
         return jsonify({"ok": True, "sample": sample})
     except Exception:
         return jsonify({"ok": True, "sample": None})
@@ -21085,6 +21190,9 @@ async def api_traces_validate_regex():
     """Validate a regex pattern used by /traces?q=... and return a sample match."""
     payload = await request.get_json(silent=True)
     pattern = str((payload or {}).get("pattern", "") or "").strip()
+    scope = (payload or {}).get("scope")
+    if not isinstance(scope, dict):
+        scope = {}
     if not pattern:
         return jsonify({"ok": True, "sample": None})
 
@@ -21095,12 +21203,31 @@ async def api_traces_validate_regex():
 
     try:
         db = get_db()
-        row = db.execute(
-            "SELECT SpanName FROM otel_traces WHERE match(SpanName, ?) LIMIT 1",
-            [pattern],
-        ).fetchone()
-        sample = row[0] if row else None
-        sample = _truncate_sample(sample)
+        where_parts: list[str] = []
+        where_params: list[Any] = []
+
+        service = _regex_scope_text(scope, "service")
+        trace_id = _regex_scope_text(scope, "trace_id", 64)
+        if service:
+            where_parts.append("ServiceName = ?")
+            where_params.append(service)
+        if trace_id:
+            where_parts.append("TraceId = ?")
+            where_params.append(trace_id)
+
+        time_parts, time_params = _regex_scope_time_conditions(scope, "Timestamp")
+        where_parts.extend(time_parts)
+        where_params.extend(time_params)
+
+        sample = _regex_best_effort_sample(
+            db,
+            from_sql="otel_traces",
+            sample_column="SpanName",
+            order_column="Timestamp",
+            pattern=pattern,
+            where_parts=where_parts,
+            where_params=where_params,
+        )
         return jsonify({"ok": True, "sample": sample})
     except Exception:
         return jsonify({"ok": True, "sample": None})
@@ -21116,6 +21243,9 @@ async def api_metrics_validate_regex():
     """Validate a regex pattern used by /metrics?q=... and return a sample match."""
     payload = await request.get_json(silent=True)
     pattern = str((payload or {}).get("pattern", "") or "").strip()
+    scope = (payload or {}).get("scope")
+    if not isinstance(scope, dict):
+        scope = {}
     if not pattern:
         return jsonify({"ok": True, "sample": None})
 
@@ -21126,12 +21256,39 @@ async def api_metrics_validate_regex():
 
     try:
         db = get_db()
-        row = db.execute(
-            "SELECT SignalName FROM v_derived_signals_anomaly WHERE match(SignalName, ?) LIMIT 1",
-            [pattern],
-        ).fetchone()
-        sample = row[0] if row else None
-        sample = _truncate_sample(sample)
+        where_parts: list[str] = []
+        where_params: list[Any] = []
+
+        service = _regex_scope_text(scope, "service")
+        source = _regex_scope_text(scope, "source")
+        signal = _regex_scope_text(scope, "signal")
+        attr_fp = _regex_scope_text(scope, "attr_fp", 64)
+        if service:
+            where_parts.append("ServiceName = ?")
+            where_params.append(service)
+        if source:
+            where_parts.append("SignalSource = ?")
+            where_params.append(source)
+        if signal:
+            where_parts.append("SignalName = ?")
+            where_params.append(signal)
+        if attr_fp:
+            where_parts.append("AttrFingerprint = ?")
+            where_params.append(attr_fp)
+
+        time_parts, time_params = _regex_scope_time_conditions(scope, "time")
+        where_parts.extend(time_parts)
+        where_params.extend(time_params)
+
+        sample = _regex_best_effort_sample(
+            db,
+            from_sql="v_derived_signals_anomaly",
+            sample_column="SignalName",
+            order_column="time",
+            pattern=pattern,
+            where_parts=where_parts,
+            where_params=where_params,
+        )
         return jsonify({"ok": True, "sample": sample})
     except Exception:
         return jsonify({"ok": True, "sample": None})
@@ -21147,6 +21304,9 @@ async def api_rum_validate_regex():
     """Validate a regex pattern used by /rum?q=... and return a sample match."""
     payload = await request.get_json(silent=True)
     pattern = str((payload or {}).get("pattern", "") or "").strip()
+    scope = (payload or {}).get("scope")
+    if not isinstance(scope, dict):
+        scope = {}
     if not pattern:
         return jsonify({"ok": True, "sample": None})
 
@@ -21157,12 +21317,31 @@ async def api_rum_validate_regex():
 
     try:
         db = get_db()
-        row = db.execute(
-            "SELECT Body FROM hyperdx_sessions WHERE match(Body, ?) LIMIT 1",
-            [pattern],
-        ).fetchone()
-        sample = row[0] if row else None
-        sample = _truncate_sample(sample)
+        where_parts: list[str] = []
+        where_params: list[Any] = []
+
+        event_type = _regex_scope_text(scope, "type")
+        error_source = _regex_scope_text(scope, "error_source")
+        if event_type:
+            where_parts.append("EventName = ?")
+            where_params.append(event_type)
+        if error_source:
+            where_parts.append("LogAttributes['errorSource'] = ?")
+            where_params.append(error_source)
+
+        time_parts, time_params = _regex_scope_time_conditions(scope, "Timestamp")
+        where_parts.extend(time_parts)
+        where_params.extend(time_params)
+
+        sample = _regex_best_effort_sample(
+            db,
+            from_sql="hyperdx_sessions",
+            sample_column="Body",
+            order_column="Timestamp",
+            pattern=pattern,
+            where_parts=where_parts,
+            where_params=where_params,
+        )
         return jsonify({"ok": True, "sample": sample})
     except Exception:
         return jsonify({"ok": True, "sample": None})

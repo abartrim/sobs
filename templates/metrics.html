@@ -230,6 +230,14 @@ _sobsInitRegexFilter({
   inputId: "metrics-regex-filter-input",
   dropdownId: "metrics-regex-ac-dropdown",
   validateUrl: {{ url_for('api_metrics_validate_regex') | tojson }},
+  scope: {
+    service: {{ service | tojson }},
+    source: {{ source | tojson }},
+    signal: {{ signal | tojson }},
+    attr_fp: {{ attr_fp | tojson }},
+    from_ts: {{ from_ts | tojson }},
+    to_ts: {{ to_ts | tojson }}
+  },
   noMatchMessage: "Valid regex — no matching signal names found.",
   hintMessage: "Enter a regex pattern to search signal names."
 });
