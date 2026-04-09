@@ -3515,8 +3515,6 @@ class TestUIPages:
 
     async def test_errors_grouped_mode_deduplicates_and_shows_count(self, client):
         """Grouped errors view should deduplicate identical errors and show an occurrence count."""
-        now = int(time.time())
-
         # Post three identical errors from the same service with the same type and message
         for i in range(3):
             await client.post(

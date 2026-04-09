@@ -12216,12 +12216,22 @@ async def view_errors():
     resolved = request.args.get("resolved", "0").strip()
     limit = _parse_limit(100)
     offset = _parse_offset()
-    sort_by, sort_col, sort_dir = _parse_sort(
-        # In grouped mode 'count' and 'last_seen' are Python-sorted and don't map to a real SQL
-        # column — they both map to 'Timestamp' here purely to satisfy validation.
-        {"Timestamp": "Timestamp", "ServiceName": "ServiceName", "count": "Timestamp", "last_seen": "Timestamp"},
-        "count" if grouped_mode else "Timestamp",
-    )
+    if grouped_mode:
+        sort_by, sort_col, sort_dir = _parse_sort(
+            {
+                "count": "Count",
+                "last_seen": "LastSeen",
+                "ServiceName": "RepServiceName",
+                # Legacy alias retained for backwards compatibility.
+                "Timestamp": "LastSeen",
+            },
+            "count",
+        )
+    else:
+        sort_by, sort_col, sort_dir = _parse_sort(
+            {"Timestamp": "Timestamp", "ServiceName": "ServiceName"},
+            "Timestamp",
+        )
     resolved_ids = _get_resolved_error_ids(db)
     where_parts = []
     where_params = []
@@ -12235,63 +12245,116 @@ async def view_errors():
     where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
     if grouped_mode:
-        # True deduplication: probe a large set and group by error fingerprint.
-        # The probe limit caps in-memory work; for very high-volume deployments
-        # the probe covers the most recent probe_limit raw events before grouping.
+        # Best-effort deduplication: probe recent raw events, then aggregate in SQL.
         probe_limit = max(2000, min(10000, limit * 100))
-        probe_rows = db.execute(
-            "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes "
-            f"FROM ({ERROR_SOURCES_SQL}) {where_sql} ORDER BY Timestamp DESC LIMIT ?",
+        error_id_sql = (
+            "lower(hex(MD5(concat("
+            "toString(Timestamp), '|', ServiceName, '|', "
+            "if(LogAttributes['exception.type'] != '', LogAttributes['exception.type'], 'Error'), '|', "
+            "if(LogAttributes['exception.message'] != '', LogAttributes['exception.message'], Body), '|', "
+            "TraceId, '|', SpanId"
+            "))))"
+        )
+        grouped_where_sql = where_sql
+        if resolved == "1":
+            resolved_condition = f"{error_id_sql} IN (SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId)"
+            grouped_where_sql = (
+                f"{grouped_where_sql} AND {resolved_condition}" if grouped_where_sql else f"WHERE {resolved_condition}"
+            )
+        elif resolved == "0":
+            resolved_condition = f"{error_id_sql} NOT IN (SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId)"
+            grouped_where_sql = (
+                f"{grouped_where_sql} AND {resolved_condition}" if grouped_where_sql else f"WHERE {resolved_condition}"
+            )
+
+        grouped_probe_sql = (
+            "SELECT "
+            "Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes, "
+            "substring(replaceRegexpAll(lower(ServiceName), '\\s+', ' '), 1, 220) AS GroupService, "
+            "substring("
+            "replaceRegexpAll("
+            "lower(if(LogAttributes['exception.type'] != '', LogAttributes['exception.type'], 'Error')), "
+            "'\\s+', ' '"
+            "), 1, 220"
+            ") AS GroupType, "
+            "substring("
+            "replaceRegexpAll("
+            "lower(if(LogAttributes['exception.message'] != '', LogAttributes['exception.message'], Body)), "
+            "'\\s+', ' '"
+            "), 1, 220"
+            ") AS GroupMessage "
+            f"FROM ({ERROR_SOURCES_SQL}) {grouped_where_sql} "
+            "ORDER BY Timestamp DESC LIMIT ?"
+        )
+        grouped_aggregate_sql = (
+            "SELECT "
+            "GroupService, GroupType, GroupMessage, "
+            "count() AS Count, "
+            "min(Timestamp) AS FirstSeen, "
+            "max(Timestamp) AS LastSeen, "
+            "argMax(Timestamp, Timestamp) AS RepTimestamp, "
+            "argMax(ServiceName, Timestamp) AS RepServiceName, "
+            "argMax(TraceId, Timestamp) AS RepTraceId, "
+            "argMax(SpanId, Timestamp) AS RepSpanId, "
+            "argMax(Body, Timestamp) AS RepBody, "
+            "argMax(LogAttributes, Timestamp) AS RepLogAttributes, "
+            "groupUniqArray(64)(TraceId) AS TraceIds "
+            f"FROM ({grouped_probe_sql}) "
+            "GROUP BY GroupService, GroupType, GroupMessage"
+        )
+
+        total = db.execute(
+            f"SELECT COUNT(*) FROM ({grouped_aggregate_sql})",
             where_params + [probe_limit],
+        ).fetchone()[0]
+        group_rows = db.execute(
+            f"{grouped_aggregate_sql} ORDER BY {sort_col} {'ASC' if sort_dir == 'asc' else 'DESC'} LIMIT ? OFFSET ?",
+            where_params + [probe_limit, limit, offset],
         ).fetchall()
-        target_resolved = resolved == "1"
-        filter_by_resolved = resolved in ("0", "1")
-        groups: dict[tuple[str, str, str], dict] = {}
-        for row in probe_rows:
-            item = _build_error_item(dict(row))
-            item["resolved"] = item["id"] in resolved_ids
-            if filter_by_resolved and item["resolved"] != target_resolved:
-                continue
-            group_key = _error_group_key(item)
-            if group_key not in groups:
-                # Probe rows are DESC, so the first row for a key is the most recent occurrence.
-                groups[group_key] = {
-                    "representative": item,
-                    "count": 0,
-                    "first_seen": item["ts"],
-                    "last_seen": item["ts"],
-                    "trace_ids": [],
+        errors = []
+        for row in group_rows:
+            item = _build_error_item(
+                {
+                    "Timestamp": row["RepTimestamp"],
+                    "ServiceName": row["RepServiceName"],
+                    "TraceId": row["RepTraceId"],
+                    "SpanId": row["RepSpanId"],
+                    "Body": row["RepBody"],
+                    "LogAttributes": row["RepLogAttributes"],
                 }
-            g = groups[group_key]
-            g["count"] += 1
-            if item["ts"] < g["first_seen"]:
-                g["first_seen"] = item["ts"]
-            if item["ts"] > g["last_seen"]:
-                g["last_seen"] = item["ts"]
-            trace_value = str(item.get("trace_id") or "").strip()
-            if trace_value and trace_value not in g["trace_ids"]:
-                g["trace_ids"].append(trace_value)
+            )
+            if resolved == "1":
+                item["resolved"] = True
+            elif resolved == "0":
+                item["resolved"] = False
+            else:
+                item["resolved"] = item["id"] in resolved_ids
+            item["count"] = int(row["Count"] or 0)
+            item["first_seen"] = str(row["FirstSeen"] or item["ts"])
+            item["last_seen"] = str(row["LastSeen"] or item["ts"])
+            errors.append(item)
 
-        group_items: list[dict] = []
-        for g in groups.values():
-            item = dict(g["representative"])
-            item["count"] = g["count"]
-            item["first_seen"] = g["first_seen"]
-            item["last_seen"] = g["last_seen"]
-            if g["trace_ids"]:
-                item["trace_ids"] = g["trace_ids"]
-                item["trace_ids_csv"] = ",".join(g["trace_ids"])
-            group_items.append(item)
+        if errors:
+            trace_ids_by_group: dict[tuple[str, str, str], list[str]] = {}
+            for row in db.execute(grouped_probe_sql, where_params + [probe_limit]).fetchall():
+                probe_item = _build_error_item(dict(row))
+                group_key = _error_group_key(probe_item)
+                trace_value = str(probe_item.get("trace_id") or "").strip()
+                if not trace_value:
+                    continue
+                trace_bucket = trace_ids_by_group.setdefault(group_key, [])
+                if trace_value not in trace_bucket:
+                    trace_bucket.append(trace_value)
 
-        if sort_by == "count":
-            group_items.sort(key=lambda x: x["count"], reverse=(sort_dir == "desc"))
-        elif sort_by == "ServiceName":
-            group_items.sort(key=lambda x: x.get("service", ""), reverse=(sort_dir == "desc"))
-        else:  # last_seen (or legacy Timestamp alias): sort by most-recently seen group first
-            group_items.sort(key=lambda x: x.get("last_seen", ""), reverse=(sort_dir == "desc"))
-
-        total = len(group_items)
-        errors = group_items[offset : offset + limit]
+            for item in errors:
+                group_key = _error_group_key(item)
+                trace_values = list(trace_ids_by_group.get(group_key, []))
+                primary_trace = str(item.get("trace_id") or "").strip()
+                if primary_trace and primary_trace not in trace_values:
+                    trace_values.insert(0, primary_trace)
+                if trace_values:
+                    item["trace_ids"] = trace_values
+                    item["trace_ids_csv"] = ",".join(trace_values)
     else:
         order_clause = f"ORDER BY {sort_col} {'ASC' if sort_dir == 'asc' else 'DESC'}"
         source_sql = (
