@@ -3,6 +3,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h4 class="fw-semibold mb-0"><i class="bi bi-bookmark-star me-2 text-primary"></i>Saved Reports</h4>
+  <div class="d-flex gap-2">
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="import-reports-btn" title="Import reports from a JSON file">
+      <i class="bi bi-upload me-1"></i>Import
+    </button>
+    <a href="{{ url_for('api_export_reports') }}" class="btn btn-sm btn-outline-secondary" id="export-all-btn" title="Export all reports as JSON">
+      <i class="bi bi-download me-1"></i>Export All
+    </a>
+  </div>
 </div>
 
 <p class="text-secondary small mb-3">
@@ -21,8 +29,10 @@
 {% endif %}
 {% endwith %}
 
+<div id="import-result-alert" class="d-none"></div>
+
 {% if reports %}
-{% set page_labels = {'logs': ('journal-text', 'text-info', 'Logs'), 'traces': ('diagram-3', 'text-warning', 'Traces'), 'errors': ('bug', 'text-danger', 'Errors'), 'metrics': ('graph-up', 'text-success', 'Metrics'), 'rum': ('phone', 'text-primary', 'RUM'), 'ai': ('robot', 'text-secondary', 'AI'), 'work_items': ('github', 'text-secondary', 'Work Items')} %}
+{% set page_labels = {'logs': ('journal-text', 'text-info', 'Logs'), 'traces': ('diagram-3', 'text-warning', 'Traces'), 'errors': ('bug', 'text-danger', 'Errors'), 'metrics': ('graph-up', 'text-success', 'Metrics'), 'rum': ('phone', 'text-primary', 'RUM'), 'ai': ('robot', 'text-secondary', 'AI'), 'work_items': ('github', 'text-secondary', 'Work Items'), 'web_traffic': ('globe', 'text-info', 'Web Traffic')} %}
 {% set current_page_type = namespace(value='') %}
 {% for report in reports %}
 {% if report.page_type != current_page_type.value %}
@@ -50,12 +60,20 @@
       {% endif %}
     </div>
     <div class="d-flex gap-2 align-items-center flex-shrink-0">
-      {% set page_url_map = {'logs': url_for('view_logs'), 'traces': url_for('view_traces'), 'errors': url_for('view_errors'), 'metrics': url_for('view_metrics'), 'rum': url_for('view_rum'), 'ai': url_for('view_ai'), 'work_items': url_for('view_work_items')} %}
+      {% set page_url_map = {'logs': url_for('view_logs'), 'traces': url_for('view_traces'), 'errors': url_for('view_errors'), 'metrics': url_for('view_metrics'), 'rum': url_for('view_rum'), 'ai': url_for('view_ai'), 'work_items': url_for('view_work_items'), 'web_traffic': url_for('view_web_traffic')} %}
       {% if report.page_type in page_url_map %}
       <a href="{{ page_url_map[report.page_type] }}?{{ report.filters | urlencode }}" class="btn btn-sm btn-outline-primary">
         <i class="bi bi-play me-1"></i>Apply
       </a>
       {% endif %}
+      <a href="{{ url_for('api_export_reports') }}?ids={{ report.id }}"
+         class="btn btn-sm btn-outline-secondary" title="Export this report">
+        <i class="bi bi-download"></i>
+      </a>
+      <button type="button" class="btn btn-sm btn-outline-secondary share-report-btn"
+              data-report-id="{{ report.id }}" title="Copy report JSON to clipboard">
+        <i class="bi bi-share"></i>
+      </button>
       <form method="post" action="{{ url_for('delete_report', report_id=report.id) }}"
             onsubmit="return confirm('Delete report \'{{ report.name }}\'?')">
         <button type="submit" class="btn btn-sm btn-outline-danger">
@@ -74,4 +92,144 @@
   apply filters, then click <strong>Save as report</strong> to save them here.</p>
 </div>
 {% endif %}
+
+<!-- Import Reports Modal -->
+<div class="modal fade" id="importReportsModal" tabindex="-1" aria-labelledby="importReportsModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="importReportsModalLabel"><i class="bi bi-upload me-2"></i>Import Reports</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-secondary small mb-3">Select a previously exported SOBS reports JSON file to import.</p>
+        <div class="mb-3">
+          <label for="import-file-input" class="form-label fw-semibold">JSON file</label>
+          <input type="file" class="form-control" id="import-file-input" accept=".json,application/json">
+        </div>
+        <div class="mb-3">
+          <label for="import-conflict-select" class="form-label fw-semibold">If a report with the same name already exists</label>
+          <select class="form-select" id="import-conflict-select">
+            <option value="rename" selected>Rename – append "(imported)" to the new report</option>
+            <option value="replace">Replace – overwrite the existing report</option>
+            <option value="skip">Skip – keep the existing report unchanged</option>
+          </select>
+        </div>
+        <div id="import-modal-feedback" class="d-none"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="import-confirm-btn">
+          <span id="import-btn-spinner" class="spinner-border spinner-border-sm me-1 d-none" role="status" aria-hidden="true"></span>
+          Import
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── Import modal ──────────────────────────────────────────────────────────
+  var importBtn = document.getElementById('import-reports-btn');
+  var importModal = new bootstrap.Modal(document.getElementById('importReportsModal'));
+  var fileInput = document.getElementById('import-file-input');
+  var conflictSelect = document.getElementById('import-conflict-select');
+  var confirmBtn = document.getElementById('import-confirm-btn');
+  var spinner = document.getElementById('import-btn-spinner');
+  var modalFeedback = document.getElementById('import-modal-feedback');
+  var pageFeedback = document.getElementById('import-result-alert');
+
+  function showModalMsg(type, msg) {
+    modalFeedback.className = 'alert alert-' + type + ' py-2 small';
+    modalFeedback.textContent = msg;
+  }
+
+  function clearModalMsg() {
+    modalFeedback.className = 'd-none';
+    modalFeedback.textContent = '';
+  }
+
+  importBtn.addEventListener('click', function () {
+    fileInput.value = '';
+    clearModalMsg();
+    importModal.show();
+  });
+
+  confirmBtn.addEventListener('click', async function () {
+    var file = fileInput.files[0];
+    if (!file) {
+      showModalMsg('warning', 'Please select a JSON file.');
+      return;
+    }
+    clearModalMsg();
+    spinner.classList.remove('d-none');
+    confirmBtn.disabled = true;
+
+    try {
+      var text = await file.text();
+      var payload;
+      try {
+        payload = JSON.parse(text);
+      } catch (_e) {
+        showModalMsg('danger', 'The selected file is not valid JSON.');
+        return;
+      }
+      payload.on_conflict = conflictSelect.value;
+
+      var resp = await fetch({{ url_for('api_import_reports') | tojson }}, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      var result = await resp.json();
+      if (!resp.ok || result.error) {
+        showModalMsg('danger', result.error || 'Import failed.');
+        return;
+      }
+      importModal.hide();
+      var parts = [];
+      if (result.imported > 0) parts.push(result.imported + ' imported');
+      if (result.replaced > 0) parts.push(result.replaced + ' replaced');
+      if (result.skipped > 0) parts.push(result.skipped + ' skipped');
+      if (result.errors > 0) parts.push(result.errors + ' skipped due to errors');
+      var summary = parts.length ? parts.join(', ') + '.' : 'No changes made.';
+      pageFeedback.className = 'alert alert-success alert-dismissible fade show py-2 small';
+      pageFeedback.innerHTML = '<i class="bi bi-check-circle me-1"></i>Import complete: ' + summary +
+        ' <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+      // Reload to reflect newly imported reports
+      window.setTimeout(function () { window.location.reload(); }, 900);
+    } catch (_err) {
+      showModalMsg('danger', 'An error occurred during import.');
+    } finally {
+      spinner.classList.add('d-none');
+      confirmBtn.disabled = false;
+    }
+  });
+
+  // ── Share (copy JSON to clipboard) ────────────────────────────────────────
+  document.querySelectorAll('.share-report-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var reportId = btn.dataset.reportId;
+      try {
+        var resp = await fetch({{ url_for('api_export_reports') | tojson }} + '?ids=' + encodeURIComponent(reportId));
+        var json = await resp.text();
+        await navigator.clipboard.writeText(json);
+        var originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-check"></i>';
+        btn.title = 'Copied!';
+        window.setTimeout(function () {
+          btn.innerHTML = originalHtml;
+          btn.title = 'Copy report JSON to clipboard';
+        }, 1500);
+      } catch (_err) {
+        alert('Could not copy to clipboard.');
+      }
+    });
+  });
+})();
+</script>
 {% endblock %}
+
