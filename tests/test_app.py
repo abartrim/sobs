@@ -16843,3 +16843,144 @@ class TestSidebarVersionAndIcons:
         dashboards_link_html = text[dashboards_link_start:dashboards_link_end]
         assert "bi-speedometer2" in dashboards_link_html
         assert "bi-bar-chart-line" not in dashboards_link_html
+
+
+# ---------------------------------------------------------------------------
+# Incident View Tests
+# ---------------------------------------------------------------------------
+class TestIncidentView:
+    """Tests for the /incident unified evidence view."""
+
+    async def test_incident_page_requires_reference(self, client):
+        """Without trace_id or error_id the page should still render with an error message."""
+        r = await client.get("/incident")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Incident View" in body
+        assert "No incident reference provided" in body
+
+    async def test_incident_page_with_trace_id(self, client):
+        """Page renders when a trace_id is supplied (even if no matching trace exists)."""
+        r = await client.get("/incident?trace_id=aabbccddeeff001122334455667788aa")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Incident View" in body
+
+    async def test_incident_page_with_error_id(self, client):
+        """Page renders when an error_id is supplied (even if no matching error exists)."""
+        r = await client.get("/incident?error_id=deadbeefdeadbeefdeadbeefdeadbeef")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Incident View" in body
+
+    async def test_incident_page_shows_investigation_packet_button(self, client):
+        """The copy investigation packet button must be present."""
+        r = await client.get("/incident?trace_id=aabbccddeeff001122334455667788bb")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Copy Investigation Packet" in body
+
+    async def test_incident_page_with_time_window(self, client):
+        """Explicit from_ts/to_ts should be accepted without error."""
+        r = await client.get(
+            "/incident?trace_id=aabbccddeeff001122334455667788cc"
+            "&from_ts=2024-01-01T00:00:00Z&to_ts=2024-01-01T01:00:00Z"
+        )
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Incident View" in body
+
+    async def test_incident_page_window_minutes_param(self, client):
+        """window_minutes parameter is accepted and displayed in the template."""
+        r = await client.get(
+            "/incident?trace_id=aabbccddeeff001122334455667788dd&window_minutes=60"
+        )
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Incident View" in body
+        assert "60" in body
+
+    async def test_incident_page_window_minutes_clamped(self, client):
+        """window_minutes above max (180) is accepted without server error."""
+        r = await client.get(
+            "/incident?trace_id=aabbccddeeff001122334455667788ee&window_minutes=9999"
+        )
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Incident View" in body
+
+    async def test_incident_page_shows_related_error_from_trace(self, client):
+        """When errors are ingested with a matching trace_id, they appear in the incident view."""
+        trace_id = "aabbccddeeff00112233445566778811"
+        await client.post(
+            "/v1/errors",
+            json={
+                "service": "incident-test-svc",
+                "type": "RuntimeError",
+                "message": "incident-trace-error-unique",
+                "trace_id": trace_id,
+                "timestamp": "2024-06-01T12:00:00Z",
+            },
+        )
+        r = await client.get(f"/incident?trace_id={trace_id}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Incident View" in body
+        assert "incident-trace-error-unique" in body
+
+    async def test_errors_page_has_incident_view_button(self, client):
+        """Error cards should include an 'Incident View' action link."""
+        await client.post(
+            "/v1/errors",
+            json={
+                "service": "incident-btn-svc",
+                "type": "ValueError",
+                "message": "incident-btn-test-marker",
+                "trace_id": "aabbccddeeff00112233445566778822",
+                "timestamp": "2024-06-01T12:05:00Z",
+            },
+        )
+        r = await client.get("/errors")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Incident View" in body
+
+    async def test_traces_detail_has_incident_view_button(self, client):
+        """Trace detail view should include an 'Incident View' link."""
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        trace_id_bytes = bytes.fromhex("aabbccddeeff00112233445566778833")
+        span_bytes = bytes.fromhex("1234567890abcdef")
+        start_ns = 1704067200_000_000_000
+
+        span = Span(
+            trace_id=trace_id_bytes,
+            span_id=span_bytes,
+            name="incident-view-test-span",
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 1_000_000_000,
+            status=Status(code=1),
+        )
+        resource = Resource(
+            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="incident-trace-svc"))]
+        )
+        msg = ExportTraceServiceRequest(
+            resource_spans=[
+                ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])
+            ]
+        )
+        await client.post(
+            "/v1/traces",
+            data=msg.SerializeToString(),
+            headers={"Content-Type": "application/x-protobuf"},
+        )
+
+        trace_id_hex = trace_id_bytes.hex()
+        r = await client.get(f"/traces?trace_id={trace_id_hex}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Incident View" in body
+        assert "view_incident" in body or "/incident" in body

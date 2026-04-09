@@ -252,6 +252,11 @@
     <span class="badge bg-dark" title="Overlapping preserved raw metric windows">
       {{ (trace_detail.raw_windows or []) | length }} preserved window(s)
     </span>
+    <a href="{{ url_for('view_incident', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+       class="btn btn-sm btn-outline-primary ms-1"
+       title="Open unified incident evidence view for this trace">
+      <i class="bi bi-shield-exclamation me-1"></i>Incident View
+    </a>
   </div>
 
   {% set mc = trace_detail.metrics_context or {} %}

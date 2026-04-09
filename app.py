@@ -14046,6 +14046,259 @@ async def api_raw_span(span_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Incident view  GET /incident
+# Aggregates primary event details, related evidence, anomaly state, and work
+# item links into a single read-only incident context page.  Either trace_id
+# or error_id must be supplied.  The time window used to gather related
+# evidence defaults to ±(window_minutes/2) around the primary event and can be
+# overridden with explicit from_ts / to_ts parameters.
+# ---------------------------------------------------------------------------
+
+_INCIDENT_MAX_RELATED_ERRORS = 50
+_INCIDENT_MAX_RELATED_SPANS = 20
+_INCIDENT_WINDOW_DEFAULT_MINUTES = 30
+_INCIDENT_WINDOW_MAX_MINUTES = 180
+
+
+@app.route("/incident")
+@require_basic_auth
+async def view_incident():
+    db = get_db()
+    trace_id = request.args.get("trace_id", "").strip()
+    error_id = request.args.get("error_id", "").strip()
+    from_ts, to_ts, time_error = _parse_time_window_args()
+
+    try:
+        window_minutes = max(
+            1,
+            min(
+                _INCIDENT_WINDOW_MAX_MINUTES,
+                int(request.args.get("window_minutes", str(_INCIDENT_WINDOW_DEFAULT_MINUTES)).strip() or str(_INCIDENT_WINDOW_DEFAULT_MINUTES)),
+            ),
+        )
+    except (TypeError, ValueError):
+        window_minutes = _INCIDENT_WINDOW_DEFAULT_MINUTES
+
+    if not trace_id and not error_id:
+        return await render_template(
+            "incident.html",
+            trace_id="",
+            error_id="",
+            primary_error=None,
+            primary_trace=None,
+            service="",
+            from_ts="",
+            to_ts="",
+            window_minutes=window_minutes,
+            related_errors=[],
+            related_log_count=0,
+            related_span_count=0,
+            anomaly_state=None,
+            work_item_links={},
+            time_error="",
+            error_msg="No incident reference provided. Specify trace_id or error_id.",
+        )
+
+    # ── Resolve primary error ───────────────────────────────────────────────
+    primary_error: dict | None = None
+    if error_id:
+        try:
+            scan_limit = 5000
+            err_rows = db.execute(
+                f"SELECT * FROM ({ERROR_SOURCES_SQL}) ORDER BY Timestamp DESC LIMIT ?",
+                [scan_limit],
+            ).fetchall()
+            resolved_ids = _get_resolved_error_ids(db)
+            for row in err_rows:
+                candidate = _build_error_item(dict(row))
+                if candidate["id"] == error_id:
+                    candidate["resolved"] = candidate["id"] in resolved_ids
+                    primary_error = candidate
+                    break
+        except Exception as exc:
+            log.warning("view_incident: failed to look up error_id %s: %s", error_id, exc)
+
+    # ── Resolve primary trace (root span summary) ───────────────────────────
+    primary_trace: dict | None = None
+    if trace_id:
+        try:
+            span_rows = db.execute(
+                "SELECT Timestamp, TraceId, SpanId, ParentSpanId, SpanName, ServiceName, "
+                "Duration, StatusCode, SpanAttributes "
+                "FROM otel_traces WHERE TraceId=? ORDER BY Timestamp ASC",
+                [trace_id],
+            ).fetchall()
+            if span_rows:
+                services = sorted({str(r["ServiceName"]) for r in span_rows if r["ServiceName"]})
+                root = span_rows[0]
+                start_ms = _ts_str_to_epoch_ms(str(root["Timestamp"]))
+                end_ms = max(
+                    _ts_str_to_epoch_ms(str(r["Timestamp"])) + round(float(r["Duration"]) / 1_000_000, 2)
+                    for r in span_rows
+                )
+                primary_trace = {
+                    "trace_id": trace_id,
+                    "services": services,
+                    "service": services[0] if services else "",
+                    "span_count": len(span_rows),
+                    "start_ts": str(root["Timestamp"]),
+                    "start_ms": round(start_ms),
+                    "end_ms": round(end_ms),
+                    "total_ms": round(end_ms - start_ms, 2),
+                    "root_name": str(root["SpanName"]),
+                    "status": str(root["StatusCode"]),
+                }
+        except Exception as exc:
+            log.warning("view_incident: failed to look up trace_id %s: %s", trace_id, exc)
+
+    # ── Determine primary service and event timestamp ───────────────────────
+    service = ""
+    event_ts = ""
+    if primary_error:
+        service = primary_error.get("service", "")
+        event_ts = primary_error.get("ts", "")
+    elif primary_trace:
+        service = primary_trace.get("service", "")
+        event_ts = primary_trace.get("start_ts", "")
+
+    # ── Expand time window around event if caller did not supply one ────────
+    if event_ts and not (from_ts and to_ts) and not time_error:
+        try:
+            dt = datetime.fromisoformat(event_ts.replace(" ", "T").rstrip("Z") + "+00:00")
+            half = timedelta(minutes=window_minutes // 2)
+            from_ts = _normalize_ch_timestamp(dt - half)
+            to_ts = _normalize_ch_timestamp(dt + half)
+        except (TypeError, ValueError):
+            pass
+
+    # ── Gather related errors ───────────────────────────────────────────────
+    related_errors: list[dict] = []
+    try:
+        where_parts: list[str] = []
+        where_params: list[str] = []
+        if trace_id:
+            where_parts.append("TraceId=?")
+            where_params.append(trace_id)
+        elif service:
+            where_parts.append("ServiceName=?")
+            where_params.append(service)
+        tc, tp = _time_window_conditions("Timestamp", from_ts, to_ts)
+        where_parts.extend(tc)
+        where_params.extend(tp)
+        where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+        err_rows = db.execute(
+            f"SELECT * FROM ({ERROR_SOURCES_SQL}) {where_sql} "
+            f"ORDER BY Timestamp DESC LIMIT ?",
+            where_params + [_INCIDENT_MAX_RELATED_ERRORS + 1],
+        ).fetchall()
+        resolved_ids = _get_resolved_error_ids(db)
+        primary_error_id = primary_error["id"] if primary_error else ""
+        for row in err_rows[: _INCIDENT_MAX_RELATED_ERRORS]:
+            item = _build_error_item(dict(row))
+            item["resolved"] = item["id"] in resolved_ids
+            if item["id"] != primary_error_id:
+                related_errors.append(item)
+        related_errors_truncated = len(err_rows) > _INCIDENT_MAX_RELATED_ERRORS
+    except Exception as exc:
+        log.warning("view_incident: failed to fetch related errors: %s", exc)
+        related_errors_truncated = False
+
+    # ── Count related logs ──────────────────────────────────────────────────
+    related_log_count = 0
+    try:
+        log_where_parts: list[str] = []
+        log_where_params: list[str] = []
+        if trace_id:
+            log_where_parts.append("TraceId=?")
+            log_where_params.append(trace_id)
+        elif service:
+            log_where_parts.append("ServiceName=?")
+            log_where_params.append(service)
+        tc, tp = _time_window_conditions("Timestamp", from_ts, to_ts)
+        log_where_parts.extend(tc)
+        log_where_params.extend(tp)
+        log_where_sql = ("WHERE " + " AND ".join(log_where_parts)) if log_where_parts else ""
+        row_cnt = db.execute(
+            f"SELECT count() AS cnt FROM otel_logs {log_where_sql}",
+            log_where_params,
+        ).fetchone()
+        related_log_count = int(row_cnt["cnt"]) if row_cnt else 0
+    except Exception as exc:
+        log.warning("view_incident: failed to count related logs: %s", exc)
+
+    # ── Count related spans ─────────────────────────────────────────────────
+    related_span_count = 0
+    try:
+        if service:
+            span_where_parts: list[str] = ["ServiceName=?"]
+            span_where_params: list[str] = [service]
+            tc, tp = _time_window_conditions("Timestamp", from_ts, to_ts)
+            span_where_parts.extend(tc)
+            span_where_params.extend(tp)
+            span_where_sql = "WHERE " + " AND ".join(span_where_parts)
+            row_cnt = db.execute(
+                f"SELECT count() AS cnt FROM otel_traces {span_where_sql}",
+                span_where_params,
+            ).fetchone()
+            related_span_count = int(row_cnt["cnt"]) if row_cnt else 0
+    except Exception as exc:
+        log.warning("view_incident: failed to count related spans: %s", exc)
+
+    # ── Service anomaly state ───────────────────────────────────────────────
+    anomaly_state: str | None = None
+    try:
+        if service:
+            anomaly_row = db.execute(
+                "SELECT anomaly_state FROM v_derived_signals_anomaly "
+                "WHERE ServiceName=? AND SignalSource='traces' "
+                "AND time >= now() - INTERVAL 48 HOUR "
+                "ORDER BY time DESC LIMIT 1",
+                [service],
+            ).fetchone()
+            if anomaly_row:
+                anomaly_state = str(anomaly_row["anomaly_state"])
+    except Exception as exc:
+        log.warning("view_incident: failed to fetch anomaly state for service %s: %s", service, exc)
+
+    # ── Work item links ─────────────────────────────────────────────────────
+    ref_ids: list[str] = []
+    if primary_error:
+        ref_ids.append(primary_error["id"])
+    if trace_id:
+        ref_ids.append(trace_id)
+    work_item_links = _load_work_item_links_for_ref_ids(db, ref_ids)
+
+    # ── Resolve best existing work item for the raise-issue button ──────────
+    existing_work_item: dict | None = None
+    for ref in ref_ids:
+        wi = work_item_links.get(ref)
+        if wi and wi.get("issue_url"):
+            existing_work_item = wi
+            break
+
+    return await render_template(
+        "incident.html",
+        trace_id=trace_id,
+        error_id=error_id,
+        primary_error=primary_error,
+        primary_trace=primary_trace,
+        service=service,
+        from_ts=from_ts,
+        to_ts=to_ts,
+        window_minutes=window_minutes,
+        related_errors=related_errors,
+        related_errors_truncated=related_errors_truncated,
+        related_log_count=related_log_count,
+        related_span_count=related_span_count,
+        anomaly_state=anomaly_state,
+        work_item_links=work_item_links,
+        existing_work_item=existing_work_item,
+        time_error=time_error,
+        error_msg=time_error or "",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Enrichment – geo-lookup helpers
 # ---------------------------------------------------------------------------
 

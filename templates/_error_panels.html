@@ -73,7 +73,7 @@
 }
 {%- endmacro %}
 
-{% macro render_error_accordion(errors, from_ts='', to_ts='', accordion_id='errAccordion', collapse_prefix='err', stack_prefix='stack-', ai_btn_class='ai-help-btn', raise_btn_class='raise-issue-btn', copy_btn_class='copy-stack-btn', resolve_btn_class='resolve-btn', show_resolve=false, show_raise_issue=true, logs_btn_outline='secondary', logs_label='Logs', trace_btn_outline='info', trace_label='Trace', show_span_id_in_header=false) -%}
+{% macro render_error_accordion(errors, from_ts='', to_ts='', accordion_id='errAccordion', collapse_prefix='err', stack_prefix='stack-', ai_btn_class='ai-help-btn', raise_btn_class='raise-issue-btn', copy_btn_class='copy-stack-btn', resolve_btn_class='resolve-btn', show_resolve=false, show_raise_issue=true, logs_btn_outline='secondary', logs_label='Logs', trace_btn_outline='info', trace_label='Trace', show_span_id_in_header=false, show_incident_view=true) -%}
 <div class="accordion" id="{{ accordion_id }}">
   {% for err in errors %}
   <div class="accordion-item border-secondary mb-1">
@@ -282,6 +282,14 @@
                   title="Copy stack trace">
             <i class="bi bi-clipboard me-1"></i>Copy stack
           </button>
+          {% endif %}
+
+          {% if show_incident_view %}
+          <a href="{{ url_for('view_incident', error_id=err.id, trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+             class="btn btn-sm btn-outline-primary"
+             title="Open unified incident evidence view">
+            <i class="bi bi-shield-exclamation me-1"></i>Incident View
+          </a>
           {% endif %}
         </div>
       </div>
