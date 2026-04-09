@@ -429,7 +429,13 @@
             <td>{{ rule.service or 'any' }}</td>
             <td class="font-monospace small">{{ rule.attr_fp or '—' }}</td>
             <td class="font-monospace small">{{ rule.comparator }} / {{ rule.warning_threshold }} / {{ rule.critical_threshold }}</td>
-            <td class="font-monospace small">{% if rule.rule_type == 'composite' %}{{ rule.secondary_source }}:{{ rule.secondary_signal }} {{ rule.secondary_comparator }} / {{ rule.secondary_warning_threshold }} / {{ rule.secondary_critical_threshold }}{% elif rule.rule_type == 'seasonal' and rule.seasonal_buckets_json %}<span title="{{ rule.seasonal_buckets_json }}">{{ rule.seasonal_buckets_json | tojson | length }} chars</span>{% else %}—{% endif %}</td>
+            <td class="font-monospace small">
+              {% if rule.rule_type == 'composite' %}
+                {{ rule.secondary_source }}:{{ rule.secondary_signal }} {{ rule.secondary_comparator }} / {{ rule.secondary_warning_threshold }} / {{ rule.secondary_critical_threshold }}
+              {% elif rule.rule_type == 'seasonal' and rule.seasonal_buckets_json %}
+                <span title="{{ rule.seasonal_buckets_json }}">{{ rule.seasonal_buckets_json | length }} chars</span>
+              {% else %}—{% endif %}
+            </td>
             <td class="font-monospace small">{{ rule.min_sample_count }}</td>
             <td>
               <div class="d-flex gap-2">
