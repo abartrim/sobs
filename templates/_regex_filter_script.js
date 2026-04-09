@@ -165,8 +165,9 @@ function _sobsInitRegexFilter(opts) {
     const before = val.slice(0, cursor);
     const after = val.slice(cursor);
     const singleCharTriggers = ["\\", "[", "(", "{"];
+    const lastChar = before[before.length - 1];
     let newBefore;
-    if (singleCharTriggers.includes(before[before.length - 1]) && item.insert.startsWith(before[before.length - 1])) {
+    if (singleCharTriggers.includes(lastChar) && item.insert.startsWith(lastChar)) {
       newBefore = before + item.insert.slice(1);
     } else {
       newBefore = before.replace(/[\w.*+?^${}()|\[\]\\]*$/, item.insert);

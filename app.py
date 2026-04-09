@@ -20696,6 +20696,19 @@ async def api_logs_validate_filter():
 
 
 # ---------------------------------------------------------------------------
+# Regex Validate API helpers
+# ---------------------------------------------------------------------------
+_REGEX_SAMPLE_MAX_LEN = 200
+
+
+def _truncate_sample(sample: str | None) -> str | None:
+    """Truncate a regex sample match to a displayable length."""
+    if sample and len(sample) > _REGEX_SAMPLE_MAX_LEN:
+        return f"{sample[:_REGEX_SAMPLE_MAX_LEN - 3]}..."
+    return sample
+
+
+# ---------------------------------------------------------------------------
 # Logs Regex Validate API  POST /api/logs/validate-regex
 # Used by the regex autocomplete / IntelliSense on the Logs filter panel.
 # ---------------------------------------------------------------------------
@@ -20720,10 +20733,7 @@ async def api_logs_validate_regex():
             "SELECT Body FROM otel_logs WHERE match(Body, ?) LIMIT 1",
             [pattern],
         ).fetchone()
-        sample = row[0] if row else None
-        _SAMPLE_MAX_LEN = 200
-        if sample and len(sample) > _SAMPLE_MAX_LEN:
-            sample = f"{sample[:_SAMPLE_MAX_LEN - 3]}..."
+        sample = _truncate_sample(row[0] if row else None)
         return jsonify({"ok": True, "sample": sample})
     except Exception:
         return jsonify({"ok": True, "sample": None})
@@ -20754,9 +20764,7 @@ async def api_errors_validate_regex():
             [pattern],
         ).fetchone()
         sample = row[0] if row else None
-        _SAMPLE_MAX_LEN = 200
-        if sample and len(sample) > _SAMPLE_MAX_LEN:
-            sample = f"{sample[:_SAMPLE_MAX_LEN - 3]}..."
+        sample = _truncate_sample(sample)
         return jsonify({"ok": True, "sample": sample})
     except Exception:
         return jsonify({"ok": True, "sample": None})
@@ -20787,9 +20795,7 @@ async def api_traces_validate_regex():
             [pattern],
         ).fetchone()
         sample = row[0] if row else None
-        _SAMPLE_MAX_LEN = 200
-        if sample and len(sample) > _SAMPLE_MAX_LEN:
-            sample = f"{sample[:_SAMPLE_MAX_LEN - 3]}..."
+        sample = _truncate_sample(sample)
         return jsonify({"ok": True, "sample": sample})
     except Exception:
         return jsonify({"ok": True, "sample": None})
@@ -20820,9 +20826,7 @@ async def api_metrics_validate_regex():
             [pattern],
         ).fetchone()
         sample = row[0] if row else None
-        _SAMPLE_MAX_LEN = 200
-        if sample and len(sample) > _SAMPLE_MAX_LEN:
-            sample = f"{sample[:_SAMPLE_MAX_LEN - 3]}..."
+        sample = _truncate_sample(sample)
         return jsonify({"ok": True, "sample": sample})
     except Exception:
         return jsonify({"ok": True, "sample": None})
@@ -20853,9 +20857,7 @@ async def api_rum_validate_regex():
             [pattern],
         ).fetchone()
         sample = row[0] if row else None
-        _SAMPLE_MAX_LEN = 200
-        if sample and len(sample) > _SAMPLE_MAX_LEN:
-            sample = f"{sample[:_SAMPLE_MAX_LEN - 3]}..."
+        sample = _truncate_sample(sample)
         return jsonify({"ok": True, "sample": sample})
     except Exception:
         return jsonify({"ok": True, "sample": None})

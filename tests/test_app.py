@@ -2242,6 +2242,7 @@ class TestUIPages:
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
         assert "unique-needle-xyz" in body
+        assert "completely different error" not in body
 
     async def test_errors_invalid_regex_returns_error_msg(self, client):
         """Errors page should return an error message for an invalid regex."""
