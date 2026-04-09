@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -11235,6 +11236,23 @@ class TestNotifications:
 # Saved Reports
 # ---------------------------------------------------------------------------
 class TestReports:
+    def _build_reports_export_payload(
+        self,
+        reports: list[dict[str, Any]],
+        *,
+        on_conflict: str | None = None,
+        version: str = "1",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "sobs_reports_export": True,
+            "version": version,
+            "exported_at": "2025-01-01T00:00:00Z",
+            "reports": reports,
+        }
+        if on_conflict:
+            payload["on_conflict"] = on_conflict
+        return payload
+
     async def test_reports_page_loads(self, client):
         r = await client.get("/reports")
         assert r.status_code == 200
@@ -11441,11 +11459,8 @@ class TestReports:
 
     async def test_api_import_reports_basic(self, client):
         """Import valid export payload – reports are inserted."""
-        export_payload = {
-            "sobs_reports_export": True,
-            "version": "1",
-            "exported_at": "2025-01-01T00:00:00Z",
-            "reports": [
+        export_payload = self._build_reports_export_payload(
+            [
                 {
                     "id": "00000000-0000-0000-0000-000000000001",
                     "name": "Imported Log Report",
@@ -11453,8 +11468,8 @@ class TestReports:
                     "page_type": "logs",
                     "filters": {"level": "WARN"},
                 }
-            ],
-        }
+            ]
+        )
         r = await client.post("/api/reports/import", json=export_payload)
         assert r.status_code == 200
         result = json.loads(await r.get_data())
@@ -11471,12 +11486,8 @@ class TestReports:
             "/api/reports",
             json={"name": "Conflict Report", "page_type": "errors", "filters": {"service": "alpha"}},
         )
-        export_payload = {
-            "sobs_reports_export": True,
-            "version": "1",
-            "exported_at": "2025-01-01T00:00:00Z",
-            "on_conflict": "skip",
-            "reports": [
+        export_payload = self._build_reports_export_payload(
+            [
                 {
                     "id": "00000000-0000-0000-0000-000000000002",
                     "name": "Conflict Report",
@@ -11485,7 +11496,8 @@ class TestReports:
                     "filters": {"service": "beta"},
                 }
             ],
-        }
+            on_conflict="skip",
+        )
         r = await client.post("/api/reports/import", json=export_payload)
         assert r.status_code == 200
         result = json.loads(await r.get_data())
@@ -11505,12 +11517,8 @@ class TestReports:
             "/api/reports",
             json={"name": "Rename Test", "page_type": "metrics", "filters": {"metric": "cpu"}},
         )
-        export_payload = {
-            "sobs_reports_export": True,
-            "version": "1",
-            "exported_at": "2025-01-01T00:00:00Z",
-            "on_conflict": "rename",
-            "reports": [
+        export_payload = self._build_reports_export_payload(
+            [
                 {
                     "id": "00000000-0000-0000-0000-000000000003",
                     "name": "Rename Test",
@@ -11519,7 +11527,8 @@ class TestReports:
                     "filters": {"metric": "memory"},
                 }
             ],
-        }
+            on_conflict="rename",
+        )
         r = await client.post("/api/reports/import", json=export_payload)
         assert r.status_code == 200
         result = json.loads(await r.get_data())
@@ -11538,12 +11547,8 @@ class TestReports:
             json={"name": "Replace Test", "page_type": "rum", "filters": {"device": "mobile"}},
         )
         old_id = json.loads(await r1.get_data())["id"]
-        export_payload = {
-            "sobs_reports_export": True,
-            "version": "1",
-            "exported_at": "2025-01-01T00:00:00Z",
-            "on_conflict": "replace",
-            "reports": [
+        export_payload = self._build_reports_export_payload(
+            [
                 {
                     "id": "00000000-0000-0000-0000-000000000004",
                     "name": "Replace Test",
@@ -11552,12 +11557,13 @@ class TestReports:
                     "filters": {"device": "desktop"},
                 }
             ],
-        }
+            on_conflict="replace",
+        )
         r = await client.post("/api/reports/import", json=export_payload)
         assert r.status_code == 200
         result = json.loads(await r.get_data())
         assert result["replaced"] == 1
-        assert result["imported"] == 1
+        assert result["imported"] == 0
 
         listed = await client.get("/api/reports?page_type=rum")
         reports = json.loads(await listed.get_data())
@@ -11588,11 +11594,8 @@ class TestReports:
 
     async def test_api_import_reports_skips_invalid_items(self, client):
         """Items with missing/invalid fields count as errors, rest are imported."""
-        export_payload = {
-            "sobs_reports_export": True,
-            "version": "1",
-            "exported_at": "2025-01-01T00:00:00Z",
-            "reports": [
+        export_payload = self._build_reports_export_payload(
+            [
                 {  # valid
                     "name": "Good Report",
                     "page_type": "logs",
@@ -11608,13 +11611,36 @@ class TestReports:
                     "page_type": "logs",
                     "filters": {},
                 },
-            ],
-        }
+            ]
+        )
         r = await client.post("/api/reports/import", json=export_payload)
         assert r.status_code == 200
         result = json.loads(await r.get_data())
         assert result["imported"] == 1
         assert result["errors"] == 2
+
+    async def test_api_import_reports_supports_web_traffic_page_type(self, client):
+        """Import accepts web_traffic reports and lists them back from API."""
+        export_payload = self._build_reports_export_payload(
+            [
+                {
+                    "name": "Traffic Drilldown",
+                    "description": "geo + path",
+                    "page_type": "web_traffic",
+                    "filters": {"country": "US", "path": "/checkout"},
+                }
+            ]
+        )
+        r = await client.post("/api/reports/import", json=export_payload)
+        assert r.status_code == 200
+        result = json.loads(await r.get_data())
+        assert result["imported"] == 1
+        assert result["errors"] == 0
+
+        listed = await client.get("/api/reports?page_type=web_traffic")
+        assert listed.status_code == 200
+        reports = json.loads(await listed.get_data())
+        assert any(rep["name"] == "Traffic Drilldown" for rep in reports)
 
     async def test_reports_page_has_export_import_controls(self, client):
         """Reports page renders export-all and import buttons."""
@@ -11624,6 +11650,8 @@ class TestReports:
         assert "import-reports-btn" in text
         assert "export-all-btn" in text
         assert "importReportsModal" in text
+        assert "deleteReportConfirmModal" in text
+        assert 'onsubmit="return confirm(' not in text
 
     async def test_work_items_page_has_report_save_controls(self, client):
         r = await client.get("/work-items")

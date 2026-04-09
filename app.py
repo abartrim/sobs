@@ -19694,6 +19694,9 @@ _REPORTS_EXPORT_VERSION = "1"
 # Maximum number of reports that may be imported in a single request
 _REPORTS_IMPORT_MAX = 500
 
+# Maximum raw request body size accepted by report import
+_REPORTS_IMPORT_MAX_BYTES = 5 * 1024 * 1024
+
 
 @app.route("/api/reports/export", methods=["GET"])
 @require_basic_auth
@@ -19761,17 +19764,29 @@ async def api_import_reports():
 
     Returns a JSON summary: ``{imported, skipped, replaced, errors}``.
     """
+
+    def _payload_too_large_response():
+        return jsonify({"error": f"Import payload too large (max {_REPORTS_IMPORT_MAX_BYTES} bytes)"}), 413
+
+    if (request.content_length or 0) > _REPORTS_IMPORT_MAX_BYTES:
+        return _payload_too_large_response()
+
     # ── Parse body ────────────────────────────────────────────────────────────
     content_type = request.content_type or ""
+    on_conflict = (request.args.get("on_conflict") or "").strip().lower()
+
     if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
         files = await request.files
         forms = await request.form
-        on_conflict = forms.get("on_conflict", "rename").strip().lower()
+        if not on_conflict:
+            on_conflict = forms.get("on_conflict", "rename").strip().lower()
         uploaded = files.get("file")
         if not uploaded:
             return jsonify({"error": "No file uploaded"}), 400
         try:
             raw_bytes = uploaded.read()
+            if len(raw_bytes) > _REPORTS_IMPORT_MAX_BYTES:
+                return _payload_too_large_response()
             body = json.loads(raw_bytes)
         except (ValueError, TypeError):
             return jsonify({"error": "Invalid JSON file"}), 400
@@ -19779,7 +19794,8 @@ async def api_import_reports():
         body = await request.get_json(silent=True)
         if body is None:
             return jsonify({"error": "Invalid or missing JSON body"}), 400
-        on_conflict = (body.get("on_conflict") or "rename").strip().lower()
+        if not on_conflict:
+            on_conflict = (body.get("on_conflict") or "rename").strip().lower()
 
     # ── Validate envelope ────────────────────────────────────────────────────
     if not isinstance(body, dict) or not body.get("sobs_reports_export"):
@@ -19879,6 +19895,9 @@ async def api_import_reports():
         )
         # Track freshly-imported name to avoid collisions within the same batch
         existing_index[(page_type, name.lower())] = {"id": new_id, "name": name, "page_type": page_type}
+        if conflict and on_conflict == "replace":
+            # Replacement inserts are counted as replaced, not imported.
+            continue
         n_imported += 1
 
     return jsonify(
