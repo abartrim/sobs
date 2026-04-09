@@ -7857,6 +7857,95 @@ class TestMetricsAnomalyDetection:
         if r.status_code == 200:
             assert "rows" in data
 
+    # ── signal label registry ─────────────────────────────────────────────────
+
+    def test_signal_label_known_signals(self):
+        """signal_label returns readable names for all registered derived signals."""
+        cases = [
+            ("logs", "log_volume", "Log Volume"),
+            ("logs", "error_volume", "Error Volume"),
+            ("logs", "error_ratio", "Error Ratio"),
+            ("traces", "trace_volume", "Trace Volume"),
+            ("traces", "trace_error_ratio", "Trace Error Ratio"),
+            ("traces", "latency_p95_ms", "Latency p95"),
+            ("errors", "exception_volume", "Exception Volume"),
+            ("rum_vitals", "LCP", "Largest Contentful Paint"),
+            ("rum_vitals", "INP", "Interaction to Next Paint"),
+            ("rum_vitals", "CLS", "Cumulative Layout Shift"),
+            ("rum_vitals", "TTFB", "Time to First Byte"),
+            ("rum_vitals", "FCP", "First Contentful Paint"),
+            ("rum_vitals", "FID", "First Input Delay"),
+        ]
+        for source, signal, expected in cases:
+            result = sobs_app.signal_label(source, signal)
+            assert result == expected, f"signal_label({source!r}, {signal!r}) = {result!r}, want {expected!r}"
+
+    def test_signal_label_unknown_signal_falls_back(self):
+        """signal_label falls back to a capitalised version of the raw signal name."""
+        result = sobs_app.signal_label("unknown_source", "my_custom_signal")
+        assert result == "My Custom Signal"
+
+    def test_signal_label_unknown_source_known_signal(self):
+        """signal_label falls back when source is unknown even if signal name matches another entry."""
+        result = sobs_app.signal_label("other_source", "log_volume")
+        # Falls back; "log_volume" under a different source is not in the registry
+        assert result == "Log Volume"
+
+    def test_signal_description_known_signal(self):
+        """signal_description returns the description for registered signals."""
+        desc = sobs_app.signal_description("logs", "log_volume")
+        assert desc != ""
+        assert "Log" in desc or "log" in desc
+
+    def test_signal_description_unknown_signal_returns_empty(self):
+        """signal_description returns empty string for unregistered signals."""
+        desc = sobs_app.signal_description("unknown_source", "unknown_signal")
+        assert desc == ""
+
+    def test_source_label_known_sources(self):
+        """source_label returns readable names for all registered sources."""
+        cases = [
+            ("logs", "Logs"),
+            ("traces", "Traces"),
+            ("errors", "Errors"),
+            ("rum_vitals", "RUM Vitals"),
+            ("metrics", "Metrics"),
+        ]
+        for source, expected in cases:
+            result = sobs_app.source_label(source)
+            assert result == expected, f"source_label({source!r}) = {result!r}, want {expected!r}"
+
+    def test_source_label_unknown_source_falls_back(self):
+        """source_label capitalises underscore-separated words for unknown sources."""
+        result = sobs_app.source_label("custom_data_source")
+        assert result == "Custom Data Source"
+
+    async def test_metrics_page_shows_friendly_signal_labels(self, client):
+        """Metrics index page should render with signal_label/source_label globals available."""
+        r = await client.get("/metrics")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        # The helper functions are registered as Jinja2 globals; the page must render
+        assert "Metrics & Signals" in body
+
+    async def test_metrics_anomaly_page_shows_friendly_signal_labels(self, client):
+        """Metrics anomaly page renders with signal info panel for known signal."""
+        r = await client.get("/metrics/anomaly?source=logs&signal=log_volume")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        # Friendly label should appear in signal info panel
+        assert "Log Volume" in body
+        # Raw identifier should also be present (de-emphasised)
+        assert "log_volume" in body
+
+    async def test_metrics_anomaly_page_unknown_signal_falls_back(self, client):
+        """Metrics anomaly page gracefully handles unknown signal identifiers."""
+        r = await client.get("/metrics/anomaly?source=custom_src&signal=my_weird_signal")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        # Should not 500; raw identifier visible in fallback
+        assert "my_weird_signal" in body
+
 
 # ---------------------------------------------------------------------------
 # Tag Rules & Record Tags

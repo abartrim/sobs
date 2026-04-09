@@ -11544,6 +11544,114 @@ def _annotate_rows_with_rules(
 
 
 # ---------------------------------------------------------------------------
+# Signal label registry – human-friendly names for derived signal identifiers
+# ---------------------------------------------------------------------------
+
+# Mapping of (source, signal_name) → {label, description}.
+# Used by templates and API responses to show readable names alongside raw IDs.
+_SIGNAL_LABELS: dict[tuple[str, str], dict[str, str]] = {
+    # Logs-derived signals
+    ("logs", "log_volume"): {
+        "label": "Log Volume",
+        "description": "Log lines ingested per minute",
+    },
+    ("logs", "error_volume"): {
+        "label": "Error Volume",
+        "description": "Error-level log lines per minute",
+    },
+    ("logs", "error_ratio"): {
+        "label": "Error Ratio",
+        "description": "Fraction of log lines that are errors",
+    },
+    # Traces-derived signals
+    ("traces", "trace_volume"): {
+        "label": "Trace Volume",
+        "description": "Completed spans per minute",
+    },
+    ("traces", "trace_error_ratio"): {
+        "label": "Trace Error Ratio",
+        "description": "Fraction of spans with an error status",
+    },
+    ("traces", "latency_p95_ms"): {
+        "label": "Latency p95",
+        "description": "95th-percentile span duration (ms)",
+    },
+    # Errors-derived signals
+    ("errors", "exception_volume"): {
+        "label": "Exception Volume",
+        "description": "Exception events per minute",
+    },
+    # RUM Web Vitals
+    ("rum_vitals", "LCP"): {
+        "label": "Largest Contentful Paint",
+        "description": "Core Web Vital: LCP (ms) – measures loading performance",
+    },
+    ("rum_vitals", "INP"): {
+        "label": "Interaction to Next Paint",
+        "description": "Core Web Vital: INP (ms) – measures interactivity",
+    },
+    ("rum_vitals", "CLS"): {
+        "label": "Cumulative Layout Shift",
+        "description": "Core Web Vital: CLS (unitless) – measures visual stability",
+    },
+    ("rum_vitals", "TTFB"): {
+        "label": "Time to First Byte",
+        "description": "Core Web Vital: TTFB (ms) – measures server response time",
+    },
+    ("rum_vitals", "FCP"): {
+        "label": "First Contentful Paint",
+        "description": "Core Web Vital: FCP (ms) – measures perceived load speed",
+    },
+    ("rum_vitals", "FID"): {
+        "label": "First Input Delay",
+        "description": "Core Web Vital: FID (ms) – measures input responsiveness",
+    },
+}
+
+# Human-friendly labels for signal sources.
+_SOURCE_LABELS: dict[str, str] = {
+    "logs": "Logs",
+    "traces": "Traces",
+    "errors": "Errors",
+    "rum_vitals": "RUM Vitals",
+    "metrics": "Metrics",
+}
+
+
+def signal_label(source: str, signal: str) -> str:
+    """Return a human-friendly label for a (source, signal) pair.
+
+    Falls back to the raw *signal* identifier when the pair is not registered.
+    """
+    entry = _SIGNAL_LABELS.get((source, signal))
+    if entry:
+        return entry["label"]
+    # Capitalise underscored names as a best-effort fallback.
+    return signal.replace("_", " ").title()
+
+
+def signal_description(source: str, signal: str) -> str:
+    """Return a short description for a (source, signal) pair, or empty string."""
+    entry = _SIGNAL_LABELS.get((source, signal))
+    return entry["description"] if entry else ""
+
+
+def source_label(source: str) -> str:
+    """Return a human-friendly label for a signal source.
+
+    Falls back to the raw *source* identifier when not registered.
+    """
+    return _SOURCE_LABELS.get(source, source.replace("_", " ").title())
+
+
+# Expose label helpers as Jinja2 globals so every template can call them
+# without explicit route-level injection.
+app.jinja_env.globals["signal_label"] = signal_label
+app.jinja_env.globals["signal_description"] = signal_description
+app.jinja_env.globals["source_label"] = source_label
+
+
+# ---------------------------------------------------------------------------
 # Web UI – Metrics (derived signal index)
 # ---------------------------------------------------------------------------
 @app.route("/metrics")
