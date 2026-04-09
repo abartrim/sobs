@@ -9,7 +9,7 @@ It is functional and being used, needs more polish and the custom (non-OTEL) tab
 
 ## Features
 
-- 🖥️ **Single service** – Python + embedded chDB; 768 MB–1 GB RAM when supporting millions of rows of data
+- 🖥️ **Single service** – Python + embedded chDB; 768 MB - 1 GB RAM when supporting millions of rows of data
 - 🗜️ **Compressed storage** – MergeTree schema uses ZSTD with selective Delta/T64 codecs
 - 🔭 **OpenTelemetry** – accepts OTLP (JSON and protobuf) for logs, traces, metrics
 - 🌐 **RUM** – client-side JS snippet with Web Vitals (LCP, CLS, INP, TTFB, FCP)
@@ -68,11 +68,11 @@ Prebuilt image published by CI:
 
 | Resource | Minimum | Notes |
 |----------|---------|-------|
-| **RAM**  | 768 MB – 1 GB | Realistic working set when processing millions of rows of telemetry data; chDB uses memory for query fan-out and caching |
+| **RAM**  | 768 MB - 1 GB | Realistic working set when processing millions of rows of telemetry data; chDB uses memory for query fan-out and caching |
 | **CPU**  | 1 vCPU  | Single-process Hypercorn + embedded chDB; more CPUs improve query throughput |
 | **Disk** | 1 GB+   | Data directory for embedded chDB state; grows with ingested volume |
 
-> **Note:** Earlier documentation stated a ~256 MB RAM target. In practice, with millions of rows of logs, traces, and metrics, the realistic working set is **768 MB – 1 GB**. Plan your deployment accordingly and use the chDB memory-optimization settings for constrained environments (see [PR #136](https://github.com/abartrim/sobs/pull/136) and the Kubernetes section below).
+> **Note:** Earlier documentation stated a ~256 MB RAM target. In practice, with millions of rows of logs, traces, and metrics, the realistic working set is **768 MB - 1 GB**. Plan your deployment accordingly and use the chDB memory-optimization settings for constrained environments (see [PR #136](https://github.com/abartrim/sobs/pull/136) and the Kubernetes section below).
 
 
 
