@@ -11617,7 +11617,8 @@ _SOURCE_LABELS: dict[str, str] = {
 def signal_label(source: str, signal: str) -> str:
     """Return a human-friendly label for a (source, signal) pair.
 
-    Falls back to the raw *signal* identifier when the pair is not registered.
+    Falls back to a title-cased version of *signal* when the pair is not
+    registered.
     """
     entry = _SIGNAL_LABELS.get((source, signal))
     if entry:

@@ -113,7 +113,7 @@
     {% if signal and source %}
     <span title="{{ source }}:{{ signal }}{% if signal_description(source, signal) %} – {{ signal_description(source, signal) }}{% endif %}">
       <span class="fw-semibold">{{ signal_label(source, signal) }}</span>
-      <span class="text-secondary font-monospace" style="font-size:0.75em;"> ({{ source }}:{{ signal }})</span>
+      <span class="text-secondary font-monospace signal-raw-id-inline"> ({{ source }}:{{ signal }})</span>
       {% if signal_description(source, signal) %}
       <span class="text-secondary small ms-1">— {{ signal_description(source, signal) }}</span>
       {% endif %}

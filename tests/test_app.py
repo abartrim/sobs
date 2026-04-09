@@ -7888,9 +7888,11 @@ class TestMetricsAnomalyDetection:
 
     def test_signal_label_unknown_source_known_signal(self):
         """signal_label falls back when source is unknown even if signal name matches another entry."""
-        result = sobs_app.signal_label("other_source", "log_volume")
-        # Falls back; "log_volume" under a different source is not in the registry
-        assert result == "Log Volume"
+        result = sobs_app.signal_label("other_source", "LCP")
+        # Falls back; "LCP" under a different source is not in the registry.
+        # If this accidentally cross-matches by signal name only, it would return
+        # "Largest Contentful Paint" instead of the fallback "Lcp".
+        assert result == "Lcp"
 
     def test_signal_description_known_signal(self):
         """signal_description returns the description for registered signals."""
