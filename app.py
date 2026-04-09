@@ -11664,6 +11664,7 @@ async def view_metrics():
     signal = selected_signals[0] if selected_signals else ""
     source = selected_sources[0] if selected_sources else ""
     attr_fp = request.args.get("attr_fp", "").strip()
+    q = request.args.get("q", "").strip()
     from_ts, to_ts, time_error = _parse_time_window_args()
     limit = _parse_limit(100)
     offset = _parse_offset()
@@ -11714,6 +11715,19 @@ async def view_metrics():
     hour_clause = ""
     if not from_ts and not to_ts:
         hour_clause = "time >= now() - INTERVAL ? HOUR"
+
+    rows: list[dict] = []
+    total = 0
+    error_msg = time_error
+    if q and not error_msg:
+        try:
+            re.compile(q, re.IGNORECASE)
+            where_parts.append("match(SignalName, ?)")
+            params.append(q)
+        except re.error as exc:
+            error_msg = f"Regex error: {exc}"
+
+    if hour_clause:
         params.append(hours)
 
     where_clause = ""
@@ -11722,9 +11736,6 @@ async def view_metrics():
     if hour_clause:
         where_clause = f"{where_clause} AND {hour_clause}" if where_clause else f" WHERE {hour_clause}"
 
-    rows: list[dict] = []
-    total = 0
-    error_msg = time_error
     if not error_msg:
         try:
             grouped_sql = (
@@ -11796,6 +11807,7 @@ async def view_metrics():
         source=source,
         selected_sources=selected_sources,
         attr_fp=attr_fp,
+        q=q,
         from_ts=from_ts,
         to_ts=to_ts,
         hours=hours,
@@ -12435,6 +12447,13 @@ async def view_errors():
             {"Timestamp": "Timestamp", "ServiceName": "ServiceName"},
             "Timestamp",
         )
+    q = request.args.get("q", "").strip()
+    error_msg = time_error or ""
+    if q and not error_msg:
+        try:
+            re.compile(q, re.IGNORECASE)
+        except re.error as exc:
+            error_msg = f"Regex error: {exc}"
     resolved_ids = _get_resolved_error_ids(db)
     where_parts = []
     where_params = []
@@ -12445,6 +12464,9 @@ async def view_errors():
     time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
     where_parts.extend(time_conditions)
     where_params.extend(time_params)
+    if q and not error_msg:
+        where_parts.append("match(Body, ?)")
+        where_params.append(q)
     where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
     if grouped_mode:
@@ -12629,7 +12651,8 @@ async def view_errors():
         selected_services=selected_services,
         from_ts=from_ts,
         to_ts=to_ts,
-        error_msg=time_error,
+        error_msg=error_msg,
+        q=q,
         resolved=resolved,
         services=services,
         sort_by=sort_by,
@@ -13342,6 +13365,13 @@ async def view_traces():
 
     conditions = []
     params = []
+    q = request.args.get("q", "").strip()
+    q_error = ""
+    if q:
+        try:
+            re.compile(q, re.IGNORECASE)
+        except re.error as exc:
+            q_error = f"Regex error: {exc}"
     if selected_services:
         placeholders = ",".join(["?"] * len(selected_services))
         conditions.append(f"ServiceName IN ({placeholders})")
@@ -13352,6 +13382,9 @@ async def view_traces():
     time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
     conditions.extend(time_conditions)
     params.extend(time_params)
+    if q and not q_error:
+        conditions.append("match(SpanName, ?)")
+        params.append(q)
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     if not where:
         total = _active_part_rows(db, "otel_traces")
@@ -13613,7 +13646,8 @@ async def view_traces():
         trace_id=trace_id,
         from_ts=from_ts,
         to_ts=to_ts,
-        error_msg=time_error,
+        error_msg=q_error or time_error,
+        q=q,
         services=services,
         sort_by=sort_by,
         sort_dir=sort_dir,
@@ -14634,6 +14668,14 @@ async def view_rum():
     order_clause = f"ORDER BY {sort_col} {'ASC' if sort_dir == 'asc' else 'DESC'}"
     from_ts, to_ts, time_error = _parse_time_window_args()
 
+    q = request.args.get("q", "").strip()
+    q_error = ""
+    if q:
+        try:
+            re.compile(q, re.IGNORECASE)
+        except re.error as exc:
+            q_error = f"Regex error: {exc}"
+
     conditions = []
     params = []
     if event_type:
@@ -14645,6 +14687,9 @@ async def view_rum():
     time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
     conditions.extend(time_conditions)
     params.extend(time_params)
+    if q and not q_error:
+        conditions.append("match(Body, ?)")
+        params.append(q)
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     total = 0
     events: list[dict[str, Any]] = []
@@ -14932,7 +14977,8 @@ async def view_rum():
         sort_dir=sort_dir,
         from_ts=from_ts,
         to_ts=to_ts,
-        error_msg=time_error,
+        q=q,
+        error_msg=q_error or time_error,
     )
 
 
@@ -20672,6 +20718,138 @@ async def api_logs_validate_regex():
         db = get_db()
         row = db.execute(
             "SELECT Body FROM otel_logs WHERE match(Body, ?) LIMIT 1",
+            [pattern],
+        ).fetchone()
+        sample = row[0] if row else None
+        _SAMPLE_MAX_LEN = 200
+        if sample and len(sample) > _SAMPLE_MAX_LEN:
+            sample = f"{sample[:_SAMPLE_MAX_LEN - 3]}..."
+        return jsonify({"ok": True, "sample": sample})
+    except Exception:
+        return jsonify({"ok": True, "sample": None})
+
+
+# ---------------------------------------------------------------------------
+# Errors Regex Validate API  POST /api/errors/validate-regex
+# Used by the regex autocomplete / IntelliSense on the Errors filter panel.
+# ---------------------------------------------------------------------------
+@app.route("/api/errors/validate-regex", methods=["POST"])
+@require_basic_auth
+async def api_errors_validate_regex():
+    """Validate a regex pattern used by /errors?q=... and return a sample match."""
+    payload = await request.get_json(silent=True)
+    pattern = str((payload or {}).get("pattern", "") or "").strip()
+    if not pattern:
+        return jsonify({"ok": True, "sample": None})
+
+    try:
+        re.compile(pattern, re.IGNORECASE)
+    except re.error as exc:
+        return jsonify({"ok": False, "error": str(exc), "sample": None})
+
+    try:
+        db = get_db()
+        row = db.execute(
+            f"SELECT Body FROM ({ERROR_SOURCES_SQL}) WHERE match(Body, ?) LIMIT 1",
+            [pattern],
+        ).fetchone()
+        sample = row[0] if row else None
+        _SAMPLE_MAX_LEN = 200
+        if sample and len(sample) > _SAMPLE_MAX_LEN:
+            sample = f"{sample[:_SAMPLE_MAX_LEN - 3]}..."
+        return jsonify({"ok": True, "sample": sample})
+    except Exception:
+        return jsonify({"ok": True, "sample": None})
+
+
+# ---------------------------------------------------------------------------
+# Traces Regex Validate API  POST /api/traces/validate-regex
+# Used by the regex autocomplete / IntelliSense on the Traces filter panel.
+# ---------------------------------------------------------------------------
+@app.route("/api/traces/validate-regex", methods=["POST"])
+@require_basic_auth
+async def api_traces_validate_regex():
+    """Validate a regex pattern used by /traces?q=... and return a sample match."""
+    payload = await request.get_json(silent=True)
+    pattern = str((payload or {}).get("pattern", "") or "").strip()
+    if not pattern:
+        return jsonify({"ok": True, "sample": None})
+
+    try:
+        re.compile(pattern, re.IGNORECASE)
+    except re.error as exc:
+        return jsonify({"ok": False, "error": str(exc), "sample": None})
+
+    try:
+        db = get_db()
+        row = db.execute(
+            "SELECT SpanName FROM otel_traces WHERE match(SpanName, ?) LIMIT 1",
+            [pattern],
+        ).fetchone()
+        sample = row[0] if row else None
+        _SAMPLE_MAX_LEN = 200
+        if sample and len(sample) > _SAMPLE_MAX_LEN:
+            sample = f"{sample[:_SAMPLE_MAX_LEN - 3]}..."
+        return jsonify({"ok": True, "sample": sample})
+    except Exception:
+        return jsonify({"ok": True, "sample": None})
+
+
+# ---------------------------------------------------------------------------
+# Metrics Regex Validate API  POST /api/metrics/validate-regex
+# Used by the regex autocomplete / IntelliSense on the Metrics filter panel.
+# ---------------------------------------------------------------------------
+@app.route("/api/metrics/validate-regex", methods=["POST"])
+@require_basic_auth
+async def api_metrics_validate_regex():
+    """Validate a regex pattern used by /metrics?q=... and return a sample match."""
+    payload = await request.get_json(silent=True)
+    pattern = str((payload or {}).get("pattern", "") or "").strip()
+    if not pattern:
+        return jsonify({"ok": True, "sample": None})
+
+    try:
+        re.compile(pattern, re.IGNORECASE)
+    except re.error as exc:
+        return jsonify({"ok": False, "error": str(exc), "sample": None})
+
+    try:
+        db = get_db()
+        row = db.execute(
+            "SELECT SignalName FROM v_derived_signals_anomaly WHERE match(SignalName, ?) LIMIT 1",
+            [pattern],
+        ).fetchone()
+        sample = row[0] if row else None
+        _SAMPLE_MAX_LEN = 200
+        if sample and len(sample) > _SAMPLE_MAX_LEN:
+            sample = f"{sample[:_SAMPLE_MAX_LEN - 3]}..."
+        return jsonify({"ok": True, "sample": sample})
+    except Exception:
+        return jsonify({"ok": True, "sample": None})
+
+
+# ---------------------------------------------------------------------------
+# RUM Regex Validate API  POST /api/rum/validate-regex
+# Used by the regex autocomplete / IntelliSense on the RUM filter panel.
+# ---------------------------------------------------------------------------
+@app.route("/api/rum/validate-regex", methods=["POST"])
+@require_basic_auth
+async def api_rum_validate_regex():
+    """Validate a regex pattern used by /rum?q=... and return a sample match."""
+    payload = await request.get_json(silent=True)
+    pattern = str((payload or {}).get("pattern", "") or "").strip()
+    if not pattern:
+        return jsonify({"ok": True, "sample": None})
+
+    try:
+        re.compile(pattern, re.IGNORECASE)
+    except re.error as exc:
+        return jsonify({"ok": False, "error": str(exc), "sample": None})
+
+    try:
+        db = get_db()
+        row = db.execute(
+            "SELECT Body FROM hyperdx_sessions WHERE match(Body, ?) LIMIT 1",
             [pattern],
         ).fetchone()
         sample = row[0] if row else None

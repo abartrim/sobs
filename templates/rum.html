@@ -777,6 +777,17 @@
     <div id="rumFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="rumFiltersHeading" data-bs-parent="#rumFiltersAccordion">
       <div class="accordion-body py-3 rum-filters-panel">
     <form method="get" class="d-flex flex-wrap align-items-end rum-filters-form sobs-filter-form">
+      <div style="flex: 2 0 200px; margin-right: 0.5rem; margin-bottom: 0.5rem;">
+        <label class="form-label small text-secondary">Search</label>
+        <div class="position-relative">
+          <input type="text" name="q" id="rum-regex-filter-input" class="form-control form-control-sm font-monospace"
+                 placeholder="regex search…" value="{{ q }}"
+                 autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox">
+          <ul id="rum-regex-ac-dropdown" role="listbox"
+              class="dropdown-menu p-0 font-monospace small"
+              style="display:none;position:absolute;top:100%;left:0;z-index:1060;min-width:100%;max-width:600px;max-height:min(400px,60vh);overflow-y:auto;"></ul>
+        </div>
+      </div>
       {{ render_single_select('type', 'Event type', ([{'value': '', 'label': 'All types'}] + event_types), event_type, '140px') }}
       {{ render_single_select('error_source', 'Error source', ([{'value': '', 'label': 'All sources'}] + error_sources), error_source, '160px') }}
       <div class="filter-date-group">
@@ -800,8 +811,8 @@
       <div class="rum-filter-actions">
         <input type="hidden" name="view" value="{{ view_mode }}">
         <div class="btn-group btn-group-sm rum-view-toggle" role="group" aria-label="RUM view mode">
-          <a href="{{ url_for('view_rum', view='sessions', type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, limit=limit, offset=0) }}" class="btn {% if view_mode == 'sessions' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">Sessions</a>
-          <a href="{{ url_for('view_rum', view='events', type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by='Timestamp', sort_dir='desc', limit=limit, offset=0) }}" class="btn {% if view_mode == 'events' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">Events</a>
+          <a href="{{ url_for('view_rum', view='sessions', type=event_type, error_source=error_source, q=q, from_ts=from_ts, to_ts=to_ts, limit=limit, offset=0) }}" class="btn {% if view_mode == 'sessions' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">Sessions</a>
+          <a href="{{ url_for('view_rum', view='events', type=event_type, error_source=error_source, q=q, from_ts=from_ts, to_ts=to_ts, sort_by='Timestamp', sort_dir='desc', limit=limit, offset=0) }}" class="btn {% if view_mode == 'events' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">Events</a>
         </div>
         <button type="submit" class="btn btn-primary btn-sm"
           data-ai-action-id="rum.filter.apply"
@@ -844,20 +855,20 @@
       {% set errors_next_dir = 'asc' if (sort_by == 'errors' and sort_dir == 'desc') else 'desc' %}
       <tr>
         <th style="width:160px;">
-          <a href="{{ url_for('view_rum', view='sessions', type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by='last_seen', sort_dir=last_seen_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
+          <a href="{{ url_for('view_rum', view='sessions', type=event_type, error_source=error_source, q=q, from_ts=from_ts, to_ts=to_ts, sort_by='last_seen', sort_dir=last_seen_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
             Last Seen {% if sort_by == 'last_seen' %}<small>{{ '↑' if sort_dir == 'asc' else '↓' }}</small>{% endif %}
           </a>
         </th>
         <th style="width:96px;">Session</th>
         <th style="width:360px;">
-          <a href="{{ url_for('view_rum', view='sessions', type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by='severity', sort_dir=severity_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
+          <a href="{{ url_for('view_rum', view='sessions', type=event_type, error_source=error_source, q=q, from_ts=from_ts, to_ts=to_ts, sort_by='severity', sort_dir=severity_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
             Overview {% if sort_by == 'severity' %}<small>{{ '↑' if sort_dir == 'asc' else '↓' }}</small>{% endif %}
           </a>
         </th>
         <th style="width:130px;">Latest event</th>
         <th>Last URL</th>
         <th style="width:110px;" class="text-end">
-          <a href="{{ url_for('view_rum', view='sessions', type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by='events', sort_dir=events_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
+          <a href="{{ url_for('view_rum', view='sessions', type=event_type, error_source=error_source, q=q, from_ts=from_ts, to_ts=to_ts, sort_by='events', sort_dir=events_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
             Events {% if sort_by == 'events' %}<small>{{ '↑' if sort_dir == 'asc' else '↓' }}</small>{% endif %}
           </a>
         </th>
@@ -1175,13 +1186,13 @@
       {% set type_next_dir = 'asc' if (sort_by == 'EventName' and sort_dir == 'desc') else 'desc' %}
       <tr>
         <th style="width:155px;">
-          <a href="{{ url_for('view_rum', view=view_mode, type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by='Timestamp', sort_dir=ts_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
+          <a href="{{ url_for('view_rum', view=view_mode, type=event_type, error_source=error_source, q=q, from_ts=from_ts, to_ts=to_ts, sort_by='Timestamp', sort_dir=ts_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
             Timestamp {% if sort_by == 'Timestamp' %}<small>{{ '↑' if sort_dir == 'asc' else '↓' }}</small>{% endif %}
           </a>
         </th>
         <th style="width:80px;">Session</th>
         <th style="width:110px;">
-          <a href="{{ url_for('view_rum', view=view_mode, type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by='EventName', sort_dir=type_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
+          <a href="{{ url_for('view_rum', view=view_mode, type=event_type, error_source=error_source, q=q, from_ts=from_ts, to_ts=to_ts, sort_by='EventName', sort_dir=type_next_dir, limit=limit, offset=0) }}" class="text-decoration-none text-reset">
             Type {% if sort_by == 'EventName' %}<small>{{ '↑' if sort_dir == 'asc' else '↓' }}</small>{% endif %}
           </a>
         </th>
@@ -1457,19 +1468,19 @@
     <small class="text-secondary">Showing {{ offset + 1 }}–{{ [offset + page_count, total] | min }} of {{ total }} {{ 'sessions' if view_mode == 'sessions' else 'events' }}</small>
     <select class="form-select form-select-sm" style="width:auto;" onchange="window.location.href=this.value" aria-label="Rows per page">
       {% for n in [10, 25, 50, 100, 200] %}
-      <option value="{{ url_for('view_rum', view=view_mode, type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=n, offset=0) }}" {% if limit == n %}selected{% endif %}>{{ n }} / page</option>
+      <option value="{{ url_for('view_rum', view=view_mode, type=event_type, error_source=error_source, q=q, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=n, offset=0) }}" {% if limit == n %}selected{% endif %}>{{ n }} / page</option>
       {% endfor %}
     </select>
   </div>
   <ul class="pagination pagination-sm mb-0">
     {% if offset > 0 %}
     <li class="page-item">
-      <a class="page-link" href="{{ url_for('view_rum', view=view_mode, type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=prev_offset) }}">← Prev</a>
+      <a class="page-link" href="{{ url_for('view_rum', view=view_mode, type=event_type, error_source=error_source, q=q, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=prev_offset) }}">← Prev</a>
     </li>
     {% endif %}
     {% if next_offset < total %}
     <li class="page-item">
-      <a class="page-link" href="{{ url_for('view_rum', view=view_mode, type=event_type, error_source=error_source, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=next_offset) }}">Next →</a>
+      <a class="page-link" href="{{ url_for('view_rum', view=view_mode, type=event_type, error_source=error_source, q=q, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=next_offset) }}">Next →</a>
     </li>
     {% endif %}
   </ul>
@@ -1648,6 +1659,16 @@
   </div>
 </div>
 <script>
+// ── Regex Filter: RUM page ────────────────────────────────────────────────
+{% include "_regex_filter_script.js" %}
+_sobsInitRegexFilter({
+  inputId: "rum-regex-filter-input",
+  dropdownId: "rum-regex-ac-dropdown",
+  validateUrl: {{ url_for('api_rum_validate_regex') | tojson }},
+  noMatchMessage: "Valid regex — no matching RUM events found.",
+  hintMessage: "Enter a regex pattern to search RUM event data."
+});
+
 // ── Saved Reports: RUM page ───────────────────────────────────────────────
 (function () {
   const group = document.getElementById('rum-reports-group');
