@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Errors Help{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1">Errors Help</h4>
+    <p class="text-secondary mb-0">Error tracking, one-click resolve, and grouped deduplication mode.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_errors') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Errors
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Browse &amp; Filter</h6>
+        <p class="small text-secondary mb-0">Filter errors by service, status (open/resolved), date range, and sort order to find what matters.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Resolve or Group</h6>
+        <p class="small text-secondary mb-0">Resolve individual errors with one click, or switch to Grouped mode to see deduplicated error families by count.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Drilldown</h6>
+        <p class="small text-secondary mb-0">Expand an error accordion to see the full stack trace, attributes, and a link to related log lines.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-funnel me-2 text-danger"></i>Filter Controls</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:20%">Control</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace">Service</td>
+          <td>Multi-select dropdown. Filter to one or more services or leave empty for all services.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Status</td>
+          <td><strong>Open</strong> (unresolved), <strong>Resolved</strong>, or <strong>All</strong>.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Sort by</td>
+          <td>In individual mode: <em>Timestamp</em> or <em>Service</em>. In grouped mode: <em>Count</em> (default), <em>Last Seen</em>, or <em>Service</em>.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Order</td>
+          <td>Ascending or descending sort direction.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">From / To</td>
+          <td>Date-time range filter. ISO date-time or relative shortcuts accepted.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-stack me-2 text-danger"></i>Grouped / Deduplicated Mode</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">
+      Click the <strong>Group</strong> button in the page header to enable best-effort deduplication.
+      SOBS groups recent errors by a fingerprint of <code>(service, error_type, message)</code>.
+    </p>
+    <ul class="small mb-2">
+      <li>Each group header shows a count badge (for example <code>×12</code>), plus <strong>first seen</strong> and <strong>last seen</strong> timestamps.</li>
+      <li>Sort groups by <strong>Count</strong> (most frequent first, default), <strong>Last Seen</strong>, or <strong>Service</strong>.</li>
+      <li>Expand a group accordion to browse the individual error stack traces within that group.</li>
+      <li>Click <strong>Grouped</strong> (active red state) to return to the individual-error view.</li>
+    </ul>
+    <div class="alert alert-secondary small py-2 mb-0">
+      <i class="bi bi-info-circle me-1"></i>
+      Grouping is <strong>best-effort</strong> — it operates on recent errors within the current filter window.
+      Very old errors that were created before the current date range filter may not appear in groups.
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-check-circle me-2 text-success"></i>Resolving Errors</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">Errors are tracked as <strong>open</strong> by default. To mark an error as resolved:</p>
+    <ol class="small mb-2">
+      <li>Expand the error accordion to reveal the full details.</li>
+      <li>Click the <strong>Resolve</strong> button in the error detail panel.</li>
+      <li>The error will be marked resolved and hidden from the default <em>Open</em> filter view.</li>
+    </ol>
+    <p class="small text-secondary mb-0">
+      To view resolved errors, change the <strong>Status</strong> filter to <em>Resolved</em> or <em>All</em>.
+    </p>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-link-45deg me-2"></i>Log Context Links</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-0">
+      Each error detail panel includes a <strong>View Logs</strong> link that navigates to the Logs page
+      pre-filtered to the same service and time window as the error event. This helps correlate
+      application log output with the error stack trace.
+    </p>
+  </div>
+</div>
+
+<div class="card border-secondary mb-0">
+  <div class="card-header fw-semibold"><i class="bi bi-database me-2"></i>Ingest &amp; API</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:35%">Endpoint</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace small">POST /v1/errors</td>
+          <td>Direct error submission (JSON). Accepts stack trace, service, type, message.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">POST /v1/traces</td>
+          <td>OTLP trace spans with <code>otel.status_code=ERROR</code> are also surfaced on the Errors page.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">POST /errors/&lt;error_id&gt;/resolve</td>
+          <td>Mark a specific error as resolved (also available via the UI resolve button).</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

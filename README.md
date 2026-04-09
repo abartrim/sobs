@@ -3,33 +3,39 @@
 ## This is still very much a WIP - Alpha. Hoping to get a v1 one out by April 10.
 It is functional and being used, needs more polish and the custom (non-OTEL) tables may change.
 
-**SOBS** is a lightweight, single-user OpenTelemetry-compatible telemetry container focused on simplicity and transparency. It collects **Logs**, **Errors**, **Traces**, **RUM** (Real User Monitoring), and **AI call transparency** — all in one tiny container you can run as a standalone pod or sidecar.
+**SOBS** is a single-user OpenTelemetry-compatible telemetry container focused on simplicity and transparency. It collects **Logs**, **Errors**, **Traces**, **RUM** (Real User Monitoring), **Web Traffic analytics**, and **AI call transparency** — all in one container you can run as a standalone pod or sidecar.
 
 ![Summary AI Assistant](static/help/summary_ai_assistant.png)
 
 ## Features
 
-- 📦 **Tiny** – single Python service + embedded chDB, ~256 MB RAM target
+- 🖥️ **Single service** – Python + embedded chDB; 768 MB–1 GB RAM when supporting millions of rows of data
 - 🗜️ **Compressed storage** – MergeTree schema uses ZSTD with selective Delta/T64 codecs
 - 🔭 **OpenTelemetry** – accepts OTLP (JSON and protobuf) for logs, traces, metrics
 - 🌐 **RUM** – client-side JS snippet with Web Vitals (LCP, CLS, INP, TTFB, FCP)
-- 🐛 **Error tracking** – with stack traces and one-click resolve
+- 🗺️ **Web Traffic** – geo map, browser/OS/timezone/language/device analytics from RUM data with date-range filters
+- 🛡️ **CVE enrichment** – daily auto-scan of detected libraries against OSV.dev, with per-finding dispositions
+- 🐛 **Error tracking** – with stack traces, one-click resolve, and grouped/deduplicated view
 - 🤖 **AI transparency** – record LLM prompts, responses and token usage
 - 💬 **Contextual AI Assistant** – bottom-right in-app assistant for page-aware help and guided UI actions
-- 🔍 **Search** – grep (regex) and SQL WHERE clause filtering on logs
+- 🔍 **Search** – grep (regex, with autocomplete/IntelliSense) and SQL WHERE clause filtering on logs
+- 🎨 **ANSI color rendering** – colorized log output with on/off toggle
 - 🏷️ **Tag-aware log SQL assistant** – `has_tag()` helper, SQL filter validation, and field hints/autocomplete on Logs
 - 📊 **Query statistics** – collapsible logs analytics panel with query-scoped level/service distributions
 - 🧠 **Manual advanced log analysis** – on-demand message pattern clustering, keyword signals, and optimization hints
 - 📚 **Saved reports** – persist and re-apply filter sets across Logs, Traces, Errors, Metrics, RUM, and AI pages
+- 🗃️ **Multi-select filters** – all filter panels support multi-value service/level/status selection
 - 🧷 **GitHub work items** – track agent-created or agent-reused GitHub issues in a dedicated Work Items UI
 - 🧠 **Issue dedupe and noise control** – local-LLM-assisted reuse/link/create decisions before opening more GitHub work
 - 🧮 **Natural-language Query page** – NL→SQL over embedded chDB with read-only SQL guardrails and chart/dashboard actions
+- 🔬 **Table Explorer** – visual schema and sample-data browser for all allowed observability tables
 - 🔔 **Notifications & Webhooks** – Slack, webhook, email, and browser push channels with rule-based dispatch
 - 📡 **Live tail** – SSE endpoint (`/tail`) for real-time streaming of logs and traces
 - ⚡ **Live logs mode** – optional in-page streaming on Logs with pause-on-scroll and queued event counter
 - 📈 **Metrics & Signals** – top-level Metrics page with derived telemetry signals and anomaly status
 - 🧩 **Auto rule generation** – preview/create metric anomaly rules from recent derived-signal history
 - 🗂️ **Auto dashboard generation** – build a derived-signal dashboard directly from active metric rules
+- 💾 **Data Management** – TTL retention windows, S3 backup/restore, optional backup encryption
 - ✨ **First-run visual tour** – one-time onboarding modal with flow overview and quick-tour reopen entry
 - 🎨 **Bootstrap 5 theming** – served locally with light/dark/system theme toggle, no CDN required
 - 🐳 **Docker ready** – Dockerfile + docker-compose + Kubernetes manifests
@@ -58,7 +64,17 @@ Prebuilt image published by CI:
 
 `ghcr.io/abartrim/sobs:latest`
 
-## Runtime Modes
+## System Requirements
+
+| Resource | Minimum | Notes |
+|----------|---------|-------|
+| **RAM**  | 768 MB – 1 GB | Realistic working set when processing millions of rows of telemetry data; chDB uses memory for query fan-out and caching |
+| **CPU**  | 1 vCPU  | Single-process Hypercorn + embedded chDB; more CPUs improve query throughput |
+| **Disk** | 1 GB+   | Data directory for embedded chDB state; grows with ingested volume |
+
+> **Note:** Earlier documentation stated a ~256 MB RAM target. In practice, with millions of rows of logs, traces, and metrics, the realistic working set is **768 MB – 1 GB**. Plan your deployment accordingly and use the chDB memory-optimization settings for constrained environments (see [PR #136](https://github.com/abartrim/sobs/pull/136) and the Kubernetes section below).
+
+
 
 - Local and production process manager:
   - `python app.py` starts Hypercorn.
@@ -746,6 +762,56 @@ Advanced analysis outputs include:
 - detected error families (for example, `TimeoutError`, `ConnectionRefusedError`)
 - top message keywords
 - actionable optimization hints based on severity mix, repetition, and timeout signals
+
+## Web Traffic & CVE Enrichment
+
+### Web Traffic
+
+The **Web Traffic** page (`/web-traffic`) visualises RUM event data as geo and distribution analytics:
+
+- **World map** – visitor countries rendered with Apache ECharts.
+- **Distribution charts** – browsers, operating systems, display timezones, languages, and device types.
+- All charts support date-range filtering via the filter bar.
+- Route: `GET /web-traffic`
+
+Data requires at least one RUM event to be ingested.  Enable **IP geo-lookup** in **Settings → Enrichment** to
+populate the country map.
+
+### CVE Enrichment
+
+The **CVE Findings** page (`/enrichment/cve`) surfaces known vulnerabilities detected in the software libraries observed from your OTEL attributes:
+
+- **Automated daily scan** – library names are extracted from incoming OTEL attributes and checked against [OSV.dev](https://osv.dev/) (no API key required).
+- **Manual trigger** – use the *Scan now* button to re-scan on demand.
+- **Disposition tracking** – mark each finding as *false positive*, *accepted*, *won't fix*, or *resolved*.
+- Enable scanning under **Settings → Enrichment → CVE Scanning**.
+
+API endpoints:
+
+- `GET /api/enrichment/cve/findings`
+- `POST /api/enrichment/cve/scan`
+- `POST /api/enrichment/cve/findings/<osv_id>/disposition`
+
+## Errors – Grouped/Deduplicated View
+
+The **Errors** page supports a best-effort deduplicated view.
+
+- Click the **Group** button in the page header to switch to grouped mode (`?grouped=1`).
+- Groups are formed by fingerprinting `(service, error_type, message)` across recent errors.
+- Each group shows a count badge (×N), `first_seen`, and `last_seen` timestamps.
+- Sort grouped results by **Count** (default), **Last Seen**, or **Service**.
+- Click **Grouped** (active state) to return to the individual-error view.
+
+## Table Explorer
+
+The **Table Explorer** page (`/table-explorer`) provides a read-only visual schema and sample-data browser for all observability tables permitted by the Query page allow-list.
+
+- **Search** – filter tables or columns by name in real time.
+- **Schema** – expand any table to see column names and data types.
+- **Sample data** – view up to 10 sample rows per table.
+- Accessible from the **Query** page via the *Explore Tables* link.
+
+Route: `GET /table-explorer`
 
 ## Kubernetes
 

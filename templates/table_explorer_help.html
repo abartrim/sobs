@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Table Explorer Help{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1">Table Explorer Help</h4>
+    <p class="text-secondary mb-0">Browse allowed observability table schemas and sample data. Read-only view.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_table_explorer') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Table Explorer
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Find a Table</h6>
+        <p class="small text-secondary mb-0">Use the search box to filter tables or columns by name in real time.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Inspect Schema</h6>
+        <p class="small text-secondary mb-0">Expand a table card to see every column name and its data type.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>View Sample Data</h6>
+        <p class="small text-secondary mb-0">Preview up to 10 sample rows to understand what data each table holds.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-grid-3x3 me-2 text-primary"></i>Available Tables</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:30%">Table / View</th>
+          <th>Contents</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace small">otel_logs</td>
+          <td>OpenTelemetry log records ingested via <code>/v1/logs</code>.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">otel_traces</td>
+          <td>OpenTelemetry trace/span records ingested via <code>/v1/traces</code>.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">hyperdx_sessions</td>
+          <td>Browser RUM session records ingested via <code>/v1/rum</code>.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">otel_metrics_gauge</td>
+          <td>OTEL gauge metric data points.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">otel_metrics_sum</td>
+          <td>OTEL sum (counter/monotonic) metric data points.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">otel_metrics_histogram</td>
+          <td>OTEL histogram metric data points.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">v_otel_metrics_1m</td>
+          <td>1-minute metric rollup view (derived from gauge/sum/histogram).</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">v_otel_metrics_anomaly</td>
+          <td>Anomaly detection view computed over recent metric windows.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">v_derived_signals_anomaly</td>
+          <td>Derived anomaly signals view used by the Metrics Rules system.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-shield-lock me-2 text-warning"></i>Access Control</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">
+      The Table Explorer only exposes tables on the <strong>Query page allow-list</strong>.
+      Internal SOBS configuration tables (prefixed with <code>sobs_</code>) are never shown.
+    </p>
+    <ul class="small mb-2">
+      <li>All data access is <strong>read-only</strong>. No writes, updates, or deletes are possible.</li>
+      <li>Sample data is limited to a small number of rows per table (up to 10).</li>
+      <li>Additional tables can be added to the allow-list via the <code>SOBS_QUERY_ALLOWED_TABLES</code> environment variable.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-0">
+  <div class="card-header fw-semibold"><i class="bi bi-link-45deg me-2"></i>Integration with the Query Page</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-0">
+      The Table Explorer is linked from the <a href="{{ url_for('view_query') }}"><strong>Query</strong></a> page
+      via the <em>Explore Tables</em> button in the page header.
+      Use it to discover column names and data shapes before writing a natural-language query or custom SQL.
+    </p>
+  </div>
+</div>
+{% endblock %}

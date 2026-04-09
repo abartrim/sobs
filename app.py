@@ -18329,6 +18329,24 @@ async def data_management_help():
     return await render_template("data_management_help.html")
 
 
+@app.route("/web-traffic/help")
+@require_basic_auth
+async def web_traffic_help():
+    return await render_template("web_traffic_help.html")
+
+
+@app.route("/errors/help")
+@require_basic_auth
+async def errors_help():
+    return await render_template("errors_help.html")
+
+
+@app.route("/table-explorer/help")
+@require_basic_auth
+async def table_explorer_help():
+    return await render_template("table_explorer_help.html")
+
+
 @app.route("/dashboards/<dashboard_id>/delete", methods=["POST"])
 @require_basic_auth
 async def delete_dashboard(dashboard_id: str):
