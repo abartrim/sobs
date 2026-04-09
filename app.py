@@ -330,6 +330,12 @@ APP_REGISTRY_SEED_JSON_FILE_ENV = "SOBS_APP_REGISTRY_SEED_JSON_FILE"
 CHDB_CONFIG_FILE_ENV = "SOBS_CLICKHOUSE_CONFIG_FILE"
 CHDB_EXPECT_DISK_ENV = "SOBS_CHDB_EXPECT_DISK"
 CHDB_EXPECT_POLICY_ENV = "SOBS_CHDB_EXPECT_STORAGE_POLICY"
+CHDB_MAX_SERVER_MB_ENV = "SOBS_CHDB_MAX_SERVER_MB"
+CHDB_MARK_CACHE_MB_ENV = "SOBS_CHDB_MARK_CACHE_MB"
+CHDB_UNCOMPRESSED_CACHE_MB_ENV = "SOBS_CHDB_UNCOMPRESSED_CACHE_MB"
+CHDB_MAX_THREADS_ENV = "SOBS_CHDB_MAX_THREADS"
+CHDB_SPILL_GROUP_BY_MB_ENV = "SOBS_CHDB_SPILL_GROUP_BY_MB"
+CHDB_SPILL_SORT_MB_ENV = "SOBS_CHDB_SPILL_SORT_MB"
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(RUM_ASSET_DIR, exist_ok=True)
@@ -533,39 +539,74 @@ PARTITION BY toDate(TimeUnixMs)
 ORDER BY (ServiceName, MetricName, AttrFingerprint, TimeUnixMs, TimeUnix)
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
-CREATE VIEW IF NOT EXISTS v_otel_metrics_1m AS
-SELECT
+-- Materialized table for pre-aggregated 1-minute metrics using AggregatingMergeTree.
+-- This reduces memory pressure on trace context queries by pre-storing aggregated state.
+CREATE TABLE IF NOT EXISTS otel_metrics_1m_agg (
+    ServiceName String,
+    MetricName String,
+    AttrFingerprint String,
+    MetricKind String,
+    MinuteBucket DateTime,
+    Value AggregateFunction(avg, Float64),
+    SampleCount AggregateFunction(sum, UInt64)
+) ENGINE = AggregatingMergeTree()
+ORDER BY (ServiceName, MetricName, AttrFingerprint, MetricKind, MinuteBucket)
+PARTITION BY toYYYYMM(MinuteBucket);
+
+-- Materialized view to insert gauge metrics into the aggregated table.
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_otel_metrics_1m_gauge
+TO otel_metrics_1m_agg
+AS SELECT
     ServiceName,
     MetricName,
     AttrFingerprint,
     'gauge' AS MetricKind,
     toStartOfMinute(TimeUnix) AS MinuteBucket,
-    avg(Value) AS Value,
-    count() AS SampleCount
+    avgState(Value) AS Value,
+    sumState(toUInt64(1)) AS SampleCount
 FROM otel_metrics_gauge
-GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket
-UNION ALL
-SELECT
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
+
+-- Materialized view to insert sum metrics into the aggregated table.
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_otel_metrics_1m_sum
+TO otel_metrics_1m_agg
+AS SELECT
     ServiceName,
     MetricName,
     AttrFingerprint,
     'sum' AS MetricKind,
     toStartOfMinute(TimeUnix) AS MinuteBucket,
-    avg(Value) AS Value,
-    count() AS SampleCount
+    avgState(Value) AS Value,
+    sumState(toUInt64(1)) AS SampleCount
 FROM otel_metrics_sum
-GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket
-UNION ALL
-SELECT
+GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
+
+-- Materialized view to insert histogram metrics into the aggregated table.
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_otel_metrics_1m_histogram
+TO otel_metrics_1m_agg
+AS SELECT
     ServiceName,
     MetricName,
     AttrFingerprint,
     'histogram' AS MetricKind,
     toStartOfMinute(TimeUnix) AS MinuteBucket,
-    avg(if(Count > 0, Sum / Count, 0)) AS Value,
-    sum(Count) AS SampleCount
+    avgState(if(Count > 0, Sum / Count, 0)) AS Value,
+    sumState(Count) AS SampleCount
 FROM otel_metrics_histogram
 GROUP BY ServiceName, MetricName, AttrFingerprint, MinuteBucket;
+
+-- Canonical 1-minute metrics view backed by aggregate-state rollups.
+CREATE OR REPLACE VIEW v_otel_metrics_1m AS
+SELECT
+    ServiceName,
+    MetricName,
+    AttrFingerprint,
+    MetricKind,
+    MinuteBucket,
+    avgMerge(Value) AS Value,
+    sumMerge(SampleCount) AS SampleCount
+FROM otel_metrics_1m_agg
+GROUP BY ServiceName, MetricName, AttrFingerprint, MetricKind, MinuteBucket;
 
 CREATE VIEW IF NOT EXISTS v_otel_metrics_anomaly AS
 SELECT
@@ -1474,12 +1515,34 @@ INNER JOIN dedup_points AS m
 def _build_chdb_connect_target(path: str) -> str:
     """Build chDB connect target, optionally adding startup args via query params."""
     config_file = os.environ.get(CHDB_CONFIG_FILE_ENV, "").strip()
-    if not config_file:
-        return path
-    if not os.path.isabs(config_file):
-        raise RuntimeError(f"{CHDB_CONFIG_FILE_ENV} must be an absolute path to a mounted ClickHouse config.xml")
-    encoded = urllib.parse.quote(config_file, safe="/")
-    return f"file:{path}?config-file={encoded}"
+    if config_file:
+        if not os.path.isabs(config_file):
+            raise RuntimeError(f"{CHDB_CONFIG_FILE_ENV} must be an absolute path to a mounted ClickHouse config.xml")
+        encoded = urllib.parse.quote(config_file, safe="/")
+        return f"{path}?config-file={encoded}"
+
+    # Apply low-memory defaults; override via env vars for larger deployments.
+    # Important: use the plain directory path with query params, not a file: URL.
+    # For directory-backed chDB stores, file:/... opens a different logical DB
+    # than the plain path on this runtime.
+    max_server_mb = int(os.environ.get(CHDB_MAX_SERVER_MB_ENV, "768"))
+    mark_cache_mb = int(os.environ.get(CHDB_MARK_CACHE_MB_ENV, "64"))
+    # ClickHouse defaults uncompressed_cache_size to max(128MB, RAM*1%), which
+    # exhausts a 160MB cap before any query runs. Default to 4MB for embedded use.
+    uncompressed_cache_mb = int(os.environ.get(CHDB_UNCOMPRESSED_CACHE_MB_ENV, "64"))
+    params = urllib.parse.urlencode(
+        {
+            "max_server_memory_usage": max_server_mb * 1024 * 1024,
+            "mark_cache_size": mark_cache_mb * 1024 * 1024,
+            "uncompressed_cache_size": uncompressed_cache_mb * 1024 * 1024,
+            # Reduce background thread-pool sizes for an embedded single-process
+            # deployment; defaults (16 / 128 / 16) inflate RSS at init time.
+            "background_pool_size": 2,
+            "background_schedule_pool_size": 16,
+            "background_io_pool_size": 2,
+        }
+    )
+    return f"{path}?{params}"
 
 
 def _validate_chdb_startup_configuration(conn: "ChDbConnection") -> None:
@@ -1548,6 +1611,19 @@ class ChDbConnection:
         self._conn = chdb_driver.connect(connect_target)
         self._lock = threading.Lock()
         self._closed = False
+        # Apply session-level memory settings for low-memory embedded operation.
+        # max_threads reduces per-query parallelism; the spill settings allow
+        # GROUP BY / ORDER BY to overflow to disk rather than OOM the container.
+        try:
+            _max_threads = int(os.environ.get(CHDB_MAX_THREADS_ENV, "1"))
+            _spill_gb_mb = int(os.environ.get(CHDB_SPILL_GROUP_BY_MB_ENV, "32"))
+            _spill_sort_mb = int(os.environ.get(CHDB_SPILL_SORT_MB_ENV, "32"))
+            _cur = self._conn.cursor()
+            _cur.execute(f"SET max_threads = {_max_threads}")
+            _cur.execute(f"SET max_bytes_before_external_group_by = {_spill_gb_mb * 1024 * 1024}")
+            _cur.execute(f"SET max_bytes_before_external_sort = {_spill_sort_mb * 1024 * 1024}")
+        except Exception as _e:
+            log.warning("chDB: failed to apply session memory settings: %s", _e)
         try:
             _validate_chdb_startup_configuration(self)
         except Exception:
@@ -1599,6 +1675,8 @@ _work_items_page_cache: dict[tuple[str, str, str, str, str, str, int, int], dict
 _work_items_filter_cache: dict[str, Any] = {"expires_at": 0.0, "services": [], "rules": []}
 _errors_cache_lock = threading.Lock()
 _errors_services_cache: dict[str, Any] = {"expires_at": 0.0, "services": []}
+_summary_stats_cache_lock = threading.Lock()
+_summary_stats_cache: dict[str, Any] = {"expires_at": 0.0, "data": {}}
 
 WRITE_QUEUE_MAX = int(os.environ.get("SOBS_WRITE_QUEUE_MAX", 5000))
 WRITE_BATCH_MAX = int(os.environ.get("SOBS_WRITE_BATCH_MAX", 200))
@@ -1607,6 +1685,7 @@ LOG_ATTR_KEYS_MAX = int(os.environ.get("SOBS_LOG_ATTR_KEYS_MAX", 20000))
 WORK_ITEMS_PAGE_CACHE_TTL_SEC = int(os.environ.get("SOBS_WORK_ITEMS_PAGE_CACHE_TTL_SEC", "10"))
 WORK_ITEMS_FILTER_CACHE_TTL_SEC = int(os.environ.get("SOBS_WORK_ITEMS_FILTER_CACHE_TTL_SEC", "30"))
 ERRORS_SERVICES_CACHE_TTL_SEC = int(os.environ.get("SOBS_ERRORS_SERVICES_CACHE_TTL_SEC", "30"))
+SUMMARY_STATS_CACHE_TTL_SEC = int(os.environ.get("SOBS_SUMMARY_STATS_CACHE_TTL_SEC", "60"))
 
 
 @dataclass
@@ -5689,6 +5768,7 @@ def _build_agent_context_summary(db: ChDbConnection, trigger_context: dict) -> s
             "SELECT ServiceName, Name AS Signal, anomaly_state "
             "FROM v_derived_signals_anomaly "
             "WHERE anomaly_state != 'normal' "
+            "AND time >= now() - INTERVAL 2 HOUR "
             "LIMIT 5"
         ).fetchall()
         if anom_rows:
@@ -9566,6 +9646,18 @@ def _get_resolved_error_ids(db) -> set[str]:
     return {str(r[0]) for r in db.execute("SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId").fetchall()}
 
 
+def _active_part_rows(db, table_name: str) -> int:
+    row = db.execute(
+        "SELECT COALESCE(sum(rows), 0) AS c "
+        "FROM system.parts "
+        "WHERE active = 1 AND database = currentDatabase() AND table = ?",
+        [table_name],
+    ).fetchone()
+    if not row:
+        return 0
+    return int(row["c"] or 0)
+
+
 # ---------------------------------------------------------------------------
 # Web UI – Summary
 # ---------------------------------------------------------------------------
@@ -9575,27 +9667,50 @@ async def summary():
     db = get_db()
     resolved_ids = _get_resolved_error_ids(db)
     error_items = []
-    for row in db.execute(f"SELECT * FROM ({ERROR_SOURCES_SQL}) ORDER BY Timestamp DESC").fetchall():
+    for row in db.execute(
+        f"SELECT * FROM ({ERROR_SOURCES_SQL})"
+        " WHERE Timestamp >= now() - INTERVAL 48 HOUR"
+        " ORDER BY Timestamp DESC"
+        " LIMIT 500"
+    ).fetchall():
         item = _build_error_item(dict(row))
         item["resolved"] = item["id"] in resolved_ids
         error_items.append(item)
 
-    unresolved_count = sum(0 if item["resolved"] else 1 for item in error_items)
+    _now = time.monotonic()
+    with _summary_stats_cache_lock:
+        _cached_stats: dict[str, Any] = (
+            _summary_stats_cache["data"] if _summary_stats_cache["expires_at"] > _now else {}
+        )
+    if not _cached_stats:
+        all_error_rows = db.execute(f"SELECT * FROM ({ERROR_SOURCES_SQL})").fetchall()
+        unresolved_total = 0
+        for row in all_error_rows:
+            error_id = _build_error_item(dict(row))["id"]
+            if error_id not in resolved_ids:
+                unresolved_total += 1
+
+        _cached_stats = {
+            "logs": _active_part_rows(db, "otel_logs"),
+            "spans": _active_part_rows(db, "otel_traces"),
+            "rum": _active_part_rows(db, "hyperdx_sessions"),
+            "ai": db.execute("SELECT COUNT(*) FROM otel_traces " f"WHERE {_AI_SPAN_CONDITION}").fetchone()[0],
+            "errors_total": len(all_error_rows),
+            "errors": unresolved_total,
+            "services": [
+                r[0]
+                for r in db.execute(
+                    "SELECT DISTINCT ServiceName FROM otel_logs WHERE ServiceName!='' "
+                    "UNION DISTINCT SELECT DISTINCT ServiceName FROM otel_traces WHERE ServiceName!='' "
+                    "UNION DISTINCT SELECT DISTINCT ServiceName FROM hyperdx_sessions WHERE ServiceName!=''"
+                ).fetchall()
+            ],
+        }
+        with _summary_stats_cache_lock:
+            _summary_stats_cache["expires_at"] = _now + SUMMARY_STATS_CACHE_TTL_SEC
+            _summary_stats_cache["data"] = _cached_stats
     stats = {
-        "logs": db.execute("SELECT COUNT(*) FROM otel_logs").fetchone()[0],
-        "errors": unresolved_count,
-        "errors_total": len(error_items),
-        "spans": db.execute("SELECT COUNT(*) FROM otel_traces").fetchone()[0],
-        "rum": db.execute("SELECT COUNT(*) FROM hyperdx_sessions").fetchone()[0],
-        "ai": db.execute("SELECT COUNT(*) FROM otel_traces " f"WHERE {_AI_SPAN_CONDITION}").fetchone()[0],
-        "services": [
-            r[0]
-            for r in db.execute(
-                "SELECT DISTINCT ServiceName FROM otel_logs WHERE ServiceName!='' "
-                "UNION DISTINCT SELECT DISTINCT ServiceName FROM otel_traces WHERE ServiceName!='' "
-                "UNION DISTINCT SELECT DISTINCT ServiceName FROM hyperdx_sessions WHERE ServiceName!=''"
-            ).fetchall()
-        ],
+        **_cached_stats,
     }
     # Recent errors (last 5)
     recent_errors = [
@@ -9946,7 +10061,10 @@ async def view_logs():
                 "SELECT Timestamp, SeverityText, ServiceName, Body, TraceId, SpanId " f"FROM otel_logs {query_where} "
             )
 
-            total = db.execute(f"SELECT COUNT(*) FROM otel_logs {query_where}", query_params).fetchone()[0]
+            if not query_where:
+                total = _active_part_rows(db, "otel_logs")
+            else:
+                total = db.execute(f"SELECT COUNT(*) FROM otel_logs {query_where}", query_params).fetchone()[0]
             rows = db.execute(
                 f"{select_base}{order_clause} LIMIT ? OFFSET ?",
                 query_params + [limit, offset],
@@ -10220,18 +10338,37 @@ def _validate_user_sql_where(sql_where: str) -> None:
 
 
 def _list_derived_signal_dimensions(db: ChDbConnection) -> tuple[list[str], list[str], list[str]]:
+    # ServiceName: query raw tables with LowCardinality indexes — avoids a full
+    # 12-way UNION ALL scan through the derived-signals view.
     services = [
         row[0]
-        for row in db.execute("SELECT DISTINCT ServiceName FROM v_derived_signals_1m ORDER BY ServiceName").fetchall()
+        for row in db.execute(
+            "SELECT DISTINCT ServiceName FROM otel_logs WHERE ServiceName != ''"
+            " UNION DISTINCT SELECT DISTINCT ServiceName FROM otel_traces WHERE ServiceName != ''"
+            " UNION DISTINCT SELECT DISTINCT ServiceName FROM hyperdx_sessions WHERE ServiceName != ''"
+            " ORDER BY ServiceName"
+        ).fetchall()
     ]
-    signals = [
-        row[0]
-        for row in db.execute("SELECT DISTINCT SignalName FROM v_derived_signals_1m ORDER BY SignalName").fetchall()
-    ]
-    sources = [
-        row[0]
-        for row in db.execute("SELECT DISTINCT SignalSource FROM v_derived_signals_1m ORDER BY SignalSource").fetchall()
-    ]
+    # SignalName / SignalSource are a static enumeration determined by the view
+    # definition — no DB query needed.
+    signals = sorted(
+        [
+            "log_volume",
+            "error_volume",
+            "error_ratio",
+            "trace_volume",
+            "trace_error_ratio",
+            "latency_p95_ms",
+            "exception_volume",
+            "LCP",
+            "FID",
+            "CLS",
+            "INP",
+            "TTFB",
+            "FCP",
+        ]
+    )
+    sources = ["errors", "logs", "rum_vitals", "traces"]
     return services, signals, sources
 
 
@@ -12655,34 +12792,41 @@ def _fetch_trace_metric_context(
         bucket_ms = max(1, duration_ms // num_buckets)
         ticks_ms = [int(start_ms_int + (i + 0.5) * bucket_ms) for i in range(num_buckets)]
         metric_phs = ",".join(["?"] * len(top_metric_names))
-        if time_parse_mode == "utc":
-            start_clause = "TimeUnix >= parseDateTime64BestEffort(?, 9, 'UTC')"
-            end_clause = "TimeUnix <= parseDateTime64BestEffort(?, 9, 'UTC')"
-        else:
-            start_clause = "TimeUnix >= parseDateTime64BestEffort(?, 9)"
-            end_clause = "TimeUnix <= parseDateTime64BestEffort(?, 9)"
-        ts_where_parts = [
-            start_clause,
-            end_clause,
-            f"MetricName IN ({metric_phs})",
-        ] + list(extra_clauses)
-        ts_where_sql = " AND ".join(ts_where_parts)
-        ts_params: list[object] = [query_start_ts, query_end_ts] + list(top_metric_names) + list(extra_params)
-        ts_dedup = (
-            f"SELECT MetricName, TimeUnix, argMin(Value, SourceRank) AS Value "
-            f"FROM v_otel_metrics_dedup WHERE {ts_where_sql} "
-            f"GROUP BY MetricName, TimeUnix, AttrFingerprint"
-        )
-        ts_rows = db.execute(
-            f"SELECT MetricName, "
-            f"intDiv(toUnixTimestamp64Milli(TimeUnix) - {start_ms_int}, {bucket_ms}) AS BucketIdx, "
-            f"round(avg(Value), 6) AS AvgVal "
-            f"FROM ({ts_dedup}) AS src "
-            f"WHERE BucketIdx >= 0 AND BucketIdx < {num_buckets} "
-            f"GROUP BY MetricName, BucketIdx "
-            f"ORDER BY MetricName, BucketIdx",
-            ts_params,
-        ).fetchall()
+        # Prefer explicit UTC parsing for live telemetry; fallback to default
+        # parser to keep fixtures/older datasets working.
+        parse_modes = ["utc", "default"] if time_parse_mode != "default" else ["default", "utc"]
+        ts_rows: list[Any] = []
+        for mode in parse_modes:
+            if mode == "utc":
+                start_clause = "TimeUnix >= parseDateTime64BestEffort(?, 9, 'UTC')"
+                end_clause = "TimeUnix <= parseDateTime64BestEffort(?, 9, 'UTC')"
+            else:
+                start_clause = "TimeUnix >= parseDateTime64BestEffort(?, 9)"
+                end_clause = "TimeUnix <= parseDateTime64BestEffort(?, 9)"
+            ts_where_parts = [
+                start_clause,
+                end_clause,
+                f"MetricName IN ({metric_phs})",
+            ] + list(extra_clauses)
+            ts_where_sql = " AND ".join(ts_where_parts)
+            ts_params: list[object] = [query_start_ts, query_end_ts] + list(top_metric_names) + list(extra_params)
+            ts_dedup = (
+                f"SELECT MetricName, TimeUnix, argMin(Value, SourceRank) AS Value "
+                f"FROM v_otel_metrics_dedup WHERE {ts_where_sql} "
+                f"GROUP BY MetricName, TimeUnix, AttrFingerprint"
+            )
+            ts_rows = db.execute(
+                f"SELECT MetricName, "
+                f"intDiv(toUnixTimestamp64Milli(TimeUnix) - {start_ms_int}, {bucket_ms}) AS BucketIdx, "
+                f"round(avg(Value), 6) AS AvgVal "
+                f"FROM ({ts_dedup}) AS src "
+                f"WHERE BucketIdx >= 0 AND BucketIdx < {num_buckets} "
+                f"GROUP BY MetricName, BucketIdx "
+                f"ORDER BY MetricName, BucketIdx",
+                ts_params,
+            ).fetchall()
+            if ts_rows:
+                break
         by_metric: dict[str, list[float | None]] = {mn: [None] * num_buckets for mn in top_metric_names}
         for r in ts_rows:
             mname = str(r["MetricName"])
@@ -12864,6 +13008,9 @@ def _fetch_trace_metric_context(
             ctx["match_dimensions"] = dims
             # Enrich with time-series, groups, and health chips.
             raw_series = cast(list[dict[str, object]], ctx.get("series") or [])
+            # Keep sparklines aligned with visible metric rows from the context query.
+            # We preserve the currently available top metric set and prioritize CPU when
+            # present, so users can quickly compare core workload signals.
             top_names = [str(s["metric"]) for s in raw_series[:6]]
             # Ensure CPU is in timeseries if available.
             cpu_metric = next(
@@ -12872,10 +13019,7 @@ def _fetch_trace_metric_context(
             )
             final_top_names = top_names
             if cpu_metric and cpu_metric not in top_names:
-                if len(top_names) >= 6:
-                    final_top_names = [cpu_metric] + top_names[:5]
-                else:
-                    final_top_names = [cpu_metric] + top_names
+                final_top_names = [cpu_metric] + top_names
             elif cpu_metric:
                 final_top_names = [cpu_metric] + [m for m in top_names if m != cpu_metric]
             timeseries: dict[str, object] = {"ticks_ms": [], "by_metric": {}}
@@ -12943,7 +13087,10 @@ async def view_traces():
     conditions.extend(time_conditions)
     params.extend(time_params)
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    total = db.execute(f"SELECT COUNT(*) FROM otel_traces {where}", params).fetchone()[0]
+    if not where:
+        total = _active_part_rows(db, "otel_traces")
+    else:
+        total = db.execute(f"SELECT COUNT(*) FROM otel_traces {where}", params).fetchone()[0]
     rows = db.execute(
         f"SELECT Timestamp, TraceId, SpanId, ParentSpanId, SpanName, ServiceName, Duration, StatusCode, SpanAttributes "
         f"FROM otel_traces {where} {order_clause} LIMIT ? OFFSET ?",
@@ -13084,6 +13231,7 @@ async def view_traces():
                     anomaly_row = db.execute(
                         "SELECT anomaly_state FROM v_derived_signals_anomaly "
                         "WHERE ServiceName=? AND SignalSource='traces' "
+                        "AND time >= now() - INTERVAL 48 HOUR "
                         "ORDER BY time DESC LIMIT 1",
                         [svc],
                     ).fetchone()
@@ -14229,7 +14377,10 @@ async def view_rum():
                     }
                 )
     else:
-        total = db.execute(f"SELECT COUNT(*) FROM hyperdx_sessions {where}", params).fetchone()[0]
+        if not where:
+            total = _active_part_rows(db, "hyperdx_sessions")
+        else:
+            total = db.execute(f"SELECT COUNT(*) FROM hyperdx_sessions {where}", params).fetchone()[0]
         rows = db.execute(
             f"SELECT Timestamp, EventName, Body, LogAttributes, TraceId, SpanId FROM hyperdx_sessions {where} "
             f"{order_clause} LIMIT ? OFFSET ?",
@@ -14447,7 +14598,10 @@ async def view_web_traffic():
     time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
     where = ("WHERE " + " AND ".join(time_conditions)) if time_conditions else ""
 
-    total = db.execute(f"SELECT COUNT(*) FROM hyperdx_sessions {where}", time_params).fetchone()[0]
+    if not where:
+        total = _active_part_rows(db, "hyperdx_sessions")
+    else:
+        total = db.execute(f"SELECT COUNT(*) FROM hyperdx_sessions {where}", time_params).fetchone()[0]
 
     top_urls_rows = db.execute(
         f"SELECT LogAttributes['url'] AS url, COUNT(*) AS cnt "
@@ -15407,9 +15561,7 @@ async def view_ai():
                 else:
                     trace_conditions.append("TraceId != ''")
                     trace_where = "WHERE " + " AND ".join(trace_conditions)
-                total = db.execute(f"SELECT COUNT(DISTINCT TraceId) FROM otel_traces {trace_where}", params).fetchone()[
-                    0
-                ]
+                total = db.execute(f"SELECT uniq(TraceId) FROM otel_traces {trace_where}", params).fetchone()[0]
                 trace_rows = db.execute(
                     f"SELECT TraceId, MAX(Timestamp) AS LastTs FROM otel_traces "
                     f"{trace_where} GROUP BY TraceId "
@@ -15618,52 +15770,53 @@ async def view_ai():
     operations: list[str] = []
     span_names: list[str] = []
     totals: dict[str, int] = {"ti": 0, "to_": 0, "cnt": 0, "errors": 0}
+    metadata_sample_rows = 25000
+
+    metadata_time_conditions, metadata_time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
+    metadata_base_conditions = [_AI_SPAN_CONDITION]
+    if metadata_time_conditions:
+        metadata_base_conditions.extend(metadata_time_conditions)
+    metadata_base_where = " AND ".join(metadata_base_conditions)
+    metadata_source_sql = (
+        "SELECT Timestamp, ServiceName, SpanName, SpanAttributes "
+        "FROM otel_traces "
+        f"WHERE {metadata_base_where} "
+        "ORDER BY Timestamp DESC LIMIT ?"
+    )
+    metadata_source_params = list(metadata_time_params) + [metadata_sample_rows]
+
+    def _fetch_distinct_ai_metadata_values(select_expr: str, extra_where: str = "") -> list[str]:
+        where_suffix = f"WHERE {extra_where}" if extra_where else ""
+        rows = db.execute(
+            f"SELECT DISTINCT {select_expr} AS v " f"FROM ({metadata_source_sql}) recent_ai {where_suffix}",
+            metadata_source_params,
+        ).fetchall()
+        values = [str(row[0]) for row in rows if str(row[0]).strip()]
+        return sorted(set(values))
 
     try:
-        services = [
-            row[0]
-            for row in db.execute(
-                f"SELECT DISTINCT ServiceName FROM otel_traces "
-                f"WHERE {_AI_SPAN_CONDITION} "
-                "AND ServiceName!='' ORDER BY ServiceName"
-            ).fetchall()
-        ]
+        services = _fetch_distinct_ai_metadata_values("ServiceName", "ServiceName != ''")
     except Exception as exc:
         metadata_errors.append(f"services={_public_dashboard_query_error(exc)}")
 
     try:
-        models = [
-            row[0]
-            for row in db.execute(
-                "SELECT DISTINCT SpanAttributes['gen_ai.request.model'] AS model FROM otel_traces "
-                f"WHERE {_AI_SPAN_CONDITION} "
-                "AND SpanAttributes['gen_ai.request.model'] != '' ORDER BY model"
-            ).fetchall()
-        ]
+        models = _fetch_distinct_ai_metadata_values(
+            "SpanAttributes['gen_ai.request.model']",
+            "SpanAttributes['gen_ai.request.model'] != ''",
+        )
     except Exception as exc:
         metadata_errors.append(f"models={_public_dashboard_query_error(exc)}")
 
     try:
-        operations = [
-            row[0]
-            for row in db.execute(
-                "SELECT DISTINCT SpanAttributes['gen_ai.operation.name'] AS op FROM otel_traces "
-                f"WHERE {_AI_SPAN_CONDITION} "
-                "AND SpanAttributes['gen_ai.operation.name'] != '' ORDER BY op"
-            ).fetchall()
-        ]
+        operations = _fetch_distinct_ai_metadata_values(
+            "SpanAttributes['gen_ai.operation.name']",
+            "SpanAttributes['gen_ai.operation.name'] != ''",
+        )
     except Exception as exc:
         metadata_errors.append(f"operations={_public_dashboard_query_error(exc)}")
 
     try:
-        span_names = [
-            row[0]
-            for row in db.execute(
-                f"SELECT DISTINCT SpanName FROM otel_traces "
-                f"WHERE {_AI_SPAN_CONDITION} "
-                "AND SpanName != '' ORDER BY SpanName"
-            ).fetchall()
-        ]
+        span_names = _fetch_distinct_ai_metadata_values("SpanName", "SpanName != ''")
     except Exception as exc:
         metadata_errors.append(f"span_names={_public_dashboard_query_error(exc)}")
 
@@ -18411,16 +18564,18 @@ async def chart_spec_options_api():
 
     if source_view == "v_derived_signals_anomaly":
         services = _distinct_values(
-            "SELECT DISTINCT ServiceName AS v " "FROM v_derived_signals_anomaly " "ORDER BY v " f"LIMIT {limit}"
+            "SELECT DISTINCT ServiceName AS v "
+            "FROM v_derived_signals_anomaly "
+            "WHERE time >= now() - INTERVAL 24 HOUR "
+            "ORDER BY v "
+            f"LIMIT {limit}"
         )
-        signal_where = ""
-        if signal_source:
-            signal_where = f"WHERE SignalSource = {_sql_literal(signal_source)} "
         signals = _distinct_values(
             "SELECT DISTINCT SignalName AS v "
             "FROM v_derived_signals_anomaly "
-            f"{signal_where}"
-            "ORDER BY v "
+            f"{'WHERE' if signal_source else 'WHERE'} time >= now() - INTERVAL 24 HOUR"
+            + (f" AND SignalSource = {_sql_literal(signal_source)}" if signal_source else "")
+            + " ORDER BY v "
             f"LIMIT {limit}"
         )
     elif source_view in {"otel_logs", "otel_traces"}:
@@ -20875,6 +21030,7 @@ def _collect_anomaly_agent_events(db: ChDbConnection) -> dict[str, dict[str, obj
         "SELECT ServiceName, SignalSource, SignalName, AttrFingerprint, "
         "argMax(value, time) AS value, argMax(SampleCount, time) AS SampleCount "
         "FROM v_derived_signals_anomaly "
+        "WHERE time >= now() - INTERVAL 24 HOUR "
         "GROUP BY ServiceName, SignalSource, SignalName, AttrFingerprint"
     ).fetchall()
     if not rows:
@@ -23911,6 +24067,7 @@ _QUERY_ALLOWED_TABLES_BUILTIN: frozenset[str] = frozenset(
         "otel_metrics_histogram_pinned",
         "sobs_anomaly_rules",
         "sobs_raw_windows",
+        "otel_metrics_1m_agg",
         "v_derived_signals_1m",
         "v_otel_metrics_1m",
         "v_otel_metrics_signal_context",
@@ -24200,6 +24357,9 @@ class ChdbSqlRunner:
                 "sobs_anomaly_rules => metric/anomaly rule definitions (threshold/comparator config),",
                 "not time-series values",
                 "v_derived_signals_1m => derived 1-minute signal values used as rule inputs",
+                "v_otel_metrics_1m => finalized 1-minute metric rollups for charts and trend queries",
+                "otel_metrics_1m_agg => aggregate-state backing table for 1-minute metrics; query with ",
+                "avgMerge(Value) and sumMerge(SampleCount) grouped by the dimension columns when using it directly",
                 "v_derived_signals_anomaly and v_otel_metrics_anomaly => anomaly-scored signal/metric outputs",
                 "",
                 "Signal windows:",
@@ -24250,6 +24410,11 @@ Rules:
     closest real table/column names from the provided schema.
 - Terminology disambiguation:
   - `sobs_anomaly_rules` = metric/anomaly rule definitions (configuration rows).
+    - `v_otel_metrics_1m` = finalized 1-minute metric rollups for trend/chart queries.
+    - `otel_metrics_1m_agg` = aggregate-state backing table for those 1-minute metric rollups.
+        If you query it directly, you MUST use `avgMerge(Value)` and `sumMerge(SampleCount)` and
+        `GROUP BY ServiceName, MetricName, AttrFingerprint, MetricKind, MinuteBucket` (or a subset
+        that still includes every selected non-aggregated column).
   - `v_derived_signals_1m` = derived signal time series before anomaly scoring.
   - `v_derived_signals_anomaly` and `v_otel_metrics_anomaly` = scored outputs with
       anomaly_state and anomaly_score.
@@ -24259,6 +24424,8 @@ Rules:
     query `sobs_anomaly_rules` first.
 - If asked about signal trends/values over time, prefer `v_derived_signals_1m`
     unless anomaly state/score is explicitly requested.
+- Prefer `v_otel_metrics_1m` over `otel_metrics_1m_agg` for normal charts unless the user
+    explicitly wants aggregate-state internals or a query that benefits from direct `avgMerge` access.
 - For signal, anomaly, alert, or incident-window questions, prefer
     `sobs_raw_windows` for window metadata and
     `v_otel_metrics_signal_context` for metrics that occurred inside those windows.
