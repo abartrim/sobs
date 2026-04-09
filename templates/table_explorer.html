@@ -1,0 +1,424 @@
+{% extends "base.html" %}
+{% block title %}Table Explorer{% endblock %}
+
+{% block content %}
+<div class="table-explorer-page">
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div class="d-flex align-items-center gap-2">
+    <i class="bi bi-grid-3x3 fs-4 text-primary"></i>
+    <h4 class="mb-0">Table Explorer</h4>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <a href="{{ url_for('view_query') }}" class="btn btn-sm btn-outline-secondary" onclick="if (window.history.length > 1) { window.history.back(); return false; }">
+      <i class="bi bi-arrow-left me-1"></i>Back
+    </a>
+  </div>
+</div>
+<p class="text-secondary small mb-3">
+  Inspect allowed database tables, column schemas, and sample data. Read-only view.
+</p>
+
+<!-- Search and filter bar -->
+<div class="mb-3 d-flex align-items-center gap-2">
+  <div class="input-group input-group-sm" style="max-width:360px;">
+    <span class="input-group-text"><i class="bi bi-search"></i></span>
+    <input type="text" id="tableSearchInput" class="form-control" placeholder="Search tables or columns…" autocomplete="off">
+    <button id="tableClearSearch" class="btn btn-outline-secondary d-none" type="button" title="Clear search">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+  <span id="tableCountBadge" class="badge text-bg-secondary d-none"></span>
+  <div id="explorerSpinner" class="spinner-border spinner-border-sm text-secondary ms-1 d-none" role="status"></div>
+</div>
+
+<!-- Error alert -->
+<div id="explorerError" class="alert alert-danger d-none" role="alert"></div>
+
+<!-- Table list -->
+<div id="tableList" class="table-explorer-list"></div>
+
+<!-- Empty state -->
+<div id="explorerEmpty" class="d-none text-center text-secondary py-5">
+  <i class="bi bi-inbox fs-2 d-block mb-2"></i>
+  <div class="small">No tables match your search.</div>
+</div>
+
+<style>
+.table-explorer-list,
+.table-explorer-list .card,
+.table-explorer-list .collapse,
+.table-explorer-list .card-body {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.table-explorer-page {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.table-explorer-list .card-header {
+  min-width: 0;
+}
+
+.table-explorer-list .card-header .font-monospace {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-schema-scroll,
+.table-sample-scroll {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-schema-scroll table,
+.table-sample-scroll table {
+  min-width: 100%;
+  width: max-content;
+}
+
+.table-schema-scroll th,
+.table-schema-scroll td,
+.table-sample-scroll th,
+.table-sample-scroll td {
+  white-space: nowrap;
+}
+</style>
+
+<script>
+(function () {
+  'use strict';
+
+  var allTables = [];
+  var expandedTable = null;
+  var tableDetailCache = {};
+
+  var listEl = document.getElementById('tableList');
+  var searchInput = document.getElementById('tableSearchInput');
+  var clearBtn = document.getElementById('tableClearSearch');
+  var countBadge = document.getElementById('tableCountBadge');
+  var spinner = document.getElementById('explorerSpinner');
+  var errorEl = document.getElementById('explorerError');
+  var emptyEl = document.getElementById('explorerEmpty');
+
+  function showError(msg) {
+    errorEl.textContent = msg;
+    errorEl.classList.remove('d-none');
+  }
+
+  function hideError() {
+    errorEl.classList.add('d-none');
+  }
+
+  function setLoading(on) {
+    spinner.classList.toggle('d-none', !on);
+  }
+
+  // ------------------------------------------------------------------
+  // Rendering helpers
+  // ------------------------------------------------------------------
+
+  function escHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function typeLabel(col) {
+    var t = col.type || '';
+    // Trim LowCardinality wrapper for display brevity
+    t = t.replace(/^LowCardinality\((.+)\)$/, '$1');
+    return t;
+  }
+
+  function keyBadges(col) {
+    var parts = [];
+    if (col.is_primary_key) parts.push('<span class="badge text-bg-warning" title="Primary key">PK</span>');
+    if (col.is_sorting_key && !col.is_primary_key) parts.push('<span class="badge text-bg-info" title="Sorting key">SK</span>');
+    if (col.is_partition_key) parts.push('<span class="badge text-bg-secondary" title="Partition key">PART</span>');
+    return parts.join(' ');
+  }
+
+  function nullableBadge(col) {
+    if (col.is_nullable) return '<span class="badge text-bg-light border text-secondary" title="Nullable">NULL</span>';
+    return '<span class="badge text-bg-light border text-secondary" style="opacity:0.4;" title="Not nullable">NOT NULL</span>';
+  }
+
+  function buildColumnsTable(cols) {
+    if (!cols || !cols.length) {
+      return '<div class="text-secondary small p-2">No column information available.</div>';
+    }
+    var html = '<div class="table-responsive table-schema-scroll">'
+      + '<table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">'
+      + '<thead class="table-light"><tr>'
+      + '<th class="fw-semibold">Column</th>'
+      + '<th class="fw-semibold">Type</th>'
+      + '<th class="fw-semibold">Keys</th>'
+      + '<th class="fw-semibold">Nullable</th>'
+      + '<th class="fw-semibold">Default</th>'
+      + '</tr></thead><tbody>';
+    cols.forEach(function (col) {
+      var defKind = col.default_kind ? escHtml(col.default_kind) : '<span class="text-secondary">—</span>';
+      html += '<tr>'
+        + '<td class="font-monospace">' + escHtml(col.name) + '</td>'
+        + '<td class="font-monospace text-secondary">' + escHtml(typeLabel(col)) + '</td>'
+        + '<td>' + keyBadges(col) + '</td>'
+        + '<td>' + nullableBadge(col) + '</td>'
+        + '<td>' + defKind + '</td>'
+        + '</tr>';
+    });
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  function buildSampleTable(sample) {
+    if (!sample || !sample.columns || !sample.columns.length) {
+      return '<div class="text-secondary small p-2">No sample data available.</div>';
+    }
+    if (!sample.rows || !sample.rows.length) {
+      return '<div class="text-secondary small p-2">Table appears to be empty.</div>';
+    }
+    var html = '<div class="table-responsive table-sample-scroll">'
+      + '<table class="table table-sm table-hover mb-0" style="font-size:0.78rem;">'
+      + '<thead class="table-light"><tr>';
+    sample.columns.forEach(function (c) {
+      html += '<th class="font-monospace fw-semibold">' + escHtml(c) + '</th>';
+    });
+    html += '</tr></thead><tbody>';
+    sample.rows.forEach(function (row) {
+      html += '<tr>';
+      row.forEach(function (cell) {
+        var display = cell === null || cell === undefined ? '<span class="text-secondary">NULL</span>' : escHtml(String(cell));
+        html += '<td>' + display + '</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  function buildDdlBlock(ddl) {
+    if (!ddl) return '';
+    return '<div class="mt-2">'
+      + '<div class="d-flex align-items-center gap-2 mb-1">'
+      + '<span class="small fw-semibold text-secondary"><i class="bi bi-code-square me-1"></i>DDL</span>'
+      + '<button class="btn btn-sm btn-outline-secondary py-0 px-2 copy-ddl-btn" title="Copy DDL">'
+      + '<i class="bi bi-clipboard"></i></button></div>'
+      + '<pre class="p-2 rounded small mb-0" style="background:var(--bs-tertiary-bg);border:1px solid var(--bs-border-color);'
+      + 'white-space:pre-wrap;word-break:break-all;max-height:180px;overflow-y:auto;">'
+      + escHtml(ddl) + '</pre></div>';
+  }
+
+  // ------------------------------------------------------------------
+  // Card building / expand logic
+  // ------------------------------------------------------------------
+
+  function renderTableCard(t, searchTerm) {
+    var cardId = 'tbl-card-' + t.name;
+    var collapseId = 'tbl-collapse-' + t.name;
+    var isExpanded = expandedTable === t.name;
+
+    var highlightName = t.name;
+    if (searchTerm) {
+      var re = new RegExp('(' + searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+      highlightName = t.name.replace(re, '<mark>$1</mark>');
+    }
+
+    var html = '<div class="card border-secondary mb-2" id="' + escHtml(cardId) + '">'
+      + '<div class="card-header d-flex align-items-center gap-2 py-2" style="cursor:pointer;" '
+      + 'data-table="' + escHtml(t.name) + '" onclick="tableExplorerToggle(this)">'
+      + '<i class="bi bi-table text-primary"></i>'
+      + '<span class="fw-semibold font-monospace">' + highlightName + '</span>'
+      + '<span class="badge text-bg-secondary ms-1">' + (t.column_count || t.columns.length) + ' cols</span>'
+      + '<i class="bi ms-auto toggle-icon ' + (isExpanded ? 'bi-chevron-up' : 'bi-chevron-down') + '"></i>'
+      + '</div>'
+      + '<div class="collapse' + (isExpanded ? ' show' : '') + '" id="' + escHtml(collapseId) + '">'
+      + '<div class="card-body p-0">'
+      + '<div class="p-2 border-bottom">'
+      + buildColumnsTable(t.columns)
+      + '</div>'
+      + '<div id="detail-' + escHtml(t.name) + '" class="px-2 py-2">'
+      + (isExpanded && tableDetailCache[t.name]
+          ? buildDetailSection(tableDetailCache[t.name])
+          : '<div class="text-secondary small text-center py-2"><span class="spinner-border spinner-border-sm me-1"></span>Loading sample data…</div>')
+      + '</div>'
+      + '</div>'
+      + '</div>'
+      + '</div>';
+    return html;
+  }
+
+  function buildDetailSection(detail) {
+    return '<div class="mb-2">'
+      + '<div class="small fw-semibold text-secondary mb-1"><i class="bi bi-list-ul me-1"></i>Sample Data <span class="text-muted">(up to 5 rows)</span></div>'
+      + buildSampleTable(detail.sample)
+      + '</div>'
+      + buildDdlBlock(detail.ddl);
+  }
+
+  // ------------------------------------------------------------------
+  // Data loading
+  // ------------------------------------------------------------------
+
+  async function loadTables() {
+    setLoading(true);
+    hideError();
+    try {
+      var resp = await fetch('{{ url_for("api_table_explorer_tables") }}');
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      var data = await resp.json();
+      if (!data.ok) throw new Error(data.error || 'Failed to load tables');
+      allTables = data.tables || [];
+      renderList('');
+    } catch (e) {
+      showError('Failed to load table list: ' + (e && e.message ? e.message : String(e)));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadTableDetail(name) {
+    if (tableDetailCache[name]) {
+      return tableDetailCache[name];
+    }
+    try {
+      var resp = await fetch('{{ url_for("api_table_explorer_table", name="__NAME__") }}'.replace('__NAME__', encodeURIComponent(name)));
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      var data = await resp.json();
+      if (!data.ok) throw new Error(data.error || 'Failed to load table detail');
+      tableDetailCache[name] = data;
+      return data;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Rendering
+  // ------------------------------------------------------------------
+
+  function renderList(searchTerm) {
+    var term = (searchTerm || '').toLowerCase().trim();
+    var filtered = allTables.filter(function (t) {
+      if (!term) return true;
+      if (t.name.toLowerCase().includes(term)) return true;
+      return t.columns && t.columns.some(function (c) {
+        return c.name.toLowerCase().includes(term) || c.type.toLowerCase().includes(term);
+      });
+    });
+
+    countBadge.textContent = filtered.length + ' / ' + allTables.length + ' tables';
+    countBadge.classList.toggle('d-none', allTables.length === 0);
+
+    if (!filtered.length) {
+      listEl.innerHTML = '';
+      emptyEl.classList.toggle('d-none', !term);
+      return;
+    }
+    emptyEl.classList.add('d-none');
+
+    var html = '';
+    filtered.forEach(function (t) {
+      html += renderTableCard(t, term);
+    });
+    listEl.innerHTML = html;
+
+    // Re-attach copy DDL listeners
+    listEl.querySelectorAll('.copy-ddl-btn').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var pre = btn.closest('.card-body').querySelector('pre');
+        if (pre) {
+          navigator.clipboard && navigator.clipboard.writeText(pre.textContent);
+          btn.innerHTML = '<i class="bi bi-check2"></i>';
+          setTimeout(function () { btn.innerHTML = '<i class="bi bi-clipboard"></i>'; }, 1500);
+        }
+      });
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Toggle / expand
+  // ------------------------------------------------------------------
+
+  window.tableExplorerToggle = async function (headerEl) {
+    var name = headerEl.getAttribute('data-table');
+    var collapseEl = document.getElementById('tbl-collapse-' + name);
+    var icon = headerEl.querySelector('.toggle-icon');
+    if (!collapseEl) return;
+
+    var isOpen = collapseEl.classList.contains('show');
+    if (isOpen) {
+      collapseEl.classList.remove('show');
+      icon && icon.classList.replace('bi-chevron-up', 'bi-chevron-down');
+      expandedTable = null;
+      return;
+    }
+
+    // Open this card
+    collapseEl.classList.add('show');
+    icon && icon.classList.replace('bi-chevron-down', 'bi-chevron-up');
+    expandedTable = name;
+
+    // Load detail if not cached
+    var detailEl = document.getElementById('detail-' + name);
+    if (detailEl && !tableDetailCache[name]) {
+      var detail = await loadTableDetail(name);
+      if (detailEl) {
+        if (detail) {
+          detailEl.innerHTML = buildDetailSection(detail);
+          // Attach DDL copy listener for newly rendered button
+          var copyBtn = detailEl.querySelector('.copy-ddl-btn');
+          if (copyBtn) {
+            copyBtn.addEventListener('click', function (e) {
+              e.stopPropagation();
+              var pre = detailEl.querySelector('pre');
+              if (pre) {
+                navigator.clipboard && navigator.clipboard.writeText(pre.textContent);
+                copyBtn.innerHTML = '<i class="bi bi-check2"></i>';
+                setTimeout(function () { copyBtn.innerHTML = '<i class="bi bi-clipboard"></i>'; }, 1500);
+              }
+            });
+          }
+        } else {
+          detailEl.innerHTML = '<div class="text-danger small p-2">Failed to load sample data.</div>';
+        }
+      }
+    }
+  };
+
+  // ------------------------------------------------------------------
+  // Search
+  // ------------------------------------------------------------------
+
+  searchInput.addEventListener('input', function () {
+    var val = searchInput.value;
+    clearBtn.classList.toggle('d-none', !val);
+    renderList(val);
+  });
+
+  clearBtn.addEventListener('click', function () {
+    searchInput.value = '';
+    clearBtn.classList.add('d-none');
+    renderList('');
+    searchInput.focus();
+  });
+
+  // ------------------------------------------------------------------
+  // Init
+  // ------------------------------------------------------------------
+
+  loadTables();
+})();
+</script>
+</div>
+{% endblock %}

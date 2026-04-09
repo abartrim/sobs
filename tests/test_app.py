@@ -33,9 +33,15 @@ _LIVE_TEST_DEFAULT_GUARD_MODEL = "llama-guard3:1b"
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
+    previous_testing = app.config.get("TESTING")
+    app.config["TESTING"] = True
     init_db()
     yield
     sobs_app._shutdown_db_resources()
+    if previous_testing is None:
+        app.config.pop("TESTING", None)
+    else:
+        app.config["TESTING"] = previous_testing
 
 
 @pytest.fixture
@@ -431,6 +437,34 @@ except RuntimeError as exc:
 
 
 class TestDbBootstrap:
+    async def test_init_db_skips_example_seed_when_testing(self):
+        data_dir = tempfile.mkdtemp(prefix="sobs-chdb-testing-init-")
+        script = """
+import app as sobs_app
+
+sobs_app.app.config['TESTING'] = True
+sobs_app.init_db()
+
+dashboard_row = sobs_app.get_db().execute(
+    \"SELECT count() AS c FROM sobs_dashboards FINAL WHERE IsDeleted = 0 AND Name = ?\",
+    ['Example Derived Signals'],
+).fetchone()
+rule_row = sobs_app.get_db().execute(
+    \"SELECT count() AS c FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 AND ServiceName = ?\",
+    ['trace-svc-0'],
+).fetchone()
+
+print(f\"dashboards={dashboard_row['c']}\")
+print(f\"rules={rule_row['c']}\")
+sobs_app._shutdown_db_resources()
+"""
+
+        result = TestStorageConfiguration._run_probe_script(script, {"SOBS_DATA_DIR": data_dir})
+
+        assert result.returncode == 0, result.stderr
+        assert "dashboards=0" in result.stdout
+        assert "rules=0" in result.stdout
+
     async def test_first_dashboard_and_rum_request_bootstrap_schema(self, client):
         """Schema tables must exist and key routes must be functional after init_db()."""
         r = await client.get("/")
@@ -3479,6 +3513,45 @@ class TestUIPages:
         assert a_hex in data
         assert b_hex in data
 
+    async def test_errors_grouped_mode_deduplicates_and_shows_count(self, client):
+        """Grouped errors view should deduplicate identical errors and show an occurrence count."""
+        # Post three identical errors from the same service with the same type and message
+        for i in range(3):
+            await client.post(
+                "/v1/errors",
+                json={
+                    "service": "dedup-test-svc",
+                    "type": "DedupError",
+                    "message": "dedup test error message",
+                    "timestamp": f"2024-06-01T12:0{i}:00Z",
+                },
+            )
+
+        # Post one different error to ensure it is counted separately
+        await client.post(
+            "/v1/errors",
+            json={
+                "service": "dedup-test-svc",
+                "type": "OtherError",
+                "message": "a different error message",
+                "timestamp": "2024-06-01T12:05:00Z",
+            },
+        )
+
+        r = await client.get("/errors?grouped=1&service=dedup-test-svc&resolved=")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+
+        # The count badge for 3 occurrences should appear
+        assert "×3" in body
+        # The deduplicated error message should appear
+        assert "dedup test error message" in body
+        # First/last seen labels should appear for the grouped entry
+        assert "First seen:" in body
+        assert "Last seen:" in body
+        # The page should show "groups" not "records" in the header
+        assert "matching groups" in body
+
     async def test_root_mode_uses_root_relative_links(self, client):
         """Default deployment should generate links/assets without a path prefix."""
         r = await client.get("/")
@@ -4781,7 +4854,11 @@ class TestGenAICompliance:
 
             def execute(self, sql, params=None):
                 sql_text = str(sql)
-                if "SELECT DISTINCT ServiceName FROM otel_traces" in sql_text:
+                # Match both legacy and current metadata queries so this test
+                # keeps validating graceful degradation as query shape evolves.
+                if "SELECT DISTINCT ServiceName FROM otel_traces" in sql_text or (
+                    "SELECT DISTINCT ServiceName AS v" in sql_text and "recent_ai" in sql_text
+                ):
                     raise RuntimeError("simulated metadata query failure")
                 if params is None:
                     return self._inner_db.execute(sql)
@@ -11640,6 +11717,15 @@ class TestChdbSqlRunner:
         """Querying an allowed view (v_otel_metrics_1m) is permitted."""
         sobs_app.ChdbSqlRunner.validate_sql("SELECT * FROM v_otel_metrics_1m LIMIT 1")
 
+    def test_validate_sql_aggregate_metrics_table_is_allowed(self):
+        """Aggregate-state table is permitted when queries merge states explicitly."""
+        sobs_app.ChdbSqlRunner.validate_sql(
+            "SELECT ServiceName, MinuteBucket, avgMerge(Value) AS Value, "
+            "sumMerge(SampleCount) AS SampleCount "
+            "FROM otel_metrics_1m_agg "
+            "GROUP BY ServiceName, MinuteBucket LIMIT 1"
+        )
+
     def test_validate_sql_signal_window_table_is_allowed(self):
         """Querying sobs_raw_windows is permitted because it is an intentional NLQ surface."""
         sobs_app.ChdbSqlRunner.validate_sql("SELECT SignalType, WindowStart FROM sobs_raw_windows LIMIT 1")
@@ -12429,6 +12515,223 @@ class TestQueryRoutes:
         visual = spec.get("visual", {})
         stored_option = _json.loads(visual.get("custom_option_json", "{}"))
         assert stored_option.get("title", {}).get("text") == "Tables"
+
+
+class TestTableExplorer:
+    """Integration tests for the Table Explorer feature (/table-explorer and /api/table-explorer/*)."""
+
+    @staticmethod
+    def _configured_query_settings() -> dict[str, str]:
+        return {
+            "ai.endpoint_url": "https://fake.llm/v1",
+            "ai.model": "test-model",
+            "ai.api_key": "",
+            "ai.guard_endpoint_url": "https://fake.guard/v1",
+            "ai.guard_model": "guard-model",
+        }
+
+    # ------------------------------------------------------------------
+    # View route
+    # ------------------------------------------------------------------
+
+    async def test_table_explorer_page_disabled_by_default(self, client, monkeypatch):
+        """The /table-explorer page returns 404 when required AI settings are missing."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: {})
+        r = await client.get("/table-explorer")
+        assert r.status_code == 404
+
+    async def test_table_explorer_page_enabled_when_configured(self, client, monkeypatch):
+        """The /table-explorer page renders successfully when query page is enabled."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/table-explorer")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Table Explorer" in text
+        assert "tableSearchInput" in text
+        assert "tableList" in text
+
+    # ------------------------------------------------------------------
+    # /api/table-explorer/tables
+    # ------------------------------------------------------------------
+
+    async def test_api_tables_disabled_without_settings(self, client, monkeypatch):
+        """The tables API returns 404 when query page is disabled."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: {})
+        r = await client.get("/api/table-explorer/tables")
+        assert r.status_code == 404
+
+    async def test_api_tables_returns_list(self, client, monkeypatch):
+        """The tables API returns a list of allowed tables with column metadata."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/api/table-explorer/tables")
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["ok"] is True
+        tables = data["tables"]
+        assert isinstance(tables, list)
+        # At least otel_logs should be present
+        names = [t["name"] for t in tables]
+        assert "otel_logs" in names
+
+    async def test_api_tables_each_has_columns(self, client, monkeypatch):
+        """Each table entry includes a 'columns' list with at least one entry."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/api/table-explorer/tables")
+        data = json.loads(await r.get_data())
+        for tbl in data["tables"]:
+            assert "columns" in tbl
+            assert isinstance(tbl["columns"], list)
+            assert len(tbl["columns"]) > 0
+
+    async def test_api_tables_column_has_required_fields(self, client, monkeypatch):
+        """Column entries have name, type, is_nullable, is_primary_key, is_sorting_key."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/api/table-explorer/tables")
+        data = json.loads(await r.get_data())
+        otel_logs = next(t for t in data["tables"] if t["name"] == "otel_logs")
+        col = otel_logs["columns"][0]
+        for field in ("name", "type", "is_nullable", "is_primary_key", "is_sorting_key"):
+            assert field in col, f"Missing field '{field}' in column entry"
+
+    async def test_api_tables_excludes_blocked_tables(self, client, monkeypatch):
+        """The tables API must not expose internal sobs_* settings tables."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/api/table-explorer/tables")
+        data = json.loads(await r.get_data())
+        names = [t["name"] for t in data["tables"]]
+        assert "sobs_ai_settings" not in names
+        assert "sobs_app_settings" not in names
+        assert "sobs_notification_channels" not in names
+
+    # ------------------------------------------------------------------
+    # /api/table-explorer/table/<name>
+    # ------------------------------------------------------------------
+
+    async def test_api_table_detail_disabled_without_settings(self, client, monkeypatch):
+        """The table detail API returns 404 when query page is disabled."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: {})
+        r = await client.get("/api/table-explorer/table/otel_logs")
+        assert r.status_code == 404
+
+    async def test_api_table_detail_blocked_for_internal_tables(self, client, monkeypatch):
+        """The table detail API returns 403 for internal sobs_* tables."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/api/table-explorer/table/sobs_ai_settings")
+        assert r.status_code == 403
+        data = json.loads(await r.get_data())
+        assert data["ok"] is False
+
+    async def test_api_table_detail_returns_columns_and_sample(self, client, monkeypatch):
+        """The table detail API returns columns, ddl, and sample for an allowed table."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/api/table-explorer/table/otel_logs")
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["ok"] is True
+        assert data["table"] == "otel_logs"
+        assert "columns" in data
+        assert isinstance(data["columns"], list)
+        assert len(data["columns"]) > 0
+        assert "sample" in data
+        assert "columns" in data["sample"]
+        assert "rows" in data["sample"]
+        assert "ddl" in data
+
+    async def test_api_table_detail_ddl_contains_create(self, client, monkeypatch):
+        """The DDL field for an allowed table should contain CREATE TABLE."""
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+        r = await client.get("/api/table-explorer/table/otel_logs")
+        data = json.loads(await r.get_data())
+        assert "CREATE TABLE" in data.get("ddl", "").upper()
+
+    # ------------------------------------------------------------------
+    # ChdbSqlRunner extended methods
+    # ------------------------------------------------------------------
+
+    def test_describe_table_extended_returns_list(self):
+        """describe_table_extended returns a list of column dicts for otel_logs."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        cols = runner.describe_table_extended("otel_logs")
+        assert isinstance(cols, list)
+        assert len(cols) > 0
+
+    def test_describe_table_extended_column_fields(self):
+        """Each column dict has required fields including is_nullable and is_primary_key."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        cols = runner.describe_table_extended("otel_logs")
+        for col in cols:
+            for field in ("name", "type", "is_nullable", "is_primary_key", "is_sorting_key"):
+                assert field in col, f"Missing field '{field}'"
+
+    def test_describe_table_extended_nonexistent_returns_empty(self):
+        """describe_table_extended returns empty list for a nonexistent table."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        cols = runner.describe_table_extended("this_table_xyz_does_not_exist")
+        assert isinstance(cols, list)
+        assert len(cols) == 0
+
+    def test_get_table_ddl_returns_string(self):
+        """get_table_ddl returns a non-empty string for an existing table."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        ddl = runner.get_table_ddl("otel_logs")
+        assert isinstance(ddl, str)
+        assert len(ddl) > 0
+        assert "otel_logs" in ddl
+
+    def test_get_table_ddl_nonexistent_returns_empty(self):
+        """get_table_ddl returns empty string for a nonexistent table."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        ddl = runner.get_table_ddl("this_table_xyz_does_not_exist")
+        assert ddl == ""
+
+    def test_get_table_sample_returns_dict(self):
+        """get_table_sample returns a dict with columns and rows for an allowed table."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        sample = runner.get_table_sample("otel_logs")
+        assert isinstance(sample, dict)
+        assert "columns" in sample
+        assert "rows" in sample
+        assert isinstance(sample["columns"], list)
+        assert isinstance(sample["rows"], list)
+
+    def test_get_table_sample_blocked_for_non_allowed(self):
+        """get_table_sample returns empty result for a non-allowed table."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        sample = runner.get_table_sample("sobs_ai_settings")
+        assert sample["columns"] == []
+        assert sample["rows"] == []
+
+    def test_get_allowed_tables_info_returns_list(self):
+        """get_allowed_tables_info returns a non-empty list."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        tables = runner.get_allowed_tables_info()
+        assert isinstance(tables, list)
+        assert len(tables) > 0
+
+    def test_get_allowed_tables_info_includes_otel_logs(self):
+        """get_allowed_tables_info includes otel_logs."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        tables = runner.get_allowed_tables_info()
+        names = [t["name"] for t in tables]
+        assert "otel_logs" in names
+
+    def test_get_allowed_tables_info_excludes_blocked_tables(self):
+        """get_allowed_tables_info does not include internal settings tables."""
+        db = sobs_app.get_db()
+        runner = sobs_app.ChdbSqlRunner(db)
+        tables = runner.get_allowed_tables_info()
+        names = [t["name"] for t in tables]
+        assert "sobs_ai_settings" not in names
+        assert "sobs_app_settings" not in names
 
 
 class TestChartSpecHelpers:
@@ -14800,6 +15103,66 @@ class TestRawMetricsRetentionWindows:
         match = next((item for item in series if str(item.get("metric") or "") == metric), None)
         assert match is not None
         assert float(match.get("avg") or 0.0) < 100.0
+
+    def test_fetch_trace_metric_context_timeseries_respects_limit(self):
+        """Sparkline timeseries should be produced for top metrics up to limit (currently :6)."""
+        import time as _time
+
+        db = sobs_app.get_db()
+        uniq = str(_time.time_ns())
+        signal_ts = datetime.now(timezone.utc)
+        ts_str = signal_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        service = f"trace-timeseries-limit-{uniq}"
+        metric_names = [f"metric_{i}.{uniq}" for i in range(8)]  # More than the [:6] sparkline limit
+
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "otel_metrics_gauge",
+            [
+                {
+                    "TimeUnix": ts_str,
+                    "ServiceName": service,
+                    "MetricName": metric,
+                    "MetricDescription": "trace context metric",
+                    "MetricUnit": "1",
+                    "Attributes": {
+                        "k8s.namespace.name": "default",
+                        "k8s.node.name": "node-ts",
+                        "k8s.pod.name": "pod-ts",
+                    },
+                    "Value": float(idx + 1),
+                    "Flags": 0,
+                    "AttrFingerprint": f"fp-ts-{idx}-{uniq}",
+                }
+                for idx, metric in enumerate(metric_names)
+            ],
+        )
+
+        start_ts = datetime.fromtimestamp((signal_ts.timestamp() - 60), tz=timezone.utc).isoformat()
+        end_ts = datetime.fromtimestamp((signal_ts.timestamp() + 60), tz=timezone.utc).isoformat()
+        ctx = sobs_app._fetch_trace_metric_context(
+            db,
+            service_names=[service],
+            start_ts=start_ts,
+            end_ts=end_ts,
+            window_ids=[],
+            namespace_values=["default"],
+            pod_values=["pod-ts"],
+            node_values=["node-ts"],
+        )
+
+        series = ctx.get("series") or []
+        returned_metric_names = [str(item.get("metric") or "") for item in series]
+        # All metrics should be in the series list (returned from context query)
+        assert set(metric_names).issubset(set(returned_metric_names))
+
+        ts = ctx.get("timeseries") or {}
+        by_metric = ts.get("by_metric") or {}
+        # But sparklines (timeseries) should only be generated for top 6
+        sparkline_metrics = returned_metric_names[:6]
+        assert set(sparkline_metrics).issubset(set(by_metric.keys()))
+        # Metrics beyond top 6 should NOT have sparklines (memory optimization)
+        assert not any(m in by_metric for m in returned_metric_names[6:])
 
 
 # ---------------------------------------------------------------------------

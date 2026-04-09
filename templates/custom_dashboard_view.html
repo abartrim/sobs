@@ -257,6 +257,9 @@
         <div class="modal-header">
           <h5 class="modal-title" id="chartEditorModalTitle">Add Chart</h5>
           <div class="d-flex gap-2 align-items-center ms-auto">
+              <a href="{{ url_for('view_table_explorer') }}" class="btn btn-sm btn-outline-secondary" title="Browse available tables, columns, and sample data">
+                <i class="bi bi-grid-3x3 me-1"></i>Table Explorer
+              </a>
             <a href="{{ url_for('chart_editor_help') }}" target="_blank" class="link-secondary text-decoration-none" title="Chart Help" aria-label="Chart Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
