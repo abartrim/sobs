@@ -1345,6 +1345,67 @@
     if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
   }
 
+  function _looksLikeJsFunctionBodyText(value) {
+    if (typeof value !== 'string') return false;
+    var text = value.trim();
+    if (!text) return false;
+    return /\bfunction\b|=>|\breturn\b|\bthis\b|\{\s*\w+\s*=>/i.test(text);
+  }
+
+  function sanitizeChartOptionForRender(rawOption) {
+    var changed = false;
+    var callbackLikeKeys = {
+      formatter: true,
+      position: true,
+      symbolSize: true,
+      animationDelay: true,
+      animationDelayUpdate: true,
+      renderItem: true,
+      color: true
+    };
+
+    function walk(node) {
+      if (Array.isArray(node)) {
+        return node.map(walk);
+      }
+      if (!node || typeof node !== 'object') {
+        return node;
+      }
+
+      var out = {};
+      Object.keys(node).forEach(function (key) {
+        var value = node[key];
+
+        if (callbackLikeKeys[key]) {
+          // LLMs sometimes emit function-like text where ECharts expects executable callbacks.
+          // JSON cannot carry functions, and some callback fields with pseudo-function text can
+          // trigger runtime bind errors inside ECharts internals.
+          if (key === 'renderItem') {
+            changed = true;
+            return;
+          }
+          if ((key === 'animationDelay' || key === 'animationDelayUpdate') && typeof value !== 'number') {
+            changed = true;
+            return;
+          }
+          if (key === 'formatter' && typeof value !== 'string') {
+            changed = true;
+            return;
+          }
+          if (typeof value === 'string' && _looksLikeJsFunctionBodyText(value)) {
+            changed = true;
+            return;
+          }
+        }
+
+        out[key] = walk(value);
+      });
+      return out;
+    }
+
+    return { option: walk(rawOption), changed: changed };
+  }
+
   function renderChart(specJson) {
     if (!specJson) {
       chartSection.classList.add('d-none');
@@ -1386,6 +1447,19 @@
     try {
       chartInstance.setOption(spec);
     } catch (e) {
+      var sanitized = sanitizeChartOptionForRender(spec);
+      if (sanitized.changed) {
+        try {
+          chartInstance.setOption(sanitized.option);
+          currentChartSpec = JSON.stringify(sanitized.option);
+          chartSpecDisplay.textContent = JSON.stringify(sanitized.option, null, 2);
+          setQueryStatus('warning', 'Chart rendered with compatibility fallback. Some advanced options were removed.');
+          return;
+        } catch (_fallbackErr) {
+          // Keep original error path below.
+        }
+      }
+
       chartSection.classList.add('d-none');
       currentChartSpec = '';
       setAddToDashboardEnabled(false);
@@ -1634,9 +1708,9 @@
     return String(val);
   }
 
-  // Allow Shift+Enter (plus Ctrl/Cmd+Enter) to submit
+  // Enter submits; Shift+Enter inserts newline
   questionInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+    if (e.key === 'Enter' && (!e.shiftKey || e.ctrlKey || e.metaKey) && !e.isComposing) {
       e.preventDefault();
       form.dispatchEvent(new Event('submit'));
     }

@@ -565,6 +565,28 @@
         <i class="bi bi-journal-text"></i><span class="ms-1">{{ log_count }}</span>
       </a>
       {% endif %}
+
+      <!-- Raw span toggle -->
+      <button class="btn btn-link btn-sm p-0 ms-1 text-secondary span-raw-toggle"
+              style="font-size:.72rem; line-height:1;"
+              title="View raw span record"
+              data-span-id="{{ span.span_id }}"
+              data-trace-id="{{ span.trace_id }}"
+              data-raw-target="raw-span-{{ loop.index }}"
+              aria-label="Toggle raw span record"
+              aria-expanded="false">
+        <i class="bi bi-braces" style="font-size:.8rem;"></i>
+      </button>
+    </div>
+    <!-- Raw span accordion panel (lazy-loaded) -->
+    <div id="raw-span-{{ loop.index }}"
+         class="raw-span-panel d-none border-bottom"
+         data-span-id="{{ span.span_id }}"
+         data-loaded="0"
+         style="padding-left:{{ span.depth * 20 + 8 }}px; background:var(--bs-tertiary-bg);">
+      <div class="raw-span-body p-2">
+        <div class="raw-span-loading text-secondary small"><span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Loading…</div>
+      </div>
     </div>
     {% endfor %}
   </div>
@@ -734,23 +756,142 @@ if (window.sobsTimezone && typeof window.sobsTimezone.initPage === 'function') {
       icon.classList.toggle('bi-chevron-right', isExpanded);
 
       var next = row.nextElementSibling;
-      while (next && next.classList.contains('trace-tree-row') &&
-             parseInt(next.dataset.depth, 10) > depth) {
-        var childDepth = parseInt(next.dataset.depth, 10);
-        if (isExpanded) {
-          // Collapsing: hide ALL descendants
-          next.classList.add('tree-hidden');
-        } else {
-          // Expanding: only reveal direct children; leave deeper rows as-is
-          // so their own collapsed state is preserved
-          if (childDepth === depth + 1) {
-            next.classList.remove('tree-hidden');
+      while (next) {
+        if (next.classList.contains('trace-tree-row')) {
+          var childDepth = parseInt(next.dataset.depth, 10);
+          if (!(childDepth > depth)) {
+            break;
           }
+          if (isExpanded) {
+            // Collapsing: hide ALL descendants.
+            next.classList.add('tree-hidden');
+            // Also close any open raw payload panel for the hidden row.
+            var rawToggle = next.querySelector('.span-raw-toggle');
+            if (rawToggle) {
+              var rawPanelId = rawToggle.dataset.rawTarget;
+              var rawPanel = rawPanelId ? document.getElementById(rawPanelId) : null;
+              if (rawPanel) {
+                rawPanel.classList.add('d-none');
+                rawPanel.dataset.open = '0';
+              }
+              rawToggle.setAttribute('aria-expanded', 'false');
+              var rawIcon = rawToggle.querySelector('i');
+              if (rawIcon) rawIcon.classList.remove('text-warning');
+            }
+          } else {
+            // Expanding: only reveal direct children; leave deeper rows as-is
+            // so their own collapsed state is preserved.
+            if (childDepth === depth + 1) {
+              next.classList.remove('tree-hidden');
+            }
+          }
+        } else if (isExpanded && next.classList.contains('raw-span-panel')) {
+          // Ensure stray visible raw panels are hidden when collapsing a parent.
+          next.classList.add('d-none');
+          next.dataset.open = '0';
         }
         next = next.nextElementSibling;
       }
     });
   });
+}());
+
+/* Raw span accordion – lazy-load and copy-to-clipboard */
+(function () {
+  document.querySelectorAll('.span-raw-toggle').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var panelId = btn.dataset.rawTarget;
+      var panel = document.getElementById(panelId);
+      if (!panel) return;
+
+      var isOpen = panel.dataset.open === '1';
+      if (isOpen) {
+        panel.classList.add('d-none');
+        panel.dataset.open = '0';
+        btn.setAttribute('aria-expanded', 'false');
+        btn.querySelector('i').classList.remove('text-warning');
+        return;
+      }
+
+      // Show the panel first so the user sees the spinner immediately.
+      panel.classList.remove('d-none');
+      panel.dataset.open = '1';
+      btn.setAttribute('aria-expanded', 'true');
+      btn.querySelector('i').classList.add('text-warning');
+
+      // Only fetch once; subsequent opens reuse the cached DOM.
+      if (panel.dataset.loaded === '1') return;
+
+      var spanId = btn.dataset.spanId;
+      var traceId = btn.dataset.traceId || '';
+      var rawSpanUrl = '/api/traces/span/' + encodeURIComponent(spanId);
+      if (traceId) {
+        rawSpanUrl += '?trace_id=' + encodeURIComponent(traceId);
+      }
+      fetch(rawSpanUrl)
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          panel.dataset.loaded = '1';
+          var body = panel.querySelector('.raw-span-body');
+          if (data.error) {
+            body.innerHTML = '<span class="text-danger small">' + _escHtml(data.error) + '</span>';
+            return;
+          }
+          var truncNote = data.truncated
+            ? '<div class="alert alert-warning py-1 px-2 mb-2 small">Large payload – attribute values truncated to 512 characters.</div>'
+            : '';
+          var copyId = 'raw-copy-' + panelId;
+          body.innerHTML =
+            truncNote +
+            '<div class="d-flex align-items-center gap-2 mb-1">' +
+            '<span class="small text-secondary fw-semibold">Raw Span Record</span>' +
+            '<button class="btn btn-outline-secondary btn-sm py-0 px-2 span-raw-copy-btn" ' +
+            '  id="' + _escAttr(copyId) + '" ' +
+            '  style="font-size:.7rem;" title="Copy JSON to clipboard">' +
+            '  <i class="bi bi-clipboard me-1"></i>Copy' +
+            '</button>' +
+            '</div>' +
+            '<pre class="mb-0 p-2 rounded small font-monospace" ' +
+            '  style="white-space:pre-wrap; word-break:break-all; max-height:400px; overflow-y:auto; ' +
+            '         background:var(--bs-code-bg,#1e1e1e); color:var(--bs-body-color);">' +
+            _escHtml(data.raw) +
+            '</pre>';
+
+          var copyBtn = body.querySelector('.span-raw-copy-btn');
+          if (copyBtn) {
+            copyBtn.addEventListener('click', function () {
+              navigator.clipboard.writeText(data.raw).then(function () {
+                var orig = copyBtn.innerHTML;
+                copyBtn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied';
+                copyBtn.classList.replace('btn-outline-secondary', 'btn-secondary');
+                setTimeout(function () {
+                  copyBtn.innerHTML = orig;
+                  copyBtn.classList.replace('btn-secondary', 'btn-outline-secondary');
+                }, 1800);
+              }).catch(function (e) {
+                alert('Could not copy: ' + e.message);
+              });
+            });
+          }
+        })
+        .catch(function (err) {
+          panel.dataset.loaded = '0';
+          var body = panel.querySelector('.raw-span-body');
+          body.innerHTML = '<span class="text-danger small">Failed to load: ' + _escHtml(String(err)) + '</span>';
+        });
+    });
+  });
+
+  function _escHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+  function _escAttr(s) {
+    return String(s).replace(/"/g, '&quot;');
+  }
 }());
 
 document.querySelectorAll('.trace-copy-stack-btn').forEach(btn => {
@@ -760,7 +901,7 @@ document.querySelectorAll('.trace-copy-stack-btn').forEach(btn => {
     const stack = stackEl ? String(stackEl.innerText || '').trim() : '';
     if (!stack) return;
     try {
-      await navigator.clipboard.writeText(stack);
+      await window.SOBS.copyToClipboard(stack);
       const original = btn.innerHTML;
       btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied';
       btn.classList.replace('btn-outline-secondary', 'btn-secondary');
@@ -818,7 +959,7 @@ document.querySelectorAll('.trace-ai-help-btn').forEach(btn => {
     lines.push('', '---', 'Please analyze this issue and suggest possible causes and next steps.');
 
     try {
-      await navigator.clipboard.writeText(lines.join('\n'));
+      await window.SOBS.copyToClipboard(lines.join('\n'));
       const origHtml = btn.innerHTML;
       btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied!';
       btn.classList.replace('btn-outline-warning', 'btn-warning');

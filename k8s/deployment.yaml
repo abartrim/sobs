@@ -1,5 +1,28 @@
 ---
 # SOBS as a standalone Deployment + Service
+#
+# Before applying, create the required Kubernetes resources:
+#
+#   # Secret for API key and sensitive AI credentials
+#   kubectl create secret generic sobs-secret \
+#     --from-literal=secret-key="$(openssl rand -hex 32)" \
+#     --from-literal=api-key="" \
+#     --from-literal=ai-api-key="" \
+#     --from-literal=settings-encryption-key="" \
+#     --from-literal=vapid-private-key="" \
+#     --from-literal=rum-signing-key=""
+#
+#   # ConfigMap for non-sensitive configuration
+#   kubectl create configmap sobs-config \
+#     --from-literal=ai-endpoint-url="" \
+#     --from-literal=ai-model="" \
+#     --from-literal=ai-guard-endpoint-url="" \
+#     --from-literal=ai-guard-model="" \
+#     --from-literal=ai-dlp-endpoint-url="" \
+#     --from-literal=ai-thinking-level="off"
+#
+# Then apply:
+#   kubectl apply -f k8s/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,12 +48,36 @@ spec:
           env:
             - name: PORT
               value: "4317"
+            - name: SOBS_DATA_DIR
+              value: /data
+
+            # ----------------------------------------------------------------
+            # Core security
+            # ----------------------------------------------------------------
+            - name: SOBS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sobs-secret
+                  key: secret-key
+                  optional: true
+            # API key for ingest endpoints (send as X-API-Key header).
             - name: SOBS_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: sobs-secret
                   key: api-key
                   optional: true
+            # App-settings encryption key (encrypts sensitive DB-stored settings).
+            - name: SOBS_SETTINGS_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sobs-secret
+                  key: settings-encryption-key
+                  optional: true
+
+            # ----------------------------------------------------------------
+            # AI assistant
+            # ----------------------------------------------------------------
             - name: SOBS_AI_ENDPOINT_URL
               valueFrom:
                 configMapKeyRef:
@@ -49,6 +96,9 @@ spec:
                   name: sobs-secret
                   key: ai-api-key
                   optional: true
+            # Prefer file-based secret so the value is never exposed in env.
+            - name: SOBS_AI_API_KEY_FILE
+              value: /var/run/secrets/sobs/ai-api-key
             - name: SOBS_AI_GUARD_ENDPOINT_URL
               valueFrom:
                 configMapKeyRef:
@@ -67,10 +117,52 @@ spec:
                   name: sobs-config
                   key: ai-dlp-endpoint-url
                   optional: true
-            - name: SOBS_AI_API_KEY_FILE
-              value: /var/run/secrets/sobs/ai-api-key
-            - name: SOBS_DATA_DIR
-              value: /data
+            # Thinking level for reasoning models: off | low | medium | high
+            - name: SOBS_AI_THINKING_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: sobs-config
+                  key: ai-thinking-level
+                  optional: true
+
+            # ----------------------------------------------------------------
+            # Notifications / browser push (optional)
+            # ----------------------------------------------------------------
+            # VAPID private key for browser push notifications.
+            - name: SOBS_VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sobs-secret
+                  key: vapid-private-key
+                  optional: true
+            # - name: SOBS_VAPID_SUBJECT
+            #   value: "mailto:ops@example.com"
+
+            # ----------------------------------------------------------------
+            # RUM – Real User Monitoring (optional)
+            # ----------------------------------------------------------------
+            # Client auth mode: none | origin
+            # - name: SOBS_RUM_CLIENT_AUTH_MODE
+            #   value: "origin"
+            - name: SOBS_RUM_CLIENT_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sobs-secret
+                  key: rum-signing-key
+                  optional: true
+            # - name: SOBS_SOURCE_MAP_ENABLE
+            #   value: "1"
+            # - name: SOBS_SOURCE_MAP_DIR
+            #   value: /data/source-maps
+
+            # ----------------------------------------------------------------
+            # Retention / raw metrics TTL (optional – defaults shown)
+            # ----------------------------------------------------------------
+            # - name: SOBS_RAW_METRICS_TTL_HOURS
+            #   value: "48"
+            # - name: SOBS_PINNED_METRICS_TTL_DAYS
+            #   value: "14"
+
           volumeMounts:
             - name: sobs-data
               mountPath: /data
@@ -83,13 +175,19 @@ spec:
               port: 4317
             initialDelaySeconds: 5
             periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4317
+            initialDelaySeconds: 5
+            periodSeconds: 10
           resources:
             requests:
-              memory: "64Mi"
-              cpu: "50m"
+              memory: "128Mi"
+              cpu: "100m"
             limits:
-              memory: "256Mi"
-              cpu: "200m"
+              memory: "512Mi"
+              cpu: "500m"
       volumes:
         - name: sobs-data
           persistentVolumeClaim:
@@ -120,4 +218,4 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 1Gi
+      storage: 10Gi

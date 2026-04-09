@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -3215,6 +3216,175 @@ class TestUIPages:
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
         assert "All Traces" in body
+
+    async def test_raw_span_endpoint_returns_span_data(self, client):
+        """GET /api/traces/span/<span_id> returns raw span JSON with expected fields."""
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        span_bytes = bytes.fromhex("abcd1234abcd1234")
+        trace_id_bytes = bytes.fromhex("11223344556677880011223344556677")
+        start_ns = 1704067200_000_000_000
+
+        span = Span(
+            trace_id=trace_id_bytes,
+            span_id=span_bytes,
+            name="raw-span-op",
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 500_000_000,
+            status=Status(code=1),
+            attributes=[
+                KeyValue(key="http.method", value=AnyValue(string_value="GET")),
+                KeyValue(key="http.status_code", value=AnyValue(string_value="200")),
+            ],
+        )
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value="raw-span-svc"))])
+        msg = ExportTraceServiceRequest(
+            resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])]
+        )
+        r = await client.post(
+            "/v1/traces", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        span_id_hex = span_bytes.hex()
+        r = await client.get(f"/api/traces/span/{span_id_hex}")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "span" in data
+        assert "raw" in data
+        assert "truncated" in data
+        span_data = data["span"]
+        assert span_data["span_id"] == span_id_hex
+        assert span_data["name"] == "raw-span-op"
+        assert span_data["service"] == "raw-span-svc"
+        assert span_data["status_code"] in ("STATUS_CODE_OK", "Ok", "1", "ok", "OK")
+        assert "attributes" in span_data
+        assert "resource_attributes" in span_data
+        assert span_data["attributes"].get("http.method") == "GET"
+        # raw field is a JSON-pretty-printed string
+        import json as _json
+
+        parsed = _json.loads(data["raw"])
+        assert parsed["span_id"] == span_id_hex
+
+    async def test_raw_span_endpoint_not_found(self, client):
+        """GET /api/traces/span/<span_id> returns 404 for unknown span_id."""
+        r = await client.get("/api/traces/span/0000000000000000")
+        assert r.status_code == 404
+        data = await r.get_json()
+        assert "error" in data
+
+    async def test_raw_span_endpoint_disambiguates_by_trace_id(self, client):
+        """Endpoint returns the correct row when span_id exists in multiple traces."""
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        shared_span_id = bytes.fromhex("deadbeef00000001")
+        trace_a = bytes.fromhex("11111111111111111111111111111111")
+        trace_b = bytes.fromhex("22222222222222222222222222222222")
+        start_ns = 1704067200_000_000_000
+
+        span_a = Span(
+            trace_id=trace_a,
+            span_id=shared_span_id,
+            name="shared-span-a",
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 100_000_000,
+            status=Status(code=1),
+        )
+        span_b = Span(
+            trace_id=trace_b,
+            span_id=shared_span_id,
+            name="shared-span-b",
+            start_time_unix_nano=start_ns + 200_000_000,
+            end_time_unix_nano=start_ns + 400_000_000,
+            status=Status(code=1),
+        )
+
+        resource_a = Resource(
+            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="raw-disambiguate-a"))]
+        )
+        resource_b = Resource(
+            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="raw-disambiguate-b"))]
+        )
+
+        msg_a = ExportTraceServiceRequest(
+            resource_spans=[ResourceSpans(resource=resource_a, scope_spans=[ScopeSpans(spans=[span_a])])]
+        )
+        msg_b = ExportTraceServiceRequest(
+            resource_spans=[ResourceSpans(resource=resource_b, scope_spans=[ScopeSpans(spans=[span_b])])]
+        )
+
+        r = await client.post(
+            "/v1/traces", data=msg_a.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+        r = await client.post(
+            "/v1/traces", data=msg_b.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        span_id_hex = shared_span_id.hex()
+        trace_a_hex = trace_a.hex()
+        trace_b_hex = trace_b.hex()
+
+        ra = await client.get(f"/api/traces/span/{span_id_hex}?trace_id={trace_a_hex}")
+        assert ra.status_code == 200
+        data_a = await ra.get_json()
+        assert data_a["span"]["trace_id"] == trace_a_hex
+        assert data_a["span"]["service"] == "raw-disambiguate-a"
+
+        rb = await client.get(f"/api/traces/span/{span_id_hex}?trace_id={trace_b_hex}")
+        assert rb.status_code == 200
+        data_b = await rb.get_json()
+        assert data_b["span"]["trace_id"] == trace_b_hex
+        assert data_b["span"]["service"] == "raw-disambiguate-b"
+
+    async def test_trace_detail_includes_raw_span_toggle(self, client):
+        """Trace detail view includes the raw span toggle button and panel markup."""
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        span_bytes = bytes.fromhex("beef000011223344")
+        trace_id_bytes = bytes.fromhex("aabbccdd11223344aabbccdd11223344")
+        start_ns = 1704067200_000_000_000
+
+        span = Span(
+            trace_id=trace_id_bytes,
+            span_id=span_bytes,
+            name="raw-toggle-span",
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 1_000_000_000,
+            status=Status(code=1),
+        )
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value="raw-toggle-svc"))])
+        msg = ExportTraceServiceRequest(
+            resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])]
+        )
+        r = await client.post(
+            "/v1/traces", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        trace_id_hex = trace_id_bytes.hex()
+        r = await client.get(f"/traces?trace_id={trace_id_hex}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        # Raw toggle button and lazy-load panel present
+        assert "span-raw-toggle" in body
+        assert "raw-span-panel" in body
+        assert "raw-span-loading" in body
+        assert 'data-loaded="0"' in body
+        assert "data-trace-id=" in body
+        # JavaScript for lazy loading present
+        assert "/api/traces/span/" in body
 
     async def test_rum_sort_by_type(self, client):
         r = await client.get("/rum?sort_by=EventName&sort_dir=asc")
@@ -7857,6 +8027,97 @@ class TestMetricsAnomalyDetection:
         if r.status_code == 200:
             assert "rows" in data
 
+    # ── signal label registry ─────────────────────────────────────────────────
+
+    def test_signal_label_known_signals(self):
+        """signal_label returns readable names for all registered derived signals."""
+        cases = [
+            ("logs", "log_volume", "Log Volume"),
+            ("logs", "error_volume", "Error Volume"),
+            ("logs", "error_ratio", "Error Ratio"),
+            ("traces", "trace_volume", "Trace Volume"),
+            ("traces", "trace_error_ratio", "Trace Error Ratio"),
+            ("traces", "latency_p95_ms", "Latency p95"),
+            ("errors", "exception_volume", "Exception Volume"),
+            ("rum_vitals", "LCP", "Largest Contentful Paint"),
+            ("rum_vitals", "INP", "Interaction to Next Paint"),
+            ("rum_vitals", "CLS", "Cumulative Layout Shift"),
+            ("rum_vitals", "TTFB", "Time to First Byte"),
+            ("rum_vitals", "FCP", "First Contentful Paint"),
+            ("rum_vitals", "FID", "First Input Delay"),
+        ]
+        for source, signal, expected in cases:
+            result = sobs_app.signal_label(source, signal)
+            assert result == expected, f"signal_label({source!r}, {signal!r}) = {result!r}, want {expected!r}"
+
+    def test_signal_label_unknown_signal_falls_back(self):
+        """signal_label falls back to a capitalised version of the raw signal name."""
+        result = sobs_app.signal_label("unknown_source", "my_custom_signal")
+        assert result == "My Custom Signal"
+
+    def test_signal_label_unknown_source_known_signal(self):
+        """signal_label falls back when source is unknown even if signal name matches another entry."""
+        result = sobs_app.signal_label("other_source", "LCP")
+        # Falls back; "LCP" under a different source is not in the registry.
+        # If this accidentally cross-matches by signal name only, it would return
+        # "Largest Contentful Paint" instead of the fallback "Lcp".
+        assert result == "Lcp"
+
+    def test_signal_description_known_signal(self):
+        """signal_description returns the description for registered signals."""
+        desc = sobs_app.signal_description("logs", "log_volume")
+        assert desc != ""
+        assert "Log" in desc or "log" in desc
+
+    def test_signal_description_unknown_signal_returns_empty(self):
+        """signal_description returns empty string for unregistered signals."""
+        desc = sobs_app.signal_description("unknown_source", "unknown_signal")
+        assert desc == ""
+
+    def test_source_label_known_sources(self):
+        """source_label returns readable names for all registered sources."""
+        cases = [
+            ("logs", "Logs"),
+            ("traces", "Traces"),
+            ("errors", "Errors"),
+            ("rum_vitals", "RUM Vitals"),
+            ("metrics", "Metrics"),
+        ]
+        for source, expected in cases:
+            result = sobs_app.source_label(source)
+            assert result == expected, f"source_label({source!r}) = {result!r}, want {expected!r}"
+
+    def test_source_label_unknown_source_falls_back(self):
+        """source_label capitalises underscore-separated words for unknown sources."""
+        result = sobs_app.source_label("custom_data_source")
+        assert result == "Custom Data Source"
+
+    async def test_metrics_page_shows_friendly_signal_labels(self, client):
+        """Metrics index page should render with signal_label/source_label globals available."""
+        r = await client.get("/metrics")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        # The helper functions are registered as Jinja2 globals; the page must render
+        assert "Metrics & Signals" in body
+
+    async def test_metrics_anomaly_page_shows_friendly_signal_labels(self, client):
+        """Metrics anomaly page renders with signal info panel for known signal."""
+        r = await client.get("/metrics/anomaly?source=logs&signal=log_volume")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        # Friendly label should appear in signal info panel
+        assert "Log Volume" in body
+        # Raw identifier should also be present (de-emphasised)
+        assert "log_volume" in body
+
+    async def test_metrics_anomaly_page_unknown_signal_falls_back(self, client):
+        """Metrics anomaly page gracefully handles unknown signal identifiers."""
+        r = await client.get("/metrics/anomaly?source=custom_src&signal=my_weird_signal")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        # Should not 500; raw identifier visible in fallback
+        assert "my_weird_signal" in body
+
 
 # ---------------------------------------------------------------------------
 # Tag Rules & Record Tags
@@ -11235,6 +11496,23 @@ class TestNotifications:
 # Saved Reports
 # ---------------------------------------------------------------------------
 class TestReports:
+    def _build_reports_export_payload(
+        self,
+        reports: list[dict[str, Any]],
+        *,
+        on_conflict: str | None = None,
+        version: str = "1",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "sobs_reports_export": True,
+            "version": version,
+            "exported_at": "2025-01-01T00:00:00Z",
+            "reports": reports,
+        }
+        if on_conflict:
+            payload["on_conflict"] = on_conflict
+        return payload
+
     async def test_reports_page_loads(self, client):
         r = await client.get("/reports")
         assert r.status_code == 200
@@ -11405,8 +11683,236 @@ class TestReports:
         assert "Apply Work Items" in text
         assert "/work-items?" in text
 
+    async def test_api_export_reports_all(self, client):
+        """Export all reports returns a valid JSON payload with the correct schema."""
+        await client.post(
+            "/api/reports",
+            json={"name": "Export Test", "page_type": "logs", "filters": {"level": "ERROR"}},
+        )
+        r = await client.get("/api/reports/export")
+        assert r.status_code == 200
+        assert "attachment" in r.headers.get("Content-Disposition", "")
+        payload = json.loads(await r.get_data())
+        assert payload.get("sobs_reports_export") is True
+        assert payload.get("version") == "1"
+        assert "exported_at" in payload
+        assert isinstance(payload.get("reports"), list)
+        assert any(rep["name"] == "Export Test" for rep in payload["reports"])
 
-class TestWorkItemsPage:
+    async def test_api_export_reports_single_by_id(self, client):
+        """Exporting with ?ids=<id> returns only that report."""
+        r1 = await client.post(
+            "/api/reports",
+            json={"name": "Keep Me", "page_type": "traces", "filters": {"service": "svc-a"}},
+        )
+        report_id = json.loads(await r1.get_data())["id"]
+        await client.post(
+            "/api/reports",
+            json={"name": "Exclude Me", "page_type": "traces", "filters": {"service": "svc-b"}},
+        )
+        r = await client.get(f"/api/reports/export?ids={report_id}")
+        assert r.status_code == 200
+        payload = json.loads(await r.get_data())
+        names = [rep["name"] for rep in payload["reports"]]
+        assert "Keep Me" in names
+        assert "Exclude Me" not in names
+
+    async def test_api_import_reports_basic(self, client):
+        """Import valid export payload – reports are inserted."""
+        export_payload = self._build_reports_export_payload(
+            [
+                {
+                    "id": "00000000-0000-0000-0000-000000000001",
+                    "name": "Imported Log Report",
+                    "description": "desc",
+                    "page_type": "logs",
+                    "filters": {"level": "WARN"},
+                }
+            ]
+        )
+        r = await client.post("/api/reports/import", json=export_payload)
+        assert r.status_code == 200
+        result = json.loads(await r.get_data())
+        assert result["imported"] == 1
+        assert result["errors"] == 0
+
+        listed = await client.get("/api/reports?page_type=logs")
+        reports = json.loads(await listed.get_data())
+        assert any(rep["name"] == "Imported Log Report" for rep in reports)
+
+    async def test_api_import_reports_conflict_skip(self, client):
+        """on_conflict=skip leaves existing reports unchanged."""
+        await client.post(
+            "/api/reports",
+            json={"name": "Conflict Report", "page_type": "errors", "filters": {"service": "alpha"}},
+        )
+        export_payload = self._build_reports_export_payload(
+            [
+                {
+                    "id": "00000000-0000-0000-0000-000000000002",
+                    "name": "Conflict Report",
+                    "description": "",
+                    "page_type": "errors",
+                    "filters": {"service": "beta"},
+                }
+            ],
+            on_conflict="skip",
+        )
+        r = await client.post("/api/reports/import", json=export_payload)
+        assert r.status_code == 200
+        result = json.loads(await r.get_data())
+        assert result["skipped"] == 1
+        assert result["imported"] == 0
+
+        listed = await client.get("/api/reports?page_type=errors")
+        reports = json.loads(await listed.get_data())
+        conflict_reports = [rep for rep in reports if rep["name"] == "Conflict Report"]
+        # Should still have the original (service=alpha), not beta
+        assert len(conflict_reports) >= 1
+        assert any(rep["filters"].get("service") == "alpha" for rep in conflict_reports)
+
+    async def test_api_import_reports_conflict_rename(self, client):
+        """on_conflict=rename appends a suffix so both reports exist."""
+        await client.post(
+            "/api/reports",
+            json={"name": "Rename Test", "page_type": "metrics", "filters": {"metric": "cpu"}},
+        )
+        export_payload = self._build_reports_export_payload(
+            [
+                {
+                    "id": "00000000-0000-0000-0000-000000000003",
+                    "name": "Rename Test",
+                    "description": "",
+                    "page_type": "metrics",
+                    "filters": {"metric": "memory"},
+                }
+            ],
+            on_conflict="rename",
+        )
+        r = await client.post("/api/reports/import", json=export_payload)
+        assert r.status_code == 200
+        result = json.loads(await r.get_data())
+        assert result["imported"] == 1
+
+        listed = await client.get("/api/reports?page_type=metrics")
+        reports = json.loads(await listed.get_data())
+        names = [rep["name"] for rep in reports]
+        assert "Rename Test" in names
+        assert any("imported" in n.lower() for n in names)
+
+    async def test_api_import_reports_conflict_replace(self, client):
+        """on_conflict=replace removes existing and inserts new."""
+        r1 = await client.post(
+            "/api/reports",
+            json={"name": "Replace Test", "page_type": "rum", "filters": {"device": "mobile"}},
+        )
+        old_id = json.loads(await r1.get_data())["id"]
+        export_payload = self._build_reports_export_payload(
+            [
+                {
+                    "id": "00000000-0000-0000-0000-000000000004",
+                    "name": "Replace Test",
+                    "description": "replaced",
+                    "page_type": "rum",
+                    "filters": {"device": "desktop"},
+                }
+            ],
+            on_conflict="replace",
+        )
+        r = await client.post("/api/reports/import", json=export_payload)
+        assert r.status_code == 200
+        result = json.loads(await r.get_data())
+        assert result["replaced"] == 1
+        assert result["imported"] == 0
+
+        listed = await client.get("/api/reports?page_type=rum")
+        reports = json.loads(await listed.get_data())
+        replace_reports = [rep for rep in reports if rep["name"] == "Replace Test"]
+        assert len(replace_reports) == 1
+        assert replace_reports[0]["filters"].get("device") == "desktop"
+        assert replace_reports[0]["id"] != old_id
+
+    async def test_api_import_reports_rejects_malformed_json(self, client):
+        """Invalid envelope is rejected with 400."""
+        r = await client.post(
+            "/api/reports/import",
+            json={"totally": "wrong"},
+        )
+        assert r.status_code == 400
+        data = json.loads(await r.get_data())
+        assert "error" in data
+
+    async def test_api_import_reports_rejects_wrong_version(self, client):
+        """Mismatched version field is rejected."""
+        r = await client.post(
+            "/api/reports/import",
+            json={"sobs_reports_export": True, "version": "99", "reports": []},
+        )
+        assert r.status_code == 400
+        data = json.loads(await r.get_data())
+        assert "version" in data["error"].lower()
+
+    async def test_api_import_reports_skips_invalid_items(self, client):
+        """Items with missing/invalid fields count as errors, rest are imported."""
+        export_payload = self._build_reports_export_payload(
+            [
+                {  # valid
+                    "name": "Good Report",
+                    "page_type": "logs",
+                    "filters": {"level": "DEBUG"},
+                },
+                {  # invalid page_type
+                    "name": "Bad Type",
+                    "page_type": "nonexistent",
+                    "filters": {},
+                },
+                {  # missing name
+                    "name": "",
+                    "page_type": "logs",
+                    "filters": {},
+                },
+            ]
+        )
+        r = await client.post("/api/reports/import", json=export_payload)
+        assert r.status_code == 200
+        result = json.loads(await r.get_data())
+        assert result["imported"] == 1
+        assert result["errors"] == 2
+
+    async def test_api_import_reports_supports_web_traffic_page_type(self, client):
+        """Import accepts web_traffic reports and lists them back from API."""
+        export_payload = self._build_reports_export_payload(
+            [
+                {
+                    "name": "Traffic Drilldown",
+                    "description": "geo + path",
+                    "page_type": "web_traffic",
+                    "filters": {"country": "US", "path": "/checkout"},
+                }
+            ]
+        )
+        r = await client.post("/api/reports/import", json=export_payload)
+        assert r.status_code == 200
+        result = json.loads(await r.get_data())
+        assert result["imported"] == 1
+        assert result["errors"] == 0
+
+        listed = await client.get("/api/reports?page_type=web_traffic")
+        assert listed.status_code == 200
+        reports = json.loads(await listed.get_data())
+        assert any(rep["name"] == "Traffic Drilldown" for rep in reports)
+
+    async def test_reports_page_has_export_import_controls(self, client):
+        """Reports page renders export-all and import buttons."""
+        r = await client.get("/reports")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "import-reports-btn" in text
+        assert "export-all-btn" in text
+        assert "importReportsModal" in text
+        assert "deleteReportConfirmModal" in text
+        assert 'onsubmit="return confirm(' not in text
+
     async def test_work_items_page_has_report_save_controls(self, client):
         r = await client.get("/work-items")
         assert r.status_code == 200
@@ -13813,17 +14319,15 @@ class TestWebTraffic:
 # Database Stats – summary page
 # ---------------------------------------------------------------------------
 class TestDbStats:
-    """Tests for the chDB database stats panel on the summary page."""
+    """Tests for summary-page removal and shared DB stats helpers."""
 
-    async def test_summary_page_shows_database_stats_panel(self, client):
-        """Summary page renders the Database Stats card."""
+    async def test_summary_page_does_not_show_database_stats_panel(self, client):
+        """Summary page no longer renders the Database Stats card."""
         r = await client.get("/")
         assert r.status_code == 200
         html = (await r.get_data()).decode()
-        assert "Database Stats" in html
-        assert "Compressed size" in html
-        assert "Compression ratio" in html
-        assert "Active queries" in html
+        assert "Database Stats" not in html
+        assert "Compressed size" not in html
 
     def test_get_db_stats_returns_expected_keys(self):
         """_get_db_stats returns a dict with the required metric keys."""
@@ -13863,6 +14367,34 @@ class TestDbStats:
         assert result["compressed_bytes"] is None
         assert result["active_queries"] is None
         assert result["tables"] == []
+
+
+class TestDbStatsOnDataManagement:
+    """Tests for Database Stats panel on the Data Management settings page."""
+
+    async def test_data_management_page_shows_database_stats_section(self, client):
+        """Data Management page renders the Database Stats & Retention section."""
+        r = await client.get("/settings/data-management")
+        assert r.status_code == 200
+        html = (await r.get_data()).decode()
+        assert "Database Stats" in html
+        assert "Compressed size" in html
+        assert "Compression ratio" in html
+        assert "Active queries" in html
+
+    async def test_data_management_page_has_retention_section_header(self, client):
+        """Data Management page includes the 'Database Stats & Retention' section header."""
+        r = await client.get("/settings/data-management")
+        assert r.status_code == 200
+        html = (await r.get_data()).decode()
+        assert "Database Stats &amp; Retention" in html
+
+    async def test_data_management_page_has_backups_storage_section_header(self, client):
+        """Data Management page includes the 'Backups & Storage' section header."""
+        r = await client.get("/settings/data-management")
+        assert r.status_code == 200
+        html = (await r.get_data()).decode()
+        assert "Backups &amp; Storage" in html
 
 
 class TestKubernetesRoutes:

@@ -129,8 +129,11 @@
           <tr>
             <td class="small font-monospace sobs-tz-ts" data-utc-ts="{{ r.last_time }}">{{ r.last_time }}</td>
             <td class="small">{{ r.service }}</td>
-            <td class="small">{{ r.source }}</td>
-            <td class="small font-monospace">{{ r.signal }}</td>
+            <td class="small" title="{{ r.source }}">{{ source_label(r.source) }}</td>
+            <td class="small" title="{{ r.signal }}{% if signal_description(r.source, r.signal) %} – {{ signal_description(r.source, r.signal) }}{% endif %}">
+              {{ signal_label(r.source, r.signal) }}
+              <span class="text-secondary font-monospace signal-raw-id">{{ r.signal }}</span>
+            </td>
             <td class="small font-monospace">{{ r.last_value }}</td>
             <td class="small font-monospace">{{ r.last_anomaly_score }}</td>
             <td>

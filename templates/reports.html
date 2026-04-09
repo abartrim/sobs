@@ -3,6 +3,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h4 class="fw-semibold mb-0"><i class="bi bi-bookmark-star me-2 text-primary"></i>Saved Reports</h4>
+  <div class="d-flex gap-2">
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="import-reports-btn" title="Import reports from a JSON file">
+      <i class="bi bi-upload me-1"></i>Import
+    </button>
+    <a href="{{ url_for('api_export_reports') }}" class="btn btn-sm btn-outline-secondary" id="export-all-btn" title="Export all reports as JSON">
+      <i class="bi bi-download me-1"></i>Export All
+    </a>
+  </div>
 </div>
 
 <p class="text-secondary small mb-3">
@@ -10,19 +18,8 @@
   Use the <strong>Save as report</strong> button on any filter bar to save your current filters, then load them here or from the dropdown on each page.
 </p>
 
-{% with messages = get_flashed_messages(with_categories=true) %}
-{% if messages %}
-{% for category, message in messages %}
-<div class="alert alert-{{ category }} alert-dismissible fade show py-2" role="alert">
-  {{ message }}
-  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-</div>
-{% endfor %}
-{% endif %}
-{% endwith %}
-
 {% if reports %}
-{% set page_labels = {'logs': ('journal-text', 'text-info', 'Logs'), 'traces': ('diagram-3', 'text-warning', 'Traces'), 'errors': ('bug', 'text-danger', 'Errors'), 'metrics': ('graph-up', 'text-success', 'Metrics'), 'rum': ('phone', 'text-primary', 'RUM'), 'ai': ('robot', 'text-secondary', 'AI'), 'work_items': ('github', 'text-secondary', 'Work Items')} %}
+{% set page_labels = {'logs': ('journal-text', 'text-info', 'Logs'), 'traces': ('diagram-3', 'text-warning', 'Traces'), 'errors': ('bug', 'text-danger', 'Errors'), 'metrics': ('graph-up', 'text-success', 'Metrics'), 'rum': ('phone', 'text-primary', 'RUM'), 'ai': ('robot', 'text-secondary', 'AI'), 'work_items': ('github', 'text-secondary', 'Work Items'), 'web_traffic': ('globe', 'text-info', 'Web Traffic')} %}
 {% set current_page_type = namespace(value='') %}
 {% for report in reports %}
 {% if report.page_type != current_page_type.value %}
@@ -50,14 +47,22 @@
       {% endif %}
     </div>
     <div class="d-flex gap-2 align-items-center flex-shrink-0">
-      {% set page_url_map = {'logs': url_for('view_logs'), 'traces': url_for('view_traces'), 'errors': url_for('view_errors'), 'metrics': url_for('view_metrics'), 'rum': url_for('view_rum'), 'ai': url_for('view_ai'), 'work_items': url_for('view_work_items')} %}
+      {% set page_url_map = {'logs': url_for('view_logs'), 'traces': url_for('view_traces'), 'errors': url_for('view_errors'), 'metrics': url_for('view_metrics'), 'rum': url_for('view_rum'), 'ai': url_for('view_ai'), 'work_items': url_for('view_work_items'), 'web_traffic': url_for('view_web_traffic')} %}
       {% if report.page_type in page_url_map %}
       <a href="{{ page_url_map[report.page_type] }}?{{ report.filters | urlencode }}" class="btn btn-sm btn-outline-primary">
         <i class="bi bi-play me-1"></i>Apply
       </a>
       {% endif %}
-      <form method="post" action="{{ url_for('delete_report', report_id=report.id) }}"
-            onsubmit="return confirm('Delete report \'{{ report.name }}\'?')">
+      <a href="{{ url_for('api_export_reports') }}?ids={{ report.id }}"
+         class="btn btn-sm btn-outline-secondary" title="Export this report">
+        <i class="bi bi-download"></i>
+      </a>
+      <button type="button" class="btn btn-sm btn-outline-secondary share-report-btn"
+              data-report-id="{{ report.id }}" title="Copy report JSON to clipboard">
+        <i class="bi bi-share"></i>
+      </button>
+        <form method="post" action="{{ url_for('delete_report', report_id=report.id) }}"
+          class="delete-report-form" data-report-name="{{ report.name }}" data-report-id="{{ report.id }}">
         <button type="submit" class="btn btn-sm btn-outline-danger">
           <i class="bi bi-trash"></i>
         </button>
@@ -74,4 +79,277 @@
   apply filters, then click <strong>Save as report</strong> to save them here.</p>
 </div>
 {% endif %}
+
+<!-- Import Reports Modal -->
+<div class="modal fade" id="importReportsModal" tabindex="-1" aria-labelledby="importReportsModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="importReportsModalLabel"><i class="bi bi-upload me-2"></i>Import Reports</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-secondary small mb-3">Select a previously exported SOBS reports JSON file to import.</p>
+        <div class="mb-3">
+          <label for="import-file-input" class="form-label fw-semibold">JSON file</label>
+          <input type="file" class="form-control" id="import-file-input" accept=".json,application/json">
+        </div>
+        <div class="mb-3">
+          <label for="import-conflict-select" class="form-label fw-semibold">If a report with the same name already exists</label>
+          <select class="form-select" id="import-conflict-select">
+            <option value="rename" selected>Rename – append "(imported)" to the new report</option>
+            <option value="replace">Replace – overwrite the existing report</option>
+            <option value="skip">Skip – keep the existing report unchanged</option>
+          </select>
+        </div>
+        <div id="import-modal-feedback" class="small d-none"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="import-confirm-btn">
+          <span id="import-btn-spinner" class="spinner-border spinner-border-sm me-1 d-none" role="status" aria-hidden="true"></span>
+          Import
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteReportConfirmModal" tabindex="-1" aria-labelledby="deleteReportConfirmModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="deleteReportConfirmModalLabel">Delete Report</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="delete-report-confirm-message" class="small"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="delete-report-confirm-btn">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Status Modal -->
+<div class="modal fade" id="reportsStatusModal" tabindex="-1" aria-labelledby="reportsStatusModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="reportsStatusModalLabel">Notice</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="reports-status-modal-message" class="small"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+(function () {
+  'use strict';
+
+  function createModalInstance(el) {
+    if (!el || !window.bootstrap || !window.bootstrap.Modal) {
+      return null;
+    }
+    return new window.bootstrap.Modal(el);
+  }
+
+  // ── Import modal ──────────────────────────────────────────────────────────
+  var importBtn = document.getElementById('import-reports-btn');
+  var importModalEl = document.getElementById('importReportsModal');
+  var importModal = createModalInstance(importModalEl);
+  var fileInput = document.getElementById('import-file-input');
+  var conflictSelect = document.getElementById('import-conflict-select');
+  var confirmBtn = document.getElementById('import-confirm-btn');
+  var spinner = document.getElementById('import-btn-spinner');
+  var modalFeedback = document.getElementById('import-modal-feedback');
+  var deleteConfirmModalEl = document.getElementById('deleteReportConfirmModal');
+  var deleteConfirmModal = createModalInstance(deleteConfirmModalEl);
+  var deleteConfirmBtn = document.getElementById('delete-report-confirm-btn');
+  var deleteReportMessage = document.getElementById('delete-report-confirm-message');
+  var statusModalEl = document.getElementById('reportsStatusModal');
+  var statusModalLabel = document.getElementById('reportsStatusModalLabel');
+  var statusModalMessage = document.getElementById('reports-status-modal-message');
+  var statusModal = createModalInstance(statusModalEl);
+  var pendingDeleteForm = null;
+
+  function hideImportModal() {
+    if (importModal) {
+      importModal.hide();
+      return;
+    }
+    // Fallback if bootstrap JS is unavailable.
+    importModalEl.classList.remove('show');
+    importModalEl.style.display = 'none';
+    importModalEl.setAttribute('aria-hidden', 'true');
+  }
+
+  function showModalMsg(type, msg) {
+    var tone = type === 'warning' ? 'warning' : 'danger';
+    modalFeedback.className = 'small text-' + tone;
+    modalFeedback.textContent = msg;
+  }
+
+  function clearModalMsg() {
+    modalFeedback.className = 'd-none';
+    modalFeedback.textContent = '';
+  }
+
+  function showStatusModal(title, message, tone) {
+    if (!statusModal) {
+      return;
+    }
+    statusModalLabel.textContent = title || 'Notice';
+    statusModalMessage.className = 'small text-' + (tone || 'secondary');
+    statusModalMessage.textContent = message;
+    statusModal.show();
+  }
+
+  importBtn.addEventListener('click', function () {
+    fileInput.value = '';
+    clearModalMsg();
+    if (importModal) {
+      importModal.show();
+      return;
+    }
+    // Fallback: allow import without modal support.
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', function () {
+    if (importModal || !fileInput.files[0]) {
+      return;
+    }
+    confirmBtn.click();
+  });
+
+  confirmBtn.addEventListener('click', async function () {
+    var file = fileInput.files[0];
+    if (!file) {
+      showModalMsg('warning', 'Please select a JSON file.');
+      return;
+    }
+    clearModalMsg();
+    spinner.classList.remove('d-none');
+    confirmBtn.disabled = true;
+
+    try {
+      var text = await file.text();
+      var payload;
+      try {
+        payload = JSON.parse(text);
+      } catch (_e) {
+        showModalMsg('danger', 'The selected file is not valid JSON.');
+        return;
+      }
+      var resp = await fetch(
+        {{ url_for('api_import_reports') | tojson }} +
+          '?on_conflict=' + encodeURIComponent(conflictSelect.value),
+        {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      var result = await resp.json();
+      if (!resp.ok || result.error) {
+        showModalMsg('danger', result.error || 'Import failed.');
+        return;
+      }
+      hideImportModal();
+      var parts = [];
+      if (result.imported > 0) parts.push(result.imported + ' imported');
+      if (result.replaced > 0) parts.push(result.replaced + ' replaced');
+      if (result.skipped > 0) parts.push(result.skipped + ' skipped');
+      if (result.errors > 0) parts.push(result.errors + ' skipped due to errors');
+      var summary = parts.length ? parts.join(', ') + '.' : 'No changes made.';
+      showStatusModal('Import Complete', summary, 'success');
+      // Reload to reflect newly imported reports
+      window.setTimeout(function () { window.location.reload(); }, 1000);
+    } catch (_err) {
+      showModalMsg('danger', 'An error occurred during import.');
+    } finally {
+      spinner.classList.add('d-none');
+      confirmBtn.disabled = false;
+    }
+  });
+
+  // ── Share (copy JSON to clipboard) ────────────────────────────────────────
+  var exportUrl = {{ url_for('api_export_reports') | tojson }};
+  document.querySelectorAll('.share-report-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var reportId = btn.dataset.reportId;
+      // Start the fetch immediately so the user-activation token is still live
+      // when we call window.SOBS.copyToClipboard (which captures it via ClipboardItem).
+      var fetchPromise = fetch(exportUrl + '?ids=' + encodeURIComponent(reportId))
+        .then(function (r) {
+          if (!r.ok) { throw new Error('Export failed: HTTP ' + r.status); }
+          return r.text();
+        });
+      try {
+        await window.SOBS.copyToClipboard(fetchPromise);
+        var originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-check"></i>';
+        btn.title = 'Copied!';
+        window.setTimeout(function () {
+          btn.innerHTML = originalHtml;
+          btn.title = 'Copy report JSON to clipboard';
+        }, 1500);
+      } catch (_err) {
+        showStatusModal('Clipboard Unavailable', 'Could not copy to clipboard.', 'danger');
+      }
+    });
+  });
+
+  // ── Delete confirm (Bootstrap modal) ─────────────────────────────────────
+  document.querySelectorAll('.delete-report-form').forEach(function (form) {
+    form.addEventListener('submit', function (event) {
+      if (!deleteConfirmModal) {
+        return;
+      }
+      event.preventDefault();
+      pendingDeleteForm = form;
+      deleteReportMessage.textContent = 'Delete report "' + (form.dataset.reportName || 'this report') + '"?';
+      deleteConfirmModal.show();
+    });
+  });
+
+  if (deleteConfirmBtn) {
+    deleteConfirmBtn.addEventListener('click', async function () {
+      if (!pendingDeleteForm) {
+        return;
+      }
+      var reportId = pendingDeleteForm.dataset.reportId;
+      var reportName = pendingDeleteForm.dataset.reportName || 'Report';
+      try {
+        var resp = await fetch('/api/reports/' + encodeURIComponent(reportId), {
+          method: 'DELETE'
+        });
+        var result = await resp.json();
+        if (!resp.ok || !result.deleted) {
+          throw new Error((result && result.error) ? result.error : 'Delete failed.');
+        }
+        if (deleteConfirmModal) {
+          deleteConfirmModal.hide();
+        }
+        showStatusModal('Report Deleted', 'Report "' + reportName + '" deleted.', 'success');
+        window.setTimeout(function () { window.location.reload(); }, 900);
+      } catch (err) {
+        showStatusModal('Delete Failed', err.message || 'Could not delete report.', 'danger');
+      }
+    });
+  }
+})();
+}); // DOMContentLoaded
+</script>
 {% endblock %}
+
