@@ -380,6 +380,17 @@
   .rum-filters-form {
     gap: .85rem 1rem !important;
   }
+  .rum-filter-field {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .rum-filter-search {
+    flex: 2 1 200px;
+  }
+  .rum-filter-search .position-relative {
+    flex: 1 1 auto;
+  }
   .rum-filter-actions {
     flex: 0 0 auto;
     display: flex;
@@ -777,7 +788,7 @@
     <div id="rumFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="rumFiltersHeading" data-bs-parent="#rumFiltersAccordion">
       <div class="accordion-body py-3 rum-filters-panel">
     <form method="get" class="d-flex flex-wrap align-items-end rum-filters-form sobs-filter-form">
-      <div style="flex: 2 0 200px; margin-right: 0.5rem; margin-bottom: 0.5rem;">
+      <div class="rum-filter-field rum-filter-search">
         <label class="form-label small text-secondary">Search</label>
         <div class="position-relative">
           <input type="text" name="q" id="rum-regex-filter-input" class="form-control form-control-sm font-monospace"
@@ -948,6 +959,12 @@
             {% else %}
             <button class="btn btn-outline-secondary btn-sm rum-row-trace-btn rum-row-action-placeholder" type="button" tabindex="-1" aria-hidden="true"><i class="bi bi-diagram-3"></i></button>
             {% endif %}
+            <a href="{{ url_for('view_incident', trace_id=session.trace_id, rum_session=session.session_key, rum_ts=session.last_ts, from_ts=from_ts, to_ts=to_ts) }}"
+               class="btn btn-outline-primary btn-sm rum-row-trace-btn"
+               title="Open incident view"
+               aria-label="Open incident view">
+              <i class="bi bi-shield-exclamation"></i>
+            </a>
             <button class="btn btn-outline-secondary btn-sm rum-row-accordion-btn collapsed"
                     type="button"
                     data-bs-toggle="collapse"
@@ -1007,6 +1024,12 @@
                     {% else %}
                     <button class="btn btn-outline-secondary btn-sm rum-row-trace-btn rum-row-action-placeholder" type="button" tabindex="-1" aria-hidden="true"><i class="bi bi-diagram-3"></i></button>
                     {% endif %}
+                    <a href="{{ url_for('view_incident', trace_id=ev.trace_id, rum_session=ev.session_key, rum_ts=ev.ts, from_ts=from_ts, to_ts=to_ts) }}"
+                       class="btn btn-outline-primary btn-sm rum-row-trace-btn"
+                       title="Open incident view"
+                       aria-label="Open incident view">
+                      <i class="bi bi-shield-exclamation"></i>
+                    </a>
                     {% if ev.event_type in ('error','unhandledrejection') %}
                     <button class="btn btn-outline-secondary btn-sm rum-row-accordion-btn collapsed"
                             type="button"
@@ -1062,6 +1085,15 @@
                       </a>
                       <a href="{{ url_for('view_traces', trace_id=ev.data.get('traceId'), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
                         <i class="bi bi-diagram-3 me-1"></i>Trace {{ ev.data.get('traceId')[:12] }}
+                      </a>
+                      <a href="{{ url_for('view_incident', trace_id=ev.data.get('traceId'), rum_session=ev.session_key, rum_ts=ev.ts, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-shield-exclamation me-1"></i>Incident View
+                      </a>
+                    </div>
+                    {% elif ev.event_type in ('error', 'unhandledrejection') %}
+                    <div class="mb-3 rum-detail-links">
+                      <a href="{{ url_for('view_incident', rum_session=ev.session_key, rum_ts=ev.ts, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-shield-exclamation me-1"></i>Incident View
                       </a>
                     </div>
                     {% endif %}

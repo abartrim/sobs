@@ -1,0 +1,688 @@
+{% extends "base.html" %}
+{% from "_error_panels.html" import render_error_accordion, render_error_panel_styles %}
+{% block title %}Incident View{% endblock %}
+{% block content %}
+{% set _ref = trace_id or error_id or rum_session %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-shield-exclamation me-2 text-danger"></i>Incident View</h4>
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    {% if _ref %}
+    <span class="font-monospace small text-secondary" title="Incident reference">{{ _ref[:24] }}{% if _ref | length > 24 %}…{% endif %}</span>
+    {% endif %}
+    {% if from_ts %}
+    <span class="badge bg-secondary-subtle text-secondary-emphasis small">
+      <i class="bi bi-clock-history me-1"></i>
+      <span class="sobs-tz-ts" data-utc-ts="{{ from_ts }}">{{ from_ts[:19] }}</span>
+      –
+      {% if to_ts %}
+      <span class="sobs-tz-ts" data-utc-ts="{{ to_ts }}">{{ to_ts[:19] }}</span>
+      {% else %}
+      …
+      {% endif %}
+    </span>
+    {% endif %}
+    {% if service %}
+    <span class="badge bg-primary-subtle text-primary-emphasis"><i class="bi bi-hdd-stack me-1"></i>{{ service }}</span>
+    {% endif %}
+  </div>
+</div>
+
+{% if error_msg %}
+<div class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle me-1"></i>{{ error_msg }}</div>
+{% endif %}
+
+{% if not primary_error and not primary_trace and not primary_rum and not error_msg %}
+<div class="alert alert-secondary py-2 small"><i class="bi bi-info-circle me-1"></i>Primary event not found in the database. It may have expired or the reference may be incorrect.</div>
+{% endif %}
+
+<!-- ── Primary Event ─────────────────────────────────────────────────────── -->
+{% if primary_error or primary_trace or primary_rum %}
+<div class="card mb-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="fw-semibold small"><i class="bi bi-exclamation-circle me-1 text-danger"></i>Primary Event</span>
+      <span id="incident-tz-badge-btn" class="sobs-tz-header-badge" role="button" tabindex="0" title="Display timezone - click to change">
+        <i class="bi bi-clock"></i>
+        <span id="incident-tz-badge-label">UTC</span>
+      </span>
+    </div>
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+      {% if anomaly_state == 'critical' %}
+      <span class="badge bg-danger"><i class="bi bi-exclamation-circle me-1"></i>critical</span>
+      {% elif anomaly_state == 'warning' %}
+      <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle me-1"></i>warning</span>
+      {% elif anomaly_state == 'normal' %}
+      <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>normal</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card-body py-2 px-3">
+    {% if primary_error %}
+    <div class="d-flex flex-wrap gap-3 small mb-2">
+      <div><span class="text-secondary">Type:</span> <code class="text-warning">{{ primary_error.err_type }}</code></div>
+      <div><span class="text-secondary">Service:</span> <strong>{{ primary_error.service or '—' }}</strong></div>
+      <div><span class="text-secondary">Time:</span> <span class="sobs-tz-ts" data-utc-ts="{{ primary_error.ts }}">{{ primary_error.ts[:19] }}</span></div>
+      {% if primary_error.trace_id %}
+      <div><span class="text-secondary">Trace:</span>
+        <a href="{{ url_for('view_traces', trace_id=primary_error.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="font-monospace text-break">{{ primary_error.trace_id }}</a>
+      </div>
+      {% endif %}
+    </div>
+    <div class="small mb-2 theme-panel rounded p-2" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ primary_error.message }}</div>
+    {% if primary_error.stack %}
+    <details class="small">
+      <summary class="text-secondary mb-1" style="cursor:pointer;">Stack trace</summary>
+      <pre class="rounded p-2 theme-panel" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;max-height:300px;overflow-y:auto;">{{ primary_error.stack }}</pre>
+    </details>
+    {% endif %}
+    {% elif primary_trace %}
+    <div class="d-flex flex-wrap gap-3 small mb-2">
+      <div><span class="text-secondary">Trace:</span> <code class="font-monospace text-break">{{ primary_trace.trace_id }}</code></div>
+      <div><span class="text-secondary">Service:</span> <strong>{{ primary_trace.service or '—' }}</strong></div>
+      <div><span class="text-secondary">Spans:</span> {{ primary_trace.span_count }}</div>
+      <div><span class="text-secondary">Duration:</span> {{ primary_trace.total_ms }}ms</div>
+      <div><span class="text-secondary">Start:</span> <span class="sobs-tz-ts" data-utc-ts="{{ primary_trace.start_ts }}">{{ primary_trace.start_ts[:19] }}</span></div>
+      {% if primary_trace.status %}
+      <div><span class="text-secondary">Status:</span> <span class="badge {% if 'ERROR' in primary_trace.status %}bg-danger{% elif primary_trace.status == 'UNSET' %}bg-secondary{% else %}bg-success{% endif %}">{{ primary_trace.status }}</span></div>
+      {% endif %}
+    </div>
+    {% elif primary_rum %}
+    <div class="d-flex flex-wrap gap-3 small mb-2">
+      <div><span class="text-secondary">RUM Event:</span> <span class="badge {% if primary_rum.event_type in ('error', 'unhandledrejection') %}bg-danger{% elif primary_rum.event_type == 'pageview' %}bg-primary{% elif primary_rum.event_type == 'web-vital' %}bg-success{% else %}bg-secondary{% endif %}">{{ primary_rum.event_type }}</span></div>
+      <div><span class="text-secondary">Service:</span> <strong>{{ primary_rum.service or '—' }}</strong></div>
+      <div><span class="text-secondary">Time:</span> <span class="sobs-tz-ts" data-utc-ts="{{ primary_rum.ts }}">{{ primary_rum.ts[:19] }}</span></div>
+      {% if primary_rum.trace_id %}
+      <div><span class="text-secondary">Trace:</span> <a href="{{ url_for('view_traces', trace_id=primary_rum.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="font-monospace text-break">{{ primary_rum.trace_id }}</a></div>
+      {% endif %}
+      {% if primary_rum.session_key %}
+      <div><span class="text-secondary">Session:</span> <code class="font-monospace">{{ primary_rum.session_key[:16] }}{% if primary_rum.session_key|length > 16 %}…{% endif %}</code></div>
+      {% endif %}
+    </div>
+    <div class="small text-break mb-2">{{ primary_rum.url or '—' }}</div>
+    {% if primary_rum.data and primary_rum.data.get('message') %}
+    <div class="small mb-2 theme-panel rounded p-2" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ primary_rum.data.get('message') }}</div>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Action Buttons ────────────────────────────────────────────────────── -->
+<div class="d-flex gap-2 mb-3 flex-wrap">
+  {% if existing_work_item and existing_work_item.issue_url %}
+  <a href="{{ existing_work_item.issue_url }}" target="_blank" rel="noopener"
+     class="btn btn-sm btn-success">
+    <i class="bi bi-check2-circle me-1"></i>View issue →
+  </a>
+  {% else %}
+  <button id="incident-raise-btn" class="btn btn-sm btn-outline-danger"
+          data-trace-id="{{ trace_id }}"
+          data-error-id="{{ error_id }}"
+          data-service="{{ service }}"
+      data-err-type="{{ primary_error.err_type if primary_error else (primary_rum.event_type if primary_rum else '') }}"
+      data-err-message="{{ primary_error.message if primary_error else (primary_rum.data.get('message', '') if primary_rum else '') }}"
+      data-err-ts="{{ (primary_error.ts or '')[:19] if primary_error else ((primary_rum.ts or '')[:19] if primary_rum else '') }}"
+          title="Raise or reuse a GitHub issue for this incident">
+    <i class="bi bi-github me-1"></i>Raise / Reuse Issue
+  </button>
+  {% endif %}
+
+  <button id="incident-copy-packet-btn" class="btn btn-sm btn-outline-secondary"
+          title="Copy investigation packet as Markdown">
+    <i class="bi bi-clipboard me-1"></i>Copy Investigation Packet
+  </button>
+
+  {% if trace_id %}
+  <a href="{{ url_for('view_traces', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
+    <i class="bi bi-diagram-3 me-1"></i>Open in Traces
+  </a>
+  {% elif primary_rum and primary_rum.trace_id %}
+  <a href="{{ url_for('view_traces', trace_id=primary_rum.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
+    <i class="bi bi-diagram-3 me-1"></i>Open in Traces
+  </a>
+  {% endif %}
+
+  {% if (primary_error and primary_error.trace_id) or trace_id %}
+  <a href="{{ url_for('view_logs', trace_id=(primary_error.trace_id if primary_error and primary_error.trace_id else trace_id), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-journal-text me-1"></i>View Logs
+  </a>
+  {% elif service %}
+  <a href="{{ url_for('view_logs', service=service, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-journal-text me-1"></i>View Logs
+  </a>
+  {% endif %}
+
+  {% if service %}
+  <a href="{{ url_for('view_errors', service=service, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-bug me-1"></i>All Errors
+  </a>
+  {% endif %}
+</div>
+
+<!-- ── Evidence Summary ──────────────────────────────────────────────────── -->
+<div class="row g-3 mb-3">
+  {% set mc = metrics_context or {} %}
+  <div class="col-6 col-md-3">
+    <div class="card h-100">
+      <div class="card-body py-2 px-3 text-center">
+        <div class="fs-4 fw-bold text-danger">{{ related_errors | length }}</div>
+        <div class="small text-secondary">Related Error(s)</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card h-100">
+      <div class="card-body py-2 px-3 text-center">
+        <div class="fs-4 fw-bold text-info">{{ related_log_count }}</div>
+        <div class="small text-secondary">Log Event(s)</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card h-100">
+      <div class="card-body py-2 px-3 text-center">
+        <div class="fs-4 fw-bold text-primary">{{ related_span_count }}</div>
+        <div class="small text-secondary">Trace Span(s)</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card h-100">
+      <div class="card-body py-2 px-3 text-center">
+        {% if anomaly_state == 'critical' %}
+        <div class="fs-4 fw-bold text-danger"><i class="bi bi-exclamation-circle"></i></div>
+        <div class="small text-danger fw-semibold">Critical</div>
+        {% elif anomaly_state == 'warning' %}
+        <div class="fs-4 fw-bold text-warning"><i class="bi bi-exclamation-triangle"></i></div>
+        <div class="small text-warning fw-semibold">Warning</div>
+        {% elif anomaly_state == 'normal' %}
+        <div class="fs-4 fw-bold text-success"><i class="bi bi-check-circle"></i></div>
+        <div class="small text-success fw-semibold">Normal</div>
+        {% else %}
+        <div class="fs-4 fw-bold text-secondary"><i class="bi bi-dash-circle"></i></div>
+        <div class="small text-secondary">Unknown</div>
+        {% endif %}
+        <div class="small text-secondary">Anomaly State</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if related_rum_count or related_rum_sessions or related_rum_error_count or related_rum_events %}
+<div class="card mb-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center" style="cursor:pointer;"
+       data-bs-toggle="collapse" data-bs-target="#incident-rum-panel">
+    <span class="fw-semibold small"><i class="bi bi-globe me-1"></i>RUM Evidence</span>
+    <i class="bi bi-chevron-down" style="transition:transform 0.2s;font-size:0.9rem;" data-chevron-icon></i>
+  </div>
+  <div id="incident-rum-panel" class="collapse show">
+    <div class="card-body py-2 px-3">
+      <div class="row g-2 mb-2">
+        <div class="col-6 col-md-3">
+          <div class="small text-secondary">RUM Events</div>
+          <div class="fw-semibold">{{ related_rum_count }}</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="small text-secondary">RUM Sessions</div>
+          <div class="fw-semibold">{{ related_rum_sessions }}</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="small text-secondary">RUM Errors</div>
+          <div class="fw-semibold text-danger">{{ related_rum_error_count }}</div>
+        </div>
+        <div class="col-6 col-md-3 d-flex align-items-end">
+          <a href="{{ url_for('view_rum', from_ts=from_ts, to_ts=to_ts, q=(trace_id or '')) }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-globe me-1"></i>Open RUM
+          </a>
+        </div>
+      </div>
+
+      {% if related_rum_events %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Event</th>
+              <th>URL</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ev in related_rum_events %}
+            <tr>
+              <td class="small font-monospace sobs-tz-ts" data-utc-ts="{{ ev.ts }}">{{ ev.ts[:19] }}</td>
+              <td>
+                <span class="badge {% if ev.event_type in ('error', 'unhandledrejection') %}bg-danger{% elif ev.event_type == 'pageview' %}bg-primary{% elif ev.event_type == 'web-vital' %}bg-success{% else %}bg-secondary{% endif %}">{{ ev.event_type }}</span>
+              </td>
+              <td class="small text-truncate" style="max-width:360px;" title="{{ ev.url }}">{{ ev.url or '—' }}</td>
+              <td>
+                <div class="d-flex gap-2 flex-wrap">
+                  {% if ev.trace_id %}
+                  <a href="{{ url_for('view_traces', trace_id=ev.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">Trace</a>
+                  {% endif %}
+                  <a href="{{ url_for('view_incident', trace_id=ev.trace_id, rum_session=ev.session_key, rum_ts=ev.ts, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-primary">Incident</a>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Metrics + Raw Windows ───────────────────────────────────────────── -->
+<div class="card mb-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center" style="cursor:pointer;"
+       data-bs-toggle="collapse" data-bs-target="#incident-metrics-panel">
+    <span class="fw-semibold small"><i class="bi bi-activity me-1"></i>Metrics &amp; Preserved Raw Windows</span>
+    <i class="bi bi-chevron-down" style="transition:transform 0.2s;font-size:0.9rem;" data-chevron-icon></i>
+  </div>
+  <div id="incident-metrics-panel" class="collapse show">
+    <div class="card-body py-2 px-3">
+      {% if mc.health_chips %}
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        {% for chip in mc.health_chips %}
+        <div class="metric-health-chip level-{{ chip.level }}">
+          <i class="bi {{ chip.icon }}"></i>
+          <span>{{ chip.label }}</span>
+          <strong>{{ chip.value }}</strong>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <div class="row g-2 mb-2">
+        <div class="col-6 col-md-3">
+          <div class="small text-secondary">Metric Points</div>
+          <div class="fw-semibold">{{ mc.total_points or 0 }}</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="small text-secondary">Metric Series</div>
+          <div class="fw-semibold">{{ (mc.series or []) | length }}</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="small text-secondary">Source Mode</div>
+          <div class="fw-semibold text-uppercase">{{ mc.source_mode or 'none' }}</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="small text-secondary">Preserved Windows</div>
+          <div class="fw-semibold">{{ (raw_windows or []) | length }}</div>
+        </div>
+      </div>
+      <div class="small text-secondary mb-2">
+        Match strategy: {{ mc.match_label or 'no match' }}
+        {% if mc.match_dimensions %}
+        ({{ (mc.match_dimensions or []) | join(', ') }})
+        {% endif %}
+      </div>
+      {% if raw_windows %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Signal</th>
+              <th>Window</th>
+              <th>Copy Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for w in raw_windows %}
+            <tr>
+              <td>
+                <div class="small fw-semibold">{{ w.signal_type }}</div>
+                {% if w.signal_ref %}
+                <div class="small text-secondary font-monospace">{{ w.signal_ref }}</div>
+                {% endif %}
+              </td>
+              <td class="small font-monospace">
+                <span class="sobs-tz-ts" data-utc-ts="{{ w.window_start }}">{{ w.window_start[:19] }}</span><br>
+                <span class="sobs-tz-ts" data-utc-ts="{{ w.window_end }}">{{ w.window_end[:19] }}</span>
+              </td>
+              <td>
+                {% if w.copy_complete %}
+                <span class="badge bg-success">{{ w.copied_count }}/{{ w.expected_count }} copied</span>
+                {% elif w.copied_count > 0 %}
+                <span class="badge bg-warning text-dark">{{ w.copied_count }}/{{ w.expected_count }} copied</span>
+                {% else %}
+                <span class="badge bg-secondary">pending</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="small text-secondary mb-0">
+        No preserved windows overlap this incident window yet.
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ── GitHub Work Items ─────────────────────────────────────────────────── -->
+{% set _wi_list = work_item_links.values() | list | selectattr('issue_url') | list %}
+{% if _wi_list %}
+<div class="card mb-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center" style="cursor:pointer;"
+       data-bs-toggle="collapse" data-bs-target="#incident-work-items-panel">
+    <span class="fw-semibold small"><i class="bi bi-github me-1"></i>GitHub Work Items ({{ _wi_list | length }})</span>
+    <i class="bi bi-chevron-down" style="transition:transform 0.2s;font-size:0.9rem;" data-chevron-icon></i>
+  </div>
+  <div id="incident-work-items-panel" class="collapse show">
+    <div class="card-body py-2 px-3">
+      <div class="d-flex flex-column gap-2">
+        {% for wi in _wi_list %}
+        <div class="d-flex align-items-center gap-2 small">
+          <span class="badge {% if wi.issue_state == 'open' %}bg-success{% else %}bg-secondary{% endif %}">{{ wi.issue_state or 'unknown' }}</span>
+          <a href="{{ wi.issue_url }}" target="_blank" rel="noopener" class="text-decoration-none">
+            <i class="bi bi-github me-1"></i>#{{ wi.issue_number }} — {{ wi.issue_url }}
+          </a>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Related Errors ────────────────────────────────────────────────────── -->
+{% if related_errors %}
+<style>{{ render_error_panel_styles('incidentErrAccordion') }}</style>
+<div class="card mb-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center" style="cursor:pointer;"
+       data-bs-toggle="collapse" data-bs-target="#incident-related-errors-panel">
+    <span class="fw-semibold small">
+      <i class="bi bi-bug me-1 text-danger"></i>Related Errors ({{ related_errors | length }}{% if related_errors_truncated %}, first {{ related_errors | length }}{% endif %})
+    </span>
+    <i class="bi bi-chevron-down" style="transition:transform 0.2s;font-size:0.9rem;" data-chevron-icon></i>
+  </div>
+  <div id="incident-related-errors-panel" class="collapse show">
+    <div class="card-body py-2 px-3">
+      {% if related_errors_truncated %}
+      <div class="alert alert-warning py-1 px-2 mb-2 small">Showing the first {{ related_errors | length }} errors for this time window.</div>
+      {% endif %}
+      {{ render_error_accordion(
+        related_errors,
+        from_ts=from_ts,
+        to_ts=to_ts,
+        accordion_id='incidentErrAccordion',
+        collapse_prefix='ierr',
+        stack_prefix='incident-stack-',
+        ai_btn_class='incident-ai-help-btn',
+        raise_btn_class='incident-raise-issue-btn',
+        copy_btn_class='incident-copy-stack-btn',
+        show_resolve=false,
+        show_raise_issue=true,
+        logs_btn_outline='secondary',
+        logs_label='View Logs',
+        trace_btn_outline='info',
+        trace_label='Trace'
+      ) }}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Window parameters ─────────────────────────────────────────────────── -->
+<div class="card mb-3 border-secondary">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center" style="cursor:pointer;"
+       data-bs-toggle="collapse" data-bs-target="#incident-window-panel">
+    <span class="fw-semibold small text-secondary"><i class="bi bi-sliders me-1"></i>Query Window &amp; Links</span>
+    <i class="bi bi-chevron-down" style="transition:transform 0.2s;font-size:0.9rem;" data-chevron-icon></i>
+  </div>
+  <div id="incident-window-panel" class="collapse">
+    <div class="card-body py-2 px-3 small">
+      <div class="d-flex flex-wrap gap-3 mb-2">
+        <div><span class="text-secondary">Window:</span> ±{{ window_minutes // 2 }} min ({{ window_minutes }} min total)</div>
+        {% if from_ts %}<div><span class="text-secondary">From:</span> <span class="sobs-tz-ts" data-utc-ts="{{ from_ts }}">{{ from_ts[:19] }}</span></div>{% endif %}
+        {% if to_ts %}<div><span class="text-secondary">To:</span> <span class="sobs-tz-ts" data-utc-ts="{{ to_ts }}">{{ to_ts[:19] }}</span></div>{% endif %}
+        {% if service %}<div><span class="text-secondary">Service:</span> {{ service }}</div>{% endif %}
+      </div>
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        <span class="text-secondary align-self-center me-1">Keep range:</span>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=15) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 15 %} active{% endif %}">15 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=30) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 30 %} active{% endif %}">30 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=60) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 60 %} active{% endif %}">60 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=180) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 180 %} active{% endif %}">180 min</a>
+      </div>
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        <span class="text-secondary align-self-center me-1">Recenter:</span>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=15) }}" class="btn btn-sm btn-outline-primary">15 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=30) }}" class="btn btn-sm btn-outline-primary">30 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=60) }}" class="btn btn-sm btn-outline-primary">60 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=180) }}" class="btn btn-sm btn-outline-primary">180 min</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.theme-panel {
+  background: var(--bs-tertiary-bg);
+}
+</style>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  // ── Shared timezone selector + timestamp rendering ───────────────────────
+  if (window.sobsTimezone && typeof window.sobsTimezone.initPage === 'function') {
+    window.sobsTimezone.initPage({
+      badgeButtonId: 'incident-tz-badge-btn',
+      badgeLabelId: 'incident-tz-badge-label',
+      timestampSelector: '.sobs-tz-ts[data-utc-ts]'
+    });
+  }
+
+  // ── Chevron collapse icon toggle ──────────────────────────────────────────
+  document.querySelectorAll('[data-chevron-icon]').forEach(function (icon) {
+    var header = icon.closest('[data-bs-toggle="collapse"]');
+    if (!header) return;
+    var targetId = header.getAttribute('data-bs-target');
+    if (!targetId) return;
+    var panel = document.querySelector(targetId);
+    if (!panel) return;
+    panel.addEventListener('show.bs.collapse', function () { icon.style.transform = 'rotate(0deg)'; });
+    panel.addEventListener('hide.bs.collapse', function () { icon.style.transform = 'rotate(-90deg)'; });
+  });
+
+  // ── Copy investigation packet ─────────────────────────────────────────────
+  var copyBtn = document.getElementById('incident-copy-packet-btn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', function () {
+      var lines = [];
+      lines.push('# Incident Investigation Packet');
+      lines.push('');
+      {% if trace_id %}
+      lines.push('**Trace ID:** `{{ trace_id }}`');
+      {% endif %}
+      {% if error_id %}
+      lines.push('**Error ID:** `{{ error_id }}`');
+      {% endif %}
+      {% if service %}
+      lines.push('**Service:** {{ service }}');
+      {% endif %}
+      {% if from_ts %}
+      lines.push('**Time Window:** {{ from_ts }} – {{ to_ts }}');
+      {% endif %}
+      lines.push('');
+      lines.push('## Primary Event');
+      {% if primary_error %}
+      lines.push('- **Type:** `{{ primary_error.err_type }}`');
+      lines.push('- **Message:** ' + JSON.stringify({{ primary_error.message | truncate(200) | tojson }}).slice(1,-1));
+      lines.push('- **Timestamp:** {{ (primary_error.ts or '')[:19] }}');
+      {% if primary_error.trace_id %}
+      lines.push('- **Trace ID:** `{{ primary_error.trace_id }}`');
+      {% endif %}
+      {% elif primary_trace %}
+      lines.push('- **Root Span:** `{{ primary_trace.root_name }}`');
+      lines.push('- **Status:** {{ primary_trace.status }}');
+      lines.push('- **Duration:** {{ primary_trace.total_ms }}ms');
+      lines.push('- **Spans:** {{ primary_trace.span_count }}');
+      lines.push('- **Start:** {{ (primary_trace.start_ts or '')[:19] }}');
+      {% endif %}
+      lines.push('');
+      lines.push('## Evidence Summary');
+      lines.push('| Signal | Count |');
+      lines.push('|--------|-------|');
+      lines.push('| Related Errors | {{ related_errors | length }} |');
+      lines.push('| Log Events | {{ related_log_count }} |');
+      lines.push('| Trace Spans | {{ related_span_count }} |');
+      lines.push('| RUM Events | {{ related_rum_count }} |');
+      lines.push('| RUM Sessions | {{ related_rum_sessions }} |');
+      lines.push('| RUM Errors | {{ related_rum_error_count }} |');
+      lines.push('| Anomaly State | {{ anomaly_state or "unknown" }} |');
+      lines.push('| Metric Points | {{ (metrics_context or {}).get("total_points", 0) }} |');
+      lines.push('| Metric Series | {{ ((metrics_context or {}).get("series", []) | length) }} |');
+      lines.push('| Metrics Source Mode | {{ (metrics_context or {}).get("source_mode", "none") }} |');
+      lines.push('| Preserved Raw Windows | {{ (raw_windows or []) | length }} |');
+      lines.push('');
+
+      lines.push('## Metrics Context');
+      lines.push('- Match Strategy: {{ (metrics_context or {}).get("match_label", "no match") }}');
+      lines.push('- Match Dimensions: {{ ((metrics_context or {}).get("match_dimensions", []) | join(", ")) or "none" }}');
+      lines.push('');
+
+      {% if (metrics_context or {}).get("health_chips") %}
+      lines.push('## Metric Indicators');
+      {% for chip in (metrics_context or {}).get("health_chips", []) if chip.level == 'crit' %}
+      lines.push('- {{ chip.label }}: {{ chip.value }} ({{ chip.level }})');
+      {% endfor %}
+      {% for chip in (metrics_context or {}).get("health_chips", []) if chip.level == 'warn' %}
+      lines.push('- {{ chip.label }}: {{ chip.value }} ({{ chip.level }})');
+      {% endfor %}
+      {% for chip in (metrics_context or {}).get("health_chips", []) if chip.level == 'ok' %}
+      lines.push('- {{ chip.label }}: {{ chip.value }} ({{ chip.level }})');
+      {% endfor %}
+      {% for chip in (metrics_context or {}).get("health_chips", []) if chip.level not in ['crit', 'warn', 'ok'] %}
+      lines.push('- {{ chip.label }}: {{ chip.value }} ({{ chip.level }})');
+      {% endfor %}
+      lines.push('');
+      {% endif %}
+
+      {% if raw_windows %}
+      lines.push('## Overlapping Preserved Windows');
+      {% for w in raw_windows %}
+      lines.push('- `{{ w.id }}` {{ w.signal_type }} ({{ w.window_start }} to {{ w.window_end }}) — {{ w.copied_count }}/{{ w.expected_count }} copied');
+      {% endfor %}
+      lines.push('');
+      {% endif %}
+      {% if _wi_list %}
+      lines.push('## GitHub Work Items');
+      {% for wi in _wi_list %}
+      lines.push('- [#{{ wi.issue_number }}]({{ wi.issue_url }}) ({{ wi.issue_state or "unknown" }})');
+      {% endfor %}
+      lines.push('');
+      {% endif %}
+      lines.push('## Links');
+      {% if trace_id %}
+      lines.push('- [Trace Detail]({{ url_for("view_traces", trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) | safe }})');
+      {% endif %}
+      {% if (primary_error and primary_error.trace_id) or trace_id %}
+      lines.push('- [Logs]({{ url_for("view_logs", trace_id=(primary_error.trace_id if primary_error and primary_error.trace_id else trace_id), from_ts=from_ts, to_ts=to_ts) | safe }})');
+      {% elif service %}
+      lines.push('- [Logs]({{ url_for("view_logs", service=service, from_ts=from_ts, to_ts=to_ts) | safe }})');
+      {% endif %}
+      {% if service %}
+      lines.push('- [Errors]({{ url_for("view_errors", service=service, from_ts=from_ts, to_ts=to_ts) | safe }})');
+      {% endif %}
+      lines.push('- [RUM]({{ url_for("view_rum", from_ts=from_ts, to_ts=to_ts, q=(trace_id or "")) | safe }})');
+
+      var md = lines.join('\n');
+      navigator.clipboard.writeText(md).then(function () {
+        copyBtn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied!';
+        setTimeout(function () { copyBtn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copy Investigation Packet'; }, 2500);
+      }).catch(function () {
+        copyBtn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copy Investigation Packet';
+      });
+    });
+  }
+
+  // ── Raise / Reuse issue ───────────────────────────────────────────────────
+  var raiseBtn = document.getElementById('incident-raise-btn');
+  if (raiseBtn) {
+    raiseBtn.addEventListener('click', async function () {
+      var btn = raiseBtn;
+      var originalHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Working…';
+      try {
+        var payload = {
+          source_page: 'incident',
+          trace_id: btn.dataset.traceId || '',
+          error_id: btn.dataset.errorId || '',
+          service: btn.dataset.service || '',
+          err_type: btn.dataset.errType || '',
+          message: btn.dataset.errMessage || ('Incident evidence packet for ' + (btn.dataset.traceId || btn.dataset.errorId || 'unknown reference')),
+          timestamp: btn.dataset.errTs || '',
+          url: window.location.href,
+        };
+        var resp = await fetch({{ url_for('raise_issue_from_user_observation') | tojson }}, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        var data = await resp.json();
+        if (data.issue_url) {
+          btn.outerHTML = '<a href="' + data.issue_url + '" target="_blank" rel="noopener" class="btn btn-sm btn-success"><i class="bi bi-check2-circle me-1"></i>View issue →</a>';
+        } else {
+          btn.innerHTML = originalHtml;
+          btn.disabled = false;
+          alert(data.error || 'Issue creation failed or was suppressed.');
+        }
+      } catch (e) {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+        alert('Could not raise issue: ' + e.message);
+      }
+    });
+  }
+
+  // ── Raise issue buttons on related error panels ───────────────────────────
+  document.addEventListener('click', async function (e) {
+    var btn = e.target.closest('.incident-raise-issue-btn');
+    if (!btn) return;
+    var originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Working…';
+    try {
+      var payload = {
+        source_page: 'incident',
+        err_type: btn.dataset.errType || '',
+        message: btn.dataset.errMessage || '',
+        service: btn.dataset.errService || '',
+        timestamp: btn.dataset.errTs || '',
+        error_id: btn.dataset.errId || '',
+        trace_id: btn.dataset.traceId || '',
+        span_id: btn.dataset.spanId || '',
+        url: btn.dataset.errUrl || '',
+      };
+      var resp = await fetch({{ url_for('raise_issue_from_user_observation') | tojson }}, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      var data = await resp.json();
+      if (data.issue_url) {
+        btn.outerHTML = '<a href="' + data.issue_url + '" target="_blank" rel="noopener" class="btn btn-sm btn-success"><i class="bi bi-check2-circle me-1"></i>View issue →</a>';
+      } else {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+        alert(data.error || 'Issue creation failed or was suppressed.');
+      }
+    } catch (e) {
+      btn.innerHTML = originalHtml;
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
+{% endblock %}
