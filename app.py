@@ -136,6 +136,27 @@ async def _maybe_await(value: Any) -> Any:
     return value
 
 
+def _request_is_secure_context() -> bool:
+    if _BEHIND_TLS:
+        return True
+    forwarded_proto = str(request.headers.get("X-Forwarded-Proto") or "").split(",", 1)[0].strip().lower()
+    if forwarded_proto == "https":
+        return True
+    return str(request.scheme or "").lower() == "https"
+
+
+@app.after_request
+async def _apply_security_headers(response: Response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'self'; object-src 'none'; base-uri 'self'")
+    if _request_is_secure_context():
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
+
 def _env_flag(name: str, default: bool) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -173,6 +194,13 @@ app.config["APPLICATION_ROOT"] = BASE_PATH or "/"
 app.config["SECRET_KEY"] = os.environ.get("SOBS_SECRET_KEY", "sobs-dev-secret-key")
 app.config["SESSION_COOKIE_NAME"] = os.environ.get("SOBS_SESSION_COOKIE_NAME", "sobs_session")
 app.config["ENABLE_FIRST_RUN_TOUR"] = _env_flag("SOBS_ENABLE_FIRST_RUN_TOUR", True)
+_BEHIND_TLS = _env_flag("SOBS_BEHIND_TLS", False)
+_session_cookie_samesite = str(os.environ.get("SOBS_SESSION_COOKIE_SAMESITE", "Lax") or "Lax").strip().lower()
+if _session_cookie_samesite not in {"lax", "strict", "none"}:
+    _session_cookie_samesite = "lax"
+app.config["SESSION_COOKIE_SECURE"] = _BEHIND_TLS
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = _session_cookie_samesite.capitalize()
 
 _SETTINGS_ENCRYPTION_PREFIX = "enc:v1:"
 _SETTINGS_ENCRYPTION_KEY_ENV = "SOBS_SETTINGS_ENCRYPTION_KEY"
@@ -323,6 +351,7 @@ RUM_ASSET_MAX_BYTES = int(os.environ.get("SOBS_RUM_ASSET_MAX_BYTES", str(8 * 102
 RUM_CLIENT_AUTH_MODE = os.environ.get("SOBS_RUM_CLIENT_AUTH_MODE", "none").strip().lower()
 RUM_CLIENT_SIGNING_KEY = os.environ.get("SOBS_RUM_CLIENT_SIGNING_KEY", "")
 RUM_CLIENT_TOKEN_TTL_SEC = int(os.environ.get("SOBS_RUM_CLIENT_TOKEN_TTL_SEC", "900"))
+CSRF_ORIGIN_CHECK = _env_flag("SOBS_CSRF_ORIGIN_CHECK", _BEHIND_TLS)
 SOURCE_MAP_DIR = os.environ.get("SOBS_SOURCE_MAP_DIR", "").strip()
 SOURCE_MAP_ENABLE = _env_flag("SOBS_SOURCE_MAP_ENABLE", False)
 BUILD_VERSION = os.environ.get("SOBS_BUILD_VERSION", "").strip()
@@ -6654,7 +6683,7 @@ def require_api_key(f):
     @wraps(f)
     async def decorated(*args, **kwargs):
         if API_KEY:
-            key = request.headers.get("X-API-Key") or request.args.get("api_key")
+            key = request.headers.get("X-API-Key")
             if key != API_KEY:
                 return jsonify({"error": "Unauthorized"}), 401
         result = f(*args, **kwargs)
@@ -6798,6 +6827,25 @@ def _request_origin() -> str:
     return ""
 
 
+def _same_origin_request() -> bool:
+    origin = _normalize_origin(request.headers.get("Origin", ""))
+    referer = request.headers.get("Referer", "")
+    referer_origin = ""
+    if referer:
+        parsed = urllib.parse.urlparse(str(referer or "").strip())
+        if parsed.scheme and parsed.netloc:
+            referer_origin = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+
+    forwarded_host = str(request.headers.get("X-Forwarded-Host") or "").split(",", 1)[0].strip().lower()
+    expected_host = forwarded_host or str(request.host or "").strip().lower()
+    forwarded_proto = str(request.headers.get("X-Forwarded-Proto") or "").split(",", 1)[0].strip().lower()
+    expected_scheme = forwarded_proto or str(request.scheme or "").strip().lower() or "http"
+    expected_origin = f"{expected_scheme}://{expected_host}" if expected_host else ""
+    if not expected_origin:
+        return False
+    return origin == expected_origin or referer_origin == expected_origin
+
+
 def _rum_client_sign(payload: str) -> str:
     return hmac.new(RUM_CLIENT_SIGNING_KEY.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
@@ -6892,6 +6940,9 @@ def require_basic_auth(f):
         mode = _auth_mode()
         if mode == "invalid":
             return jsonify({"error": "Server auth misconfiguration"}), 500
+        if mode != "none" and CSRF_ORIGIN_CHECK and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            if not _same_origin_request():
+                return jsonify({"error": "CSRF origin check failed"}), 403
         if mode == "none":
             result = f(*args, **kwargs)
             if inspect.isawaitable(result):

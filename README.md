@@ -422,6 +422,9 @@ The Work Items page is intended to make these decisions visible so operators can
 | `SOBS_BASE_PATH`            | _(empty)_      | Optional URL prefix (for example `/sobs`) for UI/API routing and generated links |
 | `SOBS_SECRET_KEY`           | `sobs-dev-secret-key` | Secret key used by Quart session handling (set explicitly in production) |
 | `SOBS_SESSION_COOKIE_NAME`  | `sobs_session` | Session cookie name for SOBS UI sessions (prevents collisions with management services using `session`) |
+| `SOBS_BEHIND_TLS`           | `0`            | Enable TLS-aware hardening (secure cookies + HSTS) when running behind HTTPS termination |
+| `SOBS_SESSION_COOKIE_SAMESITE` | `Lax`       | Session cookie SameSite policy (`Lax`, `Strict`, `None`) |
+| `SOBS_CSRF_ORIGIN_CHECK`    | `auto`         | Enforce same-origin checks on authenticated UI state-changing methods (defaults to enabled when `SOBS_BEHIND_TLS=1`) |
 | `PORT`                      | `44317`        | Listen port                                      |
 | `SOBS_WRITE_QUEUE_MAX`      | `5000`         | Max buffered write operations before ingest returns `503` |
 | `SOBS_WRITE_BATCH_MAX`      | `200`          | Max writes processed per DB batch |

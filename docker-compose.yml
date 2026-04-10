@@ -5,6 +5,11 @@ services:
     build: .
     image: ghcr.io/abartrim/sobs:latest
     container_name: sobs
+    user: "10001:10001"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
       - "44317:4317"
     volumes:
@@ -22,13 +27,21 @@ services:
       # -----------------------------------------------------------------------
       # Authentication (all optional – leave empty to disable)
       # -----------------------------------------------------------------------
-      # API key for ingest endpoints (send as X-API-Key header or ?api_key=).
+      # API key for ingest endpoints (send via X-API-Key header).
       - SOBS_API_KEY=
       # Basic Auth for the Web UI (set both or neither).
       # - SOBS_BASIC_AUTH_USERNAME=admin
       # - SOBS_BASIC_AUTH_PASSWORD=changeme
       # External Bearer token validator URL for the Web UI.
       # - SOBS_EXTERNAL_AUTH_URL=https://auth.example.com/validate
+      # Set when SOBS runs behind HTTPS/TLS termination.
+      # Enables secure cookies and HSTS.
+      # - SOBS_BEHIND_TLS=1
+      # Optional SameSite cookie mode: Lax | Strict | None
+      # - SOBS_SESSION_COOKIE_SAMESITE=Lax
+      # Optional CSRF same-origin guard override for authenticated UI POST/PUT/PATCH/DELETE.
+      # Defaults to enabled when SOBS_BEHIND_TLS=1.
+      # - SOBS_CSRF_ORIGIN_CHECK=1
 
       # -----------------------------------------------------------------------
       # AI assistant (configure in Settings → AI or via env/secret providers)

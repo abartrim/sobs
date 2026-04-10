@@ -342,6 +342,6 @@ Optional environment variable to extend the allowed table list:
 ## Authentication
 
 Set `SOBS_API_KEY` environment variable to enable API key auth.
-Send key in `X-API-Key` header or `?api_key=` query parameter.
+Send key in the `X-API-Key` header.
 
 For Web UI authentication options see the main [README.md](../README.md#authentication).
