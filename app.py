@@ -7165,6 +7165,7 @@ def _build_rum_event_item(row: Any) -> dict[str, Any]:
     keys = set(row.keys()) if hasattr(row, "keys") else set()
     trace_id = str(row["TraceId"]) if "TraceId" in keys else str(data.get("traceId", ""))
     span_id = str(row["SpanId"]) if "SpanId" in keys else str(data.get("spanId", ""))
+    service = str(row["ServiceName"]) if "ServiceName" in keys else str(data.get("service", "") or "")
     if trace_id and not data.get("traceId"):
         data["traceId"] = trace_id
     if span_id and not data.get("spanId"):
@@ -7185,6 +7186,7 @@ def _build_rum_event_item(row: Any) -> dict[str, Any]:
         "data": data,
         "trace_id": trace_id,
         "span_id": span_id,
+        "service": service,
         "has_artifact": bool(artifact.get("url") or artifact.get("id")),
         "has_replay": bool(replay.get("url") or replay.get("id")),
     }
@@ -14067,6 +14069,8 @@ async def view_incident():
     db = get_db()
     trace_id = request.args.get("trace_id", "").strip()
     error_id = request.args.get("error_id", "").strip()
+    rum_session = request.args.get("rum_session", "").strip()
+    rum_ts = request.args.get("rum_ts", "").strip()
     from_ts, to_ts, time_error = _parse_time_window_args()
 
     try:
@@ -14076,13 +14080,16 @@ async def view_incident():
     except (TypeError, ValueError):
         window_minutes = _INCIDENT_WINDOW_DEFAULT_MINUTES
 
-    if not trace_id and not error_id:
+    if not trace_id and not error_id and not rum_session:
         return await render_template(
             "incident.html",
             trace_id="",
             error_id="",
+            rum_session="",
+            rum_ts="",
             primary_error=None,
             primary_trace=None,
+            primary_rum=None,
             service="",
             from_ts="",
             to_ts="",
@@ -14106,7 +14113,7 @@ async def view_incident():
             anomaly_state=None,
             work_item_links={},
             time_error="",
-            error_msg="No incident reference provided. Specify trace_id or error_id.",
+            error_msg="No incident reference provided. Specify trace_id, error_id, or rum_session.",
         )
 
     # ── Resolve primary error ───────────────────────────────────────────────
@@ -14161,6 +14168,27 @@ async def view_incident():
         except Exception as exc:
             log.warning("view_incident: failed to look up trace_id %s: %s", trace_id, exc)
 
+    # ── Resolve primary RUM event (session-scoped fallback) ─────────────────
+    primary_rum: dict | None = None
+    if rum_session:
+        try:
+            rum_where_parts = [f"{_RUM_SESSION_KEY_SQL}=?"]
+            rum_where_params: list[str] = [rum_session]
+            if rum_ts:
+                rum_where_parts.append("Timestamp <= parseDateTime64BestEffort(?, 9)")
+                rum_where_params.append(rum_ts)
+            rum_where_sql = "WHERE " + " AND ".join(rum_where_parts)
+            rum_row = db.execute(
+                "SELECT Timestamp, EventName, Body, LogAttributes, TraceId, SpanId, ServiceName "
+                f"FROM hyperdx_sessions {rum_where_sql} "
+                "ORDER BY Timestamp DESC LIMIT 1",
+                rum_where_params,
+            ).fetchone()
+            if rum_row:
+                primary_rum = _build_rum_event_item(rum_row)
+        except Exception as exc:
+            log.warning("view_incident: failed to look up rum_session %s: %s", rum_session, exc)
+
     # ── Determine primary service and event timestamp ───────────────────────
     service = ""
     event_ts = ""
@@ -14170,6 +14198,9 @@ async def view_incident():
     elif primary_trace:
         service = primary_trace.get("service", "")
         event_ts = primary_trace.get("start_ts", "")
+    elif primary_rum:
+        service = str(primary_rum.get("service", "") or "")
+        event_ts = str(primary_rum.get("ts", "") or "")
 
     # ── Expand time window around event if caller did not supply one ────────
     if event_ts and not (from_ts and to_ts) and not time_error:
@@ -14286,7 +14317,7 @@ async def view_incident():
             related_rum_error_count = int(rum_summary_row["err_count"])
 
         rum_rows = db.execute(
-            "SELECT Timestamp, EventName, Body, LogAttributes, TraceId, SpanId "
+            "SELECT Timestamp, EventName, Body, LogAttributes, TraceId, SpanId, ServiceName "
             f"FROM hyperdx_sessions {rum_where_sql} "
             "ORDER BY Timestamp DESC LIMIT ?",
             rum_where_params + [_INCIDENT_MAX_RELATED_RUM_EVENTS],
@@ -14349,8 +14380,12 @@ async def view_incident():
     ref_ids: list[str] = []
     if primary_error:
         ref_ids.append(primary_error["id"])
+    elif error_id:
+        ref_ids.append(error_id)
     if trace_id:
         ref_ids.append(trace_id)
+    if rum_session:
+        ref_ids.append(rum_session)
     work_item_links = _load_work_item_links_for_ref_ids(db, ref_ids)
 
     # ── Resolve best existing work item for the raise-issue button ──────────
@@ -14365,8 +14400,11 @@ async def view_incident():
         "incident.html",
         trace_id=trace_id,
         error_id=error_id,
+        rum_session=rum_session,
+        rum_ts=rum_ts,
         primary_error=primary_error,
         primary_trace=primary_trace,
+        primary_rum=primary_rum,
         service=service,
         from_ts=from_ts,
         to_ts=to_ts,

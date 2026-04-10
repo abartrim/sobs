@@ -2,7 +2,7 @@
 {% from "_error_panels.html" import render_error_accordion, render_error_panel_styles %}
 {% block title %}Incident View{% endblock %}
 {% block content %}
-{% set _ref = trace_id or error_id %}
+{% set _ref = trace_id or error_id or rum_session %}
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
   <h4 class="fw-semibold mb-0"><i class="bi bi-shield-exclamation me-2 text-danger"></i>Incident View</h4>
   <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -11,7 +11,14 @@
     {% endif %}
     {% if from_ts %}
     <span class="badge bg-secondary-subtle text-secondary-emphasis small">
-      <i class="bi bi-clock-history me-1"></i>{{ from_ts[:16] }} – {{ to_ts[:16] if to_ts else '…' }}
+      <i class="bi bi-clock-history me-1"></i>
+      <span class="sobs-tz-ts" data-utc-ts="{{ from_ts }}">{{ from_ts[:19] }}</span>
+      –
+      {% if to_ts %}
+      <span class="sobs-tz-ts" data-utc-ts="{{ to_ts }}">{{ to_ts[:19] }}</span>
+      {% else %}
+      …
+      {% endif %}
     </span>
     {% endif %}
     {% if service %}
@@ -24,15 +31,21 @@
 <div class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle me-1"></i>{{ error_msg }}</div>
 {% endif %}
 
-{% if not primary_error and not primary_trace and not error_msg %}
+{% if not primary_error and not primary_trace and not primary_rum and not error_msg %}
 <div class="alert alert-secondary py-2 small"><i class="bi bi-info-circle me-1"></i>Primary event not found in the database. It may have expired or the reference may be incorrect.</div>
 {% endif %}
 
 <!-- ── Primary Event ─────────────────────────────────────────────────────── -->
-{% if primary_error or primary_trace %}
+{% if primary_error or primary_trace or primary_rum %}
 <div class="card mb-3">
   <div class="card-header py-2 d-flex justify-content-between align-items-center">
-    <span class="fw-semibold small"><i class="bi bi-exclamation-circle me-1 text-danger"></i>Primary Event</span>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="fw-semibold small"><i class="bi bi-exclamation-circle me-1 text-danger"></i>Primary Event</span>
+      <span id="incident-tz-badge-btn" class="sobs-tz-header-badge" role="button" tabindex="0" title="Display timezone - click to change">
+        <i class="bi bi-clock"></i>
+        <span id="incident-tz-badge-label">UTC</span>
+      </span>
+    </div>
     <div class="d-flex gap-2 align-items-center flex-wrap">
       {% if anomaly_state == 'critical' %}
       <span class="badge bg-danger"><i class="bi bi-exclamation-circle me-1"></i>critical</span>
@@ -51,7 +64,7 @@
       <div><span class="text-secondary">Time:</span> <span class="sobs-tz-ts" data-utc-ts="{{ primary_error.ts }}">{{ primary_error.ts[:19] }}</span></div>
       {% if primary_error.trace_id %}
       <div><span class="text-secondary">Trace:</span>
-        <a href="{{ url_for('view_traces', trace_id=primary_error.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="font-monospace">{{ primary_error.trace_id[:16] }}…</a>
+        <a href="{{ url_for('view_traces', trace_id=primary_error.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="font-monospace text-break">{{ primary_error.trace_id }}</a>
       </div>
       {% endif %}
     </div>
@@ -64,7 +77,7 @@
     {% endif %}
     {% elif primary_trace %}
     <div class="d-flex flex-wrap gap-3 small mb-2">
-      <div><span class="text-secondary">Trace:</span> <code class="font-monospace">{{ primary_trace.trace_id[:24] }}…</code></div>
+      <div><span class="text-secondary">Trace:</span> <code class="font-monospace text-break">{{ primary_trace.trace_id }}</code></div>
       <div><span class="text-secondary">Service:</span> <strong>{{ primary_trace.service or '—' }}</strong></div>
       <div><span class="text-secondary">Spans:</span> {{ primary_trace.span_count }}</div>
       <div><span class="text-secondary">Duration:</span> {{ primary_trace.total_ms }}ms</div>
@@ -73,6 +86,22 @@
       <div><span class="text-secondary">Status:</span> <span class="badge {% if 'ERROR' in primary_trace.status %}bg-danger{% elif primary_trace.status == 'UNSET' %}bg-secondary{% else %}bg-success{% endif %}">{{ primary_trace.status }}</span></div>
       {% endif %}
     </div>
+    {% elif primary_rum %}
+    <div class="d-flex flex-wrap gap-3 small mb-2">
+      <div><span class="text-secondary">RUM Event:</span> <span class="badge {% if primary_rum.event_type in ('error', 'unhandledrejection') %}bg-danger{% elif primary_rum.event_type == 'pageview' %}bg-primary{% elif primary_rum.event_type == 'web-vital' %}bg-success{% else %}bg-secondary{% endif %}">{{ primary_rum.event_type }}</span></div>
+      <div><span class="text-secondary">Service:</span> <strong>{{ primary_rum.service or '—' }}</strong></div>
+      <div><span class="text-secondary">Time:</span> <span class="sobs-tz-ts" data-utc-ts="{{ primary_rum.ts }}">{{ primary_rum.ts[:19] }}</span></div>
+      {% if primary_rum.trace_id %}
+      <div><span class="text-secondary">Trace:</span> <a href="{{ url_for('view_traces', trace_id=primary_rum.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="font-monospace text-break">{{ primary_rum.trace_id }}</a></div>
+      {% endif %}
+      {% if primary_rum.session_key %}
+      <div><span class="text-secondary">Session:</span> <code class="font-monospace">{{ primary_rum.session_key[:16] }}{% if primary_rum.session_key|length > 16 %}…{% endif %}</code></div>
+      {% endif %}
+    </div>
+    <div class="small text-break mb-2">{{ primary_rum.url or '—' }}</div>
+    {% if primary_rum.data and primary_rum.data.get('message') %}
+    <div class="small mb-2 theme-panel rounded p-2" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ primary_rum.data.get('message') }}</div>
+    {% endif %}
     {% endif %}
   </div>
 </div>
@@ -90,9 +119,9 @@
           data-trace-id="{{ trace_id }}"
           data-error-id="{{ error_id }}"
           data-service="{{ service }}"
-          data-err-type="{{ primary_error.err_type if primary_error else '' }}"
-          data-err-message="{{ primary_error.message if primary_error else '' }}"
-          data-err-ts="{{ (primary_error.ts or '')[:19] if primary_error else '' }}"
+      data-err-type="{{ primary_error.err_type if primary_error else (primary_rum.event_type if primary_rum else '') }}"
+      data-err-message="{{ primary_error.message if primary_error else (primary_rum.data.get('message', '') if primary_rum else '') }}"
+      data-err-ts="{{ (primary_error.ts or '')[:19] if primary_error else ((primary_rum.ts or '')[:19] if primary_rum else '') }}"
           title="Raise or reuse a GitHub issue for this incident">
     <i class="bi bi-github me-1"></i>Raise / Reuse Issue
   </button>
@@ -105,6 +134,10 @@
 
   {% if trace_id %}
   <a href="{{ url_for('view_traces', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
+    <i class="bi bi-diagram-3 me-1"></i>Open in Traces
+  </a>
+  {% elif primary_rum and primary_rum.trace_id %}
+  <a href="{{ url_for('view_traces', trace_id=primary_rum.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
     <i class="bi bi-diagram-3 me-1"></i>Open in Traces
   </a>
   {% endif %}
@@ -218,7 +251,7 @@
           <tbody>
             {% for ev in related_rum_events %}
             <tr>
-              <td class="small font-monospace">{{ ev.ts[:19] }}</td>
+              <td class="small font-monospace sobs-tz-ts" data-utc-ts="{{ ev.ts }}">{{ ev.ts[:19] }}</td>
               <td>
                 <span class="badge {% if ev.event_type in ('error', 'unhandledrejection') %}bg-danger{% elif ev.event_type == 'pageview' %}bg-primary{% elif ev.event_type == 'web-vital' %}bg-success{% else %}bg-secondary{% endif %}">{{ ev.event_type }}</span>
               </td>
@@ -227,10 +260,8 @@
                 <div class="d-flex gap-2 flex-wrap">
                   {% if ev.trace_id %}
                   <a href="{{ url_for('view_traces', trace_id=ev.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">Trace</a>
-                  <a href="{{ url_for('view_incident', trace_id=ev.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-primary">Incident</a>
-                  {% else %}
-                  <span class="small text-secondary">No trace link</span>
                   {% endif %}
+                  <a href="{{ url_for('view_incident', trace_id=ev.trace_id, rum_session=ev.session_key, rum_ts=ev.ts, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-primary">Incident</a>
                 </div>
               </td>
             </tr>
@@ -308,8 +339,8 @@
                 {% endif %}
               </td>
               <td class="small font-monospace">
-                {{ w.window_start }}<br>
-                {{ w.window_end }}
+                <span class="sobs-tz-ts" data-utc-ts="{{ w.window_start }}">{{ w.window_start[:19] }}</span><br>
+                <span class="sobs-tz-ts" data-utc-ts="{{ w.window_end }}">{{ w.window_end[:19] }}</span>
               </td>
               <td>
                 {% if w.copy_complete %}
@@ -409,23 +440,23 @@
     <div class="card-body py-2 px-3 small">
       <div class="d-flex flex-wrap gap-3 mb-2">
         <div><span class="text-secondary">Window:</span> ±{{ window_minutes // 2 }} min ({{ window_minutes }} min total)</div>
-        {% if from_ts %}<div><span class="text-secondary">From:</span> {{ from_ts }}</div>{% endif %}
-        {% if to_ts %}<div><span class="text-secondary">To:</span> {{ to_ts }}</div>{% endif %}
+        {% if from_ts %}<div><span class="text-secondary">From:</span> <span class="sobs-tz-ts" data-utc-ts="{{ from_ts }}">{{ from_ts[:19] }}</span></div>{% endif %}
+        {% if to_ts %}<div><span class="text-secondary">To:</span> <span class="sobs-tz-ts" data-utc-ts="{{ to_ts }}">{{ to_ts[:19] }}</span></div>{% endif %}
         {% if service %}<div><span class="text-secondary">Service:</span> {{ service }}</div>{% endif %}
       </div>
       <div class="d-flex flex-wrap gap-2 mt-2">
         <span class="text-secondary align-self-center me-1">Keep range:</span>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, from_ts=from_ts, to_ts=to_ts, window_minutes=15) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 15 %} active{% endif %}">15 min</a>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, from_ts=from_ts, to_ts=to_ts, window_minutes=30) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 30 %} active{% endif %}">30 min</a>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, from_ts=from_ts, to_ts=to_ts, window_minutes=60) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 60 %} active{% endif %}">60 min</a>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, from_ts=from_ts, to_ts=to_ts, window_minutes=180) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 180 %} active{% endif %}">180 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=15) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 15 %} active{% endif %}">15 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=30) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 30 %} active{% endif %}">30 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=60) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 60 %} active{% endif %}">60 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=180) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 180 %} active{% endif %}">180 min</a>
       </div>
       <div class="d-flex flex-wrap gap-2 mt-2">
         <span class="text-secondary align-self-center me-1">Recenter:</span>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, window_minutes=15) }}" class="btn btn-sm btn-outline-primary">15 min</a>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, window_minutes=30) }}" class="btn btn-sm btn-outline-primary">30 min</a>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, window_minutes=60) }}" class="btn btn-sm btn-outline-primary">60 min</a>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, window_minutes=180) }}" class="btn btn-sm btn-outline-primary">180 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=15) }}" class="btn btn-sm btn-outline-primary">15 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=30) }}" class="btn btn-sm btn-outline-primary">30 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=60) }}" class="btn btn-sm btn-outline-primary">60 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=180) }}" class="btn btn-sm btn-outline-primary">180 min</a>
       </div>
     </div>
   </div>
@@ -437,8 +468,20 @@
 }
 </style>
 
+{% endblock %}
+
+{% block scripts %}
 <script>
 (function () {
+  // ── Shared timezone selector + timestamp rendering ───────────────────────
+  if (window.sobsTimezone && typeof window.sobsTimezone.initPage === 'function') {
+    window.sobsTimezone.initPage({
+      badgeButtonId: 'incident-tz-badge-btn',
+      badgeLabelId: 'incident-tz-badge-label',
+      timestampSelector: '.sobs-tz-ts[data-utc-ts]'
+    });
+  }
+
   // ── Chevron collapse icon toggle ──────────────────────────────────────────
   document.querySelectorAll('[data-chevron-icon]').forEach(function (icon) {
     var header = icon.closest('[data-bs-toggle="collapse"]');

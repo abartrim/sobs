@@ -16888,6 +16888,28 @@ class TestIncidentView:
         body = await r.get_data(as_text=True)
         assert "Incident View" in body
 
+    async def test_incident_page_error_id_fallback_keeps_work_item_links(self, client, monkeypatch):
+        """Explicit error_id should still be used to resolve work item links if no primary error row is found."""
+        explicit_error_id = "deadbeefdeadbeefdeadbeefdeadbeef"
+        captured_ref_ids: list[str] = []
+
+        def _fake_load_work_items(_db, ref_ids):
+            captured_ref_ids.extend(ref_ids)
+            return {
+                explicit_error_id: {
+                    "issue_url": "https://github.com/example/repo/issues/42",
+                    "issue_number": 42,
+                }
+            }
+
+        monkeypatch.setattr(sobs_app, "_load_work_item_links_for_ref_ids", _fake_load_work_items)
+
+        r = await client.get(f"/incident?error_id={explicit_error_id}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert explicit_error_id in captured_ref_ids
+        assert "https://github.com/example/repo/issues/42" in body
+
     async def test_incident_page_shows_investigation_packet_button(self, client):
         """The copy investigation packet button must be present."""
         r = await client.get("/incident?trace_id=aabbccddeeff001122334455667788bb")
@@ -16971,6 +16993,43 @@ class TestIncidentView:
         assert "Incident View" in body
         assert "incident-trace-error-unique" in body
 
+    async def test_incident_page_primary_trace_shows_full_trace_id(self, client):
+        """Primary Event trace line should render the full trace_id without truncation."""
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        trace_id_hex = "aabbccddeeff00112233445566778866"
+        trace_id_bytes = bytes.fromhex(trace_id_hex)
+        span_bytes = bytes.fromhex("1234567890abcdea")
+        start_ns = 1704067200_000_000_000
+
+        span = Span(
+            trace_id=trace_id_bytes,
+            span_id=span_bytes,
+            name="incident-primary-trace-id-span",
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 1_000_000_000,
+            status=Status(code=1),
+        )
+        resource = Resource(
+            attributes=[KeyValue(key="service.name", value=AnyValue(string_value="incident-trace-id-svc"))]
+        )
+        msg = ExportTraceServiceRequest(
+            resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])]
+        )
+        await client.post(
+            "/v1/traces",
+            data=msg.SerializeToString(),
+            headers={"Content-Type": "application/x-protobuf"},
+        )
+
+        r = await client.get(f"/incident?trace_id={trace_id_hex}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert f">{trace_id_hex}<" in body
+
     async def test_incident_page_shows_rum_evidence_from_trace(self, client):
         """Incident page should surface RUM evidence counts and panel for matching trace_id."""
         trace_id = "aabbccddeeff00112233445566779999"
@@ -16994,6 +17053,56 @@ class TestIncidentView:
         assert "RUM Evidence" in body
         assert "RUM Events" in body
         assert "rum-incident-marker" in body
+
+    async def test_incident_page_primary_event_has_timezone_selector_and_handler(self, client):
+        """Primary Event panel should host shared timezone selector and initialize renderer."""
+        session_id = "incident-tz-session-001"
+        await client.post(
+            "/v1/rum",
+            json={
+                "events": [
+                    {
+                        "type": "error",
+                        "sessionId": session_id,
+                        "url": "https://example.test/tz",
+                        "message": "incident-timezone-marker",
+                        "timestamp": "2026-04-09T12:10:00Z",
+                    }
+                ]
+            },
+        )
+
+        r = await client.get(f"/incident?rum_session={session_id}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "incident-tz-badge-btn" in body
+        assert "incident-tz-badge-label" in body
+        assert "window.sobsTimezone.initPage" in body
+        assert body.count("sobs-tz-ts") >= 3
+
+    async def test_incident_window_links_preserve_rum_reference(self, client):
+        """Keep-range/recenter links should preserve rum_session and rum_ts context."""
+        session_id = "incident-window-links-rum"
+        await client.post(
+            "/v1/rum",
+            json={
+                "events": [
+                    {
+                        "type": "error",
+                        "sessionId": session_id,
+                        "url": "https://example.test/window-links",
+                        "message": "incident-window-links-marker",
+                        "timestamp": "2026-04-09T12:20:00Z",
+                    }
+                ]
+            },
+        )
+
+        r = await client.get(f"/incident?rum_session={session_id}&rum_ts=2026-04-09T12:20:00Z")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert f"rum_session={session_id}" in body
+        assert "rum_ts=2026-04-09T12:20:00Z" in body
 
     async def test_errors_page_has_incident_view_button(self, client):
         """Error cards should include an 'Incident View' action link."""
@@ -17071,6 +17180,29 @@ class TestIncidentView:
         body = await r.get_data(as_text=True)
         assert "Open incident view" in body
         assert "/incident" in body
+
+    async def test_rum_page_incident_view_link_supports_untraced_sessions(self, client):
+        """RUM session rows should link Incident View via rum_session even when no traceId exists."""
+        session_id = "rum-session-untraced-42"
+        await client.post(
+            "/v1/rum",
+            json={
+                "events": [
+                    {
+                        "type": "error",
+                        "sessionId": session_id,
+                        "url": "https://example.test/untraced",
+                        "message": "untraced-rum-incident-marker",
+                        "timestamp": "2026-04-09T12:02:00Z",
+                    }
+                ]
+            },
+        )
+        r = await client.get("/rum?view=sessions")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Open incident view" in body
+        assert f"rum_session={session_id}" in body
 
     async def test_issue_trigger_context_accepts_incident_source(self):
         """Incident source should be preserved and use incident-level trigger metadata."""

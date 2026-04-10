@@ -956,15 +956,15 @@
                aria-label="Open trace">
               <i class="bi bi-diagram-3"></i>
             </a>
-            <a href="{{ url_for('view_incident', trace_id=session.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+            {% else %}
+            <button class="btn btn-outline-secondary btn-sm rum-row-trace-btn rum-row-action-placeholder" type="button" tabindex="-1" aria-hidden="true"><i class="bi bi-diagram-3"></i></button>
+            {% endif %}
+            <a href="{{ url_for('view_incident', trace_id=session.trace_id, rum_session=session.session_key, rum_ts=session.last_ts, from_ts=from_ts, to_ts=to_ts) }}"
                class="btn btn-outline-primary btn-sm rum-row-trace-btn"
                title="Open incident view"
                aria-label="Open incident view">
               <i class="bi bi-shield-exclamation"></i>
             </a>
-            {% else %}
-            <button class="btn btn-outline-secondary btn-sm rum-row-trace-btn rum-row-action-placeholder" type="button" tabindex="-1" aria-hidden="true"><i class="bi bi-diagram-3"></i></button>
-            {% endif %}
             <button class="btn btn-outline-secondary btn-sm rum-row-accordion-btn collapsed"
                     type="button"
                     data-bs-toggle="collapse"
@@ -1021,15 +1021,15 @@
                        aria-label="Open trace">
                       <i class="bi bi-diagram-3"></i>
                     </a>
-                    <a href="{{ url_for('view_incident', trace_id=ev.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+                    {% else %}
+                    <button class="btn btn-outline-secondary btn-sm rum-row-trace-btn rum-row-action-placeholder" type="button" tabindex="-1" aria-hidden="true"><i class="bi bi-diagram-3"></i></button>
+                    {% endif %}
+                    <a href="{{ url_for('view_incident', trace_id=ev.trace_id, rum_session=ev.session_key, rum_ts=ev.ts, from_ts=from_ts, to_ts=to_ts) }}"
                        class="btn btn-outline-primary btn-sm rum-row-trace-btn"
                        title="Open incident view"
                        aria-label="Open incident view">
                       <i class="bi bi-shield-exclamation"></i>
                     </a>
-                    {% else %}
-                    <button class="btn btn-outline-secondary btn-sm rum-row-trace-btn rum-row-action-placeholder" type="button" tabindex="-1" aria-hidden="true"><i class="bi bi-diagram-3"></i></button>
-                    {% endif %}
                     {% if ev.event_type in ('error','unhandledrejection') %}
                     <button class="btn btn-outline-secondary btn-sm rum-row-accordion-btn collapsed"
                             type="button"
@@ -1086,7 +1086,13 @@
                       <a href="{{ url_for('view_traces', trace_id=ev.data.get('traceId'), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
                         <i class="bi bi-diagram-3 me-1"></i>Trace {{ ev.data.get('traceId')[:12] }}
                       </a>
-                      <a href="{{ url_for('view_incident', trace_id=ev.data.get('traceId'), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-primary">
+                      <a href="{{ url_for('view_incident', trace_id=ev.data.get('traceId'), rum_session=ev.session_key, rum_ts=ev.ts, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-shield-exclamation me-1"></i>Incident View
+                      </a>
+                    </div>
+                    {% elif ev.event_type in ('error', 'unhandledrejection') %}
+                    <div class="mb-3 rum-detail-links">
+                      <a href="{{ url_for('view_incident', rum_session=ev.session_key, rum_ts=ev.ts, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-primary">
                         <i class="bi bi-shield-exclamation me-1"></i>Incident View
                       </a>
                     </div>
