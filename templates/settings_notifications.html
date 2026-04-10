@@ -226,7 +226,11 @@
                 <i class="bi bi-{{ 'pause-circle' if ch.enabled else 'play-circle' }}"></i>
               </button>
             </form>
-            <form method="post" action="{{ url_for('delete_notification_channel', channel_id=ch.id) }}" class="d-inline" onsubmit="return confirm('Delete channel \'{{ ch.name }}\'?')">
+            <form method="post" action="{{ url_for('delete_notification_channel', channel_id=ch.id) }}" class="d-inline"
+              data-confirm-title="Delete Notification Channel"
+              data-confirm-message="Delete channel '{{ ch.name }}'?"
+              data-confirm-ok-label="Delete"
+              data-confirm-ok-class="btn-danger">
               <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"
                       data-ai-action-id="settings.notifications.channel.delete"
                       data-ai-action-type="submit_form"
@@ -421,7 +425,11 @@
                 <i class="bi bi-{{ 'pause-circle' if rule.enabled else 'play-circle' }}"></i>
               </button>
             </form>
-            <form method="post" action="{{ url_for('delete_notification_rule', rule_id=rule.id) }}" class="d-inline" onsubmit="return confirm('Delete rule \'{{ rule.name }}\'?')">
+            <form method="post" action="{{ url_for('delete_notification_rule', rule_id=rule.id) }}" class="d-inline"
+              data-confirm-title="Delete Notification Rule"
+              data-confirm-message="Delete rule '{{ rule.name }}'?"
+              data-confirm-ok-label="Delete"
+              data-confirm-ok-class="btn-danger">
               <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"
                       data-ai-action-id="settings.notifications.rule.delete"
                       data-ai-action-type="submit_form"
@@ -732,10 +740,14 @@ function escHtml(s) {
 
   var regenerateVapidBtn = document.getElementById('regenerateVapidBtn');
   if (regenerateVapidBtn) {
-    regenerateVapidBtn.addEventListener('click', function () {
-      if (!confirm('Regenerating VAPID keys will invalidate ALL existing browser push subscriptions. Browsers will need to re-subscribe.\n\nContinue?')) {
-        return;
-      }
+    regenerateVapidBtn.addEventListener('click', async function () {
+      var confirmed = await window.SOBS.confirm({
+        title: 'Regenerate VAPID Keys',
+        message: 'Regenerating VAPID keys will invalidate ALL existing browser push subscriptions. Browsers will need to re-subscribe.\n\nContinue?',
+        okLabel: 'Regenerate',
+        okClass: 'btn-danger'
+      });
+      if (!confirmed) return;
       regenerateVapidBtn.disabled = true;
       regenerateVapidBtn.textContent = 'Regenerating…';
       fetch('{{ url_for("generate_vapid_key") }}', { method: 'POST', credentials: 'same-origin' })
@@ -760,10 +772,14 @@ function escHtml(s) {
 
   var removeVapidBtn = document.getElementById('removeVapidBtn');
   if (removeVapidBtn) {
-    removeVapidBtn.addEventListener('click', function () {
-      if (!confirm('This will remove the stored VAPID keys. Browser push notifications will stop working until new keys are generated.\n\nContinue?')) {
-        return;
-      }
+    removeVapidBtn.addEventListener('click', async function () {
+      var confirmed = await window.SOBS.confirm({
+        title: 'Remove VAPID Keys',
+        message: 'This will remove the stored VAPID keys. Browser push notifications will stop working until new keys are generated.\n\nContinue?',
+        okLabel: 'Remove',
+        okClass: 'btn-danger'
+      });
+      if (!confirmed) return;
       fetch('{{ url_for("delete_vapid_keys") }}', { method: 'DELETE', credentials: 'same-origin' })
         .then(function (res) { return res.json(); })
         .then(function (data) {
@@ -885,7 +901,13 @@ function escHtml(s) {
   });
 
   createBtn.addEventListener('click', async function () {
-    if (!confirm('Create all candidate notification rules now?')) return;
+    var confirmed = await window.SOBS.confirm({
+      title: 'Create Notification Rules',
+      message: 'Create all candidate notification rules now?',
+      okLabel: 'Create',
+      okClass: 'btn-primary'
+    });
+    if (!confirmed) return;
     createBtn.disabled = true;
     createBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating\u2026';
     try {

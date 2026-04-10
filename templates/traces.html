@@ -840,7 +840,7 @@ if (window.sobsTimezone && typeof window.sobsTimezone.initPage === 'function') {
 
       var spanId = btn.dataset.spanId;
       var traceId = btn.dataset.traceId || '';
-      var rawSpanUrl = '/api/traces/span/' + encodeURIComponent(spanId);
+      var rawSpanUrl = {{ url_for('api_raw_span', span_id='') | tojson }} + encodeURIComponent(spanId);
       if (traceId) {
         rawSpanUrl += '?trace_id=' + encodeURIComponent(traceId);
       }

@@ -505,6 +505,24 @@
   </div>
 </div>
 
+<div class="modal fade" id="sobsConfirmModal" tabindex="-1" aria-labelledby="sobsConfirmModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-secondary">
+      <div class="modal-header">
+        <h5 class="modal-title" id="sobsConfirmModalTitle">Confirm Action</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p id="sobsConfirmModalMessage" class="mb-0">Are you sure?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="sobsConfirmModalOkBtn">Confirm</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
 <script src="{{ url_for('static', filename='date-range-picker.js') }}"></script>
 <script src="{{ url_for('static', filename='sobs-timezone.js') }}"></script>
@@ -625,6 +643,105 @@
       setBusy(false);
     }
   });
+})();
+</script>
+<script>
+(function () {
+  window.SOBS = window.SOBS || {};
+
+  window.SOBS.resolveUrl = function (value) {
+    var raw = String(value == null ? '' : value).trim();
+    if (!raw) return String(document.baseURI || window.location.href || '');
+    try {
+      return new URL(raw, document.baseURI || window.location.href).toString();
+    } catch (_err) {
+      return raw;
+    }
+  };
+
+  var modalEl = document.getElementById('sobsConfirmModal');
+  var titleEl = document.getElementById('sobsConfirmModalTitle');
+  var messageEl = document.getElementById('sobsConfirmModalMessage');
+  var okBtn = document.getElementById('sobsConfirmModalOkBtn');
+  var modal = (modalEl && window.bootstrap && window.bootstrap.Modal)
+    ? window.bootstrap.Modal.getOrCreateInstance(modalEl)
+    : null;
+  var pendingResolve = null;
+
+  function finish(result) {
+    if (pendingResolve) {
+      var resolve = pendingResolve;
+      pendingResolve = null;
+      resolve(!!result);
+    }
+  }
+
+  if (modalEl) {
+    modalEl.addEventListener('hidden.bs.modal', function () {
+      finish(false);
+    });
+  }
+  if (okBtn) {
+    okBtn.addEventListener('click', function () {
+      finish(true);
+      if (modal) {
+        modal.hide();
+      }
+    });
+  }
+
+  function showConfirm(opts) {
+    opts = opts || {};
+    var title = String(opts.title || 'Confirm Action');
+    var message = String(opts.message || opts.text || 'Are you sure?');
+    var okLabel = String(opts.okLabel || 'Confirm');
+    var okClass = String(opts.okClass || 'btn-danger');
+
+    if (!modal || !titleEl || !messageEl || !okBtn) {
+      return Promise.resolve(window.confirm(message));
+    }
+
+    titleEl.textContent = title;
+    messageEl.textContent = message;
+    okBtn.textContent = okLabel;
+    okBtn.className = 'btn ' + okClass;
+
+    return new Promise(function (resolve) {
+      pendingResolve = resolve;
+      modal.show();
+    });
+  }
+
+  window.SOBS.confirm = showConfirm;
+  window.sobsConfirm = showConfirm;
+
+  document.addEventListener('submit', function (event) {
+    var form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    var msg = form.getAttribute('data-confirm-message');
+    if (!msg) return;
+    if (form.dataset.confirming === '1') {
+      form.dataset.confirming = '0';
+      return;
+    }
+    event.preventDefault();
+    showConfirm({
+      title: form.getAttribute('data-confirm-title') || 'Confirm Action',
+      message: msg,
+      okLabel: form.getAttribute('data-confirm-ok-label') || 'Confirm',
+      okClass: form.getAttribute('data-confirm-ok-class') || 'btn-danger'
+    }).then(function (confirmed) {
+      if (!confirmed) {
+        return;
+      }
+      form.dataset.confirming = '1';
+      if (typeof form.requestSubmit === 'function') {
+        form.requestSubmit();
+      } else {
+        form.submit();
+      }
+    });
+  }, true);
 })();
 </script>
 {% block scripts %}{% endblock %}

@@ -515,6 +515,9 @@
   const BYTES_TO_MB = 1048576;
   const MSG_TIMEOUT_MS = 8000;
   const msgEl = document.getElementById('backupActionMsg');
+  const backupListApiUrl = {{ url_for('api_dm_backup_list') | tojson }};
+  const backupRunApiUrl = {{ url_for('api_dm_backup_run') | tojson }};
+  const restoreApiUrl = {{ url_for('api_dm_restore') | tojson }};
 
   function showMsg(text, type) {
     msgEl.className = 'alert alert-' + type + ' mb-3';
@@ -535,7 +538,7 @@
   async function loadBackups() {
     const container = document.getElementById('backupListContainer');
     try {
-      const data = await callApi('/api/data-management/backup/list', 'GET', null);
+      const data = await callApi(backupListApiUrl, 'GET', null);
       if (!data.ok || !data.backups || data.backups.length === 0) {
         container.innerHTML = '<p class="text-secondary small py-3 px-3 mb-0">No backups found.</p>';
         return;
@@ -633,14 +636,14 @@
 
   document.getElementById('btnRunFullBackup').addEventListener('click', async () => {
     showMsg('Starting full backup…', 'info');
-    const data = await callApi('/api/data-management/backup/run', 'POST', {type: 'full'});
+    const data = await callApi(backupRunApiUrl, 'POST', {type: 'full'});
     showMsg(data.message || (data.ok ? 'Backup started' : 'Error'), data.ok ? 'success' : 'danger');
     if (data.ok) loadBackups();
   });
 
   document.getElementById('btnRunIncrementalBackup').addEventListener('click', async () => {
     showMsg('Starting incremental backup…', 'info');
-    const data = await callApi('/api/data-management/backup/run', 'POST', {type: 'incremental'});
+    const data = await callApi(backupRunApiUrl, 'POST', {type: 'incremental'});
     showMsg(data.message || (data.ok ? 'Backup started' : 'Error'), data.ok ? 'success' : 'danger');
     if (data.ok) loadBackups();
   });
@@ -648,9 +651,15 @@
   document.getElementById('btnRunRestore').addEventListener('click', async () => {
     const name = document.getElementById('restoreBackupName').value.trim();
     if (!name) { showMsg('Enter a backup name to restore', 'warning'); return; }
-    if (!confirm('Restore from "' + name + '"? This will overwrite existing data.')) return;
+    const confirmed = await window.SOBS.confirm({
+      title: 'Confirm Restore',
+      message: 'Restore from "' + name + '"? This will overwrite existing data.',
+      okLabel: 'Restore',
+      okClass: 'btn-danger'
+    });
+    if (!confirmed) return;
     showMsg('Starting restore…', 'info');
-    const data = await callApi('/api/data-management/restore', 'POST', {backup_name: name});
+    const data = await callApi(restoreApiUrl, 'POST', {backup_name: name});
     showMsg(data.message || (data.ok ? 'Restore started' : 'Error'), data.ok ? 'success' : 'danger');
   });
 

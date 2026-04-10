@@ -96,8 +96,11 @@
     <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#importChartModal" title="Import chart from JSON template">
       <i class="bi bi-upload me-1"></i>Import Chart
     </button>
-    <form method="post" action="{{ url_for('delete_dashboard', dashboard_id=dashboard.id) }}"
-          onsubmit="return confirm('Delete this dashboard and all its charts?')">
+        <form method="post" action="{{ url_for('delete_dashboard', dashboard_id=dashboard.id) }}"
+          data-confirm-title="Delete Dashboard"
+          data-confirm-message="Delete this dashboard and all its charts?"
+          data-confirm-ok-label="Delete"
+          data-confirm-ok-class="btn-danger">
       <button type="submit" class="btn btn-outline-danger btn-sm"
               data-ai-action-id="dashboard.delete"
               data-ai-action-type="submit_form"
@@ -142,9 +145,12 @@
              download>
             <i class="bi bi-download"></i>
           </a>
-          <form method="post"
+              <form method="post"
                 action="{{ url_for('remove_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
-                onsubmit="return confirm('Remove this chart?')">
+                data-confirm-title="Remove Chart"
+                data-confirm-message="Remove this chart?"
+                data-confirm-ok-label="Remove"
+                data-confirm-ok-class="btn-danger">
             <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"
                     data-ai-action-id="dashboard.chart.remove"
                     data-ai-action-type="submit_form"
