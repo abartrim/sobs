@@ -173,6 +173,35 @@ class TestMasking:
 
         assert masking.mask_string(None) == ""
 
+    def test_mask_value_fail_closed_when_nested_value_cannot_be_copied(self):
+        import masking
+
+        class _NoDeepCopy:
+            def __reduce_ex__(self, protocol):
+                raise TypeError("deepcopy disabled")
+
+            def __str__(self):
+                return "password=hunter2"
+
+        result = masking.mask_value({"payload": _NoDeepCopy(), "service": "checkout"})
+        assert result["payload"] == "****"
+        assert result["service"] == "checkout"
+
+    def test_mask_string_fail_closed_when_nested_value_cannot_be_copied(self):
+        import masking
+
+        class _NoDeepCopy:
+            def __reduce_ex__(self, protocol):
+                raise TypeError("deepcopy disabled")
+
+            def __str__(self):
+                return "password=hunter2"
+
+        result = masking.mask_string({"payload": _NoDeepCopy(), "service": "checkout"})
+        assert "hunter2" not in result
+        assert "****" in result
+        assert "checkout" in result
+
     def test_original_dict_not_mutated(self):
         import masking
 

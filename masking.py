@@ -21,6 +21,7 @@ to rebuild the singleton filter instance and pick up the changes.
 from __future__ import annotations
 
 import copy
+import json
 import re
 from collections.abc import Mapping
 from typing import Any
@@ -126,30 +127,73 @@ class _SobsRedactingFilter(RedactingFilter):
     """
 
     def redact(self, content: Any, key: Any = None) -> Any:  # type: ignore[override]
+        return self._redact_value(content, key=key, visited=set())
+
+    def _redact_value(self, content: Any, *, key: Any = None, visited: set[int]) -> Any:
+        if key is not None and str(key).lower() in self._mask_keys:
+            return self._mask
+
+        if content is None:
+            return None
+        if isinstance(content, str):
+            masked_text = content
+            for pattern in self._mask_patterns:
+                masked_text = re.sub(pattern, self._mask, masked_text, flags=re.DOTALL)
+            return masked_text
+        if isinstance(content, (bool, int, float)):
+            return content
+
+        if isinstance(content, Mapping):
+            object_id = id(content)
+            if object_id in visited:
+                return self._mask
+            visited.add(object_id)
+            try:
+                return {
+                    item_key: self._redact_value(item_value, key=item_key, visited=visited)
+                    for item_key, item_value in content.items()
+                }
+            finally:
+                visited.remove(object_id)
+
+        if isinstance(content, list):
+            object_id = id(content)
+            if object_id in visited:
+                return self._mask
+            visited.add(object_id)
+            try:
+                return [self._redact_value(item, visited=visited) for item in content]
+            finally:
+                visited.remove(object_id)
+
+        if isinstance(content, tuple):
+            object_id = id(content)
+            if object_id in visited:
+                return self._mask
+            visited.add(object_id)
+            try:
+                return tuple(self._redact_value(item, visited=visited) for item in content)
+            finally:
+                visited.remove(object_id)
+
+        if isinstance(content, (set, frozenset)):
+            object_id = id(content)
+            if object_id in visited:
+                return self._mask
+            visited.add(object_id)
+            try:
+                return type(content)(self._redact_value(item, visited=visited) for item in content)
+            finally:
+                visited.remove(object_id)
+
         try:
             content_copy = copy.deepcopy(content)
         except Exception:
-            return content
+            return self._mask
 
-        if not content_copy and content_copy != 0:
-            return content_copy
-
-        if isinstance(content_copy, Mapping):
-            content_copy = {
-                k: (self._mask if str(k).lower() in self._mask_keys else self.redact(v))
-                for k, v in content_copy.items()
-            }
-        elif isinstance(content_copy, list):
-            content_copy = [self.redact(value) for value in content_copy]
-        elif isinstance(content_copy, tuple):
-            content_copy = tuple(self.redact(value) for value in content_copy)
-        elif key and str(key).lower() in self._mask_keys:
-            content_copy = self._mask
-        elif isinstance(content_copy, str):
-            for pattern in self._mask_patterns:
-                content_copy = re.sub(pattern, self._mask, content_copy, flags=re.DOTALL)
-
-        return content_copy
+        if content_copy is content:
+            return self._mask
+        return self._redact_value(content_copy, visited=visited)
 
 
 # ---------------------------------------------------------------------------
@@ -254,8 +298,6 @@ def mask_string(value: Any) -> str:
     # serialise to a string and apply pattern-level masking in one final pass.
     if not isinstance(value, str):
         value = mask_value(value)  # recursive key masking on dicts/lists
-        import json
-
         try:
             value = json.dumps(value, ensure_ascii=False, default=str)
         except Exception:
