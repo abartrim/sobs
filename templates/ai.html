@@ -2,11 +2,11 @@
 {% from "_multi_select_filter.html" import render_multi_select, render_single_select %}
 {% block title %}AI Transparency{% endblock %}
 {% macro fmt_num(n) %}{% if n >= 1000000 %}{{ "%.1f" | format(n / 1000000) }}M{% elif n >= 1000 %}{{ "%.1f" | format(n / 1000) }}K{% else %}{{ n }}{% endif %}{% endmacro %}
-{% macro render_message_content(msg) %}{% set content = msg.get('content', '') if msg is mapping else '' %}{{ content if content is string else content | tojson }}{% endmacro %}
+{% macro render_message_content(msg) %}{% set content = msg.get('content', '') if msg is mapping else '' %}{{ (content if content is string else content | tojson) | mask }}{% endmacro %}
 {% macro render_system_instructions(instructions) %}{% if instructions %}
 <div class="mb-2">
   <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-sliders me-1"></i>System Prompt</div>
-  <div class="prompt-box ai-md-content" style="max-height:150px;">{{ instructions }}</div>
+  <div class="prompt-box ai-md-content" style="max-height:150px;">{{ instructions|mask }}</div>
 </div>
 {% endif %}{% endmacro %}
 {% block content %}
@@ -482,7 +482,7 @@
             <div class="ai-row-cell"><span class="badge bg-secondary" style="font-size:.65rem;">Execution Event</span></div>
             <div class="ai-row-cell"><span class="badge bg-info text-dark ai-chip ai-chip-tight">{{ item.provider or 'sobs' }}</span></div>
             <div class="ai-row-cell"><span class="badge bg-secondary ai-chip ai-chip-wide">{{ item.span_name or item.operation or 'event' }}</span></div>
-            <div class="ai-row-cell summary text-secondary">{{ item.prompt or item.response or item.error_message or item.service }}</div>
+            <div class="ai-row-cell summary text-secondary">{{ (item.prompt or item.response or item.error_message or item.service)|mask }}</div>
             <div class="ai-row-cell duration text-secondary font-monospace">{{ item.duration_ms }}ms</div>
             <div class="ai-row-cell timestamp text-secondary sobs-tz-ts" data-utc-ts="{{ item.ts }}">{{ item.ts[:19] }}</div>
           </div>
@@ -520,8 +520,8 @@
                     <span class="badge bg-warning text-dark ms-1 ai-chip ai-chip-tight">{{ item.finish_reason }}</span>
                     {% endif %}
                   </div>
-                  <div class="ai-row-cell summary small text-secondary" title="{{ item.prompt }}">
-                    {{ item.prompt[:80] }}{% if item.prompt | length > 80 %}…{% endif %}
+                  <div class="ai-row-cell summary small text-secondary" title="{{ item.prompt|mask }}">
+                    {{ (item.prompt|mask)[:80] }}{% if (item.prompt|mask) | length > 80 %}…{% endif %}
                   </div>
                   <div class="ai-row-cell tokens small text-warning">
                     {{ item.tokens_in }}↑ {{ item.tokens_out }}↓{% if item.thinking_tokens %} <span class="text-info" title="Thinking tokens"><i class="bi bi-lightbulb ms-1 me-1"></i>{{ item.thinking_tokens }}</span>{% endif %}
@@ -563,7 +563,7 @@
                     {% if item.error_type %}
                     <div class="alert alert-danger py-2 px-3 mb-2 small">
                       <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle me-1"></i>Error: {{ item.error_type }}</div>
-                      {% if item.error_message %}<div class="text-danger-emphasis mb-1">{{ item.error_message }}</div>{% endif %}
+                      {% if item.error_message %}<div class="text-danger-emphasis mb-1">{{ item.error_message|mask }}</div>{% endif %}
                       <div class="text-secondary" id="tip-{{ ui_id }}"></div>
                     </div>
                     <script>
@@ -626,7 +626,7 @@
                         {% if msg.thinking_content %}
                         <div class="prompt-box ai-md-content small text-secondary" style="max-height:220px; border-style:dashed;">
                           <div class="fw-semibold small text-info mb-1"><i class="bi bi-lightbulb me-1"></i>Thinking</div>
-                          {{ msg.thinking_content }}
+                          {{ msg.thinking_content|mask }}
                         </div>
                         {% endif %}
                       </div>
@@ -636,11 +636,11 @@
                     <div class="row g-2">
                       <div class="col-md-6">
                         <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-left-text me-1"></i>Prompt</div>
-                        <div class="prompt-box ai-md-content">{{ item.prompt }}</div>
+                        <div class="prompt-box ai-md-content">{{ item.prompt|mask }}</div>
                       </div>
                       <div class="col-md-6">
                         <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-right-text me-1"></i>Response</div>
-                        <div class="prompt-box ai-md-content">{{ item.response }}</div>
+                        <div class="prompt-box ai-md-content">{{ item.response|mask }}</div>
                       </div>
                     </div>
                     {% endif %}
@@ -747,11 +747,11 @@
                     <div class="d-flex justify-content-between align-items-center mb-1">
                       <span class="small text-secondary fw-semibold"><i class="bi bi-braces me-1"></i>Span Attributes</span>
                       <button class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;"
-                              onclick="copyToClipboard(this, {{ item.raw_attrs | tojson }})">
+                              onclick="copyToClipboard(this, {{ (item.raw_attrs | mask) | tojson }})">
                         <i class="bi bi-clipboard me-1"></i>Copy
                       </button>
                     </div>
-                    <pre class="mb-0 p-2 rounded" style="background:var(--bs-tertiary-bg);font-size:.75rem;max-height:400px;overflow:auto;white-space:pre-wrap;">{{ item.raw_attrs }}</pre>
+                    <pre class="mb-0 p-2 rounded" style="background:var(--bs-tertiary-bg);font-size:.75rem;max-height:400px;overflow:auto;white-space:pre-wrap;">{{ item.raw_attrs|mask }}</pre>
                   </div>
                 </div>
 
@@ -795,8 +795,8 @@
             <span class="badge bg-warning text-dark ms-1 ai-chip ai-chip-tight">{{ item.finish_reason }}</span>
             {% endif %}
           </div>
-          <div class="ai-row-cell summary small text-secondary" title="{{ item.prompt }}">
-            {{ item.prompt[:80] }}{% if item.prompt | length > 80 %}…{% endif %}
+          <div class="ai-row-cell summary small text-secondary" title="{{ item.prompt|mask }}">
+            {{ (item.prompt|mask)[:80] }}{% if (item.prompt|mask) | length > 80 %}…{% endif %}
           </div>
           <div class="ai-row-cell tokens small text-warning">
             {{ item.tokens_in }}↑ {{ item.tokens_out }}↓{% if item.thinking_tokens %} <span class="text-info" title="Thinking tokens"><i class="bi bi-lightbulb ms-1 me-1"></i>{{ item.thinking_tokens }}</span>{% endif %}
@@ -841,7 +841,7 @@
             <!-- Error Troubleshooting -->
             <div class="alert alert-danger py-2 px-3 mb-2 small">
               <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle me-1"></i>Error: {{ item.error_type }}</div>
-              {% if item.error_message %}<div class="text-danger-emphasis mb-1">{{ item.error_message }}</div>{% endif %}
+              {% if item.error_message %}<div class="text-danger-emphasis mb-1">{{ item.error_message|mask }}</div>{% endif %}
               <div class="text-secondary" id="tip-{{ item.id }}"></div>
             </div>
             <script>
@@ -907,7 +907,7 @@
                 {% if msg.thinking_content %}
                 <div class="prompt-box ai-md-content small text-secondary" style="max-height:220px; border-style:dashed;">
                   <div class="fw-semibold small text-info mb-1"><i class="bi bi-lightbulb me-1"></i>Thinking</div>
-                  {{ msg.thinking_content }}
+                  {{ msg.thinking_content|mask }}
                 </div>
                 {% endif %}
               </div>
@@ -918,11 +918,11 @@
             <div class="row g-2">
               <div class="col-md-6">
                 <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-left-text me-1"></i>Prompt</div>
-                <div class="prompt-box ai-md-content">{{ item.prompt }}</div>
+                <div class="prompt-box ai-md-content">{{ item.prompt|mask }}</div>
               </div>
               <div class="col-md-6">
                 <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-right-text me-1"></i>Response</div>
-                <div class="prompt-box ai-md-content">{{ item.response }}</div>
+                <div class="prompt-box ai-md-content">{{ item.response|mask }}</div>
               </div>
             </div>
             {% endif %}
@@ -1034,11 +1034,11 @@
             <div class="d-flex justify-content-between align-items-center mb-1">
               <span class="small text-secondary fw-semibold"><i class="bi bi-braces me-1"></i>Span Attributes</span>
               <button class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;"
-                      onclick="copyToClipboard(this, {{ item.raw_attrs | tojson }})">
+                      onclick="copyToClipboard(this, {{ (item.raw_attrs | mask) | tojson }})">
                 <i class="bi bi-clipboard me-1"></i>Copy
               </button>
             </div>
-            <pre class="mb-0 p-2 rounded" style="background:var(--bs-tertiary-bg);font-size:.75rem;max-height:400px;overflow:auto;white-space:pre-wrap;">{{ item.raw_attrs }}</pre>
+            <pre class="mb-0 p-2 rounded" style="background:var(--bs-tertiary-bg);font-size:.75rem;max-height:400px;overflow:auto;white-space:pre-wrap;">{{ item.raw_attrs|mask }}</pre>
           </div>
         </div><!-- /tab-content -->
 
