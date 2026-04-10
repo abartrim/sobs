@@ -222,11 +222,5 @@ def mask_string(value: Any) -> str:
     result = _get_filter().redact(value)
     return str(result) if result is not None else ""
 
-
-def _case_insensitive_key_match(key: str) -> bool:
-    """Return ``True`` if *key* (lowercased) is in :data:`SENSITIVE_KEYS`."""
-    return key.lower() in SENSITIVE_KEYS
-
-
 # Initialise the singleton at module import time.
 build_redacting_filter()
