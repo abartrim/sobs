@@ -2195,15 +2195,15 @@ _sobsInitRegexFilter({
         body: JSON.stringify({ value: previewValue })
       });
       const data = await resp.json();
-      if (resp.ok && data && data.ok) {
-        replayMaskedText = typeof data.masked === 'string' ? data.masked : JSON.stringify(data.masked, null, 2);
-        return replayMaskedText;
+      if (!resp.ok || !data || !data.ok) {
+        throw new Error('mask preview unavailable');
       }
+      replayMaskedText = typeof data.masked === 'string' ? data.masked : JSON.stringify(data.masked, null, 2);
+      return replayMaskedText;
     } catch (_err) {
-      // Fall back to local rendering if preview masking fails.
+      replayMaskedText = '[Masked replay unavailable: masking preview failed. Raw replay withheld to avoid unmasked exposure.]';
+      return replayMaskedText;
     }
-    replayMaskedText = replayRawParsed ? JSON.stringify(replayRawParsed, null, 2) : (replayRawText || '');
-    return replayMaskedText;
   }
 
   if (replayRaw) {

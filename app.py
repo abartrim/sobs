@@ -97,6 +97,54 @@ _MASKING_SQL_OUTPUT_ENABLED_SETTING = "masking.sql_output_enabled"
 _SQL_OUTPUT_MASK_FIELD_NAMES = frozenset({"sql", "query", "sample_sql", "override_sql"})
 _MASKING_RULES_REFRESH_LOCK = threading.Lock()
 _MASKING_LAST_RULES_SIGNATURE: tuple[tuple[str, ...], tuple[str, ...]] | None = None
+_MASKING_SETTINGS_CACHE_LOCK = threading.Lock()
+_MASKING_SETTINGS_CACHE: dict[str, bool] = {
+    "loaded": False,
+    "output_enabled": True,
+    "sql_output_enabled": True,
+}
+
+
+def _set_masking_settings_cache(
+    *,
+    output_enabled: bool | None = None,
+    sql_output_enabled: bool | None = None,
+    loaded: bool = True,
+) -> None:
+    with _MASKING_SETTINGS_CACHE_LOCK:
+        if output_enabled is not None:
+            _MASKING_SETTINGS_CACHE["output_enabled"] = output_enabled
+        if sql_output_enabled is not None:
+            _MASKING_SETTINGS_CACHE["sql_output_enabled"] = sql_output_enabled
+        _MASKING_SETTINGS_CACHE["loaded"] = loaded
+
+
+def _load_masking_settings_flags(db: "ChDbConnection") -> tuple[bool, bool]:
+    output_enabled = _is_truthy_setting(_get_app_setting(db, _MASKING_OUTPUT_ENABLED_SETTING), default=True)
+    sql_output_enabled = _is_truthy_setting(_get_app_setting(db, _MASKING_SQL_OUTPUT_ENABLED_SETTING), default=True)
+    return output_enabled, sql_output_enabled
+
+
+def _get_masking_settings_flags(db: "ChDbConnection | None" = None) -> tuple[bool, bool]:
+    with _MASKING_SETTINGS_CACHE_LOCK:
+        if _MASKING_SETTINGS_CACHE.get("loaded"):
+            return (
+                bool(_MASKING_SETTINGS_CACHE.get("output_enabled", True)),
+                bool(_MASKING_SETTINGS_CACHE.get("sql_output_enabled", True)),
+            )
+
+    try:
+        resolved_db = db if db is not None else get_db()
+        output_enabled, sql_output_enabled = _load_masking_settings_flags(resolved_db)
+    except Exception:
+        output_enabled, sql_output_enabled = True, True
+
+    _set_masking_settings_cache(
+        output_enabled=output_enabled,
+        sql_output_enabled=sql_output_enabled,
+        loaded=True,
+    )
+    return output_enabled, sql_output_enabled
 
 
 def _mask_json_payload(value: Any) -> Any:
@@ -115,23 +163,6 @@ def _is_truthy_setting(raw: str | None, *, default: bool = False) -> bool:
     if raw is None:
         return default
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _mask_sql_output_fields(value: Any) -> Any:
-    if isinstance(value, dict):
-        masked: dict[Any, Any] = {}
-        for key, item in value.items():
-            key_name = str(key or "").strip().lower()
-            if key_name in _SQL_OUTPUT_MASK_FIELD_NAMES and isinstance(item, str):
-                masked[key] = _mask_string_for_output(item)
-            else:
-                masked[key] = _mask_sql_output_fields(item)
-        return masked
-    if isinstance(value, list):
-        return [_mask_sql_output_fields(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_mask_sql_output_fields(item) for item in value)
-    return value
 
 
 def _mask_payload_for_output_json(
@@ -164,11 +195,8 @@ def _mask_payload_for_output_json(
 
 
 def _is_output_masking_enabled(db: "ChDbConnection | None" = None) -> bool:
-    try:
-        resolved_db = db if db is not None else get_db()
-    except Exception:
-        return True
-    return _is_truthy_setting(_get_app_setting(resolved_db, _MASKING_OUTPUT_ENABLED_SETTING), default=True)
+    output_enabled, _sql_output_enabled = _get_masking_settings_flags(db)
+    return output_enabled
 
 
 def _mask_value_for_output(value: Any, db: "ChDbConnection | None" = None) -> Any:
@@ -186,8 +214,8 @@ def _mask_string_for_output(value: Any, db: "ChDbConnection | None" = None) -> s
 
 
 def _is_sql_output_masking_enabled(db: "ChDbConnection | None" = None) -> bool:
-    resolved_db = db if db is not None else get_db()
-    return _is_truthy_setting(_get_app_setting(resolved_db, _MASKING_SQL_OUTPUT_ENABLED_SETTING), default=True)
+    _output_enabled, sql_output_enabled = _get_masking_settings_flags(db)
+    return sql_output_enabled
 
 
 def _jsonify_with_optional_sql_output_mask(payload: Any) -> Response:
@@ -23263,6 +23291,10 @@ def _set_app_setting(db: "ChDbConnection", key: str, value: str) -> None:
         "sobs_app_settings",
         [{"Key": key, "Value": stored, "UpdatedAt": int(time.time() * 1000)}],
     )
+    if key == _MASKING_OUTPUT_ENABLED_SETTING:
+        _set_masking_settings_cache(output_enabled=_is_truthy_setting(value, default=True))
+    elif key == _MASKING_SQL_OUTPUT_ENABLED_SETTING:
+        _set_masking_settings_cache(sql_output_enabled=_is_truthy_setting(value, default=True))
 
 
 def _del_app_setting(db: "ChDbConnection", key: str) -> None:
@@ -23272,6 +23304,10 @@ def _del_app_setting(db: "ChDbConnection", key: str) -> None:
         "sobs_app_settings",
         [{"Key": key, "Value": "", "UpdatedAt": int(time.time() * 1000)}],
     )
+    if key == _MASKING_OUTPUT_ENABLED_SETTING:
+        _set_masking_settings_cache(output_enabled=True)
+    elif key == _MASKING_SQL_OUTPUT_ENABLED_SETTING:
+        _set_masking_settings_cache(sql_output_enabled=True)
 
 
 def _load_json_string_list_setting(db: "ChDbConnection", key: str) -> list[str]:

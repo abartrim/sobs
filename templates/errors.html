@@ -226,245 +226,21 @@ document.querySelectorAll('.resolve-btn').forEach(btn => {
   });
 });
 
-document.querySelectorAll('.copy-stack-btn').forEach(btn => {
-  btn.addEventListener('click', async () => {
-    const stackId = btn.getAttribute('data-stack-id');
-    const stackEl = stackId ? document.getElementById(stackId) : null;
-    const stack = stackEl ? String(stackEl.innerText || '').trim() : '';
-    if (!stack) return;
-    try {
-      await window.SOBS.copyToClipboard(stack);
-      const original = btn.innerHTML;
-      btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied';
-      btn.classList.replace('btn-outline-secondary', 'btn-secondary');
-      setTimeout(() => {
-        btn.innerHTML = original;
-        btn.classList.replace('btn-secondary', 'btn-outline-secondary');
-      }, 1800);
-    } catch (e) {
-      window.SOBS.notify('Could not copy stack trace: ' + e.message, { level: 'danger', title: 'Clipboard' });
-    }
-  });
+window.SOBS.initCopyStackButtons({
+  buttonSelector: '.copy-stack-btn'
 });
 
-// Copy for AI: copy error details as markdown to clipboard (no network request)
-document.querySelectorAll('.ai-help-btn').forEach(btn => {
-  btn.addEventListener('click', async () => {
-    const normalizeText = value => String(value || '').replace(/\r\n?/g, '\n').trim();
-    const toSingleLine = value => normalizeText(value).replace(/\n+/g, ' ');
-    const escapeInlineMd = value => toSingleLine(value).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
-    const fenceFor = value => {
-      const content = normalizeText(value);
-      const runs = content.match(/`+/g) || [];
-      let longestRun = 0;
-      runs.forEach(run => {
-        if (run.length > longestRun) {
-          longestRun = run.length;
-        }
-      });
-      return '`'.repeat(Math.max(3, longestRun + 1));
-    };
-
-    const errType = escapeInlineMd(btn.dataset.errType);
-    const message = escapeInlineMd(btn.dataset.errMessage);
-    const service = escapeInlineMd(btn.dataset.errService);
-    const itemRoot = btn.closest('.accordion-item');
-    const tsEl = itemRoot ? itemRoot.querySelector('.sobs-tz-ts') : null;
-    const ts = escapeInlineMd(tsEl && tsEl.textContent ? tsEl.textContent : btn.dataset.errTs);
-    const utcTs = escapeInlineMd(tsEl && tsEl.dataset && tsEl.dataset.utcTs ? tsEl.dataset.utcTs : btn.dataset.errTs);
-    const tzName = escapeInlineMd(window.sobsTimezone && typeof window.sobsTimezone.zone === 'function' ? window.sobsTimezone.zone() : 'local');
-    const stackEl = document.getElementById('stack-' + btn.dataset.errId);
-    const stack = stackEl ? normalizeText(stackEl.innerText) : '';
-
-    const lines = [
-      '## Error Investigation Request',
-      '',
-      '**Service:** ' + service,
-      '**Timestamp (display):** ' + ts + ' (' + tzName + ')',
-      '**Timestamp (UTC):** ' + utcTs,
-      '**Error Type:** `' + errType + '`',
-      '**Message:** ' + message,
-    ];
-    if (stack) {
-      const fence = fenceFor(stack);
-      lines.push('', '**Stack Trace:**', fence, stack, fence);
-    }
-    lines.push('', '---', 'Please analyze this issue and suggest possible causes and next steps.');
-
-    try {
-      await window.SOBS.copyToClipboard(lines.join('\n'));
-      const origHtml = btn.innerHTML;
-      btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied!';
-      btn.classList.replace('btn-outline-warning', 'btn-warning');
-      setTimeout(() => {
-        btn.innerHTML = origHtml;
-        btn.classList.replace('btn-warning', 'btn-outline-warning');
-      }, 2000);
-    } catch (e) {
-      window.SOBS.notify('Could not copy to clipboard: ' + e.message, { level: 'danger', title: 'Clipboard' });
-    }
-  });
+window.SOBS.initCopyForAIButtons({
+  buttonSelector: '.ai-help-btn',
+  stackIdPrefix: 'stack-'
 });
 
-(function () {
-  'use strict';
-  const modalEl = document.getElementById('raiseIssueModal');
-  const toastEl = document.getElementById('raiseIssueToast');
-  if (!modalEl || !toastEl) return;
-
-  const modal = new bootstrap.Modal(modalEl);
-  const toast = bootstrap.Toast.getOrCreateInstance(toastEl, { delay: 6000 });
-  const confirmBtn = document.getElementById('raiseIssueConfirmBtn');
-  const PHASES = ['Analysing…', 'Checking duplicates…', 'Creating issue…', 'Assigning Copilot…'];
-  let activeBtn = null;
-
-  document.querySelectorAll('.raise-issue-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      activeBtn = btn;
-      document.getElementById('raiseIssueService').textContent = btn.dataset.errService || '\u2014';
-      document.getElementById('raiseIssueType').textContent = btn.dataset.errType || '';
-      document.getElementById('raiseIssueMessage').textContent = btn.dataset.errMessage || '';
-      document.getElementById('raiseIssueCopilot').checked = false;
-      document.getElementById('raiseIssueMaskOutput').checked = true;
-      confirmBtn.innerHTML = '<i class="bi bi-github me-1"></i>Raise Issue';
-      confirmBtn.disabled = false;
-      modal.show();
-    });
-  });
-
-  confirmBtn.addEventListener('click', async () => {
-    if (!activeBtn) return;
-    const btn = activeBtn;
-    const assignCopilot = document.getElementById('raiseIssueCopilot').checked;
-    const maskOutput = document.getElementById('raiseIssueMaskOutput').checked;
-    modal.hide();
-
-    const stackEl = document.getElementById('stack-' + btn.dataset.errId);
-    const stack = stackEl ? String(stackEl.innerText || '').trim() : '';
-    const payload = {
-      source_page: 'errors',
-      assign_copilot: assignCopilot,
-      mask_output: maskOutput,
-      service: btn.dataset.errService || '',
-      err_type: btn.dataset.errType || '',
-      message: btn.dataset.errMessage || '',
-      timestamp: btn.dataset.errTs || '',
-      error_id: btn.dataset.errId || '',
-      trace_id: btn.dataset.traceId || '',
-      span_id: btn.dataset.spanId || '',
-      url: btn.dataset.errUrl || '',
-      stack,
-    };
-
-    const originalHtml = btn.innerHTML;
-    btn.disabled = true;
-    const phases = assignCopilot ? PHASES : PHASES.slice(0, 3);
-    let phaseIdx = 0;
-    const spin = () => `<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>${phases[phaseIdx]}`;
-    btn.innerHTML = spin();
-    const phaseTimer = setInterval(() => {
-      phaseIdx = (phaseIdx + 1) % phases.length;
-      btn.innerHTML = spin();
-    }, 2500);
-
-    const setToastVariant = variant => {
-      toastEl.classList.remove('text-bg-success', 'text-bg-danger', 'text-bg-warning');
-      toastEl.classList.add(variant);
-    };
-
-    const toSafeGithubIssueUrl = raw => {
-      try {
-        const parsed = new URL(String(raw || '').trim(), window.location.origin);
-        const host = parsed.hostname.toLowerCase();
-        if (parsed.protocol !== 'https:') return '';
-        if (host !== 'github.com' && host !== 'www.github.com') return '';
-        return parsed.href;
-      } catch (_err) {
-        return '';
-      }
-    };
-
-    const setIssueReadyToast = issueUrl => {
-      const bodyEl = document.getElementById('raiseIssueToastBody');
-      if (!bodyEl) return;
-      bodyEl.textContent = 'Issue ready - ';
-      const anchor = document.createElement('a');
-      anchor.href = issueUrl;
-      anchor.target = '_blank';
-      anchor.rel = 'noopener';
-      anchor.className = 'text-white fw-semibold';
-      anchor.textContent = 'view on GitHub';
-      bodyEl.appendChild(anchor);
-    };
-
-    let succeeded = false;
-    try {
-      const res = await fetch({{ url_for('raise_issue_from_user_observation') | tojson }}, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      clearInterval(phaseTimer);
-      const data = await res.json().catch(() => ({}));
-
-      const rawCandidateUrl = String((data && (data.issue_url || data.canonical_issue_url)) || '').trim();
-      const candidateUrl = toSafeGithubIssueUrl(rawCandidateUrl);
-      if (rawCandidateUrl && !candidateUrl) {
-        throw new Error('Received an unsafe issue URL from API response.');
-      }
-      if (candidateUrl) {
-        succeeded = true;
-        const link = document.createElement('a');
-        link.href = candidateUrl;
-        link.target = '_blank';
-        link.rel = 'noopener';
-        link.className = 'btn btn-sm btn-success';
-        link.innerHTML = '<i class="bi bi-check2-circle me-1"></i>View issue \u2192';
-        btn.replaceWith(link);
-        setIssueReadyToast(candidateUrl);
-        setToastVariant('text-bg-success');
-        toast.show();
-        window.open(candidateUrl, '_blank', 'noopener');
-        return;
-      }
-
-      if (!res.ok || !data.ok) {
-        const dedupDecision = String((data && data.dedup_decision) || '').toLowerCase();
-        const isBlocked = res.status === 429 || dedupDecision === 'suppressed_rate_limit';
-        if (isBlocked) {
-          succeeded = true;
-          btn.innerHTML = '<i class="bi bi-slash-circle me-1"></i>Blocked';
-          btn.classList.replace('btn-outline-danger', 'btn-secondary');
-          btn.disabled = true;
-          document.getElementById('raiseIssueToastBody').textContent =
-            (data && data.error) ? String(data.error) : 'Issue creation blocked by current policy limits.';
-          setToastVariant('text-bg-warning');
-          toast.show();
-          return;
-        }
-        throw new Error((data && data.error) ? data.error : ('HTTP ' + res.status));
-      }
-
-      succeeded = true;
-      btn.innerHTML = '<i class="bi bi-slash-circle me-1"></i>Blocked';
-      btn.classList.replace('btn-outline-danger', 'btn-secondary');
-      btn.disabled = true;
-      document.getElementById('raiseIssueToastBody').textContent =
-        'Issue was suppressed or no link was returned. No new GitHub issue was created.';
-      setToastVariant('text-bg-warning');
-      toast.show();
-    } catch (e) {
-      clearInterval(phaseTimer);
-      btn.innerHTML = originalHtml;
-      document.getElementById('raiseIssueToastBody').textContent = 'Could not raise issue: ' + e.message;
-      setToastVariant('text-bg-danger');
-      toast.show();
-      setTimeout(() => setToastVariant('text-bg-success'), 7000);
-    } finally {
-      if (!succeeded) btn.disabled = false;
-    }
-  });
-})();
+window.SOBS.initRaiseIssueModal({
+  buttonSelector: '.raise-issue-btn',
+  sourcePage: 'errors',
+  stackIdPrefix: 'stack-',
+  raiseIssueUrl: {{ url_for('raise_issue_from_user_observation') | tojson }}
+});
 
   // ── RUM Asset / Replay Viewer (shared) ───────────────────────────────────
   {% include "_rum_asset_viewer_script.js" %}
@@ -485,54 +261,13 @@ _sobsInitRegexFilter({
 });
 
 // ── Saved Reports: errors page ────────────────────────────────────────────
-(function () {
-  const group = document.getElementById('errors-reports-group');
-  const saveBtn = document.getElementById('errors-save-report-btn');
-  if (!group || !saveBtn) return;
-  const menu = group.querySelector('ul');
-  const pageBaseUrl = {{ url_for('view_errors') | tojson }};
-
-  function escHtml(value) {
-    return String(value || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
-  group.addEventListener('show.bs.dropdown', function () {
-    fetch({{ url_for('api_list_reports') | tojson }} + '?page_type=errors')
-      .then(r => r.json())
-      .then(reports => {
-        if (!reports.length) {
-          menu.innerHTML = '<li><span class="dropdown-item text-secondary small">No saved reports</span></li>';
-          return;
-        }
-        menu.innerHTML = reports.map(rep => {
-          const params = new URLSearchParams(rep.filters);
-          const url = pageBaseUrl + '?' + params.toString();
-          return `<li><a class="dropdown-item small" href="${url}" title="${escHtml(rep.description)}">${escHtml(rep.name)}</a></li>`;
-        }).join('') +
-          '<li><hr class="dropdown-divider my-1"></li>' +
-          `<li><a class="dropdown-item small text-secondary" href="{{ url_for('list_reports') }}"><i class="bi bi-gear me-1"></i>Manage reports</a></li>`;
-      })
-      .catch(() => {
-        menu.innerHTML = '<li><span class="dropdown-item text-danger small">Failed to load</span></li>';
-      });
-  });
-
-  saveBtn.addEventListener('click', function () {
-    const form = document.querySelector('form[method="get"]');
-    const data = new FormData(form);
-    const filters = {};
-    for (const [k, v] of data.entries()) {
-      if (v) filters[k] = v;
-    }
-    if (window.sobsReportSaveModal && typeof window.sobsReportSaveModal.open === 'function') {
-      window.sobsReportSaveModal.open({ pageType: 'errors', filters });
-    }
-  });
-})();
+window.SOBS.initSavedReportsDropdown({
+  groupId: 'errors-reports-group',
+  saveButtonId: 'errors-save-report-btn',
+  pageType: 'errors',
+  pageBaseUrl: {{ url_for('view_errors') | tojson }},
+  listReportsUrl: {{ url_for('api_list_reports') | tojson }},
+  manageReportsUrl: {{ url_for('list_reports') | tojson }}
+});
 </script>
 {% endblock %}

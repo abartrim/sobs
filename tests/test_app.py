@@ -1459,6 +1459,28 @@ class TestErrorsIngest:
         assert "raiseIssueModal" in body  # Bootstrap modal replaces window.confirm
         assert "window.confirm" not in body
 
+    async def test_errors_page_raise_issue_mask_toggle_is_disabled_when_ineffective(self, client):
+        await client.post(
+            "/v1/errors",
+            json={
+                "service": "raise-toggle-svc",
+                "type": "ToggleTestError",
+                "message": "toggle disabled regression",
+            },
+        )
+        r = await client.get("/errors?service=raise-toggle-svc")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert 'id="raiseIssueMaskOutput"' in body
+        assert re.search(
+            r'id="raiseIssueMaskOutput"[^>]*\sdisabled(?:\s|>)',
+            body,
+        )
+        assert (
+            "This toggle is currently disabled because this page only exposes "
+            "masked event details for issue submission." in body
+        )
+
     async def test_ingest_error_stack_is_source_mapped_when_enabled(self, client, monkeypatch):
         monkeypatch.setattr(sobs_app, "SOURCE_MAP_ENABLE", True)
 

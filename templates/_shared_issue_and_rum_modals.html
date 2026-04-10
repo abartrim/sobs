@@ -75,11 +75,16 @@
           <div class="form-text">Copilot will be formally assigned to suggest a fix if no active work already exists.</div>
         </div>
         <div class="form-check mt-2">
-          <input class="form-check-input" type="checkbox" id="raiseIssueMaskOutput" checked>
+          {% set _mask_toggle_effective = raise_issue_mask_toggle_effective|default(false) %}
+          <input class="form-check-input" type="checkbox" id="raiseIssueMaskOutput" checked {% if not _mask_toggle_effective %}disabled{% endif %}>
           <label class="form-check-label" for="raiseIssueMaskOutput">
             Mask sensitive content in GitHub issue payload
           </label>
+          {% if _mask_toggle_effective %}
           <div class="form-text">Enabled by default. Turn off only when you explicitly need raw values in the issue.</div>
+          {% else %}
+          <div class="form-text">This toggle is currently disabled because this page only exposes masked event details for issue submission.</div>
+          {% endif %}
         </div>
       </div>
       <div class="modal-footer">
@@ -103,3 +108,290 @@
     </div>
   </div>
 </div>
+
+<script>
+(function () {
+  'use strict';
+  window.SOBS = window.SOBS || {};
+  if (!window.SOBS.initCopyStackButtons) {
+    window.SOBS.initCopyStackButtons = function initCopyStackButtons(options) {
+      var cfg = options || {};
+      var buttonSelector = String(cfg.buttonSelector || '.copy-stack-btn');
+
+      document.querySelectorAll(buttonSelector).forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          var stackId = btn.getAttribute('data-stack-id');
+          var stackEl = stackId ? document.getElementById(stackId) : null;
+          var stack = stackEl ? String(stackEl.innerText || '').trim() : '';
+          if (!stack) return;
+          try {
+            await window.SOBS.copyToClipboard(stack);
+            var original = btn.innerHTML;
+            btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied';
+            btn.classList.replace('btn-outline-secondary', 'btn-secondary');
+            setTimeout(function () {
+              btn.innerHTML = original;
+              btn.classList.replace('btn-secondary', 'btn-outline-secondary');
+            }, 1800);
+          } catch (e) {
+            window.SOBS.notify('Could not copy stack trace: ' + e.message, { level: 'danger', title: 'Clipboard' });
+          }
+        });
+      });
+    };
+  }
+
+  if (!window.SOBS.initCopyForAIButtons) {
+    window.SOBS.initCopyForAIButtons = function initCopyForAIButtons(options) {
+      var cfg = options || {};
+      var buttonSelector = String(cfg.buttonSelector || '.ai-help-btn');
+      var stackIdPrefix = String(cfg.stackIdPrefix || 'stack-');
+
+      document.querySelectorAll(buttonSelector).forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          var normalizeText = function (value) {
+            return String(value || '').replace(/\r\n?/g, '\n').trim();
+          };
+          var toSingleLine = function (value) {
+            return normalizeText(value).replace(/\n+/g, ' ');
+          };
+          var escapeInlineMd = function (value) {
+            return toSingleLine(value).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
+          };
+          var fenceFor = function (value) {
+            var content = normalizeText(value);
+            var runs = content.match(/`+/g) || [];
+            var longestRun = 0;
+            runs.forEach(function (run) {
+              if (run.length > longestRun) {
+                longestRun = run.length;
+              }
+            });
+            return '`'.repeat(Math.max(3, longestRun + 1));
+          };
+
+          var errType = escapeInlineMd(btn.dataset.errType);
+          var message = escapeInlineMd(btn.dataset.errMessage);
+          var service = escapeInlineMd(btn.dataset.errService);
+          var itemRoot = btn.closest('.accordion-item');
+          var tsEl = itemRoot ? itemRoot.querySelector('.sobs-tz-ts') : null;
+          var ts = escapeInlineMd(tsEl && tsEl.textContent ? tsEl.textContent : btn.dataset.errTs);
+          var utcTs = escapeInlineMd(tsEl && tsEl.dataset && tsEl.dataset.utcTs ? tsEl.dataset.utcTs : btn.dataset.errTs);
+          var tzName = escapeInlineMd(
+            window.sobsTimezone && typeof window.sobsTimezone.zone === 'function' ? window.sobsTimezone.zone() : 'local'
+          );
+          var stackEl = document.getElementById(stackIdPrefix + (btn.dataset.errId || ''));
+          var stack = stackEl ? normalizeText(stackEl.innerText) : '';
+
+          var lines = [
+            '## Error Investigation Request',
+            '',
+            '**Service:** ' + service,
+            '**Timestamp (display):** ' + ts + ' (' + tzName + ')',
+            '**Timestamp (UTC):** ' + utcTs,
+            '**Error Type:** `' + errType + '`',
+            '**Message:** ' + message,
+          ];
+          if (stack) {
+            var fence = fenceFor(stack);
+            lines.push('', '**Stack Trace:**', fence, stack, fence);
+          }
+          lines.push('', '---', 'Please analyze this issue and suggest possible causes and next steps.');
+
+          try {
+            await window.SOBS.copyToClipboard(lines.join('\n'));
+            var origHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied!';
+            btn.classList.replace('btn-outline-warning', 'btn-warning');
+            setTimeout(function () {
+              btn.innerHTML = origHtml;
+              btn.classList.replace('btn-warning', 'btn-outline-warning');
+            }, 2000);
+          } catch (e) {
+            window.SOBS.notify('Could not copy to clipboard: ' + e.message, { level: 'danger', title: 'Clipboard' });
+          }
+        });
+      });
+    };
+  }
+
+  if (window.SOBS.initRaiseIssueModal) return;
+
+  window.SOBS.initRaiseIssueModal = function initRaiseIssueModal(options) {
+    var cfg = options || {};
+    var buttonSelector = String(cfg.buttonSelector || '.raise-issue-btn');
+    var sourcePage = String(cfg.sourcePage || 'errors');
+    var stackIdPrefix = String(cfg.stackIdPrefix || 'stack-');
+    var raiseIssueUrl = String(cfg.raiseIssueUrl || '');
+    if (!raiseIssueUrl) return;
+
+    var modalEl = document.getElementById('raiseIssueModal');
+    var toastEl = document.getElementById('raiseIssueToast');
+    if (!modalEl || !toastEl) return;
+
+    var initialized = window.SOBS._raiseIssueModalInits || (window.SOBS._raiseIssueModalInits = {});
+    var initToken = [buttonSelector, sourcePage, stackIdPrefix, raiseIssueUrl].join('|');
+    if (initialized[initToken]) return;
+    initialized[initToken] = true;
+
+    var modal = new bootstrap.Modal(modalEl);
+    var toast = bootstrap.Toast.getOrCreateInstance(toastEl, { delay: 6000 });
+    var confirmBtn = document.getElementById('raiseIssueConfirmBtn');
+    var maskOutputEl = document.getElementById('raiseIssueMaskOutput');
+    if (!confirmBtn) return;
+
+    var phasesDefault = ['Analysing…', 'Checking duplicates…', 'Creating issue…', 'Assigning Copilot…'];
+    var activeBtn = null;
+
+    document.querySelectorAll(buttonSelector).forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        activeBtn = btn;
+        document.getElementById('raiseIssueService').textContent = btn.dataset.errService || '\u2014';
+        document.getElementById('raiseIssueType').textContent = btn.dataset.errType || '';
+        document.getElementById('raiseIssueMessage').textContent = btn.dataset.errMessage || '';
+        document.getElementById('raiseIssueCopilot').checked = false;
+        if (maskOutputEl) maskOutputEl.checked = true;
+        confirmBtn.innerHTML = '<i class="bi bi-github me-1"></i>Raise Issue';
+        confirmBtn.disabled = false;
+        modal.show();
+      });
+    });
+
+    confirmBtn.addEventListener('click', async function () {
+      if (!activeBtn) return;
+      var btn = activeBtn;
+      var assignCopilot = document.getElementById('raiseIssueCopilot').checked;
+      var maskOutput = !maskOutputEl || maskOutputEl.disabled ? true : !!maskOutputEl.checked;
+      modal.hide();
+
+      var stackEl = document.getElementById(stackIdPrefix + (btn.dataset.errId || ''));
+      var stack = stackEl ? String(stackEl.innerText || '').trim() : '';
+      var payload = {
+        source_page: sourcePage,
+        assign_copilot: assignCopilot,
+        mask_output: maskOutput,
+        service: btn.dataset.errService || '',
+        err_type: btn.dataset.errType || '',
+        message: btn.dataset.errMessage || '',
+        timestamp: btn.dataset.errTs || '',
+        error_id: btn.dataset.errId || '',
+        trace_id: btn.dataset.traceId || '',
+        span_id: btn.dataset.spanId || '',
+        url: btn.dataset.errUrl || '',
+        stack: stack,
+      };
+
+      var originalHtml = btn.innerHTML;
+      btn.disabled = true;
+      var phases = assignCopilot ? phasesDefault : phasesDefault.slice(0, 3);
+      var phaseIdx = 0;
+      var spin = function () {
+        return '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>' +
+          phases[phaseIdx];
+      };
+      btn.innerHTML = spin();
+      var phaseTimer = setInterval(function () {
+        phaseIdx = (phaseIdx + 1) % phases.length;
+        btn.innerHTML = spin();
+      }, 2500);
+
+      var setToastVariant = function (variant) {
+        toastEl.classList.remove('text-bg-success', 'text-bg-danger', 'text-bg-warning');
+        toastEl.classList.add(variant);
+      };
+
+      var toSafeGithubIssueUrl = function (raw) {
+        try {
+          var parsed = new URL(String(raw || '').trim(), window.location.origin);
+          var host = parsed.hostname.toLowerCase();
+          if (parsed.protocol !== 'https:') return '';
+          if (host !== 'github.com' && host !== 'www.github.com') return '';
+          return parsed.href;
+        } catch (_err) {
+          return '';
+        }
+      };
+
+      var setIssueReadyToast = function (issueUrl) {
+        var bodyEl = document.getElementById('raiseIssueToastBody');
+        if (!bodyEl) return;
+        bodyEl.textContent = 'Issue ready - ';
+        var anchor = document.createElement('a');
+        anchor.href = issueUrl;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener';
+        anchor.className = 'text-white fw-semibold';
+        anchor.textContent = 'view on GitHub';
+        bodyEl.appendChild(anchor);
+      };
+
+      var succeeded = false;
+      try {
+        var res = await fetch(raiseIssueUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        clearInterval(phaseTimer);
+        var data = await res.json().catch(function () { return {}; });
+
+        var rawCandidateUrl = String((data && (data.issue_url || data.canonical_issue_url)) || '').trim();
+        var candidateUrl = toSafeGithubIssueUrl(rawCandidateUrl);
+        if (rawCandidateUrl && !candidateUrl) {
+          throw new Error('Received an unsafe issue URL from API response.');
+        }
+        if (candidateUrl) {
+          succeeded = true;
+          var link = document.createElement('a');
+          link.href = candidateUrl;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          link.className = 'btn btn-sm btn-success';
+          link.innerHTML = '<i class="bi bi-check2-circle me-1"></i>View issue \u2192';
+          btn.replaceWith(link);
+          setIssueReadyToast(candidateUrl);
+          setToastVariant('text-bg-success');
+          toast.show();
+          window.open(candidateUrl, '_blank', 'noopener');
+          return;
+        }
+
+        if (!res.ok || !data.ok) {
+          var dedupDecision = String((data && data.dedup_decision) || '').toLowerCase();
+          var isBlocked = res.status === 429 || dedupDecision === 'suppressed_rate_limit';
+          if (isBlocked) {
+            succeeded = true;
+            btn.innerHTML = '<i class="bi bi-slash-circle me-1"></i>Blocked';
+            btn.classList.replace('btn-outline-danger', 'btn-secondary');
+            btn.disabled = true;
+            document.getElementById('raiseIssueToastBody').textContent =
+              (data && data.error) ? String(data.error) : 'Issue creation blocked by current policy limits.';
+            setToastVariant('text-bg-warning');
+            toast.show();
+            return;
+          }
+          throw new Error((data && data.error) ? data.error : ('HTTP ' + res.status));
+        }
+
+        succeeded = true;
+        btn.innerHTML = '<i class="bi bi-slash-circle me-1"></i>Blocked';
+        btn.classList.replace('btn-outline-danger', 'btn-secondary');
+        btn.disabled = true;
+        document.getElementById('raiseIssueToastBody').textContent =
+          'Issue was suppressed or no link was returned. No new GitHub issue was created.';
+        setToastVariant('text-bg-warning');
+        toast.show();
+      } catch (e) {
+        clearInterval(phaseTimer);
+        btn.innerHTML = originalHtml;
+        document.getElementById('raiseIssueToastBody').textContent = 'Could not raise issue: ' + e.message;
+        setToastVariant('text-bg-danger');
+        toast.show();
+        setTimeout(function () { setToastVariant('text-bg-success'); }, 7000);
+      } finally {
+        if (!succeeded) btn.disabled = false;
+      }
+    });
+  };
+}());
+</script>
