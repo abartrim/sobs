@@ -828,13 +828,34 @@
     toastEl.setAttribute('role', 'status');
     toastEl.setAttribute('aria-live', 'polite');
     toastEl.setAttribute('aria-atomic', 'true');
-    toastEl.innerHTML =
-      '<div class="toast-header">'
-      + '<strong class="me-auto">' + title + '</strong>'
-      + '<small class="text-body-secondary">now</small>'
-      + '<button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>'
-      + '</div>'
-      + '<div class="toast-body">' + text + '</div>';
+
+    var headerEl = document.createElement('div');
+    headerEl.className = 'toast-header';
+
+    var titleEl = document.createElement('strong');
+    titleEl.className = 'me-auto';
+    titleEl.textContent = title;
+
+    var nowEl = document.createElement('small');
+    nowEl.className = 'text-body-secondary';
+    nowEl.textContent = 'now';
+
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn-close';
+    closeBtn.setAttribute('data-bs-dismiss', 'toast');
+    closeBtn.setAttribute('aria-label', 'Close');
+
+    headerEl.appendChild(titleEl);
+    headerEl.appendChild(nowEl);
+    headerEl.appendChild(closeBtn);
+
+    var bodyEl = document.createElement('div');
+    bodyEl.className = 'toast-body';
+    bodyEl.textContent = text;
+
+    toastEl.appendChild(headerEl);
+    toastEl.appendChild(bodyEl);
 
     notifyContainerEl.appendChild(toastEl);
     var toast = window.bootstrap.Toast.getOrCreateInstance(toastEl, {
