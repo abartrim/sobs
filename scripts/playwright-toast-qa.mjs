@@ -16,6 +16,7 @@ fs.mkdirSync(artifactsRoot, { recursive: true });
 const pagesToAudit = [
   '/',
   '/dashboards',
+  '/reports',
   '/settings/tags',
   '/settings/data-management',
   '/settings/notifications',
@@ -453,8 +454,140 @@ async function withFetchJson(page, payload, fn) {
 async function runPageSpecificChecks(page, result) {
   await dismissBlockingModals(page, result);
 
+  if (result.path === '/') {
+    const hasWizardOpener = await page.evaluate(() => typeof window.__sobsOpenSetupWizard === 'function');
+    if (!hasWizardOpener) {
+      result.warnings.push('Setup wizard opener not available; setup wizard API URL check skipped');
+    } else {
+      const setupWizardRequests = [];
+      const onRequest = (request) => {
+        const url = request.url();
+        if (url.includes('/api/setup-wizard/steps')) {
+          setupWizardRequests.push(url);
+        }
+      };
+      page.on('request', onRequest);
+      try {
+        await page.evaluate(() => {
+          try {
+            localStorage.removeItem('sobs.setupWizardSeen.v1');
+            localStorage.removeItem('sobs.setupWizardState.v1');
+          } catch (_err) {
+            // Ignore localStorage restrictions and continue with best-effort wizard open.
+          }
+          if (typeof window.__sobsOpenSetupWizard === 'function') {
+            window.__sobsOpenSetupWizard();
+          }
+        });
+        await page.waitForSelector('#setupWizardModal.show', { timeout: 5000 });
+        await page.click('#envOptions .wizard-option-btn[data-value="dev"]', { timeout: 5000 });
+        await page.click('#wizardNextBtn', { timeout: 5000 });
+        await page.click('#langOptions .wizard-option-btn[data-value="python"]', { timeout: 5000 });
+        await page.click('#wizardNextBtn', { timeout: 5000 });
+        await page.click('#deployOptions .wizard-option-btn[data-value="docker"]', { timeout: 5000 });
+        await page.click('#wizardNextBtn', { timeout: 5000 });
+        await page.waitForSelector('#wizardStep3.active', { timeout: 5000 });
+        await waitForUiSettled(page);
+
+        const matchedUrl = setupWizardRequests.find((url) => /\/api\/setup-wizard\/steps(\?|$)/.test(url));
+        if (matchedUrl) {
+          result.checks.push(`Setup wizard steps loaded via API URL (${matchedUrl})`);
+        } else {
+          result.failures.push('Setup wizard did not request /api/setup-wizard/steps while generating steps');
+        }
+
+        const closeBtn = page.locator('#setupWizardModal .btn-close').first();
+        if ((await closeBtn.count()) > 0) {
+          await closeBtn.click({ timeout: 5000 });
+          await page.waitForSelector('#setupWizardModal.show', { state: 'hidden', timeout: 5000 });
+        }
+      } finally {
+        page.off('request', onRequest);
+      }
+    }
+  }
+
   if (result.path === '/dashboards') {
     await checkDeclarativeConfirm(page, result);
+
+    const openDashboardLink = page.locator('a[data-ai-action-id="dashboards.open.detail"]').first();
+    if ((await openDashboardLink.count()) > 0) {
+      await Promise.all([
+        page.waitForLoadState('domcontentloaded'),
+        openDashboardLink.click({ timeout: 7000 }),
+      ]);
+      await dismissBlockingModals(page, result);
+
+      const dashboardDeleteButton = page.locator('[data-ai-action-role="delete-dashboard-submit"]').first();
+      if ((await dashboardDeleteButton.count()) > 0) {
+        await dashboardDeleteButton.click({ timeout: 5000 });
+        await openConfirmAndCancel(page, result, 'dashboard-view-delete');
+        result.checks.push('Dashboard view delete confirm opens and cancels');
+      } else {
+        result.warnings.push('Dashboard view delete action not found for confirm check');
+      }
+
+      const removeChartButton = page.locator('[data-ai-action-role="remove-chart-submit"]').first();
+      if ((await removeChartButton.count()) > 0) {
+        await removeChartButton.click({ timeout: 5000 });
+        await openConfirmAndCancel(page, result, 'dashboard-view-remove-chart');
+        result.checks.push('Dashboard view remove-chart confirm opens and cancels');
+      } else {
+        result.warnings.push('Dashboard view remove-chart action not found for confirm check');
+      }
+    } else {
+      result.warnings.push('No dashboard view link found; custom dashboard view confirm checks skipped');
+    }
+  }
+
+  if (result.path === '/reports') {
+    const deleteForm = page.locator('.delete-report-form').first();
+    if ((await deleteForm.count()) === 0) {
+      result.warnings.push('No saved report rows found; reports delete API wiring check skipped');
+    } else {
+      const deleteSubmitBtn = deleteForm.locator('button[type="submit"]').first();
+      if ((await deleteSubmitBtn.count()) === 0) {
+        result.warnings.push('Report delete form missing submit button; reports delete API wiring check skipped');
+      } else {
+        await page.evaluate(() => {
+          if (!window.__qaOrigFetch) {
+            window.__qaOrigFetch = window.fetch.bind(window);
+          }
+          window.__qaReportsDeleteFetchUrl = '';
+          window.fetch = function (input) {
+            const rawUrl = typeof input === 'string' ? input : ((input && input.url) || '');
+            window.__qaReportsDeleteFetchUrl = String(rawUrl || '');
+            return Promise.resolve({
+              ok: false,
+              status: 500,
+              json: function () {
+                return Promise.resolve({ deleted: false, error: 'qa-stop-delete' });
+              },
+            });
+          };
+        });
+
+        try {
+          await deleteSubmitBtn.click({ timeout: 5000 });
+          await page.waitForSelector('#deleteReportConfirmModal.show', { timeout: 5000 });
+          await screenshot(page, result, 'reports-delete-confirm-open');
+          await page.click('#delete-report-confirm-btn', { timeout: 5000 });
+
+          const capturedDeleteUrl = await page.evaluate(() => String(window.__qaReportsDeleteFetchUrl || ''));
+          if (/\/api\/reports\/.+/.test(capturedDeleteUrl)) {
+            result.checks.push(`Reports delete flow uses API endpoint (${capturedDeleteUrl})`);
+          } else {
+            result.failures.push(`Reports delete flow did not call expected /api/reports/<id> endpoint (captured: ${capturedDeleteUrl || 'none'})`);
+          }
+        } finally {
+          await page.evaluate(() => {
+            if (window.__qaOrigFetch) {
+              window.fetch = window.__qaOrigFetch;
+            }
+          });
+        }
+      }
+    }
   }
 
   if (result.path === '/settings/tags') {
