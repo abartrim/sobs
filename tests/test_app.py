@@ -4066,14 +4066,18 @@ class TestCrossLinkNavigation:
             resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])]
         )
 
+    def _extract_trace_link_href(self, body: str, trace_id_hex: str) -> str:
+        pattern = rf'href="([^"]*/traces\?[^"]*trace_id={re.escape(trace_id_hex)}[^"]*)"'
+        match = re.search(pattern, body)
+        assert match is not None, f"Trace link not found for trace_id={trace_id_hex}"
+        return match.group(1)
+
     # ------------------------------------------------------------------
     # AI page trace links include from_ts/to_ts
     # ------------------------------------------------------------------
     async def test_ai_flat_view_trace_links_include_time_context(self, client):
         """Trace links in AI flat view should carry from_ts and to_ts params."""
         now = datetime.now(timezone.utc)
-        from_date = (now - timedelta(hours=1)).strftime("%Y-%m-%d")
-        to_date = (now + timedelta(hours=1)).strftime("%Y-%m-%d")
         from_ts = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         to_ts = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         trace_id_hex = "cafebabe" * 4
@@ -4085,17 +4089,14 @@ class TestCrossLinkNavigation:
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
 
-        # The trace link must target /traces with the trace_id and include time context.
-        assert f"/traces?trace_id={trace_id_hex}" in body
-        # Time params are URL-encoded in the link; verify by date prefix present.
-        assert f"from_ts={from_date}" in body
-        assert f"to_ts={to_date}" in body
+        # Assert the specific trace link carries time context.
+        href = self._extract_trace_link_href(body, trace_id_hex)
+        assert "from_ts=" in href
+        assert "to_ts=" in href
 
     async def test_ai_trace_view_turn_links_include_time_context(self, client):
         """Trace links in AI trace-group turn cards should carry from_ts and to_ts params."""
         now = datetime.now(timezone.utc)
-        from_date = (now - timedelta(hours=1)).strftime("%Y-%m-%d")
-        to_date = (now + timedelta(hours=1)).strftime("%Y-%m-%d")
         from_ts = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         to_ts = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         trace_id_hex = "deadf00d" * 4
@@ -4109,9 +4110,10 @@ class TestCrossLinkNavigation:
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
 
-        # The trace link in the turn card must carry from_ts and to_ts.
-        assert f"from_ts={from_date}" in body
-        assert f"to_ts={to_date}" in body
+        # Assert the specific trace link carries time context.
+        href = self._extract_trace_link_href(body, trace_id_hex)
+        assert "from_ts=" in href
+        assert "to_ts=" in href
 
     # ------------------------------------------------------------------
     # /traces?trace_id returns valid trace detail when trace exists
@@ -4171,8 +4173,6 @@ class TestCrossLinkNavigation:
     async def test_errors_page_trace_links_include_time_context(self, client):
         """Trace links in the errors page should include from_ts/to_ts params."""
         now = datetime.now(timezone.utc)
-        from_date = (now - timedelta(hours=1)).strftime("%Y-%m-%d")
-        to_date = (now + timedelta(hours=1)).strftime("%Y-%m-%d")
         from_ts = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         to_ts = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         trace_id_hex = "beefcafe" * 4
@@ -4191,10 +4191,9 @@ class TestCrossLinkNavigation:
         r = await client.get(f"/errors?from_ts={from_ts}&to_ts={to_ts}")
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
-        # Error panel should include trace link with time context (by date prefix).
-        assert f"from_ts={from_date}" in body
-        assert f"to_ts={to_date}" in body
-        assert "/traces?trace_id=" in body
+        href = self._extract_trace_link_href(body, trace_id_hex)
+        assert "from_ts=" in href
+        assert "to_ts=" in href
 
     # ------------------------------------------------------------------
     # RUM trace/log links include time context
@@ -4202,17 +4201,31 @@ class TestCrossLinkNavigation:
     async def test_rum_trace_links_include_time_context(self, client):
         """Trace links in the RUM page should include from_ts/to_ts when navigating."""
         now = datetime.now(timezone.utc)
-        from_date = (now - timedelta(hours=1)).strftime("%Y-%m-%d")
-        to_date = (now + timedelta(hours=1)).strftime("%Y-%m-%d")
         from_ts = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         to_ts = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        trace_id_hex = "feedface" * 4
 
-        r = await client.get(f"/rum?from_ts={from_ts}&to_ts={to_ts}")
+        ingest = await client.post(
+            "/v1/rum",
+            json={
+                "events": [
+                    {
+                        "type": "pageview",
+                        "traceId": trace_id_hex,
+                        "url": "https://example.test/nav-rum",
+                        "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    }
+                ]
+            },
+        )
+        assert ingest.status_code == 200
+
+        r = await client.get(f"/rum?view=sessions&from_ts={from_ts}&to_ts={to_ts}")
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
-        # The time params should appear in the page (by date prefix in filter/pagination links).
-        assert f"from_ts={from_date}" in body
-        assert f"to_ts={to_date}" in body
+        href = self._extract_trace_link_href(body, trace_id_hex)
+        assert "from_ts=" in href
+        assert "to_ts=" in href
 
     # ------------------------------------------------------------------
     # AI page without time filter still renders 200
