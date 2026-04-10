@@ -92,6 +92,7 @@ def jsonify(*args: Any, **kwargs: Any):  # type: ignore[no-redef]
 
 _MASKING_CUSTOM_KEYS_SETTING = "masking.custom_keys"
 _MASKING_CUSTOM_PATTERNS_SETTING = "masking.custom_patterns"
+_MASKING_OUTPUT_ENABLED_SETTING = "masking.output_enabled"
 _MASKING_SQL_OUTPUT_ENABLED_SETTING = "masking.sql_output_enabled"
 _SQL_OUTPUT_MASK_FIELD_NAMES = frozenset({"sql", "query", "sample_sql", "override_sql"})
 _MASKING_RULES_REFRESH_LOCK = threading.Lock()
@@ -100,7 +101,8 @@ _MASKING_LAST_RULES_SIGNATURE: tuple[tuple[str, ...], tuple[str, ...]] | None = 
 
 def _mask_json_payload(value: Any) -> Any:
     """Mask observability payloads before sending them as JSON."""
-    return _masking.mask_value(_coerce_undefined_for_json(value))
+    safe_value = _coerce_undefined_for_json(value)
+    return _mask_value_for_output(safe_value)
 
 
 def masked_jsonify(*args: Any, **kwargs: Any) -> Response:
@@ -122,7 +124,7 @@ def _mask_sql_output_fields(value: Any) -> Any:
         for key, item in value.items():
             key_name = str(key or "").strip().lower()
             if key_name in _SQL_OUTPUT_MASK_FIELD_NAMES and isinstance(item, str):
-                masked[key] = _masking.mask_string(item)
+                masked[key] = _mask_string_for_output(item)
             else:
                 masked[key] = _mask_sql_output_fields(item)
         return masked
@@ -133,13 +135,35 @@ def _mask_sql_output_fields(value: Any) -> Any:
     return value
 
 
+def _is_output_masking_enabled(db: "ChDbConnection | None" = None) -> bool:
+    try:
+        resolved_db = db if db is not None else get_db()
+    except Exception:
+        return True
+    return _is_truthy_setting(_get_app_setting(resolved_db, _MASKING_OUTPUT_ENABLED_SETTING), default=True)
+
+
+def _mask_value_for_output(value: Any, db: "ChDbConnection | None" = None) -> Any:
+    if not _is_output_masking_enabled(db):
+        return value
+    return _masking.mask_value(value)
+
+
+def _mask_string_for_output(value: Any, db: "ChDbConnection | None" = None) -> str:
+    if not _is_output_masking_enabled(db):
+        if value is None:
+            return ""
+        return str(value)
+    return _masking.mask_string(value)
+
+
 def _is_sql_output_masking_enabled(db: "ChDbConnection | None" = None) -> bool:
     resolved_db = db if db is not None else get_db()
     return _is_truthy_setting(_get_app_setting(resolved_db, _MASKING_SQL_OUTPUT_ENABLED_SETTING), default=True)
 
 
 def _jsonify_with_optional_sql_output_mask(payload: Any) -> Response:
-    if _is_sql_output_masking_enabled():
+    if _is_output_masking_enabled() and _is_sql_output_masking_enabled():
         return jsonify(_mask_sql_output_fields(payload))
     return jsonify(payload)
 
@@ -5705,8 +5729,8 @@ async def _create_github_issue_record(
             owner, repo = parts[-2], parts[-1]
     if not owner or not repo:
         return {}
-    issue_title = _masking.mask_string(title) if mask_output_enabled else str(title or "")
-    issue_body = _masking.mask_string(body_md) if mask_output_enabled else str(body_md or "")
+    issue_title = _mask_string_for_output(title) if mask_output_enabled else str(title or "")
+    issue_body = _mask_string_for_output(body_md) if mask_output_enabled else str(body_md or "")
     issue_payload: dict[str, Any] = {
         "title": issue_title,
         "body": issue_body,
@@ -12071,7 +12095,7 @@ app.jinja_env.globals["source_label"] = source_label
 
 # Register the ``mask`` Jinja2 filter so any template can write
 # ``{{ value|mask }}`` to redact PII/secrets from OTEL output.
-app.jinja_env.filters["mask"] = _masking.mask_value
+app.jinja_env.filters["mask"] = _mask_value_for_output
 
 
 # ---------------------------------------------------------------------------
@@ -14164,7 +14188,7 @@ async def api_raw_span(span_id: str):
         "resource_attributes": resource_attrs,
     }
 
-    masked_payload = cast(dict[str, object], _masking.mask_value(payload))
+    masked_payload = cast(dict[str, object], _mask_value_for_output(payload))
     raw = json.dumps(masked_payload, ensure_ascii=False, indent=2)
     truncated = False
     if len(raw.encode()) > _RAW_SPAN_MAX_BYTES:
@@ -14179,7 +14203,7 @@ async def api_raw_span(span_id: str):
             k: (v[:_ATTR_TRUNCATE] + "…" if isinstance(v, str) and len(v) > _ATTR_TRUNCATE else v)
             for k, v in resource_attrs.items()
         }
-        masked_payload = cast(dict[str, object], _masking.mask_value(payload))
+        masked_payload = cast(dict[str, object], _mask_value_for_output(payload))
         raw = json.dumps(masked_payload, ensure_ascii=False, indent=2)
 
     return masked_jsonify({"span": masked_payload, "raw": raw, "truncated": truncated})
@@ -21089,6 +21113,7 @@ async def view_masking_settings():
         default_patterns=settings["default_patterns"],
         effective_key_count=len(settings["effective_keys"]),
         effective_pattern_count=len(settings["effective_patterns"]),
+        output_masking_enabled=settings["output_masking_enabled"],
         sql_output_masking_enabled=settings["sql_output_masking_enabled"],
     )
 
@@ -21176,6 +21201,25 @@ async def delete_masking_pattern():
     return redirect(url_for("view_masking_settings"))
 
 
+@app.route("/settings/masking/output", methods=["POST"])
+@require_basic_auth
+async def update_masking_output_setting():
+    db = get_db()
+    form = await request.form
+    enabled_values = form.getlist("enabled")
+    enabled = any(_is_truthy_setting(value, default=False) for value in enabled_values)
+    _set_app_setting(db, _MASKING_OUTPUT_ENABLED_SETTING, "1" if enabled else "0")
+    await flash(
+        (
+            "Global output masking enabled"
+            if enabled
+            else "Global output masking disabled across UI/JSON/notifications/GitHub issue payloads"
+        ),
+        "success",
+    )
+    return redirect(url_for("view_masking_settings"))
+
+
 @app.route("/settings/masking/sql-output", methods=["POST"])
 @require_basic_auth
 async def update_masking_sql_output_setting():
@@ -21202,7 +21246,7 @@ async def update_masking_sql_output_setting():
 async def api_masking_preview():
     payload = await request.get_json(silent=True)
     value = (payload or {}).get("value")
-    masked = _masking.mask_value(value) if isinstance(value, (dict, list)) else _masking.mask_string(value)
+    masked = _mask_value_for_output(value) if isinstance(value, (dict, list)) else _mask_string_for_output(value)
     return jsonify({"ok": True, "masked": masked})
 
 
@@ -21217,6 +21261,7 @@ async def api_masking_rules():
             "patterns": settings["effective_patterns"],
             "custom_keys": settings["custom_keys"],
             "custom_patterns": settings["custom_patterns"],
+            "output_masking_enabled": settings["output_masking_enabled"],
             "sql_output_masking_enabled": settings["sql_output_masking_enabled"],
         }
     )
@@ -22508,7 +22553,7 @@ def _build_notification_payload(
         )
     summary = f"[SOBS] Rule '{rule['name']}' triggered ({rule['severity'].upper()}): " + "; ".join(condition_summaries)
     if mask_output_enabled:
-        summary = _masking.mask_string(summary)
+        summary = _mask_string_for_output(summary)
     return {
         "rule_name": rule["name"],
         "severity": rule["severity"],
@@ -23272,6 +23317,7 @@ def _load_masking_settings(db: "ChDbConnection") -> dict[str, Any]:
         "default_patterns": list(_masking.DEFAULT_SENSITIVE_PATTERNS),
         "effective_keys": effective_keys,
         "effective_patterns": effective_patterns,
+        "output_masking_enabled": _is_output_masking_enabled(db),
         "sql_output_masking_enabled": _is_sql_output_masking_enabled(db),
     }
 
@@ -23533,7 +23579,7 @@ async def test_notification_channel(channel_id: str):
         "severity": "info",
         "conditions": [],
         "summary": (
-            _masking.mask_string(f"[SOBS] Test notification from channel '{channel['name']}'")
+            _mask_string_for_output(f"[SOBS] Test notification from channel '{channel['name']}'")
             if _notification_channel_mask_output_enabled(channel)
             else f"[SOBS] Test notification from channel '{channel['name']}'"
         ),

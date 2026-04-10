@@ -976,8 +976,8 @@ If formatting changes are applied, the hook re-stages those Python files before 
 
 ## Output Masking (PII / Secret Redaction)
 
-SOBS automatically redacts PII and secrets from all web UI output, outbound notification
-messages, and GitHub issue bodies using `masking.py` – a shared rule-based masking layer
+SOBS redacts PII and secrets from web UI output, outbound notification
+messages, and GitHub issue bodies using `masking.py` - a shared rule-based masking layer
 backed by the [`loggingredactor`](https://pypi.org/project/loggingredactor/) library.
 
 ### What is masked
@@ -1041,6 +1041,16 @@ SOBS now includes a dedicated masking settings page:
 * `POST /api/settings/masking/preview` to preview redaction output for text/JSON values
 * `GET /api/settings/masking/rules` to fetch effective key/pattern rules for browser helpers
 
+### Global Output Masking Toggle
+
+Global masking across UI/API output surfaces is controlled via:
+
+* `POST /settings/masking/output`
+
+When enabled (default), masking is applied to template `mask` filter output, masking preview
+responses, masked JSON display payloads, notification summaries, and GitHub issue payload masking.
+When disabled, masking is bypassed for those output surfaces.
+
 ### SQL Output Masking Toggle
 
 SQL text returned by NLQ/chart endpoints can be controlled independently via:
@@ -1050,6 +1060,8 @@ SQL text returned by NLQ/chart endpoints can be controlled independently via:
 When enabled, SOBS masks sensitive fragments in SQL/query fields (`sql`, `query`,
 `sample_sql`, `override_sql`) for query/chart responses. When disabled, SQL text is
 returned unmasked for debugging workflows.
+
+The SQL toggle is evaluated only when global output masking is enabled.
 
 ### Replay and Artifact URLs
 

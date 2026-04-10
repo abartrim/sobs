@@ -210,6 +210,24 @@ class TestMasking:
             )
         assert "GET /api/health 200 OK 5ms" in rendered
 
+    async def test_jinja_mask_filter_can_be_globally_disabled(self, client):
+        from quart.templating import render_template_string
+
+        from app import _set_app_setting, get_db
+
+        db = get_db()
+        _set_app_setting(db, "masking.output_enabled", "0")
+        try:
+            async with app.app_context():
+                rendered = await render_template_string(
+                    "{{ value|mask }}",
+                    value="Contact us at support@secret.example.com for help",
+                )
+            assert "support@secret.example.com" in rendered
+            assert "****" not in rendered
+        finally:
+            _set_app_setting(db, "masking.output_enabled", "1")
+
     def test_notification_summary_email_masked(self):
         """Notification summary should have emails masked before dispatch."""
         import app as sobs_app
@@ -271,7 +289,31 @@ class TestMasking:
         assert isinstance(data.get("patterns"), list)
         assert isinstance(data.get("custom_keys"), list)
         assert isinstance(data.get("custom_patterns"), list)
+        assert isinstance(data.get("output_masking_enabled"), bool)
         assert isinstance(data.get("sql_output_masking_enabled"), bool)
+
+    async def test_output_masking_toggle_route_updates_setting(self, client):
+        enabled = await client.post(
+            "/settings/masking/output",
+            form=[("enabled", "0"), ("enabled", "1")],
+        )
+        assert enabled.status_code in (200, 302)
+
+        enabled_rules = await client.get("/api/settings/masking/rules")
+        assert enabled_rules.status_code == 200
+        enabled_data = await enabled_rules.get_json()
+        assert enabled_data["output_masking_enabled"] is True
+
+        disabled = await client.post("/settings/masking/output", form={"enabled": "0"})
+        assert disabled.status_code in (200, 302)
+
+        disabled_rules = await client.get("/api/settings/masking/rules")
+        assert disabled_rules.status_code == 200
+        disabled_data = await disabled_rules.get_json()
+        assert disabled_data["output_masking_enabled"] is False
+
+        # Reset for isolation with later tests.
+        await client.post("/settings/masking/output", form=[("enabled", "0"), ("enabled", "1")])
 
     async def test_sql_output_masking_toggle_route_updates_setting(self, client):
         enabled = await client.post(
@@ -316,6 +358,23 @@ class TestMasking:
         assert after.status_code == 200
         after_data = await after.get_json()
         assert after_data["masked"]["customer_id"] == "CUST-12345678"
+
+    async def test_masking_preview_respects_global_output_toggle(self, client):
+        sensitive = {"password": "hunter2", "email": "ops@example.com"}
+
+        await client.post("/settings/masking/output", form={"enabled": "0"})
+        preview_raw = await client.post("/api/settings/masking/preview", json={"value": sensitive})
+        assert preview_raw.status_code == 200
+        preview_raw_data = await preview_raw.get_json()
+        assert preview_raw_data["masked"]["password"] == "hunter2"
+        assert preview_raw_data["masked"]["email"] == "ops@example.com"
+
+        await client.post("/settings/masking/output", form=[("enabled", "0"), ("enabled", "1")])
+        preview_masked = await client.post("/api/settings/masking/preview", json={"value": sensitive})
+        assert preview_masked.status_code == 200
+        preview_masked_data = await preview_masked.get_json()
+        assert preview_masked_data["masked"]["password"] == "****"
+        assert preview_masked_data["masked"]["email"] == "****"
 
     async def test_custom_masking_pattern_route_updates_preview_behavior(self, client):
         preview_text = "customerRef=ZXCVBNM1234"
@@ -11533,6 +11592,48 @@ class TestAISettingsAndAgentFlows:
         assert "****" in calls[-1][1]["title"]
         assert "****" in calls[-1][1]["body"]
 
+    async def test_create_github_issue_record_global_disable_overrides_mask_output_toggle(self, monkeypatch):
+        calls: list[tuple[str, dict]] = []
+
+        class _FakeResponse:
+            def __init__(self, payload: dict):
+                self._payload = payload
+                self.content = b"{}"
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._payload
+
+        class _FakeClient:
+            async def post(self, url, json=None, headers=None, timeout=None):
+                calls.append((str(url), dict(json or {})))
+                return _FakeResponse({"html_url": "https://github.com/acme/demo/issues/12", "number": 12})
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(sobs_app, "_get_async_http_client", _fake_get_client)
+
+        db = sobs_app.get_db()
+        sobs_app._set_app_setting(db, "masking.output_enabled", "0")
+        try:
+            title = "Issue for ops@example.com"
+            body = "password=hunter2"
+            await sobs_app._create_github_issue_record(
+                "ghp-test-token",
+                "acme/demo",
+                title,
+                body,
+                ["security"],
+                mask_output_enabled=True,
+            )
+            assert calls[-1][1]["title"] == title
+            assert calls[-1][1]["body"] == body
+        finally:
+            sobs_app._set_app_setting(db, "masking.output_enabled", "1")
+
     async def test_assign_issue_to_copilot_uses_supported_issue_assignment_api(self, monkeypatch):
         calls: list[tuple[str, dict]] = []
 
@@ -12769,6 +12870,56 @@ class TestNotifications:
         assert "owner@example.com" not in seen["masked-channel"]
         assert "****" in seen["masked-channel"]
         assert "owner@example.com" in seen["raw-channel"]
+
+    async def test_check_notification_rule_global_output_disable_bypasses_channel_masking(self, monkeypatch):
+        db = sobs_app.get_db()
+        sobs_app._set_app_setting(db, "masking.output_enabled", "0")
+        try:
+            rule = {
+                "id": f"mask-rule-global-off-{time.time_ns()}",
+                "name": "Mask routing global-off rule",
+                "enabled": True,
+                "logic_operator": "any",
+                "conditions": [
+                    {
+                        "source": "logs",
+                        "signal": "error_volume",
+                        "service": "owner@example.com",
+                        "comparator": "gt",
+                        "threshold": 1,
+                        "window_minutes": 5,
+                    }
+                ],
+                "channel_ids": ["masked-channel"],
+                "severity": "warning",
+                "cooldown_seconds": 0,
+            }
+            channels_by_id = {
+                "masked-channel": {
+                    "id": "masked-channel",
+                    "name": "Masked",
+                    "enabled": True,
+                    "channel_type": "webhook",
+                    "config": {"url": "https://example.com/masked", "mask_output_enabled": "1"},
+                }
+            }
+
+            monkeypatch.setattr(sobs_app, "_evaluate_signal_condition", lambda _db, _cond: (True, 42.0))
+            seen: dict[str, str] = {}
+
+            async def _fake_dispatch(channel, payload):
+                seen[str(channel.get("id"))] = str(payload.get("summary") or "")
+                return "ok"
+
+            monkeypatch.setattr(sobs_app, "_dispatch_notification_channel", _fake_dispatch)
+
+            result = await sobs_app._check_notification_rule(db, rule, channels_by_id)
+            assert result["fired"] is True
+            assert "masked-channel" in seen
+            assert "owner@example.com" in seen["masked-channel"]
+            assert "****" not in seen["masked-channel"]
+        finally:
+            sobs_app._set_app_setting(db, "masking.output_enabled", "1")
 
     async def test_create_slack_channel(self, client):
         r = await client.post(

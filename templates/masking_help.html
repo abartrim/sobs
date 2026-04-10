@@ -39,6 +39,17 @@
 </div>
 
 <div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Masking Control Precedence</div>
+  <div class="card-body small text-secondary">
+    <ol class="ps-3 mb-0">
+      <li><strong>Global Output Masking</strong> (Settings -> Output Masking) is the master switch for masking across render/API surfaces.</li>
+      <li><strong>SQL/Query Field Masking</strong> is an additional toggle that applies only to <code>sql</code>/<code>query</code> fields in NLQ and chart responses, and only when global masking is enabled.</li>
+      <li><strong>Per-action/per-channel controls</strong> (GitHub issue payload masking and notification channel masking) can disable masking for that path even when global masking is enabled.</li>
+    </ol>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
   <div class="card-header fw-semibold">What Gets Masked</div>
   <div class="card-body small text-secondary">
     <ul class="mb-0 ps-3">
