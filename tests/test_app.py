@@ -53,6 +53,198 @@ async def client():
 
 
 # ---------------------------------------------------------------------------
+# Masking helpers
+# ---------------------------------------------------------------------------
+class TestMasking:
+    """Tests for the shared masking module (masking.py)."""
+
+    def test_email_is_masked_in_string(self):
+        import masking
+
+        result = masking.mask_value("User john.doe@example.com logged in")
+        assert "john.doe@example.com" not in result
+        assert "****" in result
+        assert "User" in result
+        assert "logged in" in result
+
+    def test_bearer_token_is_masked_in_string(self):
+        import masking
+
+        result = masking.mask_value("Authorization: Bearer supersecrettoken123")
+        assert "supersecrettoken123" not in result
+        assert "****" in result
+
+    def test_jwt_is_masked_in_string(self):
+        import masking
+
+        jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        result = masking.mask_value(f"token={jwt}")
+        assert jwt not in result
+        assert "****" in result
+
+    def test_ssn_is_masked_in_string(self):
+        import masking
+
+        result = masking.mask_value("SSN: 123-45-6789 found in event")
+        assert "123-45-6789" not in result
+        assert "****" in result
+
+    def test_credit_card_is_masked_in_string(self):
+        import masking
+
+        result = masking.mask_value("card 4111111111111111 charged")
+        assert "4111111111111111" not in result
+        assert "****" in result
+
+    def test_aws_key_is_masked_in_string(self):
+        import masking
+
+        result = masking.mask_value("AKIAIOSFODNN7EXAMPLE was exposed")
+        assert "AKIAIOSFODNN7EXAMPLE" not in result
+        assert "****" in result
+
+    def test_sensitive_key_masked_in_dict(self):
+        import masking
+
+        d = {"username": "alice", "password": "supersecret", "service": "myapp"}
+        result = masking.mask_value(d)
+        assert result["password"] == "****"
+        assert result["username"] == "alice"
+        assert result["service"] == "myapp"
+
+    def test_sensitive_key_masked_case_insensitive(self):
+        import masking
+
+        d = {"Password": "s3cr3t", "API_KEY": "abc123", "host": "localhost"}
+        result = masking.mask_value(d)
+        assert result["Password"] == "****"
+        assert result["API_KEY"] == "****"
+        assert result["host"] == "localhost"
+
+    def test_nested_dict_masked(self):
+        import masking
+
+        d = {"outer": {"inner": {"token": "secrettoken", "metric": "42"}}}
+        result = masking.mask_value(d)
+        assert result["outer"]["inner"]["token"] == "****"
+        assert result["outer"]["inner"]["metric"] == "42"
+
+    def test_list_of_dicts_masked(self):
+        import masking
+
+        data = [{"api_key": "KEY123", "name": "svc-a"}, {"api_key": "KEY456", "name": "svc-b"}]
+        result = masking.mask_value(data)
+        assert result[0]["api_key"] == "****"
+        assert result[1]["api_key"] == "****"
+        assert result[0]["name"] == "svc-a"
+
+    def test_non_sensitive_metrics_pass_through(self):
+        import masking
+
+        text = "http_requests_total 1234 latency_p99 42ms error_rate 0.01"
+        assert masking.mask_value(text) == text
+
+    def test_non_sensitive_dict_fields_pass_through(self):
+        import masking
+
+        d = {"service": "myapp", "status": "ok", "duration_ms": 120}
+        result = masking.mask_value(d)
+        assert result == d
+
+    def test_none_returns_none(self):
+        import masking
+
+        assert masking.mask_value(None) is None
+
+    def test_mask_string_coerces_dict_to_json_with_keys_masked(self):
+        import masking
+
+        result = masking.mask_string({"password": "secret", "service": "test"})
+        assert "secret" not in result
+        assert "****" in result
+        assert "test" in result
+
+    def test_mask_string_on_none_returns_empty(self):
+        import masking
+
+        assert masking.mask_string(None) == ""
+
+    def test_original_dict_not_mutated(self):
+        import masking
+
+        original = {"password": "mysecret", "service": "svc"}
+        _ = masking.mask_value(original)
+        assert original["password"] == "mysecret"
+
+    def test_jinja_mask_filter_registered(self):
+        from app import app
+
+        assert "mask" in app.jinja_env.filters
+
+    async def test_jinja_mask_filter_redacts_email_in_rendered_html(self, client):
+        """The ``mask`` Jinja filter must redact a sensitive value when a template
+        renders it, without disrupting normal HTML output.
+        """
+        from quart.templating import render_template_string
+
+        async with app.app_context():
+            rendered = await render_template_string(
+                "{{ value|mask }}",
+                value="Contact us at support@secret.example.com for help",
+            )
+        assert "support@secret.example.com" not in rendered
+        assert "****" in rendered
+        assert "Contact us at" in rendered
+
+    async def test_jinja_mask_filter_passes_through_non_sensitive(self, client):
+        from quart.templating import render_template_string
+
+        async with app.app_context():
+            rendered = await render_template_string(
+                "{{ value|mask }}",
+                value="GET /api/health 200 OK 5ms",
+            )
+        assert "GET /api/health 200 OK 5ms" in rendered
+
+    def test_notification_summary_email_masked(self):
+        """Notification summary should have emails masked before dispatch."""
+        import app as sobs_app
+
+        rule = {"name": "alert rule", "severity": "warning"}
+        cond = {
+            "source": "logs",
+            "signal": "error_rate",
+            "service": "admin@internal.example.com",
+            "comparator": "gt",
+            "threshold": 5,
+            "_value": 10,
+        }
+        payload = sobs_app._build_notification_payload(rule, [cond])
+        assert "admin@internal.example.com" not in payload["summary"]
+        assert "****" in payload["summary"]
+        # Non-sensitive parts should remain readable
+        assert "alert rule" in payload["summary"]
+        assert "WARNING" in payload["summary"]
+
+    def test_github_issue_body_email_masked(self):
+        """GitHub issue title and body should have sensitive data masked."""
+        import masking
+
+        title = "Error in service billing@finance.example.com"
+        body = "## Issue\n\nUser email: ops@company.example.com\npassword=hunter2\n"
+        masked_title = masking.mask_string(title)
+        masked_body = masking.mask_string(body)
+        assert "billing@finance.example.com" not in masked_title
+        assert "ops@company.example.com" not in masked_body
+        assert "hunter2" not in masked_body
+        assert "****" in masked_title
+        assert "****" in masked_body
+        # Structure remains
+        assert "Error in service" in masked_title
+        assert "## Issue" in masked_body
+
+
+# ---------------------------------------------------------------------------
 # Compression helpers
 # ---------------------------------------------------------------------------
 class TestCompression:

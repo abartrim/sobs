@@ -974,3 +974,62 @@ chmod +x .githooks/pre-commit
 
 If formatting changes are applied, the hook re-stages those Python files before commit.
 
+## Output Masking (PII / Secret Redaction)
+
+SOBS automatically redacts PII and secrets from all web UI output, outbound notification
+messages, and GitHub issue bodies using `masking.py` – a shared rule-based masking layer
+backed by the [`loggingredactor`](https://pypi.org/project/loggingredactor/) library.
+
+### What is masked
+
+| Category | Examples |
+|---|---|
+| Email addresses | `user@company.com` |
+| JWT tokens | `eyJhbGci…` |
+| Bearer tokens | `Authorization: Bearer …` |
+| AWS access key IDs | `AKIA…` |
+| US Social Security Numbers | `123-45-6789` |
+| Credit card numbers | Visa, Mastercard, Amex, Discover |
+| PEM private keys | `-----BEGIN PRIVATE KEY-----…` |
+| Dict/object keys | `password`, `api_key`, `token`, `secret`, … |
+
+Masking is **display-only** – it does not modify the data stored in the database.
+
+### Using the `mask` Jinja filter
+
+Any template can use the `mask` filter to redact a value before rendering:
+
+```html
+{{ log.body|mask }}
+{{ event.attributes|mask }}
+```
+
+### Extending the rule set
+
+Edit `masking.py`:
+
+* **New sensitive value patterns** – add a regex string to `SENSITIVE_PATTERNS`.
+  The full regex match is replaced with `****`.
+
+  ```python
+  SENSITIVE_PATTERNS.append(r"\bMY_SECRET_PATTERN\b")
+  masking.build_redacting_filter()   # rebuild singleton
+  ```
+
+* **New sensitive key names** – add a lowercase name to `SENSITIVE_KEYS`.
+  Any dict key whose lowercased name is in this set will have its value masked,
+  regardless of the value content.
+
+  ```python
+  # masking.py
+  SENSITIVE_KEYS = frozenset({
+      ...
+      "my_new_sensitive_key",
+  })
+  ```
+
+Masking is also applied automatically to:
+* Outbound notification payloads (`summary` field sent to Slack/webhook/email)
+* GitHub issue titles and bodies created by the agent flow
+
+

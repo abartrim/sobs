@@ -1,0 +1,232 @@
+"""masking.py – Shared PII/secret masking rules for SOBS UI output,
+notification messages, and GitHub issue bodies.
+
+All patterns are explicit and human-curated (no ML/heuristic detection).
+
+Extending the rule set
+----------------------
+* **New sensitive value formats** – add a regex string to ``SENSITIVE_PATTERNS``.
+  Each pattern is applied via ``re.sub(pattern, MASK, text)`` to every string
+  value encountered (recursively in dicts/lists).  The entire match is replaced
+  with ``MASK``, so keep patterns tight to avoid destroying unrelated context.
+
+* **New sensitive key names** – add a lowercase key name to ``SENSITIVE_KEYS``.
+  Any dict key whose *lowercased* name is in this set will have its value
+  replaced with ``MASK``, regardless of the value itself.
+
+After modifying either collection at runtime call ``build_redacting_filter()``
+to rebuild the singleton filter instance and pick up the changes.
+"""
+
+from __future__ import annotations
+
+import copy
+import re
+from collections.abc import Mapping
+from typing import Any
+
+from loggingredactor import RedactingFilter
+
+# ---------------------------------------------------------------------------
+# Replacement placeholder shown in masked output
+# ---------------------------------------------------------------------------
+MASK: str = "****"
+
+# ---------------------------------------------------------------------------
+# Key names whose values should always be fully masked.
+# Comparison is done after lowercasing the actual key at call-site.
+# ---------------------------------------------------------------------------
+SENSITIVE_KEYS: frozenset[str] = frozenset(
+    {
+        # Credentials / secrets
+        "password",
+        "passwd",
+        "pwd",
+        "secret",
+        "client_secret",
+        "api_key",
+        "api_secret",
+        "apikey",
+        # Tokens
+        "token",
+        "access_token",
+        "refresh_token",
+        "id_token",
+        "auth_token",
+        "bearer_token",
+        # Auth headers
+        "authorization",
+        "x-authorization",
+        "x-api-key",
+        # Cryptographic material
+        "private_key",
+        "private-key",
+        # Payment / identity
+        "credit_card",
+        "card_number",
+        "cvv",
+        "cvc",
+        "ssn",
+        "social_security_number",
+        # SOBS-specific sensitive settings keys
+        "s3_secret_access_key",
+        "backup_encryption_password",
+        "smtp_password",
+    }
+)
+
+# ---------------------------------------------------------------------------
+# Regex patterns matched against string values.
+# The *entire* match is replaced with MASK, so patterns should capture the
+# full sensitive fragment (not just a capture group inside it).
+# ---------------------------------------------------------------------------
+SENSITIVE_PATTERNS: list[str] = [
+    # --- Email addresses ---
+    r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b",
+    # --- JWT tokens (three base64url-encoded segments) ---
+    r"\beyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]*\b",
+    # --- Bearer token in text / HTTP headers ---
+    r"(?i)bearer\s+[A-Za-z0-9\-_.~+/]+=*",
+    # --- AWS access key IDs ---
+    r"\bAKIA[0-9A-Z]{16}\b",
+    # --- US Social Security Numbers (###-##-####) ---
+    r"\b\d{3}-\d{2}-\d{4}\b",
+    # --- Common credit card patterns ---
+    r"\b4[0-9]{12}(?:[0-9]{3})?\b",  # Visa (13 or 16 digits)
+    r"\b5[1-5][0-9]{14}\b",  # Mastercard
+    r"\b3[47][0-9]{13}\b",  # Amex
+    r"\b6(?:011|5[0-9]{2})[0-9]{12}\b",  # Discover
+    # --- PEM private key blocks ---
+    r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
+    # --- Generic key=value / key: value assignment in log lines ---
+    # Matches patterns like: password=abc123 | secret: "xyz" | api_key=ABCDEF...
+    r"(?i)(?:password|passwd|pwd|secret|api[_\-]?key|auth[_\-]?token|access[_\-]?token)"
+    r"\s*[=:]\s*['\"]?[A-Za-z0-9\-_.~+/!@#$%^&*]{6,}['\"]?",
+    # --- Authorization header value ---
+    r"(?i)(?:Authorization|X-Api-Key|X-Auth-Token)\s*:\s*[^\r\n]+",
+]
+
+# ---------------------------------------------------------------------------
+# Custom filter with case-insensitive key matching
+# ---------------------------------------------------------------------------
+
+
+class _SobsRedactingFilter(RedactingFilter):
+    """Extends :class:`RedactingFilter` with case-insensitive dict-key matching.
+
+    The upstream library compares key names verbatim; this subclass converts
+    each key to lowercase before checking membership in ``_mask_keys``.
+    """
+
+    def redact(self, content: Any, key: Any = None) -> Any:  # type: ignore[override]
+        try:
+            content_copy = copy.deepcopy(content)
+        except Exception:
+            return content
+
+        if not content_copy and content_copy != 0:
+            return content_copy
+
+        if isinstance(content_copy, Mapping):
+            content_copy = type(content_copy)(
+                [
+                    (
+                        k,
+                        self._mask if str(k).lower() in self._mask_keys else self.redact(v),
+                    )
+                    for k, v in content_copy.items()
+                ]
+            )
+        elif isinstance(content_copy, list):
+            content_copy = [self.redact(value) for value in content_copy]
+        elif isinstance(content_copy, tuple):
+            content_copy = tuple(self.redact(value) for value in content_copy)
+        elif key and str(key).lower() in self._mask_keys:
+            content_copy = self._mask
+        elif isinstance(content_copy, str):
+            for pattern in self._mask_patterns:
+                content_copy = re.sub(pattern, self._mask, content_copy, flags=re.DOTALL)
+
+        return content_copy
+
+
+# ---------------------------------------------------------------------------
+# Internal singleton filter – rebuilt by build_redacting_filter()
+# ---------------------------------------------------------------------------
+_filter: _SobsRedactingFilter | None = None
+
+
+def build_redacting_filter() -> _SobsRedactingFilter:
+    """(Re)build and return the shared :class:`_SobsRedactingFilter` instance.
+
+    Call this function after modifying :data:`SENSITIVE_KEYS` or
+    :data:`SENSITIVE_PATTERNS` at runtime to ensure the changes take effect.
+    """
+    global _filter
+    _filter = _SobsRedactingFilter(
+        mask_patterns=SENSITIVE_PATTERNS,
+        mask=MASK,
+        mask_keys=SENSITIVE_KEYS,
+    )
+    return _filter
+
+
+def _get_filter() -> _SobsRedactingFilter:
+    global _filter
+    if _filter is None:
+        build_redacting_filter()
+    return _filter  # type: ignore[return-value]
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def mask_value(value: Any) -> Any:
+    """Mask sensitive data in *value* and return the same type.
+
+    Suitable for use as a Jinja2 template filter (``{{ value|mask }}``) or
+    for pre-processing any observable data before rendering.
+
+    * Strings have all :data:`SENSITIVE_PATTERNS` applied.
+    * Dicts/lists are traversed recursively; keys in :data:`SENSITIVE_KEYS`
+      have their values replaced with ``"****"``.
+    * ``None`` is returned as-is; numeric/bool values pass through unchanged.
+
+    This function is **non-mutating**: original containers are not modified.
+    """
+    if value is None:
+        return value
+    return _get_filter().redact(value)
+
+
+def mask_string(value: Any) -> str:
+    """Mask sensitive data and coerce the result to :class:`str`.
+
+    Use this variant when a plain string is required—e.g. for notification
+    summary messages or GitHub issue title/body text before sending.
+    """
+    if value is None:
+        return ""
+    # For non-string types apply recursive key-level masking first, then
+    # serialise to a string and apply pattern-level masking in one final pass.
+    if not isinstance(value, str):
+        value = mask_value(value)  # recursive key masking on dicts/lists
+        import json
+
+        try:
+            value = json.dumps(value, ensure_ascii=False, default=str)
+        except Exception:
+            value = str(value)
+    result = _get_filter().redact(value)
+    return str(result) if result is not None else ""
+
+
+def _case_insensitive_key_match(key: str) -> bool:
+    """Return ``True`` if *key* (lowercased) is in :data:`SENSITIVE_KEYS`."""
+    return key.lower() in SENSITIVE_KEYS
+
+
+# Initialise the singleton at module import time.
+build_redacting_filter()

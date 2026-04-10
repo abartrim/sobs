@@ -56,6 +56,8 @@ from quart import (
     url_for,
 )
 
+import masking as _masking
+
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
@@ -5636,8 +5638,8 @@ async def _create_github_issue_record(
     if not owner or not repo:
         return {}
     issue_payload: dict[str, Any] = {
-        "title": title,
-        "body": body_md,
+        "title": _masking.mask_string(title),
+        "body": _masking.mask_string(body_md),
         "labels": labels or ["sobs-agent", "automated"],
     }
     client = await _get_async_http_client()
@@ -11987,6 +11989,10 @@ def source_label(source: str) -> str:
 app.jinja_env.globals["signal_label"] = signal_label
 app.jinja_env.globals["signal_description"] = signal_description
 app.jinja_env.globals["source_label"] = source_label
+
+# Register the ``mask`` Jinja2 filter so any template can write
+# ``{{ value|mask }}`` to redact PII/secrets from OTEL output.
+app.jinja_env.filters["mask"] = _masking.mask_value
 
 
 # ---------------------------------------------------------------------------
@@ -22252,7 +22258,7 @@ def _build_notification_payload(rule: dict, fired_conditions: list[dict]) -> dic
         "rule_name": rule["name"],
         "severity": rule["severity"],
         "conditions": fired_conditions,
-        "summary": summary,
+        "summary": _masking.mask_string(summary),
         "fired_at": datetime.now(timezone.utc).isoformat(),
     }
 

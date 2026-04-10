@@ -7,3 +7,4 @@ httpx>=0.28.1
 pandas>=3.0.2
 geoip2fast>=1.2.2
 sourcemap>=0.2.1
+loggingredactor>=0.0.6
