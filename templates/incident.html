@@ -128,6 +128,7 @@
 
 <!-- ── Evidence Summary ──────────────────────────────────────────────────── -->
 <div class="row g-3 mb-3">
+  {% set mc = metrics_context or {} %}
   <div class="col-6 col-md-3">
     <div class="card h-100">
       <div class="card-body py-2 px-3 text-center">
@@ -170,6 +171,165 @@
         {% endif %}
         <div class="small text-secondary">Anomaly State</div>
       </div>
+    </div>
+  </div>
+</div>
+
+{% if related_rum_count or related_rum_sessions or related_rum_error_count or related_rum_events %}
+<div class="card mb-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center" style="cursor:pointer;"
+       data-bs-toggle="collapse" data-bs-target="#incident-rum-panel">
+    <span class="fw-semibold small"><i class="bi bi-globe me-1"></i>RUM Evidence</span>
+    <i class="bi bi-chevron-down" style="transition:transform 0.2s;font-size:0.9rem;" data-chevron-icon></i>
+  </div>
+  <div id="incident-rum-panel" class="collapse show">
+    <div class="card-body py-2 px-3">
+      <div class="row g-2 mb-2">
+        <div class="col-6 col-md-3">
+          <div class="small text-secondary">RUM Events</div>
+          <div class="fw-semibold">{{ related_rum_count }}</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="small text-secondary">RUM Sessions</div>
+          <div class="fw-semibold">{{ related_rum_sessions }}</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="small text-secondary">RUM Errors</div>
+          <div class="fw-semibold text-danger">{{ related_rum_error_count }}</div>
+        </div>
+        <div class="col-6 col-md-3 d-flex align-items-end">
+          <a href="{{ url_for('view_rum', from_ts=from_ts, to_ts=to_ts, q=(trace_id or '')) }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-globe me-1"></i>Open RUM
+          </a>
+        </div>
+      </div>
+
+      {% if related_rum_events %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Event</th>
+              <th>URL</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ev in related_rum_events %}
+            <tr>
+              <td class="small font-monospace">{{ ev.ts[:19] }}</td>
+              <td>
+                <span class="badge {% if ev.event_type in ('error', 'unhandledrejection') %}bg-danger{% elif ev.event_type == 'pageview' %}bg-primary{% elif ev.event_type == 'web-vital' %}bg-success{% else %}bg-secondary{% endif %}">{{ ev.event_type }}</span>
+              </td>
+              <td class="small text-truncate" style="max-width:360px;" title="{{ ev.url }}">{{ ev.url or '—' }}</td>
+              <td>
+                <div class="d-flex gap-2 flex-wrap">
+                  {% if ev.trace_id %}
+                  <a href="{{ url_for('view_traces', trace_id=ev.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">Trace</a>
+                  <a href="{{ url_for('view_incident', trace_id=ev.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-primary">Incident</a>
+                  {% else %}
+                  <span class="small text-secondary">No trace link</span>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Metrics + Raw Windows ───────────────────────────────────────────── -->
+<div class="card mb-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center" style="cursor:pointer;"
+       data-bs-toggle="collapse" data-bs-target="#incident-metrics-panel">
+    <span class="fw-semibold small"><i class="bi bi-activity me-1"></i>Metrics &amp; Preserved Raw Windows</span>
+    <i class="bi bi-chevron-down" style="transition:transform 0.2s;font-size:0.9rem;" data-chevron-icon></i>
+  </div>
+  <div id="incident-metrics-panel" class="collapse show">
+    <div class="card-body py-2 px-3">
+      {% if mc.health_chips %}
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        {% for chip in mc.health_chips %}
+        <div class="metric-health-chip level-{{ chip.level }}">
+          <i class="bi {{ chip.icon }}"></i>
+          <span>{{ chip.label }}</span>
+          <strong>{{ chip.value }}</strong>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <div class="row g-2 mb-2">
+        <div class="col-6 col-md-3">
+          <div class="small text-secondary">Metric Points</div>
+          <div class="fw-semibold">{{ mc.total_points or 0 }}</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="small text-secondary">Metric Series</div>
+          <div class="fw-semibold">{{ (mc.series or []) | length }}</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="small text-secondary">Source Mode</div>
+          <div class="fw-semibold text-uppercase">{{ mc.source_mode or 'none' }}</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="small text-secondary">Preserved Windows</div>
+          <div class="fw-semibold">{{ (raw_windows or []) | length }}</div>
+        </div>
+      </div>
+      <div class="small text-secondary mb-2">
+        Match strategy: {{ mc.match_label or 'no match' }}
+        {% if mc.match_dimensions %}
+        ({{ (mc.match_dimensions or []) | join(', ') }})
+        {% endif %}
+      </div>
+      {% if raw_windows %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Signal</th>
+              <th>Window</th>
+              <th>Copy Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for w in raw_windows %}
+            <tr>
+              <td>
+                <div class="small fw-semibold">{{ w.signal_type }}</div>
+                {% if w.signal_ref %}
+                <div class="small text-secondary font-monospace">{{ w.signal_ref }}</div>
+                {% endif %}
+              </td>
+              <td class="small font-monospace">
+                {{ w.window_start }}<br>
+                {{ w.window_end }}
+              </td>
+              <td>
+                {% if w.copy_complete %}
+                <span class="badge bg-success">{{ w.copied_count }}/{{ w.expected_count }} copied</span>
+                {% elif w.copied_count > 0 %}
+                <span class="badge bg-warning text-dark">{{ w.copied_count }}/{{ w.expected_count }} copied</span>
+                {% else %}
+                <span class="badge bg-secondary">pending</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="small text-secondary mb-0">
+        No preserved windows overlap this incident window yet.
+      </div>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -254,10 +414,18 @@
         {% if service %}<div><span class="text-secondary">Service:</span> {{ service }}</div>{% endif %}
       </div>
       <div class="d-flex flex-wrap gap-2 mt-2">
+        <span class="text-secondary align-self-center me-1">Keep range:</span>
         <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, from_ts=from_ts, to_ts=to_ts, window_minutes=15) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 15 %} active{% endif %}">15 min</a>
         <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, from_ts=from_ts, to_ts=to_ts, window_minutes=30) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 30 %} active{% endif %}">30 min</a>
         <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, from_ts=from_ts, to_ts=to_ts, window_minutes=60) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 60 %} active{% endif %}">60 min</a>
         <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, from_ts=from_ts, to_ts=to_ts, window_minutes=180) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 180 %} active{% endif %}">180 min</a>
+      </div>
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        <span class="text-secondary align-self-center me-1">Recenter:</span>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, window_minutes=15) }}" class="btn btn-sm btn-outline-primary">15 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, window_minutes=30) }}" class="btn btn-sm btn-outline-primary">30 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, window_minutes=60) }}" class="btn btn-sm btn-outline-primary">60 min</a>
+        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, window_minutes=180) }}" class="btn btn-sm btn-outline-primary">180 min</a>
       </div>
     </div>
   </div>
@@ -325,8 +493,45 @@
       lines.push('| Related Errors | {{ related_errors | length }} |');
       lines.push('| Log Events | {{ related_log_count }} |');
       lines.push('| Trace Spans | {{ related_span_count }} |');
+      lines.push('| RUM Events | {{ related_rum_count }} |');
+      lines.push('| RUM Sessions | {{ related_rum_sessions }} |');
+      lines.push('| RUM Errors | {{ related_rum_error_count }} |');
       lines.push('| Anomaly State | {{ anomaly_state or "unknown" }} |');
+      lines.push('| Metric Points | {{ (metrics_context or {}).get("total_points", 0) }} |');
+      lines.push('| Metric Series | {{ ((metrics_context or {}).get("series", []) | length) }} |');
+      lines.push('| Metrics Source Mode | {{ (metrics_context or {}).get("source_mode", "none") }} |');
+      lines.push('| Preserved Raw Windows | {{ (raw_windows or []) | length }} |');
       lines.push('');
+
+      lines.push('## Metrics Context');
+      lines.push('- Match Strategy: {{ (metrics_context or {}).get("match_label", "no match") }}');
+      lines.push('- Match Dimensions: {{ ((metrics_context or {}).get("match_dimensions", []) | join(", ")) or "none" }}');
+      lines.push('');
+
+      {% if (metrics_context or {}).get("health_chips") %}
+      lines.push('## Metric Indicators');
+      {% for chip in (metrics_context or {}).get("health_chips", []) if chip.level == 'crit' %}
+      lines.push('- {{ chip.label }}: {{ chip.value }} ({{ chip.level }})');
+      {% endfor %}
+      {% for chip in (metrics_context or {}).get("health_chips", []) if chip.level == 'warn' %}
+      lines.push('- {{ chip.label }}: {{ chip.value }} ({{ chip.level }})');
+      {% endfor %}
+      {% for chip in (metrics_context or {}).get("health_chips", []) if chip.level == 'ok' %}
+      lines.push('- {{ chip.label }}: {{ chip.value }} ({{ chip.level }})');
+      {% endfor %}
+      {% for chip in (metrics_context or {}).get("health_chips", []) if chip.level not in ['crit', 'warn', 'ok'] %}
+      lines.push('- {{ chip.label }}: {{ chip.value }} ({{ chip.level }})');
+      {% endfor %}
+      lines.push('');
+      {% endif %}
+
+      {% if raw_windows %}
+      lines.push('## Overlapping Preserved Windows');
+      {% for w in raw_windows %}
+      lines.push('- `{{ w.id }}` {{ w.signal_type }} ({{ w.window_start }} to {{ w.window_end }}) — {{ w.copied_count }}/{{ w.expected_count }} copied');
+      {% endfor %}
+      lines.push('');
+      {% endif %}
       {% if _wi_list %}
       lines.push('## GitHub Work Items');
       {% for wi in _wi_list %}
@@ -346,6 +551,7 @@
       {% if service %}
       lines.push('- [Errors]({{ url_for("view_errors", service=service, from_ts=from_ts, to_ts=to_ts) | safe }})');
       {% endif %}
+      lines.push('- [RUM]({{ url_for("view_rum", from_ts=from_ts, to_ts=to_ts, q=(trace_id or "")) | safe }})');
 
       var md = lines.join('\n');
       navigator.clipboard.writeText(md).then(function () {
@@ -372,8 +578,9 @@
           error_id: btn.dataset.errorId || '',
           service: btn.dataset.service || '',
           err_type: btn.dataset.errType || '',
-          err_message: btn.dataset.errMessage || '',
-          err_ts: btn.dataset.errTs || '',
+          message: btn.dataset.errMessage || ('Incident evidence packet for ' + (btn.dataset.traceId || btn.dataset.errorId || 'unknown reference')),
+          timestamp: btn.dataset.errTs || '',
+          url: window.location.href,
         };
         var resp = await fetch({{ url_for('raise_issue_from_user_observation') | tojson }}, {
           method: 'POST',
@@ -407,13 +614,13 @@
       var payload = {
         source_page: 'incident',
         err_type: btn.dataset.errType || '',
-        err_message: btn.dataset.errMessage || '',
-        err_service: btn.dataset.errService || '',
-        err_ts: btn.dataset.errTs || '',
-        err_id: btn.dataset.errId || '',
+        message: btn.dataset.errMessage || '',
+        service: btn.dataset.errService || '',
+        timestamp: btn.dataset.errTs || '',
+        error_id: btn.dataset.errId || '',
         trace_id: btn.dataset.traceId || '',
         span_id: btn.dataset.spanId || '',
-        err_url: btn.dataset.errUrl || '',
+        url: btn.dataset.errUrl || '',
       };
       var resp = await fetch({{ url_for('raise_issue_from_user_observation') | tojson }}, {
         method: 'POST',

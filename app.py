@@ -14056,6 +14056,7 @@ async def api_raw_span(span_id: str):
 
 _INCIDENT_MAX_RELATED_ERRORS = 50
 _INCIDENT_MAX_RELATED_SPANS = 20
+_INCIDENT_MAX_RELATED_RUM_EVENTS = 20
 _INCIDENT_WINDOW_DEFAULT_MINUTES = 30
 _INCIDENT_WINDOW_MAX_MINUTES = 180
 
@@ -14089,6 +14090,19 @@ async def view_incident():
             related_errors=[],
             related_log_count=0,
             related_span_count=0,
+            related_rum_count=0,
+            related_rum_sessions=0,
+            related_rum_error_count=0,
+            related_rum_events=[],
+            raw_windows=[],
+            metrics_context={
+                "source_mode": "none",
+                "total_points": 0,
+                "series": [],
+                "match_mode": "none",
+                "match_label": "no match",
+                "match_dimensions": [],
+            },
             anomaly_state=None,
             work_item_links={},
             time_error="",
@@ -14239,6 +14253,82 @@ async def view_incident():
     except Exception as exc:
         log.warning("view_incident: failed to count related spans: %s", exc)
 
+    # ── RUM evidence summary ───────────────────────────────────────────────
+    related_rum_count = 0
+    related_rum_sessions = 0
+    related_rum_error_count = 0
+    related_rum_events: list[dict[str, Any]] = []
+    try:
+        rum_where_parts: list[str] = []
+        rum_where_params: list[str] = []
+        if trace_id:
+            rum_where_parts.append("TraceId=?")
+            rum_where_params.append(trace_id)
+        elif service:
+            rum_where_parts.append("(LogAttributes['service.name']=? OR LogAttributes['service']=?)")
+            rum_where_params.extend([service, service])
+        tc, tp = _time_window_conditions("Timestamp", from_ts, to_ts)
+        rum_where_parts.extend(tc)
+        rum_where_params.extend(tp)
+        rum_where_sql = ("WHERE " + " AND ".join(rum_where_parts)) if rum_where_parts else ""
+
+        rum_summary_row = db.execute(
+            "SELECT "
+            "count() AS ev_count, "
+            f"uniq({_RUM_SESSION_KEY_SQL}) AS session_count, "
+            "countIf(EventName IN ('error', 'unhandledrejection')) AS err_count "
+            f"FROM hyperdx_sessions {rum_where_sql}",
+            rum_where_params,
+        ).fetchone()
+        if rum_summary_row:
+            related_rum_count = int(rum_summary_row["ev_count"])
+            related_rum_sessions = int(rum_summary_row["session_count"])
+            related_rum_error_count = int(rum_summary_row["err_count"])
+
+        rum_rows = db.execute(
+            "SELECT Timestamp, EventName, Body, LogAttributes, TraceId, SpanId "
+            f"FROM hyperdx_sessions {rum_where_sql} "
+            "ORDER BY Timestamp DESC LIMIT ?",
+            rum_where_params + [_INCIDENT_MAX_RELATED_RUM_EVENTS],
+        ).fetchall()
+        related_rum_events = [_build_rum_event_item(row) for row in rum_rows]
+    except Exception as exc:
+        log.warning("view_incident: failed to fetch related RUM evidence: %s", exc)
+
+    # ── Overlapping preserved raw windows + metric context ─────────────────
+    raw_windows: list[dict[str, object]] = []
+    metrics_context: dict[str, object] = {
+        "source_mode": "none",
+        "total_points": 0,
+        "series": [],
+        "match_mode": "none",
+        "match_label": "no match",
+        "match_dimensions": [],
+    }
+    try:
+        if from_ts and to_ts:
+            service_names = [service] if service else []
+            raw_windows = _list_trace_overlapping_raw_windows(
+                db,
+                service_names=service_names,
+                start_ts=from_ts,
+                end_ts=to_ts,
+                limit=25,
+            )
+            metrics_context = _fetch_trace_metric_context(
+                db,
+                service_names=service_names,
+                start_ts=from_ts,
+                end_ts=to_ts,
+                window_ids=[str(w.get("id") or "") for w in raw_windows if str(w.get("id") or "")],
+                namespace_values=[],
+                pod_values=[],
+                node_values=[],
+                deployment_values=[],
+            )
+    except Exception as exc:
+        log.warning("view_incident: failed to fetch window/metrics context: %s", exc)
+
     # ── Service anomaly state ───────────────────────────────────────────────
     anomaly_state: str | None = None
     try:
@@ -14285,6 +14375,12 @@ async def view_incident():
         related_errors_truncated=related_errors_truncated,
         related_log_count=related_log_count,
         related_span_count=related_span_count,
+        related_rum_count=related_rum_count,
+        related_rum_sessions=related_rum_sessions,
+        related_rum_error_count=related_rum_error_count,
+        related_rum_events=related_rum_events,
+        raw_windows=raw_windows,
+        metrics_context=metrics_context,
         anomaly_state=anomaly_state,
         work_item_links=work_item_links,
         existing_work_item=existing_work_item,
@@ -25272,7 +25368,7 @@ async def ai_helper_execute_action():
 # ---------------------------------------------------------------------------
 def _build_user_issue_trigger_context(source_page: str, payload: dict[str, Any]) -> dict[str, Any]:
     source = str(source_page or "").strip().lower()
-    if source not in {"errors", "traces"}:
+    if source not in {"errors", "traces", "incident"}:
         source = "errors"
 
     service = str(payload.get("service") or "").strip()
@@ -25291,7 +25387,7 @@ def _build_user_issue_trigger_context(source_page: str, payload: dict[str, Any])
         anomaly_state = "critical"
         signal_value = 1.0
         trigger_ref_id = error_id
-    else:
+    elif source == "traces":
         signal_source = "traces"
         signal_name = span_name or "trace_span"
         anomaly_state = "critical" if "ERROR" in status.upper() else "warning"
@@ -25300,6 +25396,15 @@ def _build_user_issue_trigger_context(source_page: str, payload: dict[str, Any])
         except (TypeError, ValueError):
             signal_value = 0.0
         trigger_ref_id = trace_id or span_id
+    else:
+        signal_source = "incident"
+        signal_name = err_type or span_name or "incident_packet"
+        anomaly_state = "critical" if error_id or "ERROR" in status.upper() else "warning"
+        try:
+            signal_value = float(payload.get("duration_ms") or 1.0)
+        except (TypeError, ValueError):
+            signal_value = 1.0
+        trigger_ref_id = error_id or trace_id or span_id
 
     extra = {
         "initiated_by": "user",

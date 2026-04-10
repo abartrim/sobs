@@ -16895,6 +16895,14 @@ class TestIncidentView:
         body = await r.get_data(as_text=True)
         assert "Copy Investigation Packet" in body
 
+    async def test_incident_page_default_window_latency_budget(self, client):
+        """Incident page should render within a practical latency budget for default window."""
+        started = time.perf_counter()
+        r = await client.get("/incident?trace_id=aabbccddeeff001122334455667788ab")
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        assert r.status_code == 200
+        assert elapsed_ms < 1500
+
     async def test_incident_page_with_time_window(self, client):
         """Explicit from_ts/to_ts should be accepted without error."""
         r = await client.get(
@@ -16923,6 +16931,27 @@ class TestIncidentView:
         assert "180" in body
         assert "9999" not in body
 
+    async def test_incident_page_shows_keep_and_recenter_window_controls(self, client):
+        """Incident page provides both keep-range and recenter window controls."""
+        r = await client.get(
+            "/incident?trace_id=aabbccddeeff001122334455667788ef"
+            "&from_ts=2024-01-01T00:00:00Z&to_ts=2024-01-01T01:00:00Z"
+        )
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Keep range:" in body
+        assert "Recenter:" in body
+
+    async def test_incident_page_shows_metrics_and_raw_window_section(self, client):
+        """Incident page should expose metrics/raw-window evidence summary section."""
+        r = await client.get("/incident?trace_id=aabbccddeeff001122334455667788de")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Metrics &amp; Preserved Raw Windows" in body
+        assert "Metric Points" in body
+        assert "Preserved Windows" in body
+        assert "Metric Indicators" in body or "No preserved windows overlap this incident window yet." in body
+
     async def test_incident_page_shows_related_error_from_trace(self, client):
         """When errors are ingested with a matching trace_id, they appear in the incident view."""
         trace_id = "aabbccddeeff00112233445566778811"
@@ -16941,6 +16970,30 @@ class TestIncidentView:
         body = await r.get_data(as_text=True)
         assert "Incident View" in body
         assert "incident-trace-error-unique" in body
+
+    async def test_incident_page_shows_rum_evidence_from_trace(self, client):
+        """Incident page should surface RUM evidence counts and panel for matching trace_id."""
+        trace_id = "aabbccddeeff00112233445566779999"
+        await client.post(
+            "/v1/rum",
+            json={
+                "events": [
+                    {
+                        "type": "error",
+                        "traceId": trace_id,
+                        "url": "https://example.test/path",
+                        "message": "rum-incident-marker",
+                        "timestamp": "2026-04-09T12:00:00Z",
+                    }
+                ]
+            },
+        )
+        r = await client.get(f"/incident?trace_id={trace_id}")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "RUM Evidence" in body
+        assert "RUM Events" in body
+        assert "rum-incident-marker" in body
 
     async def test_errors_page_has_incident_view_button(self, client):
         """Error cards should include an 'Incident View' action link."""
@@ -16996,6 +17049,47 @@ class TestIncidentView:
         body = await r.get_data(as_text=True)
         assert "Incident View" in body
         assert "view_incident" in body or "/incident" in body
+
+    async def test_rum_page_has_incident_view_button(self, client):
+        """RUM rows should include an Incident View action when trace context exists."""
+        trace_id = "aabbccddeeff0011223344556677aa55"
+        await client.post(
+            "/v1/rum",
+            json={
+                "events": [
+                    {
+                        "type": "pageview",
+                        "traceId": trace_id,
+                        "url": "https://example.test/rum",
+                        "timestamp": "2026-04-09T12:01:00Z",
+                    }
+                ]
+            },
+        )
+        r = await client.get("/rum?view=sessions")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert "Open incident view" in body
+        assert "/incident" in body
+
+    async def test_issue_trigger_context_accepts_incident_source(self):
+        """Incident source should be preserved and use incident-level trigger metadata."""
+        payload = {
+            "service": "incident-svc",
+            "trace_id": "trace-123",
+            "error_id": "",
+            "span_id": "",
+            "err_type": "RuntimeError",
+            "message": "packet summary",
+            "timestamp": "2026-04-09T00:00:00Z",
+            "url": "http://localhost/incident?trace_id=trace-123",
+        }
+        ctx = sobs_app._build_user_issue_trigger_context("incident", payload)
+        assert ctx["rule_name"] == "User Raised Issue (incident)"
+        assert ctx["trigger_ref_id"] == "trace-123"
+        assert ctx["extra"]["source_page"] == "incident"
+        assert ctx["extra"]["source"] == "incident"
+        assert ctx["extra"]["message"] == "packet summary"
 
 
 class TestSetupWizard:

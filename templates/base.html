@@ -49,16 +49,36 @@
     }
     .sidebar.sidebar-compact .sb-brand { padding: 0 .6rem; justify-content: center; }
     .sb-theme-compact { display: none; }
+    .sb-theme-slot-compact { display: none; }
+    .sb-theme-slot-compact .dropdown-menu { min-width: 10rem; }
+    .sb-theme-slot-compact .nav-link {
+      border: 0;
+      background: transparent;
+      color: var(--bs-secondary-color);
+      border-radius: 6px;
+      margin: 1px auto;
+      width: calc(var(--sb-compact) - 8px);
+      padding: .5rem 0;
+      justify-content: center;
+      gap: 0;
+      text-align: center;
+    }
+    .sb-theme-slot-compact .nav-link:hover,
+    .sb-theme-slot-compact .nav-link.active {
+      background: var(--bs-secondary-bg);
+      color: var(--bs-emphasis-color);
+    }
     .sidebar.sidebar-compact .sb-footer {
+      display: none !important;
+    }
+    .sidebar.sidebar-compact .sb-theme-slot-compact {
       display: block;
-      border-top: 0 !important;
-      padding-top: .5rem !important;
+      margin-top: auto;
+      margin-bottom: 0;
+      padding-bottom: .25rem;
     }
     .sidebar.sidebar-compact .sb-footer .sb-theme-full { display: none !important; }
-    .sidebar.sidebar-compact .sb-footer .sb-theme-compact {
-      display: flex;
-      justify-content: center;
-    }
+    .sidebar.sidebar-compact .sb-footer .sb-theme-compact { display: none !important; }
     .sidebar.sidebar-compact .sb-footer small { display: none; }
     /* ===== Sidebar edge toggle button ===== */
     /* Draw border as a right-side half-ring so the menu-side edge stays clean and the icon remains unobstructed. */
@@ -87,6 +107,7 @@
         border-top: 1px solid var(--bs-border-color) !important;
         padding-top: 1rem !important;
       }
+      .sidebar.sidebar-compact .sb-theme-slot-compact { display: none; }
       .sidebar.sidebar-compact .sb-footer .sb-theme-full { display: inline-flex !important; }
       .sidebar.sidebar-compact .sb-footer .sb-theme-compact { display: none !important; }
       .sidebar.sidebar-compact .sb-footer small { display: inline; }
@@ -344,6 +365,18 @@
         </button>
       </li>
     </ul>
+    <div class="sb-theme-slot-compact">
+      <div class="dropup d-flex justify-content-center">
+        <button type="button" class="nav-link btn btn-link" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Theme">
+          <i id="sbCompactThemeIconNav" class="bi bi-circle-half"></i><span class="sb-label">Theme</span>
+        </button>
+        <ul class="dropdown-menu shadow-sm">
+          <li><button type="button" class="dropdown-item" data-sobs-theme="light"><i class="bi bi-sun me-2"></i>Light</button></li>
+          <li><button type="button" class="dropdown-item" data-sobs-theme="system"><i class="bi bi-circle-half me-2"></i>System</button></li>
+          <li><button type="button" class="dropdown-item" data-sobs-theme="dark"><i class="bi bi-moon-stars me-2"></i>Dark</button></li>
+        </ul>
+      </div>
+    </div>
     <div class="mt-auto pt-3 border-top border-secondary sb-footer">
       <div class="btn-group btn-group-sm mb-2 sb-theme-full" role="group" aria-label="Theme">
         <button type="button" class="btn btn-outline-secondary" data-sobs-theme="light" title="Light theme" aria-pressed="false">
@@ -624,12 +657,14 @@
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
 
-    var compactIcon = document.getElementById('sbCompactThemeIcon');
-    if (compactIcon) {
-      compactIcon.className = stored === 'light'
-        ? 'bi bi-sun'
-        : (stored === 'dark' ? 'bi bi-moon-stars' : 'bi bi-circle-half');
-    }
+    ['sbCompactThemeIcon', 'sbCompactThemeIconNav'].forEach(function (iconId) {
+      var compactIcon = document.getElementById(iconId);
+      if (compactIcon) {
+        compactIcon.className = stored === 'light'
+          ? 'bi bi-sun'
+          : (stored === 'dark' ? 'bi bi-moon-stars' : 'bi bi-circle-half');
+      }
+    });
   }
 
   var currentTheme = getStoredTheme();
