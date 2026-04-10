@@ -1094,6 +1094,43 @@ async function runPageChecks(context, path) {
     }, undefined, { timeout: 7000 });
     result.checks.push('Toast smoke check passed (show + auto-hide)');
 
+    await page.evaluate(() => {
+      window.__qaNotifyXssExecuted = false;
+      window.SOBS.notify('<img src=x onerror="window.__qaNotifyXssExecuted=true">QA-XSS-BODY', {
+        title: '<svg onload="window.__qaNotifyXssExecuted=true">QA-XSS-TITLE',
+        level: 'warning',
+        delay: 1200,
+      });
+    });
+    await page.waitForSelector('#sobsNotifyToastContainer .toast.show', { timeout: 4000 });
+    const xssRegressionState = await page.evaluate(() => {
+      const container = document.getElementById('sobsNotifyToastContainer');
+      const toasts = container ? Array.from(container.querySelectorAll('.toast')) : [];
+      const latest = toasts.length ? toasts[toasts.length - 1] : null;
+      const titleEl = latest ? latest.querySelector('.toast-header strong') : null;
+      const bodyEl = latest ? latest.querySelector('.toast-body') : null;
+      return {
+        executed: !!window.__qaNotifyXssExecuted,
+        titleHasInjectedElement: !!(titleEl && titleEl.querySelector('*')),
+        bodyHasInjectedElement: !!(bodyEl && bodyEl.querySelector('*')),
+        titleText: titleEl ? String(titleEl.textContent || '') : '',
+        bodyText: bodyEl ? String(bodyEl.textContent || '') : '',
+      };
+    });
+    if (xssRegressionState.executed || xssRegressionState.titleHasInjectedElement || xssRegressionState.bodyHasInjectedElement) {
+      result.failures.push(`Notify XSS regression detected: ${JSON.stringify(xssRegressionState)}`);
+      return result;
+    }
+    if (!xssRegressionState.titleText.includes('<svg') || !xssRegressionState.bodyText.includes('<img')) {
+      result.failures.push(`Notify XSS regression check did not preserve literal payload text: ${JSON.stringify(xssRegressionState)}`);
+      return result;
+    }
+    await page.waitForFunction(() => {
+      const c = document.getElementById('sobsNotifyToastContainer');
+      return !c || c.querySelectorAll('.toast.show').length === 0;
+    }, undefined, { timeout: 7000 });
+    result.checks.push('Notify XSS regression check passed (payload rendered as literal text)');
+
     await dismissBlockingModals(page, result);
     await checkProgrammaticConfirm(page, result);
     await checkSidebarToggleRevert(page, result);
