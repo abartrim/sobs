@@ -698,7 +698,10 @@
     var okClass = String(opts.okClass || 'btn-danger');
 
     if (!modal || !titleEl || !messageEl || !okBtn) {
-      return Promise.resolve(window.confirm(message));
+      var nativeConfirm = (typeof globalThis !== 'undefined' && typeof globalThis.confirm === 'function')
+        ? globalThis.confirm.bind(globalThis)
+        : null;
+      return Promise.resolve(nativeConfirm ? nativeConfirm(message) : false);
     }
 
     titleEl.textContent = title;
