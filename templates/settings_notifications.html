@@ -42,6 +42,15 @@
               {% endfor %}
             </select>
           </div>
+          <div class="col-md-5 d-flex align-items-end">
+            <input type="hidden" name="mask_output_enabled" value="0">
+            <div class="form-check form-switch mb-1">
+              <input class="form-check-input" type="checkbox" name="mask_output_enabled" value="1" id="maskOutputEnabled" checked>
+              <label class="form-check-label small text-secondary" for="maskOutputEnabled">
+                Mask sensitive output before dispatch (recommended)
+              </label>
+            </div>
+          </div>
         </div>
 
         <!-- Webhook fields -->
@@ -200,6 +209,10 @@
           {% else %}
           <span class="badge text-bg-secondary">Disabled</span>
           {% endif %}
+          {% set mask_on = (ch.config.get('mask_output_enabled', '1')|string|lower) in ['1', 'true', 'yes', 'on'] %}
+          <span class="badge {{ 'text-bg-info' if mask_on else 'text-bg-warning' }} ms-1">
+            {{ 'Masked' if mask_on else 'Raw' }}
+          </span>
         </td>
         <td>
           <div class="font-monospace small text-secondary text-truncate" style="max-width: 320px;">

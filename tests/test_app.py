@@ -3190,6 +3190,33 @@ class TestUIPages:
         r = await client.get("/ai")
         assert r.status_code == 200
 
+    async def test_ai_page_masks_sensitive_content_and_raw_json(self, client):
+        sensitive_email = "ai-mask-owner@example.com"
+        sensitive_api_key = "sk_live_ai_mask_secret_123"
+
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "ai-mask-svc",
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "prompt": f"Contact {sensitive_email} api_key={sensitive_api_key}",
+                "response": f"Authorization: Bearer {sensitive_api_key}",
+                "tokens_in": 10,
+                "tokens_out": 4,
+                "duration_ms": 120,
+            },
+        )
+        assert r.status_code == 200
+
+        page = await client.get("/ai?service=ai-mask-svc")
+        assert page.status_code == 200
+        body = await page.get_data(as_text=True)
+
+        assert sensitive_email not in body
+        assert sensitive_api_key not in body
+        assert "****" in body
+
     async def test_first_run_tour_modal_present(self, client):
         r = await client.get("/")
         assert r.status_code == 200
@@ -11456,6 +11483,56 @@ class TestAISettingsAndAgentFlows:
         assert calls[0][1]["title"] == "fixture issue"
         assert calls[0][1]["labels"] == ["security"]
 
+    async def test_create_github_issue_record_respects_mask_output_toggle(self, monkeypatch):
+        calls: list[tuple[str, dict]] = []
+
+        class _FakeResponse:
+            def __init__(self, payload: dict):
+                self._payload = payload
+                self.content = b"{}"
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._payload
+
+        class _FakeClient:
+            async def post(self, url, json=None, headers=None, timeout=None):
+                calls.append((str(url), dict(json or {})))
+                return _FakeResponse({"html_url": "https://github.com/acme/demo/issues/11", "number": 11})
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(sobs_app, "_get_async_http_client", _fake_get_client)
+
+        title = "Issue for ops@example.com"
+        body = "password=hunter2"
+        await sobs_app._create_github_issue_record(
+            "ghp-test-token",
+            "acme/demo",
+            title,
+            body,
+            ["security"],
+            mask_output_enabled=False,
+        )
+        assert calls[-1][1]["title"] == title
+        assert calls[-1][1]["body"] == body
+
+        await sobs_app._create_github_issue_record(
+            "ghp-test-token",
+            "acme/demo",
+            title,
+            body,
+            ["security"],
+            mask_output_enabled=True,
+        )
+        assert "ops@example.com" not in calls[-1][1]["title"]
+        assert "hunter2" not in calls[-1][1]["body"]
+        assert "****" in calls[-1][1]["title"]
+        assert "****" in calls[-1][1]["body"]
+
     async def test_assign_issue_to_copilot_uses_supported_issue_assignment_api(self, monkeypatch):
         calls: list[tuple[str, dict]] = []
 
@@ -11712,7 +11789,53 @@ class TestAISettingsAndAgentFlows:
         assert isinstance(extra, dict)
         assert str(extra["initiated_by"]) == "user"
         assert str(extra["source"]) == "errors"
+        assert bool(extra.get("mask_output")) is True
         assert str(trigger["trigger_ref_id"]) == "err-123"
+
+    async def test_raise_user_issue_routes_mask_output_toggle(self, client, monkeypatch):
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://analysis.example.com/v1")
+        _save_ai_setting(db, "ai.model", "analysis-model")
+
+        captured: dict[str, object] = {}
+
+        async def _fake_run_agent_rule_instance(db_arg, rule, settings, trigger_context):
+            captured["trigger_context"] = trigger_context
+            return {
+                "ok": True,
+                "run_id": "run-user-raise-mask-off",
+                "result": {
+                    "status": "completed",
+                    "github_issue_url": "https://github.com/acme/demo/issues/99",
+                    "dedup_decision": "new_issue",
+                },
+            }
+
+        monkeypatch.setattr(sobs_app, "_run_agent_rule_instance", _fake_run_agent_rule_instance)
+        monkeypatch.setattr(
+            sobs_app, "_resolve_agent_github_target", lambda *_args, **_kwargs: ("acme/demo", "ghp-test")
+        )
+
+        r = await client.post(
+            "/api/issues/raise",
+            json={
+                "source_page": "errors",
+                "service": "checkout-api",
+                "err_type": "RuntimeError",
+                "message": "something broke",
+                "error_id": "err-mask-off",
+                "mask_output": False,
+            },
+        )
+        assert r.status_code == 200
+
+        trigger = captured["trigger_context"]
+        assert isinstance(trigger, dict)
+        extra = trigger.get("extra")
+        assert isinstance(extra, dict)
+        assert bool(extra.get("mask_output")) is False
 
     async def test_raise_user_issue_requires_github_target(self, client, monkeypatch):
         from app import _save_ai_setting, get_db
@@ -12560,6 +12683,92 @@ class TestNotifications:
         r2 = await client.get("/settings/notifications")
         text = (await r2.get_data()).decode()
         assert "Test Webhook" in text
+
+    async def test_notification_channel_masking_defaults_to_enabled(self, client):
+        await client.post(
+            "/settings/notifications/channels",
+            form={
+                "name": "Mask Default Channel",
+                "channel_type": "webhook",
+                "webhook_url": "https://example.com/default-mask",
+                "webhook_method": "POST",
+            },
+        )
+        channels = sobs_app._load_notification_channels(sobs_app.get_db())
+        ch = next((c for c in channels if c["name"] == "Mask Default Channel"), None)
+        assert ch is not None
+        assert str(ch["config"].get("mask_output_enabled", "1")) in {"1", "true", "True"}
+
+    async def test_notification_channel_masking_can_be_disabled(self, client):
+        await client.post(
+            "/settings/notifications/channels",
+            form={
+                "name": "Mask Disabled Channel",
+                "channel_type": "webhook",
+                "webhook_url": "https://example.com/raw-mask",
+                "webhook_method": "POST",
+                "mask_output_enabled": "0",
+            },
+        )
+        channels = sobs_app._load_notification_channels(sobs_app.get_db())
+        ch = next((c for c in channels if c["name"] == "Mask Disabled Channel"), None)
+        assert ch is not None
+        assert str(ch["config"].get("mask_output_enabled", "1")) == "0"
+
+    async def test_check_notification_rule_applies_per_channel_masking(self, monkeypatch):
+        db = sobs_app.get_db()
+        rule = {
+            "id": f"mask-rule-{time.time_ns()}",
+            "name": "Mask routing rule",
+            "enabled": True,
+            "logic_operator": "any",
+            "conditions": [
+                {
+                    "source": "logs",
+                    "signal": "error_volume",
+                    "service": "owner@example.com",
+                    "comparator": "gt",
+                    "threshold": 1,
+                    "window_minutes": 5,
+                }
+            ],
+            "channel_ids": ["masked-channel", "raw-channel"],
+            "severity": "warning",
+            "cooldown_seconds": 0,
+        }
+        channels_by_id = {
+            "masked-channel": {
+                "id": "masked-channel",
+                "name": "Masked",
+                "enabled": True,
+                "channel_type": "webhook",
+                "config": {"url": "https://example.com/masked", "mask_output_enabled": "1"},
+            },
+            "raw-channel": {
+                "id": "raw-channel",
+                "name": "Raw",
+                "enabled": True,
+                "channel_type": "webhook",
+                "config": {"url": "https://example.com/raw", "mask_output_enabled": "0"},
+            },
+        }
+
+        monkeypatch.setattr(sobs_app, "_evaluate_signal_condition", lambda _db, _cond: (True, 42.0))
+        seen: dict[str, str] = {}
+
+        async def _fake_dispatch(channel, payload):
+            seen[str(channel.get("id"))] = str(payload.get("summary") or "")
+            return "ok"
+
+        monkeypatch.setattr(sobs_app, "_dispatch_notification_channel", _fake_dispatch)
+
+        result = await sobs_app._check_notification_rule(db, rule, channels_by_id)
+        assert result["fired"] is True
+        assert "masked-channel" in seen
+        assert "raw-channel" in seen
+        assert "owner@example.com" not in seen["masked-channel"]
+        assert "****" in seen["masked-channel"]
+        assert "owner@example.com" in seen["raw-channel"]
 
     async def test_create_slack_channel(self, client):
         r = await client.post(

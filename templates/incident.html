@@ -617,6 +617,7 @@
       try {
         var payload = {
           source_page: 'incident',
+          mask_output: true,
           trace_id: btn.dataset.traceId || '',
           error_id: btn.dataset.errorId || '',
           service: btn.dataset.service || '',
@@ -656,6 +657,7 @@
     try {
       var payload = {
         source_page: 'incident',
+        mask_output: true,
         err_type: btn.dataset.errType || '',
         message: btn.dataset.errMessage || '',
         service: btn.dataset.errService || '',

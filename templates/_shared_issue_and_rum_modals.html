@@ -74,6 +74,13 @@
           </label>
           <div class="form-text">Copilot will be formally assigned to suggest a fix if no active work already exists.</div>
         </div>
+        <div class="form-check mt-2">
+          <input class="form-check-input" type="checkbox" id="raiseIssueMaskOutput" checked>
+          <label class="form-check-label" for="raiseIssueMaskOutput">
+            Mask sensitive content in GitHub issue payload
+          </label>
+          <div class="form-text">Enabled by default. Turn off only when you explicitly need raw values in the issue.</div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>

@@ -325,6 +325,7 @@ document.querySelectorAll('.ai-help-btn').forEach(btn => {
       document.getElementById('raiseIssueType').textContent = btn.dataset.errType || '';
       document.getElementById('raiseIssueMessage').textContent = btn.dataset.errMessage || '';
       document.getElementById('raiseIssueCopilot').checked = false;
+      document.getElementById('raiseIssueMaskOutput').checked = true;
       confirmBtn.innerHTML = '<i class="bi bi-github me-1"></i>Raise Issue';
       confirmBtn.disabled = false;
       modal.show();
@@ -335,6 +336,7 @@ document.querySelectorAll('.ai-help-btn').forEach(btn => {
     if (!activeBtn) return;
     const btn = activeBtn;
     const assignCopilot = document.getElementById('raiseIssueCopilot').checked;
+    const maskOutput = document.getElementById('raiseIssueMaskOutput').checked;
     modal.hide();
 
     const stackEl = document.getElementById('stack-' + btn.dataset.errId);
@@ -342,6 +344,7 @@ document.querySelectorAll('.ai-help-btn').forEach(btn => {
     const payload = {
       source_page: 'errors',
       assign_copilot: assignCopilot,
+      mask_output: maskOutput,
       service: btn.dataset.errService || '',
       err_type: btn.dataset.errType || '',
       message: btn.dataset.errMessage || '',

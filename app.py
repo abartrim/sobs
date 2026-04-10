@@ -4599,9 +4599,18 @@ async def _create_github_issue(
     title: str,
     body_md: str,
     labels: list[str] | None = None,
+    *,
+    mask_output_enabled: bool = True,
 ) -> str:
     """Create a GitHub issue and return the HTML URL."""
-    result = await _create_github_issue_record(github_token, github_repo, title, body_md, labels)
+    result = await _create_github_issue_record(
+        github_token,
+        github_repo,
+        title,
+        body_md,
+        labels,
+        mask_output_enabled=mask_output_enabled,
+    )
     return str(result.get("issue_url", ""))
 
 
@@ -4723,6 +4732,7 @@ async def _choose_github_issue_outcome(
     issue_title: str,
     issue_body: str,
     allow_new_issue: bool,
+    mask_output_enabled: bool = True,
 ) -> dict[str, Any]:
     trigger_fields = _extract_agent_trigger_fields(trigger_context)
     dedup_key = _build_github_work_item_dedup_key(github_repo, trigger_fields)
@@ -4883,6 +4893,7 @@ async def _choose_github_issue_outcome(
             issue_title,
             issue_body,
             ["sobs-agent", "automated"],
+            mask_output_enabled=mask_output_enabled,
         )
 
     creation_error = str(created.get("error") or "")
@@ -5682,6 +5693,8 @@ async def _create_github_issue_record(
     title: str,
     body_md: str,
     labels: list[str] | None = None,
+    *,
+    mask_output_enabled: bool = True,
 ) -> dict[str, Any]:
     if not github_token or not github_repo:
         return {}
@@ -5692,9 +5705,11 @@ async def _create_github_issue_record(
             owner, repo = parts[-2], parts[-1]
     if not owner or not repo:
         return {}
+    issue_title = _masking.mask_string(title) if mask_output_enabled else str(title or "")
+    issue_body = _masking.mask_string(body_md) if mask_output_enabled else str(body_md or "")
     issue_payload: dict[str, Any] = {
-        "title": _masking.mask_string(title),
-        "body": _masking.mask_string(body_md),
+        "title": issue_title,
+        "body": issue_body,
         "labels": labels or ["sobs-agent", "automated"],
     }
     client = await _get_async_http_client()
@@ -5964,6 +5979,14 @@ async def _run_agent_flow(
     dlp_url = settings.get("ai.dlp_endpoint_url", "").strip()
     github_repo, github_token = _resolve_agent_github_target(db, settings, trigger_context)
     actions = set(rule.get("actions", []))
+    mask_output_enabled = True
+    extra_raw = trigger_context.get("extra")
+    if isinstance(extra_raw, dict):
+        mask_output_enabled = _parse_bool(extra_raw.get("mask_output"), True)
+    elif extra_raw:
+        parsed_extra = _safe_json_loads(str(extra_raw or ""), {})
+        if isinstance(parsed_extra, dict):
+            mask_output_enabled = _parse_bool(parsed_extra.get("mask_output"), True)
     try:
         parsed_max = int(settings.get("ai.agent_max_issues_per_hour", "") or _AI_AGENT_MAX_ISSUES_DEFAULT)
         max_issues = max(1, min(20, parsed_max))
@@ -6070,6 +6093,7 @@ async def _run_agent_flow(
             issue_title=issue_title,
             issue_body=issue_body,
             allow_new_issue=allow_new_issue,
+            mask_output_enabled=mask_output_enabled,
         )
         github_issue_url = str(issue_outcome.get("issue_url") or "")
 
@@ -22455,7 +22479,22 @@ def _mask_channel_config(channel_type: str, config: dict) -> dict:
     return masked
 
 
-def _build_notification_payload(rule: dict, fired_conditions: list[dict]) -> dict:
+def _notification_channel_mask_output_enabled(channel: dict[str, Any]) -> bool:
+    config = channel.get("config") if isinstance(channel, dict) else {}
+    if not isinstance(config, dict):
+        return True
+    raw = config.get("mask_output_enabled")
+    if raw is None or str(raw).strip() == "":
+        return True
+    return _is_truthy_setting(str(raw), default=True)
+
+
+def _build_notification_payload(
+    rule: dict,
+    fired_conditions: list[dict],
+    *,
+    mask_output_enabled: bool = True,
+) -> dict:
     """Build a notification payload dict from a triggered rule and its matched conditions."""
     condition_summaries = []
     for cond in fired_conditions:
@@ -22468,11 +22507,13 @@ def _build_notification_payload(rule: dict, fired_conditions: list[dict]) -> dic
             f"{cond.get('threshold', 0)} (value={cond.get('_value', 'n/a')})"
         )
     summary = f"[SOBS] Rule '{rule['name']}' triggered ({rule['severity'].upper()}): " + "; ".join(condition_summaries)
+    if mask_output_enabled:
+        summary = _masking.mask_string(summary)
     return {
         "rule_name": rule["name"],
         "severity": rule["severity"],
         "conditions": fired_conditions,
-        "summary": _masking.mask_string(summary),
+        "summary": summary,
         "fired_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -22847,7 +22888,7 @@ async def _check_notification_rule(db: ChDbConnection, rule: dict, channels_by_i
     if not should_fire:
         return {"rule_id": rule["id"], "fired": False, "reason": "conditions not met"}
 
-    payload = _build_notification_payload(rule, fired_conditions)
+    default_payload = _build_notification_payload(rule, fired_conditions, mask_output_enabled=True)
 
     # Dispatch to each configured channel
     channel_ids = rule.get("channel_ids", [])
@@ -22855,11 +22896,27 @@ async def _check_notification_rule(db: ChDbConnection, rule: dict, channels_by_i
     for ch_id in channel_ids:
         channel = channels_by_id.get(ch_id)
         if not channel:
-            dispatch_results.append({"channel_id": ch_id, "status": "error", "error": "channel not found"})
+            dispatch_results.append(
+                {
+                    "channel_id": ch_id,
+                    "status": "error",
+                    "error": "channel not found",
+                    "summary": default_payload.get("summary", ""),
+                }
+            )
             continue
         if not channel.get("enabled"):
-            dispatch_results.append({"channel_id": ch_id, "status": "skipped", "error": "channel disabled"})
+            dispatch_results.append(
+                {
+                    "channel_id": ch_id,
+                    "status": "skipped",
+                    "error": "channel disabled",
+                    "summary": default_payload.get("summary", ""),
+                }
+            )
             continue
+        mask_output_enabled = _notification_channel_mask_output_enabled(channel)
+        payload = _build_notification_payload(rule, fired_conditions, mask_output_enabled=mask_output_enabled)
         status = await _dispatch_notification_channel(channel, payload)
         dispatch_results.append(
             {
@@ -22867,6 +22924,7 @@ async def _check_notification_rule(db: ChDbConnection, rule: dict, channels_by_i
                 "channel_name": channel.get("name", ""),
                 "status": "ok" if status == "ok" else "error",
                 "error": "" if status == "ok" else status,
+                "summary": payload.get("summary", ""),
             }
         )
 
@@ -22885,7 +22943,7 @@ async def _check_notification_rule(db: ChDbConnection, rule: dict, channels_by_i
                     "FiredAt": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
                     "Status": dr.get("status", "error"),
                     "ErrorMessage": dr.get("error", ""),
-                    "Summary": payload.get("summary", ""),
+                    "Summary": dr.get("summary", default_payload.get("summary", "")),
                 }
             ],
         )
@@ -22926,7 +22984,7 @@ async def _check_notification_rule(db: ChDbConnection, rule: dict, channels_by_i
         "rule_id": rule["id"],
         "rule_name": rule["name"],
         "fired": True,
-        "summary": payload.get("summary", ""),
+        "summary": default_payload.get("summary", ""),
         "dispatch_results": dispatch_results,
     }
 
@@ -23316,6 +23374,10 @@ async def create_notification_channel():
     form = await request.form
     name = (form.get("name") or "").strip()
     channel_type = (form.get("channel_type") or "").strip().lower()
+    mask_output_values = form.getlist("mask_output_enabled")
+    mask_output_enabled = any(_is_truthy_setting(value, default=False) for value in mask_output_values)
+    if not mask_output_values:
+        mask_output_enabled = True
 
     if not name:
         await flash("Channel name is required", "warning")
@@ -23357,6 +23419,8 @@ async def create_notification_channel():
         if not config["endpoint"]:
             await flash("Push endpoint is required", "warning")
             return redirect(url_for("view_notifications"))
+
+    config["mask_output_enabled"] = "1" if mask_output_enabled else "0"
 
     channel_id = str(uuid.uuid4())
     stored_config = _encrypt_notification_config(config)
@@ -23468,7 +23532,11 @@ async def test_notification_channel(channel_id: str):
         "rule_name": "Test",
         "severity": "info",
         "conditions": [],
-        "summary": f"[SOBS] Test notification from channel '{channel['name']}'",
+        "summary": (
+            _masking.mask_string(f"[SOBS] Test notification from channel '{channel['name']}'")
+            if _notification_channel_mask_output_enabled(channel)
+            else f"[SOBS] Test notification from channel '{channel['name']}'"
+        ),
         "fired_at": datetime.now(timezone.utc).isoformat(),
     }
     result = await _dispatch_notification_channel(channel, test_payload)
@@ -25851,6 +25919,7 @@ async def raise_issue_from_user_observation():
     payload = await request.get_json(force=True, silent=True) or {}
     source_page = str(payload.get("source_page") or "errors").strip().lower()
     assign_copilot = _parse_bool(payload.get("assign_copilot"), False)
+    mask_output = _parse_bool(payload.get("mask_output"), True)
 
     db = get_db()
     settings = _load_all_ai_settings(db)
@@ -25866,6 +25935,9 @@ async def raise_issue_from_user_observation():
         )
 
     trigger_context = _build_user_issue_trigger_context(source_page, payload)
+    trigger_extra = trigger_context.get("extra")
+    if isinstance(trigger_extra, dict):
+        trigger_extra["mask_output"] = mask_output
     github_repo, github_token = _resolve_agent_github_target(db, settings, trigger_context)
     if not github_repo or not github_token:
         return (
