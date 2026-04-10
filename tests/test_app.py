@@ -4059,11 +4059,9 @@ class TestCrossLinkNavigation:
             name=name,
             start_time_unix_nano=start_ns,
             end_time_unix_nano=start_ns + 50_000_000,
-            status=Status(code=1),
+            status=Status(code=Status.STATUS_CODE_OK),
         )
-        resource = Resource(
-            attributes=[KeyValue(key="service.name", value=AnyValue(string_value=service))]
-        )
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value=service))])
         return ExportTraceServiceRequest(
             resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])]
         )
@@ -4161,9 +4159,7 @@ class TestCrossLinkNavigation:
         trace_id_hex = trace_id_bytes.hex()
         # Use a time window that does NOT cover the span's timestamp (2024-01-01) to show
         # that trace_detail is still built regardless of the list-filter time window.
-        r = await client.get(
-            f"/traces?trace_id={trace_id_hex}&from_ts=2026-01-01T00:00:00Z&to_ts=2026-01-02T00:00:00Z"
-        )
+        r = await client.get(f"/traces?trace_id={trace_id_hex}&from_ts=2026-01-01T00:00:00Z&to_ts=2026-01-02T00:00:00Z")
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
         # Trace detail section is rendered even though the span list is filtered out.
