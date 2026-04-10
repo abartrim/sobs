@@ -1,0 +1,499 @@
+<style>
+  /* ── Setup Wizard ──────────────────────────────────────────────── */
+  #setupWizardModal .modal-body { min-height: 420px; }
+
+  .wizard-step { display: none; }
+  .wizard-step.active { display: block; }
+
+  .wizard-option-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: .5rem;
+  }
+  .wizard-option-btn {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 10px;
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
+    padding: .6rem .5rem;
+    font-size: .82rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    width: 100%;
+  }
+  .wizard-option-btn:hover { border-color: var(--bs-info); }
+  .wizard-option-btn.selected {
+    border-color: #0dcaf0;
+    background: rgba(13, 202, 240, .1);
+    color: var(--bs-body-color);
+  }
+  .wizard-option-btn i { display: block; font-size: 1.25rem; margin-bottom: .25rem; }
+
+  /* Steps list */
+  .wizard-steps-list { list-style: none; padding: 0; margin: 0; }
+  .wizard-steps-list li {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 8px;
+    padding: .6rem .75rem;
+    margin-bottom: .5rem;
+    background: var(--bs-tertiary-bg);
+    font-size: .82rem;
+  }
+  .wizard-steps-list li .step-title {
+    font-weight: 600;
+    margin-bottom: .2rem;
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+  }
+  .wizard-steps-list li .step-desc { color: var(--bs-secondary-color); margin-bottom: .4rem; }
+
+  /* Code block */
+  .wizard-code-block {
+    background: var(--bs-secondary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 6px;
+    padding: .5rem .65rem;
+    font-family: var(--bs-font-monospace);
+    font-size: .75rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    position: relative;
+    margin: 0;
+  }
+  .wizard-copy-btn {
+    position: absolute;
+    top: .3rem;
+    right: .35rem;
+    padding: .1rem .35rem;
+    font-size: .7rem;
+    opacity: .7;
+    cursor: pointer;
+  }
+  .wizard-copy-btn:hover { opacity: 1; }
+
+  /* Checklist */
+  .wizard-checklist { list-style: none; padding: 0; margin: 0; }
+  .wizard-checklist li {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .35rem 0;
+    font-size: .83rem;
+    border-bottom: 1px solid var(--bs-border-color);
+  }
+  .wizard-checklist li:last-child { border-bottom: 0; }
+  .wizard-checklist .check-icon { font-size: 1rem; }
+  .wizard-checklist .check-icon.done { color: #20c997; }
+  .wizard-checklist .check-icon.pending { color: var(--bs-secondary-color); }
+
+  /* Progress bar */
+  #wizardProgressBar { height: 3px; }
+
+  /* Version badge */
+  .wizard-version-badge {
+    font-size: .68rem;
+    color: var(--bs-secondary-color);
+    margin-left: .4rem;
+    font-weight: 400;
+  }
+
+  .wizard-nav-btn { min-width: 5.5rem; }
+
+  @media (max-width: 575px) {
+    .wizard-option-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+
+<div class="modal fade" id="setupWizardModal" tabindex="-1" aria-labelledby="setupWizardTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content border-secondary">
+      <div class="modal-header pb-1">
+        <h5 class="modal-title" id="setupWizardTitle">
+          <i class="bi bi-tools me-2 text-info"></i>Setup Wizard
+          <span class="wizard-version-badge" id="wizardVersionBadge"></span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <!-- Thin progress bar just below the header -->
+      <div class="progress rounded-0 border-0" style="height:3px">
+        <div id="wizardProgressBar" class="progress-bar bg-info" role="progressbar" style="width:0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+      </div>
+
+      <div class="modal-body pt-3">
+
+        <!-- Step 0 : Choose environment -->
+        <div class="wizard-step active" id="wizardStep0">
+          <h6 class="fw-semibold mb-1">Step 1 of 3 &mdash; Environment</h6>
+          <p class="text-secondary small mb-3">Where will this stack run?</p>
+          <div class="wizard-option-grid" id="envOptions">
+            <button class="wizard-option-btn" data-value="dev">
+              <i class="bi bi-laptop"></i>Development / Staging
+            </button>
+            <button class="wizard-option-btn" data-value="prod">
+              <i class="bi bi-cloud-check"></i>Production
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 1 : Choose language / runtime -->
+        <div class="wizard-step" id="wizardStep1">
+          <h6 class="fw-semibold mb-1">Step 2 of 3 &mdash; Language / Runtime</h6>
+          <p class="text-secondary small mb-3">Which SDK should we generate setup steps for?</p>
+          <div class="wizard-option-grid" id="langOptions">
+            <button class="wizard-option-btn" data-value="python"><i class="bi bi-filetype-py"></i>Python</button>
+            <button class="wizard-option-btn" data-value="node"><i class="bi bi-filetype-js"></i>Node.js</button>
+            <button class="wizard-option-btn" data-value="go"><i class="bi bi-code-slash"></i>Go</button>
+            <button class="wizard-option-btn" data-value="java"><i class="bi bi-cup-hot"></i>Java</button>
+            <button class="wizard-option-btn" data-value="dotnet"><i class="bi bi-microsoft"></i>.NET</button>
+            <button class="wizard-option-btn" data-value="ruby"><i class="bi bi-gem"></i>Ruby</button>
+            <button class="wizard-option-btn" data-value="php"><i class="bi bi-filetype-php"></i>PHP</button>
+          </div>
+        </div>
+
+        <!-- Step 2 : Choose deployment target -->
+        <div class="wizard-step" id="wizardStep2">
+          <h6 class="fw-semibold mb-1">Step 3 of 3 &mdash; Deployment Target</h6>
+          <p class="text-secondary small mb-3">How is your application deployed?</p>
+          <div class="wizard-option-grid" id="deployOptions">
+            <button class="wizard-option-btn" data-value="docker"><i class="bi bi-box-seam"></i>Docker / Compose</button>
+            <button class="wizard-option-btn" data-value="kubernetes"><i class="bi bi-hdd-network"></i>Kubernetes</button>
+            <button class="wizard-option-btn" data-value="baremetal"><i class="bi bi-server"></i>Bare Metal / VM</button>
+            <button class="wizard-option-btn" data-value="cloud"><i class="bi bi-cloud"></i>Managed Cloud</button>
+          </div>
+        </div>
+
+        <!-- Step 3 : Generated setup steps -->
+        <div class="wizard-step" id="wizardStep3">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <h6 class="fw-semibold mb-0">Your Setup Steps</h6>
+            <span class="badge bg-secondary" id="wizardContextBadge"></span>
+          </div>
+          <div id="wizardStepsContainer">
+            <div class="text-secondary text-center py-4">
+              <div class="spinner-border spinner-border-sm text-info me-2" role="status"></div>
+              Generating steps&hellip;
+            </div>
+          </div>
+          <!-- Progress checklist -->
+          <div class="mt-3" id="wizardChecklistPanel">
+            <h6 class="fw-semibold mb-2 small text-uppercase text-secondary">Progress Checklist</h6>
+            <ul class="wizard-checklist" id="wizardChecklist"></ul>
+          </div>
+        </div>
+
+      </div><!-- /modal-body -->
+
+      <div class="modal-footer d-flex justify-content-between align-items-center">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" id="wizardSkipBtn">Skip for now</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary wizard-nav-btn" id="wizardPrevBtn">Back</button>
+          <button type="button" class="btn btn-outline-info wizard-nav-btn" id="wizardNextBtn" disabled>Next</button>
+          <button type="button" class="btn btn-info wizard-nav-btn" id="wizardDoneBtn" style="display:none" data-bs-dismiss="modal">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var wizardSeenKey  = 'sobs.setupWizardSeen.v1';
+  var wizardStateKey = 'sobs.setupWizardState.v1';
+  var totalSteps = 4; // 0..3 (3 = results)
+
+  var modalEl = document.getElementById('setupWizardModal');
+  if (!modalEl || !window.bootstrap) return;
+
+  var modal        = bootstrap.Modal.getOrCreateInstance(modalEl);
+  var prevBtn      = document.getElementById('wizardPrevBtn');
+  var nextBtn      = document.getElementById('wizardNextBtn');
+  var doneBtn      = document.getElementById('wizardDoneBtn');
+  var progressBar  = document.getElementById('wizardProgressBar');
+  var versionBadge = document.getElementById('wizardVersionBadge');
+  var reopenBtn    = document.getElementById('reopenSetupWizardBtn');
+
+  var state = {
+    step: 0,
+    env: '',
+    language: '',
+    deployment: '',
+    done: false,
+  };
+
+  // ── Persistence helpers ──────────────────────────────────────────
+  function safeSet(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+  function safeGet(key) { try { return localStorage.getItem(key) || ''; } catch (e) { return ''; } }
+
+  function persistState() {
+    safeSet(wizardStateKey, JSON.stringify({
+      env: state.env,
+      language: state.language,
+      deployment: state.deployment,
+      done: state.done,
+    }));
+  }
+
+  function loadPersistedState() {
+    var raw = safeGet(wizardStateKey);
+    if (!raw) return;
+    try {
+      var saved = JSON.parse(raw);
+      state.env        = saved.env        || '';
+      state.language   = saved.language   || '';
+      state.deployment = saved.deployment || '';
+      state.done       = !!saved.done;
+    } catch (e) {}
+  }
+
+  function markDone() {
+    state.done = true;
+    persistState();
+    safeSet(wizardSeenKey, '1');
+  }
+
+  // ── Option selection ─────────────────────────────────────────────
+  var fieldMap = { envOptions: 'env', langOptions: 'language', deployOptions: 'deployment' };
+
+  Object.keys(fieldMap).forEach(function (gridId) {
+    var grid = document.getElementById(gridId);
+    if (!grid) return;
+    grid.addEventListener('click', function (e) {
+      var btn = e.target.closest('.wizard-option-btn');
+      if (!btn) return;
+      grid.querySelectorAll('.wizard-option-btn').forEach(function (b) { b.classList.remove('selected'); });
+      btn.classList.add('selected');
+      state[fieldMap[gridId]] = btn.dataset.value;
+      updateNavButtons();
+    });
+  });
+
+  // ── Navigation ───────────────────────────────────────────────────
+  function stepValue() {
+    if (state.step === 0) return state.env;
+    if (state.step === 1) return state.language;
+    if (state.step === 2) return state.deployment;
+    return 'done';
+  }
+
+  function updateNavButtons() {
+    var val = stepValue();
+    nextBtn.disabled = !val;
+    prevBtn.style.display = state.step === 0 ? 'none' : '';
+    nextBtn.style.display  = state.step >= totalSteps - 1 ? 'none' : '';
+    doneBtn.style.display  = state.step >= totalSteps - 1 ? '' : 'none';
+    // Progress bar
+    var pct = Math.round((state.step / (totalSteps - 1)) * 100);
+    progressBar.style.width = pct + '%';
+    progressBar.setAttribute('aria-valuenow', pct);
+  }
+
+  function showStep(idx) {
+    modalEl.querySelectorAll('.wizard-step').forEach(function (s) { s.classList.remove('active'); });
+    var el = document.getElementById('wizardStep' + idx);
+    if (el) el.classList.add('active');
+    state.step = idx;
+    updateNavButtons();
+
+    // Re-apply saved selection highlights
+    restoreSelections();
+
+    if (idx === totalSteps - 1) {
+      loadSteps();
+    }
+  }
+
+  function restoreSelections() {
+    var map = { envOptions: state.env, langOptions: state.language, deployOptions: state.deployment };
+    Object.keys(map).forEach(function (gridId) {
+      var grid = document.getElementById(gridId);
+      if (!grid || !map[gridId]) return;
+      grid.querySelectorAll('.wizard-option-btn').forEach(function (b) {
+        b.classList.toggle('selected', b.dataset.value === map[gridId]);
+      });
+    });
+  }
+
+  prevBtn.addEventListener('click', function () { showStep(state.step - 1); });
+  nextBtn.addEventListener('click', function () { showStep(state.step + 1); });
+
+  if (doneBtn) {
+    doneBtn.addEventListener('click', function () {
+      markDone();
+    });
+  }
+
+  modalEl.addEventListener('hidden.bs.modal', function () {
+    persistState();
+  });
+
+  // ── Load steps from API ──────────────────────────────────────────
+  function loadSteps() {
+    var container    = document.getElementById('wizardStepsContainer');
+    var checklist    = document.getElementById('wizardChecklist');
+    var contextBadge = document.getElementById('wizardContextBadge');
+
+    container.innerHTML = '<div class="text-secondary text-center py-4">'
+      + '<div class="spinner-border spinner-border-sm text-info me-2" role="status"></div>'
+      + 'Generating steps&hellip;</div>';
+    if (checklist) checklist.innerHTML = '';
+
+    if (contextBadge) {
+      contextBadge.textContent = [state.env, state.language, state.deployment]
+        .filter(Boolean).join(' · ');
+    }
+
+    var url = '/api/setup-wizard/steps'
+      + '?env=' + encodeURIComponent(state.env || 'dev')
+      + '&language=' + encodeURIComponent(state.language || 'python')
+      + '&deployment=' + encodeURIComponent(state.deployment || 'docker');
+
+    fetch(url, { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          container.innerHTML = '<div class="alert alert-danger small">' + (data.error || 'Error loading steps.') + '</div>';
+          return;
+        }
+        if (versionBadge) versionBadge.textContent = 'v' + data.version;
+        renderSteps(container, data.steps);
+        if (checklist && data.checklist) renderChecklist(checklist, data.checklist);
+      })
+      .catch(function () {
+        container.innerHTML = '<div class="alert alert-danger small">Failed to load setup steps. Check your connection.</div>';
+      });
+  }
+
+  function renderSteps(container, steps) {
+    if (!steps || steps.length === 0) {
+      container.innerHTML = '<p class="text-secondary small">No steps available for this configuration.</p>';
+      return;
+    }
+    var html = '<ul class="wizard-steps-list">';
+    steps.forEach(function (step, i) {
+      var code = step.commands ? step.commands.join('\n') : '';
+      var escapedCode = code
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      var copyId = 'wizardCode_' + i;
+      html += '<li>'
+        + '<div class="step-title"><i class="bi bi-circle-fill text-info" style="font-size:.55rem"></i>'
+        + escapeHtml(step.title) + '</div>'
+        + '<div class="step-desc">' + escapeHtml(step.description) + '</div>';
+      if (code) {
+        html += '<div class="position-relative">'
+          + '<pre class="wizard-code-block" id="' + copyId + '">' + escapedCode + '</pre>'
+          + '<button class="btn btn-sm btn-outline-secondary wizard-copy-btn" data-copy-target="' + copyId + '" title="Copy">'
+          + '<i class="bi bi-clipboard"></i></button></div>';
+      }
+      html += '</li>';
+    });
+    html += '</ul>';
+    container.innerHTML = html;
+
+    // Bind copy buttons
+    container.querySelectorAll('.wizard-copy-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var target = document.getElementById(btn.dataset.copyTarget);
+        if (!target) return;
+        navigator.clipboard.writeText(target.textContent).then(function () {
+          btn.innerHTML = '<i class="bi bi-clipboard-check"></i>';
+          setTimeout(function () { btn.innerHTML = '<i class="bi bi-clipboard"></i>'; }, 1500);
+        }).catch(function () {});
+      });
+    });
+  }
+
+  function renderChecklist(container, items) {
+    var checks = loadChecklistState();
+    var html = '';
+    items.forEach(function (item) {
+      var done = !!checks[item.id];
+      html += '<li>'
+        + '<i class="bi check-icon ' + (done ? 'bi-check-circle-fill done' : 'bi-circle pending') + '" data-check-id="' + escapeAttr(item.id) + '" style="cursor:pointer" title="Mark complete"></i>'
+        + '<span>' + escapeHtml(item.label) + '</span>'
+        + '</li>';
+    });
+    container.innerHTML = html;
+
+    container.querySelectorAll('.check-icon').forEach(function (icon) {
+      icon.addEventListener('click', function () {
+        var id = icon.dataset.checkId;
+        checks[id] = !checks[id];
+        saveChecklistState(checks);
+        if (checks[id]) {
+          icon.classList.remove('bi-circle', 'pending');
+          icon.classList.add('bi-check-circle-fill', 'done');
+        } else {
+          icon.classList.remove('bi-check-circle-fill', 'done');
+          icon.classList.add('bi-circle', 'pending');
+        }
+      });
+    });
+  }
+
+  function loadChecklistState() {
+    try { return JSON.parse(safeGet('sobs.setupWizardChecks.v1') || '{}'); } catch (e) { return {}; }
+  }
+  function saveChecklistState(obj) { safeSet('sobs.setupWizardChecks.v1', JSON.stringify(obj)); }
+
+  // ── HTML helpers ─────────────────────────────────────────────────
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function escapeAttr(str) { return String(str).replace(/"/g, '&quot;'); }
+
+  // ── Auto-open logic ──────────────────────────────────────────────
+  loadPersistedState();
+  updateNavButtons();
+  restoreSelections();
+
+  var wizardSeen = safeGet(wizardSeenKey) === '1';
+
+  if (reopenBtn) {
+    reopenBtn.addEventListener('click', function () {
+      showStep(0);
+      modal.show();
+    });
+  }
+
+  // Export opener for tour integration
+  window.__sobsOpenSetupWizard = function () {
+    showStep(0);
+    modal.show();
+  };
+
+  // Auto-open for first-time users (after the tour has been seen or skipped)
+  // We delay slightly so the tour modal (if any) can close first.
+  if (!wizardSeen) {
+    var autoOpenWizard = function () {
+      if (!safeGet(wizardSeenKey)) {
+        showStep(0);
+        modal.show();
+      }
+    };
+    // Listen for the tour closing; if no tour, open after a short delay.
+    var tourModal = document.getElementById('firstRunTourModal');
+    if (tourModal) {
+      // Only wait for the tour's hidden.bs.modal event if the tour is actually
+      // going to open for this user. If it has already been seen/shown the event
+      // will never fire, so fall back to a short timeout instead.
+      var tourSeen   = safeGet('sobs.firstRunTourSeen.v1')  === '1';
+      var tourShownF = safeGet('sobs.firstRunTourShown.v1') === '1';
+      if (!tourSeen && !tourShownF) {
+        tourModal.addEventListener('hidden.bs.modal', function onTourClose() {
+          tourModal.removeEventListener('hidden.bs.modal', onTourClose);
+          autoOpenWizard();
+        });
+      } else {
+        setTimeout(autoOpenWizard, 500);
+      }
+    } else {
+      setTimeout(autoOpenWizard, 500);
+    }
+  }
+})();
+</script>

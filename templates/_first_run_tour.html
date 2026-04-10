@@ -139,6 +139,9 @@
           <button type="button" class="btn btn-outline-secondary tour-nav-btn" id="tourPrevBtn">Back</button>
           <button type="button" class="btn btn-outline-info tour-nav-btn" id="tourNextBtn">Next</button>
           <button type="button" class="btn btn-info tour-nav-btn" id="firstRunTourDoneBtn" data-bs-dismiss="modal">Got it</button>
+          <button type="button" class="btn btn-success tour-nav-btn" id="tourOpenWizardBtn" style="display:none" data-bs-dismiss="modal">
+            <i class="bi bi-tools me-1"></i>Setup
+          </button>
         </div>
       </div>
     </div>
@@ -155,6 +158,7 @@
   var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
   var reopenBtn = document.getElementById('reopenWelcomeTourBtn');
   var doneBtn = document.getElementById('firstRunTourDoneBtn');
+  var wizardBtn = document.getElementById('tourOpenWizardBtn');
   var carouselEl = document.getElementById('firstRunTourCarousel');
   var carousel = carouselEl ? bootstrap.Carousel.getOrCreateInstance(carouselEl, { interval: false, ride: false }) : null;
   var prevBtn = document.getElementById('tourPrevBtn');
@@ -181,6 +185,7 @@
     prevBtn.style.display = idx <= 0 ? 'none' : '';
     nextBtn.style.display = idx >= last ? 'none' : '';
     doneBtn.style.display = idx >= last ? '' : 'none';
+    if (wizardBtn) wizardBtn.style.display = idx >= last ? '' : 'none';
   }
 
   if (prevBtn && carousel) {
@@ -202,6 +207,19 @@
     markSeen();
   });
   if (doneBtn) doneBtn.addEventListener('click', markSeen);
+
+  if (wizardBtn) {
+    wizardBtn.addEventListener('click', function () {
+      markSeen();
+      // Open the setup wizard after this modal finishes closing.
+      modalEl.addEventListener('hidden.bs.modal', function openWizard() {
+        modalEl.removeEventListener('hidden.bs.modal', openWizard);
+        if (typeof window.__sobsOpenSetupWizard === 'function') {
+          window.__sobsOpenSetupWizard();
+        }
+      });
+    });
+  }
 
   var seen = safeGet(tourSeenKey) === '1';
   var shown = safeGet(tourShownKey) === '1';

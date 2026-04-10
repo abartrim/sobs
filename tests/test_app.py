@@ -2893,6 +2893,21 @@ class TestUIPages:
         assert b"Auto Make Metric Rules Help" in data
         assert b"Preview First" in data
 
+    async def test_setup_playbooks_help_page(self, client):
+        r = await client.get("/setup/help/playbooks")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Setup Playbooks" in data
+        assert b"Kubernetes Collector Filtering and Routing" in data
+        assert b"Reverse Proxy and Ingress" in data
+
+    async def test_setup_playbooks_sidebar_link_present(self, client):
+        r = await client.get("/")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Setup Playbooks" in data
+        assert b"/setup/help/playbooks" in data
+
     async def test_rum_js_served(self, client):
         r = await client.get("/static/rum.js")
         assert r.status_code == 200
@@ -16892,9 +16907,7 @@ class TestIncidentView:
 
     async def test_incident_page_window_minutes_param(self, client):
         """window_minutes parameter is accepted and displayed in the template."""
-        r = await client.get(
-            "/incident?trace_id=aabbccddeeff001122334455667788dd&window_minutes=60"
-        )
+        r = await client.get("/incident?trace_id=aabbccddeeff001122334455667788dd&window_minutes=60")
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
         assert "Incident View" in body
@@ -16902,9 +16915,7 @@ class TestIncidentView:
 
     async def test_incident_page_window_minutes_clamped(self, client):
         """window_minutes above max (180) is clamped to 180 and the page renders without error."""
-        r = await client.get(
-            "/incident?trace_id=aabbccddeeff001122334455667788ee&window_minutes=9999"
-        )
+        r = await client.get("/incident?trace_id=aabbccddeeff001122334455667788ee&window_minutes=9999")
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
         assert "Incident View" in body
@@ -16971,9 +16982,7 @@ class TestIncidentView:
             attributes=[KeyValue(key="service.name", value=AnyValue(string_value="incident-trace-svc"))]
         )
         msg = ExportTraceServiceRequest(
-            resource_spans=[
-                ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])
-            ]
+            resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])]
         )
         await client.post(
             "/v1/traces",
@@ -16987,3 +16996,181 @@ class TestIncidentView:
         body = await r.get_data(as_text=True)
         assert "Incident View" in body
         assert "view_incident" in body or "/incident" in body
+
+
+class TestSetupWizard:
+    """Tests for the first-time setup wizard feature."""
+
+    # ── UI presence ──────────────────────────────────────────────────────────
+
+    async def test_setup_wizard_modal_present_in_base(self, client):
+        """The setup wizard modal must be rendered on the main page."""
+        r = await client.get("/")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "setupWizardModal" in text
+
+    async def test_setup_wizard_sidebar_button_present(self, client):
+        """Sidebar must contain the Setup Wizard button."""
+        r = await client.get("/")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "reopenSetupWizardBtn" in text
+        assert "Setup Wizard" in text
+
+    async def test_setup_wizard_localstorage_key_present(self, client):
+        """The wizard JS must reference the expected localStorage key."""
+        r = await client.get("/")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "sobs.setupWizardSeen.v1" in text
+        assert "sobs.setupWizardState.v1" in text
+
+    # ── API – valid combinations ──────────────────────────────────────────────
+
+    async def test_api_steps_python_docker_dev(self, client):
+        """Python + Docker + dev returns well-formed step list."""
+        r = await client.get("/api/setup-wizard/steps?env=dev&language=python&deployment=docker")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert data["version"] == "1"
+        assert data["env"] == "dev"
+        assert data["language"] == "python"
+        assert data["deployment"] == "docker"
+        assert isinstance(data["steps"], list)
+        assert len(data["steps"]) > 0
+        # All steps must have required fields
+        for step in data["steps"]:
+            assert "id" in step
+            assert "title" in step
+            assert "description" in step
+            assert "commands" in step
+            assert isinstance(step["commands"], list)
+        assert isinstance(data["checklist"], list)
+
+    async def test_api_steps_node_kubernetes_prod(self, client):
+        """Node.js + Kubernetes + prod returns kubectl apply command."""
+        r = await client.get("/api/setup-wizard/steps?env=prod&language=node&deployment=kubernetes")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        all_cmds = "\n".join("\n".join(s["commands"]) for s in data["steps"])
+        assert "kubectl apply" in all_cmds
+        # prod should include anomaly detection step
+        assert any("anomaly" in s["id"] for s in data["steps"])
+        # prod checklist has anomaly item
+        checklist_ids = [c["id"] for c in data["checklist"]]
+        assert "anomaly" in checklist_ids
+
+    async def test_api_steps_go_baremetal_dev(self, client):
+        r = await client.get("/api/setup-wizard/steps?env=dev&language=go&deployment=baremetal")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        all_cmds = "\n".join("\n".join(s["commands"]) for s in data["steps"])
+        assert "go get" in all_cmds
+
+    async def test_api_steps_java_cloud_prod(self, client):
+        r = await client.get("/api/setup-wizard/steps?env=prod&language=java&deployment=cloud")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        all_cmds = "\n".join("\n".join(s["commands"]) for s in data["steps"])
+        assert "opentelemetry-javaagent" in all_cmds or "opentelemetry-sdk" in all_cmds
+
+    async def test_api_steps_dotnet_docker_dev(self, client):
+        r = await client.get("/api/setup-wizard/steps?env=dev&language=dotnet&deployment=docker")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        all_cmds = "\n".join("\n".join(s["commands"]) for s in data["steps"])
+        assert "dotnet add package" in all_cmds
+
+    async def test_api_steps_ruby_docker_dev(self, client):
+        r = await client.get("/api/setup-wizard/steps?env=dev&language=ruby&deployment=docker")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        all_cmds = "\n".join("\n".join(s["commands"]) for s in data["steps"])
+        assert "opentelemetry-sdk" in all_cmds
+
+    async def test_api_steps_php_docker_dev(self, client):
+        r = await client.get("/api/setup-wizard/steps?env=dev&language=php&deployment=docker")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        all_cmds = "\n".join("\n".join(s["commands"]) for s in data["steps"])
+        assert "composer require" in all_cmds
+
+    # ── API – default parameters ──────────────────────────────────────────────
+
+    async def test_api_steps_defaults(self, client):
+        """Calling the endpoint without any params uses safe defaults."""
+        r = await client.get("/api/setup-wizard/steps")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert data["env"] == "dev"
+        assert data["language"] == "python"
+        assert data["deployment"] == "docker"
+
+    # ── API – validation errors ───────────────────────────────────────────────
+
+    async def test_api_steps_bad_env(self, client):
+        r = await client.get("/api/setup-wizard/steps?env=staging")
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["ok"] is False
+        assert "env" in data["error"]
+
+    async def test_api_steps_bad_language(self, client):
+        r = await client.get("/api/setup-wizard/steps?language=cobol")
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["ok"] is False
+        assert "language" in data["error"]
+
+    async def test_api_steps_bad_deployment(self, client):
+        r = await client.get("/api/setup-wizard/steps?deployment=floppy")
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["ok"] is False
+        assert "deployment" in data["error"]
+
+    # ── Snapshot: step IDs are stable ────────────────────────────────────────
+
+    async def test_api_steps_python_docker_dev_step_ids(self, client):
+        """Step IDs must remain stable across calls (determinism check)."""
+        r = await client.get("/api/setup-wizard/steps?env=dev&language=python&deployment=docker")
+        data = await r.get_json()
+        ids = [s["id"] for s in data["steps"]]
+        assert ids == ["sdk_install", "sdk_init", "collector_run", "collector_docker_run", "sobs_verify"]
+
+    async def test_api_steps_prod_adds_anomaly_step(self, client):
+        """Production env must add sobs_anomaly step and checklist item."""
+        r = await client.get("/api/setup-wizard/steps?env=prod&language=python&deployment=docker")
+        data = await r.get_json()
+        ids = [s["id"] for s in data["steps"]]
+        assert "sobs_anomaly" in ids
+        checklist_ids = [c["id"] for c in data["checklist"]]
+        assert "anomaly" in checklist_ids
+
+    async def test_api_steps_dev_no_anomaly_step(self, client):
+        """Development env must NOT include sobs_anomaly step."""
+        r = await client.get("/api/setup-wizard/steps?env=dev&language=python&deployment=docker")
+        data = await r.get_json()
+        ids = [s["id"] for s in data["steps"]]
+        assert "sobs_anomaly" not in ids
+        checklist_ids = [c["id"] for c in data["checklist"]]
+        assert "anomaly" not in checklist_ids
+
+    # ── Tour integration ──────────────────────────────────────────────────────
+
+    async def test_tour_setup_button_present(self, client):
+        """Tour modal must include the Setup button that opens the wizard."""
+        r = await client.get("/")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "tourOpenWizardBtn" in text
+        assert "__sobsOpenSetupWizard" in text
