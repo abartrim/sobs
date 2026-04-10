@@ -1508,7 +1508,9 @@ class TestErrorsIngest:
         assert "raiseIssueModal" in body  # Bootstrap modal replaces window.confirm
         assert "window.confirm" not in body
 
-    async def test_errors_page_raise_issue_mask_toggle_is_disabled_when_ineffective(self, client):
+    async def test_errors_page_raise_issue_mask_toggle_is_disabled_when_global_masking_enabled(self, client):
+        db = sobs_app.get_db()
+        sobs_app._set_app_setting(db, "masking.output_enabled", "1")
         await client.post(
             "/v1/errors",
             json={
@@ -1525,10 +1527,35 @@ class TestErrorsIngest:
             r'id="raiseIssueMaskOutput"[^>]*\sdisabled(?:\s|>)',
             body,
         )
-        assert (
-            "This toggle is currently disabled because this page only exposes "
-            "masked event details for issue submission." in body
-        )
+        assert "This toggle is disabled while Global Output Masking is enabled." in body
+
+    async def test_errors_page_raise_issue_mask_toggle_is_enabled_when_global_masking_disabled(self, client):
+        db = sobs_app.get_db()
+        previous = sobs_app._get_app_setting(db, "masking.output_enabled")
+        sobs_app._set_app_setting(db, "masking.output_enabled", "0")
+        try:
+            await client.post(
+                "/v1/errors",
+                json={
+                    "service": "raise-toggle-svc-off",
+                    "type": "ToggleTestError",
+                    "message": "toggle enabled regression",
+                },
+            )
+            r = await client.get("/errors?service=raise-toggle-svc-off")
+            assert r.status_code == 200
+            body = await r.get_data(as_text=True)
+            assert 'id="raiseIssueMaskOutput"' in body
+            assert not re.search(
+                r'id="raiseIssueMaskOutput"[^>]*\sdisabled(?:\s|>)',
+                body,
+            )
+            assert "Global output masking is off. Use this to opt in/out of masking for this issue payload." in body
+        finally:
+            if previous is None:
+                sobs_app._del_app_setting(db, "masking.output_enabled")
+            else:
+                sobs_app._set_app_setting(db, "masking.output_enabled", previous)
 
     async def test_ingest_error_stack_is_source_mapped_when_enabled(self, client, monkeypatch):
         monkeypatch.setattr(sobs_app, "SOURCE_MAP_ENABLE", True)

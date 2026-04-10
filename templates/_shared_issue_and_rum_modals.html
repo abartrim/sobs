@@ -81,9 +81,9 @@
             Mask sensitive content in GitHub issue payload
           </label>
           {% if _mask_toggle_effective %}
-          <div class="form-text">Enabled by default. Turn off only when you explicitly need raw values in the issue.</div>
+          <div class="form-text">Global output masking is off. Use this to opt in/out of masking for this issue payload.</div>
           {% else %}
-          <div class="form-text">This toggle is currently disabled because this page only exposes masked event details for issue submission.</div>
+          <div class="form-text">This toggle is disabled while Global Output Masking is enabled.</div>
           {% endif %}
         </div>
       </div>

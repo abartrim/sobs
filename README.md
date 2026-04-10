@@ -1051,6 +1051,16 @@ When enabled (default), masking is applied to template `mask` filter output, mas
 responses, masked JSON display payloads, notification summaries, and GitHub issue payload masking.
 When disabled, masking is bypassed for those output surfaces.
 
+### Per-Issue Masking Toggle (Raise Issue Modal)
+
+On Errors/Traces raise-issue modals, the per-issue `mask_output` checkbox follows this contract:
+
+* **Global masking ON**: checkbox is disabled, and issue payload masking is forced on.
+* **Global masking OFF**: checkbox is enabled, and the posted `mask_output` value controls whether that specific issue payload is masked.
+
+This keeps secure-by-default behavior when global masking is active while still allowing
+explicit per-issue masking control during raw-debug workflows when global masking is off.
+
 ### SQL Output Masking Toggle
 
 SQL text returned by NLQ/chart endpoints can be controlled independently via:

@@ -2882,13 +2882,21 @@ def _kubernetes_enabled() -> bool:
 @app.context_processor
 def inject_feature_flags() -> dict:
     try:
+        # Per-issue masking override is only effective when global masking is OFF.
+        raise_issue_mask_toggle_effective = not _is_output_masking_enabled()
         return {
             "query_enabled": _query_page_enabled(),
             "kubernetes_enabled": _kubernetes_enabled(),
+            "raise_issue_mask_toggle_effective": raise_issue_mask_toggle_effective,
             "sobs_version": BUILD_VERSION or "dev",
         }
     except Exception:
-        return {"query_enabled": False, "kubernetes_enabled": False, "sobs_version": BUILD_VERSION or "dev"}
+        return {
+            "query_enabled": False,
+            "kubernetes_enabled": False,
+            "raise_issue_mask_toggle_effective": False,
+            "sobs_version": BUILD_VERSION or "dev",
+        }
 
 
 # ---------------------------------------------------------------------------
