@@ -3,7 +3,9 @@
     "build:rum:dev": "node scripts/build-rum.js dev",
     "build:rum:prod": "node scripts/build-rum.js prod",
     "build:rum": "node scripts/build-rum.js",
-    "typecheck:rum": "tsc --project tsconfig.rum.json"
+    "typecheck:rum": "tsc --project tsconfig.rum.json",
+    "qa:ui:playwright": "node scripts/playwright-toast-qa.mjs",
+    "qa:screenshots:prune": "node scripts/prune-qa-screenshots.mjs"
   },
   "dependencies": {
     "bootstrap": "^5.3.8",
@@ -11,6 +13,7 @@
     "echarts": "^6.0.0"
   },
   "devDependencies": {
+    "playwright": "^1.53.2",
     "terser": "^5.46.1",
     "typescript": "^6.0.2"
   }

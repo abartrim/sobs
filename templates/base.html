@@ -35,9 +35,9 @@
     .signal-raw-id-inline { font-size: 0.75em; }
     /* ===== Sidebar Base ===== */
     :root { --sb-full: 220px; --sb-compact: 56px; }
-    .sidebar { flex-shrink: 0; width: var(--sb-full); min-height: 100vh; padding: 1rem; background: var(--bs-tertiary-bg); border-right: 1px solid var(--bs-border-color); position: relative; overflow: visible; z-index: 1060; transition: width 0.22s ease; }
+    .sidebar { flex-shrink: 0; width: var(--sb-full); min-height: 100vh; padding: 1rem; background: var(--bs-tertiary-bg); border-right: 1px solid var(--bs-border-color); position: relative; overflow: visible; z-index: 1030; transition: width 0.22s ease; }
     .sidebar .nav-link { color: var(--bs-secondary-color); border-radius: 6px; margin: 1px 4px; padding: .4rem .8rem; display: flex; align-items: center; gap: .5rem; white-space: nowrap; }
-    .sidebar .nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+    .sidebar .nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; flex-wrap: nowrap; }
     .sidebar .nav-link:hover, .sidebar .nav-link.active { background: var(--bs-secondary-bg); color: var(--bs-emphasis-color); }
     .sidebar .nav-link i { width: 1.4rem; flex-shrink: 0; }
     /* Sidebar label (text part) */
@@ -95,10 +95,15 @@
     .sidebar.sidebar-compact .sb-footer small { display: none; }
     /* ===== Sidebar edge toggle button ===== */
     /* Draw border as a right-side half-ring so the menu-side edge stays clean and the icon remains unobstructed. */
-    .sb-toggle-btn { position: absolute; right: -14px; top: 64px; z-index: 1200; width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--bs-tertiary-bg); color: var(--bs-secondary-color); display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: background 0.15s, color 0.15s; }
+    .sb-toggle-btn { position: absolute; right: -14px; top: 64px; z-index: 1031; width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--bs-tertiary-bg); color: var(--bs-secondary-color); display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: background 0.15s, color 0.15s; }
     .sb-toggle-btn::after { content: ''; position: absolute; inset: 0; border: 1px solid var(--bs-border-color); border-radius: 50%; clip-path: inset(0 0 0 50%); pointer-events: none; }
     .sb-toggle-btn > i { position: relative; z-index: 1; }
     .sb-toggle-btn:hover { background: var(--bs-secondary-bg); color: var(--bs-emphasis-color); }
+    /* Keep sidebar/menu controls inert under modal backdrops. */
+    body.modal-open .sidebar,
+    body.modal-open .sb-toggle-btn {
+      pointer-events: none;
+    }
     /* ===== State 3: Hamburger topbar ===== */
     .sb-topbar { display: none; background: var(--bs-tertiary-bg); border-bottom: 1px solid var(--bs-border-color); padding: .5rem 1rem; align-items: center; gap: .75rem; position: sticky; top: 0; z-index: 100; }
     /* Overlay backdrop */
@@ -578,6 +583,8 @@
   </div>
 </div>
 
+<div class="toast-container position-fixed bottom-0 end-0 p-3" id="sobsNotifyToastContainer" style="z-index:1200;"></div>
+
 <script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
 <script src="{{ url_for('static', filename='date-range-picker.js') }}"></script>
 <script src="{{ url_for('static', filename='sobs-timezone.js') }}"></script>
@@ -718,17 +725,30 @@
   var titleEl = document.getElementById('sobsConfirmModalTitle');
   var messageEl = document.getElementById('sobsConfirmModalMessage');
   var okBtn = document.getElementById('sobsConfirmModalOkBtn');
+  var notifyContainerEl = document.getElementById('sobsNotifyToastContainer');
   var modal = (modalEl && window.bootstrap && window.bootstrap.Modal)
     ? window.bootstrap.Modal.getOrCreateInstance(modalEl)
     : null;
-  var pendingResolve = null;
+  var pendingRequest = null;
+  var confirmQueue = [];
+
+  function processNextConfirm() {
+    if (pendingRequest || !confirmQueue.length) return;
+    pendingRequest = confirmQueue.shift();
+    titleEl.textContent = pendingRequest.title;
+    messageEl.textContent = pendingRequest.message;
+    okBtn.textContent = pendingRequest.okLabel;
+    okBtn.className = 'btn ' + pendingRequest.okClass;
+    modal.show();
+  }
 
   function finish(result) {
-    if (pendingResolve) {
-      var resolve = pendingResolve;
-      pendingResolve = null;
-      resolve(!!result);
+    if (pendingRequest) {
+      var request = pendingRequest;
+      pendingRequest = null;
+      request.resolve(!!result);
     }
+    processNextConfirm();
   }
 
   if (modalEl) {
@@ -759,19 +779,76 @@
       return Promise.resolve(nativeConfirm ? nativeConfirm(message) : false);
     }
 
-    titleEl.textContent = title;
-    messageEl.textContent = message;
-    okBtn.textContent = okLabel;
-    okBtn.className = 'btn ' + okClass;
-
     return new Promise(function (resolve) {
-      pendingResolve = resolve;
-      modal.show();
+      confirmQueue.push({
+        title: title,
+        message: message,
+        okLabel: okLabel,
+        okClass: okClass,
+        resolve: resolve
+      });
+      processNextConfirm();
     });
   }
 
   window.SOBS.confirm = showConfirm;
   window.sobsConfirm = showConfirm;
+
+  function normalizeNotifyLevel(level) {
+    var raw = String(level || '').toLowerCase();
+    if (raw === 'error') return 'danger';
+    if (raw === 'warn') return 'warning';
+    if (raw === 'success' || raw === 'info' || raw === 'warning' || raw === 'danger' || raw === 'secondary' || raw === 'primary') {
+      return raw;
+    }
+    return 'info';
+  }
+
+  function showNotify(message, opts) {
+    opts = opts || {};
+    var text = String(message || '').trim();
+    if (!text) return;
+
+    var level = normalizeNotifyLevel(opts.level || opts.type || 'info');
+    var title = String(opts.title || 'Notice');
+    var delay = Number(opts.delayMs || opts.delay || 3800);
+
+    if (!notifyContainerEl || !window.bootstrap || !window.bootstrap.Toast) {
+      var nativeAlert = (typeof globalThis !== 'undefined' && typeof globalThis.alert === 'function')
+        ? globalThis.alert.bind(globalThis)
+        : null;
+      if (nativeAlert) {
+        nativeAlert(text);
+      }
+      return;
+    }
+
+    var toastEl = document.createElement('div');
+    toastEl.className = 'toast border-0 text-bg-' + level;
+    toastEl.setAttribute('role', 'status');
+    toastEl.setAttribute('aria-live', 'polite');
+    toastEl.setAttribute('aria-atomic', 'true');
+    toastEl.innerHTML =
+      '<div class="toast-header">'
+      + '<strong class="me-auto">' + title + '</strong>'
+      + '<small class="text-body-secondary">now</small>'
+      + '<button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>'
+      + '</div>'
+      + '<div class="toast-body">' + text + '</div>';
+
+    notifyContainerEl.appendChild(toastEl);
+    var toast = window.bootstrap.Toast.getOrCreateInstance(toastEl, {
+      autohide: opts.autohide !== false,
+      delay: Number.isFinite(delay) ? delay : 3800
+    });
+    toastEl.addEventListener('hidden.bs.toast', function () {
+      toastEl.remove();
+    });
+    toast.show();
+  }
+
+  window.SOBS.notify = showNotify;
+  window.sobsNotify = showNotify;
 
   document.addEventListener('submit', function (event) {
     var form = event.target;
@@ -783,6 +860,7 @@
       return;
     }
     event.preventDefault();
+    var submitter = event.submitter;
     showConfirm({
       title: form.getAttribute('data-confirm-title') || 'Confirm Action',
       message: msg,
@@ -794,8 +872,19 @@
       }
       form.dataset.confirming = '1';
       if (typeof form.requestSubmit === 'function') {
-        form.requestSubmit();
+        form.requestSubmit(submitter || undefined);
       } else {
+        form.querySelectorAll('input[data-sobs-temp-submitter="1"]').forEach(function (node) {
+          node.remove();
+        });
+        if (submitter && submitter.name) {
+          var hiddenSubmitter = document.createElement('input');
+          hiddenSubmitter.type = 'hidden';
+          hiddenSubmitter.name = submitter.name;
+          hiddenSubmitter.value = submitter.value || '';
+          hiddenSubmitter.setAttribute('data-sobs-temp-submitter', '1');
+          form.appendChild(hiddenSubmitter);
+        }
         form.submit();
       }
     });

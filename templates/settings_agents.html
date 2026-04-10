@@ -327,7 +327,7 @@
       setTimeout(function() { location.reload(); }, 3000);
     })
     .catch(function(err) {
-      alert('Failed to trigger agent run: ' + err);
+      window.SOBS.notify('Failed to trigger agent run: ' + err, { level: 'danger', title: 'Agent Flow' });
     });
   }
 

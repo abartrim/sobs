@@ -242,7 +242,7 @@ document.querySelectorAll('.copy-stack-btn').forEach(btn => {
         btn.classList.replace('btn-secondary', 'btn-outline-secondary');
       }, 1800);
     } catch (e) {
-      alert('Could not copy stack trace: ' + e.message);
+      window.SOBS.notify('Could not copy stack trace: ' + e.message, { level: 'danger', title: 'Clipboard' });
     }
   });
 });
@@ -301,7 +301,7 @@ document.querySelectorAll('.ai-help-btn').forEach(btn => {
         btn.classList.replace('btn-warning', 'btn-outline-warning');
       }, 2000);
     } catch (e) {
-      alert('Could not copy to clipboard: ' + e.message);
+      window.SOBS.notify('Could not copy to clipboard: ' + e.message, { level: 'danger', title: 'Clipboard' });
     }
   });
 });

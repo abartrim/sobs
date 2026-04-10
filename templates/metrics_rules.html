@@ -743,48 +743,52 @@
         okClass: 'btn-danger'
       });
       if (confirmed) {
-        window.location.href = btn.href;
+        var form = btn.closest('form');
+        if (form) {
+          form.submit();
+        }
       }
     });
-    /* ── Bell: create single notification rule for a metric rule ── */
-    document.querySelectorAll('.js-notify-rule').forEach(function (btn) {
-      btn.addEventListener('click', async function () {
-        var ruleId = btn.getAttribute('data-rule-id');
-        var ruleName = btn.getAttribute('data-rule-name') || 'this rule';
-        btn.disabled = true;
-        var origHTML = btn.innerHTML;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-        try {
-          var resp = await fetch({{ url_for('auto_generate_notification_rules') | tojson }}, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'action=create&metric_rule_id=' + encodeURIComponent(ruleId)
-          });
-          var data = await resp.json();
-          if (data.ok) {
-            if (data.created > 0) {
-              btn.innerHTML = '<i class="bi bi-bell-fill"></i>';
-              btn.classList.remove('btn-outline-warning');
-              btn.classList.add('btn-success');
-              btn.title = 'Notification rule created for \u201c' + ruleName + '\u201d';
-            } else {
-              btn.innerHTML = '<i class="bi bi-bell-slash"></i>';
-              btn.classList.remove('btn-outline-warning');
-              btn.classList.add('btn-outline-secondary');
-              btn.title = 'Already covered \u2014 a notification rule for this signal exists';
-              btn.disabled = false;
-            }
+  });
+
+  /* ── Bell: create single notification rule for a metric rule ── */
+  document.querySelectorAll('.js-notify-rule').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var ruleId = btn.getAttribute('data-rule-id');
+      var ruleName = btn.getAttribute('data-rule-name') || 'this rule';
+      btn.disabled = true;
+      var origHTML = btn.innerHTML;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+      try {
+        var resp = await fetch({{ url_for('auto_generate_notification_rules') | tojson }}, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'action=create&metric_rule_id=' + encodeURIComponent(ruleId)
+        });
+        var data = await resp.json();
+        if (data.ok) {
+          if (data.created > 0) {
+            btn.innerHTML = '<i class="bi bi-bell-fill"></i>';
+            btn.classList.remove('btn-outline-warning');
+            btn.classList.add('btn-success');
+            btn.title = 'Notification rule created for \u201c' + ruleName + '\u201d';
           } else {
-            btn.innerHTML = origHTML;
+            btn.innerHTML = '<i class="bi bi-bell-slash"></i>';
+            btn.classList.remove('btn-outline-warning');
+            btn.classList.add('btn-outline-secondary');
+            btn.title = 'Already covered \u2014 a notification rule for this signal exists';
             btn.disabled = false;
-            alert('Error: ' + (data.error || 'unknown error'));
           }
-        } catch (e) {
+        } else {
           btn.innerHTML = origHTML;
           btn.disabled = false;
-          alert('Error: ' + e.message);
+          window.SOBS.notify('Error: ' + (data.error || 'unknown error'), { level: 'danger', title: 'Notification Rule' });
         }
-      });
+      } catch (e) {
+        btn.innerHTML = origHTML;
+        btn.disabled = false;
+        window.SOBS.notify('Error: ' + e.message, { level: 'danger', title: 'Notification Rule' });
+      }
     });
   });
 
