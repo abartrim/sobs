@@ -18985,6 +18985,12 @@ async def table_explorer_help():
     return await render_template("table_explorer_help.html")
 
 
+@app.route("/setup/help/playbooks")
+@require_basic_auth
+async def setup_playbooks_help():
+    return await render_template("setup_playbooks_help.html")
+
+
 @app.route("/dashboards/<dashboard_id>/delete", methods=["POST"])
 @require_basic_auth
 async def delete_dashboard(dashboard_id: str):
@@ -28703,6 +28709,503 @@ async def api_dm_restore():
     settings = _load_dm_settings(db)
     result = _run_dm_restore(db, settings, backup_name)
     return jsonify({"ok": result["ok"] == "true", "message": result["message"]})
+
+
+# ---------------------------------------------------------------------------
+# Setup Wizard API  (first-time instrumentation bootstrap)
+# ---------------------------------------------------------------------------
+
+#: Version stamp embedded in generated setup steps so consumers can detect staleness.
+_SETUP_WIZARD_VERSION = "1"
+
+#: Supported option values (used for validation).
+_WIZARD_ENVS = {"dev", "prod"}
+_WIZARD_LANGUAGES = {"python", "node", "go", "java", "dotnet", "ruby", "php"}
+_WIZARD_DEPLOYMENTS = {"docker", "kubernetes", "baremetal", "cloud"}
+
+
+def _build_setup_wizard_steps(env: str, language: str, deployment: str) -> dict:
+    """Return a deterministic, ordered list of setup steps for the given context.
+
+    Each step has:
+      ``id``          – stable identifier
+      ``title``       – short heading
+      ``description`` – one-sentence context
+      ``commands``    – list of shell/config command strings (copy-pasteable)
+      ``language``    – code-block language hint for UI highlighting
+    """
+    prod = env == "prod"
+
+    # 1. SDK install ----------------------------------------------------------
+    sdk_steps: list[dict] = []
+    if language == "python":
+        pkgs = "opentelemetry-sdk opentelemetry-exporter-otlp opentelemetry-instrumentation"
+        sdk_steps.append(
+            {
+                "id": "sdk_install",
+                "title": "Install OpenTelemetry Python SDK",
+                "description": "Add the core SDK and OTLP exporter to your project.",
+                "commands": [f"pip install {pkgs}"],
+                "language": "bash",
+            }
+        )
+        sdk_steps.append(
+            {
+                "id": "sdk_init",
+                "title": "Initialise SDK in your application",
+                "description": "Bootstrap tracing and metrics at startup.",
+                "commands": [
+                    "from opentelemetry import trace",
+                    "from opentelemetry.sdk.trace import TracerProvider",
+                    "from opentelemetry.sdk.trace.export import BatchSpanProcessor",
+                    "from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter",
+                    "",
+                    "provider = TracerProvider()",
+                    "provider.add_span_processor(",
+                    '    BatchSpanProcessor(OTLPSpanExporter(endpoint="http://localhost:4317", insecure=True))',
+                    ")",
+                    "trace.set_tracer_provider(provider)",
+                ],
+                "language": "python",
+            }
+        )
+    elif language == "node":
+        sdk_steps.append(
+            {
+                "id": "sdk_install",
+                "title": "Install OpenTelemetry Node.js SDK",
+                "description": "Add the SDK and OTLP exporter packages.",
+                "commands": [
+                    "npm install @opentelemetry/sdk-node "
+                    "@opentelemetry/auto-instrumentations-node "
+                    "@opentelemetry/exporter-trace-otlp-grpc"
+                ],
+                "language": "bash",
+            }
+        )
+        sdk_steps.append(
+            {
+                "id": "sdk_init",
+                "title": "Initialise SDK (tracing.js)",
+                "description": "Create tracing.js and require it before your app entry.",
+                "commands": [
+                    "// tracing.js",
+                    "const { NodeSDK } = require('@opentelemetry/sdk-node');",
+                    "const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');",
+                    "const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-grpc');",
+                    "",
+                    "const sdk = new NodeSDK({",
+                    "  traceExporter: new OTLPTraceExporter({ url: 'http://localhost:4317' }),",
+                    "  instrumentations: [getNodeAutoInstrumentations()],",
+                    "});",
+                    "sdk.start();",
+                ],
+                "language": "javascript",
+            }
+        )
+    elif language == "go":
+        sdk_steps.append(
+            {
+                "id": "sdk_install",
+                "title": "Add OpenTelemetry Go dependencies",
+                "description": "Fetch the SDK and OTLP gRPC exporter modules.",
+                "commands": [
+                    "go get go.opentelemetry.io/otel",
+                    "go get go.opentelemetry.io/otel/sdk/trace",
+                    "go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc",
+                ],
+                "language": "bash",
+            }
+        )
+        sdk_steps.append(
+            {
+                "id": "sdk_init",
+                "title": "Initialise tracer provider",
+                "description": "Wire the OTLP exporter into your main function.",
+                "commands": [
+                    "exp, _ := otlptracegrpc.New(ctx, otlptracegrpc.WithInsecure(), "
+                    'otlptracegrpc.WithEndpoint("localhost:4317"))',
+                    "tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exp))",
+                    "otel.SetTracerProvider(tp)",
+                    "defer tp.Shutdown(ctx)",
+                ],
+                "language": "go",
+            }
+        )
+    elif language == "java":
+        sdk_steps.append(
+            {
+                "id": "sdk_install",
+                "title": "Add OpenTelemetry Java dependencies (Maven)",
+                "description": "Add the OTLP exporter and SDK to your pom.xml.",
+                "commands": [
+                    "<dependency>",
+                    "  <groupId>io.opentelemetry</groupId>",
+                    "  <artifactId>opentelemetry-sdk</artifactId>",
+                    "  <version>1.36.0</version>",
+                    "</dependency>",
+                    "<dependency>",
+                    "  <groupId>io.opentelemetry</groupId>",
+                    "  <artifactId>opentelemetry-exporter-otlp</artifactId>",
+                    "  <version>1.36.0</version>",
+                    "</dependency>",
+                ],
+                "language": "xml",
+            }
+        )
+        sdk_steps.append(
+            {
+                "id": "sdk_init",
+                "title": "Alternatively use the Java agent (zero-code)",
+                "description": "Attach the agent JAR to your JVM startup for automatic instrumentation.",
+                "commands": [
+                    "# Download the agent",
+                    "curl -Lo opentelemetry-javaagent.jar "
+                    "https://github.com/open-telemetry/opentelemetry-java-instrumentation/"
+                    "releases/latest/download/opentelemetry-javaagent.jar",
+                    "",
+                    "# Run your app with the agent",
+                    "java -javaagent:opentelemetry-javaagent.jar "
+                    "-Dotel.exporter.otlp.endpoint=http://localhost:4317 "
+                    "-jar your-app.jar",
+                ],
+                "language": "bash",
+            }
+        )
+    elif language == "dotnet":
+        sdk_steps.append(
+            {
+                "id": "sdk_install",
+                "title": "Add OpenTelemetry .NET packages",
+                "description": "Install the SDK and OTLP exporter via NuGet.",
+                "commands": [
+                    "dotnet add package OpenTelemetry",
+                    "dotnet add package OpenTelemetry.Exporter.OpenTelemetryProtocol",
+                    "dotnet add package OpenTelemetry.Extensions.Hosting",
+                    "dotnet add package OpenTelemetry.Instrumentation.AspNetCore",
+                ],
+                "language": "bash",
+            }
+        )
+        sdk_steps.append(
+            {
+                "id": "sdk_init",
+                "title": "Register OpenTelemetry in Program.cs",
+                "description": "Configure tracing with OTLP export in your startup code.",
+                "commands": [
+                    "builder.Services.AddOpenTelemetry()",
+                    "  .WithTracing(b => b",
+                    "    .AddAspNetCoreInstrumentation()",
+                    '    .AddOtlpExporter(o => o.Endpoint = new Uri("http://localhost:4317")));',
+                ],
+                "language": "csharp",
+            }
+        )
+    elif language == "ruby":
+        sdk_steps.append(
+            {
+                "id": "sdk_install",
+                "title": "Add OpenTelemetry Ruby gems",
+                "description": "Add the SDK and OTLP exporter to your Gemfile.",
+                "commands": [
+                    "gem 'opentelemetry-sdk'",
+                    "gem 'opentelemetry-exporter-otlp'",
+                    "gem 'opentelemetry-instrumentation-all'",
+                    "",
+                    "# then run:",
+                    "bundle install",
+                ],
+                "language": "ruby",
+            }
+        )
+        sdk_steps.append(
+            {
+                "id": "sdk_init",
+                "title": "Configure the SDK",
+                "description": "Initialise OTEL before your app boots.",
+                "commands": [
+                    "require 'opentelemetry/sdk'",
+                    "require 'opentelemetry/exporter/otlp'",
+                    "require 'opentelemetry/instrumentation/all'",
+                    "",
+                    "OpenTelemetry::SDK.configure do |c|",
+                    "  c.service_name = 'my-service'",
+                    "  c.use_all",
+                    "end",
+                ],
+                "language": "ruby",
+            }
+        )
+    elif language == "php":
+        sdk_steps.append(
+            {
+                "id": "sdk_install",
+                "title": "Install OpenTelemetry PHP SDK",
+                "description": "Add the SDK and OTLP exporter via Composer.",
+                "commands": [
+                    "composer require open-telemetry/sdk open-telemetry/exporter-otlp",
+                ],
+                "language": "bash",
+            }
+        )
+        sdk_steps.append(
+            {
+                "id": "sdk_init",
+                "title": "Bootstrap the SDK",
+                "description": "Configure a tracer provider before handling requests.",
+                "commands": [
+                    "use OpenTelemetry\\SDK\\Trace\\TracerProviderFactory;",
+                    "use OpenTelemetry\\Contrib\\Otlp\\OtlpHttpTransportFactory;",
+                    "",
+                    "$tracerProvider = (new TracerProviderFactory())->create();",
+                    "\\OpenTelemetry\\API\\Globals::registerInitializer(fn() => $tracerProvider);",
+                ],
+                "language": "php",
+            }
+        )
+
+    # 2. Collector config -----------------------------------------------------
+    sobs_otlp_endpoint = "http://sobs:44317" if prod else "http://localhost:44317"
+
+    if deployment == "docker":
+        collector_steps = [
+            {
+                "id": "collector_run",
+                "title": "Run the OpenTelemetry Collector (Docker)",
+                "description": "Start the contrib collector with a minimal config wired to SOBS.",
+                "commands": [
+                    "# otel-collector-config.yaml",
+                    "receivers:",
+                    "  otlp:",
+                    "    protocols:",
+                    "      grpc:",
+                    "        endpoint: 0.0.0.0:4317",
+                    "      http:",
+                    "        endpoint: 0.0.0.0:4318",
+                    "exporters:",
+                    "  otlphttp:",
+                    f"    endpoint: {sobs_otlp_endpoint}",
+                    "service:",
+                    "  pipelines:",
+                    "    traces:",
+                    "      receivers: [otlp]",
+                    "      exporters: [otlphttp]",
+                    "    metrics:",
+                    "      receivers: [otlp]",
+                    "      exporters: [otlphttp]",
+                    "    logs:",
+                    "      receivers: [otlp]",
+                    "      exporters: [otlphttp]",
+                ],
+                "language": "yaml",
+            },
+            {
+                "id": "collector_docker_run",
+                "title": "Start the collector container",
+                "description": "Mount the config and expose OTLP ports.",
+                "commands": [
+                    "docker run -d --name otel-collector \\",
+                    "  -p 4317:4317 -p 4318:4318 \\",
+                    "  -v $(pwd)/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml \\",
+                    "  otel/opentelemetry-collector-contrib:latest",
+                ],
+                "language": "bash",
+            },
+        ]
+    elif deployment == "kubernetes":
+        collector_steps = [
+            {
+                "id": "collector_k8s",
+                "title": "Deploy the OpenTelemetry Collector on Kubernetes",
+                "description": "Apply a ConfigMap and Deployment that routes to SOBS.",
+                "commands": [
+                    "# otel-collector-k8s.yaml",
+                    "apiVersion: v1",
+                    "kind: ConfigMap",
+                    "metadata:",
+                    "  name: otel-collector-config",
+                    "data:",
+                    "  config.yaml: |",
+                    "    receivers:",
+                    "      otlp:",
+                    "        protocols:",
+                    "          grpc:",
+                    "            endpoint: 0.0.0.0:4317",
+                    "    exporters:",
+                    "      otlphttp:",
+                    f"        endpoint: {sobs_otlp_endpoint}",
+                    "    service:",
+                    "      pipelines:",
+                    "        traces:",
+                    "          receivers: [otlp]",
+                    "          exporters: [otlphttp]",
+                    "        metrics:",
+                    "          receivers: [otlp]",
+                    "          exporters: [otlphttp]",
+                    "        logs:",
+                    "          receivers: [otlp]",
+                    "          exporters: [otlphttp]",
+                    "---",
+                    "apiVersion: apps/v1",
+                    "kind: Deployment",
+                    "metadata:",
+                    "  name: otel-collector",
+                    "spec:",
+                    "  replicas: 1",
+                    "  selector:",
+                    "    matchLabels:",
+                    "      app: otel-collector",
+                    "  template:",
+                    "    metadata:",
+                    "      labels:",
+                    "        app: otel-collector",
+                    "    spec:",
+                    "      containers:",
+                    "      - name: otel-collector",
+                    "        image: otel/opentelemetry-collector-contrib:latest",
+                    "        args: ['--config=/etc/otelcol-contrib/config.yaml']",
+                    "        volumeMounts:",
+                    "        - name: config",
+                    "          mountPath: /etc/otelcol-contrib",
+                    "      volumes:",
+                    "      - name: config",
+                    "        configMap:",
+                    "          name: otel-collector-config",
+                ],
+                "language": "yaml",
+            },
+            {
+                "id": "collector_k8s_apply",
+                "title": "Apply the manifest",
+                "description": "Deploy the collector to your cluster.",
+                "commands": ["kubectl apply -f otel-collector-k8s.yaml"],
+                "language": "bash",
+            },
+        ]
+    elif deployment == "cloud":
+        collector_steps = [
+            {
+                "id": "collector_cloud",
+                "title": "Configure a managed OTLP pipeline",
+                "description": "Point your cloud provider's OTLP endpoint to forward to SOBS.",
+                "commands": [
+                    "# For AWS Distro for OpenTelemetry (ADOT):",
+                    "# Set the exporter endpoint in your ADOT config to:",
+                    f"#   endpoint: {sobs_otlp_endpoint}",
+                    "",
+                    "# For GCP OpenTelemetry Collector:",
+                    "# Override the exporter.endpoint in your otel-config.yaml to:",
+                    f"#   endpoint: {sobs_otlp_endpoint}",
+                ],
+                "language": "yaml",
+            }
+        ]
+    else:  # baremetal
+        collector_steps = [
+            {
+                "id": "collector_binary",
+                "title": "Run the OpenTelemetry Collector (binary)",
+                "description": "Download and run the contrib collector directly.",
+                "commands": [
+                    "# Download (Linux amd64):",
+                    "curl -LO https://github.com/open-telemetry/opentelemetry-collector-releases/"
+                    "releases/latest/download/otelcol-contrib_linux_amd64.tar.gz",
+                    "tar xzf otelcol-contrib_linux_amd64.tar.gz",
+                    "",
+                    "# Write config.yaml (same format as Docker example above)",
+                    "",
+                    "# Start:",
+                    "./otelcol-contrib --config=config.yaml",
+                ],
+                "language": "bash",
+            }
+        ]
+
+    # 3. SOBS wiring ----------------------------------------------------------
+    sobs_steps = [
+        {
+            "id": "sobs_verify",
+            "title": "Verify data arrives in SOBS",
+            "description": "Check the Summary page for incoming telemetry.",
+            "commands": [
+                f"# Open your browser and navigate to {sobs_otlp_endpoint}/",
+                "# The Summary card should show span, log, and metric counts within ~30 s.",
+            ],
+            "language": "bash",
+        }
+    ]
+    if prod:
+        sobs_steps.append(
+            {
+                "id": "sobs_anomaly",
+                "title": "Enable anomaly detection rules",
+                "description": "Head to Settings → Anomaly Rules and add your first threshold rule.",
+                "commands": [
+                    f"# Navigate to: {sobs_otlp_endpoint}/settings/anomaly-rules",
+                    "# Click 'Add Rule' and choose a metric from your stack.",
+                ],
+                "language": "bash",
+            }
+        )
+
+    # 4. Checklist items (used by the UI progress panel) ----------------------
+    checklist = [
+        {"id": "sdk", "label": "Install & initialise the SDK"},
+        {"id": "collector", "label": "Run the OpenTelemetry Collector"},
+        {"id": "verify", "label": "Verify data in SOBS"},
+    ]
+    if prod:
+        checklist.append({"id": "anomaly", "label": "Configure anomaly detection"})
+
+    return {
+        "version": _SETUP_WIZARD_VERSION,
+        "env": env,
+        "language": language,
+        "deployment": deployment,
+        "steps": sdk_steps + collector_steps + sobs_steps,
+        "checklist": checklist,
+    }
+
+
+@app.route("/api/setup-wizard/steps", methods=["GET"])
+@require_basic_auth
+async def api_setup_wizard_steps():
+    """Return tailored OTEL setup steps for the given context.
+
+    Query parameters
+    ----------------
+    env         ``dev`` or ``prod`` (default: ``dev``)
+    language    One of ``python``, ``node``, ``go``, ``java``, ``dotnet``, ``ruby``, ``php``
+                (default: ``python``)
+    deployment  One of ``docker``, ``kubernetes``, ``baremetal``, ``cloud``
+                (default: ``docker``)
+    """
+    env = request.args.get("env", "dev").strip().lower()
+    language = request.args.get("language", "python").strip().lower()
+    deployment = request.args.get("deployment", "docker").strip().lower()
+
+    if env not in _WIZARD_ENVS:
+        return jsonify({"ok": False, "error": f"Invalid env '{env}'. Must be one of: {sorted(_WIZARD_ENVS)}"}), 400
+    if language not in _WIZARD_LANGUAGES:
+        return (
+            jsonify(
+                {"ok": False, "error": f"Invalid language '{language}'. Must be one of: {sorted(_WIZARD_LANGUAGES)}"}
+            ),
+            400,
+        )
+    if deployment not in _WIZARD_DEPLOYMENTS:
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": f"Invalid deployment '{deployment}'. Must be one of: {sorted(_WIZARD_DEPLOYMENTS)}",
+                }
+            ),
+            400,
+        )
+
+    result = _build_setup_wizard_steps(env, language, deployment)
+    return jsonify({"ok": True, **result})
 
 
 if __name__ == "__main__":

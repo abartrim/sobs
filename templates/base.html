@@ -333,8 +333,14 @@
         </a>
       </li>
       <li class="nav-item mt-2">
-        <button id="reopenWelcomeTourBtn" type="button" class="nav-link btn btn-link text-start w-100" title="Quick Tour">
-          <i class="bi bi-stars"></i><span class="sb-label">Quick Tour</span>
+        <button
+          type="button"
+          class="nav-link btn btn-link text-start w-100"
+          title="Getting Started"
+          data-bs-toggle="modal"
+          data-bs-target="#gettingStartedModal"
+        >
+          <i class="bi bi-stars"></i><span class="sb-label">Getting Started</span>
         </button>
       </li>
     </ul>
@@ -377,6 +383,33 @@
       {% endfor %}
     {% endwith %}
     {% block content %}{% endblock %}
+  </div>
+</div>
+
+<div class="modal fade" id="gettingStartedModal" tabindex="-1" aria-labelledby="gettingStartedModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-secondary">
+      <div class="modal-header">
+        <h5 class="modal-title" id="gettingStartedModalTitle"><i class="bi bi-stars me-2 text-info"></i>Getting Started</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body py-2">
+        <div class="list-group list-group-flush">
+          <button id="reopenWelcomeTourBtn" type="button" class="list-group-item list-group-item-action d-flex align-items-center gap-2" data-bs-dismiss="modal">
+            <i class="bi bi-stars"></i><span>Quick Tour</span>
+          </button>
+          <button id="reopenSetupWizardBtn" type="button" class="list-group-item list-group-item-action d-flex align-items-center gap-2" data-bs-dismiss="modal">
+            <i class="bi bi-tools"></i><span>Setup Wizard</span>
+          </button>
+          <a href="{{ url_for('setup_playbooks_help') }}" class="list-group-item list-group-item-action d-flex align-items-center gap-2 {% if request.endpoint == 'setup_playbooks_help' %}active{% endif %}">
+            <i class="bi bi-journal-code"></i><span>Setup Playbooks</span>
+          </a>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -446,6 +479,7 @@
 
 {% if config.get('ENABLE_FIRST_RUN_TOUR', True) and request.endpoint not in ('chart_editor_help', 'metrics_rules_help', 'auto_metrics_rules_help') %}
   {% include "_first_run_tour.html" %}
+  {% include "_setup_wizard.html" %}
 {% endif %}
 <script>
 (function () {
