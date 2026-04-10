@@ -731,6 +731,7 @@
     : null;
   var pendingRequest = null;
   var confirmQueue = [];
+  var skipNextHiddenCancel = false;
 
   function processNextConfirm() {
     if (pendingRequest || !confirmQueue.length) return;
@@ -742,25 +743,36 @@
     modal.show();
   }
 
-  function finish(result) {
+  function finish(result, opts) {
+    opts = opts || {};
     if (pendingRequest) {
       var request = pendingRequest;
       pendingRequest = null;
       request.resolve(!!result);
     }
-    processNextConfirm();
+    if (!opts.deferNext) {
+      processNextConfirm();
+    }
   }
 
   if (modalEl) {
     modalEl.addEventListener('hidden.bs.modal', function () {
+      if (skipNextHiddenCancel) {
+        skipNextHiddenCancel = false;
+        processNextConfirm();
+        return;
+      }
       finish(false);
     });
   }
   if (okBtn) {
     okBtn.addEventListener('click', function () {
-      finish(true);
+      skipNextHiddenCancel = true;
+      finish(true, { deferNext: true });
       if (modal) {
         modal.hide();
+      } else {
+        processNextConfirm();
       }
     });
   }

@@ -26,6 +26,7 @@ const pagesToAudit = [
   '/traces',
   '/incident',
 ];
+let queuedConfirmValidated = false;
 
 function fullUrl(path) {
   return `${baseUrl}${path}`;
@@ -260,6 +261,53 @@ async function checkProgrammaticConfirm(page, result) {
   await openConfirmAndCancel(page, result, 'programmatic');
   await page.waitForFunction(() => window.__qaConfirmResolved === false, undefined, { timeout: 3000 });
   result.checks.push('Programmatic confirm opens and resolves false on cancel');
+}
+
+async function checkQueuedConfirm(page, result) {
+  await page.evaluate(() => {
+    window.__qaConfirmFirstResolved = null;
+    window.__qaConfirmSecondResolved = null;
+
+    window.SOBS.confirm({
+      title: 'QA Queue Confirm 1',
+      message: 'First queued confirm',
+      okLabel: 'Continue',
+      okClass: 'btn-primary',
+    }).then((value) => {
+      window.__qaConfirmFirstResolved = value;
+    });
+
+    window.SOBS.confirm({
+      title: 'QA Queue Confirm 2',
+      message: 'Second queued confirm',
+      okLabel: 'Delete',
+      okClass: 'btn-danger',
+    }).then((value) => {
+      window.__qaConfirmSecondResolved = value;
+    });
+  });
+
+  await waitForConfirmModalFullyVisible(page);
+  await page.waitForFunction(() => {
+    const title = document.getElementById('sobsConfirmModalTitle');
+    return !!title && title.textContent.trim() === 'QA Queue Confirm 1';
+  }, undefined, { timeout: 3000 });
+
+  await page.click('#sobsConfirmModalOkBtn', { timeout: 5000 });
+  await page.waitForFunction(() => window.__qaConfirmFirstResolved === true, undefined, { timeout: 3000 });
+
+  await waitForConfirmModalFullyVisible(page);
+  await page.waitForFunction(() => {
+    const title = document.getElementById('sobsConfirmModalTitle');
+    return !!title && title.textContent.trim() === 'QA Queue Confirm 2';
+  }, undefined, { timeout: 3000 });
+  await page.waitForFunction(() => window.__qaConfirmSecondResolved === null, undefined, { timeout: 3000 });
+
+  await page.click('#sobsConfirmModal .modal-footer [data-bs-dismiss="modal"]', { timeout: 5000 });
+  await page.waitForSelector('#sobsConfirmModal.show', { state: 'hidden', timeout: 5000 });
+  await page.waitForFunction(() => window.__qaConfirmSecondResolved === false, undefined, { timeout: 3000 });
+
+  result.checks.push('Queued confirm regression check passed (first accepts, second remains pending until user action)');
 }
 
 async function checkDeclarativeConfirm(page, result, selector = 'form[data-confirm-message]') {
@@ -1133,6 +1181,10 @@ async function runPageChecks(context, path) {
 
     await dismissBlockingModals(page, result);
     await checkProgrammaticConfirm(page, result);
+    if (!queuedConfirmValidated) {
+      await checkQueuedConfirm(page, result);
+      queuedConfirmValidated = true;
+    }
     await checkSidebarToggleRevert(page, result);
     await runPageSpecificChecks(page, result);
   } catch (err) {
