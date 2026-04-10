@@ -222,6 +222,34 @@ Artifact contract:
 }
 ```
 
+### Screenshot masking guidance (important)
+
+Text masking rules in SOBS can redact replay JSON fields, error messages, stacks, and console crumbs,
+but screenshot bytes are image pixels and require **pre-upload redaction** in your browser/app pipeline.
+
+Recommended approach:
+
+1. Capture screenshot to canvas/blob in your app.
+2. Redact sensitive zones before upload:
+   - blackout known selectors (email/token/password/payment widgets)
+   - blur or mask free-text panels that may contain secrets
+3. Upload only the sanitized image bytes.
+4. Attach only opaque screenshot metadata to OTEL (`artifact.id`, `artifact.url`) and avoid PII in URL/query strings.
+
+The updated [rum/rrweb_replay_example.js](rum/rrweb_replay_example.js) demonstrates both:
+- intentional sensitive test fields for verifying display-layer masking in SOBS
+- a placeholder `createSanitizedScreenshotArtifact(...)` hook where client-side pixel redaction should happen
+
+To reuse server masking rules in the browser before screenshot capture, load the helper first:
+
+```html
+<script src="/examples/rum/sobs_dom_masking_util.js"></script>
+<script src="/examples/rum/rrweb_replay_example.js"></script>
+```
+
+The helper fetches `GET /api/settings/masking/rules`, applies best-effort regex/key masking to DOM text and form values,
+and returns a `restore()` function so your page is reverted after capture.
+
 Use either `SOBS.setVisualContext(...)` directly, or the dedicated helpers:
 
 - `SOBS.setReplayContext(replay, { ttlMs, consumeOnce })`

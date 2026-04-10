@@ -144,7 +144,7 @@
             <tr>
               <td class="text-secondary small">{{ e.ts[:19] }}</td>
               <td><span class="badge bg-secondary">{{ e.service or '—' }}</span></td>
-              <td class="small text-truncate" style="max-width:200px;" title="{{ e.message }}">{{ e.message }}</td>
+              <td class="small text-truncate" style="max-width:200px;" title="{{ e.message|mask }}">{{ e.message|mask }}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -172,7 +172,7 @@
             <tr>
               <td class="text-secondary small">{{ l.ts[:19] }}</td>
               <td><span class="badge badge-level-{{ l.level }}">{{ l.level }}</span></td>
-              <td class="small text-truncate log-body" style="max-width:220px;" title="{{ l.body }}">{{ l.body }}</td>
+              <td class="small text-truncate log-body" style="max-width:220px;" title="{{ l.body|mask }}">{{ l.body|mask }}</td>
             </tr>
             {% endfor %}
           </tbody>

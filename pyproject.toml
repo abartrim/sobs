@@ -17,4 +17,5 @@ asyncio_mode = "auto"
 markers = [
     "integration: mark test as an integration test requiring a live server and Playwright browser",
     "uiqa: mark Python Playwright UI behavioral tests",
+    "allow_console_errors: allow expected browser console/page errors for a test (optionally with patterns=...)",
 ]

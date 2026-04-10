@@ -91,7 +91,7 @@
           {% if err.summary_from_json %}
           <span class="badge bg-info-subtle text-info-emphasis flex-shrink-0" title="Header summary extracted from JSON payload">Parsed JSON</span>
           {% endif %}
-          <span class="error-panel-message-preview small" title="{{ err.message }}">{{ err.message_summary or err.message }}</span>
+          <span class="error-panel-message-preview small" title="{{ err.message|mask }}">{{ (err.message_summary or err.message)|mask }}</span>
           <span class="badge bg-secondary error-panel-service" title="{{ err.service or '—' }}">{{ err.service or '—' }}</span>
           {% if show_span_id_in_header and err.span_id %}
           <span class="font-monospace text-secondary error-panel-span-id" style="font-size:.68rem;" title="Span: {{ err.span_id }}">{{ err.span_id | truncate(8, True, '') }}…</span>
@@ -121,10 +121,10 @@
           {% if err.message_is_json %}
           <details class="small rounded p-2 theme-panel">
             <summary class="mb-2" style="cursor:pointer;">Formatted JSON</summary>
-            <pre class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.message_pretty_json }}</pre>
+            <pre class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.message_pretty_json|mask }}</pre>
           </details>
           {% else %}
-          <div class="small rounded p-2 theme-panel" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.message }}</div>
+          <div class="small rounded p-2 theme-panel" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.message|mask }}</div>
           {% endif %}
         </div>
         {% endif %}
@@ -135,10 +135,10 @@
           {% if err.raw_body_is_json %}
           <details class="small rounded p-2 theme-panel">
             <summary class="mb-2" style="cursor:pointer;">Formatted JSON</summary>
-            <pre class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.raw_body_pretty_json }}</pre>
+            <pre class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.raw_body_pretty_json|mask }}</pre>
           </details>
           {% else %}
-          <div class="small rounded p-2 theme-panel" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.raw_body }}</div>
+          <div class="small rounded p-2 theme-panel" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.raw_body|mask }}</div>
           {% endif %}
         </div>
         {% endif %}
@@ -149,12 +149,12 @@
           {% if err.stack_is_json %}
           <details class="small rounded p-2 theme-panel">
             <summary class="mb-2" style="cursor:pointer;">Formatted JSON</summary>
-            <pre id="{{ stack_prefix }}{{ err.id }}" class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.stack_pretty_json }}</pre>
+            <pre id="{{ stack_prefix }}{{ err.id }}" class="mb-0 font-monospace" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ err.stack_pretty_json|mask }}</pre>
           </details>
           {% else %}
           <details class="small rounded p-2 theme-panel">
             <summary class="mb-2" style="cursor:pointer;">Stack Trace</summary>
-            <pre id="{{ stack_prefix }}{{ err.id }}" class="stack-trace rounded p-2 mb-0">{{ err.stack }}</pre>
+            <pre id="{{ stack_prefix }}{{ err.id }}" class="stack-trace rounded p-2 mb-0">{{ err.stack|mask }}</pre>
           </details>
           {% endif %}
         </div>
@@ -165,13 +165,13 @@
           {% if err.error_source %}
           <div class="col-md-3">
             <div class="text-secondary mb-1">Source</div>
-            <div class="font-monospace">{{ err.error_source }}</div>
+            <div class="font-monospace">{{ err.error_source|mask }}</div>
           </div>
           {% endif %}
           {% if err.page_title %}
           <div class="col-md-3">
             <div class="text-secondary mb-1">Page</div>
-            <div>{{ err.page_title }}</div>
+            <div>{{ err.page_title|mask }}</div>
           </div>
           {% endif %}
           {% if err.viewport %}
@@ -183,7 +183,7 @@
           {% if err.url %}
           <div class="col-md-4">
             <div class="text-secondary mb-1">URL</div>
-            <div class="text-break font-monospace">{{ err.url }}</div>
+            <div class="text-break font-monospace">{{ err.url|mask }}</div>
           </div>
           {% endif %}
         </div>
@@ -216,16 +216,16 @@
           {% if err.artifact_url %}
           <button type="button" class="btn btn-sm btn-outline-primary js-rum-viewer-open"
                   data-rum-view-kind="artifact"
-                  data-rum-view-url="{{ err.artifact_url }}"
-                  data-rum-view-label="{{ err.artifact_type or 'Artifact' }}">
-            <i class="bi bi-image me-1"></i>{{ err.artifact_type or 'Artifact' }}
+              data-rum-view-url="{{ err.artifact_url|mask }}"
+                  data-rum-view-label="{{ (err.artifact_type or 'Artifact')|mask }}">
+            <i class="bi bi-image me-1"></i>{{ (err.artifact_type or 'Artifact')|mask }}
           </button>
           {% endif %}
 
           {% if err.replay_url %}
           <button type="button" class="btn btn-sm btn-outline-warning js-rum-viewer-open"
                   data-rum-view-kind="replay"
-                  data-rum-view-url="{{ err.replay_url }}"
+              data-rum-view-url="{{ err.replay_url|mask }}"
                   data-rum-view-label="Replay">
             <i class="bi bi-play-circle me-1"></i>Replay
           </button>
@@ -250,13 +250,13 @@
 
           <button class="btn btn-sm btn-outline-warning {{ ai_btn_class }}"
                   data-err-type="{{ err.err_type }}"
-                  data-err-message="{{ err.message }}"
-                  data-err-service="{{ err.service or '—' }}"
+              data-err-message="{{ err.message|mask }}"
+              data-err-service="{{ (err.service or '—')|mask }}"
                   data-err-ts="{{ err.ts[:19] }}"
                   data-err-id="{{ err.id }}"
                   data-trace-id="{{ err.trace_id }}"
                   data-span-id="{{ err.span_id }}"
-                  data-err-url="{{ err.url }}"
+              data-err-url="{{ err.url|mask }}"
                   title="Copy error details for AI investigation">
             <i class="bi bi-robot me-1"></i>Copy for AI
           </button>
@@ -264,13 +264,13 @@
           {% if show_raise_issue %}
           <button class="btn btn-sm btn-outline-danger {{ raise_btn_class }}"
                   data-err-type="{{ err.err_type }}"
-                  data-err-message="{{ err.message }}"
-                  data-err-service="{{ err.service or '—' }}"
+              data-err-message="{{ err.message|mask }}"
+              data-err-service="{{ (err.service or '—')|mask }}"
                   data-err-ts="{{ err.ts[:19] }}"
                   data-err-id="{{ err.id }}"
                   data-trace-id="{{ err.trace_id }}"
                   data-span-id="{{ err.span_id }}"
-                  data-err-url="{{ err.url }}"
+              data-err-url="{{ err.url|mask }}"
                   title="Raise or reuse a GitHub issue using agent dedupe checks">
             <i class="bi bi-github me-1"></i>Raise issue
           </button>

@@ -147,13 +147,13 @@
   {% else %}
   <button class="btn btn-sm btn-outline-danger raise-issue-btn"
           data-err-type="{{ err.err_type }}"
-          data-err-message="{{ err.message }}"
-          data-err-service="{{ err.service or '—' }}"
+      data-err-message="{{ err.message|mask }}"
+      data-err-service="{{ (err.service or '—')|mask }}"
           data-err-ts="{{ err.ts[:19] }}"
           data-err-id="{{ err.id }}"
           data-trace-id="{{ err.trace_id }}"
           data-span-id="{{ err.span_id }}"
-          data-err-url="{{ err.url }}"
+      data-err-url="{{ err.url|mask }}"
           title="Raise or reuse a GitHub issue using agent dedupe checks">
     <i class="bi bi-github me-1"></i>Raise issue
   </button>

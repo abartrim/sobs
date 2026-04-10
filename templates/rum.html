@@ -728,7 +728,7 @@
             <tbody>
               {% for m in error_stats.top_messages %}
               <tr>
-                <td class="text-truncate" style="max-width:540px;" title="{{ m.message }}">{{ m.message }}</td>
+                <td class="text-truncate" style="max-width:540px;" title="{{ m.message|mask }}">{{ m.message|mask }}</td>
                 <td class="text-end text-danger fw-semibold">{{ m.count }}</td>
               </tr>
               {% endfor %}
@@ -756,7 +756,7 @@
             <tbody>
               {% for r in error_stats.top_urls %}
               <tr>
-                <td class="text-truncate" style="max-width:540px;" title="{{ r.url }}">{{ r.url }}</td>
+                <td class="text-truncate" style="max-width:540px;" title="{{ r.url|mask }}">{{ r.url|mask }}</td>
                 <td class="text-end text-danger fw-semibold">{{ r.count }}</td>
               </tr>
               {% endfor %}
@@ -940,7 +940,7 @@
             {{ session.last_event_type }}
           </button>
         </td>
-        <td class="small text-truncate" style="max-width:420px;" title="{{ session.last_url }}">{{ session.last_url }}</td>
+        <td class="small text-truncate" style="max-width:420px;" title="{{ session.last_url|mask }}">{{ session.last_url|mask }}</td>
         <td class="text-end">
           <span class="rum-row-action-slot">
             {% if session.trace_id %}
@@ -998,14 +998,14 @@
                       {% if ev.event_type == 'web-vital' %}
                       <span>{{ ev.data.get('name','') }}: <strong>{{ ev.data.get('value', '') }}</strong></span>
                       {% elif ev.event_type in ('error','unhandledrejection') %}
-                      <span class="text-danger">{{ ev.data.get('message','') | truncate(90) }}</span>
+                      <span class="text-danger">{{ ev.data.get('message','') | mask | truncate(90) }}</span>
                       {% elif ev.event_type == 'pageview' %}
-                      <span>{{ ev.data.get('title','') | truncate(80) }}</span>
+                      <span>{{ ev.data.get('title','') | mask | truncate(80) }}</span>
                       {% else %}
-                      <span>{{ ev.data | tojson | truncate(90) }}</span>
+                      <span>{{ ev.data | mask | tojson | truncate(90) }}</span>
                       {% endif %}
                     </div>
-                    <div class="small text-secondary text-truncate mt-1 rum-session-timeline-url" title="{{ ev.url }}">{{ ev.url }}</div>
+                    <div class="small text-secondary text-truncate mt-1 rum-session-timeline-url" title="{{ ev.url|mask }}">{{ ev.url|mask }}</div>
                   </div>
                   <span class="rum-row-action-slot">
                     {% if ev.trace_id %}
@@ -1058,19 +1058,19 @@
                     <div class="rum-filter-actions">
                       <div>
                         <div class="text-secondary mb-1">Error Type</div>
-                        <div class="font-monospace">{{ ev.data.get('errorType', '—') }}</div>
+                        <div class="font-monospace">{{ ev.data.get('errorType', '—')|mask }}</div>
                       </div>
                       <div>
                         <div class="text-secondary mb-1">Source</div>
-                        <div class="font-monospace">{{ ev.data.get('errorSource', '—') }}</div>
+                        <div class="font-monospace">{{ ev.data.get('errorSource', '—')|mask }}</div>
                       </div>
                       <div>
                         <div class="text-secondary mb-1">Location</div>
-                        <div class="font-monospace">{{ ev.data.get('filename', '') }}{% if ev.data.get('lineno') %}:{{ ev.data.get('lineno') }}{% endif %}{% if ev.data.get('colno') %}:{{ ev.data.get('colno') }}{% endif %}</div>
+                        <div class="font-monospace">{{ ev.data.get('filename', '')|mask }}{% if ev.data.get('lineno') %}:{{ ev.data.get('lineno') }}{% endif %}{% if ev.data.get('colno') %}:{{ ev.data.get('colno') }}{% endif %}</div>
                       </div>
                       <div>
                         <div class="text-secondary mb-1">Page</div>
-                        <div>{{ page.get('title', '—') }}</div>
+                        <div>{{ page.get('title', '—')|mask }}</div>
                       </div>
                       <div>
                         <div class="text-secondary mb-1">Viewport</div>
@@ -1107,16 +1107,16 @@
                         {% if artifact.get('url') %}
                         <button type="button" class="btn btn-sm btn-outline-primary js-rum-viewer-open"
                                 data-rum-view-kind="artifact"
-                                data-rum-view-url="{{ artifact.get('url') }}"
-                                data-rum-view-label="{{ artifact.get('type', 'artifact') | title }}{% if artifact.get('id') %} {{ artifact.get('id') }}{% endif %}">
+                          data-rum-view-url="{{ artifact.get('url')|mask }}"
+                          data-rum-view-label="{{ (artifact.get('type', 'artifact') | title)|mask }}{% if artifact.get('id') %} {{ artifact.get('id')|mask }}{% endif %}">
                           <i class="bi bi-image me-1"></i>View {{ artifact.get('type', 'artifact') | title }}
                         </button>
                         {% endif %}
                         {% if replay.get('url') %}
                         <button type="button" class="btn btn-sm btn-outline-warning js-rum-viewer-open"
                                 data-rum-view-kind="replay"
-                                data-rum-view-url="{{ replay.get('url') }}"
-                                data-rum-view-label="Replay{% if replay.get('id') %} {{ replay.get('id') }}{% endif %}">
+                          data-rum-view-url="{{ replay.get('url')|mask }}"
+                          data-rum-view-label="Replay{% if replay.get('id') %} {{ replay.get('id')|mask }}{% endif %}">
                           <i class="bi bi-play-circle me-1"></i>View Replay
                         </button>
                         {% endif %}
@@ -1129,7 +1129,7 @@
                       <div class="text-secondary mb-1">Stack Trace</div>
                       <details>
                         <summary class="small text-secondary">Stack</summary>
-                        <pre class="rum-detail-pre rounded p-2 mt-1 mb-0">{{ ev.data.get('stack') }}</pre>
+                        <pre class="rum-detail-pre rounded p-2 mt-1 mb-0">{{ ev.data.get('stack')|mask }}</pre>
                       </details>
                     </div>
                     {% endif %}
@@ -1152,13 +1152,13 @@
                               <td class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
                               <td><span class="badge {% if entry.get('level') == 'error' %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ entry.get('level', '') }}</span></td>
                               <td class="text-break">
-                                <div>{{ entry.get('message', '') }}</div>
-                                {% if entry.get('errorType') %}<div class="small text-secondary font-monospace mt-1">Type: {{ entry.get('errorType') }}</div>{% endif %}
-                                {% if entry.get('source') %}<div class="small text-secondary font-monospace">Source: {{ entry.get('source') }}</div>{% endif %}
+                                <div>{{ entry.get('message', '')|mask }}</div>
+                                {% if entry.get('errorType') %}<div class="small text-secondary font-monospace mt-1">Type: {{ entry.get('errorType')|mask }}</div>{% endif %}
+                                {% if entry.get('source') %}<div class="small text-secondary font-monospace">Source: {{ entry.get('source')|mask }}</div>{% endif %}
                                 {% if entry.get('stack') %}
                                 <details class="mt-1">
                                   <summary class="small text-secondary">Stack</summary>
-                                  <pre class="rum-detail-pre rounded p-2 mt-1 mb-0">{{ entry.get('stack') }}</pre>
+                                  <pre class="rum-detail-pre rounded p-2 mt-1 mb-0">{{ entry.get('stack')|mask }}</pre>
                                 </details>
                                 {% endif %}
                               </td>
@@ -1188,8 +1188,8 @@
                             <tr>
                               <td class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
                               <td class="font-monospace">{{ entry.get('category', '') }}</td>
-                              <td>{{ entry.get('message', '') }}</td>
-                              <td class="text-break font-monospace">{{ entry.get('data', {}) | tojson }}</td>
+                              <td>{{ entry.get('message', '')|mask }}</td>
+                              <td class="text-break font-monospace">{{ entry.get('data', {}) | mask | tojson }}</td>
                             </tr>
                             {% endfor %}
                           </tbody>
@@ -1243,7 +1243,7 @@
             {{ ev.event_type }}
           </span>
         </td>
-        <td class="small text-truncate" style="max-width:250px;" title="{{ ev.url }}">{{ ev.url }}</td>
+        <td class="small text-truncate" style="max-width:250px;" title="{{ ev.url|mask }}">{{ ev.url|mask }}</td>
         <td class="small text-secondary">
           {% if ev.event_type == 'web-vital' %}
             <div class="d-flex align-items-center justify-content-between gap-2">
@@ -1272,7 +1272,7 @@
             </div>
           {% elif ev.event_type in ('error','unhandledrejection') %}
             <div class="d-flex align-items-center justify-content-between gap-2">
-              <span class="text-danger text-truncate d-inline-block" style="max-width:180px;" title="{{ ev.data.get('message','') }}">{{ ev.data.get('message','') | truncate(60) }}</span>
+              <span class="text-danger text-truncate d-inline-block" style="max-width:180px;" title="{{ ev.data.get('message','')|mask }}">{{ ev.data.get('message','') | mask | truncate(60) }}</span>
               <span class="rum-row-action-slot">
                 {% if trace_id %}
                 <a href="{{ url_for('view_logs', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}"
@@ -1306,7 +1306,7 @@
             </div>
           {% elif ev.event_type == 'pageview' %}
             <div class="d-flex align-items-center justify-content-between gap-2">
-              <span class="text-truncate d-inline-block" style="max-width:220px;">{{ ev.data.get('title','') | truncate(40) }}</span>
+              <span class="text-truncate d-inline-block" style="max-width:220px;">{{ ev.data.get('title','') | mask | truncate(40) }}</span>
               <span class="rum-row-action-slot">
                 {% if trace_id %}
                 <a href="{{ url_for('view_logs', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}"
@@ -1339,23 +1339,23 @@
             <div class="rum-detail-list mb-3">
               <div>
                 <div class="text-secondary mb-1">Message</div>
-                <div class="fw-semibold text-danger">{{ ev.data.get('message', '—') }}</div>
+                <div class="fw-semibold text-danger">{{ ev.data.get('message', '—')|mask }}</div>
               </div>
               <div>
                 <div class="text-secondary mb-1">Error Type</div>
-                <div class="font-monospace">{{ ev.data.get('errorType', '—') }}</div>
+                <div class="font-monospace">{{ ev.data.get('errorType', '—')|mask }}</div>
               </div>
               <div>
                 <div class="text-secondary mb-1">Source</div>
-                <div class="font-monospace">{{ ev.data.get('errorSource', '—') }}</div>
+                <div class="font-monospace">{{ ev.data.get('errorSource', '—')|mask }}</div>
               </div>
               <div>
                 <div class="text-secondary mb-1">Location</div>
-                <div class="font-monospace">{{ ev.data.get('filename', '') }}{% if ev.data.get('lineno') %}:{{ ev.data.get('lineno') }}{% endif %}{% if ev.data.get('colno') %}:{{ ev.data.get('colno') }}{% endif %}</div>
+                <div class="font-monospace">{{ ev.data.get('filename', '')|mask }}{% if ev.data.get('lineno') %}:{{ ev.data.get('lineno') }}{% endif %}{% if ev.data.get('colno') %}:{{ ev.data.get('colno') }}{% endif %}</div>
               </div>
               <div>
                 <div class="text-secondary mb-1">Page</div>
-                <div>{{ page.get('title', '—') }}</div>
+                <div>{{ page.get('title', '—')|mask }}</div>
               </div>
               <div>
                 <div class="text-secondary mb-1">Viewport</div>
@@ -1383,22 +1383,22 @@
                 {% if artifact.get('url') %}
                 <button type="button" class="btn btn-sm btn-outline-primary js-rum-viewer-open"
                         data-rum-view-kind="artifact"
-                        data-rum-view-url="{{ artifact.get('url') }}"
-                        data-rum-view-label="{{ artifact.get('type', 'artifact') | title }}{% if artifact.get('id') %} {{ artifact.get('id') }}{% endif %}">
+                        data-rum-view-url="{{ artifact.get('url')|mask }}"
+                        data-rum-view-label="{{ (artifact.get('type', 'artifact') | title)|mask }}{% if artifact.get('id') %} {{ artifact.get('id')|mask }}{% endif %}">
                   <i class="bi bi-image me-1"></i>View {{ artifact.get('type', 'artifact') | title }}
                 </button>
-                <a href="{{ artifact.get('url') }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
+                <a href="{{ artifact.get('url')|mask }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
                   <i class="bi bi-box-arrow-up-right me-1"></i>Open Raw
                 </a>
                 {% endif %}
                 {% if replay.get('url') %}
                 <button type="button" class="btn btn-sm btn-outline-warning js-rum-viewer-open"
                         data-rum-view-kind="replay"
-                        data-rum-view-url="{{ replay.get('url') }}"
-                        data-rum-view-label="Replay{% if replay.get('id') %} {{ replay.get('id') }}{% endif %}">
+                        data-rum-view-url="{{ replay.get('url')|mask }}"
+                        data-rum-view-label="Replay{% if replay.get('id') %} {{ replay.get('id')|mask }}{% endif %}">
                   <i class="bi bi-play-circle me-1"></i>View Replay
                 </button>
-                <a href="{{ replay.get('url') }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
+                <a href="{{ replay.get('url')|mask }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
                   <i class="bi bi-box-arrow-up-right me-1"></i>Open Raw
                 </a>
                 {% endif %}
@@ -1411,7 +1411,7 @@
               <div class="text-secondary mb-1">Stack Trace</div>
               <details>
                 <summary class="small text-secondary">Stack</summary>
-                <pre class="rum-detail-pre rounded p-2 mt-1 mb-0">{{ ev.data.get('stack') }}</pre>
+                <pre class="rum-detail-pre rounded p-2 mt-1 mb-0">{{ ev.data.get('stack')|mask }}</pre>
               </details>
             </div>
             {% endif %}
@@ -1434,17 +1434,17 @@
                       <td class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
                       <td><span class="badge {% if entry.get('level') == 'error' %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ entry.get('level', '') }}</span></td>
                       <td class="text-break">
-                        <div>{{ entry.get('message', '') }}</div>
+                        <div>{{ entry.get('message', '')|mask }}</div>
                         {% if entry.get('errorType') %}
-                        <div class="small text-secondary font-monospace mt-1">Type: {{ entry.get('errorType') }}</div>
+                        <div class="small text-secondary font-monospace mt-1">Type: {{ entry.get('errorType')|mask }}</div>
                         {% endif %}
                         {% if entry.get('source') %}
-                        <div class="small text-secondary font-monospace">Source: {{ entry.get('source') }}</div>
+                        <div class="small text-secondary font-monospace">Source: {{ entry.get('source')|mask }}</div>
                         {% endif %}
                         {% if entry.get('stack') %}
                         <details class="mt-1">
                           <summary class="small text-secondary">Stack</summary>
-                          <pre class="rum-detail-pre rounded p-2 mt-1 mb-0">{{ entry.get('stack') }}</pre>
+                          <pre class="rum-detail-pre rounded p-2 mt-1 mb-0">{{ entry.get('stack')|mask }}</pre>
                         </details>
                         {% endif %}
                       </td>
@@ -1474,8 +1474,8 @@
                     <tr>
                       <td class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
                       <td class="font-monospace">{{ entry.get('category', '') }}</td>
-                      <td>{{ entry.get('message', '') }}</td>
-                      <td class="text-break font-monospace">{{ entry.get('data', {}) | tojson }}</td>
+                      <td>{{ entry.get('message', '')|mask }}</td>
+                      <td class="text-break font-monospace">{{ entry.get('data', {}) | mask | tojson }}</td>
                     </tr>
                     {% endfor %}
                   </tbody>
@@ -2044,6 +2044,7 @@ _sobsInitRegexFilter({
     const replayJson = document.getElementById('rumAssetViewerReplayJson');
     let replayRawText = '';
     let replayRawParsed = null;
+    let replayMaskedText = '';
 
     if (!hasBootstrapModal) {
       modalEl.querySelectorAll('[data-bs-dismiss="modal"], .btn-close').forEach((btn) => {
@@ -2070,6 +2071,7 @@ _sobsInitRegexFilter({
       if (replayRaw) replayRaw.open = false;
       replayRawText = '';
       replayRawParsed = null;
+      replayMaskedText = '';
       replayJson.textContent = '';
     }
 
@@ -2182,15 +2184,33 @@ _sobsInitRegexFilter({
     }
   }
 
+  async function getMaskedReplayText() {
+    if (replayMaskedText) return replayMaskedText;
+    var previewValue = replayRawParsed || replayRawText || '';
+    try {
+      const resp = await fetch({{ url_for('api_masking_preview') | tojson }}, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: previewValue })
+      });
+      const data = await resp.json();
+      if (resp.ok && data && data.ok) {
+        replayMaskedText = typeof data.masked === 'string' ? data.masked : JSON.stringify(data.masked, null, 2);
+        return replayMaskedText;
+      }
+    } catch (_err) {
+      // Fall back to local rendering if preview masking fails.
+    }
+    replayMaskedText = replayRawParsed ? JSON.stringify(replayRawParsed, null, 2) : (replayRawText || '');
+    return replayMaskedText;
+  }
+
   if (replayRaw) {
-    replayRaw.addEventListener('toggle', function () {
+    replayRaw.addEventListener('toggle', async function () {
       if (!replayRaw.open) return;
       if (replayJson.textContent) return;
-      if (replayRawParsed) {
-        replayJson.textContent = JSON.stringify(replayRawParsed, null, 2);
-        return;
-      }
-      replayJson.textContent = replayRawText || '';
+      replayJson.textContent = await getMaskedReplayText();
     });
   }
 

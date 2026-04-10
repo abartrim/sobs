@@ -33,7 +33,22 @@ from playwright.sync_api import Page, expect
 # ---------------------------------------------------------------------------
 # Screenshots output directory
 # ---------------------------------------------------------------------------
-SCREENSHOTS_DIR = os.path.join(os.path.dirname(__file__), "screenshots")
+_SCREENSHOTS_BASE_DIR = os.path.join(os.path.dirname(__file__), "screenshots")
+
+
+def _env_truthy(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+_SCREENSHOTS_KEEP_ARTIFACTS = _env_truthy("SOBS_SCREENSHOT_KEEP_ARTIFACTS", default=False)
+_SCREENSHOTS_CLEAN = _env_truthy("SOBS_SCREENSHOT_CLEAN", default=not _SCREENSHOTS_KEEP_ARTIFACTS)
+_SCREENSHOTS_RUN_DIR = time.strftime("run-%Y%m%d-%H%M%S")
+SCREENSHOTS_DIR = (
+    os.path.join(_SCREENSHOTS_BASE_DIR, _SCREENSHOTS_RUN_DIR) if _SCREENSHOTS_KEEP_ARTIFACTS else _SCREENSHOTS_BASE_DIR
+)
 
 # ---------------------------------------------------------------------------
 # Live-server configuration
@@ -57,7 +72,7 @@ if "SOBS_DATA_DIR" not in os.environ:
 @pytest.fixture(scope="session", autouse=True)
 def live_server():
     """Start a live SOBS server in a subprocess for the session."""
-    os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+    _prepare_screenshots_dir()
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     data_dir = tempfile.mkdtemp(prefix="sobs-integration-")
 
@@ -130,6 +145,37 @@ def _seed_telemetry_data(live_server: str, total: int, workers: int) -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+
+def _prepare_screenshots_dir() -> None:
+    os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+    if not _SCREENSHOTS_CLEAN:
+        return
+    for name in os.listdir(SCREENSHOTS_DIR):
+        if name.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+            with contextlib.suppress(Exception):
+                os.remove(os.path.join(SCREENSHOTS_DIR, name))
+
+
+def _wait_for_any_text(
+    live_server: str,
+    path: str,
+    expected: list[str],
+    timeout_s: float = 10.0,
+    interval_s: float = 0.25,
+) -> str:
+    """Poll a page until any expected text appears (for eventual ingestion)."""
+    deadline = time.time() + timeout_s
+    last_text = ""
+    while time.time() < deadline:
+        r = requests.get(f"{live_server}{path}", timeout=5)
+        assert r.status_code == 200
+        last_text = r.text
+        if any(token in last_text for token in expected):
+            return last_text
+        time.sleep(interval_s)
+
+    pytest.fail(f"Timed out waiting for any of {expected!r} on {path}. " f"Last response length={len(last_text)}")
 
 
 def _otlp_log_payload(message: str, service: str, level: str = "INFO") -> dict:
@@ -734,6 +780,61 @@ class TestScreenshots:
         os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
         page.screenshot(path=os.path.join(SCREENSHOTS_DIR, filename), full_page=False)
 
+    def _seed_masking_rum_error(self, live_server: str, marker: str) -> dict[str, str]:
+        sensitive_email = f"owner+{marker}@example.com"
+        sensitive_api_key = f"sk_live_{marker}_secret"
+        sensitive_auth = f"Authorization: Bearer token-{marker}"
+        sensitive_password = f"secret-{marker}"
+        service = f"masking-playwright-{marker}"
+        marker_token = f"mask-marker-{marker}"
+
+        payload = [
+            {
+                "type": "error",
+                "service": service,
+                "timestamp": "2026-04-10T00:00:00Z",
+                "sessionId": f"sess-{marker}",
+                "traceId": f"trace-{marker}",
+                "spanId": "0123456789abcdef",
+                "url": f"https://example.com/app?email={sensitive_email}",
+                "message": (
+                    f"Mask check {marker_token} service={service} {sensitive_auth} "
+                    f"api_key={sensitive_api_key} password={sensitive_password}"
+                ),
+                "errorType": "TypeError",
+                "errorSource": "window.onerror",
+                "stack": f"TypeError: Mask check for {sensitive_email}",
+                "artifact": {
+                    "type": "screenshot",
+                    "id": f"shot-{marker}",
+                    "url": (
+                        f"https://example.com/artifacts/shot-{marker}.png"
+                        f"?owner={sensitive_email}&api_key={sensitive_api_key}"
+                    ),
+                },
+                "replay": {
+                    "id": f"replay-{marker}",
+                    "url": (
+                        f"https://example.com/replays/replay-{marker}.json"
+                        f"?authorization={sensitive_auth}&email={sensitive_email}"
+                    ),
+                },
+            }
+        ]
+        r = requests.post(f"{live_server}/v1/rum", json=payload, timeout=10)
+        assert r.status_code == 200
+        _wait_for_any_text(live_server, f"/errors?service={service}", [marker_token])
+        return {
+            "service": service,
+            "marker_token": marker_token,
+            "replay_id": f"replay-{marker}",
+            "artifact_id": f"shot-{marker}",
+            "email": sensitive_email,
+            "api_key": sensitive_api_key,
+            "auth": sensitive_auth,
+            "password": sensitive_password,
+        }
+
     def test_screenshot_summary(self, page: Page, live_server):
         self._screenshot(page, "summary.png", f"{live_server}/")
         expect(page.get_by_role("heading", name="Summary")).to_be_visible()
@@ -775,6 +876,56 @@ class TestScreenshots:
     def test_screenshot_query(self, page: Page, live_server):
         self._screenshot(page, "query.png", f"{live_server}/query")
         expect(page.get_by_role("heading", name="Natural-Language Query")).to_be_visible()
+
+    def test_screenshot_errors_masking_replay_artifacts(self, page: Page, live_server):
+        marker = str(int(time.time() * 1000))
+        seeded = self._seed_masking_rum_error(live_server, marker)
+
+        page.add_init_script("""
+            try {
+                localStorage.setItem('sobs-theme', 'dark');
+                localStorage.setItem('sobs.firstRunTourSeen.v1', '1');
+                localStorage.setItem('sobs.firstRunTourShown.v1', '1');
+            } catch (_) {}
+        """)
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(f"{live_server}/errors?service={seeded['service']}")
+        page.wait_for_load_state("networkidle")
+        self._dismiss_tour_modal(page)
+
+        body_json_summary = (
+            page.locator("div.mb-2", has_text="Body payload").locator("summary", has_text="Formatted JSON").first
+        )
+        expect(body_json_summary).to_be_visible()
+        body_json_summary.click()
+
+        os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+        page.screenshot(path=os.path.join(SCREENSHOTS_DIR, "errors_masking.png"), full_page=False)
+
+        html = page.content()
+        assert seeded["email"] not in html
+        assert seeded["api_key"] not in html
+        assert seeded["auth"] not in html
+        assert seeded["password"] not in html
+        expect(page.get_by_role("heading", name="Errors")).to_be_visible()
+
+    def test_screenshot_rum_masking_replay_artifacts(self, page: Page, live_server):
+        marker = str(int(time.time() * 1000))
+        seeded = self._seed_masking_rum_error(live_server, marker)
+        self._screenshot(
+            page,
+            "rum_masking.png",
+            f"{live_server}/rum?type=error&q={seeded['marker_token']}",
+        )
+
+        html = page.content()
+        table_bodies = page.locator("table tbody").all_text_contents()
+        assert any(seeded["marker_token"] in (txt or "") for txt in table_bodies)
+        assert seeded["email"] not in html
+        assert seeded["api_key"] not in html
+        assert seeded["auth"] not in html
+        assert seeded["password"] not in html
+        expect(page.get_by_role("heading", name="Real User Monitoring")).to_be_visible()
 
 
 # ---------------------------------------------------------------------------
@@ -1276,6 +1427,7 @@ class TestUIQA:
 
         assert not dialog_alerts, f"Native browser dialogs on /settings/data-management: {dialog_alerts}"
 
+    @pytest.mark.allow_console_errors(patterns=["qa-net-fail", "qa-no-vapid-key"])
     def test_settings_notifications(self, page: Page, live_server: str) -> None:
         self._init_page(page)
         dialog_alerts: list[str] = []
@@ -1373,6 +1525,7 @@ class TestUIQA:
             self._expect_new_toast(page, before, "vapid keys")
         assert not dialog_alerts, f"Native browser dialogs on /settings/notifications: {dialog_alerts}"
 
+    @pytest.mark.allow_console_errors(patterns=["qa-net-fail"])
     def test_metrics_rules(self, page: Page, live_server: str) -> None:
         self._init_page(page)
         dialog_alerts: list[str] = []
@@ -1391,6 +1544,7 @@ class TestUIQA:
             self._expect_new_toast(page, before, "notification rule")
         assert not dialog_alerts, f"Native browser dialogs on /metrics/rules: {dialog_alerts}"
 
+    @pytest.mark.allow_console_errors(patterns=["qa-net-fail"])
     def test_settings_agents(self, page: Page, live_server: str) -> None:
         self._init_page(page)
         dialog_alerts: list[str] = []
@@ -1444,6 +1598,7 @@ class TestUIQA:
                 self._dismiss_blocking_modals(page)
         assert not dialog_alerts, f"Native browser dialogs on /settings/agents: {dialog_alerts}"
 
+    @pytest.mark.allow_console_errors(patterns=["qa-copy-fail"])
     def test_errors(self, page: Page, live_server: str) -> None:
         self._init_page(page)
         dialog_alerts: list[str] = []
@@ -1492,6 +1647,7 @@ class TestUIQA:
             )
         assert not dialog_alerts, f"Native browser dialogs on /errors: {dialog_alerts}"
 
+    @pytest.mark.allow_console_errors(patterns=["qa-copy-fail"])
     def test_traces(self, page: Page, live_server: str) -> None:
         self._init_page(page)
         dialog_alerts: list[str] = []
@@ -1531,6 +1687,7 @@ class TestUIQA:
             )
         assert not dialog_alerts, f"Native browser dialogs on /traces: {dialog_alerts}"
 
+    @pytest.mark.allow_console_errors(patterns=["qa-net-fail"])
     def test_incident(self, page: Page, live_server: str) -> None:
         self._init_page(page)
         dialog_alerts: list[str] = []

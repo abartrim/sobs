@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Output Masking Help{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1">Output Masking Help</h4>
+    <p class="text-secondary mb-0">How masking rules work across UI, JSON views, notifications, and client-side screenshot preparation.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_masking_settings') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Output Masking
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Define</h6>
+        <p class="small text-secondary mb-0">Add custom sensitive keys and regex patterns in Settings -> Output Masking.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Validate</h6>
+        <p class="small text-secondary mb-0">Use the preview panel to test before/after redaction on text and JSON values.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Apply</h6>
+        <p class="small text-secondary mb-0">Rules are used in output rendering and can be reused on the browser side before screenshot capture.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">What Gets Masked</div>
+  <div class="card-body small text-secondary">
+    <ul class="mb-0 ps-3">
+      <li>Rendered UI fields where the <strong>mask filter</strong> is applied (incident, summary, replay previews, error panels).</li>
+      <li>Selected JSON output paths used for observability/debug views.</li>
+      <li>Notification and GitHub issue text payload generation.</li>
+      <li>Mask preview API output used by Settings -> Output Masking.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">What Does Not Automatically Get Masked</div>
+  <div class="card-body small text-secondary">
+    <ul class="mb-2 ps-3">
+      <li>Raw binary screenshot pixels already captured by your frontend.</li>
+      <li>Source telemetry at ingest time (SOBS applies display-layer masking by design).</li>
+    </ul>
+    <div class="alert alert-warning py-2 mb-0">
+      <i class="bi bi-exclamation-triangle me-1"></i>
+      For screenshots, redact in the browser <strong>before upload</strong>. Use the DOM masking helper shown below.
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Client-Side Screenshot Workflow</div>
+  <div class="card-body small">
+    <ol class="ps-3 mb-3 text-secondary">
+      <li>Fetch effective masking rules from <code>GET /api/settings/masking/rules</code>.</li>
+      <li>Temporarily mask sensitive DOM text/inputs before screenshot capture.</li>
+      <li>Capture/upload sanitized screenshot bytes.</li>
+      <li>Restore the DOM immediately after capture.</li>
+    </ol>
+
+    <div class="bg-dark p-2 rounded-1 font-monospace mb-2">
+      <code class="text-light">const session = await window.SOBSDomMasking.sanitizeDomForScreenshot({
+  rulesUrl: '/api/settings/masking/rules'
+});
+try {
+  // capture + upload screenshot bytes here
+} finally {
+  session.restore();
+}</code>
+    </div>
+
+    <p class="text-secondary mb-0">
+      Reference implementation: <code>examples/rum/sobs_dom_masking_util.js</code> and
+      <code>examples/rum/rrweb_replay_example.js</code>.
+    </p>
+  </div>
+</div>
+
+<div class="card border-secondary mb-0">
+  <div class="card-header fw-semibold">Regex Compatibility Notes</div>
+  <div class="card-body small text-secondary">
+    <p class="mb-2">
+      Server rules are Python regex. The browser helper uses JavaScript regex and applies a best-effort conversion for common inline flags
+      such as <code>(?i)</code> and anchors like <code>\A</code>/<code>\Z</code>.
+    </p>
+    <p class="mb-0">
+      If a complex server regex cannot be compiled in JavaScript, it is skipped client-side and still enforced on server-rendered output.
+    </p>
+  </div>
+</div>
+{% endblock %}

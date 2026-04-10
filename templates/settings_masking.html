@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+{% block title %}Output Masking{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-shield-lock me-2 text-danger"></i>Output Masking</h4>
+  <div class="d-flex align-items-center gap-2">
+    <a class="btn btn-sm btn-outline-info" href="{{ url_for('masking_help') }}">
+      <i class="bi bi-question-circle me-1"></i>Help
+    </a>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}">
+      <i class="bi bi-arrow-left me-1"></i>Back to Settings
+    </a>
+  </div>
+</div>
+
+<p class="text-secondary small mb-3">
+  These rules apply only to display-layer output. Stored OTEL, RUM, replay, and issue payloads are not modified in the database.
+  Default rules remain active at all times; use this page to add environment-specific keys and regex patterns.
+</p>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body py-3">
+        <div class="small text-secondary mb-1">Active Sensitive Keys</div>
+        <div class="fs-4 fw-semibold">{{ effective_key_count }}</div>
+        <div class="small text-secondary mt-2">{{ custom_keys|length }} custom + {{ default_keys|length }} defaults</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body py-3">
+        <div class="small text-secondary mb-1">Active Regex Patterns</div>
+        <div class="fs-4 fw-semibold">{{ effective_pattern_count }}</div>
+        <div class="small text-secondary mt-2">{{ custom_patterns|length }} custom + {{ default_patterns|length }} defaults</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body py-3">
+        <div class="small text-secondary mb-1">Use Cases</div>
+        <div class="small text-secondary">UI tables, detail panels, replay JSON previews, regex sample APIs, notifications, and GitHub issue text.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-4">
+  <div class="card-header">
+    <h6 class="mb-0"><i class="bi bi-toggle-on me-2 text-success"></i>Global SQL Output Masking</h6>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('update_masking_sql_output_setting') }}" class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
+      <div>
+        <div class="fw-semibold">Mask SQL/query fields for NLQ and chart APIs</div>
+        <div class="small text-secondary">Applies to <span class="font-monospace">/api/query/*</span> and chart-spec endpoints that return <span class="font-monospace">sql</span>/<span class="font-monospace">query</span> text.</div>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <input type="hidden" name="enabled" value="0">
+        <div class="form-check form-switch m-0">
+          <input class="form-check-input" type="checkbox" role="switch" id="sqlOutputMaskingEnabled" name="enabled" value="1" {% if sql_output_masking_enabled %}checked{% endif %}>
+          <label class="form-check-label" for="sqlOutputMaskingEnabled">
+            {% if sql_output_masking_enabled %}Enabled{% else %}Disabled{% endif %}
+          </label>
+        </div>
+        <button type="submit" class="btn btn-sm btn-outline-success">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card border-secondary mb-4">
+  <div class="card-header">
+    <h6 class="mb-0"><i class="bi bi-bezier2 me-2 text-primary"></i>Preview Current Rules</h6>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <label for="maskPreviewInput" class="form-label small text-secondary">Sample value</label>
+        <textarea id="maskPreviewInput" class="form-control font-monospace" rows="8" placeholder='Paste text or JSON here, for example {"password":"secret","email":"alice@example.com"}'></textarea>
+      </div>
+      <div class="col-lg-6">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <label for="maskPreviewOutput" class="form-label small text-secondary mb-0">Masked output</label>
+          <button type="button" class="btn btn-sm btn-outline-primary" id="maskPreviewRunBtn">
+            <i class="bi bi-play-fill me-1"></i>Preview Masking
+          </button>
+        </div>
+        <pre id="maskPreviewOutput" class="theme-panel rounded p-3 small font-monospace mb-0" style="min-height:11rem;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">Masked output will appear here.</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-xl-5">
+    <div class="card border-secondary mb-4">
+      <div class="card-header">
+        <h6 class="mb-0"><i class="bi bi-key me-2 text-warning"></i>Add Custom Sensitive Key</h6>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('add_masking_key') }}" class="row g-2 align-items-end">
+          <div class="col-sm-8">
+            <label class="form-label small text-secondary">Key name</label>
+            <input type="text" name="key" class="form-control form-control-sm font-monospace" placeholder="e.g. session_cookie" required>
+          </div>
+          <div class="col-sm-4 d-grid">
+            <button type="submit" class="btn btn-sm btn-warning text-dark">
+              <i class="bi bi-plus-circle me-1"></i>Add Key
+            </button>
+          </div>
+        </form>
+        <div class="form-text small mt-2">Keys are normalized to lowercase before matching.</div>
+      </div>
+    </div>
+
+    <div class="card border-secondary mb-4">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h6 class="mb-0">Custom Sensitive Keys</h6>
+        <span class="badge text-bg-secondary">{{ custom_keys|length }}</span>
+      </div>
+      {% if custom_keys %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-secondary">
+            <tr>
+              <th>Key</th>
+              <th style="width:64px;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for key in custom_keys %}
+            <tr>
+              <td class="font-monospace">{{ key }}</td>
+              <td>
+                <form method="post" action="{{ url_for('delete_masking_key') }}">
+                  <input type="hidden" name="key" value="{{ key }}">
+                  <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2" title="Delete key">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card-body small text-secondary">No custom key rules yet.</div>
+      {% endif %}
+    </div>
+
+    <div class="card border-secondary">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h6 class="mb-0">Default Sensitive Keys</h6>
+        <span class="badge text-bg-light border">{{ default_keys|length }}</span>
+      </div>
+      <div class="card-body small">
+        <div class="d-flex flex-wrap gap-2">
+          {% for key in default_keys %}
+          <span class="badge text-bg-light border font-monospace">{{ key }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-xl-7">
+    <div class="card border-secondary mb-4">
+      <div class="card-header">
+        <h6 class="mb-0"><i class="bi bi-regex me-2 text-info"></i>Add Custom Regex Pattern</h6>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('add_masking_pattern') }}" class="row g-2 align-items-end">
+          <div class="col-sm-9">
+            <label class="form-label small text-secondary">Regex pattern</label>
+            <input type="text" name="pattern" class="form-control form-control-sm font-monospace" placeholder="e.g. (?i)customer[_-]?id\s*[=:]\s*\w+" required>
+          </div>
+          <div class="col-sm-3 d-grid">
+            <button type="submit" class="btn btn-sm btn-info">
+              <i class="bi bi-plus-circle me-1"></i>Add Pattern
+            </button>
+          </div>
+        </form>
+        <div class="form-text small mt-2">Patterns are applied with DOTALL matching against rendered string values.</div>
+      </div>
+    </div>
+
+    <div class="card border-secondary mb-4">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h6 class="mb-0">Custom Regex Patterns</h6>
+        <span class="badge text-bg-secondary">{{ custom_patterns|length }}</span>
+      </div>
+      {% if custom_patterns %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-secondary">
+            <tr>
+              <th>Pattern</th>
+              <th style="width:64px;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for pattern in custom_patterns %}
+            <tr>
+              <td class="font-monospace small text-break">{{ pattern }}</td>
+              <td>
+                <form method="post" action="{{ url_for('delete_masking_pattern') }}">
+                  <input type="hidden" name="pattern" value="{{ pattern }}">
+                  <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2" title="Delete pattern">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card-body small text-secondary">No custom regex rules yet.</div>
+      {% endif %}
+    </div>
+
+    <div class="card border-secondary">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h6 class="mb-0">Default Regex Patterns</h6>
+        <span class="badge text-bg-light border">{{ default_patterns|length }}</span>
+      </div>
+      <div class="card-body">
+        <ol class="small font-monospace mb-0 ps-3">
+          {% for pattern in default_patterns %}
+          <li class="mb-2 text-break">{{ pattern }}</li>
+          {% endfor %}
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var input = document.getElementById('maskPreviewInput');
+  var output = document.getElementById('maskPreviewOutput');
+  var runBtn = document.getElementById('maskPreviewRunBtn');
+  if (!input || !output || !runBtn) return;
+
+  async function runPreview() {
+    var raw = input.value || '';
+    var payloadValue = raw;
+    if (raw.trim()) {
+      try {
+        payloadValue = JSON.parse(raw);
+      } catch (_err) {
+        payloadValue = raw;
+      }
+    }
+    output.textContent = 'Previewing...';
+    try {
+      var resp = await fetch({{ url_for('api_masking_preview') | tojson }}, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: payloadValue })
+      });
+      var data = await resp.json();
+      if (!resp.ok || !data.ok) throw new Error(data.error || 'Preview failed');
+      output.textContent = typeof data.masked === 'string' ? data.masked : JSON.stringify(data.masked, null, 2);
+    } catch (err) {
+      output.textContent = (err && err.message) ? err.message : 'Preview failed';
+    }
+  }
+
+  runBtn.addEventListener('click', runPreview);
+}());
+</script>
+{% endblock %}

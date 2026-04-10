@@ -77,7 +77,11 @@ class TestMasking:
     def test_jwt_is_masked_in_string(self):
         import masking
 
-        jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        jwt = (
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+            "eyJzdWIiOiIxMjM0NTY3ODkwIn0."
+            "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        )
         result = masking.mask_value(f"token={jwt}")
         assert jwt not in result
         assert "****" in result
@@ -242,6 +246,185 @@ class TestMasking:
         # Structure remains
         assert "Error in service" in masked_title
         assert "## Issue" in masked_body
+
+    async def test_settings_masking_page_loads(self, client):
+        r = await client.get("/settings/masking")
+        assert r.status_code == 200
+        text = await r.get_data(as_text=True)
+        assert "Output Masking" in text
+        assert "Custom Regex Patterns" in text
+        assert "Preview Current Rules" in text
+
+    async def test_settings_masking_help_page_loads(self, client):
+        r = await client.get("/settings/help/masking")
+        assert r.status_code == 200
+        text = await r.get_data(as_text=True)
+        assert "Output Masking Help" in text
+        assert "Client-Side Screenshot Workflow" in text
+
+    async def test_masking_rules_api_returns_effective_rules(self, client):
+        r = await client.get("/api/settings/masking/rules")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert isinstance(data.get("keys"), list)
+        assert isinstance(data.get("patterns"), list)
+        assert isinstance(data.get("custom_keys"), list)
+        assert isinstance(data.get("custom_patterns"), list)
+        assert isinstance(data.get("sql_output_masking_enabled"), bool)
+
+    async def test_sql_output_masking_toggle_route_updates_setting(self, client):
+        enabled = await client.post("/settings/masking/sql-output", form={"enabled": "1"})
+        assert enabled.status_code in (200, 302)
+
+        enabled_rules = await client.get("/api/settings/masking/rules")
+        assert enabled_rules.status_code == 200
+        enabled_data = await enabled_rules.get_json()
+        assert enabled_data["sql_output_masking_enabled"] is True
+
+        disabled = await client.post("/settings/masking/sql-output", form={"enabled": "0"})
+        assert disabled.status_code in (200, 302)
+
+        disabled_rules = await client.get("/api/settings/masking/rules")
+        assert disabled_rules.status_code == 200
+        disabled_data = await disabled_rules.get_json()
+        assert disabled_data["sql_output_masking_enabled"] is False
+
+    async def test_custom_masking_key_route_updates_preview_behavior(self, client):
+        preview_payload = {"customer_id": "CUST-12345678", "service": "checkout"}
+
+        before = await client.post("/api/settings/masking/preview", json={"value": preview_payload})
+        assert before.status_code == 200
+        before_data = await before.get_json()
+        assert before_data["masked"]["customer_id"] == "CUST-12345678"
+
+        created = await client.post("/settings/masking/keys", form={"key": "customer_id"})
+        assert created.status_code in (200, 302)
+
+        during = await client.post("/api/settings/masking/preview", json={"value": preview_payload})
+        assert during.status_code == 200
+        during_data = await during.get_json()
+        assert during_data["masked"]["customer_id"] == "****"
+
+        deleted = await client.post("/settings/masking/keys/delete", form={"key": "customer_id"})
+        assert deleted.status_code in (200, 302)
+
+        after = await client.post("/api/settings/masking/preview", json={"value": preview_payload})
+        assert after.status_code == 200
+        after_data = await after.get_json()
+        assert after_data["masked"]["customer_id"] == "CUST-12345678"
+
+    async def test_custom_masking_pattern_route_updates_preview_behavior(self, client):
+        preview_text = "customerRef=ZXCVBNM1234"
+
+        before = await client.post("/api/settings/masking/preview", json={"value": preview_text})
+        assert before.status_code == 200
+        before_data = await before.get_json()
+        assert before_data["masked"] == preview_text
+
+        created = await client.post(
+            "/settings/masking/patterns",
+            form={"pattern": r"customerRef=[A-Z0-9]+"},
+        )
+        assert created.status_code in (200, 302)
+
+        during = await client.post("/api/settings/masking/preview", json={"value": preview_text})
+        assert during.status_code == 200
+        during_data = await during.get_json()
+        assert "ZXCVBNM1234" not in during_data["masked"]
+        assert "****" in during_data["masked"]
+
+        deleted = await client.post(
+            "/settings/masking/patterns/delete",
+            form={"pattern": r"customerRef=[A-Z0-9]+"},
+        )
+        assert deleted.status_code in (200, 302)
+
+        after = await client.post("/api/settings/masking/preview", json={"value": preview_text})
+        assert after.status_code == 200
+        after_data = await after.get_json()
+        assert after_data["masked"] == preview_text
+
+    async def test_masking_preview_masks_replay_and_screenshot_metadata(self, client):
+        replay_payload = {
+            "artifact": {
+                "type": "screenshot",
+                "id": "shot-123",
+                "url": "https://example.com/artifacts/shot-123.png?owner=ops@example.com",
+                "annotation": "api_key=sk_live_test_123",
+            },
+            "replay": {
+                "id": "replay-123",
+                "url": "https://example.com/replays/replay-123?email=ops@example.com",
+            },
+            "breadcrumbs": {
+                "console": [
+                    {
+                        "message": "Authorization: Bearer supersecrettoken123",
+                    }
+                ]
+            },
+        }
+
+        r = await client.post("/api/settings/masking/preview", json={"value": replay_payload})
+        assert r.status_code == 200
+        data = await r.get_json()
+        masked = data["masked"]
+
+        masked_json = json.dumps(masked)
+        assert "ops@example.com" not in masked_json
+        assert "supersecrettoken123" not in masked_json
+        assert "sk_live_test_123" not in masked_json
+        assert "****" in masked_json
+
+    async def test_summary_page_masks_recent_log_and_error_output(self, client):
+        ts_ns = int(time.time() * 1_000_000_000)
+        log_email = f"summary-log-{ts_ns}@example.com"
+        error_email = f"summary-error-{ts_ns}@example.com"
+
+        await client.post(
+            "/v1/logs",
+            json={
+                "resourceLogs": [
+                    {
+                        "resource": {
+                            "attributes": [{"key": "service.name", "value": {"stringValue": "summary-mask-svc"}}]
+                        },
+                        "scopeLogs": [
+                            {
+                                "logRecords": [
+                                    {
+                                        "timeUnixNano": str(ts_ns),
+                                        "severityText": "ERROR",
+                                        "severityNumber": 17,
+                                        "body": {"stringValue": f"user email {log_email}"},
+                                        "traceId": "",
+                                        "spanId": "",
+                                        "attributes": [],
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+        await client.post(
+            "/v1/errors",
+            json={
+                "service": "summary-mask-svc",
+                "type": "ValueError",
+                "message": f"contact {error_email}",
+                "timestamp": "2024-01-01T00:00:00Z",
+            },
+        )
+
+        r = await client.get("/")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        assert log_email not in body
+        assert error_email not in body
+        assert "****" in body
 
 
 # ---------------------------------------------------------------------------
@@ -1575,6 +1758,44 @@ class TestRumIngest:
         assert "Orders" in body
         assert "screenshot" in body
         assert "Replay" in body
+
+    async def test_errors_page_masks_replay_and_artifact_sensitive_metadata(self, client):
+        sensitive_email = "owner+mask-test@example.com"
+        sensitive_api_key = "sk_live_super_secret_123"
+        r = await client.post(
+            "/v1/rum",
+            json=[
+                {
+                    "type": "error",
+                    "sessionId": "sess-replay-mask-001",
+                    "traceId": "trace-replay-mask-001",
+                    "spanId": "span-replay-mask-001",
+                    "url": "https://example.com/app",
+                    "message": "Replay and artifact masking check",
+                    "errorType": "TypeError",
+                    "artifact": {
+                        "type": "screenshot",
+                        "id": "shot-mask-001",
+                        "url": f"https://example.com/artifacts/shot-mask-001.png?owner={sensitive_email}",
+                    },
+                    "replay": {
+                        "id": "replay-mask-001",
+                        "url": (
+                            "https://example.com/replays/replay-mask-001"
+                            f"?api_key={sensitive_api_key}&email={sensitive_email}"
+                        ),
+                    },
+                }
+            ],
+        )
+        assert r.status_code == 200
+
+        page = await client.get("/errors")
+        assert page.status_code == 200
+        body = await page.get_data(as_text=True)
+        assert sensitive_email not in body
+        assert sensitive_api_key not in body
+        assert "****" in body
 
     async def test_ingest_dict_payload(self, client):
         r = await client.post(
@@ -3753,6 +3974,46 @@ class TestUIPages:
 
         parsed = _json.loads(data["raw"])
         assert parsed["span_id"] == span_id_hex
+
+    async def test_raw_span_endpoint_masks_sensitive_attribute_values(self, client):
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        span_bytes = bytes.fromhex("abcd1234beef9999")
+        trace_id_bytes = bytes.fromhex("00112233445566778899aabbccddeeff")
+        start_ns = 1704067200_000_000_000
+        email_value = "span-owner@example.com"
+
+        span = Span(
+            trace_id=trace_id_bytes,
+            span_id=span_bytes,
+            name="raw-span-secret-op",
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 500_000_000,
+            status=Status(code=1),
+            attributes=[
+                KeyValue(key="customer.email", value=AnyValue(string_value=email_value)),
+                KeyValue(key="api_key", value=AnyValue(string_value="supersecretkey")),
+            ],
+        )
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value="raw-span-mask-svc"))])
+        msg = ExportTraceServiceRequest(
+            resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])]
+        )
+        r = await client.post(
+            "/v1/traces", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        span_id_hex = span_bytes.hex()
+        r = await client.get(f"/api/traces/span/{span_id_hex}")
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["span"]["attributes"]["api_key"] == "****"
+        assert email_value not in data["raw"]
+        assert "****" in data["raw"]
 
     async def test_raw_span_endpoint_not_found(self, client):
         """GET /api/traces/span/<span_id> returns 404 for unknown span_id."""
@@ -6823,6 +7084,53 @@ class TestCustomDashboards:
         data = await r.get_json()
         assert data["template_id"] == "derived_signal_overlay"
         assert "FROM v_derived_signals_anomaly" in data["query"]
+
+    async def test_chart_spec_compile_masks_query_when_enabled(self, client):
+        db = sobs_app.get_db()
+        sobs_app._set_app_setting(db, "masking.sql_output_enabled", "1")
+
+        r = await client.post(
+            "/api/dashboards/spec/compile",
+            json={
+                "spec": {
+                    "template_id": "anomaly_overlay",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT 'owner@example.com' AS owner_email, " "'api_key=sk_live_compile_test_123' AS secret"
+                        ),
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "owner@example.com" not in data["query"]
+        assert "sk_live_compile_test_123" not in data["query"]
+        assert "****" in data["query"]
+
+    async def test_chart_spec_compile_does_not_mask_query_when_disabled(self, client):
+        db = sobs_app.get_db()
+        sobs_app._set_app_setting(db, "masking.sql_output_enabled", "0")
+
+        r = await client.post(
+            "/api/dashboards/spec/compile",
+            json={
+                "spec": {
+                    "template_id": "anomaly_overlay",
+                    "sql": {
+                        "mode": "raw",
+                        "override_sql": (
+                            "SELECT 'owner@example.com' AS owner_email, " "'api_key=sk_live_compile_test_456' AS secret"
+                        ),
+                    },
+                }
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert "owner@example.com" in data["query"]
+        assert "sk_live_compile_test_456" in data["query"]
 
     async def test_chart_spec_compile_builder_supports_base_table_source(self, client):
         r = await client.post(
@@ -13942,6 +14250,94 @@ class TestQueryRoutes:
         assert data["rows"] == [[1]]
         assert data["retry_count"] == 0
         assert data["error"] == ""
+
+    async def test_query_run_masks_sql_field_when_enabled(self, client, monkeypatch):
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+
+        import pandas as pd
+
+        monkeypatch.setattr(sobs_app, "_vanna_run_query", lambda _db, _sql: (pd.DataFrame([{"x": 1}]), ""))
+        monkeypatch.setattr(sobs_app, "_vanna_explain_sql", lambda _db, _sql: "")
+        monkeypatch.setattr(sobs_app, "_check_guard_model", AsyncMock(return_value=(True, "allowed", {})))
+        sobs_app._set_app_setting(sobs_app.get_db(), "masking.sql_output_enabled", "1")
+
+        sql_text = "SELECT 'owner@example.com' AS owner, 'api_key=sk_live_run_test_123' AS secret"
+        r = await client.post(
+            "/api/query/run",
+            json={"sql": sql_text, "question": "mask sql", "chart": False},
+        )
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert "owner@example.com" not in data["sql"]
+        assert "sk_live_run_test_123" not in data["sql"]
+        assert "****" in data["sql"]
+
+    async def test_query_run_does_not_mask_sql_field_when_disabled(self, client, monkeypatch):
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+
+        import pandas as pd
+
+        monkeypatch.setattr(sobs_app, "_vanna_run_query", lambda _db, _sql: (pd.DataFrame([{"x": 1}]), ""))
+        monkeypatch.setattr(sobs_app, "_vanna_explain_sql", lambda _db, _sql: "")
+        monkeypatch.setattr(sobs_app, "_check_guard_model", AsyncMock(return_value=(True, "allowed", {})))
+        sobs_app._set_app_setting(sobs_app.get_db(), "masking.sql_output_enabled", "0")
+
+        sql_text = "SELECT 'owner@example.com' AS owner, 'api_key=sk_live_run_test_456' AS secret"
+        r = await client.post(
+            "/api/query/run",
+            json={"sql": sql_text, "question": "mask sql", "chart": False},
+        )
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert "owner@example.com" in data["sql"]
+        assert "sk_live_run_test_456" in data["sql"]
+
+    async def test_query_ask_masks_sql_and_dataset_sql_when_enabled(self, client, monkeypatch):
+        monkeypatch.setattr(
+            sobs_app,
+            "_load_all_ai_settings",
+            lambda _db: self._configured_query_settings(),
+        )
+        monkeypatch.setattr(sobs_app, "_check_guard_model", AsyncMock(return_value=(True, "allowed", {})))
+
+        async def _fake_llm(*_a, **_kw):
+            return "SELECT 'owner@example.com' AS owner, 'api_key=sk_live_ask_test_123' AS secret", {}
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_llm)
+        sobs_app._set_app_setting(sobs_app.get_db(), "masking.sql_output_enabled", "1")
+
+        r = await client.post(
+            "/api/query/ask",
+            json={"question": "show sample", "execute": False, "chart": False},
+        )
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert "owner@example.com" not in data["sql"]
+        assert "sk_live_ask_test_123" not in data["sql"]
+        assert "****" in data["sql"]
+
+    async def test_query_ask_does_not_mask_sql_when_disabled(self, client, monkeypatch):
+        monkeypatch.setattr(
+            sobs_app,
+            "_load_all_ai_settings",
+            lambda _db: self._configured_query_settings(),
+        )
+        monkeypatch.setattr(sobs_app, "_check_guard_model", AsyncMock(return_value=(True, "allowed", {})))
+
+        async def _fake_llm(*_a, **_kw):
+            return "SELECT 'owner@example.com' AS owner, 'api_key=sk_live_ask_test_456' AS secret", {}
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_llm)
+        sobs_app._set_app_setting(sobs_app.get_db(), "masking.sql_output_enabled", "0")
+
+        r = await client.post(
+            "/api/query/ask",
+            json={"question": "show sample", "execute": False, "chart": False},
+        )
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert "owner@example.com" in data["sql"]
+        assert "sk_live_ask_test_456" in data["sql"]
 
     async def test_query_run_endpoint_chart_handles_date_values(self, client, monkeypatch):
         monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())

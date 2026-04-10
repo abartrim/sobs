@@ -192,6 +192,30 @@
     </div>
   </div>
 
+  <!-- Output Masking -->
+  <div class="col-md-6 col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body d-flex flex-column">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-shield-lock fs-4 text-danger"></i>
+          <h5 class="card-title mb-0">Output Masking</h5>
+        </div>
+        <p class="card-text text-secondary small flex-grow-1">
+          Manage the shared display-layer masking rules used by observability views, replay JSON
+          previews, selected OTEL JSON APIs, notifications, and GitHub issue creation. Default
+          rules stay active; add custom keys or regex patterns here when your environment has
+          additional secrets or identifiers that should never be shown verbatim.
+        </p>
+        <div class="d-flex align-items-center justify-content-between mt-2">
+          <span class="badge text-bg-secondary">{{ masking_custom_key_count }} custom key{{ 's' if masking_custom_key_count != 1 else '' }} · {{ masking_custom_pattern_count }} custom pattern{{ 's' if masking_custom_pattern_count != 1 else '' }}</span>
+          <a href="{{ url_for('view_masking_settings') }}" class="btn btn-sm btn-outline-danger">
+            <i class="bi bi-pencil-square me-1"></i>Manage Masking
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Enrichment (Geo / CVE) -->
   <div class="col-md-6 col-lg-4">
     <div class="card border-secondary h-100">

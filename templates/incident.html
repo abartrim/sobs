@@ -68,11 +68,11 @@
       </div>
       {% endif %}
     </div>
-    <div class="small mb-2 theme-panel rounded p-2" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ primary_error.message }}</div>
+    <div class="small mb-2 theme-panel rounded p-2" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ primary_error.message|mask }}</div>
     {% if primary_error.stack %}
     <details class="small">
       <summary class="text-secondary mb-1" style="cursor:pointer;">Stack trace</summary>
-      <pre class="rounded p-2 theme-panel" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;max-height:300px;overflow-y:auto;">{{ primary_error.stack }}</pre>
+      <pre class="rounded p-2 theme-panel" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;max-height:300px;overflow-y:auto;">{{ primary_error.stack|mask }}</pre>
     </details>
     {% endif %}
     {% elif primary_trace %}
@@ -98,9 +98,9 @@
       <div><span class="text-secondary">Session:</span> <code class="font-monospace">{{ primary_rum.session_key[:16] }}{% if primary_rum.session_key|length > 16 %}…{% endif %}</code></div>
       {% endif %}
     </div>
-    <div class="small text-break mb-2">{{ primary_rum.url or '—' }}</div>
+    <div class="small text-break mb-2">{{ (primary_rum.url or '—')|mask }}</div>
     {% if primary_rum.data and primary_rum.data.get('message') %}
-    <div class="small mb-2 theme-panel rounded p-2" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ primary_rum.data.get('message') }}</div>
+    <div class="small mb-2 theme-panel rounded p-2" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ primary_rum.data.get('message')|mask }}</div>
     {% endif %}
     {% endif %}
   </div>
@@ -120,7 +120,7 @@
           data-error-id="{{ error_id }}"
           data-service="{{ service }}"
       data-err-type="{{ primary_error.err_type if primary_error else (primary_rum.event_type if primary_rum else '') }}"
-      data-err-message="{{ primary_error.message if primary_error else (primary_rum.data.get('message', '') if primary_rum else '') }}"
+      data-err-message="{{ (primary_error.message if primary_error else (primary_rum.data.get('message', '') if primary_rum else ''))|mask }}"
       data-err-ts="{{ (primary_error.ts or '')[:19] if primary_error else ((primary_rum.ts or '')[:19] if primary_rum else '') }}"
           title="Raise or reuse a GitHub issue for this incident">
     <i class="bi bi-github me-1"></i>Raise / Reuse Issue
@@ -255,7 +255,7 @@
               <td>
                 <span class="badge {% if ev.event_type in ('error', 'unhandledrejection') %}bg-danger{% elif ev.event_type == 'pageview' %}bg-primary{% elif ev.event_type == 'web-vital' %}bg-success{% else %}bg-secondary{% endif %}">{{ ev.event_type }}</span>
               </td>
-              <td class="small text-truncate" style="max-width:360px;" title="{{ ev.url }}">{{ ev.url or '—' }}</td>
+              <td class="small text-truncate" style="max-width:360px;" title="{{ ev.url|mask }}">{{ (ev.url or '—')|mask }}</td>
               <td>
                 <div class="d-flex gap-2 flex-wrap">
                   {% if ev.trace_id %}
@@ -517,7 +517,7 @@
       lines.push('## Primary Event');
       {% if primary_error %}
       lines.push('- **Type:** `{{ primary_error.err_type }}`');
-      lines.push('- **Message:** ' + JSON.stringify({{ primary_error.message | truncate(200) | tojson }}).slice(1,-1));
+      lines.push('- **Message:** ' + JSON.stringify({{ primary_error.message | mask | truncate(200) | tojson }}).slice(1,-1));
       lines.push('- **Timestamp:** {{ (primary_error.ts or '')[:19] }}');
       {% if primary_error.trace_id %}
       lines.push('- **Trace ID:** `{{ primary_error.trace_id }}`');

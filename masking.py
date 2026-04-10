@@ -36,7 +36,7 @@ MASK: str = "****"
 # Key names whose values should always be fully masked.
 # Comparison is done after lowercasing the actual key at call-site.
 # ---------------------------------------------------------------------------
-SENSITIVE_KEYS: frozenset[str] = frozenset(
+DEFAULT_SENSITIVE_KEYS: frozenset[str] = frozenset(
     {
         # Credentials / secrets
         "password",
@@ -75,12 +75,14 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
     }
 )
 
+SENSITIVE_KEYS: frozenset[str] = DEFAULT_SENSITIVE_KEYS
+
 # ---------------------------------------------------------------------------
 # Regex patterns matched against string values.
 # The *entire* match is replaced with MASK, so patterns should capture the
 # full sensitive fragment (not just a capture group inside it).
 # ---------------------------------------------------------------------------
-SENSITIVE_PATTERNS: list[str] = [
+DEFAULT_SENSITIVE_PATTERNS: list[str] = [
     # --- Email addresses ---
     r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b",
     # --- JWT tokens (three base64url-encoded segments) ---
@@ -97,7 +99,10 @@ SENSITIVE_PATTERNS: list[str] = [
     r"\b3[47][0-9]{13}\b",  # Amex
     r"\b6(?:011|5[0-9]{2})[0-9]{12}\b",  # Discover
     # --- PEM private key blocks ---
-    r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
+    (
+        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----[\s\S]+?"
+        r"-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"
+    ),
     # --- Generic key=value / key: value assignment in log lines ---
     # Matches patterns like: password=abc123 | secret: "xyz" | api_key=ABCDEF...
     r"(?i)(?:password|passwd|pwd|secret|api[_\-]?key|auth[_\-]?token|access[_\-]?token)"
@@ -105,6 +110,8 @@ SENSITIVE_PATTERNS: list[str] = [
     # --- Authorization header value ---
     r"(?i)(?:Authorization|X-Api-Key|X-Auth-Token)\s*:\s*[^\r\n]+",
 ]
+
+SENSITIVE_PATTERNS: list[str] = list(DEFAULT_SENSITIVE_PATTERNS)
 
 # ---------------------------------------------------------------------------
 # Custom filter with case-insensitive key matching
@@ -128,15 +135,10 @@ class _SobsRedactingFilter(RedactingFilter):
             return content_copy
 
         if isinstance(content_copy, Mapping):
-            content_copy = type(content_copy)(
-                [
-                    (
-                        k,
-                        self._mask if str(k).lower() in self._mask_keys else self.redact(v),
-                    )
-                    for k, v in content_copy.items()
-                ]
-            )
+            content_copy = {
+                k: (self._mask if str(k).lower() in self._mask_keys else self.redact(v))
+                for k, v in content_copy.items()
+            }
         elif isinstance(content_copy, list):
             content_copy = [self.redact(value) for value in content_copy]
         elif isinstance(content_copy, tuple):
@@ -156,6 +158,46 @@ class _SobsRedactingFilter(RedactingFilter):
 _filter: _SobsRedactingFilter | None = None
 
 
+def normalize_sensitive_key(value: Any) -> str:
+    """Return a normalized lowercase key name for key-based masking."""
+    return str(value or "").strip().lower()
+
+
+def validate_pattern(pattern: Any) -> str:
+    """Validate and normalize a custom regex pattern."""
+    normalized = str(pattern or "").strip()
+    if not normalized:
+        raise ValueError("Pattern is required")
+    re.compile(normalized, re.DOTALL)
+    return normalized
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
+def configure_runtime_rules(
+    custom_keys: list[str] | tuple[str, ...] | None = None,
+    custom_patterns: list[str] | tuple[str, ...] | None = None,
+) -> _SobsRedactingFilter:
+    """Merge persisted custom rules with defaults and rebuild the filter."""
+    global SENSITIVE_KEYS, SENSITIVE_PATTERNS
+
+    normalized_keys = sorted({key for key in (normalize_sensitive_key(item) for item in (custom_keys or [])) if key})
+    normalized_patterns = _dedupe_preserve_order([validate_pattern(item) for item in (custom_patterns or [])])
+
+    SENSITIVE_KEYS = frozenset({*DEFAULT_SENSITIVE_KEYS, *normalized_keys})
+    SENSITIVE_PATTERNS = [*DEFAULT_SENSITIVE_PATTERNS, *normalized_patterns]
+    return build_redacting_filter()
+
+
 def build_redacting_filter() -> _SobsRedactingFilter:
     """(Re)build and return the shared :class:`_SobsRedactingFilter` instance.
 
@@ -172,7 +214,6 @@ def build_redacting_filter() -> _SobsRedactingFilter:
 
 
 def _get_filter() -> _SobsRedactingFilter:
-    global _filter
     if _filter is None:
         build_redacting_filter()
     return _filter  # type: ignore[return-value]
@@ -222,5 +263,6 @@ def mask_string(value: Any) -> str:
     result = _get_filter().redact(value)
     return str(result) if result is not None else ""
 
+
 # Initialise the singleton at module import time.
-build_redacting_filter()
+configure_runtime_rules()
