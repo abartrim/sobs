@@ -26,7 +26,9 @@ from typing import Any, Callable
 
 import pytest
 import requests
-from playwright.sync_api import Dialog, Page, expect
+from playwright.sync_api import Dialog
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import Page, expect
 
 # ---------------------------------------------------------------------------
 # Screenshots output directory
@@ -109,6 +111,27 @@ def _ts_ns() -> str:
     return str(int(time.time() * 1_000_000_000))
 
 
+def _seed_telemetry_data(live_server: str, total: int, workers: int) -> None:
+    """Seed sample telemetry via scripts/load_example.py with configurable concurrency."""
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/load_example.py",
+            "--base",
+            live_server,
+            "--total",
+            str(total),
+            "--workers",
+            str(workers),
+        ],
+        cwd=repo_root,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def _otlp_log_payload(message: str, service: str, level: str = "INFO") -> dict:
     return {
         "resourceLogs": [
@@ -139,6 +162,80 @@ def _otlp_trace_payload(service: str, spans: list) -> dict:
             }
         ]
     }
+
+
+def _seed_visibility_baseline(live_server: str) -> None:
+    """Post a minimal deterministic baseline for visibility-page assertions."""
+    req_timeout = 10
+
+    r = requests.post(
+        f"{live_server}/v1/logs",
+        json=_otlp_log_payload("Hello from curl!", "curl-demo"),
+        timeout=req_timeout,
+    )
+    assert r.status_code == 200
+
+    r = requests.post(
+        f"{live_server}/v1/logs",
+        json=_otlp_log_payload("Handling request for user user-123", "my-python-app"),
+        timeout=req_timeout,
+    )
+    assert r.status_code == 200
+
+    r = requests.post(
+        f"{live_server}/v1/traces",
+        json=_otlp_trace_payload(
+            "curl-demo",
+            [_span("curl-span", "abcdef1234567890abcdef1234567890", "1234567890abcdef")],
+        ),
+        timeout=req_timeout,
+    )
+    assert r.status_code == 200
+
+    for svc in ["curl-demo", "flask-demo", "node-demo"]:
+        r = requests.post(
+            f"{live_server}/v1/errors",
+            json={
+                "service": svc,
+                "type": "Error",
+                "message": f"Seeded error for {svc}",
+                "stack": "Error: seeded integration visibility baseline",
+            },
+            timeout=req_timeout,
+        )
+        assert r.status_code == 200
+
+    r = requests.post(
+        f"{live_server}/v1/rum",
+        json={
+            "session_id": "seed-session-visibility",
+            "timestamp": int(time.time() * 1000),
+            "event": "pageview",
+            "url": "https://example.com/home",
+            "path": "/home",
+            "title": "Home",
+            "user_agent": "seed-agent",
+            "service": "curl-demo",
+        },
+        timeout=req_timeout,
+    )
+    assert r.status_code == 200
+
+    r = requests.post(
+        f"{live_server}/v1/ai",
+        json={
+            "service": "node-demo",
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "prompt": "seed",
+            "response": "seed",
+            "tokens_in": 1,
+            "tokens_out": 1,
+            "duration_ms": 1,
+        },
+        timeout=req_timeout,
+    )
+    assert r.status_code == 200
 
 
 def _span(
@@ -449,6 +546,35 @@ class TestNodeJsExample:
 class TestDataVisibleInUI:
     """Verify that telemetry posted by the example simulations is visible in the UI."""
 
+    @pytest.fixture(scope="class", autouse=True)
+    def _seed_visibility_data(self, live_server: str) -> None:
+        """Make these tests order-independent by always seeding baseline telemetry."""
+        total = int(os.getenv("SOBS_VISIBILITY_SEED_TOTAL", "48"))
+        workers = int(os.getenv("SOBS_VISIBILITY_SEED_WORKERS", "8"))
+        _seed_telemetry_data(live_server, total=total, workers=workers)
+        _seed_visibility_baseline(live_server)
+
+    def _wait_for_any_text(
+        self,
+        live_server: str,
+        path: str,
+        expected: list[str],
+        timeout_s: float = 10.0,
+        interval_s: float = 0.25,
+    ) -> str:
+        """Poll a page until any expected text appears (for eventual ingestion)."""
+        deadline = time.time() + timeout_s
+        last_text = ""
+        while time.time() < deadline:
+            r = requests.get(f"{live_server}{path}", timeout=5)
+            assert r.status_code == 200
+            last_text = r.text
+            if any(token in last_text for token in expected):
+                return last_text
+            time.sleep(interval_s)
+
+        pytest.fail(f"Timed out waiting for any of {expected!r} on {path}. " f"Last response length={len(last_text)}")
+
     def test_dashboard_loads(self, live_server):
         r = requests.get(f"{live_server}/")
         assert r.status_code == 200
@@ -457,39 +583,31 @@ class TestDataVisibleInUI:
 
     def test_logs_page_shows_curl_demo_data(self, live_server):
         """The logs page must display the log posted by the curl example."""
-        r = requests.get(f"{live_server}/logs?q=Hello+from+curl")
-        assert r.status_code == 200
-        assert "Hello from curl!" in r.text
+        self._wait_for_any_text(live_server, "/logs?q=Hello+from+curl", ["Hello from curl!"])
 
     def test_logs_page_shows_otel_example_data(self, live_server):
         """The logs page must display logs from the Python OTel example."""
-        r = requests.get(f"{live_server}/logs?q=Handling+request+for+user")
-        assert r.status_code == 200
-        assert "Handling request for user" in r.text
+        self._wait_for_any_text(live_server, "/logs?q=Handling+request+for+user", ["Handling request for user"])
 
     def test_traces_page_shows_example_data(self, live_server):
         """The traces page must display spans from at least one example service."""
-        r = requests.get(f"{live_server}/traces")
-        assert r.status_code == 200
-        assert any(svc in r.text for svc in ["curl-demo", "my-python-app", "flask-demo", "node-demo"])
+        self._wait_for_any_text(
+            live_server,
+            "/traces",
+            ["curl-demo", "my-python-app", "flask-demo", "node-demo"],
+        )
 
     def test_errors_page_shows_example_data(self, live_server):
         """The errors page must list errors posted by the examples."""
-        r = requests.get(f"{live_server}/errors")
-        assert r.status_code == 200
-        assert any(svc in r.text for svc in ["curl-demo", "flask-demo", "node-demo"])
+        self._wait_for_any_text(live_server, "/errors", ["curl-demo", "flask-demo", "node-demo"])
 
     def test_rum_page_shows_pageview(self, live_server):
         """The RUM page must display the pageview event from the curl example."""
-        r = requests.get(f"{live_server}/rum")
-        assert r.status_code == 200
-        assert "https://example.com/home" in r.text
+        self._wait_for_any_text(live_server, "/rum", ["https://example.com/home"])
 
     def test_ai_page_shows_llm_events(self, live_server):
         """The AI page must list the LLM events posted by the examples."""
-        r = requests.get(f"{live_server}/ai")
-        assert r.status_code == 200
-        assert "gpt-4o-mini" in r.text
+        self._wait_for_any_text(live_server, "/ai", ["gpt-4o-mini"])
 
 
 # ---------------------------------------------------------------------------
@@ -504,23 +622,9 @@ class TestScreenshots:
     @pytest.fixture(scope="class", autouse=True)
     def _seed_screenshot_data(self, live_server):
         """Pump realistic sample traffic so screenshots show populated views."""
-        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        subprocess.run(
-            [
-                sys.executable,
-                "scripts/load_example.py",
-                "--base",
-                live_server,
-                "--total",
-                "240",
-                "--workers",
-                "24",
-            ],
-            cwd=repo_root,
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        total = int(os.getenv("SOBS_SCREENSHOT_SEED_TOTAL", "240"))
+        workers = int(os.getenv("SOBS_SCREENSHOT_SEED_WORKERS", "24"))
+        _seed_telemetry_data(live_server, total=total, workers=workers)
 
     def _dismiss_tour_modal(self, page: Page) -> None:
         page.evaluate("""
@@ -732,6 +836,13 @@ class TestUIQA:
             d.dismiss()
 
         return _handler
+
+    @pytest.fixture(scope="class", autouse=True)
+    def _seed_uiqa_data(self, live_server: str) -> None:
+        """Seed enough data for stable UI behavior checks in filtered runs."""
+        total = int(os.getenv("SOBS_UIQA_SEED_TOTAL", "64"))
+        workers = int(os.getenv("SOBS_UIQA_SEED_WORKERS", "8"))
+        _seed_telemetry_data(live_server, total=total, workers=workers)
 
     def _init_page(self, page: Page) -> None:
         """Suppress first-run modals for every navigation on this page."""
@@ -1147,13 +1258,46 @@ class TestUIQA:
         page.on("dialog", self._make_dialog_handler(dialog_alerts))
         self._common_checks(page, f"{live_server}/settings/data-management")
         self._check_sidebar_toggle(page)
+
+        backup_toggle = page.locator("#backupEnabled")
+        save_settings_btn = page.locator('button[type="submit"][name="apply_ttl"][value="0"]')
         restore_input = page.locator("#restoreBackupName")
         restore_btn = page.locator("#btnRunRestore")
+
+        revert_backup_toggle = False
+        if restore_input.count() == 0 or restore_btn.count() == 0:
+            if backup_toggle.count() > 0 and save_settings_btn.count() > 0:
+                was_enabled = backup_toggle.is_checked()
+                if not was_enabled:
+                    backup_toggle.click(force=True)
+                    now_enabled = backup_toggle.is_checked()
+                    if not now_enabled:
+                        page.evaluate("""() => {
+                            const el = document.getElementById('backupEnabled');
+                            if (!el) return;
+                            el.checked = true;
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                        }""")
+                        now_enabled = backup_toggle.is_checked()
+                    if now_enabled:
+                        save_settings_btn.click(timeout=7000)
+                        page.wait_for_load_state("domcontentloaded")
+                        self._dismiss_blocking_modals(page)
+                        revert_backup_toggle = True
+
         if restore_input.count() > 0 and restore_btn.count() > 0:
             self._dismiss_blocking_modals(page)
             restore_input.fill("qa-non-destructive-restore-check")
             restore_btn.click(timeout=5000)
             self._open_confirm_and_cancel(page)
+
+        if revert_backup_toggle and backup_toggle.count() > 0 and save_settings_btn.count() > 0:
+            backup_toggle.click(force=True)
+            if not backup_toggle.is_checked():
+                save_settings_btn.click(timeout=7000)
+                page.wait_for_load_state("domcontentloaded")
+                self._dismiss_blocking_modals(page)
+
         assert not dialog_alerts, f"Native browser dialogs on /settings/data-management: {dialog_alerts}"
 
     def test_settings_notifications(self, page: Page, live_server: str) -> None:
@@ -1232,7 +1376,12 @@ class TestUIQA:
         if gen_btn.count() > 0:
             before = self._toast_count(page)
             with self._with_fetch_failure(page):
-                gen_btn.click(timeout=5000, force=True)
+                try:
+                    gen_btn.click(timeout=5000, force=True)
+                except PlaywrightError:
+                    # Some layouts render the button but keep it hidden/collapsed.
+                    # Fallback to a direct DOM click so the error-path handler still runs.
+                    page.evaluate("() => { const b = document.getElementById('generateVapidBtn'); if (b) b.click(); }")
             self._expect_new_toast(page, before, "vapid keys")
         elif regen_btn.count() > 0:
             page.evaluate("""() => {
