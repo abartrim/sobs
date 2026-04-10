@@ -164,80 +164,6 @@ def _otlp_trace_payload(service: str, spans: list) -> dict:
     }
 
 
-def _seed_visibility_baseline(live_server: str) -> None:
-    """Post a minimal deterministic baseline for visibility-page assertions."""
-    req_timeout = 10
-
-    r = requests.post(
-        f"{live_server}/v1/logs",
-        json=_otlp_log_payload("Hello from curl!", "curl-demo"),
-        timeout=req_timeout,
-    )
-    assert r.status_code == 200
-
-    r = requests.post(
-        f"{live_server}/v1/logs",
-        json=_otlp_log_payload("Handling request for user user-123", "my-python-app"),
-        timeout=req_timeout,
-    )
-    assert r.status_code == 200
-
-    r = requests.post(
-        f"{live_server}/v1/traces",
-        json=_otlp_trace_payload(
-            "curl-demo",
-            [_span("curl-span", "abcdef1234567890abcdef1234567890", "1234567890abcdef")],
-        ),
-        timeout=req_timeout,
-    )
-    assert r.status_code == 200
-
-    for svc in ["curl-demo", "flask-demo", "node-demo"]:
-        r = requests.post(
-            f"{live_server}/v1/errors",
-            json={
-                "service": svc,
-                "type": "Error",
-                "message": f"Seeded error for {svc}",
-                "stack": "Error: seeded integration visibility baseline",
-            },
-            timeout=req_timeout,
-        )
-        assert r.status_code == 200
-
-    r = requests.post(
-        f"{live_server}/v1/rum",
-        json={
-            "session_id": "seed-session-visibility",
-            "timestamp": int(time.time() * 1000),
-            "event": "pageview",
-            "url": "https://example.com/home",
-            "path": "/home",
-            "title": "Home",
-            "user_agent": "seed-agent",
-            "service": "curl-demo",
-        },
-        timeout=req_timeout,
-    )
-    assert r.status_code == 200
-
-    r = requests.post(
-        f"{live_server}/v1/ai",
-        json={
-            "service": "node-demo",
-            "provider": "openai",
-            "model": "gpt-4o-mini",
-            "prompt": "seed",
-            "response": "seed",
-            "tokens_in": 1,
-            "tokens_out": 1,
-            "duration_ms": 1,
-        },
-        timeout=req_timeout,
-    )
-    assert r.status_code == 200
-
-
 def _span(
     name: str,
     trace_id: str,
@@ -544,15 +470,7 @@ class TestNodeJsExample:
 
 @pytest.mark.integration
 class TestDataVisibleInUI:
-    """Verify that telemetry posted by the example simulations is visible in the UI."""
-
-    @pytest.fixture(scope="class", autouse=True)
-    def _seed_visibility_data(self, live_server: str) -> None:
-        """Make these tests order-independent by always seeding baseline telemetry."""
-        total = int(os.getenv("SOBS_VISIBILITY_SEED_TOTAL", "48"))
-        workers = int(os.getenv("SOBS_VISIBILITY_SEED_WORKERS", "8"))
-        _seed_telemetry_data(live_server, total=total, workers=workers)
-        _seed_visibility_baseline(live_server)
+    """Verify that telemetry becomes visible in UI pages."""
 
     def _wait_for_any_text(
         self,
@@ -582,32 +500,89 @@ class TestDataVisibleInUI:
         assert "SOBS" in r.text
 
     def test_logs_page_shows_curl_demo_data(self, live_server):
-        """The logs page must display the log posted by the curl example."""
-        self._wait_for_any_text(live_server, "/logs?q=Hello+from+curl", ["Hello from curl!"])
+        """The logs page must display the seeded visibility log."""
+        marker = f"visibility-log-{int(time.time() * 1000)}"
+        r = requests.post(f"{live_server}/v1/logs", json=_otlp_log_payload(marker, "visibility-seed"), timeout=10)
+        assert r.status_code == 200
+        self._wait_for_any_text(live_server, f"/logs?q={marker}", [marker])
 
     def test_logs_page_shows_otel_example_data(self, live_server):
-        """The logs page must display logs from the Python OTel example."""
-        self._wait_for_any_text(live_server, "/logs?q=Handling+request+for+user", ["Handling request for user"])
+        """The logs page must display structured seeded logs."""
+        marker = f"visibility-otel-log-{int(time.time() * 1000)}"
+        r = requests.post(f"{live_server}/v1/logs", json=_otlp_log_payload(marker, "visibility-seed"), timeout=10)
+        assert r.status_code == 200
+        self._wait_for_any_text(live_server, f"/logs?q={marker}", [marker])
 
     def test_traces_page_shows_example_data(self, live_server):
-        """The traces page must display spans from at least one example service."""
+        """The traces page must display seeded visibility traces."""
+        trace_id = f"{int(time.time() * 1000000):032x}"[-32:]
+        r = requests.post(
+            f"{live_server}/v1/traces",
+            json=_otlp_trace_payload("visibility-seed", [_span("visibility-trace-span", trace_id, "1234567890abcdee")]),
+            timeout=10,
+        )
+        assert r.status_code == 200
         self._wait_for_any_text(
             live_server,
             "/traces",
-            ["curl-demo", "my-python-app", "flask-demo", "node-demo"],
+            ["visibility-seed"],
         )
 
     def test_errors_page_shows_example_data(self, live_server):
-        """The errors page must list errors posted by the examples."""
-        self._wait_for_any_text(live_server, "/errors", ["curl-demo", "flask-demo", "node-demo"])
+        """The errors page must list seeded visibility errors."""
+        marker = f"visibility-error-{int(time.time() * 1000)}"
+        r = requests.post(
+            f"{live_server}/v1/errors",
+            json={
+                "service": "visibility-seed",
+                "type": "Error",
+                "message": marker,
+                "stack": "Error: visibility-seed",
+            },
+            timeout=10,
+        )
+        assert r.status_code == 200
+        self._wait_for_any_text(live_server, "/errors", ["visibility-seed", marker])
 
     def test_rum_page_shows_pageview(self, live_server):
-        """The RUM page must display the pageview event from the curl example."""
-        self._wait_for_any_text(live_server, "/rum", ["https://example.com/home"])
+        """The RUM page must display seeded pageview visibility data."""
+        marker = f"https://example.com/visibility/{int(time.time() * 1000)}"
+        r = requests.post(
+            f"{live_server}/v1/rum",
+            json={
+                "session_id": f"visibility-session-{int(time.time() * 1000)}",
+                "timestamp": int(time.time() * 1000),
+                "event": "pageview",
+                "url": marker,
+                "path": "/visibility",
+                "title": "Visibility",
+                "user_agent": "visibility-seed",
+                "service": "visibility-seed",
+            },
+            timeout=10,
+        )
+        assert r.status_code == 200
+        self._wait_for_any_text(live_server, "/rum", [marker])
 
     def test_ai_page_shows_llm_events(self, live_server):
-        """The AI page must list the LLM events posted by the examples."""
-        self._wait_for_any_text(live_server, "/ai", ["gpt-4o-mini"])
+        """The AI page must list seeded LLM visibility events."""
+        model = f"visibility-model-{int(time.time() * 1000)}"
+        r = requests.post(
+            f"{live_server}/v1/ai",
+            json={
+                "service": "visibility-seed",
+                "provider": "openai",
+                "model": model,
+                "prompt": "seed",
+                "response": "seed",
+                "tokens_in": 1,
+                "tokens_out": 1,
+                "duration_ms": 1,
+            },
+            timeout=10,
+        )
+        assert r.status_code == 200
+        self._wait_for_any_text(live_server, "/ai", [model])
 
 
 # ---------------------------------------------------------------------------
@@ -803,11 +778,12 @@ class TestScreenshots:
 
 
 # ---------------------------------------------------------------------------
-# UI Behavioral QA — port of scripts/playwright-toast-qa.mjs
+# UI Behavioral QA
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.integration
+@pytest.mark.uiqa
 class TestUIQA:
     """Browser-based behavioral checks for every UI page.
 
@@ -822,8 +798,8 @@ class TestUIQA:
     - Sidebar toggle + revert
     - Page-specific confirm/notify wiring checks
 
-    Port of scripts/playwright-toast-qa.mjs (Node Playwright) for the Python
-    integration test suite so the existing CI ``integration`` job covers it.
+    Implemented in Python Playwright within the integration test suite so the
+    existing CI ``integration`` job covers it.
     """
 
     # ── helpers ──────────────────────────────────────────────────────────────

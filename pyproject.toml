@@ -16,4 +16,5 @@ pythonpath = ["."]
 asyncio_mode = "auto"
 markers = [
     "integration: mark test as an integration test requiring a live server and Playwright browser",
+    "uiqa: mark Python Playwright UI behavioral tests",
 ]

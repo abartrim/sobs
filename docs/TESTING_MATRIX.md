@@ -1,109 +1,79 @@
 # Testing Matrix
 
-This document defines the recommended split between browser E2E tests and Python tests in this repository.
+This document defines the testing split for SOBS after consolidating browser QA into Python Playwright integration tests.
 
 ## Principles
 
-1. Use Node Playwright as the single source of truth for browser UI behavior and visual capture.
-2. Use Python tests for backend correctness, API contracts, data logic, and integration checks.
-3. Avoid duplicating the same user journey in both Python and Node Playwright.
-4. Keep one smoke path fast and deterministic for PRs; run broader suites on schedule/nightly.
+1. Use Python pytest + Playwright as the source of truth for UI behavior checks.
+2. Keep backend/API correctness tests in Python unit/integration tests.
+3. Avoid duplicate journeys across layers unless there is a clear reliability reason.
+4. Keep PR-required checks deterministic and non-destructive.
 
 ## Current Test Layers
 
-### Layer 1: UI Behavior + Visual Evidence (Node Playwright)
-
-Primary scope:
-- Toast and confirm modal behavior
-- Non-destructive UI state changes and reverts
-- Screenshot artifacts for review/debugging
-- Modal/load-order regressions
-
-Entry point:
-- [scripts/playwright-toast-qa.mjs](scripts/playwright-toast-qa.mjs)
-
-Command:
-- `BASE_URL=http://127.0.0.1:<port> npm run qa:ui:playwright`
-
-Artifacts:
-- `tests/screenshots/playwright-toast-qa-<timestamp>/`
-
-### Layer 2: Backend + Integration (Pytest)
+### Layer 1: Backend + API Correctness (Pytest)
 
 Primary scope:
 - Route/service correctness
-- Data model and storage behavior
-- Integration behavior that does not require browser rendering
+- Data model/storage behavior
+- API contract and edge-case handling
 
 Entry points:
 - [tests/test_app.py](tests/test_app.py)
+- targeted backend tests under [tests/](tests/)
+
+### Layer 2: Integration + Browser UI QA (Pytest + Playwright)
+
+Primary scope:
+- UI notify/confirm behavior
+- Modal layering and interaction behavior
+- Non-destructive UI change-and-revert flows
+- Screenshot artifacts from integration runs
+
+Entry point:
 - [tests/test_integration.py](tests/test_integration.py)
 
-Typical command:
-- `pytest -q`
+Markers:
+- `integration`
+- `uiqa`
 
 ## Ownership and Boundaries
 
-1. Node Playwright owns UI assertions:
-- DOM behavior
-- visual/modal states
-- animation/transition timing correctness
-
-2. Python tests own non-UI assertions:
-- status codes and response payloads
-- DB/business logic outcomes
-- server-side edge cases
-
-3. If a test needs screenshots, keep it in Node Playwright.
-4. If a test can be validated without a browser, prefer Python.
+1. Python Playwright (`tests/test_integration.py`) owns browser-visible UI behavior assertions.
+2. Backend tests own status code, payload, business logic, and storage assertions.
+3. Prefer backend tests when browser rendering is not required.
 
 ## CI Test Tiers
 
-### PR Required (Fast)
+### PR Required
 
-1. Python quick checks:
-- `pytest -q`
+1. Lint/type checks.
+2. Unit tests.
+3. Integration tests (includes Playwright-backed UIQA checks).
 
-2. UI smoke (headless):
-- `BASE_URL=<ephemeral-app-url> npm run qa:ui:playwright`
+Current CI command:
+- `pytest tests/test_integration.py -v`
 
-Target:
-- keep under ~10 minutes total
+### Optional Local Fast Target
 
-### Nightly / Scheduled (Broader)
-
-1. Full Python suite with heavier integration data.
-2. UI Playwright run with retained screenshot artifacts.
-3. Optional cross-browser Playwright expansion if needed.
+Run only browser UI behavior checks:
+- `pytest tests/test_integration.py -m uiqa -v`
 
 ## Suggested Conventions
 
-1. Tag tests by intent, not by language:
-- smoke
-- integration
-- visual
-- destructive
+1. Tag tests by intent:
+- `integration`
+- `uiqa`
 
-2. Keep UI scenarios deterministic:
-- seed minimal data in test flow
-- cleanup seeded records in same run
+2. Keep UI scenarios deterministic and non-destructive:
+- seed only the minimum required data
+- cleanup seeded entities inside the same test flow
 
-3. Keep non-destructive by default:
-- use change-and-revert patterns for setting toggles
+3. Keep data-visibility assertions explicit:
+- tests that validate producer flows should not be auto-masked by global seed fixtures
 
 ## Decision Rule for New Tests
 
-1. Is browser rendering, modal state, animation, or screenshot needed?
-- Yes: add to Node Playwright.
-
-2. Is this API/data behavior without browser-specific UI assertions?
-- Yes: add to Python pytest.
-
-3. Does a similar scenario already exist in one layer?
-- Extend existing layer instead of duplicating in both.
-
-## Future Consolidation Option
-
-If desired later, reduce dual-Playwright maintenance by keeping only Node Playwright for browser E2E and migrating any overlapping Python Playwright tests to either:
-1. Node Playwright (for UI behavior), or
-2. Python pytest (for backend-only behavior).
+1. If browser rendering/state/interaction is required, add to Playwright-backed pytest integration tests.
+2. If browser rendering is not required, prefer backend/unit pytest tests.
+3. Extend an existing layer before introducing a new harness.

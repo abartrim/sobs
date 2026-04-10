@@ -187,8 +187,6 @@ jobs:
 
       - name: Run integration tests
         env:
-          SOBS_VISIBILITY_SEED_TOTAL: "48"
-          SOBS_VISIBILITY_SEED_WORKERS: "8"
           SOBS_UIQA_SEED_TOTAL: "64"
           SOBS_UIQA_SEED_WORKERS: "8"
           SOBS_SCREENSHOT_SEED_TOTAL: "240"
