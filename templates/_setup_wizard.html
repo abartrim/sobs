@@ -478,10 +478,19 @@
     // Listen for the tour closing; if no tour, open after a short delay.
     var tourModal = document.getElementById('firstRunTourModal');
     if (tourModal) {
-      tourModal.addEventListener('hidden.bs.modal', function onTourClose() {
-        tourModal.removeEventListener('hidden.bs.modal', onTourClose);
-        autoOpenWizard();
-      });
+      // Only wait for the tour's hidden.bs.modal event if the tour is actually
+      // going to open for this user. If it has already been seen/shown the event
+      // will never fire, so fall back to a short timeout instead.
+      var tourSeen   = safeGet('sobs.firstRunTourSeen.v1')  === '1';
+      var tourShownF = safeGet('sobs.firstRunTourShown.v1') === '1';
+      if (!tourSeen && !tourShownF) {
+        tourModal.addEventListener('hidden.bs.modal', function onTourClose() {
+          tourModal.removeEventListener('hidden.bs.modal', onTourClose);
+          autoOpenWizard();
+        });
+      } else {
+        setTimeout(autoOpenWizard, 500);
+      }
     } else {
       setTimeout(autoOpenWizard, 500);
     }

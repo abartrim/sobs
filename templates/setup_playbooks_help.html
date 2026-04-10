@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}Setup Playbooks{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1">Setup Playbooks</h4>
+    <p class="text-secondary mb-0">Production-oriented setup guidance for reverse proxies, Kubernetes collector filtering, and full 360 telemetry.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('summary') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Summary
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-1-circle me-1 text-info"></i>Edge and Ingress</h6>
+        <p class="small text-secondary mb-0">Use NGINX, Traefik, or cloud L7 to terminate TLS and route OTLP traffic to your collector.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-2-circle me-1 text-info"></i>Collector Processing</h6>
+        <p class="small text-secondary mb-0">Apply filtering, transform, and batching in collector pipelines to control cost and cardinality.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-3-circle me-1 text-info"></i>360 Telemetry</h6>
+        <p class="small text-secondary mb-0">Collect app, host, and cluster telemetry with Prometheus and OTEL so you can correlate all layers.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-info mb-3">
+  <div class="card-header fw-semibold text-info">
+    <i class="bi bi-diagram-2 me-2"></i>Reference Topology
+  </div>
+  <div class="card-body small">
+    <div class="bg-dark rounded-1 p-3 mb-2">
+      <code class="text-light">SDKs / Agents -> Reverse Proxy (TLS) -> OTEL Collector (filter + batch) -> SOBS OTLP<br>
+      Prometheus exporters (kube-state-metrics, node-exporter, cAdvisor) -> Collector Prometheus receiver -> SOBS</code>
+    </div>
+    <p class="text-secondary mb-0">For Kubernetes, run collector as a Deployment for cluster-level data and optionally a DaemonSet for node-level metrics/logs.</p>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-shield-lock me-2 text-primary"></i>Reverse Proxy and Ingress (NGINX)
+  </div>
+  <div class="card-body small">
+    <p class="text-secondary mb-2">Route OTLP HTTP traffic through your edge while preserving protocol expectations and request body sizes.</p>
+    <div class="bg-dark rounded-1 p-3 mb-2">
+      <code class="text-light">server {<br>
+        &nbsp;&nbsp;listen 443 ssl;<br>
+        &nbsp;&nbsp;server_name otlp.example.com;<br>
+        &nbsp;&nbsp;client_max_body_size 32m;<br>
+        &nbsp;&nbsp;location /v1/ {<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;proxy_pass http://otel-collector.monitoring.svc.cluster.local:4318;<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;proxy_http_version 1.1;<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;proxy_set_header Host $host;<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;proxy_set_header X-Forwarded-Proto $scheme;<br>
+        &nbsp;&nbsp;}<br>
+      }</code>
+    </div>
+    <ul class="mb-0">
+      <li>Use OTLP HTTP on port 4318 at the edge for simpler L7 routing.</li>
+      <li>If using OTLP gRPC, configure HTTP/2 pass-through end-to-end and avoid protocol downgrades.</li>
+      <li>Apply auth at ingress (basic auth, mTLS, or token headers) and document trust boundaries.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-success mb-3">
+  <div class="card-header fw-semibold text-success">
+    <i class="bi bi-funnel me-2"></i>Kubernetes Collector Filtering and Routing
+  </div>
+  <div class="card-body small">
+    <p class="text-secondary mb-2">Use processors to reduce noisy metrics and keep only namespaces/services needed for alerting and dashboards.</p>
+    <div class="bg-dark rounded-1 p-3 mb-2">
+      <code class="text-light">processors:<br>
+        &nbsp;&nbsp;filter/metrics_allowlist:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;metrics:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;include:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;match_type: regexp<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;metric_names:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- ^kube_.*<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- ^node_.*<br>
+        &nbsp;&nbsp;filter/drop_kube_system:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;metrics:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;datapoint:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- resource.attributes["k8s.namespace.name"] == "kube-system"<br>
+        &nbsp;&nbsp;batch:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;timeout: 2s<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;send_batch_size: 2048<br>
+      service:<br>
+        &nbsp;&nbsp;pipelines:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;metrics:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;receivers: [otlp, prometheus]<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;processors: [filter/metrics_allowlist, filter/drop_kube_system, batch]<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;exporters: [otlphttp]</code>
+    </div>
+    <ul class="mb-0">
+      <li>Start with allow-lists to control ingestion growth, then widen selectively.</li>
+      <li>Use separate pipelines for traces, metrics, and logs if retention or routing differs.</li>
+      <li>Add tail-sampling for traces in high-volume clusters.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-hdd-network me-2 text-primary"></i>Prometheus and Cluster Telemetry (360 View)
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:34%">Signal Layer</th>
+          <th>Recommended Sources</th>
+          <th style="width:26%">Collector Receiver</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="fw-semibold">Application</td>
+          <td>OTLP SDKs from services, jobs, and workers</td>
+          <td><code class="small">otlp</code></td>
+        </tr>
+        <tr>
+          <td class="fw-semibold">Host / Node</td>
+          <td>node-exporter, hostmetrics, kubelet cAdvisor</td>
+          <td><code class="small">prometheus</code>, <code class="small">hostmetrics</code></td>
+        </tr>
+        <tr>
+          <td class="fw-semibold">Cluster / Control Plane</td>
+          <td>kube-state-metrics, kube events, API object state</td>
+          <td><code class="small">prometheus</code>, <code class="small">k8s_cluster</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-check2-square me-2 text-primary"></i>Production Checklist
+  </div>
+  <div class="card-body small">
+    <ul class="mb-0">
+      <li>Enable TLS at ingress and restrict OTLP endpoints to trusted networks.</li>
+      <li>Set collector memory limits and queue/retry settings before high-volume rollout.</li>
+      <li>Define allow-list metric filters to avoid unbounded cardinality.</li>
+      <li>Validate namespace coverage for business-critical workloads.</li>
+      <li>Test dashboard and anomaly rules with app plus infra telemetry present.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-0">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-tools me-2 text-warning"></i>Troubleshooting Commands
+  </div>
+  <div class="card-body small">
+    <div class="bg-dark rounded-1 p-3 mb-2">
+      <code class="text-light">kubectl get pods -n monitoring | grep -i otel<br>
+      kubectl logs deployment/otel-collector -n monitoring --tail=200<br>
+      kubectl get servicemonitors,podmonitors -A<br>
+      curl -sv http://localhost:44317/v1/metrics</code>
+    </div>
+    <p class="text-secondary mb-0">If metrics are sparse, inspect collector logs for dropped points and confirm receivers are scraping expected targets.</p>
+  </div>
+</div>
+{% endblock %}

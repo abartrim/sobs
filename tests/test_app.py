@@ -2893,6 +2893,21 @@ class TestUIPages:
         assert b"Auto Make Metric Rules Help" in data
         assert b"Preview First" in data
 
+    async def test_setup_playbooks_help_page(self, client):
+        r = await client.get("/setup/help/playbooks")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Setup Playbooks" in data
+        assert b"Kubernetes Collector Filtering and Routing" in data
+        assert b"Reverse Proxy and Ingress" in data
+
+    async def test_setup_playbooks_sidebar_link_present(self, client):
+        r = await client.get("/")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Setup Playbooks" in data
+        assert b"/setup/help/playbooks" in data
+
     async def test_rum_js_served(self, client):
         r = await client.get("/static/rum.js")
         assert r.status_code == 200
@@ -16902,9 +16917,7 @@ class TestSetupWizard:
         assert r.status_code == 200
         data = await r.get_json()
         assert data["ok"] is True
-        all_cmds = "\n".join(
-            "\n".join(s["commands"]) for s in data["steps"]
-        )
+        all_cmds = "\n".join("\n".join(s["commands"]) for s in data["steps"])
         assert "kubectl apply" in all_cmds
         # prod should include anomaly detection step
         assert any("anomaly" in s["id"] for s in data["steps"])
