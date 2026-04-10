@@ -436,6 +436,26 @@ class TestMasking:
         after_data = await after.get_json()
         assert after_data["masked"] == preview_text
 
+    async def test_custom_masking_pattern_route_rejects_nested_quantifier_pattern(self, client):
+        risky_pattern = r"(a+)+$"
+        created = await client.post("/settings/masking/patterns", form={"pattern": risky_pattern})
+        assert created.status_code in (200, 302)
+
+        rules = await client.get("/api/settings/masking/rules")
+        assert rules.status_code == 200
+        data = await rules.get_json()
+        assert risky_pattern not in (data.get("custom_patterns") or [])
+
+    async def test_custom_masking_pattern_route_rejects_lookbehind_for_js_compat(self, client):
+        js_incompatible_pattern = r"(?<=token=)[A-Za-z0-9]+"
+        created = await client.post("/settings/masking/patterns", form={"pattern": js_incompatible_pattern})
+        assert created.status_code in (200, 302)
+
+        rules = await client.get("/api/settings/masking/rules")
+        assert rules.status_code == 200
+        data = await rules.get_json()
+        assert js_incompatible_pattern not in (data.get("custom_patterns") or [])
+
     async def test_masking_preview_masks_replay_and_screenshot_metadata(self, client):
         replay_payload = {
             "artifact": {

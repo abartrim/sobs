@@ -95,6 +95,9 @@ _MASKING_CUSTOM_PATTERNS_SETTING = "masking.custom_patterns"
 _MASKING_OUTPUT_ENABLED_SETTING = "masking.output_enabled"
 _MASKING_SQL_OUTPUT_ENABLED_SETTING = "masking.sql_output_enabled"
 _SQL_OUTPUT_MASK_FIELD_NAMES = frozenset({"sql", "query", "sample_sql", "override_sql"})
+_MAX_CUSTOM_MASKING_PATTERN_LENGTH = 512
+_REDOS_NESTED_QUANTIFIER_RE = re.compile(r"\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*(?:[+*]|\{\d+,?\d*\})")
+_REDOS_AMBIGUOUS_ALTERNATION_RE = re.compile(r"\((?:[^()\\]|\\.)*\|(?:[^()\\]|\\.)*\)\s*(?:[+*]|\{\d+,?\d*\})")
 _MASKING_RULES_REFRESH_LOCK = threading.Lock()
 _MASKING_LAST_RULES_SIGNATURE: tuple[tuple[str, ...], tuple[str, ...]] | None = None
 _MASKING_SETTINGS_CACHE_LOCK = threading.Lock()
@@ -163,6 +166,76 @@ def _is_truthy_setting(raw: str | None, *, default: bool = False) -> bool:
     if raw is None:
         return default
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_js_regex_flags(flag_text: str) -> str:
+    out = ""
+    for ch in flag_text:
+        if ch in "gimsuy" and ch not in out:
+            out += ch
+    return out
+
+
+def _validate_custom_masking_pattern_for_storage(pattern: Any) -> str:
+    normalized = _masking.validate_pattern(pattern)
+    if len(normalized) > _MAX_CUSTOM_MASKING_PATTERN_LENGTH:
+        raise ValueError(f"Safety check failed: pattern is too long (max {_MAX_CUSTOM_MASKING_PATTERN_LENGTH} chars)")
+
+    if "\\1" in normalized or "\\2" in normalized or "\\3" in normalized:
+        raise ValueError("Safety check failed: backreferences are not allowed in custom masking patterns")
+    if _REDOS_NESTED_QUANTIFIER_RE.search(normalized):
+        raise ValueError(
+            "Safety check failed: pattern contains nested quantifiers and may cause catastrophic backtracking"
+        )
+    if _REDOS_AMBIGUOUS_ALTERNATION_RE.search(normalized):
+        raise ValueError(
+            "Safety check failed: pattern contains quantified alternation and may cause catastrophic backtracking"
+        )
+
+    js_pattern = normalized
+    js_flags = "g"
+    inline_match = re.match(r"^\(\?([a-zA-Z]+)\)", js_pattern)
+    if inline_match:
+        js_flags += _normalize_js_regex_flags(inline_match.group(1))
+        js_pattern = js_pattern[len(inline_match.group(0)) :]
+    js_flags = _normalize_js_regex_flags(js_flags)
+
+    # Mirror the browser helper's Python-to-JS compatibility normalization.
+    js_pattern = js_pattern.replace(r"\A", "^").replace(r"\Z", "$")
+    js_pattern = re.sub(r"\(\?P<[^>]+>", "(", js_pattern)
+
+    if "(?<=" in js_pattern or "(?<!" in js_pattern:
+        raise ValueError(
+            "JavaScript compatibility check failed: lookbehind is not supported for screenshot DOM masking helper"
+        )
+
+    try:
+        py_js_flags = 0
+        if "i" in js_flags:
+            py_js_flags |= re.IGNORECASE
+        if "m" in js_flags:
+            py_js_flags |= re.MULTILINE
+        if "s" in js_flags:
+            py_js_flags |= re.DOTALL
+        re.compile(js_pattern, py_js_flags)
+    except re.error as exc:
+        raise ValueError(f"JavaScript compatibility check failed: {exc}") from exc
+
+    # Light smoke-test to fail fast on patterns that are extremely expensive
+    # in either engine shape before persisting.
+    samples = [
+        "a" * 48 + "!",
+        "customerRef=ZXCVBNM1234 email=ops@example.com",
+        "Authorization: Bearer supersecrettoken123",
+    ]
+    try:
+        for sample in samples:
+            re.sub(normalized, _masking.MASK, sample, flags=re.DOTALL)
+            re.sub(js_pattern, _masking.MASK, sample, flags=py_js_flags)
+    except re.error as exc:
+        raise ValueError(f"Runtime smoke-test failed: {exc}") from exc
+
+    return normalized
 
 
 def _mask_payload_for_output_json(
@@ -21216,7 +21289,7 @@ async def add_masking_pattern():
     raw_pattern = (await request.form).get("pattern")
     settings = _load_masking_settings(db)
     try:
-        pattern = _masking.validate_pattern(raw_pattern)
+        pattern = _validate_custom_masking_pattern_for_storage(raw_pattern)
     except (ValueError, re.error) as exc:
         await flash(f"Invalid regex pattern: {exc}", "warning")
         return redirect(url_for("view_masking_settings"))
@@ -21239,7 +21312,7 @@ async def delete_masking_pattern():
     raw_pattern = (await request.form).get("pattern")
     settings = _load_masking_settings(db)
     try:
-        pattern = _masking.validate_pattern(raw_pattern)
+        pattern = _validate_custom_masking_pattern_for_storage(raw_pattern)
     except (ValueError, re.error):
         await flash("Custom masking pattern not found", "warning")
         return redirect(url_for("view_masking_settings"))
@@ -23359,14 +23432,14 @@ def _load_masking_custom_patterns(db: "ChDbConnection") -> list[str]:
     patterns: list[str] = []
     for value in _load_json_string_list_setting(db, _MASKING_CUSTOM_PATTERNS_SETTING):
         try:
-            patterns.append(_masking.validate_pattern(value))
+            patterns.append(_validate_custom_masking_pattern_for_storage(value))
         except (ValueError, re.error):
             app.logger.warning("Ignoring invalid custom masking pattern from settings")
     return list(dict.fromkeys(patterns))
 
 
 def _save_masking_custom_patterns(db: "ChDbConnection", patterns: list[str]) -> None:
-    normalized = list(dict.fromkeys([_masking.validate_pattern(value) for value in patterns]))
+    normalized = list(dict.fromkeys([_validate_custom_masking_pattern_for_storage(value) for value in patterns]))
     _save_json_string_list_setting(db, _MASKING_CUSTOM_PATTERNS_SETTING, normalized)
 
 

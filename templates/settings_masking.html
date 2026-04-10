@@ -197,10 +197,10 @@
         <h6 class="mb-0"><i class="bi bi-regex me-2 text-info"></i>Add Custom Regex Pattern</h6>
       </div>
       <div class="card-body">
-        <form method="post" action="{{ url_for('add_masking_pattern') }}" class="row g-2 align-items-end">
+        <form method="post" action="{{ url_for('add_masking_pattern') }}" class="row g-2 align-items-end" id="maskingPatternForm">
           <div class="col-sm-9">
             <label class="form-label small text-secondary">Regex pattern</label>
-            <input type="text" name="pattern" class="form-control form-control-sm font-monospace" placeholder="e.g. (?i)customer[_-]?id\s*[=:]\s*\w+" required>
+            <input type="text" name="pattern" id="maskingPatternInput" class="form-control form-control-sm font-monospace" placeholder="e.g. (?i)customer[_-]?id\s*[=:]\s*\w+" required>
           </div>
           <div class="col-sm-3 d-grid">
             <button type="submit" class="btn btn-sm btn-info">
@@ -208,6 +208,7 @@
             </button>
           </div>
         </form>
+        <div class="small text-danger mt-2 d-none" id="maskingPatternValidationError" aria-live="polite"></div>
         <div class="form-text small mt-2">Patterns are applied with DOTALL matching against rendered string values.</div>
       </div>
     </div>
@@ -271,7 +272,80 @@
   var input = document.getElementById('maskPreviewInput');
   var output = document.getElementById('maskPreviewOutput');
   var runBtn = document.getElementById('maskPreviewRunBtn');
+  var patternForm = document.getElementById('maskingPatternForm');
+  var patternInput = document.getElementById('maskingPatternInput');
+  var patternError = document.getElementById('maskingPatternValidationError');
   if (!input || !output || !runBtn) return;
+
+  function normalizeJsFlags(flags) {
+    var out = '';
+    var allowed = 'gimsuy';
+    for (var i = 0; i < flags.length; i += 1) {
+      var ch = flags.charAt(i);
+      if (allowed.indexOf(ch) !== -1 && out.indexOf(ch) === -1) out += ch;
+    }
+    return out;
+  }
+
+  function validatePatternForSubmit(rawPattern) {
+    var pattern = String(rawPattern || '').trim();
+    if (!pattern) return 'Pattern is required';
+    if (pattern.length > 512) return 'Safety check failed: pattern is too long (max 512 chars)';
+    if (/\\[123]/.test(pattern)) return 'Safety check failed: backreferences are not allowed';
+    if (/\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*(?:[+*]|\{\d+,?\d*\})/.test(pattern)) {
+      return 'Safety check failed: nested quantifiers are not allowed';
+    }
+    if (/\((?:[^()\\]|\\.)*\|(?:[^()\\]|\\.)*\)\s*(?:[+*]|\{\d+,?\d*\})/.test(pattern)) {
+      return 'Safety check failed: quantified alternation is not allowed';
+    }
+
+    var jsPattern = pattern;
+    var jsFlags = 'g';
+    var inlineMatch = jsPattern.match(/^\(\?([a-zA-Z]+)\)/);
+    if (inlineMatch) {
+      jsFlags += inlineMatch[1];
+      jsPattern = jsPattern.slice(inlineMatch[0].length);
+    }
+    jsFlags = normalizeJsFlags(jsFlags);
+    jsPattern = jsPattern.replace(/\\A/g, '^').replace(/\\Z/g, '$');
+    jsPattern = jsPattern.replace(/\(\?P<[^>]+>/g, '(');
+
+    if (jsPattern.indexOf('(?<=') !== -1 || jsPattern.indexOf('(?<!') !== -1) {
+      return 'JavaScript compatibility check failed: lookbehind is not supported';
+    }
+
+    try {
+      new RegExp(jsPattern, jsFlags);
+    } catch (err) {
+      return 'JavaScript compatibility check failed: ' + ((err && err.message) ? err.message : 'invalid regex');
+    }
+
+    return '';
+  }
+
+  function showPatternError(message) {
+    if (!patternError) return;
+    patternError.textContent = message || '';
+    patternError.classList.toggle('d-none', !message);
+  }
+
+  if (patternForm && patternInput) {
+    patternForm.addEventListener('submit', function (evt) {
+      var message = validatePatternForSubmit(patternInput.value);
+      if (message) {
+        evt.preventDefault();
+        showPatternError(message);
+      } else {
+        showPatternError('');
+      }
+    });
+
+    patternInput.addEventListener('input', function () {
+      if (patternError && !patternError.classList.contains('d-none')) {
+        showPatternError(validatePatternForSubmit(patternInput.value));
+      }
+    });
+  }
 
   async function runPreview() {
     var raw = input.value || '';
