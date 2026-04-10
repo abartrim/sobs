@@ -327,7 +327,7 @@
       setTimeout(function() { location.reload(); }, 3000);
     })
     .catch(function(err) {
-      alert('Failed to trigger agent run: ' + err);
+      window.SOBS.notify('Failed to trigger agent run: ' + err, { level: 'danger', title: 'Agent Flow' });
     });
   }
 
@@ -338,7 +338,7 @@
   }
 
   // Use event delegation to avoid inline handlers (XSS prevention)
-  document.addEventListener('click', function (e) {
+  document.addEventListener('click', async function (e) {
     var runBtn = e.target.closest('.sobs-run-btn');
     if (runBtn) {
       triggerAgentRun(runBtn.dataset.ruleId, runBtn.dataset.ruleName);
@@ -351,9 +351,20 @@
     }
     var deleteForm = e.target.closest('.sobs-delete-rule-form');
     if (deleteForm && e.target.closest('button[type="submit"]')) {
+      e.preventDefault();
       var ruleName = deleteForm.dataset.ruleName;
-      if (!confirm('Delete agent rule \u201c' + ruleName + '\u201d?')) {
-        e.preventDefault();
+      var confirmed = await window.SOBS.confirm({
+        title: 'Delete Agent Rule',
+        message: 'Delete agent rule "' + ruleName + '"?',
+        okLabel: 'Delete',
+        okClass: 'btn-danger'
+      });
+      if (confirmed) {
+        if (typeof deleteForm.requestSubmit === 'function') {
+          deleteForm.requestSubmit();
+        } else {
+          deleteForm.submit();
+        }
       }
     }
   });

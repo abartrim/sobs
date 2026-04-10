@@ -345,7 +345,7 @@
         .filter(Boolean).join(' · ');
     }
 
-    var url = '/api/setup-wizard/steps'
+    var url = {{ url_for('api_setup_wizard_steps') | tojson }}
       + '?env=' + encodeURIComponent(state.env || 'dev')
       + '&language=' + encodeURIComponent(state.language || 'python')
       + '&deployment=' + encodeURIComponent(state.deployment || 'docker');

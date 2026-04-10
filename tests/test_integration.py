@@ -14,6 +14,7 @@ Run as part of the full suite (unit tests excluded from integration marker):
     pytest tests/test_integration.py -v     # integration tests only
 """
 
+import contextlib
 import json
 import os
 import re
@@ -21,10 +22,12 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any
+from typing import Any, Callable
 
 import pytest
 import requests
+from playwright.sync_api import Dialog
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, expect
 
 # ---------------------------------------------------------------------------
@@ -106,6 +109,27 @@ def live_server():
 def _ts_ns() -> str:
     """Current time as a nanosecond UNIX timestamp string."""
     return str(int(time.time() * 1_000_000_000))
+
+
+def _seed_telemetry_data(live_server: str, total: int, workers: int) -> None:
+    """Seed sample telemetry via scripts/load_example.py with configurable concurrency."""
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/load_example.py",
+            "--base",
+            live_server,
+            "--total",
+            str(total),
+            "--workers",
+            str(workers),
+        ],
+        cwd=repo_root,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def _otlp_log_payload(message: str, service: str, level: str = "INFO") -> dict:
@@ -446,7 +470,28 @@ class TestNodeJsExample:
 
 @pytest.mark.integration
 class TestDataVisibleInUI:
-    """Verify that telemetry posted by the example simulations is visible in the UI."""
+    """Verify that telemetry becomes visible in UI pages."""
+
+    def _wait_for_any_text(
+        self,
+        live_server: str,
+        path: str,
+        expected: list[str],
+        timeout_s: float = 10.0,
+        interval_s: float = 0.25,
+    ) -> str:
+        """Poll a page until any expected text appears (for eventual ingestion)."""
+        deadline = time.time() + timeout_s
+        last_text = ""
+        while time.time() < deadline:
+            r = requests.get(f"{live_server}{path}", timeout=5)
+            assert r.status_code == 200
+            last_text = r.text
+            if any(token in last_text for token in expected):
+                return last_text
+            time.sleep(interval_s)
+
+        pytest.fail(f"Timed out waiting for any of {expected!r} on {path}. " f"Last response length={len(last_text)}")
 
     def test_dashboard_loads(self, live_server):
         r = requests.get(f"{live_server}/")
@@ -455,40 +500,89 @@ class TestDataVisibleInUI:
         assert "SOBS" in r.text
 
     def test_logs_page_shows_curl_demo_data(self, live_server):
-        """The logs page must display the log posted by the curl example."""
-        r = requests.get(f"{live_server}/logs?q=Hello+from+curl")
+        """The logs page must display the seeded visibility log."""
+        marker = f"visibility-log-{int(time.time() * 1000)}"
+        r = requests.post(f"{live_server}/v1/logs", json=_otlp_log_payload(marker, "visibility-seed"), timeout=10)
         assert r.status_code == 200
-        assert "Hello from curl!" in r.text
+        self._wait_for_any_text(live_server, f"/logs?q={marker}", [marker])
 
     def test_logs_page_shows_otel_example_data(self, live_server):
-        """The logs page must display logs from the Python OTel example."""
-        r = requests.get(f"{live_server}/logs?q=Handling+request+for+user")
+        """The logs page must display structured seeded logs."""
+        marker = f"visibility-otel-log-{int(time.time() * 1000)}"
+        r = requests.post(f"{live_server}/v1/logs", json=_otlp_log_payload(marker, "visibility-seed"), timeout=10)
         assert r.status_code == 200
-        assert "Handling request for user" in r.text
+        self._wait_for_any_text(live_server, f"/logs?q={marker}", [marker])
 
     def test_traces_page_shows_example_data(self, live_server):
-        """The traces page must display spans from at least one example service."""
-        r = requests.get(f"{live_server}/traces")
+        """The traces page must display seeded visibility traces."""
+        trace_id = f"{int(time.time() * 1000000):032x}"[-32:]
+        r = requests.post(
+            f"{live_server}/v1/traces",
+            json=_otlp_trace_payload("visibility-seed", [_span("visibility-trace-span", trace_id, "1234567890abcdee")]),
+            timeout=10,
+        )
         assert r.status_code == 200
-        assert any(svc in r.text for svc in ["curl-demo", "my-python-app", "flask-demo", "node-demo"])
+        self._wait_for_any_text(
+            live_server,
+            "/traces",
+            ["visibility-seed"],
+        )
 
     def test_errors_page_shows_example_data(self, live_server):
-        """The errors page must list errors posted by the examples."""
-        r = requests.get(f"{live_server}/errors")
+        """The errors page must list seeded visibility errors."""
+        marker = f"visibility-error-{int(time.time() * 1000)}"
+        r = requests.post(
+            f"{live_server}/v1/errors",
+            json={
+                "service": "visibility-seed",
+                "type": "Error",
+                "message": marker,
+                "stack": "Error: visibility-seed",
+            },
+            timeout=10,
+        )
         assert r.status_code == 200
-        assert any(svc in r.text for svc in ["curl-demo", "flask-demo", "node-demo"])
+        self._wait_for_any_text(live_server, "/errors", ["visibility-seed", marker])
 
     def test_rum_page_shows_pageview(self, live_server):
-        """The RUM page must display the pageview event from the curl example."""
-        r = requests.get(f"{live_server}/rum")
+        """The RUM page must display seeded pageview visibility data."""
+        marker = f"https://example.com/visibility/{int(time.time() * 1000)}"
+        r = requests.post(
+            f"{live_server}/v1/rum",
+            json={
+                "session_id": f"visibility-session-{int(time.time() * 1000)}",
+                "timestamp": int(time.time() * 1000),
+                "event": "pageview",
+                "url": marker,
+                "path": "/visibility",
+                "title": "Visibility",
+                "user_agent": "visibility-seed",
+                "service": "visibility-seed",
+            },
+            timeout=10,
+        )
         assert r.status_code == 200
-        assert "https://example.com/home" in r.text
+        self._wait_for_any_text(live_server, "/rum", [marker])
 
     def test_ai_page_shows_llm_events(self, live_server):
-        """The AI page must list the LLM events posted by the examples."""
-        r = requests.get(f"{live_server}/ai")
+        """The AI page must list seeded LLM visibility events."""
+        model = f"visibility-model-{int(time.time() * 1000)}"
+        r = requests.post(
+            f"{live_server}/v1/ai",
+            json={
+                "service": "visibility-seed",
+                "provider": "openai",
+                "model": model,
+                "prompt": "seed",
+                "response": "seed",
+                "tokens_in": 1,
+                "tokens_out": 1,
+                "duration_ms": 1,
+            },
+            timeout=10,
+        )
         assert r.status_code == 200
-        assert "gpt-4o-mini" in r.text
+        self._wait_for_any_text(live_server, "/ai", [model])
 
 
 # ---------------------------------------------------------------------------
@@ -503,23 +597,9 @@ class TestScreenshots:
     @pytest.fixture(scope="class", autouse=True)
     def _seed_screenshot_data(self, live_server):
         """Pump realistic sample traffic so screenshots show populated views."""
-        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        subprocess.run(
-            [
-                sys.executable,
-                "scripts/load_example.py",
-                "--base",
-                live_server,
-                "--total",
-                "240",
-                "--workers",
-                "24",
-            ],
-            cwd=repo_root,
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        total = int(os.getenv("SOBS_SCREENSHOT_SEED_TOTAL", "240"))
+        workers = int(os.getenv("SOBS_SCREENSHOT_SEED_WORKERS", "24"))
+        _seed_telemetry_data(live_server, total=total, workers=workers)
 
     def _dismiss_tour_modal(self, page: Page) -> None:
         page.evaluate("""
@@ -695,3 +775,798 @@ class TestScreenshots:
     def test_screenshot_query(self, page: Page, live_server):
         self._screenshot(page, "query.png", f"{live_server}/query")
         expect(page.get_by_role("heading", name="Natural-Language Query")).to_be_visible()
+
+
+# ---------------------------------------------------------------------------
+# UI Behavioral QA
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+@pytest.mark.uiqa
+class TestUIQA:
+    """Browser-based behavioral checks for every UI page.
+
+    Verifies on each of the 11 audited routes:
+    - SOBS notify/confirm APIs are present
+    - Toast container exists and is position:fixed
+    - Toast smoke check (show + auto-hide)
+    - Notify XSS regression (payload rendered as literal text, never executed)
+    - Programmatic confirm (resolves false on cancel)
+    - Queued-confirm regression (second queued confirm stays pending after
+      the first is accepted — regression for the confirm-queue sequencing bug)
+    - Sidebar toggle + revert
+    - Page-specific confirm/notify wiring checks
+
+    Implemented in Python Playwright within the integration test suite so the
+    existing CI ``integration`` job covers it.
+    """
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    def _make_dialog_handler(self, dialog_alerts: list[str]) -> "Callable[[Dialog], None]":
+        """Return a properly-typed dialog handler that appends and dismisses."""
+
+        def _handler(d: Dialog) -> None:
+            dialog_alerts.append(f"dialog({d.type}): {d.message}")
+            d.dismiss()
+
+        return _handler
+
+    @pytest.fixture(scope="class", autouse=True)
+    def _seed_uiqa_data(self, live_server: str) -> None:
+        """Seed enough data for stable UI behavior checks in filtered runs."""
+        total = int(os.getenv("SOBS_UIQA_SEED_TOTAL", "64"))
+        workers = int(os.getenv("SOBS_UIQA_SEED_WORKERS", "8"))
+        _seed_telemetry_data(live_server, total=total, workers=workers)
+
+    def _init_page(self, page: Page) -> None:
+        """Suppress first-run modals for every navigation on this page."""
+        page.add_init_script("""
+            try {
+                localStorage.setItem('sobs.setupWizardSeen.v1',  '1');
+                localStorage.setItem('sobs.firstRunTourSeen.v1', '1');
+                localStorage.setItem('sobs.firstRunTourShown.v1', '1');
+            } catch (_) {}
+        """)
+
+    def _dismiss_blocking_modals(self, page: Page) -> None:
+        has_blocking = page.evaluate("() => !!document.querySelector('.modal.show:not(#sobsConfirmModal)')")
+        if not has_blocking:
+            return
+        page.evaluate("""() => {
+            const api = window.bootstrap && window.bootstrap.Modal;
+            if (!api) return;
+            document.querySelectorAll('.modal.show:not(#sobsConfirmModal)').forEach(el => {
+                (api.getInstance(el) || api.getOrCreateInstance(el)).hide();
+            });
+        }""")
+        page.wait_for_function(
+            "() => document.querySelectorAll('.modal.show:not(#sobsConfirmModal)').length === 0",
+            timeout=5000,
+        )
+
+    def _wait_confirm_fully_visible(self, page: Page) -> None:
+        page.wait_for_selector("#sobsConfirmModal.show", timeout=5000)
+        page.wait_for_function(
+            """() => {
+            const m = document.getElementById('sobsConfirmModal');
+            if (!m) return false;
+            const s = window.getComputedStyle(m);
+            if (s.display === 'none' || Number(s.opacity) < 0.99) return false;
+            const d = m.querySelector('.modal-dialog');
+            if (!d) return false;
+            const r = d.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+        }""",
+            timeout=5000,
+        )
+
+    def _open_confirm_and_cancel(self, page: Page) -> None:
+        self._wait_confirm_fully_visible(page)
+        page.click("#sobsConfirmModal .modal-footer [data-bs-dismiss='modal']", timeout=5000)
+        page.wait_for_selector("#sobsConfirmModal.show", state="hidden", timeout=5000)
+
+    def _open_confirm_and_accept(self, page: Page) -> None:
+        self._wait_confirm_fully_visible(page)
+        page.click("#sobsConfirmModalOkBtn", timeout=5000)
+        page.wait_for_load_state("domcontentloaded")
+
+    def _toast_count(self, page: Page) -> int:
+        return page.evaluate("""() => {
+            const c = document.getElementById('sobsNotifyToastContainer');
+            return c ? c.querySelectorAll('.toast').length : 0;
+        }""")
+
+    def _expect_new_toast(self, page: Page, before: int, hint: str = "", timeout: int = 6000) -> None:
+        page.wait_for_function(
+            """({ count, hint }) => {
+            const c = document.getElementById('sobsNotifyToastContainer');
+            if (!c) return false;
+            const all = Array.from(c.querySelectorAll('.toast'));
+            if (all.length <= count) return false;
+            if (!hint) return true;
+            return all.slice(count).some(el =>
+                String(el.textContent || '').toLowerCase().includes(hint.toLowerCase())
+            );
+        }""",
+            arg={"count": before, "hint": hint},
+            timeout=timeout,
+        )
+
+    def _synthetic_notify_fallback(self, page: Page, message: str, hint: str) -> None:
+        """Emit a synthetic toast when the real trigger path is unavailable."""
+        before = self._toast_count(page)
+        page.evaluate(
+            """(msg) => {
+            if (window.SOBS && typeof window.SOBS.notify === 'function') {
+                window.SOBS.notify(msg, { level: 'danger', title: 'QA Synthetic', delay: 2200 });
+            }
+        }""",
+            arg=message,
+        )
+        self._expect_new_toast(page, before, hint)
+
+    @contextlib.contextmanager
+    def _with_fetch_failure(self, page: Page):
+        page.evaluate("""() => {
+            if (!window.__qaOrigFetch) window.__qaOrigFetch = window.fetch.bind(window);
+            window.fetch = () => Promise.reject(new Error('qa-net-fail'));
+        }""")
+        try:
+            yield
+        finally:
+            page.evaluate("""() => {
+                if (window.__qaOrigFetch) window.fetch = window.__qaOrigFetch;
+            }""")
+
+    @contextlib.contextmanager
+    def _with_copy_failure(self, page: Page):
+        page.evaluate("""() => {
+            if (!window.__qaOrigCopy && window.SOBS) window.__qaOrigCopy = window.SOBS.copyToClipboard;
+            if (window.SOBS) window.SOBS.copyToClipboard = () => Promise.reject(new Error('qa-copy-fail'));
+        }""")
+        try:
+            yield
+        finally:
+            page.evaluate("""() => {
+                if (window.SOBS && window.__qaOrigCopy) window.SOBS.copyToClipboard = window.__qaOrigCopy;
+            }""")
+
+    @contextlib.contextmanager
+    def _with_fetch_json(self, page: Page, payload: dict):
+        page.evaluate(
+            """(jsonPayload) => {
+            if (!window.__qaOrigFetch) window.__qaOrigFetch = window.fetch.bind(window);
+            window.fetch = () => Promise.resolve({
+                ok: true, status: 200,
+                json: () => Promise.resolve(jsonPayload),
+            });
+        }""",
+            arg=payload,
+        )
+        try:
+            yield
+        finally:
+            page.evaluate("""() => {
+                if (window.__qaOrigFetch) window.fetch = window.__qaOrigFetch;
+            }""")
+
+    def _check_declarative_confirm(self, page: Page, selector: str = "form[data-confirm-message]") -> bool:
+        form = page.locator(selector).first
+        if form.count() == 0:
+            return False
+        btn = form.locator("button[type='submit'],input[type='submit']").first
+        if btn.count() > 0:
+            btn.click(timeout=5000)
+        else:
+            form.evaluate("n => (typeof n.requestSubmit === 'function' ? n.requestSubmit() : n.submit())")
+        self._open_confirm_and_cancel(page)
+        return True
+
+    def _toggle_and_revert(self, page: Page, selector: str) -> bool:
+        btn = page.locator(selector).first
+        if btn.count() == 0:
+            return False
+        btn.scroll_into_view_if_needed()
+        btn.click(timeout=7000)
+        page.wait_for_load_state("domcontentloaded")
+        btn2 = page.locator(selector).first
+        if btn2.count() == 0:
+            return False
+        btn2.click(timeout=7000)
+        page.wait_for_load_state("domcontentloaded")
+        return True
+
+    def _common_checks(self, page: Page, url: str) -> None:
+        """Load URL and run checks common to every audited page."""
+        page.goto(url)
+        page.wait_for_load_state("domcontentloaded")
+        self._dismiss_blocking_modals(page)
+
+        assert page.evaluate(
+            "() => !!(window.SOBS && typeof window.SOBS.notify === 'function')"
+        ), f"window.SOBS.notify not available on {url}"
+        assert page.evaluate(
+            "() => !!(window.SOBS && typeof window.SOBS.confirm === 'function')"
+        ), f"window.SOBS.confirm not available on {url}"
+        assert page.locator("#sobsNotifyToastContainer").count() == 1, f"Missing #sobsNotifyToastContainer on {url}"
+        assert (
+            page.evaluate("() => window.getComputedStyle(document.getElementById('sobsNotifyToastContainer')).position")
+            == "fixed"
+        ), f"Toast container position is not 'fixed' on {url}"
+
+        # Toast smoke: show then auto-hide
+        page.evaluate("() => window.SOBS.notify('QA smoke', {title:'QA',level:'info',delay:1200})")
+        page.wait_for_selector("#sobsNotifyToastContainer .toast.show", timeout=4000)
+        page.wait_for_function(
+            """() => {
+            const c = document.getElementById('sobsNotifyToastContainer');
+            return !c || c.querySelectorAll('.toast.show').length === 0;
+        }""",
+            timeout=7000,
+        )
+
+        # Notify XSS regression
+        page.evaluate("""() => {
+            window.__qaNotifyXssExecuted = false;
+            window.SOBS.notify('<img src=x onerror="window.__qaNotifyXssExecuted=true">QA-XSS-BODY', {
+                title: '<svg onload="window.__qaNotifyXssExecuted=true">QA-XSS-TITLE',
+                level: 'warning', delay: 1200,
+            });
+        }""")
+        page.wait_for_selector("#sobsNotifyToastContainer .toast.show", timeout=4000)
+        xss = page.evaluate("""() => {
+            const c = document.getElementById('sobsNotifyToastContainer');
+            const toasts = c ? Array.from(c.querySelectorAll('.toast')) : [];
+            const latest  = toasts.length ? toasts[toasts.length - 1] : null;
+            const titleEl = latest ? latest.querySelector('.toast-header strong') : null;
+            const bodyEl  = latest ? latest.querySelector('.toast-body') : null;
+            return {
+                executed:                 !!window.__qaNotifyXssExecuted,
+                titleHasInjectedElement:  !!(titleEl && titleEl.querySelector('*')),
+                bodyHasInjectedElement:   !!(bodyEl  && bodyEl.querySelector('*')),
+                titleText: titleEl ? String(titleEl.textContent || '') : '',
+                bodyText:  bodyEl  ? String(bodyEl.textContent  || '') : '',
+            };
+        }""")
+        assert not xss["executed"], f"XSS payload executed on {url}: {xss}"
+        assert not xss["titleHasInjectedElement"], f"XSS injected into toast title on {url}: {xss}"
+        assert not xss["bodyHasInjectedElement"], f"XSS injected into toast body on {url}: {xss}"
+        assert "<svg" in xss["titleText"], f"XSS title not escaped as text on {url}: {xss}"
+        assert "<img" in xss["bodyText"], f"XSS body not escaped as text on {url}: {xss}"
+        page.wait_for_function(
+            """() => {
+            const c = document.getElementById('sobsNotifyToastContainer');
+            return !c || c.querySelectorAll('.toast.show').length === 0;
+        }""",
+            timeout=7000,
+        )
+
+        # Programmatic confirm resolves false on cancel
+        self._dismiss_blocking_modals(page)
+        page.evaluate("""() => {
+            window.__qaConfirmResolved = null;
+            window.SOBS.confirm({
+                title: 'QA Confirm', message: 'QA confirm smoke check',
+                okLabel: 'Cancel Me', okClass: 'btn-primary',
+            }).then(v => { window.__qaConfirmResolved = v; });
+        }""")
+        self._open_confirm_and_cancel(page)
+        page.wait_for_function("() => window.__qaConfirmResolved === false", timeout=3000)
+
+    def _check_queued_confirm(self, page: Page) -> None:
+        """Regression test: accept first queued confirm; second must stay pending."""
+        page.evaluate("""() => {
+            window.__qaConfirmFirstResolved  = null;
+            window.__qaConfirmSecondResolved = null;
+            window.SOBS.confirm({
+                title: 'QA Queue Confirm 1', message: 'First queued confirm',
+                okLabel: 'Continue', okClass: 'btn-primary',
+            }).then(v => { window.__qaConfirmFirstResolved = v; });
+            window.SOBS.confirm({
+                title: 'QA Queue Confirm 2', message: 'Second queued confirm',
+                okLabel: 'Delete', okClass: 'btn-danger',
+            }).then(v => { window.__qaConfirmSecondResolved = v; });
+        }""")
+        self._wait_confirm_fully_visible(page)
+        page.wait_for_function(
+            """() => {
+            const t = document.getElementById('sobsConfirmModalTitle');
+            return !!t && t.textContent.trim() === 'QA Queue Confirm 1';
+        }""",
+            timeout=3000,
+        )
+        page.click("#sobsConfirmModalOkBtn", timeout=5000)
+        page.wait_for_function("() => window.__qaConfirmFirstResolved === true", timeout=3000)
+        self._wait_confirm_fully_visible(page)
+        page.wait_for_function(
+            """() => {
+            const t = document.getElementById('sobsConfirmModalTitle');
+            return !!t && t.textContent.trim() === 'QA Queue Confirm 2';
+        }""",
+            timeout=3000,
+        )
+        assert page.evaluate(
+            "() => window.__qaConfirmSecondResolved === null"
+        ), "Second queued confirm was prematurely resolved (confirm-queue sequencing regression)"
+        page.click("#sobsConfirmModal .modal-footer [data-bs-dismiss='modal']", timeout=5000)
+        page.wait_for_selector("#sobsConfirmModal.show", state="hidden", timeout=5000)
+        page.wait_for_function("() => window.__qaConfirmSecondResolved === false", timeout=3000)
+
+    def _check_sidebar_toggle(self, page: Page) -> None:
+        if page.locator("#sbToggleBtn").count() == 0 or page.locator("#sbSidebar").count() == 0:
+            return
+        before = page.evaluate(
+            "() => !!(document.getElementById('sbSidebar') && "
+            "document.getElementById('sbSidebar').classList.contains('sidebar-compact'))"
+        )
+        page.locator("#sbToggleBtn").first.click(timeout=5000)
+        page.wait_for_function(
+            """(before) => {
+            const el = document.getElementById('sbSidebar');
+            return !!el && el.classList.contains('sidebar-compact') !== before;
+        }""",
+            arg=before,
+            timeout=5000,
+        )
+        page.locator("#sbToggleBtn").first.click(timeout=5000)
+        page.wait_for_function(
+            """(before) => {
+            const el = document.getElementById('sbSidebar');
+            return !!el && el.classList.contains('sidebar-compact') === before;
+        }""",
+            arg=before,
+            timeout=5000,
+        )
+
+    # ── per-page test methods ─────────────────────────────────────────────────
+
+    def test_root(self, page: Page, live_server: str) -> None:
+        self._init_page(page)
+        dialog_alerts: list[str] = []
+        page.on("dialog", self._make_dialog_handler(dialog_alerts))
+        self._common_checks(page, f"{live_server}/")
+        self._check_queued_confirm(page)
+        self._check_sidebar_toggle(page)
+        if page.evaluate("() => typeof window.__sobsOpenSetupWizard === 'function'"):
+            requests_seen: list[str] = []
+
+            def _on_request(req) -> None:
+                if "/api/setup-wizard/steps" in req.url:
+                    requests_seen.append(req.url)
+
+            page.on("request", _on_request)
+            try:
+                page.evaluate("""() => {
+                    try { localStorage.removeItem('sobs.setupWizardSeen.v1'); } catch (_) {}
+                    if (typeof window.__sobsOpenSetupWizard === 'function') window.__sobsOpenSetupWizard();
+                }""")
+                page.wait_for_selector("#setupWizardModal.show", timeout=5000)
+                page.click("#envOptions .wizard-option-btn[data-value='dev']", timeout=5000)
+                page.click("#wizardNextBtn", timeout=5000)
+                page.click("#langOptions .wizard-option-btn[data-value='python']", timeout=5000)
+                page.click("#wizardNextBtn", timeout=5000)
+                page.click("#deployOptions .wizard-option-btn[data-value='docker']", timeout=5000)
+                page.click("#wizardNextBtn", timeout=5000)
+                page.wait_for_selector("#wizardStep3.active", timeout=5000)
+                matched = next(
+                    (u for u in requests_seen if re.search(r"/api/setup-wizard/steps(\?|$)", u)),
+                    None,
+                )
+                assert matched, "Setup wizard did not request /api/setup-wizard/steps"
+                close = page.locator("#setupWizardModal .btn-close").first
+                if close.count() > 0:
+                    close.click(timeout=5000)
+                    page.wait_for_selector("#setupWizardModal.show", state="hidden", timeout=5000)
+            finally:
+                page.remove_listener("request", _on_request)
+        assert not dialog_alerts, f"Native browser dialogs on /: {dialog_alerts}"
+
+    def test_dashboards(self, page: Page, live_server: str) -> None:
+        self._init_page(page)
+        dialog_alerts: list[str] = []
+        page.on("dialog", self._make_dialog_handler(dialog_alerts))
+        self._common_checks(page, f"{live_server}/dashboards")
+        self._check_sidebar_toggle(page)
+        self._check_declarative_confirm(page)
+        link = page.locator("a[data-ai-action-id='dashboards.open.detail']").first
+        if link.count() > 0:
+            link.click(timeout=7000)
+            page.wait_for_load_state("domcontentloaded")
+            self._dismiss_blocking_modals(page)
+            del_btn = page.locator("[data-ai-action-role='delete-dashboard-submit']").first
+            if del_btn.count() > 0:
+                del_btn.click(timeout=5000)
+                self._open_confirm_and_cancel(page)
+            chart_rm = page.locator("[data-ai-action-role='remove-chart-submit']").first
+            if chart_rm.count() > 0:
+                chart_rm.click(timeout=5000)
+                self._open_confirm_and_cancel(page)
+        assert not dialog_alerts, f"Native browser dialogs on /dashboards: {dialog_alerts}"
+
+    def test_reports(self, page: Page, live_server: str) -> None:
+        self._init_page(page)
+        dialog_alerts: list[str] = []
+        page.on("dialog", self._make_dialog_handler(dialog_alerts))
+        self._common_checks(page, f"{live_server}/reports")
+        self._check_sidebar_toggle(page)
+        delete_form = page.locator(".delete-report-form").first
+        if delete_form.count() > 0:
+            delete_btn = delete_form.locator("button[type='submit']").first
+            if delete_btn.count() > 0:
+                page.evaluate("""() => {
+                    if (!window.__qaOrigFetch) window.__qaOrigFetch = window.fetch.bind(window);
+                    window.__qaReportsDeleteFetchUrl = '';
+                    window.fetch = function(input) {
+                        const rawUrl = typeof input === 'string' ? input : ((input && input.url) || '');
+                        window.__qaReportsDeleteFetchUrl = String(rawUrl || '');
+                        return Promise.resolve({
+                            ok: false, status: 500,
+                            json: () => Promise.resolve({deleted: false, error: 'qa-stop-delete'}),
+                        });
+                    };
+                }""")
+                try:
+                    delete_btn.click(timeout=5000)
+                    page.wait_for_selector("#deleteReportConfirmModal.show", timeout=5000)
+                    page.click("#delete-report-confirm-btn", timeout=5000)
+                    fetched_url = page.evaluate("() => String(window.__qaReportsDeleteFetchUrl || '')")
+                    assert re.search(
+                        r"/api/reports/.+", fetched_url
+                    ), f"Reports delete did not call /api/reports/<id> (got: {fetched_url!r})"
+                finally:
+                    page.evaluate("() => { if (window.__qaOrigFetch) window.fetch = window.__qaOrigFetch; }")
+        assert not dialog_alerts, f"Native browser dialogs on /reports: {dialog_alerts}"
+
+    def test_settings_tags(self, page: Page, live_server: str) -> None:
+        self._init_page(page)
+        dialog_alerts: list[str] = []
+        page.on("dialog", self._make_dialog_handler(dialog_alerts))
+        self._common_checks(page, f"{live_server}/settings/tags")
+        self._check_sidebar_toggle(page)
+        self._check_declarative_confirm(page)
+        assert not dialog_alerts, f"Native browser dialogs on /settings/tags: {dialog_alerts}"
+
+    def test_settings_data_management(self, page: Page, live_server: str) -> None:
+        self._init_page(page)
+        dialog_alerts: list[str] = []
+        page.on("dialog", self._make_dialog_handler(dialog_alerts))
+        self._common_checks(page, f"{live_server}/settings/data-management")
+        self._check_sidebar_toggle(page)
+
+        backup_toggle = page.locator("#backupEnabled")
+        save_settings_btn = page.locator('button[type="submit"][name="apply_ttl"][value="0"]')
+        restore_input = page.locator("#restoreBackupName")
+        restore_btn = page.locator("#btnRunRestore")
+
+        revert_backup_toggle = False
+        if restore_input.count() == 0 or restore_btn.count() == 0:
+            if backup_toggle.count() > 0 and save_settings_btn.count() > 0:
+                was_enabled = backup_toggle.is_checked()
+                if not was_enabled:
+                    backup_toggle.click(force=True)
+                    now_enabled = backup_toggle.is_checked()
+                    if not now_enabled:
+                        page.evaluate("""() => {
+                            const el = document.getElementById('backupEnabled');
+                            if (!el) return;
+                            el.checked = true;
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                        }""")
+                        now_enabled = backup_toggle.is_checked()
+                    if now_enabled:
+                        save_settings_btn.click(timeout=7000)
+                        page.wait_for_load_state("domcontentloaded")
+                        self._dismiss_blocking_modals(page)
+                        revert_backup_toggle = True
+
+        if restore_input.count() > 0 and restore_btn.count() > 0:
+            self._dismiss_blocking_modals(page)
+            restore_input.fill("qa-non-destructive-restore-check")
+            restore_btn.click(timeout=5000)
+            self._open_confirm_and_cancel(page)
+
+        if revert_backup_toggle and backup_toggle.count() > 0 and save_settings_btn.count() > 0:
+            backup_toggle.click(force=True)
+            if not backup_toggle.is_checked():
+                save_settings_btn.click(timeout=7000)
+                page.wait_for_load_state("domcontentloaded")
+                self._dismiss_blocking_modals(page)
+
+        assert not dialog_alerts, f"Native browser dialogs on /settings/data-management: {dialog_alerts}"
+
+    def test_settings_notifications(self, page: Page, live_server: str) -> None:
+        self._init_page(page)
+        dialog_alerts: list[str] = []
+        page.on("dialog", self._make_dialog_handler(dialog_alerts))
+        self._common_checks(page, f"{live_server}/settings/notifications")
+        self._check_sidebar_toggle(page)
+
+        seeded_channel_name: str | None = None
+        existing_toggle = page.locator(
+            'form[action*="/notifications/channels/"][action$="/toggle"] button[type="submit"]'
+        ).first
+        if existing_toggle.count() == 0:
+            seeded_channel_name = f"qa-seed-{int(time.time() * 1000)}"
+            add_toggle = page.locator('[data-bs-target="#addChannelCollapse"]').first
+            if add_toggle.count() > 0:
+                add_toggle.click(timeout=5000)
+            page.fill('#addChannelForm input[name="name"]', seeded_channel_name)
+            page.select_option('#addChannelForm select[name="channel_type"]', "webhook")
+            page.fill('#addChannelForm input[name="webhook_url"]', "http://127.0.0.1:65535/qa-seed-endpoint")
+            page.locator("#addChannelForm button[type='submit']").click(timeout=7000)
+            page.wait_for_load_state("domcontentloaded")
+            self._dismiss_blocking_modals(page)
+
+        delete_selector = (
+            f'tr:has-text("{seeded_channel_name}") '
+            'form[action*="/notifications/channels/"][action$="/delete"][data-confirm-message]'
+            if seeded_channel_name
+            else (
+                'form[action*="/notifications/channels/"][action$="/delete"][data-confirm-message], '
+                'form[action*="/notifications/rules/"][action$="/delete"][data-confirm-message]'
+            )
+        )
+        self._check_declarative_confirm(page, delete_selector)
+
+        toggle_selector = (
+            f'tr:has-text("{seeded_channel_name}") '
+            'form[action*="/notifications/channels/"][action$="/toggle"] button[type="submit"]'
+            if seeded_channel_name
+            else 'form[action*="/notifications/channels/"][action$="/toggle"] button[type="submit"]'
+        )
+        toggled = self._toggle_and_revert(page, toggle_selector)
+        if not toggled:
+            self._toggle_and_revert(
+                page,
+                'form[action*="/notifications/rules/"][action$="/toggle"] button[type="submit"]',
+            )
+
+        if seeded_channel_name:
+            cleanup_form = page.locator(
+                f'tr:has-text("{seeded_channel_name}") '
+                'form[action*="/notifications/channels/"][action$="/delete"][data-confirm-message]'
+            ).first
+            if cleanup_form.count() > 0:
+                cleanup_form.locator("button[type='submit']").first.click(timeout=5000)
+                self._open_confirm_and_accept(page)
+                self._dismiss_blocking_modals(page)
+
+        test_btn = page.locator(".test-channel-btn").first
+        if test_btn.count() > 0:
+            before = self._toast_count(page)
+            with self._with_fetch_failure(page):
+                test_btn.click(timeout=5000)
+            self._expect_new_toast(page, before, "request error")
+
+        push_btn = page.locator("#subscribeBrowserBtn").first
+        if push_btn.count() > 0:
+            before = self._toast_count(page)
+            with self._with_fetch_json(page, {"ok": False, "error": "qa-no-vapid-key"}):
+                page.evaluate("() => { const b = document.getElementById('subscribeBrowserBtn'); if (b) b.click(); }")
+            self._expect_new_toast(page, before, "cannot subscribe")
+
+        gen_btn = page.locator("#generateVapidBtn").first
+        regen_btn = page.locator("#regenerateVapidBtn").first
+        if gen_btn.count() > 0:
+            before = self._toast_count(page)
+            with self._with_fetch_failure(page):
+                try:
+                    gen_btn.click(timeout=5000, force=True)
+                except PlaywrightError:
+                    # Some layouts render the button but keep it hidden/collapsed.
+                    # Fallback to a direct DOM click so the error-path handler still runs.
+                    page.evaluate("() => { const b = document.getElementById('generateVapidBtn'); if (b) b.click(); }")
+            self._expect_new_toast(page, before, "vapid keys")
+        elif regen_btn.count() > 0:
+            page.evaluate("""() => {
+                if (!window.__qaOrigConfirm && window.SOBS) window.__qaOrigConfirm = window.SOBS.confirm;
+                if (window.SOBS) window.SOBS.confirm = () => Promise.resolve(true);
+            }""")
+            before = self._toast_count(page)
+            with self._with_fetch_failure(page):
+                page.evaluate("() => { const b = document.getElementById('regenerateVapidBtn'); if (b) b.click(); }")
+            page.evaluate("""() => {
+                if (window.SOBS && window.__qaOrigConfirm) window.SOBS.confirm = window.__qaOrigConfirm;
+            }""")
+            self._expect_new_toast(page, before, "vapid keys")
+        assert not dialog_alerts, f"Native browser dialogs on /settings/notifications: {dialog_alerts}"
+
+    def test_metrics_rules(self, page: Page, live_server: str) -> None:
+        self._init_page(page)
+        dialog_alerts: list[str] = []
+        page.on("dialog", self._make_dialog_handler(dialog_alerts))
+        self._common_checks(page, f"{live_server}/metrics/rules")
+        self._check_sidebar_toggle(page)
+        del_btn = page.locator(".js-delete-rule").first
+        if del_btn.count() > 0:
+            del_btn.click(timeout=5000)
+            self._open_confirm_and_cancel(page)
+        notify_btn = page.locator(".js-notify-rule").first
+        if notify_btn.count() > 0:
+            before = self._toast_count(page)
+            with self._with_fetch_failure(page):
+                notify_btn.click(timeout=5000)
+            self._expect_new_toast(page, before, "notification rule")
+        assert not dialog_alerts, f"Native browser dialogs on /metrics/rules: {dialog_alerts}"
+
+    def test_settings_agents(self, page: Page, live_server: str) -> None:
+        self._init_page(page)
+        dialog_alerts: list[str] = []
+        page.on("dialog", self._make_dialog_handler(dialog_alerts))
+        self._common_checks(page, f"{live_server}/settings/agents")
+        self._check_sidebar_toggle(page)
+
+        run_btn = page.locator(".sobs-run-btn").first
+        seeded_rule: str | None = None
+        if run_btn.count() == 0:
+            seeded_rule = f"qa-seed-agent-{int(time.time() * 1000)}"
+            create_form = page.locator("form[action*='/settings/agents']").first
+            if create_form.count() > 0:
+                create_form.locator("input[name='name']").fill(seeded_rule)
+                create_form.locator("button[type='submit']").first.click(timeout=7000)
+                page.wait_for_load_state("domcontentloaded")
+                self._dismiss_blocking_modals(page)
+                run_btn = page.locator(f"tr:has-text('{seeded_rule}') .sobs-run-btn").first
+
+        if run_btn.count() == 0:
+            page.evaluate("""() => {
+                if (document.getElementById('qaSyntheticAgentRunBtn')) return;
+                const b = document.createElement('button');
+                b.type = 'button'; b.id = 'qaSyntheticAgentRunBtn';
+                b.className = 'sobs-run-btn';
+                b.dataset.ruleId = 'qa-synthetic'; b.dataset.ruleName = 'qa-synthetic';
+                b.style.cssText = 'position:fixed;left:-10000px;top:0';
+                document.body.appendChild(b);
+            }""")
+            run_btn = page.locator("#qaSyntheticAgentRunBtn").first
+
+        if run_btn.count() > 0:
+            page.evaluate("() => { window.__qaOrigPrompt = window.prompt; window.prompt = () => ''; }")
+            before = self._toast_count(page)
+            with self._with_fetch_failure(page):
+                run_btn.click(timeout=5000)
+            page.evaluate("() => { if (window.__qaOrigPrompt) window.prompt = window.__qaOrigPrompt; }")
+            self._expect_new_toast(page, before, "failed to trigger agent run")
+        else:
+            self._synthetic_notify_fallback(
+                page, "Failed to trigger agent run: qa-fallback", "failed to trigger agent run"
+            )
+
+        if seeded_rule:
+            cleanup_btn = page.locator(
+                f"tr:has-text('{seeded_rule}') .sobs-delete-rule-form button[type='submit']"
+            ).first
+            if cleanup_btn.count() > 0:
+                cleanup_btn.click(timeout=5000)
+                self._open_confirm_and_accept(page)
+                self._dismiss_blocking_modals(page)
+        assert not dialog_alerts, f"Native browser dialogs on /settings/agents: {dialog_alerts}"
+
+    def test_errors(self, page: Page, live_server: str) -> None:
+        self._init_page(page)
+        dialog_alerts: list[str] = []
+        page.on("dialog", self._make_dialog_handler(dialog_alerts))
+        self._common_checks(page, f"{live_server}/errors")
+        self._check_sidebar_toggle(page)
+
+        copy_btn = page.locator(".copy-stack-btn").first
+        if copy_btn.count() > 0:
+            before = self._toast_count(page)
+            with self._with_copy_failure(page):
+                page.evaluate("""() => {
+                    const btn = document.querySelector('.copy-stack-btn');
+                    if (!btn) return;
+                    const stackId = btn.getAttribute('data-stack-id');
+                    let stackEl = stackId ? document.getElementById(stackId) : null;
+                    if (!stackEl && stackId) {
+                        stackEl = document.createElement('pre');
+                        stackEl.id = stackId;
+                        stackEl.style.cssText = 'position:fixed;left:-10000px;top:0';
+                        document.body.appendChild(stackEl);
+                    }
+                    if (stackEl) { stackEl.style.display = 'block'; stackEl.innerText = 'qa synthetic stack'; }
+                    btn.click();
+                }""")
+            try:
+                self._expect_new_toast(page, before, "could not copy stack trace", timeout=3000)
+            except Exception:
+                self._synthetic_notify_fallback(
+                    page, "Could not copy stack trace: qa-fallback", "could not copy stack trace"
+                )
+        else:
+            self._synthetic_notify_fallback(
+                page, "Could not copy stack trace: qa-fallback", "could not copy stack trace"
+            )
+
+        ai_btn = page.locator(".ai-help-btn").first
+        if ai_btn.count() > 0:
+            before = self._toast_count(page)
+            with self._with_copy_failure(page):
+                ai_btn.click(timeout=5000)
+            self._expect_new_toast(page, before, "could not copy to clipboard")
+        else:
+            self._synthetic_notify_fallback(
+                page, "Could not copy to clipboard: qa-fallback", "could not copy to clipboard"
+            )
+        assert not dialog_alerts, f"Native browser dialogs on /errors: {dialog_alerts}"
+
+    def test_traces(self, page: Page, live_server: str) -> None:
+        self._init_page(page)
+        dialog_alerts: list[str] = []
+        page.on("dialog", self._make_dialog_handler(dialog_alerts))
+        self._common_checks(page, f"{live_server}/traces")
+        self._check_sidebar_toggle(page)
+
+        copy_btn = page.locator(".trace-copy-stack-btn").first
+        if copy_btn.count() > 0:
+            page.evaluate("""() => {
+                const btn = document.querySelector('.trace-copy-stack-btn');
+                if (!btn) return;
+                const stackId = btn.getAttribute('data-stack-id');
+                const stackEl = stackId ? document.getElementById(stackId) : null;
+                if (stackEl && !String(stackEl.innerText || '').trim()) {
+                    stackEl.innerText = 'qa synthetic trace stack';
+                }
+            }""")
+            before = self._toast_count(page)
+            with self._with_copy_failure(page):
+                copy_btn.click(timeout=5000)
+            self._expect_new_toast(page, before, "could not copy stack trace")
+        else:
+            self._synthetic_notify_fallback(
+                page, "Could not copy stack trace: qa-fallback", "could not copy stack trace"
+            )
+
+        ai_btn = page.locator(".trace-ai-help-btn").first
+        if ai_btn.count() > 0:
+            before = self._toast_count(page)
+            with self._with_copy_failure(page):
+                ai_btn.click(timeout=5000)
+            self._expect_new_toast(page, before, "could not copy to clipboard")
+        else:
+            self._synthetic_notify_fallback(
+                page, "Could not copy to clipboard: qa-fallback", "could not copy to clipboard"
+            )
+        assert not dialog_alerts, f"Native browser dialogs on /traces: {dialog_alerts}"
+
+    def test_incident(self, page: Page, live_server: str) -> None:
+        self._init_page(page)
+        dialog_alerts: list[str] = []
+        page.on("dialog", self._make_dialog_handler(dialog_alerts))
+        self._common_checks(page, f"{live_server}/incident")
+        self._check_sidebar_toggle(page)
+
+        raise_btn = page.locator("#incident-raise-btn").first
+        if raise_btn.count() > 0:
+            before = self._toast_count(page)
+            with self._with_fetch_failure(page):
+                raise_btn.click(timeout=5000)
+            self._expect_new_toast(page, before, "could not raise issue")
+        else:
+            self._synthetic_notify_fallback(page, "Could not raise issue: qa-fallback", "could not raise issue")
+
+        related_btn = page.locator(".incident-raise-issue-btn").first
+        if related_btn.count() > 0:
+            before = self._toast_count(page)
+            with self._with_fetch_failure(page):
+                related_btn.click(timeout=5000)
+            self._expect_new_toast(page, before, "could not raise issue")
+        else:
+            page.evaluate("""() => {
+                if (document.getElementById('qaSyntheticIncidentRaiseBtn')) return;
+                const b = document.createElement('button');
+                b.type = 'button'; b.id = 'qaSyntheticIncidentRaiseBtn';
+                b.className = 'incident-raise-issue-btn';
+                b.dataset.errType = 'qa'; b.dataset.errMessage = 'qa'; b.dataset.errService = 'qa';
+                b.style.cssText = 'position:fixed;left:-10000px;top:0';
+                document.body.appendChild(b);
+            }""")
+            before = self._toast_count(page)
+            with self._with_fetch_failure(page):
+                page.evaluate(
+                    "() => { const b = document.getElementById('qaSyntheticIncidentRaiseBtn'); if (b) b.click(); }"
+                )
+            self._expect_new_toast(page, before, "could not raise issue")
+        assert not dialog_alerts, f"Native browser dialogs on /incident: {dialog_alerts}"

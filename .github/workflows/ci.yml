@@ -186,6 +186,11 @@ jobs:
         run: playwright install --with-deps chromium
 
       - name: Run integration tests
+        env:
+          SOBS_UIQA_SEED_TOTAL: "64"
+          SOBS_UIQA_SEED_WORKERS: "8"
+          SOBS_SCREENSHOT_SEED_TOTAL: "240"
+          SOBS_SCREENSHOT_SEED_WORKERS: "24"
         run: pytest tests/test_integration.py -v
 
       - name: Upload screenshots

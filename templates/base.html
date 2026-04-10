@@ -11,6 +11,19 @@
     var t = normalizeTheme(localStorage.getItem('sobs-theme'));
     document.documentElement.setAttribute('data-bs-theme',
       t === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : t);
+
+    // Apply sidebar state before first paint to avoid full->compact layout jump.
+    var root = document.documentElement;
+    root.classList.add('sb-state-pending');
+    try {
+      var sidebarState = localStorage.getItem('sobs-sidebar-state') || 'full';
+      var isHamburger = window.matchMedia('(max-width: 575.98px)').matches;
+      if (sidebarState === 'compact' && !isHamburger) {
+        root.classList.add('sb-state-compact');
+      }
+    } catch (_err) {
+      // Ignore storage/matchMedia failures and continue with default layout.
+    }
   }());</script>
   <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap-icons.min.css') }}">
@@ -22,9 +35,9 @@
     .signal-raw-id-inline { font-size: 0.75em; }
     /* ===== Sidebar Base ===== */
     :root { --sb-full: 220px; --sb-compact: 56px; }
-    .sidebar { flex-shrink: 0; width: var(--sb-full); min-height: 100vh; padding: 1rem; background: var(--bs-tertiary-bg); border-right: 1px solid var(--bs-border-color); position: relative; overflow: visible; z-index: 1060; transition: width 0.22s ease; }
+    .sidebar { flex-shrink: 0; width: var(--sb-full); min-height: 100vh; padding: 1rem; background: var(--bs-tertiary-bg); border-right: 1px solid var(--bs-border-color); position: relative; overflow: visible; z-index: 1030; transition: width 0.22s ease; }
     .sidebar .nav-link { color: var(--bs-secondary-color); border-radius: 6px; margin: 1px 4px; padding: .4rem .8rem; display: flex; align-items: center; gap: .5rem; white-space: nowrap; }
-    .sidebar .nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+    .sidebar .nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; flex-wrap: nowrap; }
     .sidebar .nav-link:hover, .sidebar .nav-link.active { background: var(--bs-secondary-bg); color: var(--bs-emphasis-color); }
     .sidebar .nav-link i { width: 1.4rem; flex-shrink: 0; }
     /* Sidebar label (text part) */
@@ -82,10 +95,15 @@
     .sidebar.sidebar-compact .sb-footer small { display: none; }
     /* ===== Sidebar edge toggle button ===== */
     /* Draw border as a right-side half-ring so the menu-side edge stays clean and the icon remains unobstructed. */
-    .sb-toggle-btn { position: absolute; right: -14px; top: 64px; z-index: 1200; width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--bs-tertiary-bg); color: var(--bs-secondary-color); display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: background 0.15s, color 0.15s; }
+    .sb-toggle-btn { position: absolute; right: -14px; top: 64px; z-index: 1031; width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--bs-tertiary-bg); color: var(--bs-secondary-color); display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: background 0.15s, color 0.15s; }
     .sb-toggle-btn::after { content: ''; position: absolute; inset: 0; border: 1px solid var(--bs-border-color); border-radius: 50%; clip-path: inset(0 0 0 50%); pointer-events: none; }
     .sb-toggle-btn > i { position: relative; z-index: 1; }
     .sb-toggle-btn:hover { background: var(--bs-secondary-bg); color: var(--bs-emphasis-color); }
+    /* Keep sidebar/menu controls inert under modal backdrops. */
+    body.modal-open .sidebar,
+    body.modal-open .sb-toggle-btn {
+      pointer-events: none;
+    }
     /* ===== State 3: Hamburger topbar ===== */
     .sb-topbar { display: none; background: var(--bs-tertiary-bg); border-bottom: 1px solid var(--bs-border-color); padding: .5rem 1rem; align-items: center; gap: .75rem; position: sticky; top: 0; z-index: 100; }
     /* Overlay backdrop */
@@ -113,11 +131,53 @@
       .sidebar.sidebar-compact .sb-footer small { display: inline; }
     }
     .main-content { min-height: 100vh; transition: margin-left 0.22s ease; }
+
+    /* Avoid first-load animation jump before sidebar state is initialized. */
+    .sb-state-pending .sidebar,
+    .sb-state-pending .main-content {
+      transition: none !important;
+    }
     /* ===== Desktop: sidebar fixed to viewport ===== */
     @media (min-width: 576px) {
       .sidebar { position: fixed; top: 0; left: 0; height: 100vh; }
       .main-content { margin-left: var(--sb-full); }
       .sidebar.sidebar-compact + .main-content { margin-left: var(--sb-compact); }
+
+      /* Prepaint compact rules, applied from html class before JS init runs. */
+      .sb-state-compact #sbSidebar {
+        width: var(--sb-compact);
+        padding-left: 0;
+        padding-right: 0;
+      }
+      .sb-state-compact #sbSidebar .sb-label {
+        opacity: 0;
+        max-width: 0;
+        pointer-events: none;
+      }
+      .sb-state-compact #sbSidebar .sb-brand-text {
+        display: none;
+      }
+      .sb-state-compact #sbSidebar .nav-link {
+        margin: 1px auto;
+        width: calc(var(--sb-compact) - 8px);
+        padding: .5rem 0;
+        justify-content: center;
+        gap: 0;
+        text-align: center;
+      }
+      .sb-state-compact #sbSidebar .nav-link i {
+        width: auto;
+        min-width: 1.4rem;
+        display: inline-flex;
+        justify-content: center;
+      }
+      .sb-state-compact #sbSidebar .sb-brand {
+        padding: 0 .6rem;
+        justify-content: center;
+      }
+      .sb-state-compact .main-content {
+        margin-left: var(--sb-compact);
+      }
     }
     .badge-level-ERROR, .badge-level-FATAL, .badge-level-CRITICAL { background-color: #dc3545 !important; }
     .badge-level-WARN, .badge-level-WARNING { background-color: #fd7e14 !important; }
@@ -505,6 +565,26 @@
   </div>
 </div>
 
+<div class="modal fade" id="sobsConfirmModal" tabindex="-1" aria-labelledby="sobsConfirmModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-secondary">
+      <div class="modal-header">
+        <h5 class="modal-title" id="sobsConfirmModalTitle">Confirm Action</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p id="sobsConfirmModalMessage" class="mb-0">Are you sure?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="sobsConfirmModalOkBtn">Confirm</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3" id="sobsNotifyToastContainer" style="z-index:1200;"></div>
+
 <script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
 <script src="{{ url_for('static', filename='date-range-picker.js') }}"></script>
 <script src="{{ url_for('static', filename='sobs-timezone.js') }}"></script>
@@ -627,6 +707,223 @@
   });
 })();
 </script>
+<script>
+(function () {
+  window.SOBS = window.SOBS || {};
+
+  window.SOBS.resolveUrl = function (value) {
+    var raw = String(value == null ? '' : value).trim();
+    if (!raw) return String(document.baseURI || window.location.href || '');
+    try {
+      return new URL(raw, document.baseURI || window.location.href).toString();
+    } catch (_err) {
+      return raw;
+    }
+  };
+
+  var modalEl = document.getElementById('sobsConfirmModal');
+  var titleEl = document.getElementById('sobsConfirmModalTitle');
+  var messageEl = document.getElementById('sobsConfirmModalMessage');
+  var okBtn = document.getElementById('sobsConfirmModalOkBtn');
+  var notifyContainerEl = document.getElementById('sobsNotifyToastContainer');
+  var modal = (modalEl && window.bootstrap && window.bootstrap.Modal)
+    ? window.bootstrap.Modal.getOrCreateInstance(modalEl)
+    : null;
+  var pendingRequest = null;
+  var confirmQueue = [];
+  var skipNextHiddenCancel = false;
+
+  function processNextConfirm() {
+    if (pendingRequest || !confirmQueue.length) return;
+    pendingRequest = confirmQueue.shift();
+    titleEl.textContent = pendingRequest.title;
+    messageEl.textContent = pendingRequest.message;
+    okBtn.textContent = pendingRequest.okLabel;
+    okBtn.className = 'btn ' + pendingRequest.okClass;
+    modal.show();
+  }
+
+  function finish(result, opts) {
+    opts = opts || {};
+    if (pendingRequest) {
+      var request = pendingRequest;
+      pendingRequest = null;
+      request.resolve(!!result);
+    }
+    if (!opts.deferNext) {
+      processNextConfirm();
+    }
+  }
+
+  if (modalEl) {
+    modalEl.addEventListener('hidden.bs.modal', function () {
+      if (skipNextHiddenCancel) {
+        skipNextHiddenCancel = false;
+        processNextConfirm();
+        return;
+      }
+      finish(false);
+    });
+  }
+  if (okBtn) {
+    okBtn.addEventListener('click', function () {
+      skipNextHiddenCancel = true;
+      finish(true, { deferNext: true });
+      if (modal) {
+        modal.hide();
+      } else {
+        processNextConfirm();
+      }
+    });
+  }
+
+  function showConfirm(opts) {
+    opts = opts || {};
+    var title = String(opts.title || 'Confirm Action');
+    var message = String(opts.message || opts.text || 'Are you sure?');
+    var okLabel = String(opts.okLabel || 'Confirm');
+    var okClass = String(opts.okClass || 'btn-danger');
+
+    if (!modal || !titleEl || !messageEl || !okBtn) {
+      var nativeConfirm = (typeof globalThis !== 'undefined' && typeof globalThis.confirm === 'function')
+        ? globalThis.confirm.bind(globalThis)
+        : null;
+      return Promise.resolve(nativeConfirm ? nativeConfirm(message) : false);
+    }
+
+    return new Promise(function (resolve) {
+      confirmQueue.push({
+        title: title,
+        message: message,
+        okLabel: okLabel,
+        okClass: okClass,
+        resolve: resolve
+      });
+      processNextConfirm();
+    });
+  }
+
+  window.SOBS.confirm = showConfirm;
+  window.sobsConfirm = showConfirm;
+
+  function normalizeNotifyLevel(level) {
+    var raw = String(level || '').toLowerCase();
+    if (raw === 'error') return 'danger';
+    if (raw === 'warn') return 'warning';
+    if (raw === 'success' || raw === 'info' || raw === 'warning' || raw === 'danger' || raw === 'secondary' || raw === 'primary') {
+      return raw;
+    }
+    return 'info';
+  }
+
+  function showNotify(message, opts) {
+    opts = opts || {};
+    var text = String(message || '').trim();
+    if (!text) return;
+
+    var level = normalizeNotifyLevel(opts.level || opts.type || 'info');
+    var title = String(opts.title || 'Notice');
+    var delay = Number(opts.delayMs || opts.delay || 3800);
+
+    if (!notifyContainerEl || !window.bootstrap || !window.bootstrap.Toast) {
+      var nativeAlert = (typeof globalThis !== 'undefined' && typeof globalThis.alert === 'function')
+        ? globalThis.alert.bind(globalThis)
+        : null;
+      if (nativeAlert) {
+        nativeAlert(text);
+      }
+      return;
+    }
+
+    var toastEl = document.createElement('div');
+    toastEl.className = 'toast border-0 text-bg-' + level;
+    toastEl.setAttribute('role', 'status');
+    toastEl.setAttribute('aria-live', 'polite');
+    toastEl.setAttribute('aria-atomic', 'true');
+
+    var headerEl = document.createElement('div');
+    headerEl.className = 'toast-header';
+
+    var titleEl = document.createElement('strong');
+    titleEl.className = 'me-auto';
+    titleEl.textContent = title;
+
+    var nowEl = document.createElement('small');
+    nowEl.className = 'text-body-secondary';
+    nowEl.textContent = 'now';
+
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn-close';
+    closeBtn.setAttribute('data-bs-dismiss', 'toast');
+    closeBtn.setAttribute('aria-label', 'Close');
+
+    headerEl.appendChild(titleEl);
+    headerEl.appendChild(nowEl);
+    headerEl.appendChild(closeBtn);
+
+    var bodyEl = document.createElement('div');
+    bodyEl.className = 'toast-body';
+    bodyEl.textContent = text;
+
+    toastEl.appendChild(headerEl);
+    toastEl.appendChild(bodyEl);
+
+    notifyContainerEl.appendChild(toastEl);
+    var toast = window.bootstrap.Toast.getOrCreateInstance(toastEl, {
+      autohide: opts.autohide !== false,
+      delay: Number.isFinite(delay) ? delay : 3800
+    });
+    toastEl.addEventListener('hidden.bs.toast', function () {
+      toastEl.remove();
+    });
+    toast.show();
+  }
+
+  window.SOBS.notify = showNotify;
+  window.sobsNotify = showNotify;
+
+  document.addEventListener('submit', function (event) {
+    var form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    var msg = form.getAttribute('data-confirm-message');
+    if (!msg) return;
+    if (form.dataset.confirming === '1') {
+      form.dataset.confirming = '0';
+      return;
+    }
+    event.preventDefault();
+    var submitter = event.submitter;
+    showConfirm({
+      title: form.getAttribute('data-confirm-title') || 'Confirm Action',
+      message: msg,
+      okLabel: form.getAttribute('data-confirm-ok-label') || 'Confirm',
+      okClass: form.getAttribute('data-confirm-ok-class') || 'btn-danger'
+    }).then(function (confirmed) {
+      if (!confirmed) {
+        return;
+      }
+      form.dataset.confirming = '1';
+      if (typeof form.requestSubmit === 'function') {
+        form.requestSubmit(submitter || undefined);
+      } else {
+        form.querySelectorAll('input[data-sobs-temp-submitter="1"]').forEach(function (node) {
+          node.remove();
+        });
+        if (submitter && submitter.name) {
+          var hiddenSubmitter = document.createElement('input');
+          hiddenSubmitter.type = 'hidden';
+          hiddenSubmitter.name = submitter.name;
+          hiddenSubmitter.value = submitter.value || '';
+          hiddenSubmitter.setAttribute('data-sobs-temp-submitter', '1');
+          form.appendChild(hiddenSubmitter);
+        }
+        form.submit();
+      }
+    });
+  }, true);
+})();
+</script>
 {% block scripts %}{% endblock %}
 <script>
 (function () {
@@ -716,6 +1013,7 @@
 
 /* ===== Sidebar ===== */
 (function () {
+  var rootEl = document.documentElement;
   var sidebar = document.getElementById('sbSidebar');
   var toggleBtn = document.getElementById('sbToggleBtn');
   var toggleIcon = document.getElementById('sbToggleIcon');
@@ -728,16 +1026,18 @@
 
   // Restore saved state (compact or full) on medium+ screens
   var saved = localStorage.getItem('sobs-sidebar-state') || 'full';
-  if (saved === 'compact' && !isHamburgerMode()) {
-    sidebar.classList.add('sidebar-compact');
-    toggleIcon.className = 'bi bi-chevron-right';
-  }
+  var shouldCompact = saved === 'compact' && !isHamburgerMode();
+  sidebar.classList.toggle('sidebar-compact', shouldCompact);
+  toggleIcon.className = shouldCompact ? 'bi bi-chevron-right' : 'bi bi-chevron-left';
+  rootEl.classList.toggle('sb-state-compact', shouldCompact);
+  rootEl.classList.remove('sb-state-pending');
 
   // Toggle button: switch between full (State 1) and compact (State 2)
   toggleBtn.addEventListener('click', function () {
     var isCompact = sidebar.classList.toggle('sidebar-compact');
     toggleIcon.className = isCompact ? 'bi bi-chevron-right' : 'bi bi-chevron-left';
     localStorage.setItem('sobs-sidebar-state', isCompact ? 'compact' : 'full');
+    rootEl.classList.toggle('sb-state-compact', isCompact);
   });
 
   // Hamburger button: open sidebar as overlay (State 3)
@@ -792,10 +1092,15 @@
       if (restoredState === 'compact') {
         sidebar.classList.add('sidebar-compact');
         toggleIcon.className = 'bi bi-chevron-right';
+        rootEl.classList.add('sb-state-compact');
       } else {
         sidebar.classList.remove('sidebar-compact');
         toggleIcon.className = 'bi bi-chevron-left';
+        rootEl.classList.remove('sb-state-compact');
       }
+    } else {
+      // In hamburger mode we don't force compact desktop rules.
+      rootEl.classList.remove('sb-state-compact');
     }
   });
 }());

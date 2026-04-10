@@ -636,12 +636,12 @@
         } else {
           btn.innerHTML = originalHtml;
           btn.disabled = false;
-          alert(data.error || 'Issue creation failed or was suppressed.');
+          window.SOBS.notify(data.error || 'Issue creation failed or was suppressed.', { level: 'danger', title: 'Raise Issue' });
         }
       } catch (e) {
         btn.innerHTML = originalHtml;
         btn.disabled = false;
-        alert('Could not raise issue: ' + e.message);
+        window.SOBS.notify('Could not raise issue: ' + e.message, { level: 'danger', title: 'Raise Issue' });
       }
     });
   }
@@ -676,11 +676,12 @@
       } else {
         btn.innerHTML = originalHtml;
         btn.disabled = false;
-        alert(data.error || 'Issue creation failed or was suppressed.');
+        window.SOBS.notify(data.error || 'Issue creation failed or was suppressed.', { level: 'danger', title: 'Raise Issue' });
       }
     } catch (e) {
       btn.innerHTML = originalHtml;
       btn.disabled = false;
+      window.SOBS.notify('Could not raise issue: ' + e.message, { level: 'danger', title: 'Raise Issue' });
     }
   });
 })();

@@ -331,7 +331,7 @@ document.addEventListener('DOMContentLoaded', function () {
       var reportId = pendingDeleteForm.dataset.reportId;
       var reportName = pendingDeleteForm.dataset.reportName || 'Report';
       try {
-        var resp = await fetch('/api/reports/' + encodeURIComponent(reportId), {
+        var resp = await fetch({{ url_for('api_list_reports') | tojson }} + '/' + encodeURIComponent(reportId), {
           method: 'DELETE'
         });
         var result = await resp.json();

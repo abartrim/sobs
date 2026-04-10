@@ -36,8 +36,11 @@
             data-ai-confirm="false">
           <i class="bi bi-eye me-1"></i>Open
         </a>
-        <form method="post" action="{{ url_for('delete_dashboard', dashboard_id=dash.id) }}"
-              onsubmit="return confirm('Delete dashboard \'{{ dash.name }}\'?')">
+          <form method="post" action="{{ url_for('delete_dashboard', dashboard_id=dash.id) }}"
+            data-confirm-title="Delete Dashboard"
+            data-confirm-message="Delete dashboard '{{ dash.name }}'?"
+            data-confirm-ok-label="Delete"
+            data-confirm-ok-class="btn-danger">
           <button type="submit" class="btn btn-sm btn-outline-danger"
                   data-ai-action-id="dashboards.delete"
                   data-ai-action-type="submit_form"

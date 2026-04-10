@@ -226,7 +226,11 @@
                 <i class="bi bi-{{ 'pause-circle' if ch.enabled else 'play-circle' }}"></i>
               </button>
             </form>
-            <form method="post" action="{{ url_for('delete_notification_channel', channel_id=ch.id) }}" class="d-inline" onsubmit="return confirm('Delete channel \'{{ ch.name }}\'?')">
+            <form method="post" action="{{ url_for('delete_notification_channel', channel_id=ch.id) }}" class="d-inline"
+              data-confirm-title="Delete Notification Channel"
+              data-confirm-message="Delete channel '{{ ch.name }}'?"
+              data-confirm-ok-label="Delete"
+              data-confirm-ok-class="btn-danger">
               <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"
                       data-ai-action-id="settings.notifications.channel.delete"
                       data-ai-action-type="submit_form"
@@ -421,7 +425,11 @@
                 <i class="bi bi-{{ 'pause-circle' if rule.enabled else 'play-circle' }}"></i>
               </button>
             </form>
-            <form method="post" action="{{ url_for('delete_notification_rule', rule_id=rule.id) }}" class="d-inline" onsubmit="return confirm('Delete rule \'{{ rule.name }}\'?')">
+            <form method="post" action="{{ url_for('delete_notification_rule', rule_id=rule.id) }}" class="d-inline"
+              data-confirm-title="Delete Notification Rule"
+              data-confirm-message="Delete rule '{{ rule.name }}'?"
+              data-confirm-ok-label="Delete"
+              data-confirm-ok-class="btn-danger">
               <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"
                       data-ai-action-id="settings.notifications.rule.delete"
                       data-ai-action-type="submit_form"
@@ -648,14 +656,14 @@ function escHtml(s) {
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-send"></i>';
         if (result.data.ok) {
-          alert('Test notification sent to "' + channelName + '" successfully.');
+          window.SOBS.notify('Test notification sent to "' + channelName + '" successfully.', { level: 'success', title: 'Channel Test' });
         } else {
-          alert('Test failed for "' + channelName + '": ' + (result.data.error || 'Unknown error'));
+          window.SOBS.notify('Test failed for "' + channelName + '": ' + (result.data.error || 'Unknown error'), { level: 'danger', title: 'Channel Test' });
         }
       }).catch(function (err) {
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-send"></i>';
-        alert('Request error: ' + err);
+        window.SOBS.notify('Request error: ' + err, { level: 'danger', title: 'Channel Test' });
       });
     });
   });
@@ -714,16 +722,16 @@ function escHtml(s) {
         .then(function (res) { return res.json(); })
         .then(function (data) {
           if (data.ok) {
-            alert('VAPID keys generated and saved. The page will reload.');
-            window.location.reload();
+            window.SOBS.notify('VAPID keys generated and saved. The page will reload.', { level: 'success', title: 'VAPID Keys' });
+            window.setTimeout(function () { window.location.reload(); }, 900);
           } else {
-            alert('Key generation failed: ' + (data.error || 'unknown error'));
+            window.SOBS.notify('Key generation failed: ' + (data.error || 'unknown error'), { level: 'danger', title: 'VAPID Keys' });
             generateVapidBtn.disabled = false;
             generateVapidBtn.innerHTML = '<i class="bi bi-key me-1"></i>Generate & Save Keys';
           }
         })
         .catch(function (err) {
-          alert('Error: ' + err);
+          window.SOBS.notify('Error: ' + err, { level: 'danger', title: 'VAPID Keys' });
           generateVapidBtn.disabled = false;
           generateVapidBtn.innerHTML = '<i class="bi bi-key me-1"></i>Generate & Save Keys';
         });
@@ -732,26 +740,30 @@ function escHtml(s) {
 
   var regenerateVapidBtn = document.getElementById('regenerateVapidBtn');
   if (regenerateVapidBtn) {
-    regenerateVapidBtn.addEventListener('click', function () {
-      if (!confirm('Regenerating VAPID keys will invalidate ALL existing browser push subscriptions. Browsers will need to re-subscribe.\n\nContinue?')) {
-        return;
-      }
+    regenerateVapidBtn.addEventListener('click', async function () {
+      var confirmed = await window.SOBS.confirm({
+        title: 'Regenerate VAPID Keys',
+        message: 'Regenerating VAPID keys will invalidate ALL existing browser push subscriptions. Browsers will need to re-subscribe.\n\nContinue?',
+        okLabel: 'Regenerate',
+        okClass: 'btn-danger'
+      });
+      if (!confirmed) return;
       regenerateVapidBtn.disabled = true;
       regenerateVapidBtn.textContent = 'Regenerating…';
       fetch('{{ url_for("generate_vapid_key") }}', { method: 'POST', credentials: 'same-origin' })
         .then(function (res) { return res.json(); })
         .then(function (data) {
           if (data.ok) {
-            alert('New VAPID keys saved. Existing browser subscriptions are now invalid — browsers must re-subscribe. The page will reload.');
-            window.location.reload();
+            window.SOBS.notify('New VAPID keys saved. Existing browser subscriptions are now invalid. Browsers must re-subscribe. The page will reload.', { level: 'success', title: 'VAPID Keys', delay: 5200 });
+            window.setTimeout(function () { window.location.reload(); }, 1100);
           } else {
-            alert('Regeneration failed: ' + (data.error || 'unknown error'));
+            window.SOBS.notify('Regeneration failed: ' + (data.error || 'unknown error'), { level: 'danger', title: 'VAPID Keys' });
             regenerateVapidBtn.disabled = false;
             regenerateVapidBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Regenerate Keys';
           }
         })
         .catch(function (err) {
-          alert('Error: ' + err);
+          window.SOBS.notify('Error: ' + err, { level: 'danger', title: 'VAPID Keys' });
           regenerateVapidBtn.disabled = false;
           regenerateVapidBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Regenerate Keys';
         });
@@ -760,21 +772,25 @@ function escHtml(s) {
 
   var removeVapidBtn = document.getElementById('removeVapidBtn');
   if (removeVapidBtn) {
-    removeVapidBtn.addEventListener('click', function () {
-      if (!confirm('This will remove the stored VAPID keys. Browser push notifications will stop working until new keys are generated.\n\nContinue?')) {
-        return;
-      }
+    removeVapidBtn.addEventListener('click', async function () {
+      var confirmed = await window.SOBS.confirm({
+        title: 'Remove VAPID Keys',
+        message: 'This will remove the stored VAPID keys. Browser push notifications will stop working until new keys are generated.\n\nContinue?',
+        okLabel: 'Remove',
+        okClass: 'btn-danger'
+      });
+      if (!confirmed) return;
       fetch('{{ url_for("delete_vapid_keys") }}', { method: 'DELETE', credentials: 'same-origin' })
         .then(function (res) { return res.json(); })
         .then(function (data) {
           if (data.ok) {
-            alert('VAPID keys removed. The page will reload.');
-            window.location.reload();
+            window.SOBS.notify('VAPID keys removed. The page will reload.', { level: 'success', title: 'VAPID Keys' });
+            window.setTimeout(function () { window.location.reload(); }, 900);
           } else {
-            alert('Removal failed: ' + (data.error || 'unknown error'));
+            window.SOBS.notify('Removal failed: ' + (data.error || 'unknown error'), { level: 'danger', title: 'VAPID Keys' });
           }
         })
-        .catch(function (err) { alert('Error: ' + err); });
+        .catch(function (err) { window.SOBS.notify('Error: ' + err, { level: 'danger', title: 'VAPID Keys' }); });
     });
   }
 
@@ -782,14 +798,14 @@ function escHtml(s) {
   if (subscribeBrowserBtn) {
     subscribeBrowserBtn.addEventListener('click', function () {
       if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-        alert('This browser does not support Web Push notifications.');
+        window.SOBS.notify('This browser does not support Web Push notifications.', { level: 'warning', title: 'Browser Push' });
         return;
       }
       fetch('{{ url_for("get_vapid_public_key") }}', { credentials: 'same-origin' })
         .then(function (res) { return res.json(); })
         .then(function (data) {
           if (!data.ok) {
-            alert('Cannot subscribe: ' + (data.error || 'VAPID key not available'));
+            window.SOBS.notify('Cannot subscribe: ' + (data.error || 'VAPID key not available'), { level: 'danger', title: 'Browser Push' });
             return;
           }
           var applicationServerKey = urlBase64ToUint8Array(data.public_key);
@@ -810,11 +826,11 @@ function escHtml(s) {
             if (nameInput && !nameInput.value) {
               nameInput.value = 'Browser Push (' + navigator.userAgent.substring(0, BROWSER_UA_PREVIEW_LENGTH) + ')';
             }
-            alert('Browser push subscription captured. Click "Create Channel" to save.');
+            window.SOBS.notify('Browser push subscription captured. Click "Create Channel" to save.', { level: 'success', title: 'Browser Push', delay: 5200 });
           });
         })
         .catch(function (err) {
-          alert('Subscription error: ' + err);
+          window.SOBS.notify('Subscription error: ' + err, { level: 'danger', title: 'Browser Push' });
         });
     });
   }
@@ -885,7 +901,13 @@ function escHtml(s) {
   });
 
   createBtn.addEventListener('click', async function () {
-    if (!confirm('Create all candidate notification rules now?')) return;
+    var confirmed = await window.SOBS.confirm({
+      title: 'Create Notification Rules',
+      message: 'Create all candidate notification rules now?',
+      okLabel: 'Create',
+      okClass: 'btn-primary'
+    });
+    if (!confirmed) return;
     createBtn.disabled = true;
     createBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating\u2026';
     try {
@@ -898,12 +920,12 @@ function escHtml(s) {
       if (data.ok) {
         window.location.reload();
       } else {
-        alert('Error creating rules: ' + (data.error || 'unknown error'));
+        window.SOBS.notify('Error creating rules: ' + (data.error || 'unknown error'), { level: 'danger', title: 'Auto Notification Rules' });
         createBtn.disabled = false;
         createBtn.innerHTML = '<i class="bi bi-magic me-1"></i>Create All';
       }
     } catch (e) {
-      alert('Error: ' + e.message);
+      window.SOBS.notify('Error: ' + e.message, { level: 'danger', title: 'Auto Notification Rules' });
       createBtn.disabled = false;
       createBtn.innerHTML = '<i class="bi bi-magic me-1"></i>Create All';
     }

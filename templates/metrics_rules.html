@@ -717,6 +717,8 @@
   var ruleType = document.getElementById('ruleTypeSelect');
   var compositeFields = Array.prototype.slice.call(document.querySelectorAll('.composite-only'));
   var compositeHint = document.getElementById('compositeHint');
+  var allowAutoSubmit = false;
+  var allowAutoDashboardSubmit = false;
 
   function updateRuleType() {
     var show = ruleType && ruleType.value === 'composite';
@@ -731,60 +733,75 @@
 
   /* ── Delete confirmation ── */
   document.querySelectorAll('.js-delete-rule').forEach(function (btn) {
-    btn.addEventListener('click', function (e) {
+    btn.addEventListener('click', async function (e) {
       var name = btn.getAttribute('data-rule-name') || 'this rule';
-      if (!confirm('Delete rule "' + name + '"?\n\nThis cannot be undone.')) {
-        e.preventDefault();
+      e.preventDefault();
+      var confirmed = await window.SOBS.confirm({
+        title: 'Delete Rule',
+        message: 'Delete rule "' + name + '"?\n\nThis cannot be undone.',
+        okLabel: 'Delete',
+        okClass: 'btn-danger'
+      });
+      if (confirmed) {
+        var form = btn.closest('form');
+        if (form) {
+          form.submit();
+        }
       }
     });
-    /* ── Bell: create single notification rule for a metric rule ── */
-    document.querySelectorAll('.js-notify-rule').forEach(function (btn) {
-      btn.addEventListener('click', async function () {
-        var ruleId = btn.getAttribute('data-rule-id');
-        var ruleName = btn.getAttribute('data-rule-name') || 'this rule';
-        btn.disabled = true;
-        var origHTML = btn.innerHTML;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-        try {
-          var resp = await fetch({{ url_for('auto_generate_notification_rules') | tojson }}, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'action=create&metric_rule_id=' + encodeURIComponent(ruleId)
-          });
-          var data = await resp.json();
-          if (data.ok) {
-            if (data.created > 0) {
-              btn.innerHTML = '<i class="bi bi-bell-fill"></i>';
-              btn.classList.remove('btn-outline-warning');
-              btn.classList.add('btn-success');
-              btn.title = 'Notification rule created for \u201c' + ruleName + '\u201d';
-            } else {
-              btn.innerHTML = '<i class="bi bi-bell-slash"></i>';
-              btn.classList.remove('btn-outline-warning');
-              btn.classList.add('btn-outline-secondary');
-              btn.title = 'Already covered \u2014 a notification rule for this signal exists';
-              btn.disabled = false;
-            }
+  });
+
+  /* ── Bell: create single notification rule for a metric rule ── */
+  document.querySelectorAll('.js-notify-rule').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var ruleId = btn.getAttribute('data-rule-id');
+      var ruleName = btn.getAttribute('data-rule-name') || 'this rule';
+      btn.disabled = true;
+      var origHTML = btn.innerHTML;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+      try {
+        var resp = await fetch({{ url_for('auto_generate_notification_rules') | tojson }}, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'action=create&metric_rule_id=' + encodeURIComponent(ruleId)
+        });
+        var data = await resp.json();
+        if (data.ok) {
+          if (data.created > 0) {
+            btn.innerHTML = '<i class="bi bi-bell-fill"></i>';
+            btn.classList.remove('btn-outline-warning');
+            btn.classList.add('btn-success');
+            btn.title = 'Notification rule created for \u201c' + ruleName + '\u201d';
           } else {
-            btn.innerHTML = origHTML;
+            btn.innerHTML = '<i class="bi bi-bell-slash"></i>';
+            btn.classList.remove('btn-outline-warning');
+            btn.classList.add('btn-outline-secondary');
+            btn.title = 'Already covered \u2014 a notification rule for this signal exists';
             btn.disabled = false;
-            alert('Error: ' + (data.error || 'unknown error'));
           }
-        } catch (e) {
+        } else {
           btn.innerHTML = origHTML;
           btn.disabled = false;
-          alert('Error: ' + e.message);
+          window.SOBS.notify('Error: ' + (data.error || 'unknown error'), { level: 'danger', title: 'Notification Rule' });
         }
-      });
+      } catch (e) {
+        btn.innerHTML = origHTML;
+        btn.disabled = false;
+        window.SOBS.notify('Error: ' + e.message, { level: 'danger', title: 'Notification Rule' });
+      }
     });
   });
 
   /* ── Auto-create confirmation ── */
   var autoForm = document.querySelector('form[action="{{ url_for("auto_metrics_rules") }}"]');
   if (autoForm) {
-    autoForm.addEventListener('submit', function (e) {
+    autoForm.addEventListener('submit', async function (e) {
       var btn = e.submitter;
       if (!btn || btn.value !== 'create') return;
+      if (allowAutoSubmit) {
+        allowAutoSubmit = false;
+        return;
+      }
       var total = {{ auto_preview|length if auto_preview else 0 }};
       var cap = {{ auto_summary.create_cap if auto_summary and auto_summary.create_cap else 200 }};
       var capped = {{ 'true' if auto_summary and auto_summary.capped else 'false' }};
@@ -792,21 +809,51 @@
       var toCreate = capped ? cap : total;
       var msg = 'Create ' + toCreate + ' rule(s)?';
       if (capped) msg += '\n\nNote: only the first ' + cap + ' of ' + total + ' candidates will be created.';
-      if (!confirm(msg)) e.preventDefault();
+      e.preventDefault();
+      var confirmed = await window.SOBS.confirm({
+        title: 'Create Rules',
+        message: msg,
+        okLabel: 'Create',
+        okClass: 'btn-primary'
+      });
+      if (!confirmed) return;
+      allowAutoSubmit = true;
+      if (typeof autoForm.requestSubmit === 'function') {
+        autoForm.requestSubmit(btn);
+      } else {
+        autoForm.submit();
+      }
     });
   }
 
   /* ── Auto-dashboard confirmation ── */
   var autoDashboardForm = document.getElementById('autoDashboardForm');
   if (autoDashboardForm) {
-    autoDashboardForm.addEventListener('submit', function (e) {
+    autoDashboardForm.addEventListener('submit', async function (e) {
       var btn = e.submitter;
       if (!btn || btn.value !== 'create') return;
+      if (allowAutoDashboardSubmit) {
+        allowAutoDashboardSubmit = false;
+        return;
+      }
       var total = {{ auto_dashboard_preview|length if auto_dashboard_preview else 0 }};
       var maxCharts = {{ auto_dashboard_summary.max_charts if auto_dashboard_summary and auto_dashboard_summary.max_charts else 12 }};
       if (total === 0) return;
       var msg = 'Create dashboard with up to ' + maxCharts + ' chart(s)?';
-      if (!confirm(msg)) e.preventDefault();
+      e.preventDefault();
+      var confirmed = await window.SOBS.confirm({
+        title: 'Create Auto Dashboard',
+        message: msg,
+        okLabel: 'Create',
+        okClass: 'btn-primary'
+      });
+      if (!confirmed) return;
+      allowAutoDashboardSubmit = true;
+      if (typeof autoDashboardForm.requestSubmit === 'function') {
+        autoDashboardForm.requestSubmit(btn);
+      } else {
+        autoDashboardForm.submit();
+      }
     });
   }
 

@@ -254,7 +254,10 @@
           <td><span class="badge text-bg-light border">{{ rule.tag_value }}</span></td>
           <td>
             <form method="post" action="{{ url_for('delete_tag_rule', rule_id=rule.id) }}"
-                  onsubmit="return confirm('Delete tag rule \'{{ rule.name }}\'?')">
+              data-confirm-title="Delete Tag Rule"
+              data-confirm-message="Delete tag rule '{{ rule.name }}'?"
+              data-confirm-ok-label="Delete"
+              data-confirm-ok-class="btn-danger">
               <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete rule"
                       data-ai-action-id="settings.tags.delete"
                       data-ai-action-type="submit_form"
@@ -327,6 +330,7 @@
   var matchFieldSelect = document.getElementById('matchFieldSelect');
   var attrKeyGroup = document.getElementById('attrKeyGroup');
   var matchAttrKey = document.getElementById('matchAttrKey');
+  var allowAutoTagSubmit = false;
 
   function toggleAttrKey() {
     if (!matchFieldSelect || !attrKeyGroup || !matchAttrKey) return;
@@ -342,9 +346,13 @@
 
   var autoForm = document.querySelector('form[action="{{ url_for("auto_tag_rules") }}"]');
   if (autoForm) {
-    autoForm.addEventListener('submit', function (e) {
+    autoForm.addEventListener('submit', async function (e) {
       var btn = e.submitter;
       if (!btn || btn.value !== 'create') return;
+      if (allowAutoTagSubmit) {
+        allowAutoTagSubmit = false;
+        return;
+      }
       var total = {{ auto_preview|length if auto_preview else 0 }};
       var cap = {{ auto_summary.create_cap if auto_summary and auto_summary.create_cap else 200 }};
       var capped = {{ 'true' if auto_summary and auto_summary.capped else 'false' }};
@@ -352,7 +360,20 @@
       var toCreate = capped ? cap : total;
       var msg = 'Create ' + toCreate + ' tag rule(s)?';
       if (capped) msg += '\n\nNote: only the first ' + cap + ' of ' + total + ' candidates will be created.';
-      if (!confirm(msg)) e.preventDefault();
+      e.preventDefault();
+      var confirmed = await window.SOBS.confirm({
+        title: 'Create Tag Rules',
+        message: msg,
+        okLabel: 'Create',
+        okClass: 'btn-primary'
+      });
+      if (!confirmed) return;
+      allowAutoTagSubmit = true;
+      if (typeof autoForm.requestSubmit === 'function') {
+        autoForm.requestSubmit(btn);
+      } else {
+        autoForm.submit();
+      }
     });
   }
 
