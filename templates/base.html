@@ -11,6 +11,19 @@
     var t = normalizeTheme(localStorage.getItem('sobs-theme'));
     document.documentElement.setAttribute('data-bs-theme',
       t === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : t);
+
+    // Apply sidebar state before first paint to avoid full->compact layout jump.
+    var root = document.documentElement;
+    root.classList.add('sb-state-pending');
+    try {
+      var sidebarState = localStorage.getItem('sobs-sidebar-state') || 'full';
+      var isHamburger = window.matchMedia('(max-width: 575.98px)').matches;
+      if (sidebarState === 'compact' && !isHamburger) {
+        root.classList.add('sb-state-compact');
+      }
+    } catch (_err) {
+      // Ignore storage/matchMedia failures and continue with default layout.
+    }
   }());</script>
   <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap-icons.min.css') }}">
@@ -113,11 +126,53 @@
       .sidebar.sidebar-compact .sb-footer small { display: inline; }
     }
     .main-content { min-height: 100vh; transition: margin-left 0.22s ease; }
+
+    /* Avoid first-load animation jump before sidebar state is initialized. */
+    .sb-state-pending .sidebar,
+    .sb-state-pending .main-content {
+      transition: none !important;
+    }
     /* ===== Desktop: sidebar fixed to viewport ===== */
     @media (min-width: 576px) {
       .sidebar { position: fixed; top: 0; left: 0; height: 100vh; }
       .main-content { margin-left: var(--sb-full); }
       .sidebar.sidebar-compact + .main-content { margin-left: var(--sb-compact); }
+
+      /* Prepaint compact rules, applied from html class before JS init runs. */
+      .sb-state-compact #sbSidebar {
+        width: var(--sb-compact);
+        padding-left: 0;
+        padding-right: 0;
+      }
+      .sb-state-compact #sbSidebar .sb-label {
+        opacity: 0;
+        max-width: 0;
+        pointer-events: none;
+      }
+      .sb-state-compact #sbSidebar .sb-brand-text {
+        display: none;
+      }
+      .sb-state-compact #sbSidebar .nav-link {
+        margin: 1px auto;
+        width: calc(var(--sb-compact) - 8px);
+        padding: .5rem 0;
+        justify-content: center;
+        gap: 0;
+        text-align: center;
+      }
+      .sb-state-compact #sbSidebar .nav-link i {
+        width: auto;
+        min-width: 1.4rem;
+        display: inline-flex;
+        justify-content: center;
+      }
+      .sb-state-compact #sbSidebar .sb-brand {
+        padding: 0 .6rem;
+        justify-content: center;
+      }
+      .sb-state-compact .main-content {
+        margin-left: var(--sb-compact);
+      }
     }
     .badge-level-ERROR, .badge-level-FATAL, .badge-level-CRITICAL { background-color: #dc3545 !important; }
     .badge-level-WARN, .badge-level-WARNING { background-color: #fd7e14 !important; }
@@ -836,6 +891,7 @@
 
 /* ===== Sidebar ===== */
 (function () {
+  var rootEl = document.documentElement;
   var sidebar = document.getElementById('sbSidebar');
   var toggleBtn = document.getElementById('sbToggleBtn');
   var toggleIcon = document.getElementById('sbToggleIcon');
@@ -848,16 +904,18 @@
 
   // Restore saved state (compact or full) on medium+ screens
   var saved = localStorage.getItem('sobs-sidebar-state') || 'full';
-  if (saved === 'compact' && !isHamburgerMode()) {
-    sidebar.classList.add('sidebar-compact');
-    toggleIcon.className = 'bi bi-chevron-right';
-  }
+  var shouldCompact = saved === 'compact' && !isHamburgerMode();
+  sidebar.classList.toggle('sidebar-compact', shouldCompact);
+  toggleIcon.className = shouldCompact ? 'bi bi-chevron-right' : 'bi bi-chevron-left';
+  rootEl.classList.toggle('sb-state-compact', shouldCompact);
+  rootEl.classList.remove('sb-state-pending');
 
   // Toggle button: switch between full (State 1) and compact (State 2)
   toggleBtn.addEventListener('click', function () {
     var isCompact = sidebar.classList.toggle('sidebar-compact');
     toggleIcon.className = isCompact ? 'bi bi-chevron-right' : 'bi bi-chevron-left';
     localStorage.setItem('sobs-sidebar-state', isCompact ? 'compact' : 'full');
+    rootEl.classList.toggle('sb-state-compact', isCompact);
   });
 
   // Hamburger button: open sidebar as overlay (State 3)
@@ -912,10 +970,15 @@
       if (restoredState === 'compact') {
         sidebar.classList.add('sidebar-compact');
         toggleIcon.className = 'bi bi-chevron-right';
+        rootEl.classList.add('sb-state-compact');
       } else {
         sidebar.classList.remove('sidebar-compact');
         toggleIcon.className = 'bi bi-chevron-left';
+        rootEl.classList.remove('sb-state-compact');
       }
+    } else {
+      // In hamburger mode we don't force compact desktop rules.
+      rootEl.classList.remove('sb-state-compact');
     }
   });
 }());
