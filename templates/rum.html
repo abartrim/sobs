@@ -1107,7 +1107,7 @@
                         {% if artifact.get('url') %}
                         <button type="button" class="btn btn-sm btn-outline-primary js-rum-viewer-open"
                                 data-rum-view-kind="artifact"
-                          data-rum-view-url="{{ artifact.get('url')|mask }}"
+                          data-rum-view-url="{{ artifact.get('url') }}"
                           data-rum-view-label="{{ (artifact.get('type', 'artifact') | title)|mask }}{% if artifact.get('id') %} {{ artifact.get('id')|mask }}{% endif %}">
                           <i class="bi bi-image me-1"></i>View {{ artifact.get('type', 'artifact') | title }}
                         </button>
@@ -1115,7 +1115,7 @@
                         {% if replay.get('url') %}
                         <button type="button" class="btn btn-sm btn-outline-warning js-rum-viewer-open"
                                 data-rum-view-kind="replay"
-                          data-rum-view-url="{{ replay.get('url')|mask }}"
+                          data-rum-view-url="{{ replay.get('url') }}"
                           data-rum-view-label="Replay{% if replay.get('id') %} {{ replay.get('id')|mask }}{% endif %}">
                           <i class="bi bi-play-circle me-1"></i>View Replay
                         </button>
@@ -1383,22 +1383,22 @@
                 {% if artifact.get('url') %}
                 <button type="button" class="btn btn-sm btn-outline-primary js-rum-viewer-open"
                         data-rum-view-kind="artifact"
-                        data-rum-view-url="{{ artifact.get('url')|mask }}"
+                        data-rum-view-url="{{ artifact.get('url') }}"
                         data-rum-view-label="{{ (artifact.get('type', 'artifact') | title)|mask }}{% if artifact.get('id') %} {{ artifact.get('id')|mask }}{% endif %}">
                   <i class="bi bi-image me-1"></i>View {{ artifact.get('type', 'artifact') | title }}
                 </button>
-                <a href="{{ artifact.get('url')|mask }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
+                <a href="{{ artifact.get('url') }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
                   <i class="bi bi-box-arrow-up-right me-1"></i>Open Raw
                 </a>
                 {% endif %}
                 {% if replay.get('url') %}
                 <button type="button" class="btn btn-sm btn-outline-warning js-rum-viewer-open"
                         data-rum-view-kind="replay"
-                        data-rum-view-url="{{ replay.get('url')|mask }}"
+                        data-rum-view-url="{{ replay.get('url') }}"
                         data-rum-view-label="Replay{% if replay.get('id') %} {{ replay.get('id')|mask }}{% endif %}">
                   <i class="bi bi-play-circle me-1"></i>View Replay
                 </button>
-                <a href="{{ replay.get('url')|mask }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
+                <a href="{{ replay.get('url') }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
                   <i class="bi bi-box-arrow-up-right me-1"></i>Open Raw
                 </a>
                 {% endif %}

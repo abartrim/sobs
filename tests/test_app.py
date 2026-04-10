@@ -274,7 +274,10 @@ class TestMasking:
         assert isinstance(data.get("sql_output_masking_enabled"), bool)
 
     async def test_sql_output_masking_toggle_route_updates_setting(self, client):
-        enabled = await client.post("/settings/masking/sql-output", form={"enabled": "1"})
+        enabled = await client.post(
+            "/settings/masking/sql-output",
+            form=[("enabled", "0"), ("enabled", "1")],
+        )
         assert enabled.status_code in (200, 302)
 
         enabled_rules = await client.get("/api/settings/masking/rules")
@@ -1762,6 +1765,10 @@ class TestRumIngest:
     async def test_errors_page_masks_replay_and_artifact_sensitive_metadata(self, client):
         sensitive_email = "owner+mask-test@example.com"
         sensitive_api_key = "sk_live_super_secret_123"
+        artifact_url = f"https://example.com/artifacts/shot-mask-001.png?owner={sensitive_email}"
+        replay_url = (
+            "https://example.com/replays/replay-mask-001" f"?api_key={sensitive_api_key}&email={sensitive_email}"
+        )
         r = await client.post(
             "/v1/rum",
             json=[
@@ -1776,14 +1783,11 @@ class TestRumIngest:
                     "artifact": {
                         "type": "screenshot",
                         "id": "shot-mask-001",
-                        "url": f"https://example.com/artifacts/shot-mask-001.png?owner={sensitive_email}",
+                        "url": artifact_url,
                     },
                     "replay": {
                         "id": "replay-mask-001",
-                        "url": (
-                            "https://example.com/replays/replay-mask-001"
-                            f"?api_key={sensitive_api_key}&email={sensitive_email}"
-                        ),
+                        "url": replay_url,
                     },
                 }
             ],
@@ -1793,8 +1797,8 @@ class TestRumIngest:
         page = await client.get("/errors")
         assert page.status_code == 200
         body = await page.get_data(as_text=True)
-        assert sensitive_email not in body
-        assert sensitive_api_key not in body
+        assert 'data-rum-view-url="https://example.com/artifacts/shot-mask-001.png' in body
+        assert 'data-rum-view-url="https://example.com/replays/replay-mask-001' in body
         assert "****" in body
 
     async def test_ingest_dict_payload(self, client):

@@ -1032,4 +1032,29 @@ Masking is also applied automatically to:
 * Outbound notification payloads (`summary` field sent to Slack/webhook/email)
 * GitHub issue titles and bodies created by the agent flow
 
+### Settings UI and APIs
+
+SOBS now includes a dedicated masking settings page:
+
+* `GET /settings/masking` for managing custom sensitive keys and regex patterns
+* `GET /settings/help/masking` for implementation guidance and screenshot workflow notes
+* `POST /api/settings/masking/preview` to preview redaction output for text/JSON values
+* `GET /api/settings/masking/rules` to fetch effective key/pattern rules for browser helpers
+
+### SQL Output Masking Toggle
+
+SQL text returned by NLQ/chart endpoints can be controlled independently via:
+
+* `POST /settings/masking/sql-output`
+
+When enabled, SOBS masks sensitive fragments in SQL/query fields (`sql`, `query`,
+`sample_sql`, `override_sql`) for query/chart responses. When disabled, SQL text is
+returned unmasked for debugging workflows.
+
+### Replay and Artifact URLs
+
+Replay/artifact metadata remains masked in visible labels and summaries, while action URLs
+used by "View Replay", "View Artifact", and "Open Raw" remain functional so operators can
+open attached resources directly from the UI.
+
 

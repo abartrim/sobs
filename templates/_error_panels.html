@@ -216,7 +216,7 @@
           {% if err.artifact_url %}
           <button type="button" class="btn btn-sm btn-outline-primary js-rum-viewer-open"
                   data-rum-view-kind="artifact"
-              data-rum-view-url="{{ err.artifact_url|mask }}"
+                  data-rum-view-url="{{ err.artifact_url }}"
                   data-rum-view-label="{{ (err.artifact_type or 'Artifact')|mask }}">
             <i class="bi bi-image me-1"></i>{{ (err.artifact_type or 'Artifact')|mask }}
           </button>
@@ -225,7 +225,7 @@
           {% if err.replay_url %}
           <button type="button" class="btn btn-sm btn-outline-warning js-rum-viewer-open"
                   data-rum-view-kind="replay"
-              data-rum-view-url="{{ err.replay_url|mask }}"
+                  data-rum-view-url="{{ err.replay_url }}"
                   data-rum-view-label="Replay">
             <i class="bi bi-play-circle me-1"></i>Replay
           </button>

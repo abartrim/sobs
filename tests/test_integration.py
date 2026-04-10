@@ -903,10 +903,12 @@ class TestScreenshots:
         page.screenshot(path=os.path.join(SCREENSHOTS_DIR, "errors_masking.png"), full_page=False)
 
         html = page.content()
-        assert seeded["email"] not in html
-        assert seeded["api_key"] not in html
-        assert seeded["auth"] not in html
-        assert seeded["password"] not in html
+        visible_text = page.inner_text("body")
+        assert seeded["email"] not in visible_text
+        assert seeded["api_key"] not in visible_text
+        assert seeded["auth"] not in visible_text
+        assert seeded["password"] not in visible_text
+        assert "data-rum-view-url" in html
         expect(page.get_by_role("heading", name="Errors")).to_be_visible()
 
     def test_screenshot_rum_masking_replay_artifacts(self, page: Page, live_server):
@@ -919,12 +921,14 @@ class TestScreenshots:
         )
 
         html = page.content()
+        visible_text = page.inner_text("body")
         table_bodies = page.locator("table tbody").all_text_contents()
         assert any(seeded["marker_token"] in (txt or "") for txt in table_bodies)
-        assert seeded["email"] not in html
-        assert seeded["api_key"] not in html
-        assert seeded["auth"] not in html
-        assert seeded["password"] not in html
+        assert seeded["email"] not in visible_text
+        assert seeded["api_key"] not in visible_text
+        assert seeded["auth"] not in visible_text
+        assert seeded["password"] not in visible_text
+        assert "data-rum-view-url" in html
         expect(page.get_by_role("heading", name="Real User Monitoring")).to_be_visible()
 
 

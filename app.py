@@ -94,6 +94,8 @@ _MASKING_CUSTOM_KEYS_SETTING = "masking.custom_keys"
 _MASKING_CUSTOM_PATTERNS_SETTING = "masking.custom_patterns"
 _MASKING_SQL_OUTPUT_ENABLED_SETTING = "masking.sql_output_enabled"
 _SQL_OUTPUT_MASK_FIELD_NAMES = frozenset({"sql", "query", "sample_sql", "override_sql"})
+_MASKING_RULES_REFRESH_LOCK = threading.Lock()
+_MASKING_LAST_RULES_SIGNATURE: tuple[tuple[str, ...], tuple[str, ...]] | None = None
 
 
 def _mask_json_payload(value: Any) -> Any:
@@ -21155,7 +21157,10 @@ async def delete_masking_pattern():
 async def update_masking_sql_output_setting():
     db = get_db()
     form = await request.form
-    enabled = _is_truthy_setting(form.get("enabled"), default=False)
+    # Browser submissions can send both hidden and checkbox values for the same
+    # field name. Treat the toggle as enabled if any submitted value is truthy.
+    enabled_values = form.getlist("enabled")
+    enabled = any(_is_truthy_setting(value, default=False) for value in enabled_values)
     _set_app_setting(db, _MASKING_SQL_OUTPUT_ENABLED_SETTING, "1" if enabled else "0")
     await flash(
         (
@@ -23214,11 +23219,19 @@ def _load_masking_settings(db: "ChDbConnection") -> dict[str, Any]:
 
 
 def _refresh_masking_runtime_rules(db: "ChDbConnection") -> None:
-    settings = _load_masking_settings(db)
-    _masking.configure_runtime_rules(
-        custom_keys=settings["custom_keys"],
-        custom_patterns=settings["custom_patterns"],
-    )
+    global _MASKING_LAST_RULES_SIGNATURE
+    custom_keys = _load_masking_custom_keys(db)
+    custom_patterns = _load_masking_custom_patterns(db)
+    signature = (tuple(custom_keys), tuple(custom_patterns))
+
+    with _MASKING_RULES_REFRESH_LOCK:
+        if _MASKING_LAST_RULES_SIGNATURE == signature:
+            return
+        _masking.configure_runtime_rules(
+            custom_keys=custom_keys,
+            custom_patterns=custom_patterns,
+        )
+        _MASKING_LAST_RULES_SIGNATURE = signature
 
 
 @app.before_request
