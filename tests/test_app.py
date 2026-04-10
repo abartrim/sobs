@@ -12855,10 +12855,10 @@ class TestNotifications:
         }
 
         monkeypatch.setattr(sobs_app, "_evaluate_signal_condition", lambda _db, _cond: (True, 42.0))
-        seen: dict[str, str] = {}
+        seen: dict[str, dict] = {}
 
         async def _fake_dispatch(channel, payload):
-            seen[str(channel.get("id"))] = str(payload.get("summary") or "")
+            seen[str(channel.get("id"))] = payload
             return "ok"
 
         monkeypatch.setattr(sobs_app, "_dispatch_notification_channel", _fake_dispatch)
@@ -12867,9 +12867,10 @@ class TestNotifications:
         assert result["fired"] is True
         assert "masked-channel" in seen
         assert "raw-channel" in seen
-        assert "owner@example.com" not in seen["masked-channel"]
-        assert "****" in seen["masked-channel"]
-        assert "owner@example.com" in seen["raw-channel"]
+        assert "owner@example.com" not in str(seen["masked-channel"].get("summary") or "")
+        assert seen["masked-channel"]["conditions"][0]["service"] == "****"
+        assert "owner@example.com" in str(seen["raw-channel"].get("summary") or "")
+        assert seen["raw-channel"]["conditions"][0]["service"] == "owner@example.com"
 
     async def test_check_notification_rule_global_output_disable_bypasses_channel_masking(self, monkeypatch):
         db = sobs_app.get_db()
@@ -13345,6 +13346,24 @@ class TestNotifications:
         assert payload["severity"] == "warning"
         assert "Test Rule" in payload["summary"]
         assert "error_volume" in payload["summary"]
+
+    def test_build_notification_payload_masks_structured_conditions(self):
+        from app import _build_notification_payload
+
+        rule = {"name": "Masked Rule", "severity": "warning"}
+        conditions = [
+            {
+                "source": "logs",
+                "signal": "error_volume",
+                "service": "owner@example.com",
+                "comparator": "gt",
+                "threshold": 1,
+                "_value": 42.0,
+            }
+        ]
+        payload = _build_notification_payload(rule, conditions, mask_output_enabled=True)
+        assert payload["conditions"][0]["service"] == "****"
+        assert payload["summary"].count("****") >= 1
 
     def test_mask_channel_config_hides_password(self):
         from app import _mask_channel_config
@@ -14655,6 +14674,36 @@ class TestQueryRoutes:
         data = json.loads(await r.get_data())
         assert "owner@example.com" in data["sql"]
         assert "sk_live_run_test_456" in data["sql"]
+
+    async def test_query_run_masks_rows_even_when_sql_field_masking_disabled(self, client, monkeypatch):
+        monkeypatch.setattr(sobs_app, "_load_all_ai_settings", lambda _db: self._configured_query_settings())
+
+        import pandas as pd
+
+        monkeypatch.setattr(
+            sobs_app,
+            "_vanna_run_query",
+            lambda _db, _sql: (
+                pd.DataFrame([{"owner": "owner@example.com", "secret": "api_key=sk_live_result_test_123"}]),
+                "",
+            ),
+        )
+        monkeypatch.setattr(sobs_app, "_vanna_explain_sql", lambda _db, _sql: "")
+        monkeypatch.setattr(sobs_app, "_check_guard_model", AsyncMock(return_value=(True, "allowed", {})))
+        sobs_app._set_app_setting(sobs_app.get_db(), "masking.output_enabled", "1")
+        sobs_app._set_app_setting(sobs_app.get_db(), "masking.sql_output_enabled", "0")
+
+        sql_text = "SELECT 'owner@example.com' AS owner, 'api_key=sk_live_sql_passthrough_123' AS secret"
+        r = await client.post(
+            "/api/query/run",
+            json={"sql": sql_text, "question": "mask rows only", "chart": False},
+        )
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert "owner@example.com" in data["sql"]
+        assert "sk_live_sql_passthrough_123" in data["sql"]
+        assert data["rows"][0][0] == "****"
+        assert data["rows"][0][1] == "****"
 
     async def test_query_ask_masks_sql_and_dataset_sql_when_enabled(self, client, monkeypatch):
         monkeypatch.setattr(

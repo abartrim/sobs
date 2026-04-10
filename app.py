@@ -101,8 +101,7 @@ _MASKING_LAST_RULES_SIGNATURE: tuple[tuple[str, ...], tuple[str, ...]] | None = 
 
 def _mask_json_payload(value: Any) -> Any:
     """Mask observability payloads before sending them as JSON."""
-    safe_value = _coerce_undefined_for_json(value)
-    return _mask_value_for_output(safe_value)
+    return _mask_payload_for_output_json(value, mask_sql_fields=True)
 
 
 def masked_jsonify(*args: Any, **kwargs: Any) -> Response:
@@ -135,6 +134,35 @@ def _mask_sql_output_fields(value: Any) -> Any:
     return value
 
 
+def _mask_payload_for_output_json(
+    value: Any,
+    *,
+    db: "ChDbConnection | None" = None,
+    mask_sql_fields: bool = True,
+) -> Any:
+    safe_value = _coerce_undefined_for_json(value)
+    if not _is_output_masking_enabled(db):
+        return safe_value
+
+    if isinstance(safe_value, dict):
+        masked: dict[Any, Any] = {}
+        for key, item in safe_value.items():
+            key_name = _masking.normalize_sensitive_key(key)
+            if key_name in _masking.SENSITIVE_KEYS:
+                masked[key] = _masking.MASK
+                continue
+            if key_name in _SQL_OUTPUT_MASK_FIELD_NAMES and isinstance(item, str) and not mask_sql_fields:
+                masked[key] = item
+                continue
+            masked[key] = _mask_payload_for_output_json(item, db=db, mask_sql_fields=mask_sql_fields)
+        return masked
+    if isinstance(safe_value, list):
+        return [_mask_payload_for_output_json(item, db=db, mask_sql_fields=mask_sql_fields) for item in safe_value]
+    if isinstance(safe_value, tuple):
+        return tuple(_mask_payload_for_output_json(item, db=db, mask_sql_fields=mask_sql_fields) for item in safe_value)
+    return _mask_value_for_output(safe_value, db)
+
+
 def _is_output_masking_enabled(db: "ChDbConnection | None" = None) -> bool:
     try:
         resolved_db = db if db is not None else get_db()
@@ -163,9 +191,7 @@ def _is_sql_output_masking_enabled(db: "ChDbConnection | None" = None) -> bool:
 
 
 def _jsonify_with_optional_sql_output_mask(payload: Any) -> Response:
-    if _is_output_masking_enabled() and _is_sql_output_masking_enabled():
-        return jsonify(_mask_sql_output_fields(payload))
-    return jsonify(payload)
+    return _base_jsonify(_mask_payload_for_output_json(payload, mask_sql_fields=_is_sql_output_masking_enabled()))
 
 
 _ASYNC_HTTP_CLIENT: httpx.AsyncClient | None = None
@@ -22541,6 +22567,9 @@ def _build_notification_payload(
     mask_output_enabled: bool = True,
 ) -> dict:
     """Build a notification payload dict from a triggered rule and its matched conditions."""
+    conditions_payload = (
+        _mask_value_for_output(fired_conditions) if mask_output_enabled else copy.deepcopy(fired_conditions)
+    )
     condition_summaries = []
     for cond in fired_conditions:
         comparator_labels = {"gt": ">", "lt": "<", "gte": "≥", "lte": "≤", "eq": "="}
@@ -22557,7 +22586,7 @@ def _build_notification_payload(
     return {
         "rule_name": rule["name"],
         "severity": rule["severity"],
-        "conditions": fired_conditions,
+        "conditions": conditions_payload,
         "summary": summary,
         "fired_at": datetime.now(timezone.utc).isoformat(),
     }
