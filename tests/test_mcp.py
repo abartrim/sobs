@@ -412,6 +412,24 @@ class TestMcpToolsCall:
         content = json.loads(data["result"]["content"][0]["text"])
         assert "metrics" in content
 
+    async def test_get_metric_names_with_service_filter_returns_ok(self, client):
+        """Regression: service filter must not cause placeholder mismatch across UNION branches."""
+        r = await client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 81,
+                "method": "tools/call",
+                "params": {"name": "get_metric_names", "arguments": {"service": "api"}},
+            },
+            headers={"X-MCP-API-Key": self._raw_key},
+        )
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        # Must return a result dict, not an error, proving no SQL placeholder mismatch.
+        content = json.loads(data["result"]["content"][0]["text"])
+        assert "metrics" in content
+
     async def test_get_anomaly_rules_returns_ok(self, client):
         r = await client.post(
             "/mcp",
