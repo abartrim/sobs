@@ -46,7 +46,7 @@ if (!{{ fn_name }}()) {
 }
 {%- endmacro %}
 
-{% macro render_regex_filter(label='Search', name='q', input_id='regex-filter-input', dropdown_id='regex-ac-dropdown', value='', placeholder='regex search (use && and !)…', flex_style='flex: 2 0 200px') -%}
+{% macro render_regex_filter(label='Search', name='q', input_id='regex-filter-input', dropdown_id='regex-ac-dropdown', value='', placeholder='regex search (&&, !, \\&&)…', flex_style='flex: 2 0 200px') -%}
 <div style="{{ flex_style }}">
   <label class="form-label small text-secondary">{{ label }}</label>
   <div class="position-relative">

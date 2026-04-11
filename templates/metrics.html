@@ -198,7 +198,7 @@ _sobsInitRegexFilter({
     to_ts: {{ to_ts | tojson }}
   },
   noMatchMessage: "Valid regex — no matching signal names found.",
-  hintMessage: "Enter RE2 regex terms. Combine with && and negate with ! (example: latency && !p95)."
+  hintMessage: "Enter RE2 regex terms. Combine with &&, negate with !, and use \\&& for literal && (example: latency && !p95)."
 });
 
 // ── Saved Reports: metrics page ───────────────────────────────────────────

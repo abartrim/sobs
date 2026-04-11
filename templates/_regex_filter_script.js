@@ -8,7 +8,7 @@ function _sobsInitRegexFilter(opts) {
 
   const validateUrl = opts.validateUrl;
   const noMatchMessage = opts.noMatchMessage || "Valid regex — no matching records found.";
-  const hintMessage = opts.hintMessage || "Enter RE2 regex terms. Combine with && and negate with !.";
+  const hintMessage = opts.hintMessage || "Enter RE2 regex terms. Combine with &&, negate with !, and use \\&& for literal &&.";
   const scope = (opts.scope && typeof opts.scope === "object") ? opts.scope : null;
   const suggestionLimit = Number.isFinite(opts.suggestionLimit) ? Math.max(5, Number(opts.suggestionLimit)) : 30;
 
@@ -100,10 +100,36 @@ function _sobsInitRegexFilter(opts) {
     if (dropdown.style.display !== "none") renderStatusRow();
   }
 
+  function splitRegexExpressionTerms(expr) {
+    const parts = [];
+    let buf = "";
+    for (let i = 0; i < expr.length; i += 1) {
+      if (expr[i] === "&" && expr[i + 1] === "&") {
+        let backslashes = 0;
+        for (let j = i - 1; j >= 0 && expr[j] === "\\"; j -= 1) {
+          backslashes += 1;
+        }
+        if (backslashes % 2 === 0) {
+          parts.push(buf.trim());
+          buf = "";
+          i += 1;
+          continue;
+        }
+      }
+      buf += expr[i];
+    }
+    parts.push(buf.trim());
+    return parts;
+  }
+
+  function unescapeRegexExpressionTerm(term) {
+    return String(term || "").replace(/\\&&/g, "&&");
+  }
+
   function parseRegexExpression(value) {
     const expr = String(value || "").trim();
     if (!expr) return { include: [], exclude: [], error: null };
-    const parts = expr.split(/\s*&&\s*/).map((part) => part.trim());
+    const parts = splitRegexExpressionTerms(expr);
     if (!parts.length || parts.some((part) => !part)) {
       return { include: [], exclude: [], error: "Invalid expression around '&&'." };
     }
@@ -111,7 +137,7 @@ function _sobsInitRegexFilter(opts) {
     const exclude = [];
     for (const part of parts) {
       const negate = part.startsWith("!");
-      const token = negate ? part.slice(1).trim() : part;
+      const token = unescapeRegexExpressionTerm(negate ? part.slice(1).trim() : part);
       if (!token) {
         return { include: [], exclude: [], error: "Expected a pattern after '!'." };
       }

@@ -10341,7 +10341,33 @@ def _validate_re2_pattern(db: "ChDbConnection", pattern: str) -> str | None:
     return None
 
 
-_REGEX_FILTER_AND_SPLIT_RE = re.compile(r"\s*&&\s*")
+def _split_regex_filter_expression_terms(expression: str) -> list[str]:
+    """Split expression by unescaped && while preserving escaped literal \\&& tokens."""
+    parts: list[str] = []
+    buf: list[str] = []
+    i = 0
+    n = len(expression)
+    while i < n:
+        if i + 1 < n and expression[i] == "&" and expression[i + 1] == "&":
+            backslashes = 0
+            j = i - 1
+            while j >= 0 and expression[j] == "\\":
+                backslashes += 1
+                j -= 1
+            if backslashes % 2 == 0:
+                parts.append("".join(buf).strip())
+                buf = []
+                i += 2
+                continue
+        buf.append(expression[i])
+        i += 1
+    parts.append("".join(buf).strip())
+    return parts
+
+
+def _unescape_regex_filter_term(term: str) -> str:
+    """Interpret \\&& as literal && within a regex term."""
+    return term.replace(r"\&&", "&&")
 
 
 def _parse_regex_filter_expression(raw: str) -> tuple[list[str], list[str], str | None]:
@@ -10350,7 +10376,7 @@ def _parse_regex_filter_expression(raw: str) -> tuple[list[str], list[str], str 
     if not expression:
         return [], [], None
 
-    parts = [part.strip() for part in _REGEX_FILTER_AND_SPLIT_RE.split(expression)]
+    parts = _split_regex_filter_expression_terms(expression)
     if not parts or any(not part for part in parts):
         return [], [], "Regex error: invalid expression around '&&'"
 
@@ -10359,6 +10385,7 @@ def _parse_regex_filter_expression(raw: str) -> tuple[list[str], list[str], str 
     for part in parts:
         negate = part.startswith("!")
         token = part[1:].strip() if negate else part
+        token = _unescape_regex_filter_term(token)
         if not token:
             return [], [], "Regex error: expected a pattern after '!'"
         try:
@@ -22215,20 +22242,31 @@ def _regex_best_effort_sample(
     from_sql: str,
     sample_column: str,
     order_column: str,
-    pattern: str,
+    include_patterns: list[str],
+    exclude_patterns: list[str],
     where_parts: list[str],
     where_params: list[Any],
 ) -> str | None:
     """Return a bounded sample match by probing only recent candidate rows."""
     where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+    regex_conditions: list[str] = []
+    regex_params: list[Any] = []
+    _append_regex_expression_clauses(
+        conditions=regex_conditions,
+        params=regex_params,
+        column="sample_value",
+        include_patterns=include_patterns,
+        exclude_patterns=exclude_patterns,
+    )
+    regex_where_sql = ("WHERE " + " AND ".join(regex_conditions)) if regex_conditions else ""
     sql = (
-        f"SELECT {sample_column} FROM ("
-        f"SELECT {sample_column} FROM {from_sql} "
+        "SELECT sample_value FROM ("
+        f"SELECT {sample_column} AS sample_value FROM {from_sql} "
         f"{where_sql} ORDER BY {order_column} DESC LIMIT ?"
         ") "
-        f"WHERE match({sample_column}, ?) LIMIT 1"
+        f"{regex_where_sql} LIMIT 1"
     )
-    params = [*where_params, _REGEX_VALIDATE_CANDIDATE_LIMIT, pattern]
+    params = [*where_params, _REGEX_VALIDATE_CANDIDATE_LIMIT, *regex_params]
     row = db.execute(sql, params).fetchone()
     return _truncate_sample(row[0] if row else None)
 
@@ -22277,17 +22315,16 @@ async def api_logs_validate_regex():
         where_parts.extend(time_parts)
         where_params.extend(time_params)
 
-        sample = None
-        if include_patterns:
-            sample = _regex_best_effort_sample(
-                db,
-                from_sql="otel_logs",
-                sample_column="Body",
-                order_column="Timestamp",
-                pattern=include_patterns[0],
-                where_parts=where_parts,
-                where_params=where_params,
-            )
+        sample = _regex_best_effort_sample(
+            db,
+            from_sql="otel_logs",
+            sample_column="Body",
+            order_column="Timestamp",
+            include_patterns=include_patterns,
+            exclude_patterns=_exclude_patterns,
+            where_parts=where_parts,
+            where_params=where_params,
+        )
         return masked_jsonify({"ok": True, "sample": sample})
     except Exception:
         return masked_jsonify({"ok": True, "sample": None})
@@ -22327,17 +22364,16 @@ async def api_errors_validate_regex():
         where_parts.extend(time_parts)
         where_params.extend(time_params)
 
-        sample = None
-        if include_patterns:
-            sample = _regex_best_effort_sample(
-                db,
-                from_sql=f"({ERROR_SOURCES_SQL})",
-                sample_column="Body",
-                order_column="Timestamp",
-                pattern=include_patterns[0],
-                where_parts=where_parts,
-                where_params=where_params,
-            )
+        sample = _regex_best_effort_sample(
+            db,
+            from_sql=f"({ERROR_SOURCES_SQL})",
+            sample_column="Body",
+            order_column="Timestamp",
+            include_patterns=include_patterns,
+            exclude_patterns=_exclude_patterns,
+            where_parts=where_parts,
+            where_params=where_params,
+        )
         return masked_jsonify({"ok": True, "sample": sample})
     except Exception:
         return masked_jsonify({"ok": True, "sample": None})
@@ -22381,17 +22417,16 @@ async def api_traces_validate_regex():
         where_parts.extend(time_parts)
         where_params.extend(time_params)
 
-        sample = None
-        if include_patterns:
-            sample = _regex_best_effort_sample(
-                db,
-                from_sql="otel_traces",
-                sample_column="SpanName",
-                order_column="Timestamp",
-                pattern=include_patterns[0],
-                where_parts=where_parts,
-                where_params=where_params,
-            )
+        sample = _regex_best_effort_sample(
+            db,
+            from_sql="otel_traces",
+            sample_column="SpanName",
+            order_column="Timestamp",
+            include_patterns=include_patterns,
+            exclude_patterns=_exclude_patterns,
+            where_parts=where_parts,
+            where_params=where_params,
+        )
         return masked_jsonify({"ok": True, "sample": sample})
     except Exception:
         return masked_jsonify({"ok": True, "sample": None})
@@ -22443,17 +22478,16 @@ async def api_metrics_validate_regex():
         where_parts.extend(time_parts)
         where_params.extend(time_params)
 
-        sample = None
-        if include_patterns:
-            sample = _regex_best_effort_sample(
-                db,
-                from_sql="v_derived_signals_anomaly",
-                sample_column="SignalName",
-                order_column="time",
-                pattern=include_patterns[0],
-                where_parts=where_parts,
-                where_params=where_params,
-            )
+        sample = _regex_best_effort_sample(
+            db,
+            from_sql="v_derived_signals_anomaly",
+            sample_column="SignalName",
+            order_column="time",
+            include_patterns=include_patterns,
+            exclude_patterns=_exclude_patterns,
+            where_parts=where_parts,
+            where_params=where_params,
+        )
         return masked_jsonify({"ok": True, "sample": sample})
     except Exception:
         return masked_jsonify({"ok": True, "sample": None})
@@ -22497,17 +22531,16 @@ async def api_rum_validate_regex():
         where_parts.extend(time_parts)
         where_params.extend(time_params)
 
-        sample = None
-        if include_patterns:
-            sample = _regex_best_effort_sample(
-                db,
-                from_sql="hyperdx_sessions",
-                sample_column="Body",
-                order_column="Timestamp",
-                pattern=include_patterns[0],
-                where_parts=where_parts,
-                where_params=where_params,
-            )
+        sample = _regex_best_effort_sample(
+            db,
+            from_sql="hyperdx_sessions",
+            sample_column="Body",
+            order_column="Timestamp",
+            include_patterns=include_patterns,
+            exclude_patterns=_exclude_patterns,
+            where_parts=where_parts,
+            where_params=where_params,
+        )
         return masked_jsonify({"ok": True, "sample": sample})
     except Exception:
         return masked_jsonify({"ok": True, "sample": None})

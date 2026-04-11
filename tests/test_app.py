@@ -2424,6 +2424,63 @@ class TestUIPages:
         assert empty_data["ok"] is True
         assert empty_data.get("sample") is None
 
+        # Escaped literal && should be treated as text, not an expression separator.
+        scoped_service = f"regex-validate-logs-{time.time_ns()}"
+        await client.post(
+            "/v1/logs",
+            json={
+                "resourceLogs": [
+                    {
+                        "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": scoped_service}}]},
+                        "scopeLogs": [
+                            {
+                                "logRecords": [
+                                    {
+                                        "timeUnixNano": str(int(time.time() * 1_000_000_000)),
+                                        "severityText": "INFO",
+                                        "body": {"stringValue": "literal && marker"},
+                                    },
+                                    {
+                                        "timeUnixNano": str(int(time.time() * 1_000_000_000) + 1),
+                                        "severityText": "INFO",
+                                        "body": {"stringValue": "known-noise-marker"},
+                                    },
+                                ]
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+        r_literal = await client.post(
+            "/api/logs/validate-regex",
+            json={"pattern": r"literal \&& marker", "scope": {"service": scoped_service}},
+        )
+        assert r_literal.status_code == 200
+        literal_data = await r_literal.get_json()
+        assert literal_data["ok"] is True
+        assert literal_data.get("sample") == "literal && marker"
+
+        # Negative-only expressions should still return a sample that satisfies exclusions.
+        r_negative = await client.post(
+            "/api/logs/validate-regex",
+            json={"pattern": "!known-noise-marker", "scope": {"service": scoped_service}},
+        )
+        assert r_negative.status_code == 200
+        negative_data = await r_negative.get_json()
+        assert negative_data["ok"] is True
+        assert negative_data.get("sample") is not None
+        assert "known-noise-marker" not in str(negative_data.get("sample"))
+
+    def test_parse_regex_filter_expression_escaped_and(self):
+        from app import _parse_regex_filter_expression
+
+        include_patterns, exclude_patterns, error = _parse_regex_filter_expression(r"foo\&&bar&&baz&&!qux\&&z")
+        assert error is None
+        assert include_patterns == ["foo&&bar", "baz"]
+        assert exclude_patterns == ["qux&&z"]
+
     async def test_logs_attr_keys_catalog_and_hints(self, client):
         import time as _time
 

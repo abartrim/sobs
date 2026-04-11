@@ -1034,7 +1034,7 @@ window.SOBS.initRaiseIssueModal({
       to_ts: {{ to_ts | tojson }}
     },
     noMatchMessage: "Valid regex — no matching span names found.",
-    hintMessage: "Enter RE2 regex terms. Combine with && and negate with ! (example: db|redis && !healthcheck)."
+    hintMessage: "Enter RE2 regex terms. Combine with &&, negate with !, and use \\&& for literal && (example: db|redis && !healthcheck)."
   });
 
   // ── Saved Reports: traces page ────────────────────────────────────────────
