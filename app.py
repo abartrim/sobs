@@ -1201,6 +1201,7 @@ CREATE TABLE IF NOT EXISTS sobs_tag_rules (
     MatchAttrKey String CODEC(ZSTD(1)),
     TagKey String CODEC(ZSTD(1)),
     TagValue String CODEC(ZSTD(1)),
+    ConditionsJson String DEFAULT '' CODEC(ZSTD(1)),
     IsDeleted UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
     Version UInt64 DEFAULT 0 CODEC(T64, ZSTD(1))
 ) ENGINE = ReplacingMergeTree(Version)
@@ -1992,6 +1993,7 @@ def _ensure_post_schema_state(db: ChDbConnection) -> None:
     _ensure_notification_schema(db)
     _ensure_ai_memory_schema(db)
     _ensure_github_work_item_schema(db)
+    _ensure_tag_rule_schema(db)
     _ensure_raw_metrics_retention(db)
     _prime_log_attr_key_cache(db)
     _seed_app_release_registry_from_env(db)
@@ -2143,6 +2145,14 @@ def _ensure_github_work_item_schema(db: ChDbConnection) -> None:
             "CopilotAssignmentStatus LowCardinality(String) DEFAULT 'not_requested'"
         ),
         "ALTER TABLE sobs_github_work_items ADD COLUMN IF NOT EXISTS CopilotAssignmentReason String DEFAULT ''",
+    ]
+    for statement in migration_statements:
+        db.execute(statement)
+
+
+def _ensure_tag_rule_schema(db: ChDbConnection) -> None:
+    migration_statements = [
+        "ALTER TABLE sobs_tag_rules ADD COLUMN IF NOT EXISTS ConditionsJson String DEFAULT ''",
     ]
     for statement in migration_statements:
         db.execute(statement)
@@ -11526,7 +11536,7 @@ def _load_tag_rules(db: ChDbConnection) -> list[dict]:
     """Load all active tag rules."""
     rows = db.execute(
         "SELECT Id, Name, RecordTypes, MatchField, MatchOperator, MatchValue, "
-        "MatchAttrKey, TagKey, TagValue "
+        "MatchAttrKey, TagKey, TagValue, ConditionsJson "
         "FROM sobs_tag_rules FINAL WHERE IsDeleted = 0 ORDER BY Name"
     ).fetchall()
     return [
@@ -11540,6 +11550,7 @@ def _load_tag_rules(db: ChDbConnection) -> list[dict]:
             "match_attr_key": str(row["MatchAttrKey"]),
             "tag_key": str(row["TagKey"]),
             "tag_value": str(row["TagValue"]),
+            "conditions": json.loads(str(row["ConditionsJson"]) or "[]"),
         }
         for row in rows
     ]
@@ -11555,12 +11566,53 @@ def _match_tag_rule(
     span_name: str = "",
     event_type: str = "",
 ) -> bool:
-    """Return True if the tag rule matches the given record fields."""
+    """Return True if the tag rule matches the given record fields.
+
+    For composite rules (non-empty ``conditions`` list), *all* conditions must
+    match.  For simple rules the single ``match_field``/``match_operator``/
+    ``match_value`` triple is evaluated as before.
+    """
     rule_types = rule["record_types"]
     if rule_types and "all" not in rule_types and record_type not in rule_types:
         return False
 
-    field = rule["match_field"]
+    conditions: list[dict] = rule.get("conditions") or []
+    if conditions:
+        # Composite rule – every condition in the list must match.
+        return all(
+            _match_single_condition(cond, service, severity, body, attrs, span_name, event_type)
+            for cond in conditions
+        )
+
+    # Simple (legacy) rule – evaluate the single condition stored directly on
+    # the rule dict.
+    return _match_single_condition(
+        {
+            "match_field": rule["match_field"],
+            "match_operator": rule["match_operator"],
+            "match_value": rule["match_value"],
+            "match_attr_key": rule["match_attr_key"],
+        },
+        service,
+        severity,
+        body,
+        attrs,
+        span_name,
+        event_type,
+    )
+
+
+def _match_single_condition(
+    cond: dict,
+    service: str,
+    severity: str,
+    body: str,
+    attrs: dict,
+    span_name: str = "",
+    event_type: str = "",
+) -> bool:
+    """Evaluate a single condition dict against the record fields."""
+    field = cond.get("match_field", "")
     if field == "service_name":
         value = service
     elif field == "severity":
@@ -11572,12 +11624,12 @@ def _match_tag_rule(
     elif field == "event_type":
         value = event_type
     elif field == "attribute":
-        value = str(attrs.get(rule["match_attr_key"], "")) if isinstance(attrs, dict) else ""
+        value = str(attrs.get(cond.get("match_attr_key", ""), "")) if isinstance(attrs, dict) else ""
     else:
         value = ""
 
-    operator = rule["match_operator"]
-    match_value = rule["match_value"]
+    operator = cond.get("match_operator", "")
+    match_value = cond.get("match_value", "")
     if operator == "eq":
         return value == match_value
     if operator == "contains":
@@ -21561,6 +21613,17 @@ async def auto_tag_rules():
                     "MatchAttrKey": str(candidate["match_attr_key"]),
                     "TagKey": str(candidate["tag_key"]),
                     "TagValue": str(candidate["tag_value"]),
+                    "ConditionsJson": json.dumps(
+                        [
+                            {
+                                "match_field": str(candidate["match_field"]),
+                                "match_operator": str(candidate["match_operator"]),
+                                "match_value": str(candidate["match_value"]),
+                                "match_attr_key": str(candidate["match_attr_key"]),
+                            }
+                        ],
+                        ensure_ascii=False,
+                    ),
                     "IsDeleted": 0,
                     "Version": version + idx,
                 }
@@ -21606,36 +21669,76 @@ async def create_tag_rule():
     form = await request.form
     name = (form.get("name") or "").strip()
     record_types_list = form.getlist("record_types")
-    match_field = (form.get("match_field") or "").strip().lower()
-    match_operator = (form.get("match_operator") or "eq").strip().lower()
-    match_value = (form.get("match_value") or "").strip()
-    match_attr_key = (form.get("match_attr_key") or "").strip()
     tag_key = (form.get("tag_key") or "").strip()
     tag_value = (form.get("tag_value") or "").strip()
 
-    if not name or not match_field or not tag_key or not tag_value:
-        await flash("Name, match field, tag key, and tag value are required", "warning")
+    # --- Composite conditions ---------------------------------------------------
+    # The form may submit multiple conditions via parallel lists:
+    #   condition_field[]  condition_operator[]  condition_value[]  condition_attr_key[]
+    # When at least two conditions are present the rule is "composite".
+    # When exactly one condition is provided it is stored both as ConditionsJson
+    # (for forward-compat reads) AND in the legacy MatchField/MatchOperator/MatchValue
+    # columns (for backward compat with existing query paths).
+    cond_fields = form.getlist("condition_field")
+    cond_operators = form.getlist("condition_operator")
+    cond_values = form.getlist("condition_value")
+    cond_attr_keys = form.getlist("condition_attr_key")
+
+    # Zip together, padding shorter lists with empty strings
+    n = max(len(cond_fields), len(cond_operators), len(cond_values), len(cond_attr_keys))
+
+    def _get(lst: list, i: int) -> str:
+        return lst[i].strip() if i < len(lst) else ""
+
+    conditions: list[dict] = []
+    for i in range(n):
+        f = _get(cond_fields, i).lower()
+        op = _get(cond_operators, i).lower() or "eq"
+        val = _get(cond_values, i)
+        attr = _get(cond_attr_keys, i)
+        if f:
+            conditions.append({"match_field": f, "match_operator": op, "match_value": val, "match_attr_key": attr})
+
+    # Fall back to single-condition fields if no composite conditions supplied
+    if not conditions:
+        match_field = (form.get("match_field") or "").strip().lower()
+        match_operator = (form.get("match_operator") or "eq").strip().lower()
+        match_value = (form.get("match_value") or "").strip()
+        match_attr_key = (form.get("match_attr_key") or "").strip()
+        if match_field:
+            conditions = [{"match_field": match_field, "match_operator": match_operator,
+                           "match_value": match_value, "match_attr_key": match_attr_key}]
+
+    if not name or not conditions or not tag_key or not tag_value:
+        await flash("Name, at least one match condition, tag key, and tag value are required", "warning")
         return redirect(url_for("view_tag_rules"))
-    if match_field not in _TAG_RULE_FIELDS:
-        await flash(f"Invalid match field: {match_field}", "warning")
-        return redirect(url_for("view_tag_rules"))
-    if match_operator not in _TAG_RULE_OPERATORS:
-        await flash(f"Invalid match operator: {match_operator}", "warning")
-        return redirect(url_for("view_tag_rules"))
-    if match_field == "attribute" and not match_attr_key:
-        await flash("Attribute key is required when match field is 'attribute'", "warning")
-        return redirect(url_for("view_tag_rules"))
-    if match_operator == "regex":
-        try:
-            re.compile(match_value)
-        except re.error as exc:
-            await flash(f"Invalid regex pattern: {exc}", "warning")
+
+    valid_fields = set(_TAG_RULE_FIELDS)
+    valid_ops = set(_TAG_RULE_OPERATORS)
+    for cond in conditions:
+        if cond["match_field"] not in valid_fields:
+            await flash(f"Invalid match field: {cond['match_field']}", "warning")
             return redirect(url_for("view_tag_rules"))
+        if cond["match_operator"] not in valid_ops:
+            await flash(f"Invalid match operator: {cond['match_operator']}", "warning")
+            return redirect(url_for("view_tag_rules"))
+        if cond["match_field"] == "attribute" and not cond["match_attr_key"]:
+            await flash("Attribute key is required when match field is 'attribute'", "warning")
+            return redirect(url_for("view_tag_rules"))
+        if cond["match_operator"] == "regex":
+            try:
+                re.compile(cond["match_value"])
+            except re.error as exc:
+                await flash(f"Invalid regex pattern: {exc}", "warning")
+                return redirect(url_for("view_tag_rules"))
 
     # Normalise record types
     valid_types = set(_TAG_RULE_RECORD_TYPES)
     chosen = [t.strip() for t in record_types_list if t.strip() in valid_types]
     record_types_str = ",".join(chosen) if chosen else "all"
+
+    # For the legacy single-condition columns use the first condition.
+    primary = conditions[0]
 
     rule_id = str(uuid.uuid4())
     _insert_rows_json_each_row(
@@ -21646,12 +21749,13 @@ async def create_tag_rule():
                 "Id": rule_id,
                 "Name": name,
                 "RecordTypes": record_types_str,
-                "MatchField": match_field,
-                "MatchOperator": match_operator,
-                "MatchValue": match_value,
-                "MatchAttrKey": match_attr_key,
+                "MatchField": primary["match_field"],
+                "MatchOperator": primary["match_operator"],
+                "MatchValue": primary["match_value"],
+                "MatchAttrKey": primary["match_attr_key"],
                 "TagKey": tag_key,
                 "TagValue": tag_value,
+                "ConditionsJson": json.dumps(conditions, ensure_ascii=False),
                 "IsDeleted": 0,
                 "Version": int(time.time() * 1000),
             }
@@ -21686,6 +21790,7 @@ async def delete_tag_rule(rule_id: str):
                 "MatchAttrKey": "",
                 "TagKey": "",
                 "TagValue": "",
+                "ConditionsJson": "[]",
                 "IsDeleted": 1,
                 "Version": int(time.time() * 1000),
             }

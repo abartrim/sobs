@@ -129,7 +129,7 @@
     <h6 class="mb-0"><i class="bi bi-plus-circle me-2 text-success"></i>Create Tag Rule</h6>
   </div>
   <div class="card-body">
-    <form method="post" action="{{ url_for('create_tag_rule') }}" class="row g-3">
+    <form method="post" action="{{ url_for('create_tag_rule') }}" class="row g-3" id="createTagRuleForm">
       <!-- Rule name -->
       <div class="col-md-4">
         <label class="form-label small text-secondary">Rule Name <span class="text-danger">*</span></label>
@@ -151,40 +151,52 @@
         <div class="form-text small">Leave all unchecked or check <em>all</em> to match every record type.</div>
       </div>
 
-      <!-- Match field -->
-      <div class="col-md-3">
-        <label class="form-label small text-secondary">Match Field <span class="text-danger">*</span></label>
-        <select name="match_field" id="matchFieldSelect" class="form-select form-select-sm" required>
-          {% for f in match_fields %}
-          <option value="{{ f }}">{{ f.replace('_', ' ').title() }}</option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <!-- Attribute key (shown only when match field = attribute) -->
-      <div class="col-md-3" id="attrKeyGroup" style="display:none">
-        <label class="form-label small text-secondary">Attribute Key</label>
-        <input type="text" name="match_attr_key" id="matchAttrKey" class="form-control form-control-sm"
-               placeholder="e.g. http.status_code">
-      </div>
-
-      <!-- Match operator -->
-      <div class="col-md-2">
-        {{ render_single_select(
-          'match_operator',
-          'Operator',
-          match_operators,
-          match_operators[0] if match_operators else '',
-          '100%',
-          false
-        ) }}
-      </div>
-
-      <!-- Match value -->
-      <div class="col-md-4">
-        <label class="form-label small text-secondary">Match Value <span class="text-danger">*</span></label>
-        <input type="text" name="match_value" class="form-control form-control-sm"
-               placeholder="e.g. ERROR or ^timeout.*" required>
+      <!-- Conditions -->
+      <div class="col-12">
+        <label class="form-label small text-secondary">
+          Match Conditions <span class="text-danger">*</span>
+          <span class="badge text-bg-secondary ms-1" id="compositeLabel" style="display:none">composite</span>
+        </label>
+        <div id="conditionsContainer">
+          <!-- Condition row template -->
+          <div class="condition-row row g-2 mb-2 align-items-end" data-index="0">
+            <div class="col-md-3">
+              <label class="form-label small text-secondary">Match Field</label>
+              <select name="condition_field" class="form-select form-select-sm condition-field-select" required>
+                {% for f in match_fields %}
+                <option value="{{ f }}">{{ f.replace('_', ' ').title() }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2 condition-attr-key-group" style="display:none">
+              <label class="form-label small text-secondary">Attr Key</label>
+              <input type="text" name="condition_attr_key" class="form-control form-control-sm condition-attr-key"
+                     placeholder="e.g. http.status_code">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small text-secondary">Operator</label>
+              <select name="condition_operator" class="form-select form-select-sm">
+                {% for op in match_operators %}
+                <option value="{{ op.value if op is mapping else op }}">{{ op.label if op is mapping else op }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small text-secondary">Match Value</label>
+              <input type="text" name="condition_value" class="form-control form-control-sm"
+                     placeholder="e.g. ERROR or ^timeout.*" required>
+            </div>
+            <div class="col-md-1 d-flex align-items-end">
+              <button type="button" class="btn btn-outline-danger btn-sm remove-condition-btn" style="display:none" title="Remove condition">
+                <i class="bi bi-x"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-outline-secondary btn-sm mt-1" id="addConditionBtn">
+          <i class="bi bi-plus me-1"></i>Add Condition
+        </button>
+        <div class="form-text small mt-1">For <strong>composite</strong> rules add multiple conditions — <em>all</em> must match for the tag to be applied.</div>
       </div>
 
       <!-- Tag key -->
@@ -228,10 +240,7 @@
         <tr>
           <th>Name</th>
           <th>Record Types</th>
-          <th>Match Field</th>
-          <th>Attr Key</th>
-          <th>Operator</th>
-          <th>Match Value</th>
+          <th>Conditions</th>
           <th>Tag Key</th>
           <th>Tag Value</th>
           <th></th>
@@ -240,16 +249,35 @@
       <tbody>
         {% for rule in rules %}
         <tr>
-          <td class="fw-semibold">{{ rule.name }}</td>
+          <td class="fw-semibold">
+            {{ rule.name }}
+            {% if rule.conditions|length > 1 %}
+            <span class="badge text-bg-info text-dark ms-1" title="{{ rule.conditions|length }} conditions (all must match)">composite</span>
+            {% endif %}
+          </td>
           <td>
             {% for rt in rule.record_types %}
             <span class="badge text-bg-secondary me-1">{{ rt }}</span>
             {% endfor %}
           </td>
-          <td><code>{{ rule.match_field }}</code></td>
-          <td class="font-monospace small">{{ rule.match_attr_key or '—' }}</td>
-          <td>{{ rule.match_operator }}</td>
-          <td class="font-monospace small text-truncate" style="max-width:180px" title="{{ rule.match_value }}">{{ rule.match_value }}</td>
+          <td class="small">
+            {% if rule.conditions %}
+              {% for cond in rule.conditions %}
+              <div class="font-monospace{% if not loop.first %} mt-1{% endif %}">
+                <code>{{ cond.match_field }}</code>
+                <span class="text-secondary">{{ cond.match_operator }}</span>
+                <span class="text-truncate d-inline-block" style="max-width:140px;vertical-align:bottom" title="{{ cond.match_value }}">{{ cond.match_value }}</span>
+                {% if cond.match_attr_key %}<span class="text-secondary ms-1">[{{ cond.match_attr_key }}]</span>{% endif %}
+              </div>
+              {% if not loop.last %}<div class="text-secondary x-small">AND</div>{% endif %}
+              {% endfor %}
+            {% else %}
+              <code>{{ rule.match_field }}</code>
+              <span class="text-secondary">{{ rule.match_operator }}</span>
+              <span class="text-truncate d-inline-block" style="max-width:140px;vertical-align:bottom" title="{{ rule.match_value }}">{{ rule.match_value }}</span>
+              {% if rule.match_attr_key %}<span class="text-secondary ms-1">[{{ rule.match_attr_key }}]</span>{% endif %}
+            {% endif %}
+          </td>
           <td><span class="badge text-bg-info text-dark">{{ rule.tag_key }}</span></td>
           <td><span class="badge text-bg-light border">{{ rule.tag_value }}</span></td>
           <td>
@@ -297,6 +325,12 @@
       If multiple rules match the same <code>tag_key</code> for one record, the last matching rule
       wins for that key (deterministic evaluation order).
     </p>
+    <p class="mb-2">
+      <strong>Composite rules</strong> contain multiple conditions that must <em>all</em> match for
+      the tag to be applied (AND logic). For example, you can require both
+      <code>severity = ERROR</code> and <code>service_name contains payment</code> to apply the tag
+      <code>tier=critical</code>. Simple (single-condition) rules continue to work as before.
+    </p>
     <ul class="mb-2">
       <li><strong>service_name</strong> — matches against the record's service name.</li>
       <li><strong>severity</strong> — matches against the log severity level (e.g. <code>ERROR</code>, <code>WARN</code>).</li>
@@ -327,22 +361,107 @@
 {% block scripts %}
 <script>
 (function () {
-  var matchFieldSelect = document.getElementById('matchFieldSelect');
-  var attrKeyGroup = document.getElementById('attrKeyGroup');
-  var matchAttrKey = document.getElementById('matchAttrKey');
+  // ── Composite conditions builder ───────────────────────────────────────────
+  var conditionsContainer = document.getElementById('conditionsContainer');
+  var addConditionBtn = document.getElementById('addConditionBtn');
+  var compositeLabel = document.getElementById('compositeLabel');
+  var matchFields = {{ match_fields | tojson }};
+  var matchOperators = {{ match_operators | tojson }};
+
+  function buildOperatorOptions() {
+    return matchOperators.map(function (op) {
+      var val = (typeof op === 'object') ? op.value : op;
+      var lbl = (typeof op === 'object') ? op.label : op;
+      return '<option value="' + val + '">' + lbl + '</option>';
+    }).join('');
+  }
+
+  function buildFieldOptions() {
+    return matchFields.map(function (f) {
+      var label = f.replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+      return '<option value="' + f + '">' + label + '</option>';
+    }).join('');
+  }
+
+  function updateCompositeLabel() {
+    var rows = conditionsContainer.querySelectorAll('.condition-row');
+    if (compositeLabel) {
+      compositeLabel.style.display = rows.length > 1 ? '' : 'none';
+    }
+    rows.forEach(function (row) {
+      var btn = row.querySelector('.remove-condition-btn');
+      if (btn) btn.style.display = rows.length > 1 ? '' : 'none';
+    });
+  }
+
+  function bindConditionRow(row) {
+    var fieldSelect = row.querySelector('.condition-field-select');
+    var attrGroup = row.querySelector('.condition-attr-key-group');
+    var attrKey = row.querySelector('.condition-attr-key');
+    var removeBtn = row.querySelector('.remove-condition-btn');
+
+    function toggleAttr() {
+      var show = fieldSelect && fieldSelect.value === 'attribute';
+      if (attrGroup) attrGroup.style.display = show ? '' : 'none';
+      if (attrKey) attrKey.required = show;
+    }
+
+    if (fieldSelect) {
+      fieldSelect.addEventListener('change', toggleAttr);
+      toggleAttr();
+    }
+
+    if (removeBtn) {
+      removeBtn.addEventListener('click', function () {
+        row.remove();
+        updateCompositeLabel();
+      });
+    }
+  }
+
+  // Bind initial row
+  var initialRow = conditionsContainer && conditionsContainer.querySelector('.condition-row');
+  if (initialRow) bindConditionRow(initialRow);
+  updateCompositeLabel();
+
+  if (addConditionBtn && conditionsContainer) {
+    addConditionBtn.addEventListener('click', function () {
+      var newRow = document.createElement('div');
+      newRow.className = 'condition-row row g-2 mb-2 align-items-end';
+      newRow.innerHTML =
+        '<div class="col-md-3">' +
+          '<label class="form-label small text-secondary">Match Field</label>' +
+          '<select name="condition_field" class="form-select form-select-sm condition-field-select" required>' +
+            buildFieldOptions() +
+          '</select>' +
+        '</div>' +
+        '<div class="col-md-2 condition-attr-key-group" style="display:none">' +
+          '<label class="form-label small text-secondary">Attr Key</label>' +
+          '<input type="text" name="condition_attr_key" class="form-control form-control-sm condition-attr-key" placeholder="e.g. http.status_code">' +
+        '</div>' +
+        '<div class="col-md-2">' +
+          '<label class="form-label small text-secondary">Operator</label>' +
+          '<select name="condition_operator" class="form-select form-select-sm">' +
+            buildOperatorOptions() +
+          '</select>' +
+        '</div>' +
+        '<div class="col-md-4">' +
+          '<label class="form-label small text-secondary">Match Value</label>' +
+          '<input type="text" name="condition_value" class="form-control form-control-sm" placeholder="e.g. ERROR or ^timeout.*" required>' +
+        '</div>' +
+        '<div class="col-md-1 d-flex align-items-end">' +
+          '<button type="button" class="btn btn-outline-danger btn-sm remove-condition-btn" title="Remove condition">' +
+            '<i class="bi bi-x"></i>' +
+          '</button>' +
+        '</div>';
+      conditionsContainer.appendChild(newRow);
+      bindConditionRow(newRow);
+      updateCompositeLabel();
+    });
+  }
+
+  // ── Auto-tag accordion ─────────────────────────────────────────────────────
   var allowAutoTagSubmit = false;
-
-  function toggleAttrKey() {
-    if (!matchFieldSelect || !attrKeyGroup || !matchAttrKey) return;
-    var show = matchFieldSelect.value === 'attribute';
-    attrKeyGroup.style.display = show ? '' : 'none';
-    matchAttrKey.required = show;
-  }
-
-  if (matchFieldSelect) {
-    matchFieldSelect.addEventListener('change', toggleAttrKey);
-  }
-  toggleAttrKey();
 
   var autoForm = document.querySelector('form[action="{{ url_for("auto_tag_rules") }}"]');
   if (autoForm) {

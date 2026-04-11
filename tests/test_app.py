@@ -10597,6 +10597,88 @@ class TestTagRules:
         # Invalid regex must not raise, just return False
         assert _match_tag_rule(rule, "log", "svc", "ERROR", "any body", {}) is False
 
+    def test_match_tag_rule_composite_all_conditions_match(self):
+        from app import _match_tag_rule
+
+        rule = {
+            "record_types": ["all"],
+            "match_field": "severity",
+            "match_operator": "eq",
+            "match_value": "ERROR",
+            "match_attr_key": "",
+            "tag_key": "k",
+            "tag_value": "v",
+            "conditions": [
+                {"match_field": "severity", "match_operator": "eq", "match_value": "ERROR", "match_attr_key": ""},
+                {"match_field": "body", "match_operator": "contains", "match_value": "timeout", "match_attr_key": ""},
+            ],
+        }
+        # Both conditions match → True
+        assert _match_tag_rule(rule, "log", "svc", "ERROR", "connection timeout error", {}) is True
+
+    def test_match_tag_rule_composite_partial_match_returns_false(self):
+        from app import _match_tag_rule
+
+        rule = {
+            "record_types": ["all"],
+            "match_field": "severity",
+            "match_operator": "eq",
+            "match_value": "ERROR",
+            "match_attr_key": "",
+            "tag_key": "k",
+            "tag_value": "v",
+            "conditions": [
+                {"match_field": "severity", "match_operator": "eq", "match_value": "ERROR", "match_attr_key": ""},
+                {"match_field": "body", "match_operator": "contains", "match_value": "timeout", "match_attr_key": ""},
+            ],
+        }
+        # First matches but second does not → False
+        assert _match_tag_rule(rule, "log", "svc", "ERROR", "success message", {}) is False
+
+    def test_match_tag_rule_composite_with_attribute_condition(self):
+        from app import _match_tag_rule
+
+        rule = {
+            "record_types": ["all"],
+            "match_field": "severity",
+            "match_operator": "eq",
+            "match_value": "ERROR",
+            "match_attr_key": "",
+            "tag_key": "k",
+            "tag_value": "v",
+            "conditions": [
+                {"match_field": "severity", "match_operator": "eq", "match_value": "ERROR", "match_attr_key": ""},
+                {
+                    "match_field": "attribute",
+                    "match_operator": "eq",
+                    "match_value": "500",
+                    "match_attr_key": "http.status_code",
+                },
+            ],
+        }
+        assert _match_tag_rule(rule, "log", "svc", "ERROR", "", {"http.status_code": "500"}) is True
+        assert _match_tag_rule(rule, "log", "svc", "ERROR", "", {"http.status_code": "200"}) is False
+
+    def test_match_tag_rule_composite_wrong_record_type(self):
+        from app import _match_tag_rule
+
+        rule = {
+            "record_types": ["trace"],
+            "match_field": "severity",
+            "match_operator": "eq",
+            "match_value": "ERROR",
+            "match_attr_key": "",
+            "tag_key": "k",
+            "tag_value": "v",
+            "conditions": [
+                {"match_field": "severity", "match_operator": "eq", "match_value": "ERROR", "match_attr_key": ""},
+                {"match_field": "body", "match_operator": "contains", "match_value": "timeout", "match_attr_key": ""},
+            ],
+        }
+        # Record type doesn't match → False regardless of conditions
+        assert _match_tag_rule(rule, "log", "svc", "ERROR", "connection timeout error", {}) is False
+        assert _match_tag_rule(rule, "trace", "svc", "ERROR", "connection timeout error", {}) is True
+
 
 # ---------------------------------------------------------------------------
 # AI Settings, Contextual Helper, Agent Rules & Runs
