@@ -45,3 +45,17 @@ if (!{{ fn_name }}()) {
   window.addEventListener('load', {{ fn_name }}, { once: true });
 }
 {%- endmacro %}
+
+{% macro render_regex_filter(label='Search', name='q', input_id='regex-filter-input', dropdown_id='regex-ac-dropdown', value='', placeholder='regex search…', flex_style='flex: 2 0 200px') -%}
+<div style="{{ flex_style }}">
+  <label class="form-label small text-secondary">{{ label }}</label>
+  <div class="position-relative">
+    <input type="text" name="{{ name }}" id="{{ input_id }}" class="form-control form-control-sm font-monospace"
+           placeholder="{{ placeholder }}" value="{{ value }}"
+           autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox">
+    <ul id="{{ dropdown_id }}" role="listbox"
+        class="dropdown-menu p-0 font-monospace small"
+        style="display:none;position:absolute;top:100%;left:0;z-index:1060;min-width:100%;max-width:600px;max-height:min(400px,60vh);overflow-y:auto;"></ul>
+  </div>
+</div>
+{%- endmacro %}

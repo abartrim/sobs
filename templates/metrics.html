@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_multi_select_filter.html" import render_multi_select %}
-{% from "_filter_macros.html" import render_filter_accordion, render_tz_init_script %}
+{% from "_filter_macros.html" import render_filter_accordion, render_regex_filter, render_tz_init_script %}
 {% block title %}Metrics{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -16,17 +16,7 @@
 
 {% call render_filter_accordion('metricsFiltersAccordion', 'metricsFiltersHeading', 'metricsFiltersPanel', 'text-info', 'metrics-tz-badge-btn', 'metrics-tz-badge-label', body_class='py-2') %}
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
-      <div style="flex: 2 0 200px">
-        <label class="form-label small text-secondary">Search</label>
-        <div class="position-relative">
-          <input type="text" name="q" id="metrics-regex-filter-input" class="form-control form-control-sm font-monospace"
-                 placeholder="regex search…" value="{{ q }}"
-                 autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox">
-          <ul id="metrics-regex-ac-dropdown" role="listbox"
-              class="dropdown-menu p-0 font-monospace small"
-              style="display:none;position:absolute;top:100%;left:0;z-index:1060;min-width:100%;max-width:600px;max-height:min(400px,60vh);overflow-y:auto;"></ul>
-        </div>
-      </div>
+      {{ render_regex_filter(input_id='metrics-regex-filter-input', dropdown_id='metrics-regex-ac-dropdown', value=q) }}
       {{ render_multi_select('source', 'Source', sources, selected_sources, '120px') }}
       {{ render_multi_select('service', 'Service', services, selected_services, '140px') }}
       {{ render_multi_select('signal', 'Signal', signals, selected_signals, '140px') }}
@@ -208,7 +198,7 @@ _sobsInitRegexFilter({
     to_ts: {{ to_ts | tojson }}
   },
   noMatchMessage: "Valid regex — no matching signal names found.",
-  hintMessage: "Enter a regex pattern to search signal names."
+  hintMessage: "Enter a regex pattern to search signal names. Use RE2 syntax."
 });
 
 // ── Saved Reports: metrics page ───────────────────────────────────────────

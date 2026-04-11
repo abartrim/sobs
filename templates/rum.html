@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_multi_select_filter.html" import render_single_select %}
-{% from "_filter_macros.html" import render_filter_accordion %}
+{% from "_filter_macros.html" import render_filter_accordion, render_regex_filter %}
 {% block title %}RUM{% endblock %}
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
@@ -753,15 +753,7 @@
 {% call render_filter_accordion('rumFiltersAccordion', 'rumFiltersHeading', 'rumFiltersPanel', 'text-primary', 'rum-tz-badge-btn', 'rum-tz-badge-label', body_class='py-3 rum-filters-panel') %}
     <form method="get" class="d-flex flex-wrap align-items-end rum-filters-form sobs-filter-form">
       <div class="rum-filter-field rum-filter-search">
-        <label class="form-label small text-secondary">Search</label>
-        <div class="position-relative">
-          <input type="text" name="q" id="rum-regex-filter-input" class="form-control form-control-sm font-monospace"
-                 placeholder="regex search…" value="{{ q }}"
-                 autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox">
-          <ul id="rum-regex-ac-dropdown" role="listbox"
-              class="dropdown-menu p-0 font-monospace small"
-              style="display:none;position:absolute;top:100%;left:0;z-index:1060;min-width:100%;max-width:600px;max-height:min(400px,60vh);overflow-y:auto;"></ul>
-        </div>
+        {{ render_regex_filter(input_id='rum-regex-filter-input', dropdown_id='rum-regex-ac-dropdown', value=q, flex_style='flex: 1 1 auto;') }}
       </div>
       {{ render_single_select('type', 'Event type', ([{'value': '', 'label': 'All types'}] + event_types), event_type, '140px') }}
       {{ render_single_select('error_source', 'Error source', ([{'value': '', 'label': 'All sources'}] + error_sources), error_source, '160px') }}
@@ -1665,7 +1657,7 @@ _sobsInitRegexFilter({
     to_ts: {{ to_ts | tojson }}
   },
   noMatchMessage: "Valid regex — no matching RUM events found.",
-  hintMessage: "Enter a regex pattern to search RUM event data."
+  hintMessage: "Enter a regex pattern to search RUM event data. Use RE2 syntax."
 });
 
 // ── Saved Reports: RUM page ───────────────────────────────────────────────

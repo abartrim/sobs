@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from '_multi_select_filter.html' import render_multi_select %}
-{% from '_filter_macros.html' import render_filter_accordion %}
+{% from '_filter_macros.html' import render_filter_accordion, render_regex_filter %}
 {% block title %}Logs{% endblock %}
 {% block content %}
 {% set live = request.args.get('live', '') %}
@@ -65,17 +65,7 @@
       <input type="hidden" name="analyze" value="{{ analyze }}">
       <input type="hidden" name="stats" value="{{ '1' if stats_open else '' }}">
       <input type="hidden" name="trace_ids" value="{{ trace_ids_csv }}">
-      <div style="flex: 2 0 200px">
-        <label class="form-label small text-secondary">Grep pattern</label>
-        <div class="position-relative">
-          <input type="text" name="q" id="regex-filter-input" class="form-control form-control-sm font-monospace"
-                 placeholder="regex search…" value="{{ q }}"
-                 autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox">
-          <ul id="regex-ac-dropdown" role="listbox"
-              class="dropdown-menu p-0 font-monospace small"
-              style="display:none;position:absolute;top:100%;left:0;z-index:1060;min-width:100%;max-width:600px;max-height:min(400px,60vh);overflow-y:auto;"></ul>
-        </div>
-      </div>
+      {{ render_regex_filter(label='Grep pattern', input_id='regex-filter-input', dropdown_id='regex-ac-dropdown', value=q) }}
       {{ render_multi_select('level', 'Level', levels, selected_levels, '120px') }}
       {{ render_multi_select('service', 'Service', services, selected_services, '140px') }}
       <div style="flex: 1 0 220px">
@@ -917,7 +907,7 @@ _sobsInitRegexFilter({
     to_ts: {{ to_ts | tojson }}
   },
   noMatchMessage: "Valid regex — no matching log entries found.",
-  hintMessage: "Enter a regex pattern to filter log messages."
+  hintMessage: "Enter a regex pattern to filter log messages. Use RE2 syntax."
 });
 </script>
 

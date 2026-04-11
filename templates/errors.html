@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_filter_macros.html" import render_filter_accordion, render_tz_init_script %}
+{% from "_filter_macros.html" import render_filter_accordion, render_regex_filter, render_tz_init_script %}
 {% from "_error_panels.html" import render_error_accordion, render_error_panel_styles %}
 {% from "_multi_select_filter.html" import render_multi_select, render_single_select %}
 {% block title %}Errors{% endblock %}
@@ -28,17 +28,7 @@
 <!-- Filter bar -->
 {% call render_filter_accordion('errorsFiltersAccordion', 'errorsFiltersHeading', 'errorsFiltersPanel', 'text-danger', 'errors-tz-badge-btn', 'errors-tz-badge-label') %}
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
-      <div style="flex: 2 0 200px">
-        <label class="form-label small text-secondary">Search</label>
-        <div class="position-relative">
-          <input type="text" name="q" id="errors-regex-filter-input" class="form-control form-control-sm font-monospace"
-                 placeholder="regex search…" value="{{ q }}"
-                 autocomplete="off" aria-autocomplete="list" aria-haspopup="listbox">
-          <ul id="errors-regex-ac-dropdown" role="listbox"
-              class="dropdown-menu p-0 font-monospace small"
-              style="display:none;position:absolute;top:100%;left:0;z-index:1060;min-width:100%;max-width:600px;max-height:min(400px,60vh);overflow-y:auto;"></ul>
-        </div>
-      </div>
+      {{ render_regex_filter(input_id='errors-regex-filter-input', dropdown_id='errors-regex-ac-dropdown', value=q) }}
       {{ render_multi_select('service', 'Service', services, selected_services, '140px') }}
       {{ render_single_select('resolved', 'Status', [
         {'value': '0', 'label': 'Open'},
@@ -242,7 +232,7 @@ _sobsInitRegexFilter({
     to_ts: {{ to_ts | tojson }}
   },
   noMatchMessage: "Valid regex — no matching errors found.",
-  hintMessage: "Enter a regex pattern to search error messages."
+  hintMessage: "Enter a regex pattern to search error messages. Use RE2 syntax."
 });
 
 // ── Saved Reports: errors page ────────────────────────────────────────────

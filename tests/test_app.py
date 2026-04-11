@@ -4375,7 +4375,7 @@ class TestUIPages:
         assert data_b["span"]["service"] == "raw-disambiguate-b"
 
     async def test_trace_detail_includes_raw_span_toggle(self, client):
-        """Trace detail view includes the raw span toggle button and panel markup."""
+        """Trace detail view includes the raw span toggle button and shared lazy-load panel markup."""
         from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
         from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
         from opentelemetry.proto.resource.v1.resource_pb2 import Resource
@@ -4406,11 +4406,12 @@ class TestUIPages:
         r = await client.get(f"/traces?trace_id={trace_id_hex}")
         assert r.status_code == 200
         body = await r.get_data(as_text=True)
-        # Raw toggle button and lazy-load panel present
+        # Raw toggle button and shared lazy-load panel present.
         assert "span-raw-toggle" in body
         assert "raw-span-panel" in body
         assert "raw-span-loading" in body
-        assert 'data-loaded="0"' in body
+        assert 'id="trace-shared-raw-panel"' in body
+        assert 'data-open="0"' in body
         assert "data-trace-id=" in body
         # JavaScript for lazy loading present
         assert "/api/traces/span/" in body
