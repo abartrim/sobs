@@ -4416,6 +4416,53 @@ class TestUIPages:
         # JavaScript for lazy loading present
         assert "/api/traces/span/" in body
 
+    async def test_trace_detail_pagination_includes_ancestor_context(self, client):
+        """Paged trace detail includes ancestor rows so child-only orphan pages are avoided."""
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+        from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+        from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
+
+        trace_id_bytes = bytes.fromhex("1234567811223344aabbccddeeff0011")
+        root_span_id = bytes.fromhex("1111111122222222")
+        child_span_id = bytes.fromhex("3333333344444444")
+        start_ns = 1704067200_000_000_000
+
+        root_span = Span(
+            trace_id=trace_id_bytes,
+            span_id=root_span_id,
+            name="ancestor-root-span",
+            start_time_unix_nano=start_ns,
+            end_time_unix_nano=start_ns + 2_000_000_000,
+            status=Status(code=1),
+        )
+        child_span = Span(
+            trace_id=trace_id_bytes,
+            span_id=child_span_id,
+            parent_span_id=root_span_id,
+            name="descendant-child-span",
+            start_time_unix_nano=start_ns + 500_000_000,
+            end_time_unix_nano=start_ns + 1_000_000_000,
+            status=Status(code=1),
+        )
+        resource = Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value="paging-svc"))])
+        msg = ExportTraceServiceRequest(
+            resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[root_span, child_span])])]
+        )
+        r = await client.post(
+            "/v1/traces", data=msg.SerializeToString(), headers={"Content-Type": "application/x-protobuf"}
+        )
+        assert r.status_code == 200
+
+        trace_id_hex = trace_id_bytes.hex()
+        r = await client.get(f"/traces?trace_id={trace_id_hex}&trace_span_limit=1&trace_span_offset=1")
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+
+        assert "ancestor-root-span" in body
+        assert "descendant-child-span" in body
+        assert "+1 ancestor context row" in body
+
     async def test_rum_sort_by_type(self, client):
         r = await client.get("/rum?sort_by=EventName&sort_dir=asc")
         assert r.status_code == 200

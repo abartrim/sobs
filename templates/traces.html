@@ -518,6 +518,9 @@
   <!-- Span tree rows -->
   <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
     <small class="text-secondary">Visible rows {{ trace_detail.page_offset + 1 }}-{{ trace_detail.page_end }} of {{ trace_detail.capped_total_spans }}{% if trace_detail.hard_capped %} (first {{ trace_detail.hard_cap }} only){% endif %}</small>
+    {% if trace_detail.context_rows %}
+    <small class="text-secondary">+{{ trace_detail.context_rows }} ancestor context row(s)</small>
+    {% endif %}
     <div class="d-flex align-items-center gap-2">
       <select class="form-select form-select-sm" style="width:auto;" onchange="window.location.href=this.value" aria-label="Trace rows per page">
         {% for n in [100, 200, 500, 1000] %}

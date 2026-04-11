@@ -13354,6 +13354,43 @@ def _build_span_tree(spans: list[dict]) -> list[dict]:
     return result
 
 
+def _slice_span_tree_with_ancestors(
+    full_span_tree: list[dict],
+    offset: int,
+    limit: int,
+) -> tuple[list[dict], int, int]:
+    """Return a paged span-tree slice plus required ancestors for context.
+
+    The returned tuple is ``(rows, page_end, context_rows)`` where:
+    - ``rows`` are in the original DFS order.
+    - ``page_end`` reflects the end index of the raw page window (without
+      ancestor expansion).
+    - ``context_rows`` is how many extra ancestor rows were prepended.
+    """
+    if not full_span_tree:
+        return [], 0, 0
+
+    total = len(full_span_tree)
+    page_start = max(0, min(offset, total))
+    page_end = min(page_start + max(1, limit), total)
+    page_rows = full_span_tree[page_start:page_end]
+    if not page_rows:
+        return [], page_end, 0
+
+    by_id = {str(row.get("span_id") or ""): row for row in full_span_tree}
+    included_ids = {str(row.get("span_id") or "") for row in page_rows}
+
+    for row in page_rows:
+        parent_id = str(row.get("parent_span_id") or "")
+        while parent_id and parent_id in by_id and parent_id not in included_ids:
+            included_ids.add(parent_id)
+            parent_id = str(by_id[parent_id].get("parent_span_id") or "")
+
+    rows = [row for row in full_span_tree if str(row.get("span_id") or "") in included_ids]
+    context_rows = max(0, len(rows) - len(page_rows))
+    return rows, page_end, context_rows
+
+
 def _compute_active_timeline_ms(spans: list[dict]) -> float:
     """Return merged active time across span intervals in milliseconds."""
     merged = _merge_span_intervals(spans)
@@ -14262,8 +14299,11 @@ async def view_traces():
             capped_total_spans = len(full_span_tree)
             if trace_span_offset >= capped_total_spans and capped_total_spans > 0:
                 trace_span_offset = max(0, ((capped_total_spans - 1) // trace_span_limit) * trace_span_limit)
-            trace_page_spans = full_span_tree[trace_span_offset : trace_span_offset + trace_span_limit]
-            trace_page_end = min(trace_span_offset + len(trace_page_spans), capped_total_spans)
+            trace_page_spans, trace_page_end, trace_context_rows = _slice_span_tree_with_ancestors(
+                full_span_tree,
+                trace_span_offset,
+                trace_span_limit,
+            )
             detail_prev_offset = max(0, trace_span_offset - trace_span_limit)
             detail_next_offset = trace_span_offset + trace_span_limit
             detail_hard_capped = trace_total_spans > _TRACE_DETAIL_HARD_CAP
@@ -14299,6 +14339,7 @@ async def view_traces():
                 "page_limit": trace_span_limit,
                 "page_offset": trace_span_offset,
                 "page_end": trace_page_end,
+                "context_rows": trace_context_rows,
                 "prev_offset": detail_prev_offset,
                 "next_offset": detail_next_offset,
                 "has_prev_page": trace_span_offset > 0,
