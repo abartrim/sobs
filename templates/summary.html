@@ -161,10 +161,14 @@
     <div class="card border-secondary">
       <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-journal-text me-1 text-info"></i>Recent Logs</span>
-        <a href="{{ url_for('view_logs') }}" class="btn btn-sm btn-outline-secondary">View all</a>
+        <div class="d-flex align-items-center gap-2">
+          <span id="summary-logs-ansi-btn" class="sobs-tz-header-badge" role="button" tabindex="0" aria-label="Toggle colored log output" aria-pressed="false" title="Colored log output: off — click to enable"><i class="bi bi-palette"></i></span>
+          <a href="{{ url_for('view_logs') }}" class="btn btn-sm btn-outline-secondary">View all</a>
+        </div>
       </div>
       <div class="card-body p-0">
         {% if recent_logs %}
+        <div id="summaryLogsContainer">
         <table class="table table-sm table-hover mb-0">
           <thead><tr><th>Time</th><th>Level</th><th>Message</th></tr></thead>
           <tbody>
@@ -172,11 +176,12 @@
             <tr>
               <td class="text-secondary small">{{ l.ts[:19] }}</td>
               <td><span class="badge badge-level-{{ l.level }}">{{ l.level }}</span></td>
-              <td class="small text-truncate log-body" style="max-width:220px;" title="{{ l.body|mask }}">{{ l.body|mask }}</td>
+              <td class="small text-truncate log-body" style="max-width:220px;" title="{{ l.body|mask }}"><span class="log-body-text">{{ l.body|mask }}</span></td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
+        </div>
         {% else %}
         <p class="text-secondary text-center py-3 mb-0">No logs yet</p>
         {% endif %}
@@ -287,6 +292,16 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+(function () {
+  if (window.sobsAnsi && typeof window.sobsAnsi.initPage === 'function') {
+    window.sobsAnsi.initPage({
+      containerId: 'summaryLogsContainer',
+      buttonId: 'summary-logs-ansi-btn'
+    });
+  }
+})();
+</script>
 <script>
 (function () {
   var select = document.getElementById('summaryRefreshSelect');
