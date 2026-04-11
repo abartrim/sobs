@@ -354,8 +354,8 @@ MCP endpoints use a separate key mechanism from the ingest API key.
 2. Click **Generate Key** and copy the displayed key (`smcp_…`).
 3. Pass the key in the `X-MCP-API-Key` request header.
 
-Keys are stored as BLAKE2b-MAC fingerprints in `sobs_app_settings` (never stored in plain text).
-The MAC key is derived from the installation's `SOBS_SECRET_KEY`, so hashes are unique per deployment.
+Keys are stored as scrypt-derived fingerprints in `sobs_app_settings` (never stored in plain text).
+The scrypt salt is derived from the installation's `SOBS_SECRET_KEY`, so fingerprints are unique per deployment.
 
 ### VS Code / GitHub Copilot configuration
 

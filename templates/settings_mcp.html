@@ -95,13 +95,17 @@
   "servers": {
     "sobs": {
       "type": "http",
-      "url": "http://&lt;your-sobs-host&gt;:44317/mcp",
+      "url": "https://&lt;your-sobs-host&gt;/mcp",
       "headers": {
         "X-MCP-API-Key": "&lt;your-api-key&gt;"
       }
     }
   }
 }</code></pre>
+    <div class="alert alert-warning small mt-2 mb-0 py-2 px-3" role="alert">
+      <i class="bi bi-shield-exclamation me-1"></i>
+      <strong>Use HTTPS in production</strong> to protect your API key in transit.
+    </div>
 
     <p class="small text-secondary mb-2 mt-3">
       Available tools (returned by <code>tools/list</code> and <code>GET /mcp/tools</code>):
