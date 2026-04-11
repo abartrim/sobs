@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_filter_macros.html" import render_filter_accordion %}
+{% from "_filter_macros.html" import render_filter_accordion, render_tz_init_script %}
 {% from "_error_panels.html" import render_error_accordion, render_error_panel_styles %}
 {% from "_multi_select_filter.html" import render_multi_select, render_single_select %}
 {% block title %}Errors{% endblock %}
@@ -197,22 +197,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-function initErrorsTimezone() {
-  if (!window.sobsTimezone || typeof window.sobsTimezone.initPage !== 'function') return false;
-  window.sobsTimezone.initPage({
-    fromInputId: 'errors-from-ts',
-    toInputId: 'errors-to-ts',
-    formSelector: '#errorsFiltersPanel form[method="get"]',
-    badgeButtonId: 'errors-tz-badge-btn',
-    badgeLabelId: 'errors-tz-badge-label',
-    timestampSelector: '.sobs-tz-ts[data-utc-ts]'
-  });
-  return true;
-}
-
-if (!initErrorsTimezone()) {
-  window.addEventListener('load', initErrorsTimezone, { once: true });
-}
+{{ render_tz_init_script('initErrorsTimezone', 'errorsFiltersPanel', 'errors-tz-badge-btn', 'errors-tz-badge-label', 'errors-from-ts', 'errors-to-ts') }}
 
 document.querySelectorAll('.resolve-btn').forEach(btn => {
   btn.addEventListener('click', async () => {

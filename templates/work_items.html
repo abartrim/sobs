@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_filter_macros.html" import render_filter_accordion %}
+{% from "_filter_macros.html" import render_filter_accordion, render_tz_init_script %}
 {% from "_multi_select_filter.html" import render_single_select %}
 {% block title %}Work Items{% endblock %}
 {% block content %}
@@ -249,22 +249,7 @@ document.querySelectorAll('.work-item-detail-btn').forEach(function (btn) {
   });
 });
 
-function initWorkItemsTimezone() {
-  if (!window.sobsTimezone || typeof window.sobsTimezone.initPage !== 'function') return false;
-  window.sobsTimezone.initPage({
-    formSelector: '#workItemsFiltersPanel form[method="get"]',
-    fromInputId: 'work-items-from-ts',
-    toInputId: 'work-items-to-ts',
-    badgeButtonId: 'work-items-tz-badge-btn',
-    badgeLabelId: 'work-items-tz-badge-label',
-    timestampSelector: '.sobs-tz-ts[data-utc-ts]'
-  });
-  return true;
-}
-
-if (!initWorkItemsTimezone()) {
-  window.addEventListener('load', initWorkItemsTimezone, { once: true });
-}
+{{ render_tz_init_script('initWorkItemsTimezone', 'workItemsFiltersPanel', 'work-items-tz-badge-btn', 'work-items-tz-badge-label', 'work-items-from-ts', 'work-items-to-ts') }}
 
 (function () {
   'use strict';

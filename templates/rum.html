@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_multi_select_filter.html" import render_single_select %}
+{% from "_filter_macros.html" import render_filter_accordion %}
 {% block title %}RUM{% endblock %}
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
@@ -408,28 +409,6 @@
     font-weight: 600;
     letter-spacing: .01em;
   }
-  .rum-tz-header-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: .25rem;
-    margin-left: .8rem;
-    padding: .1rem .45rem;
-    font-size: .7rem;
-    font-weight: 500;
-    color: var(--bs-secondary-color);
-    background: color-mix(in srgb, var(--bs-secondary-bg) 45%, transparent);
-    border: 1px solid var(--bs-border-color);
-    border-radius: .3rem;
-    cursor: pointer;
-    white-space: nowrap;
-    flex-shrink: 0;
-    user-select: none;
-    transition: color .15s, background-color .15s;
-  }
-  .rum-tz-header-badge:hover {
-    color: var(--bs-body-color);
-    background-color: color-mix(in srgb, var(--bs-secondary-bg) 75%, transparent);
-  }
   .rum-row-accordion-btn,
   .rum-row-trace-btn {
     border-color: color-mix(in srgb, var(--bs-border-color) 76%, transparent);
@@ -770,23 +749,7 @@
 {% endif %}
 
 <!-- Filter bar -->
-<div class="accordion mb-3" id="rumFiltersAccordion">
-  <div class="accordion-item border-secondary">
-    <h2 class="accordion-header" id="rumFiltersHeading">
-      <button class="accordion-button py-2" type="button"
-              data-bs-toggle="collapse" data-bs-target="#rumFiltersPanel"
-              aria-expanded="true" aria-controls="rumFiltersPanel">
-        <i class="bi bi-funnel me-2 text-primary"></i>
-        <span class="fw-semibold">Filters</span>
-        <span id="rum-tz-badge-btn" class="rum-tz-header-badge" role="button" tabindex="0"
-              title="Display timezone — click to change">
-          <i class="bi bi-clock"></i>
-          <span id="rum-tz-badge-label">UTC</span>
-        </span>
-      </button>
-    </h2>
-    <div id="rumFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="rumFiltersHeading" data-bs-parent="#rumFiltersAccordion">
-      <div class="accordion-body py-3 rum-filters-panel">
+{% call render_filter_accordion('rumFiltersAccordion', 'rumFiltersHeading', 'rumFiltersPanel', 'text-primary', 'rum-tz-badge-btn', 'rum-tz-badge-label', body_class='py-3 rum-filters-panel') %}
     <form method="get" class="d-flex flex-wrap align-items-end rum-filters-form sobs-filter-form">
       <div class="rum-filter-field rum-filter-search">
         <label class="form-label small text-secondary">Search</label>
@@ -850,10 +813,7 @@
     {% if error_msg %}
     <div class="alert alert-danger mt-2 mb-0 py-1 small">{{ error_msg }}</div>
     {% endif %}
-      </div>
-    </div>
-  </div>
-</div>
+{% endcall %}
 
 {% set page_count = session_groups | length if view_mode == 'sessions' else events | length %}
 {% if view_mode == 'sessions' and session_groups %}

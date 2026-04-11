@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from '_multi_select_filter.html' import render_multi_select %}
+{% from '_filter_macros.html' import render_filter_accordion %}
 {% block title %}Logs{% endblock %}
 {% block content %}
 {% set live = request.args.get('live', '') %}
@@ -57,25 +58,7 @@
 </div>
 
 <!-- Search / Filter bar -->
-<div class="accordion mb-3" id="logsFiltersAccordion">
-  <div class="accordion-item border-secondary">
-    <h2 class="accordion-header" id="logsFiltersHeading">
-      <button class="accordion-button py-2" type="button"
-              data-bs-toggle="collapse" data-bs-target="#logsFiltersPanel"
-              aria-expanded="true" aria-controls="logsFiltersPanel">
-        <i class="bi bi-funnel me-2 text-info"></i>
-        <span class="fw-semibold">Filters</span>
-        <span id="logs-tz-badge-btn" class="sobs-tz-header-badge" role="button" tabindex="0" title="Display timezone - click to change">
-          <i class="bi bi-clock"></i>
-          <span id="logs-tz-badge-label">UTC</span>
-        </span>
-        <span id="logs-ansi-btn" class="sobs-tz-header-badge" role="button" tabindex="0" aria-label="Toggle colored log output" aria-pressed="false" title="Colored log output: off — click to enable">
-          <i class="bi bi-palette"></i>
-        </span>
-      </button>
-    </h2>
-    <div id="logsFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="logsFiltersHeading" data-bs-parent="#logsFiltersAccordion">
-      <div class="accordion-body py-3">
+{% call render_filter_accordion('logsFiltersAccordion', 'logsFiltersHeading', 'logsFiltersPanel', 'text-info', 'logs-tz-badge-btn', 'logs-tz-badge-label', extra_header_html='<span id="logs-ansi-btn" class="sobs-tz-header-badge" role="button" tabindex="0" aria-label="Toggle colored log output" aria-pressed="false" title="Colored log output: off — click to enable"><i class="bi bi-palette"></i></span>') %}
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
       <input type="hidden" name="live" id="liveModeInput" value="{{ '1' if live == '1' else '' }}">
       <input type="hidden" name="analyze" value="{{ analyze }}">
@@ -182,10 +165,7 @@
     {% if error_msg and not sql_where %}
     <div class="alert alert-danger mt-2 mb-0 py-1 small">{{ error_msg }}</div>
     {% endif %}
-      </div>
-    </div>
-  </div>
-</div>
+{% endcall %}
 
 <!-- Query Statistics Panel -->
 {% if level_stats or service_stats %}

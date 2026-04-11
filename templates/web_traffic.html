@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_filter_macros.html" import render_filter_accordion %}
 {% block title %}Web Traffic{% endblock %}
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
@@ -12,21 +13,7 @@
 </div>
 
 <!-- Filter bar -->
-<div class="accordion mb-3" id="trafficFiltersAccordion">
-  <div class="accordion-item border-secondary">
-    <h2 class="accordion-header" id="trafficFiltersHeading">
-      <button class="accordion-button py-2" type="button"
-              data-bs-toggle="collapse" data-bs-target="#trafficFiltersPanel"
-              aria-expanded="true" aria-controls="trafficFiltersPanel">
-        <i class="bi bi-funnel me-2 text-primary"></i>
-        <span class="fw-semibold">Filters</span>
-        <span id="wt-tz-badge-btn" class="sobs-tz-header-badge ms-2" role="button" tabindex="0" title="Display timezone – click to change">
-          <i class="bi bi-clock"></i> <span id="wt-tz-badge-label">UTC</span>
-        </span>
-      </button>
-    </h2>
-    <div id="trafficFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="trafficFiltersHeading" data-bs-parent="#trafficFiltersAccordion">
-      <div class="accordion-body py-3">
+{% call render_filter_accordion('trafficFiltersAccordion', 'trafficFiltersHeading', 'trafficFiltersPanel', 'text-primary', 'wt-tz-badge-btn', 'wt-tz-badge-label') %}
         <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
           <div class="filter-date-group">
             <div class="filter-date-fields">
@@ -64,10 +51,7 @@
         {% if error_msg %}
         <div class="alert alert-danger mt-2 mb-0 py-1 small">{{ error_msg }}</div>
         {% endif %}
-      </div>
-    </div>
-  </div>
-</div>
+{% endcall %}
 
 {% if total == 0 %}
 <div class="text-center py-5 text-secondary">

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_multi_select_filter.html" import render_multi_select %}
+{% from "_filter_macros.html" import render_filter_accordion, render_tz_init_script %}
 {% block title %}CVE Findings{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -112,25 +113,7 @@
 </div>
 
 <!-- Filters -->
-<div class="accordion mb-3" id="cveFiltersAccordion">
-  <div class="accordion-item border-secondary">
-    <h2 class="accordion-header">
-      <button class="accordion-button py-2" type="button"
-              data-bs-toggle="collapse" data-bs-target="#cveFiltersPanel"
-              aria-expanded="true" aria-controls="cveFiltersPanel">
-        <i class="bi bi-funnel me-2 text-primary"></i>
-        <span class="fw-semibold">Filters</span>
-        <span id="cve-tz-badge-btn" class="sobs-tz-header-badge ms-2" role="button" tabindex="0" title="Display timezone - click to change">
-          <i class="bi bi-clock"></i>
-          <span id="cve-tz-badge-label">UTC</span>
-        </span>
-        {% if severity_filter or ecosystem_filter or package_filter or show_all %}
-        <span class="badge bg-primary ms-2">Active</span>
-        {% endif %}
-      </button>
-    </h2>
-    <div id="cveFiltersPanel" class="accordion-collapse collapse show" data-bs-parent="#cveFiltersAccordion">
-      <div class="accordion-body py-3">
+{% call render_filter_accordion('cveFiltersAccordion', 'cveFiltersHeading', 'cveFiltersPanel', 'text-primary', 'cve-tz-badge-btn', 'cve-tz-badge-label', show_active_badge=(severity_filter or ecosystem_filter or package_filter or show_all)) %}
         <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
           {{ render_multi_select('severity', 'Severity', severities, selected_severities, '120px') }}
           {{ render_multi_select('ecosystem', 'Ecosystem', ecosystems, selected_ecosystems, '120px') }}
@@ -148,10 +131,7 @@
             <a href="{{ url_for('view_enrichment_cve') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
           </div>
         </form>
-      </div>
-    </div>
-  </div>
-</div>
+{% endcall %}
 
 <div id="cve-scan-result" class="mb-3"></div>
 
@@ -271,20 +251,7 @@ var repoHealthApiUrl = {{ url_for('api_enrichment_github_repo_health') | tojson 
 var cveScanUrl = {{ url_for('api_cve_scan') | tojson }};
 var cveDispositionBaseUrl = {{ url_for('api_cve_set_disposition', osv_id='__OSV_ID__') | tojson }};
 
-function initCveTimezone() {
-  if (!window.sobsTimezone || typeof window.sobsTimezone.initPage !== 'function') return false;
-  window.sobsTimezone.initPage({
-    formSelector: '#cveFiltersPanel form[method="get"]',
-    badgeButtonId: 'cve-tz-badge-btn',
-    badgeLabelId: 'cve-tz-badge-label',
-    timestampSelector: '.sobs-tz-ts[data-utc-ts]'
-  });
-  return true;
-}
-
-if (!initCveTimezone()) {
-  window.addEventListener('load', initCveTimezone, { once: true });
-}
+{{ render_tz_init_script('initCveTimezone', 'cveFiltersPanel', 'cve-tz-badge-btn', 'cve-tz-badge-label') }}
 
 function triggerCveScan() {
   var btn = document.getElementById('cve-scan-btn');

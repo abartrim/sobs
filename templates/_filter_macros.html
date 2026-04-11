@@ -1,26 +1,47 @@
-{% macro render_filter_accordion(accordion_id, heading_id, panel_id, icon_class, tz_btn_id, tz_label_id, show_active_badge=false) -%}
+{% macro render_filter_accordion(accordion_id, heading_id, panel_id, icon_class, tz_btn_id='', tz_label_id='', show_active_badge=false, extra_header_html='', body_class='py-3') -%}
 <div class="accordion mb-3" id="{{ accordion_id }}">
   <div class="accordion-item border-secondary">
-    <h2 class="accordion-header" id="{{ heading_id }}">
+    <h2 class="accordion-header"{% if heading_id %} id="{{ heading_id }}"{% endif %}>
       <button class="accordion-button py-2" type="button"
               data-bs-toggle="collapse" data-bs-target="#{{ panel_id }}"
               aria-expanded="true" aria-controls="{{ panel_id }}">
         <i class="bi bi-funnel me-2 {{ icon_class }}"></i>
         <span class="fw-semibold">Filters</span>
+        {% if tz_btn_id %}
         <span id="{{ tz_btn_id }}" class="sobs-tz-header-badge{% if show_active_badge %} ms-2{% endif %}" role="button" tabindex="0" title="Display timezone - click to change">
           <i class="bi bi-clock"></i>
           <span id="{{ tz_label_id }}">UTC</span>
         </span>
+        {% endif %}
         {% if show_active_badge %}
           <span class="badge bg-primary ms-2">Active</span>
         {% endif %}
+        {% if extra_header_html %}{{ extra_header_html | safe }}{% endif %}
       </button>
     </h2>
-    <div id="{{ panel_id }}" class="accordion-collapse collapse show" aria-labelledby="{{ heading_id }}" data-bs-parent="#{{ accordion_id }}">
-      <div class="accordion-body py-3">
+    <div id="{{ panel_id }}" class="accordion-collapse collapse show"{% if heading_id %} aria-labelledby="{{ heading_id }}"{% endif %} data-bs-parent="#{{ accordion_id }}">
+      <div class="accordion-body {{ body_class }}">
         {{ caller() }}
       </div>
     </div>
   </div>
 </div>
+{%- endmacro %}
+
+{% macro render_tz_init_script(fn_name, filters_panel_id, badge_btn_id, badge_label_id, from_input_id='', to_input_id='', ts_selector='.sobs-tz-ts[data-utc-ts]') -%}
+function {{ fn_name }}() {
+  if (!window.sobsTimezone || typeof window.sobsTimezone.initPage !== 'function') return false;
+  window.sobsTimezone.initPage({
+    {% if from_input_id %}fromInputId: '{{ from_input_id }}',{% endif %}
+    {% if to_input_id %}toInputId: '{{ to_input_id }}',{% endif %}
+    formSelector: '#{{ filters_panel_id }} form[method="get"]',
+    badgeButtonId: '{{ badge_btn_id }}',
+    badgeLabelId: '{{ badge_label_id }}',
+    timestampSelector: '{{ ts_selector }}'
+  });
+  return true;
+}
+if (!{{ fn_name }}()) {
+  window.addEventListener('load', {{ fn_name }}, { once: true });
+}
 {%- endmacro %}

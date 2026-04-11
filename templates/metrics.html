@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_multi_select_filter.html" import render_multi_select %}
+{% from "_filter_macros.html" import render_filter_accordion, render_tz_init_script %}
 {% block title %}Metrics{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -12,22 +13,7 @@
   </div>
 </div>
 
-<div class="accordion mb-3" id="metricsFiltersAccordion">
-  <div class="accordion-item border-secondary">
-    <h2 class="accordion-header" id="metricsFiltersHeading">
-      <button class="accordion-button py-2" type="button"
-              data-bs-toggle="collapse" data-bs-target="#metricsFiltersPanel"
-              aria-expanded="true" aria-controls="metricsFiltersPanel">
-        <i class="bi bi-funnel me-2 text-info"></i>
-        <span class="fw-semibold">Filters</span>
-        <span id="metrics-tz-badge-btn" class="sobs-tz-header-badge" role="button" tabindex="0" title="Display timezone - click to change">
-          <i class="bi bi-clock"></i>
-          <span id="metrics-tz-badge-label">UTC</span>
-        </span>
-      </button>
-    </h2>
-    <div id="metricsFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="metricsFiltersHeading" data-bs-parent="#metricsFiltersAccordion">
-      <div class="accordion-body py-2">
+{% call render_filter_accordion('metricsFiltersAccordion', 'metricsFiltersHeading', 'metricsFiltersPanel', 'text-info', 'metrics-tz-badge-btn', 'metrics-tz-badge-label', body_class='py-2') %}
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
       <div style="flex: 2 0 200px">
         <label class="form-label small text-secondary">Search</label>
@@ -99,10 +85,7 @@
     {% if error_msg %}
     <div class="alert alert-danger mt-2 mb-0 py-1 small">{{ error_msg }}</div>
     {% endif %}
-      </div>
-    </div>
-  </div>
-</div>
+{% endcall %}
 
 <div class="card border-secondary">
   <div class="card-header d-flex justify-content-between align-items-center">
@@ -207,22 +190,7 @@
 </nav>
 {% endif %}
 <script>
-function initMetricsTimezone() {
-  if (!window.sobsTimezone || typeof window.sobsTimezone.initPage !== 'function') return false;
-  window.sobsTimezone.initPage({
-    fromInputId: 'metrics-from-ts',
-    toInputId: 'metrics-to-ts',
-    formSelector: '#metricsFiltersPanel form[method="get"]',
-    badgeButtonId: 'metrics-tz-badge-btn',
-    badgeLabelId: 'metrics-tz-badge-label',
-    timestampSelector: '.sobs-tz-ts[data-utc-ts]'
-  });
-  return true;
-}
-
-if (!initMetricsTimezone()) {
-  window.addEventListener('load', initMetricsTimezone, { once: true });
-}
+{{ render_tz_init_script('initMetricsTimezone', 'metricsFiltersPanel', 'metrics-tz-badge-btn', 'metrics-tz-badge-label', 'metrics-from-ts', 'metrics-to-ts') }}
 
 // ── Regex Filter: metrics page ────────────────────────────────────────────
 {% include "_regex_filter_script.js" %}

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_multi_select_filter.html" import render_multi_select, render_single_select %}
+{% from "_filter_macros.html" import render_filter_accordion %}
 {% block title %}AI Transparency{% endblock %}
 {% macro fmt_num(n) %}{% if n >= 1000000 %}{{ "%.1f" | format(n / 1000000) }}M{% elif n >= 1000 %}{{ "%.1f" | format(n / 1000) }}K{% else %}{{ n }}{% endif %}{% endmacro %}
 {% macro render_message_content(msg) %}{% set content = msg.get('content', '') if msg is mapping else '' %}{{ (content if content is string else content | tojson) | mask }}{% endmacro %}
@@ -233,22 +234,7 @@
 </div>
 
 <!-- Filter bar -->
-<div class="accordion mb-3" id="aiFiltersAccordion">
-  <div class="accordion-item border-secondary">
-    <h2 class="accordion-header" id="aiFiltersHeading">
-      <button class="accordion-button py-2" type="button"
-              data-bs-toggle="collapse" data-bs-target="#aiFiltersPanel"
-              aria-expanded="true" aria-controls="aiFiltersPanel">
-        <i class="bi bi-funnel me-2 text-secondary"></i>
-        <span class="fw-semibold">Filters</span>
-        <span id="ai-tz-badge-btn" class="sobs-tz-header-badge" role="button" tabindex="0" title="Display timezone - click to change">
-          <i class="bi bi-clock"></i>
-          <span id="ai-tz-badge-label">UTC</span>
-        </span>
-      </button>
-    </h2>
-    <div id="aiFiltersPanel" class="accordion-collapse collapse show" aria-labelledby="aiFiltersHeading" data-bs-parent="#aiFiltersAccordion">
-      <div class="accordion-body py-3">
+{% call render_filter_accordion('aiFiltersAccordion', 'aiFiltersHeading', 'aiFiltersPanel', 'text-secondary', 'ai-tz-badge-btn', 'ai-tz-badge-label') %}
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
       <input type="hidden" name="view" value="{{ view_mode }}">
       {{ render_multi_select('service', 'Service', services, selected_services, '140px') }}
@@ -304,9 +290,6 @@
             value="{{ sql_where }}"
             autocomplete="off"
             aria-autocomplete="list"
-            aria-haspopup="listbox"
-            autocomplete="off"
-            aria-autocomplete="list"
             aria-haspopup="listbox">
           <ul id="sql-ac-dropdown" role="listbox"
               class="dropdown-menu p-0 font-monospace small"
@@ -340,10 +323,7 @@
     {% if error_msg and not sql_where %}
     <div class="alert alert-danger mt-2 mb-0 py-1 small">{{ error_msg }}</div>
     {% endif %}
-      </div>
-    </div>
-  </div>
-</div>
+{% endcall %}
 
 {% if ai_items %}
 {% if view_mode == 'trace' %}
