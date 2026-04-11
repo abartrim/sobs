@@ -113,7 +113,8 @@
 </div>
 
 <!-- Filters -->
-{% call render_filter_accordion('cveFiltersAccordion', 'cveFiltersHeading', 'cveFiltersPanel', 'text-primary', 'cve-tz-badge-btn', 'cve-tz-badge-label', show_active_badge=(severity_filter or ecosystem_filter or package_filter or show_all)) %}
+{% set has_active_filters = severity_filter or ecosystem_filter or package_filter or show_all %}
+{% call render_filter_accordion('cveFiltersAccordion', 'cveFiltersHeading', 'cveFiltersPanel', 'text-primary', 'cve-tz-badge-btn', 'cve-tz-badge-label', show_active_badge=has_active_filters) %}
         <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
           {{ render_multi_select('severity', 'Severity', severities, selected_severities, '120px') }}
           {{ render_multi_select('ecosystem', 'Ecosystem', ecosystems, selected_ecosystems, '120px') }}
