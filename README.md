@@ -1,7 +1,8 @@
 # SOBS – Simple Observe Stack
 
-## This is still very much a WIP - Alpha. Hoping to get a v1 one out by April 10.
-It is functional and being used, needs more polish and the custom (non-OTEL) tables may change.
+## v0.1.0-beta.1 – First public beta
+
+SOBS is actively used and under continued development. Beta APIs and UI behavior may evolve before stable v0.1.0. See [What's New](#whats-new-in-v010-beta1) below.
 
 **SOBS** is a single-user OpenTelemetry-compatible telemetry container focused on simplicity and transparency. It collects **Logs**, **Errors**, **Traces**, **RUM** (Real User Monitoring), **Web Traffic analytics**, and **AI call transparency** — all in one container you can run as a standalone pod or sidecar. Taking an AI-first approach it implements an automation layer that can automatically raise GitHub issues and assign GitHub Copilot to create fix PRs and inform the user for a collaborative AI/DevOps experience.
 
@@ -43,9 +44,34 @@ It is functional and being used, needs more polish and the custom (non-OTEL) tab
 - **Auto rule generation** – preview/create metric anomaly rules from recent derived-signal history
 - **Auto dashboard generation** – build a derived-signal dashboard directly from active metric rules
 - **Data Management** – TTL retention windows, S3 backup/restore, optional backup encryption
+- **First-time setup wizard** – guided instrumentation bootstrap for env/language/deployment combinations
 - **First-run visual tour** – one-time onboarding modal with flow overview and quick-tour reopen entry
+- **Incident evidence view** – one-click aggregation of related errors, logs, spans, RUM, and anomaly state around a trace or error event
+- **Free-text / regex filtering** – full-text and regex filter bar across Errors, Traces, Metrics, and RUM pages
+- **Seasonality-aware anomaly rules** – metric anomaly rule generation with per-time-bucket seasonal thresholds
+- **Human-friendly signal labels** – readable names and descriptions for all metric/anomaly signals
+- **Report import / export / share** – export saved report presets to JSON, import on another instance, or share via URL
 - **Bootstrap 5 theming** – served locally with light/dark/system theme toggle, no CDN required
 - **Docker ready** – Dockerfile + docker-compose + Kubernetes manifests
+
+## What's New in v0.1.0-beta.1
+
+Released 2026-04-09.  Full details in
+[`docs/RELEASE_NOTES_v0.1.0-beta.1_PUBLIC.md`](docs/RELEASE_NOTES_v0.1.0-beta.1_PUBLIC.md)
+and the [operator notes](docs/RELEASE_NOTES_v0.1.0-beta.1_OPERATOR.md).
+
+Highlights:
+
+- **Security hardening** – runtime and hosted control hardening.
+- **Setup wizard** – first-time instrumentation bootstrap wizard (`GET /api/setup-wizard/steps`).
+- **Incident evidence view** – `GET /incident` aggregates all evidence around a trace or error in one view.
+- **Seasonality-aware anomaly rules** – per-bucket seasonal thresholds for metric anomaly auto-generation.
+- **Regex / free-text filtering** – filter bars on Errors, Traces, Metrics, and RUM now support regex.
+- **Signal labels** – human-readable names and descriptions for all metric/anomaly signals.
+- **Report import / export / share** – `GET /api/reports/export`, `POST /api/reports/import`.
+- **Database stats panel** – compressed/uncompressed storage and active query counts on Summary page.
+- **Lazy raw span accordion** – trace detail loads raw span data on demand for improved performance.
+- **AI trace link context** – trace links preserve time-window context across navigation.
 
 ## Quick Start
 
@@ -313,7 +339,9 @@ This model favors client latency under burst traffic. It does not guarantee sync
 
 SOBS includes two automation flows under **Metrics → Metrics Rules**:
 
-- **Auto Make Metric Rules**: generates threshold rules from recent derived-signal history with a preview-first workflow and capped create.
+- **Auto Make Metric Rules**: generates threshold or seasonality-aware rules from recent derived-signal history with a preview-first workflow and capped create.
+  - **Threshold mode** (default) – static warning/critical levels derived from recent signal history.
+  - **Seasonal mode** – per-time-bucket thresholds that adapt to regular day/week patterns.
 - **Auto Generate Dashboard from Active Rules**: creates/updates a dashboard with one derived-signal overlay chart per matching active rule (preview-first, max chart cap, skip-existing by title).
 
 Both auto panels include contextual help and retain their open/collapsed scope across preview/create interactions.
@@ -326,15 +354,20 @@ Use `/health/db` for readiness checks in orchestrated deployments when you need 
 
 SOBS supports saved report presets for page filters.
 
-- Save the current filter state from Logs, Traces, Errors, Metrics, RUM, or AI.
+- Save the current filter state from Logs, Traces, Errors, Metrics, RUM, AI, or Web Traffic.
 - Re-apply saved reports from page-level report pickers or from the dedicated **Reports** page.
 - Delete reports from the **Reports** page when no longer needed.
+- **Export** one or more reports to a portable JSON file.
+- **Import** exported reports on another instance (conflict strategies: `rename`, `replace`, `skip`).
+- **Share** a report via URL.
 
 API endpoints:
 
-- `GET /api/reports?page_type=<logs|traces|errors|metrics|rum|ai>`
+- `GET /api/reports?page_type=<logs|traces|errors|metrics|rum|ai|web_traffic>`
 - `POST /api/reports`
 - `DELETE /api/reports/<report_id>`
+- `GET /api/reports/export?ids=<comma-separated-uuids>` – export (omit `ids` to export all)
+- `POST /api/reports/import` – body: `{"sobs_reports_export":true,"version":"1","reports":[...],"on_conflict":"rename|replace|skip"}`
 
 UI routes:
 
@@ -817,6 +850,17 @@ The **Errors** page supports a best-effort deduplicated view.
 - Each group shows a count badge (×N), `first_seen`, and `last_seen` timestamps.
 - Sort grouped results by **Count** (default), **Last Seen**, or **Service**.
 - Click **Grouped** (active state) to return to the individual-error view.
+- Each error card includes an **Incident View** button to jump directly to the incident evidence view.
+
+## Incident Evidence View
+
+The **Incident** page (`/incident`) aggregates all available evidence around a single error or trace into one view, reducing the time needed to understand the blast radius of an issue.
+
+- Accepts `trace_id`, `error_id`, `from_ts`, `to_ts`, or `window_minutes` (default 30, max 180).
+- Shows the primary event, related errors, log counts, span counts, RUM evidence, anomaly state, and linked work items.
+- Reachable via the **Incident View** button on any error card or trace detail panel.
+
+Route: `GET /incident`
 
 ## Table Explorer
 
@@ -916,6 +960,10 @@ The script starts local port-forwards for LLM, embeddings, and DLP, exports `SOB
 | Custom Dashboard | Traces Drilldown | Query |
 |---|---|---|
 | ![Custom Dashboard](static/help/dashboard.png) | ![Traces Drilldown](static/help/traces_drilldown.png) | ![Query](static/help/query.png) |
+
+| Logs | Traces |
+|---|---|
+| ![Logs](static/help/logs.png) | ![Traces](static/help/traces.png) |
 
 ## Running Tests
 
