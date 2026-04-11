@@ -1,18 +1,7 @@
 {% extends "base.html" %}
 {% from "_filter_macros.html" import render_filter_accordion %}
 {% block title %}Web Traffic{% endblock %}
-{% block styles %}{{ super() }}<style>
-  @media (max-width: 575.98px) {
-    .web-traffic-table thead { display: none; }
-    .web-traffic-table,
-    .web-traffic-table tbody,
-    .web-traffic-table tr,
-    .web-traffic-table td { display: block; width: 100%; }
-    .web-traffic-table tr { border: 1px solid var(--bs-border-color); border-radius: 0.5rem; margin-bottom: 0.75rem; padding: 0.5rem 0.625rem; }
-    .web-traffic-table td { border: 0; padding: 0.2rem 0; }
-    .web-traffic-table td::before { content: attr(data-label); display: block; font-size: 0.72rem; color: var(--bs-secondary-color); text-transform: uppercase; letter-spacing: 0.02em; margin-bottom: 0.1rem; }
-  }
-</style>{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
 {% set to_ts = to_ts or request.args.get('to_ts', '') %}

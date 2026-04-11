@@ -24,37 +24,20 @@
     caret-color: var(--bs-body-color);
   }
 
-  @media (max-width: 575.98px) {
-    .repositories-table thead { display: none; }
-    .repositories-table,
-    .repositories-table tbody,
-    .repositories-table tr,
-    .repositories-table td { display: block; width: 100%; }
-    .repositories-table tr { border: 1px solid var(--bs-border-color); border-radius: 0.5rem; margin-bottom: 0.75rem; padding: 0.5rem 0.625rem; }
-    .repositories-table td { border: 0; padding: 0.2rem 0; }
-    .repositories-table td::before { content: attr(data-label); display: block; font-size: 0.72rem; color: var(--bs-secondary-color); text-transform: uppercase; letter-spacing: 0.02em; margin-bottom: 0.1rem; }
-
-    .repositories-btn-label { display: none; }
-    .btn:has(> .repositories-btn-label) i { margin-right: 0 !important; }
-  }
 </style>{% endblock %}
 {% block content %}
 <div id="repo-settings-root" data-color-mode="{{ 'dark' if request.cookies.get('theme') == 'dark' else 'light' }}">
-<div class="d-flex align-items-center justify-content-between mb-3">
+<div class="settings-page-header mb-3">
   <h4 class="fw-semibold mb-0"><i class="bi bi-github me-2 text-secondary"></i>GitHub Repositories</h4>
-  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary">
-    <i class="bi bi-arrow-left me-1"></i>Back to Settings
-  </a>
+  <div class="settings-page-header-actions">
+    <a href="{{ url_for('settings_repositories_help') }}" class="btn btn-sm btn-outline-info" title="Help">
+      <i class="bi bi-question-circle me-1"></i><span class="repositories-btn-label settings-btn-label">Help</span>
+    </a>
+    <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
+      <i class="bi bi-arrow-left me-1"></i><span class="repositories-btn-label settings-btn-label">Back to Settings</span>
+    </a>
+  </div>
 </div>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-{% for category, message in messages %}
-<div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show py-2 small" role="alert">
-  {{ message }}
-  <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
-</div>
-{% endfor %}
-{% endwith %}
 
 <div class="card border-secondary mb-3">
   <div class="card-header d-flex align-items-center gap-2">

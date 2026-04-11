@@ -10433,6 +10433,39 @@ class TestTagRules:
         assert str(updated["TagKey"]) == "team"
         assert str(updated["TagValue"]) == "payments"
 
+    def test_load_tag_rules_falls_back_to_legacy_condition_columns(self):
+        db = sobs_app.get_db()
+        rule_id = f"legacy-tag-{time.time_ns()}"
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "sobs_tag_rules",
+            [
+                {
+                    "Id": rule_id,
+                    "Name": "legacy-rule",
+                    "RecordTypes": "log",
+                    "MatchField": "service_name",
+                    "MatchOperator": "contains",
+                    "MatchValue": "checkout",
+                    "MatchAttrKey": "",
+                    "TagKey": "team",
+                    "TagValue": "payments",
+                    "ConditionsJson": "",
+                    "IsDeleted": 0,
+                    "Version": int(time.time() * 1000),
+                }
+            ],
+        )
+
+        rules = sobs_app._load_tag_rules(db)
+        loaded = next((rule for rule in rules if rule["id"] == rule_id), None)
+        assert loaded is not None
+        assert isinstance(loaded.get("conditions"), list)
+        assert len(loaded["conditions"]) == 1
+        assert loaded["conditions"][0]["match_field"] == "service_name"
+        assert loaded["conditions"][0]["match_operator"] == "contains"
+        assert loaded["conditions"][0]["match_value"] == "checkout"
+
     # ── Auto-tagging at ingest ────────────────────────────────────────────────
 
     async def test_auto_tag_applied_on_log_ingest(self, client):
@@ -13647,6 +13680,43 @@ class TestNotifications:
         assert rule["conditions"][0]["record_type"] == "log"
         assert rule["conditions"][0]["tag_key"] == "env"
         assert rule["conditions"][0]["tag_value"] == "prod"
+
+    async def test_create_notification_rule_rejects_invalid_tag_regex(self, client):
+        await client.post(
+            "/settings/notifications/channels",
+            form={
+                "name": "Regex Rule Channel",
+                "channel_type": "slack",
+                "slack_webhook_url": "https://hooks.slack.com/services/REGEX_RULE_TEST",
+            },
+        )
+        channels = sobs_app._load_notification_channels(sobs_app.get_db())
+        ch = next((c for c in channels if c["name"] == "Regex Rule Channel"), None)
+        assert ch is not None
+
+        r = await client.post(
+            "/settings/notifications/rules",
+            form={
+                "name": "Invalid Regex Rule",
+                "logic_operator": "all",
+                "severity": "critical",
+                "cooldown_seconds": "60",
+                "channel_ids": ch["id"],
+                "cond_type": "tag",
+                "cond_record_type": "log",
+                "cond_tag_key": "env",
+                "cond_tag_match_operator": "regex",
+                "cond_tag_value": "([invalid",
+                "cond_comparator": "gte",
+                "cond_threshold": "2",
+                "cond_window_minutes": "5",
+            },
+        )
+        assert r.status_code in (200, 302)
+
+        rules = sobs_app._load_notification_rules(sobs_app.get_db())
+        created = next((rule for rule in rules if rule["name"] == "Invalid Regex Rule"), None)
+        assert created is None
 
     async def test_edit_notification_rule_updates_channels_and_conditions(self, client):
         await client.post(

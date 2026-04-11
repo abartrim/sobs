@@ -55,8 +55,6 @@
   }
 
   @media (max-width: 575.98px) {
-    .custom-dashboard-btn-label { display: none; }
-    .btn:has(> .custom-dashboard-btn-label) i { margin-right: 0 !important; }
   }
 </style>{% endblock %}
 {% block content %}
@@ -1502,13 +1500,13 @@
     }
     var head = '<thead><tr>' + columns.map(function (c, idx) {
       var t = columnTypes && columnTypes[idx] ? String(columnTypes[idx]) : 'unknown';
-      return '<th>' + c + '<div class="small text-secondary">' + t + '</div></th>';
+      return '<th>' + escapeHtml(c) + '<div class="small text-secondary">' + escapeHtml(t) + '</div></th>';
     }).join('') + '</tr></thead>';
     var sampleRows = (rows || []).slice(0, 8);
     var body = '<tbody>' + sampleRows.map(function (r) {
       return '<tr>' + columns.map(function (c, idx) {
-        var v = r && r[idx] !== undefined && r[idx] !== null ? String(r[idx]) : '—';
-        return '<td class="small font-monospace" data-label="' + c.replace(/"/g, '&quot;') + '">' + v + '</td>';
+          var v = r && r[idx] !== undefined && r[idx] !== null ? String(r[idx]) : '—';
+          return '<td class="small font-monospace" data-label="' + escapeHtml(c) + '">' + escapeHtml(v) + '</td>';
       }).join('') + '</tr>';
     }).join('') + '</tbody>';
     dryRunTable.innerHTML = head + body;

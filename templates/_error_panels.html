@@ -71,6 +71,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 {%- endmacro %}
 
 {% macro render_error_accordion(errors, from_ts='', to_ts='', accordion_id='errAccordion', collapse_prefix='err', stack_prefix='stack-', ai_btn_class='ai-help-btn', raise_btn_class='raise-issue-btn', copy_btn_class='copy-stack-btn', resolve_btn_class='resolve-btn', show_resolve=false, show_raise_issue=true, logs_btn_outline='secondary', logs_label='Logs', trace_btn_outline='info', trace_label='Trace', show_span_id_in_header=false, show_incident_view=true) -%}
@@ -193,23 +194,23 @@
           {% set _trace_ids_csv = err.trace_ids_csv if err.trace_ids_csv is defined else '' %}
           {% if _trace_ids_csv %}
           <a href="{{ url_for('view_logs', trace_ids=_trace_ids_csv, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-{{ logs_btn_outline }}">
-            <i class="bi bi-journal-text me-1"></i>{{ logs_label }}
+            <i class="bi bi-journal-text me-1"></i><span class="error-panel-btn-label">{{ logs_label }}</span>
           </a>
           {% if err.trace_id %}
           <a href="{{ url_for('view_traces', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-{{ trace_btn_outline }}">
-            <i class="bi bi-diagram-3 me-1"></i>{{ trace_label }}
+            <i class="bi bi-diagram-3 me-1"></i><span class="error-panel-btn-label">{{ trace_label }}</span>
           </a>
           {% endif %}
           {% elif err.trace_id %}
           <a href="{{ url_for('view_logs', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-{{ logs_btn_outline }}">
-            <i class="bi bi-journal-text me-1"></i>{{ logs_label }}
+            <i class="bi bi-journal-text me-1"></i><span class="error-panel-btn-label">{{ logs_label }}</span>
           </a>
           <a href="{{ url_for('view_traces', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-{{ trace_btn_outline }}">
-            <i class="bi bi-diagram-3 me-1"></i>{{ trace_label }}
+            <i class="bi bi-diagram-3 me-1"></i><span class="error-panel-btn-label">{{ trace_label }}</span>
           </a>
           {% else %}
           <a href="{{ url_for('view_logs', service=err.service, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-{{ logs_btn_outline }}">
-            <i class="bi bi-journal-text me-1"></i>{{ logs_label }}
+            <i class="bi bi-journal-text me-1"></i><span class="error-panel-btn-label">{{ logs_label }}</span>
           </a>
           {% endif %}
 
@@ -218,7 +219,7 @@
                   data-rum-view-kind="artifact"
                   data-rum-view-url="{{ err.artifact_url }}"
                   data-rum-view-label="{{ (err.artifact_type or 'Artifact')|mask }}">
-            <i class="bi bi-image me-1"></i>{{ (err.artifact_type or 'Artifact')|mask }}
+                <i class="bi bi-image me-1"></i><span class="error-panel-btn-label">{{ (err.artifact_type or 'Artifact')|mask }}</span>
           </button>
           {% endif %}
 
@@ -227,7 +228,7 @@
                   data-rum-view-kind="replay"
                   data-rum-view-url="{{ err.replay_url }}"
                   data-rum-view-label="Replay">
-            <i class="bi bi-play-circle me-1"></i>Replay
+                <i class="bi bi-play-circle me-1"></i><span class="error-panel-btn-label">Replay</span>
           </button>
           {% endif %}
 
@@ -240,7 +241,7 @@
                   data-ai-risk="medium"
                   data-ai-confirm="true"
                   data-ai-action-role="resolve-error-btn">
-            <i class="bi bi-check2 me-1"></i>Resolve
+                <i class="bi bi-check2 me-1"></i><span class="error-panel-btn-label">Resolve</span>
           </button>
           {% endif %}
 
@@ -258,7 +259,7 @@
                   data-span-id="{{ err.span_id }}"
               data-err-url="{{ err.url|mask }}"
                   title="Copy error details for AI investigation">
-            <i class="bi bi-robot me-1"></i>Copy for AI
+            <i class="bi bi-robot me-1"></i><span class="error-panel-btn-label">Copy for AI</span>
           </button>
 
           {% if show_raise_issue %}
@@ -272,7 +273,7 @@
                   data-span-id="{{ err.span_id }}"
               data-err-url="{{ err.url|mask }}"
                   title="Raise or reuse a GitHub issue using agent dedupe checks">
-            <i class="bi bi-github me-1"></i>Raise issue
+            <i class="bi bi-github me-1"></i><span class="error-panel-btn-label">Raise issue</span>
           </button>
           {% endif %}
 
@@ -280,7 +281,7 @@
           <button class="btn btn-sm btn-outline-secondary {{ copy_btn_class }}"
                   data-stack-id="{{ stack_prefix }}{{ err.id }}"
                   title="Copy stack trace">
-            <i class="bi bi-clipboard me-1"></i>Copy stack
+            <i class="bi bi-clipboard me-1"></i><span class="error-panel-btn-label">Copy stack</span>
           </button>
           {% endif %}
 
@@ -288,7 +289,7 @@
           <a href="{{ url_for('view_incident', error_id=err.id, trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
              class="btn btn-sm btn-outline-primary"
              title="Open unified incident evidence view">
-            <i class="bi bi-shield-exclamation me-1"></i>Incident View
+            <i class="bi bi-shield-exclamation me-1"></i><span class="error-panel-btn-label">Incident View</span>
           </a>
           {% endif %}
         </div>

@@ -1,27 +1,7 @@
 {% extends "base.html" %}
 {% from "_error_panels.html" import render_error_accordion, render_error_panel_styles %}
 {% block title %}Incident View{% endblock %}
-{% block styles %}{{ super() }}<style>
-@media (max-width: 575.98px) {
-  .incident-events-table thead { display: none; }
-  .incident-events-table,
-  .incident-events-table tbody,
-  .incident-events-table tr,
-  .incident-events-table td { display: block; width: 100%; }
-  .incident-events-table tr { border: 1px solid var(--bs-border-color); border-radius: 0.5rem; margin-bottom: 0.75rem; padding: 0.5rem 0.625rem; }
-  .incident-events-table td { border: 0; padding: 0.2rem 0; }
-  .incident-events-table td::before { content: attr(data-label); display: block; font-size: 0.72rem; color: var(--bs-secondary-color); text-transform: uppercase; letter-spacing: 0.02em; margin-bottom: 0.1rem; }
-
-  .incident-signals-table thead { display: none; }
-  .incident-signals-table,
-  .incident-signals-table tbody,
-  .incident-signals-table tr,
-  .incident-signals-table td { display: block; width: 100%; }
-  .incident-signals-table tr { border: 1px solid var(--bs-border-color); border-radius: 0.5rem; margin-bottom: 0.75rem; padding: 0.5rem 0.625rem; }
-  .incident-signals-table td { border: 0; padding: 0.2rem 0; }
-  .incident-signals-table td::before { content: attr(data-label); display: block; font-size: 0.72rem; color: var(--bs-secondary-color); text-transform: uppercase; letter-spacing: 0.02em; margin-bottom: 0.1rem; }
-}
-</style>{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
 {% set _ref = trace_id or error_id or rum_session %}
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">

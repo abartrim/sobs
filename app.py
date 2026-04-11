@@ -11678,21 +11678,35 @@ def _load_tag_rules(db: ChDbConnection) -> list[dict]:
         "MatchAttrKey, TagKey, TagValue, ConditionsJson "
         "FROM sobs_tag_rules FINAL WHERE IsDeleted = 0 ORDER BY Name"
     ).fetchall()
-    return [
-        {
-            "id": str(row["Id"]),
-            "name": str(row["Name"]),
-            "record_types": [t.strip() for t in str(row["RecordTypes"]).split(",") if t.strip()],
-            "match_field": str(row["MatchField"]),
-            "match_operator": str(row["MatchOperator"]),
-            "match_value": str(row["MatchValue"]),
-            "match_attr_key": str(row["MatchAttrKey"]),
-            "tag_key": str(row["TagKey"]),
-            "tag_value": str(row["TagValue"]),
-            "conditions": _parse_tag_rule_conditions_json(row["ConditionsJson"]),
-        }
-        for row in rows
-    ]
+    loaded: list[dict] = []
+    for row in rows:
+        conditions = _parse_tag_rule_conditions_json(row["ConditionsJson"])
+        # Backward compatibility for pre-ConditionsJson rules.
+        if not conditions and str(row["MatchField"] or "").strip():
+            conditions = [
+                {
+                    "match_field": str(row["MatchField"] or ""),
+                    "match_operator": str(row["MatchOperator"] or "eq"),
+                    "match_value": str(row["MatchValue"] or ""),
+                    "match_attr_key": str(row["MatchAttrKey"] or ""),
+                }
+            ]
+
+        loaded.append(
+            {
+                "id": str(row["Id"]),
+                "name": str(row["Name"]),
+                "record_types": [t.strip() for t in str(row["RecordTypes"]).split(",") if t.strip()],
+                "match_field": str(row["MatchField"]),
+                "match_operator": str(row["MatchOperator"]),
+                "match_value": str(row["MatchValue"]),
+                "match_attr_key": str(row["MatchAttrKey"]),
+                "tag_key": str(row["TagKey"]),
+                "tag_value": str(row["TagValue"]),
+                "conditions": conditions,
+            }
+        )
+    return loaded
 
 
 def _match_tag_rule(
@@ -13159,46 +13173,42 @@ async def auto_metrics_rules_dashboard():
 @require_basic_auth
 async def delete_metrics_rule(rule_id: str):
     db = get_db()
-    row = db.execute(
-        "SELECT Id, Name, RuleType, SignalSource, SignalName, ServiceName, AttrFingerprint, Comparator, "
-        "WarningThreshold, CriticalThreshold, SecondarySignalSource, SecondarySignalName, "
-        "SecondaryComparator, SecondaryWarningThreshold, SecondaryCriticalThreshold, MinSampleCount "
-        "FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 AND Id = ?",
-        [rule_id],
-    ).fetchone()
-    if not row:
-        await flash("Rule not found", "warning")
-        return redirect(url_for("view_metrics_rules"))
 
-    version = int(time.time() * 1000)
-    _insert_rows_json_each_row(
+    def _deleted_row(row: RowCompat) -> dict[str, Any]:
+        return {
+            "Id": str(row["Id"]),
+            "Name": str(row["Name"]),
+            "RuleType": str(row["RuleType"] or "threshold"),
+            "SignalSource": str(row["SignalSource"]),
+            "SignalName": str(row["SignalName"]),
+            "ServiceName": str(row["ServiceName"]),
+            "AttrFingerprint": str(row["AttrFingerprint"]),
+            "Comparator": str(row["Comparator"]),
+            "WarningThreshold": float(row["WarningThreshold"]),
+            "CriticalThreshold": float(row["CriticalThreshold"]),
+            "SecondarySignalSource": str(row["SecondarySignalSource"]),
+            "SecondarySignalName": str(row["SecondarySignalName"]),
+            "SecondaryComparator": str(row["SecondaryComparator"] or "gt"),
+            "SecondaryWarningThreshold": float(row["SecondaryWarningThreshold"]),
+            "SecondaryCriticalThreshold": float(row["SecondaryCriticalThreshold"]),
+            "MinSampleCount": int(row["MinSampleCount"]),
+        }
+
+    return await _soft_delete_latest_row(
         db,
-        "sobs_anomaly_rules",
-        [
-            {
-                "Id": str(row["Id"]),
-                "Name": str(row["Name"]),
-                "RuleType": str(row["RuleType"] or "threshold"),
-                "SignalSource": str(row["SignalSource"]),
-                "SignalName": str(row["SignalName"]),
-                "ServiceName": str(row["ServiceName"]),
-                "AttrFingerprint": str(row["AttrFingerprint"]),
-                "Comparator": str(row["Comparator"]),
-                "WarningThreshold": float(row["WarningThreshold"]),
-                "CriticalThreshold": float(row["CriticalThreshold"]),
-                "SecondarySignalSource": str(row["SecondarySignalSource"]),
-                "SecondarySignalName": str(row["SecondarySignalName"]),
-                "SecondaryComparator": str(row["SecondaryComparator"] or "gt"),
-                "SecondaryWarningThreshold": float(row["SecondaryWarningThreshold"]),
-                "SecondaryCriticalThreshold": float(row["SecondaryCriticalThreshold"]),
-                "MinSampleCount": int(row["MinSampleCount"]),
-                "IsDeleted": 1,
-                "Version": version,
-            }
-        ],
+        select_sql=(
+            "SELECT Id, Name, RuleType, SignalSource, SignalName, ServiceName, AttrFingerprint, Comparator, "
+            "WarningThreshold, CriticalThreshold, SecondarySignalSource, SecondarySignalName, "
+            "SecondaryComparator, SecondaryWarningThreshold, SecondaryCriticalThreshold, MinSampleCount "
+            "FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 AND Id = ?"
+        ),
+        select_params=[rule_id],
+        table_name="sobs_anomaly_rules",
+        build_deleted_row=_deleted_row,
+        not_found_message="Rule not found",
+        success_message="Rule '{name}' deleted",
+        redirect_endpoint="view_metrics_rules",
     )
-    await flash(f"Rule '{str(row['Name'])}' deleted", "success")
-    return redirect(url_for("view_metrics_rules"))
 
 
 # ---------------------------------------------------------------------------
@@ -20123,136 +20133,76 @@ async def view_custom_dashboard(dashboard_id: str):
     )
 
 
-@app.route("/dashboards/help/chart-editor")
-@require_basic_auth
-async def chart_editor_help():
-    return await render_template("chart_editor_help.html")
+def _register_help_route(path: str, endpoint: str, template_name: str) -> None:
+    @require_basic_auth
+    async def _help_handler(template: str = template_name):
+        return await render_template(template)
+
+    app.add_url_rule(path, endpoint=endpoint, view_func=_help_handler)
 
 
-@app.route("/metrics/help/rules")
-@require_basic_auth
-async def metrics_rules_help():
-    return await render_template("metrics_rules_help.html")
+_HELP_ROUTE_REGISTRY: list[tuple[str, str, str]] = [
+    ("/dashboards/help/chart-editor", "chart_editor_help", "chart_editor_help.html"),
+    ("/metrics/help/rules", "metrics_rules_help", "metrics_rules_help.html"),
+    ("/metrics/help/rules/auto", "auto_metrics_rules_help", "auto_metrics_rules_help.html"),
+    ("/kubernetes/help", "kubernetes_help", "kubernetes_help.html"),
+    ("/settings/help/data-management", "data_management_help", "data_management_help.html"),
+    ("/settings/help", "settings_help", "settings_help.html"),
+    ("/settings/help/masking", "masking_help", "masking_help.html"),
+    ("/settings/help/ai", "settings_ai_help", "settings_ai_help.html"),
+    ("/settings/help/agents", "settings_agents_help", "settings_agents_help.html"),
+    ("/settings/help/notifications", "settings_notifications_help", "settings_notifications_help.html"),
+    ("/settings/help/tags", "settings_tags_help", "settings_tags_help.html"),
+    ("/settings/help/enrichment", "settings_enrichment_help", "settings_enrichment_help.html"),
+    ("/settings/help/repositories", "settings_repositories_help", "settings_repositories_help.html"),
+    ("/settings/help/kubernetes", "settings_kubernetes_help", "kubernetes_help.html"),
+    ("/web-traffic/help", "web_traffic_help", "web_traffic_help.html"),
+    ("/errors/help", "errors_help", "errors_help.html"),
+    ("/table-explorer/help", "table_explorer_help", "table_explorer_help.html"),
+    ("/setup/help/playbooks", "setup_playbooks_help", "setup_playbooks_help.html"),
+    ("/logs/help", "logs_help", "logs_help.html"),
+    ("/traces/help", "traces_help", "traces_help.html"),
+    ("/rum/help", "rum_help", "rum_help.html"),
+    ("/ai/help", "ai_help", "ai_help.html"),
+    ("/cve/help", "cve_help", "cve_help.html"),
+    ("/metrics/help", "metrics_help", "metrics_help.html"),
+    ("/metrics/help/anomaly", "metrics_anomaly_help", "metrics_anomaly_help.html"),
+    ("/query/help", "query_help", "query_help.html"),
+    ("/reports/help", "reports_help", "reports_help.html"),
+    ("/summary/help", "summary_help", "summary_help.html"),
+    ("/work-items/help", "work_items_help", "work_items_help.html"),
+    ("/incident/help", "incident_help", "incident_help.html"),
+]
+
+for _help_path, _help_endpoint, _help_template in _HELP_ROUTE_REGISTRY:
+    _register_help_route(_help_path, _help_endpoint, _help_template)
 
 
-@app.route("/metrics/help/rules/auto")
-@require_basic_auth
-async def auto_metrics_rules_help():
-    return await render_template("auto_metrics_rules_help.html")
+async def _soft_delete_latest_row(
+    db: ChDbConnection,
+    *,
+    select_sql: str,
+    select_params: list[Any],
+    table_name: str,
+    build_deleted_row: Callable[[RowCompat], dict[str, Any]],
+    not_found_message: str,
+    success_message: str,
+    redirect_endpoint: str,
+    not_found_category: str = "warning",
+    success_category: str = "success",
+):
+    row = db.execute(select_sql, select_params).fetchone()
+    if not row:
+        await flash(not_found_message, not_found_category)
+        return redirect(url_for(redirect_endpoint))
 
+    payload = build_deleted_row(row)
+    payload["IsDeleted"] = 1
+    payload["Version"] = int(time.time() * 1000)
+    _insert_rows_json_each_row(db, table_name, [payload])
 
-@app.route("/kubernetes/help")
-@require_basic_auth
-async def kubernetes_help():
-    return await render_template("kubernetes_help.html")
-
-
-@app.route("/settings/help/data-management")
-@require_basic_auth
-async def data_management_help():
-    return await render_template("data_management_help.html")
-
-
-@app.route("/settings/help/masking")
-@require_basic_auth
-async def masking_help():
-    return await render_template("masking_help.html")
-
-
-@app.route("/web-traffic/help")
-@require_basic_auth
-async def web_traffic_help():
-    return await render_template("web_traffic_help.html")
-
-
-@app.route("/errors/help")
-@require_basic_auth
-async def errors_help():
-    return await render_template("errors_help.html")
-
-
-@app.route("/table-explorer/help")
-@require_basic_auth
-async def table_explorer_help():
-    return await render_template("table_explorer_help.html")
-
-
-@app.route("/setup/help/playbooks")
-@require_basic_auth
-async def setup_playbooks_help():
-    return await render_template("setup_playbooks_help.html")
-
-
-@app.route("/logs/help")
-@require_basic_auth
-async def logs_help():
-    return await render_template("logs_help.html")
-
-
-@app.route("/traces/help")
-@require_basic_auth
-async def traces_help():
-    return await render_template("traces_help.html")
-
-
-@app.route("/rum/help")
-@require_basic_auth
-async def rum_help():
-    return await render_template("rum_help.html")
-
-
-@app.route("/ai/help")
-@require_basic_auth
-async def ai_help():
-    return await render_template("ai_help.html")
-
-
-@app.route("/cve/help")
-@require_basic_auth
-async def cve_help():
-    return await render_template("cve_help.html")
-
-
-@app.route("/metrics/help")
-@require_basic_auth
-async def metrics_help():
-    return await render_template("metrics_help.html")
-
-
-@app.route("/metrics/help/anomaly")
-@require_basic_auth
-async def metrics_anomaly_help():
-    return await render_template("metrics_anomaly_help.html")
-
-
-@app.route("/query/help")
-@require_basic_auth
-async def query_help():
-    return await render_template("query_help.html")
-
-
-@app.route("/reports/help")
-@require_basic_auth
-async def reports_help():
-    return await render_template("reports_help.html")
-
-
-@app.route("/summary/help")
-@require_basic_auth
-async def summary_help():
-    return await render_template("summary_help.html")
-
-
-@app.route("/work-items/help")
-@require_basic_auth
-async def work_items_help():
-    return await render_template("work_items_help.html")
-
-
-@app.route("/incident/help")
-@require_basic_auth
-async def incident_help():
-    return await render_template("incident_help.html")
+    await flash(success_message.format(name=str(row["Name"])), success_category)
+    return redirect(url_for(redirect_endpoint))
 
 
 @app.route("/dashboards/<dashboard_id>/delete", methods=["POST"])
@@ -22299,35 +22249,31 @@ async def create_tag_rule():
 @require_basic_auth
 async def delete_tag_rule(rule_id: str):
     db = get_db()
-    row = db.execute(
-        "SELECT Id, Name FROM sobs_tag_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
-        [rule_id],
-    ).fetchone()
-    if not row:
-        await flash("Tag rule not found", "warning")
-        return redirect(url_for("view_tag_rules"))
-    _insert_rows_json_each_row(
+
+    def _deleted_row(row: RowCompat) -> dict[str, Any]:
+        return {
+            "Id": rule_id,
+            "Name": str(row["Name"]),
+            "RecordTypes": "",
+            "MatchField": "",
+            "MatchOperator": "eq",
+            "MatchValue": "",
+            "MatchAttrKey": "",
+            "TagKey": "",
+            "TagValue": "",
+            "ConditionsJson": "[]",
+        }
+
+    return await _soft_delete_latest_row(
         db,
-        "sobs_tag_rules",
-        [
-            {
-                "Id": rule_id,
-                "Name": str(row["Name"]),
-                "RecordTypes": "",
-                "MatchField": "",
-                "MatchOperator": "eq",
-                "MatchValue": "",
-                "MatchAttrKey": "",
-                "TagKey": "",
-                "TagValue": "",
-                "ConditionsJson": "[]",
-                "IsDeleted": 1,
-                "Version": int(time.time() * 1000),
-            }
-        ],
+        select_sql="SELECT Id, Name FROM sobs_tag_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
+        select_params=[rule_id],
+        table_name="sobs_tag_rules",
+        build_deleted_row=_deleted_row,
+        not_found_message="Tag rule not found",
+        success_message="Tag rule '{name}' deleted",
+        redirect_endpoint="view_tag_rules",
     )
-    await flash(f"Tag rule '{row['Name']}' deleted", "success")
-    return redirect(url_for("view_tag_rules"))
 
 
 # ---------------------------------------------------------------------------
@@ -24526,31 +24472,29 @@ async def create_notification_channel():
 async def delete_notification_channel(channel_id: str):
     """Soft-delete a notification channel."""
     db = get_db()
-    row = db.execute(
-        "SELECT Id, Name, ChannelType, ConfigJson, Enabled "
-        "FROM sobs_notification_channels FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
-        [channel_id],
-    ).fetchone()
-    if not row:
-        await flash("Notification channel not found", "warning")
-        return redirect(url_for("view_notifications"))
-    _insert_rows_json_each_row(
+
+    def _deleted_row(row: RowCompat) -> dict[str, Any]:
+        return {
+            "Id": channel_id,
+            "Name": str(row["Name"]),
+            "ChannelType": str(row["ChannelType"]),
+            "ConfigJson": str(row["ConfigJson"]),
+            "Enabled": int(row["Enabled"]),
+        }
+
+    return await _soft_delete_latest_row(
         db,
-        "sobs_notification_channels",
-        [
-            {
-                "Id": channel_id,
-                "Name": str(row["Name"]),
-                "ChannelType": str(row["ChannelType"]),
-                "ConfigJson": str(row["ConfigJson"]),
-                "Enabled": int(row["Enabled"]),
-                "IsDeleted": 1,
-                "Version": int(time.time() * 1000),
-            }
-        ],
+        select_sql=(
+            "SELECT Id, Name, ChannelType, ConfigJson, Enabled "
+            "FROM sobs_notification_channels FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1"
+        ),
+        select_params=[channel_id],
+        table_name="sobs_notification_channels",
+        build_deleted_row=_deleted_row,
+        not_found_message="Notification channel not found",
+        success_message="Notification channel '{name}' deleted",
+        redirect_endpoint="view_notifications",
     )
-    await flash(f"Notification channel '{row['Name']}' deleted", "success")
-    return redirect(url_for("view_notifications"))
 
 
 @app.route("/settings/notifications/channels/<channel_id>/toggle", methods=["POST"])
@@ -24704,6 +24648,16 @@ async def create_notification_rule():
                 record_type = "all"
             if tag_match_operator not in _NOTIFICATION_TAG_MATCH_OPERATORS:
                 tag_match_operator = "eq"
+            if tag_match_operator == "regex":
+                try:
+                    re.compile(tag_value)
+                except re.error as exc:
+                    await flash(f"Invalid tag regex pattern: {exc}", "warning")
+                    return redirect(
+                        url_for("view_notifications", edit_rule=edit_rule_id)
+                        if edit_rule_id
+                        else url_for("view_notifications")
+                    )
             conditions.append(
                 {
                     "type": "tag",
@@ -24833,35 +24787,33 @@ async def toggle_notification_rule(rule_id: str):
 async def delete_notification_rule(rule_id: str):
     """Soft-delete a notification rule."""
     db = get_db()
-    row = db.execute(
-        "SELECT Id, Name, LogicOperator, ConditionsJson, ChannelIds, Severity, CooldownSeconds, Enabled "
-        "FROM sobs_notification_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
-        [rule_id],
-    ).fetchone()
-    if not row:
-        await flash("Notification rule not found", "warning")
-        return redirect(url_for("view_notifications"))
-    _insert_rows_json_each_row(
+
+    def _deleted_row(row: RowCompat) -> dict[str, Any]:
+        return {
+            "Id": rule_id,
+            "Name": str(row["Name"]),
+            "Enabled": int(row["Enabled"]),
+            "LogicOperator": str(row["LogicOperator"]),
+            "ConditionsJson": str(row["ConditionsJson"]),
+            "ChannelIds": str(row["ChannelIds"]),
+            "Severity": str(row["Severity"]),
+            "CooldownSeconds": int(row["CooldownSeconds"]),
+            "LastFiredAt": "1970-01-01 00:00:00.000",
+        }
+
+    return await _soft_delete_latest_row(
         db,
-        "sobs_notification_rules",
-        [
-            {
-                "Id": rule_id,
-                "Name": str(row["Name"]),
-                "Enabled": int(row["Enabled"]),
-                "LogicOperator": str(row["LogicOperator"]),
-                "ConditionsJson": str(row["ConditionsJson"]),
-                "ChannelIds": str(row["ChannelIds"]),
-                "Severity": str(row["Severity"]),
-                "CooldownSeconds": int(row["CooldownSeconds"]),
-                "LastFiredAt": "1970-01-01 00:00:00.000",
-                "IsDeleted": 1,
-                "Version": int(time.time() * 1000),
-            }
-        ],
+        select_sql=(
+            "SELECT Id, Name, LogicOperator, ConditionsJson, ChannelIds, Severity, CooldownSeconds, Enabled "
+            "FROM sobs_notification_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1"
+        ),
+        select_params=[rule_id],
+        table_name="sobs_notification_rules",
+        build_deleted_row=_deleted_row,
+        not_found_message="Notification rule not found",
+        success_message="Notification rule '{name}' deleted",
+        redirect_endpoint="view_notifications",
     )
-    await flash(f"Notification rule '{row['Name']}' deleted", "success")
-    return redirect(url_for("view_notifications"))
 
 
 def _get_notification_auto_candidates(
@@ -25760,34 +25712,30 @@ async def create_agent_rule():
 @require_basic_auth
 async def delete_agent_rule(rule_id: str):
     db = get_db()
-    row = db.execute(
-        "SELECT Id, Name FROM sobs_agent_rules FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1",
-        [rule_id],
-    ).fetchone()
-    if not row:
-        await flash("Agent rule not found", "warning")
-        return redirect(url_for("view_agent_rules"))
-    _insert_rows_json_each_row(
+
+    def _deleted_row(row: RowCompat) -> dict[str, Any]:
+        return {
+            "Id": rule_id,
+            "Name": str(row["Name"]),
+            "Description": "",
+            "TriggerType": "manual",
+            "TriggerRefId": "",
+            "TriggerState": "any",
+            "Actions": "analyze",
+            "RateLimitMinutes": 60,
+            "IsEnabled": 0,
+        }
+
+    return await _soft_delete_latest_row(
         db,
-        "sobs_agent_rules",
-        [
-            {
-                "Id": rule_id,
-                "Name": str(row["Name"]),
-                "Description": "",
-                "TriggerType": "manual",
-                "TriggerRefId": "",
-                "TriggerState": "any",
-                "Actions": "analyze",
-                "RateLimitMinutes": 60,
-                "IsEnabled": 0,
-                "IsDeleted": 1,
-                "Version": int(time.time() * 1000),
-            }
-        ],
+        select_sql="SELECT Id, Name FROM sobs_agent_rules FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1",
+        select_params=[rule_id],
+        table_name="sobs_agent_rules",
+        build_deleted_row=_deleted_row,
+        not_found_message="Agent rule not found",
+        success_message="Agent rule '{name}' deleted",
+        redirect_endpoint="view_agent_rules",
     )
-    await flash(f"Agent rule '{row['Name']}' deleted", "success")
-    return redirect(url_for("view_agent_rules"))
 
 
 def _sse_json_event(event_name: str, payload: dict[str, Any]) -> str:
