@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Summary Help{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1">Summary Help</h4>
+    <p class="text-secondary mb-0">System health overview, ingest stats, database utilization, and quick navigation to all signal pages.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('summary') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Summary
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>At-a-Glance Counts</h6>
+        <p class="small text-secondary mb-0">The stat cards at the top show live counts of logs, errors, traces, RUM sessions, metrics, and AI calls. Click any card to navigate to the full page.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Auto-Refresh</h6>
+        <p class="small text-secondary mb-0">Use the refresh interval selector to auto-reload the summary page every 10 s, 30 s, 1 m, 2 m, or 5 m to keep counts current.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Database Stats</h6>
+        <p class="small text-secondary mb-0">The <strong>Database Stats</strong> panel shows per-table compressed and uncompressed sizes, row counts, and any currently active ClickHouse queries.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-grid-1x2 me-2"></i>Stat Cards Reference</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:20%">Card</th>
+          <th>What it counts</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace">Logs</td>
+          <td>Total OTEL log records in the database (all time).</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Errors</td>
+          <td>Open (unresolved) error records. Shown in red when non-zero.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Traces</td>
+          <td>Total trace spans in the database.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">RUM</td>
+          <td>Total RUM session events captured.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Metrics</td>
+          <td>Total derived metric signal data points.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">AI calls</td>
+          <td>Total LLM calls logged by the AI transparency system.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-hdd me-2 text-info"></i>Database Stats Panel</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">
+      The Database Stats panel queries <code>system.parts</code> and <code>system.processes</code> to show:
+    </p>
+    <ul class="small mb-0">
+      <li><strong>Compressed size</strong> — actual on-disk storage used per table.</li>
+      <li><strong>Uncompressed size</strong> — logical data size before ClickHouse compression.</li>
+      <li><strong>Rows</strong> — total row count per table.</li>
+      <li><strong>Active queries</strong> — any ClickHouse queries currently running in the background.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-0">
+  <div class="card-header fw-semibold"><i class="bi bi-link-45deg me-2"></i>Related Pages</div>
+  <div class="card-body">
+    <ul class="small mb-0">
+      <li><a href="{{ url_for('setup_playbooks_help') }}">Setup Playbooks</a> — production setup guidance for reverse proxies, Kubernetes, and full telemetry.</li>
+      <li><a href="{{ url_for('data_management_help') }}">Data Management Help</a> — TTL, backup, restore, and retention guidance.</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}

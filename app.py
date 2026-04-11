@@ -19676,6 +19676,78 @@ async def setup_playbooks_help():
     return await render_template("setup_playbooks_help.html")
 
 
+@app.route("/logs/help")
+@require_basic_auth
+async def logs_help():
+    return await render_template("logs_help.html")
+
+
+@app.route("/traces/help")
+@require_basic_auth
+async def traces_help():
+    return await render_template("traces_help.html")
+
+
+@app.route("/rum/help")
+@require_basic_auth
+async def rum_help():
+    return await render_template("rum_help.html")
+
+
+@app.route("/ai/help")
+@require_basic_auth
+async def ai_help():
+    return await render_template("ai_help.html")
+
+
+@app.route("/cve/help")
+@require_basic_auth
+async def cve_help():
+    return await render_template("cve_help.html")
+
+
+@app.route("/metrics/help")
+@require_basic_auth
+async def metrics_help():
+    return await render_template("metrics_help.html")
+
+
+@app.route("/metrics/help/anomaly")
+@require_basic_auth
+async def metrics_anomaly_help():
+    return await render_template("metrics_anomaly_help.html")
+
+
+@app.route("/query/help")
+@require_basic_auth
+async def query_help():
+    return await render_template("query_help.html")
+
+
+@app.route("/reports/help")
+@require_basic_auth
+async def reports_help():
+    return await render_template("reports_help.html")
+
+
+@app.route("/summary/help")
+@require_basic_auth
+async def summary_help():
+    return await render_template("summary_help.html")
+
+
+@app.route("/work-items/help")
+@require_basic_auth
+async def work_items_help():
+    return await render_template("work_items_help.html")
+
+
+@app.route("/incident/help")
+@require_basic_auth
+async def incident_help():
+    return await render_template("incident_help.html")
+
+
 @app.route("/dashboards/<dashboard_id>/delete", methods=["POST"])
 @require_basic_auth
 async def delete_dashboard(dashboard_id: str):

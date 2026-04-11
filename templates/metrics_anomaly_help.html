@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Metrics Anomaly Help{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1">Metrics Anomaly Help</h4>
+    <p class="text-secondary mb-0">Understanding anomaly detail charts, related telemetry links, and seasonal baselines.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_metrics') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Metrics
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Anomaly Chart</h6>
+        <p class="small text-secondary mb-0">The main chart shows the signal value over the selected window with threshold bands overlaid. Anomalous regions are highlighted in orange or red.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Related Telemetry</h6>
+        <p class="small text-secondary mb-0">Use the <strong>Open Related Logs / Traces / Errors</strong> button to jump to the corresponding telemetry page pre-filtered to the same service and time window.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Seasonal Baselines</h6>
+        <p class="small text-secondary mb-0">Seasonal rules display per-bucket expected ranges on the chart. Hover a data point to see the bucket baseline for that time slot.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-activity me-2 text-info"></i>Anomaly States</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:20%">State</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="badge bg-success">OK</span></td>
+          <td>Signal is within all rule thresholds for the current window.</td>
+        </tr>
+        <tr>
+          <td><span class="badge bg-warning text-dark">Warning</span></td>
+          <td>Signal has crossed at least one warning threshold but not a critical threshold.</td>
+        </tr>
+        <tr>
+          <td><span class="badge bg-danger">Critical</span></td>
+          <td>Signal has crossed at least one critical threshold. Investigate immediately.</td>
+        </tr>
+        <tr>
+          <td><span class="badge bg-secondary">No rules</span></td>
+          <td>No metric rules are configured for this signal. State cannot be evaluated.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-calendar3 me-2"></i>Seasonal Rules</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">
+      Seasonal rules are auto-generated from historical signal data. They store per-bucket thresholds (e.g. one bucket per hour-of-week) and compare each new data point against its historical baseline.
+    </p>
+    <ul class="small mb-0">
+      <li>The <em>Seasonal</em> chart overlay shows the expected range band for each data point.</li>
+      <li>Seasonal rules are automatically re-generated when the <strong>Auto Make Rules</strong> workflow runs.</li>
+      <li>See the <a href="{{ url_for('auto_metrics_rules_help') }}">Auto Make Rules Help</a> for the generation workflow.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-0">
+  <div class="card-header fw-semibold"><i class="bi bi-link-45deg me-2"></i>Related Pages</div>
+  <div class="card-body">
+    <ul class="small mb-0">
+      <li><a href="{{ url_for('view_metrics') }}">Metrics</a> — browse all signals and their current anomaly state.</li>
+      <li><a href="{{ url_for('view_metrics_rules') }}">Metric Rules</a> — manage threshold and seasonal rules.</li>
+      <li><a href="{{ url_for('metrics_rules_help') }}">Metric Rules Help</a> — full documentation on rule types.</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}

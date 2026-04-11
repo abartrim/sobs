@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}RUM Help{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1">RUM Help</h4>
+    <p class="text-secondary mb-0">Real User Monitoring session replay, performance data, and browser event browsing.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_rum') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to RUM
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Browse Sessions</h6>
+        <p class="small text-secondary mb-0">Filter RUM events by service, session ID, URL path, or date range. Each row represents a captured browser event.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Session Replay</h6>
+        <p class="small text-secondary mb-0">Click a session entry to open the rrweb-powered session replay player and watch the exact user interaction sequence.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Performance Data</h6>
+        <p class="small text-secondary mb-0">Review Core Web Vitals, network timings, and JS error events captured by the RUM SDK alongside each session.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-funnel me-2 text-primary"></i>Filter Controls</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:20%">Control</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace">Service</td>
+          <td>Filter to a specific application or service that emits RUM events.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Session ID</td>
+          <td>Paste a session ID to load the full event timeline for a single user session.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">From / To</td>
+          <td>Date-time range for the session start timestamp.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-play-circle me-2 text-primary"></i>Session Replay Player</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">The replay player uses <strong>rrweb</strong> to reconstruct the browser DOM at each recorded snapshot.</p>
+    <ul class="small mb-2">
+      <li>Use the timeline scrubber to jump to any point in the session.</li>
+      <li>JS errors and console messages are annotated on the timeline.</li>
+      <li>Network requests captured during the session appear in the <em>Network</em> tab alongside the player.</li>
+    </ul>
+    <div class="alert alert-secondary small py-2 mb-0">
+      <i class="bi bi-info-circle me-1"></i>Replay requires the SOBS RUM SDK to be installed on your frontend application.
+      See the <a href="{{ url_for('setup_playbooks_help') }}" class="alert-link">Setup Playbooks</a> for SDK integration steps.
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-0">
+  <div class="card-header fw-semibold"><i class="bi bi-database me-2"></i>Ingest &amp; API</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:35%">Endpoint</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace small">POST /v1/rum</td>
+          <td>RUM event batch submission. The SOBS RUM SDK posts rrweb snapshots and performance events here.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">GET /rum</td>
+          <td>UI page. Accepts <code>service</code>, <code>session_id</code>, <code>from_ts</code>, <code>to_ts</code> query parameters.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -24,6 +24,7 @@
     {% if service %}
     <span class="badge bg-primary-subtle text-primary-emphasis"><i class="bi bi-hdd-stack me-1"></i>{{ service }}</span>
     {% endif %}
+    <a href="{{ url_for('incident_help') }}" class="link-secondary text-decoration-none" title="Incident View Help" aria-label="Incident View Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
   </div>
 </div>
 

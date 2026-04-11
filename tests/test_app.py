@@ -3509,6 +3509,102 @@ class TestUIPages:
         assert b"Setup Playbooks" in data
         assert b"/setup/help/playbooks" in data
 
+    async def test_logs_help_page(self, client):
+        r = await client.get("/logs/help")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Logs Help" in data
+        assert b"Live Mode" in data
+        assert b"Advanced Analysis" in data
+
+    async def test_traces_help_page(self, client):
+        r = await client.get("/traces/help")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Traces Help" in data
+        assert b"Incident View" in data
+        assert b"Trace Detail View" in data
+
+    async def test_rum_help_page(self, client):
+        r = await client.get("/rum/help")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"RUM Help" in data
+        assert b"Session Replay" in data
+        assert b"Performance Data" in data
+
+    async def test_ai_help_page(self, client):
+        r = await client.get("/ai/help")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"AI Transparency Help" in data
+        assert b"Cost Estimation" in data
+        assert b"Export Training Data" in data
+
+    async def test_cve_help_page(self, client):
+        r = await client.get("/cve/help")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"CVE Findings Help" in data
+        assert b"OSV" in data
+        assert b"Severity Levels" in data
+
+    async def test_metrics_help_page(self, client):
+        r = await client.get("/metrics/help")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Metrics Help" in data
+        assert b"Anomaly State" in data
+        assert b"Seasonal rules" in data
+
+    async def test_metrics_anomaly_help_page(self, client):
+        r = await client.get("/metrics/help/anomaly")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Metrics Anomaly Help" in data
+        assert b"Anomaly States" in data
+        assert b"Seasonal Baselines" in data
+
+    async def test_query_help_page(self, client):
+        r = await client.get("/query/help")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Natural-Language Query Help" in data
+        assert b"Table Explorer" in data
+        assert b"Beta Limitations" in data
+
+    async def test_reports_help_page(self, client):
+        r = await client.get("/reports/help")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Reports Help" in data
+        assert b"Import" in data
+        assert b"Export" in data
+
+    async def test_summary_help_page(self, client):
+        r = await client.get("/summary/help")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Summary Help" in data
+        assert b"Database Stats" in data
+        assert b"Auto-Refresh" in data
+
+    async def test_work_items_help_page(self, client):
+        r = await client.get("/work-items/help")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Work Items Help" in data
+        assert b"Agent Rules" in data
+        assert b"Copilot Tasks" in data
+
+    async def test_incident_help_page(self, client):
+        r = await client.get("/incident/help")
+        assert r.status_code == 200
+        data = await r.get_data()
+        assert b"Incident View Help" in data
+        assert b"Time Window" in data
+        assert b"Correlated Signals" in data
+
     async def test_rum_js_served(self, client):
         r = await client.get("/static/rum.js")
         assert r.status_code == 200

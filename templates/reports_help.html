@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Reports Help{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1">Reports Help</h4>
+    <p class="text-secondary mb-0">Save, load, share, import, and export filter configurations as named reports.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('list_reports') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Reports
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Save a Report</h6>
+        <p class="small text-secondary mb-0">On any filter page (Logs, Traces, Errors, Metrics, RUM, AI, Work Items, Web Traffic), click <strong>Save as report</strong> in the filter bar to capture the current filters.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Apply a Report</h6>
+        <p class="small text-secondary mb-0">Click <strong>Apply</strong> on any report card to navigate to the target page with the saved filters pre-applied.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Share &amp; Export</h6>
+        <p class="small text-secondary mb-0">Use the <strong>Share</strong> button to copy a shareable link, or <strong>Export</strong> to download reports as a JSON file for backup or transfer.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-bookmark-star me-2 text-primary"></i>Report Fields</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:20%">Field</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace">Name</td>
+          <td>A short human-readable label for the report, shown in the reports list and filter bar dropdown.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Description</td>
+          <td>Optional notes about what the report captures or when to use it.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Page Type</td>
+          <td>The target page: <em>logs</em>, <em>traces</em>, <em>errors</em>, <em>metrics</em>, <em>rum</em>, <em>ai</em>, <em>work_items</em>, or <em>web_traffic</em>.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Filters</td>
+          <td>The saved filter key-value pairs. Applied as query parameters when the report is loaded.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-arrow-down-up me-2"></i>Import &amp; Export</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">Reports can be exported as a <code>.json</code> file and imported into another SOBS instance.</p>
+    <ul class="small mb-2">
+      <li><strong>Export All</strong> — downloads all reports as a single JSON export file.</li>
+      <li><strong>Export single</strong> — click the download icon on a report card to export just that report.</li>
+      <li><strong>Import</strong> — click the <em>Import</em> button and upload a previously exported JSON file. Choose a conflict resolution strategy: <em>rename</em>, <em>replace</em>, or <em>skip</em>.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-0">
+  <div class="card-header fw-semibold"><i class="bi bi-link-45deg me-2"></i>Loading Reports from Filter Pages</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-0">
+      Filter bars on Logs, Traces, Errors, Metrics, RUM, AI, Work Items, and Web Traffic pages have a
+      <strong>Load report</strong> dropdown. Select a saved report from the dropdown to instantly apply its filters without navigating to this page.
+    </p>
+  </div>
+</div>
+{% endblock %}

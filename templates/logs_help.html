@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Logs Help{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1">Logs Help</h4>
+    <p class="text-secondary mb-0">Real-time log streaming, regex search, advanced analysis, and live mode.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_logs') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Logs
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Search &amp; Filter</h6>
+        <p class="small text-secondary mb-0">Use the filter bar to narrow logs by service, severity, body text (regex), trace ID, and date range.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Live Mode</h6>
+        <p class="small text-secondary mb-0">Click <strong>Live</strong> to stream new log entries as they arrive. The page polls continuously and highlights new rows.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Advanced Analysis</h6>
+        <p class="small text-secondary mb-0">Enable <strong>Analyze</strong> to run AI-powered pattern detection on the current log window and surface anomalies.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-funnel me-2 text-info"></i>Filter Controls</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:20%">Control</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace">Search</td>
+          <td>Regex pattern matched against log body text. Supports standard regex syntax.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Service</td>
+          <td>Multi-select dropdown. Leave empty to show logs from all services.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Severity</td>
+          <td>Filter by log level: <em>DEBUG</em>, <em>INFO</em>, <em>WARN</em>, <em>ERROR</em>, or <em>FATAL</em>.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Trace ID</td>
+          <td>Paste a trace ID to show only log lines correlated to that trace.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">From / To</td>
+          <td>Date-time range filter. Accepts ISO date-time strings.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Limit</td>
+          <td>Maximum number of log rows to return per page.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-broadcast me-2 text-success"></i>Live Mode</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">
+      Toggle <strong>Live</strong> to enable continuous polling. New log entries are prepended to the list and flash briefly to indicate they are new.
+    </p>
+    <ul class="small mb-2">
+      <li>Live mode ignores the <em>From / To</em> date range filter while active.</li>
+      <li>The <strong>Live off / Live on</strong> badge in the header reflects the current state.</li>
+      <li>Filters (service, severity, search) remain active during live mode.</li>
+    </ul>
+    <div class="alert alert-secondary small py-2 mb-0">
+      <i class="bi bi-info-circle me-1"></i>Live mode increases server polling frequency. Disable it when not actively monitoring to reduce load.
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-bar-chart-line me-2 text-info"></i>Stats Panel</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-0">
+      Append <code>?stats=1</code> to the URL or click <strong>Stats</strong> to open the aggregated log statistics panel.
+      It shows log counts per service and severity level for the current filter window.
+    </p>
+  </div>
+</div>
+
+<div class="card border-secondary mb-0">
+  <div class="card-header fw-semibold"><i class="bi bi-database me-2"></i>Ingest &amp; API</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:35%">Endpoint</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace small">POST /v1/logs</td>
+          <td>OpenTelemetry OTLP JSON log records. Standard OTEL SDK exporters point here.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">GET /logs</td>
+          <td>UI page. Accepts <code>q</code>, <code>service</code>, <code>severity</code>, <code>trace_id</code>, <code>from_ts</code>, <code>to_ts</code>, <code>limit</code>, <code>live</code> query parameters.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Incident View Help{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1">Incident View Help</h4>
+    <p class="text-secondary mb-0">Correlated cross-signal incident timeline: primary event, related errors, logs, spans, and anomaly state.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_errors') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Errors
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Open an Incident</h6>
+        <p class="small text-secondary mb-0">Click the <strong>Incident View</strong> button on an error card or trace detail to open the incident timeline for that event.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Primary Event</h6>
+        <p class="small text-secondary mb-0">The top card shows the anchor event (error, trace span, or RUM session) that the incident window is centered on.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Related Signals</h6>
+        <p class="small text-secondary mb-0">Correlated errors, log lines, trace spans, metric anomalies, and work item links are aggregated in the same time window below the primary event.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-clock-history me-2 text-danger"></i>Time Window</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">
+      The incident view aggregates related signals within a configurable window around the primary event timestamp.
+    </p>
+    <ul class="small mb-0">
+      <li>Default window: <strong>±30 minutes</strong> around the primary event.</li>
+      <li>Maximum window: <strong>±180 minutes</strong>.</li>
+      <li>Pass <code>window_minutes</code> as a query parameter to adjust the window size.</li>
+      <li>The <code>from_ts</code> and <code>to_ts</code> parameters override the automatic window calculation.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-layers me-2 text-danger"></i>Correlated Signals</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:25%">Section</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace">Primary Event</td>
+          <td>The anchor error, trace span, or RUM session that triggered the incident view.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Related Errors</td>
+          <td>Other errors from the same service within the incident window, up to a configured limit.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Related Logs</td>
+          <td>Log lines from the same service and time window. Useful for tracing the error path.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Related Spans</td>
+          <td>Trace spans from the same trace ID or service within the window.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Anomaly State</td>
+          <td>Active metric anomalies for the service at the time of the incident.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Work Items</td>
+          <td>GitHub issues linked to the same trace ID or error fingerprint.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card border-secondary mb-0">
+  <div class="card-header fw-semibold"><i class="bi bi-link-45deg me-2"></i>How to Navigate Here</div>
+  <div class="card-body">
+    <ul class="small mb-0">
+      <li>From <a href="{{ url_for('view_errors') }}">Errors</a> — expand an error accordion and click <strong>Incident View</strong>.</li>
+      <li>From <a href="{{ url_for('view_traces') }}">Traces</a> — open a trace detail and click <strong>Incident View</strong> in the span header.</li>
+      <li>Direct URL — <code>/incident?trace_id=&lt;id&gt;</code> or <code>/incident?error_id=&lt;id&gt;</code>.</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}

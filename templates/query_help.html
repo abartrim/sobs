@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Query Help{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1">Natural-Language Query Help</h4>
+    <p class="text-secondary mb-0">Ask questions in plain English, generate ClickHouse SQL, and render results as charts.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_query') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Query
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Ask a Question</h6>
+        <p class="small text-secondary mb-0">Type a plain-English question about your telemetry data. The AI generates a ClickHouse SQL query, executes it, and displays the results.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Explore Tables First</h6>
+        <p class="small text-secondary mb-0">Use the <a href="{{ url_for('view_table_explorer') }}"><strong>Table Explorer</strong></a> to browse available tables and columns before writing a query.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Render Charts</h6>
+        <p class="small text-secondary mb-0">Enable <strong>Render chart</strong> to have the AI generate an ECharts visualization from the query results alongside the raw data table.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-toggles me-2 text-primary"></i>Query Options</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:25%">Option</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace">Execute query</td>
+          <td>When enabled (default), the generated SQL is executed and results are returned. Disable to see only the generated SQL without running it.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Render chart</td>
+          <td>When enabled, the AI also generates an ECharts configuration to visualize the query results as a chart.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-lightbulb me-2 text-warning"></i>Example Questions</div>
+  <div class="card-body">
+    <ul class="small mb-0">
+      <li>How many log entries were recorded per service in the last hour?</li>
+      <li>What are the top 10 slowest trace spans in the last 24 hours?</li>
+      <li>Show me the error rate per service over the past week.</li>
+      <li>Which services have the most unresolved errors?</li>
+      <li>List all RUM sessions longer than 5 minutes from today.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-exclamation-triangle me-2 text-warning"></i>Beta Limitations</div>
+  <div class="card-body">
+    <div class="alert alert-warning small py-2 mb-2">
+      <i class="bi bi-flask me-1"></i>The Query feature is beta. Generated SQL may occasionally be incorrect or use unsupported ClickHouse syntax.
+    </div>
+    <ul class="small mb-0">
+      <li>If a query fails, try rephrasing your question or simplify the request.</li>
+      <li>The AI only has read access to the embedded chDB database — it cannot modify data.</li>
+      <li>Complex joins across many tables may produce slow or empty results.</li>
+      <li>Enable <strong>SOBS_ENABLE_QUERY=1</strong> in environment variables to activate this feature.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-0">
+  <div class="card-header fw-semibold"><i class="bi bi-link-45deg me-2"></i>Related Pages</div>
+  <div class="card-body">
+    <ul class="small mb-0">
+      <li><a href="{{ url_for('view_table_explorer') }}">Table Explorer</a> — browse schema and sample data for all available tables.</li>
+      <li><a href="{{ url_for('table_explorer_help') }}">Table Explorer Help</a> — full table and column reference.</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}

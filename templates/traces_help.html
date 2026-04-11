@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Traces Help{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-semibold mb-1">Traces Help</h4>
+    <p class="text-secondary mb-0">Distributed trace exploration, span drilldown, and incident correlation.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_traces') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Traces
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Find a Trace</h6>
+        <p class="small text-secondary mb-0">Use the <em>Trace ID</em> field to jump directly to a specific trace, or filter by service and date range to browse recent spans.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Inspect a Span</h6>
+        <p class="small text-secondary mb-0">Expand any span row to see full attributes, duration, status, and links to related log lines and errors.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Incident View</h6>
+        <p class="small text-secondary mb-0">Click <strong>Incident View</strong> on any trace detail to open a correlated incident timeline showing errors, logs, and anomalies for the same window.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-funnel me-2 text-warning"></i>Filter Controls</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:20%">Control</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace">Search</td>
+          <td>Regex pattern matched against span name and attributes.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Service</td>
+          <td>Multi-select dropdown. Filter to one or more services.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">Trace ID</td>
+          <td>Paste a full trace ID to load a single trace detail view.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace">From / To</td>
+          <td>Date-time range. ISO date-time strings accepted.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-diagram-3 me-2 text-warning"></i>Trace Detail View</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">When a <strong>Trace ID</strong> is supplied, the page shows a waterfall view of all spans within that trace:</p>
+    <ul class="small mb-2">
+      <li>Spans are grouped hierarchically by parent span ID.</li>
+      <li>Duration bars are color-coded by status (OK, ERROR, UNSET).</li>
+      <li>Expand a span to view its full attribute map and linked log lines.</li>
+      <li>Error spans surface an <strong>Incident View</strong> button for cross-signal correlation.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-0">
+  <div class="card-header fw-semibold"><i class="bi bi-database me-2"></i>Ingest &amp; API</div>
+  <div class="card-body p-0">
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:35%">Endpoint</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace small">POST /v1/traces</td>
+          <td>OpenTelemetry OTLP JSON trace spans. Standard OTEL SDK exporters point here.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">GET /traces</td>
+          <td>UI page. Accepts <code>q</code>, <code>service</code>, <code>trace_id</code>, <code>from_ts</code>, <code>to_ts</code> query parameters.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
