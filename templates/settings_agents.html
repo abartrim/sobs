@@ -5,6 +5,19 @@
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="fw-semibold mb-0"><i class="bi bi-lightning-charge me-2 text-warning"></i>Automated Agent Flows</h4>
   <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-outline-warning"
+            type="button"
+            data-bs-toggle="modal"
+            data-bs-target="#workItemsTourModal"
+            title="Work items walkthrough"
+            aria-label="Open work items walkthrough"
+            data-ai-action-id="settings.agents.tour.open"
+            data-ai-action-type="open_modal"
+            data-ai-handler="openModal"
+            data-ai-args='{"modal_id":"workItemsTourModal"}'
+            data-ai-label="Open work items walkthrough modal">
+      <i class="bi bi-mortarboard me-1"></i>Walkthrough
+    </button>
     <a href="{{ url_for('view_ai_settings') }}" class="btn btn-sm btn-outline-primary">
       <i class="bi bi-gear me-1"></i>AI Settings
     </a>
@@ -298,6 +311,7 @@
     <div class="toast-body" id="agentRunToastBody"></div>
   </div>
 </div>
+{% include "_work_items_walkthrough_modal.html" %}
 {% endblock %}
 
 {% block scripts %}
@@ -370,4 +384,5 @@
   });
 }());
 </script>
+{% include "_work_items_walkthrough_script.html" %}
 {% endblock %}

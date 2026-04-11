@@ -10659,6 +10659,9 @@ class TestAISettingsAndAgentFlows:
         text = (await r.get_data()).decode()
         assert "Agent" in text
         assert "Create Agent Rule" in text
+        assert "Walkthrough" in text
+        assert 'data-bs-target="#workItemsTourModal"' in text
+        assert 'id="workItemsTourModal"' in text
 
     async def test_create_agent_rule(self, client):
         r = await client.post(
@@ -14024,6 +14027,8 @@ class TestReports:
         assert 'id="work-items-tz-badge-btn"' in text
         assert "page_type=work_items" in text
         assert "pageType: 'work_items'" in text
+        assert 'data-bs-target="#workItemsTourModal"' in text
+        assert 'id="workItemsTourModal"' in text
 
     async def test_api_work_items_filters_by_signal(self, client):
         now_ts = sobs_app._normalize_ch_timestamp(datetime.now(timezone.utc))

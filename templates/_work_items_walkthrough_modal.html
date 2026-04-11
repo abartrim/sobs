@@ -1,0 +1,291 @@
+<style>
+  #workItemsTourModal {
+    --work-items-tour-left-offset: 0px;
+    --work-items-tour-side-gap: 12px;
+  }
+  #workItemsTourModal .modal-dialog {
+    max-width: none;
+    width: auto;
+    margin-left: calc(var(--work-items-tour-left-offset) + var(--work-items-tour-side-gap));
+    margin-right: var(--work-items-tour-side-gap);
+  }
+  #workItemsTourModal .modal-body {
+    min-height: 380px;
+  }
+  #workItemsTourCarousel .carousel-item {
+    min-height: 320px;
+  }
+  #workItemsTourCarousel .carousel-indicators [data-bs-target] {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+  }
+  .rules-tour-card {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.5rem;
+    background: rgba(var(--bs-secondary-rgb), 0.08);
+    padding: 0.75rem;
+  }
+  .rules-tour-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    font-size: 0.78rem;
+    color: var(--bs-secondary-color);
+  }
+  .rules-tour-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 0.35rem;
+  }
+  .rules-tour-chip {
+    border: 1px solid var(--bs-border-color);
+    background: rgba(var(--bs-secondary-rgb), 0.08);
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.75rem;
+    color: var(--bs-secondary-color);
+  }
+  .rules-tour-flow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+  }
+  .rules-tour-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.74rem;
+    border: 1px solid var(--bs-border-color);
+    background: var(--bs-body-bg);
+  }
+  @media (max-width: 768px) {
+    #workItemsTourModal .modal-dialog {
+      margin-left: .5rem;
+      margin-right: .5rem;
+    }
+    #workItemsTourModal .modal-body {
+      min-height: 420px;
+    }
+    #workItemsTourCarousel .carousel-item {
+      min-height: 355px;
+    }
+  }
+</style>
+
+<div class="modal fade" id="workItemsTourModal" tabindex="-1" aria-labelledby="workItemsTourTitle" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content border-secondary">
+      <div class="modal-header">
+        <h5 class="modal-title" id="workItemsTourTitle"><i class="bi bi-mortarboard me-2"></i>Work Items Walkthrough</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="workItemsTourCarousel" class="carousel slide" data-bs-interval="false" data-bs-touch="true">
+          <div class="carousel-indicators position-static mb-3">
+            <button type="button" data-bs-target="#workItemsTourCarousel" data-bs-slide-to="0" class="active" aria-current="true" aria-label="Intro"></button>
+            <button type="button" data-bs-target="#workItemsTourCarousel" data-bs-slide-to="1" aria-label="Seasonal signal"></button>
+            <button type="button" data-bs-target="#workItemsTourCarousel" data-bs-slide-to="2" aria-label="Agent rule"></button>
+            <button type="button" data-bs-target="#workItemsTourCarousel" data-bs-slide-to="3" aria-label="Copilot"></button>
+            <button type="button" data-bs-target="#workItemsTourCarousel" data-bs-slide-to="4" aria-label="Tracking"></button>
+          </div>
+
+          <div class="carousel-inner">
+            <div class="carousel-item active">
+              <h6 class="mb-2">From Seasonal Anomaly to GitHub Work Item</h6>
+              <p class="small text-secondary mb-2">
+                Work Items connect the anomaly pipeline to GitHub execution. A seasonal metric rule detects an unusual point,
+                an agent rule decides whether to open or reuse an issue, Copilot can be assigned automatically, and this page
+                mirrors the resulting issue and pull request lifecycle.
+              </p>
+              <div class="rules-tour-flow mb-3">
+                <span class="rules-tour-chip">Derived Signal</span>
+                <i class="bi bi-arrow-right text-secondary"></i>
+                <span class="rules-tour-chip">Seasonal Rule</span>
+                <i class="bi bi-arrow-right text-secondary"></i>
+                <span class="rules-tour-chip">Agent Rule</span>
+                <i class="bi bi-arrow-right text-secondary"></i>
+                <span class="rules-tour-chip">GitHub Issue</span>
+                <i class="bi bi-arrow-right text-secondary"></i>
+                <span class="rules-tour-chip">Copilot Task</span>
+                <i class="bi bi-arrow-right text-secondary"></i>
+                <span class="rules-tour-chip">Status Sync</span>
+              </div>
+              <div class="row g-3 mt-1">
+                <div class="col-md-3">
+                  <div class="rules-tour-card h-100">
+                    <h6 class="small text-uppercase text-secondary mb-1">Metrics Engine</h6>
+                    <p class="small mb-0">Builds minute-level signals and calculates the warning or critical anomaly state.</p>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="rules-tour-card h-100">
+                    <h6 class="small text-uppercase text-secondary mb-1">Agent Rule</h6>
+                    <p class="small mb-0">Matches the event, applies cooldown and dedupe, then prepares analysis and suggested fix text.</p>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="rules-tour-card h-100">
+                    <h6 class="small text-uppercase text-secondary mb-1">GitHub</h6>
+                    <p class="small mb-0">Stores the issue, assignee, and linked pull request that become the execution record.</p>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="rules-tour-card h-100">
+                    <h6 class="small text-uppercase text-secondary mb-1">Work Items</h6>
+                    <p class="small mb-0">Shows the issue number, dedupe outcome, Copilot assignment badge, and PR link in one row.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="carousel-item">
+              <h6 class="mb-2">Step 1: Seasonal Rule Detects the Anomaly</h6>
+              <p class="small text-secondary mb-2">Example signal: latency p95. The active UTC bucket baseline changes through the day, so expected peak traffic does not look anomalous.</p>
+              <div class="rules-tour-card mb-2">
+                <svg viewBox="0 0 540 160" width="100%" height="160" role="img" aria-label="Seasonal anomaly example chart">
+                  <rect x="0" y="0" width="540" height="160" fill="rgba(108,117,125,0.06)"></rect>
+                  <path d="M10 95 C70 85, 120 80, 170 88 S280 120, 330 108 S430 70, 530 92" fill="none" stroke="#6c757d" stroke-width="6" opacity="0.25"></path>
+                  <path d="M10 110 C70 98, 120 92, 170 100 S280 130, 330 118 S430 82, 530 105" fill="none" stroke="#8ecae6" stroke-width="2"></path>
+                  <circle cx="262" cy="129" r="4" fill="#ffc107"></circle>
+                  <circle cx="415" cy="80" r="5" fill="#dc3545"></circle>
+                  <line x1="240" y1="135" x2="285" y2="135" stroke="#ffc107" stroke-width="2"></line>
+                  <line x1="392" y1="88" x2="438" y2="88" stroke="#dc3545" stroke-width="2"></line>
+                  <text x="289" y="139" fill="#ffc107" font-size="11">warning bucket breach</text>
+                  <text x="441" y="92" fill="#dc3545" font-size="11">critical bucket breach</text>
+                </svg>
+                <div class="rules-tour-legend mt-2">
+                  <span><span class="rules-tour-dot" style="background:#6c757d"></span>seasonal baseline envelope</span>
+                  <span><span class="rules-tour-dot" style="background:#8ecae6"></span>actual signal</span>
+                  <span><span class="rules-tour-dot" style="background:#dc3545"></span>state-changing point</span>
+                </div>
+              </div>
+              <div class="small text-secondary">
+                Once the point crosses the active seasonal bucket threshold, SOBS records the anomaly state together with service, signal, and telemetry context.
+                That event becomes the input for agent automation.
+              </div>
+            </div>
+
+            <div class="carousel-item">
+              <h6 class="mb-2">Step 2: Agent Rule Decides Whether to Create or Reuse an Issue</h6>
+              <p class="small text-secondary mb-2">The agent flow is not just "open an issue". It filters noise first, then chooses the safest GitHub action.</p>
+              <div class="rules-tour-card mb-2">
+                <svg viewBox="0 0 820 180" width="100%" height="180" role="img" aria-label="Agent rule decision flow">
+                  <rect x="18" y="48" width="118" height="54" rx="12" fill="rgba(13,110,253,0.12)" stroke="#0d6efd"></rect>
+                  <text x="77" y="70" text-anchor="middle" font-size="12" fill="currentColor">Anomaly event</text>
+                  <text x="77" y="87" text-anchor="middle" font-size="11" fill="currentColor">warning / critical</text>
+                  <line x1="136" y1="75" x2="205" y2="75" stroke="currentColor" stroke-width="1.5"></line>
+                  <polygon points="205,75 196,70 196,80" fill="currentColor"></polygon>
+                  <rect x="205" y="36" width="128" height="78" rx="12" fill="rgba(255,193,7,0.12)" stroke="#ffc107"></rect>
+                  <text x="269" y="61" text-anchor="middle" font-size="12" fill="currentColor">Cooldown + dedupe</text>
+                  <text x="269" y="79" text-anchor="middle" font-size="11" fill="currentColor">skip repeats</text>
+                  <text x="269" y="95" text-anchor="middle" font-size="11" fill="currentColor">or reuse canonical issue</text>
+                  <line x1="333" y1="75" x2="404" y2="75" stroke="currentColor" stroke-width="1.5"></line>
+                  <polygon points="404,75 395,70 395,80" fill="currentColor"></polygon>
+                  <rect x="404" y="36" width="142" height="78" rx="12" fill="rgba(25,135,84,0.12)" stroke="#198754"></rect>
+                  <text x="475" y="61" text-anchor="middle" font-size="12" fill="currentColor">Issue payload build</text>
+                  <text x="475" y="79" text-anchor="middle" font-size="11" fill="currentColor">telemetry context</text>
+                  <text x="475" y="95" text-anchor="middle" font-size="11" fill="currentColor">analysis + suggested fix</text>
+                  <line x1="546" y1="75" x2="620" y2="75" stroke="currentColor" stroke-width="1.5"></line>
+                  <polygon points="620,75 611,70 611,80" fill="currentColor"></polygon>
+                  <rect x="620" y="48" width="160" height="54" rx="12" fill="rgba(108,117,125,0.12)" stroke="#6c757d"></rect>
+                  <text x="700" y="70" text-anchor="middle" font-size="12" fill="currentColor">GitHub issue create / reuse</text>
+                  <text x="700" y="87" text-anchor="middle" font-size="11" fill="currentColor">persist work item row</text>
+                </svg>
+              </div>
+              <ul class="small text-secondary mb-0 ps-3">
+                <li>Cooldown reduces repeated issue creation for the same pattern.</li>
+                <li>Dedupe can attach a new occurrence to an existing canonical issue instead of opening another one.</li>
+                <li>The persisted work item captures dedupe decision, issue URL, and the generated RCA/fix summary.</li>
+              </ul>
+            </div>
+
+            <div class="carousel-item">
+              <h6 class="mb-2">Step 3: Issue + Copilot Adds an Execution Path</h6>
+              <p class="small text-secondary mb-2">If the rule action is <strong>Issue + Copilot</strong>, SOBS requests GitHub Copilot assignment after the issue is created or reused.</p>
+              <div class="rules-tour-card mb-3">
+                <div class="rules-tour-flow mb-3">
+                  <span class="rules-tour-status"><span class="rules-tour-dot" style="background:#0d6efd"></span>requested</span>
+                  <i class="bi bi-arrow-right text-secondary"></i>
+                  <span class="rules-tour-status"><span class="rules-tour-dot" style="background:#198754"></span>active</span>
+                  <i class="bi bi-arrow-right text-secondary"></i>
+                  <span class="rules-tour-status"><span class="rules-tour-dot" style="background:#6c757d"></span>PR linked</span>
+                  <i class="bi bi-arrow-right text-secondary"></i>
+                  <span class="rules-tour-status"><span class="rules-tour-dot" style="background:#198754"></span>completed</span>
+                </div>
+                <svg viewBox="0 0 560 120" width="100%" height="120" role="img" aria-label="Copilot assignment lifecycle">
+                  <rect x="20" y="44" width="120" height="44" rx="10" fill="rgba(13,110,253,0.12)" stroke="#0d6efd"></rect>
+                  <text x="80" y="63" text-anchor="middle" font-size="12" fill="currentColor">Issue opened</text>
+                  <text x="80" y="78" text-anchor="middle" font-size="11" fill="currentColor">assignment requested</text>
+                  <line x1="140" y1="66" x2="215" y2="66" stroke="currentColor" stroke-width="1.5"></line>
+                  <polygon points="215,66 206,61 206,71" fill="currentColor"></polygon>
+                  <rect x="215" y="32" width="130" height="68" rx="10" fill="rgba(25,135,84,0.12)" stroke="#198754"></rect>
+                  <text x="280" y="54" text-anchor="middle" font-size="12" fill="currentColor">Copilot active</text>
+                  <text x="280" y="72" text-anchor="middle" font-size="11" fill="currentColor">issue assigned</text>
+                  <text x="280" y="87" text-anchor="middle" font-size="11" fill="currentColor">automation in progress</text>
+                  <line x1="345" y1="66" x2="420" y2="66" stroke="currentColor" stroke-width="1.5"></line>
+                  <polygon points="420,66 411,61 411,71" fill="currentColor"></polygon>
+                  <rect x="420" y="32" width="120" height="68" rx="10" fill="rgba(108,117,125,0.12)" stroke="#6c757d"></rect>
+                  <text x="480" y="54" text-anchor="middle" font-size="12" fill="currentColor">PR linked</text>
+                  <text x="480" y="72" text-anchor="middle" font-size="11" fill="currentColor">track branch + PR</text>
+                  <text x="480" y="87" text-anchor="middle" font-size="11" fill="currentColor">close issue when done</text>
+                </svg>
+              </div>
+              <div class="small text-secondary">
+                The Work Items row surfaces the assignment badge. Typical states are <strong>requested</strong>, <strong>active</strong>, <strong>blocked</strong>,
+                <strong>failed</strong>, and <strong>completed</strong>, so you can see whether Copilot is working, could not start, or already finished.
+              </div>
+            </div>
+
+            <div class="carousel-item">
+              <h6 class="mb-2">Step 4: Track Progress in GitHub and Back in SOBS</h6>
+              <p class="small text-secondary mb-3">GitHub is the execution surface. The Work Items page is the observability surface that summarizes what GitHub reports back.</p>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <div class="rules-tour-card h-100">
+                    <h6 class="small text-uppercase text-secondary mb-2">What to watch in GitHub</h6>
+                    <ul class="small mb-0 ps-3">
+                      <li>Issue title and body generated from telemetry context, analysis, and suggested fix.</li>
+                      <li>Assignee list to confirm whether GitHub Copilot is attached to the issue.</li>
+                      <li>Linked pull request and review activity once implementation starts.</li>
+                      <li>Issue state moving from open to closed after the fix lands.</li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="rules-tour-card h-100">
+                    <h6 class="small text-uppercase text-secondary mb-2">What SOBS mirrors on this page</h6>
+                    <ul class="small mb-0 ps-3">
+                      <li><strong>Issue</strong> column: GitHub issue number, action type, Copilot badge, and PR link.</li>
+                      <li><strong>Dedupe</strong> badge: whether the event opened a new issue or reused an existing one.</li>
+                      <li><strong>Status filters</strong>: narrow to open or closed issue state during triage.</li>
+                      <li><strong>Details modal</strong>: review the saved root cause analysis and suggested fix that produced the issue.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <div class="rules-tour-card mt-3">
+                <div class="small text-secondary mb-0">
+                  Component ownership summary: <strong>metrics rules</strong> decide if the signal is anomalous, <strong>agent rules</strong> decide what automation to run,
+                  <strong>GitHub</strong> owns the issue and PR workflow, and <strong>Work Items</strong> provides the single-page audit trail for that lifecycle.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <small id="workItemsTourSlideLabel" class="text-secondary">Page 1 of 5</small>
+        <div class="d-flex gap-2">
+          <button class="btn btn-outline-secondary btn-sm" type="button" id="workItemsTourPrev"><i class="bi bi-arrow-left me-1"></i>Prev</button>
+          <button class="btn btn-primary btn-sm" type="button" id="workItemsTourNext">Next<i class="bi bi-arrow-right ms-1"></i></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
