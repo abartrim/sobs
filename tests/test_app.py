@@ -10770,6 +10770,25 @@ class TestTagRules:
         assert _match_tag_rule(rule, "log", "svc", "ERROR", "connection timeout error", {}) is False
         assert _match_tag_rule(rule, "trace", "svc", "ERROR", "connection timeout error", {}) is True
 
+    def test_parse_tag_rule_conditions_json_handles_invalid_payloads(self):
+        from app import _parse_tag_rule_conditions_json
+
+        assert _parse_tag_rule_conditions_json("") == []
+        assert _parse_tag_rule_conditions_json("{bad-json") == []
+        assert _parse_tag_rule_conditions_json('{"match_field":"severity"}') == []
+
+        parsed = _parse_tag_rule_conditions_json(
+            '[{"match_field":"severity","match_operator":"eq","match_value":"ERROR"}]'
+        )
+        assert parsed == [
+            {
+                "match_field": "severity",
+                "match_operator": "eq",
+                "match_value": "ERROR",
+                "match_attr_key": "",
+            }
+        ]
+
 
 # ---------------------------------------------------------------------------
 # AI Settings, Contextual Helper, Agent Rules & Runs

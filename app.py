@@ -11644,6 +11644,33 @@ def _record_id_for_span(trace_id: str, span_id: str) -> str:
     return hashlib.md5(key.encode()).hexdigest()
 
 
+def _parse_tag_rule_conditions_json(raw: Any) -> list[dict[str, str]]:
+    """Best-effort decode for ConditionsJson with safe fallback semantics."""
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+
+    normalized: list[dict[str, str]] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        normalized.append(
+            {
+                "match_field": str(item.get("match_field", "") or ""),
+                "match_operator": str(item.get("match_operator", "") or ""),
+                "match_value": str(item.get("match_value", "") or ""),
+                "match_attr_key": str(item.get("match_attr_key", "") or ""),
+            }
+        )
+    return normalized
+
+
 def _load_tag_rules(db: ChDbConnection) -> list[dict]:
     """Load all active tag rules."""
     rows = db.execute(
@@ -11662,7 +11689,7 @@ def _load_tag_rules(db: ChDbConnection) -> list[dict]:
             "match_attr_key": str(row["MatchAttrKey"]),
             "tag_key": str(row["TagKey"]),
             "tag_value": str(row["TagValue"]),
-            "conditions": json.loads(str(row["ConditionsJson"]) or "[]"),
+            "conditions": _parse_tag_rule_conditions_json(row["ConditionsJson"]),
         }
         for row in rows
     ]
@@ -11692,8 +11719,7 @@ def _match_tag_rule(
     if conditions:
         # Composite rule – every condition in the list must match.
         return all(
-            _match_single_condition(cond, service, severity, body, attrs, span_name, event_type)
-            for cond in conditions
+            _match_single_condition(cond, service, severity, body, attrs, span_name, event_type) for cond in conditions
         )
 
     # Simple (legacy) rule – evaluate the single condition stored directly on
@@ -21949,8 +21975,14 @@ async def create_tag_rule():
         match_value = (form.get("match_value") or "").strip()
         match_attr_key = (form.get("match_attr_key") or "").strip()
         if match_field:
-            conditions = [{"match_field": match_field, "match_operator": match_operator,
-                           "match_value": match_value, "match_attr_key": match_attr_key}]
+            conditions = [
+                {
+                    "match_field": match_field,
+                    "match_operator": match_operator,
+                    "match_value": match_value,
+                    "match_attr_key": match_attr_key,
+                }
+            ]
 
     if not name or not conditions or not tag_key or not tag_value:
         await flash("Name, at least one match condition, tag key, and tag value are required", "warning")
