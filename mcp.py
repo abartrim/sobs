@@ -37,9 +37,9 @@ Available MCP tools
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 import logging
+import os
 import secrets
 import threading
 import time
@@ -92,19 +92,28 @@ _MCP_ENABLED_SETTING = "mcp.enabled"
 _MCP_API_KEY_MAX = 20  # maximum number of concurrent keys
 
 
-def _hash_key(raw_token: str) -> str:
-    """Return an HMAC-SHA256 hex digest for the given raw API token.
+def _mcp_mac_key() -> bytes:
+    """Return a per-installation MAC key derived from ``SOBS_SECRET_KEY``.
 
-    Uses a fixed application-level secret so that the stored value is a
-    keyed MAC rather than a plain hash.  MCP API tokens are generated with
-    ``secrets.token_urlsafe(32)`` (192+ bits of entropy), making brute-force
-    attacks computationally infeasible even with a fast hash function.
+    Using the installation-specific secret key ensures that token MACs
+    are unique across different SOBS deployments, preventing an attacker
+    who obtains one installation's hashed tokens from replaying them on
+    another installation.
     """
-    # A static application-level key separates token MACs from generic hashes
-    # and satisfies code-scanning rules that require keyed constructs for
-    # sensitive-data fingerprinting.
-    _APP_MAC_KEY = b"sobs-mcp-token-mac-v1"
-    return hmac.new(_APP_MAC_KEY, raw_token.encode(), hashlib.sha256).hexdigest()
+    secret = os.environ.get("SOBS_SECRET_KEY", "sobs-dev-secret-key")
+    # Derive a dedicated 32-byte sub-key for MCP token fingerprinting.
+    return hashlib.blake2b(secret.encode(), person=b"sobs-mcp-v1\x00\x00\x00\x00\x00").digest()[:32]
+
+
+def _hash_key(raw_token: str) -> str:
+    """Return a BLAKE2b-MAC hex digest for the given raw API token.
+
+    BLAKE2b with a per-installation key provides a cryptographically strong
+    token fingerprint.  MCP API tokens are generated with
+    ``secrets.token_urlsafe(32)`` (192+ bits of entropy), making brute-force
+    attacks computationally infeasible.
+    """
+    return hashlib.blake2b(raw_token.encode(), key=_mcp_mac_key()).hexdigest()
 
 
 def _load_mcp_api_keys(db: Any) -> list[dict]:
