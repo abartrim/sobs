@@ -10077,6 +10077,66 @@ class TestTagRules:
         assert "Tag Rules" in text
         assert "Create Tag Rule" in text
 
+    async def test_tag_rule_condition_suggestions_api(self, client):
+        token = str(time.time_ns())
+        service_name = f"tag-suggest-{token}"
+        attr_key = f"http.route.suggest.{token}"
+        attr_value = f"/checkout/{token}"
+
+        r_seed = await client.post(
+            "/v1/logs",
+            json={
+                "resourceLogs": [
+                    {
+                        "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": service_name}}]},
+                        "scopeLogs": [
+                            {
+                                "logRecords": [
+                                    {
+                                        "timeUnixNano": str(int(time.time() * 1_000_000_000)),
+                                        "severityText": "ERROR",
+                                        "body": {"stringValue": "tag suggestions seed"},
+                                        "attributes": [
+                                            {"key": attr_key, "value": {"stringValue": attr_value}},
+                                        ],
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+        assert r_seed.status_code == 200
+
+        service_qs = (
+            "/api/settings/tags/condition-suggestions?target=value"
+            f"&field=service_name&operator=contains&q={service_name}"
+        )
+        r_service = await client.get(service_qs)
+        assert r_service.status_code == 200
+        service_data = await r_service.get_json()
+        assert service_data["ok"] is True
+        assert any(service_name in str(v) for v in (service_data.get("suggestions") or []))
+
+        r_attr_key = await client.get(
+            f"/api/settings/tags/condition-suggestions?target=attr_key&field=attribute&q={attr_key}"
+        )
+        assert r_attr_key.status_code == 200
+        attr_key_data = await r_attr_key.get_json()
+        assert attr_key_data["ok"] is True
+        assert any(attr_key in str(v) for v in (attr_key_data.get("suggestions") or []))
+
+        attr_value_qs = (
+            "/api/settings/tags/condition-suggestions?target=value"
+            f"&field=attribute&attr_key={attr_key}&q={attr_value}"
+        )
+        r_attr_value = await client.get(attr_value_qs)
+        assert r_attr_value.status_code == 200
+        attr_value_data = await r_attr_value.get_json()
+        assert attr_value_data["ok"] is True
+        assert any(attr_value in str(v) for v in (attr_value_data.get("suggestions") or []))
+
     async def test_auto_tag_rules_preview(self, client):
         ts_ns = int(time.time() * 1_000_000_000)
         payload = {

@@ -11780,6 +11780,118 @@ def _match_single_condition(
     return False
 
 
+def _tag_rule_attribute_key_suggestions(db: ChDbConnection, query_text: str, limit: int) -> list[str]:
+    keys: set[str] = set()
+    for record_type in _ATTR_KEY_RECORD_TYPES:
+        keys.update(_get_cached_attr_keys(db, record_type))
+
+    q = query_text.strip().lower()
+    ranked = sorted(
+        (k for k in keys if k),
+        key=lambda k: (
+            0 if q and k.lower().startswith(q) else 1,
+            0 if q and q in k.lower() else 1,
+            k.lower(),
+        ),
+    )
+    if q:
+        ranked = [k for k in ranked if q in k.lower()]
+    return ranked[:limit]
+
+
+def _tag_rule_value_suggestions(
+    db: ChDbConnection,
+    field: str,
+    operator: str,
+    query_text: str,
+    attr_key: str,
+    limit: int,
+) -> list[str]:
+    del operator  # Reserved for future operator-specific ranking.
+
+    field_name = (field or "").strip().lower()
+    q = (query_text or "").strip().lower()
+
+    def _run(sql: str, params: list[Any]) -> list[str]:
+        rows = db.execute(sql, params).fetchall()
+        out: list[str] = []
+        for row in rows:
+            v = str(row[0] or "").strip()
+            if not v:
+                continue
+            out.append(v)
+        return out
+
+    if field_name == "service_name":
+        return _run(
+            "SELECT value FROM ("
+            "SELECT ServiceName AS value FROM otel_logs WHERE ServiceName != '' "
+            "UNION ALL "
+            "SELECT ServiceName AS value FROM otel_traces WHERE ServiceName != ''"
+            ") "
+            "WHERE (? = '' OR positionCaseInsensitive(value, ?) > 0) "
+            "GROUP BY value ORDER BY count() DESC, value LIMIT ?",
+            [q, q, limit],
+        )
+
+    if field_name == "severity":
+        return _run(
+            "SELECT SeverityText FROM otel_logs "
+            "WHERE SeverityText != '' AND (? = '' OR positionCaseInsensitive(SeverityText, ?) > 0) "
+            "GROUP BY SeverityText ORDER BY count() DESC, SeverityText LIMIT ?",
+            [q, q, limit],
+        )
+
+    if field_name == "span_name":
+        return _run(
+            "SELECT SpanName FROM otel_traces "
+            "WHERE SpanName != '' AND (? = '' OR positionCaseInsensitive(SpanName, ?) > 0) "
+            "GROUP BY SpanName ORDER BY count() DESC, SpanName LIMIT ?",
+            [q, q, limit],
+        )
+
+    if field_name == "event_type":
+        return _run(
+            "SELECT value FROM ("
+            "SELECT EventName AS value FROM otel_logs WHERE EventName != '' "
+            "UNION ALL "
+            "SELECT EventName AS value FROM hyperdx_sessions WHERE EventName != ''"
+            ") "
+            "WHERE (? = '' OR positionCaseInsensitive(value, ?) > 0) "
+            "GROUP BY value ORDER BY count() DESC, value LIMIT ?",
+            [q, q, limit],
+        )
+
+    if field_name == "body":
+        return _run(
+            "SELECT value FROM ("
+            "SELECT Body AS value FROM otel_logs WHERE Body != '' ORDER BY Timestamp DESC LIMIT 4000"
+            ") "
+            "WHERE (? = '' OR positionCaseInsensitive(value, ?) > 0) "
+            "GROUP BY value ORDER BY count() DESC, value LIMIT ?",
+            [q, q, limit],
+        )
+
+    if field_name == "attribute":
+        key = (attr_key or "").strip()
+        if not key:
+            return []
+        return _run(
+            "SELECT value FROM ("
+            "SELECT LogAttributes[?] AS value FROM otel_logs WHERE LogAttributes[?] != '' "
+            "ORDER BY Timestamp DESC LIMIT 2500 "
+            "UNION ALL "
+            "SELECT SpanAttributes[?] AS value FROM otel_traces WHERE SpanAttributes[?] != '' "
+            "ORDER BY Timestamp DESC LIMIT 2500"
+            ") "
+            "WHERE value != '' AND (? = '' OR positionCaseInsensitive(value, ?) > 0) "
+            "GROUP BY value ORDER BY count() DESC, value LIMIT ?",
+            [key, key, key, key, q, q, limit],
+        )
+
+    return []
+
+
 def _apply_tag_rules(
     db: ChDbConnection,
     record_type: str,
@@ -21817,6 +21929,36 @@ async def view_tag_rules():
         auto_preview=[],
         auto_summary=None,
         auto_open_panel=open_panel,
+    )
+
+
+@app.route("/api/settings/tags/condition-suggestions", methods=["GET"])
+@require_basic_auth
+async def api_tag_rule_condition_suggestions():
+    db = get_db()
+    field = (request.args.get("field") or "").strip().lower()
+    operator = (request.args.get("operator") or "eq").strip().lower()
+    query_text = (request.args.get("q") or "").strip()
+    attr_key = (request.args.get("attr_key") or "").strip()
+    target = (request.args.get("target") or "value").strip().lower()
+    try:
+        limit = max(3, min(20, int(request.args.get("limit") or 8)))
+    except (TypeError, ValueError):
+        limit = 8
+
+    if target == "attr_key":
+        suggestions = _tag_rule_attribute_key_suggestions(db, query_text, limit)
+    else:
+        suggestions = _tag_rule_value_suggestions(db, field, operator, query_text, attr_key, limit)
+
+    return masked_jsonify(
+        {
+            "ok": True,
+            "field": field,
+            "operator": operator,
+            "target": target,
+            "suggestions": suggestions,
+        }
     )
 
 
