@@ -486,7 +486,10 @@ def _build_time_where(
 def _clamp(value: int | None, lo: int, hi: int, default: int) -> int:
     if value is None:
         return default
-    return max(lo, min(hi, int(value)))
+    try:
+        return max(lo, min(hi, int(value)))
+    except (ValueError, TypeError):
+        return default
 
 
 # ---------------------------------------------------------------------------
@@ -753,7 +756,9 @@ def _tool_get_metric_names(db: Any, args: dict) -> dict:
         "GROUP BY MetricName, ServiceName "
         "ORDER BY MetricName, ServiceName"
     )
-    rows = db.execute(sql, params if params else None).fetchall()
+    # Each UNION branch uses the same WHERE clause with one param per branch.
+    all_params = params * 3 if params else None
+    rows = db.execute(sql, all_params).fetchall()
     result = []
     for row in rows:
         result.append({"metric_name": row[0], "service": row[1], "last_seen": row[2]})

@@ -162,7 +162,7 @@
     const enabled = document.getElementById('mcpEnabledSwitch').checked;
     const fb = document.getElementById('mcpEnabledFeedback');
     try {
-      const r = await fetch('/api/mcp/enabled', {
+      const r = await fetch('{{ url_for("mcp.mcp_api_set_enabled") }}', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),
@@ -182,7 +182,7 @@
     const label = prompt('Label for this key (e.g. "copilot-vscode"):');
     if (label === null) return;
     try {
-      const r = await fetch('/api/mcp/keys', {
+      const r = await fetch('{{ url_for("mcp.mcp_api_create_key") }}', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ label: label.trim() || 'API Key' }),
@@ -216,11 +216,12 @@
   });
 
   // Delete a key
+  const _deleteKeyUrlBase = '{{ url_for("mcp.mcp_api_list_keys") }}/';
   function handleDelete(evt) {
     const btn = evt.currentTarget;
     const keyId = btn.dataset.keyId;
     if (!confirm('Revoke this API key? This cannot be undone.')) return;
-    fetch('/api/mcp/keys/' + keyId, { method: 'DELETE' })
+    fetch(_deleteKeyUrlBase + keyId, { method: 'DELETE' })
       .then(r => r.json())
       .then(d => {
         if (!d.ok) { alert(d.error || 'Failed to delete key.'); return; }

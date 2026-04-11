@@ -446,10 +446,10 @@ class TestMcpToolsCall:
 
 
 # ---------------------------------------------------------------------------
-# HTTP: POST /mcp  masking
+# HTTP: POST /mcp  masking (end-to-end through the MCP endpoint)
 # ---------------------------------------------------------------------------
 class TestMcpOutputMasking:
-    """Verify that the masking framework is applied to tool outputs."""
+    """Verify that the masking framework is applied to tool outputs via POST /mcp."""
 
     @pytest.fixture(autouse=True)
     def _setup_key(self):
@@ -458,40 +458,40 @@ class TestMcpOutputMasking:
         yield
         _clear_mcp_keys(db)
 
-    def test_mask_value_for_output_is_applied(self):
-        """_mask_value_for_output is called on the tool result before serialisation."""
+    async def test_tool_output_is_masked_through_endpoint(self, client, monkeypatch):
+        """PII in a tool result should be redacted in the actual HTTP response."""
         import app as sobs_app_mod
 
-        # Build a fake tool result that contains PII (email) in a log body.
-        raw_result = {
-            "count": 1,
-            "rows": [
-                {
-                    "ts": "2024-01-01 00:00:00",
-                    "service": "api",
-                    "severity": "ERROR",
-                    "body": "error for user test-masking@example.com",
-                    "trace_id": "abc",
-                    "span_id": "def",
-                    "attributes": {},
-                }
-            ],
-        }
+        # Patch the list_services handler to return a service name containing a
+        # sensitive pattern (email-like).  This tests that the masking runs on
+        # the result produced by the handler *before* JSON serialisation.
+        pii_value = "svc-admin@internal.example.com"
 
-        # Apply the same masking the MCP endpoint uses.
-        db = _get_db()
-        masked = sobs_app_mod._mask_value_for_output(raw_result, db)
+        def _fake_list_services(db, _args):
+            return {"services": [pii_value]}
 
-        # When output masking is enabled the email should be redacted.
+        monkeypatch.setitem(sobs_mcp._TOOL_HANDLERS, "list_services", _fake_list_services)
+
+        # Force masking cache to reflect enabled state.
+        sobs_app_mod._set_masking_settings_cache(output_enabled=True, sql_output_enabled=True, loaded=True)
+
+        r = await client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "list_services", "arguments": {}},
+            },
+            headers={"X-MCP-API-Key": self._raw_key},
+        )
+        assert r.status_code == 200
+        body = await r.get_data(as_text=True)
+        # The raw PII string must not appear anywhere in the serialised response.
+        assert pii_value not in body
+        # The SOBS mask placeholder must appear instead.
         import masking as _masking_mod
-
-        if sobs_app_mod._is_output_masking_enabled(db):
-            body = masked["rows"][0]["body"]
-            assert "test-masking@example.com" not in body
-            assert _masking_mod.MASK in body
-        else:
-            # Masking disabled in this environment – at minimum the structure is intact.
-            assert "rows" in masked
+        assert _masking_mod.MASK in body
 
 
 # ---------------------------------------------------------------------------
