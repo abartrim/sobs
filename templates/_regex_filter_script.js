@@ -8,7 +8,7 @@ function _sobsInitRegexFilter(opts) {
 
   const validateUrl = opts.validateUrl;
   const noMatchMessage = opts.noMatchMessage || "Valid regex — no matching records found.";
-  const hintMessage = opts.hintMessage || "Enter a regex pattern to filter records.";
+  const hintMessage = opts.hintMessage || "Enter RE2 regex terms. Combine with &&, negate with !, and use \\&& for literal &&.";
   const scope = (opts.scope && typeof opts.scope === "object") ? opts.scope : null;
   const suggestionLimit = Number.isFinite(opts.suggestionLimit) ? Math.max(5, Number(opts.suggestionLimit)) : 30;
 
@@ -34,6 +34,14 @@ function _sobsInitRegexFilter(opts) {
     { label: "\\n",     hint: "newline",                    insert: "\\n",     ctx: ["\\"] },
     { label: "\\t",     hint: "tab",                        insert: "\\t",     ctx: ["\\"] },
     { label: "\\b",     hint: "word boundary",              insert: "\\b",     ctx: ["\\"] },
+    { label: "\\A",     hint: "start of text",              insert: "\\A",     ctx: ["\\"] },
+    { label: "\\z",     hint: "end of text",                insert: "\\z",     ctx: ["\\"] },
+    { label: "\\.",     hint: "literal dot",                insert: "\\.",     ctx: ["\\", "general"] },
+    { label: "\\/",     hint: "literal slash",              insert: "\\/",     ctx: ["\\", "general"] },
+    { label: "[[:digit:]]+", hint: "POSIX digits",            insert: "[[:digit:]]+", ctx: ["[", "general"] },
+    { label: "[[:alpha:]]+", hint: "POSIX letters",           insert: "[[:alpha:]]+", ctx: ["[", "general"] },
+    { label: "[[:alnum:]_]+", hint: "POSIX word-like",        insert: "[[:alnum:]_]+", ctx: ["[", "general"] },
+    { label: "[[:space:]]+", hint: "POSIX whitespace",        insert: "[[:space:]]+", ctx: ["[", "general"] },
     { label: "[a-z]",   hint: "lowercase letters",          insert: "[a-z]",   ctx: ["[", "general"] },
     { label: "[A-Z]",   hint: "uppercase letters",          insert: "[A-Z]",   ctx: ["["] },
     { label: "[0-9]",   hint: "digits (explicit)",          insert: "[0-9]",   ctx: ["["] },
@@ -41,20 +49,28 @@ function _sobsInitRegexFilter(opts) {
     { label: "[^...]",  hint: "any char except ...",        insert: "[^",      ctx: ["["] },
     { label: "(?:...)", hint: "non-capturing group",        insert: "(?:",     ctx: ["(", "general"] },
     { label: "(?i)...", hint: "case-insensitive prefix",    insert: "(?i)",    ctx: ["("] },
-    { label: "(?=...)", hint: "positive lookahead",         insert: "(?=",     ctx: ["("] },
-    { label: "(?!...)", hint: "negative lookahead",         insert: "(?!",     ctx: ["("] },
     { label: "(a|b)",   hint: "alternation",                insert: "(",       ctx: ["("] },
     { label: "{n}",     hint: "exactly n times",            insert: "{",       ctx: ["{"] },
     { label: "{n,}",    hint: "at least n times",           insert: "{",       ctx: ["{"] },
     { label: "{n,m}",   hint: "between n and m times",      insert: "{",       ctx: ["{"] },
+    { label: "*?",      hint: "lazy zero or more",           insert: "*?",      ctx: ["general"] },
+    { label: "+?",      hint: "lazy one or more",            insert: "+?",      ctx: ["general"] },
+    { label: "??",      hint: "lazy optional",               insert: "??",      ctx: ["general"] },
     { label: "^",       hint: "start of string",            insert: "^",       ctx: ["^"] },
     { label: "$",       hint: "end of string",              insert: "$",       ctx: ["$"] },
     { label: ".*",      hint: "any chars (greedy)",         insert: ".*",      ctx: ["general"] },
+    { label: ".*?",     hint: "any chars (lazy)",           insert: ".*?",     ctx: ["general"] },
     { label: ".+",      hint: "one or more any chars",      insert: ".+",      ctx: ["general"] },
+    { label: ".+?",     hint: "one or more any chars (lazy)", insert: ".+?",   ctx: ["general"] },
+    { label: "(?:error|warn|fatal)", hint: "grouped alternation", insert: "(?:error|warn|fatal)", ctx: ["general"] },
+    { label: "(?m)^ERROR", hint: "multiline line-start match", insert: "(?m)^ERROR", ctx: ["general", "("] },
     { label: "error|warn", hint: "error/warn terms",        insert: "error|warn", ctx: ["general"] },
     { label: "exception|error|fatal", hint: "error type terms", insert: "exception|error|fatal", ctx: ["general"] },
     { label: "\\d{4}-\\d{2}-\\d{2}", hint: "date YYYY-MM-DD", insert: "\\d{4}-\\d{2}-\\d{2}", ctx: ["general"] },
     { label: "\\d+\\.\\d+", hint: "decimal number", insert: "\\d+\\.\\d+", ctx: ["general"] },
+    { label: "(?:GET|POST|PUT|DELETE)", hint: "HTTP methods", insert: "(?:GET|POST|PUT|DELETE)", ctx: ["general"] },
+    { label: "\\b(?:5\\d\\d|4\\d\\d)\\b", hint: "HTTP 4xx/5xx status", insert: "\\b(?:5\\d\\d|4\\d\\d)\\b", ctx: ["general"] },
+    { label: "(?:timeout|timed\\s*out|deadline)", hint: "timeout variants", insert: "(?:timeout|timed\\s*out|deadline)", ctx: ["general"] },
     { label: "https?://\\S+", hint: "URL",                  insert: "https?://\\S+", ctx: ["general"] },
     { label: "\\b\\d{1,3}(\\.\\d{1,3}){3}\\b", hint: "IPv4 address", insert: "\\b\\d{1,3}(\\.\\d{1,3}){3}\\b", ctx: ["general"] },
   ];
@@ -84,12 +100,65 @@ function _sobsInitRegexFilter(opts) {
     if (dropdown.style.display !== "none") renderStatusRow();
   }
 
+  function splitRegexExpressionTerms(expr) {
+    const parts = [];
+    let buf = "";
+    for (let i = 0; i < expr.length; i += 1) {
+      if (expr[i] === "&" && expr[i + 1] === "&") {
+        let backslashes = 0;
+        for (let j = i - 1; j >= 0 && expr[j] === "\\"; j -= 1) {
+          backslashes += 1;
+        }
+        if (backslashes % 2 === 0) {
+          parts.push(buf.trim());
+          buf = "";
+          i += 1;
+          continue;
+        }
+      }
+      buf += expr[i];
+    }
+    parts.push(buf.trim());
+    return parts;
+  }
+
+  function unescapeRegexExpressionTerm(term) {
+    return String(term || "").replace(/\\&&/g, "&&");
+  }
+
+  function parseRegexExpression(value) {
+    const expr = String(value || "").trim();
+    if (!expr) return { include: [], exclude: [], error: null };
+    const parts = splitRegexExpressionTerms(expr);
+    if (!parts.length || parts.some((part) => !part)) {
+      return { include: [], exclude: [], error: "Invalid expression around '&&'." };
+    }
+    const include = [];
+    const exclude = [];
+    for (const part of parts) {
+      const negate = part.startsWith("!");
+      const token = unescapeRegexExpressionTerm(negate ? part.slice(1).trim() : part);
+      if (!token) {
+        return { include: [], exclude: [], error: "Expected a pattern after '!'." };
+      }
+      if (negate) exclude.push(token);
+      else include.push(token);
+    }
+    return { include, exclude, error: null };
+  }
+
   function clientValidate(value) {
     const v = String(value || "").trim();
     if (!v) return { ok: true, level: "info", message: hintMessage };
+    const parsed = parseRegexExpression(v);
+    if (parsed.error) {
+      return { ok: false, level: "error", message: `Invalid regex expression: ${parsed.error}` };
+    }
     try {
-      new RegExp(v, "i");
-      return { ok: true, level: "success", message: "Valid regex pattern." };
+      [...parsed.include, ...parsed.exclude].forEach((token) => {
+        new RegExp(token, "i");
+      });
+      return { ok: true, level: "success", message: "Valid regex expression." };
     } catch (err) {
       return { ok: false, level: "error", message: `Invalid regex: ${err.message}` };
     }
