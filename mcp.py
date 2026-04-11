@@ -891,7 +891,7 @@ async def mcp_endpoint():
     -------------
     Each IP is limited to 60 requests per minute.
     """
-    from app import get_db  # noqa: PLC0415
+    from app import _mask_value_for_output, get_db  # noqa: PLC0415
 
     # Rate limiting.
     client_ip = (
@@ -1001,6 +1001,10 @@ async def mcp_endpoint():
 
         try:
             tool_result = handler(db, tool_args)
+            # Apply the same output masking used across SOBS UI routes so that
+            # PII / secrets in log bodies, span names, and attributes are
+            # redacted before they leave the server.
+            tool_result = _mask_value_for_output(tool_result, db)
         except Exception as exc:
             log.exception("MCP tool '%s' raised an error", tool_name)
             return (

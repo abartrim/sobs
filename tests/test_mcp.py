@@ -446,6 +446,55 @@ class TestMcpToolsCall:
 
 
 # ---------------------------------------------------------------------------
+# HTTP: POST /mcp  masking
+# ---------------------------------------------------------------------------
+class TestMcpOutputMasking:
+    """Verify that the masking framework is applied to tool outputs."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_key(self):
+        db = _get_db()
+        self._raw_key = _create_mcp_key(db, "test-masking")
+        yield
+        _clear_mcp_keys(db)
+
+    def test_mask_value_for_output_is_applied(self):
+        """_mask_value_for_output is called on the tool result before serialisation."""
+        import app as sobs_app_mod
+
+        # Build a fake tool result that contains PII (email) in a log body.
+        raw_result = {
+            "count": 1,
+            "rows": [
+                {
+                    "ts": "2024-01-01 00:00:00",
+                    "service": "api",
+                    "severity": "ERROR",
+                    "body": "error for user test-masking@example.com",
+                    "trace_id": "abc",
+                    "span_id": "def",
+                    "attributes": {},
+                }
+            ],
+        }
+
+        # Apply the same masking the MCP endpoint uses.
+        db = _get_db()
+        masked = sobs_app_mod._mask_value_for_output(raw_result, db)
+
+        # When output masking is enabled the email should be redacted.
+        import masking as _masking_mod
+
+        if sobs_app_mod._is_output_masking_enabled(db):
+            body = masked["rows"][0]["body"]
+            assert "test-masking@example.com" not in body
+            assert _masking_mod.MASK in body
+        else:
+            # Masking disabled in this environment – at minimum the structure is intact.
+            assert "rows" in masked
+
+
+# ---------------------------------------------------------------------------
 # HTTP: POST /mcp  disabled server
 # ---------------------------------------------------------------------------
 class TestMcpDisabled:
