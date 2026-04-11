@@ -343,6 +343,30 @@
       </div>
     </div>
   </div>
+
+  <!-- MCP (Model Context Protocol) -->
+  <div class="col-md-6 col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body d-flex flex-column">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-plugin fs-4 text-primary"></i>
+          <h5 class="card-title mb-0">MCP (Copilot Access)</h5>
+        </div>
+        <p class="card-text text-secondary small flex-grow-1">
+          Expose SOBS observability data (logs, traces, metrics) to GitHub Copilot Agent and
+          VS Code Copilot via the Model Context Protocol. Generate API keys, enable or disable
+          the MCP server, and view available tools that AI agents can call.
+        </p>
+        <div class="d-flex align-items-center justify-content-between mt-2">
+          <span class="badge text-bg-secondary">MCP</span>
+          <a href="{{ url_for('mcp.mcp_settings_page') }}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-pencil-square me-1"></i>Configure MCP
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <div class="mt-4">

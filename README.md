@@ -335,6 +335,70 @@ Ingest writes are queued and flushed by a single background DB writer thread.
 
 This model favors client latency under burst traffic. It does not guarantee synchronous commit-per-request in normal runtime.
 
+## MCP Endpoints (Copilot / AI Agent Access)
+
+SOBS exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server so that
+GitHub Copilot Agent and VS Code Copilot can query observability data directly for diagnosis and
+troubleshooting.
+
+| Endpoint       | Method | Auth required | Description                        |
+|----------------|--------|---------------|------------------------------------|
+| `/mcp`         | POST   | Yes (MCP key) | JSON-RPC 2.0 MCP endpoint          |
+| `/mcp/tools`   | GET    | No            | List available MCP tools (discovery) |
+
+### Authentication
+
+MCP endpoints use a separate key mechanism from the ingest API key.
+
+1. Navigate to **Settings → MCP (Copilot Access)** in the SOBS Web UI.
+2. Click **Generate Key** and copy the displayed key (`smcp_…`).
+3. Pass the key in the `X-MCP-API-Key` request header.
+
+Keys are stored as SHA-256 hashes in `sobs_app_settings` (never stored in plain text).
+
+### VS Code / GitHub Copilot configuration
+
+Add to `.vscode/mcp.json` (or your Copilot agent config):
+
+```json
+{
+  "servers": {
+    "sobs": {
+      "type": "http",
+      "url": "http://localhost:44317/mcp",
+      "headers": {
+        "X-MCP-API-Key": "<your-mcp-api-key>"
+      }
+    }
+  }
+}
+```
+
+### Available MCP tools
+
+| Tool name           | Description                                                   |
+|---------------------|---------------------------------------------------------------|
+| `list_services`     | List all service names that have sent telemetry               |
+| `query_otel_logs`   | Query `otel_logs` (filter by service, severity, search text)  |
+| `query_otel_traces` | Query `otel_traces` (filter by service, span name, trace ID)  |
+| `query_metrics`     | Query pre-aggregated 1-minute metrics from `v_otel_metrics_1m`|
+| `query_metrics_raw` | Query raw metric points from gauge / sum / histogram tables   |
+| `get_metric_names`  | List all distinct metric names and the services that emit them |
+| `get_anomaly_rules` | Return configured anomaly detection rules and thresholds      |
+| `get_recent_errors` | Surface recent error-level log events and error-status spans  |
+
+### Rate limiting
+
+Each client IP is limited to **60 requests per 60 seconds**.  Exceeding this returns `HTTP 429`
+with a JSON-RPC error body.
+
+### MCP protocol notes
+
+- Transport: HTTP POST (Streamable HTTP / JSON-RPC 2.0).
+- The `initialize` method does **not** require an API key (used for capability negotiation).
+- All other methods (`tools/list`, `tools/call`) require a valid `X-MCP-API-Key` header.
+- The MCP server can be disabled from **Settings → MCP** without removing keys.
+
 ## Metrics Rules Automation
 
 SOBS includes two automation flows under **Metrics → Metrics Rules**:

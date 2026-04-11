@@ -57,6 +57,7 @@ from quart import (
 )
 
 import masking as _masking
+import mcp as _mcp
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -544,6 +545,7 @@ class BasePathMiddleware:
 
 
 app.asgi_app = BasePathMiddleware(app.asgi_app, BASE_PATH)  # type: ignore[method-assign]
+app.register_blueprint(_mcp.mcp_bp)
 
 DATA_DIR = os.environ.get("SOBS_DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "sobs.chdb")

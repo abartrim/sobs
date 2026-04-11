@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% block title %}MCP Settings{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-semibold mb-0"><i class="bi bi-plugin me-2 text-primary"></i>MCP (Model Context Protocol)</h4>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}">
+    <i class="bi bi-arrow-left me-1"></i>Back to Settings
+  </a>
+</div>
+
+<p class="text-secondary small mb-3">
+  The SOBS MCP server exposes observability data (logs, traces, and metrics) to AI-powered tools
+  such as GitHub Copilot Agent and VS Code Copilot via the
+  <a href="https://modelcontextprotocol.io/" target="_blank" rel="noopener noreferrer">Model Context Protocol</a>.
+  Generate API keys below to authenticate MCP clients, then point your Copilot configuration at
+  <code>POST /mcp</code>.
+</p>
+
+<!-- Enable / disable toggle -->
+<div class="card border-secondary mb-4">
+  <div class="card-header fw-semibold"><i class="bi bi-toggles me-2"></i>Server Status</div>
+  <div class="card-body">
+    <div class="form-check form-switch mb-2">
+      <input class="form-check-input" type="checkbox" role="switch" id="mcpEnabledSwitch"
+             {% if mcp_enabled %}checked{% endif %}>
+      <label class="form-check-label fw-semibold" for="mcpEnabledSwitch">
+        MCP server enabled
+      </label>
+    </div>
+    <div class="form-text text-secondary mb-3">
+      When disabled, all <code>POST /mcp</code> calls return <code>503 Service Unavailable</code>.
+      The <code>GET /mcp/tools</code> discovery endpoint is always available.
+    </div>
+    <button type="button" class="btn btn-sm btn-primary" id="saveMcpEnabled">
+      <i class="bi bi-floppy me-1"></i>Save
+    </button>
+    <span id="mcpEnabledFeedback" class="ms-2 small text-secondary"></span>
+  </div>
+</div>
+
+<!-- API key list -->
+<div class="card border-secondary mb-4">
+  <div class="card-header fw-semibold d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-key me-2"></i>API Keys</span>
+    <button class="btn btn-sm btn-outline-primary" id="generateKeyBtn">
+      <i class="bi bi-plus-circle me-1"></i>Generate Key
+    </button>
+  </div>
+  <div class="card-body p-0">
+    <div id="newKeyAlert" class="alert alert-success alert-dismissible m-3 d-none" role="alert">
+      <strong>New key generated.</strong> Copy it now – it will not be shown again.<br>
+      <code id="newKeyValue" class="user-select-all"></code>
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"
+              onclick="document.getElementById('newKeyValue').textContent=''"></button>
+    </div>
+    {% if mcp_keys %}
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Label</th>
+          <th>Created</th>
+          <th style="width:80px"></th>
+        </tr>
+      </thead>
+      <tbody id="keyTableBody">
+        {% for k in mcp_keys %}
+        <tr id="key-row-{{ k.id }}">
+          <td class="font-monospace small">{{ k.label }}</td>
+          <td class="small text-secondary">{{ k.created_at }}</td>
+          <td>
+            <button class="btn btn-sm btn-outline-danger delete-key-btn"
+                    data-key-id="{{ k.id }}">
+              <i class="bi bi-trash"></i>
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-secondary small m-3" id="noKeysMsg">No API keys yet. Click <strong>Generate Key</strong> to create one.</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Quick-start guide -->
+<div class="card border-secondary mb-4">
+  <div class="card-header fw-semibold"><i class="bi bi-code-slash me-2"></i>Quick-start: Copilot configuration</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">
+      Add the following to your VS Code <code>.vscode/mcp.json</code> or GitHub Copilot agent
+      configuration to connect to this SOBS instance:
+    </p>
+    <pre class="bg-dark border rounded p-3 small"><code>{
+  "servers": {
+    "sobs": {
+      "type": "http",
+      "url": "{{ request.host_url.rstrip('/') }}/mcp",
+      "headers": {
+        "X-MCP-API-Key": "&lt;your-api-key&gt;"
+      }
+    }
+  }
+}</code></pre>
+
+    <p class="small text-secondary mb-2 mt-3">
+      Available tools (returned by <code>tools/list</code> and <code>GET /mcp/tools</code>):
+    </p>
+    <table class="table table-dark table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:30%">Tool name</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-monospace small">list_services</td>
+          <td class="small">List all services that have sent telemetry to SOBS.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">query_otel_logs</td>
+          <td class="small">Query log records from <code>otel_logs</code> with optional service, severity, and text filters.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">query_otel_traces</td>
+          <td class="small">Query distributed trace spans from <code>otel_traces</code>.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">query_metrics</td>
+          <td class="small">Query pre-aggregated 1-minute metrics from <code>v_otel_metrics_1m</code>.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">query_metrics_raw</td>
+          <td class="small">Query raw metric data points from gauge / sum / histogram tables.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">get_metric_names</td>
+          <td class="small">List all distinct metric names currently stored in SOBS.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">get_anomaly_rules</td>
+          <td class="small">Return configured anomaly detection rules and their thresholds.</td>
+        </tr>
+        <tr>
+          <td class="font-monospace small">get_recent_errors</td>
+          <td class="small">Surface recent error-level log events and error-status trace spans.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Toggle enabled / disabled
+  document.getElementById('saveMcpEnabled').addEventListener('click', async function () {
+    const enabled = document.getElementById('mcpEnabledSwitch').checked;
+    const fb = document.getElementById('mcpEnabledFeedback');
+    try {
+      const r = await fetch('/api/mcp/enabled', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      const d = await r.json();
+      fb.textContent = d.ok ? 'Saved.' : (d.error || 'Error saving.');
+      fb.className = 'ms-2 small ' + (d.ok ? 'text-success' : 'text-danger');
+    } catch (e) {
+      fb.textContent = 'Request failed.';
+      fb.className = 'ms-2 small text-danger';
+    }
+    setTimeout(() => { fb.textContent = ''; }, 3000);
+  });
+
+  // Generate a new key
+  document.getElementById('generateKeyBtn').addEventListener('click', async function () {
+    const label = prompt('Label for this key (e.g. "copilot-vscode"):');
+    if (label === null) return;
+    try {
+      const r = await fetch('/api/mcp/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: label.trim() || 'API Key' }),
+      });
+      const d = await r.json();
+      if (!d.ok) { alert(d.error || 'Failed to generate key.'); return; }
+      // Show the raw key once.
+      document.getElementById('newKeyValue').textContent = d.key;
+      document.getElementById('newKeyAlert').classList.remove('d-none');
+      // Add row to the table.
+      const tbody = document.getElementById('keyTableBody');
+      const noMsg = document.getElementById('noKeysMsg');
+      if (noMsg) noMsg.remove();
+      let tableEl = tbody ? tbody.closest('table') : null;
+      if (!tableEl) {
+        // Table did not exist yet – reload to show it properly.
+        window.location.reload();
+        return;
+      }
+      const tr = document.createElement('tr');
+      tr.id = 'key-row-' + d.id;
+      tr.innerHTML = '<td class="font-monospace small">' + (d.label || 'API Key') + '</td>' +
+        '<td class="small text-secondary">just now</td>' +
+        '<td><button class="btn btn-sm btn-outline-danger delete-key-btn" data-key-id="' + d.id + '">' +
+        '<i class="bi bi-trash"></i></button></td>';
+      tbody.appendChild(tr);
+      tr.querySelector('.delete-key-btn').addEventListener('click', handleDelete);
+    } catch (e) {
+      alert('Request failed.');
+    }
+  });
+
+  // Delete a key
+  function handleDelete(evt) {
+    const btn = evt.currentTarget;
+    const keyId = btn.dataset.keyId;
+    if (!confirm('Revoke this API key? This cannot be undone.')) return;
+    fetch('/api/mcp/keys/' + keyId, { method: 'DELETE' })
+      .then(r => r.json())
+      .then(d => {
+        if (!d.ok) { alert(d.error || 'Failed to delete key.'); return; }
+        const row = document.getElementById('key-row-' + keyId);
+        if (row) row.remove();
+      })
+      .catch(() => alert('Request failed.'));
+  }
+
+  document.querySelectorAll('.delete-key-btn').forEach(btn => {
+    btn.addEventListener('click', handleDelete);
+  });
+}());
+</script>
+{% endblock %}
