@@ -1657,7 +1657,7 @@ _sobsInitRegexFilter({
     to_ts: {{ to_ts | tojson }}
   },
   noMatchMessage: "Valid regex — no matching RUM events found.",
-  hintMessage: "Enter a regex pattern to search RUM event data. Use RE2 syntax."
+  hintMessage: "Enter RE2 regex terms. Combine with && and negate with ! (example: error && !ResizeObserver)."
 });
 
 // ── Saved Reports: RUM page ───────────────────────────────────────────────

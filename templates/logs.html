@@ -907,7 +907,7 @@ _sobsInitRegexFilter({
     to_ts: {{ to_ts | tojson }}
   },
   noMatchMessage: "Valid regex — no matching log entries found.",
-  hintMessage: "Enter a regex pattern to filter log messages. Use RE2 syntax."
+  hintMessage: "Enter RE2 regex terms. Combine with && and negate with ! (example: error && !healthcheck)."
 });
 </script>
 

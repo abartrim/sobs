@@ -8,7 +8,7 @@ function _sobsInitRegexFilter(opts) {
 
   const validateUrl = opts.validateUrl;
   const noMatchMessage = opts.noMatchMessage || "Valid regex — no matching records found.";
-  const hintMessage = opts.hintMessage || "Enter an RE2 regex pattern to filter records.";
+  const hintMessage = opts.hintMessage || "Enter RE2 regex terms. Combine with && and negate with !.";
   const scope = (opts.scope && typeof opts.scope === "object") ? opts.scope : null;
   const suggestionLimit = Number.isFinite(opts.suggestionLimit) ? Math.max(5, Number(opts.suggestionLimit)) : 30;
 
@@ -100,12 +100,39 @@ function _sobsInitRegexFilter(opts) {
     if (dropdown.style.display !== "none") renderStatusRow();
   }
 
+  function parseRegexExpression(value) {
+    const expr = String(value || "").trim();
+    if (!expr) return { include: [], exclude: [], error: null };
+    const parts = expr.split(/\s*&&\s*/).map((part) => part.trim());
+    if (!parts.length || parts.some((part) => !part)) {
+      return { include: [], exclude: [], error: "Invalid expression around '&&'." };
+    }
+    const include = [];
+    const exclude = [];
+    for (const part of parts) {
+      const negate = part.startsWith("!");
+      const token = negate ? part.slice(1).trim() : part;
+      if (!token) {
+        return { include: [], exclude: [], error: "Expected a pattern after '!'." };
+      }
+      if (negate) exclude.push(token);
+      else include.push(token);
+    }
+    return { include, exclude, error: null };
+  }
+
   function clientValidate(value) {
     const v = String(value || "").trim();
     if (!v) return { ok: true, level: "info", message: hintMessage };
+    const parsed = parseRegexExpression(v);
+    if (parsed.error) {
+      return { ok: false, level: "error", message: `Invalid regex expression: ${parsed.error}` };
+    }
     try {
-      new RegExp(v, "i");
-      return { ok: true, level: "success", message: "Valid regex pattern." };
+      [...parsed.include, ...parsed.exclude].forEach((token) => {
+        new RegExp(token, "i");
+      });
+      return { ok: true, level: "success", message: "Valid regex expression." };
     } catch (err) {
       return { ok: false, level: "error", message: `Invalid regex: ${err.message}` };
     }

@@ -232,7 +232,7 @@ _sobsInitRegexFilter({
     to_ts: {{ to_ts | tojson }}
   },
   noMatchMessage: "Valid regex — no matching errors found.",
-  hintMessage: "Enter a regex pattern to search error messages. Use RE2 syntax."
+  hintMessage: "Enter RE2 regex terms. Combine with && and negate with ! (example: timeout && !known benign)."
 });
 
 // ── Saved Reports: errors page ────────────────────────────────────────────
