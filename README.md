@@ -62,7 +62,7 @@ and the [operator notes](docs/RELEASE_NOTES_v0.1.0-beta.1_OPERATOR.md).
 
 Highlights:
 
-- **Security hardening** – runtime and hosted control hardening.
+- **Security hardening** – hosted security controls and container runtime hardening (see [#176](https://github.com/abartrim/sobs/pull/176)).
 - **Setup wizard** – first-time instrumentation bootstrap wizard (`GET /api/setup-wizard/steps`).
 - **Incident evidence view** – `GET /incident` aggregates all evidence around a trace or error in one view.
 - **Seasonality-aware anomaly rules** – per-bucket seasonal thresholds for metric anomaly auto-generation.
