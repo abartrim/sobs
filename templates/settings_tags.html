@@ -269,7 +269,7 @@
                 <span class="text-truncate d-inline-block" style="max-width:140px;vertical-align:bottom" title="{{ cond.match_value }}">{{ cond.match_value }}</span>
                 {% if cond.match_attr_key %}<span class="text-secondary ms-1">[{{ cond.match_attr_key }}]</span>{% endif %}
               </div>
-              {% if not loop.last %}<div class="text-secondary x-small">AND</div>{% endif %}
+              {% if not loop.last %}<div class="text-secondary small">AND</div>{% endif %}
               {% endfor %}
             {% else %}
               <code>{{ rule.match_field }}</code>
