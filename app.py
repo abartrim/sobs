@@ -17822,7 +17822,9 @@ async def view_ai():
         metadata_base_conditions.extend(metadata_time_conditions)
     metadata_base_where = " AND ".join(metadata_base_conditions)
     metadata_source_sql = (
-        "SELECT Timestamp, ServiceName, SpanName, SpanAttributes "
+        "SELECT Timestamp, ServiceName, SpanName, "
+        "SpanAttributes['gen_ai.request.model'] AS RequestModel, "
+        "SpanAttributes['gen_ai.operation.name'] AS OperationName "
         "FROM otel_traces "
         f"WHERE {metadata_base_where} "
         "ORDER BY Timestamp DESC LIMIT ?"
@@ -17845,16 +17847,16 @@ async def view_ai():
 
     try:
         models = _fetch_distinct_ai_metadata_values(
-            "SpanAttributes['gen_ai.request.model']",
-            "SpanAttributes['gen_ai.request.model'] != ''",
+            "RequestModel",
+            "RequestModel != ''",
         )
     except Exception as exc:
         metadata_errors.append(f"models={_public_dashboard_query_error(exc)}")
 
     try:
         operations = _fetch_distinct_ai_metadata_values(
-            "SpanAttributes['gen_ai.operation.name']",
-            "SpanAttributes['gen_ai.operation.name'] != ''",
+            "OperationName",
+            "OperationName != ''",
         )
     except Exception as exc:
         metadata_errors.append(f"operations={_public_dashboard_query_error(exc)}")
@@ -17865,6 +17867,8 @@ async def view_ai():
         metadata_errors.append(f"span_names={_public_dashboard_query_error(exc)}")
 
     try:
+        totals_where = where if where else f"WHERE {_AI_SPAN_CONDITION}"
+        totals_params = list(params) if where else []
         totals_row = db.execute(
             "SELECT "
             "SUM(toUInt64OrZero(SpanAttributes['gen_ai.usage.input_tokens'])) ti, "
@@ -17872,7 +17876,8 @@ async def view_ai():
             "COUNT(*) cnt, "
             "countIf(SpanAttributes['error.type'] != '') errors "
             "FROM otel_traces "
-            f"WHERE {_AI_SPAN_CONDITION}"
+            f"{totals_where}",
+            totals_params,
         ).fetchone()
         if totals_row:
             totals = {
