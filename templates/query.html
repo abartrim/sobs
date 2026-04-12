@@ -2,13 +2,17 @@
 {% block title %}Query{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center mb-3 gap-2">
-  <i class="bi bi-database-check fs-4 text-primary"></i>
-  <h4 class="mb-0">Natural-Language Query</h4>
-  <a href="{{ url_for('view_table_explorer') }}" class="btn btn-sm btn-outline-secondary ms-auto" title="Table Explorer">
-    <i class="bi bi-grid-3x3 me-1"></i><span class="query-btn-label">Table Explorer</span>
-  </a>
-  <a href="{{ url_for('query_help') }}" class="link-secondary text-decoration-none" title="Query Help" aria-label="Query Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
+<div class="settings-page-header mb-3">
+  <div class="d-flex align-items-center gap-2">
+    <i class="bi bi-database-check fs-4 text-primary"></i>
+    <h4 class="mb-0">Natural-Language Query</h4>
+  </div>
+  <div class="settings-page-header-actions">
+    <a href="{{ url_for('view_table_explorer') }}" class="btn btn-sm btn-outline-secondary" title="Table Explorer">
+      <i class="bi bi-grid-3x3 me-1"></i><span class="query-btn-label">Table Explorer</span>
+    </a>
+    <a href="{{ url_for('query_help') }}" class="link-secondary text-decoration-none" title="Query Help" aria-label="Query Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
+  </div>
 </div>
 <p class="text-secondary small mb-3">
   Ask a question in plain English. The AI will generate a ClickHouse SQL query, run it against
@@ -91,7 +95,7 @@
 <div id="errorAlert" class="alert alert-danger d-none" role="alert"></div>
 <div id="errorActions" class="d-none mb-3">
   <button id="copyErrorForAiBtn" class="btn btn-sm btn-outline-warning" type="button" title="Copy query failure details for AI assistance">
-    <i class="bi bi-robot me-1"></i>Copy for AI
+    <i class="bi bi-robot me-1"></i><span class="query-btn-label">Copy for AI</span>
   </button>
 </div>
 
@@ -106,7 +110,7 @@
       <i class="bi bi-pencil"></i>
     </button>
     <button id="cancelEditSqlBtn" class="btn btn-sm btn-outline-secondary py-0 px-2 d-none" title="Cancel edit" type="button">
-      <i class="bi bi-x-lg"></i> Cancel
+      <i class="bi bi-x-lg"></i><span class="query-btn-label"> Cancel</span>
     </button>
     <button id="copySqlBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Copy SQL">
       <i class="bi bi-clipboard"></i>
@@ -145,7 +149,7 @@
       </button>
       <div class="d-flex align-items-center gap-2">
         <button id="exportCsvBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" type="button" title="Export as CSV" style="opacity:0.7;">
-          <i class="bi bi-download"></i> CSV
+          <i class="bi bi-download"></i><span class="query-btn-label"> CSV</span>
         </button>
         <span class="small text-secondary" id="pageInfo"></span>
       </div>
@@ -191,7 +195,7 @@
   <div class="d-flex align-items-center gap-2 mb-2">
     <h6 class="mb-0">Chart</h6>
     <button id="addToDashboardBtn" class="btn btn-sm btn-outline-primary py-0 px-2" type="button" title="Add this chart to a dashboard" style="opacity:0.85;" disabled>
-      <i class="bi bi-plus-square"></i> Add to Dashboard
+      <i class="bi bi-plus-square"></i><span class="query-btn-label"> Add to Dashboard</span>
     </button>
     <button id="refineChartBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" type="button" title="Customize this chart" style="opacity:0.7;">
       <i class="bi bi-pencil-square"></i>
@@ -1209,7 +1213,7 @@
     } else {
       html += '<span class="small text-secondary">Showing ' + (startIdx + 1) + '\u2013' + endIdx + ' of ' + total + ' rows</span>';
     }
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary dataset-export-csv-btn" data-dataset-index="' + index + '"><i class="bi bi-download"></i> Export CSV</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary dataset-export-csv-btn" data-dataset-index="' + index + '"><i class="bi bi-download"></i><span class="query-btn-label"> Export CSV</span></button>';
     html += '</div>';
 
     if (total > pageSize) {

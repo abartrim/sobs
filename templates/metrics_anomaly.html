@@ -3,14 +3,14 @@
 {% block title %}Metrics Anomaly Details{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
+<div class="settings-page-header mb-3">
   <h4 class="fw-semibold mb-0"><i class="bi bi-activity me-2 text-info"></i>Metrics Anomaly Details
     <span id="metrics-anomaly-tz-badge-btn" class="sobs-tz-header-badge" role="button" tabindex="0" title="Display timezone - click to change">
       <i class="bi bi-clock"></i>
       <span id="metrics-anomaly-tz-badge-label">UTC</span>
     </span>
   </h4>
-  <div class="d-flex gap-2">
+  <div class="settings-page-header-actions">
     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics') }}" title="Back to Metrics">
       <i class="bi bi-arrow-left me-1"></i><span class="metrics-anomaly-btn-label">Back to Metrics</span>
     </a>

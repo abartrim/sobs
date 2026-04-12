@@ -4,9 +4,9 @@
 {% block title %}Metrics{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
+<div class="settings-page-header mb-3">
   <h4 class="fw-semibold mb-0"><i class="bi bi-graph-up-arrow me-2 text-info"></i>Metrics & Signals</h4>
-  <div class="d-flex align-items-center gap-3">
+  <div class="settings-page-header-actions">
     <div class="small text-secondary">Derived 1-minute telemetry signals with anomaly state</div>
     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics_rules') }}" title="Manage Rules">
       <i class="bi bi-sliders me-1"></i><span class="metrics-btn-label">Manage Rules</span>

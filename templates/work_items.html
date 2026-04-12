@@ -4,14 +4,14 @@
 {% block title %}Work Items{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
+<div class="settings-page-header mb-3">
   <h4 class="fw-semibold mb-0">
     <i class="bi bi-github me-2 text-secondary"></i>Work Items
     {% if total_items %}
     <span class="badge bg-secondary ms-1">{{ total_items }}</span>
     {% endif %}
   </h4>
-  <div class="d-flex align-items-center gap-2">
+  <div class="settings-page-header-actions">
     <button class="btn btn-sm btn-outline-primary"
             type="button"
             data-bs-toggle="modal"

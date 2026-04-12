@@ -135,12 +135,13 @@
   }
 </style>{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
+<div class="settings-page-header mb-3">
   <h4 class="fw-semibold mb-0"><i class="bi bi-cpu me-2 text-success"></i>AI Transparency</h4>
-  <div class="d-flex align-items-center gap-2">
+  <div class="settings-page-header-actions">
     <div class="btn-group" role="group" aria-label="View mode">
       <a href="{{ url_for('view_ai', view='flat', service=service, model=model, operation=operation, span_name=span_name, row_type=row_type, sql=sql_where, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0) }}"
         class="btn btn-sm {% if view_mode == 'flat' %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+        title="Flat view"
         data-ai-action-id="ai.view.flat"
         data-ai-action-type="navigate"
         data-ai-handler="navigate"
@@ -148,10 +149,11 @@
         data-ai-label="Switch AI view to flat"
         data-ai-risk="low"
         data-ai-confirm="false">
-        Flat
+        <i class="bi bi-view-stacked me-1"></i><span class="ai-btn-label">Flat</span>
       </a>
       <a href="{{ url_for('view_ai', view='trace', service=service, model=model, operation=operation, span_name=span_name, row_type=row_type, sql=sql_where, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0) }}"
         class="btn btn-sm {% if view_mode == 'trace' %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+        title="Group by trace"
         data-ai-action-id="ai.view.trace"
         data-ai-action-type="navigate"
         data-ai-handler="navigate"
@@ -159,12 +161,12 @@
         data-ai-label="Switch AI view to trace"
         data-ai-risk="low"
         data-ai-confirm="false">
-        Group by Trace
+        <i class="bi bi-diagram-3 me-1"></i><span class="ai-btn-label">Group by Trace</span>
       </a>
     </div>
     <a href="{{ url_for('export_ai_training', service=service, model=model, operation=operation, from_ts=from_ts, to_ts=to_ts) }}"
        class="btn btn-sm btn-outline-secondary" title="Export training data as JSONL">
-      <i class="bi bi-download me-1"></i>Export JSONL
+      <i class="bi bi-download me-1"></i><span class="ai-btn-label">Export JSONL</span>
     </a>
     <button id="liveTailBtn" class="btn btn-sm btn-outline-success" onclick="toggleLiveTail()"
             data-ai-action-id="ai.live_tail.toggle"
@@ -174,7 +176,7 @@
             data-ai-risk="low"
             data-ai-confirm="false"
             data-ai-args='{"element_id":"liveTailBtn"}'>
-      <i class="bi bi-broadcast me-1"></i>Live Tail
+      <i class="bi bi-broadcast me-1"></i><span class="ai-btn-label">Live Tail</span>
     </button>
     <a href="{{ url_for('ai_help') }}" class="link-secondary text-decoration-none" title="AI Transparency Help" aria-label="AI Transparency Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
   </div>

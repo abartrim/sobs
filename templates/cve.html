@@ -4,14 +4,14 @@
 {% block title %}CVE Findings{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
+<div class="settings-page-header mb-3">
   <h4 class="fw-semibold mb-0">
     <i class="bi bi-shield-exclamation me-2 text-danger"></i>CVE / Vulnerability Findings
     {% if cve_findings %}
     <span class="badge bg-danger ms-1">{{ cve_findings | length }}</span>
     {% endif %}
   </h4>
-  <div class="d-flex align-items-center gap-2">
+  <div class="settings-page-header-actions">
     {% if cve_last_scan %}
     <span class="text-secondary small"><i class="bi bi-clock me-1"></i>Last scan: <span class="sobs-tz-ts" data-utc-ts="{{ cve_last_scan }}">{{ cve_last_scan[:19] }}</span></span>
     {% endif %}

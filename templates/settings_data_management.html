@@ -205,7 +205,7 @@
       <!-- ── TTL Action ─────────────────────────────────────────────────── -->
       <div class="d-flex gap-2 flex-wrap mb-3">
         <button type="submit" class="btn btn-sm btn-warning" name="apply_ttl" value="1">
-          <i class="bi bi-hourglass-split me-1"></i>Save &amp; Apply TTL to Tables
+          <i class="bi bi-hourglass-split me-1"></i><span class="dm-btn-label">Save &amp; Apply TTL to Tables</span>
         </button>
       </div>
     </div>
@@ -412,10 +412,10 @@
 
         <div class="col-12 d-flex gap-2 flex-wrap">
           <button type="button" class="btn btn-sm btn-outline-success" id="btnBuildCron">
-            <i class="bi bi-wrench-adjustable-circle me-1"></i>Build Cron
+            <i class="bi bi-wrench-adjustable-circle me-1"></i><span class="dm-btn-label">Build Cron</span>
           </button>
           <button type="button" class="btn btn-sm btn-outline-secondary" id="btnCopyCron">
-            <i class="bi bi-clipboard me-1"></i>Copy Cron
+            <i class="bi bi-clipboard me-1"></i><span class="dm-btn-label">Copy Cron</span>
           </button>
           <span id="cronPreview" class="badge text-bg-light border text-secondary font-monospace"></span>
         </div>
@@ -426,7 +426,7 @@
   <!-- ── Backup / Storage Actions ─────────────────────────────────────── -->
   <div class="d-flex gap-2 flex-wrap mb-3">
     <button type="submit" class="btn btn-sm btn-primary" name="apply_ttl" value="0">
-      <i class="bi bi-floppy me-1"></i>Save Settings
+      <i class="bi bi-floppy me-1"></i><span class="dm-btn-label">Save Settings</span>
     </button>
     <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary">Cancel</a>
   </div>
@@ -454,7 +454,7 @@
           Back up all SOBS tables to the configured S3 destination.
         </p>
         <button class="btn btn-sm btn-outline-primary w-100" id="btnRunFullBackup">
-          <i class="bi bi-cloud-upload me-1"></i>Run Full Backup Now
+          <i class="bi bi-cloud-upload me-1"></i><span class="dm-btn-label">Run Full Backup Now</span>
         </button>
       </div>
     </div>
@@ -467,7 +467,7 @@
           Back up only data changed since the most recent completed backup.
         </p>
         <button class="btn btn-sm btn-outline-success w-100" id="btnRunIncrementalBackup">
-          <i class="bi bi-cloud-plus me-1"></i>Run Incremental Backup Now
+          <i class="bi bi-cloud-plus me-1"></i><span class="dm-btn-label">Run Incremental Backup Now</span>
         </button>
       </div>
     </div>
@@ -484,7 +484,7 @@
           <input type="text" id="restoreBackupName" class="form-control font-monospace"
                  placeholder="Backup name (from list below)">
           <button class="btn btn-outline-danger" id="btnRunRestore">
-            <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
+            <i class="bi bi-arrow-counterclockwise me-1"></i><span class="dm-btn-label">Restore</span>
           </button>
         </div>
       </div>
@@ -499,7 +499,7 @@
   <div class="card-header d-flex align-items-center justify-content-between">
     <span class="fw-semibold"><i class="bi bi-list-ul me-1"></i>Available Backups</span>
     <button class="btn btn-sm btn-outline-secondary" id="btnRefreshBackups">
-      <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+      <i class="bi bi-arrow-clockwise me-1"></i><span class="dm-btn-label">Refresh</span>
     </button>
   </div>
   <div class="card-body p-0" id="backupListContainer">

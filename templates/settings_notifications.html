@@ -325,10 +325,10 @@
               <code class="user-select-all small">{{ vapid_public_key }}</code>
               <br>
               <button type="button" class="btn btn-sm btn-outline-warning mt-1 me-1" id="regenerateVapidBtn">
-                <i class="bi bi-arrow-clockwise me-1"></i>Regenerate Keys
+                <i class="bi bi-arrow-clockwise me-1"></i><span class="notif-btn-label">Regenerate Keys</span>
               </button>
               <button type="button" class="btn btn-sm btn-outline-danger mt-1" id="removeVapidBtn">
-                <i class="bi bi-trash me-1"></i>Remove Keys
+                <i class="bi bi-trash me-1"></i><span class="notif-btn-label">Remove Keys</span>
               </button>
               <small class="text-secondary d-block mt-1">Regenerating invalidates all existing browser subscriptions.</small>
             </div>
@@ -338,14 +338,14 @@
               No VAPID keys configured. Generate keys first to enable browser push notifications.
               <br>
               <button type="button" class="btn btn-sm btn-primary mt-1" id="generateVapidBtn">
-                <i class="bi bi-key me-1"></i>Generate &amp; Save Keys
+                <i class="bi bi-key me-1"></i><span class="notif-btn-label">Generate &amp; Save Keys</span>
               </button>
             </div>
             {% endif %}
           </div>
           <div class="col-12">
             <button type="button" class="btn btn-sm btn-outline-info{% if not vapid_public_key %} disabled{% endif %}" id="subscribeBrowserBtn"{% if not vapid_public_key %} aria-disabled="true"{% endif %}>
-              <i class="bi bi-browser-safari me-1"></i>Subscribe This Browser
+              <i class="bi bi-browser-safari me-1"></i><span class="notif-btn-label">Subscribe This Browser</span>
             </button>
             <small class="text-secondary ms-2">Registers this browser's push subscription automatically.</small>
           </div>
@@ -369,7 +369,7 @@
           data-ai-handler="submitForm"
           data-ai-label="Create notification channel"
           data-ai-risk="high"
-          data-ai-confirm="true"><i class="bi bi-plus-circle me-1"></i>Create Channel</button>
+          data-ai-confirm="true"><i class="bi bi-plus-circle me-1"></i><span class="notif-btn-label">Create Channel</span></button>
       </form>
     </div>
   </div>
@@ -479,10 +479,10 @@
       <p class="small text-secondary mb-3">Generate notification rules from your active metric rules. Each rule pre-selects all enabled channels. Signals already covered by an existing rule are skipped automatically.</p>
       <div class="d-flex gap-2 mb-3">
         <button class="btn btn-outline-info btn-sm" id="autoNotifPreviewBtn">
-          <i class="bi bi-eye me-1"></i>Preview
+          <i class="bi bi-eye me-1"></i><span class="notif-btn-label">Preview</span>
         </button>
         <button class="btn btn-info btn-sm d-none" id="autoNotifCreateBtn">
-          <i class="bi bi-magic me-1"></i>Create All
+          <i class="bi bi-magic me-1"></i><span class="notif-btn-label">Create All</span>
         </button>
       </div>
       <div id="autoNotifSummary" class="small text-secondary mb-2"></div>
@@ -552,7 +552,7 @@
             <!-- Condition rows injected by JS -->
           </div>
           <button type="button" class="btn btn-outline-secondary btn-sm mt-2" id="addConditionBtn">
-            <i class="bi bi-plus me-1"></i>Add Condition
+            <i class="bi bi-plus me-1"></i><span class="notif-btn-label">Add Condition</span>
           </button>
         </div>
 

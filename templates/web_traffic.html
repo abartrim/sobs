@@ -5,9 +5,9 @@
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
 {% set to_ts = to_ts or request.args.get('to_ts', '') %}
-<div class="d-flex align-items-center justify-content-between mb-3">
+<div class="settings-page-header mb-3">
   <h4 class="fw-semibold mb-0"><i class="bi bi-map me-2 text-primary"></i>Web Traffic</h4>
-  <div class="d-flex align-items-center gap-2">
+  <div class="settings-page-header-actions">
     <span class="text-secondary small">{{ total }} RUM events</span>
     <a href="{{ url_for('web_traffic_help') }}" class="link-secondary text-decoration-none" title="Web Traffic Help" aria-label="Web Traffic Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
   </div>
