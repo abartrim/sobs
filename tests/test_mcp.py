@@ -68,6 +68,21 @@ def _clear_mcp_keys(db):
 
 
 # ---------------------------------------------------------------------------
+# Test fixtures: ensure clean MCP state between all tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _clean_mcp_state():
+    """Clear MCP keys and reset MCP enabled state before each test."""
+    db = _get_db()
+    _clear_mcp_keys(db)
+    # Ensure MCP is enabled by default for tests (some tests disable it)
+    sobs_app._set_app_setting(db, sobs_mcp._MCP_ENABLED_SETTING, "1")
+    yield
+
+
+# ---------------------------------------------------------------------------
 # Unit: key management helpers
 # ---------------------------------------------------------------------------
 class TestMcpKeyHelpers:
@@ -270,11 +285,15 @@ class TestMcpAuthentication:
 # HTTP: POST /mcp  tools/call
 # ---------------------------------------------------------------------------
 class TestMcpToolsCall:
-    @pytest.fixture(autouse=True)
-    def _setup_key(self):
+    def setup_method(self):
+        """Create a fresh MCP API key before each test method."""
         db = _get_db()
+        _clear_mcp_keys(db)  # Clean slate
         self._raw_key = _create_mcp_key(db, "test-tool-call")
-        yield
+
+    def teardown_method(self):
+        """Clean up keys after each test method."""
+        db = _get_db()
         _clear_mcp_keys(db)
 
     async def test_unknown_tool_returns_404(self, client):
@@ -470,11 +489,15 @@ class TestMcpToolsCall:
 class TestMcpOutputMasking:
     """Verify that the masking framework is applied to tool outputs via POST /mcp."""
 
-    @pytest.fixture(autouse=True)
-    def _setup_key(self):
+    def setup_method(self):
+        """Create a fresh MCP API key before each test method."""
         db = _get_db()
+        _clear_mcp_keys(db)  # Clean slate
         self._raw_key = _create_mcp_key(db, "test-masking")
-        yield
+
+    def teardown_method(self):
+        """Clean up keys after each test method."""
+        db = _get_db()
         _clear_mcp_keys(db)
 
     async def test_tool_output_is_masked_through_endpoint(self, client, monkeypatch):
