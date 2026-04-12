@@ -256,3 +256,27 @@ jobs:
             SOBS_BUILD_VERSION=${{ steps.build_version.outputs.value }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  cleanup-ghcr:
+    name: Cleanup Stale GHCR Versions
+    runs-on: ubuntu-latest
+    needs: docker
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    permissions:
+      packages: write
+    steps:
+      - name: Delete untagged GHCR versions
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: sobs
+          package-type: container
+          delete-only-untagged-versions: true
+
+      - name: Delete old SHA-tagged versions (keep latest + v* releases)
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: sobs
+          package-type: container
+          delete-only-untagged-versions: false
+          ignore-versions: '^(latest|v\d+\..*)$'
+          min-versions-to-keep: 0
