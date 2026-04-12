@@ -13,6 +13,9 @@
 {% set to_ts = to_ts or request.args.get('to_ts', '') %}
 {% set errors_header_meta %}
   <span class="text-secondary small">{{ total }} matching {% if grouped_mode %}groups (best effort){% else %}records{% endif %}</span>
+{% if perf_profile and perf_timings %}
+<span class="badge text-bg-dark ms-2" title="Strategy: {{ perf_strategy }}">Perf: {{ perf_timings.get('total_ms', 0) }}ms</span>
+{% endif %}
 {% endset %}
 {% set errors_header_actions %}
   <div class="btn-group" role="group" aria-label="Errors view mode">
@@ -34,6 +37,10 @@
 <!-- Filter bar -->
 {% call render_filter_accordion('errorsFiltersAccordion', 'errorsFiltersHeading', 'errorsFiltersPanel', 'text-danger', 'errors-tz-badge-btn', 'errors-tz-badge-label') %}
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
+        {% if perf_profile %}<input type="hidden" name="perf_profile" value="1">{% endif %}
+        {% if perf_explain %}<input type="hidden" name="perf_explain" value="1">{% endif %}
+        {% if perf_explain_verbose %}<input type="hidden" name="perf_explain_verbose" value="1">{% endif %}
+        {% if perf_explain_once is defined and not perf_explain_once %}<input type="hidden" name="perf_explain_once" value="0">{% endif %}
       {{ render_regex_filter(input_id='errors-regex-filter-input', dropdown_id='errors-regex-ac-dropdown', value=q) }}
       {{ render_multi_select('service', 'Service', services, selected_services, '140px') }}
       {{ render_single_select('resolved', 'Status', [
@@ -101,6 +108,12 @@
     <div class="alert alert-danger mt-2 mb-0 py-1 small">{{ error_msg }}</div>
     {% endif %}
 {% endcall %}
+{% if perf_profile and perf_timings %}
+<div class="alert alert-secondary py-2 px-3 small mb-2">
+  <strong>Errors perf timings ({{ perf_strategy }}):</strong>
+  <span class="ms-2">{{ perf_timings|tojson }}</span>
+</div>
+{% endif %}
 
   {% if grouped_mode %}
   <div class="alert alert-warning py-1 px-2 small mb-2" role="note">

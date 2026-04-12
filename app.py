@@ -1914,6 +1914,8 @@ _work_items_page_cache: dict[tuple[str, str, str, str, str, str, int, int], dict
 _work_items_filter_cache: dict[str, Any] = {"expires_at": 0.0, "services": [], "rules": []}
 _errors_cache_lock = threading.Lock()
 _errors_services_cache: dict[str, Any] = {"expires_at": 0.0, "services": []}
+_errors_explain_cache_lock = threading.Lock()
+_errors_explain_fingerprints: OrderedDict[str, float] = OrderedDict()
 _summary_stats_cache_lock = threading.Lock()
 _summary_stats_cache: dict[str, Any] = {"expires_at": 0.0, "data": {}}
 
@@ -1924,6 +1926,7 @@ LOG_ATTR_KEYS_MAX = int(os.environ.get("SOBS_LOG_ATTR_KEYS_MAX", 20000))
 WORK_ITEMS_PAGE_CACHE_TTL_SEC = int(os.environ.get("SOBS_WORK_ITEMS_PAGE_CACHE_TTL_SEC", "10"))
 WORK_ITEMS_FILTER_CACHE_TTL_SEC = int(os.environ.get("SOBS_WORK_ITEMS_FILTER_CACHE_TTL_SEC", "30"))
 ERRORS_SERVICES_CACHE_TTL_SEC = int(os.environ.get("SOBS_ERRORS_SERVICES_CACHE_TTL_SEC", "30"))
+ERRORS_EXPLAIN_FINGERPRINT_CACHE_MAX = int(os.environ.get("SOBS_ERRORS_EXPLAIN_FINGERPRINT_CACHE_MAX", "512"))
 SUMMARY_STATS_CACHE_TTL_SEC = int(os.environ.get("SOBS_SUMMARY_STATS_CACHE_TTL_SEC", "60"))
 
 
@@ -13422,6 +13425,106 @@ def _load_work_item_links_for_ref_ids(db: ChDbConnection, ref_ids: list[str]) ->
 @require_basic_auth
 async def view_errors():
     db = get_db()
+    perf_profile = request.args.get("perf_profile", "0").strip() == "1"
+    perf_explain = perf_profile and request.args.get("perf_explain", "0").strip() == "1"
+    perf_explain_verbose = perf_explain and request.args.get("perf_explain_verbose", "0").strip() == "1"
+    perf_explain_once = perf_explain and request.args.get("perf_explain_once", "1").strip() != "0"
+    perf_t0 = time.perf_counter()
+    perf_timings: dict[str, float] = {}
+    perf_strategy = ""
+
+    def _mark_timing(label: str, started_at: float) -> None:
+        perf_timings[label] = round((time.perf_counter() - started_at) * 1000.0, 2)
+
+    def _log_explain(label: str, sql: str, params: list[Any]) -> None:
+        if not perf_explain:
+            return
+        normalized_sql = re.sub(r"\s+", " ", sql).strip()
+        sql_fingerprint = hashlib.sha1(normalized_sql.encode("utf-8")).hexdigest()[:12]
+        explain_key = sql_fingerprint
+        if perf_explain_once:
+            with _errors_explain_cache_lock:
+                if explain_key in _errors_explain_fingerprints:
+                    return
+                _errors_explain_fingerprints[explain_key] = time.time()
+                if len(_errors_explain_fingerprints) > max(1, ERRORS_EXPLAIN_FINGERPRINT_CACHE_MAX):
+                    _errors_explain_fingerprints.popitem(last=False)
+        try:
+            explain_rows = db.execute(f"EXPLAIN {sql}", params).fetchall()
+            lines: list[str] = []
+            for row in explain_rows:
+                try:
+                    values = [str(row[key]) for key in row.keys()] if hasattr(row, "keys") else [str(row[0])]
+                except Exception:
+                    values = [str(row)]
+                lines.append(" | ".join(values))
+            explain_text = "\\n".join(lines)
+            if len(explain_text) > 4000:
+                explain_text = explain_text[:4000] + "..."
+            params_json = json.dumps(params, default=str)
+            params_hash = hashlib.sha1(params_json.encode("utf-8")).hexdigest()[:12]
+            app.logger.info(
+                "errors perf explain label=%s fingerprint=%s params_count=%s "
+                "params_hash=%s sql_len=%s sql_preview=%s plan=%s",
+                label,
+                sql_fingerprint,
+                len(params),
+                params_hash,
+                len(normalized_sql),
+                normalized_sql[:320],
+                explain_text,
+            )
+            if perf_explain_verbose:
+                app.logger.info(
+                    "errors perf explain verbose label=%s fingerprint=%s params=%s sql=%s",
+                    label,
+                    sql_fingerprint,
+                    params_json,
+                    normalized_sql,
+                )
+        except Exception:
+            app.logger.exception("errors perf explain failed label=%s fingerprint=%s", label, sql_fingerprint)
+
+    def _build_error_stub_from_narrow(row: dict, resolved_flag: bool) -> dict:
+        ts = str(row.get("Timestamp", ""))
+        service_name = str(row.get("ServiceName", ""))
+        trace_id = str(row.get("TraceId", ""))
+        span_id = str(row.get("SpanId", ""))
+        err_type = str(row.get("ErrorType", "") or "Error")
+        message = str(row.get("ErrorMessage", ""))
+        raw_body = str(row.get("Body", ""))
+        message_summary, summary_from_json = _extract_structured_error_summary(message, raw_body)
+        item_id = str(row.get("ErrorId", "")) or _error_id(ts, service_name, err_type, message, trace_id, span_id)
+        return {
+            "id": item_id,
+            "ts": ts,
+            "service": service_name,
+            "err_type": err_type,
+            "message": message,
+            "message_summary": message_summary,
+            "summary_from_json": summary_from_json,
+            "message_is_json": False,
+            "message_pretty_json": "",
+            "raw_body": raw_body,
+            "raw_body_is_json": False,
+            "raw_body_pretty_json": "",
+            "stack": "",
+            "stack_is_json": False,
+            "stack_pretty_json": "",
+            "trace_id": trace_id,
+            "span_id": span_id,
+            "url": "",
+            "error_source": "",
+            "page_title": "",
+            "viewport": "",
+            "artifact_type": "",
+            "artifact_id": "",
+            "artifact_url": "",
+            "replay_id": "",
+            "replay_url": "",
+            "resolved": resolved_flag,
+        }
+
     selected_services = [svc.strip() for svc in request.args.getlist("service") if svc.strip()]
     service = selected_services[0] if selected_services else ""
     group_by = request.args.get("group_by", "").strip().lower()
@@ -13484,6 +13587,7 @@ async def view_errors():
     where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
     if grouped_mode:
+        perf_strategy = "grouped"
         # Best-effort deduplication: probe recent raw events, then aggregate in SQL.
         probe_limit = max(2000, min(10000, limit * 100))
         error_id_sql = (
@@ -13546,12 +13650,30 @@ async def view_errors():
             f"SELECT COUNT(*) FROM ({grouped_aggregate_sql})",
             where_params + [probe_limit],
         ).fetchone()[0]
+        _log_explain(
+            "grouped_count",
+            f"SELECT COUNT(*) FROM ({grouped_aggregate_sql})",
+            where_params + [probe_limit],
+        )
+        sort_direction = "ASC" if sort_dir == "asc" else "DESC"
+        page_sql = f"{grouped_aggregate_sql} ORDER BY {sort_col} {sort_direction} LIMIT ? OFFSET ?"
         group_rows = db.execute(
-            f"{grouped_aggregate_sql} ORDER BY {sort_col} {'ASC' if sort_dir == 'asc' else 'DESC'} LIMIT ? OFFSET ?",
+            page_sql,
             where_params + [probe_limit, limit, offset],
         ).fetchall()
+        _log_explain(
+            "grouped_page",
+            page_sql,
+            where_params + [probe_limit, limit, offset],
+        )
         errors = []
+        visible_group_tuples: list[tuple[str, str, str]] = []
         for row in group_rows:
+            group_tuple = (
+                str(row["GroupService"] or ""),
+                str(row["GroupType"] or ""),
+                str(row["GroupMessage"] or ""),
+            )
             item = _build_error_item(
                 {
                     "Timestamp": row["RepTimestamp"],
@@ -13571,23 +13693,45 @@ async def view_errors():
             item["count"] = int(row["Count"] or 0)
             item["first_seen"] = str(row["FirstSeen"] or item["ts"])
             item["last_seen"] = str(row["LastSeen"] or item["ts"])
+            item["group_tuple"] = group_tuple
+            visible_group_tuples.append(group_tuple)
             errors.append(item)
 
         if errors:
-            trace_ids_by_group: dict[tuple[str, str, str], list[str]] = {}
-            for row in db.execute(grouped_probe_sql, where_params + [probe_limit]).fetchall():
-                probe_item = _build_error_item(dict(row))
-                group_key = _error_group_key(probe_item)
-                trace_value = str(probe_item.get("trace_id") or "").strip()
-                if not trace_value:
+            unique_group_tuples: list[tuple[str, str, str]] = []
+            seen_group_tuples: set[tuple[str, str, str]] = set()
+            for group_tuple in visible_group_tuples:
+                if group_tuple in seen_group_tuples:
                     continue
-                trace_bucket = trace_ids_by_group.setdefault(group_key, [])
-                if trace_value not in trace_bucket:
-                    trace_bucket.append(trace_value)
+                seen_group_tuples.add(group_tuple)
+                unique_group_tuples.append(group_tuple)
+
+            trace_group_params: list[Any] = [*where_params, probe_limit]
+            trace_group_placeholders = ", ".join(["(?, ?, ?)"] * len(unique_group_tuples))
+            for group_service, group_type, group_message in unique_group_tuples:
+                trace_group_params.extend([group_service, group_type, group_message])
+
+            grouped_trace_sql = (
+                "SELECT GroupService, GroupType, GroupMessage, "
+                "arrayStringConcat(groupUniqArray(64)(TraceId), ',') AS TraceIdsCsv "
+                f"FROM ({grouped_probe_sql}) "
+                f"WHERE (GroupService, GroupType, GroupMessage) IN ({trace_group_placeholders}) "
+                "GROUP BY GroupService, GroupType, GroupMessage"
+            )
+            trace_ids_by_group: dict[tuple[str, str, str], list[str]] = {}
+            for row in db.execute(grouped_trace_sql, trace_group_params).fetchall():
+                group_tuple = (
+                    str(row["GroupService"] or ""),
+                    str(row["GroupType"] or ""),
+                    str(row["GroupMessage"] or ""),
+                )
+                trace_ids_by_group[group_tuple] = [
+                    _hex(value).strip() for value in str(row["TraceIdsCsv"] or "").split(",") if _hex(value).strip()
+                ]
 
             for item in errors:
-                group_key = _error_group_key(item)
-                trace_values = list(trace_ids_by_group.get(group_key, []))
+                group_tuple = item.pop("group_tuple", ("", "", ""))
+                trace_values = list(trace_ids_by_group.get(group_tuple, []))
                 primary_trace = str(item.get("trace_id") or "").strip()
                 if primary_trace and primary_trace not in trace_values:
                     trace_values.insert(0, primary_trace)
@@ -13601,38 +13745,134 @@ async def view_errors():
             f"FROM ({ERROR_SOURCES_SQL}) {where_sql} "
             f"{order_clause} LIMIT ? OFFSET ?"
         )
+        use_resolved_sql_path = resolved in ("0", "1")
+        if use_resolved_sql_path:
+            perf_strategy = "non_grouped_resolved_sql"
+            poc_t0 = time.perf_counter()
+            error_id_expr = (
+                "lower(hex(MD5(concat("
+                "toString(Timestamp), '|', ServiceName, '|', "
+                "if(LogAttributes['exception.type'] != '', LogAttributes['exception.type'], 'Error'), '|', "
+                "if(LogAttributes['exception.message'] != '', LogAttributes['exception.message'], Body), '|', "
+                "TraceId, '|', SpanId"
+                "))))"
+            )
+            poc_where_sql = where_sql
+            poc_where_params: list[Any] = list(where_params)
+            if resolved == "1":
+                resolved_condition = f"{error_id_expr} IN (SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId)"
+                poc_where_sql = (
+                    f"{poc_where_sql} AND {resolved_condition}" if poc_where_sql else f"WHERE {resolved_condition}"
+                )
+            elif resolved == "0":
+                resolved_condition = (
+                    f"{error_id_expr} NOT IN (SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId)"
+                )
+                poc_where_sql = (
+                    f"{poc_where_sql} AND {resolved_condition}" if poc_where_sql else f"WHERE {resolved_condition}"
+                )
+            narrow_source_sql = (
+                "SELECT "
+                "Timestamp, ServiceName, TraceId, SpanId, "
+                f"{error_id_expr} AS ErrorId "
+                f"FROM ({ERROR_SOURCES_SQL}) {poc_where_sql} "
+                f"{order_clause} LIMIT ? OFFSET ?"
+            )
 
-        if resolved not in ("0", "1"):
+            page_rows: list[dict] = []
+            count_sql = f"SELECT COUNT(*) FROM ({ERROR_SOURCES_SQL}) {poc_where_sql}"
+            _log_explain(
+                "resolved_non_grouped_count",
+                count_sql,
+                poc_where_params,
+            )
+            total = db.execute(
+                count_sql,
+                poc_where_params,
+            ).fetchone()[0]
+            _log_explain(
+                "resolved_non_grouped_page",
+                narrow_source_sql,
+                poc_where_params + [limit, offset],
+            )
+            page_rows = [dict(r) for r in db.execute(narrow_source_sql, poc_where_params + [limit, offset]).fetchall()]
+
+            _mark_timing("non_grouped_pass_a_ms", poc_t0)
+
+            detail_t0 = time.perf_counter()
+            details_by_id: dict[str, dict] = {}
+            if page_rows:
+                detail_params: list[Any] = []
+                detail_key_tuples: list[tuple[Any, Any, Any, Any]] = []
+                seen_detail_keys: set[tuple[Any, Any, Any, Any]] = set()
+                for row in page_rows:
+                    detail_key = (
+                        row.get("Timestamp"),
+                        row.get("ServiceName"),
+                        row.get("TraceId"),
+                        row.get("SpanId"),
+                    )
+                    if detail_key in seen_detail_keys:
+                        continue
+                    seen_detail_keys.add(detail_key)
+                    detail_key_tuples.append(detail_key)
+                tuple_placeholders = ", ".join(["(?, ?, ?, ?)"] * len(detail_key_tuples))
+                for ts_val, service_val, trace_val, span_val in detail_key_tuples:
+                    detail_params.extend([ts_val, service_val, trace_val, span_val])
+                detail_sql = (
+                    "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes "
+                    f"FROM ({ERROR_SOURCES_SQL}) "
+                    f"WHERE (Timestamp, ServiceName, TraceId, SpanId) IN ({tuple_placeholders})"
+                )
+                _log_explain("resolved_non_grouped_hydrate", detail_sql, detail_params)
+                for drow in db.execute(detail_sql, detail_params).fetchall():
+                    detail_item = _build_error_item(dict(drow))
+                    details_by_id[detail_item["id"]] = detail_item
+
+            _mark_timing("non_grouped_pass_b_ms", detail_t0)
+
+            merge_t0 = time.perf_counter()
+            errors = []
+            for row in page_rows:
+                row_id = str(row.get("ErrorId", ""))
+                if resolved == "1":
+                    resolved_flag = True
+                elif resolved == "0":
+                    resolved_flag = False
+                else:
+                    resolved_flag = row_id in resolved_ids
+                item = _build_error_stub_from_narrow(row, resolved_flag)
+                detail_item = details_by_id.get(item["id"])
+                if detail_item:
+                    detail_item["resolved"] = resolved_flag
+                    item = detail_item
+                errors.append(item)
+
+            _mark_timing("non_grouped_merge_ms", merge_t0)
+        else:
+            perf_strategy = "non_grouped_default"
+            baseline_t0 = time.perf_counter()
+            _log_explain(
+                "default_non_grouped_count",
+                f"SELECT COUNT(*) FROM ({ERROR_SOURCES_SQL}) {where_sql}",
+                where_params,
+            )
             total = db.execute(
                 f"SELECT COUNT(*) FROM ({ERROR_SOURCES_SQL}) {where_sql}",
                 where_params,
             ).fetchone()[0]
+            _log_explain(
+                "default_non_grouped_page",
+                source_sql,
+                where_params + [limit, offset],
+            )
             rows = db.execute(source_sql, where_params + [limit, offset]).fetchall()
             errors = []
             for row in rows:
                 item = _build_error_item(dict(row))
                 item["resolved"] = item["id"] in resolved_ids
                 errors.append(item)
-        else:
-            # Keep behavior identical while avoiding full in-memory materialization.
-            target_resolved = resolved == "1"
-            scan_batch = max(200, limit)
-            scan_offset = 0
-            total = 0
-            errors = []
-            while True:
-                batch = db.execute(source_sql, where_params + [scan_batch, scan_offset]).fetchall()
-                if not batch:
-                    break
-                for row in batch:
-                    item = _build_error_item(dict(row))
-                    item["resolved"] = item["id"] in resolved_ids
-                    if item["resolved"] != target_resolved:
-                        continue
-                    if total >= offset and len(errors) < limit:
-                        errors.append(item)
-                    total += 1
-                scan_offset += scan_batch
+            _mark_timing("non_grouped_baseline_ms", baseline_t0)
 
     now = time.time()
     services: list[str] = []
@@ -13641,6 +13881,7 @@ async def view_errors():
             services = list(_errors_services_cache.get("services", []))
 
     if not services:
+        services_t0 = time.perf_counter()
         services = [
             row[0]
             for row in db.execute(
@@ -13652,8 +13893,15 @@ async def view_errors():
         with _errors_cache_lock:
             _errors_services_cache["services"] = list(services)
             _errors_services_cache["expires_at"] = now + max(1, ERRORS_SERVICES_CACHE_TTL_SEC)
+        _mark_timing("services_query_ms", services_t0)
 
     work_item_links = _load_work_item_links_for_ref_ids(db, [e["id"] for e in errors])
+
+    perf_timings["total_ms"] = round((time.perf_counter() - perf_t0) * 1000.0, 2)
+    if perf_profile:
+        app.logger.info(
+            "errors perf strategy=%s timings_ms=%s", perf_strategy, json.dumps(perf_timings, sort_keys=True)
+        )
 
     return await render_template(
         "errors.html",
@@ -13673,6 +13921,12 @@ async def view_errors():
         sort_dir=sort_dir,
         grouped_mode=grouped_mode,
         work_item_links=work_item_links,
+        perf_strategy=perf_strategy,
+        perf_profile=perf_profile,
+        perf_explain=perf_explain,
+        perf_explain_verbose=perf_explain_verbose,
+        perf_explain_once=perf_explain_once,
+        perf_timings=perf_timings,
     )
 
 
