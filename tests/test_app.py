@@ -20350,6 +20350,46 @@ class TestOnboardingWizard:
         finally:
             sobs_app._save_ai_setting(db, "ai.github_token", original_token)
 
+    async def test_create_issues_best_effort_when_work_item_persistence_fails(self, client, monkeypatch):
+        """Issue creation should succeed even when onboarding work-item persistence fails."""
+        import app as sobs_app
+
+        db = sobs_app.get_db()
+        original_token = sobs_app._load_ai_setting(db, "ai.github_token", "")
+
+        async def _fake_upsert(_token, _repo, _title, _body_md, labels):
+            return {
+                "issue_url": "https://github.com/owner/myrepo/issues/778",
+                "issue_number": 778,
+                "issue_title": "[Sobs] Set up CI metadata scripts for myrepo",
+                "issue_state": "open",
+                "status": "created",
+                "note": "Created a new onboarding issue.",
+            }
+
+        original_insert = sobs_app._insert_rows_json_each_row
+
+        def _raise_insert(_db, _table_name, _rows):
+            if _table_name == "sobs_github_work_items":
+                raise RuntimeError("boom")
+            return original_insert(_db, _table_name, _rows)
+
+        try:
+            sobs_app._save_ai_setting(db, "ai.github_token", "test-token")
+            monkeypatch.setattr(sobs_app, "_create_or_update_onboarding_issue", _fake_upsert)
+            monkeypatch.setattr(sobs_app, "_insert_rows_json_each_row", _raise_insert)
+
+            r = await client.post(
+                "/api/onboarding/create-issues",
+                json={"repo": "owner/myrepo", "create_ci": True, "create_otel": False},
+            )
+            assert r.status_code == 200
+            data = await r.get_json()
+            assert data["ok"] is True
+            assert data["ci_issue"]["url"] == "https://github.com/owner/myrepo/issues/778"
+        finally:
+            sobs_app._save_ai_setting(db, "ai.github_token", original_token)
+
     # ── Issue body helpers ───────────────────────────────────────────────────
 
     def test_ci_metadata_issue_body_contains_key_sections(self):

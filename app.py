@@ -6230,52 +6230,54 @@ def _persist_onboarding_work_item(
     issue_type: str,
 ) -> None:
     """Persist onboarding-created GitHub issues to the Work Items table."""
-
     if not issue_url:
         return
 
-    owner, repo = _parse_github_repo_owner_name(github_repo)
-    if not owner or not repo:
-        owner, repo, _ = _parse_issue_ref_from_url(issue_url)
-    github_repo_value = f"{owner}/{repo}" if owner and repo else str(github_repo or "")
+    try:
+        owner, repo = _parse_github_repo_owner_name(github_repo)
+        if not owner or not repo:
+            owner, repo, _ = _parse_issue_ref_from_url(issue_url)
+        github_repo_value = f"{owner}/{repo}" if owner and repo else str(github_repo or "")
 
-    work_item = {
-        "Id": uuid.uuid4().hex,
-        "AgentRunId": "",
-        "AgentRuleId": "",
-        "AgentRuleName": "Onboarding Wizard",
-        "AgentAction": f"onboarding_{issue_type}",
-        "ServiceName": repo,
-        "AnomalyRuleId": "",
-        "AnomalyState": "",
-        "SignalSource": "",
-        "SignalName": "",
-        "SignalValue": 0.0,
-        "GithubRepo": github_repo_value,
-        "DedupKey": "",
-        "DedupDecision": dedup_decision or "new_issue",
-        "DedupConfidence": 1.0 if dedup_decision == "reused" else 0.0,
-        "IssueNumber": int(issue_number or 0),
-        "IssueUrl": issue_url,
-        "CanonicalIssueNumber": int(issue_number or 0),
-        "CanonicalIssueUrl": issue_url,
-        "RelatedIssueUrls": "[]",
-        "OccurrenceCount": 1,
-        "IssueState": issue_state or "open",
-        "IssueTitle": issue_title,
-        "AnalysisSummary": "Sobs onboarding wizard issue.",
-        "SuggestionSummary": note,
-        "CopilotAssignmentRequestedAt": int(time.time() * 1000) if copilot_status else 0,
-        "CopilotAssignmentStatus": copilot_status or "not_requested",
-        "CopilotAssignmentReason": "",
-        "PrLinked": 0,
-        "PrNumber": 0,
-        "PrUrl": "",
-        "IsDeleted": 0,
-        "Version": int(time.time() * 1000),
-    }
-    _insert_rows_json_each_row(db, "sobs_github_work_items", [work_item])
-    _invalidate_work_items_cache()
+        work_item = {
+            "Id": uuid.uuid4().hex,
+            "AgentRunId": "",
+            "AgentRuleId": "",
+            "AgentRuleName": "Onboarding Wizard",
+            "AgentAction": f"onboarding_{issue_type}",
+            "ServiceName": repo,
+            "AnomalyRuleId": "",
+            "AnomalyState": "",
+            "SignalSource": "",
+            "SignalName": "",
+            "SignalValue": 0.0,
+            "GithubRepo": github_repo_value,
+            "DedupKey": "",
+            "DedupDecision": dedup_decision or "new_issue",
+            "DedupConfidence": 1.0 if dedup_decision == "reused" else 0.0,
+            "IssueNumber": int(issue_number or 0),
+            "IssueUrl": issue_url,
+            "CanonicalIssueNumber": int(issue_number or 0),
+            "CanonicalIssueUrl": issue_url,
+            "RelatedIssueUrls": "[]",
+            "OccurrenceCount": 1,
+            "IssueState": issue_state or "open",
+            "IssueTitle": issue_title,
+            "AnalysisSummary": "Sobs onboarding wizard issue.",
+            "SuggestionSummary": note,
+            "CopilotAssignmentRequestedAt": int(time.time() * 1000) if copilot_status else 0,
+            "CopilotAssignmentStatus": copilot_status or "not_requested",
+            "CopilotAssignmentReason": "",
+            "PrLinked": 0,
+            "PrNumber": 0,
+            "PrUrl": "",
+            "IsDeleted": 0,
+            "Version": int(time.time() * 1000),
+        }
+        _insert_rows_json_each_row(db, "sobs_github_work_items", [work_item])
+        _invalidate_work_items_cache()
+    except Exception as exc:
+        app.logger.warning("Failed to persist onboarding work item: %s", exc)
 
 
 def _build_agent_context_summary(db: ChDbConnection, trigger_context: dict) -> str:

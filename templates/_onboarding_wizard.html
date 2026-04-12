@@ -984,7 +984,7 @@
           envEl.value = 'prod';
         }
       }
-      if (id === 'obNewRepoOwner' || id === 'obNewGithubToken') {
+      if (id === 'obNewRepoOwner') {
         scheduleOwnerRepoFetch();
       }
       if (id === 'obNewRepoName') {
@@ -1017,6 +1017,13 @@
   var repoOwnerEl = document.getElementById('obNewRepoOwner');
   if (repoOwnerEl) {
     repoOwnerEl.addEventListener('blur', function () {
+      scheduleOwnerRepoFetch();
+    });
+  }
+
+  var repoTokenEl = document.getElementById('obNewGithubToken');
+  if (repoTokenEl) {
+    repoTokenEl.addEventListener('blur', function () {
       scheduleOwnerRepoFetch();
     });
   }
