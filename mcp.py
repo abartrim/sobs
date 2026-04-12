@@ -62,7 +62,7 @@ mcp_bp = Blueprint("mcp", __name__)
 # ---------------------------------------------------------------------------
 # Rate limiting
 # ---------------------------------------------------------------------------
-_MCP_RATE_LIMIT_REQUESTS = 60   # requests allowed per window
+_MCP_RATE_LIMIT_REQUESTS = 60  # requests allowed per window
 _MCP_RATE_LIMIT_WINDOW_SEC = 60  # sliding window size in seconds
 
 # {ip: [(timestamp, ...), ...]}
@@ -154,6 +154,7 @@ def _mcp_enabled(db: Any) -> bool:
 # Authentication helper
 # ---------------------------------------------------------------------------
 
+
 def _authenticate_mcp_request(db: Any) -> bool:
     """Return True if the incoming request carries a valid MCP API key."""
     raw_key = request.headers.get("X-MCP-API-Key", "").strip()
@@ -170,6 +171,7 @@ def _authenticate_mcp_request(db: Any) -> bool:
 # ---------------------------------------------------------------------------
 # MCP protocol helpers
 # ---------------------------------------------------------------------------
+
 
 def _mcp_error(code: int, message: str, req_id: Any = None) -> Any:
     """Return a JSON-RPC 2.0 error response."""
@@ -240,10 +242,7 @@ MCP_TOOLS: list[dict] = [
                 },
                 "to_ts": {
                     "type": "string",
-                    "description": (
-                        "End of the time window as an ISO-8601 timestamp.  "
-                        "Defaults to now."
-                    ),
+                    "description": ("End of the time window as an ISO-8601 timestamp.  " "Defaults to now."),
                 },
                 "limit": {
                     "type": "integer",
@@ -495,6 +494,7 @@ def _clamp(value: int | None, lo: int, hi: int, default: int) -> int:
 # ---------------------------------------------------------------------------
 # Tool implementations
 # ---------------------------------------------------------------------------
+
 
 def _tool_list_services(db: Any, _args: dict) -> dict:
     rows = db.execute(
@@ -867,6 +867,7 @@ _TOOL_HANDLERS: dict[str, Any] = {
 # MCP HTTP endpoints
 # ---------------------------------------------------------------------------
 
+
 @mcp_bp.route("/mcp/tools", methods=["GET"])
 async def mcp_list_tools():
     """Return the list of MCP tools this server exposes (no auth required)."""
@@ -899,11 +900,7 @@ async def mcp_endpoint():
     from app import _mask_value_for_output, get_db  # noqa: PLC0415
 
     # Rate limiting.
-    client_ip = (
-        request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        or request.remote_addr
-        or "unknown"
-    )
+    client_ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or "unknown"
     if not _check_rate_limit(client_ip):
         return (
             jsonify(
@@ -996,8 +993,7 @@ async def mcp_endpoint():
                         "id": req_id,
                         "error": {
                             "code": -32601,
-                            "message": f"Unknown tool: '{tool_name}'. "
-                            f"Available: {sorted(_TOOL_HANDLERS)}",
+                            "message": f"Unknown tool: '{tool_name}'. " f"Available: {sorted(_TOOL_HANDLERS)}",
                         },
                     }
                 ),
@@ -1028,9 +1024,7 @@ async def mcp_endpoint():
                 "jsonrpc": "2.0",
                 "id": req_id,
                 "result": {
-                    "content": [
-                        {"type": "text", "text": json.dumps(tool_result, ensure_ascii=False, default=str)}
-                    ],
+                    "content": [{"type": "text", "text": json.dumps(tool_result, ensure_ascii=False, default=str)}],
                     "isError": False,
                 },
             }
@@ -1053,6 +1047,7 @@ async def mcp_endpoint():
 # Settings API endpoints (key management)
 # ---------------------------------------------------------------------------
 
+
 @mcp_bp.route("/api/mcp/keys", methods=["GET"])
 async def mcp_api_list_keys():
     """List MCP API key descriptors (hashes are not exposed; only metadata)."""
@@ -1064,8 +1059,7 @@ async def mcp_api_list_keys():
         keys = _load_mcp_api_keys(db)
         # Return metadata only – never expose raw keys or hashes.
         safe = [
-            {"id": k.get("id", ""), "label": k.get("label", ""), "created_at": k.get("created_at", "")}
-            for k in keys
+            {"id": k.get("id", ""), "label": k.get("label", ""), "created_at": k.get("created_at", "")} for k in keys
         ]
         return jsonify({"ok": True, "keys": safe})
 
@@ -1143,6 +1137,7 @@ async def mcp_api_set_enabled():
 # Settings UI page
 # ---------------------------------------------------------------------------
 
+
 @mcp_bp.route("/settings/mcp", methods=["GET"])
 async def mcp_settings_page():
     """Render the MCP API key management settings page."""
@@ -1154,8 +1149,7 @@ async def mcp_settings_page():
         keys = _load_mcp_api_keys(db)
         enabled = _mcp_enabled(db)
         safe_keys = [
-            {"id": k.get("id", ""), "label": k.get("label", ""), "created_at": k.get("created_at", "")}
-            for k in keys
+            {"id": k.get("id", ""), "label": k.get("label", ""), "created_at": k.get("created_at", "")} for k in keys
         ]
         return await render_template("settings_mcp.html", mcp_keys=safe_keys, mcp_enabled=enabled)
 

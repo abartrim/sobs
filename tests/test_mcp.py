@@ -40,6 +40,7 @@ async def client():
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _get_db():
     return sobs_app.get_db()
 
@@ -509,6 +510,7 @@ class TestMcpOutputMasking:
         assert pii_value not in body
         # The SOBS mask placeholder must appear instead.
         import masking as _masking_mod
+
         assert _masking_mod.MASK in body
 
 
