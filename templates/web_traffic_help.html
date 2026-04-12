@@ -167,6 +167,24 @@
   </div>
 </div>
 
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold"><i class="bi bi-github me-2 text-danger"></i>Repository Metadata Freshness</div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">
+      CVE quality improves when release and dependency metadata is continuously refreshed from repository settings.
+      Sobs supports both polling and optional realtime push modes.
+    </p>
+    <ul class="small mb-2">
+      <li><strong>Polling mode (default)</strong> – uses GitHub read APIs with conditional requests to limit rate usage.</li>
+      <li><strong>Realtime push mode (optional)</strong> – CI posts release metadata to Sobs using a managed ingest API key.</li>
+      <li><strong>Webhook acceleration (optional)</strong> – can reduce refresh latency when repo admins approve webhook setup.</li>
+    </ul>
+    <p class="small mb-0">
+      For setup details, see <a href="{{ url_for('settings_repositories_help') }}"><strong>Repositories Help</strong></a>.
+    </p>
+  </div>
+</div>
+
 <div class="card border-secondary mb-0">
   <div class="card-header fw-semibold"><i class="bi bi-database me-2 text-danger"></i>CVE API Endpoints</div>
   <div class="card-body p-0">

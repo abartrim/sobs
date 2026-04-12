@@ -124,6 +124,12 @@
     gap: 0.25rem;
     margin: 0;
   }
+  .ci-key-row {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+  .ci-key-row .btn { white-space: nowrap; }
   .repo-meta-note {
     font-size: 0.75rem;
     color: var(--bs-secondary-color);
@@ -224,6 +230,22 @@
   </div>
 </div>
 
+<div class="card border-secondary mb-3">
+  <div class="card-header d-flex align-items-center gap-2">
+    <i class="bi bi-lightning-charge text-warning"></i>
+    <span class="fw-semibold">Realtime CI Push (Optional, Per Repository)</span>
+  </div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">
+      Default behavior uses GitHub polling with conditional requests.
+      Realtime CI push keys are managed per repository from each row below so security teams can rotate/revoke independently.
+    </p>
+    <div class="small text-secondary">
+      Open a repository <strong>Manage</strong> row to set realtime mode, rotate key, or revoke key for that repository only.
+    </div>
+  </div>
+</div>
+
 <div class="card border-secondary">
   <div class="card-header d-flex align-items-center gap-2">
     <i class="bi bi-list-ul text-info"></i>
@@ -239,6 +261,7 @@
             <th>App</th>
             <th>Repo</th>
             <th>Releases</th>
+            <th style="width:210px;">CI Push</th>
             <th style="width:130px;">Status</th>
             <th style="width:130px;">Actions</th>
           </tr>
@@ -256,6 +279,17 @@
             <td data-label="Releases">
               <div class="small">{{ app.release_count }} total</div>
               <div class="text-secondary" style="font-size:.75rem;">{{ app.latest_versions | join(', ') if app.latest_versions else 'none' }}</div>
+            </td>
+            <td data-label="CI Push">
+              <div class="d-flex flex-wrap gap-1 align-items-center">
+                <span class="badge {{ 'text-bg-success' if app.ci_push_status.realtime_enabled else 'text-bg-secondary' }}">
+                  {{ 'enabled' if app.ci_push_status.realtime_enabled else 'disabled' }}
+                </span>
+                <span class="badge {{ 'text-bg-success' if app.ci_push_status.configured else 'text-bg-secondary' }}">
+                  {{ 'key ready' if app.ci_push_status.configured else 'no key' }}
+                </span>
+              </div>
+              <div class="text-secondary mt-1" style="font-size:.75rem;">{{ app.ci_push_status.expiry.message }}</div>
             </td>
             <td data-label="Status">
               {% if app.enabled %}
@@ -278,7 +312,7 @@
             </td>
           </tr>
           <tr class="repo-manage-row">
-            <td colspan="5" class="pt-0 border-0">
+            <td colspan="6" class="pt-0 border-0">
               <div id="repoManageRow-{{ app.id }}" class="collapse repo-inline-manage">
                 <div class="repo-settings-panel">
                   <div class="repo-setting-section">
@@ -324,6 +358,65 @@
                   </div>
 
                   <div class="repo-setting-section">
+                    <div class="repo-setting-title">Realtime CI Key</div>
+
+                    <div class="d-flex flex-wrap gap-1 align-items-center mb-2">
+                      <span class="badge {{ 'text-bg-success' if app.ci_push_status.realtime_enabled else 'text-bg-secondary' }}">
+                        {{ 'enabled' if app.ci_push_status.realtime_enabled else 'disabled' }}
+                      </span>
+                      <span class="badge {{ 'text-bg-success' if app.ci_push_status.configured else 'text-bg-secondary' }}">
+                        API key {{ 'configured' if app.ci_push_status.configured else 'not configured' }}
+                      </span>
+                      <span class="badge {{
+                        'text-bg-danger' if app.ci_push_status.expiry.state == 'expired'
+                        else ('text-bg-warning text-dark' if app.ci_push_status.expiry.state == 'warning'
+                        else ('text-bg-success' if app.ci_push_status.expiry.state == 'healthy' else 'text-bg-secondary'))
+                      }}">{{ app.ci_push_status.expiry.message }}</span>
+                    </div>
+
+                    {% if app.ci_push_plain %}
+                    <div class="alert alert-warning small py-2 mb-2">
+                      <div class="fw-semibold mb-1">Copy this CI ingest API key now (shown once):</div>
+                      <code class="d-block" style="word-break:break-all;">{{ app.ci_push_plain }}</code>
+                    </div>
+                    {% endif %}
+
+                    <div class="d-flex flex-column gap-2">
+                      <form method="post" action="{{ url_for('save_settings_repository_realtime_mode', app_id=app.id) }}" class="ci-key-row">
+                        <label class="repo-token-toggle mb-0 flex-grow-1">
+                          <input type="checkbox" name="realtime_enabled" value="1" {% if app.ci_push_status.realtime_enabled %}checked{% endif %}>
+                          Enable realtime mode
+                        </label>
+                        <button type="submit" class="btn btn-sm btn-outline-secondary ms-2 flex-shrink-0" title="Save Realtime Mode">
+                          <i class="bi bi-save me-1"></i><span class="repositories-btn-label">Save mode</span>
+                        </button>
+                      </form>
+
+                      <form method="post" action="{{ url_for('rotate_settings_repository_ci_ingest_key', app_id=app.id) }}" class="ci-key-row">
+                        <label class="small text-secondary flex-shrink-0 mb-0 align-self-center" for="ttl_{{ app.id }}">Expiry (days)</label>
+                        <input type="number" id="ttl_{{ app.id }}" name="ttl_days" min="1" max="{{ ci_push_max_ttl_days }}" value="{{ ci_push_default_ttl_days }}" class="form-control form-control-sm ms-2" style="width:5.5rem;" title="Expiry in days" required>
+                        <button type="submit" class="btn btn-sm btn-outline-primary ms-2 flex-shrink-0" title="Rotate CI Ingest Key">
+                          <i class="bi bi-arrow-repeat me-1"></i><span class="repositories-btn-label">Rotate key</span>
+                        </button>
+                      </form>
+
+                      <form
+                        method="post"
+                        action="{{ url_for('revoke_settings_repository_ci_ingest_key', app_id=app.id) }}"
+                        class="ci-key-row"
+                        data-confirm-title="Revoke CI Ingest Key"
+                        data-confirm-message="Revoke realtime CI ingest key for '{{ app.name }}'? Existing CI pushes for this repo will fail until rotated."
+                        data-confirm-ok-label="Revoke"
+                        data-confirm-ok-class="btn-danger">
+                        <span class="small text-secondary flex-grow-1 align-self-center">Remove key and disable CI push access.</span>
+                        <button type="submit" class="btn btn-sm btn-outline-danger ms-2 flex-shrink-0" title="Revoke CI Ingest Key">
+                          <i class="bi bi-trash me-1"></i><span class="repositories-btn-label">Revoke key</span>
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+
+                  <div class="repo-setting-section">
                     <div class="repo-setting-title text-danger">Danger Zone</div>
                     <form
                       method="post"
@@ -356,6 +449,10 @@
 <!-- Onboarding wizard repo data -->
 <script id="obReposData" type="application/json">
 {{ apps | tojson }}
+</script>
+
+<script id="obRealtimeData" type="application/json">
+{{ realtime_seed | tojson }}
 </script>
 
 {% include '_onboarding_wizard.html' %}

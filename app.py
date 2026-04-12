@@ -53,6 +53,7 @@ from quart import (
     render_template,
     request,
     send_from_directory,
+    session,
     url_for,
 )
 
@@ -2772,6 +2773,10 @@ _GITHUB_WORK_ITEM_BACKFILL_MAX_ITEMS = 25
 _GITHUB_WORK_ITEM_BACKFILL_LAST_TS = 0.0
 _GITHUB_WORK_ITEM_BACKFILL_RUNNING = False
 _GITHUB_TOKEN_EXPIRY_WARNING_DAYS = 14
+_CI_PUSH_APP_KEY_PREFIX = "ai.ci_push.app."
+_CI_PUSH_API_KEY_DEFAULT_TTL_DAYS = 30
+_CI_PUSH_API_KEY_MIN_TTL_DAYS = 1
+_CI_PUSH_API_KEY_MAX_TTL_DAYS = 365
 _AI_THINKING_LEVELS = ("off", "low", "medium", "high")
 _AI_GUARD_BLOCK_KEYWORDS = frozenset(
     [
@@ -3035,6 +3040,130 @@ def _github_token_expiry_status(
         "days_remaining": days_remaining,
         "message": f"Token healthy ({days_remaining} day(s) remaining)",
     }
+
+
+def _normalize_ttl_days(value: Any, default_days: int = _CI_PUSH_API_KEY_DEFAULT_TTL_DAYS) -> int:
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        parsed = default_days
+    return max(_CI_PUSH_API_KEY_MIN_TTL_DAYS, min(_CI_PUSH_API_KEY_MAX_TTL_DAYS, parsed))
+
+
+def _ci_push_expiry_iso_from_days(ttl_days: int) -> str:
+    expires = datetime.now(timezone.utc) + timedelta(days=ttl_days)
+    expires = expires.replace(hour=23, minute=59, second=59, microsecond=0)
+    return expires.isoformat()
+
+
+def _hash_api_key(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _generate_ci_push_api_key() -> str:
+    return "sobs_ci_" + secrets.token_urlsafe(24)
+
+
+def _ci_push_setting_key(app_id: str, leaf: str) -> str:
+    return f"{_CI_PUSH_APP_KEY_PREFIX}{str(app_id or '').strip().lower()}.{leaf}"
+
+
+def _ci_push_api_key_status(db: ChDbConnection, app_id: str) -> dict[str, Any]:
+    target_app_id = str(app_id or "").strip()
+    if not target_app_id:
+        return {
+            "app_id": "",
+            "configured": False,
+            "expires_at": "",
+            "rotated_at": "",
+            "hash": "",
+            "realtime_enabled": False,
+            "expiry": {
+                "state": "missing",
+                "expires_at": "",
+                "days_remaining": None,
+                "message": "CI push API key not configured",
+            },
+        }
+
+    key_hash = _load_ai_setting(db, _ci_push_setting_key(target_app_id, "hash"), "").strip()
+    expires_at = _load_ai_setting(db, _ci_push_setting_key(target_app_id, "expires_at"), "").strip()
+    rotated_at = _load_ai_setting(db, _ci_push_setting_key(target_app_id, "rotated_at"), "").strip()
+    realtime_enabled = _load_ai_setting(
+        db,
+        _ci_push_setting_key(target_app_id, "realtime_enabled"),
+        "false",
+    ).strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+    expiry_status = _github_token_expiry_status(expires_at)
+    if not key_hash:
+        expiry_status = {
+            "state": "missing",
+            "expires_at": "",
+            "days_remaining": None,
+            "message": "CI push API key not configured",
+        }
+
+    return {
+        "app_id": target_app_id,
+        "configured": bool(key_hash),
+        "expires_at": expires_at,
+        "rotated_at": rotated_at,
+        "hash": key_hash,
+        "realtime_enabled": realtime_enabled,
+        "expiry": expiry_status,
+    }
+
+
+def _is_valid_ci_push_api_key(db: ChDbConnection, app_id: str, provided_key: str) -> bool:
+    candidate = str(provided_key or "").strip()
+    if not candidate:
+        return False
+
+    meta = _ci_push_api_key_status(db, app_id)
+    key_hash = str(meta.get("hash") or "")
+    if not key_hash:
+        return False
+
+    expiry_state = str(((meta.get("expiry") or {}).get("state") or "")).lower()
+    if expiry_state == "expired":
+        return False
+
+    candidate_hash = _hash_api_key(candidate)
+    return hmac.compare_digest(candidate_hash, key_hash)
+
+
+def _set_ci_push_realtime_enabled(db: ChDbConnection, app_id: str, enabled: bool) -> None:
+    target_app_id = str(app_id or "").strip()
+    if not target_app_id:
+        return
+    _save_ai_setting(db, _ci_push_setting_key(target_app_id, "realtime_enabled"), "true" if enabled else "false")
+
+
+def _rotate_ci_push_api_key(db: ChDbConnection, app_id: str, ttl_days: int) -> tuple[str, str]:
+    target_app_id = str(app_id or "").strip()
+    if not target_app_id:
+        return "", ""
+    normalized_ttl = _normalize_ttl_days(ttl_days)
+    plain = _generate_ci_push_api_key()
+    expires_at = _ci_push_expiry_iso_from_days(normalized_ttl)
+    _save_ai_setting(db, _ci_push_setting_key(target_app_id, "hash"), _hash_api_key(plain))
+    _save_ai_setting(db, _ci_push_setting_key(target_app_id, "expires_at"), expires_at)
+    _save_ai_setting(db, _ci_push_setting_key(target_app_id, "rotated_at"), _now_iso())
+    return plain, expires_at
+
+
+def _revoke_ci_push_api_key(db: ChDbConnection, app_id: str) -> None:
+    target_app_id = str(app_id or "").strip()
+    if not target_app_id:
+        return
+    _save_ai_setting(db, _ci_push_setting_key(target_app_id, "hash"), "")
+    _save_ai_setting(db, _ci_push_setting_key(target_app_id, "expires_at"), "")
+    _save_ai_setting(db, _ci_push_setting_key(target_app_id, "rotated_at"), _now_iso())
 
 
 async def _validate_github_token(github_token: str) -> tuple[str, str]:
@@ -7197,13 +7326,46 @@ def _auth_mode() -> str:
     return "none"
 
 
+def _resolve_managed_ci_target_app_id(db: ChDbConnection, kwargs: dict[str, Any]) -> str:
+    app_id = str(kwargs.get("app_id") or "").strip()
+    if app_id:
+        return app_id
+
+    release_id = str(kwargs.get("release_id") or "").strip()
+    if not release_id:
+        return ""
+
+    release = _find_release_by_id(db, release_id)
+    if not release:
+        return ""
+    return str(release.get("AppId") or "").strip()
+
+
 def require_api_key(f):
     @wraps(f)
     async def decorated(*args, **kwargs):
+        key = str(request.headers.get("X-API-Key") or "").strip()
+        static_ok = bool(API_KEY and key == API_KEY)
+
+        managed_configured = False
+        managed_ok = False
+        try:
+            db = get_db()
+            target_app_id = _resolve_managed_ci_target_app_id(db, kwargs)
+            if target_app_id:
+                managed = _ci_push_api_key_status(db, target_app_id)
+                managed_configured = bool(managed.get("configured"))
+                if managed_configured:
+                    managed_ok = _is_valid_ci_push_api_key(db, target_app_id, key)
+        except Exception:
+            managed_configured = False
+            managed_ok = False
+
         if API_KEY:
-            key = request.headers.get("X-API-Key")
-            if key != API_KEY:
+            if not static_ok and not managed_ok:
                 return jsonify({"error": "Unauthorized"}), 401
+        elif managed_configured and not managed_ok:
+            return jsonify({"error": "Unauthorized"}), 401
         result = f(*args, **kwargs)
         if inspect.isawaitable(result):
             return await result
@@ -8417,6 +8579,22 @@ def _find_app_by_id(db: ChDbConnection, app_id: str) -> dict[str, Any] | None:
         [app_id],
     ).fetchone()
     return dict(row) if row else None
+
+
+def _find_app_id_by_repo_url(db: ChDbConnection, repo_url: str) -> str:
+    normalized_input = str(repo_url or "").strip()
+    if not normalized_input:
+        return ""
+    input_owner, input_repo = _parse_github_repo_owner_name(normalized_input)
+    if not input_owner or not input_repo:
+        return ""
+
+    rows = db.execute("SELECT Id, RepoUrl FROM sobs_apps FINAL WHERE IsDeleted=0").fetchall()
+    for row in rows:
+        owner, repo = _parse_github_repo_owner_name(str(row["RepoUrl"] or ""))
+        if owner.lower() == input_owner.lower() and repo.lower() == input_repo.lower():
+            return str(row["Id"] or "")
+    return ""
 
 
 def _find_release_by_id(db: ChDbConnection, release_id: str) -> dict[str, Any] | None:
@@ -26063,6 +26241,9 @@ async def save_enrichment_settings():
 async def view_settings_repositories():
     db = get_db()
     ai_settings = _load_all_ai_settings(db)
+    ci_push_plain_by_app = session.pop("ci_push_api_key_plain_by_app", {})
+    if not isinstance(ci_push_plain_by_app, dict):
+        ci_push_plain_by_app = {}
     github_token_expires_at = str(ai_settings.get("ai.github_token_expires_at", "")).strip()
     github_token_expiry_status = _github_token_expiry_status(github_token_expires_at)
     github_token_validation_status = {
@@ -26096,6 +26277,8 @@ async def view_settings_repositories():
         app_versions = releases_by_app.get(app["id"], [])
         _, owner, repo = _resolve_github_repo_fields(app["repoUrl"])
         repo_token_configured = bool(_load_repo_scoped_github_token(db, owner, repo)) if owner and repo else False
+        ci_push_status = _ci_push_api_key_status(db, app["id"])
+        ci_push_plain = str(ci_push_plain_by_app.get(app["id"], "") or "")
         apps.append(
             {
                 "id": app["id"],
@@ -26108,8 +26291,19 @@ async def view_settings_repositories():
                 "release_count": len(app_versions),
                 "latest_versions": app_versions[:5],
                 "repo_token_configured": repo_token_configured,
+                "ci_push_status": ci_push_status,
+                "ci_push_plain": ci_push_plain,
             }
         )
+
+    realtime_seed = {
+        "enabled": any(bool((item.get("ci_push_status") or {}).get("realtime_enabled")) for item in apps),
+        "configured": any(bool((item.get("ci_push_status") or {}).get("configured")) for item in apps),
+        "expires_at": "",
+        "expiry_message": "Per-repository CI ingest keys are managed from each repository row.",
+        "api_key": "",
+        "api_key_show_once": False,
+    }
 
     return await render_template(
         "settings_repositories.html",
@@ -26120,6 +26314,9 @@ async def view_settings_repositories():
         github_token_expiry_status=github_token_expiry_status,
         github_token_validation_status=github_token_validation_status,
         github_token_expiry_warning_days=_GITHUB_TOKEN_EXPIRY_WARNING_DAYS,
+        realtime_seed=realtime_seed,
+        ci_push_default_ttl_days=_CI_PUSH_API_KEY_DEFAULT_TTL_DAYS,
+        ci_push_max_ttl_days=_CI_PUSH_API_KEY_MAX_TTL_DAYS,
     )
 
 
@@ -26206,6 +26403,66 @@ async def validate_settings_repository_github_token():
 
     category = "success" if status == "valid" else "warning"
     await flash(f"GitHub token validation: {message}", category)
+    return redirect(url_for("view_settings_repositories"))
+
+
+@app.route("/settings/repositories/<app_id>/realtime-mode", methods=["POST"])
+@require_basic_auth
+async def save_settings_repository_realtime_mode(app_id: str):
+    db = get_db()
+    current = _find_app_by_id(db, app_id)
+    if not current:
+        await flash("Repository entry not found", "warning")
+        return redirect(url_for("view_settings_repositories"))
+    form = await request.form
+    enabled = bool(form.get("realtime_enabled"))
+    _set_ci_push_realtime_enabled(db, app_id, enabled)
+    app_name = str(current.get("Name", "repository")).strip()
+    await flash(
+        f"Realtime CI support {'enabled' if enabled else 'disabled'} for {app_name}",
+        "success",
+    )
+    return redirect(url_for("view_settings_repositories"))
+
+
+@app.route("/settings/repositories/<app_id>/ci-ingest-key/rotate", methods=["POST"])
+@require_basic_auth
+async def rotate_settings_repository_ci_ingest_key(app_id: str):
+    db = get_db()
+    current = _find_app_by_id(db, app_id)
+    if not current:
+        await flash("Repository entry not found", "warning")
+        return redirect(url_for("view_settings_repositories"))
+    form = await request.form
+    ttl_days = _normalize_ttl_days(form.get("ttl_days"), _CI_PUSH_API_KEY_DEFAULT_TTL_DAYS)
+    key_plain, expires_at = _rotate_ci_push_api_key(db, app_id, ttl_days)
+    if not key_plain:
+        await flash("Failed to rotate CI ingest API key", "warning")
+        return redirect(url_for("view_settings_repositories"))
+    _set_ci_push_realtime_enabled(db, app_id, True)
+    plain_by_app = session.get("ci_push_api_key_plain_by_app")
+    if not isinstance(plain_by_app, dict):
+        plain_by_app = {}
+    plain_by_app[app_id] = key_plain
+    session["ci_push_api_key_plain_by_app"] = plain_by_app
+    await flash(
+        f"CI ingest API key rotated for {str(current.get('Name', 'repository')).strip()} (expires {expires_at[:10]}). "
+        "Copy the key now; it is shown once.",
+        "success",
+    )
+    return redirect(url_for("view_settings_repositories"))
+
+
+@app.route("/settings/repositories/<app_id>/ci-ingest-key/revoke", methods=["POST"])
+@require_basic_auth
+async def revoke_settings_repository_ci_ingest_key(app_id: str):
+    db = get_db()
+    current = _find_app_by_id(db, app_id)
+    if not current:
+        await flash("Repository entry not found", "warning")
+        return redirect(url_for("view_settings_repositories"))
+    _revoke_ci_push_api_key(db, app_id)
+    await flash(f"CI ingest API key revoked for {str(current.get('Name', 'repository')).strip()}", "success")
     return redirect(url_for("view_settings_repositories"))
 
 
@@ -32144,124 +32401,148 @@ def _build_ci_metadata_issue_body(owner: str, repo: str, has_github_actions: boo
         """
 ## CI Provider
 
-This repository uses **GitHub Actions**. The steps below show how to add Sobs CI metadata
-reporting to your existing workflows.
+This repository uses **GitHub Actions**. Use polling mode first, then optionally add
+realtime push once security approval for outbound CI calls is in place.
 """
         if has_github_actions
         else """
 ## CI Provider
 
-No GitHub Actions workflows were detected. The steps below are provider-agnostic shell
-commands that work with any CI system (Jenkins, CircleCI, GitLab CI, etc.). Adapt the
-shell steps to your pipeline's syntax.
+No GitHub Actions workflows were detected. The steps below are provider-agnostic and can
+be adapted for Jenkins, CircleCI, GitLab CI, Buildkite, or other CI systems.
 """
     )
 
     return f"""# Sobs CI Metadata Setup
 
-This issue contains all the steps required to integrate your repository with Sobs so that
-release tracking, CVE enrichment, source-map-based stack-trace resolution, and
-agent-triggered auto-remediation all work correctly.
+This issue defines how `{owner}/{repo}` should integrate with Sobs CI metadata.
 
-> **What is Sobs CI metadata?**  Sobs needs to know about your releases, build artefacts,
-> and dependency manifests to correlate telemetry with code versions and to run scheduled
-> CVE scans. Without this, most observability features work at reduced quality.
+Sobs supports two modes:
+
+1. **Polling mode (default)**
+     - No CI workflow edits required.
+    - Sobs reads GitHub run/check state and uses conditional requests
+      (`ETag`/`If-None-Match`) to keep polling efficient.
+     - Best starting point when CI outbound calls require security approval.
+
+2. **Realtime push mode (optional)**
+     - CI posts release metadata directly to Sobs with a Sobs API key.
+     - Faster and deterministic release visibility.
+     - Optional GitHub webhook can be added for faster refresh triggers.
+
+> Keep polling mode available as fallback even if realtime push is enabled.
+
 {ci_section}
+
 ---
 
-## Step 1 — Register a release
+## Step 1 - Baseline repository setup in Sobs
 
-After every build / tag, call the Sobs release-registration API from CI:
+- Verify repository URL in **Settings -> Repositories**
+- Verify GitHub token is valid for read operations
+- Verify token expiry tracking is configured
+
+---
+
+## Step 2 - Polling mode (no CI changes)
+
+No workflow updates are required for this step.
+
+- Confirm Sobs can read workflow/check state for this repo
+- Confirm Sobs conditional polling is enabled and stable
+- Confirm CVE/release views continue to populate
+
+---
+
+## Step 3 - Register a release (optional realtime push mode)
+
+If CI outbound integration is approved, add these CI secrets:
+
+| Secret | Description |
+|--------|-------------|
+| `SOBS_URL` | Base URL of your Sobs instance (for example `https://sobs.internal`) |
+| `SOBS_INGEST_API_KEY` | Sobs ingest API key from Settings -> Repositories |
+| `SOBS_APP_ID` | Application ID from Settings -> Repositories |
+
+Use this push call in CI:
 
 ```bash
-# Replace <SOBS_URL>, <APP_ID>, <VERSION>, <COMMIT_SHA>, and <BUILD_ID>
-curl -s -X POST "${{SOBS_URL}}/api/apps/${{APP_ID}}/releases" \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Basic ${{SOBS_BASIC_AUTH}}" \\
-  -d '{{
-    "version":    "${{VERSION}}",
-    "commitSha":  "${{COMMIT_SHA}}",
-    "buildId":    "${{BUILD_ID}}",
-    "environment":"production",
-    "releasedAt": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
-  }}'
-```
-
-**GitHub Actions snippet:**
-```yaml
-- name: Register release with Sobs
-  env:
-    SOBS_URL: ${{{{ secrets.SOBS_URL }}}}
-    SOBS_BASIC_AUTH: ${{{{ secrets.SOBS_BASIC_AUTH }}}}
-    APP_ID: ${{{{ secrets.SOBS_APP_ID }}}}
-  run: |
-        payload='{{"version":"${{{{ github.ref_name }}}}",'
-        payload="$payload"'"commitSha":"${{{{ github.sha }}}}",'
-        payload="$payload"'"buildId":"${{{{ github.run_id }}}}",'
-        payload="$payload"'"environment":"production"}}'
-    curl -s -X POST "$SOBS_URL/api/apps/$APP_ID/releases" \\
-      -H "Content-Type: application/json" \\
-      -H "Authorization: Basic $SOBS_BASIC_AUTH" \\
-            -d "$payload"
+curl -sS -X POST "${{SOBS_URL}}/v1/apps/${{SOBS_APP_ID}}/releases" \\
+        -H "X-API-Key: ${{SOBS_INGEST_API_KEY}}" \\
+        -H "Content-Type: application/json" \\
+        -d '{{
+                "version":    "${{VERSION}}",
+                "commitSha":  "${{COMMIT_SHA}}",
+                "buildId":    "${{BUILD_ID}}",
+                "environment": "production"
+        }}'
 ```
 
 ---
 
-## Step 2 — Upload dependency lockfile
+## Step 4 - Upload dependency lockfile metadata
 
-Upload your lockfile (`requirements.txt`, `package-lock.json`, `go.sum`, etc.) as a
-release artefact so Sobs can run CVE enrichment:
+Lockfile metadata improves release-scoped CVE enrichment:
 
 ```bash
-curl -s -X POST "${{SOBS_URL}}/api/apps/${{APP_ID}}/releases/${{VERSION}}/artifacts" \\
-  -H "Authorization: Basic ${{SOBS_BASIC_AUTH}}" \\
-  -F "file=@requirements.txt" \\
-  -F "artifact_type=dependencies-lockfile" \\
-  -F "content_type=text/plain"
+curl -sS -X POST "${{SOBS_URL}}/v1/releases/${{RELEASE_ID}}/artifacts/meta" \\
+        -H "X-API-Key: ${{SOBS_INGEST_API_KEY}}" \\
+        -H "Content-Type: application/json" \\
+        -d '{{
+                "artifactType": "dependencies-lockfile",
+                "name": "requirements.txt",
+                "contentType": "text/plain",
+                "storageRef": "ci://artifacts/requirements.txt"
+        }}'
 ```
 
 ---
 
-## Step 3 — Upload JS source maps (web front-end only)
+## Step 5 - Upload JS source maps (web front-end only)
 
 Source maps let Sobs resolve minified stack traces to original source locations:
 
 ```bash
-curl -s -X POST "${{SOBS_URL}}/api/apps/${{APP_ID}}/releases/${{VERSION}}/artifacts" \\
-  -H "Authorization: Basic ${{SOBS_BASIC_AUTH}}" \\
-  -F "file=@dist/app.min.js.map" \\
-  -F "artifact_type=js_sourcemap" \\
-  -F "content_type=application/json"
+curl -sS -X POST "${{SOBS_URL}}/v1/releases/${{RELEASE_ID}}/artifacts/meta" \\
+    -H "X-API-Key: ${{SOBS_INGEST_API_KEY}}" \\
+    -H "Content-Type: application/json" \\
+    -d '{{
+        "artifactType": "js-sourcemap",
+        "name": "app.min.js.map",
+        "contentType": "application/json",
+        "storageRef": "ci://artifacts/app.min.js.map"
+    }}'
 ```
 
 ---
 
-## Step 4 — Trigger a CVE scan after release
+## Step 6 - Optional webhook acceleration
+
+If repository admins approve webhook setup, add a GitHub webhook to Sobs for push/workflow events.
+
+- This is optional and should not block onboarding.
+- Admin/webhook-write permissions are usually required.
+- Keep polling mode enabled as fallback.
+
+---
+
+## Step 7 - Trigger a CVE scan (optional)
 
 ```bash
-curl -s -X POST "${{SOBS_URL}}/api/enrichment/cve/scan" \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Basic ${{SOBS_BASIC_AUTH}}" \\
-  -d '{{}}'
+curl -sS -X POST "${{SOBS_URL}}/api/enrichment/cve/scan" \\
+        -H "X-API-Key: ${{SOBS_INGEST_API_KEY}}" \\
+        -H "Content-Type: application/json" \\
+        -d '{{}}'
 ```
 
 ---
 
-## Required Secrets
+## Manual verification checklist
 
-| Secret | Description |
-|--------|-------------|
-| `SOBS_URL` | Base URL of your Sobs instance (e.g. `https://sobs.internal`) |
-| `SOBS_BASIC_AUTH` | Base-64-encoded `user:password` for Sobs basic auth |
-| `SOBS_APP_ID` | The UUID of the application in Sobs (copy from Settings → Repositories) |
-
----
-
-## What remains manual
-
-- Adding the CI snippet to your workflow file (steps above)
-- Creating the three GitHub Actions secrets listed above
-- Verifying the first release appears in Sobs under **Settings → Repositories**
+- Confirm first pushed release appears in Sobs
+- Confirm lockfile artifact metadata is visible for the release
+- Confirm CVE findings reflect the expected dependency snapshot
+- Confirm polling-only fallback works if CI push or webhook path is blocked
 
 ---
 
@@ -32686,6 +32967,7 @@ async def api_onboarding_create_issues():
     create_otel     bool — create OTEL & RUM audit issue
     assign_copilot  bool — attempt to assign both issues to Copilot
     has_github_actions  bool — passed from inspection result (affects issue body)
+    enable_realtime_support bool — include manual realtime CI setup guidance and key state
     """
     db = get_db()
     body = await request.get_json(silent=True) or {}
@@ -32696,9 +32978,10 @@ async def api_onboarding_create_issues():
     create_otel = bool(body.get("create_otel", True))
     assign_copilot = bool(body.get("assign_copilot", False))
     has_github_actions = bool(body.get("has_github_actions", True))
+    enable_realtime_support = bool(body.get("enable_realtime_support", False))
 
-    if not create_ci and not create_otel:
-        return jsonify({"ok": False, "error": "At least one issue type must be selected"}), 400
+    if not create_ci and not create_otel and not enable_realtime_support:
+        return jsonify({"ok": False, "error": "Select at least one issue type or enable realtime support"}), 400
 
     repo_url = ""
     if app_id:
@@ -32725,7 +33008,43 @@ async def api_onboarding_create_issues():
         return jsonify({"ok": False, "error": "No GitHub token configured for this repository"}), 400
 
     github_repo = f"{owner}/{repo}"
-    results: dict[str, Any] = {"ok": True, "ci_issue": None, "otel_issue": None}
+    results: dict[str, Any] = {"ok": True, "ci_issue": None, "otel_issue": None, "realtime": None}
+
+    if enable_realtime_support:
+        realtime_app_id = str(app_id or "").strip()
+        if not realtime_app_id and repo_url:
+            realtime_app_id = _find_app_id_by_repo_url(db, repo_url)
+
+        if not realtime_app_id:
+            return jsonify({"ok": False, "error": "Realtime support requires a saved repository app."}), 400
+
+        key_plain = ""
+        key_status = _ci_push_api_key_status(db, realtime_app_id)
+        if (not key_status.get("configured")) or str((key_status.get("expiry") or {}).get("state") or "") == "expired":
+            key_plain, _ = _rotate_ci_push_api_key(db, realtime_app_id, _CI_PUSH_API_KEY_DEFAULT_TTL_DAYS)
+            key_status = _ci_push_api_key_status(db, realtime_app_id)
+        _set_ci_push_realtime_enabled(db, realtime_app_id, True)
+        app_id_for_example = realtime_app_id or "<APP_ID>"
+        results["realtime"] = {
+            "app_id": realtime_app_id,
+            "enabled": True,
+            "configured": bool(key_status.get("configured")),
+            "expires_at": str(key_status.get("expires_at") or ""),
+            "expiry_state": str((key_status.get("expiry") or {}).get("state") or "unknown"),
+            "expiry_message": str((key_status.get("expiry") or {}).get("message") or ""),
+            "api_key": key_plain,
+            "api_key_show_once": bool(key_plain),
+            "instructions": {
+                "required_secrets": ["SOBS_URL", "SOBS_INGEST_API_KEY", "SOBS_APP_ID"],
+                "curl_example": (
+                    f"curl -sS -X POST '$SOBS_URL/v1/apps/{app_id_for_example}/releases' "
+                    "-H 'X-API-Key: $SOBS_INGEST_API_KEY' "
+                    "-H 'Content-Type: application/json' "
+                    '-d \'{"version":"$VERSION","commitSha":"$COMMIT_SHA","buildId":"$BUILD_ID"}\''
+                ),
+                "webhook_note": "Optional: add a GitHub webhook for push/workflow events to reduce polling latency.",
+            },
+        }
 
     if create_ci:
         ci_body = _build_ci_metadata_issue_body(owner, repo, has_github_actions)
@@ -32754,18 +33073,19 @@ async def api_onboarding_create_issues():
                 "note": issue_note,
                 "copilot_status": copilot_status,
             }
-            _persist_onboarding_work_item(
-                db,
-                github_repo=github_repo,
-                issue_url=issue_url,
-                issue_number=issue_number,
-                issue_title=str(ci_result.get("issue_title") or f"[Sobs] Set up CI metadata scripts for {repo}"),
-                issue_state=str(ci_result.get("issue_state") or "open"),
-                dedup_decision=issue_status,
-                note=issue_note,
-                copilot_status=copilot_status,
-                issue_type="ci",
-            )
+            if issue_status in ("created", "updated"):
+                _persist_onboarding_work_item(
+                    db,
+                    github_repo=github_repo,
+                    issue_url=issue_url,
+                    issue_number=issue_number,
+                    issue_title=str(ci_result.get("issue_title") or f"[Sobs] Set up CI metadata scripts for {repo}"),
+                    issue_state=str(ci_result.get("issue_state") or "open"),
+                    dedup_decision=issue_status,
+                    note=issue_note,
+                    copilot_status=copilot_status,
+                    issue_type="ci",
+                )
 
     if create_otel:
         otel_body = _build_otel_audit_issue_body(owner, repo)
@@ -32794,18 +33114,19 @@ async def api_onboarding_create_issues():
                 "note": issue_note,
                 "copilot_status": copilot_status,
             }
-            _persist_onboarding_work_item(
-                db,
-                github_repo=github_repo,
-                issue_url=issue_url,
-                issue_number=issue_number,
-                issue_title=str(otel_result.get("issue_title") or f"[Sobs] OTEL & RUM telemetry audit for {repo}"),
-                issue_state=str(otel_result.get("issue_state") or "open"),
-                dedup_decision=issue_status,
-                note=issue_note,
-                copilot_status=copilot_status,
-                issue_type="observability",
-            )
+            if issue_status in ("created", "updated"):
+                _persist_onboarding_work_item(
+                    db,
+                    github_repo=github_repo,
+                    issue_url=issue_url,
+                    issue_number=issue_number,
+                    issue_title=str(otel_result.get("issue_title") or f"[Sobs] OTEL & RUM telemetry audit for {repo}"),
+                    issue_state=str(otel_result.get("issue_state") or "open"),
+                    dedup_decision=issue_status,
+                    note=issue_note,
+                    copilot_status=copilot_status,
+                    issue_type="observability",
+                )
 
     return jsonify(results)
 
