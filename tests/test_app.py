@@ -4908,6 +4908,33 @@ class TestCrossLinkNavigation:
             resource_spans=[ResourceSpans(resource=resource, scope_spans=[ScopeSpans(spans=[span])])]
         )
 
+    async def _get_conv_html_for_trace(
+        self, client, service: str, trace_id_hex: str, from_ts: str = "", to_ts: str = ""
+    ) -> str:
+        """Fetch lazy-loaded conversation HTML for the most recent span of a service+trace."""
+        import app as app_module
+
+        db = app_module.get_db()
+        row = db.execute(
+            "SELECT Timestamp, TraceId, SpanName FROM otel_traces "
+            "WHERE ServiceName=? AND TraceId=? ORDER BY Timestamp DESC LIMIT 1",
+            [service, trace_id_hex],
+        ).fetchone()
+        assert row is not None, f"No span found for service={service} trace={trace_id_hex}"
+        r = await client.get(
+            "/api/ai/conversation",
+            query_string={
+                "ts": str(row["Timestamp"]),
+                "service": service,
+                "trace_id": str(row["TraceId"]),
+                "span_name": str(row["SpanName"]),
+                "from_ts": from_ts,
+                "to_ts": to_ts,
+            },
+        )
+        assert r.status_code == 200
+        return await r.get_data(as_text=True)
+
     def _extract_trace_link_href(self, body: str, trace_id_hex: str) -> str:
         pattern = rf'href="([^"]*/traces\?[^"]*trace_id={re.escape(trace_id_hex)}[^"]*)"'
         match = re.search(pattern, body)
@@ -4929,10 +4956,10 @@ class TestCrossLinkNavigation:
 
         r = await client.get(f"/ai?from_ts={from_ts}&to_ts={to_ts}")
         assert r.status_code == 200
-        body = await r.get_data(as_text=True)
 
-        # Assert the specific trace link carries time context.
-        href = self._extract_trace_link_href(body, trace_id_hex)
+        # Trace link is in lazy-loaded conversation HTML — fetch it with time context
+        conv = await self._get_conv_html_for_trace(client, "nav-svc", trace_id_hex, from_ts, to_ts)
+        href = self._extract_trace_link_href(conv, trace_id_hex)
         assert "from_ts=" in href
         assert "to_ts=" in href
 
@@ -4950,10 +4977,10 @@ class TestCrossLinkNavigation:
 
         r = await client.get(f"/ai?view=trace&from_ts={from_ts}&to_ts={to_ts}")
         assert r.status_code == 200
-        body = await r.get_data(as_text=True)
 
-        # Assert the specific trace link carries time context.
-        href = self._extract_trace_link_href(body, trace_id_hex)
+        # Trace link is in lazy-loaded conversation HTML — fetch it with time context
+        conv = await self._get_conv_html_for_trace(client, "nav-svc", trace_id_hex, from_ts, to_ts)
+        href = self._extract_trace_link_href(conv, trace_id_hex)
         assert "from_ts=" in href
         assert "to_ts=" in href
 
@@ -5738,6 +5765,31 @@ class TestSSETail:
 class TestGenAICompliance:
     """Tests for OTel GenAI semantic convention compliance in queries and UI."""
 
+    async def _get_conv_html(self, client, service: str, from_ts: str = "", to_ts: str = "") -> str:
+        """Fetch lazy-loaded conversation HTML for the most recent span of a service."""
+        import app as app_module
+
+        db = app_module.get_db()
+        row = db.execute(
+            "SELECT Timestamp, TraceId, SpanName FROM otel_traces "
+            "WHERE ServiceName=? ORDER BY Timestamp DESC LIMIT 1",
+            [service],
+        ).fetchone()
+        assert row is not None, f"No span found for service={service}"
+        r = await client.get(
+            "/api/ai/conversation",
+            query_string={
+                "ts": str(row["Timestamp"]),
+                "service": service,
+                "trace_id": str(row["TraceId"]),
+                "span_name": str(row["SpanName"]),
+                "from_ts": from_ts,
+                "to_ts": to_ts,
+            },
+        )
+        assert r.status_code == 200
+        return await r.get_data(as_text=True)
+
     async def test_gen_ai_system_legacy_fallback_counts_as_ai_span(self, client):
         """Spans with gen_ai.system (legacy) should be counted as AI spans."""
         import app as app_module
@@ -5800,9 +5852,10 @@ class TestGenAICompliance:
 
         r2 = await client.get("/ai")
         assert r2.status_code == 200
-        body = await r2.get_data(as_text=True)
-        assert "What is the capital of France?" in body
-        assert "Paris" in body
+
+        conv = await self._get_conv_html(client, "msg-svc")
+        assert "What is the capital of France?" in conv
+        assert "Paris" in conv
 
     async def test_extract_messages_text_helper(self):
         """_extract_messages_text should handle standard OTel message format."""
@@ -5907,9 +5960,11 @@ class TestGenAICompliance:
         r2 = await client.get("/ai")
         assert r2.status_code == 200
         body = await r2.get_data(as_text=True)
-        # Operation data should be included in the rendered output
+        # Service name still present in page (accordion header data attrs)
         assert "op-svc" in body
-        assert "Operation:</strong> chat" in body
+
+        conv = await self._get_conv_html(client, "op-svc")
+        assert "Operation:</strong> chat" in conv
 
     async def test_ai_view_chat_operation_filter(self, client):
         """AI view chat filter should include chat calls and exclude non-chat calls."""
@@ -5946,8 +6001,9 @@ class TestGenAICompliance:
         r2 = await client.get("/ai?operation=chat")
         assert r2.status_code == 200
         body = await r2.get_data(as_text=True)
-        assert "<strong>Service:</strong> chat-filter-svc" in body
-        assert "<strong>Service:</strong> embed-filter-svc" not in body
+        # Service is in page via data-conv-service attr on the lazy skeleton
+        assert "chat-filter-svc" in body
+        assert "embed-filter-svc" not in body
 
     async def test_ai_view_trace_group_mode_groups_calls(self, client):
         """AI view trace mode should group multiple calls sharing a trace id."""
@@ -6084,6 +6140,97 @@ class TestGenAICompliance:
         assert "Raw JSON" in body
         assert "raw_attrs" in body or "Span Attributes" in body
 
+    async def test_ai_span_attributes_endpoint_requires_ts_and_service(self, client):
+        r = await client.get("/api/ai/span-attributes")
+        assert r.status_code == 400
+        payload = await r.get_json()
+        assert payload["ok"] is False
+
+    async def test_ai_span_attributes_endpoint_returns_raw_attrs(self, client):
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "json-attrs-svc",
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "input_messages": [{"role": "user", "content": "attrs endpoint test"}],
+                "output_messages": [{"role": "assistant", "content": "ok"}],
+                "tokens_in": 9,
+                "tokens_out": 3,
+                "duration_ms": 120,
+            },
+        )
+        assert r.status_code == 200
+
+        db = sobs_app.get_db()
+        row = db.execute(
+            "SELECT Timestamp, ServiceName, TraceId, SpanName "
+            "FROM otel_traces WHERE ServiceName=? ORDER BY Timestamp DESC LIMIT 1",
+            ["json-attrs-svc"],
+        ).fetchone()
+        assert row is not None
+
+        r2 = await client.get(
+            "/api/ai/span-attributes",
+            query_string={
+                "ts": str(row["Timestamp"]),
+                "service": str(row["ServiceName"]),
+                "trace_id": str(row["TraceId"]),
+                "span_name": str(row["SpanName"]),
+            },
+        )
+        assert r2.status_code == 200
+        payload = await r2.get_json()
+        assert payload["ok"] is True
+        assert "gen_ai.request.model" in payload["raw_attrs"]
+
+    async def test_ai_conversation_endpoint_requires_ts_and_service(self, client):
+        r = await client.get("/api/ai/conversation")
+        assert r.status_code == 400
+        body = await r.get_data(as_text=True)
+        assert "Missing required params" in body
+
+    async def test_ai_conversation_endpoint_returns_html(self, client):
+        r = await client.post(
+            "/v1/ai",
+            json={
+                "service": "conv-html-svc",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "input_messages": [{"role": "user", "content": "hello conversation"}],
+                "output_messages": [{"role": "assistant", "content": "hi there"}],
+                "tokens_in": 10,
+                "tokens_out": 4,
+                "duration_ms": 80,
+            },
+        )
+        assert r.status_code == 200
+
+        db = sobs_app.get_db()
+        row = db.execute(
+            "SELECT Timestamp, ServiceName, TraceId, SpanName "
+            "FROM otel_traces WHERE ServiceName=? ORDER BY Timestamp DESC LIMIT 1",
+            ["conv-html-svc"],
+        ).fetchone()
+        assert row is not None
+
+        r2 = await client.get(
+            "/api/ai/conversation",
+            query_string={
+                "ts": str(row["Timestamp"]),
+                "service": str(row["ServiceName"]),
+                "trace_id": str(row["TraceId"]),
+                "span_name": str(row["SpanName"]),
+            },
+        )
+        assert r2.status_code == 200
+        body = await r2.get_data(as_text=True)
+        # Should contain conversation content
+        assert "hello conversation" in body
+        assert "hi there" in body
+        # Should contain metadata footer elements
+        assert "Service:" in body
+
     async def test_ai_view_handles_messages_missing_content(self, client):
         """AI view should not fail when message objects omit the content field."""
         r = await client.post(
@@ -6105,7 +6252,9 @@ class TestGenAICompliance:
         assert r2.status_code == 200
         body = await r2.get_data(as_text=True)
         assert "missing-content-svc" in body
-        assert "tool_call:lookup" in body
+
+        conv = await self._get_conv_html(client, "missing-content-svc")
+        assert "tool_call:lookup" in conv
 
     async def test_ai_trace_view_treats_message_only_span_as_llm_call(self, client):
         """Trace AI view should render full conversation tabs for conversational spans even with zero tokens."""
@@ -6130,11 +6279,13 @@ class TestGenAICompliance:
         assert r2.status_code == 200
         body = await r2.get_data(as_text=True)
         assert "message-only-trace-svc" in body
-        assert "Zero-token question" in body
-        assert "Zero-token answer" in body
         assert "Conversation" in body
         assert 'data-ai-call="1"' in body
         assert 'data-model="gpt-4o"' in body
+
+        conv = await self._get_conv_html(client, "message-only-trace-svc")
+        assert "Zero-token question" in conv
+        assert "Zero-token answer" in conv
 
     async def test_ai_trace_view_shows_turn_timeline_for_helper_spans(self, client):
         """Trace AI view should synthesize helper spans into a turn timeline summary."""
@@ -6262,7 +6413,9 @@ class TestGenAICompliance:
         body = await r2.get_data(as_text=True)
         assert "AI_PRICING" in body
         assert "aiCostEstimate" in body
+        assert "formatAiUsd" in body
         assert "Est. Cost" in body
+        assert "$0.00" in body
 
     async def test_ai_export_jsonl(self, client):
         """GET /api/ai/export should return JSONL training data."""
@@ -6391,6 +6544,8 @@ class TestGenAICompliance:
         import app as app_module
 
         real_db = app_module.get_db()
+        # Clear cache so the monkeypatched DB is actually queried (not served from cache)
+        monkeypatch.setattr(app_module, "_ai_filter_metadata_cache", {})
 
         class _DbProxy:
             def __init__(self, inner_db):
@@ -6607,14 +6762,16 @@ class TestGenAICompliance:
         assert r2.status_code == 200
         body = await r2.get_data(as_text=True)
         assert "parts-turns-svc" in body
-        assert "Follow safety rules." in body
-        assert "Weather in Paris?" in body
-        assert "rainy, 57F" in body
-        assert "It is rainy in Paris and about 57F." in body
-        assert ">system instruction<" in body
-        assert ">user<" in body
-        assert ">tool<" in body
-        assert ">assistant<" in body
+
+        conv = await self._get_conv_html(client, "parts-turns-svc")
+        assert "Follow safety rules." in conv
+        assert "Weather in Paris?" in conv
+        assert "rainy, 57F" in conv
+        assert "It is rainy in Paris and about 57F." in conv
+        assert ">system instruction<" in conv
+        assert ">user<" in conv
+        assert ">tool<" in conv
+        assert ">assistant<" in conv
 
     async def test_semconv_parts_tool_call_payloads_are_rendered(self, client):
         """Tool call style message parts should surface readable details in AI conversation view."""
@@ -6713,9 +6870,11 @@ class TestGenAICompliance:
         assert r2.status_code == 200
         body = await r2.get_data(as_text=True)
         assert "reasoning-visible-svc" in body
-        assert "Likely due to increased DB wait time." in body
-        assert "Thinking" in body
-        assert "Correlated spikes in db.client.duration with p95 latency." in body
+
+        conv = await self._get_conv_html(client, "reasoning-visible-svc")
+        assert "Likely due to increased DB wait time." in conv
+        assert "Thinking" in conv
+        assert "Correlated spikes in db.client.duration with p95 latency." in conv
 
     async def test_semconv_message_content_preferred_over_parts(self, client):
         """When both content and parts are present, explicit content should remain authoritative."""
@@ -6774,8 +6933,10 @@ class TestGenAICompliance:
         assert r2.status_code == 200
         body = await r2.get_data(as_text=True)
         assert "mixed-content-svc" in body
-        assert "Preferred content text" in body
-        assert "Assistant preferred text" in body
+
+        conv = await self._get_conv_html(client, "mixed-content-svc")
+        assert "Preferred content text" in conv
+        assert "Assistant preferred text" in conv
 
     async def test_system_instructions_displayed_in_ai_view(self, client):
         """gen_ai.system_instructions should be displayed in the AI view conversation tab."""
@@ -6800,8 +6961,10 @@ class TestGenAICompliance:
         assert r2.status_code == 200
         body = await r2.get_data(as_text=True)
         assert "sys-instr-svc" in body
-        assert "You are a helpful assistant that speaks only in haiku." in body
-        assert "System Prompt" in body
+
+        conv = await self._get_conv_html(client, "sys-instr-svc")
+        assert "You are a helpful assistant that speaks only in haiku." in conv
+        assert "System Prompt" in conv
 
     async def test_flat_view_dedupes_system_prompt_from_system_role_input_turn(self, client):
         """Flat AI view should hide duplicate system role turn when it matches system prompt content."""
@@ -6828,11 +6991,12 @@ class TestGenAICompliance:
 
         r2 = await client.get("/ai?service=flat-dedupe-svc")
         assert r2.status_code == 200
-        body = await r2.get_data(as_text=True)
-        assert "System Prompt" in body
-        assert "Hidden 1 duplicate system instruction turn." in body
+
+        conv = await self._get_conv_html(client, "flat-dedupe-svc")
+        assert "System Prompt" in conv
+        assert "Hidden 1 duplicate system instruction turn." in conv
         # The duplicated system role turn should be hidden from the conversation turn badges.
-        assert ">system instruction<" not in body
+        assert ">system instruction<" not in conv
 
     async def test_execution_event_label_replaces_system_event_label(self, client):
         """AI view should label non-LLM rows as Execution Event for taxonomy clarity."""
@@ -11064,6 +11228,207 @@ class TestAISettingsAndAgentFlows:
         assert _load_ai_setting(db, "ai.endpoint_url") == "https://api.example.com/v1"
         assert _load_ai_setting(db, "ai.model") == "gpt-test"
         assert _load_ai_setting(db, "ai.agent_max_issues_per_hour") == "3"
+
+    async def test_save_ai_settings_persists_model_pricing(self, client):
+        pricing_json = '{"gpt-4o": {"in": 1.0, "out": 4.0}, "my-model": {"in": 0.5, "out": 2.0}}'
+        r = await client.post(
+            "/settings/ai",
+            form={
+                "endpoint_url": "",
+                "model": "",
+                "api_key": "",
+                "guard_endpoint_url": "",
+                "guard_model": "",
+                "dlp_endpoint_url": "",
+                "github_token": "",
+                "github_repo": "",
+                "agent_max_issues_per_hour": "10",
+                "system_prompt": "",
+                "model_pricing": pricing_json,
+                "model_pricing_confirmed": "[]",
+            },
+        )
+        assert r.status_code in (200, 302)
+
+        from app import _load_ai_pricing, get_db
+
+        db = get_db()
+        pricing = _load_ai_pricing(db)
+        assert pricing["gpt-4o"]["in"] == 1.0
+        assert pricing["gpt-4o"]["out"] == 4.0
+        assert pricing["my-model"]["in"] == 0.5
+        # Defaults not in the submission still present from merge
+        assert "gpt-4o-mini" in pricing
+
+    async def test_save_ai_settings_persists_confirmed_models(self, client):
+        from app import _load_ai_setting, get_db
+
+        pricing_json = '{"gpt-4o-audio-preview": {"in": 2.5, "out": 10.0}}'
+        confirmed_json = '["gpt-4o-audio-preview"]'
+        r = await client.post(
+            "/settings/ai",
+            form={
+                "endpoint_url": "",
+                "model": "",
+                "api_key": "",
+                "guard_endpoint_url": "",
+                "guard_model": "",
+                "dlp_endpoint_url": "",
+                "github_token": "",
+                "github_repo": "",
+                "agent_max_issues_per_hour": "10",
+                "system_prompt": "",
+                "model_pricing": pricing_json,
+                "model_pricing_confirmed": confirmed_json,
+            },
+        )
+        assert r.status_code in (200, 302)
+
+        raw_confirmed = _load_ai_setting(get_db(), "ai.model_pricing_confirmed", "")
+        assert "gpt-4o-audio-preview" in raw_confirmed
+
+    async def test_save_ai_settings_rejects_invalid_model_pricing(self, client):
+        r = await client.post(
+            "/settings/ai",
+            form={
+                "endpoint_url": "",
+                "model": "",
+                "api_key": "",
+                "guard_endpoint_url": "",
+                "guard_model": "",
+                "dlp_endpoint_url": "",
+                "github_token": "",
+                "github_repo": "",
+                "agent_max_issues_per_hour": "10",
+                "system_prompt": "",
+                "model_pricing": "not valid json {{{",
+            },
+        )
+        assert r.status_code == 400
+
+    async def test_save_ai_settings_rejects_invalid_confirmed_models(self, client):
+        r = await client.post(
+            "/settings/ai",
+            form={
+                "endpoint_url": "",
+                "model": "",
+                "api_key": "",
+                "guard_endpoint_url": "",
+                "guard_model": "",
+                "dlp_endpoint_url": "",
+                "github_token": "",
+                "github_repo": "",
+                "agent_max_issues_per_hour": "10",
+                "system_prompt": "",
+                "model_pricing": '{"gpt-4o-audio-preview": {"in": 2.5, "out": 10.0}}',
+                "model_pricing_confirmed": "not valid json {{{",
+            },
+        )
+        assert r.status_code == 400
+
+    async def test_load_ai_pricing_merges_defaults(self, client):
+        from app import _DEFAULT_AI_PRICING, _load_ai_pricing, _save_ai_setting, get_db
+
+        db = get_db()
+        # Save a partial override
+        import json
+
+        _save_ai_setting(db, "ai.model_pricing", json.dumps({"gpt-4o": {"in": 99.0, "out": 99.0}}))
+        pricing = _load_ai_pricing(db)
+        # Overridden model reflects saved values
+        assert pricing["gpt-4o"]["in"] == 99.0
+        # Default-only models still included
+        assert "gpt-4o-mini" in pricing
+        assert pricing["gpt-4o-mini"] == _DEFAULT_AI_PRICING["gpt-4o-mini"]
+
+    async def test_load_ai_pricing_auto_adds_observed_models(self, client, monkeypatch):
+        import app as sobs_app
+        from app import _DEFAULT_AI_PRICING, _load_ai_pricing, get_db
+
+        monkeypatch.setattr(
+            sobs_app,
+            "_load_observed_ai_models",
+            lambda db, limit=200: ["claude-3-7-sonnet", "gpt-4o-audio-preview", "brand-new-model"],
+        )
+
+        pricing = _load_ai_pricing(get_db())
+
+        assert pricing["claude-3-7-sonnet"] == _DEFAULT_AI_PRICING["claude-3-5-sonnet"]
+        assert pricing["gpt-4o-audio-preview"] == _DEFAULT_AI_PRICING["gpt-4o"]
+        assert pricing["brand-new-model"] == _DEFAULT_AI_PRICING["gpt-4o"]
+
+    async def test_ai_page_uses_configured_pricing(self, client):
+        import json
+        import re
+
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(
+            db,
+            "ai.model_pricing",
+            json.dumps({"gpt-4o": {"in": 7.77, "out": 8.88}}),
+        )
+        r = await client.get("/ai")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "var AI_PRICING = {" in text
+        assert "var AI_PRICING_SOURCES = {" in text
+        assert "estCostInferredHint" in text
+        assert 'title="Includes inferred pricing"' in text
+        assert 'href="/settings/ai"' in text
+        assert re.search(r'"gpt-4o"\s*:\s*\{\s*"in"\s*:\s*7\.77\s*,\s*"out"\s*:\s*8\.88\s*\}', text)
+        assert 'var AI_PRICING = "{' not in text
+
+    async def test_ai_settings_page_shows_pricing_table(self, client):
+        r = await client.get("/settings/ai")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "pricingTable" in text
+        assert "Model Pricing" in text
+        assert "modelPricingJson" in text
+
+    async def test_ai_settings_page_includes_auto_discovered_model_pricing(self, client, monkeypatch):
+        import app as sobs_app
+
+        monkeypatch.setattr(sobs_app, "_load_observed_ai_models", lambda db, limit=200: ["gpt-4o-audio-preview"])
+
+        r = await client.get("/settings/ai")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "gpt-4o-audio-preview" in text
+        assert '"gpt-4o-audio-preview": "inferred"' in text
+        assert "pricing was inferred from the closest known model family" in text
+        assert "Rows marked" in text
+        assert "inferred" in text
+        assert "buildRow('', '', '', 'custom')" in text
+
+    async def test_ai_settings_page_includes_confirmed_source(self, client, monkeypatch):
+        import json
+
+        import app as sobs_app
+        from app import _save_ai_setting, get_db
+
+        monkeypatch.setattr(sobs_app, "_load_observed_ai_models", lambda db, limit=200: ["gpt-4o-audio-preview"])
+        db = get_db()
+        _save_ai_setting(db, "ai.model_pricing", json.dumps({"gpt-4o-audio-preview": {"in": 2.5, "out": 10.0}}))
+        _save_ai_setting(db, "ai.model_pricing_confirmed", json.dumps(["gpt-4o-audio-preview"]))
+
+        r = await client.get("/settings/ai")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert '"gpt-4o-audio-preview": "confirmed"' in text
+
+    async def test_ai_settings_help_page_explains_model_pricing(self, client):
+        r = await client.get("/settings/help/ai")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Model Pricing And Cost Estimates" in text
+        assert "How Inferred Pricing Works" in text
+        assert "Using Add Custom Model" in text
+        assert "gen_ai.request.model" in text
+        assert "Add Custom Model" in text
+        assert "inferred badge" in text
 
     # ── Agent Rules CRUD ──────────────────────────────────────────────────────
 
