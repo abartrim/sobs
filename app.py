@@ -1925,6 +1925,7 @@ WORK_ITEMS_PAGE_CACHE_TTL_SEC = int(os.environ.get("SOBS_WORK_ITEMS_PAGE_CACHE_T
 WORK_ITEMS_FILTER_CACHE_TTL_SEC = int(os.environ.get("SOBS_WORK_ITEMS_FILTER_CACHE_TTL_SEC", "30"))
 ERRORS_SERVICES_CACHE_TTL_SEC = int(os.environ.get("SOBS_ERRORS_SERVICES_CACHE_TTL_SEC", "30"))
 SUMMARY_STATS_CACHE_TTL_SEC = int(os.environ.get("SOBS_SUMMARY_STATS_CACHE_TTL_SEC", "60"))
+RUM_SESSION_DETAIL_EVENT_CAP = int(os.environ.get("SOBS_RUM_SESSION_DETAIL_EVENT_CAP", "200"))
 
 
 @dataclass
@@ -8001,6 +8002,18 @@ def _error_id(ts: str, service: str, err_type: str, message: str, trace_id: str,
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 
+def _error_id_sql_expr() -> str:
+    """Return the shared SQL expression for stable ErrorId derivation."""
+    return (
+        "lower(hex(MD5(concat("
+        "toString(Timestamp), '|', ServiceName, '|', "
+        "if(mapContains(LogAttributes, 'exception.type'), LogAttributes['exception.type'], 'Error'), '|', "
+        "if(mapContains(LogAttributes, 'exception.message'), LogAttributes['exception.message'], Body), '|', "
+        "TraceId, '|', SpanId"
+        "))))"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Internal write-table allowlist
 # ---------------------------------------------------------------------------
@@ -10069,14 +10082,7 @@ def _fmt_bytes(n: int | None) -> str:
 @require_basic_auth
 async def summary():
     db = get_db()
-    error_id_sql = (
-        "lower(hex(MD5(concat("
-        "toString(Timestamp), '|', ServiceName, '|', "
-        "if(mapContains(LogAttributes, 'exception.type'), LogAttributes['exception.type'], 'Error'), '|', "
-        "if(mapContains(LogAttributes, 'exception.message'), LogAttributes['exception.message'], Body), '|', "
-        "TraceId, '|', SpanId"
-        "))))"
-    )
+    error_id_sql = _error_id_sql_expr()
     unresolved_condition = f"{error_id_sql} NOT IN (SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId)"
 
     recent_errors = []
@@ -13427,6 +13433,7 @@ def _load_work_item_links_for_ref_ids(db: ChDbConnection, ref_ids: list[str]) ->
 @require_basic_auth
 async def view_errors():
     db = get_db()
+    error_id_sql = _error_id_sql_expr()
     grouped_trace_chunk_size = 200
     hydrate_key_chunk_size = 200
 
@@ -13536,14 +13543,6 @@ async def view_errors():
     if grouped_mode:
         # Best-effort deduplication: probe recent raw events, then aggregate in SQL.
         probe_limit = max(2000, min(10000, limit * 100))
-        error_id_sql = (
-            "lower(hex(MD5(concat("
-            "toString(Timestamp), '|', ServiceName, '|', "
-            "if(mapContains(LogAttributes, 'exception.type'), LogAttributes['exception.type'], 'Error'), '|', "
-            "if(mapContains(LogAttributes, 'exception.message'), LogAttributes['exception.message'], Body), '|', "
-            "TraceId, '|', SpanId"
-            "))))"
-        )
         grouped_where_sql = where_sql
         if resolved == "1":
             resolved_condition = f"{error_id_sql} IN (SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId)"
@@ -13686,14 +13685,7 @@ async def view_errors():
         )
         use_resolved_sql_path = resolved in ("0", "1")
         if use_resolved_sql_path:
-            error_id_expr = (
-                "lower(hex(MD5(concat("
-                "toString(Timestamp), '|', ServiceName, '|', "
-                "if(mapContains(LogAttributes, 'exception.type'), LogAttributes['exception.type'], 'Error'), '|', "
-                "if(mapContains(LogAttributes, 'exception.message'), LogAttributes['exception.message'], Body), '|', "
-                "TraceId, '|', SpanId"
-                "))))"
-            )
+            error_id_expr = error_id_sql
             poc_where_sql = where_sql
             poc_where_params: list[Any] = list(where_params)
             if resolved == "1":
@@ -14548,14 +14540,7 @@ def _fetch_trace_metric_context(
 @require_basic_auth
 async def view_traces():
     db = get_db()
-    error_id_sql = (
-        "lower(hex(MD5(concat("
-        "toString(Timestamp), '|', ServiceName, '|', "
-        "if(mapContains(LogAttributes, 'exception.type'), LogAttributes['exception.type'], 'Error'), '|', "
-        "if(mapContains(LogAttributes, 'exception.message'), LogAttributes['exception.message'], Body), '|', "
-        "TraceId, '|', SpanId"
-        "))))"
-    )
+    error_id_sql = _error_id_sql_expr()
     selected_services = [svc.strip() for svc in request.args.getlist("service") if svc.strip()]
     service = selected_services[0] if selected_services else ""
     trace_id = request.args.get("trace_id", "").strip()
@@ -16297,7 +16282,6 @@ async def _startup_enrichment() -> None:
 @require_basic_auth
 async def view_rum():
     db = get_db()
-    session_detail_event_cap = 200
     view_mode = request.args.get("view", "sessions").strip().lower()
     if view_mode not in ("sessions", "events"):
         view_mode = "sessions"
@@ -16410,7 +16394,7 @@ async def view_rum():
                 ") "
                 "WHERE row_rank <= ? "
                 "ORDER BY session_key ASC, Timestamp DESC",
-                params + session_keys + [session_detail_event_cap],
+                params + session_keys + [RUM_SESSION_DETAIL_EVENT_CAP],
             ).fetchall()
             events_by_session: dict[str, list[dict[str, Any]]] = {}
             for row in detail_rows:
