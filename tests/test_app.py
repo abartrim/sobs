@@ -19984,3 +19984,151 @@ class TestSetupWizard:
         text = (await r.get_data()).decode()
         assert "tourOpenWizardBtn" in text
         assert "__sobsOpenSetupWizard" in text
+
+
+class TestOnboardingWizard:
+    """Tests for the CI metadata and OTEL onboarding wizard."""
+
+    # ── UI presence ──────────────────────────────────────────────────────────
+
+    async def test_onboarding_wizard_modal_present_in_repositories_page(self, client):
+        """The onboarding wizard modal must be rendered on the repositories settings page."""
+        r = await client.get("/settings/repositories")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "onboardingWizardModal" in text
+
+    async def test_onboarding_wizard_button_present_in_repositories_page(self, client):
+        """Settings repositories page must contain the Onboarding Wizard button."""
+        r = await client.get("/settings/repositories")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "Onboarding Wizard" in text
+        assert "__sobsOpenOnboardingWizard" in text
+
+    async def test_onboarding_wizard_repos_data_element_present(self, client):
+        """Settings repositories page must include the JSON repos data element."""
+        r = await client.get("/settings/repositories")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "obReposData" in text
+
+    # ── API – inspect-repo validation ───────────────────────────────────────
+
+    async def test_inspect_repo_no_params(self, client):
+        """inspect-repo must return 400 if neither app_id nor repo is provided."""
+        r = await client.get("/api/onboarding/inspect-repo")
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["ok"] is False
+
+    async def test_inspect_repo_unknown_app_id(self, client):
+        """inspect-repo must return 404 for an unknown app_id."""
+        r = await client.get("/api/onboarding/inspect-repo?app_id=nonexistent-id")
+        assert r.status_code == 404
+        data = await r.get_json()
+        assert data["ok"] is False
+
+    async def test_inspect_repo_no_token(self, client):
+        """inspect-repo with repo param but no GitHub token returns ok with error note."""
+        import app as sobs_app
+
+        db = sobs_app.get_db()
+        original_token = sobs_app._load_ai_setting(db, "ai.github_token", "")
+        try:
+            sobs_app._save_ai_setting(db, "ai.github_token", "")
+            r = await client.get("/api/onboarding/inspect-repo?repo=owner/myrepo")
+            assert r.status_code == 200
+            data = await r.get_json()
+            assert data["ok"] is True
+            assert data["owner"] == "owner"
+            assert data["repo"] == "myrepo"
+            assert data["has_github_actions"] is False
+            assert "error" in data
+        finally:
+            sobs_app._save_ai_setting(db, "ai.github_token", original_token)
+
+    async def test_inspect_repo_invalid_repo_format(self, client):
+        """inspect-repo with an unparseable repo string must return 400."""
+        r = await client.get("/api/onboarding/inspect-repo?repo=not-a-valid-url")
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["ok"] is False
+
+    # ── API – create-issues validation ──────────────────────────────────────
+
+    async def test_create_issues_no_body(self, client):
+        """create-issues with no body must return an error."""
+        r = await client.post("/api/onboarding/create-issues", json={})
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["ok"] is False
+
+    async def test_create_issues_both_false(self, client):
+        """create-issues with both flags false must return 400."""
+        r = await client.post(
+            "/api/onboarding/create-issues",
+            json={"repo": "owner/repo", "create_ci": False, "create_otel": False},
+        )
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["ok"] is False
+
+    async def test_create_issues_unknown_app_id(self, client):
+        """create-issues must return 404 for unknown app_id."""
+        r = await client.post(
+            "/api/onboarding/create-issues",
+            json={"app_id": "no-such-id", "create_ci": True, "create_otel": False},
+        )
+        assert r.status_code == 404
+        data = await r.get_json()
+        assert data["ok"] is False
+
+    async def test_create_issues_no_token(self, client):
+        """create-issues with a valid repo string but no GitHub token must return 400."""
+        import app as sobs_app
+
+        db = sobs_app.get_db()
+        original_token = sobs_app._load_ai_setting(db, "ai.github_token", "")
+        try:
+            sobs_app._save_ai_setting(db, "ai.github_token", "")
+            r = await client.post(
+                "/api/onboarding/create-issues",
+                json={"repo": "owner/myrepo", "create_ci": True, "create_otel": True},
+            )
+            assert r.status_code == 400
+            data = await r.get_json()
+            assert data["ok"] is False
+            assert "token" in data["error"].lower()
+        finally:
+            sobs_app._save_ai_setting(db, "ai.github_token", original_token)
+
+    # ── Issue body helpers ───────────────────────────────────────────────────
+
+    def test_ci_metadata_issue_body_contains_key_sections(self):
+        """CI metadata issue body must include required step headings and code samples."""
+        import app as sobs_app
+
+        body = sobs_app._build_ci_metadata_issue_body("myorg", "myrepo", has_github_actions=True)
+        assert "Register a release" in body
+        assert "Upload dependency lockfile" in body
+        assert "Upload JS source maps" in body
+        assert "Trigger a CVE scan" in body
+        assert "myorg/myrepo" in body
+
+    def test_ci_metadata_issue_body_no_github_actions(self):
+        """CI metadata issue body without GitHub Actions must mention provider-agnostic steps."""
+        import app as sobs_app
+
+        body = sobs_app._build_ci_metadata_issue_body("org", "repo", has_github_actions=False)
+        assert "provider-agnostic" in body.lower() or "any CI" in body
+
+    def test_otel_audit_issue_body_contains_key_sections(self):
+        """OTEL audit issue body must include RUM, gen_ai, and infrastructure sections."""
+        import app as sobs_app
+
+        body = sobs_app._build_otel_audit_issue_body("myorg", "myrepo")
+        assert "RUM" in body
+        assert "gen_ai" in body
+        assert "Infrastructure" in body or "infrastructure" in body
+        assert "myorg/myrepo" in body

@@ -31687,6 +31687,550 @@ async def api_setup_wizard_steps():
     return jsonify({"ok": True, **result})
 
 
+# ── Onboarding wizard ─────────────────────────────────────────────────────────
+
+_SOBS_CI_METADATA_INDICATORS: list[str] = [
+    "sobs",
+    "sobs-agent",
+    "register_release",
+    "release_artifacts",
+    "sobs_release",
+    "sobs/api/apps",
+    "/api/releases",
+]
+
+_SOBS_CI_OTEL_INDICATORS: list[str] = [
+    "opentelemetry",
+    "otlp",
+    "otel",
+    "opentelemetry-sdk",
+    "opentelemetry-api",
+]
+
+
+async def _github_list_directory(github_token: str, owner: str, repo: str, path: str) -> list[dict[str, Any]]:
+    """Return directory listing from GitHub Contents API or empty list on error."""
+    client = await _get_async_http_client()
+    encoded = urllib.parse.quote(path, safe="/")
+    try:
+        resp = await client.get(
+            f"https://api.github.com/repos/{owner}/{repo}/contents/{encoded}",
+            headers=_github_api_headers(github_token),
+            timeout=12,
+        )
+        if resp.status_code != 200:
+            return []
+        data = resp.json() if resp.content else []
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+async def _github_file_text(github_token: str, owner: str, repo: str, path: str) -> str:
+    """Fetch a file's text content from GitHub Contents API; empty string on error."""
+    client = await _get_async_http_client()
+    encoded = urllib.parse.quote(path, safe="/")
+    try:
+        resp = await client.get(
+            f"https://api.github.com/repos/{owner}/{repo}/contents/{encoded}",
+            headers=_github_api_headers(github_token),
+            timeout=12,
+        )
+        if resp.status_code != 200:
+            return ""
+        data = resp.json() if resp.content else {}
+        if not isinstance(data, dict):
+            return ""
+        raw = _decode_github_contents_payload(data)
+        return raw.decode("utf-8", errors="replace") if raw else ""
+    except Exception:
+        return ""
+
+
+async def _inspect_repo_for_onboarding(github_token: str, owner: str, repo: str) -> dict[str, Any]:
+    """Inspect a GitHub repo and return onboarding readiness signals.
+
+    Returns a dict with keys:
+    - has_github_actions: bool — .github/workflows/ directory exists with .yml files
+    - sobs_ci_found: bool — at least one workflow references Sobs CI metadata
+    - sobs_otel_found: bool — at least one workflow or manifest references OTEL
+    - copilot_available: bool — Copilot cloud agent can be assigned
+    - workflow_files: list[str] — names of found workflow YAML files
+    - error: str — non-empty on inspection failure
+    """
+    if not github_token or not owner or not repo:
+        return {
+            "has_github_actions": False,
+            "sobs_ci_found": False,
+            "sobs_otel_found": False,
+            "copilot_available": False,
+            "workflow_files": [],
+            "error": "GitHub token or repository not configured",
+        }
+
+    # 1. List .github/workflows/
+    workflow_entries = await _github_list_directory(github_token, owner, repo, ".github/workflows")
+    workflow_files = [
+        e["name"]
+        for e in workflow_entries
+        if isinstance(e, dict) and str(e.get("name", "")).endswith((".yml", ".yaml"))
+    ]
+    has_github_actions = bool(workflow_files)
+
+    # 2. Read workflow file contents and check for Sobs / OTEL indicators
+    sobs_ci_found = False
+    sobs_otel_found = False
+    for filename in workflow_files[:10]:  # cap at 10 to avoid excessive API calls
+        content = await _github_file_text(github_token, owner, repo, f".github/workflows/{filename}")
+        lower = content.lower()
+        if not sobs_ci_found and any(ind in lower for ind in _SOBS_CI_METADATA_INDICATORS):
+            sobs_ci_found = True
+        if not sobs_otel_found and any(ind in lower for ind in _SOBS_CI_OTEL_INDICATORS):
+            sobs_otel_found = True
+        if sobs_ci_found and sobs_otel_found:
+            break
+
+    # Also check common manifest/config files for OTEL if not found in workflows
+    if not sobs_otel_found:
+        for check_path in ("requirements.txt", "package.json", "go.mod", "pom.xml", "build.gradle"):
+            content = await _github_file_text(github_token, owner, repo, check_path)
+            if content and any(ind in content.lower() for ind in _SOBS_CI_OTEL_INDICATORS):
+                sobs_otel_found = True
+                break
+
+    # 3. Check Copilot availability
+    copilot_available = await _github_repo_supports_copilot_assignment(github_token, f"{owner}/{repo}")
+
+    return {
+        "has_github_actions": has_github_actions,
+        "sobs_ci_found": sobs_ci_found,
+        "sobs_otel_found": sobs_otel_found,
+        "copilot_available": copilot_available,
+        "workflow_files": workflow_files,
+        "error": "",
+    }
+
+
+def _build_ci_metadata_issue_body(owner: str, repo: str, has_github_actions: bool) -> str:
+    """Build the Markdown body for the Sobs CI metadata setup GitHub issue."""
+    ci_section = (
+        """
+## CI Provider
+
+This repository uses **GitHub Actions**. The steps below show how to add Sobs CI metadata
+reporting to your existing workflows.
+"""
+        if has_github_actions
+        else """
+## CI Provider
+
+No GitHub Actions workflows were detected. The steps below are provider-agnostic shell
+commands that work with any CI system (Jenkins, CircleCI, GitLab CI, etc.). Adapt the
+shell steps to your pipeline's syntax.
+"""
+    )
+
+    return f"""# Sobs CI Metadata Setup
+
+This issue contains all the steps required to integrate your repository with Sobs so that
+release tracking, CVE enrichment, source-map-based stack-trace resolution, and
+agent-triggered auto-remediation all work correctly.
+
+> **What is Sobs CI metadata?**  Sobs needs to know about your releases, build artefacts,
+> and dependency manifests to correlate telemetry with code versions and to run scheduled
+> CVE scans. Without this, most observability features work at reduced quality.
+{ci_section}
+---
+
+## Step 1 — Register a release
+
+After every build / tag, call the Sobs release-registration API from CI:
+
+```bash
+# Replace <SOBS_URL>, <APP_ID>, <VERSION>, <COMMIT_SHA>, and <BUILD_ID>
+curl -s -X POST "${{SOBS_URL}}/api/apps/${{APP_ID}}/releases" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Basic ${{SOBS_BASIC_AUTH}}" \\
+  -d '{{
+    "version":    "${{VERSION}}",
+    "commitSha":  "${{COMMIT_SHA}}",
+    "buildId":    "${{BUILD_ID}}",
+    "environment":"production",
+    "releasedAt": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+  }}'
+```
+
+**GitHub Actions snippet:**
+```yaml
+- name: Register release with Sobs
+  env:
+    SOBS_URL: ${{{{ secrets.SOBS_URL }}}}
+    SOBS_BASIC_AUTH: ${{{{ secrets.SOBS_BASIC_AUTH }}}}
+    APP_ID: ${{{{ secrets.SOBS_APP_ID }}}}
+  run: |
+    curl -s -X POST "$SOBS_URL/api/apps/$APP_ID/releases" \\
+      -H "Content-Type: application/json" \\
+      -H "Authorization: Basic $SOBS_BASIC_AUTH" \\
+      -d '{{"version":"${{{{ github.ref_name }}}}","commitSha":"${{{{ github.sha }}}}",'\\
+'       "buildId":"${{{{ github.run_id }}}}","environment":"production"}}'
+```
+
+---
+
+## Step 2 — Upload dependency lockfile
+
+Upload your lockfile (`requirements.txt`, `package-lock.json`, `go.sum`, etc.) as a
+release artefact so Sobs can run CVE enrichment:
+
+```bash
+curl -s -X POST "${{SOBS_URL}}/api/apps/${{APP_ID}}/releases/${{VERSION}}/artifacts" \\
+  -H "Authorization: Basic ${{SOBS_BASIC_AUTH}}" \\
+  -F "file=@requirements.txt" \\
+  -F "artifact_type=dependencies-lockfile" \\
+  -F "content_type=text/plain"
+```
+
+---
+
+## Step 3 — Upload JS source maps (web front-end only)
+
+Source maps let Sobs resolve minified stack traces to original source locations:
+
+```bash
+curl -s -X POST "${{SOBS_URL}}/api/apps/${{APP_ID}}/releases/${{VERSION}}/artifacts" \\
+  -H "Authorization: Basic ${{SOBS_BASIC_AUTH}}" \\
+  -F "file=@dist/app.min.js.map" \\
+  -F "artifact_type=js_sourcemap" \\
+  -F "content_type=application/json"
+```
+
+---
+
+## Step 4 — Trigger a CVE scan after release
+
+```bash
+curl -s -X POST "${{SOBS_URL}}/api/enrichment/cve/scan" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Basic ${{SOBS_BASIC_AUTH}}" \\
+  -d '{{}}'
+```
+
+---
+
+## Required Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `SOBS_URL` | Base URL of your Sobs instance (e.g. `https://sobs.internal`) |
+| `SOBS_BASIC_AUTH` | Base-64-encoded `user:password` for Sobs basic auth |
+| `SOBS_APP_ID` | The UUID of the application in Sobs (copy from Settings → Repositories) |
+
+---
+
+## What remains manual
+
+- Adding the CI snippet to your workflow file (steps above)
+- Creating the three GitHub Actions secrets listed above
+- Verifying the first release appears in Sobs under **Settings → Repositories**
+
+---
+
+*This issue was created automatically by the Sobs Onboarding Wizard for repository \
+`{owner}/{repo}`.*
+"""
+
+
+def _build_otel_audit_issue_body(owner: str, repo: str) -> str:
+    """Build the Markdown body for the OTEL & RUM telemetry audit GitHub issue."""
+    return f"""# OTEL & RUM Telemetry Audit
+
+This issue requests a comprehensive audit of the `{owner}/{repo}` repository to identify
+gaps in observability coverage and add best-practice OpenTelemetry (OTEL) instrumentation,
+Real User Monitoring (RUM), and AI telemetry.
+
+---
+
+## Audit Checklist
+
+### 1. Core OTEL SDK Setup
+
+- [ ] Install and configure the OTEL SDK for the primary language(s) used in this repository
+- [ ] Set up a `TracerProvider` with OTLP export pointing to Sobs (`<SOBS_URL>:4317`)
+- [ ] Set up a `LoggerProvider` (or bridge) so structured application logs flow through OTEL
+- [ ] Set up a `MeterProvider` for custom metrics (request counts, error rates, latency histograms)
+- [ ] Ensure `service.name`, `service.version`, and `deployment.environment` resource attributes
+      are set
+
+**Example (Python):**
+```python
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
+provider = TracerProvider(
+    resource=Resource({{"service.name": "my-service", "service.version": "1.0.0"}})
+)
+provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint="http://sobs:4317")))
+trace.set_tracer_provider(provider)
+```
+
+---
+
+### 2. Web Front-End — RUM Snippet (if applicable)
+
+If this repository contains a web front-end (HTML, React, Vue, Angular, etc.):
+
+- [ ] Add the Sobs RUM snippet to the `<head>` of every page (or the root layout component)
+- [ ] Configure RUM to capture **console logs**, **JavaScript stack traces**, **navigation
+      breadcrumbs**, **Web Vitals** (LCP, CLS, INP, TTFB, FCP), **screenshots** (on error),
+      and **session replays**
+- [ ] Set `service`, `environment`, and `release` attributes in the RUM config
+
+**Sobs RUM snippet:**
+```html
+<script>
+  window.SobsRumConfig = {{
+    endpoint: '<SOBS_URL>/rum',
+    service:  'my-frontend',
+    env:      'production',
+    release:  '{{{{ APP_VERSION }}}}',
+    captureConsole: true,
+    captureErrors:  true,
+    captureReplays: true,
+    captureScreenshots: true
+  }};
+</script>
+<script src="<SOBS_URL>/static/rum.min.js"></script>
+```
+
+---
+
+### 3. AI / LLM Workloads (if applicable)
+
+If this repository makes LLM API calls (OpenAI, Anthropic, Azure OpenAI, etc.):
+
+- [ ] Use `opentelemetry-instrumentation-openai` (or equivalent) to auto-instrument LLM calls
+- [ ] Emit OTEL `gen_ai.*` semantic-convention attributes on every LLM span:
+      `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`,
+      `gen_ai.usage.output_tokens`
+- [ ] Propagate trace context into LLM calls so the Sobs AI page can correlate prompts with
+      application traces
+- [ ] Record prompt templates and response hashes (not full content) as span attributes for
+      traceability
+- [ ] Ensure no PII / secrets are emitted in span attributes
+
+---
+
+### 4. Infrastructure & Web Logs (if applicable)
+
+For infrastructure services (proxies, gateways, databases, queues):
+
+- [ ] Add OTEL log bridge or structured JSON logging shipped via OTLP to Sobs
+- [ ] Include `http.method`, `http.route`, `http.status_code`, `net.peer.ip` attributes
+      for HTTP services
+- [ ] For databases: include `db.system`, `db.statement` (redacted), `db.name` span attributes
+- [ ] For message queues: include `messaging.system`, `messaging.destination` span attributes
+
+---
+
+### 5. Error & Exception Capture
+
+- [ ] Call `span.record_exception(exc)` and `span.set_status(StatusCode.ERROR)` in all
+      exception handlers
+- [ ] Ensure unhandled exceptions are captured and forwarded to the Sobs errors endpoint
+- [ ] Add a global uncaught-exception handler that emits a final error span before process exit
+
+---
+
+### 6. Telemetry Verification
+
+After implementing the above:
+
+- [ ] Verify traces appear on the Sobs **Traces** page
+- [ ] Verify logs appear on the Sobs **Logs** page
+- [ ] Verify metrics appear on the Sobs **Metrics** page
+- [ ] Verify RUM events appear on the Sobs **RUM** page (if web front-end added)
+- [ ] Verify AI calls appear on the Sobs **AI** page (if LLM workload added)
+- [ ] Run the CVE scan and verify findings appear on the Sobs **CVE** page
+
+---
+
+## What remains manual
+
+- Reviewing each checklist item and confirming it applies to this repository's technology stack
+- Testing that telemetry flows correctly end-to-end
+- Removing any accidentally captured PII or secrets from span attributes
+
+---
+
+*This issue was created automatically by the Sobs Onboarding Wizard for repository \
+`{owner}/{repo}`.*
+"""
+
+
+@app.route("/api/onboarding/inspect-repo", methods=["GET"])
+@require_basic_auth
+async def api_onboarding_inspect_repo():
+    """Inspect a configured repository for Sobs onboarding readiness.
+
+    Query parameters
+    ----------------
+    app_id   UUID of the app in ``sobs_apps`` (preferred)
+    repo     ``owner/repo`` or full GitHub URL (fallback if app_id not provided)
+    """
+    db = get_db()
+    app_id = request.args.get("app_id", "").strip()
+    repo_param = request.args.get("repo", "").strip()
+
+    repo_url = ""
+    if app_id:
+        row = db.execute(
+            "SELECT RepoUrl FROM sobs_apps FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1",
+            [app_id],
+        ).fetchone()
+        if not row:
+            return jsonify({"ok": False, "error": "App not found"}), 404
+        repo_url = str(row[0] or "")
+    elif repo_param:
+        repo_url = repo_param
+    else:
+        return jsonify({"ok": False, "error": "app_id or repo parameter required"}), 400
+
+    owner, repo = _parse_github_repo_owner_name(repo_url)
+    if not owner or not repo:
+        return jsonify({"ok": False, "error": f"Could not parse owner/repo from '{repo_url}'"}), 400
+
+    # Resolve token: repo-scoped first, then global fallback
+    github_token = _load_repo_scoped_github_token(db, owner, repo)
+    if not github_token:
+        github_token = _load_ai_setting(db, "ai.github_token", "").strip()
+    if not github_token:
+        return jsonify(
+            {
+                "ok": True,
+                "owner": owner,
+                "repo": repo,
+                "has_github_actions": False,
+                "sobs_ci_found": False,
+                "sobs_otel_found": False,
+                "copilot_available": False,
+                "workflow_files": [],
+                "error": "No GitHub token configured for this repository",
+            }
+        )
+
+    result = await _inspect_repo_for_onboarding(github_token, owner, repo)
+    return jsonify({"ok": True, "owner": owner, "repo": repo, **result})
+
+
+@app.route("/api/onboarding/create-issues", methods=["POST"])
+@require_basic_auth
+async def api_onboarding_create_issues():
+    """Create onboarding GitHub issues (CI metadata and/or OTEL audit).
+
+    JSON body
+    ---------
+    app_id          UUID of the app in ``sobs_apps``
+    repo            ``owner/repo`` fallback if app_id not provided
+    create_ci       bool — create CI metadata setup issue
+    create_otel     bool — create OTEL & RUM audit issue
+    assign_copilot  bool — attempt to assign both issues to Copilot
+    has_github_actions  bool — passed from inspection result (affects issue body)
+    """
+    db = get_db()
+    body = await request.get_json(silent=True) or {}
+
+    app_id = str(body.get("app_id", "") or "").strip()
+    repo_param = str(body.get("repo", "") or "").strip()
+    create_ci = bool(body.get("create_ci", True))
+    create_otel = bool(body.get("create_otel", True))
+    assign_copilot = bool(body.get("assign_copilot", False))
+    has_github_actions = bool(body.get("has_github_actions", True))
+
+    if not create_ci and not create_otel:
+        return jsonify({"ok": False, "error": "At least one issue type must be selected"}), 400
+
+    repo_url = ""
+    if app_id:
+        row = db.execute(
+            "SELECT RepoUrl FROM sobs_apps FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1",
+            [app_id],
+        ).fetchone()
+        if not row:
+            return jsonify({"ok": False, "error": "App not found"}), 404
+        repo_url = str(row[0] or "")
+    elif repo_param:
+        repo_url = repo_param
+    else:
+        return jsonify({"ok": False, "error": "app_id or repo parameter required"}), 400
+
+    owner, repo = _parse_github_repo_owner_name(repo_url)
+    if not owner or not repo:
+        return jsonify({"ok": False, "error": f"Could not parse owner/repo from '{repo_url}'"}), 400
+
+    github_token = _load_repo_scoped_github_token(db, owner, repo)
+    if not github_token:
+        github_token = _load_ai_setting(db, "ai.github_token", "").strip()
+    if not github_token:
+        return jsonify({"ok": False, "error": "No GitHub token configured for this repository"}), 400
+
+    github_repo = f"{owner}/{repo}"
+    results: dict[str, Any] = {"ok": True, "ci_issue": None, "otel_issue": None}
+
+    if create_ci:
+        ci_body = _build_ci_metadata_issue_body(owner, repo, has_github_actions)
+        ci_result = await _create_github_issue_record(
+            github_token,
+            github_repo,
+            f"[Sobs] Set up CI metadata scripts for {repo}",
+            ci_body,
+            labels=["sobs-onboarding", "ci-metadata"],
+            mask_output_enabled=False,
+        )
+        if "error" in ci_result:
+            results["ci_issue"] = {"error": ci_result["error"]}
+        else:
+            issue_url = str(ci_result.get("issue_url", ""))
+            issue_number = int(ci_result.get("issue_number", 0) or 0)
+            copilot_status = ""
+            if assign_copilot and issue_number:
+                status, reason, _ = await _assign_issue_to_copilot(github_token, github_repo, issue_number)
+                copilot_status = status if status != "blocked" else reason
+            results["ci_issue"] = {
+                "url": issue_url,
+                "number": issue_number,
+                "copilot_status": copilot_status,
+            }
+
+    if create_otel:
+        otel_body = _build_otel_audit_issue_body(owner, repo)
+        otel_result = await _create_github_issue_record(
+            github_token,
+            github_repo,
+            f"[Sobs] OTEL & RUM telemetry audit for {repo}",
+            otel_body,
+            labels=["sobs-onboarding", "observability"],
+            mask_output_enabled=False,
+        )
+        if "error" in otel_result:
+            results["otel_issue"] = {"error": otel_result["error"]}
+        else:
+            issue_url = str(otel_result.get("issue_url", ""))
+            issue_number = int(otel_result.get("issue_number", 0) or 0)
+            copilot_status = ""
+            if assign_copilot and issue_number:
+                status, reason, _ = await _assign_issue_to_copilot(github_token, github_repo, issue_number)
+                copilot_status = status if status != "blocked" else reason
+            results["otel_issue"] = {
+                "url": issue_url,
+                "number": issue_number,
+                "copilot_status": copilot_status,
+            }
+
+    return jsonify(results)
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 44317))
     requested_workers = max(

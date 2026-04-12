@@ -1,0 +1,428 @@
+<style>
+  /* ── Onboarding Wizard ─────────────────────────────────────────── */
+  #onboardingWizardModal .modal-body { min-height: 400px; }
+
+  .ob-step { display: none; }
+  .ob-step.active { display: block; }
+
+  .ob-repo-card {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 8px;
+    padding: .55rem .75rem;
+    margin-bottom: .45rem;
+    cursor: pointer;
+    background: var(--bs-tertiary-bg);
+    transition: border-color .15s, background .15s;
+  }
+  .ob-repo-card:hover  { border-color: var(--bs-info); }
+  .ob-repo-card.selected {
+    border-color: #0dcaf0;
+    background: rgba(13,202,240,.1);
+  }
+  .ob-repo-card .repo-name  { font-weight: 600; font-size: .88rem; }
+  .ob-repo-card .repo-url   { font-size: .75rem; color: var(--bs-secondary-color); word-break: break-all; }
+
+  .ob-inspect-row {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .4rem 0;
+    font-size: .85rem;
+    border-bottom: 1px solid var(--bs-border-color);
+  }
+  .ob-inspect-row:last-child { border-bottom: 0; }
+  .ob-inspect-icon { font-size: 1.1rem; min-width: 1.4rem; text-align: center; }
+
+  .ob-result-card {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 8px;
+    padding: .6rem .8rem;
+    margin-bottom: .6rem;
+    font-size: .85rem;
+  }
+  .ob-result-card .issue-title { font-weight: 600; margin-bottom: .2rem; }
+  .ob-result-card .issue-url a { word-break: break-all; }
+
+  #onboardingWizardModal .ob-progress { height: 3px; }
+</style>
+
+<div class="modal fade" id="onboardingWizardModal" tabindex="-1" aria-labelledby="obWizardTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content border-secondary">
+      <div class="modal-header pb-1">
+        <h5 class="modal-title" id="obWizardTitle">
+          <i class="bi bi-rocket-takeoff me-2 text-success"></i>Onboarding Wizard
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <div class="progress rounded-0 border-0 ob-progress">
+        <div id="obProgressBar" class="progress-bar bg-success" role="progressbar" style="width:0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+      </div>
+
+      <div class="modal-body pt-3">
+
+        <!-- Step 0: Select repository -->
+        <div class="ob-step active" id="obStep0">
+          <h6 class="fw-semibold mb-1">Step 1 of 4 &mdash; Select Repository</h6>
+          <p class="text-secondary small mb-3">Choose the repository to onboard to Sobs CI metadata and OTEL telemetry.</p>
+          <div id="obRepoList">
+            <div class="text-secondary small">Loading repositories&hellip;</div>
+          </div>
+          <div class="mt-2 small text-secondary">
+            No repositories listed? Add one under <strong>Settings → Repositories</strong> first.
+          </div>
+        </div>
+
+        <!-- Step 1: Inspecting -->
+        <div class="ob-step" id="obStep1">
+          <h6 class="fw-semibold mb-1">Step 2 of 4 &mdash; Inspecting Repository</h6>
+          <p class="text-secondary small mb-3">Checking CI configuration, Sobs metadata scripts, and Copilot availability&hellip;</p>
+          <div id="obInspectResults">
+            <div class="text-center py-4">
+              <div class="spinner-border spinner-border-sm text-success me-2" role="status"></div>
+              <span class="text-secondary small">Inspecting&hellip;</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2: Choose issues -->
+        <div class="ob-step" id="obStep2">
+          <h6 class="fw-semibold mb-1">Step 3 of 4 &mdash; Create GitHub Issues</h6>
+          <p class="text-secondary small mb-3">Select which issues to create. Each issue contains comprehensive, actionable instructions.</p>
+
+          <div class="mb-3">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" id="obCreateCi" checked>
+              <label class="form-check-label fw-semibold" for="obCreateCi">
+                <i class="bi bi-gear me-1 text-info"></i>CI Metadata Setup
+              </label>
+              <div class="form-text ms-4">Creates a GitHub issue with steps to register releases, upload dependency lockfiles, source maps, and trigger CVE scans.</div>
+            </div>
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" id="obCreateOtel" checked>
+              <label class="form-check-label fw-semibold" for="obCreateOtel">
+                <i class="bi bi-reception-4 me-1 text-warning"></i>OTEL &amp; RUM Telemetry Audit
+              </label>
+              <div class="form-text ms-4">Creates a GitHub issue auditing the codebase for OTEL SDK setup, RUM (for web UIs), AI gen_ai keys, and infrastructure logging gaps.</div>
+            </div>
+          </div>
+
+          <div id="obCopilotSection" style="display:none">
+            <hr class="my-2">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="obAssignCopilot">
+              <label class="form-check-label fw-semibold" for="obAssignCopilot">
+                <i class="bi bi-robot me-1 text-success"></i>Assign issues to Copilot
+              </label>
+              <div class="form-text ms-4">GitHub Copilot cloud agent is available for this repository. Sobs will formally assign each created issue to Copilot for automated implementation.</div>
+            </div>
+          </div>
+
+          <div id="obNoCopilotNote" class="small text-secondary mt-2" style="display:none">
+            <i class="bi bi-info-circle me-1"></i>Copilot cloud agent is not available for this repository. Issues will be created without Copilot assignment.
+          </div>
+        </div>
+
+        <!-- Step 3: Results -->
+        <div class="ob-step" id="obStep3">
+          <h6 class="fw-semibold mb-1">Step 4 of 4 &mdash; Done</h6>
+          <p class="text-secondary small mb-3">Here are the results:</p>
+          <div id="obResultsContainer">
+            <div class="text-center py-4">
+              <div class="spinner-border spinner-border-sm text-success me-2" role="status"></div>
+              <span class="text-secondary small">Creating issues&hellip;</span>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /modal-body -->
+
+      <div class="modal-footer d-flex justify-content-between align-items-center">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" id="obSkipBtn">Close</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary" id="obPrevBtn" style="display:none">Back</button>
+          <button type="button" class="btn btn-outline-success" id="obNextBtn" disabled>Next</button>
+          <button type="button" class="btn btn-success" id="obCreateBtn" style="display:none">
+            <i class="bi bi-github me-1"></i>Create Issues
+          </button>
+          <button type="button" class="btn btn-outline-secondary" id="obDoneBtn" style="display:none" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var modalEl = document.getElementById('onboardingWizardModal');
+  if (!modalEl || !window.bootstrap) return;
+
+  var modal       = bootstrap.Modal.getOrCreateInstance(modalEl);
+  var prevBtn     = document.getElementById('obPrevBtn');
+  var nextBtn     = document.getElementById('obNextBtn');
+  var createBtn   = document.getElementById('obCreateBtn');
+  var doneBtn     = document.getElementById('obDoneBtn');
+  var skipBtn     = document.getElementById('obSkipBtn');
+  var progressBar = document.getElementById('obProgressBar');
+  var totalSteps  = 4;
+
+  var state = {
+    step: 0,
+    appId: '',
+    repoName: '',
+    repoUrl: '',
+    copilotAvailable: false,
+    hasGithubActions: false,
+    inspected: false,
+  };
+
+  // ── Step navigation ──────────────────────────────────────────────
+  function showStep(idx) {
+    modalEl.querySelectorAll('.ob-step').forEach(function (s) { s.classList.remove('active'); });
+    var el = document.getElementById('obStep' + idx);
+    if (el) el.classList.add('active');
+    state.step = idx;
+    updateNav();
+
+    var pct = Math.round((idx / (totalSteps - 1)) * 100);
+    progressBar.style.width = pct + '%';
+    progressBar.setAttribute('aria-valuenow', pct);
+
+    if (idx === 0) loadRepos();
+    if (idx === 1 && !state.inspected) runInspect();
+    if (idx === 3) runCreateIssues();
+  }
+
+  function updateNav() {
+    prevBtn.style.display  = state.step > 0 && state.step < totalSteps - 1 ? '' : 'none';
+    nextBtn.style.display  = state.step < 2 ? '' : 'none';
+    createBtn.style.display = state.step === 2 ? '' : 'none';
+    doneBtn.style.display  = state.step === 3 ? '' : 'none';
+
+    if (state.step === 0) {
+      nextBtn.disabled = !state.appId;
+    } else if (state.step === 1) {
+      nextBtn.disabled = !state.inspected;
+    } else if (state.step === 2) {
+      nextBtn.style.display = 'none';
+      createBtn.style.display = '';
+      var ci   = document.getElementById('obCreateCi');
+      var otel = document.getElementById('obCreateOtel');
+      createBtn.disabled = !(ci && ci.checked) && !(otel && otel.checked);
+    }
+  }
+
+  prevBtn.addEventListener('click', function () { showStep(state.step - 1); });
+  nextBtn.addEventListener('click', function () { showStep(state.step + 1); });
+  createBtn.addEventListener('click', function () { showStep(3); });
+
+  // Keep create button state in sync with checkboxes
+  ['obCreateCi', 'obCreateOtel'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('change', updateNav);
+  });
+
+  // ── Step 0: Load configured repos ───────────────────────────────
+  function loadRepos() {
+    var list = document.getElementById('obRepoList');
+    if (!list) return;
+
+    // Repos are rendered server-side as a JSON array in the page
+    var reposJson = document.getElementById('obReposData');
+    var repos = [];
+    if (reposJson) {
+      try { repos = JSON.parse(reposJson.textContent || '[]'); } catch (e) {}
+    }
+
+    if (!repos.length) {
+      list.innerHTML = '<div class="text-secondary small">No configured repositories found.</div>';
+      return;
+    }
+
+    var html = '';
+    repos.forEach(function (r) {
+      var sel = r.id === state.appId ? ' selected' : '';
+      html += '<div class="ob-repo-card' + sel + '" data-app-id="' + escAttr(r.id) + '" data-repo-url="' + escAttr(r.repo_url) + '" data-repo-name="' + escAttr(r.name) + '">'
+        + '<div class="repo-name">' + escHtml(r.name) + '</div>'
+        + '<div class="repo-url">' + escHtml(r.repo_url) + '</div>'
+        + '</div>';
+    });
+    list.innerHTML = html;
+
+    list.querySelectorAll('.ob-repo-card').forEach(function (card) {
+      card.addEventListener('click', function () {
+        list.querySelectorAll('.ob-repo-card').forEach(function (c) { c.classList.remove('selected'); });
+        card.classList.add('selected');
+        state.appId    = card.dataset.appId   || '';
+        state.repoUrl  = card.dataset.repoUrl || '';
+        state.repoName = card.dataset.repoName|| '';
+        state.inspected = false; // reset so re-selection triggers a new inspect
+        updateNav();
+      });
+    });
+  }
+
+  // ── Step 1: Inspect repo ────────────────────────────────────────
+  function runInspect() {
+    var container = document.getElementById('obInspectResults');
+    if (!container) return;
+    container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-success me-2" role="status"></div><span class="text-secondary small">Inspecting&hellip;</span></div>';
+    nextBtn.disabled = true;
+
+    var url = {{ url_for('api_onboarding_inspect_repo') | tojson }};
+    if (state.appId) url += '?app_id=' + encodeURIComponent(state.appId);
+
+    fetch(url, { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        state.inspected = true;
+        state.copilotAvailable  = !!data.copilot_available;
+        state.hasGithubActions  = !!data.has_github_actions;
+
+        var rows = [
+          {
+            ok: data.has_github_actions,
+            label: 'GitHub Actions',
+            yes: 'Detected &mdash; workflow files found',
+            no: 'No .github/workflows directory found &mdash; CI steps will be provider-agnostic',
+          },
+          {
+            ok: data.sobs_ci_found,
+            label: 'Sobs CI metadata',
+            yes: 'Already present in at least one workflow',
+            no: 'Not detected &mdash; the CI issue will guide you through adding it',
+          },
+          {
+            ok: data.sobs_otel_found,
+            label: 'OTEL instrumentation',
+            yes: 'OTEL references found in workflows or manifests',
+            no: 'Not detected &mdash; the OTEL audit issue will guide you through adding it',
+          },
+          {
+            ok: data.copilot_available,
+            label: 'Copilot cloud agent',
+            yes: 'Available &mdash; issues can be auto-assigned to Copilot',
+            no: 'Not available for this repository',
+          },
+        ];
+
+        var html = '';
+        rows.forEach(function (row) {
+          var icon = row.ok
+            ? '<i class="bi bi-check-circle-fill text-success ob-inspect-icon"></i>'
+            : '<i class="bi bi-x-circle-fill text-danger ob-inspect-icon"></i>';
+          html += '<div class="ob-inspect-row">'
+            + icon
+            + '<span><strong>' + row.label + '</strong> &mdash; ' + (row.ok ? row.yes : row.no) + '</span>'
+            + '</div>';
+        });
+
+        if (data.error) {
+          html += '<div class="alert alert-warning small mt-2">' + escHtml(data.error) + '</div>';
+        }
+
+        container.innerHTML = html;
+        updateNav();
+
+        // Update Step 2 Copilot section visibility
+        var copSection = document.getElementById('obCopilotSection');
+        var noCopNote  = document.getElementById('obNoCopilotNote');
+        if (copSection) copSection.style.display  = data.copilot_available ? '' : 'none';
+        if (noCopNote)  noCopNote.style.display   = data.copilot_available ? 'none' : '';
+      })
+      .catch(function () {
+        state.inspected = true;
+        container.innerHTML = '<div class="alert alert-danger small">Failed to inspect repository. Check your GitHub token configuration.</div>';
+        updateNav();
+      });
+  }
+
+  // ── Step 3: Create issues ────────────────────────────────────────
+  function runCreateIssues() {
+    var container = document.getElementById('obResultsContainer');
+    if (!container) return;
+    container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-success me-2" role="status"></div><span class="text-secondary small">Creating issues&hellip;</span></div>';
+    doneBtn.disabled = true;
+
+    var createCi   = !!(document.getElementById('obCreateCi')   || {checked:true}).checked;
+    var createOtel = !!(document.getElementById('obCreateOtel') || {checked:true}).checked;
+    var assignCop  = !!(document.getElementById('obAssignCopilot') || {checked:false}).checked;
+
+    var payload = {
+      app_id:             state.appId,
+      create_ci:          createCi,
+      create_otel:        createOtel,
+      assign_copilot:     assignCop,
+      has_github_actions: state.hasGithubActions,
+    };
+
+    fetch({{ url_for('api_onboarding_create_issues') | tojson }}, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          container.innerHTML = '<div class="alert alert-danger small">' + escHtml(data.error || 'An error occurred.') + '</div>';
+          doneBtn.disabled = false;
+          return;
+        }
+        var html = '';
+
+        function renderIssueResult(issue, label, icon, iconClass) {
+          if (!issue) return '';
+          if (issue.error) {
+            return '<div class="ob-result-card border-danger">'
+              + '<div class="issue-title"><i class="bi ' + icon + ' ' + iconClass + ' me-1"></i>' + label + '</div>'
+              + '<div class="text-danger small">Failed: ' + escHtml(issue.error) + '</div>'
+              + '</div>';
+          }
+          var copilotBadge = '';
+          if (issue.copilot_status) {
+            var badgeClass = issue.copilot_status === 'requested' ? 'text-bg-success' : 'text-bg-warning';
+            copilotBadge = ' <span class="badge ' + badgeClass + ' ms-1">'
+              + (issue.copilot_status === 'requested' ? 'Copilot assigned' : escHtml(issue.copilot_status))
+              + '</span>';
+          }
+          return '<div class="ob-result-card border-success">'
+            + '<div class="issue-title"><i class="bi bi-check-circle-fill text-success me-1"></i>' + label + copilotBadge + '</div>'
+            + '<div class="issue-url"><a href="' + escAttr(issue.url) + '" target="_blank" rel="noopener">' + escHtml(issue.url) + '</a></div>'
+            + '</div>';
+        }
+
+        html += renderIssueResult(data.ci_issue,   'CI Metadata Setup',         'bi-gear',        'text-info');
+        html += renderIssueResult(data.otel_issue,  'OTEL &amp; RUM Telemetry Audit', 'bi-reception-4', 'text-warning');
+
+        html += '<div class="small text-secondary mt-2"><i class="bi bi-info-circle me-1"></i>Issues have been created in the repository. Review and complete the manual steps listed in each issue.</div>';
+
+        container.innerHTML = html;
+        doneBtn.disabled = false;
+      })
+      .catch(function () {
+        container.innerHTML = '<div class="alert alert-danger small">Failed to create issues. Check your GitHub token configuration.</div>';
+        doneBtn.disabled = false;
+      });
+  }
+
+  // ── HTML helpers ────────────────────────────────────────────────
+  function escHtml(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function escAttr(s) { return String(s || '').replace(/"/g,'&quot;'); }
+
+  // ── Opener ──────────────────────────────────────────────────────
+  window.__sobsOpenOnboardingWizard = function () {
+    state.step = 0;
+    state.appId = '';
+    state.inspected = false;
+    showStep(0);
+    modal.show();
+  };
+
+  // Initial state
+  showStep(0);
+})();
+</script>
