@@ -10069,17 +10069,35 @@ def _fmt_bytes(n: int | None) -> str:
 @require_basic_auth
 async def summary():
     db = get_db()
-    resolved_ids = _get_resolved_error_ids(db)
-    error_items = []
+    error_id_sql = (
+        "lower(hex(MD5(concat("
+        "toString(Timestamp), '|', ServiceName, '|', "
+        "if(mapContains(LogAttributes, 'exception.type'), LogAttributes['exception.type'], 'Error'), '|', "
+        "if(mapContains(LogAttributes, 'exception.message'), LogAttributes['exception.message'], Body), '|', "
+        "TraceId, '|', SpanId"
+        "))))"
+    )
+    unresolved_condition = f"{error_id_sql} NOT IN (SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId)"
+
+    recent_errors = []
     for row in db.execute(
-        f"SELECT * FROM ({ERROR_SOURCES_SQL})"
-        " WHERE Timestamp >= now() - INTERVAL 48 HOUR"
-        " ORDER BY Timestamp DESC"
-        " LIMIT 500"
+        "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes "
+        f"FROM ({ERROR_SOURCES_SQL}) "
+        "WHERE Timestamp >= now() - INTERVAL 48 HOUR "
+        f"AND {unresolved_condition} "
+        "ORDER BY Timestamp DESC "
+        "LIMIT 5"
     ).fetchall():
         item = _build_error_item(dict(row))
-        item["resolved"] = item["id"] in resolved_ids
-        error_items.append(item)
+        recent_errors.append(
+            {
+                "id": item["id"],
+                "ts": item["ts"],
+                "service": item["service"],
+                "err_type": item["err_type"],
+                "message": item["message"],
+            }
+        )
 
     _now = time.monotonic()
     with _summary_stats_cache_lock:
@@ -10087,20 +10105,18 @@ async def summary():
             _summary_stats_cache["data"] if _summary_stats_cache["expires_at"] > _now else {}
         )
     if not _cached_stats:
-        all_error_rows = db.execute(f"SELECT * FROM ({ERROR_SOURCES_SQL})").fetchall()
-        unresolved_total = 0
-        for row in all_error_rows:
-            error_id = _build_error_item(dict(row))["id"]
-            if error_id not in resolved_ids:
-                unresolved_total += 1
+        errors_total = db.execute(f"SELECT count() AS cnt FROM ({ERROR_SOURCES_SQL})").fetchone()
+        unresolved_total_row = db.execute(
+            f"SELECT count() AS cnt FROM ({ERROR_SOURCES_SQL}) WHERE {unresolved_condition}"
+        ).fetchone()
 
         _cached_stats = {
             "logs": _active_part_rows(db, "otel_logs"),
             "spans": _active_part_rows(db, "otel_traces"),
             "rum": _active_part_rows(db, "hyperdx_sessions"),
             "ai": db.execute("SELECT COUNT(*) FROM otel_traces " f"WHERE {_AI_SPAN_CONDITION}").fetchone()[0],
-            "errors_total": len(all_error_rows),
-            "errors": unresolved_total,
+            "errors_total": int(errors_total["cnt"]) if errors_total else 0,
+            "errors": int(unresolved_total_row["cnt"]) if unresolved_total_row else 0,
             "services": [
                 r[0]
                 for r in db.execute(
@@ -10116,18 +10132,7 @@ async def summary():
     stats = {
         **_cached_stats,
     }
-    # Recent errors (last 5)
-    recent_errors = [
-        {
-            "id": item["id"],
-            "ts": item["ts"],
-            "service": item["service"],
-            "err_type": item["err_type"],
-            "message": item["message"],
-        }
-        for item in error_items
-        if not item["resolved"]
-    ][:5]
+
     # Recent logs (last 10)
     recent_logs = []
     for r in db.execute(
@@ -14543,6 +14548,14 @@ def _fetch_trace_metric_context(
 @require_basic_auth
 async def view_traces():
     db = get_db()
+    error_id_sql = (
+        "lower(hex(MD5(concat("
+        "toString(Timestamp), '|', ServiceName, '|', "
+        "if(mapContains(LogAttributes, 'exception.type'), LogAttributes['exception.type'], 'Error'), '|', "
+        "if(mapContains(LogAttributes, 'exception.message'), LogAttributes['exception.message'], Body), '|', "
+        "TraceId, '|', SpanId"
+        "))))"
+    )
     selected_services = [svc.strip() for svc in request.args.getlist("service") if svc.strip()]
     service = selected_services[0] if selected_services else ""
     trace_id = request.args.get("trace_id", "").strip()
@@ -14703,17 +14716,22 @@ async def view_traces():
             trace_activity_ts_ms: list[float] = []
             try:
                 err_rows = db.execute(
-                    "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes "
-                    f"FROM ({ERROR_SOURCES_SQL}) WHERE TraceId=? LIMIT ?",
+                    "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes, ErrorId, "
+                    "(ErrorId IN (SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId)) AS IsResolved "
+                    "FROM ("
+                    "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes, "
+                    f"{error_id_sql} AS ErrorId "
+                    f"FROM ({ERROR_SOURCES_SQL}) WHERE TraceId=? LIMIT ?"
+                    ")",
                     [trace_id, _TRACE_ERROR_LIMIT + 1],
                 ).fetchall()
-                resolved_ids = _get_resolved_error_ids(db)
                 if len(err_rows) > _TRACE_ERROR_LIMIT:
                     errors_truncated = True
                     err_rows = err_rows[:_TRACE_ERROR_LIMIT]
                 for row in err_rows:
                     item = _build_error_item(dict(row))
-                    item["resolved"] = item["id"] in resolved_ids
+                    item["id"] = str(row["ErrorId"] or item["id"])
+                    item["resolved"] = bool(row["IsResolved"])
                     trace_errors.append(item)
                     ts_raw = str(item.get("ts") or "")
                     if ts_raw:
@@ -16279,6 +16297,7 @@ async def _startup_enrichment() -> None:
 @require_basic_auth
 async def view_rum():
     db = get_db()
+    session_detail_event_cap = 200
     view_mode = request.args.get("view", "sessions").strip().lower()
     if view_mode not in ("sessions", "events"):
         view_mode = "sessions"
@@ -16383,9 +16402,15 @@ async def view_rum():
             detail_where = "WHERE " + " AND ".join(detail_conditions)
             detail_rows = db.execute(
                 "SELECT Timestamp, EventName, Body, LogAttributes, TraceId, SpanId "
-                f"FROM hyperdx_sessions {detail_where} "
-                f"ORDER BY {_RUM_SESSION_KEY_SQL} ASC, Timestamp DESC",
-                params + session_keys,
+                "FROM ("
+                "SELECT Timestamp, EventName, Body, LogAttributes, TraceId, SpanId, "
+                f"{_RUM_SESSION_KEY_SQL} AS session_key, "
+                f"row_number() OVER (PARTITION BY {_RUM_SESSION_KEY_SQL} ORDER BY Timestamp DESC) AS row_rank "
+                f"FROM hyperdx_sessions {detail_where}"
+                ") "
+                "WHERE row_rank <= ? "
+                "ORDER BY session_key ASC, Timestamp DESC",
+                params + session_keys + [session_detail_event_cap],
             ).fetchall()
             events_by_session: dict[str, list[dict[str, Any]]] = {}
             for row in detail_rows:
