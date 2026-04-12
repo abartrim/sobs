@@ -8,7 +8,9 @@ Flask/Jinja2, Bootstrap 5, chDB. Templates extend `base.html` via `{% block styl
 ## Design Constants
 
 Use these exact values throughout — do not hardcode in individual templates:
-- **Mobile breakpoint:** `max-width: 575.98px` (hamburger nav threshold)
+- **Mobile breakpoint token:** `{{ mobile_breakpoint_max }}` (currently resolves to `575.98px` from `app.py`)
+- **Mobile breakpoint CSS usage:** `@media (max-width: {{ mobile_breakpoint_max }})`
+- **Mobile breakpoint JS usage:** `window.matchMedia('(max-width: {{ mobile_breakpoint_max }})')`
 - **Test viewports:** 375px (small mobile), 480px (mobile), 575px (trigger point), 992px (tablet), 1440px (desktop)
 - **Table border color:** `var(--bs-border-color)` (Bootstrap CSS variable)
 - **Secondary text color:** `var(--bs-secondary-color)` (Bootstrap CSS variable)
@@ -29,10 +31,10 @@ Use these exact values throughout — do not hardcode in individual templates:
 - `base.html` has `{% block styles %}{% endblock %}` before `</head>` — do not remove it.
 
 ### Tables
-- **Every data table** must support mobile card mode at `≤575.98px`.
+- **Every data table** must support mobile card mode at `≤{{ mobile_breakpoint_max }}`.
 - Server-rendered tables: Add a shared CSS class (e.g., `tags-mobile-card-table`) and apply the standard mobile-card pattern:
   ```css
-  @media (max-width: 575.98px) {
+  @media (max-width: {{ mobile_breakpoint_max }}) {
     .tags-mobile-card-table thead { display: none; }
     .tags-mobile-card-table,
     .tags-mobile-card-table tbody,
@@ -48,9 +50,9 @@ Use these exact values throughout — do not hardcode in individual templates:
 
 ### Action Buttons (header/panel buttons)
 - **Every action button** (Add, Delete, Edit, etc.) must wrap its label text in `<span class="PAGE-btn-label">Label</span>` and include a `title="Label"` attribute for accessibility.
-- Hide labels at mobile (`≤575.98px`), showing only the icon:
+- Hide labels at mobile (`≤{{ mobile_breakpoint_max }}`), showing only the icon:
   ```css
-  @media (max-width: 575.98px) {
+  @media (max-width: {{ mobile_breakpoint_max }}) {
     .PAGE-btn-label { display: none; }
     .btn:has(> .PAGE-btn-label) i { margin-right: 0 !important; }
   }
@@ -62,6 +64,29 @@ Use these exact values throughout — do not hardcode in individual templates:
     <i class="bi bi-plus-circle me-1"></i><span class="PAGE-btn-label">Add Tag</span>
   </button>
   ```
+
+### Page Headers
+- **Every full page header** must use the shared macro in `templates/_page_header_macros.html` (`render_page_header`) unless there is a documented one-off exception.
+- Preferred structure:
+  ```jinja2
+  {% from "_page_header_macros.html" import render_page_header %}
+  {% set page_actions %}
+    <a class="btn btn-sm btn-outline-secondary page-help-btn" title="Help">
+      <i class="bi bi-question-circle me-1"></i><span class="PAGE-btn-label">Help</span>
+    </a>
+  {% endset %}
+  {{ render_page_header('Page Title', icon_class='bi bi-ICON', icon_text_class='text-COLOR', actions_html=page_actions) }}
+  ```
+- **Mobile layout (`≤{{ mobile_breakpoint_max }}`)**:
+  - Row 1: page icon + title on the left, action icon buttons on the right.
+  - Row 2: meta line only (counts, chips, badges, refresh controls).
+  - Optional subtext renders below the meta line.
+- **Larger layout**:
+  - Row 1: page icon + title, then meta line, then action buttons.
+  - Row 2: subtext only when the page has explanatory copy.
+- **Help button rule**: Help belongs at the far right of the action cluster, always uses the same bordered style (`page-help-btn` / outline-secondary), and uses the same question-circle icon across pages.
+- **Back button rule**: Add a Back button only on secondary/detail/help pages with a clear parent page. Do not add Back on primary landing pages.
+- **Meta-line priority**: row counts/status chips/refresh controls belong in the meta line, not mixed into the title text.
 
 ### No Horizontal Overflow
 - Never use fixed pixel widths that exceed the viewport (test at 375px).

@@ -1,23 +1,21 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Query{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="settings-page-header mb-3">
+{% set query_title_html %}
   <div class="d-flex align-items-center gap-2">
     <i class="bi bi-database-check fs-4 text-primary"></i>
     <h4 class="mb-0">Natural-Language Query</h4>
   </div>
-  <div class="settings-page-header-actions">
-    <a href="{{ url_for('view_table_explorer') }}" class="btn btn-sm btn-outline-secondary" title="Table Explorer">
-      <i class="bi bi-grid-3x3 me-1"></i><span class="query-btn-label">Table Explorer</span>
-    </a>
-    <a href="{{ url_for('query_help') }}" class="link-secondary text-decoration-none" title="Query Help" aria-label="Query Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
-<p class="text-secondary small mb-3">
-  Ask a question in plain English. The AI will generate a ClickHouse SQL query, run it against
-  the embedded chDB database, and optionally render a chart.
-</p>
+{% endset %}
+{% set query_header_actions %}
+  <a href="{{ url_for('view_table_explorer') }}" class="btn btn-sm btn-outline-secondary" title="Table Explorer">
+    <i class="bi bi-grid-3x3 me-1"></i><span class="query-btn-label">Table Explorer</span>
+  </a>
+  <a href="{{ url_for('query_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Query Help"><i class="bi bi-question-circle me-1"></i><span class="query-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header(title_html=query_title_html, actions_html=query_header_actions, subtext='Ask a question in plain English. The AI will generate a ClickHouse SQL query, run it against the embedded chDB database, and optionally render a chart.') }}
 <div class="small text-secondary border rounded px-2 py-1 mb-3" style="background:var(--bs-tertiary-bg);border-color:var(--bs-border-color)!important;">
   <i class="bi bi-flask me-1"></i>This feature is beta. If a query fails or is blocked, retry or rephrase your question.
 </div>

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Table Explorer{% endblock %}
 {% block styles %}{{ super() }}<style>
   .table-explorer-sample-table td { word-break: break-word; }
@@ -6,21 +7,19 @@
 
 {% block content %}
 <div class="table-explorer-page">
-<div class="settings-page-header mb-3">
+{% set table_explorer_title_html %}
   <div class="d-flex align-items-center gap-2">
     <i class="bi bi-grid-3x3 fs-4 text-primary"></i>
     <h4 class="mb-0">Table Explorer</h4>
   </div>
-  <div class="settings-page-header-actions">
-    <a href="{{ url_for('view_query') }}" class="btn btn-sm btn-outline-secondary" title="Back" onclick="if (window.history.length > 1) { window.history.back(); return false; }">
-      <i class="bi bi-arrow-left me-1"></i><span class="table-explorer-btn-label">Back</span>
-    </a>
-    <a href="{{ url_for('table_explorer_help') }}" class="link-secondary text-decoration-none" title="Table Explorer Help" aria-label="Table Explorer Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
-<p class="text-secondary small mb-3">
-  Inspect allowed database tables, column schemas, and sample data. Read-only view.
-</p>
+{% endset %}
+{% set table_explorer_header_actions %}
+  <a href="{{ url_for('view_query') }}" class="btn btn-sm btn-outline-secondary" title="Back" onclick="if (window.history.length > 1) { window.history.back(); return false; }">
+    <i class="bi bi-arrow-left me-1"></i><span class="table-explorer-btn-label">Back</span>
+  </a>
+  <a href="{{ url_for('table_explorer_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Table Explorer Help"><i class="bi bi-question-circle me-1"></i><span class="table-explorer-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header(title_html=table_explorer_title_html, actions_html=table_explorer_header_actions, subtext='Inspect allowed database tables, column schemas, and sample data. Read-only view.') }}
 
 <!-- Search and filter bar -->
 <div class="mb-3 d-flex align-items-center gap-2">

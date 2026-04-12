@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from '_multi_select_filter.html' import render_multi_select %}
 {% from '_filter_macros.html' import render_filter_accordion, render_regex_filter %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Logs{% endblock %}
 {% block styles %}{{ super() }}<style>
   @keyframes liveRowFlash {
@@ -32,32 +33,30 @@
 {% set stats_updated = request.args.get('stats_updated', '') == '1' %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
 {% set to_ts = to_ts or request.args.get('to_ts', '') %}
-<div class="settings-page-header mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-journal-text me-2 text-info"></i>Logs</h4>
-  <div class="settings-page-header-actions">
-    <span id="liveModeStatus" class="badge text-bg-secondary">Live off</span>
-    <button
-      id="liveModeToggle"
-      type="button"
-      class="btn btn-sm btn-outline-success"
-      data-ai-action-id="logs.live_mode.start"
-      data-ai-action-type="start_live_mode"
-      data-ai-handler="startLiveMode"
-      data-ai-label="Start logs live mode"
-      data-ai-risk="low"
-      data-ai-confirm="false"
-      data-ai-action-role="toggle-live-mode"
-      title="Live mode"
-    >
-      <i class="bi bi-broadcast-pin me-1"></i><span class="logs-btn-label">Live mode</span>
-    </button>
-    <button id="liveNewCountBtn" type="button" class="btn btn-sm btn-outline-info d-none">
-      0 new
-    </button>
-    <span class="text-secondary small">{{ total }} total records</span>
-    <a href="{{ url_for('logs_help') }}" class="link-secondary text-decoration-none" title="Logs Help" aria-label="Logs Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+{% set logs_header_meta %}
+  <span id="liveModeStatus" class="badge text-bg-secondary">Live off</span>
+  <button id="liveNewCountBtn" type="button" class="btn btn-sm btn-outline-info d-none">0 new</button>
+  <span class="text-secondary small">{{ total }} total records</span>
+{% endset %}
+{% set logs_header_actions %}
+  <button
+    id="liveModeToggle"
+    type="button"
+    class="btn btn-sm btn-outline-success"
+    data-ai-action-id="logs.live_mode.start"
+    data-ai-action-type="start_live_mode"
+    data-ai-handler="startLiveMode"
+    data-ai-label="Start logs live mode"
+    data-ai-risk="low"
+    data-ai-confirm="false"
+    data-ai-action-role="toggle-live-mode"
+    title="Live mode"
+  >
+    <i class="bi bi-broadcast-pin me-1"></i><span class="logs-btn-label">Live mode</span>
+  </button>
+  <a href="{{ url_for('logs_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Logs Help"><i class="bi bi-question-circle me-1"></i><span class="logs-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Logs', icon_class='bi bi-journal-text', icon_text_class='text-info', meta_html=logs_header_meta, actions_html=logs_header_actions) }}
 
 <!-- Search / Filter bar -->
 {% call render_filter_accordion('logsFiltersAccordion', 'logsFiltersHeading', 'logsFiltersPanel', 'text-info', 'logs-tz-badge-btn', 'logs-tz-badge-label', extra_header_html='<span id="logs-ansi-btn" class="sobs-tz-header-badge" role="button" tabindex="0" aria-label="Toggle colored log output" aria-pressed="false" title="Colored log output: off — click to enable"><i class="bi bi-palette"></i></span>') %}

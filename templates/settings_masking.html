@@ -1,23 +1,17 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Output Masking{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="settings-page-header mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-shield-lock me-2 text-danger"></i>Output Masking</h4>
-  <div class="settings-page-header-actions">
-    <a class="btn btn-sm btn-outline-info" href="{{ url_for('masking_help') }}" title="Help">
-      <i class="bi bi-question-circle me-1"></i><span class="masking-btn-label settings-btn-label">Help</span>
-    </a>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}" title="Back to Settings">
-      <i class="bi bi-arrow-left me-1"></i><span class="masking-btn-label settings-btn-label">Back to Settings</span>
-    </a>
-  </div>
-</div>
-
-<p class="text-secondary small mb-3">
-  These rules apply only to display-layer output. Stored OTEL, RUM, replay, and issue payloads are not modified in the database.
-  Default rules remain active at all times; use this page to add environment-specific keys and regex patterns.
-</p>
+{% set settings_masking_header_actions %}
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}" title="Back to Settings">
+    <i class="bi bi-arrow-left me-1"></i><span class="masking-btn-label settings-btn-label">Back to Settings</span>
+  </a>
+  <a class="btn btn-sm btn-outline-secondary page-help-btn" href="{{ url_for('masking_help') }}" title="Help">
+    <i class="bi bi-question-circle me-1"></i><span class="masking-btn-label settings-btn-label">Help</span>
+  </a>
+{% endset %}
+{{ render_page_header('Output Masking', icon_class='bi bi-shield-lock', icon_text_class='text-danger', actions_html=settings_masking_header_actions, subtext='These rules apply only to display-layer output. Stored OTEL, RUM, replay, and issue payloads are not modified in the database. Default rules remain active at all times; use this page to add environment-specific keys and regex patterns.') }}
 
 <div class="row g-3 mb-4">
   <div class="col-md-4">

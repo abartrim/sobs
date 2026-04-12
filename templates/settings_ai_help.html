@@ -1,18 +1,17 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}AI Configuration Help{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="settings-page-header mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-question-circle me-2 text-info"></i>AI Configuration Help</h4>
-  <div class="settings-page-header-actions">
-    <a href="{{ url_for('view_ai_settings') }}" class="btn btn-sm btn-outline-primary" title="Open AI Settings">
-      <i class="bi bi-gear me-1"></i><span class="settings-btn-label">AI Settings</span>
-    </a>
-    <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
-      <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
-    </a>
-  </div>
-</div>
+{% set settings_ai_help_header_actions %}
+  <a href="{{ url_for('view_ai_settings') }}" class="btn btn-sm btn-outline-primary" title="Open AI Settings">
+    <i class="bi bi-gear me-1"></i><span class="settings-btn-label">AI Settings</span>
+  </a>
+  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
+    <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
+  </a>
+{% endset %}
+{{ render_page_header('AI Configuration Help', icon_class='bi bi-question-circle', icon_text_class='text-info', actions_html=settings_ai_help_header_actions) }}
 
 <div class="row g-3 mb-3">
   <div class="col-lg-4">

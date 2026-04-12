@@ -2889,6 +2889,9 @@ def _kubernetes_enabled() -> bool:
         return False
 
 
+MOBILE_BREAKPOINT_MAX = "575.98px"
+
+
 @app.context_processor
 def inject_feature_flags() -> dict:
     try:
@@ -2898,6 +2901,7 @@ def inject_feature_flags() -> dict:
             "query_enabled": _query_page_enabled(),
             "kubernetes_enabled": _kubernetes_enabled(),
             "raise_issue_mask_toggle_effective": raise_issue_mask_toggle_effective,
+            "mobile_breakpoint_max": MOBILE_BREAKPOINT_MAX,
             "sobs_version": BUILD_VERSION or "dev",
         }
     except Exception:
@@ -2905,6 +2909,7 @@ def inject_feature_flags() -> dict:
             "query_enabled": False,
             "kubernetes_enabled": False,
             "raise_issue_mask_toggle_effective": False,
+            "mobile_breakpoint_max": MOBILE_BREAKPOINT_MAX,
             "sobs_version": BUILD_VERSION or "dev",
         }
 

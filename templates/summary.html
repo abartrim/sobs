@@ -1,24 +1,62 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Summary{% endblock %}
 {% macro fmt_num(n) %}{% if n >= 1000000 %}{{ "%.1f" | format(n / 1000000) }}M{% elif n >= 1000 %}{{ "%.1f" | format(n / 1000) }}K{% else %}{{ n }}{% endif %}{% endmacro %}
-{% block styles %}{{ super() }}{% endblock %}
+{% block styles %}{{ super() }}<style>
+  @media (max-width: {{ mobile_breakpoint_max }}) {
+    #summaryRefreshInlineGroup {
+      display: none !important;
+    }
+    #summaryRefreshModalBtn {
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
+    }
+  }
+</style>{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-4">
-  <h4 class="fw-semibold mb-0">Summary</h4>
-  <div class="d-flex align-items-center gap-2" title="Auto-refresh interval">
-    <span id="summaryCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
-    <div class="input-group input-group-sm" style="width:auto;">
-      <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
-      <select id="summaryRefreshSelect" class="form-select form-select-sm" style="width:auto;">
-        <option value="0">Off</option>
-        <option value="10">10s</option>
-        <option value="30">30s</option>
-        <option value="60">1m</option>
-        <option value="120">2m</option>
-        <option value="300">5m</option>
-      </select>
+{% set summary_header_meta %}
+  <span id="summaryCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
+  <div id="summaryRefreshInlineGroup" class="input-group input-group-sm" style="width:auto;" title="Auto-refresh interval">
+    <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
+    <select id="summaryRefreshSelect" class="form-select form-select-sm" style="width:auto;">
+      <option value="0">Off</option>
+      <option value="10">10s</option>
+      <option value="30">30s</option>
+      <option value="60">1m</option>
+      <option value="120">2m</option>
+      <option value="300">5m</option>
+    </select>
+  </div>
+{% endset %}
+{% set summary_header_actions %}
+  <button id="summaryRefreshModalBtn" type="button" class="btn btn-sm btn-outline-secondary d-none" title="Auto-refresh" aria-label="Auto-refresh" data-bs-toggle="modal" data-bs-target="#summaryRefreshModal"><i class="bi bi-arrow-repeat me-1"></i><span class="page-btn-label">Refresh</span></button>
+  <a href="{{ url_for('summary_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Summary Help"><i class="bi bi-question-circle me-1"></i><span class="page-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Summary', icon_class='bi bi-speedometer2', icon_text_class='text-primary', meta_html=summary_header_meta, actions_html=summary_header_actions, margin_class='mb-4') }}
+
+<div class="modal fade" id="summaryRefreshModal" tabindex="-1" aria-labelledby="summaryRefreshModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="summaryRefreshModalLabel"><i class="bi bi-arrow-repeat me-2"></i>Auto-refresh</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="summaryRefreshSelectMobile" class="form-label">Refresh interval</label>
+        <select id="summaryRefreshSelectMobile" class="form-select">
+          <option value="0">Off</option>
+          <option value="10">10 seconds</option>
+          <option value="30">30 seconds</option>
+          <option value="60">1 minute</option>
+          <option value="120">2 minutes</option>
+          <option value="300">5 minutes</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+      </div>
     </div>
-    <a href="{{ url_for('summary_help') }}" class="link-secondary text-decoration-none" title="Summary Help" aria-label="Summary Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
   </div>
 </div>
 
@@ -315,6 +353,8 @@
   }
 
   var select = document.getElementById('summaryRefreshSelect');
+  var mobileSelect = document.getElementById('summaryRefreshSelectMobile');
+  var mobileModal = document.getElementById('summaryRefreshModal');
   var countdown = document.getElementById('summaryCountdown');
   var _refreshTimer = null;
   var _countdownTimer = null;
@@ -351,13 +391,37 @@
 
   select.addEventListener('change', function () {
     localStorage.setItem('sobs_summary_refresh', select.value);
+    if (mobileSelect) {
+      mobileSelect.value = select.value;
+    }
     apply();
   });
+
+  if (mobileSelect) {
+    mobileSelect.value = select.value;
+    mobileSelect.addEventListener('change', function () {
+      if (select.value !== mobileSelect.value) {
+        select.value = mobileSelect.value;
+        select.dispatchEvent(new Event('change'));
+      }
+    });
+  }
+
+  if (mobileModal) {
+    mobileModal.addEventListener('show.bs.modal', function () {
+      if (mobileSelect) {
+        mobileSelect.value = select.value;
+      }
+    });
+  }
 
   /* Restore saved interval across reloads */
   var saved = localStorage.getItem('sobs_summary_refresh');
   if (saved && saved !== '0') {
     select.value = saved;
+    if (mobileSelect) {
+      mobileSelect.value = saved;
+    }
     apply();
   }
 })();

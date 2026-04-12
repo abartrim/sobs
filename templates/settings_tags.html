@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from '_multi_select_filter.html' import render_single_select %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Tag Rules{% endblock %}
 
 {% block styles %}{{ super() }}<style>
@@ -10,24 +11,15 @@
 </style>{% endblock %}
 
 {% block content %}
-<div class="settings-page-header mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-tags me-2 text-info"></i>Tag Rules</h4>
-  <div class="settings-page-header-actions">
-    <a class="btn btn-sm btn-outline-info" href="{{ url_for('settings_tags_help') }}" title="Help">
-      <i class="bi bi-question-circle me-1"></i><span class="tags-btn-label settings-btn-label">Help</span>
-    </a>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}" title="Back to Settings">
-      <i class="bi bi-arrow-left me-1"></i><span class="tags-btn-label settings-btn-label">Back to Settings</span>
-    </a>
-  </div>
-</div>
-
-<p class="text-secondary small mb-3">
-  Tag rules are evaluated at ingest time. Matching records automatically receive the configured
-  tag, stored in <code>sobs_record_tags</code> for use in filtering and anomaly correlation.
-  Tags follow <strong>OTEL attribute</strong> conventions: <code>key=value</code> pairs with
-  one effective value per key per record.
-</p>
+{% set settings_tags_header_actions %}
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}" title="Back to Settings">
+    <i class="bi bi-arrow-left me-1"></i><span class="tags-btn-label settings-btn-label">Back to Settings</span>
+  </a>
+  <a class="btn btn-sm btn-outline-secondary page-help-btn" href="{{ url_for('settings_tags_help') }}" title="Help">
+    <i class="bi bi-question-circle me-1"></i><span class="tags-btn-label settings-btn-label">Help</span>
+  </a>
+{% endset %}
+{{ render_page_header('Tag Rules', icon_class='bi bi-tags', icon_text_class='text-info', actions_html=settings_tags_header_actions, subtext='Tag rules are evaluated at ingest time. Matching records automatically receive the configured tag, stored in <code>sobs_record_tags</code> for use in filtering and anomaly correlation. Tags follow <strong>OTEL attribute</strong> conventions: <code>key=value</code> pairs with one effective value per key per record.') }}
 
 <div class="accordion mb-3" id="tagRulesAutoAccordion">
   <div class="accordion-item border border-secondary">

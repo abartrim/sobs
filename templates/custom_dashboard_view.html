@@ -54,7 +54,15 @@
     }
   }
 
-  @media (max-width: 575.98px) {
+  @media (max-width: {{ mobile_breakpoint_max }}) {
+    #dashboardRefreshInlineGroup {
+      display: none !important;
+    }
+    #dashboardRefreshModalBtn {
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
+    }
   }
 </style>{% endblock %}
 {% block content %}
@@ -72,7 +80,7 @@
     {% endif %}
   </div>
   <div class="d-flex gap-2 align-items-center">
-    <div class="d-flex align-items-center gap-2" title="Auto-refresh interval">
+    <div id="dashboardRefreshInlineGroup" class="d-flex align-items-center gap-2" title="Auto-refresh interval">
       <span id="refreshCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
       <div class="input-group input-group-sm" style="width:auto;">
         <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
@@ -86,6 +94,9 @@
         </select>
       </div>
     </div>
+    <button id="dashboardRefreshModalBtn" type="button" class="btn btn-outline-secondary btn-sm d-none" title="Auto-refresh" aria-label="Auto-refresh" data-bs-toggle="modal" data-bs-target="#dashboardRefreshModal">
+      <i class="bi bi-arrow-repeat me-1"></i><span class="custom-dashboard-btn-label">Refresh</span>
+    </button>
     <button class="btn btn-primary btn-sm js-add-chart-btn" data-bs-toggle="modal" data-bs-target="#addChartModal"
             title="Add Chart"
             data-ai-action-id="dashboard.chart.modal.open"
@@ -117,6 +128,31 @@
         <i class="bi bi-trash me-1"></i><span class="custom-dashboard-btn-label">Delete</span>
       </button>
     </form>
+  </div>
+</div>
+
+<div class="modal fade" id="dashboardRefreshModal" tabindex="-1" aria-labelledby="dashboardRefreshModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="dashboardRefreshModalLabel"><i class="bi bi-arrow-repeat me-2"></i>Auto-refresh</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="refreshIntervalSelectMobile" class="form-label">Refresh interval</label>
+        <select id="refreshIntervalSelectMobile" class="form-select">
+          <option value="0">Off</option>
+          <option value="10">10 seconds</option>
+          <option value="30">30 seconds</option>
+          <option value="60">1 minute</option>
+          <option value="120">2 minutes</option>
+          <option value="300">5 minutes</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -821,6 +857,8 @@
   var _countdownTimer = null;
   var _countdownRemaining = 0;
   var refreshIntervalSelect = document.getElementById('refreshIntervalSelect');
+  var refreshIntervalSelectMobile = document.getElementById('refreshIntervalSelectMobile');
+  var dashboardRefreshModal = document.getElementById('dashboardRefreshModal');
   var refreshCountdown = document.getElementById('refreshCountdown');
 
   function refreshAllCharts() {
@@ -873,11 +911,36 @@
     var _storageKey = 'sobs_dash_refresh_{{ dashboard.id }}';
     refreshIntervalSelect.addEventListener('change', function () {
       localStorage.setItem(_storageKey, refreshIntervalSelect.value);
+      if (refreshIntervalSelectMobile) {
+        refreshIntervalSelectMobile.value = refreshIntervalSelect.value;
+      }
       applyRefreshInterval();
     });
+
+    if (refreshIntervalSelectMobile) {
+      refreshIntervalSelectMobile.value = refreshIntervalSelect.value;
+      refreshIntervalSelectMobile.addEventListener('change', function () {
+        if (refreshIntervalSelect.value !== refreshIntervalSelectMobile.value) {
+          refreshIntervalSelect.value = refreshIntervalSelectMobile.value;
+          refreshIntervalSelect.dispatchEvent(new Event('change'));
+        }
+      });
+    }
+
+    if (dashboardRefreshModal) {
+      dashboardRefreshModal.addEventListener('show.bs.modal', function () {
+        if (refreshIntervalSelectMobile) {
+          refreshIntervalSelectMobile.value = refreshIntervalSelect.value;
+        }
+      });
+    }
+
     var _savedInterval = localStorage.getItem(_storageKey);
     if (_savedInterval && _savedInterval !== '0') {
       refreshIntervalSelect.value = _savedInterval;
+      if (refreshIntervalSelectMobile) {
+        refreshIntervalSelectMobile.value = _savedInterval;
+      }
       applyRefreshInterval();
     }
   }

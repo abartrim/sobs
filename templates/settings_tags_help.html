@@ -1,18 +1,17 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Tag Rules Help{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="settings-page-header mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-question-circle me-2 text-info"></i>Tag Rules Help</h4>
-  <div class="settings-page-header-actions">
-    <a href="{{ url_for('view_tag_rules') }}" class="btn btn-sm btn-outline-info" title="Open Tag Rules">
-      <i class="bi bi-tags me-1"></i><span class="settings-btn-label">Tag Rules</span>
-    </a>
-    <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
-      <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
-    </a>
-  </div>
-</div>
+{% set settings_tags_help_header_actions %}
+  <a href="{{ url_for('view_tag_rules') }}" class="btn btn-sm btn-outline-info" title="Open Tag Rules">
+    <i class="bi bi-tags me-1"></i><span class="settings-btn-label">Tag Rules</span>
+  </a>
+  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
+    <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
+  </a>
+{% endset %}
+{{ render_page_header('Tag Rules Help', icon_class='bi bi-question-circle', icon_text_class='text-info', actions_html=settings_tags_help_header_actions) }}
 
 <div class="row g-3 mb-3">
   <div class="col-lg-4">

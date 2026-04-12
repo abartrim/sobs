@@ -1,34 +1,32 @@
 {% extends "base.html" %}
 {% from "_filter_macros.html" import render_filter_accordion, render_tz_init_script %}
 {% from "_multi_select_filter.html" import render_single_select %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Work Items{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="settings-page-header mb-3">
-  <h4 class="fw-semibold mb-0">
-    <i class="bi bi-github me-2 text-secondary"></i>Work Items
-    {% if total_items %}
-    <span class="badge bg-secondary ms-1">{{ total_items }}</span>
-    {% endif %}
-  </h4>
-  <div class="settings-page-header-actions">
-    <button class="btn btn-sm btn-outline-primary"
-            type="button"
-            data-bs-toggle="modal"
-            data-bs-target="#workItemsTourModal"
-            title="Work items walkthrough"
-            aria-label="Open work items walkthrough"
-            data-ai-action-id="work.items.tour.open"
-            data-ai-action-type="open_modal"
-            data-ai-handler="openModal"
-            data-ai-args='{"modal_id":"workItemsTourModal"}'
-            data-ai-label="Open work items walkthrough modal">
-      <i class="bi bi-mortarboard me-1"></i><span class="work-items-btn-label">Walkthrough</span>
-    </button>
-    <span class="text-secondary small"><i class="bi bi-clock me-1"></i>Auto-created by agent rules</span>
-    <a href="{{ url_for('work_items_help') }}" class="link-secondary text-decoration-none" title="Work Items Help" aria-label="Work Items Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+{% set work_items_header_meta %}
+  {% if total_items %}
+  <span class="badge bg-secondary">{{ total_items }}</span>
+  {% endif %}
+{% endset %}
+{% set work_items_header_actions %}
+  <button class="btn btn-sm btn-outline-primary"
+          type="button"
+          data-bs-toggle="modal"
+          data-bs-target="#workItemsTourModal"
+          title="Work items walkthrough"
+          aria-label="Open work items walkthrough"
+          data-ai-action-id="work.items.tour.open"
+          data-ai-action-type="open_modal"
+          data-ai-handler="openModal"
+          data-ai-args='{"modal_id":"workItemsTourModal"}'
+          data-ai-label="Open work items walkthrough modal">
+    <i class="bi bi-mortarboard me-1"></i><span class="work-items-btn-label">Walkthrough</span>
+  </button>
+  <a href="{{ url_for('work_items_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Work Items Help"><i class="bi bi-question-circle me-1"></i><span class="work-items-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Work Items', icon_class='bi bi-github', icon_text_class='text-secondary', meta_html=work_items_header_meta, actions_html=work_items_header_actions, subtext='<i class="bi bi-clock me-1"></i>Auto-created by agent rules') }}
 
 <!-- Filters -->
 {% set _work_items_has_active_filters = service_filter or rule_filter or action_type_filter or status_filter or from_ts or to_ts %}

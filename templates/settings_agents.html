@@ -1,14 +1,10 @@
 {% extends "base.html" %}
 {% from '_multi_select_filter.html' import render_single_select %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Agent Rules{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="settings-page-header mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-lightning-charge me-2 text-warning"></i>Automated Agent Flows</h4>
-  <div class="settings-page-header-actions">
-    <a href="{{ url_for('settings_agents_help') }}" class="btn btn-sm btn-outline-info" title="Help">
-      <i class="bi bi-question-circle me-1"></i><span class="agents-btn-label settings-btn-label">Help</span>
-    </a>
+{% set settings_agents_header_actions %}
     <button class="btn btn-sm btn-outline-warning"
             type="button"
             data-bs-toggle="modal"
@@ -28,8 +24,11 @@
     <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
       <i class="bi bi-arrow-left me-1"></i><span class="agents-btn-label settings-btn-label">Back to Settings</span>
     </a>
-  </div>
-</div>
+    <a href="{{ url_for('settings_agents_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help">
+      <i class="bi bi-question-circle me-1"></i><span class="agents-btn-label settings-btn-label">Help</span>
+    </a>
+{% endset %}
+{{ render_page_header('Automated Agent Flows', icon_class='bi bi-lightning-charge', icon_text_class='text-warning', actions_html=settings_agents_header_actions) }}
 
 <p class="text-secondary small mb-4">
   Agent rules automatically invoke an AI flow when specific anomaly rules or tag rules are

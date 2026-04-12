@@ -1,19 +1,17 @@
 {% extends "base.html" %}
 {% from "_multi_select_filter.html" import render_multi_select %}
 {% from "_filter_macros.html" import render_filter_accordion, render_regex_filter, render_tz_init_script %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Metrics{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="settings-page-header mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-graph-up-arrow me-2 text-info"></i>Metrics & Signals</h4>
-  <div class="settings-page-header-actions">
-    <div class="small text-secondary">Derived 1-minute telemetry signals with anomaly state</div>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics_rules') }}" title="Manage Rules">
-      <i class="bi bi-sliders me-1"></i><span class="metrics-btn-label">Manage Rules</span>
-    </a>
-    <a href="{{ url_for('metrics_help') }}" class="link-secondary text-decoration-none" title="Metrics Help" aria-label="Metrics Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+{% set metrics_header_actions %}
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics_rules') }}" title="Manage Rules">
+    <i class="bi bi-sliders me-1"></i><span class="metrics-btn-label">Manage Rules</span>
+  </a>
+  <a href="{{ url_for('metrics_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Metrics Help"><i class="bi bi-question-circle me-1"></i><span class="metrics-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Metrics & Signals', icon_class='bi bi-graph-up-arrow', icon_text_class='text-info', actions_html=metrics_header_actions, subtext='Derived 1-minute telemetry signals with anomaly state') }}
 
 {% call render_filter_accordion('metricsFiltersAccordion', 'metricsFiltersHeading', 'metricsFiltersPanel', 'text-info', 'metrics-tz-badge-btn', 'metrics-tz-badge-label', body_class='py-2') %}
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">

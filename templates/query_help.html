@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Query Help{% endblock %}
 {% block styles %}{{ super() }}<style>
-@media (max-width: 575.98px) {
+@media (max-width: {{ mobile_breakpoint_max }}) {
 }
 </style>{% endblock %}
 {% block content %}

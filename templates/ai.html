@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_multi_select_filter.html" import render_multi_select, render_single_select %}
 {% from "_filter_macros.html" import render_filter_accordion %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}AI Transparency{% endblock %}
 {% macro fmt_num(n) %}{% if n >= 1000000 %}{{ "%.1f" | format(n / 1000000) }}M{% elif n >= 1000 %}{{ "%.1f" | format(n / 1000) }}K{% else %}{{ n }}{% endif %}{% endmacro %}
 {% macro render_message_content(msg) %}{% set content = msg.get('content', '') if msg is mapping else '' %}{{ (content if content is string else content | tojson) | mask }}{% endmacro %}
@@ -135,9 +136,7 @@
   }
 </style>{% endblock %}
 {% block content %}
-<div class="settings-page-header mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-cpu me-2 text-success"></i>AI Transparency</h4>
-  <div class="settings-page-header-actions">
+{% set ai_header_actions %}
     <div class="btn-group" role="group" aria-label="View mode">
       <a href="{{ url_for('view_ai', view='flat', service=service, model=model, operation=operation, span_name=span_name, row_type=row_type, sql=sql_where, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0) }}"
         class="btn btn-sm {% if view_mode == 'flat' %}btn-primary{% else %}btn-outline-secondary{% endif %}"
@@ -178,9 +177,9 @@
             data-ai-args='{"element_id":"liveTailBtn"}'>
       <i class="bi bi-broadcast me-1"></i><span class="ai-btn-label">Live Tail</span>
     </button>
-    <a href="{{ url_for('ai_help') }}" class="link-secondary text-decoration-none" title="AI Transparency Help" aria-label="AI Transparency Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+    <a href="{{ url_for('ai_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="AI Transparency Help"><i class="bi bi-question-circle me-1"></i><span class="ai-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('AI Transparency', icon_class='bi bi-cpu', icon_text_class='text-success', actions_html=ai_header_actions) }}
 
 <!-- Live Tail Panel -->
 <div id="liveTailPanel" class="card border-success mb-3" style="display:none;">

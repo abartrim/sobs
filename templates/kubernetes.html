@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Kubernetes Health{% endblock %}
 {% block styles %}{{ super() }}<style>
   /* Page-specific layout helpers */
@@ -33,35 +34,66 @@
   }
 
   /* Responsive mobile card table + button label rules */
-  @media (max-width: 575.98px) {
+  @media (max-width: {{ mobile_breakpoint_max }}) {
+    #k8sRefreshInlineGroup {
+      display: none !important;
+    }
+    #k8sRefreshModalBtn {
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
+    }
   }
 </style>{% endblock %}
 {% block content %}
-<div class="settings-page-header mb-3">
-  <div>
-    <h4 class="fw-semibold mb-1"><i class="bi bi-hdd-network me-2 text-info"></i>Kubernetes Health</h4>
-    <p class="text-secondary mb-0 small">Cluster status from OpenTelemetry collectors.</p>
+{% set kubernetes_header_meta %}
+  <p class="text-secondary mb-0 small">Cluster status from OpenTelemetry collectors.</p>
+  <span id="dataSourceBadge" class="badge text-bg-secondary">Loading…</span>
+  <span id="lastUpdatedBadge" class="text-secondary small"></span>
+  <span id="k8sCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
+  <div id="k8sRefreshInlineGroup" class="input-group input-group-sm" style="width:auto;" title="Auto-refresh interval">
+    <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
+    <select id="k8sRefreshSelect" class="form-select form-select-sm" style="width:auto;">
+      <option value="0">Off</option>
+      <option value="10">10s</option>
+      <option value="30" selected>30s</option>
+      <option value="60">1m</option>
+      <option value="120">2m</option>
+    </select>
   </div>
-  <div class="settings-page-header-actions">
-    <span id="dataSourceBadge" class="badge text-bg-secondary">Loading…</span>
-    <span id="lastUpdatedBadge" class="text-secondary small"></span>
-    <span id="k8sCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
-    <div class="input-group input-group-sm" style="width:auto;" title="Auto-refresh interval">
-      <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
-      <select id="k8sRefreshSelect" class="form-select form-select-sm" style="width:auto;">
-        <option value="0">Off</option>
-        <option value="10">10s</option>
-        <option value="30" selected>30s</option>
-        <option value="60">1m</option>
-        <option value="120">2m</option>
-      </select>
+{% endset %}
+{% set kubernetes_header_actions %}
+  <button id="k8sRefreshModalBtn" type="button" class="btn btn-sm btn-outline-secondary d-none" title="Auto-refresh" aria-label="Auto-refresh" data-bs-toggle="modal" data-bs-target="#k8sRefreshModal"><i class="bi bi-arrow-repeat me-1"></i><span class="k8s-btn-label">Refresh</span></button>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_k8s_settings') }}" title="Settings">
+    <i class="bi bi-gear me-1"></i><span class="k8s-btn-label">Settings</span>
+  </a>
+  <a class="btn btn-sm btn-outline-secondary page-help-btn" href="{{ url_for('kubernetes_help') }}" title="Help" aria-label="Kubernetes Help">
+    <i class="bi bi-question-circle me-1"></i><span class="k8s-btn-label">Help</span>
+  </a>
+{% endset %}
+{{ render_page_header('Kubernetes Health', icon_class='bi bi-hdd-network', icon_text_class='text-info', meta_html=kubernetes_header_meta, actions_html=kubernetes_header_actions) }}
+
+<div class="modal fade" id="k8sRefreshModal" tabindex="-1" aria-labelledby="k8sRefreshModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="k8sRefreshModalLabel"><i class="bi bi-arrow-repeat me-2"></i>Auto-refresh</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="k8sRefreshSelectMobile" class="form-label">Refresh interval</label>
+        <select id="k8sRefreshSelectMobile" class="form-select">
+          <option value="0">Off</option>
+          <option value="10">10 seconds</option>
+          <option value="30">30 seconds</option>
+          <option value="60">1 minute</option>
+          <option value="120">2 minutes</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+      </div>
     </div>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('kubernetes_help') }}" title="Setup">
-      <i class="bi bi-info-circle me-1"></i><span class="k8s-btn-label">Setup</span>
-    </a>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_k8s_settings') }}" title="Settings">
-      <i class="bi bi-gear me-1"></i><span class="k8s-btn-label">Settings</span>
-    </a>
   </div>
 </div>
 
@@ -868,9 +900,14 @@
   });
 
   var refreshSelect = document.getElementById('k8sRefreshSelect');
+  var mobileRefreshSelect = document.getElementById('k8sRefreshSelectMobile');
+  var mobileRefreshModal = document.getElementById('k8sRefreshModal');
   refreshSelect.addEventListener('change', function () {
     var interval = parseInt(this.value, 10);
     REFRESH_INTERVAL_MS = interval * 1000;
+    if (mobileRefreshSelect) {
+      mobileRefreshSelect.value = this.value;
+    }
     if (interval > 0) {
       startAutoRefresh();
       startCountdown(interval);
@@ -880,6 +917,24 @@
       document.getElementById('k8sCountdown').style.display = 'none';
     }
   });
+
+  if (mobileRefreshSelect) {
+    mobileRefreshSelect.value = refreshSelect.value;
+    mobileRefreshSelect.addEventListener('change', function () {
+      if (refreshSelect.value !== mobileRefreshSelect.value) {
+        refreshSelect.value = mobileRefreshSelect.value;
+        refreshSelect.dispatchEvent(new Event('change'));
+      }
+    });
+  }
+
+  if (mobileRefreshModal) {
+    mobileRefreshModal.addEventListener('show.bs.modal', function () {
+      if (mobileRefreshSelect) {
+        mobileRefreshSelect.value = refreshSelect.value;
+      }
+    });
+  }
 
   load();
   startAutoRefresh();

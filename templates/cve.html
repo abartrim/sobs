@@ -1,28 +1,27 @@
 {% extends "base.html" %}
 {% from "_multi_select_filter.html" import render_multi_select %}
 {% from "_filter_macros.html" import render_filter_accordion, render_tz_init_script %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}CVE Findings{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="settings-page-header mb-3">
-  <h4 class="fw-semibold mb-0">
-    <i class="bi bi-shield-exclamation me-2 text-danger"></i>CVE / Vulnerability Findings
-    {% if cve_findings %}
-    <span class="badge bg-danger ms-1">{{ cve_findings | length }}</span>
-    {% endif %}
-  </h4>
-  <div class="settings-page-header-actions">
-    {% if cve_last_scan %}
-    <span class="text-secondary small"><i class="bi bi-clock me-1"></i>Last scan: <span class="sobs-tz-ts" data-utc-ts="{{ cve_last_scan }}">{{ cve_last_scan[:19] }}</span></span>
-    {% endif %}
-    {% if cve_enabled %}
-    <button class="btn btn-sm btn-outline-danger py-0" id="cve-scan-btn" onclick="triggerCveScan()" title="Scan now">
-      <i class="bi bi-arrow-clockwise me-1"></i><span class="cve-btn-label">Scan now</span>
-    </button>
-    {% endif %}
-    <a href="{{ url_for('cve_help') }}" class="link-secondary text-decoration-none" title="CVE Help" aria-label="CVE Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+{% set cve_header_meta %}
+  {% if cve_findings %}
+  <span class="badge bg-danger">{{ cve_findings | length }}</span>
+  {% endif %}
+  {% if cve_last_scan %}
+  <span class="text-secondary small"><i class="bi bi-clock me-1"></i>Last scan: <span class="sobs-tz-ts" data-utc-ts="{{ cve_last_scan }}">{{ cve_last_scan[:19] }}</span></span>
+  {% endif %}
+{% endset %}
+{% set cve_header_actions %}
+  {% if cve_enabled %}
+  <button class="btn btn-sm btn-outline-danger py-0" id="cve-scan-btn" onclick="triggerCveScan()" title="Scan now">
+    <i class="bi bi-arrow-clockwise me-1"></i><span class="cve-btn-label">Scan now</span>
+  </button>
+  {% endif %}
+  <a href="{{ url_for('cve_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="CVE Help"><i class="bi bi-question-circle me-1"></i><span class="cve-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('CVE / Vulnerability Findings', icon_class='bi bi-shield-exclamation', icon_text_class='text-danger', meta_html=cve_header_meta, actions_html=cve_header_actions) }}
 
 {% if not cve_enabled %}
 <div class="alert alert-secondary py-2 small" role="alert">

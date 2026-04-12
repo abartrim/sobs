@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from '_multi_select_filter.html' import render_single_select %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Metrics Rules{% endblock %}
 {% block styles %}{{ super() }}<style>
   #metricsRulesTourModal {
@@ -71,27 +72,26 @@
   }
 </style>{% endblock %}
 {% block content %}
-<div class="settings-page-header mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-sliders me-2 text-info"></i>Metrics Rules</h4>
-  <div class="settings-page-header-actions">
-    <button class="btn btn-sm btn-outline-info"
-            type="button"
-            data-bs-toggle="modal"
-            data-bs-target="#metricsRulesTourModal"
-            title="Rules walkthrough"
-            aria-label="Open metrics rules walkthrough"
-            data-ai-action-id="metrics.rules.tour.open"
-            data-ai-action-type="open_modal"
-            data-ai-handler="openModal"
-            data-ai-args='{"modal_id":"metricsRulesTourModal"}'
-            data-ai-label="Open metrics rules walkthrough modal">
-      <i class="bi bi-mortarboard me-1"></i><span class="metrics-rules-btn-label">Walkthrough</span>
-    </button>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics') }}" title="Back to Metrics">
-      <i class="bi bi-arrow-left me-1"></i><span class="metrics-rules-btn-label">Back to Metrics</span>
-    </a>
-  </div>
-</div>
+{% set metrics_rules_header_actions %}
+  <button class="btn btn-sm btn-outline-info"
+          type="button"
+          data-bs-toggle="modal"
+          data-bs-target="#metricsRulesTourModal"
+          title="Rules walkthrough"
+          aria-label="Open metrics rules walkthrough"
+          data-ai-action-id="metrics.rules.tour.open"
+          data-ai-action-type="open_modal"
+          data-ai-handler="openModal"
+          data-ai-args='{"modal_id":"metricsRulesTourModal"}'
+          data-ai-label="Open metrics rules walkthrough modal">
+    <i class="bi bi-mortarboard me-1"></i><span class="metrics-rules-btn-label">Walkthrough</span>
+  </button>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics') }}" title="Back to Metrics">
+    <i class="bi bi-arrow-left me-1"></i><span class="metrics-rules-btn-label">Back to Metrics</span>
+  </a>
+  <a href="{{ url_for('metrics_rules_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Metrics Rules Help"><i class="bi bi-question-circle me-1"></i><span class="metrics-rules-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Metrics Rules', icon_class='bi bi-sliders', icon_text_class='text-info', actions_html=metrics_rules_header_actions, subtext='Configure threshold, deadman, and ratio alerts for time-series metrics.') }}
 
 <div class="accordion mb-3" id="metricsRulesAutoAccordion">
   <div class="accordion-item bg-body-tertiary border border-secondary">

@@ -2,9 +2,10 @@
 {% from "_filter_macros.html" import render_filter_accordion, render_regex_filter %}
 {% from "_error_panels.html" import render_error_accordion, render_error_panel_styles %}
 {% from "_multi_select_filter.html" import render_multi_select %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Traces{% endblock %}
 {% block styles %}{{ super() }}<style>
-  @media (max-width: 575.98px) {
+  @media (max-width: {{ mobile_breakpoint_max }}) {
     .trace-detail-summary .trace-id {
       max-width: 100%;
       overflow-wrap: anywhere;
@@ -42,14 +43,14 @@
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
 {% set to_ts = to_ts or request.args.get('to_ts', '') %}
-<div class="settings-page-header mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-diagram-3 me-2 text-warning"></i>Traces</h4>
-  <div class="settings-page-header-actions">
-    <span class="text-secondary small">{{ total }} spans</span>
-    {% if trace_detail %}<a href="{{ url_for('view_traces') }}" class="btn btn-sm btn-outline-secondary" title="All Traces"><i class="bi bi-arrow-left me-1"></i><span class="traces-btn-label">All Traces</span></a>{% endif %}
-    <a href="{{ url_for('traces_help') }}" class="link-secondary text-decoration-none" title="Traces Help" aria-label="Traces Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+{% set traces_header_meta %}
+  <span class="text-secondary small">{{ total }} spans</span>
+{% endset %}
+{% set traces_header_actions %}
+  {% if trace_detail %}<a href="{{ url_for('view_traces') }}" class="btn btn-sm btn-outline-secondary" title="All Traces"><i class="bi bi-arrow-left me-1"></i><span class="traces-btn-label">All Traces</span></a>{% endif %}
+  <a href="{{ url_for('traces_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Traces Help"><i class="bi bi-question-circle me-1"></i><span class="traces-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Traces', icon_class='bi bi-diagram-3', icon_text_class='text-warning', meta_html=traces_header_meta, actions_html=traces_header_actions) }}
 
 <!-- Filter bar -->
 {% call render_filter_accordion('tracesFiltersAccordion', 'tracesFiltersHeading', 'tracesFiltersPanel', 'text-warning', 'traces-tz-badge-btn', 'traces-tz-badge-label') %}
