@@ -10434,6 +10434,31 @@ def _validate_re2_patterns(db: "ChDbConnection", patterns: list[str]) -> str | N
     return None
 
 
+def _prepare_re2_filter_patterns(db: "ChDbConnection", raw: str) -> tuple[list[str], list[str], str | None]:
+    """Parse and RE2-validate regex filters intended for SQL match() clauses.
+
+    This helper is for the RE2 DB path only. It does not affect Python-only regex
+    behavior or client-side JavaScript regex handling.
+    """
+    include_patterns, exclude_patterns, parse_error = _parse_regex_filter_expression(raw)
+    if parse_error:
+        return [], [], parse_error
+    re2_error = _validate_re2_patterns(db, [*include_patterns, *exclude_patterns])
+    if re2_error:
+        return [], [], re2_error
+    return include_patterns, exclude_patterns, None
+
+
+def _append_time_window_filter(conditions: list[str], params: list[Any], column: str, from_ts: str, to_ts: str) -> None:
+    time_conditions, time_params = _time_window_conditions(column, from_ts, to_ts)
+    conditions.extend(time_conditions)
+    params.extend(time_params)
+
+
+def _where_clause(conditions: list[str]) -> str:
+    return ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+
 def _append_regex_expression_clauses(
     *,
     conditions: list[str],
@@ -10493,13 +10518,9 @@ async def view_logs():
         error_msg = time_error
 
     if q:
-        include_patterns, exclude_patterns, parse_error = _parse_regex_filter_expression(q)
-        if parse_error:
-            error_msg = parse_error
-        if not error_msg:
-            re2_error = _validate_re2_patterns(db, [*include_patterns, *exclude_patterns])
-            if re2_error:
-                error_msg = re2_error
+        include_patterns, exclude_patterns, regex_error = _prepare_re2_filter_patterns(db, q)
+        if regex_error:
+            error_msg = regex_error
 
     if error_msg:
         pass
@@ -10562,10 +10583,8 @@ async def view_logs():
         elif trace_id:
             conditions.append("lower(TraceId)=?")
             params.append(trace_id.lower())
-        time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
-        conditions.extend(time_conditions)
-        params.extend(time_params)
-        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        _append_time_window_filter(conditions, params, "Timestamp", from_ts, to_ts)
+        where = _where_clause(conditions)
 
     if not error_msg:
         try:
@@ -12697,9 +12716,7 @@ async def view_metrics():
         params.append(attr_fp)
 
     if not time_error:
-        time_conditions, time_params = _time_window_conditions("time", from_ts, to_ts)
-        where_parts.extend(time_conditions)
-        params.extend(time_params)
+        _append_time_window_filter(where_parts, params, "time", from_ts, to_ts)
 
     hour_clause = ""
     if not from_ts and not to_ts:
@@ -12711,28 +12728,22 @@ async def view_metrics():
     include_patterns: list[str] = []
     exclude_patterns: list[str] = []
     if q and not error_msg:
-        include_patterns, exclude_patterns, parse_error = _parse_regex_filter_expression(q)
-        if parse_error:
-            error_msg = parse_error
-        if not error_msg:
-            re2_error = _validate_re2_patterns(db, [*include_patterns, *exclude_patterns])
-            if re2_error:
-                error_msg = re2_error
-            else:
-                _append_regex_expression_clauses(
-                    conditions=where_parts,
-                    params=params,
-                    column="SignalName",
-                    include_patterns=include_patterns,
-                    exclude_patterns=exclude_patterns,
-                )
+        include_patterns, exclude_patterns, regex_error = _prepare_re2_filter_patterns(db, q)
+        if regex_error:
+            error_msg = regex_error
+        else:
+            _append_regex_expression_clauses(
+                conditions=where_parts,
+                params=params,
+                column="SignalName",
+                include_patterns=include_patterns,
+                exclude_patterns=exclude_patterns,
+            )
 
     if hour_clause:
         params.append(hours)
 
-    where_clause = ""
-    if where_parts:
-        where_clause = " WHERE " + " AND ".join(where_parts)
+    where_clause = f" {_where_clause(where_parts)}" if where_parts else ""
     if hour_clause:
         where_clause = f"{where_clause} AND {hour_clause}" if where_clause else f" WHERE {hour_clause}"
 
@@ -13511,13 +13522,9 @@ async def view_errors():
     exclude_patterns: list[str] = []
     error_msg = time_error or ""
     if q and not error_msg:
-        include_patterns, exclude_patterns, parse_error = _parse_regex_filter_expression(q)
-        if parse_error:
-            error_msg = parse_error
-        if not error_msg:
-            re2_error = _validate_re2_patterns(db, [*include_patterns, *exclude_patterns])
-            if re2_error:
-                error_msg = re2_error
+        include_patterns, exclude_patterns, regex_error = _prepare_re2_filter_patterns(db, q)
+        if regex_error:
+            error_msg = regex_error
     resolved_ids: set[str] = set()
     if resolved not in ("0", "1"):
         resolved_ids = _get_resolved_error_ids(db)
@@ -13527,9 +13534,7 @@ async def view_errors():
         placeholders = ",".join(["?"] * len(selected_services))
         where_parts.append(f"ServiceName IN ({placeholders})")
         where_params.extend(selected_services)
-    time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
-    where_parts.extend(time_conditions)
-    where_params.extend(time_params)
+    _append_time_window_filter(where_parts, where_params, "Timestamp", from_ts, to_ts)
     if q and not error_msg:
         _append_regex_expression_clauses(
             conditions=where_parts,
@@ -13538,7 +13543,7 @@ async def view_errors():
             include_patterns=include_patterns,
             exclude_patterns=exclude_patterns,
         )
-    where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+    where_sql = _where_clause(where_parts)
 
     if grouped_mode:
         # Best-effort deduplication: probe recent raw events, then aggregate in SQL.
@@ -14572,13 +14577,9 @@ async def view_traces():
     include_patterns: list[str] = []
     exclude_patterns: list[str] = []
     if q:
-        include_patterns, exclude_patterns, parse_error = _parse_regex_filter_expression(q)
-        if parse_error:
-            q_error = parse_error
-        if not q_error:
-            re2_error = _validate_re2_patterns(db, [*include_patterns, *exclude_patterns])
-            if re2_error:
-                q_error = re2_error
+        include_patterns, exclude_patterns, regex_error = _prepare_re2_filter_patterns(db, q)
+        if regex_error:
+            q_error = regex_error
     if selected_services:
         placeholders = ",".join(["?"] * len(selected_services))
         conditions.append(f"ServiceName IN ({placeholders})")
@@ -14586,9 +14587,7 @@ async def view_traces():
     if trace_id:
         conditions.append("TraceId=?")
         params.append(trace_id)
-    time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
-    conditions.extend(time_conditions)
-    params.extend(time_params)
+    _append_time_window_filter(conditions, params, "Timestamp", from_ts, to_ts)
     if q and not q_error:
         _append_regex_expression_clauses(
             conditions=conditions,
@@ -14597,7 +14596,7 @@ async def view_traces():
             include_patterns=include_patterns,
             exclude_patterns=exclude_patterns,
         )
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    where = _where_clause(conditions)
     if trace_id and not time_error:
         total = 0
         rows = []
@@ -16312,13 +16311,9 @@ async def view_rum():
     include_patterns: list[str] = []
     exclude_patterns: list[str] = []
     if q:
-        include_patterns, exclude_patterns, parse_error = _parse_regex_filter_expression(q)
-        if parse_error:
-            q_error = parse_error
-        if not q_error:
-            re2_error = _validate_re2_patterns(db, [*include_patterns, *exclude_patterns])
-            if re2_error:
-                q_error = re2_error
+        include_patterns, exclude_patterns, regex_error = _prepare_re2_filter_patterns(db, q)
+        if regex_error:
+            q_error = regex_error
 
     conditions = []
     params = []
@@ -16328,9 +16323,7 @@ async def view_rum():
     if error_source:
         conditions.append("LogAttributes['errorSource']=?")
         params.append(error_source)
-    time_conditions, time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
-    conditions.extend(time_conditions)
-    params.extend(time_params)
+    _append_time_window_filter(conditions, params, "Timestamp", from_ts, to_ts)
     if q and not q_error:
         _append_regex_expression_clauses(
             conditions=conditions,
@@ -16339,7 +16332,7 @@ async def view_rum():
             include_patterns=include_patterns,
             exclude_patterns=exclude_patterns,
         )
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    where = _where_clause(conditions)
     total = 0
     events: list[dict[str, Any]] = []
     session_groups: list[dict[str, Any]] = []
@@ -17598,7 +17591,7 @@ async def view_ai():
         conditions.append(base_ai_condition)
         conditions.extend(time_conditions)
         params.extend(time_params)
-        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        where = _where_clause(conditions)
 
     trace_ids: list[str] = []
     total = 0
@@ -22719,12 +22712,9 @@ def _regex_scope_time_conditions(scope: dict[str, Any], column: str) -> tuple[li
 
 
 def _parse_and_validate_regex_expression_for_api(db: Any, expression: str) -> tuple[list[str], list[str], str | None]:
-    include_patterns, exclude_patterns, parse_error = _parse_regex_filter_expression(expression)
-    if parse_error:
-        return [], [], parse_error.replace("Regex error: ", "", 1)
-    re2_error = _validate_re2_patterns(db, [*include_patterns, *exclude_patterns])
-    if re2_error:
-        return [], [], re2_error.replace("Regex error: ", "", 1)
+    include_patterns, exclude_patterns, regex_error = _prepare_re2_filter_patterns(db, expression)
+    if regex_error:
+        return [], [], regex_error.replace("Regex error: ", "", 1)
     return include_patterns, exclude_patterns, None
 
 
