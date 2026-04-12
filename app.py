@@ -3065,11 +3065,6 @@ def _ci_push_hash_key() -> bytes:
     return hashlib.blake2b(secret.encode("utf-8"), person=b"sobs-ci-hash-v1", digest_size=32).digest()
 
 
-def _hash_api_key_legacy(value: str) -> str:
-    """Legacy CI push API-key hash format (SHA-256 hex)."""
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
 def _hash_api_key(value: str) -> str:
     """Return a keyed, memory-hard fingerprint for CI push API keys."""
     raw = str(value or "").strip()
@@ -3153,13 +3148,11 @@ def _is_valid_ci_push_api_key(db: ChDbConnection, app_id: str, provided_key: str
     if expiry_state == "expired":
         return False
 
-    if key_hash.startswith(_CI_PUSH_HASH_PREFIX):
-        candidate_hash = _hash_api_key(candidate)
-        return hmac.compare_digest(candidate_hash, key_hash)
+    if not key_hash.startswith(_CI_PUSH_HASH_PREFIX):
+        return False
 
-    # Backward compatibility for pre-v1 stored hashes.
-    candidate_hash_legacy = _hash_api_key_legacy(candidate)
-    return hmac.compare_digest(candidate_hash_legacy, key_hash)
+    candidate_hash = _hash_api_key(candidate)
+    return hmac.compare_digest(candidate_hash, key_hash)
 
 
 def _set_ci_push_realtime_enabled(db: ChDbConnection, app_id: str, enabled: bool) -> None:
