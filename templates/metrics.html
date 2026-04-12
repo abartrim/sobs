@@ -11,7 +11,10 @@
   </a>
   <a href="{{ url_for('metrics_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Metrics Help"><i class="bi bi-question-circle me-1"></i><span class="metrics-btn-label">Help</span></a>
 {% endset %}
-{{ render_page_header('Metrics & Signals', icon_class='bi bi-graph-up-arrow', icon_text_class='text-info', actions_html=metrics_header_actions, subtext='Derived 1-minute telemetry signals with anomaly state') }}
+{% set metrics_title_html %}
+  <h4 class="fw-semibold mb-0"><i class="bi bi-graph-up-arrow me-2 text-info"></i>Metrics & Signals</h4>
+{% endset %}
+{{ render_page_header(title_html=metrics_title_html, actions_html=metrics_header_actions, subtext='Derived 1-minute telemetry signals with anomaly state') }}
 
 {% call render_filter_accordion('metricsFiltersAccordion', 'metricsFiltersHeading', 'metricsFiltersPanel', 'text-info', 'metrics-tz-badge-btn', 'metrics-tz-badge-label', body_class='py-2') %}
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">

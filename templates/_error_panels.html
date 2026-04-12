@@ -51,7 +51,7 @@
   max-width: 10ch;
 }
 
-@media (max-width: 991.98px) {
+@media (max-width: {{ mobile_breakpoint_max }}) {
   .error-panel-type {
     max-width: 13ch;
   }
@@ -72,7 +72,7 @@
   text-overflow: ellipsis;
 }
 
-@media (max-width: 991.98px) {
+@media (max-width: {{ mobile_breakpoint_max }}) {
   #{{ accordion_id }}.error-accordion-compact-mobile .accordion-item {
     margin-bottom: 0.6rem;
   }
