@@ -25,6 +25,11 @@
     caret-color: var(--bs-body-color);
   }
 
+  @media (max-width: {{ mobile_breakpoint_max }}) {
+    .repositories-btn-label { display: none; }
+    .btn:has(> .repositories-btn-label) i { margin-right: 0 !important; }
+  }
+
 </style>{% endblock %}
 {% block content %}
 <div id="repo-settings-root" data-color-mode="{{ 'dark' if request.cookies.get('theme') == 'dark' else 'light' }}">

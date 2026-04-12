@@ -16,8 +16,8 @@
   }
   .ob-repo-card:hover  { border-color: var(--bs-info); }
   .ob-repo-card.selected {
-    border-color: #0dcaf0;
-    background: rgba(13,202,240,.1);
+    border-color: var(--bs-info);
+    background: rgba(var(--bs-info-rgb), .1);
   }
   .ob-repo-card .repo-name  { font-weight: 600; font-size: .88rem; }
   .ob-repo-card .repo-url   { font-size: .75rem; color: var(--bs-secondary-color); word-break: break-all; }
@@ -345,9 +345,12 @@
     container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-success me-2" role="status"></div><span class="text-secondary small">Creating issues&hellip;</span></div>';
     doneBtn.disabled = true;
 
-    var createCi   = !!(document.getElementById('obCreateCi')   || {checked:true}).checked;
-    var createOtel = !!(document.getElementById('obCreateOtel') || {checked:true}).checked;
-    var assignCop  = !!(document.getElementById('obAssignCopilot') || {checked:false}).checked;
+    var ciEl   = document.getElementById('obCreateCi');
+    var otelEl = document.getElementById('obCreateOtel');
+    var copEl  = document.getElementById('obAssignCopilot');
+    var createCi   = ciEl   ? ciEl.checked   : true;
+    var createOtel = otelEl ? otelEl.checked : true;
+    var assignCop  = copEl  ? copEl.checked  : false;
 
     var payload = {
       app_id:             state.appId,
