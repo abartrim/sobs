@@ -9957,11 +9957,11 @@ async def create_release_artifact_meta(release_id: str):
 ERROR_SOURCES_SQL = """
 SELECT
     Timestamp,
-    toValidUTF8(ServiceName) AS ServiceName,
-    toValidUTF8(TraceId) AS TraceId,
-    toValidUTF8(SpanId) AS SpanId,
+    ServiceName,
+    TraceId,
+    SpanId,
     toValidUTF8(Body) AS Body,
-    mapApply((k, v) -> (k, toValidUTF8(v)), LogAttributes) AS LogAttributes
+    mapApply((k, v) -> (toValidUTF8(k), toValidUTF8(v)), LogAttributes) AS LogAttributes
 FROM otel_logs
 WHERE EventName = 'exception'
    OR SeverityNumber >= 17
@@ -9970,11 +9970,11 @@ WHERE EventName = 'exception'
 UNION ALL
 SELECT
     Timestamp,
-    toValidUTF8(ServiceName) AS ServiceName,
-    toValidUTF8(TraceId) AS TraceId,
-    toValidUTF8(SpanId) AS SpanId,
+    ServiceName,
+    TraceId,
+    SpanId,
     toValidUTF8(Body) AS Body,
-    mapApply((k, v) -> (k, toValidUTF8(v)), LogAttributes) AS LogAttributes
+    mapApply((k, v) -> (toValidUTF8(k), toValidUTF8(v)), LogAttributes) AS LogAttributes
 FROM hyperdx_sessions
 WHERE EventName IN ('error', 'unhandledrejection', 'exception')
    OR SeverityNumber >= 17

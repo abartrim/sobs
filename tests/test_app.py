@@ -1585,35 +1585,62 @@ class TestErrorsIngest:
 
     async def test_errors_page_renders_with_invalid_utf8_bytes(self, client):
         """Errors page must render without UnicodeDecodeError when stored data contains
-        invalid UTF-8 byte sequences (e.g. truncated multi-byte characters from non-UTF-8
-        sources sent via OTLP).  The fix applies toValidUTF8() in ERROR_SOURCES_SQL so
-        that chDB can always serialize results as valid JSON/UTF-8."""
+        invalid UTF-8 byte sequences in body or attributes on either error source."""
         import app as sobs_app
 
-        db = sobs_app.get_db()
-        # Insert a row whose Body and exception.message contain the byte sequence
-        # 0xe2 0x28 0xa1 – a well-known invalid UTF-8 sequence (broken 3-byte lead).
-        # We use unhex() so the raw bytes are stored directly in the String column,
-        # bypassing Python's Unicode layer.
-        db.execute(
-            "INSERT INTO otel_logs "
-            "(Timestamp, TraceId, SpanId, TraceFlags, SeverityText, SeverityNumber, "
-            "ServiceName, Body, ResourceSchemaUrl, ResourceAttributes, "
-            "ScopeSchemaUrl, ScopeName, ScopeVersion, ScopeAttributes, "
-            "LogAttributes, EventName) VALUES "
-            "('2024-03-01 00:00:00.000000000', '', '', 0, 'ERROR', 17, "
-            "'utf8-test-svc', unhex('e228a1'), '', map(), '', '', '', map(), "
-            "map('exception.type', 'UTF8Error', "
-            "    'exception.message', unhex('e228a1')), "
-            "'exception')"
-        )
+        original_data_dir = sobs_app.DATA_DIR
+        original_db_path = sobs_app.DB_PATH
+        with tempfile.TemporaryDirectory() as temp_data_dir:
+            try:
+                sobs_app._shutdown_db_resources()
+                sobs_app.DATA_DIR = temp_data_dir
+                sobs_app.DB_PATH = os.path.join(temp_data_dir, "sobs.chdb")
+                sobs_app.init_db()
 
-        # Both normal and grouped mode must return HTTP 200 without crashing.
-        r = await client.get("/errors?service=utf8-test-svc&resolved=")
-        assert r.status_code == 200, f"Normal mode failed: {r.status_code}"
+                db = sobs_app.get_db()
+                # Insert rows whose Body, attribute values, and one attribute key contain the
+                # byte sequence 0xe2 0x28 0xa1 - a canonical invalid UTF-8 sequence. We use
+                # unhex() so the raw bytes are stored directly in the String columns,
+                # bypassing Python's Unicode layer.
+                db.execute(
+                    "INSERT INTO otel_logs "
+                    "(Timestamp, TraceId, SpanId, TraceFlags, SeverityText, SeverityNumber, "
+                    "ServiceName, Body, ResourceSchemaUrl, ResourceAttributes, "
+                    "ScopeSchemaUrl, ScopeName, ScopeVersion, ScopeAttributes, "
+                    "LogAttributes, EventName) VALUES "
+                    "('2024-03-01 00:00:00.000000000', '', '', 0, 'ERROR', 17, "
+                    "'utf8-test-svc', unhex('e228a1'), '', map(), '', '', '', map(), "
+                    "map('exception.type', 'UTF8Error', "
+                    "    'exception.message', unhex('e228a1'), "
+                    "    unhex('e228a1'), 'bad-key-value'), "
+                    "'exception')"
+                )
+                db.execute(
+                    "INSERT INTO hyperdx_sessions "
+                    "(Timestamp, TraceId, SpanId, TraceFlags, SeverityText, SeverityNumber, "
+                    "ServiceName, Body, ResourceSchemaUrl, ResourceAttributes, "
+                    "ScopeSchemaUrl, ScopeName, ScopeVersion, ScopeAttributes, "
+                    "LogAttributes, EventName) VALUES "
+                    "('2024-03-01 00:00:01.000000000', '', '', 0, 'ERROR', 17, "
+                    "'utf8-test-svc', unhex('e228a1'), '', map(), '', '', '', map(), "
+                    "map('exception.type', 'UTF8Error', "
+                    "    'exception.message', unhex('e228a1'), "
+                    "    unhex('e228a1'), 'bad-key-value'), "
+                    "'error')"
+                )
 
-        r2 = await client.get("/errors?grouped=1&service=utf8-test-svc&resolved=")
-        assert r2.status_code == 200, f"Grouped mode failed: {r2.status_code}"
+                # Both normal and grouped mode must return HTTP 200 without crashing when
+                # either side of ERROR_SOURCES_SQL contains invalid UTF-8 bytes.
+                r = await client.get("/errors?service=utf8-test-svc&resolved=")
+                assert r.status_code == 200, f"Normal mode failed: {r.status_code}"
+
+                r2 = await client.get("/errors?grouped=1&service=utf8-test-svc&resolved=")
+                assert r2.status_code == 200, f"Grouped mode failed: {r2.status_code}"
+            finally:
+                sobs_app._shutdown_db_resources()
+                sobs_app.DATA_DIR = original_data_dir
+                sobs_app.DB_PATH = original_db_path
+                sobs_app.init_db()
 
 
 class TestAppReleaseRegistry:
