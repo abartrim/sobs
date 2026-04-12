@@ -13422,6 +13422,8 @@ def _load_work_item_links_for_ref_ids(db: ChDbConnection, ref_ids: list[str]) ->
 @require_basic_auth
 async def view_errors():
     db = get_db()
+    grouped_trace_chunk_size = 200
+    hydrate_key_chunk_size = 200
 
     def _build_error_stub_from_narrow(row: dict, resolved_flag: bool) -> dict:
         ts = str(row.get("Timestamp", ""))
@@ -13504,7 +13506,9 @@ async def view_errors():
             re2_error = _validate_re2_patterns(db, [*include_patterns, *exclude_patterns])
             if re2_error:
                 error_msg = re2_error
-    resolved_ids = _get_resolved_error_ids(db)
+    resolved_ids: set[str] = set()
+    if resolved not in ("0", "1"):
+        resolved_ids = _get_resolved_error_ids(db)
     where_parts = []
     where_params = []
     if selected_services:
@@ -13530,8 +13534,8 @@ async def view_errors():
         error_id_sql = (
             "lower(hex(MD5(concat("
             "toString(Timestamp), '|', ServiceName, '|', "
-            "if(LogAttributes['exception.type'] != '', LogAttributes['exception.type'], 'Error'), '|', "
-            "if(LogAttributes['exception.message'] != '', LogAttributes['exception.message'], Body), '|', "
+            "if(mapContains(LogAttributes, 'exception.type'), LogAttributes['exception.type'], 'Error'), '|', "
+            "if(mapContains(LogAttributes, 'exception.message'), LogAttributes['exception.message'], Body), '|', "
             "TraceId, '|', SpanId"
             "))))"
         )
@@ -13634,27 +13638,30 @@ async def view_errors():
                 unique_group_tuples.append(group_tuple)
 
             trace_group_params: list[Any] = [*where_params, probe_limit]
-            trace_group_placeholders = ", ".join(["(?, ?, ?)"] * len(unique_group_tuples))
-            for group_service, group_type, group_message in unique_group_tuples:
-                trace_group_params.extend([group_service, group_type, group_message])
-
-            grouped_trace_sql = (
-                "SELECT GroupService, GroupType, GroupMessage, "
-                "arrayStringConcat(groupUniqArray(64)(TraceId), ',') AS TraceIdsCsv "
-                f"FROM ({grouped_probe_sql}) "
-                f"WHERE (GroupService, GroupType, GroupMessage) IN ({trace_group_placeholders}) "
-                "GROUP BY GroupService, GroupType, GroupMessage"
-            )
             trace_ids_by_group: dict[tuple[str, str, str], list[str]] = {}
-            for row in db.execute(grouped_trace_sql, trace_group_params).fetchall():
-                group_tuple = (
-                    str(row["GroupService"] or ""),
-                    str(row["GroupType"] or ""),
-                    str(row["GroupMessage"] or ""),
+            for chunk_start in range(0, len(unique_group_tuples), grouped_trace_chunk_size):
+                group_chunk = unique_group_tuples[chunk_start : chunk_start + grouped_trace_chunk_size]
+                chunk_params = list(trace_group_params)
+                trace_group_placeholders = ", ".join(["(?, ?, ?)"] * len(group_chunk))
+                for group_service, group_type, group_message in group_chunk:
+                    chunk_params.extend([group_service, group_type, group_message])
+
+                grouped_trace_sql = (
+                    "SELECT GroupService, GroupType, GroupMessage, "
+                    "arrayStringConcat(groupUniqArray(64)(TraceId), ',') AS TraceIdsCsv "
+                    f"FROM ({grouped_probe_sql}) "
+                    f"WHERE (GroupService, GroupType, GroupMessage) IN ({trace_group_placeholders}) "
+                    "GROUP BY GroupService, GroupType, GroupMessage"
                 )
-                trace_ids_by_group[group_tuple] = [
-                    _hex(value).strip() for value in str(row["TraceIdsCsv"] or "").split(",") if _hex(value).strip()
-                ]
+                for row in db.execute(grouped_trace_sql, chunk_params).fetchall():
+                    group_tuple = (
+                        str(row["GroupService"] or ""),
+                        str(row["GroupType"] or ""),
+                        str(row["GroupMessage"] or ""),
+                    )
+                    trace_ids_by_group[group_tuple] = [
+                        _hex(value).strip() for value in str(row["TraceIdsCsv"] or "").split(",") if _hex(value).strip()
+                    ]
 
             for item in errors:
                 group_tuple = item.pop("group_tuple", ("", "", ""))
@@ -13677,8 +13684,8 @@ async def view_errors():
             error_id_expr = (
                 "lower(hex(MD5(concat("
                 "toString(Timestamp), '|', ServiceName, '|', "
-                "if(LogAttributes['exception.type'] != '', LogAttributes['exception.type'], 'Error'), '|', "
-                "if(LogAttributes['exception.message'] != '', LogAttributes['exception.message'], Body), '|', "
+                "if(mapContains(LogAttributes, 'exception.type'), LogAttributes['exception.type'], 'Error'), '|', "
+                "if(mapContains(LogAttributes, 'exception.message'), LogAttributes['exception.message'], Body), '|', "
                 "TraceId, '|', SpanId"
                 "))))"
             )
@@ -13713,7 +13720,6 @@ async def view_errors():
             page_rows = [dict(r) for r in db.execute(narrow_source_sql, poc_where_params + [limit, offset]).fetchall()]
             details_by_id: dict[str, dict] = {}
             if page_rows:
-                detail_params: list[Any] = []
                 detail_key_tuples: list[tuple[Any, Any, Any, Any]] = []
                 seen_detail_keys: set[tuple[Any, Any, Any, Any]] = set()
                 for row in page_rows:
@@ -13727,17 +13733,20 @@ async def view_errors():
                         continue
                     seen_detail_keys.add(detail_key)
                     detail_key_tuples.append(detail_key)
-                tuple_placeholders = ", ".join(["(?, ?, ?, ?)"] * len(detail_key_tuples))
-                for ts_val, service_val, trace_val, span_val in detail_key_tuples:
-                    detail_params.extend([ts_val, service_val, trace_val, span_val])
-                detail_sql = (
-                    "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes "
-                    f"FROM ({ERROR_SOURCES_SQL}) "
-                    f"WHERE (Timestamp, ServiceName, TraceId, SpanId) IN ({tuple_placeholders})"
-                )
-                for drow in db.execute(detail_sql, detail_params).fetchall():
-                    detail_item = _build_error_item(dict(drow))
-                    details_by_id[detail_item["id"]] = detail_item
+                for chunk_start in range(0, len(detail_key_tuples), hydrate_key_chunk_size):
+                    detail_chunk = detail_key_tuples[chunk_start : chunk_start + hydrate_key_chunk_size]
+                    detail_params: list[Any] = []
+                    tuple_placeholders = ", ".join(["(?, ?, ?, ?)"] * len(detail_chunk))
+                    for ts_val, service_val, trace_val, span_val in detail_chunk:
+                        detail_params.extend([ts_val, service_val, trace_val, span_val])
+                    detail_sql = (
+                        "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes "
+                        f"FROM ({ERROR_SOURCES_SQL}) "
+                        f"WHERE (Timestamp, ServiceName, TraceId, SpanId) IN ({tuple_placeholders})"
+                    )
+                    for drow in db.execute(detail_sql, detail_params).fetchall():
+                        detail_item = _build_error_item(dict(drow))
+                        details_by_id[detail_item["id"]] = detail_item
             errors = []
             for row in page_rows:
                 row_id = str(row.get("ErrorId", ""))
