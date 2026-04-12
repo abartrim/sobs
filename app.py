@@ -2672,7 +2672,7 @@ def _load_observed_ai_models(db: "ChDbConnection", limit: int = 200) -> list[str
         rows = db.execute(
             "SELECT DISTINCT SpanAttributes['gen_ai.request.model'] AS model "
             "FROM otel_traces "
-            "WHERE SpanAttributes['gen_ai.request.model'] != '' "
+            f"WHERE {_AI_SPAN_CONDITION} AND SpanAttributes['gen_ai.request.model'] != '' "
             f"ORDER BY model LIMIT {safe_limit}"
         ).fetchall()
     except Exception:
@@ -18187,7 +18187,7 @@ async def get_ai_span_attributes():
         return _jsonify_with_optional_sql_output_mask({"ok": True, "raw_attrs": raw_attrs})
     except Exception as exc:
         app.logger.warning("Error fetching AI span attributes: %s", exc)
-        return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({"ok": False, "error": "Failed to load span attributes"}), 500
 
 
 # ---------------------------------------------------------------------------

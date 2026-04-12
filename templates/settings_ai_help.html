@@ -1,12 +1,7 @@
 {% extends "base.html" %}
 {% from "_page_header_macros.html" import render_page_header %}
 {% block title %}AI Configuration Help{% endblock %}
-{% block styles %}{{ super() }}<style>
-  @media (max-width: {{ mobile_breakpoint_max }}) {
-    .settings-btn-label { display: none; }
-    .btn:has(> .settings-btn-label) i { margin-right: 0 !important; }
-  }
-</style>{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
 {% set settings_ai_help_header_actions %}
   <a href="{{ url_for('view_ai_settings') }}" class="btn btn-sm btn-outline-primary" title="Open AI Settings">

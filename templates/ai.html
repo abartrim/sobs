@@ -793,13 +793,13 @@
             <div class="d-flex justify-content-between align-items-center mb-1">
               <span class="small text-secondary fw-semibold"><i class="bi bi-braces me-1"></i>Span Attributes</span>
               <div class="d-flex gap-1">
-                <button class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;"
+                <button class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" title="Load span attributes"
                         onclick="loadAiRawAttrs(this, 'raw-json-{{ item.id }}', 'copy-raw-json-{{ item.id }}', {{ item.ts | tojson }}, {{ item.service | tojson }}, {{ item.trace_id | tojson }}, {{ item.span_name | tojson }})">
-                  <i class="bi bi-download me-1"></i>Load
+                  <i class="bi bi-download me-1"></i><span class="ai-btn-label d-none d-lg-inline">Load</span>
                 </button>
-                <button id="copy-raw-json-{{ item.id }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" disabled
+                <button id="copy-raw-json-{{ item.id }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" disabled title="Copy span attributes to clipboard"
                         onclick="copyAiRawAttrs(this, 'raw-json-{{ item.id }}')">
-                  <i class="bi bi-clipboard me-1"></i>Copy
+                  <i class="bi bi-clipboard me-1"></i><span class="ai-btn-label d-none d-lg-inline">Copy</span>
                 </button>
               </div>
             </div>
@@ -872,7 +872,6 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import Status, StatusCode
 
-
 resource = Resource.create({"service.name": "my-app"})
 provider = TracerProvider(resource=resource)
 provider.add_span_processor(
@@ -928,13 +927,14 @@ from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 HTTPXClientInstrumentor().instrument()</code></pre>
 
         <pre class="small text-info"><code># Provider-specific GenAI auto instrumentation (OSS)
+from openinference.instrumentation.anthropic import AnthropicInstrumentor
+from openinference.instrumentation.groq import GroqInstrumentor
+
 # pip install \
 #   openinference-instrumentation-openai \
 #   openinference-instrumentation-anthropic \
 #   openinference-instrumentation-groq
 from openinference.instrumentation.openai import OpenAIInstrumentor
-from openinference.instrumentation.anthropic import AnthropicInstrumentor
-from openinference.instrumentation.groq import GroqInstrumentor
 
 OpenAIInstrumentor().instrument()
 AnthropicInstrumentor().instrument()
@@ -1058,7 +1058,7 @@ document.addEventListener('show.bs.collapse', function(ev) {
     })
     .catch(function() {
       lazy.removeAttribute('data-conv-loaded');
-      lazy.innerHTML = '<p class="text-danger small my-2">Failed to load conversation. <a href="#" onclick="this.closest(\'.ai-conv-lazy\').removeAttribute(\'data-conv-loaded\'); this.closest(\'.accordion-collapse\').dispatchEvent(new Event(\'show.bs.collapse\')); return false;">Retry</a></p>';
+      lazy.innerHTML = '<p class="text-danger small my-2">Failed to load conversation. <a href="#" onclick="this.closest(\'.ai-conv-lazy\').removeAttribute(\'data-conv-loaded\'); this.closest(\'.accordion-collapse\').dispatchEvent(new Event(\'show.bs.collapse\', { bubbles: true })); return false;">Retry</a></p>';
     });
 });
 
@@ -1220,7 +1220,12 @@ function loadAiRawAttrs(btn, preId, copyBtnId, ts, service, traceId, spanName) {
   btn.setAttribute('data-loading', '1');
   btn.disabled = true;
   var orig = btn.innerHTML;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>Loading';
+  var label = btn.querySelector('.ai-btn-label');
+  if (label) {
+    label.textContent = 'Loading';
+  } else {
+    btn.innerHTML = '<i class="bi bi-download me-1"></i>Loading';
+  }
 
   fetch('/api/ai/span-attributes?' + params.toString(), { credentials: 'same-origin' })
     .then(function(resp) { return resp.json(); })

@@ -3,10 +3,8 @@
 {% from "_page_header_macros.html" import render_page_header %}
 {% block title %}AI Configuration{% endblock %}
 {% block styles %}{{ super() }}<style>
+  .settings-ai-pricing-table { margin: 0; }
   @media (max-width: {{ mobile_breakpoint_max }}) {
-    .settings-btn-label { display: none; }
-    .btn:has(> .settings-btn-label) i { margin-right: 0 !important; }
-
     .settings-ai-pricing-table thead { display: none; }
     .settings-ai-pricing-table,
     .settings-ai-pricing-table tbody,
@@ -392,7 +390,8 @@
     if (sourceMeta) {
       var actions = '';
       if (source === 'inferred') {
-        actions = '<button type="button" class="btn btn-sm btn-outline-success py-0 px-1 pr-confirm" title="Confirm inferred pricing">Confirm</button>';
+        actions = '<button type="button" class="btn btn-sm btn-outline-success py-0 px-1 pr-confirm" title="Confirm inferred pricing" aria-label="Confirm inferred pricing"><i class="bi bi-check-circle me-1"></i><span class="d-none d-sm-inline">Confirm</span></button>'
+                + ' <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 pr-remove" title="Remove row" aria-label="Remove row"><i class="bi bi-x"></i></button>';
       }
       cell.innerHTML =
         '<div class="d-inline-flex align-items-center gap-1">'
@@ -405,10 +404,17 @@
           setRowSource(tr, 'confirmed', true);
         });
       }
+      var removeBtn = cell.querySelector('.pr-remove');
+      if (removeBtn) {
+        removeBtn.addEventListener('click', function () {
+          tr.remove();
+          updateJson();
+        });
+      }
       return;
     }
     cell.innerHTML =
-      '<button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 pr-remove" title="Remove row">'
+      '<button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 pr-remove" title="Remove row" aria-label="Remove row">'
       + '<i class="bi bi-x"></i></button>';
     var removeBtn = cell.querySelector('.pr-remove');
     if (removeBtn) {
@@ -478,9 +484,14 @@
       var model = (modelEl ? modelEl.value : '').trim().toLowerCase();
       var prIn = parseFloat(tr.querySelector('.pr-in').value) || 0;
       var prOut = parseFloat(tr.querySelector('.pr-out').value) || 0;
+      var source = tr.getAttribute('data-pricing-source') || 'custom';
       if (model) {
-        result[model] = { 'in': prIn, 'out': prOut };
-        if (tr.getAttribute('data-pricing-source') === 'confirmed') {
+        // Only persist non-default rows (inferred/confirmed/custom)
+        // Default rows are always available server-side
+        if (source !== 'default') {
+          result[model] = { 'in': prIn, 'out': prOut };
+        }
+        if (source === 'confirmed') {
           confirmed.push(model);
         }
       }
