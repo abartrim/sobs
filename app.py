@@ -1916,6 +1916,8 @@ _errors_cache_lock = threading.Lock()
 _errors_services_cache: dict[str, Any] = {"expires_at": 0.0, "services": []}
 _summary_stats_cache_lock = threading.Lock()
 _summary_stats_cache: dict[str, Any] = {"expires_at": 0.0, "data": {}}
+_ai_filter_metadata_cache_lock = threading.Lock()
+_ai_filter_metadata_cache: dict[tuple[str, str], dict[str, Any]] = {}
 
 WRITE_QUEUE_MAX = int(os.environ.get("SOBS_WRITE_QUEUE_MAX", 5000))
 WRITE_BATCH_MAX = int(os.environ.get("SOBS_WRITE_BATCH_MAX", 200))
@@ -1926,6 +1928,8 @@ WORK_ITEMS_FILTER_CACHE_TTL_SEC = int(os.environ.get("SOBS_WORK_ITEMS_FILTER_CAC
 ERRORS_SERVICES_CACHE_TTL_SEC = int(os.environ.get("SOBS_ERRORS_SERVICES_CACHE_TTL_SEC", "30"))
 SUMMARY_STATS_CACHE_TTL_SEC = int(os.environ.get("SOBS_SUMMARY_STATS_CACHE_TTL_SEC", "60"))
 RUM_SESSION_DETAIL_EVENT_CAP = int(os.environ.get("SOBS_RUM_SESSION_DETAIL_EVENT_CAP", "200"))
+AI_FILTER_METADATA_CACHE_TTL_SEC = int(os.environ.get("SOBS_AI_FILTER_METADATA_CACHE_TTL_SEC", "20"))
+AI_FILTER_METADATA_SAMPLE_ROWS = int(os.environ.get("SOBS_AI_FILTER_METADATA_SAMPLE_ROWS", "10000"))
 
 
 @dataclass
@@ -2531,8 +2535,187 @@ _AI_SETTING_KEYS = (
     "ai.github_copilot_base_branch",
     "ai.github_copilot_custom_instructions",
     "ai.system_prompt",
+    "ai.model_pricing",
+    "ai.model_pricing_confirmed",
 )
 _AI_SENSITIVE_SETTING_KEYS = frozenset(("ai.api_key", "ai.github_token"))
+
+# Default per-model pricing in USD per 1M tokens. Keys are lowercase model names.
+# Users can override or extend this table via Settings → AI Configuration.
+_DEFAULT_AI_PRICING: dict[str, dict[str, float]] = {
+    # OpenAI
+    "gpt-4o": {"in": 2.50, "out": 10.00},
+    "gpt-4o-mini": {"in": 0.15, "out": 0.60},
+    "gpt-4-turbo": {"in": 10.00, "out": 30.00},
+    "gpt-4": {"in": 30.00, "out": 60.00},
+    "gpt-3.5-turbo": {"in": 0.50, "out": 1.50},
+    "o1": {"in": 15.00, "out": 60.00},
+    "o1-mini": {"in": 3.00, "out": 12.00},
+    "o3-mini": {"in": 1.10, "out": 4.40},
+    # Anthropic
+    "claude-3-5-sonnet-20241022": {"in": 3.00, "out": 15.00},
+    "claude-3-5-sonnet": {"in": 3.00, "out": 15.00},
+    "claude-3-5-haiku": {"in": 0.80, "out": 4.00},
+    "claude-3-opus": {"in": 15.00, "out": 75.00},
+    "claude-3-sonnet": {"in": 3.00, "out": 15.00},
+    "claude-3-haiku": {"in": 0.25, "out": 1.25},
+    # Google
+    "gemini-1.5-pro": {"in": 1.25, "out": 5.00},
+    "gemini-1.5-flash": {"in": 0.075, "out": 0.30},
+    "gemini-2.0-flash": {"in": 0.10, "out": 0.40},
+    # Meta / open source (inference cost estimate)
+    "llama-3.1-70b": {"in": 0.90, "out": 0.90},
+    "llama-3.1-8b": {"in": 0.20, "out": 0.20},
+    # Mistral
+    "mistral-large": {"in": 3.00, "out": 9.00},
+    "mistral-small": {"in": 0.20, "out": 0.60},
+}
+
+_AI_PRICING_GENERIC_DEFAULT_KEY = "gpt-4o"
+_AI_PRICING_INFERENCE_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("4o-mini",), "gpt-4o-mini"),
+    (("4o",), "gpt-4o"),
+    (("3.5",), "gpt-3.5-turbo"),
+    (("turbo",), "gpt-4-turbo"),
+    (("o3-mini",), "o3-mini"),
+    (("o1-mini",), "o1-mini"),
+    (("o1",), "o1"),
+    (("haiku",), "claude-3-5-haiku"),
+    (("sonnet",), "claude-3-5-sonnet"),
+    (("opus",), "claude-3-opus"),
+    (("claude",), "claude-3-5-sonnet"),
+    (("2.0-flash", "2-flash"), "gemini-2.0-flash"),
+    (("1.5-flash", "flash-lite", "flash"), "gemini-1.5-flash"),
+    (("1.5-pro", "pro"), "gemini-1.5-pro"),
+    (("gemini",), "gemini-1.5-flash"),
+    (("70b",), "llama-3.1-70b"),
+    (("8b",), "llama-3.1-8b"),
+    (("llama",), "llama-3.1-8b"),
+    (("large",), "mistral-large"),
+    (("small",), "mistral-small"),
+    (("mistral",), "mistral-small"),
+)
+
+
+def _normalize_ai_model_name(model: Any) -> str:
+    return str(model or "").strip().lower()
+
+
+def _copy_ai_pricing_entry(prices: dict[str, float]) -> dict[str, float]:
+    return {"in": float(prices["in"]), "out": float(prices["out"])}
+
+
+def _coerce_ai_pricing_entry(prices: Any) -> dict[str, float] | None:
+    if not isinstance(prices, dict) or "in" not in prices or "out" not in prices:
+        return None
+    try:
+        return {"in": float(prices["in"]), "out": float(prices["out"])}
+    except (TypeError, ValueError):
+        return None
+
+
+def _load_saved_ai_pricing(db: "ChDbConnection") -> dict[str, dict[str, float]]:
+    saved: dict[str, dict[str, float]] = {}
+    raw = _load_ai_setting(db, "ai.model_pricing", "").strip()
+    if not raw:
+        return saved
+    try:
+        user_pricing = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return saved
+    if not isinstance(user_pricing, dict):
+        return saved
+    for model_key, prices in user_pricing.items():
+        normalized_key = _normalize_ai_model_name(model_key)
+        entry = _coerce_ai_pricing_entry(prices)
+        if normalized_key and entry:
+            saved[normalized_key] = entry
+    return saved
+
+
+def _load_confirmed_ai_pricing_models(db: "ChDbConnection") -> set[str]:
+    raw = _load_ai_setting(db, "ai.model_pricing_confirmed", "").strip()
+    if not raw:
+        return set()
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return set()
+    if not isinstance(parsed, list):
+        return set()
+    confirmed: set[str] = set()
+    for model in parsed:
+        model_key = _normalize_ai_model_name(model)
+        if model_key:
+            confirmed.add(model_key)
+    return confirmed
+
+
+def _infer_ai_pricing_for_model(model: str) -> dict[str, float]:
+    normalized = _normalize_ai_model_name(model)
+    if not normalized:
+        return _copy_ai_pricing_entry(_DEFAULT_AI_PRICING[_AI_PRICING_GENERIC_DEFAULT_KEY])
+    if normalized in _DEFAULT_AI_PRICING:
+        return _copy_ai_pricing_entry(_DEFAULT_AI_PRICING[normalized])
+    for known_key, prices in _DEFAULT_AI_PRICING.items():
+        if normalized in known_key or known_key in normalized:
+            return _copy_ai_pricing_entry(prices)
+    for needles, base_key in _AI_PRICING_INFERENCE_RULES:
+        if any(needle in normalized for needle in needles):
+            return _copy_ai_pricing_entry(_DEFAULT_AI_PRICING[base_key])
+    return _copy_ai_pricing_entry(_DEFAULT_AI_PRICING[_AI_PRICING_GENERIC_DEFAULT_KEY])
+
+
+def _load_observed_ai_models(db: "ChDbConnection", limit: int = 200) -> list[str]:
+    safe_limit = max(1, min(int(limit), 500))
+    try:
+        rows = db.execute(
+            "SELECT DISTINCT SpanAttributes['gen_ai.request.model'] AS model "
+            "FROM otel_traces "
+            f"WHERE {_AI_SPAN_CONDITION} AND SpanAttributes['gen_ai.request.model'] != '' "
+            f"ORDER BY model LIMIT {safe_limit}"
+        ).fetchall()
+    except Exception:
+        return []
+    normalized_models = []
+    seen: set[str] = set()
+    for row in rows:
+        model_key = _normalize_ai_model_name(row[0] if row else "")
+        if model_key and model_key not in seen:
+            seen.add(model_key)
+            normalized_models.append(model_key)
+    return normalized_models
+
+
+def _load_ai_pricing_with_sources(db: "ChDbConnection") -> tuple[dict[str, dict[str, float]], dict[str, str]]:
+    merged: dict[str, dict[str, float]] = {
+        model_key: _copy_ai_pricing_entry(prices) for model_key, prices in _DEFAULT_AI_PRICING.items()
+    }
+    sources: dict[str, str] = {model_key: "default" for model_key in _DEFAULT_AI_PRICING}
+
+    for model_key in _load_observed_ai_models(db):
+        if model_key not in merged:
+            merged[model_key] = _infer_ai_pricing_for_model(model_key)
+            sources[model_key] = "inferred"
+
+    confirmed_models = _load_confirmed_ai_pricing_models(db)
+    for model_key, prices in _load_saved_ai_pricing(db).items():
+        merged[model_key] = prices
+        if sources.get(model_key) == "inferred":
+            if model_key in confirmed_models:
+                sources[model_key] = "confirmed"
+        elif model_key not in sources:
+            sources[model_key] = "custom"
+
+    return merged, sources
+
+
+def _load_ai_pricing(db: "ChDbConnection") -> dict[str, dict[str, float]]:
+    """Return merged model pricing including defaults, observed models, and user overrides."""
+    merged, _sources = _load_ai_pricing_with_sources(db)
+    return merged
+
+
 _AI_ENV_OVERRIDES: dict[str, tuple[str, str]] = {
     "ai.endpoint_url": ("SOBS_AI_ENDPOINT_URL", "SOBS_AI_ENDPOINT_URL_FILE"),
     "ai.model": ("SOBS_AI_MODEL", "SOBS_AI_MODEL_FILE"),
@@ -17523,6 +17706,88 @@ async def api_get_work_items():
 # ---------------------------------------------------------------------------
 # Web UI – AI Transparency
 # ---------------------------------------------------------------------------
+def _get_ai_filter_metadata(db: ChDbConnection, from_ts: str, to_ts: str) -> dict[str, Any]:
+    cache_key = (from_ts, to_ts)
+    now = time.monotonic()
+    with _ai_filter_metadata_cache_lock:
+        cached = _ai_filter_metadata_cache.get(cache_key)
+        if cached and now < float(cached.get("expires_at", 0.0)):
+            return {
+                "services": list(cached.get("services", [])),
+                "models": list(cached.get("models", [])),
+                "operations": list(cached.get("operations", [])),
+                "span_names": list(cached.get("span_names", [])),
+                "errors": list(cached.get("errors", [])),
+            }
+
+    metadata_errors: list[str] = []
+    services: list[str] = []
+    models: list[str] = []
+    operations: list[str] = []
+    span_names: list[str] = []
+
+    metadata_time_conditions, metadata_time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
+    metadata_base_conditions = [_AI_SPAN_CONDITION]
+    if metadata_time_conditions:
+        metadata_base_conditions.extend(metadata_time_conditions)
+    metadata_base_where = " AND ".join(metadata_base_conditions)
+    metadata_source_sql = (
+        "SELECT Timestamp, ServiceName, SpanName, "
+        "SpanAttributes['gen_ai.request.model'] AS RequestModel, "
+        "SpanAttributes['gen_ai.operation.name'] AS OperationName "
+        "FROM otel_traces "
+        f"WHERE {metadata_base_where} "
+        "ORDER BY Timestamp DESC LIMIT ?"
+    )
+    metadata_source_params = list(metadata_time_params) + [AI_FILTER_METADATA_SAMPLE_ROWS]
+
+    def _fetch_distinct_ai_metadata_values(select_expr: str, extra_where: str = "") -> list[str]:
+        where_suffix = f"WHERE {extra_where}" if extra_where else ""
+        rows = db.execute(
+            f"SELECT DISTINCT {select_expr} AS v " f"FROM ({metadata_source_sql}) recent_ai {where_suffix}",
+            metadata_source_params,
+        ).fetchall()
+        values = [str(row[0]) for row in rows if str(row[0]).strip()]
+        return sorted(set(values))
+
+    try:
+        services = _fetch_distinct_ai_metadata_values("ServiceName", "ServiceName != ''")
+    except Exception as exc:
+        metadata_errors.append(f"services={_public_dashboard_query_error(exc)}")
+
+    try:
+        models = _fetch_distinct_ai_metadata_values("RequestModel", "RequestModel != ''")
+    except Exception as exc:
+        metadata_errors.append(f"models={_public_dashboard_query_error(exc)}")
+
+    try:
+        operations = _fetch_distinct_ai_metadata_values("OperationName", "OperationName != ''")
+    except Exception as exc:
+        metadata_errors.append(f"operations={_public_dashboard_query_error(exc)}")
+
+    try:
+        span_names = _fetch_distinct_ai_metadata_values("SpanName", "SpanName != ''")
+    except Exception as exc:
+        metadata_errors.append(f"span_names={_public_dashboard_query_error(exc)}")
+
+    result = {
+        "services": services,
+        "models": models,
+        "operations": operations,
+        "span_names": span_names,
+        "errors": metadata_errors,
+    }
+    with _ai_filter_metadata_cache_lock:
+        # Keep cache bounded to avoid unbounded growth for many time-window combinations.
+        if len(_ai_filter_metadata_cache) > 16:
+            _ai_filter_metadata_cache.clear()
+        _ai_filter_metadata_cache[cache_key] = {
+            **result,
+            "expires_at": now + max(1, AI_FILTER_METADATA_CACHE_TTL_SEC),
+        }
+    return result
+
+
 @app.route("/ai")
 @require_basic_auth
 async def view_ai():
@@ -17704,8 +17969,6 @@ async def view_ai():
             input_messages,
             system_instructions_raw,
         )
-        # Build raw attributes dict for JSON inspector
-        raw_attrs = dict(attrs)
         row_id = _error_id(ts, r["ServiceName"], provider, req_model + err_type + msg, r["TraceId"], "")
         ai_items.append(
             {
@@ -17760,7 +18023,6 @@ async def view_ai():
                 "finish_reason": finish_reason,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
-                "raw_attrs": json.dumps(raw_attrs, ensure_ascii=False, indent=2),
             }
         )
 
@@ -17820,63 +18082,17 @@ async def view_ai():
             grp["turn_cards"] = _build_ai_trace_turn_cards(cast(list[dict[str, Any]], grp["spans"]))
             trace_groups.append(grp)
 
-    metadata_errors: list[str] = []
     services: list[str] = []
     models: list[str] = []
     operations: list[str] = []
     span_names: list[str] = []
     totals: dict[str, int] = {"ti": 0, "to_": 0, "cnt": 0, "errors": 0}
-    metadata_sample_rows = 25000
-
-    metadata_time_conditions, metadata_time_params = _time_window_conditions("Timestamp", from_ts, to_ts)
-    metadata_base_conditions = [_AI_SPAN_CONDITION]
-    if metadata_time_conditions:
-        metadata_base_conditions.extend(metadata_time_conditions)
-    metadata_base_where = " AND ".join(metadata_base_conditions)
-    metadata_source_sql = (
-        "SELECT Timestamp, ServiceName, SpanName, "
-        "SpanAttributes['gen_ai.request.model'] AS RequestModel, "
-        "SpanAttributes['gen_ai.operation.name'] AS OperationName "
-        "FROM otel_traces "
-        f"WHERE {metadata_base_where} "
-        "ORDER BY Timestamp DESC LIMIT ?"
-    )
-    metadata_source_params = list(metadata_time_params) + [metadata_sample_rows]
-
-    def _fetch_distinct_ai_metadata_values(select_expr: str, extra_where: str = "") -> list[str]:
-        where_suffix = f"WHERE {extra_where}" if extra_where else ""
-        rows = db.execute(
-            f"SELECT DISTINCT {select_expr} AS v " f"FROM ({metadata_source_sql}) recent_ai {where_suffix}",
-            metadata_source_params,
-        ).fetchall()
-        values = [str(row[0]) for row in rows if str(row[0]).strip()]
-        return sorted(set(values))
-
-    try:
-        services = _fetch_distinct_ai_metadata_values("ServiceName", "ServiceName != ''")
-    except Exception as exc:
-        metadata_errors.append(f"services={_public_dashboard_query_error(exc)}")
-
-    try:
-        models = _fetch_distinct_ai_metadata_values(
-            "RequestModel",
-            "RequestModel != ''",
-        )
-    except Exception as exc:
-        metadata_errors.append(f"models={_public_dashboard_query_error(exc)}")
-
-    try:
-        operations = _fetch_distinct_ai_metadata_values(
-            "OperationName",
-            "OperationName != ''",
-        )
-    except Exception as exc:
-        metadata_errors.append(f"operations={_public_dashboard_query_error(exc)}")
-
-    try:
-        span_names = _fetch_distinct_ai_metadata_values("SpanName", "SpanName != ''")
-    except Exception as exc:
-        metadata_errors.append(f"span_names={_public_dashboard_query_error(exc)}")
+    metadata = _get_ai_filter_metadata(db, from_ts, to_ts)
+    services = cast(list[str], metadata.get("services", []))
+    models = cast(list[str], metadata.get("models", []))
+    operations = cast(list[str], metadata.get("operations", []))
+    span_names = cast(list[str], metadata.get("span_names", []))
+    metadata_errors = cast(list[str], metadata.get("errors", []))
 
     try:
         totals_where = where if where else f"WHERE {_AI_SPAN_CONDITION}"
@@ -17904,6 +18120,8 @@ async def view_ai():
     if metadata_errors:
         metadata_error_text = "Some AI metadata failed to load: " + "; ".join(metadata_errors[:3])
         error_msg = f"{error_msg}; {metadata_error_text}" if error_msg else metadata_error_text
+
+    ai_pricing, ai_pricing_sources = _load_ai_pricing_with_sources(db)
 
     return await render_template(
         "ai.html",
@@ -17937,7 +18155,126 @@ async def view_ai():
         sort_dir=sort_dir,
         from_ts=from_ts,
         to_ts=to_ts,
+        ai_pricing_json=ai_pricing,
+        ai_pricing_sources_json=ai_pricing_sources,
     )
+
+
+@app.route("/api/ai/span-attributes")
+@require_basic_auth
+async def get_ai_span_attributes():
+    db = get_db()
+    ts = request.args.get("ts", "").strip()
+    service = request.args.get("service", "").strip()
+    trace_id = request.args.get("trace_id", "").strip()
+    span_name = request.args.get("span_name", "").strip()
+
+    if not ts or not service:
+        return jsonify({"ok": False, "error": "Missing required params: ts and service"}), 400
+
+    conditions = [
+        _AI_SPAN_CONDITION,
+        "Timestamp=?",
+        "ServiceName=?",
+    ]
+    params: list[Any] = [ts, service]
+    if trace_id:
+        conditions.append("TraceId=?")
+        params.append(trace_id)
+    if span_name:
+        conditions.append("SpanName=?")
+        params.append(span_name)
+
+    try:
+        row = db.execute(
+            "SELECT SpanAttributes FROM otel_traces "
+            f"WHERE {' AND '.join(conditions)} "
+            "ORDER BY Timestamp DESC LIMIT 1",
+            params,
+        ).fetchone()
+        if row is None:
+            return jsonify({"ok": False, "error": "Span not found"}), 404
+        attrs = _map_to_dict(row["SpanAttributes"])
+        raw_attrs = json.dumps(attrs, ensure_ascii=False, indent=2)
+        return _jsonify_with_optional_sql_output_mask({"ok": True, "raw_attrs": raw_attrs})
+    except Exception as exc:
+        app.logger.warning("Error fetching AI span attributes: %s", exc)
+        return jsonify({"ok": False, "error": "Failed to load span attributes"}), 500
+
+
+# ---------------------------------------------------------------------------
+# AI conversation tab  GET /api/ai/conversation
+# ---------------------------------------------------------------------------
+@app.route("/api/ai/conversation")
+@require_basic_auth
+async def get_ai_conversation():
+    """Return rendered conversation tab HTML for a single AI span."""
+    db = get_db()
+    ts = request.args.get("ts", "").strip()
+    service = request.args.get("service", "").strip()
+    trace_id = request.args.get("trace_id", "").strip()
+    span_name = request.args.get("span_name", "").strip()
+    from_ts = request.args.get("from_ts", "").strip()
+    to_ts = request.args.get("to_ts", "").strip()
+
+    if not ts or not service:
+        return "<p class='text-danger small'>Missing required params: ts and service.</p>", 400
+
+    conditions = [_AI_SPAN_CONDITION, "Timestamp=?", "ServiceName=?"]
+    params: list[Any] = [ts, service]
+    if trace_id:
+        conditions.append("TraceId=?")
+        params.append(trace_id)
+    if span_name:
+        conditions.append("SpanName=?")
+        params.append(span_name)
+
+    try:
+        row = db.execute(
+            "SELECT SpanAttributes FROM otel_traces "
+            f"WHERE {' AND '.join(conditions)} "
+            "ORDER BY Timestamp DESC LIMIT 1",
+            params,
+        ).fetchone()
+        if row is None:
+            return "<p class='text-danger small'>Span not found.</p>", 404
+        attrs = _map_to_dict(row["SpanAttributes"])
+        input_messages_raw = str(attrs.get("gen_ai.input.messages", ""))
+        output_messages_raw = str(attrs.get("gen_ai.output.messages", ""))
+        system_instructions_raw = str(attrs.get("gen_ai.system_instructions", ""))
+        prompt = _extract_messages_text(input_messages_raw) or str(attrs.get("sobs.gen_ai.prompt", ""))
+        response_text = _extract_messages_text(output_messages_raw) or str(attrs.get("sobs.gen_ai.response", ""))
+        err_type = str(attrs.get("error.type", ""))
+        err_msg = str(attrs.get("exception.message", ""))
+        finish_reason = str(attrs.get("gen_ai.response.finish_reason", ""))
+        operation = str(attrs.get("gen_ai.operation.name", "chat"))
+        input_messages = _normalize_genai_messages_for_display(_parse_genai_messages_json(input_messages_raw))
+        output_messages = _normalize_genai_messages_for_display(_parse_genai_messages_json(output_messages_raw))
+        input_messages, deduped_count = _dedupe_system_input_messages(input_messages, system_instructions_raw)
+        item: dict[str, Any] = {
+            "service": service,
+            "trace_id": trace_id,
+            "error_type": err_type,
+            "error_message": err_msg,
+            "system_instructions": system_instructions_raw,
+            "system_message_deduped_count": deduped_count,
+            "input_messages": input_messages,
+            "output_messages": output_messages,
+            "prompt": prompt,
+            "response": response_text,
+            "operation": operation,
+            "finish_reason": finish_reason,
+        }
+        html = await render_template(
+            "_ai_conversation_partial.html",
+            item=item,
+            from_ts=from_ts,
+            to_ts=to_ts,
+        )
+        return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+    except Exception as exc:
+        app.logger.warning("Error fetching AI conversation: %s", exc)
+        return "<p class='text-danger small'>Error loading conversation.</p>", 500
 
 
 # ---------------------------------------------------------------------------
@@ -25461,6 +25798,7 @@ async def health_db():
 async def view_ai_settings():
     db = get_db()
     settings = _load_all_ai_settings(db)
+    ai_pricing, ai_pricing_sources = _load_ai_pricing_with_sources(db)
     anomaly_rules = _load_anomaly_rules(db)
     tag_rules = _load_tag_rules(db)
     token_expiry_status = _github_token_expiry_status(str(settings.get("ai.github_token_expires_at", "")).strip())
@@ -25479,6 +25817,10 @@ async def view_ai_settings():
         ),
         github_token_expiry_status=token_expiry_status,
         github_token_validation_status=token_validation_status,
+        default_ai_pricing=_DEFAULT_AI_PRICING,
+        saved_ai_pricing=ai_pricing,
+        ai_pricing_sources=ai_pricing_sources,
+        confirmed_ai_pricing_models=sorted(_load_confirmed_ai_pricing_models(db)),
     )
 
 
@@ -25496,6 +25838,8 @@ async def save_ai_settings():
             "ai.github_token_last_validated_at",
             "ai.github_token_last_validation_status",
             "ai.github_token_last_validation_message",
+            "ai.model_pricing",  # handled separately with JSON validation below
+            "ai.model_pricing_confirmed",  # handled separately with JSON validation below
         }:
             # Guard thinking is intentionally not user-configured via the Settings UI.
             continue
@@ -25503,6 +25847,48 @@ async def save_ai_settings():
         field = key.removeprefix("ai.")
         value = (form.get(field) or "").strip()
         _save_ai_setting(db, key, value)
+
+    # Validate and save model pricing JSON
+    raw_pricing = (form.get("model_pricing") or "").strip()
+    clean: dict[str, Any] = {}
+    if raw_pricing:
+        try:
+            parsed = json.loads(raw_pricing)
+            if not isinstance(parsed, dict):
+                raise ValueError("pricing must be a JSON object")
+            # Re-serialize to normalize whitespace and strip invalid entries
+            for model_key, prices in parsed.items():
+                normalized_key = _normalize_ai_model_name(model_key)
+                entry = _coerce_ai_pricing_entry(prices)
+                if normalized_key and entry:
+                    clean[normalized_key] = entry
+            _save_ai_setting(db, "ai.model_pricing", json.dumps(clean))
+        except (json.JSONDecodeError, ValueError, TypeError):
+            return jsonify({"error": "Invalid model_pricing JSON"}), 400
+    else:
+        _save_ai_setting(db, "ai.model_pricing", "")
+
+    raw_confirmed_models = (form.get("model_pricing_confirmed") or "").strip()
+    if raw_confirmed_models:
+        try:
+            parsed_confirmed = json.loads(raw_confirmed_models)
+            if not isinstance(parsed_confirmed, list):
+                raise ValueError("confirmed list must be a JSON array")
+            confirmed_models: list[str] = []
+            seen_confirmed: set[str] = set()
+            for model_key in parsed_confirmed:
+                normalized_key = _normalize_ai_model_name(model_key)
+                if not normalized_key or normalized_key in seen_confirmed:
+                    continue
+                if normalized_key not in clean:
+                    continue
+                seen_confirmed.add(normalized_key)
+                confirmed_models.append(normalized_key)
+            _save_ai_setting(db, "ai.model_pricing_confirmed", json.dumps(confirmed_models))
+        except (json.JSONDecodeError, ValueError, TypeError):
+            return jsonify({"error": "Invalid model_pricing_confirmed JSON"}), 400
+    else:
+        _save_ai_setting(db, "ai.model_pricing_confirmed", "")
 
     github_token = (form.get("github_token") or "").strip()
     github_token_expiry = _normalize_github_token_expiry_input(form.get("github_token_expires_at") or "")

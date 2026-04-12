@@ -1,0 +1,96 @@
+{%- macro render_message_content(msg) -%}
+{%- set content = msg.get('content', '') if msg is mapping else '' -%}
+{{- (content if content is string else content | tojson) | mask -}}
+{%- endmacro -%}
+{%- macro render_system_instructions(instructions) -%}
+{% if instructions %}
+<div class="mb-2">
+  <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-sliders me-1"></i>System Prompt</div>
+  <div class="prompt-box ai-md-content" style="max-height:150px;">{{ instructions|mask }}</div>
+</div>
+{% endif %}
+{%- endmacro -%}
+{% if item.error_type %}
+<div class="alert alert-danger py-2 px-3 mb-2 small">
+  <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle me-1"></i>Error: {{ item.error_type }}</div>
+  {% if item.error_message %}<div class="text-danger-emphasis mb-1">{{ item.error_message|mask }}</div>{% endif %}
+  <div class="text-secondary ai-error-tip" data-error-type="{{ item.error_type }}"></div>
+</div>
+{% endif %}
+{{ render_system_instructions(item.system_instructions) }}
+{% if item.system_message_deduped_count %}
+<div class="small text-secondary mb-2">
+  <i class="bi bi-copy me-1"></i>Hidden {{ item.system_message_deduped_count }} duplicate system instruction turn{% if item.system_message_deduped_count != 1 %}s{% endif %}.
+</div>
+{% endif %}
+{% if item.input_messages %}
+<div class="mb-2">
+  {% for msg in item.input_messages %}
+  <div class="mb-1 d-flex align-items-start gap-2">
+    <span class="badge mt-1 flex-shrink-0
+      {% if msg.role == 'system' %}bg-secondary
+      {% elif msg.role == 'user' %}bg-primary
+      {% elif msg.role == 'assistant' %}bg-success
+      {% elif msg.role == 'tool' %}bg-warning text-dark
+      {% else %}bg-dark{% endif %}"
+      style="min-width:4.5rem;text-align:center;">{{ msg.role_label or msg.role or '?' }}</span>
+    <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:200px;">{{ render_message_content(msg) }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% if item.output_messages %}
+<div class="fw-semibold small text-secondary mb-1 mt-2"><i class="bi bi-cpu me-1 text-success"></i>Response</div>
+{% for msg in item.output_messages %}
+<div class="mb-1 d-flex align-items-start gap-2">
+  <span class="badge mt-1 flex-shrink-0
+    {% if msg.role == 'assistant' %}bg-success
+    {% elif msg.role == 'tool' %}bg-warning text-dark
+    {% else %}bg-dark{% endif %}"
+    style="min-width:4.5rem;text-align:center;">{{ msg.role or '?' }}</span>
+  <div class="flex-grow-1 d-grid gap-1">
+    <div class="prompt-box ai-md-content" style="max-height:300px;">{{ render_message_content(msg) }}</div>
+    {% if msg.thinking_content %}
+    <div class="prompt-box ai-md-content small text-secondary" style="max-height:220px; border-style:dashed;">
+      <div class="fw-semibold small text-info mb-1"><i class="bi bi-lightbulb me-1"></i>Thinking</div>
+      {{ msg.thinking_content|mask }}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% elif item.prompt or item.response %}
+<div class="row g-2">
+  <div class="col-md-6">
+    <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-left-text me-1"></i>Prompt</div>
+    <div class="prompt-box ai-md-content">{{ item.prompt|mask }}</div>
+  </div>
+  <div class="col-md-6">
+    <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-right-text me-1"></i>Response</div>
+    <div class="prompt-box ai-md-content">{{ item.response|mask }}</div>
+  </div>
+</div>
+{% endif %}
+<div class="mt-2 d-flex gap-3 small text-secondary flex-wrap align-items-center">
+  <span><strong>Service:</strong> {{ item.service }}</span>
+  <span><strong>Operation:</strong> {{ item.operation or '—' }}</span>
+  {% if item.finish_reason %}
+  <span><strong>Finish:</strong> {{ item.finish_reason }}</span>
+  {% endif %}
+  {% if item.trace_id %}
+  <a href="{{ url_for('view_logs', trace_id=item.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" title="View related logs">
+    <i class="bi bi-journal-text me-1"></i>Logs
+  </a>
+  <a href="{{ url_for('view_traces', trace_id=item.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="trace-link">
+    Trace {{ item.trace_id[:12] }}…
+  </a>
+  {% else %}
+  <a href="{{ url_for('view_logs', service=item.service, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" title="View logs for this service">
+    <i class="bi bi-journal-text me-1"></i>Logs
+  </a>
+  {% endif %}
+  <button class="btn btn-outline-secondary btn-sm py-0 px-2 ms-auto" style="font-size:.75rem;"
+          onclick="toggleMarkdown(this)" title="Toggle markdown rendering">
+    <i class="bi bi-markdown me-1"></i>MD
+  </button>
+</div>

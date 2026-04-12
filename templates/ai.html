@@ -4,13 +4,7 @@
 {% from "_page_header_macros.html" import render_page_header %}
 {% block title %}AI Transparency{% endblock %}
 {% macro fmt_num(n) %}{% if n >= 1000000 %}{{ "%.1f" | format(n / 1000000) }}M{% elif n >= 1000 %}{{ "%.1f" | format(n / 1000) }}K{% else %}{{ n }}{% endif %}{% endmacro %}
-{% macro render_message_content(msg) %}{% set content = msg.get('content', '') if msg is mapping else '' %}{{ (content if content is string else content | tojson) | mask }}{% endmacro %}
-{% macro render_system_instructions(instructions) %}{% if instructions %}
-<div class="mb-2">
-  <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-sliders me-1"></i>System Prompt</div>
-  <div class="prompt-box ai-md-content" style="max-height:150px;">{{ instructions|mask }}</div>
-</div>
-{% endif %}{% endmacro %}
+
 {% block styles %}{{ super() }}<style>
   .ai-row-grid {
     display: grid;
@@ -230,7 +224,16 @@
   <div class="col-6 col-md-2">
     <div class="stat-card p-3 text-center">
       <div class="fs-4 fw-bold text-success" id="estCostDisplay">…</div>
-      <div class="text-secondary small">Est. Cost (USD)</div>
+      <div class="text-secondary small d-flex justify-content-center align-items-center gap-1">
+        <span>Est. Cost (USD)</span>
+        <a
+          id="estCostInferredHint"
+          class="d-none text-info"
+          href="{{ url_for('view_ai_settings') }}"
+          title="Includes inferred pricing"
+          aria-label="Includes inferred pricing"
+        ><i class="bi bi-info-circle"></i></a>
+      </div>
     </div>
   </div>
 </div>
@@ -542,114 +545,11 @@
 
                 <div class="tab-content" id="tabContent{{ ui_id }}">
                   <div class="tab-pane fade show active" id="conv-{{ ui_id }}" role="tabpanel">
-                    {% if item.error_type %}
-                    <div class="alert alert-danger py-2 px-3 mb-2 small">
-                      <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle me-1"></i>Error: {{ item.error_type }}</div>
-                      {% if item.error_message %}<div class="text-danger-emphasis mb-1">{{ item.error_message|mask }}</div>{% endif %}
-                      <div class="text-secondary" id="tip-{{ ui_id }}"></div>
-                    </div>
-                    <script>
-                    (function() {
-                      var tips = {
-                        'RateLimitError': 'Rate limit exceeded. Add retry logic with exponential backoff. Consider batching requests or upgrading your API plan.',
-                        'AuthenticationError': 'Authentication failed. Verify your API key is valid and not expired. Check environment variable configuration.',
-                        'InvalidRequestError': 'Invalid request parameters. Check prompt length, message format, and model compatibility.',
-                        'ContextLengthExceeded': 'Context window exceeded. Reduce prompt length, summarize prior turns, or use a model with a larger context window.',
-                        'ServiceUnavailableError': 'API service temporarily unavailable. Implement retry logic with backoff. Check provider status page.',
-                        'ContentFilterError': 'Response blocked by content filters. Review prompt content and adjust to comply with usage policies.',
-                        'TimeoutError': 'Request timed out. Check network connectivity and consider increasing timeout values.',
-                        'InsufficientQuotaError': 'Quota exceeded. Check your usage limits and billing status with the provider.',
-                      };
-                      var errType = {{ item.error_type | tojson }};
-                      var el = document.getElementById('tip-{{ ui_id }}');
-                      if (el) {
-                        var tip = tips[errType] || 'Check the provider documentation for details on this error type.';
-                        el.textContent = '💡 ' + tip;
-                      }
-                    }());
-                    </script>
-                    {% endif %}
-
-                    {{ render_system_instructions(item.system_instructions) }}
-                    {% if item.system_message_deduped_count %}
-                    <div class="small text-secondary mb-2">
-                      <i class="bi bi-copy me-1"></i>Hidden {{ item.system_message_deduped_count }} duplicate system instruction turn{% if item.system_message_deduped_count != 1 %}s{% endif %}.
-                    </div>
-                    {% endif %}
-
-                    {% if item.input_messages %}
-                    <div class="mb-2">
-                      {% for msg in item.input_messages %}
-                      <div class="mb-1 d-flex align-items-start gap-2">
-                        <span class="badge mt-1 flex-shrink-0
-                          {% if msg.role == 'system' %}bg-secondary
-                          {% elif msg.role == 'user' %}bg-primary
-                          {% elif msg.role == 'assistant' %}bg-success
-                          {% elif msg.role == 'tool' %}bg-warning text-dark
-                          {% else %}bg-dark{% endif %}"
-                          style="min-width:4.5rem;text-align:center;">{{ msg.role_label or msg.role or '?' }}</span>
-                        <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:200px;">{{ render_message_content(msg) }}</div>
-                      </div>
-                      {% endfor %}
-                    </div>
-                    {% endif %}
-
-                    {% if item.output_messages %}
-                    <div class="fw-semibold small text-secondary mb-1 mt-2"><i class="bi bi-cpu me-1 text-success"></i>Response</div>
-                    {% for msg in item.output_messages %}
-                    <div class="mb-1 d-flex align-items-start gap-2">
-                      <span class="badge mt-1 flex-shrink-0
-                        {% if msg.role == 'assistant' %}bg-success
-                        {% elif msg.role == 'tool' %}bg-warning text-dark
-                        {% else %}bg-dark{% endif %}"
-                        style="min-width:4.5rem;text-align:center;">{{ msg.role or '?' }}</span>
-                      <div class="flex-grow-1 d-grid gap-1">
-                        <div class="prompt-box ai-md-content" style="max-height:300px;">{{ render_message_content(msg) }}</div>
-                        {% if msg.thinking_content %}
-                        <div class="prompt-box ai-md-content small text-secondary" style="max-height:220px; border-style:dashed;">
-                          <div class="fw-semibold small text-info mb-1"><i class="bi bi-lightbulb me-1"></i>Thinking</div>
-                          {{ msg.thinking_content|mask }}
-                        </div>
-                        {% endif %}
-                      </div>
-                    </div>
-                    {% endfor %}
-                    {% elif item.prompt or item.response %}
-                    <div class="row g-2">
-                      <div class="col-md-6">
-                        <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-left-text me-1"></i>Prompt</div>
-                        <div class="prompt-box ai-md-content">{{ item.prompt|mask }}</div>
-                      </div>
-                      <div class="col-md-6">
-                        <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-right-text me-1"></i>Response</div>
-                        <div class="prompt-box ai-md-content">{{ item.response|mask }}</div>
-                      </div>
-                    </div>
-                    {% endif %}
-
-                    <div class="mt-2 d-flex gap-3 small text-secondary flex-wrap align-items-center">
-                      <span><strong>Service:</strong> {{ item.service }}</span>
-                      <span><strong>Operation:</strong> {{ item.operation or '—' }}</span>
-                      {% if item.finish_reason %}
-                      <span><strong>Finish:</strong> {{ item.finish_reason }}</span>
-                      {% endif %}
-                      {% if item.trace_id %}
-                      <a href="{{ url_for('view_logs', trace_id=item.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" title="View related logs">
-                        <i class="bi bi-journal-text me-1"></i>Logs
-                      </a>
-                      <a href="{{ url_for('view_traces', trace_id=item.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="trace-link">
-                        Trace {{ item.trace_id[:12] }}…
-                      </a>
-                      {% else %}
-                      <a href="{{ url_for('view_logs', service=item.service, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" title="View logs for this service">
-                        <i class="bi bi-journal-text me-1"></i>Logs
-                      </a>
-                      {% endif %}
-                      <button class="btn btn-outline-secondary btn-sm py-0 px-2 ms-auto" style="font-size:.75rem;"
-                              onclick="toggleMarkdown(this)" title="Toggle markdown rendering">
-                        <i class="bi bi-markdown me-1"></i>MD
-                      </button>
-                    </div>
+                    <div class="ai-conv-lazy"
+                         data-conv-ts="{{ item.ts }}"
+                         data-conv-service="{{ item.service }}"
+                         data-conv-trace-id="{{ item.trace_id or '' }}"
+                         data-conv-span-name="{{ item.span_name or '' }}"></div>
                   </div>
 
                   <div class="tab-pane fade" id="metrics-{{ ui_id }}" role="tabpanel">
@@ -706,34 +606,30 @@
 
                     <div class="mt-3 small">
                       <div class="fw-semibold text-secondary mb-1"><i class="bi bi-currency-dollar me-1"></i>Estimated Cost</div>
-                      <div id="cost-{{ ui_id }}" class="text-secondary">
-                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                      <div id="cost-{{ ui_id }}" class="text-secondary ai-cost-estimate"
+                           data-cost-model="{{ item.model }}"
+                           data-cost-tokens-in="{{ item.tokens_in }}"
+                           data-cost-tokens-out="{{ item.tokens_out }}">
+                        Open Metrics tab to estimate.
                       </div>
                     </div>
-                    <script>
-                    (function() {
-                      var model = {{ item.model | tojson }};
-                      var tokIn = {{ item.tokens_in }};
-                      var tokOut = {{ item.tokens_out }};
-                      var el = document.getElementById('cost-{{ ui_id }}');
-                      if (el) {
-                        el.innerHTML = (typeof window.aiCostEstimate === 'function')
-                          ? window.aiCostEstimate(model, tokIn, tokOut)
-                          : '<span class="text-secondary">Pricing unavailable</span>';
-                      }
-                    }());
-                    </script>
                   </div>
 
                   <div class="tab-pane fade" id="json-{{ ui_id }}" role="tabpanel">
                     <div class="d-flex justify-content-between align-items-center mb-1">
                       <span class="small text-secondary fw-semibold"><i class="bi bi-braces me-1"></i>Span Attributes</span>
-                      <button class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;"
-                              onclick="copyToClipboard(this, {{ (item.raw_attrs | mask) | tojson }})">
-                        <i class="bi bi-clipboard me-1"></i>Copy
-                      </button>
+                      <div class="d-flex gap-1">
+                        <button class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;"
+                                onclick="loadAiRawAttrs(this, 'raw-json-{{ ui_id }}', 'copy-raw-json-{{ ui_id }}', {{ item.ts | tojson }}, {{ item.service | tojson }}, {{ item.trace_id | tojson }}, {{ item.span_name | tojson }})">
+                          <i class="bi bi-download me-1"></i>Load
+                        </button>
+                        <button id="copy-raw-json-{{ ui_id }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" disabled
+                                onclick="copyAiRawAttrs(this, 'raw-json-{{ ui_id }}')">
+                          <i class="bi bi-clipboard me-1"></i>Copy
+                        </button>
+                      </div>
                     </div>
-                    <pre class="mb-0 p-2 rounded" style="background:var(--bs-tertiary-bg);font-size:.75rem;max-height:400px;overflow:auto;white-space:pre-wrap;">{{ item.raw_attrs|mask }}</pre>
+                    <pre id="raw-json-{{ ui_id }}" class="mb-0 p-2 rounded" style="background:var(--bs-tertiary-bg);font-size:.75rem;max-height:400px;overflow:auto;white-space:pre-wrap;">Click Load to fetch span attributes.</pre>
                   </div>
                 </div>
 
@@ -819,120 +715,11 @@
         <div class="tab-content" id="tabContent{{ item.id }}">
           <!-- Conversation Tab -->
           <div class="tab-pane fade show active" id="conv-{{ item.id }}" role="tabpanel">
-            {% if item.error_type %}
-            <!-- Error Troubleshooting -->
-            <div class="alert alert-danger py-2 px-3 mb-2 small">
-              <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle me-1"></i>Error: {{ item.error_type }}</div>
-              {% if item.error_message %}<div class="text-danger-emphasis mb-1">{{ item.error_message|mask }}</div>{% endif %}
-              <div class="text-secondary" id="tip-{{ item.id }}"></div>
-            </div>
-            <script>
-            (function() {
-              var tips = {
-                'RateLimitError': 'Rate limit exceeded. Add retry logic with exponential backoff. Consider batching requests or upgrading your API plan.',
-                'AuthenticationError': 'Authentication failed. Verify your API key is valid and not expired. Check environment variable configuration.',
-                'InvalidRequestError': 'Invalid request parameters. Check prompt length, message format, and model compatibility.',
-                'ContextLengthExceeded': 'Context window exceeded. Reduce prompt length, summarize prior turns, or use a model with a larger context window.',
-                'ServiceUnavailableError': 'API service temporarily unavailable. Implement retry logic with backoff. Check provider status page.',
-                'ContentFilterError': 'Response blocked by content filters. Review prompt content and adjust to comply with usage policies.',
-                'TimeoutError': 'Request timed out. Check network connectivity and consider increasing timeout values.',
-                'InsufficientQuotaError': 'Quota exceeded. Check your usage limits and billing status with the provider.',
-              };
-              var errType = {{ item.error_type | tojson }};
-              var el = document.getElementById('tip-{{ item.id }}');
-              if (el) {
-                var tip = tips[errType] || 'Check the provider documentation for details on this error type.';
-                el.textContent = '💡 ' + tip;
-              }
-            }());
-            </script>
-            {% endif %}
-
-            {{ render_system_instructions(item.system_instructions) }}
-            {% if item.system_message_deduped_count %}
-            <div class="small text-secondary mb-2">
-              <i class="bi bi-copy me-1"></i>Hidden {{ item.system_message_deduped_count }} duplicate system instruction turn{% if item.system_message_deduped_count != 1 %}s{% endif %}.
-            </div>
-            {% endif %}
-
-            {% if item.input_messages %}
-            <!-- Multi-turn conversation -->
-            <div class="mb-2">
-              {% for msg in item.input_messages %}
-              <div class="mb-1 d-flex align-items-start gap-2">
-                <span class="badge mt-1 flex-shrink-0
-                  {% if msg.role == 'system' %}bg-secondary
-                  {% elif msg.role == 'user' %}bg-primary
-                  {% elif msg.role == 'assistant' %}bg-success
-                  {% elif msg.role == 'tool' %}bg-warning text-dark
-                  {% else %}bg-dark{% endif %}"
-                  style="min-width:4.5rem;text-align:center;">{{ msg.role_label or msg.role or '?' }}</span>
-                <div class="prompt-box flex-grow-1 ai-md-content" style="max-height:200px;">{{ render_message_content(msg) }}</div>
-              </div>
-              {% endfor %}
-            </div>
-            {% endif %}
-
-            {% if item.output_messages %}
-            <!-- Output turns -->
-            <div class="fw-semibold small text-secondary mb-1 mt-2"><i class="bi bi-cpu me-1 text-success"></i>Response</div>
-            {% for msg in item.output_messages %}
-            <div class="mb-1 d-flex align-items-start gap-2">
-              <span class="badge mt-1 flex-shrink-0
-                {% if msg.role == 'assistant' %}bg-success
-                {% elif msg.role == 'tool' %}bg-warning text-dark
-                {% else %}bg-dark{% endif %}"
-                style="min-width:4.5rem;text-align:center;">{{ msg.role or '?' }}</span>
-              <div class="flex-grow-1 d-grid gap-1">
-                <!-- Allow slightly more height for responses which are typically longer -->
-                <div class="prompt-box ai-md-content" style="max-height:300px;">{{ render_message_content(msg) }}</div>
-                {% if msg.thinking_content %}
-                <div class="prompt-box ai-md-content small text-secondary" style="max-height:220px; border-style:dashed;">
-                  <div class="fw-semibold small text-info mb-1"><i class="bi bi-lightbulb me-1"></i>Thinking</div>
-                  {{ msg.thinking_content|mask }}
-                </div>
-                {% endif %}
-              </div>
-            </div>
-            {% endfor %}
-            {% elif item.prompt or item.response %}
-            <!-- Fallback plain prompt/response -->
-            <div class="row g-2">
-              <div class="col-md-6">
-                <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-left-text me-1"></i>Prompt</div>
-                <div class="prompt-box ai-md-content">{{ item.prompt|mask }}</div>
-              </div>
-              <div class="col-md-6">
-                <div class="fw-semibold small text-secondary mb-1"><i class="bi bi-chat-right-text me-1"></i>Response</div>
-                <div class="prompt-box ai-md-content">{{ item.response|mask }}</div>
-              </div>
-            </div>
-            {% endif %}
-
-            <!-- Metadata row -->
-            <div class="mt-2 d-flex gap-3 small text-secondary flex-wrap align-items-center">
-              <span><strong>Service:</strong> {{ item.service }}</span>
-              <span><strong>Operation:</strong> {{ item.operation or '—' }}</span>
-              {% if item.finish_reason %}
-              <span><strong>Finish:</strong> {{ item.finish_reason }}</span>
-              {% endif %}
-              {% if item.trace_id %}
-              <a href="{{ url_for('view_logs', trace_id=item.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" title="View related logs">
-                <i class="bi bi-journal-text me-1"></i>Logs
-              </a>
-              <a href="{{ url_for('view_traces', trace_id=item.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="trace-link">
-                Trace {{ item.trace_id[:12] }}…
-              </a>
-              {% else %}
-              <a href="{{ url_for('view_logs', service=item.service, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" title="View logs for this service">
-                <i class="bi bi-journal-text me-1"></i>Logs
-              </a>
-              {% endif %}
-              <button class="btn btn-outline-secondary btn-sm py-0 px-2 ms-auto" style="font-size:.75rem;"
-                      onclick="toggleMarkdown(this)" title="Toggle markdown rendering">
-                <i class="bi bi-markdown me-1"></i>MD
-              </button>
-            </div>
+            <div class="ai-conv-lazy"
+                 data-conv-ts="{{ item.ts }}"
+                 data-conv-service="{{ item.service }}"
+                 data-conv-trace-id="{{ item.trace_id or '' }}"
+                 data-conv-span-name="{{ item.span_name or '' }}"></div>
           </div>
 
           <!-- Metrics Tab -->
@@ -992,35 +779,31 @@
             <!-- Cost estimation -->
             <div class="mt-3 small">
               <div class="fw-semibold text-secondary mb-1"><i class="bi bi-currency-dollar me-1"></i>Estimated Cost</div>
-              <div id="cost-{{ item.id }}" class="text-secondary">
-                <span class="spinner-border spinner-border-sm" role="status"></span>
+              <div id="cost-{{ item.id }}" class="text-secondary ai-cost-estimate"
+                   data-cost-model="{{ item.model }}"
+                   data-cost-tokens-in="{{ item.tokens_in }}"
+                   data-cost-tokens-out="{{ item.tokens_out }}">
+                Open Metrics tab to estimate.
               </div>
             </div>
-            <script>
-            (function() {
-              var model = {{ item.model | tojson }};
-              var tokIn = {{ item.tokens_in }};
-              var tokOut = {{ item.tokens_out }};
-              var el = document.getElementById('cost-{{ item.id }}');
-              if (el) {
-                el.innerHTML = (typeof window.aiCostEstimate === 'function')
-                  ? window.aiCostEstimate(model, tokIn, tokOut)
-                  : '<span class="text-secondary">Pricing unavailable</span>';
-              }
-            }());
-            </script>
           </div>
 
           <!-- Raw JSON Tab -->
           <div class="tab-pane fade" id="json-{{ item.id }}" role="tabpanel">
             <div class="d-flex justify-content-between align-items-center mb-1">
               <span class="small text-secondary fw-semibold"><i class="bi bi-braces me-1"></i>Span Attributes</span>
-              <button class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;"
-                      onclick="copyToClipboard(this, {{ (item.raw_attrs | mask) | tojson }})">
-                <i class="bi bi-clipboard me-1"></i>Copy
-              </button>
+              <div class="d-flex gap-1">
+                <button class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" title="Load span attributes"
+                        onclick="loadAiRawAttrs(this, 'raw-json-{{ item.id }}', 'copy-raw-json-{{ item.id }}', {{ item.ts | tojson }}, {{ item.service | tojson }}, {{ item.trace_id | tojson }}, {{ item.span_name | tojson }})">
+                  <i class="bi bi-download me-1"></i><span class="ai-btn-label d-none d-lg-inline">Load</span>
+                </button>
+                <button id="copy-raw-json-{{ item.id }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" disabled title="Copy span attributes to clipboard"
+                        onclick="copyAiRawAttrs(this, 'raw-json-{{ item.id }}')">
+                  <i class="bi bi-clipboard me-1"></i><span class="ai-btn-label d-none d-lg-inline">Copy</span>
+                </button>
+              </div>
             </div>
-            <pre class="mb-0 p-2 rounded" style="background:var(--bs-tertiary-bg);font-size:.75rem;max-height:400px;overflow:auto;white-space:pre-wrap;">{{ item.raw_attrs|mask }}</pre>
+            <pre id="raw-json-{{ item.id }}" class="mb-0 p-2 rounded" style="background:var(--bs-tertiary-bg);font-size:.75rem;max-height:400px;overflow:auto;white-space:pre-wrap;">Click Load to fetch span attributes.</pre>
           </div>
         </div><!-- /tab-content -->
 
@@ -1089,7 +872,6 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import Status, StatusCode
 
-
 resource = Resource.create({"service.name": "my-app"})
 provider = TracerProvider(resource=resource)
 provider.add_span_processor(
@@ -1145,13 +927,14 @@ from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 HTTPXClientInstrumentor().instrument()</code></pre>
 
         <pre class="small text-info"><code># Provider-specific GenAI auto instrumentation (OSS)
+from openinference.instrumentation.anthropic import AnthropicInstrumentor
+from openinference.instrumentation.groq import GroqInstrumentor
+
 # pip install \
 #   openinference-instrumentation-openai \
 #   openinference-instrumentation-anthropic \
 #   openinference-instrumentation-groq
 from openinference.instrumentation.openai import OpenAIInstrumentor
-from openinference.instrumentation.anthropic import AnthropicInstrumentor
-from openinference.instrumentation.groq import GroqInstrumentor
 
 OpenAIInstrumentor().instrument()
 AnthropicInstrumentor().instrument()
@@ -1169,92 +952,174 @@ GroqInstrumentor().instrument()
 </div>
 
 <script>
-/* ===== Cost estimation lookup table (USD per 1M tokens, approximate) ===== */
-var AI_PRICING = {
-  /* OpenAI */
-  'gpt-4o':              { in: 2.50,  out: 10.00 },
-  'gpt-4o-mini':         { in: 0.15,  out: 0.60  },
-  'gpt-4-turbo':         { in: 10.00, out: 30.00 },
-  'gpt-4':               { in: 30.00, out: 60.00 },
-  'gpt-3.5-turbo':       { in: 0.50,  out: 1.50  },
-  'o1':                  { in: 15.00, out: 60.00 },
-  'o1-mini':             { in: 3.00,  out: 12.00 },
-  'o3-mini':             { in: 1.10,  out: 4.40  },
-  /* Anthropic */
-  'claude-3-5-sonnet-20241022': { in: 3.00, out: 15.00 },
-  'claude-3-5-sonnet':   { in: 3.00,  out: 15.00 },
-  'claude-3-5-haiku':    { in: 0.80,  out: 4.00  },
-  'claude-3-opus':       { in: 15.00, out: 75.00 },
-  'claude-3-sonnet':     { in: 3.00,  out: 15.00 },
-  'claude-3-haiku':      { in: 0.25,  out: 1.25  },
-  /* Google */
-  'gemini-1.5-pro':      { in: 1.25,  out: 5.00  },
-  'gemini-1.5-flash':    { in: 0.075, out: 0.30  },
-  'gemini-2.0-flash':    { in: 0.10,  out: 0.40  },
-  /* Meta / open source (inference cost estimate) */
-  'llama-3.1-70b':       { in: 0.90,  out: 0.90  },
-  'llama-3.1-8b':        { in: 0.20,  out: 0.20  },
-  /* Mistral */
-  'mistral-large':       { in: 3.00,  out: 9.00  },
-  'mistral-small':       { in: 0.20,  out: 0.60  },
-};
+/* ===== Cost estimation lookup table (USD per 1M tokens) — loaded from AI Configuration settings ===== */
+var AI_PRICING = {{ ai_pricing_json | tojson }};
+var AI_PRICING_SOURCES = {{ ai_pricing_sources_json | tojson }};
 
-function aiCostEstimate(model, tokIn, tokOut) {
+function formatAiUsd(cost) {
+  if (!Number.isFinite(cost) || cost <= 0) {
+    return '$0.00';
+  }
+  var roundedUp = Math.ceil((cost + Number.EPSILON) * 100) / 100;
+  return '$' + roundedUp.toFixed(2);
+}
+
+function resolveAiPricing(model) {
   var modelLower = (model || '').toLowerCase();
-  var price = null;
-  /* exact match first */
   if (AI_PRICING[modelLower]) {
-    price = AI_PRICING[modelLower];
-  } else {
-    /* prefix match */
-    for (var key in AI_PRICING) {
-      if (modelLower.indexOf(key) !== -1 || key.indexOf(modelLower) !== -1) {
-        price = AI_PRICING[key];
-        break;
-      }
+    return { key: modelLower, price: AI_PRICING[modelLower] };
+  }
+  for (var key in AI_PRICING) {
+    if (modelLower.indexOf(key) !== -1 || key.indexOf(modelLower) !== -1) {
+      return { key: key, price: AI_PRICING[key] };
     }
   }
-  if (!price) {
+  return null;
+}
+
+function aiCostEstimate(model, tokIn, tokOut) {
+  var resolved = resolveAiPricing(model);
+  if (!resolved || !resolved.price) {
     return '<span class="text-secondary">Unknown model — pricing not available</span>';
   }
+  var price = resolved.price;
   var cost = (tokIn / 1e6) * price.in + (tokOut / 1e6) * price.out;
-  var fmt = cost < 0.001 ? cost.toExponential(2) : cost.toFixed(6);
-  return '<span class="text-success fw-semibold">$' + fmt + '</span>'
+  var fmt = formatAiUsd(cost);
+  return '<span class="text-success fw-semibold">' + fmt + '</span>'
        + '<span class="text-secondary ms-2 small">($' + price.in + '/1M in · $' + price.out + '/1M out)</span>';
 }
+
+var AI_ERROR_TIPS = {
+  'RateLimitError': 'Rate limit exceeded. Add retry logic with exponential backoff. Consider batching requests or upgrading your API plan.',
+  'AuthenticationError': 'Authentication failed. Verify your API key is valid and not expired. Check environment variable configuration.',
+  'InvalidRequestError': 'Invalid request parameters. Check prompt length, message format, and model compatibility.',
+  'ContextLengthExceeded': 'Context window exceeded. Reduce prompt length, summarize prior turns, or use a model with a larger context window.',
+  'ServiceUnavailableError': 'API service temporarily unavailable. Implement retry logic with backoff. Check provider status page.',
+  'ContentFilterError': 'Response blocked by content filters. Review prompt content and adjust to comply with usage policies.',
+  'TimeoutError': 'Request timed out. Check network connectivity and consider increasing timeout values.',
+  'InsufficientQuotaError': 'Quota exceeded. Check your usage limits and billing status with the provider.',
+};
+
+function initAiErrorTips(scope) {
+  (scope || document).querySelectorAll('.ai-error-tip[data-error-type]').forEach(function(el) {
+    if (el.getAttribute('data-tip-loaded') === '1') {
+      return;
+    }
+    var errType = el.getAttribute('data-error-type') || '';
+    var tip = AI_ERROR_TIPS[errType] || 'Check the provider documentation for details on this error type.';
+    el.textContent = 'Tip: ' + tip;
+    el.setAttribute('data-tip-loaded', '1');
+  });
+}
+
+function renderAiCostEstimate(el) {
+  if (!el || el.getAttribute('data-cost-loaded') === '1') {
+    return;
+  }
+  var model = el.getAttribute('data-cost-model') || '';
+  var tokIn = parseInt(el.getAttribute('data-cost-tokens-in') || '0', 10);
+  var tokOut = parseInt(el.getAttribute('data-cost-tokens-out') || '0', 10);
+  el.innerHTML = aiCostEstimate(model, tokIn, tokOut);
+  el.setAttribute('data-cost-loaded', '1');
+}
+
+function ensureAiMetricsCosts(scope) {
+  (scope || document).querySelectorAll('.ai-cost-estimate').forEach(renderAiCostEstimate);
+}
+
+initAiErrorTips(document);
+
+var AI_PAGE_FROM_TS = {{ from_ts | tojson }};
+var AI_PAGE_TO_TS = {{ to_ts | tojson }};
+
+document.addEventListener('show.bs.collapse', function(ev) {
+  var target = ev.target;
+  var lazy = target.querySelector('.ai-conv-lazy:not([data-conv-loaded])');
+  if (!lazy) return;
+  lazy.setAttribute('data-conv-loaded', '1');
+  lazy.innerHTML = '<div class="text-secondary small py-3 text-center"><span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Loading\u2026</div>';
+  var ts = lazy.getAttribute('data-conv-ts') || '';
+  var service = lazy.getAttribute('data-conv-service') || '';
+  var traceId = lazy.getAttribute('data-conv-trace-id') || '';
+  var spanName = lazy.getAttribute('data-conv-span-name') || '';
+  var url = '/api/ai/conversation?ts=' + encodeURIComponent(ts) + '&service=' + encodeURIComponent(service);
+  if (traceId) url += '&trace_id=' + encodeURIComponent(traceId);
+  if (spanName) url += '&span_name=' + encodeURIComponent(spanName);
+  if (AI_PAGE_FROM_TS) url += '&from_ts=' + encodeURIComponent(AI_PAGE_FROM_TS);
+  if (AI_PAGE_TO_TS) url += '&to_ts=' + encodeURIComponent(AI_PAGE_TO_TS);
+  fetch(url)
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      lazy.innerHTML = html;
+      initAiErrorTips(lazy);
+      if (window.sobsTimezone && window.sobsTimezone.initPage) {
+        window.sobsTimezone.initPage({ timestampSelector: '.sobs-tz-ts[data-utc-ts]' });
+      }
+    })
+    .catch(function() {
+      lazy.removeAttribute('data-conv-loaded');
+      lazy.innerHTML = '<p class="text-danger small my-2">Failed to load conversation. <a href="#" onclick="this.closest(\'.ai-conv-lazy\').removeAttribute(\'data-conv-loaded\'); this.closest(\'.accordion-collapse\').dispatchEvent(new Event(\'show.bs.collapse\', { bubbles: true })); return false;">Retry</a></p>';
+    });
+});
+
+document.addEventListener('shown.bs.tab', function(ev) {
+  var target = ev.target;
+  if (!target) {
+    return;
+  }
+  var paneSelector = target.getAttribute('data-bs-target') || '';
+  if (paneSelector.indexOf('#metrics-') !== 0) {
+    return;
+  }
+  var pane = document.querySelector(paneSelector);
+  if (pane) {
+    ensureAiMetricsCosts(pane);
+  }
+});
 
 /* ===== Compute total estimated cost for summary card ===== */
 (function() {
   var items = document.querySelectorAll('[data-ai-call="1"][data-model]');
   var total = 0;
   var known = 0;
+  var inferredCount = 0;
+  var inferredModels = {};
   items.forEach(function(el) {
     var model = el.getAttribute('data-model') || '';
     var tokIn = parseInt(el.getAttribute('data-tokens-in') || '0', 10);
     var tokOut = parseInt(el.getAttribute('data-tokens-out') || '0', 10);
-    var modelLower = model.toLowerCase();
-    var price = AI_PRICING[modelLower];
-    if (!price) {
-      for (var key in AI_PRICING) {
-        if (modelLower.indexOf(key) !== -1 || key.indexOf(modelLower) !== -1) {
-          price = AI_PRICING[key];
-          break;
+    var resolved = resolveAiPricing(model);
+    if (resolved && resolved.price) {
+      var price = resolved.price;
+      total += (tokIn / 1e6) * price.in + (tokOut / 1e6) * price.out;
+      known++;
+      if (AI_PRICING_SOURCES[resolved.key] === 'inferred') {
+        if (!inferredModels[resolved.key]) {
+          inferredModels[resolved.key] = true;
+          inferredCount++;
         }
       }
     }
-    if (price) {
-      total += (tokIn / 1e6) * price.in + (tokOut / 1e6) * price.out;
-      known++;
-    }
   });
   var el = document.getElementById('estCostDisplay');
+  var inferredHint = document.getElementById('estCostInferredHint');
   if (el) {
     if (known > 0) {
-      el.textContent = '$' + (total < 0.001 ? total.toExponential(2) : total.toFixed(4));
+      el.innerHTML = formatAiUsd(total);
       el.title = 'Estimated cost for visible page only. ' + (items.length - known) + ' unknown model(s) excluded.';
+      if (inferredHint) {
+        if (inferredCount > 0) {
+          inferredHint.classList.remove('d-none');
+        } else {
+          inferredHint.classList.add('d-none');
+        }
+      }
     } else {
       el.textContent = 'N/A';
       el.className = 'fs-4 fw-bold text-secondary';
+      if (inferredHint) {
+        inferredHint.classList.add('d-none');
+      }
     }
   }
 }());
@@ -1324,6 +1189,66 @@ function copyToClipboard(btn, text) {
       setTimeout(function() { btn.innerHTML = orig; }, 1500);
     });
   }
+}
+
+function copyAiRawAttrs(btn, preId) {
+  var pre = document.getElementById(preId);
+  if (!pre) {
+    return;
+  }
+  copyToClipboard(btn, pre.textContent || '');
+}
+
+function loadAiRawAttrs(btn, preId, copyBtnId, ts, service, traceId, spanName) {
+  var pre = document.getElementById(preId);
+  var copyBtn = document.getElementById(copyBtnId);
+  if (!pre) {
+    return;
+  }
+  if (btn.getAttribute('data-loading') === '1') {
+    return;
+  }
+
+  var params = new URLSearchParams({ ts: ts || '', service: service || '' });
+  if (traceId) {
+    params.set('trace_id', traceId);
+  }
+  if (spanName) {
+    params.set('span_name', spanName);
+  }
+
+  btn.setAttribute('data-loading', '1');
+  btn.disabled = true;
+  var orig = btn.innerHTML;
+  var label = btn.querySelector('.ai-btn-label');
+  if (label) {
+    label.textContent = 'Loading';
+  } else {
+    btn.innerHTML = '<i class="bi bi-download me-1"></i>Loading';
+  }
+
+  fetch('/api/ai/span-attributes?' + params.toString(), { credentials: 'same-origin' })
+    .then(function(resp) { return resp.json(); })
+    .then(function(payload) {
+      if (!payload || !payload.ok) {
+        throw new Error((payload && payload.error) || 'Request failed');
+      }
+      pre.textContent = payload.raw_attrs || '{}';
+      if (copyBtn) {
+        copyBtn.disabled = false;
+      }
+    })
+    .catch(function(err) {
+      pre.textContent = 'Error loading span attributes: ' + (err && err.message ? err.message : 'unknown error');
+      if (copyBtn) {
+        copyBtn.disabled = true;
+      }
+    })
+    .finally(function() {
+      btn.removeAttribute('data-loading');
+      btn.disabled = false;
+      btn.innerHTML = orig;
+    });
 }
 
 /* ===== Live Tail ===== */

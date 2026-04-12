@@ -2,7 +2,36 @@
 {% from '_multi_select_filter.html' import render_single_select %}
 {% from "_page_header_macros.html" import render_page_header %}
 {% block title %}AI Configuration{% endblock %}
-{% block styles %}{{ super() }}{% endblock %}
+{% block styles %}{{ super() }}<style>
+  .settings-ai-pricing-table { margin: 0; }
+  @media (max-width: {{ mobile_breakpoint_max }}) {
+    .settings-ai-pricing-table thead { display: none; }
+    .settings-ai-pricing-table,
+    .settings-ai-pricing-table tbody,
+    .settings-ai-pricing-table tr,
+    .settings-ai-pricing-table td { display: block; width: 100%; }
+    .settings-ai-pricing-table tr {
+      border: 1px solid var(--bs-border-color);
+      border-radius: 0.5rem;
+      margin-bottom: 0.75rem;
+      padding: 0.5rem 0.625rem;
+    }
+    .settings-ai-pricing-table td {
+      border: 0;
+      padding: 0.2rem 0;
+      text-align: left !important;
+    }
+    .settings-ai-pricing-table td::before {
+      content: attr(data-label);
+      display: block;
+      font-size: 0.72rem;
+      color: var(--bs-secondary-color);
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      margin-bottom: 0.1rem;
+    }
+  }
+</style>{% endblock %}
 {% block content %}
 {% set settings_ai_header_actions %}
   <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
@@ -12,7 +41,7 @@
     <i class="bi bi-question-circle me-1"></i><span class="settings-btn-label">Help</span>
   </a>
 {% endset %}
-{{ render_page_header('AI &amp; Agent Configuration', icon_class='bi bi-robot', icon_text_class='text-primary', actions_html=settings_ai_header_actions) }}
+{{ render_page_header('AI & Agent Configuration', icon_class='bi bi-robot', icon_text_class='text-primary', actions_html=settings_ai_header_actions) }}
 
 <form method="post" action="{{ url_for('save_ai_settings') }}">
   <!-- LLM Endpoint -->
@@ -229,7 +258,45 @@
     </div>
   </div>
 
-  <button type="submit" class="btn btn-primary"
+  <!-- Model Pricing -->
+  <div class="card border-secondary mb-3">
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="bi bi-currency-dollar text-success"></i>
+      <span class="fw-semibold">Model Pricing (USD per 1M tokens)</span>
+    </div>
+    <div class="card-body">
+      <p class="small text-secondary mb-3">
+        Used to estimate costs on the AI Transparency page. Built-in defaults are listed first,
+        and models observed in your trace data are auto-added with inferred starting prices.
+        Edit any row to override the pricing, or add a fully custom model. Prices are per 1 million tokens.
+      </p>
+      <div class="form-text mb-3">
+        <i class="bi bi-info-circle me-1"></i>Rows marked <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle">inferred</span>
+        were auto-created from observed model names and seeded from the closest known pricing family until you adjust them.
+      </div>
+      <div class="table-responsive mb-2">
+        <table class="table table-sm table-bordered align-middle mb-0 settings-ai-pricing-table" id="pricingTable">
+          <thead class="table-secondary">
+            <tr>
+              <th class="small">Model</th>
+              <th class="small text-end" style="width:130px;">$/1M In</th>
+              <th class="small text-end" style="width:130px;">$/1M Out</th>
+              <th class="small text-center" style="width:60px;"></th>
+            </tr>
+          </thead>
+          <tbody id="pricingTableBody">
+          </tbody>
+        </table>
+      </div>
+      <button type="button" class="btn btn-sm btn-outline-success" id="addPricingRowBtn" title="Add Custom Model">
+        <i class="bi bi-plus-circle me-1"></i><span class="settings-btn-label">Add Custom Model</span>
+      </button>
+      <textarea name="model_pricing" id="modelPricingJson" class="d-none" aria-hidden="true"></textarea>
+      <textarea name="model_pricing_confirmed" id="modelPricingConfirmedJson" class="d-none" aria-hidden="true"></textarea>
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-primary" title="Save AI Settings"
           data-ai-action-id="settings.ai.save"
           data-ai-action-type="submit_form"
           data-ai-handler="submitForm"
@@ -237,7 +304,7 @@
           data-ai-risk="high"
           data-ai-confirm="true"
           data-ai-action-role="save-settings-submit">
-    <i class="bi bi-floppy me-1"></i>Save AI Settings
+    <i class="bi bi-floppy me-1"></i><span class="settings-btn-label">Save AI Settings</span>
   </button>
 </form>
 
@@ -267,3 +334,207 @@
   </div>
 </div>
 {% endblock %}
+{% block scripts %}{{ super() }}<script>
+(function () {
+  var savedPricing = {{ saved_ai_pricing | tojson }};
+  var pricingSources = {{ ai_pricing_sources | tojson }};
+  var confirmedPricingModels = new Set({{ confirmed_ai_pricing_models | tojson }});
+  var tbody = document.getElementById('pricingTableBody');
+  var jsonField = document.getElementById('modelPricingJson');
+  var confirmedField = document.getElementById('modelPricingConfirmedJson');
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function pricingSourceMeta(source) {
+    if (source === 'inferred') {
+      return {
+        badgeClass: 'bg-info-subtle text-info-emphasis border border-info-subtle',
+        title: 'Observed in trace data; pricing was inferred from the closest known model family',
+        label: 'inferred'
+      };
+    }
+    if (source === 'confirmed') {
+      return {
+        badgeClass: 'bg-success-subtle text-success-emphasis border border-success-subtle',
+        title: 'Previously inferred model has been reviewed and confirmed',
+        label: 'confirmed'
+      };
+    }
+    if (source === 'custom') {
+      return null;
+    }
+    return {
+      badgeClass: 'bg-secondary',
+      title: 'Built-in default',
+      label: 'default'
+    };
+  }
+
+  function setRowSource(tr, source, shouldUpdate) {
+    tr.setAttribute('data-pricing-source', source);
+    renderTypeCell(tr);
+    if (shouldUpdate) {
+      updateJson();
+    }
+  }
+
+  function renderTypeCell(tr) {
+    var cell = tr.querySelector('.pr-type-cell');
+    if (!cell) {
+      return;
+    }
+    var source = tr.getAttribute('data-pricing-source') || 'custom';
+    var sourceMeta = pricingSourceMeta(source);
+    if (sourceMeta) {
+      var actions = '';
+      if (source === 'inferred') {
+        actions = '<button type="button" class="btn btn-sm btn-outline-success py-0 px-1 pr-confirm" title="Confirm inferred pricing" aria-label="Confirm inferred pricing"><i class="bi bi-check-circle me-1"></i><span class="d-none d-sm-inline">Confirm</span></button>'
+                + ' <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 pr-remove" title="Remove row" aria-label="Remove row"><i class="bi bi-x"></i></button>';
+      }
+      cell.innerHTML =
+        '<div class="d-inline-flex align-items-center gap-1">'
+        + '<span class="badge ' + sourceMeta.badgeClass + '" title="' + escHtml(sourceMeta.title) + '">' + sourceMeta.label + '</span>'
+        + actions
+        + '</div>';
+      var confirmBtn = cell.querySelector('.pr-confirm');
+      if (confirmBtn) {
+        confirmBtn.addEventListener('click', function () {
+          setRowSource(tr, 'confirmed', true);
+        });
+      }
+      var removeBtn = cell.querySelector('.pr-remove');
+      if (removeBtn) {
+        removeBtn.addEventListener('click', function () {
+          tr.remove();
+          updateJson();
+        });
+      }
+      return;
+    }
+    cell.innerHTML =
+      '<button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 pr-remove" title="Remove row" aria-label="Remove row">'
+      + '<i class="bi bi-x"></i></button>';
+    var removeBtn = cell.querySelector('.pr-remove');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', function () {
+        tr.remove();
+        updateJson();
+      });
+    }
+  }
+
+  function buildRow(model, priceIn, priceOut, source) {
+    var tr = document.createElement('tr');
+    var initialSource = source;
+    if (source === 'inferred' && confirmedPricingModels.has(String(model || '').toLowerCase())) {
+      initialSource = 'confirmed';
+    }
+    var isLockedModel = initialSource !== 'custom';
+    tr.setAttribute('data-pricing-row', '1');
+    tr.setAttribute('data-pricing-source', initialSource);
+    tr.setAttribute('data-pricing-base-in', String(priceIn));
+    tr.setAttribute('data-pricing-base-out', String(priceOut));
+    tr.innerHTML =
+      '<td data-label="Model">' +
+        (isLockedModel
+          ? '<span class="font-monospace small">' + escHtml(model) + '</span>' +
+            '<input type="hidden" class="pr-model" value="' + escHtml(model) + '">'
+          : '<input type="text" class="form-control form-control-sm font-monospace pr-model" ' +
+            'value="' + escHtml(model) + '" placeholder="my-custom-model" required>') +
+      '</td>' +
+      '<td class="text-end" data-label="$/1M In">' +
+        '<input type="number" class="form-control form-control-sm text-end pr-in" ' +
+        'value="' + escHtml(priceIn) + '" step="any" min="0" required>' +
+      '</td>' +
+      '<td class="text-end" data-label="$/1M Out">' +
+        '<input type="number" class="form-control form-control-sm text-end pr-out" ' +
+        'value="' + escHtml(priceOut) + '" step="any" min="0" required>' +
+      '</td>' +
+      '<td class="text-center pr-type-cell" data-label="Type"></td>';
+
+    function onPriceChange() {
+      if (tr.getAttribute('data-pricing-source') === 'inferred') {
+        var baseIn = parseFloat(tr.getAttribute('data-pricing-base-in') || '0');
+        var baseOut = parseFloat(tr.getAttribute('data-pricing-base-out') || '0');
+        var currentIn = parseFloat(tr.querySelector('.pr-in').value) || 0;
+        var currentOut = parseFloat(tr.querySelector('.pr-out').value) || 0;
+        if (currentIn !== baseIn || currentOut !== baseOut) {
+          setRowSource(tr, 'confirmed', false);
+        }
+      }
+      updateJson();
+    }
+
+    tr.querySelector('.pr-in').addEventListener('input', onPriceChange);
+    tr.querySelector('.pr-out').addEventListener('input', onPriceChange);
+    if (!isLockedModel) {
+      tr.querySelector('.pr-model').addEventListener('input', updateJson);
+    }
+    renderTypeCell(tr);
+    return tr;
+  }
+
+  function updateJson() {
+    var result = {};
+    var confirmed = [];
+    tbody.querySelectorAll('[data-pricing-row]').forEach(function (tr) {
+      var modelEl = tr.querySelector('.pr-model');
+      var model = (modelEl ? modelEl.value : '').trim().toLowerCase();
+      var prIn = parseFloat(tr.querySelector('.pr-in').value) || 0;
+      var prOut = parseFloat(tr.querySelector('.pr-out').value) || 0;
+      var source = tr.getAttribute('data-pricing-source') || 'custom';
+      if (model) {
+        // Only persist non-default rows (inferred/confirmed/custom)
+        // Default rows are always available server-side
+        if (source !== 'default') {
+          result[model] = { 'in': prIn, 'out': prOut };
+        }
+        if (source === 'confirmed') {
+          confirmed.push(model);
+        }
+      }
+    });
+    jsonField.value = JSON.stringify(result);
+    confirmedField.value = JSON.stringify(confirmed);
+  }
+
+  // Populate table: savedPricing already includes defaults (merged server-side).
+  // Show built-in defaults first, then auto-discovered rows, then fully custom rows.
+  var defaultOrder = {{ default_ai_pricing.keys() | list | tojson }};
+  var inferredKeys = Object.keys(savedPricing).filter(function(k) { return pricingSources[k] === 'inferred'; }).sort();
+  var confirmedKeys = Object.keys(savedPricing).filter(function(k) { return pricingSources[k] === 'confirmed'; }).sort();
+  var customKeys = Object.keys(savedPricing).filter(function(k) { return pricingSources[k] === 'custom'; }).sort();
+
+  defaultOrder.forEach(function (model) {
+    var prices = savedPricing[model] || {{ default_ai_pricing | tojson }}[model];
+    if (prices) {
+      tbody.appendChild(buildRow(model, prices['in'], prices['out'], 'default'));
+    }
+  });
+  inferredKeys.forEach(function (model) {
+    var prices = savedPricing[model];
+    tbody.appendChild(buildRow(model, prices['in'], prices['out'], 'inferred'));
+  });
+  confirmedKeys.forEach(function (model) {
+    var prices = savedPricing[model];
+    tbody.appendChild(buildRow(model, prices['in'], prices['out'], 'confirmed'));
+  });
+  customKeys.forEach(function (model) {
+    var prices = savedPricing[model];
+    tbody.appendChild(buildRow(model, prices['in'], prices['out'], 'custom'));
+  });
+
+  updateJson();
+
+  document.getElementById('addPricingRowBtn').addEventListener('click', function () {
+    var tr = buildRow('', '', '', 'custom');
+    tbody.appendChild(tr);
+    tr.querySelector('.pr-model').focus();
+  });
+
+  // Keep JSON in sync on form submit
+  document.querySelector('form').addEventListener('submit', updateJson);
+}());
+</script>{% endblock %}
