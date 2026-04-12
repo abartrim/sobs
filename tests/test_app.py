@@ -1583,6 +1583,38 @@ class TestErrorsIngest:
         body = await page.get_data(as_text=True)
         assert "[mapped] saveOrder (src/components/Checkout.tsx:88:21)" in body
 
+    async def test_errors_page_renders_with_invalid_utf8_bytes(self, client):
+        """Errors page must render without UnicodeDecodeError when stored data contains
+        invalid UTF-8 byte sequences (e.g. truncated multi-byte characters from non-UTF-8
+        sources sent via OTLP).  The fix applies toValidUTF8() in ERROR_SOURCES_SQL so
+        that chDB can always serialise results as valid JSON/UTF-8."""
+        import app as sobs_app
+
+        db = sobs_app.get_db()
+        # Insert a row whose Body and exception.message contain the byte sequence
+        # 0xe2 0x28 0xa1 – a well-known invalid UTF-8 sequence (broken 3-byte lead).
+        # We use unhex() so the raw bytes are stored directly in the String column,
+        # bypassing Python's Unicode layer.
+        db.execute(
+            "INSERT INTO otel_logs "
+            "(Timestamp, TraceId, SpanId, TraceFlags, SeverityText, SeverityNumber, "
+            "ServiceName, Body, ResourceSchemaUrl, ResourceAttributes, "
+            "ScopeSchemaUrl, ScopeName, ScopeVersion, ScopeAttributes, "
+            "LogAttributes, EventName) VALUES "
+            "('2024-03-01 00:00:00.000000000', '', '', 0, 'ERROR', 17, "
+            "'utf8-test-svc', unhex('e228a1'), '', map(), '', '', '', map(), "
+            "map('exception.type', 'UTF8Error', "
+            "    'exception.message', unhex('e228a1')), "
+            "'exception')"
+        )
+
+        # Both normal and grouped mode must return HTTP 200 without crashing.
+        r = await client.get("/errors?service=utf8-test-svc&resolved=")
+        assert r.status_code == 200, f"Normal mode failed: {r.status_code}"
+
+        r2 = await client.get("/errors?grouped=1&service=utf8-test-svc&resolved=")
+        assert r2.status_code == 200, f"Grouped mode failed: {r2.status_code}"
+
 
 class TestAppReleaseRegistry:
     async def test_create_and_list_app_release_artifacts(self, client):
