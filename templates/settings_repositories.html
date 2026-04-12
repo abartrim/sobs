@@ -28,6 +28,105 @@
   @media (max-width: {{ mobile_breakpoint_max }}) {
     .repositories-btn-label { display: none; }
     .btn:has(> .repositories-btn-label) i { margin-right: 0 !important; }
+
+    .repositories-mobile-card-table thead { display: none; }
+    .repositories-mobile-card-table,
+    .repositories-mobile-card-table tbody,
+    .repositories-mobile-card-table tr,
+    .repositories-mobile-card-table td { display: block; width: 100%; }
+    .repositories-mobile-card-table tr {
+      border: 1px solid var(--bs-border-color);
+      border-radius: 0.5rem;
+      margin-bottom: 0.75rem;
+      padding: 0.5rem 0.625rem;
+    }
+    .repositories-mobile-card-table td { border: 0; padding: 0.2rem 0; }
+    .repositories-mobile-card-table td::before {
+      content: attr(data-label);
+      display: block;
+      font-size: 0.72rem;
+      color: var(--bs-secondary-color);
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      margin-bottom: 0.1rem;
+    }
+    .repo-action-form { margin-bottom: 0.4rem; }
+    .repo-action-form:last-child { margin-bottom: 0; }
+  }
+
+  .repositories-table td { vertical-align: top; }
+  .repo-actions-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-width: 0;
+  }
+  .repo-inline-manage {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.5rem;
+    margin: 0.15rem 0.35rem 0.6rem;
+  }
+  .repo-settings-panel {
+    display: grid;
+    gap: 0.65rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0.75rem;
+  }
+  .repo-setting-section {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.45rem;
+    padding: 0.5rem;
+    background: color-mix(in srgb, var(--bs-body-bg) 88%, var(--bs-secondary-bg) 12%);
+  }
+  .repo-setting-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--bs-secondary-color);
+    margin-bottom: 0.35rem;
+  }
+  .repo-manage-row td::before { display: none !important; }
+  .repo-manage-button {
+    min-width: 6.5rem;
+    justify-content: center;
+  }
+  @media (max-width: 992px) {
+    .repo-settings-panel {
+      grid-template-columns: 1fr;
+    }
+  }
+  .repo-action-form {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .repo-action-form .form-control {
+    min-width: 0;
+    flex: 1 1 9rem;
+  }
+  .repo-owner-input,
+  .repo-name-input {
+    max-width: 14rem;
+  }
+  .repo-url-preview {
+    width: 100%;
+    font-size: 0.72rem;
+    color: var(--bs-secondary-color);
+    word-break: break-all;
+  }
+  .repo-action-form .btn { white-space: nowrap; }
+  .repo-token-toggle {
+    font-size: 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin: 0;
+  }
+  .repo-meta-note {
+    font-size: 0.75rem;
+    color: var(--bs-secondary-color);
   }
 
 </style>{% endblock %}
@@ -99,65 +198,29 @@
     <span class="fw-semibold">Add Repository Wizard</span>
   </div>
   <div class="card-body">
-    <form method="post" action="{{ url_for('create_settings_repository') }}" class="row g-2 align-items-end" autocomplete="off">
-      <div class="col-12">
-        <div class="small text-secondary mb-2"><span class="badge text-bg-light text-dark me-1">Step 1</span>Repository and app details</div>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label small fw-semibold">App Name</label>
-        <input type="text" name="name" class="form-control form-control-sm" placeholder="checkout-api" autocomplete="organization" required>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small fw-semibold">Slug (optional)</label>
-        <input type="text" name="slug" class="form-control form-control-sm" placeholder="checkout-api" autocomplete="off" spellcheck="false">
-      </div>
-      <div class="col-md-4">
-        <label class="form-label small fw-semibold">Repository URL</label>
-        <input type="url" name="repo_url" class="form-control form-control-sm font-monospace" placeholder="https://github.com/org/repo" autocomplete="url" spellcheck="false" required>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small fw-semibold">Default Env</label>
-        <input type="text" name="default_environment" class="form-control form-control-sm" placeholder="prod" autocomplete="off" autocapitalize="none" spellcheck="false" inputmode="text">
-      </div>
-
-      <div class="col-12 mt-3">
-        <div class="small text-secondary mb-2"><span class="badge text-bg-light text-dark me-1">Step 2</span>GitHub token setup (optional but recommended)</div>
-        <div class="small text-secondary mb-2">
-          Need a token? Create a fine-grained PAT with <code>contents:read</code> (and optionally issues write for agents):
-          <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Open GitHub token page</a>
-        </div>
-      </div>
-      <div class="col-md-5">
-        <label class="form-label small fw-semibold">GitHub token (optional)</label>
-        <input type="password" name="github_token" class="form-control form-control-sm font-monospace" autocomplete="new-password" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="github_pat_...">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small fw-semibold">Token expiry date</label>
-        <input type="date" name="github_token_expires_at" class="form-control form-control-sm" autocomplete="off" value="{{ github_token_expires_date }}">
-      </div>
-      <div class="col-md-3">
-        <div class="form-check mt-4">
-          <input class="form-check-input" type="checkbox" name="set_github_token" id="set_github_token">
-          <label class="form-check-label small" for="set_github_token">Save token as global fallback</label>
-        </div>
-      </div>
-      <div class="col-md-2">
-        <div class="form-check mt-4">
-          <input class="form-check-input" type="checkbox" name="set_repo_token" id="set_repo_token" checked>
-          <label class="form-check-label small" for="set_repo_token">Save token for this repo</label>
-        </div>
-      </div>
-      <div class="col-md-2">
-        <div class="form-check mt-4">
-          <input class="form-check-input" type="checkbox" name="set_agent_repo" id="set_agent_repo" checked>
-          <label class="form-check-label small" for="set_agent_repo">Set as default agent repo</label>
-        </div>
-      </div>
-
-      <div class="col-md-1 d-grid">
-        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check2"></i></button>
-      </div>
-    </form>
+    <p class="small text-secondary mb-2">
+      Use the wizard to add repository details, optional GitHub token settings, inspect CI/OTEL readiness,
+      and create onboarding issues in one guided flow.
+    </p>
+    <div class="d-flex flex-wrap gap-2">
+      <button
+        type="button"
+        class="btn btn-sm btn-success"
+        title="Add And Onboard Repository"
+        onclick="window.__sobsOpenOnboardingWizard && window.__sobsOpenOnboardingWizard('new')"
+      >
+        <i class="bi bi-plus-circle me-1"></i><span class="repositories-btn-label settings-btn-label">Add And Onboard Repository</span>
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-success"
+        title="{{ 'No repositories available to onboard' if not apps else 'Onboard Existing Repository' }}"
+        {% if not apps %}disabled aria-disabled="true"{% endif %}
+        onclick="window.__sobsOpenOnboardingWizard && window.__sobsOpenOnboardingWizard('existing')"
+      >
+        <i class="bi bi-rocket-takeoff me-1"></i><span class="repositories-btn-label settings-btn-label">Onboard Existing Repository</span>
+      </button>
+    </div>
   </div>
 </div>
 
@@ -170,14 +233,14 @@
   <div class="card-body p-0">
     {% if apps %}
     <div class="table-responsive">
-      <table class="table table-sm table-hover mb-0 align-middle repositories-table">
+      <table class="table table-sm table-hover mb-0 align-middle repositories-table repositories-mobile-card-table">
         <thead>
           <tr>
             <th>App</th>
             <th>Repo</th>
             <th>Releases</th>
             <th style="width:130px;">Status</th>
-            <th style="width:260px;">Actions</th>
+            <th style="width:130px;">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -202,27 +265,81 @@
               {% endif %}
             </td>
             <td data-label="Actions">
-              <form method="post" action="{{ url_for('update_settings_repository', app_id=app.id) }}" class="d-flex gap-1 align-items-center mb-1">
-                <input type="url" name="repo_url" class="form-control form-control-sm font-monospace" value="{{ app.repo_url }}" autocomplete="url" spellcheck="false" required>
-                <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
-              </form>
-              <form method="post" action="{{ url_for('update_settings_repository', app_id=app.id) }}" class="d-flex gap-1 align-items-center mb-1">
-                <input type="hidden" name="repo_url" value="{{ app.repo_url }}">
-                <input type="password" name="repo_token" class="form-control form-control-sm font-monospace" placeholder="repo PAT (optional)" autocomplete="new-password" autocorrect="off" autocapitalize="none" spellcheck="false">
-                <label class="small d-flex align-items-center gap-1 mb-0">
-                  <input type="checkbox" name="set_repo_token" value="1" checked>
-                  save
-                </label>
-                <button type="submit" class="btn btn-sm btn-outline-secondary">Token</button>
-              </form>
-              <div class="small text-secondary mb-1">
-                PAT status: {{ 'configured' if app.repo_token_configured else 'not set' }}
+              <button
+                class="btn btn-sm btn-outline-secondary repo-manage-button"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#repoManageRow-{{ app.id }}"
+                aria-expanded="false"
+                aria-controls="repoManageRow-{{ app.id }}"
+                title="Manage Repository Settings">
+                <i class="bi bi-sliders2 me-1"></i><span class="repositories-btn-label">Manage</span>
+              </button>
+            </td>
+          </tr>
+          <tr class="repo-manage-row">
+            <td colspan="5" class="pt-0 border-0">
+              <div id="repoManageRow-{{ app.id }}" class="collapse repo-inline-manage">
+                <div class="repo-settings-panel">
+                  <div class="repo-setting-section">
+                    <div class="repo-setting-title">Repository URL</div>
+                    <form method="post" action="{{ url_for('update_settings_repository', app_id=app.id) }}" class="repo-action-form" data-role="repo-url-builder">
+                      <input type="hidden" name="repo_url" value="{{ app.repo_url }}" data-role="repo-url-hidden">
+                      <input type="text" name="repo_owner" class="form-control form-control-sm font-monospace repo-owner-input" value="{{ app.repo_owner }}" placeholder="owner" autocomplete="username" spellcheck="false" data-role="repo-owner" required>
+                      <input type="text" name="repo_name" class="form-control form-control-sm font-monospace repo-name-input" value="{{ app.repo_name }}" placeholder="repository" autocomplete="off" spellcheck="false" data-role="repo-name" required>
+                      <button type="submit" class="btn btn-sm btn-outline-primary" title="Save Repository URL">
+                        <i class="bi bi-save me-1"></i><span class="repositories-btn-label">Save</span>
+                      </button>
+                    </form>
+                    <div class="repo-url-preview" data-role="repo-url-preview">{{ app.repo_url }}</div>
+                  </div>
+
+                  <div class="repo-setting-section">
+                    <div class="repo-setting-title">Repository Token</div>
+                    <form method="post" action="{{ url_for('update_settings_repository', app_id=app.id) }}" class="repo-action-form">
+                      <input type="hidden" name="repo_url" value="{{ app.repo_url }}">
+                      <input type="password" name="repo_token" class="form-control form-control-sm font-monospace" placeholder="repo PAT (optional)" autocomplete="new-password" autocorrect="off" autocapitalize="none" spellcheck="false">
+                      <label class="repo-token-toggle">
+                        <input type="checkbox" name="set_repo_token" value="1" checked>
+                        save
+                      </label>
+                      <button type="submit" class="btn btn-sm btn-outline-secondary" title="Save Repo Token">
+                        <i class="bi bi-key me-1"></i><span class="repositories-btn-label">Token</span>
+                      </button>
+                    </form>
+                    <div class="repo-meta-note mt-1">
+                      PAT status: {{ 'configured' if app.repo_token_configured else 'not set' }}
+                    </div>
+                  </div>
+
+                  <div class="repo-setting-section">
+                    <div class="repo-setting-title">Add Release</div>
+                    <form method="post" action="{{ url_for('add_settings_repository_release', app_id=app.id) }}" class="repo-action-form">
+                      <input type="text" name="version" class="form-control form-control-sm" placeholder="release version" autocomplete="off" spellcheck="false" required>
+                      <input type="text" name="environment" class="form-control form-control-sm" placeholder="env" autocomplete="off" autocapitalize="none" spellcheck="false">
+                      <button type="submit" class="btn btn-sm btn-outline-secondary" title="Add Release">
+                        <i class="bi bi-plus-circle me-1"></i><span class="repositories-btn-label">Add release</span>
+                      </button>
+                    </form>
+                  </div>
+
+                  <div class="repo-setting-section">
+                    <div class="repo-setting-title text-danger">Danger Zone</div>
+                    <form
+                      method="post"
+                      action="{{ url_for('delete_settings_repository', app_id=app.id) }}"
+                      class="repo-action-form"
+                      data-confirm-title="Delete Repository"
+                      data-confirm-message="Delete repository '{{ app.name }}' ({{ app.slug }})?"
+                      data-confirm-ok-label="Delete"
+                      data-confirm-ok-class="btn-danger">
+                      <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete Repository">
+                        <i class="bi bi-trash me-1"></i><span class="repositories-btn-label">Delete</span>
+                      </button>
+                    </form>
+                  </div>
+                </div>
               </div>
-              <form method="post" action="{{ url_for('add_settings_repository_release', app_id=app.id) }}" class="d-flex gap-1 align-items-center">
-                <input type="text" name="version" class="form-control form-control-sm" placeholder="release version" autocomplete="off" spellcheck="false" required>
-                <input type="text" name="environment" class="form-control form-control-sm" placeholder="env" autocomplete="off" autocapitalize="none" spellcheck="false">
-                <button type="submit" class="btn btn-sm btn-outline-secondary">Add release</button>
-              </form>
             </td>
           </tr>
           {% endfor %}
@@ -251,6 +368,50 @@
     if (!root) {
       return;
     }
+
+    function composeGithubRepoUrl(owner, repo) {
+      var ownerClean = String(owner || '').trim().replace(/^\/+|\/+$/g, '');
+      var repoClean = String(repo || '').trim().replace(/^\/+|\/+$/g, '').replace(/\.git$/i, '');
+      if (!ownerClean || !repoClean) {
+        return '';
+      }
+      return 'https://github.com/' + ownerClean + '/' + repoClean;
+    }
+
+    function syncRepoBuilderForm(form) {
+      if (!form) {
+        return;
+      }
+      var ownerEl = form.querySelector('[data-role="repo-owner"]');
+      var repoEl = form.querySelector('[data-role="repo-name"]');
+      var hiddenEl = form.querySelector('[data-role="repo-url-hidden"]');
+      var previewEl = form.closest('.repo-setting-section')
+        ? form.closest('.repo-setting-section').querySelector('[data-role="repo-url-preview"]')
+        : null;
+      if (!ownerEl || !repoEl || !hiddenEl) {
+        return;
+      }
+      var builtUrl = composeGithubRepoUrl(ownerEl.value, repoEl.value);
+      hiddenEl.value = builtUrl;
+      if (previewEl) {
+        previewEl.textContent = builtUrl || 'https://github.com/owner/repository';
+      }
+    }
+
+    root.querySelectorAll('form[data-role="repo-url-builder"]').forEach(function (form) {
+      syncRepoBuilderForm(form);
+      var ownerEl = form.querySelector('[data-role="repo-owner"]');
+      var repoEl = form.querySelector('[data-role="repo-name"]');
+      if (ownerEl) {
+        ownerEl.addEventListener('input', function () { syncRepoBuilderForm(form); });
+      }
+      if (repoEl) {
+        repoEl.addEventListener('input', function () { syncRepoBuilderForm(form); });
+      }
+      form.addEventListener('submit', function () {
+        syncRepoBuilderForm(form);
+      });
+    });
 
     function syncColorMode() {
       var mode = document.documentElement.getAttribute('data-bs-theme') || 'light';

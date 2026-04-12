@@ -1944,6 +1944,14 @@ class _WriteTask:
 _WRITE_STOP = cast(_WriteTask, object())
 
 
+def _invalidate_work_items_cache() -> None:
+    with _work_items_cache_lock:
+        _work_items_page_cache.clear()
+        _work_items_filter_cache["expires_at"] = 0.0
+        _work_items_filter_cache["services"] = []
+        _work_items_filter_cache["rules"] = []
+
+
 class WriteQueueFullError(RuntimeError):
     """Raised when ingest cannot enqueue a write within timeout."""
 
@@ -5067,7 +5075,11 @@ async def _assign_issue_to_copilot(
             if isinstance(item, dict)
         ]
         if _GITHUB_COPILOT_ASSIGNEE.lower() not in assignees and "copilot-swe-agent" not in assignees:
-            return "failed", "GitHub did not report Copilot as an assignee after assignment request", requested_at
+            return (
+                "requested",
+                "Copilot assignment request accepted; GitHub assignee visibility may lag briefly",
+                requested_at,
+            )
         return "requested", "Copilot assignment requested", requested_at
     except httpx.HTTPStatusError as exc:
         detail = exc.response.text[:500] if exc.response is not None else str(exc)
@@ -6199,8 +6211,71 @@ def _persist_github_work_item(
         }
 
         _insert_rows_json_each_row(db, "sobs_github_work_items", [work_item])
+        _invalidate_work_items_cache()
     except Exception as exc:
         app.logger.warning("Failed to persist work item: %s", exc)
+
+
+def _persist_onboarding_work_item(
+    db: ChDbConnection,
+    *,
+    github_repo: str,
+    issue_url: str,
+    issue_number: int,
+    issue_title: str,
+    issue_state: str,
+    dedup_decision: str,
+    note: str,
+    copilot_status: str,
+    issue_type: str,
+) -> None:
+    """Persist onboarding-created GitHub issues to the Work Items table."""
+
+    if not issue_url:
+        return
+
+    owner, repo = _parse_github_repo_owner_name(github_repo)
+    if not owner or not repo:
+        owner, repo, _ = _parse_issue_ref_from_url(issue_url)
+    github_repo_value = f"{owner}/{repo}" if owner and repo else str(github_repo or "")
+
+    work_item = {
+        "Id": uuid.uuid4().hex,
+        "AgentRunId": "",
+        "AgentRuleId": "",
+        "AgentRuleName": "Onboarding Wizard",
+        "AgentAction": f"onboarding_{issue_type}",
+        "ServiceName": repo,
+        "AnomalyRuleId": "",
+        "AnomalyState": "",
+        "SignalSource": "",
+        "SignalName": "",
+        "SignalValue": 0.0,
+        "GithubRepo": github_repo_value,
+        "DedupKey": "",
+        "DedupDecision": dedup_decision or "new_issue",
+        "DedupConfidence": 1.0 if dedup_decision == "reused" else 0.0,
+        "IssueNumber": int(issue_number or 0),
+        "IssueUrl": issue_url,
+        "CanonicalIssueNumber": int(issue_number or 0),
+        "CanonicalIssueUrl": issue_url,
+        "RelatedIssueUrls": "[]",
+        "OccurrenceCount": 1,
+        "IssueState": issue_state or "open",
+        "IssueTitle": issue_title,
+        "AnalysisSummary": "Sobs onboarding wizard issue.",
+        "SuggestionSummary": note,
+        "CopilotAssignmentRequestedAt": int(time.time() * 1000) if copilot_status else 0,
+        "CopilotAssignmentStatus": copilot_status or "not_requested",
+        "CopilotAssignmentReason": "",
+        "PrLinked": 0,
+        "PrNumber": 0,
+        "PrUrl": "",
+        "IsDeleted": 0,
+        "Version": int(time.time() * 1000),
+    }
+    _insert_rows_json_each_row(db, "sobs_github_work_items", [work_item])
+    _invalidate_work_items_cache()
 
 
 def _build_agent_context_summary(db: ChDbConnection, trigger_context: dict) -> str:
@@ -15732,6 +15807,33 @@ def _parse_github_repo_owner_name(repo_url: str) -> tuple[str, str]:
     if len(parts) < 2:
         return "", ""
     return parts[0], parts[1]
+
+
+def _build_github_repo_url(owner: str, repo: str) -> str:
+    owner_clean = (owner or "").strip().strip("/")
+    repo_clean = (repo or "").strip().strip("/").removesuffix(".git")
+    if not owner_clean or not repo_clean:
+        return ""
+    return f"https://github.com/{owner_clean}/{repo_clean}"
+
+
+def _resolve_github_repo_fields(repo_url: str, owner: str = "", repo: str = "") -> tuple[str, str, str]:
+    repo_url_clean = str(repo_url or "").strip()
+    owner_clean = str(owner or "").strip().strip("/")
+    repo_clean = str(repo or "").strip().strip("/").removesuffix(".git")
+
+    if (not owner_clean or not repo_clean) and repo_url_clean:
+        parsed_owner, parsed_repo = _parse_github_repo_owner_name(repo_url_clean)
+        if not owner_clean:
+            owner_clean = parsed_owner
+        if not repo_clean:
+            repo_clean = parsed_repo
+
+    canonical_repo_url = _build_github_repo_url(owner_clean, repo_clean)
+    if canonical_repo_url:
+        repo_url_clean = canonical_repo_url
+
+    return repo_url_clean, owner_clean, repo_clean
 
 
 def _parse_requirements_dependencies(content: str) -> list[dict[str, str]]:
@@ -25990,7 +26092,7 @@ async def view_settings_repositories():
     for row in app_rows:
         app = _serialize_app_row(row)
         app_versions = releases_by_app.get(app["id"], [])
-        owner, repo = _parse_github_repo_owner_name(app["repoUrl"])
+        _, owner, repo = _resolve_github_repo_fields(app["repoUrl"])
         repo_token_configured = bool(_load_repo_scoped_github_token(db, owner, repo)) if owner and repo else False
         apps.append(
             {
@@ -25998,6 +26100,8 @@ async def view_settings_repositories():
                 "name": app["name"],
                 "slug": app["slug"],
                 "repo_url": app["repoUrl"],
+                "repo_owner": owner,
+                "repo_name": repo,
                 "enabled": app["enabled"],
                 "release_count": len(app_versions),
                 "latest_versions": app_versions[:5],
@@ -26024,7 +26128,10 @@ async def create_settings_repository():
     form = await request.form
     name = str(form.get("name", "")).strip()
     slug_raw = str(form.get("slug", "")).strip()
-    repo_url = str(form.get("repo_url", "")).strip()
+    repo_url_input = str(form.get("repo_url", "")).strip()
+    repo_owner_input = str(form.get("repo_owner", "")).strip()
+    repo_name_input = str(form.get("repo_name", "")).strip()
+    repo_url, owner, repo = _resolve_github_repo_fields(repo_url_input, repo_owner_input, repo_name_input)
     default_environment = str(form.get("default_environment", "")).strip()
     github_token = str(form.get("github_token", "")).strip()
     github_token_expiry = _normalize_github_token_expiry_input(form.get("github_token_expires_at") or "")
@@ -26033,7 +26140,7 @@ async def create_settings_repository():
     set_agent_repo = bool(form.get("set_agent_repo"))
 
     if not name or not repo_url:
-        await flash("App name and repository URL are required", "warning")
+        await flash("App name and repository are required", "warning")
         return redirect(url_for("view_settings_repositories"))
 
     slug = _app_slug(slug_raw or name)
@@ -26070,12 +26177,10 @@ async def create_settings_repository():
         _save_ai_setting(db, "ai.github_token_last_validation_message", "")
 
     if set_repo_token and github_token:
-        owner, repo = _parse_github_repo_owner_name(repo_url)
         if owner and repo:
             _save_repo_scoped_github_token(db, owner, repo, github_token)
 
     if set_agent_repo:
-        owner, repo = _parse_github_repo_owner_name(repo_url)
         if owner and repo:
             _save_ai_setting(db, "ai.github_repo", f"{owner}/{repo}")
 
@@ -26107,7 +26212,9 @@ async def validate_settings_repository_github_token():
 async def update_settings_repository(app_id: str):
     db = get_db()
     form = await request.form
-    repo_url = str(form.get("repo_url", "")).strip()
+    repo_url_input = str(form.get("repo_url", "")).strip()
+    repo_owner_input = str(form.get("repo_owner", "")).strip()
+    repo_name_input = str(form.get("repo_name", "")).strip()
     repo_token = str(form.get("repo_token", "")).strip()
     set_repo_token = bool(form.get("set_repo_token"))
 
@@ -26116,8 +26223,10 @@ async def update_settings_repository(app_id: str):
         await flash("Repository entry not found", "warning")
         return redirect(url_for("view_settings_repositories"))
 
+    repo_url, owner, repo = _resolve_github_repo_fields(repo_url_input, repo_owner_input, repo_name_input)
+
     if not repo_url:
-        await flash("Repository URL is required", "warning")
+        await flash("Repository is required", "warning")
         return redirect(url_for("view_settings_repositories"))
 
     version = int(time.time() * 1000)
@@ -26138,7 +26247,6 @@ async def update_settings_repository(app_id: str):
     _insert_rows_json_each_row(db, "sobs_apps", [row])
 
     if set_repo_token and repo_token:
-        owner, repo = _parse_github_repo_owner_name(repo_url)
         if owner and repo:
             _save_repo_scoped_github_token(db, owner, repo, repo_token)
 
@@ -26178,6 +26286,60 @@ async def add_settings_repository_release(app_id: str):
     }
     _insert_rows_json_each_row(db, "sobs_app_releases", [row])
     await flash("Release added", "success")
+    return redirect(url_for("view_settings_repositories"))
+
+
+@app.route("/settings/repositories/<app_id>/delete", methods=["POST"])
+@require_basic_auth
+async def delete_settings_repository(app_id: str):
+    db = get_db()
+    current = _find_app_by_id(db, app_id)
+    if not current:
+        await flash("Repository entry not found", "warning")
+        return redirect(url_for("view_settings_repositories"))
+
+    version = int(time.time() * 1000)
+    now_iso = _now_iso()
+    row = {
+        "Id": app_id,
+        "Name": str(current.get("Name", "")),
+        "Slug": str(current.get("Slug", "")),
+        "OwnerTeam": str(current.get("OwnerTeam", "")),
+        "RepoUrl": str(current.get("RepoUrl", "")),
+        "DefaultEnvironment": str(current.get("DefaultEnvironment", "")),
+        "Enabled": int(current.get("Enabled", 1) or 0),
+        "MetadataJson": str(current.get("MetadataJson", "{}") or "{}"),
+        "IsDeleted": 1,
+        "Version": version,
+        "CreatedAt": str(current.get("CreatedAt", "")) or now_iso,
+        "UpdatedAt": now_iso,
+    }
+    _insert_rows_json_each_row(db, "sobs_apps", [row])
+
+    release_rows = db.execute(
+        "SELECT * FROM sobs_app_releases FINAL WHERE AppId=? AND IsDeleted=0",
+        [app_id],
+    ).fetchall()
+    if release_rows:
+        release_tombstones: list[dict[str, Any]] = []
+        for release_row in release_rows:
+            release_tombstones.append(
+                {
+                    "Id": str(release_row["Id"]),
+                    "AppId": str(release_row["AppId"]),
+                    "ReleaseVersion": str(release_row["ReleaseVersion"]),
+                    "CommitSha": str(release_row["CommitSha"]),
+                    "BuildId": str(release_row["BuildId"]),
+                    "Environment": str(release_row["Environment"]),
+                    "ReleasedAt": str(release_row["ReleasedAt"]),
+                    "MetadataJson": str(release_row["MetadataJson"]),
+                    "IsDeleted": 1,
+                    "Version": version,
+                }
+            )
+        _insert_rows_json_each_row(db, "sobs_app_releases", release_tombstones)
+
+    await flash(f"Repository '{str(current.get('Name', ''))}' deleted", "success")
     return redirect(url_for("view_settings_repositories"))
 
 
@@ -31708,8 +31870,10 @@ _SOBS_CI_OTEL_INDICATORS: list[str] = [
 ]
 
 
-async def _github_list_directory(github_token: str, owner: str, repo: str, path: str) -> list[dict[str, Any]]:
-    """Return directory listing from GitHub Contents API or empty list on error."""
+async def _github_list_directory(
+    github_token: str, owner: str, repo: str, path: str
+) -> tuple[list[dict[str, Any]], str]:
+    """Return directory listing from GitHub Contents API and an optional error message."""
     client = await _get_async_http_client()
     encoded = urllib.parse.quote(path, safe="/")
     try:
@@ -31719,15 +31883,15 @@ async def _github_list_directory(github_token: str, owner: str, repo: str, path:
             timeout=12,
         )
         if resp.status_code != 200:
-            return []
+            return [], f"GitHub API returned {resp.status_code} for {path}"
         data = resp.json() if resp.content else []
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
+        return (data if isinstance(data, list) else []), ""
+    except Exception as exc:
+        return [], f"GitHub API request failed for {path}: {exc}"
 
 
-async def _github_file_text(github_token: str, owner: str, repo: str, path: str) -> str:
-    """Fetch a file's text content from GitHub Contents API; empty string on error."""
+async def _github_file_text(github_token: str, owner: str, repo: str, path: str) -> tuple[str, str]:
+    """Fetch a file's text content from GitHub Contents API and an optional error message."""
     client = await _get_async_http_client()
     encoded = urllib.parse.quote(path, safe="/")
     try:
@@ -31737,14 +31901,14 @@ async def _github_file_text(github_token: str, owner: str, repo: str, path: str)
             timeout=12,
         )
         if resp.status_code != 200:
-            return ""
+            return "", f"GitHub API returned {resp.status_code} for {path}"
         data = resp.json() if resp.content else {}
         if not isinstance(data, dict):
-            return ""
+            return "", f"Unexpected GitHub API response for {path}"
         raw = _decode_github_contents_payload(data)
-        return raw.decode("utf-8", errors="replace") if raw else ""
-    except Exception:
-        return ""
+        return (raw.decode("utf-8", errors="replace") if raw else ""), ""
+    except Exception as exc:
+        return "", f"GitHub API request failed for {path}: {exc}"
 
 
 async def _inspect_repo_for_onboarding(github_token: str, owner: str, repo: str) -> dict[str, Any]:
@@ -31769,7 +31933,16 @@ async def _inspect_repo_for_onboarding(github_token: str, owner: str, repo: str)
         }
 
     # 1. List .github/workflows/
-    workflow_entries = await _github_list_directory(github_token, owner, repo, ".github/workflows")
+    workflow_entries, workflow_error = await _github_list_directory(github_token, owner, repo, ".github/workflows")
+    if workflow_error and " 404 " not in f" {workflow_error} ":
+        return {
+            "has_github_actions": False,
+            "sobs_ci_found": False,
+            "sobs_otel_found": False,
+            "copilot_available": False,
+            "workflow_files": [],
+            "error": workflow_error,
+        }
     workflow_files = [
         e["name"]
         for e in workflow_entries
@@ -31780,8 +31953,12 @@ async def _inspect_repo_for_onboarding(github_token: str, owner: str, repo: str)
     # 2. Read workflow file contents and check for Sobs / OTEL indicators
     sobs_ci_found = False
     sobs_otel_found = False
+    inspect_error = ""
     for filename in workflow_files[:10]:  # cap at 10 to avoid excessive API calls
-        content = await _github_file_text(github_token, owner, repo, f".github/workflows/{filename}")
+        content, content_error = await _github_file_text(github_token, owner, repo, f".github/workflows/{filename}")
+        if content_error and not inspect_error:
+            inspect_error = content_error
+            continue
         lower = content.lower()
         if not sobs_ci_found and any(ind in lower for ind in _SOBS_CI_METADATA_INDICATORS):
             sobs_ci_found = True
@@ -31793,7 +31970,9 @@ async def _inspect_repo_for_onboarding(github_token: str, owner: str, repo: str)
     # Also check common manifest/config files for OTEL if not found in workflows
     if not sobs_otel_found:
         for check_path in ("requirements.txt", "package.json", "go.mod", "pom.xml", "build.gradle"):
-            content = await _github_file_text(github_token, owner, repo, check_path)
+            content, content_error = await _github_file_text(github_token, owner, repo, check_path)
+            if content_error and " 404 " not in f" {content_error} " and not inspect_error:
+                inspect_error = content_error
             if content and any(ind in content.lower() for ind in _SOBS_CI_OTEL_INDICATORS):
                 sobs_otel_found = True
                 break
@@ -31807,7 +31986,153 @@ async def _inspect_repo_for_onboarding(github_token: str, owner: str, repo: str)
         "sobs_otel_found": sobs_otel_found,
         "copilot_available": copilot_available,
         "workflow_files": workflow_files,
-        "error": "",
+        "error": inspect_error,
+    }
+
+
+async def _github_get_issue_detail(github_token: str, github_repo: str, issue_number: int) -> dict[str, Any]:
+    """Fetch a single GitHub issue payload; returns empty dict on error."""
+    if not github_token or not github_repo or issue_number <= 0:
+        return {}
+    owner, repo = _parse_github_repo_owner_name(github_repo)
+    if not owner or not repo:
+        return {}
+    client = await _get_async_http_client()
+    try:
+        resp = await client.get(
+            f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}",
+            headers=_github_api_headers(github_token),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        payload = resp.json() if resp.content else {}
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _github_issue_is_new_state(issue_payload: dict[str, Any]) -> bool:
+    """Return True when an issue is still untouched/new from onboarding perspective."""
+    if not isinstance(issue_payload, dict):
+        return False
+    state = str(issue_payload.get("state") or "").strip().lower()
+    comments = int(issue_payload.get("comments") or 0)
+    created_at = str(issue_payload.get("created_at") or "").strip()
+    updated_at = str(issue_payload.get("updated_at") or "").strip()
+    return state == "open" and comments == 0 and bool(created_at) and created_at == updated_at
+
+
+async def _update_github_issue_record(
+    github_token: str,
+    github_repo: str,
+    issue_number: int,
+    title: str,
+    body_md: str,
+    labels: list[str] | None = None,
+    *,
+    mask_output_enabled: bool = True,
+) -> dict[str, Any]:
+    """Update an existing GitHub issue and return normalized metadata."""
+    if not github_token or not github_repo or issue_number <= 0:
+        return {}
+    owner, repo = _parse_github_repo_owner_name(github_repo)
+    if not owner or not repo:
+        return {}
+
+    issue_title = _mask_string_for_output(title) if mask_output_enabled else str(title or "")
+    issue_body = _mask_string_for_output(body_md) if mask_output_enabled else str(body_md or "")
+    issue_payload: dict[str, Any] = {"title": issue_title, "body": issue_body}
+    if labels is not None:
+        issue_payload["labels"] = labels
+
+    client = await _get_async_http_client()
+    try:
+        resp = await client.patch(
+            f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}",
+            json=issue_payload,
+            headers=_github_api_headers(github_token, include_content_type=True),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        result = resp.json() if resp.content else {}
+        return {
+            "issue_url": str(result.get("html_url", "")),
+            "issue_number": int(result.get("number", 0) or issue_number),
+            "issue_title": str(result.get("title") or title),
+            "issue_state": str(result.get("state") or "open"),
+        }
+    except httpx.HTTPStatusError as exc:
+        detail = ""
+        try:
+            payload = exc.response.json()
+            if isinstance(payload, dict):
+                detail = str(payload.get("message") or "").strip()
+        except Exception:
+            detail = ""
+        if not detail:
+            detail = str(exc)
+        log.warning("GitHub issue update failed: %s", detail)
+        return {"error": f"GitHub issue update failed: {detail}"}
+    except Exception as exc:
+        log.warning("GitHub issue update failed: %s", exc)
+        return {"error": f"GitHub issue update failed: {exc}"}
+
+
+async def _create_or_update_onboarding_issue(
+    github_token: str,
+    github_repo: str,
+    title: str,
+    body_md: str,
+    labels: list[str],
+) -> dict[str, Any]:
+    """Create onboarding issue once; update it only when it remains in untouched/new state."""
+    open_issues = await _fetch_open_github_issues(github_token, github_repo)
+    title_norm = str(title or "").strip()
+    existing = next((item for item in open_issues if str(item.get("issue_title") or "").strip() == title_norm), None)
+
+    if not existing:
+        created = await _create_github_issue_record(
+            github_token,
+            github_repo,
+            title,
+            body_md,
+            labels=labels,
+            mask_output_enabled=False,
+        )
+        if "error" in created:
+            return created
+        created["status"] = "created"
+        created["note"] = "Created a new onboarding issue."
+        return created
+
+    issue_number = int(existing.get("issue_number", 0) or 0)
+    issue_url = str(existing.get("issue_url", ""))
+    detail = await _github_get_issue_detail(github_token, github_repo, issue_number)
+
+    if detail and _github_issue_is_new_state(detail):
+        updated = await _update_github_issue_record(
+            github_token,
+            github_repo,
+            issue_number,
+            title,
+            body_md,
+            labels=labels,
+            mask_output_enabled=False,
+        )
+        if "error" in updated:
+            return updated
+        updated["status"] = "updated"
+        updated["note"] = "Updated the existing onboarding issue because it was still new."
+        return updated
+
+    existing_state = str((detail or {}).get("state") or existing.get("issue_state") or "open")
+    return {
+        "issue_url": str((detail or {}).get("html_url") or issue_url),
+        "issue_number": issue_number,
+        "issue_title": str((detail or {}).get("title") or existing.get("issue_title") or title),
+        "issue_state": existing_state,
+        "status": "reused",
+        "note": "Existing onboarding issue is not in new state; left unchanged.",
     }
 
 
@@ -31868,11 +32193,14 @@ curl -s -X POST "${{SOBS_URL}}/api/apps/${{APP_ID}}/releases" \\
     SOBS_BASIC_AUTH: ${{{{ secrets.SOBS_BASIC_AUTH }}}}
     APP_ID: ${{{{ secrets.SOBS_APP_ID }}}}
   run: |
+        payload='{{"version":"${{{{ github.ref_name }}}}",'
+        payload="$payload"'"commitSha":"${{{{ github.sha }}}}",'
+        payload="$payload"'"buildId":"${{{{ github.run_id }}}}",'
+        payload="$payload"'"environment":"production"}}'
     curl -s -X POST "$SOBS_URL/api/apps/$APP_ID/releases" \\
       -H "Content-Type: application/json" \\
       -H "Authorization: Basic $SOBS_BASIC_AUTH" \\
-      -d '{{"version":"${{{{ github.ref_name }}}}","commitSha":"${{{{ github.sha }}}}",'\\
-'       "buildId":"${{{{ github.run_id }}}}","environment":"production"}}'
+            -d "$payload"
 ```
 
 ---
@@ -32069,6 +32397,225 @@ After implementing the above:
 """
 
 
+@app.route("/api/onboarding/create-repo", methods=["POST"])
+@require_basic_auth
+async def api_onboarding_create_repo():
+    """Create a repository entry for onboarding wizard and return JSON details."""
+    db = get_db()
+    body = await request.get_json(silent=True) or {}
+
+    name = str(body.get("name", "") or "").strip()
+    slug_raw = str(body.get("slug", "") or "").strip()
+    repo_url_input = str(body.get("repo_url", "") or "").strip()
+    repo_owner_input = str(body.get("repo_owner", "") or "").strip()
+    repo_name_input = str(body.get("repo_name", "") or "").strip()
+    repo_url, owner, repo = _resolve_github_repo_fields(repo_url_input, repo_owner_input, repo_name_input)
+    default_environment = str(body.get("default_environment", "") or "").strip()
+    github_token = str(body.get("github_token", "") or "").strip()
+    github_token_expiry = _normalize_github_token_expiry_input(body.get("github_token_expires_at") or "")
+    set_github_token = bool(body.get("set_github_token", False))
+    set_repo_token = bool(body.get("set_repo_token", True))
+    set_agent_repo = bool(body.get("set_agent_repo", True))
+
+    if not name or not repo_url:
+        return jsonify({"ok": False, "error": "App name and repository are required"}), 400
+
+    slug = _app_slug(slug_raw or name)
+    existing = db.execute(
+        "SELECT Id FROM sobs_apps FINAL WHERE Slug=? AND IsDeleted=0 LIMIT 1",
+        [slug],
+    ).fetchone()
+    if existing:
+        return jsonify({"ok": False, "error": "App slug already exists"}), 409
+
+    version = int(time.time() * 1000)
+    row = {
+        "Id": uuid.uuid4().hex,
+        "Name": name,
+        "Slug": slug,
+        "OwnerTeam": "",
+        "RepoUrl": repo_url,
+        "DefaultEnvironment": default_environment,
+        "Enabled": 1,
+        "MetadataJson": "{}",
+        "IsDeleted": 0,
+        "Version": version,
+        "CreatedAt": _now_iso(),
+        "UpdatedAt": _now_iso(),
+    }
+    _insert_rows_json_each_row(db, "sobs_apps", [row])
+
+    if set_github_token and github_token:
+        _save_ai_setting(db, "ai.github_token", github_token)
+        _save_ai_setting(db, "ai.github_token_expires_at", github_token_expiry)
+        _save_ai_setting(db, "ai.github_token_last_validated_at", "")
+        _save_ai_setting(db, "ai.github_token_last_validation_status", "")
+        _save_ai_setting(db, "ai.github_token_last_validation_message", "")
+
+    if set_repo_token and github_token and owner and repo:
+        _save_repo_scoped_github_token(db, owner, repo, github_token)
+
+    if set_agent_repo and owner and repo:
+        _save_ai_setting(db, "ai.github_repo", f"{owner}/{repo}")
+
+    return jsonify(
+        {
+            "ok": True,
+            "app_id": str(row["Id"]),
+            "name": name,
+            "slug": slug,
+            "repo_url": repo_url,
+            "owner": owner,
+            "repo": repo,
+        }
+    )
+
+
+@app.route("/api/onboarding/import-repo", methods=["POST"])
+@require_basic_auth
+async def api_onboarding_import_repo():
+    """Fetch repository metadata from GitHub for onboarding form auto-fill."""
+    db = get_db()
+    body = await request.get_json(silent=True) or {}
+
+    repo_url_input = str(body.get("repo_url", "") or "").strip()
+    repo_owner_input = str(body.get("repo_owner", "") or "").strip()
+    repo_name_input = str(body.get("repo_name", "") or "").strip()
+    repo_url, owner, repo = _resolve_github_repo_fields(repo_url_input, repo_owner_input, repo_name_input)
+    token_override = str(body.get("github_token", "") or "").strip()
+
+    if not owner or not repo:
+        return jsonify({"ok": False, "error": "Enter a valid GitHub owner and repository name"}), 400
+
+    github_token = token_override or _load_ai_setting(db, "ai.github_token", "").strip()
+    if github_token:
+        headers = _github_api_headers(github_token)
+    else:
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+    client = await _get_async_http_client()
+    try:
+        resp = await client.get(
+            f"https://api.github.com/repos/{owner}/{repo}",
+            headers=headers,
+            timeout=15,
+        )
+        payload = resp.json() if resp.content else {}
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"GitHub lookup failed: {exc}"}), 502
+
+    if resp.status_code != 200:
+        detail = ""
+        if isinstance(payload, dict):
+            detail = str(payload.get("message") or "").strip()
+        return jsonify({"ok": False, "error": detail or f"GitHub lookup failed ({resp.status_code})"}), 400
+
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "Unexpected GitHub response payload"}), 502
+
+    full_name = str(payload.get("full_name") or f"{owner}/{repo}").strip()
+    imported_repo_url = str(payload.get("html_url") or f"https://github.com/{owner}/{repo}").strip()
+    suggested_name = str(payload.get("name") or repo).strip() or repo
+
+    return jsonify(
+        {
+            "ok": True,
+            "owner": owner,
+            "repo": repo,
+            "full_name": full_name,
+            "repo_url": imported_repo_url,
+            "name": suggested_name,
+            "slug": _app_slug(suggested_name),
+            "default_branch": str(payload.get("default_branch") or ""),
+            "visibility": str(payload.get("visibility") or "public"),
+            "description": str(payload.get("description") or ""),
+        }
+    )
+
+
+@app.route("/api/onboarding/list-repos", methods=["POST"])
+@require_basic_auth
+async def api_onboarding_list_repos():
+    """List repositories for an owner/user to support onboarding autocomplete."""
+    db = get_db()
+    body = await request.get_json(silent=True) or {}
+
+    owner = str(body.get("owner", "") or "").strip().strip("/")
+    token_override = str(body.get("github_token", "") or "").strip()
+    if not owner:
+        return jsonify({"ok": False, "error": "Owner or username is required"}), 400
+
+    github_token = token_override or _load_ai_setting(db, "ai.github_token", "").strip()
+    token_used = bool(github_token)
+    headers = (
+        _github_api_headers(github_token)
+        if github_token
+        else {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+    )
+
+    endpoints: list[str] = []
+    if token_used:
+        endpoints.append(f"https://api.github.com/users/{owner}/repos?per_page=100&type=all&sort=full_name")
+        endpoints.append(f"https://api.github.com/orgs/{owner}/repos?per_page=100&type=all&sort=full_name")
+    else:
+        endpoints.append(f"https://api.github.com/users/{owner}/repos?per_page=100&type=public&sort=full_name")
+        endpoints.append(f"https://api.github.com/orgs/{owner}/repos?per_page=100&type=public&sort=full_name")
+
+    client = await _get_async_http_client()
+    payload: Any = None
+    response_status = 0
+    for url in endpoints:
+        try:
+            resp = await client.get(url, headers=headers, timeout=15)
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"GitHub lookup failed: {exc}"}), 502
+
+        response_status = int(resp.status_code)
+        payload = resp.json() if resp.content else None
+        if response_status == 200:
+            break
+
+    if response_status != 200 or not isinstance(payload, list):
+        detail = ""
+        if isinstance(payload, dict):
+            detail = str(payload.get("message") or "").strip()
+        return jsonify({"ok": False, "error": detail or f"GitHub lookup failed ({response_status})"}), 400
+
+    repos: list[dict[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        repo_name = str(item.get("name") or "").strip()
+        if not repo_name:
+            continue
+        repo_owner = str((item.get("owner") or {}).get("login") or owner).strip()
+        repos.append(
+            {
+                "name": repo_name,
+                "full_name": str(item.get("full_name") or f"{repo_owner}/{repo_name}").strip(),
+                "repo_url": str(item.get("html_url") or _build_github_repo_url(repo_owner, repo_name)).strip(),
+                "private": bool(item.get("private", False)),
+            }
+        )
+
+    repos.sort(key=lambda r: str(r.get("name", "")).lower())
+    return jsonify(
+        {
+            "ok": True,
+            "owner": owner,
+            "repos": repos,
+            "token_used": token_used,
+            "visibility_note": ("Need PAT to see private repositories." if not token_used else ""),
+        }
+    )
+
+
 @app.route("/api/onboarding/inspect-repo", methods=["GET"])
 @require_basic_auth
 async def api_onboarding_inspect_repo():
@@ -32180,19 +32727,20 @@ async def api_onboarding_create_issues():
 
     if create_ci:
         ci_body = _build_ci_metadata_issue_body(owner, repo, has_github_actions)
-        ci_result = await _create_github_issue_record(
+        ci_result = await _create_or_update_onboarding_issue(
             github_token,
             github_repo,
             f"[Sobs] Set up CI metadata scripts for {repo}",
             ci_body,
             labels=["sobs-onboarding", "ci-metadata"],
-            mask_output_enabled=False,
         )
         if "error" in ci_result:
             results["ci_issue"] = {"error": ci_result["error"]}
         else:
             issue_url = str(ci_result.get("issue_url", ""))
             issue_number = int(ci_result.get("issue_number", 0) or 0)
+            issue_status = str(ci_result.get("status") or "")
+            issue_note = str(ci_result.get("note") or "")
             copilot_status = ""
             if assign_copilot and issue_number:
                 status, reason, _ = await _assign_issue_to_copilot(github_token, github_repo, issue_number)
@@ -32200,24 +32748,39 @@ async def api_onboarding_create_issues():
             results["ci_issue"] = {
                 "url": issue_url,
                 "number": issue_number,
+                "status": issue_status,
+                "note": issue_note,
                 "copilot_status": copilot_status,
             }
+            _persist_onboarding_work_item(
+                db,
+                github_repo=github_repo,
+                issue_url=issue_url,
+                issue_number=issue_number,
+                issue_title=str(ci_result.get("issue_title") or f"[Sobs] Set up CI metadata scripts for {repo}"),
+                issue_state=str(ci_result.get("issue_state") or "open"),
+                dedup_decision=issue_status,
+                note=issue_note,
+                copilot_status=copilot_status,
+                issue_type="ci",
+            )
 
     if create_otel:
         otel_body = _build_otel_audit_issue_body(owner, repo)
-        otel_result = await _create_github_issue_record(
+        otel_result = await _create_or_update_onboarding_issue(
             github_token,
             github_repo,
             f"[Sobs] OTEL & RUM telemetry audit for {repo}",
             otel_body,
             labels=["sobs-onboarding", "observability"],
-            mask_output_enabled=False,
         )
         if "error" in otel_result:
             results["otel_issue"] = {"error": otel_result["error"]}
         else:
             issue_url = str(otel_result.get("issue_url", ""))
             issue_number = int(otel_result.get("issue_number", 0) or 0)
+            issue_status = str(otel_result.get("status") or "")
+            issue_note = str(otel_result.get("note") or "")
             copilot_status = ""
             if assign_copilot and issue_number:
                 status, reason, _ = await _assign_issue_to_copilot(github_token, github_repo, issue_number)
@@ -32225,8 +32788,22 @@ async def api_onboarding_create_issues():
             results["otel_issue"] = {
                 "url": issue_url,
                 "number": issue_number,
+                "status": issue_status,
+                "note": issue_note,
                 "copilot_status": copilot_status,
             }
+            _persist_onboarding_work_item(
+                db,
+                github_repo=github_repo,
+                issue_url=issue_url,
+                issue_number=issue_number,
+                issue_title=str(otel_result.get("issue_title") or f"[Sobs] OTEL & RUM telemetry audit for {repo}"),
+                issue_state=str(otel_result.get("issue_state") or "open"),
+                dedup_decision=issue_status,
+                note=issue_note,
+                copilot_status=copilot_status,
+                issue_type="observability",
+            )
 
     return jsonify(results)
 

@@ -10229,9 +10229,8 @@ class TestTagRules:
         assert "Add Repository Wizard" in text
         assert "Configured Repositories" in text
         assert 'id="repo-settings-root"' in text
-        assert 'name="default_environment"' in text
-        assert 'autocomplete="off"' in text
-        assert 'autocomplete="new-password"' in text
+        assert "Add And Onboard Repository" in text
+        assert "Onboard Existing Repository" in text
 
     async def test_create_repository_wizard_can_set_token_and_default_agent_repo(self, client):
         token_value = f"github_pat_test_{time.time_ns()}"
@@ -10292,6 +10291,37 @@ class TestTagRules:
         assert sobs_app._load_ai_setting(db, "ai.github_token_last_validation_status") == "valid"
         assert sobs_app._load_ai_setting(db, "ai.github_token_last_validation_message") == "Token is valid"
         assert sobs_app._load_ai_setting(db, "ai.github_token_last_validated_at")
+
+    async def test_delete_settings_repository_soft_deletes_entry(self, client):
+        import app as sobs_app
+
+        slug = f"repo-delete-{time.time_ns()}"
+        r_create = await client.post(
+            "/settings/repositories",
+            form={
+                "name": "repo-delete-test",
+                "slug": slug,
+                "repo_url": "https://github.com/octo/repo-delete-test",
+            },
+        )
+        assert r_create.status_code in (200, 302)
+
+        db = sobs_app.get_db()
+        app_row = db.execute(
+            "SELECT Id FROM sobs_apps FINAL WHERE Slug=? AND IsDeleted=0 LIMIT 1",
+            [slug],
+        ).fetchone()
+        assert app_row is not None
+        app_id = str(app_row["Id"])
+
+        r_delete = await client.post(f"/settings/repositories/{app_id}/delete")
+        assert r_delete.status_code in (200, 302)
+
+        live_row = db.execute(
+            "SELECT Id FROM sobs_apps FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1",
+            [app_id],
+        ).fetchone()
+        assert live_row is None
 
     async def test_settings_tags_page_loads(self, client):
         r = await client.get("/settings/tags")
@@ -19997,6 +20027,8 @@ class TestOnboardingWizard:
         assert r.status_code == 200
         text = (await r.get_data()).decode()
         assert "onboardingWizardModal" in text
+        assert "hidden.bs.modal" in text
+        assert "window.location.reload()" in text
 
     async def test_onboarding_wizard_button_present_in_repositories_page(self, client):
         """Settings repositories page must contain the Onboarding Wizard button."""
@@ -20064,6 +20096,182 @@ class TestOnboardingWizard:
         data = await r.get_json()
         assert data["ok"] is False
 
+    async def test_create_repo_api_no_body(self, client):
+        """create-repo requires at least name and repo_url."""
+        r = await client.post("/api/onboarding/create-repo", json={})
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["ok"] is False
+
+    async def test_create_repo_api_creates_record_and_default_repo(self, client):
+        """create-repo should insert app record and optionally set default agent repo."""
+        import app as sobs_app
+
+        token_value = f"github_pat_test_{time.time_ns()}"
+        slug = f"wizard-slug-{time.time_ns()}"
+        repo_url = "https://github.com/octo/wizard-service"
+
+        db = sobs_app.get_db()
+        original_default_repo = sobs_app._load_ai_setting(db, "ai.github_repo", "")
+
+        try:
+            r = await client.post(
+                "/api/onboarding/create-repo",
+                json={
+                    "name": "wizard-service",
+                    "slug": slug,
+                    "repo_url": repo_url,
+                    "default_environment": "prod",
+                    "github_token": token_value,
+                    "set_github_token": False,
+                    "set_repo_token": True,
+                    "set_agent_repo": True,
+                },
+            )
+            assert r.status_code == 200
+            data = await r.get_json()
+            assert data["ok"] is True
+            assert data["slug"] == slug
+            assert data["repo_url"] == repo_url
+
+            row = db.execute(
+                "SELECT Id, RepoUrl, DefaultEnvironment FROM sobs_apps FINAL WHERE Slug=? AND IsDeleted=0 LIMIT 1",
+                [slug],
+            ).fetchone()
+            assert row is not None
+            assert str(row["RepoUrl"]) == repo_url
+            assert str(row["DefaultEnvironment"]) == "prod"
+            assert sobs_app._load_ai_setting(db, "ai.github_repo", "") == "octo/wizard-service"
+        finally:
+            sobs_app._save_ai_setting(db, "ai.github_repo", original_default_repo)
+
+    async def test_create_repo_api_accepts_owner_and_repo_without_url(self, client):
+        """create-repo should accept repo_owner/repo_name and build canonical GitHub URL."""
+        import app as sobs_app
+
+        slug = f"wizard-owner-repo-{time.time_ns()}"
+        r = await client.post(
+            "/api/onboarding/create-repo",
+            json={
+                "name": "owner-repo-service",
+                "slug": slug,
+                "repo_owner": "octo",
+                "repo_name": "owner-repo-service",
+            },
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert data["repo_url"] == "https://github.com/octo/owner-repo-service"
+
+        row = (
+            sobs_app.get_db()
+            .execute(
+                "SELECT RepoUrl FROM sobs_apps FINAL WHERE Slug=? AND IsDeleted=0 LIMIT 1",
+                [slug],
+            )
+            .fetchone()
+        )
+        assert row is not None
+        assert str(row["RepoUrl"]) == "https://github.com/octo/owner-repo-service"
+
+    async def test_import_repo_api_invalid_repo(self, client):
+        """import-repo must reject invalid repository URL inputs."""
+        r = await client.post("/api/onboarding/import-repo", json={"repo_url": "not-a-github-repo"})
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["ok"] is False
+
+    async def test_import_repo_api_success(self, client, monkeypatch):
+        """import-repo should return normalized repository metadata from GitHub API."""
+        import app as sobs_app
+
+        class _FakeResponse:
+            def __init__(self):
+                self.status_code = 200
+                self.content = b"{}"
+
+            def json(self):
+                return {
+                    "name": "checkout-service",
+                    "full_name": "octo/checkout-service",
+                    "html_url": "https://github.com/octo/checkout-service",
+                    "default_branch": "main",
+                    "visibility": "private",
+                    "description": "Checkout API",
+                }
+
+        class _FakeClient:
+            async def get(self, _url, headers=None, timeout=0):
+                return _FakeResponse()
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(sobs_app, "_get_async_http_client", _fake_get_client)
+
+        r = await client.post(
+            "/api/onboarding/import-repo",
+            json={"repo_url": "https://github.com/octo/checkout-service"},
+        )
+        assert r.status_code == 200
+        data = await r.get_json()
+        assert data["ok"] is True
+        assert data["name"] == "checkout-service"
+        assert data["slug"] == "checkout-service"
+        assert data["full_name"] == "octo/checkout-service"
+        assert data["repo_url"] == "https://github.com/octo/checkout-service"
+
+    async def test_list_repos_api_requires_owner(self, client):
+        r = await client.post("/api/onboarding/list-repos", json={})
+        assert r.status_code == 400
+        data = await r.get_json()
+        assert data["ok"] is False
+
+    async def test_list_repos_api_success_without_token_shows_pat_note(self, client, monkeypatch):
+        """list-repos should return suggestions and PAT visibility note when no token is provided."""
+        import app as sobs_app
+
+        class _FakeResponse:
+            def __init__(self):
+                self.status_code = 200
+                self.content = b"[]"
+
+            def json(self):
+                return [
+                    {
+                        "name": "checkout-service",
+                        "full_name": "octo/checkout-service",
+                        "html_url": "https://github.com/octo/checkout-service",
+                        "private": False,
+                        "owner": {"login": "octo"},
+                    }
+                ]
+
+        class _FakeClient:
+            async def get(self, _url, headers=None, timeout=0):
+                return _FakeResponse()
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        db = sobs_app.get_db()
+        original_token = sobs_app._load_ai_setting(db, "ai.github_token", "")
+        sobs_app._save_ai_setting(db, "ai.github_token", "")
+        monkeypatch.setattr(sobs_app, "_get_async_http_client", _fake_get_client)
+
+        try:
+            r = await client.post("/api/onboarding/list-repos", json={"owner": "octo"})
+            assert r.status_code == 200
+            data = await r.get_json()
+            assert data["ok"] is True
+            assert data["token_used"] is False
+            assert "PAT" in str(data["visibility_note"])
+            assert len(data["repos"]) == 1
+            assert data["repos"][0]["name"] == "checkout-service"
+        finally:
+            sobs_app._save_ai_setting(db, "ai.github_token", original_token)
+
     async def test_create_issues_both_false(self, client):
         """create-issues with both flags false must return 400."""
         r = await client.post(
@@ -20103,6 +20311,45 @@ class TestOnboardingWizard:
         finally:
             sobs_app._save_ai_setting(db, "ai.github_token", original_token)
 
+    async def test_create_issues_persists_onboarding_work_item(self, client, monkeypatch):
+        """Onboarding issue creation should also persist a Work Item record."""
+        import app as sobs_app
+
+        db = sobs_app.get_db()
+        original_token = sobs_app._load_ai_setting(db, "ai.github_token", "")
+
+        async def _fake_upsert(_token, _repo, _title, _body_md, labels):
+            return {
+                "issue_url": "https://github.com/owner/myrepo/issues/777",
+                "issue_number": 777,
+                "issue_title": "[Sobs] Set up CI metadata scripts for myrepo",
+                "issue_state": "open",
+                "status": "created",
+                "note": "Created a new onboarding issue.",
+            }
+
+        try:
+            sobs_app._save_ai_setting(db, "ai.github_token", "test-token")
+            monkeypatch.setattr(sobs_app, "_create_or_update_onboarding_issue", _fake_upsert)
+
+            r = await client.post(
+                "/api/onboarding/create-issues",
+                json={"repo": "owner/myrepo", "create_ci": True, "create_otel": False},
+            )
+            assert r.status_code == 200
+            data = await r.get_json()
+            assert data["ok"] is True
+
+            wi = db.execute(
+                "SELECT * FROM sobs_github_work_items FINAL WHERE IssueUrl=? AND IsDeleted=0 LIMIT 1",
+                ["https://github.com/owner/myrepo/issues/777"],
+            ).fetchone()
+            assert wi is not None
+            assert str(wi["AgentRuleName"]) == "Onboarding Wizard"
+            assert str(wi["AgentAction"]) == "onboarding_ci"
+        finally:
+            sobs_app._save_ai_setting(db, "ai.github_token", original_token)
+
     # ── Issue body helpers ───────────────────────────────────────────────────
 
     def test_ci_metadata_issue_body_contains_key_sections(self):
@@ -20132,3 +20379,174 @@ class TestOnboardingWizard:
         assert "gen_ai" in body
         assert "Infrastructure" in body or "infrastructure" in body
         assert "myorg/myrepo" in body
+
+    def test_github_issue_is_new_state_true_for_untouched_issue(self):
+        """Untouched open issues should be considered updateable for onboarding refresh."""
+        import app as sobs_app
+
+        payload = {
+            "state": "open",
+            "comments": 0,
+            "created_at": "2026-04-12T12:00:00Z",
+            "updated_at": "2026-04-12T12:00:00Z",
+        }
+        assert sobs_app._github_issue_is_new_state(payload) is True
+
+    def test_github_issue_is_new_state_false_when_issue_has_progress(self):
+        """Issues with comments or edits should not be rewritten by onboarding."""
+        import app as sobs_app
+
+        payload = {
+            "state": "open",
+            "comments": 1,
+            "created_at": "2026-04-12T12:00:00Z",
+            "updated_at": "2026-04-12T12:30:00Z",
+        }
+        assert sobs_app._github_issue_is_new_state(payload) is False
+
+    async def test_create_issues_returns_reused_status_from_upsert(self, client, monkeypatch):
+        """create-issues should return the upsert status when an existing onboarding issue is reused."""
+        import app as sobs_app
+
+        db = sobs_app.get_db()
+        original_token = sobs_app._load_ai_setting(db, "ai.github_token", "")
+
+        async def _fake_upsert(_token, _repo, _title, _body_md, labels):
+            return {
+                "issue_url": "https://github.com/owner/myrepo/issues/123",
+                "issue_number": 123,
+                "status": "reused",
+                "note": "Existing onboarding issue is not in new state; left unchanged.",
+            }
+
+        try:
+            sobs_app._save_ai_setting(db, "ai.github_token", "test-token")
+            monkeypatch.setattr(sobs_app, "_create_or_update_onboarding_issue", _fake_upsert)
+            r = await client.post(
+                "/api/onboarding/create-issues",
+                json={"repo": "owner/myrepo", "create_ci": True, "create_otel": False},
+            )
+            assert r.status_code == 200
+            data = await r.get_json()
+            assert data["ok"] is True
+            assert data["ci_issue"]["status"] == "reused"
+            assert "left unchanged" in data["ci_issue"]["note"]
+        finally:
+            sobs_app._save_ai_setting(db, "ai.github_token", original_token)
+
+    async def test_onboarding_upsert_repeated_calls_create_only_once(self, monkeypatch):
+        """Repeated upsert calls should create once and then update/reuse the existing issue."""
+        import app as sobs_app
+
+        open_issue_state = {"created": False}
+        create_calls = {"count": 0}
+
+        async def _fake_fetch_open_issues(_token, _repo, limit=sobs_app._GITHUB_ISSUE_DEDUPE_CANDIDATE_LIMIT):
+            if not open_issue_state["created"]:
+                return []
+            return [
+                {
+                    "issue_number": 321,
+                    "issue_url": "https://github.com/owner/repo/issues/321",
+                    "issue_title": "[Sobs] Set up CI metadata scripts for repo",
+                    "issue_state": "open",
+                }
+            ]
+
+        async def _fake_create_issue(_token, _repo, _title, _body_md, labels=None, mask_output_enabled=True):
+            create_calls["count"] += 1
+            open_issue_state["created"] = True
+            return {
+                "issue_url": "https://github.com/owner/repo/issues/321",
+                "issue_number": 321,
+                "issue_title": "[Sobs] Set up CI metadata scripts for repo",
+                "issue_state": "open",
+            }
+
+        async def _fake_get_issue_detail(_token, _repo, _number):
+            return {
+                "state": "open",
+                "comments": 0,
+                "created_at": "2026-04-12T12:00:00Z",
+                "updated_at": "2026-04-12T12:00:00Z",
+                "title": "[Sobs] Set up CI metadata scripts for repo",
+                "html_url": "https://github.com/owner/repo/issues/321",
+            }
+
+        async def _fake_update_issue(
+            _token,
+            _repo,
+            _issue_number,
+            _title,
+            _body_md,
+            labels=None,
+            mask_output_enabled=True,
+        ):
+            return {
+                "issue_url": "https://github.com/owner/repo/issues/321",
+                "issue_number": 321,
+                "issue_title": "[Sobs] Set up CI metadata scripts for repo",
+                "issue_state": "open",
+            }
+
+        monkeypatch.setattr(sobs_app, "_fetch_open_github_issues", _fake_fetch_open_issues)
+        monkeypatch.setattr(sobs_app, "_create_github_issue_record", _fake_create_issue)
+        monkeypatch.setattr(sobs_app, "_github_get_issue_detail", _fake_get_issue_detail)
+        monkeypatch.setattr(sobs_app, "_update_github_issue_record", _fake_update_issue)
+
+        first = await sobs_app._create_or_update_onboarding_issue(
+            "token",
+            "owner/repo",
+            "[Sobs] Set up CI metadata scripts for repo",
+            "body",
+            labels=["sobs-onboarding", "ci-metadata"],
+        )
+        second = await sobs_app._create_or_update_onboarding_issue(
+            "token",
+            "owner/repo",
+            "[Sobs] Set up CI metadata scripts for repo",
+            "body-updated",
+            labels=["sobs-onboarding", "ci-metadata"],
+        )
+
+        assert first["status"] == "created"
+        assert second["status"] in {"updated", "reused"}
+        assert create_calls["count"] == 1
+
+    async def test_assign_issue_to_copilot_treats_accepted_without_assignee_echo_as_requested(self, monkeypatch):
+        """GitHub may accept assignment before assignee appears in response payload."""
+        import app as sobs_app
+
+        class _FakeResponse:
+            def __init__(self):
+                self.status_code = 201
+                self.content = b"{}"
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"assignees": []}
+
+        class _FakeClient:
+            async def post(self, _url, json=None, headers=None, timeout=0):
+                return _FakeResponse()
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        async def _fake_repo_supports(_token, _repo):
+            return True
+
+        monkeypatch.setattr(sobs_app, "_get_async_http_client", _fake_get_client)
+        monkeypatch.setattr(sobs_app, "_github_repo_supports_copilot_assignment", _fake_repo_supports)
+
+        status, reason, requested_at = await sobs_app._assign_issue_to_copilot(
+            "token",
+            "owner/repo",
+            123,
+        )
+
+        assert status == "requested"
+        assert "accepted" in reason.lower() or "requested" in reason.lower()
+        assert requested_at > 0

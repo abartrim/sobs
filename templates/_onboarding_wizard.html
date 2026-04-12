@@ -1,26 +1,30 @@
 <style>
-  /* ── Onboarding Wizard ─────────────────────────────────────────── */
-  #onboardingWizardModal .modal-body { min-height: 400px; }
+  #onboardingWizardModal .modal-body { min-height: 430px; }
 
   .ob-step { display: none; }
   .ob-step.active { display: block; }
 
+  .ob-mode-card,
   .ob-repo-card {
     border: 1px solid var(--bs-border-color);
     border-radius: 8px;
-    padding: .55rem .75rem;
-    margin-bottom: .45rem;
+    padding: .6rem .75rem;
+    margin-bottom: .5rem;
     cursor: pointer;
     background: var(--bs-tertiary-bg);
     transition: border-color .15s, background .15s;
   }
-  .ob-repo-card:hover  { border-color: var(--bs-info); }
+  .ob-mode-card:hover,
+  .ob-repo-card:hover { border-color: var(--bs-info); }
+  .ob-mode-card.selected,
   .ob-repo-card.selected {
     border-color: var(--bs-info);
     background: rgba(var(--bs-info-rgb), .1);
   }
-  .ob-repo-card .repo-name  { font-weight: 600; font-size: .88rem; }
-  .ob-repo-card .repo-url   { font-size: .75rem; color: var(--bs-secondary-color); word-break: break-all; }
+  .ob-mode-title,
+  .ob-repo-card .repo-name { font-weight: 600; font-size: .88rem; }
+  .ob-mode-sub,
+  .ob-repo-card .repo-url { font-size: .76rem; color: var(--bs-secondary-color); word-break: break-all; }
 
   .ob-inspect-row {
     display: flex;
@@ -44,14 +48,63 @@
   .ob-result-card .issue-url a { word-break: break-all; }
 
   #onboardingWizardModal .ob-progress { height: 3px; }
+
+  .ob-repo-autocomplete-wrap { position: relative; }
+  .ob-repo-autocomplete-dropdown {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 2px);
+    z-index: 20;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.45rem;
+    background: var(--bs-body-bg);
+    box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.15);
+    max-height: 14rem;
+    overflow: auto;
+  }
+  .ob-repo-autocomplete-header {
+    font-size: .72rem;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+    color: var(--bs-secondary-color);
+    padding: .35rem .5rem;
+    border-bottom: 1px solid var(--bs-border-color);
+    background: var(--bs-tertiary-bg);
+  }
+  .ob-repo-autocomplete-header.warning {
+    color: var(--bs-warning-text-emphasis);
+    background: rgba(var(--bs-warning-rgb), .14);
+  }
+  .ob-repo-suggestion-item {
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    color: var(--bs-body-color);
+    font-size: .82rem;
+    padding: .35rem .5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+  }
+  .ob-repo-suggestion-item:hover {
+    background: rgba(var(--bs-info-rgb), .12);
+  }
+  .ob-repo-suggestion-empty {
+    padding: .45rem .5rem;
+    font-size: .8rem;
+    color: var(--bs-secondary-color);
+  }
 </style>
 
 <div class="modal fade" id="onboardingWizardModal" tabindex="-1" aria-labelledby="obWizardTitle" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable modal-fullscreen-sm-down">
     <div class="modal-content border-secondary">
       <div class="modal-header pb-1">
         <h5 class="modal-title" id="obWizardTitle">
-          <i class="bi bi-rocket-takeoff me-2 text-success"></i>Onboarding Wizard
+          <i class="bi bi-rocket-takeoff me-2 text-success"></i>Repository Onboarding Wizard
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
@@ -62,22 +115,121 @@
 
       <div class="modal-body pt-3">
 
-        <!-- Step 0: Select repository -->
         <div class="ob-step active" id="obStep0">
-          <h6 class="fw-semibold mb-1">Step 1 of 4 &mdash; Select Repository</h6>
-          <p class="text-secondary small mb-3">Choose the repository to onboard to Sobs CI metadata and OTEL telemetry.</p>
-          <div id="obRepoList">
-            <div class="text-secondary small">Loading repositories&hellip;</div>
-          </div>
-          <div class="mt-2 small text-secondary">
-            No repositories listed? Add one under <strong>Settings → Repositories</strong> first.
+          <h6 class="fw-semibold mb-1">Step 1 of 5 &mdash; Start Mode</h6>
+          <p class="text-secondary small mb-3">Choose whether to onboard an existing configured repository or add a new one first.</p>
+          <div id="obModeList">
+            <div class="ob-mode-card" data-mode="new">
+              <div class="ob-mode-title"><i class="bi bi-plus-circle me-1 text-success"></i>Add New Repository And Onboard</div>
+              <div class="ob-mode-sub">Enter repository details, optional token settings, then continue directly into inspect and issue creation.</div>
+            </div>
+            <div class="ob-mode-card" data-mode="existing">
+              <div class="ob-mode-title"><i class="bi bi-list-check me-1 text-info"></i>Onboard Existing Repository</div>
+              <div class="ob-mode-sub">Select from configured repositories and run inspect + issue onboarding.</div>
+            </div>
           </div>
         </div>
 
-        <!-- Step 1: Inspecting -->
         <div class="ob-step" id="obStep1">
-          <h6 class="fw-semibold mb-1">Step 2 of 4 &mdash; Inspecting Repository</h6>
-          <p class="text-secondary small mb-3">Checking CI configuration, Sobs metadata scripts, and Copilot availability&hellip;</p>
+          <h6 class="fw-semibold mb-1" id="obRepoStepTitle">Step 2 of 5 &mdash; Repository</h6>
+          <p class="text-secondary small mb-3" id="obRepoStepSub">Provide repository details or select an existing repository.</p>
+
+          <div id="obExistingRepoBlock" style="display:none">
+            <div id="obRepoList">
+              <div class="text-secondary small">Loading repositories&hellip;</div>
+            </div>
+            <div class="mt-2 small text-secondary">
+              No repositories listed? Switch to <strong>Add New Repository And Onboard</strong> in the previous step.
+            </div>
+          </div>
+
+          <div id="obNewRepoBlock" style="display:none">
+            <div class="row g-2">
+              <div class="col-md-4">
+                <label class="form-label small fw-semibold">App Name</label>
+                <input type="text" class="form-control form-control-sm" id="obNewName" placeholder="checkout-api" autocomplete="organization">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small fw-semibold">Slug (optional)</label>
+                <input type="text" class="form-control form-control-sm" id="obNewSlug" placeholder="checkout-api" autocomplete="off" spellcheck="false">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small fw-semibold">GitHub Owner</label>
+                <input type="text" class="form-control form-control-sm font-monospace" id="obNewRepoOwner" placeholder="org-or-user" autocomplete="username" spellcheck="false">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small fw-semibold">Repository</label>
+                <div class="ob-repo-autocomplete-wrap">
+                  <input type="text" class="form-control form-control-sm font-monospace" id="obNewRepoName" placeholder="repo-name" autocomplete="off" spellcheck="false">
+                  <div id="obRepoNameAutocomplete" class="ob-repo-autocomplete-dropdown" style="display:none">
+                    <div id="obRepoNameAutocompleteHeader" class="ob-repo-autocomplete-header"></div>
+                    <div id="obRepoNameAutocompleteList"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-12">
+                <label class="form-label small fw-semibold">Repository URL (auto)</label>
+                <input type="text" class="form-control form-control-sm font-monospace" id="obNewRepoUrlPreview" placeholder="https://github.com/org-or-user/repo-name" readonly>
+                <div class="form-text">Only owner and repository are required. For private repositories, provide a PAT below.</div>
+              </div>
+              <div class="col-12 d-flex flex-wrap align-items-center gap-2">
+                <button type="button" class="btn btn-sm btn-outline-primary" id="obImportRepoBtn" title="Import From GitHub">
+                  <i class="bi bi-cloud-download me-1"></i>Import From GitHub
+                </button>
+                <span id="obImportRepoStatus" class="small text-secondary"></span>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small fw-semibold">Default Environment</label>
+                <input type="text" class="form-control form-control-sm" id="obNewDefaultEnv" placeholder="prod" autocomplete="off" autocapitalize="none" spellcheck="false" list="obEnvOptions">
+                <datalist id="obEnvOptions">
+                  <option value="prod"></option>
+                  <option value="staging"></option>
+                  <option value="dev"></option>
+                  <option value="qa"></option>
+                </datalist>
+              </div>
+              <div class="col-md-8">
+                <label class="form-label small fw-semibold">GitHub Token (optional)</label>
+                <input type="password" class="form-control form-control-sm font-monospace" id="obNewGithubToken" placeholder="github_pat_..." autocomplete="new-password" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small fw-semibold">Token Expiry Date</label>
+                <input type="date" class="form-control form-control-sm" id="obNewGithubTokenExpiry" value={{ github_token_expires_date | tojson }}>
+              </div>
+              <div class="col-md-4">
+                <div class="form-check mt-1">
+                  <input class="form-check-input" type="checkbox" id="obNewSetGithubToken">
+                  <label class="form-check-label small" for="obNewSetGithubToken">Save token as global fallback</label>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="form-check mt-1">
+                  <input class="form-check-input" type="checkbox" id="obNewSetRepoToken" checked>
+                  <label class="form-check-label small" for="obNewSetRepoToken">Save token for this repo</label>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="form-check mt-1">
+                  <input class="form-check-input" type="checkbox" id="obNewSetAgentRepo" checked>
+                  <label class="form-check-label small" for="obNewSetAgentRepo">Set as default agent repo</label>
+                </div>
+              </div>
+            </div>
+            <div class="alert alert-secondary small mt-2 mb-0 py-2">
+              <div class="fw-semibold mb-1">Need a GitHub PAT?</div>
+              <div>Create a fine-grained PAT at
+                <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub token settings</a>.
+              </div>
+              <div class="mt-1">Public repositories can usually be imported without a PAT. Private repositories require a PAT with access.</div>
+              <div class="mt-1">Recommended repository permissions:</div>
+              <div>Contents: Read (import and inspect), Issues: Read and Write (create/update onboarding issues).</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ob-step" id="obStep2">
+          <h6 class="fw-semibold mb-1">Step 3 of 5 &mdash; Inspecting Repository</h6>
+          <p class="text-secondary small mb-3">Checking CI configuration, Sobs metadata scripts, and Copilot availability.</p>
           <div id="obInspectResults">
             <div class="text-center py-4">
               <div class="spinner-border spinner-border-sm text-success me-2" role="status"></div>
@@ -86,9 +238,8 @@
           </div>
         </div>
 
-        <!-- Step 2: Choose issues -->
-        <div class="ob-step" id="obStep2">
-          <h6 class="fw-semibold mb-1">Step 3 of 4 &mdash; Create GitHub Issues</h6>
+        <div class="ob-step" id="obStep3">
+          <h6 class="fw-semibold mb-1">Step 4 of 5 &mdash; Create GitHub Issues</h6>
           <p class="text-secondary small mb-3">Select which issues to create. Each issue contains comprehensive, actionable instructions.</p>
 
           <div class="mb-3">
@@ -102,9 +253,9 @@
             <div class="form-check mb-2">
               <input class="form-check-input" type="checkbox" id="obCreateOtel" checked>
               <label class="form-check-label fw-semibold" for="obCreateOtel">
-                <i class="bi bi-reception-4 me-1 text-warning"></i>OTEL &amp; RUM Telemetry Audit
+                <i class="bi bi-reception-4 me-1 text-warning"></i>OTEL And RUM Telemetry Audit
               </label>
-              <div class="form-text ms-4">Creates a GitHub issue auditing the codebase for OTEL SDK setup, RUM (for web UIs), AI gen_ai keys, and infrastructure logging gaps.</div>
+              <div class="form-text ms-4">Creates a GitHub issue auditing the codebase for OTEL SDK setup, RUM, AI gen_ai keys, and infrastructure logging gaps.</div>
             </div>
           </div>
 
@@ -115,18 +266,17 @@
               <label class="form-check-label fw-semibold" for="obAssignCopilot">
                 <i class="bi bi-robot me-1 text-success"></i>Assign issues to Copilot
               </label>
-              <div class="form-text ms-4">GitHub Copilot cloud agent is available for this repository. Sobs will formally assign each created issue to Copilot for automated implementation.</div>
+              <div class="form-text ms-4">GitHub Copilot cloud agent is available for this repository. Sobs can formally assign each created issue.</div>
             </div>
           </div>
 
           <div id="obNoCopilotNote" class="small text-secondary mt-2" style="display:none">
-            <i class="bi bi-info-circle me-1"></i>Copilot cloud agent is not available for this repository. Issues will be created without Copilot assignment.
+            <i class="bi bi-info-circle me-1"></i>Copilot cloud agent is not available for this repository.
           </div>
         </div>
 
-        <!-- Step 3: Results -->
-        <div class="ob-step" id="obStep3">
-          <h6 class="fw-semibold mb-1">Step 4 of 4 &mdash; Done</h6>
+        <div class="ob-step" id="obStep4">
+          <h6 class="fw-semibold mb-1">Step 5 of 5 &mdash; Done</h6>
           <p class="text-secondary small mb-3">Here are the results:</p>
           <div id="obResultsContainer">
             <div class="text-center py-4">
@@ -136,7 +286,7 @@
           </div>
         </div>
 
-      </div><!-- /modal-body -->
+      </div>
 
       <div class="modal-footer d-flex justify-content-between align-items-center">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" id="obSkipBtn">Close</button>
@@ -156,28 +306,322 @@
 <script>
 (function () {
   var modalEl = document.getElementById('onboardingWizardModal');
-  if (!modalEl || !window.bootstrap) return;
+  if (!modalEl) return;
 
-  var modal       = bootstrap.Modal.getOrCreateInstance(modalEl);
-  var prevBtn     = document.getElementById('obPrevBtn');
-  var nextBtn     = document.getElementById('obNextBtn');
-  var createBtn   = document.getElementById('obCreateBtn');
-  var doneBtn     = document.getElementById('obDoneBtn');
-  var skipBtn     = document.getElementById('obSkipBtn');
+  var modal = null;
+  var prevBtn = document.getElementById('obPrevBtn');
+  var nextBtn = document.getElementById('obNextBtn');
+  var createBtn = document.getElementById('obCreateBtn');
+  var doneBtn = document.getElementById('obDoneBtn');
   var progressBar = document.getElementById('obProgressBar');
-  var totalSteps  = 4;
+  var totalSteps = 5;
+
+  function getModal() {
+    if (!window.bootstrap || !window.bootstrap.Modal) return null;
+    if (!modal) modal = window.bootstrap.Modal.getOrCreateInstance(modalEl);
+    return modal;
+  }
+
+  function getRepos() {
+    var reposJson = document.getElementById('obReposData');
+    if (!reposJson) return [];
+    try {
+      var parsed = JSON.parse(reposJson.textContent || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
 
   var state = {
     step: 0,
+    mode: '',
     appId: '',
     repoName: '',
     repoUrl: '',
     copilotAvailable: false,
     hasGithubActions: false,
     inspected: false,
+    inspectError: '',
+    repoCreated: false,
   };
 
-  // ── Step navigation ──────────────────────────────────────────────
+  var ownerRepoFetchTimer = null;
+  var ownerRepoSuggestions = [];
+  var ownerRepoTokenUsed = false;
+  var ownerRepoVisibilityNote = '';
+
+  var slugUserEdited = false;
+
+  function suggestSlug(input) {
+    return String(input || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80);
+  }
+
+  function inferRepoNameFromUrl(repoUrl) {
+    var m = String(repoUrl || '').trim().match(/github\.com[/:]([^/]+)\/([^/#?]+)(?:\.git)?/i);
+    return m ? m[2] : '';
+  }
+
+  function inferOwnerFromUrl(repoUrl) {
+    var m = String(repoUrl || '').trim().match(/github\.com[/:]([^/]+)\/([^/#?]+)(?:\.git)?/i);
+    return m ? m[1] : '';
+  }
+
+  function composeGithubRepoUrl(owner, repo) {
+    var ownerClean = String(owner || '').trim().replace(/^\/+|\/+$/g, '');
+    var repoClean = String(repo || '').trim().replace(/^\/+|\/+$/g, '').replace(/\.git$/i, '');
+    if (!ownerClean || !repoClean) return '';
+    return 'https://github.com/' + ownerClean + '/' + repoClean;
+  }
+
+  function syncNewRepoUrlPreview() {
+    var previewEl = document.getElementById('obNewRepoUrlPreview');
+    if (!previewEl) return '';
+    var built = composeGithubRepoUrl(val('obNewRepoOwner'), val('obNewRepoName'));
+    previewEl.value = built;
+    return built;
+  }
+
+  function hideRepoAutocomplete() {
+    var dd = document.getElementById('obRepoNameAutocomplete');
+    if (dd) dd.style.display = 'none';
+  }
+
+  function renderRepoAutocomplete() {
+    var dd = document.getElementById('obRepoNameAutocomplete');
+    var header = document.getElementById('obRepoNameAutocompleteHeader');
+    var list = document.getElementById('obRepoNameAutocompleteList');
+    if (!dd || !header || !list) return;
+
+    var owner = val('obNewRepoOwner');
+    if (!owner) {
+      hideRepoAutocomplete();
+      return;
+    }
+
+    var query = val('obNewRepoName').toLowerCase();
+    var filtered = ownerRepoSuggestions.filter(function (r) {
+      var name = String((r && r.name) || '').toLowerCase();
+      return !query || name.indexOf(query) !== -1;
+    });
+
+    var headerText = ownerRepoTokenUsed
+      ? ('Repositories for ' + owner)
+      : (ownerRepoVisibilityNote || 'Need PAT to see private repositories.');
+    header.textContent = headerText;
+    header.classList.toggle('warning', !ownerRepoTokenUsed);
+
+    if (!ownerRepoSuggestions.length) {
+      list.innerHTML = '<div class="ob-repo-suggestion-empty">No repositories found for this owner.</div>';
+      dd.style.display = '';
+      return;
+    }
+    if (!filtered.length) {
+      list.innerHTML = '<div class="ob-repo-suggestion-empty">No matching repositories.</div>';
+      dd.style.display = '';
+      return;
+    }
+
+    var html = '';
+    filtered.slice(0, 30).forEach(function (r) {
+      var privateBadge = r.private ? '<span class="badge text-bg-secondary">private</span>' : '';
+      html += '<button type="button" class="ob-repo-suggestion-item" '
+        + 'data-repo-name="' + escAttr(r.name || '') + '">'
+        + '<span>' + escHtml(r.name || '') + '</span>'
+        + privateBadge
+        + '</button>';
+    });
+    list.innerHTML = html;
+    dd.style.display = '';
+
+    list.querySelectorAll('.ob-repo-suggestion-item').forEach(function (btn) {
+      btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      btn.addEventListener('click', function () {
+        var repoEl = document.getElementById('obNewRepoName');
+        if (repoEl) repoEl.value = btn.getAttribute('data-repo-name') || '';
+        syncNewRepoUrlPreview();
+        hideRepoAutocomplete();
+        updateNav();
+      });
+    });
+  }
+
+  function fetchOwnerRepositories() {
+    var owner = val('obNewRepoOwner');
+    if (!owner) {
+      ownerRepoSuggestions = [];
+      ownerRepoTokenUsed = false;
+      ownerRepoVisibilityNote = '';
+      hideRepoAutocomplete();
+      return;
+    }
+
+    ownerRepoSuggestions = [];
+    ownerRepoTokenUsed = false;
+    ownerRepoVisibilityNote = '';
+    var list = document.getElementById('obRepoNameAutocompleteList');
+    if (list) {
+      list.innerHTML = '<div class="ob-repo-suggestion-empty">Loading repositories...</div>';
+    }
+    renderRepoAutocomplete();
+
+    fetch({{ url_for('api_onboarding_list_repos') | tojson }}, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        owner: owner,
+        github_token: val('obNewGithubToken')
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          ownerRepoSuggestions = [];
+          ownerRepoTokenUsed = false;
+          ownerRepoVisibilityNote = data.error || 'Could not load repositories.';
+          renderRepoAutocomplete();
+          return;
+        }
+        ownerRepoSuggestions = Array.isArray(data.repos) ? data.repos : [];
+        ownerRepoTokenUsed = !!data.token_used;
+        ownerRepoVisibilityNote = String(data.visibility_note || '');
+        renderRepoAutocomplete();
+      })
+      .catch(function () {
+        ownerRepoSuggestions = [];
+        ownerRepoTokenUsed = false;
+        ownerRepoVisibilityNote = 'Could not load repositories.';
+        renderRepoAutocomplete();
+      });
+  }
+
+  function scheduleOwnerRepoFetch() {
+    if (ownerRepoFetchTimer) {
+      clearTimeout(ownerRepoFetchTimer);
+    }
+    ownerRepoFetchTimer = setTimeout(fetchOwnerRepositories, 250);
+  }
+
+  function setMode(mode) {
+    state.mode = mode;
+    modalEl.querySelectorAll('.ob-mode-card').forEach(function (card) {
+      card.classList.toggle('selected', card.getAttribute('data-mode') === mode);
+    });
+    updateNav();
+  }
+
+  function applyRepoStepMode() {
+    var existing = document.getElementById('obExistingRepoBlock');
+    var newer = document.getElementById('obNewRepoBlock');
+    var title = document.getElementById('obRepoStepTitle');
+    var sub = document.getElementById('obRepoStepSub');
+    if (state.mode === 'new') {
+      if (existing) existing.style.display = 'none';
+      if (newer) newer.style.display = '';
+      if (title) title.innerHTML = 'Step 2 of 5 &mdash; Add Repository Details';
+      if (sub) sub.textContent = 'Enter repository details and optional token settings.';
+    } else {
+      if (existing) existing.style.display = '';
+      if (newer) newer.style.display = 'none';
+      if (title) title.innerHTML = 'Step 2 of 5 &mdash; Select Existing Repository';
+      if (sub) sub.textContent = 'Choose a configured repository to onboard.';
+    }
+  }
+
+  function newRepoFormBody() {
+    var owner = val('obNewRepoOwner');
+    var repoName = val('obNewRepoName');
+    var repoUrl = composeGithubRepoUrl(owner, repoName);
+    return {
+      name: val('obNewName'),
+      slug: val('obNewSlug'),
+      repo_owner: owner,
+      repo_name: repoName,
+      repo_url: repoUrl,
+      default_environment: val('obNewDefaultEnv'),
+      github_token: val('obNewGithubToken'),
+      github_token_expires_at: val('obNewGithubTokenExpiry'),
+      set_github_token: checked('obNewSetGithubToken'),
+      set_repo_token: checked('obNewSetRepoToken'),
+      set_agent_repo: checked('obNewSetAgentRepo'),
+    };
+  }
+
+  function setImportStatus(message, isError) {
+    var status = document.getElementById('obImportRepoStatus');
+    if (!status) return;
+    status.className = isError ? 'small text-danger' : 'small text-secondary';
+    status.textContent = message || '';
+  }
+
+  function importRepoFromGithub() {
+    var owner = val('obNewRepoOwner');
+    var repoName = val('obNewRepoName');
+    var repoUrl = composeGithubRepoUrl(owner, repoName);
+    if (!repoUrl) {
+      setImportStatus('Enter GitHub owner and repository first.', true);
+      return;
+    }
+
+    var btn = document.getElementById('obImportRepoBtn');
+    if (btn) btn.disabled = true;
+    setImportStatus('Importing metadata from GitHub...', false);
+
+    fetch({{ url_for('api_onboarding_import_repo') | tojson }}, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repo_owner: owner,
+        repo_name: repoName,
+        repo_url: repoUrl,
+        github_token: val('obNewGithubToken')
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          setImportStatus(data.error || 'Import failed.', true);
+          return;
+        }
+        var nameEl = document.getElementById('obNewName');
+        var slugEl = document.getElementById('obNewSlug');
+        var ownerEl = document.getElementById('obNewRepoOwner');
+        var repoNameEl = document.getElementById('obNewRepoName');
+        var envEl = document.getElementById('obNewDefaultEnv');
+        if (nameEl && !nameEl.value.trim()) nameEl.value = String(data.name || '');
+        if (slugEl && !slugUserEdited && !slugEl.value.trim()) slugEl.value = String(data.slug || suggestSlug(data.name || ''));
+        if (ownerEl && !ownerEl.value.trim()) ownerEl.value = String(data.owner || owner || '');
+        if (repoNameEl && !repoNameEl.value.trim()) repoNameEl.value = String(data.repo || repoName || '');
+        syncNewRepoUrlPreview();
+        if (envEl && !envEl.value.trim()) envEl.value = 'prod';
+        setImportStatus('Imported ' + String(data.full_name || '') + ' metadata.', false);
+        updateNav();
+      })
+      .catch(function () {
+        setImportStatus('Import failed. Check token or repository access.', true);
+      })
+      .finally(function () {
+        if (btn) btn.disabled = false;
+      });
+  }
+
+  function val(id) {
+    var el = document.getElementById(id);
+    return (el && typeof el.value === 'string') ? el.value.trim() : '';
+  }
+
+  function checked(id) {
+    var el = document.getElementById(id);
+    return !!(el && el.checked);
+  }
+
   function showStep(idx) {
     modalEl.querySelectorAll('.ob-step').forEach(function (s) { s.classList.remove('active'); });
     var el = document.getElementById('obStep' + idx);
@@ -189,52 +633,49 @@
     progressBar.style.width = pct + '%';
     progressBar.setAttribute('aria-valuenow', pct);
 
-    if (idx === 0) loadRepos();
-    if (idx === 1 && !state.inspected) runInspect();
-    if (idx === 3) runCreateIssues();
+    if (idx === 1) {
+      applyRepoStepMode();
+      loadRepos();
+    }
+    if (idx === 2 && !state.inspected) runInspect();
+    if (idx === 4) runCreateIssues();
   }
 
   function updateNav() {
-    prevBtn.style.display  = state.step > 0 && state.step < totalSteps - 1 ? '' : 'none';
-    nextBtn.style.display  = state.step < 2 ? '' : 'none';
-    createBtn.style.display = state.step === 2 ? '' : 'none';
-    doneBtn.style.display  = state.step === 3 ? '' : 'none';
+    prevBtn.style.display = state.step > 0 && state.step < totalSteps - 1 ? '' : 'none';
+    nextBtn.style.display = state.step < 3 ? '' : 'none';
+    createBtn.style.display = state.step === 3 ? '' : 'none';
+    doneBtn.style.display = state.step === 4 ? '' : 'none';
 
     if (state.step === 0) {
-      nextBtn.disabled = !state.appId;
-    } else if (state.step === 1) {
-      nextBtn.disabled = !state.inspected;
-    } else if (state.step === 2) {
-      nextBtn.style.display = 'none';
-      createBtn.style.display = '';
-      var ci   = document.getElementById('obCreateCi');
+      nextBtn.disabled = !state.mode;
+      return;
+    }
+    if (state.step === 1) {
+      if (state.mode === 'new') {
+        var body = newRepoFormBody();
+        nextBtn.disabled = !body.name || !body.repo_url;
+      } else {
+        nextBtn.disabled = !state.appId;
+      }
+      return;
+    }
+    if (state.step === 2) {
+      nextBtn.disabled = !state.inspected || !!state.inspectError;
+      return;
+    }
+    if (state.step === 3) {
+      var ci = document.getElementById('obCreateCi');
       var otel = document.getElementById('obCreateOtel');
       createBtn.disabled = !(ci && ci.checked) && !(otel && otel.checked);
     }
   }
 
-  prevBtn.addEventListener('click', function () { showStep(state.step - 1); });
-  nextBtn.addEventListener('click', function () { showStep(state.step + 1); });
-  createBtn.addEventListener('click', function () { showStep(3); });
-
-  // Keep create button state in sync with checkboxes
-  ['obCreateCi', 'obCreateOtel'].forEach(function (id) {
-    var el = document.getElementById(id);
-    if (el) el.addEventListener('change', updateNav);
-  });
-
-  // ── Step 0: Load configured repos ───────────────────────────────
   function loadRepos() {
     var list = document.getElementById('obRepoList');
     if (!list) return;
 
-    // Repos are rendered server-side as a JSON array in the page
-    var reposJson = document.getElementById('obReposData');
-    var repos = [];
-    if (reposJson) {
-      try { repos = JSON.parse(reposJson.textContent || '[]'); } catch (e) {}
-    }
-
+    var repos = getRepos();
     if (!repos.length) {
       list.innerHTML = '<div class="text-secondary small">No configured repositories found.</div>';
       return;
@@ -254,109 +695,170 @@
       card.addEventListener('click', function () {
         list.querySelectorAll('.ob-repo-card').forEach(function (c) { c.classList.remove('selected'); });
         card.classList.add('selected');
-        state.appId    = card.dataset.appId   || '';
-        state.repoUrl  = card.dataset.repoUrl || '';
-        state.repoName = card.dataset.repoName|| '';
-        state.inspected = false; // reset so re-selection triggers a new inspect
+        state.appId = card.dataset.appId || '';
+        state.repoUrl = card.dataset.repoUrl || '';
+        state.repoName = card.dataset.repoName || '';
+        state.inspected = false;
+        state.inspectError = '';
         updateNav();
       });
     });
   }
 
-  // ── Step 1: Inspect repo ────────────────────────────────────────
-  function runInspect() {
+  function setInspectError(message) {
+    state.inspected = false;
+    state.inspectError = message || 'Inspect failed.';
+    state.copilotAvailable = false;
+    state.hasGithubActions = false;
     var container = document.getElementById('obInspectResults');
-    if (!container) return;
-    container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-success me-2" role="status"></div><span class="text-secondary small">Inspecting&hellip;</span></div>';
-    nextBtn.disabled = true;
+    if (container) {
+      container.innerHTML = '<div class="alert alert-danger small">' + escHtml(state.inspectError) + '</div>';
+    }
+    var copSection = document.getElementById('obCopilotSection');
+    var noCopNote = document.getElementById('obNoCopilotNote');
+    if (copSection) copSection.style.display = 'none';
+    if (noCopNote) noCopNote.style.display = '';
+  }
 
-    var url = {{ url_for('api_onboarding_inspect_repo') | tojson }};
-    if (state.appId) url += '?app_id=' + encodeURIComponent(state.appId);
+  function ensureRepoForInspect(done) {
+    if (state.mode === 'existing') {
+      if (!state.appId) {
+        setInspectError('Select a configured repository before inspection.');
+        updateNav();
+        return;
+      }
+      done();
+      return;
+    }
 
-    fetch(url, { credentials: 'same-origin' })
+    if (state.appId) {
+      done();
+      return;
+    }
+
+    var createUrl = {{ url_for('api_onboarding_create_repo') | tojson }};
+    var body = newRepoFormBody();
+    var container = document.getElementById('obInspectResults');
+    if (container) {
+      container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-success me-2" role="status"></div><span class="text-secondary small">Creating repository entry&hellip;</span></div>';
+    }
+
+    fetch(createUrl, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        state.inspected = true;
-        state.copilotAvailable  = !!data.copilot_available;
-        state.hasGithubActions  = !!data.has_github_actions;
-
-        var rows = [
-          {
-            ok: data.has_github_actions,
-            label: 'GitHub Actions',
-            yes: 'Detected &mdash; workflow files found',
-            no: 'No .github/workflows directory found &mdash; CI steps will be provider-agnostic',
-          },
-          {
-            ok: data.sobs_ci_found,
-            label: 'Sobs CI metadata',
-            yes: 'Already present in at least one workflow',
-            no: 'Not detected &mdash; the CI issue will guide you through adding it',
-          },
-          {
-            ok: data.sobs_otel_found,
-            label: 'OTEL instrumentation',
-            yes: 'OTEL references found in workflows or manifests',
-            no: 'Not detected &mdash; the OTEL audit issue will guide you through adding it',
-          },
-          {
-            ok: data.copilot_available,
-            label: 'Copilot cloud agent',
-            yes: 'Available &mdash; issues can be auto-assigned to Copilot',
-            no: 'Not available for this repository',
-          },
-        ];
-
-        var html = '';
-        rows.forEach(function (row) {
-          var icon = row.ok
-            ? '<i class="bi bi-check-circle-fill text-success ob-inspect-icon"></i>'
-            : '<i class="bi bi-x-circle-fill text-danger ob-inspect-icon"></i>';
-          html += '<div class="ob-inspect-row">'
-            + icon
-            + '<span><strong>' + row.label + '</strong> &mdash; ' + (row.ok ? row.yes : row.no) + '</span>'
-            + '</div>';
-        });
-
-        if (data.error) {
-          html += '<div class="alert alert-warning small mt-2">' + escHtml(data.error) + '</div>';
+        if (!data.ok) {
+          setInspectError(data.error || 'Could not create repository entry.');
+          updateNav();
+          return;
         }
-
-        container.innerHTML = html;
-        updateNav();
-
-        // Update Step 2 Copilot section visibility
-        var copSection = document.getElementById('obCopilotSection');
-        var noCopNote  = document.getElementById('obNoCopilotNote');
-        if (copSection) copSection.style.display  = data.copilot_available ? '' : 'none';
-        if (noCopNote)  noCopNote.style.display   = data.copilot_available ? 'none' : '';
+        state.appId = String(data.app_id || '');
+        state.repoName = String(data.name || body.name || '');
+        state.repoUrl = String(data.repo_url || body.repo_url || '');
+        state.repoCreated = true;
+        done();
       })
       .catch(function () {
-        state.inspected = true;
-        container.innerHTML = '<div class="alert alert-danger small">Failed to inspect repository. Check your GitHub token configuration.</div>';
+        setInspectError('Failed to create repository entry.');
         updateNav();
       });
   }
 
-  // ── Step 3: Create issues ────────────────────────────────────────
+  function runInspect() {
+    var container = document.getElementById('obInspectResults');
+    if (!container) return;
+    state.inspectError = '';
+
+    ensureRepoForInspect(function () {
+      container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-success me-2" role="status"></div><span class="text-secondary small">Inspecting&hellip;</span></div>';
+      nextBtn.disabled = true;
+
+      var url = {{ url_for('api_onboarding_inspect_repo') | tojson }};
+      if (state.appId) {
+        url += '?app_id=' + encodeURIComponent(state.appId);
+      } else if (state.repoUrl) {
+        url += '?repo=' + encodeURIComponent(state.repoUrl);
+      }
+
+      fetch(url, { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          state.inspected = true;
+          state.inspectError = data.error ? String(data.error) : '';
+          state.copilotAvailable = !!data.copilot_available;
+          state.hasGithubActions = !!data.has_github_actions;
+
+          var rows = [
+            {
+              ok: data.has_github_actions,
+              label: 'GitHub Actions',
+              yes: 'Detected. Workflow files found.',
+              no: 'No .github/workflows directory found. CI guidance will be provider-agnostic.',
+            },
+            {
+              ok: data.sobs_ci_found,
+              label: 'Sobs CI metadata',
+              yes: 'Already present in at least one workflow.',
+              no: 'Not detected. CI issue will guide setup.',
+            },
+            {
+              ok: data.sobs_otel_found,
+              label: 'OTEL instrumentation',
+              yes: 'OTEL references found in workflows or manifests.',
+              no: 'Not detected. OTEL issue will guide setup.',
+            },
+            {
+              ok: data.copilot_available,
+              label: 'Copilot cloud agent',
+              yes: 'Available. Issues can be auto-assigned.',
+              no: 'Not available for this repository.',
+            },
+          ];
+
+          var html = '';
+          rows.forEach(function (row) {
+            var icon = row.ok
+              ? '<i class="bi bi-check-circle-fill text-success ob-inspect-icon"></i>'
+              : '<i class="bi bi-x-circle-fill text-danger ob-inspect-icon"></i>';
+            html += '<div class="ob-inspect-row">'
+              + icon
+              + '<span><strong>' + row.label + '</strong> - ' + (row.ok ? row.yes : row.no) + '</span>'
+              + '</div>';
+          });
+
+          if (data.error) {
+            html += '<div class="alert alert-warning small mt-2">' + escHtml(data.error) + '</div>';
+          }
+
+          container.innerHTML = html;
+          var copSection = document.getElementById('obCopilotSection');
+          var noCopNote = document.getElementById('obNoCopilotNote');
+          if (copSection) copSection.style.display = data.copilot_available ? '' : 'none';
+          if (noCopNote) noCopNote.style.display = data.copilot_available ? 'none' : '';
+          updateNav();
+        })
+        .catch(function () {
+          setInspectError('Failed to inspect repository. Check GitHub token configuration.');
+          updateNav();
+        });
+    });
+  }
+
   function runCreateIssues() {
     var container = document.getElementById('obResultsContainer');
     if (!container) return;
     container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-success me-2" role="status"></div><span class="text-secondary small">Creating issues&hellip;</span></div>';
     doneBtn.disabled = true;
 
-    var ciEl   = document.getElementById('obCreateCi');
-    var otelEl = document.getElementById('obCreateOtel');
-    var copEl  = document.getElementById('obAssignCopilot');
-    var createCi   = ciEl   ? ciEl.checked   : true;
-    var createOtel = otelEl ? otelEl.checked : true;
-    var assignCop  = copEl  ? copEl.checked  : false;
-
     var payload = {
-      app_id:             state.appId,
-      create_ci:          createCi,
-      create_otel:        createOtel,
-      assign_copilot:     assignCop,
+      app_id: state.appId,
+      create_ci: checked('obCreateCi'),
+      create_otel: checked('obCreateOtel'),
+      assign_copilot: checked('obAssignCopilot'),
       has_github_actions: state.hasGithubActions,
     };
 
@@ -373,16 +875,20 @@
           doneBtn.disabled = false;
           return;
         }
-        var html = '';
 
-        function renderIssueResult(issue, label, icon, iconClass) {
+        function renderIssueResult(issue, label) {
           if (!issue) return '';
           if (issue.error) {
             return '<div class="ob-result-card border-danger">'
-              + '<div class="issue-title"><i class="bi ' + icon + ' ' + iconClass + ' me-1"></i>' + label + '</div>'
+              + '<div class="issue-title">' + label + '</div>'
               + '<div class="text-danger small">Failed: ' + escHtml(issue.error) + '</div>'
               + '</div>';
           }
+          var modeBadge = '';
+          if (issue.status === 'created') modeBadge = ' <span class="badge text-bg-success ms-1">Created</span>';
+          if (issue.status === 'updated') modeBadge = ' <span class="badge text-bg-info ms-1">Updated</span>';
+          if (issue.status === 'reused') modeBadge = ' <span class="badge text-bg-secondary ms-1">Reused existing</span>';
+          var noteHtml = issue.note ? '<div class="small text-secondary mt-1">' + escHtml(issue.note) + '</div>' : '';
           var copilotBadge = '';
           if (issue.copilot_status) {
             var badgeClass = issue.copilot_status === 'requested' ? 'text-bg-success' : 'text-bg-warning';
@@ -391,41 +897,147 @@
               + '</span>';
           }
           return '<div class="ob-result-card border-success">'
-            + '<div class="issue-title"><i class="bi bi-check-circle-fill text-success me-1"></i>' + label + copilotBadge + '</div>'
+            + '<div class="issue-title"><i class="bi bi-check-circle-fill text-success me-1"></i>' + label + modeBadge + copilotBadge + '</div>'
             + '<div class="issue-url"><a href="' + escAttr(issue.url) + '" target="_blank" rel="noopener">' + escHtml(issue.url) + '</a></div>'
+            + noteHtml
             + '</div>';
         }
 
-        html += renderIssueResult(data.ci_issue,   'CI Metadata Setup',         'bi-gear',        'text-info');
-        html += renderIssueResult(data.otel_issue,  'OTEL &amp; RUM Telemetry Audit', 'bi-reception-4', 'text-warning');
-
-        html += '<div class="small text-secondary mt-2"><i class="bi bi-info-circle me-1"></i>Issues have been created in the repository. Review and complete the manual steps listed in each issue.</div>';
-
+        var html = '';
+        html += renderIssueResult(data.ci_issue, 'CI Metadata Setup');
+        html += renderIssueResult(data.otel_issue, 'OTEL And RUM Telemetry Audit');
+        html += '<div class="small text-secondary mt-2"><i class="bi bi-info-circle me-1"></i>Review each issue and complete the manual steps listed.</div>';
         container.innerHTML = html;
         doneBtn.disabled = false;
       })
       .catch(function () {
-        container.innerHTML = '<div class="alert alert-danger small">Failed to create issues. Check your GitHub token configuration.</div>';
+        container.innerHTML = '<div class="alert alert-danger small">Failed to create issues. Check GitHub token configuration.</div>';
         doneBtn.disabled = false;
       });
   }
 
-  // ── HTML helpers ────────────────────────────────────────────────
   function escHtml(s) {
-    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
-  function escAttr(s) { return String(s || '').replace(/"/g,'&quot;'); }
 
-  // ── Opener ──────────────────────────────────────────────────────
-  window.__sobsOpenOnboardingWizard = function () {
+  function escAttr(s) {
+    return String(s || '').replace(/"/g, '&quot;');
+  }
+
+  function resetWizard() {
     state.step = 0;
+    state.mode = '';
     state.appId = '';
+    state.repoName = '';
+    state.repoUrl = '';
+    state.copilotAvailable = false;
+    state.hasGithubActions = false;
     state.inspected = false;
-    showStep(0);
-    modal.show();
+    state.inspectError = '';
+    state.repoCreated = false;
+    modalEl.querySelectorAll('.ob-mode-card').forEach(function (card) { card.classList.remove('selected'); });
+  }
+
+  modalEl.addEventListener('hidden.bs.modal', function () {
+    if (state.repoCreated) {
+      window.location.reload();
+    }
+  });
+
+  modalEl.querySelectorAll('.ob-mode-card').forEach(function (card) {
+    card.addEventListener('click', function () {
+      setMode(card.getAttribute('data-mode') || '');
+    });
+  });
+
+  ['obCreateCi', 'obCreateOtel'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('change', updateNav);
+  });
+
+  ['obNewName', 'obNewSlug', 'obNewRepoOwner', 'obNewRepoName', 'obNewDefaultEnv', 'obNewGithubToken', 'obNewGithubTokenExpiry'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', function () {
+      if (id === 'obNewSlug') {
+        slugUserEdited = !!el.value.trim();
+      }
+      if (id === 'obNewName') {
+        var slugEl = document.getElementById('obNewSlug');
+        if (slugEl && !slugUserEdited) {
+          slugEl.value = suggestSlug(el.value);
+        }
+      }
+      if (id === 'obNewRepoOwner' || id === 'obNewRepoName') {
+        syncNewRepoUrlPreview();
+        var nameEl = document.getElementById('obNewName');
+        var envEl = document.getElementById('obNewDefaultEnv');
+        var repoInput = val('obNewRepoName');
+        if (nameEl && !nameEl.value.trim() && repoInput) {
+          nameEl.value = repoInput;
+          var slugField = document.getElementById('obNewSlug');
+          if (slugField && !slugUserEdited) {
+            slugField.value = suggestSlug(repoInput);
+          }
+        }
+        if (envEl && !envEl.value.trim() && repoInput) {
+          envEl.value = 'prod';
+        }
+      }
+      if (id === 'obNewRepoOwner' || id === 'obNewGithubToken') {
+        scheduleOwnerRepoFetch();
+      }
+      if (id === 'obNewRepoName') {
+        renderRepoAutocomplete();
+      }
+      if (state.mode === 'new') {
+        state.appId = '';
+        state.inspected = false;
+        state.inspectError = '';
+      }
+      updateNav();
+    });
+  });
+
+  var importBtn = document.getElementById('obImportRepoBtn');
+  if (importBtn) {
+    importBtn.addEventListener('click', importRepoFromGithub);
+  }
+
+  var repoNameEl = document.getElementById('obNewRepoName');
+  if (repoNameEl) {
+    repoNameEl.addEventListener('focus', function () {
+      renderRepoAutocomplete();
+    });
+    repoNameEl.addEventListener('blur', function () {
+      setTimeout(hideRepoAutocomplete, 140);
+    });
+  }
+
+  var repoOwnerEl = document.getElementById('obNewRepoOwner');
+  if (repoOwnerEl) {
+    repoOwnerEl.addEventListener('blur', function () {
+      scheduleOwnerRepoFetch();
+    });
+  }
+
+  prevBtn.addEventListener('click', function () { showStep(state.step - 1); });
+  nextBtn.addEventListener('click', function () { showStep(state.step + 1); });
+  createBtn.addEventListener('click', function () { showStep(4); });
+
+  window.__sobsOpenOnboardingWizard = function (modePreference) {
+    resetWizard();
+    var repos = getRepos();
+    var preferred = (modePreference === 'new' || modePreference === 'existing') ? modePreference : '';
+    if (!preferred) preferred = repos.length ? 'existing' : 'new';
+    setMode(preferred);
+    showStep(preferred ? 1 : 0);
+    var activeModal = getModal();
+    if (!activeModal) return;
+    activeModal.show();
   };
 
-  // Initial state
   showStep(0);
+  syncNewRepoUrlPreview();
 })();
 </script>

@@ -1647,6 +1647,30 @@ class TestUIQA:
         self._check_declarative_confirm(page)
         assert not dialog_alerts, f"Native browser dialogs on /settings/tags: {dialog_alerts}"
 
+    def test_settings_repositories_onboarding_wizard_opens(self, page: Page, live_server: str) -> None:
+        self._init_page(page)
+        dialog_alerts: list[str] = []
+        page.on("dialog", self._make_dialog_handler(dialog_alerts))
+        self._common_checks(page, f"{live_server}/settings/repositories")
+        self._check_sidebar_toggle(page)
+
+        wizard_btn = page.locator("button[title='Onboarding Wizard']").first
+        assert wizard_btn.count() > 0, "Expected Onboarding Wizard button on /settings/repositories"
+        wizard_btn.click(timeout=5000)
+
+        page.wait_for_selector("#onboardingWizardModal.show", timeout=5000)
+        expect(page.locator("#onboardingWizardModal #obRepoStepTitle")).to_contain_text(
+            "Add Repository Details", timeout=5000
+        )
+        expect(page.locator("#onboardingWizardModal #obNewName")).to_be_visible(timeout=5000)
+
+        close_btn = page.locator("#onboardingWizardModal .btn-close").first
+        if close_btn.count() > 0:
+            close_btn.click(timeout=5000)
+            page.wait_for_selector("#onboardingWizardModal.show", state="hidden", timeout=5000)
+
+        assert not dialog_alerts, f"Native browser dialogs on /settings/repositories: {dialog_alerts}"
+
     def test_settings_data_management(self, page: Page, live_server: str) -> None:
         self._init_page(page)
         dialog_alerts: list[str] = []
