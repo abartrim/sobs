@@ -1587,7 +1587,7 @@ class TestErrorsIngest:
         """Errors page must render without UnicodeDecodeError when stored data contains
         invalid UTF-8 byte sequences (e.g. truncated multi-byte characters from non-UTF-8
         sources sent via OTLP).  The fix applies toValidUTF8() in ERROR_SOURCES_SQL so
-        that chDB can always serialise results as valid JSON/UTF-8."""
+        that chDB can always serialize results as valid JSON/UTF-8."""
         import app as sobs_app
 
         db = sobs_app.get_db()
