@@ -6,6 +6,9 @@
 
   .ob-mode-card,
   .ob-repo-card {
+    display: block;
+    width: 100%;
+    text-align: left;
     border: 1px solid var(--bs-border-color);
     border-radius: 8px;
     padding: .6rem .75rem;
@@ -119,14 +122,14 @@
           <h6 class="fw-semibold mb-1">Step 1 of 5 &mdash; Start Mode</h6>
           <p class="text-secondary small mb-3">Choose whether to onboard an existing configured repository or add a new one first.</p>
           <div id="obModeList">
-            <div class="ob-mode-card" data-mode="new">
+            <button type="button" class="ob-mode-card" data-mode="new" aria-pressed="false">
               <div class="ob-mode-title"><i class="bi bi-plus-circle me-1 text-success"></i>Add New Repository And Onboard</div>
               <div class="ob-mode-sub">Enter repository details, optional token settings, then continue directly into inspect and issue creation.</div>
-            </div>
-            <div class="ob-mode-card" data-mode="existing">
+            </button>
+            <button type="button" class="ob-mode-card" data-mode="existing" aria-pressed="false">
               <div class="ob-mode-title"><i class="bi bi-list-check me-1 text-info"></i>Onboard Existing Repository</div>
               <div class="ob-mode-sub">Select from configured repositories and run inspect + issue onboarding.</div>
-            </div>
+            </button>
           </div>
         </div>
 
@@ -536,7 +539,9 @@
   function setMode(mode) {
     state.mode = mode;
     modalEl.querySelectorAll('.ob-mode-card').forEach(function (card) {
-      card.classList.toggle('selected', card.getAttribute('data-mode') === mode);
+      var selected = card.getAttribute('data-mode') === mode;
+      card.classList.toggle('selected', selected);
+      card.setAttribute('aria-pressed', selected ? 'true' : 'false');
     });
     updateNav();
   }
@@ -713,17 +718,19 @@
     var html = '';
     repos.forEach(function (r) {
       var sel = r.id === state.appId ? ' selected' : '';
-      html += '<div class="ob-repo-card' + sel + '" data-app-id="' + escAttr(r.id) + '" data-repo-url="' + escAttr(r.repo_url) + '" data-repo-name="' + escAttr(r.name) + '">'
+      html += '<button type="button" class="ob-repo-card' + sel + '" data-app-id="' + escAttr(r.id) + '" data-repo-url="' + escAttr(r.repo_url) + '" data-repo-name="' + escAttr(r.name) + '" aria-pressed="' + (sel ? 'true' : 'false') + '">'
         + '<div class="repo-name">' + escHtml(r.name) + '</div>'
         + '<div class="repo-url">' + escHtml(r.repo_url) + '</div>'
-        + '</div>';
+        + '</button>';
     });
     list.innerHTML = html;
 
     list.querySelectorAll('.ob-repo-card').forEach(function (card) {
       card.addEventListener('click', function () {
         list.querySelectorAll('.ob-repo-card').forEach(function (c) { c.classList.remove('selected'); });
+        list.querySelectorAll('.ob-repo-card').forEach(function (c) { c.setAttribute('aria-pressed', 'false'); });
         card.classList.add('selected');
+        card.setAttribute('aria-pressed', 'true');
         state.appId = card.dataset.appId || '';
         state.repoUrl = card.dataset.repoUrl || '';
         state.repoName = card.dataset.repoName || '';
@@ -920,16 +927,21 @@
           if (issue.status === 'reused') modeBadge = ' <span class="badge text-bg-secondary ms-1">Reused existing</span>';
           var noteHtml = issue.note ? '<div class="small text-secondary mt-1">' + escHtml(issue.note) + '</div>' : '';
           var copilotBadge = '';
-          if (issue.copilot_status) {
-            var badgeClass = issue.copilot_status === 'requested' ? 'text-bg-success' : 'text-bg-warning';
+          var assignmentStatus = String(issue.copilot_assignment_status || issue.copilot_status || 'not_requested');
+          var assignmentReason = String(issue.copilot_assignment_reason || '');
+          if (assignmentStatus && assignmentStatus !== 'not_requested') {
+            var badgeClass = assignmentStatus === 'requested' ? 'text-bg-success' : 'text-bg-warning';
+            var badgeLabel = assignmentStatus === 'requested' ? 'Copilot assigned' : ('Copilot: ' + escHtml(assignmentStatus));
             copilotBadge = ' <span class="badge ' + badgeClass + ' ms-1">'
-              + (issue.copilot_status === 'requested' ? 'Copilot assigned' : escHtml(issue.copilot_status))
+              + badgeLabel
               + '</span>';
           }
+          var copilotReasonHtml = assignmentReason ? '<div class="small text-secondary mt-1">' + escHtml(assignmentReason) + '</div>' : '';
           return '<div class="ob-result-card border-success">'
             + '<div class="issue-title"><i class="bi bi-check-circle-fill text-success me-1"></i>' + label + modeBadge + copilotBadge + '</div>'
             + '<div class="issue-url"><a href="' + escAttr(issue.url) + '" target="_blank" rel="noopener">' + escHtml(issue.url) + '</a></div>'
             + noteHtml
+            + copilotReasonHtml
             + '</div>';
         }
 

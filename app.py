@@ -6355,7 +6355,9 @@ def _persist_onboarding_work_item(
     issue_state: str,
     dedup_decision: str,
     note: str,
-    copilot_status: str,
+    copilot_assignment_status: str,
+    copilot_assignment_reason: str,
+    copilot_assignment_requested_at: int,
     issue_type: str,
 ) -> None:
     """Persist onboarding-created GitHub issues to the Work Items table."""
@@ -6394,9 +6396,9 @@ def _persist_onboarding_work_item(
             "IssueTitle": issue_title,
             "AnalysisSummary": "Sobs onboarding wizard issue.",
             "SuggestionSummary": note,
-            "CopilotAssignmentRequestedAt": int(time.time() * 1000) if copilot_status else 0,
-            "CopilotAssignmentStatus": copilot_status or "not_requested",
-            "CopilotAssignmentReason": "",
+            "CopilotAssignmentRequestedAt": int(copilot_assignment_requested_at or 0),
+            "CopilotAssignmentStatus": copilot_assignment_status or "not_requested",
+            "CopilotAssignmentReason": copilot_assignment_reason or "",
             "PrLinked": 0,
             "PrNumber": 0,
             "PrUrl": "",
@@ -33062,16 +33064,24 @@ async def api_onboarding_create_issues():
             issue_number = int(ci_result.get("issue_number", 0) or 0)
             issue_status = str(ci_result.get("status") or "")
             issue_note = str(ci_result.get("note") or "")
-            copilot_status = ""
+            copilot_assignment_status = "not_requested"
+            copilot_assignment_reason = ""
+            copilot_assignment_requested_at = 0
             if assign_copilot and issue_number:
-                status, reason, _ = await _assign_issue_to_copilot(github_token, github_repo, issue_number)
-                copilot_status = status if status != "blocked" else reason
+                (
+                    copilot_assignment_status,
+                    copilot_assignment_reason,
+                    copilot_assignment_requested_at,
+                ) = await _assign_issue_to_copilot(github_token, github_repo, issue_number)
             results["ci_issue"] = {
                 "url": issue_url,
                 "number": issue_number,
                 "status": issue_status,
                 "note": issue_note,
-                "copilot_status": copilot_status,
+                "copilot_status": copilot_assignment_status,
+                "copilot_assignment_status": copilot_assignment_status,
+                "copilot_assignment_reason": copilot_assignment_reason,
+                "copilot_assignment_requested_at": copilot_assignment_requested_at,
             }
             if issue_status in ("created", "updated"):
                 _persist_onboarding_work_item(
@@ -33083,7 +33093,9 @@ async def api_onboarding_create_issues():
                     issue_state=str(ci_result.get("issue_state") or "open"),
                     dedup_decision=issue_status,
                     note=issue_note,
-                    copilot_status=copilot_status,
+                    copilot_assignment_status=copilot_assignment_status,
+                    copilot_assignment_reason=copilot_assignment_reason,
+                    copilot_assignment_requested_at=copilot_assignment_requested_at,
                     issue_type="ci",
                 )
 
@@ -33103,16 +33115,24 @@ async def api_onboarding_create_issues():
             issue_number = int(otel_result.get("issue_number", 0) or 0)
             issue_status = str(otel_result.get("status") or "")
             issue_note = str(otel_result.get("note") or "")
-            copilot_status = ""
+            copilot_assignment_status = "not_requested"
+            copilot_assignment_reason = ""
+            copilot_assignment_requested_at = 0
             if assign_copilot and issue_number:
-                status, reason, _ = await _assign_issue_to_copilot(github_token, github_repo, issue_number)
-                copilot_status = status if status != "blocked" else reason
+                (
+                    copilot_assignment_status,
+                    copilot_assignment_reason,
+                    copilot_assignment_requested_at,
+                ) = await _assign_issue_to_copilot(github_token, github_repo, issue_number)
             results["otel_issue"] = {
                 "url": issue_url,
                 "number": issue_number,
                 "status": issue_status,
                 "note": issue_note,
-                "copilot_status": copilot_status,
+                "copilot_status": copilot_assignment_status,
+                "copilot_assignment_status": copilot_assignment_status,
+                "copilot_assignment_reason": copilot_assignment_reason,
+                "copilot_assignment_requested_at": copilot_assignment_requested_at,
             }
             if issue_status in ("created", "updated"):
                 _persist_onboarding_work_item(
@@ -33124,7 +33144,9 @@ async def api_onboarding_create_issues():
                     issue_state=str(otel_result.get("issue_state") or "open"),
                     dedup_decision=issue_status,
                     note=issue_note,
-                    copilot_status=copilot_status,
+                    copilot_assignment_status=copilot_assignment_status,
+                    copilot_assignment_reason=copilot_assignment_reason,
+                    copilot_assignment_requested_at=copilot_assignment_requested_at,
                     issue_type="observability",
                 )
 
