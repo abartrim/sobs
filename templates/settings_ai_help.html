@@ -67,6 +67,54 @@
 </div>
 
 <div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Model Pricing And Cost Estimates</div>
+  <div class="card-body small text-secondary">
+    <p class="mb-3">
+      The Model Pricing card controls the estimated cost shown on the AI Transparency page.
+      SOBS stores pricing per model as USD per 1 million input and output tokens, then applies
+      those values to each visible AI span to calculate the Est. Cost summary and row-level estimates.
+    </p>
+    <ul class="mb-0 ps-3">
+      <li><strong>Default rows</strong> are built into SOBS for common OpenAI, Anthropic, Gemini, Llama, and Mistral models.</li>
+      <li><strong>Inferred rows</strong> appear automatically when SOBS sees a model name in telemetry that is not already configured. The row is seeded from the closest known family, such as <code>gpt-4o*</code>, <code>claude sonnet/haiku/opus</code>, <code>gemini flash/pro</code>, or <code>llama</code>.</li>
+      <li><strong>Custom rows</strong> are for models SOBS cannot predict or for internal aliases. Click <strong>Add Custom Model</strong>, type the model name in the new row, then enter input and output pricing.</li>
+      <li>Changing any price updates future cost estimates immediately after saving. Existing telemetry is not rewritten; only the display estimate changes.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">How Inferred Pricing Works</div>
+  <div class="card-body small text-secondary">
+    <ol class="mb-3 ps-3">
+      <li>SOBS scans AI trace data for distinct values in <code>gen_ai.request.model</code>.</li>
+      <li>If a model already has a built-in or saved pricing row, that value is used.</li>
+      <li>If the model is new, SOBS seeds a row from the closest known family so cost cards remain useful instead of blank.</li>
+      <li>You should review inferred rows for provider-specific pricing differences, preview models, or internal deployment aliases.</li>
+    </ol>
+    <p class="mb-0">
+      The inferred badge is only a starting signal. Once you know the real rate, edit the row and save it. SOBS persists the saved value under that exact model name.
+    </p>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Using Add Custom Model</div>
+  <div class="card-body small text-secondary">
+    <p class="mb-3">
+      Clicking <strong>Add Custom Model</strong> inserts a new editable row at the bottom of the pricing table.
+      The first field in that row is the model name. Enter the exact model string you expect to see in telemetry,
+      for example <code>my-company-reasoner-v2</code>, then provide the input and output token prices.
+    </p>
+    <ul class="mb-0 ps-3">
+      <li>Use the exact emitted model name when possible so the estimate matches without relying on fuzzy family matching.</li>
+      <li>Custom rows can be removed before saving with the delete button on the right.</li>
+      <li>Default and inferred rows keep the model name locked because they are keyed off known or observed telemetry values.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
   <div class="card-header fw-semibold">Validation Checklist</div>
   <div class="card-body small text-secondary">
     <ul class="mb-0 ps-3">
@@ -75,6 +123,7 @@
       <li>Token validation status shows healthy/valid state.</li>
       <li>Repository owner/repo string resolves for agent issue creation.</li>
       <li>If DLP is enabled, endpoint returns a JSON flagged boolean.</li>
+      <li>AI Transparency shows cost values that look reasonable for your primary models after saving pricing changes.</li>
     </ul>
   </div>
 </div>
@@ -87,6 +136,8 @@
       <li>If all AI actions fail, verify guard endpoint/model availability.</li>
       <li>If GitHub actions fail, validate token scopes and expiration date.</li>
       <li>If assignments stall, review per-hour and active-assignment limits.</li>
+      <li>If a cost looks wrong, compare the telemetry model name to the pricing row key first. A custom row using the exact model string is the safest override.</li>
+      <li>If a new model appears with an inferred badge, treat that as a prompt to verify the actual provider pricing and update it if needed.</li>
     </ul>
   </div>
 </div>
