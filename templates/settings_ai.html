@@ -43,7 +43,7 @@
     <i class="bi bi-question-circle me-1"></i><span class="settings-btn-label">Help</span>
   </a>
 {% endset %}
-{{ render_page_header('AI &amp; Agent Configuration', icon_class='bi bi-robot', icon_text_class='text-primary', actions_html=settings_ai_header_actions) }}
+{{ render_page_header('AI & Agent Configuration', icon_class='bi bi-robot', icon_text_class='text-primary', actions_html=settings_ai_header_actions) }}
 
 <form method="post" action="{{ url_for('save_ai_settings') }}">
   <!-- LLM Endpoint -->
