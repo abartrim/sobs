@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
+{% block title %}Agent Rules Help{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
+{% block content %}
+{% set settings_agents_help_header_actions %}
+  <a href="{{ url_for('view_agent_rules') }}" class="btn btn-sm btn-outline-warning" title="Open Agent Rules">
+    <i class="bi bi-lightning-charge me-1"></i><span class="settings-btn-label">Agent Rules</span>
+  </a>
+  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
+    <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
+  </a>
+{% endset %}
+{{ render_page_header('Agent Rules Help', icon_class='bi bi-question-circle', icon_text_class='text-info', actions_html=settings_agents_help_header_actions) }}
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-play-circle me-1"></i>Manual Trigger</h6>
+        <p class="small text-secondary mb-0">Run immediately from the rules table to investigate current incident context on demand.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-bell me-1"></i>Rule Trigger</h6>
+        <p class="small text-secondary mb-0">Attach to anomaly or tag rule references and trigger when configured state transitions occur.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-speedometer2 me-1"></i>Rate Limited</h6>
+        <p class="small text-secondary mb-0">Use per-rule cooldown and global assignment limits to avoid duplicate issue churn.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">How Agent Rules Trigger</div>
+  <div class="card-body small text-secondary">
+    Rules can run manually or trigger from anomaly/tag rule states. Use rate limits to prevent repeated actions during noisy incidents.
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Action Types</div>
+  <div class="card-body small">
+    <ul class="mb-0 ps-3">
+      <li>LLM analysis and suggested remediation</li>
+      <li>Optional DLP check before issue creation</li>
+      <li>Optional GitHub issue creation and Copilot handoff</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Recommended Flow</div>
+  <div class="card-body small">
+    <ol class="mb-0 ps-3 text-secondary">
+      <li>Create and test a rule in manual mode first.</li>
+      <li>Attach one trigger reference (anomaly or tag rule).</li>
+      <li>Set trigger state and conservative cooldown minutes.</li>
+      <li>Enable analyze action, then add DLP/GitHub actions if needed.</li>
+      <li>Review run history to tune frequency and action set.</li>
+    </ol>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Troubleshooting</div>
+  <div class="card-body small text-secondary">
+    <ul class="mb-0 ps-3">
+      <li>If rules never run, verify trigger type/reference pairing.</li>
+      <li>If runs are skipped, check cooldown and global limit settings.</li>
+      <li>If GitHub issue creation fails, validate repository and token scope.</li>
+      <li>If analysis fails, verify primary and guard AI settings.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="alert alert-secondary small mb-0" role="note">
+  Agent flows depend on valid AI settings and, for GitHub actions, repository/token configuration.
+</div>
+{% endblock %}

@@ -1,22 +1,17 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Output Masking{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-shield-lock me-2 text-danger"></i>Output Masking</h4>
-  <div class="d-flex align-items-center gap-2">
-    <a class="btn btn-sm btn-outline-info" href="{{ url_for('masking_help') }}">
-      <i class="bi bi-question-circle me-1"></i>Help
-    </a>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}">
-      <i class="bi bi-arrow-left me-1"></i>Back to Settings
-    </a>
-  </div>
-</div>
-
-<p class="text-secondary small mb-3">
-  These rules apply only to display-layer output. Stored OTEL, RUM, replay, and issue payloads are not modified in the database.
-  Default rules remain active at all times; use this page to add environment-specific keys and regex patterns.
-</p>
+{% set settings_masking_header_actions %}
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}" title="Back to Settings">
+    <i class="bi bi-arrow-left me-1"></i><span class="masking-btn-label settings-btn-label">Back to Settings</span>
+  </a>
+  <a class="btn btn-sm btn-outline-secondary page-help-btn" href="{{ url_for('masking_help') }}" title="Help">
+    <i class="bi bi-question-circle me-1"></i><span class="masking-btn-label settings-btn-label">Help</span>
+  </a>
+{% endset %}
+{{ render_page_header('Output Masking', icon_class='bi bi-shield-lock', icon_text_class='text-danger', actions_html=settings_masking_header_actions, subtext='These rules apply only to display-layer output. Stored OTEL, RUM, replay, and issue payloads are not modified in the database. Default rules remain active at all times; use this page to add environment-specific keys and regex patterns.') }}
 
 <div class="row g-3 mb-4">
   <div class="col-md-4">
@@ -108,8 +103,8 @@
       <div class="col-lg-6">
         <div class="d-flex align-items-center justify-content-between mb-2">
           <label for="maskPreviewOutput" class="form-label small text-secondary mb-0">Masked output</label>
-          <button type="button" class="btn btn-sm btn-outline-primary" id="maskPreviewRunBtn">
-            <i class="bi bi-play-fill me-1"></i>Preview Masking
+          <button type="button" class="btn btn-sm btn-outline-primary" id="maskPreviewRunBtn" title="Preview Masking">
+            <i class="bi bi-play-fill me-1"></i><span class="masking-btn-label">Preview Masking</span>
           </button>
         </div>
         <pre id="maskPreviewOutput" class="theme-panel rounded p-3 small font-monospace mb-0" style="min-height:11rem;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">Masked output will appear here.</pre>
@@ -132,7 +127,7 @@
           </div>
           <div class="col-sm-4 d-grid">
             <button type="submit" class="btn btn-sm btn-warning text-dark">
-              <i class="bi bi-plus-circle me-1"></i>Add Key
+              <i class="bi bi-plus-circle me-1"></i><span class="masking-btn-label">Add Key</span>
             </button>
           </div>
         </form>
@@ -147,7 +142,7 @@
       </div>
       {% if custom_keys %}
       <div class="table-responsive">
-        <table class="table table-sm align-middle mb-0">
+        <table class="table table-sm align-middle mb-0 masking-keys-table">
           <thead class="table-secondary">
             <tr>
               <th>Key</th>
@@ -157,8 +152,8 @@
           <tbody>
             {% for key in custom_keys %}
             <tr>
-              <td class="font-monospace">{{ key }}</td>
-              <td>
+              <td class="font-monospace" data-label="Key">{{ key }}</td>
+              <td data-label="Actions">
                 <form method="post" action="{{ url_for('delete_masking_key') }}">
                   <input type="hidden" name="key" value="{{ key }}">
                   <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2" title="Delete key">
@@ -204,7 +199,7 @@
           </div>
           <div class="col-sm-3 d-grid">
             <button type="submit" class="btn btn-sm btn-info">
-              <i class="bi bi-plus-circle me-1"></i>Add Pattern
+              <i class="bi bi-plus-circle me-1"></i><span class="masking-btn-label">Add Pattern</span>
             </button>
           </div>
         </form>
@@ -220,7 +215,7 @@
       </div>
       {% if custom_patterns %}
       <div class="table-responsive">
-        <table class="table table-sm align-middle mb-0">
+        <table class="table table-sm align-middle mb-0 masking-patterns-table">
           <thead class="table-secondary">
             <tr>
               <th>Pattern</th>
@@ -230,8 +225,8 @@
           <tbody>
             {% for pattern in custom_patterns %}
             <tr>
-              <td class="font-monospace small text-break">{{ pattern }}</td>
-              <td>
+              <td class="font-monospace small text-break" data-label="Pattern">{{ pattern }}</td>
+              <td data-label="Actions">
                 <form method="post" action="{{ url_for('delete_masking_pattern') }}">
                   <input type="hidden" name="pattern" value="{{ pattern }}">
                   <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2" title="Delete pattern">

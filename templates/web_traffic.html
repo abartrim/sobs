@@ -1,16 +1,18 @@
 {% extends "base.html" %}
 {% from "_filter_macros.html" import render_filter_accordion %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Web Traffic{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
 {% set to_ts = to_ts or request.args.get('to_ts', '') %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-map me-2 text-primary"></i>Web Traffic</h4>
-  <div class="d-flex align-items-center gap-2">
-    <span class="text-secondary small">{{ total }} RUM events</span>
-    <a href="{{ url_for('web_traffic_help') }}" class="link-secondary text-decoration-none" title="Web Traffic Help" aria-label="Web Traffic Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+{% set web_traffic_header_meta %}
+  <span class="text-secondary small">{{ total }} RUM events</span>
+{% endset %}
+{% set web_traffic_header_actions %}
+  <a href="{{ url_for('web_traffic_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Web Traffic Help"><i class="bi bi-question-circle me-1"></i><span class="page-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Web Traffic', icon_class='bi bi-map', icon_text_class='text-primary', meta_html=web_traffic_header_meta, actions_html=web_traffic_header_actions) }}
 
 <!-- Filter bar -->
 {% call render_filter_accordion('trafficFiltersAccordion', 'trafficFiltersHeading', 'trafficFiltersPanel', 'text-primary', 'wt-tz-badge-btn', 'wt-tz-badge-label') %}
@@ -131,13 +133,13 @@
     <div id="wtUrlsPanel" class="accordion-collapse collapse">
       <div class="accordion-body p-0">
         <div class="table-responsive">
-          <table class="table table-sm table-hover mb-0">
+          <table class="table table-sm table-hover mb-0 web-traffic-table">
             <thead><tr><th>URL</th><th style="width:80px;">Hits</th></tr></thead>
             <tbody>
               {% for url, cnt in top_urls %}
               <tr>
-                <td class="small text-truncate" style="max-width:520px;" title="{{ url }}">{{ url }}</td>
-                <td class="small fw-semibold">{{ cnt }}</td>
+                <td class="small text-truncate" style="max-width:520px;" title="{{ url }}" data-label="URL">{{ url }}</td>
+                <td class="small fw-semibold" data-label="Hits">{{ cnt }}</td>
               </tr>
               {% endfor %}
             </tbody>

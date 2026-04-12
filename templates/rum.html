@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% from "_multi_select_filter.html" import render_single_select %}
 {% from "_filter_macros.html" import render_filter_accordion, render_regex_filter %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}RUM{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
 {% set to_ts = to_ts or request.args.get('to_ts', '') %}
@@ -169,6 +171,72 @@
   }
   .rum-detail-links .btn {
     flex: 0 0 auto;
+  }
+  @media (max-width: {{ mobile_breakpoint_max }}) {
+    .rum-events-table td::before {
+      display: none !important;
+    }
+    .rum-events-table td[data-label='Timestamp'],
+    .rum-events-table td[data-label='Session'],
+    .rum-events-table td[data-label='Type'],
+    .rum-events-table td[data-label='URL'] {
+      display: none !important;
+    }
+    .rum-events-table td[data-label='Details'] {
+      display: block !important;
+      width: 100% !important;
+      padding: 0 !important;
+    }
+    .rum-mobile-event-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      min-width: 0;
+      margin-bottom: 0.35rem;
+    }
+    .rum-mobile-event-meta .rum-mobile-event-ts {
+      font-size: 0.76rem;
+      color: var(--bs-secondary-color);
+      font-family: var(--bs-font-monospace);
+      white-space: nowrap;
+    }
+    .rum-mobile-event-meta .badge {
+      flex: 0 0 auto;
+    }
+    .rum-mobile-event-body {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.5rem;
+      min-width: 0;
+    }
+    .rum-mobile-event-primary {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-size: 1.02rem;
+      line-height: 1.25;
+      max-width: none !important;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .rum-mobile-event-url {
+      margin-top: 0.3rem;
+      font-size: 0.78rem;
+      color: var(--bs-secondary-color);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .rum-row-action-slot {
+      width: auto;
+      min-width: 0;
+      gap: 0.3rem;
+      justify-content: flex-end;
+    }
+    .rum-row-action-placeholder {
+      display: none !important;
+    }
   }
   .vitals-health-chip {
     border: 1px solid var(--bs-border-color);
@@ -484,24 +552,50 @@
     pointer-events: none !important;
   }
 </style>
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-globe me-2 text-primary"></i>Real User Monitoring</h4>
-  <div class="d-flex align-items-center gap-2" title="Auto-refresh interval">
-    <span class="text-secondary small">{{ total }} {{ 'sessions' if view_mode == 'sessions' else 'events' }}</span>
-    <span id="rumLastUpdated" class="text-secondary small" title="Page last loaded">Last updated: --</span>
-    <span id="rumCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
-    <div class="input-group input-group-sm" style="width:auto;">
-      <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
-      <select id="rumRefreshSelect" class="form-select form-select-sm" style="width:auto;">
-        <option value="0">Off</option>
-        <option value="10">10s</option>
-        <option value="30">30s</option>
-        <option value="60">1m</option>
-        <option value="120">2m</option>
-        <option value="300">5m</option>
-      </select>
+{% set rum_header_meta %}
+  <span class="text-secondary small">{{ total }} {{ 'sessions' if view_mode == 'sessions' else 'events' }}</span>
+  <span id="rumLastUpdated" class="text-secondary small" title="Page last loaded">Last updated: --</span>
+  <span id="rumCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
+  <div id="rumRefreshInlineGroup" class="input-group input-group-sm" style="width:auto;" title="Auto-refresh interval">
+    <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
+    <select id="rumRefreshSelect" class="form-select form-select-sm" style="width:auto;">
+      <option value="0">Off</option>
+      <option value="10">10s</option>
+      <option value="30">30s</option>
+      <option value="60">1m</option>
+      <option value="120">2m</option>
+      <option value="300">5m</option>
+    </select>
+  </div>
+{% endset %}
+{% set rum_header_actions %}
+  <button id="rumRefreshModalBtn" type="button" class="btn btn-sm btn-outline-secondary d-none" title="Auto-refresh" aria-label="Auto-refresh" data-bs-toggle="modal" data-bs-target="#rumRefreshModal"><i class="bi bi-arrow-repeat me-1"></i><span class="page-btn-label">Refresh</span></button>
+  <a href="{{ url_for('rum_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="RUM Help"><i class="bi bi-question-circle me-1"></i><span class="page-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Real User Monitoring', icon_class='bi bi-globe', icon_text_class='text-primary', meta_html=rum_header_meta, actions_html=rum_header_actions) }}
+
+<div class="modal fade" id="rumRefreshModal" tabindex="-1" aria-labelledby="rumRefreshModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="rumRefreshModalLabel"><i class="bi bi-arrow-repeat me-2"></i>Auto-refresh</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="rumRefreshSelectMobile" class="form-label">Refresh interval</label>
+        <select id="rumRefreshSelectMobile" class="form-select">
+          <option value="0">Off</option>
+          <option value="10">10 seconds</option>
+          <option value="30">30 seconds</option>
+          <option value="60">1 minute</option>
+          <option value="120">2 minutes</option>
+          <option value="300">5 minutes</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+      </div>
     </div>
-    <a href="{{ url_for('rum_help') }}" class="link-secondary text-decoration-none" title="RUM Help" aria-label="RUM Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
   </div>
 </div>
 
@@ -811,7 +905,7 @@
 {% set page_count = session_groups | length if view_mode == 'sessions' else events | length %}
 {% if view_mode == 'sessions' and session_groups %}
 <div class="table-responsive">
-  <table class="table table-sm table-hover align-middle">
+  <table class="table table-sm table-hover align-middle rum-sessions-table">
     <thead>
       {% set severity_next_dir = 'asc' if (sort_by == 'severity' and sort_dir == 'desc') else 'desc' %}
       {% set last_seen_next_dir = 'asc' if (sort_by == 'last_seen' and sort_dir == 'desc') else 'desc' %}
@@ -862,14 +956,14 @@
         {% set session_status_filter = 'status-healthy' %}
       {% endif %}
       <tr class="rum-session-row {{ session_row_class }}">
-        <td>
+        <td data-label="Last Seen">
           <div class="rum-session-ts" data-utc-ts="{{ session.last_ts }}">
             <span class="rum-session-ts-date">{{ session.last_ts[:10] }}</span>
             <span class="rum-session-ts-time">{{ session.last_ts[11:23] }}</span>
           </div>
         </td>
-        <td><span class="rum-session-id">{{ session.session_id }}</span></td>
-        <td>
+        <td data-label="Session"><span class="rum-session-id">{{ session.session_id }}</span></td>
+        <td data-label="Overview">
           <div class="rum-session-overview">
             <div class="rum-session-primary-row">
               <button type="button" class="rum-session-status {{ session_status_class }} rum-chip-btn" data-chip-session="rum-session-{{ loop.index }}" data-chip-filter="{{ session_status_filter }}" title="Jump to first {{ session_status_label | lower }} event">{{ session_status_label }}</button>
@@ -885,7 +979,7 @@
             </div>
           </div>
         </td>
-        <td class="small">
+        <td data-label="Latest Event" class="small">
           <button type="button" class="badge {% if session.last_event_type in ('error','unhandledrejection') %}bg-danger{% elif session.last_event_type == 'pageview' %}bg-primary{% elif session.last_event_type == 'web-vital' %}bg-success{% else %}bg-secondary{% endif %} rum-chip-btn"
                   data-chip-session="rum-session-{{ loop.index }}"
                   data-chip-filter="type-{{ session.last_event_type }}"
@@ -893,8 +987,8 @@
             {{ session.last_event_type }}
           </button>
         </td>
-        <td class="small text-truncate" style="max-width:420px;" title="{{ session.last_url|mask }}">{{ session.last_url|mask }}</td>
-        <td class="text-end">
+        <td data-label="Last URL" class="small text-truncate" style="max-width:420px;" title="{{ session.last_url|mask }}">{{ session.last_url|mask }}</td>
+        <td data-label="Actions" class="text-end">
           <span class="rum-row-action-slot">
             {% if session.trace_id %}
             <a href="{{ url_for('view_logs', trace_id=session.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
@@ -1091,7 +1185,7 @@
                     <div class="mb-3">
                       <div class="text-secondary mb-2">Recent Console</div>
                       <div class="table-responsive">
-                        <table class="table table-sm align-middle mb-0">
+                        <table class="table table-sm align-middle mb-0 rum-detail-card-table">
                           <thead>
                             <tr>
                               <th style="width:150px;">Timestamp</th>
@@ -1102,9 +1196,9 @@
                           <tbody>
                             {% for entry in breadcrumbs.get('console', []) %}
                             <tr>
-                              <td class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
-                              <td><span class="badge {% if entry.get('level') == 'error' %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ entry.get('level', '') }}</span></td>
-                              <td class="text-break">
+                              <td data-label="Timestamp" class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
+                              <td data-label="Level"><span class="badge {% if entry.get('level') == 'error' %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ entry.get('level', '') }}</span></td>
+                              <td data-label="Message" class="text-break">
                                 <div>{{ entry.get('message', '')|mask }}</div>
                                 {% if entry.get('errorType') %}<div class="small text-secondary font-monospace mt-1">Type: {{ entry.get('errorType')|mask }}</div>{% endif %}
                                 {% if entry.get('source') %}<div class="small text-secondary font-monospace">Source: {{ entry.get('source')|mask }}</div>{% endif %}
@@ -1127,7 +1221,7 @@
                     <div>
                       <div class="text-secondary mb-2">Recent Breadcrumbs</div>
                       <div class="table-responsive">
-                        <table class="table table-sm align-middle mb-0">
+                        <table class="table table-sm align-middle mb-0 rum-detail-card-table">
                           <thead>
                             <tr>
                               <th style="width:150px;">Timestamp</th>
@@ -1139,10 +1233,10 @@
                           <tbody>
                             {% for entry in breadcrumbs.get('user', []) %}
                             <tr>
-                              <td class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
-                              <td class="font-monospace">{{ entry.get('category', '') }}</td>
-                              <td>{{ entry.get('message', '')|mask }}</td>
-                              <td class="text-break font-monospace">{{ entry.get('data', {}) | mask | tojson }}</td>
+                              <td data-label="Timestamp" class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
+                              <td data-label="Category" class="font-monospace">{{ entry.get('category', '') }}</td>
+                              <td data-label="Message">{{ entry.get('message', '')|mask }}</td>
+                              <td data-label="Data" class="text-break font-monospace">{{ entry.get('data', {}) | mask | tojson }}</td>
                             </tr>
                             {% endfor %}
                           </tbody>
@@ -1165,7 +1259,7 @@
 </div>
 {% elif view_mode == 'events' and events %}
 <div class="table-responsive">
-  <table class="table table-sm table-hover align-middle">
+  <table class="table table-sm table-hover align-middle rum-events-table">
     <thead>
       {% set ts_next_dir = 'asc' if (sort_by == 'Timestamp' and sort_dir == 'desc') else 'desc' %}
       {% set type_next_dir = 'asc' if (sort_by == 'EventName' and sort_dir == 'desc') else 'desc' %}
@@ -1189,18 +1283,22 @@
       {% for ev in events %}
       <tr>
         {% set trace_id = ev.data.get('traceId', '') %}
-        <td class="text-secondary small font-monospace rum-ts-inline" data-utc-ts="{{ ev.ts }}">{{ ev.ts[:23] }}</td>
-        <td class="small font-monospace text-secondary">{{ ev.session_id }}</td>
-        <td>
+        <td data-label="Timestamp" class="text-secondary small font-monospace rum-ts-inline" data-utc-ts="{{ ev.ts }}">{{ ev.ts[:23] }}</td>
+        <td data-label="Session" class="small font-monospace text-secondary">{{ ev.session_id }}</td>
+        <td data-label="Type">
           <span class="badge {% if ev.event_type in ('error','unhandledrejection') %}bg-danger{% elif ev.event_type == 'pageview' %}bg-primary{% elif ev.event_type == 'web-vital' %}bg-success{% else %}bg-secondary{% endif %}">
             {{ ev.event_type }}
           </span>
         </td>
-        <td class="small text-truncate" style="max-width:250px;" title="{{ ev.url|mask }}">{{ ev.url|mask }}</td>
-        <td class="small text-secondary">
+        <td data-label="URL" class="small text-truncate" style="max-width:250px;" title="{{ ev.url|mask }}">{{ ev.url|mask }}</td>
+        <td data-label="Details" class="small text-secondary">
+          <div class="rum-mobile-event-meta">
+            <span class="rum-mobile-event-ts sobs-tz-ts" data-utc-ts="{{ ev.ts }}">{{ ev.ts[:19] }}</span>
+            <span class="badge {% if ev.event_type in ('error','unhandledrejection') %}bg-danger{% elif ev.event_type == 'pageview' %}bg-primary{% elif ev.event_type == 'web-vital' %}bg-success{% else %}bg-secondary{% endif %}">{{ ev.event_type }}</span>
+          </div>
           {% if ev.event_type == 'web-vital' %}
-            <div class="d-flex align-items-center justify-content-between gap-2">
-              <span class="text-truncate d-inline-block" style="max-width:220px;">
+            <div class="rum-mobile-event-body d-flex align-items-center justify-content-between gap-2">
+              <span class="rum-mobile-event-primary text-truncate d-inline-block" style="max-width:220px;">
                 {{ ev.data.get('name','') }}: <strong>{{ ev.data.get('value', '') }}</strong>
               </span>
               <span class="rum-row-action-slot">
@@ -1224,8 +1322,8 @@
               </span>
             </div>
           {% elif ev.event_type in ('error','unhandledrejection') %}
-            <div class="d-flex align-items-center justify-content-between gap-2">
-              <span class="text-danger text-truncate d-inline-block" style="max-width:180px;" title="{{ ev.data.get('message','')|mask }}">{{ ev.data.get('message','') | mask | truncate(60) }}</span>
+            <div class="rum-mobile-event-body d-flex align-items-center justify-content-between gap-2">
+              <span class="rum-mobile-event-primary text-danger text-truncate d-inline-block" style="max-width:180px;" title="{{ ev.data.get('message','')|mask }}">{{ ev.data.get('message','') | mask | truncate(60) }}</span>
               <span class="rum-row-action-slot">
                 {% if trace_id %}
                 <a href="{{ url_for('view_logs', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}"
@@ -1258,8 +1356,8 @@
               </span>
             </div>
           {% elif ev.event_type == 'pageview' %}
-            <div class="d-flex align-items-center justify-content-between gap-2">
-              <span class="text-truncate d-inline-block" style="max-width:220px;">{{ ev.data.get('title','') | mask | truncate(40) }}</span>
+            <div class="rum-mobile-event-body d-flex align-items-center justify-content-between gap-2">
+              <span class="rum-mobile-event-primary text-truncate d-inline-block" style="max-width:220px;">{{ ev.data.get('title','') | mask | truncate(40) }}</span>
               <span class="rum-row-action-slot">
                 {% if trace_id %}
                 <a href="{{ url_for('view_logs', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}"
@@ -1281,6 +1379,7 @@
               </span>
             </div>
           {% endif %}
+          <div class="rum-mobile-event-url" title="{{ ev.url|mask }}">{{ ev.url|mask }}</div>
         </td>
       </tr>
       {% if ev.event_type in ('error','unhandledrejection') %}
@@ -1373,7 +1472,7 @@
             <div class="mb-3">
               <div class="text-secondary mb-2">Recent Console</div>
               <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0">
+                <table class="table table-sm align-middle mb-0 rum-detail-card-table">
                   <thead>
                     <tr>
                       <th style="width:150px;">Timestamp</th>
@@ -1384,9 +1483,9 @@
                   <tbody>
                     {% for entry in breadcrumbs.get('console', []) %}
                     <tr>
-                      <td class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
-                      <td><span class="badge {% if entry.get('level') == 'error' %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ entry.get('level', '') }}</span></td>
-                      <td class="text-break">
+                      <td data-label="Timestamp" class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
+                      <td data-label="Level"><span class="badge {% if entry.get('level') == 'error' %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ entry.get('level', '') }}</span></td>
+                      <td data-label="Message" class="text-break">
                         <div>{{ entry.get('message', '')|mask }}</div>
                         {% if entry.get('errorType') %}
                         <div class="small text-secondary font-monospace mt-1">Type: {{ entry.get('errorType')|mask }}</div>
@@ -1413,7 +1512,7 @@
             <div>
               <div class="text-secondary mb-2">Recent Breadcrumbs</div>
               <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0">
+                <table class="table table-sm align-middle mb-0 rum-detail-card-table">
                   <thead>
                     <tr>
                       <th style="width:150px;">Timestamp</th>
@@ -1425,10 +1524,10 @@
                   <tbody>
                     {% for entry in breadcrumbs.get('user', []) %}
                     <tr>
-                      <td class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
-                      <td class="font-monospace">{{ entry.get('category', '') }}</td>
-                      <td>{{ entry.get('message', '')|mask }}</td>
-                      <td class="text-break font-monospace">{{ entry.get('data', {}) | mask | tojson }}</td>
+                      <td data-label="Timestamp" class="font-monospace text-secondary rum-ts-inline" data-utc-ts="{{ entry.get('timestamp', '') }}">{{ entry.get('timestamp', '')[:23] }}</td>
+                      <td data-label="Category" class="font-monospace">{{ entry.get('category', '') }}</td>
+                      <td data-label="Message">{{ entry.get('message', '')|mask }}</td>
+                      <td data-label="Data" class="text-break font-monospace">{{ entry.get('data', {}) | mask | tojson }}</td>
                     </tr>
                     {% endfor %}
                   </tbody>
@@ -2319,6 +2418,28 @@ _sobsInitRegexFilter({
 <script src="{{ url_for('static', filename='echarts.min.js') }}"></script>
 <script>
 (function () {
+  var isMobile = window.matchMedia('(max-width: {{ mobile_breakpoint_max }})');
+  function syncRefreshControlsVisibility() {
+    var inlineGroup = document.getElementById('rumRefreshInlineGroup');
+    var modalBtn = document.getElementById('rumRefreshModalBtn');
+    if (!inlineGroup || !modalBtn) return;
+    if (isMobile.matches) {
+      inlineGroup.classList.add('d-none');
+      modalBtn.classList.remove('d-none');
+      modalBtn.classList.add('d-inline-flex');
+    } else {
+      inlineGroup.classList.remove('d-none');
+      modalBtn.classList.add('d-none');
+      modalBtn.classList.remove('d-inline-flex');
+    }
+  }
+  syncRefreshControlsVisibility();
+  if (typeof isMobile.addEventListener === 'function') {
+    isMobile.addEventListener('change', syncRefreshControlsVisibility);
+  } else if (typeof isMobile.addListener === 'function') {
+    isMobile.addListener(syncRefreshControlsVisibility);
+  }
+
   var lastUpdatedEl = document.getElementById('rumLastUpdated');
   if (lastUpdatedEl) {
     var loadedAt = new Date();
@@ -2328,6 +2449,8 @@ _sobsInitRegexFilter({
   }
 
   var select = document.getElementById('rumRefreshSelect');
+  var mobileSelect = document.getElementById('rumRefreshSelectMobile');
+  var mobileModal = document.getElementById('rumRefreshModal');
   var countdown = document.getElementById('rumCountdown');
   if (!select || !countdown) return;
 
@@ -2366,12 +2489,36 @@ _sobsInitRegexFilter({
 
   select.addEventListener('change', function () {
     localStorage.setItem('sobs_rum_refresh', select.value);
+    if (mobileSelect) {
+      mobileSelect.value = select.value;
+    }
     apply();
   });
+
+  if (mobileSelect) {
+    mobileSelect.value = select.value;
+    mobileSelect.addEventListener('change', function () {
+      if (select.value !== mobileSelect.value) {
+        select.value = mobileSelect.value;
+        select.dispatchEvent(new Event('change'));
+      }
+    });
+  }
+
+  if (mobileModal) {
+    mobileModal.addEventListener('show.bs.modal', function () {
+      if (mobileSelect) {
+        mobileSelect.value = select.value;
+      }
+    });
+  }
 
   var saved = localStorage.getItem('sobs_rum_refresh');
   if (saved && saved !== '0') {
     select.value = saved;
+    if (mobileSelect) {
+      mobileSelect.value = saved;
+    }
     apply();
   }
 }());

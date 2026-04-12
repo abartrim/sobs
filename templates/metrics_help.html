@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Metrics Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Metrics Help</h4>
     <p class="text-secondary mb-0">Derived 1-minute telemetry signals, anomaly state, and signal drilldown.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_metrics') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Metrics
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_metrics') }}" title="Back to Metrics">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Metrics</span>
   </a>
 </div>
 
@@ -41,7 +45,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header fw-semibold"><i class="bi bi-funnel me-2 text-info"></i>Filter Controls</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:20%">Control</th>
@@ -50,32 +54,32 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace">Search</td>
-          <td>Regex pattern matched against signal name and service.</td>
+          <td class="font-monospace" data-label="Control">Search</td>
+          <td data-label="Description">Regex pattern matched against signal name and service.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Source</td>
-          <td>OTEL telemetry source (e.g. <em>logs</em>, <em>traces</em>, <em>gauge</em>).</td>
+          <td class="font-monospace" data-label="Control">Source</td>
+          <td data-label="Description">OTEL telemetry source (e.g. <em>logs</em>, <em>traces</em>, <em>gauge</em>).</td>
         </tr>
         <tr>
-          <td class="font-monospace">Service</td>
-          <td>Multi-select dropdown. Filter to one or more services.</td>
+          <td class="font-monospace" data-label="Control">Service</td>
+          <td data-label="Description">Multi-select dropdown. Filter to one or more services.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Signal</td>
-          <td>Filter to a specific signal name (e.g. <em>error_rate</em>, <em>p99_latency</em>).</td>
+          <td class="font-monospace" data-label="Control">Signal</td>
+          <td data-label="Description">Filter to a specific signal name (e.g. <em>error_rate</em>, <em>p99_latency</em>).</td>
         </tr>
         <tr>
-          <td class="font-monospace">Attr FP</td>
-          <td>Optional attribute fingerprint to narrow signals to a specific attribute combination.</td>
+          <td class="font-monospace" data-label="Control">Attr FP</td>
+          <td data-label="Description">Optional attribute fingerprint to narrow signals to a specific attribute combination.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Hours</td>
-          <td>Lookback window in hours (1–168). Overridden by explicit From/To values.</td>
+          <td class="font-monospace" data-label="Control">Hours</td>
+          <td data-label="Description">Lookback window in hours (1–168). Overridden by explicit From/To values.</td>
         </tr>
         <tr>
-          <td class="font-monospace">From / To</td>
-          <td>Explicit date-time range. When set, overrides the <em>Hours</em> lookback.</td>
+          <td class="font-monospace" data-label="Control">From / To</td>
+          <td data-label="Description">Explicit date-time range. When set, overrides the <em>Hours</em> lookback.</td>
         </tr>
       </tbody>
     </table>
@@ -101,7 +105,7 @@
 <div class="card border-secondary mb-0">
   <div class="card-header fw-semibold"><i class="bi bi-database me-2"></i>Ingest &amp; API</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:35%">Endpoint</th>
@@ -110,12 +114,12 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace small">POST /v1/metrics</td>
-          <td>OpenTelemetry OTLP JSON metric data points (gauge, sum, histogram).</td>
+          <td class="font-monospace small" data-label="Endpoint">POST /v1/metrics</td>
+          <td data-label="Description">OpenTelemetry OTLP JSON metric data points (gauge, sum, histogram).</td>
         </tr>
         <tr>
-          <td class="font-monospace small">GET /metrics</td>
-          <td>UI page. Accepts <code>q</code>, <code>source</code>, <code>service</code>, <code>signal</code>, <code>hours</code>, <code>from_ts</code>, <code>to_ts</code> query parameters.</td>
+          <td class="font-monospace small" data-label="Endpoint">GET /metrics</td>
+          <td data-label="Description">UI page. Accepts <code>q</code>, <code>source</code>, <code>service</code>, <code>signal</code>, <code>hours</code>, <code>from_ts</code>, <code>to_ts</code> query parameters.</td>
         </tr>
       </tbody>
     </table>

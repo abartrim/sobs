@@ -10137,6 +10137,80 @@ class TestTagRules:
         assert attr_value_data["ok"] is True
         assert any(attr_value in str(v) for v in (attr_value_data.get("suggestions") or []))
 
+    async def test_notification_rule_condition_suggestions_api(self, client):
+        token = str(time.time_ns())
+        service_name = f"notif-suggest-{token}"
+        tag_key = f"env-{token}"
+        tag_value = f"prod-{token}"
+
+        r_seed = await client.post(
+            "/v1/logs",
+            json={
+                "resourceLogs": [
+                    {
+                        "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": service_name}}]},
+                        "scopeLogs": [
+                            {
+                                "logRecords": [
+                                    {
+                                        "timeUnixNano": str(int(time.time() * 1_000_000_000)),
+                                        "severityText": "ERROR",
+                                        "body": {"stringValue": "notification suggestions seed"},
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+        assert r_seed.status_code == 200
+
+        sobs_app._insert_rows_json_each_row(
+            sobs_app.get_db(),
+            "sobs_record_tags",
+            [
+                {
+                    "RecordType": "log",
+                    "RecordId": f"notif-tag-{token}",
+                    "TagKey": tag_key,
+                    "TagValue": tag_value,
+                    "IsAuto": 1,
+                    "IsDeleted": 0,
+                    "Version": int(time.time() * 1000),
+                }
+            ],
+        )
+
+        r_service = await client.get(
+            "/api/settings/tags/condition-suggestions?scope=notification_rule"
+            "&target=service&source=logs&signal=error_volume"
+            f"&q={service_name}"
+        )
+        assert r_service.status_code == 200
+        service_data = await r_service.get_json()
+        assert service_data["ok"] is True
+        assert service_data["scope"] == "notification_rule"
+        assert any(service_name in str(v) for v in (service_data.get("suggestions") or []))
+
+        r_tag_key = await client.get(
+            "/api/settings/tags/condition-suggestions?scope=notification_rule"
+            f"&target=tag_key&record_type=log&q={tag_key}"
+        )
+        assert r_tag_key.status_code == 200
+        tag_key_data = await r_tag_key.get_json()
+        assert tag_key_data["ok"] is True
+        assert any(tag_key in str(v) for v in (tag_key_data.get("suggestions") or []))
+
+        r_tag_value = await client.get(
+            "/api/settings/tags/condition-suggestions?scope=notification_rule"
+            f"&target=tag_value&record_type=log&tag_key={tag_key}&q={tag_value}"
+        )
+        assert r_tag_value.status_code == 200
+        tag_value_data = await r_tag_value.get_json()
+        assert tag_value_data["ok"] is True
+        assert any(tag_value in str(v) for v in (tag_value_data.get("suggestions") or []))
+
     async def test_auto_tag_rules_preview(self, client):
         ts_ns = int(time.time() * 1_000_000_000)
         payload = {
@@ -10303,6 +10377,94 @@ class TestTagRules:
             [rule_id],
         ).fetchone()
         assert row2 is None, "Rule was not deleted"
+
+    async def test_edit_tag_rule_via_reused_create_form(self, client):
+        await client.post(
+            "/settings/tags",
+            form={
+                "name": "editable-rule",
+                "record_types": "log",
+                "match_field": "severity",
+                "match_operator": "eq",
+                "match_value": "ERROR",
+                "match_attr_key": "",
+                "tag_key": "priority",
+                "tag_value": "high",
+            },
+        )
+
+        from app import get_db
+
+        db = get_db()
+        row = db.execute(
+            "SELECT Id FROM sobs_tag_rules FINAL WHERE Name='editable-rule' AND IsDeleted=0 LIMIT 1"
+        ).fetchone()
+        assert row is not None
+        rule_id = str(row["Id"])
+
+        r = await client.post(
+            "/settings/tags",
+            form={
+                "edit_rule_id": rule_id,
+                "name": "editable-rule-updated",
+                "record_types": "trace",
+                "match_field": "service_name",
+                "match_operator": "contains",
+                "match_value": "checkout",
+                "match_attr_key": "",
+                "tag_key": "team",
+                "tag_value": "payments",
+            },
+        )
+        assert r.status_code in (200, 302)
+
+        updated = db.execute(
+            "SELECT Id, Name, RecordTypes, MatchField, MatchOperator, MatchValue, TagKey, TagValue "
+            "FROM sobs_tag_rules FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1",
+            [rule_id],
+        ).fetchone()
+        assert updated is not None
+        assert str(updated["Id"]) == rule_id
+        assert str(updated["Name"]) == "editable-rule-updated"
+        assert str(updated["RecordTypes"]) == "trace"
+        assert str(updated["MatchField"]) == "service_name"
+        assert str(updated["MatchOperator"]) == "contains"
+        assert str(updated["MatchValue"]) == "checkout"
+        assert str(updated["TagKey"]) == "team"
+        assert str(updated["TagValue"]) == "payments"
+
+    def test_load_tag_rules_falls_back_to_legacy_condition_columns(self):
+        db = sobs_app.get_db()
+        rule_id = f"legacy-tag-{time.time_ns()}"
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "sobs_tag_rules",
+            [
+                {
+                    "Id": rule_id,
+                    "Name": "legacy-rule",
+                    "RecordTypes": "log",
+                    "MatchField": "service_name",
+                    "MatchOperator": "contains",
+                    "MatchValue": "checkout",
+                    "MatchAttrKey": "",
+                    "TagKey": "team",
+                    "TagValue": "payments",
+                    "ConditionsJson": "",
+                    "IsDeleted": 0,
+                    "Version": int(time.time() * 1000),
+                }
+            ],
+        )
+
+        rules = sobs_app._load_tag_rules(db)
+        loaded = next((rule for rule in rules if rule["id"] == rule_id), None)
+        assert loaded is not None
+        assert isinstance(loaded.get("conditions"), list)
+        assert len(loaded["conditions"]) == 1
+        assert loaded["conditions"][0]["match_field"] == "service_name"
+        assert loaded["conditions"][0]["match_operator"] == "contains"
+        assert loaded["conditions"][0]["match_value"] == "checkout"
 
     # ── Auto-tagging at ingest ────────────────────────────────────────────────
 
@@ -13477,6 +13639,240 @@ class TestNotifications:
         assert len(rule["conditions"]) == 1
         assert rule["conditions"][0]["signal"] == "error_volume"
 
+    async def test_create_notification_rule_with_tag_condition(self, client):
+        await client.post(
+            "/settings/notifications/channels",
+            form={
+                "name": "Tag Rule Channel",
+                "channel_type": "slack",
+                "slack_webhook_url": "https://hooks.slack.com/services/TAG_RULE_TEST",
+            },
+        )
+        channels = sobs_app._load_notification_channels(sobs_app.get_db())
+        ch = next((c for c in channels if c["name"] == "Tag Rule Channel"), None)
+        assert ch is not None
+
+        r = await client.post(
+            "/settings/notifications/rules",
+            form={
+                "name": "Prod Tag Burst",
+                "logic_operator": "all",
+                "severity": "critical",
+                "cooldown_seconds": "60",
+                "channel_ids": ch["id"],
+                "cond_type": "tag",
+                "cond_record_type": "log",
+                "cond_tag_key": "env",
+                "cond_tag_match_operator": "eq",
+                "cond_tag_value": "prod",
+                "cond_comparator": "gte",
+                "cond_threshold": "2",
+                "cond_window_minutes": "5",
+            },
+        )
+        assert r.status_code in (200, 302)
+
+        rules = sobs_app._load_notification_rules(sobs_app.get_db())
+        rule = next((rule for rule in rules if rule["name"] == "Prod Tag Burst"), None)
+        assert rule is not None
+        assert len(rule["conditions"]) == 1
+        assert rule["conditions"][0]["type"] == "tag"
+        assert rule["conditions"][0]["record_type"] == "log"
+        assert rule["conditions"][0]["tag_key"] == "env"
+        assert rule["conditions"][0]["tag_value"] == "prod"
+
+    async def test_create_notification_rule_rejects_invalid_tag_regex(self, client):
+        await client.post(
+            "/settings/notifications/channels",
+            form={
+                "name": "Regex Rule Channel",
+                "channel_type": "slack",
+                "slack_webhook_url": "https://hooks.slack.com/services/REGEX_RULE_TEST",
+            },
+        )
+        channels = sobs_app._load_notification_channels(sobs_app.get_db())
+        ch = next((c for c in channels if c["name"] == "Regex Rule Channel"), None)
+        assert ch is not None
+
+        r = await client.post(
+            "/settings/notifications/rules",
+            form={
+                "name": "Invalid Regex Rule",
+                "logic_operator": "all",
+                "severity": "critical",
+                "cooldown_seconds": "60",
+                "channel_ids": ch["id"],
+                "cond_type": "tag",
+                "cond_record_type": "log",
+                "cond_tag_key": "env",
+                "cond_tag_match_operator": "regex",
+                "cond_tag_value": "([invalid",
+                "cond_comparator": "gte",
+                "cond_threshold": "2",
+                "cond_window_minutes": "5",
+            },
+        )
+        assert r.status_code in (200, 302)
+
+        rules = sobs_app._load_notification_rules(sobs_app.get_db())
+        created = next((rule for rule in rules if rule["name"] == "Invalid Regex Rule"), None)
+        assert created is None
+
+    async def test_edit_notification_rule_updates_channels_and_conditions(self, client):
+        await client.post(
+            "/settings/notifications/channels",
+            form={
+                "name": "Edit Rule Channel A",
+                "channel_type": "slack",
+                "slack_webhook_url": "https://hooks.slack.com/services/EDIT_RULE_A",
+            },
+        )
+        await client.post(
+            "/settings/notifications/channels",
+            form={
+                "name": "Edit Rule Channel B",
+                "channel_type": "slack",
+                "slack_webhook_url": "https://hooks.slack.com/services/EDIT_RULE_B",
+            },
+        )
+
+        channels = sobs_app._load_notification_channels(sobs_app.get_db())
+        ch_a = next((c for c in channels if c["name"] == "Edit Rule Channel A"), None)
+        ch_b = next((c for c in channels if c["name"] == "Edit Rule Channel B"), None)
+        assert ch_a is not None
+        assert ch_b is not None
+
+        create_resp = await client.post(
+            "/settings/notifications/rules",
+            form={
+                "name": "Editable Rule",
+                "logic_operator": "any",
+                "severity": "warning",
+                "cooldown_seconds": "60",
+                "channel_ids": ch_a["id"],
+                "cond_type": "signal",
+                "cond_source": "logs",
+                "cond_signal": "error_volume",
+                "cond_service": "",
+                "cond_comparator": "gt",
+                "cond_threshold": "10",
+                "cond_window_minutes": "5",
+            },
+        )
+        assert create_resp.status_code in (200, 302)
+
+        rules = sobs_app._load_notification_rules(sobs_app.get_db())
+        created = next((rule for rule in rules if rule["name"] == "Editable Rule"), None)
+        assert created is not None
+
+        update_resp = await client.post(
+            "/settings/notifications/rules",
+            form={
+                "edit_rule_id": created["id"],
+                "name": "Editable Rule Updated",
+                "logic_operator": "all",
+                "severity": "critical",
+                "cooldown_seconds": "120",
+                "channel_ids": ch_b["id"],
+                "cond_type": "tag",
+                "cond_record_type": "log",
+                "cond_tag_key": "env",
+                "cond_tag_match_operator": "eq",
+                "cond_tag_value": "prod",
+                "cond_comparator": "gte",
+                "cond_threshold": "1",
+                "cond_window_minutes": "5",
+            },
+        )
+        assert update_resp.status_code in (200, 302)
+
+        updated_rules = sobs_app._load_notification_rules(sobs_app.get_db())
+        updated = next((rule for rule in updated_rules if rule["id"] == created["id"]), None)
+        assert updated is not None
+        assert updated["name"] == "Editable Rule Updated"
+        assert updated["logic_operator"] == "all"
+        assert updated["severity"] == "critical"
+        assert updated["cooldown_seconds"] == 120
+        assert updated["channel_ids"] == [ch_b["id"]]
+        assert len(updated["conditions"]) == 1
+        assert updated["conditions"][0]["type"] == "tag"
+
+    def test_parse_notification_conditions_json_normalizes_legacy_and_tag_conditions(self):
+        parsed = sobs_app._parse_notification_conditions_json(
+            json.dumps(
+                [
+                    {
+                        "source": "logs",
+                        "signal": "error_volume",
+                        "service": "api",
+                        "comparator": "gt",
+                        "threshold": 10,
+                        "window_minutes": 5,
+                    },
+                    {
+                        "type": "tag",
+                        "record_type": "log",
+                        "tag_key": "env",
+                        "tag_match_operator": "contains",
+                        "tag_value": "prod",
+                        "comparator": "gte",
+                        "threshold": 1,
+                        "window_minutes": 10,
+                    },
+                ]
+            )
+        )
+
+        assert parsed[0]["type"] == "signal"
+        assert parsed[0]["signal"] == "error_volume"
+        assert parsed[1]["type"] == "tag"
+        assert parsed[1]["tag_match_operator"] == "contains"
+
+    def test_evaluate_tag_condition_counts_recent_matching_tags(self):
+        db = sobs_app.get_db()
+        now_version = int(time.time() * 1000)
+        sobs_app._insert_rows_json_each_row(
+            db,
+            "sobs_record_tags",
+            [
+                {
+                    "RecordType": "log",
+                    "RecordId": f"tag-cond-{time.time_ns()}",
+                    "TagKey": "env",
+                    "TagValue": "prod",
+                    "IsAuto": 1,
+                    "IsDeleted": 0,
+                    "Version": now_version,
+                },
+                {
+                    "RecordType": "log",
+                    "RecordId": f"tag-cond-{time.time_ns()}-2",
+                    "TagKey": "env",
+                    "TagValue": "prod-eu",
+                    "IsAuto": 1,
+                    "IsDeleted": 0,
+                    "Version": now_version,
+                },
+            ],
+        )
+
+        matched, count = sobs_app._evaluate_tag_condition(
+            db,
+            {
+                "type": "tag",
+                "record_type": "log",
+                "tag_key": "env",
+                "tag_match_operator": "contains",
+                "tag_value": "prod",
+                "comparator": "gte",
+                "threshold": 2,
+                "window_minutes": 5,
+            },
+        )
+
+        assert matched is True
+        assert count >= 2
+
     async def test_create_rule_missing_name_rejected(self, client):
         r = await client.post(
             "/settings/notifications/rules",
@@ -13563,6 +13959,58 @@ class TestNotifications:
         assert isinstance(data["results"], list)
         assert "agent_runs" in data
 
+    async def test_check_notification_rule_supports_mixed_signal_and_tag_conditions(self, monkeypatch):
+        db = sobs_app.get_db()
+        rule = {
+            "id": f"mixed-rule-{time.time_ns()}",
+            "name": "Signal plus tag",
+            "enabled": True,
+            "logic_operator": "all",
+            "conditions": [
+                {
+                    "type": "signal",
+                    "source": "logs",
+                    "signal": "error_volume",
+                    "service": "",
+                    "comparator": "gt",
+                    "threshold": 1,
+                    "window_minutes": 5,
+                },
+                {
+                    "type": "tag",
+                    "record_type": "log",
+                    "tag_key": "env",
+                    "tag_match_operator": "eq",
+                    "tag_value": "prod",
+                    "comparator": "gte",
+                    "threshold": 1,
+                    "window_minutes": 5,
+                },
+            ],
+            "channel_ids": ["mixed-channel"],
+            "severity": "warning",
+            "cooldown_seconds": 0,
+        }
+        channels_by_id = {
+            "mixed-channel": {
+                "id": "mixed-channel",
+                "name": "Mixed",
+                "enabled": True,
+                "channel_type": "webhook",
+                "config": {"url": "https://example.com/mixed", "mask_output_enabled": "1"},
+            }
+        }
+
+        monkeypatch.setattr(sobs_app, "_evaluate_signal_condition", lambda _db, _cond: (True, 42.0))
+        monkeypatch.setattr(sobs_app, "_evaluate_tag_condition", lambda _db, _cond: (True, 3.0))
+        monkeypatch.setattr(sobs_app, "_dispatch_notification_channel", AsyncMock(return_value="ok"))
+
+        result = await sobs_app._check_notification_rule(db, rule, channels_by_id)
+
+        assert result["fired"] is True
+        assert len(result["dispatch_results"]) == 1
+        assert result["dispatch_results"][0]["status"] == "ok"
+
     async def test_notifications_check_auto_triggers_anomaly_agent_rule(self, client, monkeypatch):
         await client.post(
             "/settings/agents",
@@ -13618,7 +14066,7 @@ class TestNotifications:
             def execute(self, sql, _params=None):
                 # Ensure collector returns the latest timestamp so seasonal rules
                 # can evaluate the correct UTC time bucket.
-                assert "argMax(time, time) AS time" in sql
+                assert "argMax(time, time) AS latest_time" in sql
                 return _FakeResult(
                     [
                         {
@@ -13628,7 +14076,7 @@ class TestNotifications:
                             "AttrFingerprint": "",
                             "value": 25.0,
                             "SampleCount": 5,
-                            "time": "2024-01-01 12:30:00",
+                            "latest_time": "2024-01-01 12:30:00",
                         }
                     ]
                 )
@@ -13813,6 +14261,26 @@ class TestNotifications:
         payload = _build_notification_payload(rule, conditions, mask_output_enabled=True)
         assert payload["conditions"][0]["service"] == "****"
         assert payload["summary"].count("****") >= 1
+
+    def test_build_notification_payload_includes_tag_condition_summary(self):
+        from app import _build_notification_payload
+
+        rule = {"name": "Tagged Rule", "severity": "warning"}
+        conditions = [
+            {
+                "type": "tag",
+                "record_type": "log",
+                "tag_key": "env",
+                "tag_match_operator": "eq",
+                "tag_value": "prod",
+                "comparator": "gte",
+                "threshold": 1,
+                "_value": 3.0,
+            }
+        ]
+
+        payload = _build_notification_payload(rule, conditions)
+        assert "tag [log] env eq prod" in payload["summary"]
 
     def test_mask_channel_config_hides_password(self):
         from app import _mask_channel_config

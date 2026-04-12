@@ -51,7 +51,7 @@
   max-width: 10ch;
 }
 
-@media (max-width: 991.98px) {
+@media (max-width: {{ mobile_breakpoint_max }}) {
   .error-panel-type {
     max-width: 13ch;
   }
@@ -71,36 +71,90 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+@media (max-width: {{ mobile_breakpoint_max }}) {
+  #{{ accordion_id }}.error-accordion-compact-mobile .accordion-item {
+    margin-bottom: 0.6rem;
+  }
+
+  #{{ accordion_id }}.error-accordion-compact-mobile .error-panel-summary {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "state count type timestamp"
+      "service service service timestamp";
+    align-items: center;
+    row-gap: 0.28rem;
+    column-gap: 0.45rem;
+    max-width: calc(100% - 1.25rem);
+  }
+
+  #{{ accordion_id }}.error-accordion-compact-mobile .error-panel-state {
+    grid-area: state;
+  }
+
+  #{{ accordion_id }}.error-accordion-compact-mobile .error-panel-count {
+    grid-area: count;
+  }
+
+  #{{ accordion_id }}.error-accordion-compact-mobile .error-panel-type {
+    grid-area: type;
+    max-width: 100%;
+    font-size: 0.92rem;
+    font-weight: 600;
+  }
+
+  #{{ accordion_id }}.error-accordion-compact-mobile .error-panel-service {
+    grid-area: service;
+    max-width: 100%;
+    justify-self: start;
+  }
+
+  #{{ accordion_id }}.error-accordion-compact-mobile .error-panel-timestamp {
+    grid-area: timestamp;
+    justify-self: end;
+    font-size: 0.75rem;
+  }
+
+  #{{ accordion_id }}.error-accordion-compact-mobile .error-panel-message-preview,
+  #{{ accordion_id }}.error-accordion-compact-mobile .error-panel-span-id,
+  #{{ accordion_id }}.error-accordion-compact-mobile .error-panel-parsed {
+    display: none;
+  }
+}
+
 {%- endmacro %}
 
-{% macro render_error_accordion(errors, from_ts='', to_ts='', accordion_id='errAccordion', collapse_prefix='err', stack_prefix='stack-', ai_btn_class='ai-help-btn', raise_btn_class='raise-issue-btn', copy_btn_class='copy-stack-btn', resolve_btn_class='resolve-btn', show_resolve=false, show_raise_issue=true, logs_btn_outline='secondary', logs_label='Logs', trace_btn_outline='info', trace_label='Trace', show_span_id_in_header=false, show_incident_view=true) -%}
-<div class="accordion" id="{{ accordion_id }}">
+{% macro render_error_accordion(errors, from_ts='', to_ts='', accordion_id='errAccordion', collapse_prefix='err', stack_prefix='stack-', ai_btn_class='ai-help-btn', raise_btn_class='raise-issue-btn', copy_btn_class='copy-stack-btn', resolve_btn_class='resolve-btn', show_resolve=false, show_raise_issue=true, logs_btn_outline='secondary', logs_label='Logs', trace_btn_outline='info', trace_label='Trace', show_span_id_in_header=false, show_incident_view=true, compact_mobile=false, show_count_always=false, use_last_seen_ts=false, open_first=true) -%}
+<div class="accordion{% if compact_mobile %} error-accordion-compact-mobile{% endif %}" id="{{ accordion_id }}">
   {% for err in errors %}
   <div class="accordion-item border-secondary mb-1">
     <h2 class="accordion-header">
-      <button class="accordion-button {% if not loop.first %}collapsed{% endif %} py-2 error-panel-button"
+      <button class="accordion-button {% if not (open_first and loop.first) %}collapsed{% endif %} py-2 error-panel-button"
               type="button" data-bs-toggle="collapse" data-bs-target="#{{ collapse_prefix }}{{ loop.index }}">
         <div class="error-panel-summary flex-grow-1 pe-2">
-          <span class="badge flex-shrink-0 {% if err.resolved %}bg-success{% else %}bg-danger{% endif %}">
+          <span class="badge flex-shrink-0 error-panel-state {% if err.resolved %}bg-success{% else %}bg-danger{% endif %}">
             {{ 'Resolved' if err.resolved else 'Open' }}
           </span>
-          {% if err.count is defined and err.count > 1 %}
-          <span class="badge bg-dark text-white flex-shrink-0" title="{{ err.count }} occurrences">×{{ err.count }}</span>
+          {% set _count_value = err.count if err.count is defined else 1 %}
+          {% if show_count_always or _count_value > 1 %}
+          <span class="badge bg-dark text-white flex-shrink-0 error-panel-count" title="{{ _count_value }} occurrences">×{{ _count_value }}</span>
           {% endif %}
           <code class="small text-warning error-panel-type" title="{{ err.err_type }}">{{ err.err_type }}</code>
           {% if err.summary_from_json %}
-          <span class="badge bg-info-subtle text-info-emphasis flex-shrink-0" title="Header summary extracted from JSON payload">Parsed JSON</span>
+          <span class="badge bg-info-subtle text-info-emphasis flex-shrink-0 error-panel-parsed" title="Header summary extracted from JSON payload">Parsed JSON</span>
           {% endif %}
           <span class="error-panel-message-preview small" title="{{ err.message|mask }}">{{ (err.message_summary or err.message)|mask }}</span>
           <span class="badge bg-secondary error-panel-service" title="{{ err.service or '—' }}">{{ err.service or '—' }}</span>
           {% if show_span_id_in_header and err.span_id %}
           <span class="font-monospace text-secondary error-panel-span-id" style="font-size:.68rem;" title="Span: {{ err.span_id }}">{{ err.span_id | truncate(8, True, '') }}…</span>
           {% endif %}
-          <span class="text-secondary small error-panel-timestamp sobs-tz-ts" data-utc-ts="{{ err.ts }}">{{ err.ts[:19] }}</span>
+          {% set _header_ts = err.last_seen if (use_last_seen_ts and err.last_seen) else err.ts %}
+          <span class="text-secondary small error-panel-timestamp sobs-tz-ts" data-utc-ts="{{ _header_ts }}">{{ _header_ts[:19] }}</span>
         </div>
       </button>
     </h2>
-    <div id="{{ collapse_prefix }}{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}">
+    <div id="{{ collapse_prefix }}{{ loop.index }}" class="accordion-collapse collapse {% if open_first and loop.first %}show{% endif %}">
       <div class="accordion-body py-2">
         {% set _msg = (err.message or '') | trim %}
         {% set _body = (err.raw_body or '') | trim %}
@@ -193,23 +247,23 @@
           {% set _trace_ids_csv = err.trace_ids_csv if err.trace_ids_csv is defined else '' %}
           {% if _trace_ids_csv %}
           <a href="{{ url_for('view_logs', trace_ids=_trace_ids_csv, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-{{ logs_btn_outline }}">
-            <i class="bi bi-journal-text me-1"></i>{{ logs_label }}
+            <i class="bi bi-journal-text me-1"></i><span class="error-panel-btn-label">{{ logs_label }}</span>
           </a>
           {% if err.trace_id %}
           <a href="{{ url_for('view_traces', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-{{ trace_btn_outline }}">
-            <i class="bi bi-diagram-3 me-1"></i>{{ trace_label }}
+            <i class="bi bi-diagram-3 me-1"></i><span class="error-panel-btn-label">{{ trace_label }}</span>
           </a>
           {% endif %}
           {% elif err.trace_id %}
           <a href="{{ url_for('view_logs', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-{{ logs_btn_outline }}">
-            <i class="bi bi-journal-text me-1"></i>{{ logs_label }}
+            <i class="bi bi-journal-text me-1"></i><span class="error-panel-btn-label">{{ logs_label }}</span>
           </a>
           <a href="{{ url_for('view_traces', trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-{{ trace_btn_outline }}">
-            <i class="bi bi-diagram-3 me-1"></i>{{ trace_label }}
+            <i class="bi bi-diagram-3 me-1"></i><span class="error-panel-btn-label">{{ trace_label }}</span>
           </a>
           {% else %}
           <a href="{{ url_for('view_logs', service=err.service, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-{{ logs_btn_outline }}">
-            <i class="bi bi-journal-text me-1"></i>{{ logs_label }}
+            <i class="bi bi-journal-text me-1"></i><span class="error-panel-btn-label">{{ logs_label }}</span>
           </a>
           {% endif %}
 
@@ -218,7 +272,7 @@
                   data-rum-view-kind="artifact"
                   data-rum-view-url="{{ err.artifact_url }}"
                   data-rum-view-label="{{ (err.artifact_type or 'Artifact')|mask }}">
-            <i class="bi bi-image me-1"></i>{{ (err.artifact_type or 'Artifact')|mask }}
+                <i class="bi bi-image me-1"></i><span class="error-panel-btn-label">{{ (err.artifact_type or 'Artifact')|mask }}</span>
           </button>
           {% endif %}
 
@@ -227,7 +281,7 @@
                   data-rum-view-kind="replay"
                   data-rum-view-url="{{ err.replay_url }}"
                   data-rum-view-label="Replay">
-            <i class="bi bi-play-circle me-1"></i>Replay
+                <i class="bi bi-play-circle me-1"></i><span class="error-panel-btn-label">Replay</span>
           </button>
           {% endif %}
 
@@ -240,7 +294,7 @@
                   data-ai-risk="medium"
                   data-ai-confirm="true"
                   data-ai-action-role="resolve-error-btn">
-            <i class="bi bi-check2 me-1"></i>Resolve
+                <i class="bi bi-check2 me-1"></i><span class="error-panel-btn-label">Resolve</span>
           </button>
           {% endif %}
 
@@ -258,7 +312,7 @@
                   data-span-id="{{ err.span_id }}"
               data-err-url="{{ err.url|mask }}"
                   title="Copy error details for AI investigation">
-            <i class="bi bi-robot me-1"></i>Copy for AI
+            <i class="bi bi-robot me-1"></i><span class="error-panel-btn-label">Copy for AI</span>
           </button>
 
           {% if show_raise_issue %}
@@ -272,7 +326,7 @@
                   data-span-id="{{ err.span_id }}"
               data-err-url="{{ err.url|mask }}"
                   title="Raise or reuse a GitHub issue using agent dedupe checks">
-            <i class="bi bi-github me-1"></i>Raise issue
+            <i class="bi bi-github me-1"></i><span class="error-panel-btn-label">Raise issue</span>
           </button>
           {% endif %}
 
@@ -280,7 +334,7 @@
           <button class="btn btn-sm btn-outline-secondary {{ copy_btn_class }}"
                   data-stack-id="{{ stack_prefix }}{{ err.id }}"
                   title="Copy stack trace">
-            <i class="bi bi-clipboard me-1"></i>Copy stack
+            <i class="bi bi-clipboard me-1"></i><span class="error-panel-btn-label">Copy stack</span>
           </button>
           {% endif %}
 
@@ -288,7 +342,7 @@
           <a href="{{ url_for('view_incident', error_id=err.id, trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
              class="btn btn-sm btn-outline-primary"
              title="Open unified incident evidence view">
-            <i class="bi bi-shield-exclamation me-1"></i>Incident View
+            <i class="bi bi-shield-exclamation me-1"></i><span class="error-panel-btn-label">Incident View</span>
           </a>
           {% endif %}
         </div>

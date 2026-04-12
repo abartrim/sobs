@@ -1,7 +1,8 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Kubernetes Health{% endblock %}
-{% block content %}
-<style>
+{% block styles %}{{ super() }}<style>
+  /* Page-specific layout helpers */
   .k8s-pager-controls {
     align-items: stretch !important;
     margin-left: auto;
@@ -31,32 +32,68 @@
   .k8s-multi-filter {
     min-height: 92px;
   }
-</style>
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <div>
-    <h4 class="fw-semibold mb-1"><i class="bi bi-hdd-network me-2 text-info"></i>Kubernetes Health</h4>
-    <p class="text-secondary mb-0 small">Cluster status from OpenTelemetry collectors.</p>
+
+  /* Responsive mobile card table + button label rules */
+  @media (max-width: {{ mobile_breakpoint_max }}) {
+    #k8sRefreshInlineGroup {
+      display: none !important;
+    }
+    #k8sRefreshModalBtn {
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
+    }
+  }
+</style>{% endblock %}
+{% block content %}
+{% set kubernetes_header_meta %}
+  <p class="text-secondary mb-0 small">Cluster status from OpenTelemetry collectors.</p>
+  <span id="dataSourceBadge" class="badge text-bg-secondary">Loading…</span>
+  <span id="lastUpdatedBadge" class="text-secondary small"></span>
+  <span id="k8sCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
+  <div id="k8sRefreshInlineGroup" class="input-group input-group-sm" style="width:auto;" title="Auto-refresh interval">
+    <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
+    <select id="k8sRefreshSelect" class="form-select form-select-sm" style="width:auto;">
+      <option value="0">Off</option>
+      <option value="10">10s</option>
+      <option value="30" selected>30s</option>
+      <option value="60">1m</option>
+      <option value="120">2m</option>
+    </select>
   </div>
-  <div class="d-flex align-items-center gap-2">
-    <span id="dataSourceBadge" class="badge text-bg-secondary">Loading…</span>
-    <span id="lastUpdatedBadge" class="text-secondary small"></span>
-    <span id="k8sCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
-    <div class="input-group input-group-sm" style="width:auto;" title="Auto-refresh interval">
-      <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
-      <select id="k8sRefreshSelect" class="form-select form-select-sm" style="width:auto;">
-        <option value="0">Off</option>
-        <option value="10">10s</option>
-        <option value="30" selected>30s</option>
-        <option value="60">1m</option>
-        <option value="120">2m</option>
-      </select>
+{% endset %}
+{% set kubernetes_header_actions %}
+  <button id="k8sRefreshModalBtn" type="button" class="btn btn-sm btn-outline-secondary d-none" title="Auto-refresh" aria-label="Auto-refresh" data-bs-toggle="modal" data-bs-target="#k8sRefreshModal"><i class="bi bi-arrow-repeat me-1"></i><span class="k8s-btn-label">Refresh</span></button>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_k8s_settings') }}" title="Settings">
+    <i class="bi bi-gear me-1"></i><span class="k8s-btn-label">Settings</span>
+  </a>
+  <a class="btn btn-sm btn-outline-secondary page-help-btn" href="{{ url_for('kubernetes_help') }}" title="Help" aria-label="Kubernetes Help">
+    <i class="bi bi-question-circle me-1"></i><span class="k8s-btn-label">Help</span>
+  </a>
+{% endset %}
+{{ render_page_header('Kubernetes Health', icon_class='bi bi-hdd-network', icon_text_class='text-info', meta_html=kubernetes_header_meta, actions_html=kubernetes_header_actions) }}
+
+<div class="modal fade" id="k8sRefreshModal" tabindex="-1" aria-labelledby="k8sRefreshModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="k8sRefreshModalLabel"><i class="bi bi-arrow-repeat me-2"></i>Auto-refresh</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="k8sRefreshSelectMobile" class="form-label">Refresh interval</label>
+        <select id="k8sRefreshSelectMobile" class="form-select">
+          <option value="0">Off</option>
+          <option value="10">10 seconds</option>
+          <option value="30">30 seconds</option>
+          <option value="60">1 minute</option>
+          <option value="120">2 minutes</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+      </div>
     </div>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('kubernetes_help') }}" title="Setup help">
-      <i class="bi bi-info-circle me-1"></i>Setup
-    </a>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_k8s_settings') }}">
-      <i class="bi bi-gear me-1"></i>Settings
-    </a>
   </div>
 </div>
 
@@ -203,7 +240,7 @@
     <div id="k8sNodesPanel" class="accordion-collapse collapse show" aria-labelledby="k8sNodesHeading">
       <div class="accordion-body py-0">
         <div class="table-responsive">
-          <table class="table table-sm table-hover align-middle mb-0">
+          <table class="table table-sm table-hover align-middle mb-0 kubernetes-mobile-card-table">
             <thead>
               <tr>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="nodes" data-key="name" data-label="Name">Name</button></th>
@@ -252,7 +289,7 @@
     <div id="k8sDeploymentsPanel" class="accordion-collapse collapse" aria-labelledby="k8sDeploymentsHeading">
       <div class="accordion-body py-0">
         <div class="table-responsive">
-          <table class="table table-sm table-hover align-middle mb-0">
+          <table class="table table-sm table-hover align-middle mb-0 kubernetes-mobile-card-table">
             <thead>
               <tr>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="deployments" data-key="namespace" data-label="Namespace">Namespace</button></th>
@@ -301,7 +338,7 @@
     <div id="k8sPodsPanel" class="accordion-collapse collapse" aria-labelledby="k8sPodsHeading">
       <div class="accordion-body py-0">
         <div class="table-responsive">
-          <table class="table table-sm table-hover align-middle mb-0">
+          <table class="table table-sm table-hover align-middle mb-0 kubernetes-mobile-card-table">
             <thead>
               <tr>
                 <th><button type="button" class="btn btn-link btn-sm text-decoration-none text-reset p-0 k8s-sort" data-table="pods" data-key="namespace" data-label="Namespace">Namespace</button></th>
@@ -584,13 +621,13 @@
     tbody.innerHTML = nodes.map(function (n) {
       var sql = "LogAttributes['k8s.node.name']='" + sqlQuote(n.name || '') + "'";
       return '<tr>'
-        + '<td class="font-monospace small">' + escHtml(n.name) + '</td>'
-        + '<td>' + nodeBadge(n.status) + '</td>'
-        + '<td class="small">' + escHtml(n.version || '–') + '</td>'
-        + '<td class="small text-end">' + escHtml((Number(n.cpu_usage || 0)).toFixed(1) + '%') + '</td>'
-        + '<td class="small text-end">' + escHtml(fmtBytes(n.mem_used)) + '</td>'
-        + '<td class="small">' + fmtDate(n.created) + '</td>'
-        + '<td class="text-end"><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
+        + '<td class="font-monospace small" data-label="Name">' + escHtml(n.name) + '</td>'
+        + '<td data-label="Status">' + nodeBadge(n.status) + '</td>'
+        + '<td class="small" data-label="Version">' + escHtml(n.version || '–') + '</td>'
+        + '<td class="small text-end" data-label="CPU">' + escHtml((Number(n.cpu_usage || 0)).toFixed(1) + '%') + '</td>'
+        + '<td class="small text-end" data-label="Mem">' + escHtml(fmtBytes(n.mem_used)) + '</td>'
+        + '<td class="small" data-label="Last Seen">' + fmtDate(n.created) + '</td>'
+        + '<td class="text-end" data-label="Logs"><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
         + '</tr>';
     }).join('');
   }
@@ -613,13 +650,13 @@
       var sql = "LogAttributes['k8s.namespace.name']='" + sqlQuote(d.namespace || '')
         + "' AND LogAttributes['k8s.deployment.name']='" + sqlQuote(d.name || '') + "'";
       return '<tr>'
-        + '<td class="small">' + escHtml(d.namespace || '–') + '</td>'
-        + '<td class="font-monospace small">' + escHtml(d.name) + '</td>'
-        + '<td class="text-center">' + escHtml(d.desired || 0) + '</td>'
-        + '<td class="text-center ' + readyCls + ' fw-semibold">' + escHtml(d.ready || 0) + '</td>'
-        + '<td class="text-center">' + escHtml(d.available || 0) + '</td>'
-        + '<td class="small">' + fmtDate(d.created) + '</td>'
-        + '<td class="text-end"><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
+        + '<td class="small" data-label="Namespace">' + escHtml(d.namespace || '–') + '</td>'
+        + '<td class="font-monospace small" data-label="Name">' + escHtml(d.name) + '</td>'
+        + '<td class="text-center" data-label="Desired">' + escHtml(d.desired || 0) + '</td>'
+        + '<td class="text-center ' + readyCls + ' fw-semibold" data-label="Ready">' + escHtml(d.ready || 0) + '</td>'
+        + '<td class="text-center" data-label="Available">' + escHtml(d.available || 0) + '</td>'
+        + '<td class="small" data-label="Last Seen">' + fmtDate(d.created) + '</td>'
+        + '<td class="text-end" data-label="Logs"><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
         + '</tr>';
     }).join('');
   }
@@ -641,16 +678,16 @@
       var sql = "LogAttributes['k8s.namespace.name']='" + sqlQuote(p.namespace || '')
         + "' AND LogAttributes['k8s.pod.name']='" + sqlQuote(p.name || '') + "'";
       return '<tr>'
-        + '<td class="small">' + escHtml(p.namespace || '–') + '</td>'
-        + '<td class="font-monospace small">' + escHtml(p.name) + '</td>'
-        + '<td>' + phaseBadge(p.phase) + '</td>'
-        + '<td class="text-center">' + (p.ready ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>') + '</td>'
-        + '<td class="text-center ' + restartCls + '">' + escHtml(p.restarts || 0) + '</td>'
-        + '<td class="small text-end">' + escHtml((Number(p.cpu_usage || 0)).toFixed(3)) + '</td>'
-        + '<td class="small text-end">' + escHtml(fmtBytes(p.mem_used)) + '</td>'
-        + '<td class="small">' + escHtml(p.node || '–') + '</td>'
-        + '<td class="small">' + fmtDate(p.created) + '</td>'
-        + '<td class="text-end"><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
+        + '<td class="small" data-label="Namespace">' + escHtml(p.namespace || '–') + '</td>'
+        + '<td class="font-monospace small" data-label="Name">' + escHtml(p.name) + '</td>'
+        + '<td data-label="Phase">' + phaseBadge(p.phase) + '</td>'
+        + '<td class="text-center" data-label="Ready">' + (p.ready ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>') + '</td>'
+        + '<td class="text-center ' + restartCls + '" data-label="Restarts">' + escHtml(p.restarts || 0) + '</td>'
+        + '<td class="small text-end" data-label="CPU">' + escHtml((Number(p.cpu_usage || 0)).toFixed(3)) + '</td>'
+        + '<td class="small text-end" data-label="Mem">' + escHtml(fmtBytes(p.mem_used)) + '</td>'
+        + '<td class="small" data-label="Node">' + escHtml(p.node || '–') + '</td>'
+        + '<td class="small" data-label="Last Seen">' + fmtDate(p.created) + '</td>'
+        + '<td class="text-end" data-label="Logs"><a class="btn btn-sm btn-outline-info" href="' + logsUrl(sql) + '">Logs</a></td>'
         + '</tr>';
     }).join('');
   }
@@ -863,9 +900,14 @@
   });
 
   var refreshSelect = document.getElementById('k8sRefreshSelect');
+  var mobileRefreshSelect = document.getElementById('k8sRefreshSelectMobile');
+  var mobileRefreshModal = document.getElementById('k8sRefreshModal');
   refreshSelect.addEventListener('change', function () {
     var interval = parseInt(this.value, 10);
     REFRESH_INTERVAL_MS = interval * 1000;
+    if (mobileRefreshSelect) {
+      mobileRefreshSelect.value = this.value;
+    }
     if (interval > 0) {
       startAutoRefresh();
       startCountdown(interval);
@@ -875,6 +917,24 @@
       document.getElementById('k8sCountdown').style.display = 'none';
     }
   });
+
+  if (mobileRefreshSelect) {
+    mobileRefreshSelect.value = refreshSelect.value;
+    mobileRefreshSelect.addEventListener('change', function () {
+      if (refreshSelect.value !== mobileRefreshSelect.value) {
+        refreshSelect.value = mobileRefreshSelect.value;
+        refreshSelect.dispatchEvent(new Event('change'));
+      }
+    });
+  }
+
+  if (mobileRefreshModal) {
+    mobileRefreshModal.addEventListener('show.bs.modal', function () {
+      if (mobileRefreshSelect) {
+        mobileRefreshSelect.value = refreshSelect.value;
+      }
+    });
+  }
 
   load();
   startAutoRefresh();

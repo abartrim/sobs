@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Reports Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Reports Help</h4>
     <p class="text-secondary mb-0">Save, load, share, import, and export filter configurations as named reports.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('list_reports') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Reports
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('list_reports') }}" title="Back to Reports">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Reports</span>
   </a>
 </div>
 
@@ -41,7 +45,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header fw-semibold"><i class="bi bi-bookmark-star me-2 text-primary"></i>Report Fields</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:20%">Field</th>
@@ -50,20 +54,20 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace">Name</td>
-          <td>A short human-readable label for the report, shown in the reports list and filter bar dropdown.</td>
+          <td class="font-monospace" data-label="Field">Name</td>
+          <td data-label="Description">A short human-readable label for the report, shown in the reports list and filter bar dropdown.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Description</td>
-          <td>Optional notes about what the report captures or when to use it.</td>
+          <td class="font-monospace" data-label="Field">Description</td>
+          <td data-label="Description">Optional notes about what the report captures or when to use it.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Page Type</td>
-          <td>The target page: <em>logs</em>, <em>traces</em>, <em>errors</em>, <em>metrics</em>, <em>rum</em>, <em>ai</em>, <em>work_items</em>, or <em>web_traffic</em>.</td>
+          <td class="font-monospace" data-label="Field">Page Type</td>
+          <td data-label="Description">The target page: <em>logs</em>, <em>traces</em>, <em>errors</em>, <em>metrics</em>, <em>rum</em>, <em>ai</em>, <em>work_items</em>, or <em>web_traffic</em>.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Filters</td>
-          <td>The saved filter key-value pairs. Applied as query parameters when the report is loaded.</td>
+          <td class="font-monospace" data-label="Field">Filters</td>
+          <td data-label="Description">The saved filter key-value pairs. Applied as query parameters when the report is loaded.</td>
         </tr>
       </tbody>
     </table>

@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}AI Transparency Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">AI Transparency Help</h4>
     <p class="text-secondary mb-0">Audit LLM call history, review costs, export training data, and understand agent operations.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_ai') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to AI
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_ai') }}" title="Back to AI">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to AI</span>
   </a>
 </div>
 
@@ -41,7 +45,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header fw-semibold"><i class="bi bi-funnel me-2 text-success"></i>Filter Controls</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:20%">Control</th>
@@ -50,20 +54,20 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace">Operation</td>
-          <td>Filter by call type: <em>helper</em>, <em>agent</em>, <em>anomaly</em>, <em>guard</em>, and others.</td>
+          <td class="font-monospace" data-label="Control">Operation</td>
+          <td data-label="Description">Filter by call type: <em>helper</em>, <em>agent</em>, <em>anomaly</em>, <em>guard</em>, and others.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Service</td>
-          <td>Filter to a specific service associated with the AI call.</td>
+          <td class="font-monospace" data-label="Control">Service</td>
+          <td data-label="Description">Filter to a specific service associated with the AI call.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Model</td>
-          <td>Filter to a specific LLM model identifier (e.g. <code>gpt-4o</code>).</td>
+          <td class="font-monospace" data-label="Control">Model</td>
+          <td data-label="Description">Filter to a specific LLM model identifier (e.g. <code>gpt-4o</code>).</td>
         </tr>
         <tr>
-          <td class="font-monospace">From / To</td>
-          <td>Date-time range for the call timestamp.</td>
+          <td class="font-monospace" data-label="Control">From / To</td>
+          <td data-label="Description">Date-time range for the call timestamp.</td>
         </tr>
       </tbody>
     </table>

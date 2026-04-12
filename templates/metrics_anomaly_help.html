@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Metrics Anomaly Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Metrics Anomaly Help</h4>
     <p class="text-secondary mb-0">Understanding anomaly detail charts, related telemetry links, and seasonal baselines.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_metrics') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Metrics
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_metrics') }}" title="Back to Metrics">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Metrics</span>
   </a>
 </div>
 
@@ -41,7 +45,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header fw-semibold"><i class="bi bi-activity me-2 text-info"></i>Anomaly States</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:20%">State</th>
@@ -50,20 +54,20 @@
       </thead>
       <tbody>
         <tr>
-          <td><span class="badge bg-success">OK</span></td>
-          <td>Signal is within all rule thresholds for the current window.</td>
+          <td data-label="State"><span class="badge bg-success">OK</span></td>
+          <td data-label="Meaning">Signal is within all rule thresholds for the current window.</td>
         </tr>
         <tr>
-          <td><span class="badge bg-warning text-dark">Warning</span></td>
-          <td>Signal has crossed at least one warning threshold but not a critical threshold.</td>
+          <td data-label="State"><span class="badge bg-warning text-dark">Warning</span></td>
+          <td data-label="Meaning">Signal has crossed at least one warning threshold but not a critical threshold.</td>
         </tr>
         <tr>
-          <td><span class="badge bg-danger">Critical</span></td>
-          <td>Signal has crossed at least one critical threshold. Investigate immediately.</td>
+          <td data-label="State"><span class="badge bg-danger">Critical</span></td>
+          <td data-label="Meaning">Signal has crossed at least one critical threshold. Investigate immediately.</td>
         </tr>
         <tr>
-          <td><span class="badge bg-secondary">No rules</span></td>
-          <td>No metric rules are configured for this signal. State cannot be evaluated.</td>
+          <td data-label="State"><span class="badge bg-secondary">No rules</span></td>
+          <td data-label="Meaning">No metric rules are configured for this signal. State cannot be evaluated.</td>
         </tr>
       </tbody>
     </table>

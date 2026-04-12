@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Chart Editor Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Chart Editor Help</h4>
     <p class="text-secondary mb-0">Step-by-step setup for template charts and custom ECharts mode.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('list_dashboards') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Dashboards
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('list_dashboards') }}" title="Back to Dashboards">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Dashboards</span>
   </a>
 </div>
 

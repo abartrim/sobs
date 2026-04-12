@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Kubernetes Health Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <div>
     <h4 class="fw-semibold mb-1">Kubernetes Health Setup</h4>
     <p class="text-secondary mb-0">Populate the Kubernetes dashboard using either OTEL-native collectors or a Prometheus scraping setup (kube-state-metrics + cAdvisor).</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_kubernetes') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Health View
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_kubernetes') }}" title="Back to Health View">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Health View</span>
   </a>
 </div>
 
@@ -194,7 +198,7 @@
     <i class="bi bi-table me-2"></i>Dashboard Data Mapping
   </div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th>Dashboard Section</th>
@@ -204,44 +208,44 @@
       </thead>
       <tbody>
         <tr>
-          <td class="fw-semibold">Nodes — ready</td>
-          <td><code class="text-info small">k8s.node.condition_ready</code></td>
-          <td><code class="text-success small">kube_node_status_condition{condition="Ready",status="true"}</code></td>
+          <td class="fw-semibold" data-label="Dashboard Section">Nodes — ready</td>
+          <td data-label="OTEL-Native Metric"><code class="text-info small">k8s.node.condition_ready</code></td>
+          <td data-label="Prometheus Equivalent"><code class="text-success small">kube_node_status_condition{condition="Ready",status="true"}</code></td>
         </tr>
         <tr>
-          <td class="fw-semibold">Nodes — memory</td>
-          <td><code class="text-info small">k8s.node.memory.usage</code></td>
-          <td><code class="text-success small">kube_node_status_allocatable{resource="memory"}</code></td>
+          <td class="fw-semibold" data-label="Dashboard Section">Nodes — memory</td>
+          <td data-label="OTEL-Native Metric"><code class="text-info small">k8s.node.memory.usage</code></td>
+          <td data-label="Prometheus Equivalent"><code class="text-success small">kube_node_status_allocatable{resource="memory"}</code></td>
         </tr>
         <tr>
-          <td class="fw-semibold">Pods — phase</td>
-          <td><code class="text-info small">k8s.pod.phase</code> attribute</td>
-          <td><code class="text-success small">kube_pod_status_phase{phase="Running"}</code> (value=1)</td>
+          <td class="fw-semibold" data-label="Dashboard Section">Pods — phase</td>
+          <td data-label="OTEL-Native Metric"><code class="text-info small">k8s.pod.phase</code> attribute</td>
+          <td data-label="Prometheus Equivalent"><code class="text-success small">kube_pod_status_phase{phase="Running"}</code> (value=1)</td>
         </tr>
         <tr>
-          <td class="fw-semibold">Pods — ready</td>
-          <td><code class="text-info small">k8s.pod.status_ready</code></td>
-          <td><code class="text-success small">kube_pod_status_ready{condition="true"}</code></td>
+          <td class="fw-semibold" data-label="Dashboard Section">Pods — ready</td>
+          <td data-label="OTEL-Native Metric"><code class="text-info small">k8s.pod.status_ready</code></td>
+          <td data-label="Prometheus Equivalent"><code class="text-success small">kube_pod_status_ready{condition="true"}</code></td>
         </tr>
         <tr>
-          <td class="fw-semibold">Pods — memory</td>
-          <td><code class="text-info small">k8s.pod.memory.usage</code></td>
-          <td><code class="text-success small">container_memory_working_set_bytes</code></td>
+          <td class="fw-semibold" data-label="Dashboard Section">Pods — memory</td>
+          <td data-label="OTEL-Native Metric"><code class="text-info small">k8s.pod.memory.usage</code></td>
+          <td data-label="Prometheus Equivalent"><code class="text-success small">container_memory_working_set_bytes</code></td>
         </tr>
         <tr>
-          <td class="fw-semibold">Pods — restarts</td>
-          <td><code class="text-info small">k8s.container.restart_count</code></td>
-          <td><code class="text-success small">kube_pod_container_status_restarts_total</code></td>
+          <td class="fw-semibold" data-label="Dashboard Section">Pods — restarts</td>
+          <td data-label="OTEL-Native Metric"><code class="text-info small">k8s.container.restart_count</code></td>
+          <td data-label="Prometheus Equivalent"><code class="text-success small">kube_pod_container_status_restarts_total</code></td>
         </tr>
         <tr>
-          <td class="fw-semibold">Deployments</td>
-          <td><code class="text-info small">k8s.deployment.desired</code> / <code class="text-info small">ready</code></td>
-          <td><code class="text-success small">kube_deployment_spec_replicas</code> / <code class="text-success small">kube_deployment_status_replicas_ready</code></td>
+          <td class="fw-semibold" data-label="Dashboard Section">Deployments</td>
+          <td data-label="OTEL-Native Metric"><code class="text-info small">k8s.deployment.desired</code> / <code class="text-info small">ready</code></td>
+          <td data-label="Prometheus Equivalent"><code class="text-success small">kube_deployment_spec_replicas</code> / <code class="text-success small">kube_deployment_status_replicas_ready</code></td>
         </tr>
         <tr>
-          <td class="fw-semibold">Namespaces</td>
-          <td><code class="text-info small">k8s.namespace.name</code> attribute</td>
-          <td><code class="text-success small">kube_namespace_status_phase</code></td>
+          <td class="fw-semibold" data-label="Dashboard Section">Namespaces</td>
+          <td data-label="OTEL-Native Metric"><code class="text-info small">k8s.namespace.name</code> attribute</td>
+          <td data-label="Prometheus Equivalent"><code class="text-success small">kube_namespace_status_phase</code></td>
         </tr>
       </tbody>
     </table>

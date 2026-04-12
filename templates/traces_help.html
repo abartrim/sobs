@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Traces Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Traces Help</h4>
     <p class="text-secondary mb-0">Distributed trace exploration, span drilldown, and incident correlation.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_traces') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Traces
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_traces') }}" title="Back to Traces">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Traces</span>
   </a>
 </div>
 
@@ -41,7 +45,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header fw-semibold"><i class="bi bi-funnel me-2 text-warning"></i>Filter Controls</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:20%">Control</th>
@@ -50,20 +54,20 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace">Search</td>
-          <td>Regex pattern matched against span name and attributes.</td>
+          <td class="font-monospace" data-label="Control">Search</td>
+          <td data-label="Description">Regex pattern matched against span name and attributes.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Service</td>
-          <td>Multi-select dropdown. Filter to one or more services.</td>
+          <td class="font-monospace" data-label="Control">Service</td>
+          <td data-label="Description">Multi-select dropdown. Filter to one or more services.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Trace ID</td>
-          <td>Paste a full trace ID to load a single trace detail view.</td>
+          <td class="font-monospace" data-label="Control">Trace ID</td>
+          <td data-label="Description">Paste a full trace ID to load a single trace detail view.</td>
         </tr>
         <tr>
-          <td class="font-monospace">From / To</td>
-          <td>Date-time range. ISO date-time strings accepted.</td>
+          <td class="font-monospace" data-label="Control">From / To</td>
+          <td data-label="Description">Date-time range. ISO date-time strings accepted.</td>
         </tr>
       </tbody>
     </table>
@@ -86,7 +90,7 @@
 <div class="card border-secondary mb-0">
   <div class="card-header fw-semibold"><i class="bi bi-database me-2"></i>Ingest &amp; API</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:35%">Endpoint</th>
@@ -95,12 +99,12 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace small">POST /v1/traces</td>
-          <td>OpenTelemetry OTLP JSON trace spans. Standard OTEL SDK exporters point here.</td>
+          <td class="font-monospace small" data-label="Endpoint">POST /v1/traces</td>
+          <td data-label="Description">OpenTelemetry OTLP JSON trace spans. Standard OTEL SDK exporters point here.</td>
         </tr>
         <tr>
-          <td class="font-monospace small">GET /traces</td>
-          <td>UI page. Accepts <code>q</code>, <code>service</code>, <code>trace_id</code>, <code>from_ts</code>, <code>to_ts</code> query parameters.</td>
+          <td class="font-monospace small" data-label="Endpoint">GET /traces</td>
+          <td data-label="Description">UI page. Accepts <code>q</code>, <code>service</code>, <code>trace_id</code>, <code>from_ts</code>, <code>to_ts</code> query parameters.</td>
         </tr>
       </tbody>
     </table>

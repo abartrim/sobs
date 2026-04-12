@@ -1,19 +1,25 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Custom Dashboards{% endblock %}
+{% block styles %}{{ super() }}<style>
+  @media (max-width: {{ mobile_breakpoint_max }}) {
+  }
+</style>{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-bar-chart-line me-2"></i>Custom Dashboards</h4>
-    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newDashboardModal"
-      data-ai-action-id="dashboards.modal.new.open"
-      data-ai-action-type="open_modal"
-      data-ai-handler="openModal"
-      data-ai-args='{"modal_id":"newDashboardModal"}'
-      data-ai-label="Open new dashboard modal"
-      data-ai-risk="low"
-      data-ai-confirm="false">
-    <i class="bi bi-plus-lg me-1"></i>New Dashboard
-  </button>
-</div>
+{% set custom_dashboards_header_actions %}
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newDashboardModal"
+    title="New Dashboard"
+    data-ai-action-id="dashboards.modal.new.open"
+    data-ai-action-type="open_modal"
+    data-ai-handler="openModal"
+    data-ai-args='{"modal_id":"newDashboardModal"}'
+    data-ai-label="Open new dashboard modal"
+    data-ai-risk="low"
+    data-ai-confirm="false">
+  <i class="bi bi-plus-lg me-1"></i><span class="dashboards-btn-label">New Dashboard</span>
+</button>
+{% endset %}
+{{ render_page_header('Custom Dashboards', icon_class='bi bi-bar-chart-line', actions_html=custom_dashboards_header_actions, margin_class='mb-4') }}
 
 {% if dashboards %}
 <div class="row g-3">

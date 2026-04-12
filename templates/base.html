@@ -17,7 +17,7 @@
     root.classList.add('sb-state-pending');
     try {
       var sidebarState = localStorage.getItem('sobs-sidebar-state') || 'full';
-      var isHamburger = window.matchMedia('(max-width: 575.98px)').matches;
+      var isHamburger = window.matchMedia('(max-width: {{ mobile_breakpoint_max }})').matches;
       if (sidebarState === 'compact' && !isHamburger) {
         root.classList.add('sb-state-compact');
       }
@@ -110,7 +110,7 @@
     .sb-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 1040; }
     .sb-backdrop.show { display: block; }
     /* Hamburger mode (≤ 575px) */
-    @media (max-width: 575.98px) {
+    @media (max-width: {{ mobile_breakpoint_max }}) {
       .sb-topbar { display: flex; }
       .sb-toggle-btn { display: none; }
       .sidebar { position: fixed; top: 0; left: 0; bottom: 0; width: var(--sb-full); z-index: 1045; overflow: visible; transform: translateX(-100%); transition: transform 0.25s ease; }
@@ -129,9 +129,393 @@
       .sidebar.sidebar-compact .sb-footer .sb-theme-full { display: inline-flex !important; }
       .sidebar.sidebar-compact .sb-footer .sb-theme-compact { display: none !important; }
       .sidebar.sidebar-compact .sb-footer small { display: inline; }
+      .main-content { padding: 1rem !important; overflow-x: hidden; }
+      .sobs-filter-form > * {
+        flex: 1 1 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+      }
+      table:is(
+        [class*='-mobile-card-table'],
+        .agents-rules-table,
+        .agents-runs-table,
+        .metrics-anomaly-data-table,
+        .metrics-anomaly-rules-table,
+        .metrics-rules-table,
+        .metrics-charts-table,
+        .metrics-active-rules-table,
+        .web-traffic-table,
+        .incident-events-table,
+        .incident-signals-table,
+        .table-explorer-schema-table,
+        .table-explorer-sample-table,
+        .rum-sessions-table,
+        .rum-events-table,
+        .rum-detail-card-table,
+        .masking-keys-table,
+        .masking-patterns-table,
+        .summary-errors-table,
+        .summary-logs-table,
+        .summary-rum-table,
+        .summary-ai-table,
+        .dm-stats-table,
+        .dm-backups-table,
+        .query-results-table,
+        .notification-channels-table,
+        .notification-rules-table,
+        .repositories-table,
+        .traces-signals-table
+      ) thead,
+      .help-ref-table thead {
+        display: none;
+      }
+      table:is(
+        [class*='-mobile-card-table'],
+        .agents-rules-table,
+        .agents-runs-table,
+        .metrics-anomaly-data-table,
+        .metrics-anomaly-rules-table,
+        .metrics-rules-table,
+        .metrics-charts-table,
+        .metrics-active-rules-table,
+        .web-traffic-table,
+        .incident-events-table,
+        .incident-signals-table,
+        .table-explorer-schema-table,
+        .table-explorer-sample-table,
+        .rum-sessions-table,
+        .rum-events-table,
+        .rum-detail-card-table,
+        .masking-keys-table,
+        .masking-patterns-table,
+        .summary-errors-table,
+        .summary-logs-table,
+        .summary-rum-table,
+        .summary-ai-table,
+        .dm-stats-table,
+        .dm-backups-table,
+        .query-results-table,
+        .notification-channels-table,
+        .notification-rules-table,
+        .repositories-table,
+        .traces-signals-table
+      ),
+      table:is(
+        [class*='-mobile-card-table'],
+        .agents-rules-table,
+        .agents-runs-table,
+        .metrics-anomaly-data-table,
+        .metrics-anomaly-rules-table,
+        .metrics-rules-table,
+        .metrics-charts-table,
+        .metrics-active-rules-table,
+        .web-traffic-table,
+        .incident-events-table,
+        .incident-signals-table,
+        .table-explorer-schema-table,
+        .table-explorer-sample-table,
+        .rum-sessions-table,
+        .rum-events-table,
+        .rum-detail-card-table,
+        .masking-keys-table,
+        .masking-patterns-table,
+        .summary-errors-table,
+        .summary-logs-table,
+        .summary-rum-table,
+        .summary-ai-table,
+        .dm-stats-table,
+        .dm-backups-table,
+        .query-results-table,
+        .notification-channels-table,
+        .notification-rules-table,
+        .repositories-table,
+        .traces-signals-table
+      ) tbody,
+      table:is(
+        [class*='-mobile-card-table'],
+        .agents-rules-table,
+        .agents-runs-table,
+        .metrics-anomaly-data-table,
+        .metrics-anomaly-rules-table,
+        .metrics-rules-table,
+        .metrics-charts-table,
+        .metrics-active-rules-table,
+        .web-traffic-table,
+        .incident-events-table,
+        .incident-signals-table,
+        .table-explorer-schema-table,
+        .table-explorer-sample-table,
+        .rum-sessions-table,
+        .rum-events-table,
+        .rum-detail-card-table,
+        .masking-keys-table,
+        .masking-patterns-table,
+        .summary-errors-table,
+        .summary-logs-table,
+        .summary-rum-table,
+        .summary-ai-table,
+        .dm-stats-table,
+        .dm-backups-table,
+        .query-results-table,
+        .notification-channels-table,
+        .notification-rules-table,
+        .repositories-table,
+        .traces-signals-table
+      ) tr,
+      table:is(
+        [class*='-mobile-card-table'],
+        .agents-rules-table,
+        .agents-runs-table,
+        .metrics-anomaly-data-table,
+        .metrics-anomaly-rules-table,
+        .metrics-rules-table,
+        .metrics-charts-table,
+        .metrics-active-rules-table,
+        .web-traffic-table,
+        .incident-events-table,
+        .incident-signals-table,
+        .table-explorer-schema-table,
+        .table-explorer-sample-table,
+        .rum-sessions-table,
+        .rum-events-table,
+        .rum-detail-card-table,
+        .masking-keys-table,
+        .masking-patterns-table,
+        .summary-errors-table,
+        .summary-logs-table,
+        .summary-rum-table,
+        .summary-ai-table,
+        .dm-stats-table,
+        .dm-backups-table,
+        .query-results-table,
+        .notification-channels-table,
+        .notification-rules-table,
+        .repositories-table,
+        .traces-signals-table
+      ) td,
+      .help-ref-table,
+      .help-ref-table tbody,
+      .help-ref-table tr,
+      .help-ref-table td {
+        display: block;
+        width: 100%;
+      }
+      table:is(
+        [class*='-mobile-card-table'],
+        .agents-rules-table,
+        .agents-runs-table,
+        .metrics-anomaly-data-table,
+        .metrics-anomaly-rules-table,
+        .metrics-rules-table,
+        .metrics-charts-table,
+        .metrics-active-rules-table,
+        .web-traffic-table,
+        .incident-events-table,
+        .incident-signals-table,
+        .table-explorer-schema-table,
+        .table-explorer-sample-table,
+        .rum-sessions-table,
+        .rum-events-table,
+        .rum-detail-card-table,
+        .masking-keys-table,
+        .masking-patterns-table,
+        .summary-errors-table,
+        .summary-logs-table,
+        .summary-rum-table,
+        .summary-ai-table,
+        .dm-stats-table,
+        .dm-backups-table,
+        .query-results-table,
+        .notification-channels-table,
+        .notification-rules-table,
+        .repositories-table,
+        .traces-signals-table
+      ) tr,
+      .help-ref-table tr {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.5rem;
+        margin-bottom: 0.75rem;
+        padding: 0.5rem 0.625rem;
+      }
+      table:is(
+        [class*='-mobile-card-table'],
+        .agents-rules-table,
+        .agents-runs-table,
+        .metrics-anomaly-data-table,
+        .metrics-anomaly-rules-table,
+        .metrics-rules-table,
+        .metrics-charts-table,
+        .metrics-active-rules-table,
+        .web-traffic-table,
+        .incident-events-table,
+        .incident-signals-table,
+        .table-explorer-schema-table,
+        .table-explorer-sample-table,
+        .rum-sessions-table,
+        .rum-events-table,
+        .rum-detail-card-table,
+        .masking-keys-table,
+        .masking-patterns-table,
+        .summary-errors-table,
+        .summary-logs-table,
+        .summary-rum-table,
+        .summary-ai-table,
+        .dm-stats-table,
+        .dm-backups-table,
+        .query-results-table,
+        .notification-channels-table,
+        .notification-rules-table,
+        .repositories-table,
+        .traces-signals-table
+      ) td,
+      .help-ref-table td {
+        border: 0;
+        padding: 0.2rem 0;
+      }
+      table:is(
+        [class*='-mobile-card-table'],
+        .agents-rules-table,
+        .agents-runs-table,
+        .metrics-anomaly-data-table,
+        .metrics-anomaly-rules-table,
+        .metrics-rules-table,
+        .metrics-charts-table,
+        .metrics-active-rules-table,
+        .web-traffic-table,
+        .incident-events-table,
+        .incident-signals-table,
+        .table-explorer-schema-table,
+        .table-explorer-sample-table,
+        .rum-sessions-table,
+        .rum-events-table,
+        .rum-detail-card-table,
+        .masking-keys-table,
+        .masking-patterns-table,
+        .summary-errors-table,
+        .summary-logs-table,
+        .summary-rum-table,
+        .summary-ai-table,
+        .dm-stats-table,
+        .dm-backups-table,
+        .query-results-table,
+        .notification-channels-table,
+        .notification-rules-table,
+        .repositories-table,
+        .traces-signals-table
+      ) td::before,
+      .help-ref-table td::before {
+        content: attr(data-label);
+        display: block;
+        font-size: 0.72rem;
+        color: var(--bs-secondary-color);
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        margin-bottom: 0.1rem;
+      }
+      .page-header-main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: start;
+        gap: 0.75rem;
+      }
+      .page-header-meta {
+        grid-column: 1 / -1;
+        width: 100%;
+        margin-left: 0;
+        justify-content: flex-start;
+      }
+      .page-header-actions {
+        grid-column: 2;
+        justify-content: flex-end;
+      }
+      .btn-label,
+      [class$='-btn-label'] {
+        display: none;
+      }
+      .btn:has(> .btn-label) i,
+      .btn:has(> [class$='-btn-label']) i {
+        margin-right: 0 !important;
+      }
     }
     .main-content { min-height: 100vh; transition: margin-left 0.22s ease; }
-
+    .page-header {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .page-header-main {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      min-width: 0;
+    }
+    .page-header-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+    .page-header-title-wrap h4,
+    .page-header-title {
+      min-width: 0;
+    }
+    .page-header-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      min-width: 0;
+      flex: 0 1 auto;
+      margin-left: auto;
+    }
+    .page-header-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      min-width: 0;
+      flex: 0 0 auto;
+    }
+    @media (max-width: {{ mobile_breakpoint_max }}) {
+      .page-header-main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: start;
+        gap: 0.75rem;
+      }
+      .page-header-title-wrap {
+        grid-column: 1;
+        grid-row: 1;
+      }
+      .page-header-actions {
+        grid-column: 2;
+        grid-row: 1;
+        justify-content: flex-end;
+      }
+      .page-header-meta {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        width: 100%;
+        margin-left: 0;
+        justify-content: flex-start;
+      }
+    }
+    .page-header-subtext {
+      color: var(--bs-secondary-color);
+      font-size: 0.875rem;
+    }
+    .page-help-btn {
+      color: var(--bs-secondary-color);
+      border-color: var(--bs-border-color);
+    }
+    .page-help-btn:hover,
+    .page-help-btn:focus-visible {
+      color: var(--bs-body-color);
+      background: var(--bs-tertiary-bg);
+      border-color: var(--bs-border-color);
+    }
     /* Avoid first-load animation jump before sidebar state is initialized. */
     .sb-state-pending .sidebar,
     .sb-state-pending .main-content {
@@ -295,6 +679,7 @@
       background-color: color-mix(in srgb, var(--bs-info) 12%, transparent);
     }
   </style>
+  {% block styles %}{% endblock %}
 </head>
 <body>
 <!-- Overlay backdrop for hamburger sidebar -->
@@ -1080,7 +1465,7 @@
   var toggleIcon = document.getElementById('sbToggleIcon');
   var hamburgerBtn = document.getElementById('sbHamburgerBtn');
   var backdrop = document.getElementById('sbBackdrop');
-  var mq = window.matchMedia('(max-width: 575.98px)');
+  var mq = window.matchMedia('(max-width: {{ mobile_breakpoint_max }})');
   var lastFocusedElement = null;
 
   function isHamburgerMode() { return mq.matches; }

@@ -2,28 +2,34 @@
 {% from "_filter_macros.html" import render_filter_accordion, render_regex_filter, render_tz_init_script %}
 {% from "_error_panels.html" import render_error_accordion, render_error_panel_styles %}
 {% from "_multi_select_filter.html" import render_multi_select, render_single_select %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Errors{% endblock %}
+{% block styles %}{{ super() }}<style>
+  @media (max-width: {{ mobile_breakpoint_max }}) {
+  }
+</style>{% endblock %}
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
 {% set to_ts = to_ts or request.args.get('to_ts', '') %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-bug me-2 text-danger"></i>Errors</h4>
-  <div class="d-flex align-items-center gap-2">
-    <span class="text-secondary small">{{ total }} matching {% if grouped_mode %}groups (best effort){% else %}records{% endif %}</span>
-    {% if grouped_mode %}
-     <a href="{{ url_for('view_errors', service=service, from_ts=from_ts, to_ts=to_ts, resolved=resolved, sort_by=sort_by, sort_dir=sort_dir, q=q) }}"
-       class="btn btn-sm btn-danger" title="Currently showing best-effort deduplicated groups from recent errors — click to show individual errors">
-      <i class="bi bi-stack me-1"></i>Grouped
+{% set errors_header_meta %}
+  <span class="text-secondary small">{{ total }} matching {% if grouped_mode %}groups (best effort){% else %}records{% endif %}</span>
+{% endset %}
+{% set errors_header_actions %}
+  <div class="btn-group" role="group" aria-label="Errors view mode">
+    <a href="{{ url_for('view_errors', service=service, from_ts=from_ts, to_ts=to_ts, resolved=resolved, sort_by=sort_by, sort_dir=sort_dir, q=q) }}"
+       class="btn btn-sm {% if not grouped_mode %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+       title="Show individual error records">
+      <i class="bi bi-list-ul me-1"></i><span class="errors-btn-label">Records</span>
     </a>
-    {% else %}
-     <a href="{{ url_for('view_errors', service=service, from_ts=from_ts, to_ts=to_ts, resolved=resolved, grouped='1', q=q) }}"
-       class="btn btn-sm btn-outline-secondary" title="Best-effort grouping: deduplicate recent errors by fingerprint">
-      <i class="bi bi-stack me-1"></i>Group
+    <a href="{{ url_for('view_errors', service=service, from_ts=from_ts, to_ts=to_ts, resolved=resolved, grouped='1', sort_by=sort_by, sort_dir=sort_dir, q=q) }}"
+       class="btn btn-sm {% if grouped_mode %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+       title="Best-effort grouping: deduplicate recent errors by fingerprint">
+      <i class="bi bi-stack me-1"></i><span class="errors-btn-label">Grouped</span>
     </a>
-    {% endif %}
-    <a href="{{ url_for('errors_help') }}" class="link-secondary text-decoration-none" title="Errors Help" aria-label="Errors Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
   </div>
-</div>
+  <a href="{{ url_for('errors_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Errors Help"><i class="bi bi-question-circle me-1"></i><span class="errors-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Errors', icon_class='bi bi-bug', icon_text_class='text-danger', meta_html=errors_header_meta, actions_html=errors_header_actions) }}
 
 <!-- Filter bar -->
 {% call render_filter_accordion('errorsFiltersAccordion', 'errorsFiltersHeading', 'errorsFiltersPanel', 'text-danger', 'errors-tz-badge-btn', 'errors-tz-badge-label') %}
@@ -126,6 +132,10 @@
   trace_btn_outline='info',
   trace_label='Trace',
   show_span_id_in_header=false
+  ,compact_mobile=grouped_mode
+  ,show_count_always=grouped_mode
+  ,use_last_seen_ts=grouped_mode
+  ,open_first=(not grouped_mode)
 ) %}
   {% set _wi = work_item_links.get(err.id) %}
   {% if _wi and _wi.issue_url %}

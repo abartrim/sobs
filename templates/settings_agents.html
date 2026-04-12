@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% from '_multi_select_filter.html' import render_single_select %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Agent Rules{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-lightning-charge me-2 text-warning"></i>Automated Agent Flows</h4>
-  <div class="d-flex gap-2">
+{% set settings_agents_header_actions %}
     <button class="btn btn-sm btn-outline-warning"
             type="button"
             data-bs-toggle="modal"
@@ -16,16 +16,19 @@
             data-ai-handler="openModal"
             data-ai-args='{"modal_id":"workItemsTourModal"}'
             data-ai-label="Open work items walkthrough modal">
-      <i class="bi bi-mortarboard me-1"></i>Walkthrough
+      <i class="bi bi-mortarboard me-1"></i><span class="agents-btn-label settings-btn-label">Walkthrough</span>
     </button>
-    <a href="{{ url_for('view_ai_settings') }}" class="btn btn-sm btn-outline-primary">
-      <i class="bi bi-gear me-1"></i>AI Settings
+    <a href="{{ url_for('view_ai_settings') }}" class="btn btn-sm btn-outline-primary" title="AI Settings">
+      <i class="bi bi-gear me-1"></i><span class="agents-btn-label settings-btn-label">AI Settings</span>
     </a>
-    <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-arrow-left me-1"></i>Back to Settings
+    <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
+      <i class="bi bi-arrow-left me-1"></i><span class="agents-btn-label settings-btn-label">Back to Settings</span>
     </a>
-  </div>
-</div>
+    <a href="{{ url_for('settings_agents_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help">
+      <i class="bi bi-question-circle me-1"></i><span class="agents-btn-label settings-btn-label">Help</span>
+    </a>
+{% endset %}
+{{ render_page_header('Automated Agent Flows', icon_class='bi bi-lightning-charge', icon_text_class='text-warning', actions_html=settings_agents_header_actions) }}
 
 <p class="text-secondary small mb-4">
   Agent rules automatically invoke an AI flow when specific anomaly rules or tag rules are
@@ -139,7 +142,7 @@
   </div>
   {% if rules %}
   <div class="table-responsive">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 agents-rules-table">
       <thead>
         <tr>
           <th>Name</th>
@@ -153,20 +156,20 @@
       <tbody>
         {% for r in rules %}
         <tr>
-          <td>
+          <td data-label="Name">
             <span class="fw-semibold small">{{ r.name }}</span>
             {% if r.description %}
             <br><span class="text-secondary" style="font-size:.78rem;">{{ r.description }}</span>
             {% endif %}
           </td>
-          <td class="small font-monospace">
+          <td class="small font-monospace" data-label="Trigger">
             {{ r.trigger_type | replace('_', ' ') | title }}
             {% if r.trigger_ref_id %}
             <br><span class="text-secondary" style="font-size:.78rem;">{{ r.trigger_ref_id[:12] }}…</span>
             {% endif %}
           </td>
-          <td><span class="badge bg-secondary">{{ r.trigger_state }}</span></td>
-          <td class="small">
+          <td data-label="State"><span class="badge bg-secondary">{{ r.trigger_state }}</span></td>
+          <td class="small" data-label="Actions">
             {% for a in r.actions %}
             <span class="badge
               {% if a == 'analyze' %}text-bg-info
@@ -176,8 +179,8 @@
               me-1">{{ a | replace('_', ' ') }}</span>
             {% endfor %}
           </td>
-          <td class="small text-secondary">{{ r.rate_limit_minutes }}m</td>
-          <td class="text-end">
+          <td class="small text-secondary" data-label="Rate Limit">{{ r.rate_limit_minutes }}m</td>
+          <td class="text-end" data-label="">
             <button type="button"
                     class="btn btn-sm btn-outline-primary me-1 sobs-run-btn"
                     data-rule-id="{{ r.id | e }}"
@@ -222,12 +225,12 @@
   <div class="card-header d-flex justify-content-between align-items-center">
     <span class="fw-semibold"><i class="bi bi-clock-history me-1"></i>Recent Agent Runs (last 20)</span>
     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="location.reload()">
-      <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+      <i class="bi bi-arrow-clockwise me-1"></i><span class="agents-btn-label">Refresh</span>
     </button>
   </div>
   {% if runs %}
   <div class="table-responsive">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 agents-runs-table">
       <thead>
         <tr>
           <th>Time</th>
@@ -244,9 +247,9 @@
         {% for run in runs %}
         {% if not run.is_dismissed %}
         <tr>
-          <td class="small font-monospace text-secondary" style="white-space:nowrap;">{{ run.created_at[:19] }}</td>
-          <td class="small">{{ run.rule_name }}</td>
-          <td>
+          <td class="small font-monospace text-secondary" style="white-space:nowrap;" data-label="Time">{{ run.created_at[:19] }}</td>
+          <td class="small" data-label="Rule">{{ run.rule_name }}</td>
+          <td data-label="Status">
             <span class="badge
               {% if run.status == 'completed' %}text-bg-success
               {% elif run.status == 'failed' %}text-bg-danger
@@ -256,9 +259,9 @@
               {{ run.status | replace('_', ' ') }}
             </span>
           </td>
-          <td class="small text-secondary">{{ run.guard_decision or '—' }}</td>
-          <td class="small text-secondary">{{ run.dlp_result or '—' }}</td>
-          <td class="small" style="max-width:300px;">
+          <td class="small text-secondary" data-label="Guard">{{ run.guard_decision or '—' }}</td>
+          <td class="small text-secondary" data-label="DLP">{{ run.dlp_result or '—' }}</td>
+          <td class="small" style="max-width:300px;" data-label="Analysis">
             {% if run.analysis %}
             <details>
               <summary class="text-info" style="cursor:pointer;">View analysis</summary>
@@ -274,7 +277,7 @@
             <span class="text-secondary">—</span>
             {% endif %}
           </td>
-          <td class="small">
+          <td class="small" data-label="GitHub Issue">
             {% if run.github_issue_url %}
             <a href="{{ run.github_issue_url }}" target="_blank" rel="noopener" class="text-info">
               <i class="bi bi-github me-1"></i>View
@@ -283,7 +286,7 @@
             <span class="text-secondary">—</span>
             {% endif %}
           </td>
-          <td>
+          <td data-label="">
             <button type="button" class="btn btn-sm btn-outline-secondary sobs-dismiss-btn"
                     data-run-id="{{ run.id | e }}" title="Dismiss">
               <i class="bi bi-x"></i>

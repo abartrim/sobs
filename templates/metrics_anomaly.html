@@ -1,20 +1,21 @@
 {% extends "base.html" %}
 {% from "_multi_select_filter.html" import render_single_select %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Metrics Anomaly Details{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-activity me-2 text-info"></i>Metrics Anomaly Details
-    <span id="metrics-anomaly-tz-badge-btn" class="sobs-tz-header-badge" role="button" tabindex="0" title="Display timezone - click to change">
-      <i class="bi bi-clock"></i>
-      <span id="metrics-anomaly-tz-badge-label">UTC</span>
-    </span>
-  </h4>
-  <div class="d-flex gap-2">
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics') }}">
-      <i class="bi bi-arrow-left me-1"></i>Back to Metrics
+{% set metrics_anomaly_header_meta %}
+  <span id="metrics-anomaly-tz-badge-btn" class="sobs-tz-header-badge" role="button" tabindex="0" title="Display timezone - click to change">
+    <i class="bi bi-clock"></i>
+    <span id="metrics-anomaly-tz-badge-label">UTC</span>
+  </span>
+{% endset %}
+{% set metrics_anomaly_header_actions %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics') }}" title="Back to Metrics">
+      <i class="bi bi-arrow-left me-1"></i><span class="metrics-anomaly-btn-label">Back to Metrics</span>
     </a>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics_rules') }}">
-      <i class="bi bi-sliders me-1"></i>Rules
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics_rules') }}" title="Rules">
+      <i class="bi bi-sliders me-1"></i><span class="metrics-anomaly-btn-label">Rules</span>
     </a>
     {% if related_target == 'logs' %}
     <a class="btn btn-sm btn-outline-info"
@@ -25,8 +26,9 @@
        data-ai-label="Open related logs"
        data-ai-risk="low"
        data-ai-confirm="false"
+       title="Open Related Logs"
        href="{{ url_for('view_logs', service=service, from_ts=from_ts, to_ts=to_ts, stats='1') }}">
-      <i class="bi bi-journal-text me-1"></i>Open Related Logs
+      <i class="bi bi-journal-text me-1"></i><span class="metrics-anomaly-btn-label">Open Related Logs</span>
     </a>
     {% elif related_target == 'traces' %}
     <a class="btn btn-sm btn-outline-info"
@@ -37,8 +39,9 @@
        data-ai-label="Open related traces"
        data-ai-risk="low"
        data-ai-confirm="false"
+       title="Open Related Traces"
        href="{{ url_for('view_traces', service=service, from_ts=from_ts, to_ts=to_ts) }}">
-      <i class="bi bi-diagram-3 me-1"></i>Open Related Traces
+      <i class="bi bi-diagram-3 me-1"></i><span class="metrics-anomaly-btn-label">Open Related Traces</span>
     </a>
     {% elif related_target == 'errors' %}
     <a class="btn btn-sm btn-outline-info"
@@ -49,13 +52,14 @@
        data-ai-label="Open related errors"
        data-ai-risk="low"
        data-ai-confirm="false"
+       title="Open Related Errors"
        href="{{ url_for('view_errors', service=service, from_ts=from_ts, to_ts=to_ts) }}">
-      <i class="bi bi-bug me-1"></i>Open Related Errors
+      <i class="bi bi-bug me-1"></i><span class="metrics-anomaly-btn-label">Open Related Errors</span>
     </a>
     {% endif %}
-    <a href="{{ url_for('metrics_anomaly_help') }}" class="link-secondary text-decoration-none" title="Metrics Anomaly Help" aria-label="Metrics Anomaly Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+    <a href="{{ url_for('metrics_anomaly_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Metrics Anomaly Help"><i class="bi bi-question-circle me-1"></i><span class="metrics-anomaly-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Metrics Anomaly Details', icon_class='bi bi-activity', icon_text_class='text-info', meta_html=metrics_anomaly_header_meta, actions_html=metrics_anomaly_header_actions) }}
 
 <div class="card border-secondary mb-3">
   <div class="card-body py-2">
@@ -166,7 +170,7 @@
     <span class="small text-secondary">{{ total }} row{{ 's' if total != 1 else '' }}</span>
   </div>
   <div class="table-responsive">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 metrics-anomaly-data-table">
       <thead>
         <tr>
           <th>Time</th>
@@ -187,23 +191,23 @@
         {% if rows %}
           {% for r in rows %}
           <tr>
-            <td class="font-monospace small sobs-tz-ts" data-utc-ts="{{ r.time }}">{{ r.time }}</td>
-            <td class="small">{{ r.service }}</td>
-            <td class="small" title="{{ r.metric }}">
+            <td class="font-monospace small sobs-tz-ts" data-utc-ts="{{ r.time }}" data-label="Time">{{ r.time }}</td>
+            <td class="small" data-label="Service">{{ r.service }}</td>
+            <td class="small" title="{{ r.metric }}" data-label="Metric">
               {{ signal_label(r.metric_kind, r.metric) }}
               <span class="text-secondary font-monospace signal-raw-id">{{ r.metric }}</span>
             </td>
-            <td class="small" title="{{ r.metric_kind }}">{{ source_label(r.metric_kind) }}</td>
-            <td class="small font-monospace">{{ r.value }}</td>
-            <td class="small font-monospace">{{ r.baseline_mean }}</td>
-            <td class="small font-monospace">{{ r.baseline_lower }} .. {{ r.baseline_upper }}</td>
-            <td class="small font-monospace">{{ r.anomaly_score }}</td>
-            <td>
+            <td class="small" title="{{ r.metric_kind }}" data-label="Kind">{{ source_label(r.metric_kind) }}</td>
+            <td class="small font-monospace" data-label="Value">{{ r.value }}</td>
+            <td class="small font-monospace" data-label="Baseline">{{ r.baseline_mean }}</td>
+            <td class="small font-monospace" data-label="Band">{{ r.baseline_lower }} .. {{ r.baseline_upper }}</td>
+            <td class="small font-monospace" data-label="Z">{{ r.anomaly_score }}</td>
+            <td data-label="State">
               <span class="badge {% if r.anomaly_state == 'outlier' %}bg-danger{% elif r.anomaly_state == 'warning' %}bg-warning text-dark{% else %}bg-success{% endif %}">
                 {{ r.anomaly_state }}
               </span>
             </td>
-            <td class="small">
+            <td class="small" data-label="Rule">
               {% if r.rule_name %}
               <span class="badge {% if r.rule_state == 'outlier' %}bg-danger{% elif r.rule_state == 'warning' %}bg-warning text-dark{% else %}bg-secondary{% endif %}" title="{{ r.rule_reason }}">
                 {{ r.rule_name }}
@@ -215,8 +219,8 @@
               <span class="text-secondary">—</span>
               {% endif %}
             </td>
-            <td class="small font-monospace">{{ r.sample_count }}</td>
-            <td>
+            <td class="small font-monospace" data-label="Sample">{{ r.sample_count }}</td>
+            <td data-label="Actions">
               {% if r.related_target == 'logs' %}
               <a class="btn btn-sm btn-outline-info"
                  href="{{ url_for('view_logs', service=r.service, from_ts=r.time, window_s=60, stats='1') }}">
@@ -260,7 +264,7 @@
     <div id="anomaly-work-items-content" class="d-none">
       <div class="small mb-2 text-secondary" id="anomaly-work-items-meta"></div>
       <div class="table-responsive" id="anomaly-work-items-table-wrap">
-        <table class="table table-sm table-hover mb-0">
+        <table class="table table-sm table-hover mb-0 metrics-anomaly-rules-table">
           <thead>
             <tr>
               <th>Created</th>
@@ -319,14 +323,14 @@ async function loadAnomalyWorkItemsBySignal(signalSource, signalName) {
     
     tbodyEl.innerHTML = items.map(item => `
       <tr>
-        <td class="font-monospace small sobs-tz-ts" data-utc-ts="${item.created_at}">${item.created_at.substring(0, 16)}</td>
-        <td class="small">${item.agent_rule_name}</td>
-        <td class="small">
+        <td class="font-monospace small sobs-tz-ts" data-utc-ts="${item.created_at}" data-label="Created">${item.created_at.substring(0, 16)}</td>
+        <td class="small" data-label="Agent Rule">${item.agent_rule_name}</td>
+        <td class="small" data-label="Action">
           ${item.agent_action === 'github_issue_copilot' 
             ? '<span class="badge bg-primary"><i class="bi bi-robot me-1"></i>Copilot</span>' 
             : '<span class="badge bg-secondary">Issue</span>'}
         </td>
-        <td class="small">
+        <td class="small" data-label="Issue">
           ${item.issue_url 
             ? `<a href="${item.issue_url}" target="_blank" rel="noopener" class="text-decoration-none" title="${item.issue_title}"><i class="bi bi-github me-1"></i>#${item.issue_number}</a>` 
             : '<span class="text-secondary">—</span>'}

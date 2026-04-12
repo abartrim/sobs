@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
+{% block title %}AI Configuration Help{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
+{% block content %}
+{% set settings_ai_help_header_actions %}
+  <a href="{{ url_for('view_ai_settings') }}" class="btn btn-sm btn-outline-primary" title="Open AI Settings">
+    <i class="bi bi-gear me-1"></i><span class="settings-btn-label">AI Settings</span>
+  </a>
+  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
+    <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
+  </a>
+{% endset %}
+{{ render_page_header('AI Configuration Help', icon_class='bi bi-question-circle', icon_text_class='text-info', actions_html=settings_ai_help_header_actions) }}
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-chat-square-text me-1"></i>Helper Model</h6>
+        <p class="small text-secondary mb-0">Powers page-context assistant actions and guided workflow assistance in the in-app helper widget.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-shield-check me-1"></i>Guard Model</h6>
+        <p class="small text-secondary mb-0">Runs first on each request and blocks unsafe or off-topic prompts (fail-closed behavior).</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-github me-1"></i>Agent Integrations</h6>
+        <p class="small text-secondary mb-0">Optional DLP and GitHub issue/assignment controls for automated incident response workflows.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Required Inputs By Capability</div>
+  <div class="card-body small">
+    <ul class="mb-0 ps-3 text-secondary">
+      <li><strong>Helper chat:</strong> endpoint URL, model, and API key.</li>
+      <li><strong>Guarding:</strong> guard endpoint URL and guard model.</li>
+      <li><strong>Agent GitHub issue flow:</strong> GitHub token and default repo.</li>
+      <li><strong>DLP before issue creation:</strong> DLP endpoint URL (optional).</li>
+      <li><strong>Reasoning controls:</strong> model support for thinking level option.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Quick Setup Order</div>
+  <div class="card-body small">
+    <ol class="mb-0 ps-3">
+      <li>Set endpoint URL and model for the primary LLM.</li>
+      <li>Configure the guard endpoint/model (fail-closed safety gate).</li>
+      <li>Add API keys/tokens and save.</li>
+      <li>Set issue and assignment limits for agent flow safety.</li>
+      <li>Use validation controls to confirm connectivity and token status.</li>
+    </ol>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Validation Checklist</div>
+  <div class="card-body small text-secondary">
+    <ul class="mb-0 ps-3">
+      <li>Helper widget responds on at least one telemetry page.</li>
+      <li>Guard model blocks intentionally unsafe test prompt.</li>
+      <li>Token validation status shows healthy/valid state.</li>
+      <li>Repository owner/repo string resolves for agent issue creation.</li>
+      <li>If DLP is enabled, endpoint returns a JSON flagged boolean.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Troubleshooting</div>
+  <div class="card-body small text-secondary">
+    <ul class="mb-0 ps-3">
+      <li>If helper appears disabled, check endpoint URL and API key first.</li>
+      <li>If all AI actions fail, verify guard endpoint/model availability.</li>
+      <li>If GitHub actions fail, validate token scopes and expiration date.</li>
+      <li>If assignments stall, review per-hour and active-assignment limits.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="alert alert-secondary small mb-0" role="note">
+  Keep secrets in local settings only. Tokens are never rendered in full after save.
+</div>
+{% endblock %}

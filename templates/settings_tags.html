@@ -1,20 +1,25 @@
 {% extends "base.html" %}
 {% from '_multi_select_filter.html' import render_single_select %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Tag Rules{% endblock %}
-{% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-tags me-2 text-info"></i>Tag Rules</h4>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Settings
-  </a>
-</div>
 
-<p class="text-secondary small mb-3">
-  Tag rules are evaluated at ingest time. Matching records automatically receive the configured
-  tag, stored in <code>sobs_record_tags</code> for use in filtering and anomaly correlation.
-  Tags follow <strong>OTEL attribute</strong> conventions: <code>key=value</code> pairs with
-  one effective value per key per record.
-</p>
+{% block styles %}{{ super() }}<style>
+  /* Break long text in table cells */
+  .word-break-break-word {
+    word-break: break-word;
+  }
+</style>{% endblock %}
+
+{% block content %}
+{% set settings_tags_header_actions %}
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}" title="Back to Settings">
+    <i class="bi bi-arrow-left me-1"></i><span class="tags-btn-label settings-btn-label">Back to Settings</span>
+  </a>
+  <a class="btn btn-sm btn-outline-secondary page-help-btn" href="{{ url_for('settings_tags_help') }}" title="Help">
+    <i class="bi bi-question-circle me-1"></i><span class="tags-btn-label settings-btn-label">Help</span>
+  </a>
+{% endset %}
+{{ render_page_header('Tag Rules', icon_class='bi bi-tags', icon_text_class='text-info', actions_html=settings_tags_header_actions, subtext='Tag rules are evaluated at ingest time. Matching records automatically receive the configured tag, stored in <code>sobs_record_tags</code> for use in filtering and anomaly correlation. Tags follow <strong>OTEL attribute</strong> conventions: <code>key=value</code> pairs with one effective value per key per record.') }}
 
 <div class="accordion mb-3" id="tagRulesAutoAccordion">
   <div class="accordion-item border border-secondary">
@@ -59,22 +64,24 @@
           </div>
           <div class="col-md-2 d-flex gap-2">
             <button type="submit" class="btn btn-outline-info btn-sm flex-grow-1" name="action" value="preview"
+                    title="Preview auto tag rules"
                     data-ai-action-id="settings.tags.auto.preview"
                     data-ai-action-type="submit_form"
                     data-ai-handler="submitForm"
                     data-ai-label="Preview auto tag rules"
                     data-ai-risk="high"
                     data-ai-confirm="true">
-              <i class="bi bi-eye me-1"></i>Preview
+              <i class="bi bi-eye me-1"></i><span class="tags-btn-label">Preview</span>
             </button>
             <button type="submit" class="btn btn-info btn-sm flex-grow-1" name="action" value="create"
+                    title="Create auto tag rules"
                     data-ai-action-id="settings.tags.auto.create"
                     data-ai-action-type="submit_form"
                     data-ai-handler="submitForm"
                     data-ai-label="Create auto tag rules"
                     data-ai-risk="high"
                     data-ai-confirm="true">
-              <i class="bi bi-magic me-1"></i>Create
+              <i class="bi bi-magic me-1"></i><span class="tags-btn-label">Create</span>
             </button>
           </div>
         </form>
@@ -90,7 +97,7 @@
         <div class="card border-secondary mt-3 mb-0">
           <div class="card-header">Preview Candidates ({{ auto_preview|length }})</div>
           <div class="table-responsive">
-            <table class="table table-sm align-middle mb-0">
+            <table class="table table-sm align-middle mb-0 tags-mobile-card-table">
               <thead class="table-secondary">
                 <tr>
                   <th>Name</th>
@@ -103,14 +110,14 @@
               <tbody>
                 {% for c in auto_preview %}
                 <tr>
-                  <td>{{ c.name }}</td>
-                  <td><span class="badge text-bg-secondary">{{ c.record_types[0] }}</span></td>
-                  <td class="font-monospace small">
+                  <td data-label="Name">{{ c.name }}</td>
+                  <td data-label="Record Type"><span class="badge text-bg-secondary">{{ c.record_types[0] }}</span></td>
+                  <td data-label="Match" class="font-monospace small word-break-break-word">
                     {{ c.match_field }} {{ c.match_operator }} {{ c.match_value }}
                     {% if c.match_attr_key %}<br><span class="text-secondary">attr: {{ c.match_attr_key }}</span>{% endif %}
                   </td>
-                  <td class="font-monospace small">{{ c.tag_key }}={{ c.tag_value }}</td>
-                  <td>{{ c.point_count }}</td>
+                  <td data-label="Tag" class="font-monospace small word-break-break-word">{{ c.tag_key }}={{ c.tag_value }}</td>
+                  <td data-label="Points">{{ c.point_count }}</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -125,25 +132,28 @@
 
 <!-- Create Rule Form -->
 <div class="card border-secondary mb-4">
+  <div id="tagRuleFormCard"></div>
   <div class="card-header">
-    <h6 class="mb-0"><i class="bi bi-plus-circle me-2 text-success"></i>Create Tag Rule</h6>
+    <h6 class="mb-0"><i class="bi bi-plus-circle me-2 text-success"></i>{{ 'Edit Tag Rule' if edit_rule else 'Create Tag Rule' }}</h6>
   </div>
   <div class="card-body">
     <form method="post" action="{{ url_for('create_tag_rule') }}" class="row g-3" id="createTagRuleForm">
+      <input type="hidden" name="edit_rule_id" value="{{ edit_rule.id if edit_rule else '' }}">
       <!-- Rule name -->
       <div class="col-md-4">
         <label class="form-label small text-secondary">Rule Name <span class="text-danger">*</span></label>
-        <input type="text" name="name" class="form-control form-control-sm" placeholder="e.g. Tag production errors" required>
+        <input type="text" name="name" class="form-control form-control-sm" placeholder="e.g. Tag production errors" value="{{ edit_rule.name if edit_rule else '' }}" required>
       </div>
 
       <!-- Record types -->
       <div class="col-md-8">
         <label class="form-label small text-secondary">Apply to Record Types</label>
         <div class="d-flex flex-wrap gap-3">
+          {% set edit_record_types = edit_rule.record_types if edit_rule else ['all'] %}
           {% for rt in record_types %}
           <div class="form-check form-check-inline">
             <input class="form-check-input" type="checkbox" name="record_types" value="{{ rt }}" id="rt_{{ rt }}"
-                   {% if rt == 'all' %}checked{% endif %}>
+                   {% if rt in edit_record_types %}checked{% endif %}>
             <label class="form-check-label small" for="rt_{{ rt }}">{{ rt }}</label>
           </div>
           {% endfor %}
@@ -158,33 +168,35 @@
           <span class="badge text-bg-secondary ms-1" id="compositeLabel" style="display:none">composite</span>
         </label>
         <div id="conditionsContainer">
-          <!-- Condition row template -->
-          <div class="condition-row row g-2 mb-2 align-items-end" data-index="0">
+          {% set initial_conditions = edit_rule.conditions if edit_rule and edit_rule.conditions else [{'match_field': 'service_name', 'match_operator': 'eq', 'match_value': '', 'match_attr_key': ''}] %}
+          {% for cond in initial_conditions %}
+          <div class="condition-row row g-2 mb-2 align-items-end" data-index="{{ loop.index0 }}">
             <div class="col-md-3">
               <label class="form-label small text-secondary">Match Field</label>
               <select name="condition_field" class="form-select form-select-sm condition-field-select" required>
                 {% for f in match_fields %}
-                <option value="{{ f }}">{{ f.replace('_', ' ').title() }}</option>
+                <option value="{{ f }}" {% if cond.match_field == f %}selected{% endif %}>{{ f.replace('_', ' ').title() }}</option>
                 {% endfor %}
               </select>
             </div>
-            <div class="col-md-2 condition-attr-key-group" style="display:none">
+            <div class="col-md-2 condition-attr-key-group"{% if cond.match_field != 'attribute' %} style="display:none"{% endif %}>
               <label class="form-label small text-secondary">Attr Key</label>
               <input type="text" name="condition_attr_key" class="form-control form-control-sm condition-attr-key"
-                     placeholder="e.g. http.status_code">
+                     placeholder="e.g. http.status_code" value="{{ cond.match_attr_key }}">
             </div>
             <div class="col-md-2">
               <label class="form-label small text-secondary">Operator</label>
               <select name="condition_operator" class="form-select form-select-sm">
                 {% for op in match_operators %}
-                <option value="{{ op.value if op is mapping else op }}">{{ op.label if op is mapping else op }}</option>
+                {% set op_value = op.value if op is mapping else op %}
+                <option value="{{ op_value }}" {% if cond.match_operator == op_value %}selected{% endif %}>{{ op.label if op is mapping else op }}</option>
                 {% endfor %}
               </select>
             </div>
             <div class="col-md-4">
               <label class="form-label small text-secondary">Match Value</label>
               <input type="text" name="condition_value" class="form-control form-control-sm"
-                     placeholder="e.g. ERROR or ^timeout.*" required>
+                     placeholder="e.g. ERROR or ^timeout.*" value="{{ cond.match_value }}" required>
             </div>
             <div class="col-md-1 d-flex align-items-end">
               <button type="button" class="btn btn-outline-danger btn-sm remove-condition-btn" style="display:none" title="Remove condition">
@@ -192,9 +204,10 @@
               </button>
             </div>
           </div>
+          {% endfor %}
         </div>
         <button type="button" class="btn btn-outline-secondary btn-sm mt-1" id="addConditionBtn">
-          <i class="bi bi-plus me-1"></i>Add Condition
+          <i class="bi bi-plus me-1"></i><span class="tags-btn-label">Add Condition</span>
         </button>
         <div class="form-text small mt-1">For <strong>composite</strong> rules add multiple conditions — <em>all</em> must match for the tag to be applied.</div>
       </div>
@@ -203,26 +216,32 @@
       <div class="col-md-3">
         <label class="form-label small text-secondary">Tag Key <span class="text-danger">*</span></label>
         <input type="text" name="tag_key" class="form-control form-control-sm"
-               placeholder="e.g. env" required>
+               placeholder="e.g. env" value="{{ edit_rule.tag_key if edit_rule else '' }}" required>
       </div>
 
       <!-- Tag value -->
       <div class="col-md-3">
         <label class="form-label small text-secondary">Tag Value <span class="text-danger">*</span></label>
         <input type="text" name="tag_value" class="form-control form-control-sm"
-               placeholder="e.g. production" required>
+               placeholder="e.g. production" value="{{ edit_rule.tag_value if edit_rule else '' }}" required>
       </div>
 
       <div class="col-12">
         <button type="submit" class="btn btn-success btn-sm"
+          title="{{ 'Update tag rule' if edit_rule else 'Create tag rule' }}"
           data-ai-action-id="settings.tags.create"
           data-ai-action-type="submit_form"
           data-ai-handler="submitForm"
-          data-ai-label="Create tag rule"
+          data-ai-label="{{ 'Update tag rule' if edit_rule else 'Create tag rule' }}"
           data-ai-risk="high"
           data-ai-confirm="true">
-          <i class="bi bi-plus-circle me-1"></i>Create Rule
+          <i class="bi bi-plus-circle me-1"></i><span class="tags-btn-label">{{ 'Update Rule' if edit_rule else 'Create Rule' }}</span>
         </button>
+        {% if edit_rule %}
+        <a href="{{ url_for('view_tag_rules') }}" class="btn btn-outline-secondary btn-sm ms-2" title="Cancel edit">
+          <i class="bi bi-x-circle me-1"></i><span class="tags-btn-label">Cancel Edit</span>
+        </a>
+        {% endif %}
       </div>
     </form>
   </div>
@@ -235,7 +254,7 @@
     <h6 class="mb-0">Active Tag Rules ({{ rules|length }})</h6>
   </div>
   <div class="table-responsive">
-    <table class="table table-sm align-middle mb-0">
+    <table class="table table-sm align-middle mb-0 tags-mobile-card-table">
       <thead class="table-secondary">
         <tr>
           <th>Name</th>
@@ -249,18 +268,18 @@
       <tbody>
         {% for rule in rules %}
         <tr>
-          <td class="fw-semibold">
+          <td data-label="Name" class="fw-semibold word-break-break-word">
             {{ rule.name }}
             {% if rule.conditions|length > 1 %}
             <span class="badge text-bg-info text-dark ms-1" title="{{ rule.conditions|length }} conditions (all must match)">composite</span>
             {% endif %}
           </td>
-          <td>
+          <td data-label="Record Types">
             {% for rt in rule.record_types %}
             <span class="badge text-bg-secondary me-1">{{ rt }}</span>
             {% endfor %}
           </td>
-          <td class="small">
+          <td data-label="Conditions" class="small word-break-break-word">
             {% if rule.conditions %}
               {% for cond in rule.conditions %}
               <div class="font-monospace{% if not loop.first %} mt-1{% endif %}">
@@ -278,24 +297,32 @@
               {% if rule.match_attr_key %}<span class="text-secondary ms-1">[{{ rule.match_attr_key }}]</span>{% endif %}
             {% endif %}
           </td>
-          <td><span class="badge text-bg-info text-dark">{{ rule.tag_key }}</span></td>
-          <td><span class="badge text-bg-light border">{{ rule.tag_value }}</span></td>
-          <td>
-            <form method="post" action="{{ url_for('delete_tag_rule', rule_id=rule.id) }}"
+          <td data-label="Tag Key"><span class="badge text-bg-info text-dark word-break-break-word">{{ rule.tag_key }}</span></td>
+          <td data-label="Tag Value"><span class="badge text-bg-light border word-break-break-word">{{ rule.tag_value }}</span></td>
+          <td data-label="Actions">
+            <div class="d-flex gap-2 align-items-center flex-nowrap">
+              <a href="{{ url_for('view_tag_rules', edit_rule=rule.id) }}#tagRuleFormCard"
+                 class="btn btn-sm btn-outline-info py-0 px-1"
+                 title="Edit rule"
+                 aria-label="Edit rule">
+                <i class="bi bi-pencil"></i>
+              </a>
+              <form method="post" action="{{ url_for('delete_tag_rule', rule_id=rule.id) }}" class="d-inline"
               data-confirm-title="Delete Tag Rule"
               data-confirm-message="Delete tag rule '{{ rule.name }}'?"
               data-confirm-ok-label="Delete"
               data-confirm-ok-class="btn-danger">
-              <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete rule"
-                      data-ai-action-id="settings.tags.delete"
-                      data-ai-action-type="submit_form"
-                      data-ai-handler="submitForm"
-                      data-ai-label="Delete tag rule"
-                      data-ai-risk="high"
-                      data-ai-confirm="true">
-                <i class="bi bi-trash"></i>
-              </button>
-            </form>
+                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete rule"
+                        data-ai-action-id="settings.tags.delete"
+                        data-ai-action-type="submit_form"
+                        data-ai-handler="submitForm"
+                        data-ai-label="Delete tag rule"
+                        data-ai-risk="high"
+                        data-ai-confirm="true">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+            </div>
           </td>
         </tr>
         {% endfor %}
@@ -542,8 +569,8 @@
   }
 
   // Bind initial row
-  var initialRow = conditionsContainer && conditionsContainer.querySelector('.condition-row');
-  if (initialRow) bindConditionRow(initialRow);
+  var initialRows = conditionsContainer ? conditionsContainer.querySelectorAll('.condition-row') : [];
+  initialRows.forEach(function (row) { bindConditionRow(row); });
   updateCompositeLabel();
 
   if (addConditionBtn && conditionsContainer) {

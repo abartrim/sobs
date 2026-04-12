@@ -1,28 +1,97 @@
 {% extends "base.html" %}
 {% from '_multi_select_filter.html' import render_single_select %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Metrics Rules{% endblock %}
+{% block styles %}{{ super() }}<style>
+  #metricsRulesTourModal {
+    --metrics-tour-left-offset: 0px;
+    --metrics-tour-side-gap: 12px;
+  }
+  #metricsRulesTourModal .modal-dialog {
+    max-width: none;
+    width: auto;
+    margin-left: calc(var(--metrics-tour-left-offset) + var(--metrics-tour-side-gap));
+    margin-right: var(--metrics-tour-side-gap);
+  }
+  #metricsRulesTourModal .modal-body {
+    min-height: 360px;
+  }
+  #metricsRulesTourCarousel .carousel-item {
+    min-height: 300px;
+  }
+  #metricsRulesTourCarousel .carousel-indicators [data-bs-target] {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+  }
+  .rules-tour-card {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.5rem;
+    background: rgba(var(--bs-secondary-rgb), 0.08);
+    padding: 0.75rem;
+  }
+  .rules-tour-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    font-size: 0.78rem;
+    color: var(--bs-secondary-color);
+  }
+  .rules-tour-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 0.35rem;
+  }
+  .rules-tour-chip {
+    border: 1px solid var(--bs-border-color);
+    background: rgba(var(--bs-secondary-rgb), 0.08);
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.75rem;
+    color: var(--bs-secondary-color);
+  }
+  .rules-tour-flow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+  }
+  @media (max-width: 768px) {
+    #metricsRulesTourModal .modal-dialog {
+      margin-left: .5rem;
+      margin-right: .5rem;
+    }
+    #metricsRulesTourModal .modal-body {
+      min-height: 420px;
+    }
+    #metricsRulesTourCarousel .carousel-item {
+      min-height: 355px;
+    }
+  }
+</style>{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-sliders me-2 text-info"></i>Metrics Rules</h4>
-  <div class="d-flex gap-2">
-    <button class="btn btn-sm btn-outline-info"
-            type="button"
-            data-bs-toggle="modal"
-            data-bs-target="#metricsRulesTourModal"
-            title="Rules walkthrough"
-            aria-label="Open metrics rules walkthrough"
-            data-ai-action-id="metrics.rules.tour.open"
-            data-ai-action-type="open_modal"
-            data-ai-handler="openModal"
-            data-ai-args='{"modal_id":"metricsRulesTourModal"}'
-            data-ai-label="Open metrics rules walkthrough modal">
-      <i class="bi bi-mortarboard me-1"></i>Walkthrough
-    </button>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics') }}">
-      <i class="bi bi-arrow-left me-1"></i>Back to Metrics
-    </a>
-  </div>
-</div>
+{% set metrics_rules_header_actions %}
+  <button class="btn btn-sm btn-outline-info"
+          type="button"
+          data-bs-toggle="modal"
+          data-bs-target="#metricsRulesTourModal"
+          title="Rules walkthrough"
+          aria-label="Open metrics rules walkthrough"
+          data-ai-action-id="metrics.rules.tour.open"
+          data-ai-action-type="open_modal"
+          data-ai-handler="openModal"
+          data-ai-args='{"modal_id":"metricsRulesTourModal"}'
+          data-ai-label="Open metrics rules walkthrough modal">
+    <i class="bi bi-mortarboard me-1"></i><span class="metrics-rules-btn-label">Walkthrough</span>
+  </button>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics') }}" title="Back to Metrics">
+    <i class="bi bi-arrow-left me-1"></i><span class="metrics-rules-btn-label">Back to Metrics</span>
+  </a>
+  <a href="{{ url_for('metrics_rules_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Metrics Rules Help"><i class="bi bi-question-circle me-1"></i><span class="metrics-rules-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Metrics Rules', icon_class='bi bi-sliders', icon_text_class='text-info', actions_html=metrics_rules_header_actions, subtext='Configure threshold, deadman, and ratio alerts for time-series metrics.') }}
 
 <div class="accordion mb-3" id="metricsRulesAutoAccordion">
   <div class="accordion-item bg-body-tertiary border border-secondary">
@@ -111,7 +180,7 @@
         <div class="card border-secondary mt-3 mb-0">
           <div class="card-header">Preview Candidates ({{ auto_preview|length }})</div>
           <div class="table-responsive">
-            <table class="table table-dark table-sm align-middle mb-0">
+            <table class="table table-dark table-sm align-middle mb-0 metrics-rules-table">
               <thead>
                 <tr>
                   <th>Name</th>
@@ -130,15 +199,15 @@
               <tbody>
                 {% for c in auto_preview %}
                 <tr>
-                  <td>{{ c.name }}</td>
-                  <td title="{{ c.source }}">{{ source_label(c.source) }}</td>
-                  <td title="{{ c.signal }}{% if signal_description(c.source, c.signal) %} – {{ signal_description(c.source, c.signal) }}{% endif %}">
+                  <td data-label="Name">{{ c.name }}</td>
+                  <td title="{{ c.source }}" data-label="Source">{{ source_label(c.source) }}</td>
+                  <td title="{{ c.signal }}{% if signal_description(c.source, c.signal) %} – {{ signal_description(c.source, c.signal) }}{% endif %}" data-label="Signal">
                     {{ signal_label(c.source, c.signal) }}
                     <span class="text-secondary font-monospace signal-raw-id">{{ c.signal }}</span>
                   </td>
-                  <td>{{ c.service or 'any' }}</td>
-                  <td class="font-monospace small">{{ c.attr_fp or '—' }}</td>
-                  <td>
+                  <td data-label="Service">{{ c.service or 'any' }}</td>
+                  <td class="font-monospace small" data-label="Attr FP">{{ c.attr_fp or '—' }}</td>
+                  <td data-label="Mode">
                     {% if c.rule_type == 'seasonal' %}
                     <span class="badge bg-info text-dark" title="{{ c.seasonal_strategy | replace('_', ' ') | title }}: {{ c.seasonal_bucket_count }} bucket(s)">
                       <i class="bi bi-calendar3 me-1"></i>seasonal
@@ -147,11 +216,11 @@
                     <span class="badge bg-secondary">threshold</span>
                     {% endif %}
                   </td>
-                  <td>{{ c.comparator }}</td>
-                  <td>{{ c.warning_threshold }}</td>
-                  <td>{{ c.critical_threshold }}</td>
-                  <td>{{ c.min_sample_count }}</td>
-                  <td>{{ c.point_count }}</td>
+                  <td data-label="Comparator">{{ c.comparator }}</td>
+                  <td data-label="Warning">{{ c.warning_threshold }}</td>
+                  <td data-label="Critical">{{ c.critical_threshold }}</td>
+                  <td data-label="Min Sample">{{ c.min_sample_count }}</td>
+                  <td data-label="Points">{{ c.point_count }}</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -231,7 +300,7 @@
         <div class="card border-secondary mt-3 mb-0">
           <div class="card-header">Dashboard Preview Candidates ({{ auto_dashboard_preview|length }})</div>
           <div class="table-responsive">
-            <table class="table table-dark table-sm align-middle mb-0">
+            <table class="table table-dark table-sm align-middle mb-0 metrics-charts-table">
               <thead>
                 <tr>
                   <th>Chart Title</th>
@@ -246,16 +315,16 @@
               <tbody>
                 {% for c in auto_dashboard_preview %}
                 <tr>
-                  <td>{{ c.title }}</td>
-                  <td>{{ c.rule_name }}</td>
-                  <td><span class="badge text-bg-secondary text-capitalize">{{ c.rule_type }}</span></td>
-                  <td title="{{ c.source }}">{{ source_label(c.source) }}</td>
-                  <td title="{{ c.signal }}{% if signal_description(c.source, c.signal) %} – {{ signal_description(c.source, c.signal) }}{% endif %}">
+                  <td data-label="Chart Title">{{ c.title }}</td>
+                  <td data-label="Rule">{{ c.rule_name }}</td>
+                  <td data-label="Type"><span class="badge text-bg-secondary text-capitalize">{{ c.rule_type }}</span></td>
+                  <td title="{{ c.source }}" data-label="Source">{{ source_label(c.source) }}</td>
+                  <td title="{{ c.signal }}{% if signal_description(c.source, c.signal) %} – {{ signal_description(c.source, c.signal) }}{% endif %}" data-label="Signal">
                     {{ signal_label(c.source, c.signal) }}
                     <span class="text-secondary font-monospace signal-raw-id">{{ c.signal }}</span>
                   </td>
-                  <td>{{ c.service or 'any' }}</td>
-                  <td class="font-monospace small">{{ c.attr_fp or '—' }}</td>
+                  <td data-label="Service">{{ c.service or 'any' }}</td>
+                  <td class="font-monospace small" data-label="Attr FP">{{ c.attr_fp or '—' }}</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -417,7 +486,7 @@
     </div>
   </div>
   <div class="table-responsive">
-    <table class="table table-dark table-sm align-middle mb-0" id="activeRulesTable">
+    <table class="table table-dark table-sm align-middle mb-0 metrics-active-rules-table" id="activeRulesTable">
       <thead>
         <tr>
           <th>Name</th>
@@ -442,31 +511,31 @@
               data-signal="{{ rule.signal|lower }}"
               data-service="{{ (rule.service or 'any')|lower }}"
               data-sample="{{ rule.min_sample_count }}">
-            <td>{{ rule.name }}</td>
-            <td>
+            <td data-label="Name">{{ rule.name }}</td>
+            <td data-label="Type">
               {% if rule.rule_type == 'seasonal' %}
               <span class="badge bg-info text-dark text-capitalize"><i class="bi bi-calendar3 me-1"></i>{{ rule.rule_type }}</span>
               {% else %}
               <span class="badge text-bg-secondary text-capitalize">{{ rule.rule_type }}</span>
               {% endif %}
             </td>
-            <td title="{{ rule.source }}">{{ source_label(rule.source) }}</td>
-            <td title="{{ rule.signal }}{% if signal_description(rule.source, rule.signal) %} – {{ signal_description(rule.source, rule.signal) }}{% endif %}">
+            <td title="{{ rule.source }}" data-label="Source">{{ source_label(rule.source) }}</td>
+            <td title="{{ rule.signal }}{% if signal_description(rule.source, rule.signal) %} – {{ signal_description(rule.source, rule.signal) }}{% endif %}" data-label="Signal">
               {{ signal_label(rule.source, rule.signal) }}
               <span class="text-secondary font-monospace signal-raw-id">{{ rule.signal }}</span>
             </td>
-            <td>{{ rule.service or 'any' }}</td>
-            <td class="font-monospace small">{{ rule.attr_fp or '—' }}</td>
-            <td class="font-monospace small">{{ rule.comparator }} / {{ rule.warning_threshold }} / {{ rule.critical_threshold }}</td>
-            <td class="font-monospace small">
+            <td data-label="Service">{{ rule.service or 'any' }}</td>
+            <td class="font-monospace small" data-label="Attr FP">{{ rule.attr_fp or '—' }}</td>
+            <td class="font-monospace small" data-label="Primary">{{ rule.comparator }} / {{ rule.warning_threshold }} / {{ rule.critical_threshold }}</td>
+            <td class="font-monospace small" data-label="Secondary">
               {% if rule.rule_type == 'composite' %}
                 {{ rule.secondary_source }}:{{ rule.secondary_signal }} {{ rule.secondary_comparator }} / {{ rule.secondary_warning_threshold }} / {{ rule.secondary_critical_threshold }}
               {% elif rule.rule_type == 'seasonal' and rule.seasonal_buckets_json %}
                 <span title="{{ rule.seasonal_buckets_json }}">{{ rule.seasonal_buckets_json | length }} chars</span>
               {% else %}—{% endif %}
             </td>
-            <td class="font-monospace small">{{ rule.min_sample_count }}</td>
-            <td>
+            <td class="font-monospace small" data-label="Min Sample">{{ rule.min_sample_count }}</td>
+            <td data-label="Actions">
               <div class="d-flex gap-2">
                 <button type="button" class="btn btn-sm btn-outline-warning js-notify-rule"
                         data-rule-id="{{ rule.id }}" data-rule-name="{{ rule.name }}"
@@ -496,75 +565,6 @@
   </div>
 </div>
 
-<style>
-  #metricsRulesTourModal {
-    --metrics-tour-left-offset: 0px;
-    --metrics-tour-side-gap: 12px;
-  }
-  #metricsRulesTourModal .modal-dialog {
-    max-width: none;
-    width: auto;
-    margin-left: calc(var(--metrics-tour-left-offset) + var(--metrics-tour-side-gap));
-    margin-right: var(--metrics-tour-side-gap);
-  }
-  #metricsRulesTourModal .modal-body {
-    min-height: 360px;
-  }
-  #metricsRulesTourCarousel .carousel-item {
-    min-height: 300px;
-  }
-  #metricsRulesTourCarousel .carousel-indicators [data-bs-target] {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-  }
-  .rules-tour-card {
-    border: 1px solid var(--bs-border-color);
-    border-radius: 0.5rem;
-    background: rgba(var(--bs-secondary-rgb), 0.08);
-    padding: 0.75rem;
-  }
-  .rules-tour-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    font-size: 0.78rem;
-    color: var(--bs-secondary-color);
-  }
-  .rules-tour-dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    margin-right: 0.35rem;
-  }
-  .rules-tour-chip {
-    border: 1px solid var(--bs-border-color);
-    background: rgba(var(--bs-secondary-rgb), 0.08);
-    border-radius: 999px;
-    padding: 0.2rem 0.55rem;
-    font-size: 0.75rem;
-    color: var(--bs-secondary-color);
-  }
-  .rules-tour-flow {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-    align-items: center;
-  }
-  @media (max-width: 768px) {
-    #metricsRulesTourModal .modal-dialog {
-      margin-left: .5rem;
-      margin-right: .5rem;
-    }
-    #metricsRulesTourModal .modal-body {
-      min-height: 420px;
-    }
-    #metricsRulesTourCarousel .carousel-item {
-      min-height: 355px;
-    }
-  }
-</style>
 
 <div class="modal fade" id="metricsRulesTourModal" tabindex="-1" aria-labelledby="metricsRulesTourTitle" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">

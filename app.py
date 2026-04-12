@@ -2891,6 +2891,9 @@ def _kubernetes_enabled() -> bool:
         return False
 
 
+MOBILE_BREAKPOINT_MAX = "575.98px"
+
+
 @app.context_processor
 def inject_feature_flags() -> dict:
     try:
@@ -2900,6 +2903,7 @@ def inject_feature_flags() -> dict:
             "query_enabled": _query_page_enabled(),
             "kubernetes_enabled": _kubernetes_enabled(),
             "raise_issue_mask_toggle_effective": raise_issue_mask_toggle_effective,
+            "mobile_breakpoint_max": MOBILE_BREAKPOINT_MAX,
             "sobs_version": BUILD_VERSION or "dev",
         }
     except Exception:
@@ -2907,6 +2911,7 @@ def inject_feature_flags() -> dict:
             "query_enabled": False,
             "kubernetes_enabled": False,
             "raise_issue_mask_toggle_effective": False,
+            "mobile_breakpoint_max": MOBILE_BREAKPOINT_MAX,
             "sobs_version": BUILD_VERSION or "dev",
         }
 
@@ -11680,21 +11685,35 @@ def _load_tag_rules(db: ChDbConnection) -> list[dict]:
         "MatchAttrKey, TagKey, TagValue, ConditionsJson "
         "FROM sobs_tag_rules FINAL WHERE IsDeleted = 0 ORDER BY Name"
     ).fetchall()
-    return [
-        {
-            "id": str(row["Id"]),
-            "name": str(row["Name"]),
-            "record_types": [t.strip() for t in str(row["RecordTypes"]).split(",") if t.strip()],
-            "match_field": str(row["MatchField"]),
-            "match_operator": str(row["MatchOperator"]),
-            "match_value": str(row["MatchValue"]),
-            "match_attr_key": str(row["MatchAttrKey"]),
-            "tag_key": str(row["TagKey"]),
-            "tag_value": str(row["TagValue"]),
-            "conditions": _parse_tag_rule_conditions_json(row["ConditionsJson"]),
-        }
-        for row in rows
-    ]
+    loaded: list[dict] = []
+    for row in rows:
+        conditions = _parse_tag_rule_conditions_json(row["ConditionsJson"])
+        # Backward compatibility for pre-ConditionsJson rules.
+        if not conditions and str(row["MatchField"] or "").strip():
+            conditions = [
+                {
+                    "match_field": str(row["MatchField"] or ""),
+                    "match_operator": str(row["MatchOperator"] or "eq"),
+                    "match_value": str(row["MatchValue"] or ""),
+                    "match_attr_key": str(row["MatchAttrKey"] or ""),
+                }
+            ]
+
+        loaded.append(
+            {
+                "id": str(row["Id"]),
+                "name": str(row["Name"]),
+                "record_types": [t.strip() for t in str(row["RecordTypes"]).split(",") if t.strip()],
+                "match_field": str(row["MatchField"]),
+                "match_operator": str(row["MatchOperator"]),
+                "match_value": str(row["MatchValue"]),
+                "match_attr_key": str(row["MatchAttrKey"]),
+                "tag_key": str(row["TagKey"]),
+                "tag_value": str(row["TagValue"]),
+                "conditions": conditions,
+            }
+        )
+    return loaded
 
 
 def _match_tag_rule(
@@ -11892,6 +11911,80 @@ def _tag_rule_value_suggestions(
         )
 
     return []
+
+
+def _record_tag_key_suggestions(
+    db: ChDbConnection,
+    query_text: str,
+    limit: int,
+    record_type: str = "all",
+) -> list[str]:
+    q = (query_text or "").strip().lower()
+    rt = (record_type or "all").strip().lower()
+    where = ["IsDeleted = 0"]
+    params: list[Any] = []
+    if rt and rt != "all":
+        where.append("RecordType = ?")
+        params.append(rt)
+    params.extend([q, q, limit])
+    rows = db.execute(
+        "SELECT TagKey FROM sobs_record_tags FINAL "
+        f"WHERE {' AND '.join(where)} "
+        "AND (? = '' OR positionCaseInsensitive(TagKey, ?) > 0) "
+        "GROUP BY TagKey ORDER BY count() DESC, TagKey LIMIT ?",
+        params,
+    ).fetchall()
+    return [str(row[0] or "") for row in rows if str(row[0] or "").strip()]
+
+
+def _record_tag_value_suggestions(
+    db: ChDbConnection,
+    tag_key: str,
+    query_text: str,
+    limit: int,
+    record_type: str = "all",
+) -> list[str]:
+    key = (tag_key or "").strip()
+    if not key:
+        return []
+    q = (query_text or "").strip().lower()
+    rt = (record_type or "all").strip().lower()
+    where = ["IsDeleted = 0", "TagKey = ?"]
+    params: list[Any] = [key]
+    if rt and rt != "all":
+        where.append("RecordType = ?")
+        params.append(rt)
+    params.extend([q, q, limit])
+    rows = db.execute(
+        "SELECT TagValue FROM sobs_record_tags FINAL "
+        f"WHERE {' AND '.join(where)} "
+        "AND (? = '' OR positionCaseInsensitive(TagValue, ?) > 0) "
+        "GROUP BY TagValue ORDER BY count() DESC, TagValue LIMIT ?",
+        params,
+    ).fetchall()
+    return [str(row[0] or "") for row in rows if str(row[0] or "").strip()]
+
+
+def _notification_condition_service_suggestions(
+    db: ChDbConnection,
+    query_text: str,
+    limit: int,
+    source: str = "",
+    signal: str = "",
+) -> list[str]:
+    q = (query_text or "").strip().lower()
+    src = (source or "").strip().lower()
+    sig = (signal or "").strip()
+    rows = db.execute(
+        "SELECT ServiceName FROM v_derived_signals_1m "
+        "WHERE ServiceName != '' "
+        "AND (? = '' OR SignalSource = ?) "
+        "AND (? = '' OR SignalName = ?) "
+        "AND (? = '' OR positionCaseInsensitive(ServiceName, ?) > 0) "
+        "GROUP BY ServiceName ORDER BY count() DESC, ServiceName LIMIT ?",
+        [src, src, sig, sig, q, q, limit],
+    ).fetchall()
+    return [str(row[0] or "") for row in rows if str(row[0] or "").strip()]
 
 
 def _apply_tag_rules(
@@ -13087,46 +13180,42 @@ async def auto_metrics_rules_dashboard():
 @require_basic_auth
 async def delete_metrics_rule(rule_id: str):
     db = get_db()
-    row = db.execute(
-        "SELECT Id, Name, RuleType, SignalSource, SignalName, ServiceName, AttrFingerprint, Comparator, "
-        "WarningThreshold, CriticalThreshold, SecondarySignalSource, SecondarySignalName, "
-        "SecondaryComparator, SecondaryWarningThreshold, SecondaryCriticalThreshold, MinSampleCount "
-        "FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 AND Id = ?",
-        [rule_id],
-    ).fetchone()
-    if not row:
-        await flash("Rule not found", "warning")
-        return redirect(url_for("view_metrics_rules"))
 
-    version = int(time.time() * 1000)
-    _insert_rows_json_each_row(
+    def _deleted_row(row: RowCompat) -> dict[str, Any]:
+        return {
+            "Id": str(row["Id"]),
+            "Name": str(row["Name"]),
+            "RuleType": str(row["RuleType"] or "threshold"),
+            "SignalSource": str(row["SignalSource"]),
+            "SignalName": str(row["SignalName"]),
+            "ServiceName": str(row["ServiceName"]),
+            "AttrFingerprint": str(row["AttrFingerprint"]),
+            "Comparator": str(row["Comparator"]),
+            "WarningThreshold": float(row["WarningThreshold"]),
+            "CriticalThreshold": float(row["CriticalThreshold"]),
+            "SecondarySignalSource": str(row["SecondarySignalSource"]),
+            "SecondarySignalName": str(row["SecondarySignalName"]),
+            "SecondaryComparator": str(row["SecondaryComparator"] or "gt"),
+            "SecondaryWarningThreshold": float(row["SecondaryWarningThreshold"]),
+            "SecondaryCriticalThreshold": float(row["SecondaryCriticalThreshold"]),
+            "MinSampleCount": int(row["MinSampleCount"]),
+        }
+
+    return await _soft_delete_latest_row(
         db,
-        "sobs_anomaly_rules",
-        [
-            {
-                "Id": str(row["Id"]),
-                "Name": str(row["Name"]),
-                "RuleType": str(row["RuleType"] or "threshold"),
-                "SignalSource": str(row["SignalSource"]),
-                "SignalName": str(row["SignalName"]),
-                "ServiceName": str(row["ServiceName"]),
-                "AttrFingerprint": str(row["AttrFingerprint"]),
-                "Comparator": str(row["Comparator"]),
-                "WarningThreshold": float(row["WarningThreshold"]),
-                "CriticalThreshold": float(row["CriticalThreshold"]),
-                "SecondarySignalSource": str(row["SecondarySignalSource"]),
-                "SecondarySignalName": str(row["SecondarySignalName"]),
-                "SecondaryComparator": str(row["SecondaryComparator"] or "gt"),
-                "SecondaryWarningThreshold": float(row["SecondaryWarningThreshold"]),
-                "SecondaryCriticalThreshold": float(row["SecondaryCriticalThreshold"]),
-                "MinSampleCount": int(row["MinSampleCount"]),
-                "IsDeleted": 1,
-                "Version": version,
-            }
-        ],
+        select_sql=(
+            "SELECT Id, Name, RuleType, SignalSource, SignalName, ServiceName, AttrFingerprint, Comparator, "
+            "WarningThreshold, CriticalThreshold, SecondarySignalSource, SecondarySignalName, "
+            "SecondaryComparator, SecondaryWarningThreshold, SecondaryCriticalThreshold, MinSampleCount "
+            "FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 AND Id = ?"
+        ),
+        select_params=[rule_id],
+        table_name="sobs_anomaly_rules",
+        build_deleted_row=_deleted_row,
+        not_found_message="Rule not found",
+        success_message="Rule '{name}' deleted",
+        redirect_endpoint="view_metrics_rules",
     )
-    await flash(f"Rule '{str(row['Name'])}' deleted", "success")
-    return redirect(url_for("view_metrics_rules"))
 
 
 # ---------------------------------------------------------------------------
@@ -20051,136 +20140,76 @@ async def view_custom_dashboard(dashboard_id: str):
     )
 
 
-@app.route("/dashboards/help/chart-editor")
-@require_basic_auth
-async def chart_editor_help():
-    return await render_template("chart_editor_help.html")
+def _register_help_route(path: str, endpoint: str, template_name: str) -> None:
+    @require_basic_auth
+    async def _help_handler(template: str = template_name):
+        return await render_template(template)
+
+    app.add_url_rule(path, endpoint=endpoint, view_func=_help_handler)
 
 
-@app.route("/metrics/help/rules")
-@require_basic_auth
-async def metrics_rules_help():
-    return await render_template("metrics_rules_help.html")
+_HELP_ROUTE_REGISTRY: list[tuple[str, str, str]] = [
+    ("/dashboards/help/chart-editor", "chart_editor_help", "chart_editor_help.html"),
+    ("/metrics/help/rules", "metrics_rules_help", "metrics_rules_help.html"),
+    ("/metrics/help/rules/auto", "auto_metrics_rules_help", "auto_metrics_rules_help.html"),
+    ("/kubernetes/help", "kubernetes_help", "kubernetes_help.html"),
+    ("/settings/help/data-management", "data_management_help", "data_management_help.html"),
+    ("/settings/help", "settings_help", "settings_help.html"),
+    ("/settings/help/masking", "masking_help", "masking_help.html"),
+    ("/settings/help/ai", "settings_ai_help", "settings_ai_help.html"),
+    ("/settings/help/agents", "settings_agents_help", "settings_agents_help.html"),
+    ("/settings/help/notifications", "settings_notifications_help", "settings_notifications_help.html"),
+    ("/settings/help/tags", "settings_tags_help", "settings_tags_help.html"),
+    ("/settings/help/enrichment", "settings_enrichment_help", "settings_enrichment_help.html"),
+    ("/settings/help/repositories", "settings_repositories_help", "settings_repositories_help.html"),
+    ("/settings/help/kubernetes", "settings_kubernetes_help", "kubernetes_help.html"),
+    ("/web-traffic/help", "web_traffic_help", "web_traffic_help.html"),
+    ("/errors/help", "errors_help", "errors_help.html"),
+    ("/table-explorer/help", "table_explorer_help", "table_explorer_help.html"),
+    ("/setup/help/playbooks", "setup_playbooks_help", "setup_playbooks_help.html"),
+    ("/logs/help", "logs_help", "logs_help.html"),
+    ("/traces/help", "traces_help", "traces_help.html"),
+    ("/rum/help", "rum_help", "rum_help.html"),
+    ("/ai/help", "ai_help", "ai_help.html"),
+    ("/cve/help", "cve_help", "cve_help.html"),
+    ("/metrics/help", "metrics_help", "metrics_help.html"),
+    ("/metrics/help/anomaly", "metrics_anomaly_help", "metrics_anomaly_help.html"),
+    ("/query/help", "query_help", "query_help.html"),
+    ("/reports/help", "reports_help", "reports_help.html"),
+    ("/summary/help", "summary_help", "summary_help.html"),
+    ("/work-items/help", "work_items_help", "work_items_help.html"),
+    ("/incident/help", "incident_help", "incident_help.html"),
+]
+
+for _help_path, _help_endpoint, _help_template in _HELP_ROUTE_REGISTRY:
+    _register_help_route(_help_path, _help_endpoint, _help_template)
 
 
-@app.route("/metrics/help/rules/auto")
-@require_basic_auth
-async def auto_metrics_rules_help():
-    return await render_template("auto_metrics_rules_help.html")
+async def _soft_delete_latest_row(
+    db: ChDbConnection,
+    *,
+    select_sql: str,
+    select_params: list[Any],
+    table_name: str,
+    build_deleted_row: Callable[[RowCompat], dict[str, Any]],
+    not_found_message: str,
+    success_message: str,
+    redirect_endpoint: str,
+    not_found_category: str = "warning",
+    success_category: str = "success",
+):
+    row = db.execute(select_sql, select_params).fetchone()
+    if not row:
+        await flash(not_found_message, not_found_category)
+        return redirect(url_for(redirect_endpoint))
 
+    payload = build_deleted_row(row)
+    payload["IsDeleted"] = 1
+    payload["Version"] = int(time.time() * 1000)
+    _insert_rows_json_each_row(db, table_name, [payload])
 
-@app.route("/kubernetes/help")
-@require_basic_auth
-async def kubernetes_help():
-    return await render_template("kubernetes_help.html")
-
-
-@app.route("/settings/help/data-management")
-@require_basic_auth
-async def data_management_help():
-    return await render_template("data_management_help.html")
-
-
-@app.route("/settings/help/masking")
-@require_basic_auth
-async def masking_help():
-    return await render_template("masking_help.html")
-
-
-@app.route("/web-traffic/help")
-@require_basic_auth
-async def web_traffic_help():
-    return await render_template("web_traffic_help.html")
-
-
-@app.route("/errors/help")
-@require_basic_auth
-async def errors_help():
-    return await render_template("errors_help.html")
-
-
-@app.route("/table-explorer/help")
-@require_basic_auth
-async def table_explorer_help():
-    return await render_template("table_explorer_help.html")
-
-
-@app.route("/setup/help/playbooks")
-@require_basic_auth
-async def setup_playbooks_help():
-    return await render_template("setup_playbooks_help.html")
-
-
-@app.route("/logs/help")
-@require_basic_auth
-async def logs_help():
-    return await render_template("logs_help.html")
-
-
-@app.route("/traces/help")
-@require_basic_auth
-async def traces_help():
-    return await render_template("traces_help.html")
-
-
-@app.route("/rum/help")
-@require_basic_auth
-async def rum_help():
-    return await render_template("rum_help.html")
-
-
-@app.route("/ai/help")
-@require_basic_auth
-async def ai_help():
-    return await render_template("ai_help.html")
-
-
-@app.route("/cve/help")
-@require_basic_auth
-async def cve_help():
-    return await render_template("cve_help.html")
-
-
-@app.route("/metrics/help")
-@require_basic_auth
-async def metrics_help():
-    return await render_template("metrics_help.html")
-
-
-@app.route("/metrics/help/anomaly")
-@require_basic_auth
-async def metrics_anomaly_help():
-    return await render_template("metrics_anomaly_help.html")
-
-
-@app.route("/query/help")
-@require_basic_auth
-async def query_help():
-    return await render_template("query_help.html")
-
-
-@app.route("/reports/help")
-@require_basic_auth
-async def reports_help():
-    return await render_template("reports_help.html")
-
-
-@app.route("/summary/help")
-@require_basic_auth
-async def summary_help():
-    return await render_template("summary_help.html")
-
-
-@app.route("/work-items/help")
-@require_basic_auth
-async def work_items_help():
-    return await render_template("work_items_help.html")
-
-
-@app.route("/incident/help")
-@require_basic_auth
-async def incident_help():
-    return await render_template("incident_help.html")
+    await flash(success_message.format(name=str(row["Name"])), success_category)
+    return redirect(url_for(redirect_endpoint))
 
 
 @app.route("/dashboards/<dashboard_id>/delete", methods=["POST"])
@@ -21920,10 +21949,17 @@ async def view_tag_rules():
     if open_panel not in {"auto-tags"}:
         open_panel = ""
     rules = _load_tag_rules(db)
+    edit_rule_id = (request.args.get("edit_rule") or "").strip()
+    edit_rule = None
+    if edit_rule_id:
+        edit_rule = next((rule for rule in rules if rule.get("id") == edit_rule_id), None)
+        if not edit_rule:
+            await flash("Tag rule not found for editing", "warning")
     services = _list_tag_candidate_services(db)
     return await render_template(
         "settings_tags.html",
         rules=rules,
+        edit_rule=edit_rule,
         record_types=_TAG_RULE_RECORD_TYPES,
         match_fields=_TAG_RULE_FIELDS,
         match_operators=_TAG_RULE_OPERATORS,
@@ -21938,24 +21974,40 @@ async def view_tag_rules():
 @require_basic_auth
 async def api_tag_rule_condition_suggestions():
     db = get_db()
+    scope = (request.args.get("scope") or "tag_rule").strip().lower()
     field = (request.args.get("field") or "").strip().lower()
     operator = (request.args.get("operator") or "eq").strip().lower()
     query_text = (request.args.get("q") or "").strip()
     attr_key = (request.args.get("attr_key") or "").strip()
+    source = (request.args.get("source") or "").strip().lower()
+    signal = (request.args.get("signal") or "").strip()
+    record_type = (request.args.get("record_type") or "all").strip().lower()
+    tag_key = (request.args.get("tag_key") or "").strip()
     target = (request.args.get("target") or "value").strip().lower()
     try:
         limit = max(3, min(20, int(request.args.get("limit") or 8)))
     except (TypeError, ValueError):
         limit = 8
 
-    if target == "attr_key":
-        suggestions = _tag_rule_attribute_key_suggestions(db, query_text, limit)
+    if scope == "tag_rule":
+        if target == "attr_key":
+            suggestions = _tag_rule_attribute_key_suggestions(db, query_text, limit)
+        else:
+            suggestions = _tag_rule_value_suggestions(db, field, operator, query_text, attr_key, limit)
     else:
-        suggestions = _tag_rule_value_suggestions(db, field, operator, query_text, attr_key, limit)
+        if target == "service":
+            suggestions = _notification_condition_service_suggestions(db, query_text, limit, source, signal)
+        elif target == "tag_key":
+            suggestions = _record_tag_key_suggestions(db, query_text, limit, record_type)
+        elif target == "tag_value":
+            suggestions = _record_tag_value_suggestions(db, tag_key, query_text, limit, record_type)
+        else:
+            suggestions = []
 
     return masked_jsonify(
         {
             "ok": True,
+            "scope": scope,
             "field": field,
             "operator": operator,
             "target": target,
@@ -22080,6 +22132,8 @@ async def auto_tag_rules():
 @require_basic_auth
 async def create_tag_rule():
     form = await request.form
+    edit_rule_id = (form.get("edit_rule_id") or "").strip()
+    redirect_endpoint = url_for("view_tag_rules", edit_rule=edit_rule_id) if edit_rule_id else url_for("view_tag_rules")
     name = (form.get("name") or "").strip()
     record_types_list = form.getlist("record_types")
     tag_key = (form.get("tag_key") or "").strip()
@@ -22130,26 +22184,26 @@ async def create_tag_rule():
 
     if not name or not conditions or not tag_key or not tag_value:
         await flash("Name, at least one match condition, tag key, and tag value are required", "warning")
-        return redirect(url_for("view_tag_rules"))
+        return redirect(redirect_endpoint)
 
     valid_fields = set(_TAG_RULE_FIELDS)
     valid_ops = set(_TAG_RULE_OPERATORS)
     for cond in conditions:
         if cond["match_field"] not in valid_fields:
             await flash(f"Invalid match field: {cond['match_field']}", "warning")
-            return redirect(url_for("view_tag_rules"))
+            return redirect(redirect_endpoint)
         if cond["match_operator"] not in valid_ops:
             await flash(f"Invalid match operator: {cond['match_operator']}", "warning")
-            return redirect(url_for("view_tag_rules"))
+            return redirect(redirect_endpoint)
         if cond["match_field"] == "attribute" and not cond["match_attr_key"]:
             await flash("Attribute key is required when match field is 'attribute'", "warning")
-            return redirect(url_for("view_tag_rules"))
+            return redirect(redirect_endpoint)
         if cond["match_operator"] == "regex":
             try:
                 re.compile(cond["match_value"])
             except re.error as exc:
                 await flash(f"Invalid regex pattern: {exc}", "warning")
-                return redirect(url_for("view_tag_rules"))
+                return redirect(redirect_endpoint)
 
     # Normalise record types
     valid_types = set(_TAG_RULE_RECORD_TYPES)
@@ -22160,6 +22214,20 @@ async def create_tag_rule():
     primary = conditions[0]
 
     rule_id = str(uuid.uuid4())
+    if edit_rule_id:
+        existing_row = (
+            get_db()
+            .execute(
+                "SELECT Id FROM sobs_tag_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
+                [edit_rule_id],
+            )
+            .fetchone()
+        )
+        if not existing_row:
+            await flash("Tag rule not found for editing", "warning")
+            return redirect(url_for("view_tag_rules"))
+        rule_id = str(existing_row["Id"])
+
     _insert_rows_json_each_row(
         get_db(),
         "sobs_tag_rules",
@@ -22180,7 +22248,7 @@ async def create_tag_rule():
             }
         ],
     )
-    await flash(f"Tag rule '{name}' created", "success")
+    await flash(f"Tag rule '{name}' {'updated' if edit_rule_id else 'created'}", "success")
     return redirect(url_for("view_tag_rules"))
 
 
@@ -22188,35 +22256,31 @@ async def create_tag_rule():
 @require_basic_auth
 async def delete_tag_rule(rule_id: str):
     db = get_db()
-    row = db.execute(
-        "SELECT Id, Name FROM sobs_tag_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
-        [rule_id],
-    ).fetchone()
-    if not row:
-        await flash("Tag rule not found", "warning")
-        return redirect(url_for("view_tag_rules"))
-    _insert_rows_json_each_row(
+
+    def _deleted_row(row: RowCompat) -> dict[str, Any]:
+        return {
+            "Id": rule_id,
+            "Name": str(row["Name"]),
+            "RecordTypes": "",
+            "MatchField": "",
+            "MatchOperator": "eq",
+            "MatchValue": "",
+            "MatchAttrKey": "",
+            "TagKey": "",
+            "TagValue": "",
+            "ConditionsJson": "[]",
+        }
+
+    return await _soft_delete_latest_row(
         db,
-        "sobs_tag_rules",
-        [
-            {
-                "Id": rule_id,
-                "Name": str(row["Name"]),
-                "RecordTypes": "",
-                "MatchField": "",
-                "MatchOperator": "eq",
-                "MatchValue": "",
-                "MatchAttrKey": "",
-                "TagKey": "",
-                "TagValue": "",
-                "ConditionsJson": "[]",
-                "IsDeleted": 1,
-                "Version": int(time.time() * 1000),
-            }
-        ],
+        select_sql="SELECT Id, Name FROM sobs_tag_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
+        select_params=[rule_id],
+        table_name="sobs_tag_rules",
+        build_deleted_row=_deleted_row,
+        not_found_message="Tag rule not found",
+        success_message="Tag rule '{name}' deleted",
+        redirect_endpoint="view_tag_rules",
     )
-    await flash(f"Tag rule '{row['Name']}' deleted", "success")
-    return redirect(url_for("view_tag_rules"))
 
 
 # ---------------------------------------------------------------------------
@@ -23119,6 +23183,9 @@ _NOTIFICATION_CHANNEL_TYPES = ("webhook", "slack", "email", "browser_push")
 _NOTIFICATION_COMPARATORS = ("gt", "lt", "gte", "lte", "eq")
 _NOTIFICATION_SEVERITIES = ("warning", "critical")
 _NOTIFICATION_LOGIC_OPERATORS = ("any", "all")  # any=OR, all=AND
+_NOTIFICATION_CONDITION_TYPES = ("signal", "tag")
+_NOTIFICATION_TAG_MATCH_OPERATORS = ("eq", "contains", "regex")
+_NOTIFICATION_TAG_RECORD_TYPES = ("all", "log", "trace", "error", "ai", "rum")
 
 # VAPID JWT expiry window (12 hours)
 _VAPID_JWT_EXPIRY_SECONDS = 43200
@@ -23220,6 +23287,81 @@ def _load_notification_channels(db: ChDbConnection) -> list[dict]:
     ]
 
 
+def _normalize_notification_condition(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+
+    condition_type = str(raw.get("type") or "signal").strip().lower()
+    if condition_type == "tag":
+        record_type = str(raw.get("record_type") or "all").strip().lower()
+        if record_type not in _NOTIFICATION_TAG_RECORD_TYPES:
+            record_type = "all"
+        tag_match_operator = str(raw.get("tag_match_operator") or "eq").strip().lower()
+        if tag_match_operator not in _NOTIFICATION_TAG_MATCH_OPERATORS:
+            tag_match_operator = "eq"
+        comparator = str(raw.get("comparator") or "gt").strip().lower()
+        if comparator not in _NOTIFICATION_COMPARATORS:
+            comparator = "gt"
+        try:
+            threshold = float(raw.get("threshold") or 0)
+        except (TypeError, ValueError):
+            threshold = 0.0
+        try:
+            window_minutes = max(1, min(60, int(raw.get("window_minutes") or 5)))
+        except (TypeError, ValueError):
+            window_minutes = 5
+        return {
+            "type": "tag",
+            "record_type": record_type,
+            "tag_key": str(raw.get("tag_key") or "").strip(),
+            "tag_match_operator": tag_match_operator,
+            "tag_value": str(raw.get("tag_value") or "").strip(),
+            "comparator": comparator,
+            "threshold": threshold,
+            "window_minutes": window_minutes,
+        }
+
+    comparator = str(raw.get("comparator") or "gt").strip().lower()
+    if comparator not in _NOTIFICATION_COMPARATORS:
+        comparator = "gt"
+    try:
+        threshold = float(raw.get("threshold") or 0)
+    except (TypeError, ValueError):
+        threshold = 0.0
+    try:
+        window_minutes = max(1, min(60, int(raw.get("window_minutes") or 5)))
+    except (TypeError, ValueError):
+        window_minutes = 5
+    return {
+        "type": "signal",
+        "source": str(raw.get("source") or "").strip(),
+        "signal": str(raw.get("signal") or "").strip(),
+        "service": str(raw.get("service") or "").strip(),
+        "comparator": comparator,
+        "threshold": threshold,
+        "window_minutes": window_minutes,
+    }
+
+
+def _parse_notification_conditions_json(raw: Any) -> list[dict[str, Any]]:
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for item in parsed:
+        condition = _normalize_notification_condition(item)
+        if condition is not None:
+            normalized.append(condition)
+    return normalized
+
+
 def _load_notification_rules(db: ChDbConnection) -> list[dict]:
     """Return all active notification rules."""
     rows = db.execute(
@@ -23233,7 +23375,7 @@ def _load_notification_rules(db: ChDbConnection) -> list[dict]:
             "name": str(row["Name"]),
             "enabled": bool(int(row["Enabled"])),
             "logic_operator": str(row["LogicOperator"] or "any"),
-            "conditions": json.loads(str(row["ConditionsJson"]) or "[]"),
+            "conditions": _parse_notification_conditions_json(row["ConditionsJson"]),
             "channel_ids": [c.strip() for c in str(row["ChannelIds"]).split(",") if c.strip()],
             "severity": str(row["Severity"] or "warning"),
             "cooldown_seconds": int(row["CooldownSeconds"]),
@@ -23300,12 +23442,27 @@ def _build_notification_payload(
     for cond in fired_conditions:
         comparator_labels = {"gt": ">", "lt": "<", "gte": "≥", "lte": "≤", "eq": "="}
         comp = comparator_labels.get(str(cond.get("comparator", "gt")), ">")
-        svc = cond.get("service", "")
-        service_str = f" [{svc}]" if svc else ""
-        condition_summaries.append(
-            f"{cond.get('source', '')}/{cond.get('signal', '')}{service_str} {comp} "
-            f"{cond.get('threshold', 0)} (value={cond.get('_value', 'n/a')})"
-        )
+        if str(cond.get("type") or "signal") == "tag":
+            record_type = str(cond.get("record_type") or "all")
+            record_type_str = "" if not record_type or record_type == "all" else f"[{record_type}] "
+            tag_key = str(cond.get("tag_key") or "")
+            tag_match_operator = str(cond.get("tag_match_operator") or "eq")
+            tag_value = str(cond.get("tag_value") or "")
+            if tag_value:
+                tag_expr = f"{tag_key} {tag_match_operator} {tag_value}"
+            else:
+                tag_expr = tag_key
+            condition_summaries.append(
+                f"tag {record_type_str}{tag_expr} {comp} {cond.get('threshold', 0)} "
+                f"(value={cond.get('_value', 'n/a')})"
+            )
+        else:
+            svc = cond.get("service", "")
+            service_str = f" [{svc}]" if svc else ""
+            condition_summaries.append(
+                f"{cond.get('source', '')}/{cond.get('signal', '')}{service_str} {comp} "
+                f"{cond.get('threshold', 0)} (value={cond.get('_value', 'n/a')})"
+            )
     summary = f"[SOBS] Rule '{rule['name']}' triggered ({rule['severity'].upper()}): " + "; ".join(condition_summaries)
     if mask_output_enabled:
         summary = _mask_string_for_output(summary)
@@ -23639,6 +23796,64 @@ def _evaluate_signal_condition(db: ChDbConnection, cond: dict) -> tuple[bool, fl
     return matched, current_value
 
 
+def _evaluate_tag_condition(db: ChDbConnection, cond: dict) -> tuple[bool, float]:
+    """Evaluate a notification tag condition against recent tag assignments."""
+    record_type = str(cond.get("record_type", "all")).strip().lower()
+    tag_key = str(cond.get("tag_key", "")).strip()
+    tag_match_operator = str(cond.get("tag_match_operator", "eq")).strip().lower()
+    tag_value = str(cond.get("tag_value", "")).strip()
+    comparator = str(cond.get("comparator", "gt")).strip()
+    threshold = float(cond.get("threshold", 0))
+    window_minutes = max(1, min(60, int(cond.get("window_minutes", 5))))
+
+    if not tag_key:
+        return False, 0.0
+
+    min_version = int((time.time() - (window_minutes * 60)) * 1000)
+    where_parts = ["IsDeleted = 0", "Version >= ?", "TagKey = ?"]
+    params: list[object] = [min_version, tag_key]
+    if record_type and record_type != "all":
+        where_parts.append("RecordType = ?")
+        params.append(record_type)
+
+    if tag_value:
+        if tag_match_operator == "eq":
+            where_parts.append("TagValue = ?")
+            params.append(tag_value)
+        elif tag_match_operator == "contains":
+            where_parts.append("positionCaseInsensitive(TagValue, ?) > 0")
+            params.append(tag_value)
+        elif tag_match_operator == "regex":
+            where_parts.append("match(TagValue, ?)")
+            params.append(tag_value)
+
+    try:
+        row = db.execute(
+            "SELECT count() AS c FROM sobs_record_tags FINAL WHERE " + " AND ".join(where_parts),
+            params,
+        ).fetchone()
+    except Exception:
+        return False, 0.0
+
+    current_value = float((row["c"] if row is not None else 0) or 0)
+    comp_map = {
+        "gt": current_value > threshold,
+        "lt": current_value < threshold,
+        "gte": current_value >= threshold,
+        "lte": current_value <= threshold,
+        "eq": abs(current_value - threshold) < 1e-9,
+    }
+    matched = comp_map.get(comparator, False)
+    return matched, current_value
+
+
+def _evaluate_notification_condition(db: ChDbConnection, cond: dict) -> tuple[bool, float]:
+    condition_type = str(cond.get("type") or "signal").strip().lower()
+    if condition_type == "tag":
+        return _evaluate_tag_condition(db, cond)
+    return _evaluate_signal_condition(db, cond)
+
+
 async def _check_notification_rule(db: ChDbConnection, rule: dict, channels_by_id: dict) -> dict:
     """Evaluate one notification rule. Dispatches if triggered. Returns status dict."""
     if not rule.get("enabled"):
@@ -23671,7 +23886,7 @@ async def _check_notification_rule(db: ChDbConnection, rule: dict, channels_by_i
     not_fired: list[dict] = []
 
     for cond in conditions:
-        matched, value = _evaluate_signal_condition(db, cond)
+        matched, value = _evaluate_notification_condition(db, cond)
         annotated = dict(cond)
         annotated["_value"] = round(value, 4)
         if matched:
@@ -23808,7 +24023,8 @@ def _agent_rule_trigger_state_matches(trigger_state: str, event_state: str) -> b
 def _collect_anomaly_agent_events(db: ChDbConnection) -> dict[str, dict[str, object]]:
     rows = db.execute(
         "SELECT ServiceName, SignalSource, SignalName, AttrFingerprint, "
-        "argMax(value, time) AS value, argMax(SampleCount, time) AS SampleCount, argMax(time, time) AS time "
+        "argMax(value, time) AS value, argMax(SampleCount, time) AS SampleCount, "
+        "argMax(time, time) AS latest_time "
         "FROM v_derived_signals_anomaly "
         "WHERE time >= now() - INTERVAL 24 HOUR "
         "GROUP BY ServiceName, SignalSource, SignalName, AttrFingerprint"
@@ -23826,7 +24042,7 @@ def _collect_anomaly_agent_events(db: ChDbConnection) -> dict[str, dict[str, obj
         attr_fp_key="AttrFingerprint",
         value_key="value",
         sample_count_key="SampleCount",
-        time_key="time",
+        time_key="latest_time",
     )
 
     events_by_rule: dict[str, dict[str, object]] = {}
@@ -24157,6 +24373,8 @@ async def view_notifications():
     db = get_db()
     channels = _load_notification_channels(db)
     rules = _load_notification_rules(db)
+    edit_rule_id = (request.args.get("edit_rule") or "").strip()
+    edit_rule = next((rule for rule in rules if str(rule.get("id", "")) == edit_rule_id), None)
     notification_log = _load_notification_log(db, limit=50)
     vapid_public_key, vapid_key_source = _get_vapid_public_key(db)
     metric_rules = _load_anomaly_rules(db)
@@ -24167,9 +24385,13 @@ async def view_notifications():
         notification_log=notification_log,
         channel_types=_NOTIFICATION_CHANNEL_TYPES,
         comparators=_NOTIFICATION_COMPARATORS,
+        condition_types=_NOTIFICATION_CONDITION_TYPES,
         severities=_NOTIFICATION_SEVERITIES,
         logic_operators=_NOTIFICATION_LOGIC_OPERATORS,
         signal_sources=_NOTIFICATION_SIGNAL_SOURCES,
+        tag_match_operators=_NOTIFICATION_TAG_MATCH_OPERATORS,
+        tag_record_types=_NOTIFICATION_TAG_RECORD_TYPES,
+        edit_rule=edit_rule,
         vapid_public_key=vapid_public_key,
         vapid_key_source=vapid_key_source,
         metric_rules=metric_rules,
@@ -24257,31 +24479,29 @@ async def create_notification_channel():
 async def delete_notification_channel(channel_id: str):
     """Soft-delete a notification channel."""
     db = get_db()
-    row = db.execute(
-        "SELECT Id, Name, ChannelType, ConfigJson, Enabled "
-        "FROM sobs_notification_channels FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
-        [channel_id],
-    ).fetchone()
-    if not row:
-        await flash("Notification channel not found", "warning")
-        return redirect(url_for("view_notifications"))
-    _insert_rows_json_each_row(
+
+    def _deleted_row(row: RowCompat) -> dict[str, Any]:
+        return {
+            "Id": channel_id,
+            "Name": str(row["Name"]),
+            "ChannelType": str(row["ChannelType"]),
+            "ConfigJson": str(row["ConfigJson"]),
+            "Enabled": int(row["Enabled"]),
+        }
+
+    return await _soft_delete_latest_row(
         db,
-        "sobs_notification_channels",
-        [
-            {
-                "Id": channel_id,
-                "Name": str(row["Name"]),
-                "ChannelType": str(row["ChannelType"]),
-                "ConfigJson": str(row["ConfigJson"]),
-                "Enabled": int(row["Enabled"]),
-                "IsDeleted": 1,
-                "Version": int(time.time() * 1000),
-            }
-        ],
+        select_sql=(
+            "SELECT Id, Name, ChannelType, ConfigJson, Enabled "
+            "FROM sobs_notification_channels FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1"
+        ),
+        select_params=[channel_id],
+        table_name="sobs_notification_channels",
+        build_deleted_row=_deleted_row,
+        not_found_message="Notification channel not found",
+        success_message="Notification channel '{name}' deleted",
+        redirect_endpoint="view_notifications",
     )
-    await flash(f"Notification channel '{row['Name']}' deleted", "success")
-    return redirect(url_for("view_notifications"))
 
 
 @app.route("/settings/notifications/channels/<channel_id>/toggle", methods=["POST"])
@@ -24357,8 +24577,9 @@ async def test_notification_channel(channel_id: str):
 @app.route("/settings/notifications/rules", methods=["POST"])
 @require_basic_auth
 async def create_notification_rule():
-    """Create a new notification rule."""
+    """Create or update a notification rule."""
     form = await request.form
+    edit_rule_id = (form.get("edit_rule_id") or "").strip()
     name = (form.get("name") or "").strip()
     logic_operator = (form.get("logic_operator") or "any").strip().lower()
     severity = (form.get("severity") or "warning").strip().lower()
@@ -24372,6 +24593,11 @@ async def create_notification_rule():
     sources = form.getlist("cond_source")
     signals = form.getlist("cond_signal")
     services = form.getlist("cond_service")
+    condition_types = form.getlist("cond_type")
+    record_types = form.getlist("cond_record_type")
+    tag_keys = form.getlist("cond_tag_key")
+    tag_match_operators = form.getlist("cond_tag_match_operator")
+    tag_values = form.getlist("cond_tag_value")
     comparators = form.getlist("cond_comparator")
     thresholds = form.getlist("cond_threshold")
     windows = form.getlist("cond_window_minutes")
@@ -24387,11 +24613,26 @@ async def create_notification_rule():
         return redirect(url_for("view_notifications"))
 
     conditions = []
-    for i, source in enumerate(sources):
-        source = (source or "").strip()
-        signal = (signals[i] if i < len(signals) else "").strip()
-        service = (services[i] if i < len(services) else "").strip()
-        comparator = (comparators[i] if i < len(comparators) else "gt").strip()
+    row_count = max(
+        len(condition_types),
+        len(sources),
+        len(signals),
+        len(services),
+        len(record_types),
+        len(tag_keys),
+        len(tag_match_operators),
+        len(tag_values),
+        len(comparators),
+        len(thresholds),
+        len(windows),
+    )
+    for i in range(row_count):
+        condition_type = (condition_types[i] if i < len(condition_types) else "signal").strip().lower()
+        if condition_type not in _NOTIFICATION_CONDITION_TYPES:
+            await flash(f"Invalid notification condition type: {condition_type}", "warning")
+            return redirect(url_for("view_notifications"))
+
+        comparator = (comparators[i] if i < len(comparators) else "gt").strip().lower()
         try:
             threshold = float(thresholds[i] if i < len(thresholds) else 0)
         except (TypeError, ValueError):
@@ -24401,12 +24642,51 @@ async def create_notification_rule():
         except (TypeError, ValueError):
             window_minutes = 5
 
-        if not source or not signal:
-            continue
         if comparator not in _NOTIFICATION_COMPARATORS:
             comparator = "gt"
+        if condition_type == "tag":
+            record_type = (record_types[i] if i < len(record_types) else "all").strip().lower()
+            tag_key = (tag_keys[i] if i < len(tag_keys) else "").strip()
+            tag_match_operator = (tag_match_operators[i] if i < len(tag_match_operators) else "eq").strip().lower()
+            tag_value = (tag_values[i] if i < len(tag_values) else "").strip()
+            if not tag_key:
+                continue
+            if record_type not in _NOTIFICATION_TAG_RECORD_TYPES:
+                record_type = "all"
+            if tag_match_operator not in _NOTIFICATION_TAG_MATCH_OPERATORS:
+                tag_match_operator = "eq"
+            if tag_match_operator == "regex":
+                try:
+                    re.compile(tag_value)
+                except re.error as exc:
+                    await flash(f"Invalid tag regex pattern: {exc}", "warning")
+                    return redirect(
+                        url_for("view_notifications", edit_rule=edit_rule_id)
+                        if edit_rule_id
+                        else url_for("view_notifications")
+                    )
+            conditions.append(
+                {
+                    "type": "tag",
+                    "record_type": record_type,
+                    "tag_key": tag_key,
+                    "tag_match_operator": tag_match_operator,
+                    "tag_value": tag_value,
+                    "comparator": comparator,
+                    "threshold": threshold,
+                    "window_minutes": window_minutes,
+                }
+            )
+            continue
+
+        source = (sources[i] if i < len(sources) else "").strip()
+        signal = (signals[i] if i < len(signals) else "").strip()
+        service = (services[i] if i < len(services) else "").strip()
+        if not source or not signal:
+            continue
         conditions.append(
             {
+                "type": "signal",
                 "source": source,
                 "signal": signal,
                 "service": service,
@@ -24428,7 +24708,22 @@ async def create_notification_rule():
     }
     channel_ids = [c.strip() for c in channel_ids_raw if c.strip() in valid_channel_ids]
 
+    enabled = 1
+    last_fired_at = "1970-01-01 00:00:00.000"
     rule_id = str(uuid.uuid4())
+    if edit_rule_id:
+        existing_row = db.execute(
+            "SELECT Id, Enabled, LastFiredAt FROM sobs_notification_rules FINAL "
+            "WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
+            [edit_rule_id],
+        ).fetchone()
+        if not existing_row:
+            await flash("Notification rule not found for editing", "warning")
+            return redirect(url_for("view_notifications"))
+        rule_id = str(existing_row["Id"])
+        enabled = int(existing_row["Enabled"])
+        last_fired_at = str(existing_row["LastFiredAt"])
+
     _insert_rows_json_each_row(
         db,
         "sobs_notification_rules",
@@ -24436,19 +24731,22 @@ async def create_notification_rule():
             {
                 "Id": rule_id,
                 "Name": name,
-                "Enabled": 1,
+                "Enabled": enabled,
                 "LogicOperator": logic_operator,
                 "ConditionsJson": json.dumps(conditions, ensure_ascii=False),
                 "ChannelIds": ",".join(channel_ids),
                 "Severity": severity,
                 "CooldownSeconds": cooldown_seconds,
-                "LastFiredAt": "1970-01-01 00:00:00.000",
+                "LastFiredAt": last_fired_at,
                 "IsDeleted": 0,
                 "Version": int(time.time() * 1000),
             }
         ],
     )
-    await flash(f"Notification rule '{name}' created", "success")
+    await flash(
+        f"Notification rule '{name}' {'updated' if edit_rule_id else 'created'}",
+        "success",
+    )
     return redirect(url_for("view_notifications"))
 
 
@@ -24496,35 +24794,33 @@ async def toggle_notification_rule(rule_id: str):
 async def delete_notification_rule(rule_id: str):
     """Soft-delete a notification rule."""
     db = get_db()
-    row = db.execute(
-        "SELECT Id, Name, LogicOperator, ConditionsJson, ChannelIds, Severity, CooldownSeconds, Enabled "
-        "FROM sobs_notification_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
-        [rule_id],
-    ).fetchone()
-    if not row:
-        await flash("Notification rule not found", "warning")
-        return redirect(url_for("view_notifications"))
-    _insert_rows_json_each_row(
+
+    def _deleted_row(row: RowCompat) -> dict[str, Any]:
+        return {
+            "Id": rule_id,
+            "Name": str(row["Name"]),
+            "Enabled": int(row["Enabled"]),
+            "LogicOperator": str(row["LogicOperator"]),
+            "ConditionsJson": str(row["ConditionsJson"]),
+            "ChannelIds": str(row["ChannelIds"]),
+            "Severity": str(row["Severity"]),
+            "CooldownSeconds": int(row["CooldownSeconds"]),
+            "LastFiredAt": "1970-01-01 00:00:00.000",
+        }
+
+    return await _soft_delete_latest_row(
         db,
-        "sobs_notification_rules",
-        [
-            {
-                "Id": rule_id,
-                "Name": str(row["Name"]),
-                "Enabled": int(row["Enabled"]),
-                "LogicOperator": str(row["LogicOperator"]),
-                "ConditionsJson": str(row["ConditionsJson"]),
-                "ChannelIds": str(row["ChannelIds"]),
-                "Severity": str(row["Severity"]),
-                "CooldownSeconds": int(row["CooldownSeconds"]),
-                "LastFiredAt": "1970-01-01 00:00:00.000",
-                "IsDeleted": 1,
-                "Version": int(time.time() * 1000),
-            }
-        ],
+        select_sql=(
+            "SELECT Id, Name, LogicOperator, ConditionsJson, ChannelIds, Severity, CooldownSeconds, Enabled "
+            "FROM sobs_notification_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1"
+        ),
+        select_params=[rule_id],
+        table_name="sobs_notification_rules",
+        build_deleted_row=_deleted_row,
+        not_found_message="Notification rule not found",
+        success_message="Notification rule '{name}' deleted",
+        redirect_endpoint="view_notifications",
     )
-    await flash(f"Notification rule '{row['Name']}' deleted", "success")
-    return redirect(url_for("view_notifications"))
 
 
 def _get_notification_auto_candidates(
@@ -25423,34 +25719,30 @@ async def create_agent_rule():
 @require_basic_auth
 async def delete_agent_rule(rule_id: str):
     db = get_db()
-    row = db.execute(
-        "SELECT Id, Name FROM sobs_agent_rules FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1",
-        [rule_id],
-    ).fetchone()
-    if not row:
-        await flash("Agent rule not found", "warning")
-        return redirect(url_for("view_agent_rules"))
-    _insert_rows_json_each_row(
+
+    def _deleted_row(row: RowCompat) -> dict[str, Any]:
+        return {
+            "Id": rule_id,
+            "Name": str(row["Name"]),
+            "Description": "",
+            "TriggerType": "manual",
+            "TriggerRefId": "",
+            "TriggerState": "any",
+            "Actions": "analyze",
+            "RateLimitMinutes": 60,
+            "IsEnabled": 0,
+        }
+
+    return await _soft_delete_latest_row(
         db,
-        "sobs_agent_rules",
-        [
-            {
-                "Id": rule_id,
-                "Name": str(row["Name"]),
-                "Description": "",
-                "TriggerType": "manual",
-                "TriggerRefId": "",
-                "TriggerState": "any",
-                "Actions": "analyze",
-                "RateLimitMinutes": 60,
-                "IsEnabled": 0,
-                "IsDeleted": 1,
-                "Version": int(time.time() * 1000),
-            }
-        ],
+        select_sql="SELECT Id, Name FROM sobs_agent_rules FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1",
+        select_params=[rule_id],
+        table_name="sobs_agent_rules",
+        build_deleted_row=_deleted_row,
+        not_found_message="Agent rule not found",
+        success_message="Agent rule '{name}' deleted",
+        redirect_endpoint="view_agent_rules",
     )
-    await flash(f"Agent rule '{row['Name']}' deleted", "success")
-    return redirect(url_for("view_agent_rules"))
 
 
 def _sse_json_event(event_name: str, payload: dict[str, Any]) -> str:

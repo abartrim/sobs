@@ -1,9 +1,14 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Settings{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-gear me-2 text-secondary"></i>Settings &amp; Configuration</h4>
-</div>
+{% set settings_header_actions %}
+  <a href="{{ url_for('settings_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help">
+    <i class="bi bi-question-circle me-1"></i><span class="settings-btn-label">Help</span>
+  </a>
+{% endset %}
+{{ render_page_header('Settings &amp; Configuration', icon_class='bi bi-gear', icon_text_class='text-secondary', actions_html=settings_header_actions) }}
 
 <div class="row g-3">
   <!-- Tag Rules -->
@@ -185,7 +190,7 @@
              data-ai-label="Open notification settings"
              data-ai-risk="high"
              data-ai-confirm="true">
-            <i class="bi bi-bell me-1"></i>Manage Notifications
+            <i class="bi bi-bell me-1"></i><span class="settings-btn-label">Manage Notifications</span>
           </a>
         </div>
       </div>
@@ -209,7 +214,7 @@
         <div class="d-flex align-items-center justify-content-between mt-2">
           <span class="badge text-bg-secondary">{{ masking_custom_key_count }} custom key{{ 's' if masking_custom_key_count != 1 else '' }} · {{ masking_custom_pattern_count }} custom pattern{{ 's' if masking_custom_pattern_count != 1 else '' }}</span>
           <a href="{{ url_for('view_masking_settings') }}" class="btn btn-sm btn-outline-danger">
-            <i class="bi bi-pencil-square me-1"></i>Manage Masking
+            <i class="bi bi-pencil-square me-1"></i><span class="settings-btn-label">Manage Masking</span>
           </a>
         </div>
       </div>
@@ -240,7 +245,7 @@
              data-ai-label="Open enrichment settings"
              data-ai-risk="high"
              data-ai-confirm="true">
-            <i class="bi bi-pencil-square me-1"></i>Configure Enrichment
+            <i class="bi bi-pencil-square me-1"></i><span class="settings-btn-label">Configure Enrichment</span>
           </a>
         </div>
       </div>
@@ -261,7 +266,7 @@
         </p>
         <div class="d-flex align-items-center justify-content-end mt-2">
           <a href="{{ url_for('view_settings_repositories') }}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-pencil-square me-1"></i>Manage Repositories
+            <i class="bi bi-pencil-square me-1"></i><span class="settings-btn-label">Manage Repositories</span>
           </a>
         </div>
       </div>

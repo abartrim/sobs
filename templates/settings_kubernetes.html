@@ -1,19 +1,17 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Kubernetes Settings{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-hdd-network me-2 text-info"></i>Kubernetes Health View</h4>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Settings
+{% set settings_kubernetes_header_actions %}
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}" title="Back to Settings">
+    <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
   </a>
-</div>
-
-<p class="text-secondary small mb-3">
-  Kubernetes health in SOBS is sourced from <strong>OTEL metric tables</strong>.
-  It supports two deployment patterns: <strong>OTEL-native collectors</strong> (kubeletstats/k8s_cluster receivers) and
-  <strong>Prometheus scraping</strong> (kube-state-metrics + cAdvisor via an OTEL Prometheus receiver).
-  SOBS auto-detects which format is present — no configuration change is needed.
-</p>
+  <a class="btn btn-sm btn-outline-secondary page-help-btn" href="{{ url_for('settings_kubernetes_help') }}" title="Help">
+    <i class="bi bi-question-circle me-1"></i><span class="settings-btn-label">Help</span>
+  </a>
+{% endset %}
+{{ render_page_header('Kubernetes Health View', icon_class='bi bi-hdd-network', icon_text_class='text-info', actions_html=settings_kubernetes_header_actions, subtext='Kubernetes health in SOBS is sourced from <strong>OTEL metric tables</strong>. It supports two deployment patterns: <strong>OTEL-native collectors</strong> (kubeletstats/k8s_cluster receivers) and <strong>Prometheus scraping</strong> (kube-state-metrics + cAdvisor via an OTEL Prometheus receiver). SOBS auto-detects which format is present with no configuration change needed.') }}
 
 {% if flash_msg %}
 <div class="alert alert-{{ flash_type }} alert-dismissible fade show" role="alert">

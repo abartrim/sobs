@@ -1,13 +1,18 @@
 {% extends "base.html" %}
 {% from '_multi_select_filter.html' import render_single_select %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}AI Configuration{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-robot me-2 text-primary"></i>AI &amp; Agent Configuration</h4>
-  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary">
-    <i class="bi bi-arrow-left me-1"></i>Back to Settings
+{% set settings_ai_header_actions %}
+  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
+    <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
   </a>
-</div>
+  <a href="{{ url_for('settings_ai_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help">
+    <i class="bi bi-question-circle me-1"></i><span class="settings-btn-label">Help</span>
+  </a>
+{% endset %}
+{{ render_page_header('AI &amp; Agent Configuration', icon_class='bi bi-robot', icon_text_class='text-primary', actions_html=settings_ai_header_actions) }}
 
 <form method="post" action="{{ url_for('save_ai_settings') }}">
   <!-- LLM Endpoint -->

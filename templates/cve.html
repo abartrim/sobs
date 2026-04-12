@@ -1,30 +1,27 @@
 {% extends "base.html" %}
 {% from "_multi_select_filter.html" import render_multi_select %}
 {% from "_filter_macros.html" import render_filter_accordion, render_tz_init_script %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}CVE Findings{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0">
-    <i class="bi bi-shield-exclamation me-2 text-danger"></i>CVE / Vulnerability Findings
-    {% if cve_findings %}
-    <span class="badge bg-danger ms-1">{{ cve_findings | length }}</span>
-    {% endif %}
-  </h4>
-  <div class="d-flex align-items-center gap-2">
-    {% if cve_last_scan %}
-    <span class="text-secondary small"><i class="bi bi-clock me-1"></i>Last scan: <span class="sobs-tz-ts" data-utc-ts="{{ cve_last_scan }}">{{ cve_last_scan[:19] }}</span></span>
-    {% endif %}
-    {% if cve_enabled %}
-    <button class="btn btn-sm btn-outline-danger py-0" id="cve-scan-btn" onclick="triggerCveScan()">
-      <i class="bi bi-arrow-clockwise me-1"></i>Scan now
-    </button>
-    {% endif %}
-    <a href="{{ url_for('view_web_traffic') }}" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-map me-1"></i>Web Traffic
-    </a>
-    <a href="{{ url_for('cve_help') }}" class="link-secondary text-decoration-none" title="CVE Help" aria-label="CVE Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+{% set cve_header_meta %}
+  {% if cve_findings %}
+  <span class="badge bg-danger">{{ cve_findings | length }}</span>
+  {% endif %}
+  {% if cve_last_scan %}
+  <span class="text-secondary small"><i class="bi bi-clock me-1"></i>Last scan: <span class="sobs-tz-ts" data-utc-ts="{{ cve_last_scan }}">{{ cve_last_scan[:19] }}</span></span>
+  {% endif %}
+{% endset %}
+{% set cve_header_actions %}
+  {% if cve_enabled %}
+  <button class="btn btn-sm btn-outline-danger py-0" id="cve-scan-btn" onclick="triggerCveScan()" title="Scan now">
+    <i class="bi bi-arrow-clockwise me-1"></i><span class="cve-btn-label">Scan now</span>
+  </button>
+  {% endif %}
+  <a href="{{ url_for('cve_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="CVE Help"><i class="bi bi-question-circle me-1"></i><span class="cve-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('CVE / Vulnerability Findings', icon_class='bi bi-shield-exclamation', icon_text_class='text-danger', meta_html=cve_header_meta, actions_html=cve_header_actions) }}
 
 {% if not cve_enabled %}
 <div class="alert alert-secondary py-2 small" role="alert">
@@ -49,7 +46,7 @@
       <div class="accordion-body p-0">
         <div class="p-3 small text-secondary" id="cve-libraries-loading">Loading libraries…</div>
         <div class="table-responsive d-none" id="cve-libraries-table-wrap">
-          <table class="table table-sm table-hover mb-0">
+          <table class="table table-sm table-hover mb-0 cve-mobile-card-table">
             <thead>
               <tr>
                 <th>Package</th>
@@ -387,12 +384,12 @@ function initCveLibrariesTable() {
           '<span class="badge text-bg-success">0</span>';
         return '' +
           '<tr>' +
-            '<td class="small text-break">' + escHtml(lib.package || '') + '</td>' +
-            '<td class="small">' + escHtml(lib.ecosystem || '-') + '</td>' +
-            '<td class="small">' + escHtml(lib.version || '') + '</td>' +
-            '<td class="small text-break">' + escHtml(lib.service || '-') + '</td>' +
-            '<td class="small"><span class="badge ' + sourceBadgeClass(src) + '">' + escHtml(src || 'unknown') + '</span></td>' +
-            '<td class="small">' + cveBadge + '</td>' +
+            '<td class="small text-break" data-label="Package">' + escHtml(lib.package || '') + '</td>' +
+            '<td class="small" data-label="Ecosystem">' + escHtml(lib.ecosystem || '-') + '</td>' +
+            '<td class="small" data-label="Version">' + escHtml(lib.version || '') + '</td>' +
+            '<td class="small text-break" data-label="Service">' + escHtml(lib.service || '-') + '</td>' +
+            '<td class="small" data-label="Source"><span class="badge ' + sourceBadgeClass(src) + '">' + escHtml(src || 'unknown') + '</span></td>' +
+            '<td class="small" data-label="CVEs">' + cveBadge + '</td>' +
           '</tr>';
       }).join('');
 

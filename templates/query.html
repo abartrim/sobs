@@ -1,19 +1,21 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Query{% endblock %}
-
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center mb-3 gap-2">
-  <i class="bi bi-database-check fs-4 text-primary"></i>
-  <h4 class="mb-0">Natural-Language Query</h4>
-  <a href="{{ url_for('view_table_explorer') }}" class="btn btn-sm btn-outline-secondary ms-auto" title="Browse available tables, columns, and sample data">
-    <i class="bi bi-grid-3x3 me-1"></i>Table Explorer
+{% set query_title_html %}
+  <div class="d-flex align-items-center gap-2">
+    <i class="bi bi-database-check fs-4 text-primary"></i>
+    <h4 class="mb-0">Natural-Language Query</h4>
+  </div>
+{% endset %}
+{% set query_header_actions %}
+  <a href="{{ url_for('view_table_explorer') }}" class="btn btn-sm btn-outline-secondary" title="Table Explorer">
+    <i class="bi bi-grid-3x3 me-1"></i><span class="query-btn-label">Table Explorer</span>
   </a>
-  <a href="{{ url_for('query_help') }}" class="link-secondary text-decoration-none" title="Query Help" aria-label="Query Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-</div>
-<p class="text-secondary small mb-3">
-  Ask a question in plain English. The AI will generate a ClickHouse SQL query, run it against
-  the embedded chDB database, and optionally render a chart.
-</p>
+  <a href="{{ url_for('query_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Query Help"><i class="bi bi-question-circle me-1"></i><span class="query-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header(title_html=query_title_html, actions_html=query_header_actions, subtext='Ask a question in plain English. The AI will generate a ClickHouse SQL query, run it against the embedded chDB database, and optionally render a chart.') }}
 <div class="small text-secondary border rounded px-2 py-1 mb-3" style="background:var(--bs-tertiary-bg);border-color:var(--bs-border-color)!important;">
   <i class="bi bi-flask me-1"></i>This feature is beta. If a query fails or is blocked, retry or rephrase your question.
 </div>
@@ -91,7 +93,7 @@
 <div id="errorAlert" class="alert alert-danger d-none" role="alert"></div>
 <div id="errorActions" class="d-none mb-3">
   <button id="copyErrorForAiBtn" class="btn btn-sm btn-outline-warning" type="button" title="Copy query failure details for AI assistance">
-    <i class="bi bi-robot me-1"></i>Copy for AI
+    <i class="bi bi-robot me-1"></i><span class="query-btn-label">Copy for AI</span>
   </button>
 </div>
 
@@ -106,7 +108,7 @@
       <i class="bi bi-pencil"></i>
     </button>
     <button id="cancelEditSqlBtn" class="btn btn-sm btn-outline-secondary py-0 px-2 d-none" title="Cancel edit" type="button">
-      <i class="bi bi-x-lg"></i> Cancel
+      <i class="bi bi-x-lg"></i><span class="query-btn-label"> Cancel</span>
     </button>
     <button id="copySqlBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Copy SQL">
       <i class="bi bi-clipboard"></i>
@@ -145,14 +147,14 @@
       </button>
       <div class="d-flex align-items-center gap-2">
         <button id="exportCsvBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" type="button" title="Export as CSV" style="opacity:0.7;">
-          <i class="bi bi-download"></i> CSV
+          <i class="bi bi-download"></i><span class="query-btn-label"> CSV</span>
         </button>
         <span class="small text-secondary" id="pageInfo"></span>
       </div>
     </div>
     <div id="singleTableCollapse" class="collapse show">
       <div class="table-responsive">
-        <table class="table table-dark table-sm align-middle mb-0" id="resultsTable">
+        <table class="table table-dark table-sm align-middle mb-0 query-results-table" id="resultsTable">
           <thead id="tableHead"></thead>
           <tbody id="tableBody"></tbody>
         </table>
@@ -191,7 +193,7 @@
   <div class="d-flex align-items-center gap-2 mb-2">
     <h6 class="mb-0">Chart</h6>
     <button id="addToDashboardBtn" class="btn btn-sm btn-outline-primary py-0 px-2" type="button" title="Add this chart to a dashboard" style="opacity:0.85;" disabled>
-      <i class="bi bi-plus-square"></i> Add to Dashboard
+      <i class="bi bi-plus-square"></i><span class="query-btn-label"> Add to Dashboard</span>
     </button>
     <button id="refineChartBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" type="button" title="Customize this chart" style="opacity:0.7;">
       <i class="bi bi-pencil-square"></i>
@@ -314,6 +316,15 @@
 <script src="{{ url_for('static', filename='echarts.min.js') }}"></script>
 <script>
 (function () {
+  function escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   var form = document.getElementById('queryForm');
   var questionInput = document.getElementById('questionInput');
   var executeCheck = document.getElementById('executeCheck');
@@ -754,6 +765,7 @@
       var tr = document.createElement('tr');
       row.forEach(function (cell, idx) {
         var td = document.createElement('td');
+        td.setAttribute('data-label', currentColumns[idx] !== undefined ? String(currentColumns[idx]) : '');
         var meta = fieldTypeByIndex(idx);
         td.textContent = formatCellValue(cell, meta);
         if (cell === null || cell === undefined) {
@@ -1177,18 +1189,18 @@
     var endIdx = Math.min(startIdx + pageSize, total);
     var pageRows = rows.slice(startIdx, endIdx);
 
-    var theadCells = columns.map(function (c) { return '<th>' + String(c) + '</th>'; }).join('');
+    var theadCells = columns.map(function (c) { return '<th>' + escHtml(c) + '</th>'; }).join('');
     var tbodyRows = pageRows.map(function (row) {
-      var tds = columns.map(function (_c, ci) {
+      var tds = columns.map(function (c, ci) {
         var v = row[ci];
-        var txt = formatCellValue(v, null);
+        var txt = escHtml(formatCellValue(v, null));
         if (txt.length > 140) txt = txt.slice(0, 140) + '...';
-        return '<td>' + txt + '</td>';
+        return '<td data-label="' + escHtml(c) + '">' + txt + '</td>';
       }).join('');
       return '<tr>' + tds + '</tr>';
     }).join('');
 
-    var html = '<div class="table-responsive"><table class="table table-dark table-sm align-middle mb-0">' +
+    var html = '<div class="table-responsive"><table class="table table-dark table-sm align-middle mb-0 query-results-table">' +
       '<thead><tr>' + theadCells + '</tr></thead>' +
       '<tbody>' + tbodyRows + '</tbody>' +
       '</table></div>';
@@ -1199,7 +1211,7 @@
     } else {
       html += '<span class="small text-secondary">Showing ' + (startIdx + 1) + '\u2013' + endIdx + ' of ' + total + ' rows</span>';
     }
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary dataset-export-csv-btn" data-dataset-index="' + index + '"><i class="bi bi-download"></i> Export CSV</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary dataset-export-csv-btn" data-dataset-index="' + index + '"><i class="bi bi-download"></i><span class="query-btn-label"> Export CSV</span></button>';
     html += '</div>';
 
     if (total > pageSize) {

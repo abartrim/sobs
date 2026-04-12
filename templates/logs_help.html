@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Logs Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Logs Help</h4>
     <p class="text-secondary mb-0">Real-time log streaming, regex search, advanced analysis, and live mode.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_logs') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Logs
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_logs') }}" title="Back to Logs">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Logs</span>
   </a>
 </div>
 
@@ -41,7 +45,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header fw-semibold"><i class="bi bi-funnel me-2 text-info"></i>Filter Controls</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:20%">Control</th>
@@ -50,28 +54,28 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace">Search</td>
-          <td>Regex pattern matched against log body text. Supports standard regex syntax.</td>
+          <td class="font-monospace" data-label="Control">Search</td>
+          <td data-label="Description">Regex pattern matched against log body text. Supports standard regex syntax.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Service</td>
-          <td>Multi-select dropdown. Leave empty to show logs from all services.</td>
+          <td class="font-monospace" data-label="Control">Service</td>
+          <td data-label="Description">Multi-select dropdown. Leave empty to show logs from all services.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Severity</td>
-          <td>Filter by log level: <em>DEBUG</em>, <em>INFO</em>, <em>WARN</em>, <em>ERROR</em>, or <em>FATAL</em>.</td>
+          <td class="font-monospace" data-label="Control">Severity</td>
+          <td data-label="Description">Filter by log level: <em>DEBUG</em>, <em>INFO</em>, <em>WARN</em>, <em>ERROR</em>, or <em>FATAL</em>.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Trace ID</td>
-          <td>Paste a trace ID to show only log lines correlated to that trace.</td>
+          <td class="font-monospace" data-label="Control">Trace ID</td>
+          <td data-label="Description">Paste a trace ID to show only log lines correlated to that trace.</td>
         </tr>
         <tr>
-          <td class="font-monospace">From / To</td>
-          <td>Date-time range filter. Accepts ISO date-time strings.</td>
+          <td class="font-monospace" data-label="Control">From / To</td>
+          <td data-label="Description">Date-time range filter. Accepts ISO date-time strings.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Limit</td>
-          <td>Maximum number of log rows to return per page.</td>
+          <td class="font-monospace" data-label="Control">Limit</td>
+          <td data-label="Description">Maximum number of log rows to return per page.</td>
         </tr>
       </tbody>
     </table>
@@ -108,7 +112,7 @@
 <div class="card border-secondary mb-0">
   <div class="card-header fw-semibold"><i class="bi bi-database me-2"></i>Ingest &amp; API</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:35%">Endpoint</th>
@@ -117,12 +121,12 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace small">POST /v1/logs</td>
-          <td>OpenTelemetry OTLP JSON log records. Standard OTEL SDK exporters point here.</td>
+          <td class="font-monospace small" data-label="Endpoint">POST /v1/logs</td>
+          <td data-label="Description">OpenTelemetry OTLP JSON log records. Standard OTEL SDK exporters point here.</td>
         </tr>
         <tr>
-          <td class="font-monospace small">GET /logs</td>
-          <td>UI page. Accepts <code>q</code>, <code>service</code>, <code>severity</code>, <code>trace_id</code>, <code>from_ts</code>, <code>to_ts</code>, <code>limit</code>, <code>live</code> query parameters.</td>
+          <td class="font-monospace small" data-label="Endpoint">GET /logs</td>
+          <td data-label="Description">UI page. Accepts <code>q</code>, <code>service</code>, <code>severity</code>, <code>trace_id</code>, <code>from_ts</code>, <code>to_ts</code>, <code>limit</code>, <code>live</code> query parameters.</td>
         </tr>
       </tbody>
     </table>

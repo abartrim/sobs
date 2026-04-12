@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Query Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Natural-Language Query Help</h4>
     <p class="text-secondary mb-0">Ask questions in plain English, generate ClickHouse SQL, and render results as charts.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_query') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Query
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_query') }}" title="Back to Query">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Query</span>
   </a>
 </div>
 
@@ -41,7 +45,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header fw-semibold"><i class="bi bi-toggles me-2 text-primary"></i>Query Options</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:25%">Option</th>
@@ -50,12 +54,12 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace">Execute query</td>
-          <td>When enabled (default), the generated SQL is executed and results are returned. Disable to see only the generated SQL without running it.</td>
+          <td class="font-monospace" data-label="Option">Execute query</td>
+          <td data-label="Description">When enabled (default), the generated SQL is executed and results are returned. Disable to see only the generated SQL without running it.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Render chart</td>
-          <td>When enabled, the AI also generates an ECharts configuration to visualize the query results as a chart.</td>
+          <td class="font-monospace" data-label="Option">Render chart</td>
+          <td data-label="Description">When enabled, the AI also generates an ECharts configuration to visualize the query results as a chart.</td>
         </tr>
       </tbody>
     </table>

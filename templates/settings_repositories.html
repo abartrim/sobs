@@ -1,22 +1,42 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}GitHub Repositories{% endblock %}
+{% block styles %}{{ super() }}<style>
+  #repo-settings-root input::-webkit-credentials-auto-fill-button,
+  #repo-settings-root input::-webkit-contacts-auto-fill-button {
+    visibility: hidden;
+    display: none !important;
+    pointer-events: none;
+  }
+
+  #repo-settings-root[data-color-mode='dark'] input:-webkit-autofill,
+  #repo-settings-root[data-color-mode='dark'] textarea:-webkit-autofill,
+  #repo-settings-root[data-color-mode='dark'] select:-webkit-autofill {
+    -webkit-text-fill-color: var(--bs-body-color);
+    -webkit-box-shadow: 0 0 0 1000px var(--bs-body-bg) inset;
+    caret-color: var(--bs-body-color);
+  }
+
+  #repo-settings-root[data-color-mode='light'] input:-webkit-autofill,
+  #repo-settings-root[data-color-mode='light'] textarea:-webkit-autofill,
+  #repo-settings-root[data-color-mode='light'] select:-webkit-autofill {
+    -webkit-text-fill-color: var(--bs-body-color);
+    -webkit-box-shadow: 0 0 0 1000px var(--bs-body-bg) inset;
+    caret-color: var(--bs-body-color);
+  }
+
+</style>{% endblock %}
 {% block content %}
 <div id="repo-settings-root" data-color-mode="{{ 'dark' if request.cookies.get('theme') == 'dark' else 'light' }}">
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-github me-2 text-secondary"></i>GitHub Repositories</h4>
-  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary">
-    <i class="bi bi-arrow-left me-1"></i>Back to Settings
+{% set settings_repositories_header_actions %}
+  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
+    <i class="bi bi-arrow-left me-1"></i><span class="repositories-btn-label settings-btn-label">Back to Settings</span>
   </a>
-</div>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-{% for category, message in messages %}
-<div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show py-2 small" role="alert">
-  {{ message }}
-  <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
-</div>
-{% endfor %}
-{% endwith %}
+  <a href="{{ url_for('settings_repositories_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help">
+    <i class="bi bi-question-circle me-1"></i><span class="repositories-btn-label settings-btn-label">Help</span>
+  </a>
+{% endset %}
+{{ render_page_header('GitHub Repositories', icon_class='bi bi-github', icon_text_class='text-secondary', actions_html=settings_repositories_header_actions) }}
 
 <div class="card border-secondary mb-3">
   <div class="card-header d-flex align-items-center gap-2">
@@ -142,7 +162,7 @@
   <div class="card-body p-0">
     {% if apps %}
     <div class="table-responsive">
-      <table class="table table-sm table-hover mb-0 align-middle">
+      <table class="table table-sm table-hover mb-0 align-middle repositories-table">
         <thead>
           <tr>
             <th>App</th>
@@ -155,25 +175,25 @@
         <tbody>
           {% for app in apps %}
           <tr>
-            <td>
+            <td data-label="App">
               <div class="small fw-semibold">{{ app.name }}</div>
               <div class="text-secondary" style="font-size:.75rem;">{{ app.slug }}</div>
             </td>
-            <td>
-              <a href="{{ app.repo_url }}" target="_blank" rel="noopener" class="small font-monospace text-decoration-none">{{ app.repo_url }}</a>
+            <td data-label="Repo">
+              <a href="{{ app.repo_url }}" target="_blank" rel="noopener" class="small font-monospace text-decoration-none" style="word-break:break-all;">{{ app.repo_url }}</a>
             </td>
-            <td>
+            <td data-label="Releases">
               <div class="small">{{ app.release_count }} total</div>
               <div class="text-secondary" style="font-size:.75rem;">{{ app.latest_versions | join(', ') if app.latest_versions else 'none' }}</div>
             </td>
-            <td>
+            <td data-label="Status">
               {% if app.enabled %}
               <span class="badge text-bg-success">enabled</span>
               {% else %}
               <span class="badge text-bg-secondary">disabled</span>
               {% endif %}
             </td>
-            <td>
+            <td data-label="Actions">
               <form method="post" action="{{ url_for('update_settings_repository', app_id=app.id) }}" class="d-flex gap-1 align-items-center mb-1">
                 <input type="url" name="repo_url" class="form-control form-control-sm font-monospace" value="{{ app.repo_url }}" autocomplete="url" spellcheck="false" required>
                 <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
@@ -210,30 +230,6 @@
 {% endblock %}
 
 {% block scripts %}
-<style>
-  #repo-settings-root input::-webkit-credentials-auto-fill-button,
-  #repo-settings-root input::-webkit-contacts-auto-fill-button {
-    visibility: hidden;
-    display: none !important;
-    pointer-events: none;
-  }
-
-  #repo-settings-root[data-color-mode='dark'] input:-webkit-autofill,
-  #repo-settings-root[data-color-mode='dark'] textarea:-webkit-autofill,
-  #repo-settings-root[data-color-mode='dark'] select:-webkit-autofill {
-    -webkit-text-fill-color: var(--bs-body-color);
-    -webkit-box-shadow: 0 0 0 1000px var(--bs-body-bg) inset;
-    caret-color: var(--bs-body-color);
-  }
-
-  #repo-settings-root[data-color-mode='light'] input:-webkit-autofill,
-  #repo-settings-root[data-color-mode='light'] textarea:-webkit-autofill,
-  #repo-settings-root[data-color-mode='light'] select:-webkit-autofill {
-    -webkit-text-fill-color: var(--bs-body-color);
-    -webkit-box-shadow: 0 0 0 1000px var(--bs-body-bg) inset;
-    caret-color: var(--bs-body-color);
-  }
-</style>
 <script>
   (function () {
     var root = document.getElementById('repo-settings-root');

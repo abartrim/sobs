@@ -1,33 +1,32 @@
 {% extends "base.html" %}
 {% from "_filter_macros.html" import render_filter_accordion, render_tz_init_script %}
 {% from "_multi_select_filter.html" import render_single_select %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Work Items{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0">
-    <i class="bi bi-github me-2 text-secondary"></i>Work Items
-    {% if total_items %}
-    <span class="badge bg-secondary ms-1">{{ total_items }}</span>
-    {% endif %}
-  </h4>
-  <div class="d-flex align-items-center gap-2">
-    <button class="btn btn-sm btn-outline-primary"
-            type="button"
-            data-bs-toggle="modal"
-            data-bs-target="#workItemsTourModal"
-            title="Work items walkthrough"
-            aria-label="Open work items walkthrough"
-            data-ai-action-id="work.items.tour.open"
-            data-ai-action-type="open_modal"
-            data-ai-handler="openModal"
-            data-ai-args='{"modal_id":"workItemsTourModal"}'
-            data-ai-label="Open work items walkthrough modal">
-      <i class="bi bi-mortarboard me-1"></i>Walkthrough
-    </button>
-    <span class="text-secondary small"><i class="bi bi-clock me-1"></i>Auto-created by agent rules</span>
-    <a href="{{ url_for('work_items_help') }}" class="link-secondary text-decoration-none" title="Work Items Help" aria-label="Work Items Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+{% set work_items_header_meta %}
+  {% if total_items %}
+  <span class="badge bg-secondary">{{ total_items }}</span>
+  {% endif %}
+{% endset %}
+{% set work_items_header_actions %}
+  <button class="btn btn-sm btn-outline-primary"
+          type="button"
+          data-bs-toggle="modal"
+          data-bs-target="#workItemsTourModal"
+          title="Work items walkthrough"
+          aria-label="Open work items walkthrough"
+          data-ai-action-id="work.items.tour.open"
+          data-ai-action-type="open_modal"
+          data-ai-handler="openModal"
+          data-ai-args='{"modal_id":"workItemsTourModal"}'
+          data-ai-label="Open work items walkthrough modal">
+    <i class="bi bi-mortarboard me-1"></i><span class="work-items-btn-label">Walkthrough</span>
+  </button>
+  <a href="{{ url_for('work_items_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Work Items Help"><i class="bi bi-question-circle me-1"></i><span class="work-items-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Work Items', icon_class='bi bi-github', icon_text_class='text-secondary', meta_html=work_items_header_meta, actions_html=work_items_header_actions, subtext='<i class="bi bi-clock me-1"></i>Auto-created by agent rules') }}
 
 <!-- Filters -->
 {% set _work_items_has_active_filters = service_filter or rule_filter or action_type_filter or status_filter or from_ts or to_ts %}
@@ -83,7 +82,7 @@
 <!-- Work Items Table -->
 <div class="card border-secondary">
   <div class="table-responsive">
-    <table class="table table-sm table-hover align-middle mb-0">
+    <table class="table table-sm table-hover align-middle mb-0 work-items-mobile-card-table">
       <thead>
         <tr>
           <th>Created</th>
@@ -100,24 +99,24 @@
         {% if items %}
           {% for item in items %}
           <tr>
-            <td class="font-monospace small sobs-tz-ts" data-utc-ts="{{ item.created_at }}">{{ item.created_at[:16] }}</td>
-            <td class="small">
+            <td class="font-monospace small sobs-tz-ts" data-utc-ts="{{ item.created_at }}" data-label="Created">{{ item.created_at[:16] }}</td>
+            <td class="small" data-label="Service">
               {{ item.service }}
             </td>
-            <td class="small">
+            <td class="small" data-label="Signal">
               <span class="text-secondary">{{ item.signal_source }}</span>
               <br>
               <span class="font-monospace">{{ item.signal_name }}</span>
             </td>
-            <td class="small">
+            <td class="small" data-label="Anomaly">
               <span class="badge {% if item.anomaly_state == 'critical' %}bg-danger{% elif item.anomaly_state == 'warning' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
                 {{ item.anomaly_state }}
               </span>
               <br>
               <span class="text-secondary small" style="font-size: 0.75rem;">rule: {{ item.anomaly_rule_id[:8] }}</span>
             </td>
-            <td class="small">{{ item.agent_rule_name }}</td>
-            <td class="small">
+            <td class="small" data-label="Agent Rule">{{ item.agent_rule_name }}</td>
+            <td class="small" data-label="Action">
               {% if item.agent_action == 'github_issue_copilot' %}
               <span class="badge bg-primary"><i class="bi bi-robot me-1"></i>Copilot</span>
               {% else %}
@@ -128,7 +127,7 @@
               <span class="badge bg-info text-dark mt-1">{{ item.dedup_decision.replace('_', ' ') }}</span>
               {% endif %}
             </td>
-            <td class="small">
+            <td class="small" data-label="Issue">
               {% if item.issue_url %}
               <a href="{{ item.issue_url }}" target="_blank" rel="noopener" class="text-decoration-none" title="{{ item.issue_title }}">
                 <i class="bi bi-github me-1"></i>#{{ item.issue_number }}

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_multi_select_filter.html" import render_multi_select, render_single_select %}
 {% from "_filter_macros.html" import render_filter_accordion %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}AI Transparency{% endblock %}
 {% macro fmt_num(n) %}{% if n >= 1000000 %}{{ "%.1f" | format(n / 1000000) }}M{% elif n >= 1000 %}{{ "%.1f" | format(n / 1000) }}K{% else %}{{ n }}{% endif %}{% endmacro %}
 {% macro render_message_content(msg) %}{% set content = msg.get('content', '') if msg is mapping else '' %}{{ (content if content is string else content | tojson) | mask }}{% endmacro %}
@@ -10,8 +11,7 @@
   <div class="prompt-box ai-md-content" style="max-height:150px;">{{ instructions|mask }}</div>
 </div>
 {% endif %}{% endmacro %}
-{% block content %}
-<style>
+{% block styles %}{{ super() }}<style>
   .ai-row-grid {
     display: grid;
     grid-template-columns: minmax(118px, 1.05fr) minmax(108px, .9fr) minmax(132px, 1.05fr) minmax(0, 2.7fr) minmax(105px, .8fr) minmax(84px, .65fr) minmax(148px, .95fr);
@@ -134,13 +134,13 @@
       text-align: left;
     }
   }
-</style>
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-cpu me-2 text-success"></i>AI Transparency</h4>
-  <div class="d-flex align-items-center gap-2">
+</style>{% endblock %}
+{% block content %}
+{% set ai_header_actions %}
     <div class="btn-group" role="group" aria-label="View mode">
       <a href="{{ url_for('view_ai', view='flat', service=service, model=model, operation=operation, span_name=span_name, row_type=row_type, sql=sql_where, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0) }}"
         class="btn btn-sm {% if view_mode == 'flat' %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+        title="Flat view"
         data-ai-action-id="ai.view.flat"
         data-ai-action-type="navigate"
         data-ai-handler="navigate"
@@ -148,10 +148,11 @@
         data-ai-label="Switch AI view to flat"
         data-ai-risk="low"
         data-ai-confirm="false">
-        Flat
+        <i class="bi bi-view-stacked me-1"></i><span class="ai-btn-label">Flat</span>
       </a>
       <a href="{{ url_for('view_ai', view='trace', service=service, model=model, operation=operation, span_name=span_name, row_type=row_type, sql=sql_where, from_ts=from_ts, to_ts=to_ts, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=0) }}"
         class="btn btn-sm {% if view_mode == 'trace' %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+        title="Group by trace"
         data-ai-action-id="ai.view.trace"
         data-ai-action-type="navigate"
         data-ai-handler="navigate"
@@ -159,12 +160,12 @@
         data-ai-label="Switch AI view to trace"
         data-ai-risk="low"
         data-ai-confirm="false">
-        Group by Trace
+        <i class="bi bi-diagram-3 me-1"></i><span class="ai-btn-label">Group by Trace</span>
       </a>
     </div>
     <a href="{{ url_for('export_ai_training', service=service, model=model, operation=operation, from_ts=from_ts, to_ts=to_ts) }}"
        class="btn btn-sm btn-outline-secondary" title="Export training data as JSONL">
-      <i class="bi bi-download me-1"></i>Export JSONL
+      <i class="bi bi-download me-1"></i><span class="ai-btn-label">Export JSONL</span>
     </a>
     <button id="liveTailBtn" class="btn btn-sm btn-outline-success" onclick="toggleLiveTail()"
             data-ai-action-id="ai.live_tail.toggle"
@@ -174,11 +175,11 @@
             data-ai-risk="low"
             data-ai-confirm="false"
             data-ai-args='{"element_id":"liveTailBtn"}'>
-      <i class="bi bi-broadcast me-1"></i>Live Tail
+      <i class="bi bi-broadcast me-1"></i><span class="ai-btn-label">Live Tail</span>
     </button>
-    <a href="{{ url_for('ai_help') }}" class="link-secondary text-decoration-none" title="AI Transparency Help" aria-label="AI Transparency Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+    <a href="{{ url_for('ai_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="AI Transparency Help"><i class="bi bi-question-circle me-1"></i><span class="ai-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('AI Transparency', icon_class='bi bi-cpu', icon_text_class='text-success', actions_html=ai_header_actions) }}
 
 <!-- Live Tail Panel -->
 <div id="liveTailPanel" class="card border-success mb-3" style="display:none;">

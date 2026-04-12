@@ -1,23 +1,17 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Data Management Settings{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-database-down me-2 text-danger"></i>Data Management</h4>
-  <div class="d-flex gap-2">
-    <a class="btn btn-sm btn-outline-info" href="{{ url_for('data_management_help') }}">
-      <i class="bi bi-question-circle me-1"></i>Help
-    </a>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}">
-      <i class="bi bi-arrow-left me-1"></i>Back to Settings
-    </a>
-  </div>
-</div>
-
-<p class="text-secondary small mb-3">
-  Configure ClickHouse TTL for automatic data expiration, S3 backup scheduling with optional
-  encryption, and backup-TTL coupling to ensure expired data always has a backup on record.
-  Backup and restore features are optional and can be disabled entirely.
-</p>
+{% set settings_data_management_header_actions %}
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}" title="Back to Settings">
+    <i class="bi bi-arrow-left me-1"></i><span class="dm-btn-label settings-btn-label">Back to Settings</span>
+  </a>
+  <a class="btn btn-sm btn-outline-secondary page-help-btn" href="{{ url_for('data_management_help') }}" title="Help">
+    <i class="bi bi-question-circle me-1"></i><span class="dm-btn-label settings-btn-label">Help</span>
+  </a>
+{% endset %}
+{{ render_page_header('Data Management', icon_class='bi bi-database-down', icon_text_class='text-danger', actions_html=settings_data_management_header_actions, subtext='Configure ClickHouse TTL for automatic data expiration, S3 backup scheduling with optional encryption, and backup-TTL coupling to ensure expired data always has a backup on record. Backup and restore features are optional and can be disabled entirely.') }}
 
 {% if flash_msg %}
 <div class="alert alert-{{ flash_type }} alert-dismissible fade show" role="alert">
@@ -81,15 +75,15 @@
           {% if db_stats.tables %}
           <div class="px-3 pb-2 pt-1">
             <div class="text-secondary small mb-1">Top tables by size</div>
-            <table class="table table-sm table-hover mb-0">
+            <table class="table table-sm table-hover mb-0 dm-stats-table">
               <thead><tr><th>Table</th><th>Size</th><th>Ratio</th><th>Rows</th></tr></thead>
               <tbody>
                 {% for t in db_stats.tables %}
                 <tr>
-                  <td class="small font-monospace text-truncate" style="max-width:140px;" title="{{ t.table }}">{{ t.table }}</td>
-                  <td class="small">{{ fmt_bytes(t.compressed_bytes) }}</td>
-                  <td class="small">{% if t.compression_ratio is not none %}{{ t.compression_ratio }}×{% else %}—{% endif %}</td>
-                  <td class="small">{{ "{:,}".format(t.rows) }}</td>
+                  <td class="small font-monospace text-truncate" style="max-width:140px;" title="{{ t.table }}" data-label="Table">{{ t.table }}</td>
+                  <td class="small" data-label="Size">{{ fmt_bytes(t.compressed_bytes) }}</td>
+                  <td class="small" data-label="Ratio">{% if t.compression_ratio is not none %}{{ t.compression_ratio }}×{% else %}—{% endif %}</td>
+                  <td class="small" data-label="Rows">{{ "{:,}".format(t.rows) }}</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -204,7 +198,7 @@
       <!-- ── TTL Action ─────────────────────────────────────────────────── -->
       <div class="d-flex gap-2 flex-wrap mb-3">
         <button type="submit" class="btn btn-sm btn-warning" name="apply_ttl" value="1">
-          <i class="bi bi-hourglass-split me-1"></i>Save &amp; Apply TTL to Tables
+          <i class="bi bi-hourglass-split me-1"></i><span class="dm-btn-label">Save &amp; Apply TTL to Tables</span>
         </button>
       </div>
     </div>
@@ -411,10 +405,10 @@
 
         <div class="col-12 d-flex gap-2 flex-wrap">
           <button type="button" class="btn btn-sm btn-outline-success" id="btnBuildCron">
-            <i class="bi bi-wrench-adjustable-circle me-1"></i>Build Cron
+            <i class="bi bi-wrench-adjustable-circle me-1"></i><span class="dm-btn-label">Build Cron</span>
           </button>
           <button type="button" class="btn btn-sm btn-outline-secondary" id="btnCopyCron">
-            <i class="bi bi-clipboard me-1"></i>Copy Cron
+            <i class="bi bi-clipboard me-1"></i><span class="dm-btn-label">Copy Cron</span>
           </button>
           <span id="cronPreview" class="badge text-bg-light border text-secondary font-monospace"></span>
         </div>
@@ -425,7 +419,7 @@
   <!-- ── Backup / Storage Actions ─────────────────────────────────────── -->
   <div class="d-flex gap-2 flex-wrap mb-3">
     <button type="submit" class="btn btn-sm btn-primary" name="apply_ttl" value="0">
-      <i class="bi bi-floppy me-1"></i>Save Settings
+      <i class="bi bi-floppy me-1"></i><span class="dm-btn-label">Save Settings</span>
     </button>
     <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary">Cancel</a>
   </div>
@@ -453,7 +447,7 @@
           Back up all SOBS tables to the configured S3 destination.
         </p>
         <button class="btn btn-sm btn-outline-primary w-100" id="btnRunFullBackup">
-          <i class="bi bi-cloud-upload me-1"></i>Run Full Backup Now
+          <i class="bi bi-cloud-upload me-1"></i><span class="dm-btn-label">Run Full Backup Now</span>
         </button>
       </div>
     </div>
@@ -466,7 +460,7 @@
           Back up only data changed since the most recent completed backup.
         </p>
         <button class="btn btn-sm btn-outline-success w-100" id="btnRunIncrementalBackup">
-          <i class="bi bi-cloud-plus me-1"></i>Run Incremental Backup Now
+          <i class="bi bi-cloud-plus me-1"></i><span class="dm-btn-label">Run Incremental Backup Now</span>
         </button>
       </div>
     </div>
@@ -483,7 +477,7 @@
           <input type="text" id="restoreBackupName" class="form-control font-monospace"
                  placeholder="Backup name (from list below)">
           <button class="btn btn-outline-danger" id="btnRunRestore">
-            <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
+            <i class="bi bi-arrow-counterclockwise me-1"></i><span class="dm-btn-label">Restore</span>
           </button>
         </div>
       </div>
@@ -498,7 +492,7 @@
   <div class="card-header d-flex align-items-center justify-content-between">
     <span class="fw-semibold"><i class="bi bi-list-ul me-1"></i>Available Backups</span>
     <button class="btn btn-sm btn-outline-secondary" id="btnRefreshBackups">
-      <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+      <i class="bi bi-arrow-clockwise me-1"></i><span class="dm-btn-label">Refresh</span>
     </button>
   </div>
   <div class="card-body p-0" id="backupListContainer">
@@ -543,17 +537,17 @@
         container.innerHTML = '<p class="text-secondary small py-3 px-3 mb-0">No backups found.</p>';
         return;
       }
-      let html = '<div class="table-responsive"><table class="table table-sm table-hover mb-0 align-middle small">'
+      let html = '<div class="table-responsive"><table class="table table-sm table-hover mb-0 align-middle small dm-backups-table">'
         + '<thead><tr><th>Name</th><th>Status</th><th>Started</th><th>Ended</th><th>Files</th><th>Size</th></tr></thead><tbody>';
       data.backups.forEach(b => {
         const size = b.total_size ? (parseInt(b.total_size, 10) / BYTES_TO_MB).toFixed(1) + ' MB' : '—';
         html += '<tr>'
-          + '<td class="font-monospace">' + escHtml(b.name) + '</td>'
-          + '<td>' + escHtml(b.status) + '</td>'
-          + '<td>' + escHtml(b.start_time) + '</td>'
-          + '<td>' + escHtml(b.end_time) + '</td>'
-          + '<td>' + escHtml(b.num_files) + '</td>'
-          + '<td>' + size + '</td>'
+          + '<td class="font-monospace" data-label="Name">' + escHtml(b.name) + '</td>'
+          + '<td data-label="Status">' + escHtml(b.status) + '</td>'
+          + '<td data-label="Started">' + escHtml(b.start_time) + '</td>'
+          + '<td data-label="Ended">' + escHtml(b.end_time) + '</td>'
+          + '<td data-label="Files">' + escHtml(b.num_files) + '</td>'
+          + '<td data-label="Size">' + size + '</td>'
           + '</tr>';
       });
       html += '</tbody></table></div>';

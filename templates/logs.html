@@ -1,15 +1,9 @@
 {% extends "base.html" %}
 {% from '_multi_select_filter.html' import render_multi_select %}
 {% from '_filter_macros.html' import render_filter_accordion, render_regex_filter %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Logs{% endblock %}
-{% block content %}
-{% set live = request.args.get('live', '') %}
-{% set analyze = '1' if run_advanced_analysis else '' %}
-{% set stats_open = request.args.get('stats', '') == '1' %}
-{% set stats_updated = request.args.get('stats_updated', '') == '1' %}
-{% set from_ts = from_ts or request.args.get('from_ts', '') %}
-{% set to_ts = to_ts or request.args.get('to_ts', '') %}
-<style>
+{% block styles %}{{ super() }}<style>
   @keyframes liveRowFlash {
     0% { background-color: rgba(13, 202, 240, 0.38); }
     100% { background-color: transparent; }
@@ -31,32 +25,38 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-</style>
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-journal-text me-2 text-info"></i>Logs</h4>
-  <div class="d-flex align-items-center gap-2">
-    <span id="liveModeStatus" class="badge text-bg-secondary">Live off</span>
-    <button
-      id="liveModeToggle"
-      type="button"
-      class="btn btn-sm btn-outline-success"
-      data-ai-action-id="logs.live_mode.start"
-      data-ai-action-type="start_live_mode"
-      data-ai-handler="startLiveMode"
-      data-ai-label="Start logs live mode"
-      data-ai-risk="low"
-      data-ai-confirm="false"
-      data-ai-action-role="toggle-live-mode"
-    >
-      <i class="bi bi-broadcast-pin me-1"></i>Live mode
-    </button>
-    <button id="liveNewCountBtn" type="button" class="btn btn-sm btn-outline-info d-none">
-      0 new
-    </button>
-    <span class="text-secondary small">{{ total }} total records</span>
-    <a href="{{ url_for('logs_help') }}" class="link-secondary text-decoration-none" title="Logs Help" aria-label="Logs Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+</style>{% endblock %}
+{% block content %}
+{% set live = request.args.get('live', '') %}
+{% set analyze = '1' if run_advanced_analysis else '' %}
+{% set stats_open = request.args.get('stats', '') == '1' %}
+{% set stats_updated = request.args.get('stats_updated', '') == '1' %}
+{% set from_ts = from_ts or request.args.get('from_ts', '') %}
+{% set to_ts = to_ts or request.args.get('to_ts', '') %}
+{% set logs_header_meta %}
+  <span id="liveModeStatus" class="badge text-bg-secondary">Live off</span>
+  <button id="liveNewCountBtn" type="button" class="btn btn-sm btn-outline-info d-none">0 new</button>
+  <span class="text-secondary small">{{ total }} total records</span>
+{% endset %}
+{% set logs_header_actions %}
+  <button
+    id="liveModeToggle"
+    type="button"
+    class="btn btn-sm btn-outline-success"
+    data-ai-action-id="logs.live_mode.start"
+    data-ai-action-type="start_live_mode"
+    data-ai-handler="startLiveMode"
+    data-ai-label="Start logs live mode"
+    data-ai-risk="low"
+    data-ai-confirm="false"
+    data-ai-action-role="toggle-live-mode"
+    title="Live mode"
+  >
+    <i class="bi bi-broadcast-pin me-1"></i><span class="logs-btn-label">Live mode</span>
+  </button>
+  <a href="{{ url_for('logs_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Logs Help"><i class="bi bi-question-circle me-1"></i><span class="logs-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Logs', icon_class='bi bi-journal-text', icon_text_class='text-info', meta_html=logs_header_meta, actions_html=logs_header_actions) }}
 
 <!-- Search / Filter bar -->
 {% call render_filter_accordion('logsFiltersAccordion', 'logsFiltersHeading', 'logsFiltersPanel', 'text-info', 'logs-tz-badge-btn', 'logs-tz-badge-label', extra_header_html='<span id="logs-ansi-btn" class="sobs-tz-header-badge" role="button" tabindex="0" aria-label="Toggle colored log output" aria-pressed="false" title="Colored log output: off — click to enable"><i class="bi bi-palette"></i></span>') %}
@@ -327,7 +327,7 @@
 {% endif %}
 
 <div id="logsTableContainer" class="table-responsive{% if not logs %} d-none{% endif %}">
-  <table class="table table-sm table-hover align-middle">
+  <table class="table table-sm table-hover align-middle logs-mobile-card-table">
     <thead>
       {% set ts_next_dir = 'asc' if (sort_by == 'Timestamp' and sort_dir == 'desc') else 'desc' %}
       {% set level_next_dir = 'asc' if (sort_by == 'SeverityText' and sort_dir == 'desc') else 'desc' %}
@@ -355,10 +355,10 @@
     <tbody id="logsTableBody">
       {% for log in logs %}
       <tr>
-        <td class="text-secondary small font-monospace sobs-tz-ts" data-utc-ts="{{ log.ts }}">{{ log.ts[:23] }}</td>
-        <td><span class="badge badge-level-{{ log.level }}">{{ log.level }}</span></td>
-        <td><span class="badge bg-secondary">{{ log.service or '—' }}</span></td>
-        <td class="log-body">
+        <td class="text-secondary small font-monospace sobs-tz-ts" data-utc-ts="{{ log.ts }}" data-label="Timestamp">{{ log.ts[:23] }}</td>
+        <td data-label="Level"><span class="badge badge-level-{{ log.level }}">{{ log.level }}</span></td>
+        <td data-label="Service"><span class="badge bg-secondary">{{ log.service or '—' }}</span></td>
+        <td class="log-body" data-label="Message">
           <span class="log-body-text">{{ log.body }}</span>
           {% if log.tags %}
           <div class="d-flex flex-wrap gap-1 mt-1">
@@ -374,7 +374,7 @@
           </div>
           {% endif %}
         </td>
-        <td>
+        <td data-label="Trace">
           {% if log.trace_id %}
           <a href="{{ url_for('view_traces', trace_id=log.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="trace-link text-truncate d-inline-block" style="max-width:110px;" title="{{ log.trace_id }}">
             {{ log.trace_id[:12] }}…
@@ -576,11 +576,11 @@
     if (on) {
       toggleBtn.classList.remove("btn-outline-success");
       toggleBtn.classList.add("btn-success");
-      toggleBtn.innerHTML = '<i class="bi bi-pause-circle me-1"></i>Stop live';
+      toggleBtn.innerHTML = '<i class="bi bi-pause-circle me-1"></i><span class="logs-btn-label">Stop live</span>';
     } else {
       toggleBtn.classList.remove("btn-success");
       toggleBtn.classList.add("btn-outline-success");
-      toggleBtn.innerHTML = '<i class="bi bi-broadcast-pin me-1"></i>Live mode';
+      toggleBtn.innerHTML = '<i class="bi bi-broadcast-pin me-1"></i><span class="logs-btn-label">Live mode</span>';
     }
   }
 
@@ -646,6 +646,7 @@
 
   function createTraceCell(traceId) {
     const td = document.createElement("td");
+    td.setAttribute('data-label', 'Trace');
     if (!traceId) {
       const placeholder = document.createElement("span");
       placeholder.className = "text-secondary";
@@ -673,15 +674,18 @@
     const ts = document.createElement("td");
     ts.className = "text-secondary small font-monospace sobs-tz-ts";
     ts.setAttribute('data-utc-ts', String(event.ts || ''));
+    ts.setAttribute('data-label', 'Timestamp');
     ts.textContent = formatTs(event.ts);
 
     const level = document.createElement("td");
+    level.setAttribute('data-label', 'Level');
     const levelBadge = document.createElement("span");
     levelBadge.className = `badge badge-level-${String(event.level || "INFO").toUpperCase()}`;
     levelBadge.textContent = String(event.level || "INFO").toUpperCase();
     level.appendChild(levelBadge);
 
     const service = document.createElement("td");
+    service.setAttribute('data-label', 'Service');
     const serviceBadge = document.createElement("span");
     serviceBadge.className = "badge bg-secondary";
     serviceBadge.textContent = event.service || "—";
@@ -689,6 +693,7 @@
 
     const body = document.createElement("td");
     body.className = "log-body";
+    body.setAttribute('data-label', 'Message');
     const bodyText = document.createElement("span");
     bodyText.className = "log-body-text";
     bodyText.textContent = event.body || "";

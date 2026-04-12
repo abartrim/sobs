@@ -1,32 +1,34 @@
 {% extends "base.html" %}
 {% from "_error_panels.html" import render_error_accordion, render_error_panel_styles %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Incident View{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
 {% set _ref = trace_id or error_id or rum_session %}
-<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-shield-exclamation me-2 text-danger"></i>Incident View</h4>
-  <div class="d-flex align-items-center gap-2 flex-wrap">
-    {% if _ref %}
-    <span class="font-monospace small text-secondary" title="Incident reference">{{ _ref[:24] }}{% if _ref | length > 24 %}…{% endif %}</span>
+{% set incident_header_meta %}
+  {% if _ref %}
+  <span class="font-monospace small text-secondary" title="Incident reference">{{ _ref[:24] }}{% if _ref | length > 24 %}…{% endif %}</span>
+  {% endif %}
+  {% if from_ts %}
+  <span class="badge bg-secondary-subtle text-secondary-emphasis small">
+    <i class="bi bi-clock-history me-1"></i>
+    <span class="sobs-tz-ts" data-utc-ts="{{ from_ts }}">{{ from_ts[:19] }}</span>
+    –
+    {% if to_ts %}
+    <span class="sobs-tz-ts" data-utc-ts="{{ to_ts }}">{{ to_ts[:19] }}</span>
+    {% else %}
+    …
     {% endif %}
-    {% if from_ts %}
-    <span class="badge bg-secondary-subtle text-secondary-emphasis small">
-      <i class="bi bi-clock-history me-1"></i>
-      <span class="sobs-tz-ts" data-utc-ts="{{ from_ts }}">{{ from_ts[:19] }}</span>
-      –
-      {% if to_ts %}
-      <span class="sobs-tz-ts" data-utc-ts="{{ to_ts }}">{{ to_ts[:19] }}</span>
-      {% else %}
-      …
-      {% endif %}
-    </span>
-    {% endif %}
-    {% if service %}
-    <span class="badge bg-primary-subtle text-primary-emphasis"><i class="bi bi-hdd-stack me-1"></i>{{ service }}</span>
-    {% endif %}
-    <a href="{{ url_for('incident_help') }}" class="link-secondary text-decoration-none" title="Incident View Help" aria-label="Incident View Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+  </span>
+  {% endif %}
+  {% if service %}
+  <span class="badge bg-primary-subtle text-primary-emphasis"><i class="bi bi-hdd-stack me-1"></i>{{ service }}</span>
+  {% endif %}
+{% endset %}
+{% set incident_header_actions %}
+  <a href="{{ url_for('incident_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Incident View Help"><i class="bi bi-question-circle me-1"></i><span class="page-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Incident View', icon_class='bi bi-shield-exclamation', icon_text_class='text-danger', meta_html=incident_header_meta, actions_html=incident_header_actions) }}
 
 {% if error_msg %}
 <div class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle me-1"></i>{{ error_msg }}</div>
@@ -240,7 +242,7 @@
 
       {% if related_rum_events %}
       <div class="table-responsive">
-        <table class="table table-sm align-middle mb-0">
+        <table class="table table-sm align-middle mb-0 incident-events-table">
           <thead>
             <tr>
               <th>Timestamp</th>
@@ -252,12 +254,12 @@
           <tbody>
             {% for ev in related_rum_events %}
             <tr>
-              <td class="small font-monospace sobs-tz-ts" data-utc-ts="{{ ev.ts }}">{{ ev.ts[:19] }}</td>
-              <td>
+              <td class="small font-monospace sobs-tz-ts" data-utc-ts="{{ ev.ts }}" data-label="Timestamp">{{ ev.ts[:19] }}</td>
+              <td data-label="Event">
                 <span class="badge {% if ev.event_type in ('error', 'unhandledrejection') %}bg-danger{% elif ev.event_type == 'pageview' %}bg-primary{% elif ev.event_type == 'web-vital' %}bg-success{% else %}bg-secondary{% endif %}">{{ ev.event_type }}</span>
               </td>
-              <td class="small text-truncate" style="max-width:360px;" title="{{ ev.url|mask }}">{{ (ev.url or '—')|mask }}</td>
-              <td>
+              <td class="small text-truncate" style="max-width:360px;" title="{{ ev.url|mask }}" data-label="URL">{{ (ev.url or '—')|mask }}</td>
+              <td data-label="Actions">
                 <div class="d-flex gap-2 flex-wrap">
                   {% if ev.trace_id %}
                   <a href="{{ url_for('view_traces', trace_id=ev.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">Trace</a>
@@ -322,7 +324,7 @@
       </div>
       {% if raw_windows %}
       <div class="table-responsive">
-        <table class="table table-sm align-middle mb-0">
+        <table class="table table-sm align-middle mb-0 incident-signals-table">
           <thead>
             <tr>
               <th>Signal</th>
@@ -333,17 +335,17 @@
           <tbody>
             {% for w in raw_windows %}
             <tr>
-              <td>
+              <td data-label="Signal">
                 <div class="small fw-semibold">{{ w.signal_type }}</div>
                 {% if w.signal_ref %}
                 <div class="small text-secondary font-monospace">{{ w.signal_ref }}</div>
                 {% endif %}
               </td>
-              <td class="small font-monospace">
+              <td class="small font-monospace" data-label="Window">
                 <span class="sobs-tz-ts" data-utc-ts="{{ w.window_start }}">{{ w.window_start[:19] }}</span><br>
                 <span class="sobs-tz-ts" data-utc-ts="{{ w.window_end }}">{{ w.window_end[:19] }}</span>
               </td>
-              <td>
+              <td data-label="Copy Status">
                 {% if w.copy_complete %}
                 <span class="badge bg-success">{{ w.copied_count }}/{{ w.expected_count }} copied</span>
                 {% elif w.copied_count > 0 %}

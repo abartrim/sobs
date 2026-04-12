@@ -2,18 +2,55 @@
 {% from "_filter_macros.html" import render_filter_accordion, render_regex_filter %}
 {% from "_error_panels.html" import render_error_accordion, render_error_panel_styles %}
 {% from "_multi_select_filter.html" import render_multi_select %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Traces{% endblock %}
+{% block styles %}{{ super() }}<style>
+  @media (max-width: {{ mobile_breakpoint_max }}) {
+    .trace-detail-summary .trace-id {
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      white-space: normal;
+    }
+
+    .trace-detail-summary .badge {
+      max-width: 100%;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .trace-timeline-ruler-left,
+    .trace-timeline-ruler-right {
+      min-width: 0 !important;
+      max-width: 0 !important;
+      width: 0 !important;
+      overflow: hidden;
+    }
+
+    #traceTree .trace-tree-row {
+      flex-wrap: wrap;
+      row-gap: 0.35rem;
+    }
+
+    #traceTree .trace-span-name-col {
+      min-width: 0 !important;
+      max-width: 100% !important;
+      flex: 1 1 100% !important;
+    }
+  }
+</style>{% endblock %}
 {% block content %}
 {% set from_ts = from_ts or request.args.get('from_ts', '') %}
 {% set to_ts = to_ts or request.args.get('to_ts', '') %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-diagram-3 me-2 text-warning"></i>Traces</h4>
-  <div class="d-flex align-items-center gap-3">
-    <span class="text-secondary small">{{ total }} spans</span>
-    {% if trace_detail %}<a href="{{ url_for('view_traces') }}" class="btn btn-sm btn-outline-secondary">← All Traces</a>{% endif %}
-    <a href="{{ url_for('traces_help') }}" class="link-secondary text-decoration-none" title="Traces Help" aria-label="Traces Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+{% set traces_header_meta %}
+  <span class="text-secondary small">{{ total }} spans</span>
+{% endset %}
+{% set traces_header_actions %}
+  {% if trace_detail %}<a href="{{ url_for('view_traces') }}" class="btn btn-sm btn-outline-secondary" title="All Traces"><i class="bi bi-arrow-left me-1"></i><span class="traces-btn-label">All Traces</span></a>{% endif %}
+  <a href="{{ url_for('traces_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Traces Help"><i class="bi bi-question-circle me-1"></i><span class="traces-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Traces', icon_class='bi bi-diagram-3', icon_text_class='text-warning', meta_html=traces_header_meta, actions_html=traces_header_actions) }}
 
 <!-- Filter bar -->
 {% call render_filter_accordion('tracesFiltersAccordion', 'tracesFiltersHeading', 'tracesFiltersPanel', 'text-warning', 'traces-tz-badge-btn', 'traces-tz-badge-label') %}
@@ -219,8 +256,8 @@
 <!-- ===== Trace Detail: Hierarchical Timeline View ===== -->
 <div class="mb-3">
   <!-- Trace header summary -->
-  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-    <span class="font-monospace small text-secondary" title="Trace ID">{{ trace_id }}</span>
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3 trace-detail-summary">
+    <span class="font-monospace small text-secondary trace-id" title="Trace ID">{{ trace_id }}</span>
     <span class="badge bg-secondary-subtle text-secondary-emphasis" title="Actual trace timestamps">
       <i class="bi bi-clock-history me-1"></i>{{ trace_detail.trace_start_ts }} to {{ trace_detail.trace_end_ts }}
     </span>
@@ -410,7 +447,7 @@
       <div class="small fw-semibold mt-3 mb-1"><i class="bi bi-archive me-1"></i>Overlapping preserved metric windows</div>
       {% if trace_detail.raw_windows %}
       <div class="table-responsive">
-        <table class="table table-sm align-middle mb-0">
+        <table class="table table-sm align-middle mb-0 traces-signals-table">
           <thead>
             <tr>
               <th>Signal</th>
@@ -422,23 +459,23 @@
           <tbody>
             {% for w in trace_detail.raw_windows %}
             <tr>
-              <td>
+              <td data-label="Signal">
                 <div class="small fw-semibold">{{ w.signal_type }}</div>
                 {% if w.signal_ref %}
                 <div class="small text-secondary font-monospace">{{ w.signal_ref }}</div>
                 {% endif %}
               </td>
-              <td class="small font-monospace">
+              <td class="small font-monospace" data-label="Window">
                 {{ w.window_start }}<br>
                 {{ w.window_end }}
               </td>
-              <td class="small">
+              <td class="small" data-label="Scope">
                 {% if w.service_name %}<span class="badge bg-secondary">{{ w.service_name }}</span>{% endif %}
                 {% if w.namespace %}<span class="badge bg-secondary-subtle text-secondary-emphasis">ns: {{ w.namespace }}</span>{% endif %}
                 {% if w.node_name %}<span class="badge bg-secondary-subtle text-secondary-emphasis">node: {{ w.node_name }}</span>{% endif %}
                 {% if not w.service_name and not w.namespace and not w.node_name %}<span class="text-secondary">global</span>{% endif %}
               </td>
-              <td>
+              <td data-label="Copy Status">
                 {% if w.copy_complete %}
                 <span class="badge bg-success">{{ w.copied_count }}/{{ w.expected_count }} copied</span>
                 {% elif w.copied_count > 0 %}
@@ -504,7 +541,7 @@
 
   <!-- Timeline header ruler -->
   <div class="d-flex align-items-center mb-1 px-2" style="padding-left:8px;">
-    <div style="min-width:320px; max-width:380px; flex-shrink:0;"></div>
+    <div class="trace-timeline-ruler-left" style="min-width:320px; max-width:380px; flex-shrink:0;"></div>
     <div class="flex-grow-1 position-relative" style="height:16px; font-size:.68rem; color:var(--bs-secondary-color);">
       <span style="position:absolute; left:0;">0</span>
       <span style="position:absolute; left:25%;">{{ fmt_ms(trace_detail.total_ms * 0.25) }}</span>
@@ -512,7 +549,7 @@
       <span style="position:absolute; left:75%;">{{ fmt_ms(trace_detail.total_ms * 0.75) }}</span>
       <span style="position:absolute; right:0;">{{ fmt_ms(trace_detail.total_ms) }}</span>
     </div>
-    <div style="min-width:310px; flex-shrink:0;"></div>
+    <div class="trace-timeline-ruler-right" style="min-width:310px; flex-shrink:0;"></div>
   </div>
 
   <!-- Span tree rows -->
@@ -565,7 +602,7 @@
       <span class="badge bg-secondary me-1 text-truncate" style="font-size:.65rem; max-width:90px;" title="{{ span.service }}">{{ span.service or '—' }}</span>
 
       <!-- Span name + timeline bar -->
-      <div style="min-width:200px; max-width:260px; flex-shrink:0;" class="me-2">
+      <div style="min-width:200px; max-width:260px; flex-shrink:0;" class="me-2 trace-span-name-col">
         <div class="small text-truncate {% if is_error or has_span_error %}text-danger{% endif %}" title="{{ span.name }}{% if span.http_url %} — {{ span.http_url }}{% endif %}">
           {% if is_error or has_span_error %}<i class="bi bi-exclamation-circle me-1" style="font-size:.7rem;"></i>{% endif %}{{ span.name }}{% if span.http_method %} <span class="text-secondary">{{ span.http_method }}</span>{% endif %}
         </div>
@@ -672,7 +709,7 @@
 {% elif spans %}
 <!-- ===== Flat span list (no specific trace selected) ===== -->
 <div class="table-responsive">
-  <table class="table table-sm table-hover align-middle">
+  <table class="table table-sm table-hover align-middle traces-mobile-card-table">
     <thead>
       {% set ts_next_dir = 'asc' if (sort_by == 'Timestamp' and sort_dir == 'desc') else 'desc' %}
       {% set name_next_dir = 'asc' if (sort_by == 'SpanName' and sort_dir == 'desc') else 'desc' %}
@@ -708,10 +745,10 @@
     <tbody>
       {% for span in spans %}
       <tr>
-        <td class="text-secondary small font-monospace sobs-tz-ts" data-utc-ts="{{ span.ts }}">{{ span.ts[:23] }}</td>
-        <td class="small">{{ span.name }}</td>
-        <td><span class="badge bg-secondary">{{ span.service or '—' }}</span></td>
-        <td class="small">
+        <td class="text-secondary small font-monospace sobs-tz-ts" data-utc-ts="{{ span.ts }}" data-label="Timestamp">{{ span.ts[:23] }}</td>
+        <td class="small" data-label="Name">{{ span.name }}</td>
+        <td data-label="Service"><span class="badge bg-secondary">{{ span.service or '—' }}</span></td>
+        <td class="small" data-label="Duration">
           {% if span.duration_ms < 100 %}
             <span class="text-success">{{ span.duration_ms }}ms</span>
           {% elif span.duration_ms < 1000 %}
@@ -720,14 +757,14 @@
             <span class="text-danger">{{ span.duration_ms }}ms</span>
           {% endif %}
         </td>
-        <td>
+        <td data-label="Status">
           <span class="badge {% if 'ERROR' in span.status %}bg-danger{% elif span.status == 'UNSET' %}bg-secondary{% else %}bg-success{% endif %}">
             {{ span.status }}
           </span>
         </td>
-        <td class="small text-secondary">{{ span.http_method }}</td>
-        <td class="small">{% if span.http_status %}<span class="badge {% if span.http_status|string >= '500' %}bg-danger{% elif span.http_status|string >= '400' %}bg-warning text-dark{% else %}bg-success{% endif %}">{{ span.http_status }}</span>{% endif %}</td>
-        <td>
+        <td class="small text-secondary" data-label="Method">{{ span.http_method }}</td>
+        <td class="small" data-label="HTTP">{% if span.http_status %}<span class="badge {% if span.http_status|string >= '500' %}bg-danger{% elif span.http_status|string >= '400' %}bg-warning text-dark{% else %}bg-success{% endif %}">{{ span.http_status }}</span>{% endif %}</td>
+        <td data-label="Trace ID">
           <a href="{{ url_for('view_traces', trace_id=span.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="trace-link text-truncate d-inline-block" style="max-width:120px;" title="{{ span.trace_id }}">
             {{ span.trace_id[:12] if span.trace_id else '—' }}{% if span.trace_id %}…{% endif %}
           </a>

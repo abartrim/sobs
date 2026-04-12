@@ -1,25 +1,206 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Notifications & Webhooks{% endblock %}
-{% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-bell me-2 text-warning"></i>Notifications &amp; Webhooks</h4>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Settings
-  </a>
-</div>
+{% block styles %}
+{{ super() }}
+<style>
+  #conditionsContainer .condition-row {
+    margin-left: 0;
+    margin-right: 0;
+  }
 
-<p class="text-secondary small mb-3">
-  Configure outbound notification channels (Slack, webhook, email, browser push) and define rules
-  that trigger notifications based on signal thresholds and anomaly conditions.
-  Rules are evaluated on demand via <code>POST /api/notifications/check</code> — call this endpoint
-  periodically with a scheduler or cron job.
-</p>
+  #conditionsContainer .condition-row > [class*="col-"] {
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+    min-width: 0;
+  }
+
+  #conditionsContainer .condition-row .form-control,
+  #conditionsContainer .condition-row .form-select {
+    max-width: 100%;
+  }
+
+  @media (max-width: 991.98px) {
+    #conditionsContainer .condition-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem 0;
+    }
+
+    #conditionsContainer .condition-row > [class*="col-"] {
+      flex: 0 0 100%;
+      max-width: 100%;
+      padding-left: 0;
+      padding-right: 0;
+    }
+
+    #conditionsContainer .condition-row .d-flex.justify-content-end {
+      justify-content: flex-start !important;
+    }
+  }
+
+    .notification-rules-table {
+      table-layout: fixed;
+      width: 100%;
+    }
+
+    .notification-rules-table .col-name {
+      width: 36%;
+    }
+
+    .notification-rules-table .col-conditions {
+      width: 28%;
+    }
+
+    .notification-rules-table .rule-name {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .notification-rules-table .rule-conditions {
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .notification-rules-table .rule-condition-badge {
+      display: inline-block;
+      max-width: 220px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+
+    @media (max-width: {{ mobile_breakpoint_max }}) {
+      .notification-channels-table td.col-actions {
+        text-align: right !important;
+        padding-top: 0.4rem;
+      }
+
+      .notification-channels-table td.col-actions .justify-content-end {
+        justify-content: flex-end !important;
+      }
+
+      .notification-channels-table td.col-config > .text-truncate {
+        max-width: 100% !important;
+      }
+    }
+
+    @media (max-width: 1399.98px) {
+      .notification-rules-table .col-channels,
+      .notification-rules-table .col-cooldown,
+      .notification-rules-table .col-status,
+      .notification-rules-table td.col-channels,
+      .notification-rules-table td.col-cooldown,
+      .notification-rules-table td.col-status {
+        display: none;
+      }
+
+      .notification-rules-table .rule-condition-badge {
+        max-width: 155px;
+      }
+    }
+
+    @media (max-width: 1199.98px) {
+      .notification-rules-table .col-logic,
+      .notification-rules-table .col-severity,
+      .notification-rules-table td.col-logic,
+      .notification-rules-table td.col-severity {
+        display: none;
+      }
+
+      .notification-rules-table .col-name {
+        width: 44%;
+      }
+
+      .notification-rules-table .col-conditions {
+        width: 40%;
+      }
+
+      .notification-rules-table .rule-condition-badge {
+        max-width: 130px;
+      }
+    }
+
+    @media (max-width: 991.98px) {
+      .notification-rules-table .col-conditions,
+      .notification-rules-table td.col-conditions {
+        display: none;
+      }
+
+      .notification-rules-table .col-name {
+        width: auto;
+      }
+    }
+
+    @media (max-width: {{ mobile_breakpoint_max }}) {
+      .notification-rules-table {
+        table-layout: auto;
+      }
+
+      .notification-rules-table td.col-name::before,
+      .notification-rules-table td.col-actions::before {
+        margin-bottom: 0.2rem;
+      }
+
+      .notification-rules-table td.col-actions {
+        text-align: right !important;
+        padding-top: 0.4rem;
+      }
+
+      .notification-rules-table td.col-actions .justify-content-end {
+        justify-content: flex-end !important;
+      }
+
+      .notification-rules-table .rule-name {
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+
+      .notification-rules-table .col-conditions,
+      .notification-rules-table td.col-conditions {
+        display: block;
+      }
+
+      .notification-rules-table .rule-conditions {
+        white-space: normal;
+        overflow: visible;
+      }
+
+      .notification-rules-table .rule-condition-badge {
+        max-width: 100%;
+      }
+
+      .notification-rules-table .col-logic,
+      .notification-rules-table td.col-logic,
+      .notification-rules-table .col-channels,
+      .notification-rules-table td.col-channels,
+      .notification-rules-table .col-cooldown,
+      .notification-rules-table td.col-cooldown {
+        display: none;
+      }
+    }
+</style>
+{% endblock %}
+{% block content %}
+{% set settings_notifications_header_actions %}
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}" title="Back to Settings">
+    <i class="bi bi-arrow-left me-1"></i><span class="notif-btn-label settings-btn-label">Back to Settings</span>
+  </a>
+  <a class="btn btn-sm btn-outline-secondary page-help-btn" href="{{ url_for('settings_notifications_help') }}" title="Help">
+    <i class="bi bi-question-circle me-1"></i><span class="notif-btn-label settings-btn-label">Help</span>
+  </a>
+{% endset %}
+{{ render_page_header('Notifications &amp; Webhooks', icon_class='bi bi-bell', icon_text_class='text-warning', actions_html=settings_notifications_header_actions, subtext='Configure outbound notification channels (Slack, webhook, email, browser push) and define rules that trigger notifications based on signal thresholds and anomaly conditions. Rules are evaluated on demand via <code>POST /api/notifications/check</code>; call this endpoint periodically with a scheduler or cron job.') }}
 
 <!-- ====================== NOTIFICATION CHANNELS ====================== -->
 <div class="d-flex align-items-center justify-content-between mb-2">
   <h5 class="fw-semibold mb-0"><i class="bi bi-plug me-2 text-info"></i>Notification Channels</h5>
-  <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#addChannelCollapse" aria-expanded="false" aria-controls="addChannelCollapse">
-    <i class="bi bi-plus-circle me-1"></i>Add Channel
+  <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#addChannelCollapse" aria-expanded="false" aria-controls="addChannelCollapse" title="Add Channel">
+    <i class="bi bi-plus-circle me-1"></i><span class="notif-btn-label">Add Channel</span>
   </button>
 </div>
 
@@ -136,10 +317,10 @@
               <code class="user-select-all small">{{ vapid_public_key }}</code>
               <br>
               <button type="button" class="btn btn-sm btn-outline-warning mt-1 me-1" id="regenerateVapidBtn">
-                <i class="bi bi-arrow-clockwise me-1"></i>Regenerate Keys
+                <i class="bi bi-arrow-clockwise me-1"></i><span class="notif-btn-label">Regenerate Keys</span>
               </button>
               <button type="button" class="btn btn-sm btn-outline-danger mt-1" id="removeVapidBtn">
-                <i class="bi bi-trash me-1"></i>Remove Keys
+                <i class="bi bi-trash me-1"></i><span class="notif-btn-label">Remove Keys</span>
               </button>
               <small class="text-secondary d-block mt-1">Regenerating invalidates all existing browser subscriptions.</small>
             </div>
@@ -149,14 +330,14 @@
               No VAPID keys configured. Generate keys first to enable browser push notifications.
               <br>
               <button type="button" class="btn btn-sm btn-primary mt-1" id="generateVapidBtn">
-                <i class="bi bi-key me-1"></i>Generate &amp; Save Keys
+                <i class="bi bi-key me-1"></i><span class="notif-btn-label">Generate &amp; Save Keys</span>
               </button>
             </div>
             {% endif %}
           </div>
           <div class="col-12">
             <button type="button" class="btn btn-sm btn-outline-info{% if not vapid_public_key %} disabled{% endif %}" id="subscribeBrowserBtn"{% if not vapid_public_key %} aria-disabled="true"{% endif %}>
-              <i class="bi bi-browser-safari me-1"></i>Subscribe This Browser
+              <i class="bi bi-browser-safari me-1"></i><span class="notif-btn-label">Subscribe This Browser</span>
             </button>
             <small class="text-secondary ms-2">Registers this browser's push subscription automatically.</small>
           </div>
@@ -180,7 +361,7 @@
           data-ai-handler="submitForm"
           data-ai-label="Create notification channel"
           data-ai-risk="high"
-          data-ai-confirm="true"><i class="bi bi-plus-circle me-1"></i>Create Channel</button>
+          data-ai-confirm="true"><i class="bi bi-plus-circle me-1"></i><span class="notif-btn-label">Create Channel</span></button>
       </form>
     </div>
   </div>
@@ -188,7 +369,7 @@
 
 {% if channels %}
 <div class="table-responsive mb-4">
-  <table class="table table-sm align-middle">
+  <table class="table table-sm align-middle notification-channels-table notification-mobile-card-table">
     <thead class="table-secondary">
       <tr>
         <th style="white-space: nowrap;">Name</th>
@@ -201,9 +382,9 @@
     <tbody>
       {% for ch in channels %}
       <tr>
-        <td class="fw-medium text-nowrap">{{ ch.name }}</td>
-        <td><span class="badge text-bg-secondary">{{ ch.channel_type }}</span></td>
-        <td>
+        <td class="fw-medium" data-label="Name">{{ ch.name }}</td>
+        <td data-label="Type"><span class="badge text-bg-secondary">{{ ch.channel_type }}</span></td>
+        <td data-label="Status">
           {% if ch.enabled %}
           <span class="badge text-bg-success">Enabled</span>
           {% else %}
@@ -214,7 +395,7 @@
             {{ 'Masked' if mask_on else 'Raw' }}
           </span>
         </td>
-        <td>
+        <td class="col-config" data-label="Config Preview">
           <div class="font-monospace small text-secondary text-truncate" style="max-width: 320px;">
             {% if ch.channel_type == 'webhook' %}{{ ch.config.get('url','') | truncate(80) }}
             {% elif ch.channel_type == 'slack' %}{{ ch.config.get('webhook_url','') | truncate(80) }}
@@ -223,7 +404,7 @@
             {% endif %}
           </div>
         </td>
-        <td class="text-end" style="white-space: nowrap;">
+        <td class="text-end col-actions" data-label="Actions" style="white-space: nowrap;">
           <div class="d-flex gap-2 justify-content-end">
             <button class="btn btn-sm btn-outline-secondary test-channel-btn" data-channel-id="{{ ch.id }}" data-channel-name="{{ ch.name }}" title="Test channel">
               <i class="bi bi-send"></i>
@@ -270,13 +451,13 @@
   <h5 class="fw-semibold mb-0"><i class="bi bi-diagram-3 me-2 text-warning"></i>Notification Rules</h5>
   <div class="d-flex gap-2">
     {% if channels and metric_rules %}
-    <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#autoNotifCollapse" aria-expanded="false" aria-controls="autoNotifCollapse">
-      <i class="bi bi-magic me-1"></i>Auto Make
+    <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#autoNotifCollapse" aria-expanded="false" aria-controls="autoNotifCollapse" title="Auto Make Rules">
+      <i class="bi bi-magic me-1"></i><span class="notif-btn-label">Auto Make</span>
     </button>
     {% endif %}
     {% if channels %}
-    <button class="btn btn-sm btn-outline-warning" type="button" data-bs-toggle="collapse" data-bs-target="#addRuleCollapse" aria-expanded="false" aria-controls="addRuleCollapse">
-      <i class="bi bi-plus-circle me-1"></i>Add Rule
+    <button class="btn btn-sm btn-outline-warning" type="button" data-bs-toggle="collapse" data-bs-target="#addRuleCollapse" aria-expanded="false" aria-controls="addRuleCollapse" title="Add Rule">
+      <i class="bi bi-plus-circle me-1"></i><span class="notif-btn-label">Add Rule</span>
     </button>
     {% endif %}
   </div>
@@ -290,10 +471,10 @@
       <p class="small text-secondary mb-3">Generate notification rules from your active metric rules. Each rule pre-selects all enabled channels. Signals already covered by an existing rule are skipped automatically.</p>
       <div class="d-flex gap-2 mb-3">
         <button class="btn btn-outline-info btn-sm" id="autoNotifPreviewBtn">
-          <i class="bi bi-eye me-1"></i>Preview
+          <i class="bi bi-eye me-1"></i><span class="notif-btn-label">Preview</span>
         </button>
         <button class="btn btn-info btn-sm d-none" id="autoNotifCreateBtn">
-          <i class="bi bi-magic me-1"></i>Create All
+          <i class="bi bi-magic me-1"></i><span class="notif-btn-label">Create All</span>
         </button>
       </div>
       <div id="autoNotifSummary" class="small text-secondary mb-2"></div>
@@ -309,33 +490,35 @@
 </div>
 {% else %}
 
-<div class="collapse mb-3" id="addRuleCollapse">
+<div id="notifRuleFormCard"></div>
+<div class="collapse mb-3{% if edit_rule %} show{% endif %}" id="addRuleCollapse">
   <div class="card border-secondary">
     <div class="card-body">
-      <h6 class="card-title mb-3">New Notification Rule</h6>
+      <h6 class="card-title mb-3">{{ 'Edit Notification Rule' if edit_rule else 'New Notification Rule' }}</h6>
       <form method="post" action="{{ url_for('create_notification_rule') }}" id="addRuleForm">
+        <input type="hidden" name="edit_rule_id" value="{{ edit_rule.id if edit_rule else '' }}">
         <div class="row g-3 mb-3">
           <div class="col-md-4">
             <label class="form-label small text-secondary">Rule Name <span class="text-danger">*</span></label>
-            <input type="text" name="name" class="form-control form-control-sm" placeholder="e.g. High Error Rate Alert" required>
+            <input type="text" name="name" class="form-control form-control-sm" placeholder="e.g. High Error Rate Alert" value="{{ edit_rule.name if edit_rule else '' }}" required>
           </div>
           <div class="col-md-2">
             <label class="form-label small text-secondary">Logic</label>
             <select name="logic_operator" class="form-select form-select-sm">
-              <option value="any">ANY condition (OR)</option>
-              <option value="all">ALL conditions (AND)</option>
+              <option value="any" {% if edit_rule and edit_rule.logic_operator == 'any' %}selected{% endif %}>ANY condition (OR)</option>
+              <option value="all" {% if edit_rule and edit_rule.logic_operator == 'all' %}selected{% endif %}>ALL conditions (AND)</option>
             </select>
           </div>
           <div class="col-md-2">
             <label class="form-label small text-secondary">Severity</label>
             <select name="severity" class="form-select form-select-sm">
-              <option value="warning">Warning</option>
-              <option value="critical">Critical</option>
+              <option value="warning" {% if edit_rule and edit_rule.severity == 'warning' %}selected{% endif %}>Warning</option>
+              <option value="critical" {% if edit_rule and edit_rule.severity == 'critical' %}selected{% endif %}>Critical</option>
             </select>
           </div>
           <div class="col-md-2">
             <label class="form-label small text-secondary">Cooldown (sec)</label>
-            <input type="number" name="cooldown_seconds" class="form-control form-control-sm" value="300" min="0" max="86400">
+            <input type="number" name="cooldown_seconds" class="form-control form-control-sm" value="{{ edit_rule.cooldown_seconds if edit_rule else 300 }}" min="0" max="86400">
           </div>
         </div>
 
@@ -345,7 +528,7 @@
           <div class="d-flex flex-wrap gap-3">
             {% for ch in channels %}
             <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="channel_ids" value="{{ ch.id }}" id="rule_ch_{{ ch.id }}">
+              <input class="form-check-input" type="checkbox" name="channel_ids" value="{{ ch.id }}" id="rule_ch_{{ ch.id }}" {% if edit_rule and ch.id in edit_rule.channel_ids %}checked{% endif %}>
               <label class="form-check-label small" for="rule_ch_{{ ch.id }}">
                 {{ ch.name }} <span class="text-secondary">({{ ch.channel_type }})</span>
               </label>
@@ -361,18 +544,22 @@
             <!-- Condition rows injected by JS -->
           </div>
           <button type="button" class="btn btn-outline-secondary btn-sm mt-2" id="addConditionBtn">
-            <i class="bi bi-plus me-1"></i>Add Condition
+            <i class="bi bi-plus me-1"></i><span class="notif-btn-label">Add Condition</span>
           </button>
         </div>
 
         <div class="mt-3">
             <button type="submit" class="btn btn-warning btn-sm"
+              title="{{ 'Update Rule' if edit_rule else 'Create Rule' }}"
               data-ai-action-id="settings.notifications.rule.create"
               data-ai-action-type="submit_form"
               data-ai-handler="submitForm"
-              data-ai-label="Create notification rule"
+              data-ai-label="{{ 'Update notification rule' if edit_rule else 'Create notification rule' }}"
               data-ai-risk="high"
-              data-ai-confirm="true"><i class="bi bi-plus-circle me-1"></i>Create Rule</button>
+              data-ai-confirm="true"><i class="bi bi-plus-circle me-1"></i><span class="notif-btn-label">{{ 'Update Rule' if edit_rule else 'Create Rule' }}</span></button>
+            {% if edit_rule %}
+            <a href="{{ url_for('view_notifications') }}" class="btn btn-outline-secondary btn-sm ms-2">Cancel Edit</a>
+            {% endif %}
         </div>
       </form>
     </div>
@@ -382,50 +569,54 @@
 
 {% if rules %}
 <div class="table-responsive mb-4">
-  <table class="table table-sm align-middle">
+  <table class="table table-sm align-middle notification-rules-table notification-mobile-card-table">
     <thead class="table-secondary">
       <tr>
-        <th style="white-space: nowrap;">Name</th>
-        <th>Logic</th>
-        <th>Severity</th>
-        <th>Conditions</th>
-        <th>Channels</th>
-        <th>Cooldown</th>
-        <th>Status</th>
+        <th class="col-name" style="white-space: nowrap;">Name</th>
+        <th class="col-logic">Logic</th>
+        <th class="col-severity">Severity</th>
+        <th class="col-conditions">Conditions</th>
+        <th class="col-channels">Channels</th>
+        <th class="col-cooldown">Cooldown</th>
+        <th class="col-status">Status</th>
         <th class="text-end" style="white-space: nowrap;">Actions</th>
       </tr>
     </thead>
     <tbody>
       {% for rule in rules %}
       <tr>
-        <td class="fw-medium text-nowrap">{{ rule.name }}</td>
-        <td><span class="badge text-bg-secondary">{{ rule.logic_operator.upper() }}</span></td>
-        <td>
+        <td class="fw-medium col-name" data-label="Name"><span class="rule-name" title="{{ rule.name }}">{{ rule.name }}</span></td>
+        <td class="col-logic" data-label="Logic"><span class="badge text-bg-secondary">{{ rule.logic_operator.upper() }}</span></td>
+        <td class="col-severity" data-label="Severity">
           {% if rule.severity == 'critical' %}
           <span class="badge text-bg-danger">Critical</span>
           {% else %}
           <span class="badge text-bg-warning text-dark">Warning</span>
           {% endif %}
         </td>
-        <td>
-          <small class="text-secondary">
+        <td class="col-conditions" data-label="Conditions">
+          <small class="text-secondary rule-conditions" title="{% for cond in rule.conditions %}{% if cond.type == 'tag' %}tag{% if cond.record_type and cond.record_type != 'all' %} [{{ cond.record_type }}]{% endif %} {{ cond.tag_key }}{% if cond.tag_value %} {{ cond.tag_match_operator }} {{ cond.tag_value }}{% endif %} {{ cond.comparator }} {{ cond.threshold }}{% else %}{{ cond.source }}/{{ cond.signal }}{% if cond.service %} [{{ cond.service }}]{% endif %} {{ cond.comparator }} {{ cond.threshold }}{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}">
             {% for cond in rule.conditions %}
-            <span class="badge text-bg-secondary me-1">{{ cond.source }}/{{ cond.signal }}{% if cond.service %} [{{ cond.service }}]{% endif %} {{ cond.comparator }} {{ cond.threshold }}</span>
+            {% if cond.type == 'tag' %}
+            <span class="badge text-bg-secondary me-1 rule-condition-badge">tag{% if cond.record_type and cond.record_type != 'all' %} [{{ cond.record_type }}]{% endif %} {{ cond.tag_key }}{% if cond.tag_value %} {{ cond.tag_match_operator }} {{ cond.tag_value }}{% endif %} {{ cond.comparator }} {{ cond.threshold }}</span>
+            {% else %}
+            <span class="badge text-bg-secondary me-1 rule-condition-badge">{{ cond.source }}/{{ cond.signal }}{% if cond.service %} [{{ cond.service }}]{% endif %} {{ cond.comparator }} {{ cond.threshold }}</span>
+            {% endif %}
             {% endfor %}
           </small>
         </td>
-        <td>
+        <td class="col-channels" data-label="Channels">
           <small class="text-secondary">{{ rule.channel_ids | length }} channel{{ 's' if rule.channel_ids | length != 1 else '' }}</small>
         </td>
-        <td><small class="text-secondary">{{ rule.cooldown_seconds }}s</small></td>
-        <td>
+        <td class="col-cooldown" data-label="Cooldown"><small class="text-secondary">{{ rule.cooldown_seconds }}s</small></td>
+        <td class="col-status" data-label="Status">
           {% if rule.enabled %}
           <span class="badge text-bg-success">Enabled</span>
           {% else %}
           <span class="badge text-bg-secondary">Disabled</span>
           {% endif %}
         </td>
-        <td class="text-end" style="white-space: nowrap;">
+        <td class="text-end col-actions" data-label="Actions" style="white-space: nowrap;">
           <div class="d-flex gap-2 justify-content-end">
             <form method="post" action="{{ url_for('toggle_notification_rule', rule_id=rule.id) }}" class="d-inline">
               <button type="submit" class="btn btn-sm btn-outline-secondary" title="{{ 'Disable' if rule.enabled else 'Enable' }}"
@@ -438,6 +629,11 @@
                 <i class="bi bi-{{ 'pause-circle' if rule.enabled else 'play-circle' }}"></i>
               </button>
             </form>
+            <a href="{{ url_for('view_notifications', edit_rule=rule.id) }}#notifRuleFormCard"
+               class="btn btn-sm btn-outline-info"
+               title="Edit rule">
+              <i class="bi bi-pencil"></i>
+            </a>
             <form method="post" action="{{ url_for('delete_notification_rule', rule_id=rule.id) }}" class="d-inline"
               data-confirm-title="Delete Notification Rule"
               data-confirm-message="Delete rule '{{ rule.name }}'?"
@@ -467,15 +663,15 @@
 <!-- ====================== NOTIFICATION LOG ====================== -->
 <div class="d-flex align-items-center justify-content-between mb-2">
   <h5 class="fw-semibold mb-0"><i class="bi bi-clock-history me-2 text-secondary"></i>Recent Notification Log</h5>
-  <button class="btn btn-sm btn-outline-secondary" id="checkNowBtn" title="Evaluate all rules now">
-    <i class="bi bi-arrow-clockwise me-1"></i>Check Rules Now
+  <button class="btn btn-sm btn-outline-secondary" id="checkNowBtn" title="Check Rules Now">
+    <i class="bi bi-arrow-clockwise me-1"></i><span class="notif-btn-label">Check Rules Now</span>
   </button>
 </div>
 <div id="checkNowResult" class="small mb-2"></div>
 
 {% if notification_log %}
 <div class="table-responsive mb-4">
-  <table class="table table-sm align-middle">
+  <table class="table table-sm align-middle notification-mobile-card-table">
     <thead class="table-secondary">
       <tr>
         <th>Fired At</th>
@@ -488,17 +684,17 @@
     <tbody>
       {% for entry in notification_log %}
       <tr>
-        <td class="font-monospace small text-secondary">{{ entry.fired_at }}</td>
-        <td class="small">{{ entry.rule_name }}</td>
-        <td class="small">{{ entry.channel_name }}</td>
-        <td>
+        <td class="font-monospace small text-secondary" data-label="Fired At">{{ entry.fired_at }}</td>
+        <td class="small" data-label="Rule">{{ entry.rule_name }}</td>
+        <td class="small" data-label="Channel">{{ entry.channel_name }}</td>
+        <td data-label="Status">
           {% if entry.status == 'ok' %}
           <span class="badge text-bg-success">OK</span>
           {% else %}
           <span class="badge text-bg-danger">Error</span>
           {% endif %}
         </td>
-        <td class="small text-secondary">
+        <td class="small text-secondary" data-label="Summary / Error">
           {% if entry.status == 'ok' %}
           {{ entry.summary | truncate(80) }}
           {% else %}
@@ -529,9 +725,10 @@
     </ul>
     <p class="mb-2">
       <strong>Rules</strong> define when to send notifications. Each rule has one or more conditions
-      matched against recent signal averages from <code>v_derived_signals_1m</code>. Use <em>ANY</em>
-      (OR) or <em>ALL</em> (AND) logic to combine conditions. A cooldown prevents re-firing
-      until the configured interval has elapsed.
+      matched against recent signal averages from <code>v_derived_signals_1m</code> or recent tag
+      assignments from <code>sobs_record_tags</code>. Use <em>ANY</em> (OR) or <em>ALL</em> (AND)
+      logic to combine signal-only, tag-only, or mixed signal+tag conditions. A cooldown prevents
+      re-firing until the configured interval has elapsed.
     </p>
     <p class="mb-2">
       <strong>Triggering:</strong> Call <code>POST /api/notifications/check</code> periodically
@@ -575,11 +772,60 @@ function escHtml(s) {
   }
 
   // ===== Condition builder =====
+  var conditionTypes = {{ condition_types | tojson }};
   var signalSources = {{ signal_sources | tojson }};
   var comparators = {{ comparators | tojson }};
+  var tagMatchOperators = {{ tag_match_operators | tojson }};
+  var tagRecordTypes = {{ tag_record_types | tojson }};
+  var suggestionUrl = {{ url_for("api_tag_rule_condition_suggestions") | tojson }};
+  var editingRule = {{ (edit_rule or {}) | tojson }};
   var conditionCount = 0;
 
-  function addConditionRow() {
+  function debounce(fn, waitMs) {
+    var timer = null;
+    return function () {
+      var args = arguments;
+      var self = this;
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(function () {
+        fn.apply(self, args);
+      }, waitMs);
+    };
+  }
+
+  function ensureDatalist(id) {
+    var existing = document.getElementById(id);
+    if (existing) return existing;
+    var dl = document.createElement('datalist');
+    dl.id = id;
+    var container = document.getElementById('conditionsContainer');
+    if (container) container.appendChild(dl);
+    return dl;
+  }
+
+  function updateDatalist(dl, values) {
+    if (!dl) return;
+    dl.innerHTML = '';
+    (values || []).forEach(function (value) {
+      var option = document.createElement('option');
+      option.value = String(value || '');
+      dl.appendChild(option);
+    });
+  }
+
+  function fetchConditionSuggestions(params, onDone) {
+    var qs = new URLSearchParams(params);
+    fetch(suggestionUrl + '?' + qs.toString(), { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        onDone((data && data.ok && Array.isArray(data.suggestions)) ? data.suggestions : []);
+      })
+      .catch(function () {
+        onDone([]);
+      });
+  }
+
+  function addConditionRow(initialCond) {
     conditionCount++;
     var idx = conditionCount;
     var container = document.getElementById('conditionsContainer');
@@ -592,51 +838,264 @@ function escHtml(s) {
       return '<option value="' + c + '">' + c + '</option>';
     }).join('');
 
+    var conditionTypeOptions = conditionTypes.map(function (value) {
+      return '<option value="' + value + '">' + value + '</option>';
+    }).join('');
+
+    var tagMatchOperatorOptions = tagMatchOperators.map(function (value) {
+      return '<option value="' + value + '">' + value + '</option>';
+    }).join('');
+
+    var tagRecordTypeOptions = tagRecordTypes.map(function (value) {
+      return '<option value="' + value + '">' + value + '</option>';
+    }).join('');
+
     var row = document.createElement('div');
     row.className = 'row g-2 align-items-end mb-2 condition-row';
     row.dataset.condIdx = idx;
     row.innerHTML =
-      '<div class="col-md-2">' +
+      '<div class="col-md-1">' +
+        '<label class="form-label small text-secondary">Type</label>' +
+        '<select name="cond_type" class="form-select form-select-sm cond-type-select">' + conditionTypeOptions + '</select>' +
+      '</div>' +
+      '<div class="col-md-2 signal-condition-fields">' +
         '<label class="form-label small text-secondary">Source</label>' +
         '<select name="cond_source" class="form-select form-select-sm cond-source-select">' + sourceOptions + '</select>' +
       '</div>' +
-      '<div class="col-md-2">' +
+      '<div class="col-md-2 signal-condition-fields">' +
         '<label class="form-label small text-secondary">Signal</label>' +
         '<select name="cond_signal" class="form-select form-select-sm cond-signal-select"></select>' +
       '</div>' +
-      '<div class="col-md-2">' +
+      '<div class="col-md-3 signal-condition-fields">' +
         '<label class="form-label small text-secondary">Service (optional)</label>' +
         '<input type="text" name="cond_service" class="form-control form-control-sm" placeholder="any">' +
+      '</div>' +
+      '<div class="col-md-2 tag-condition-fields d-none">' +
+        '<label class="form-label small text-secondary">Record Type</label>' +
+        '<select name="cond_record_type" class="form-select form-select-sm">' + tagRecordTypeOptions + '</select>' +
+      '</div>' +
+      '<div class="col-md-2 tag-condition-fields d-none">' +
+        '<label class="form-label small text-secondary">Tag Key</label>' +
+        '<input type="text" name="cond_tag_key" class="form-control form-control-sm cond-tag-key-input" placeholder="env">' +
+      '</div>' +
+      '<div class="col-md-1 tag-condition-fields d-none">' +
+        '<label class="form-label small text-secondary">Value Match</label>' +
+        '<select name="cond_tag_match_operator" class="form-select form-select-sm">' + tagMatchOperatorOptions + '</select>' +
+      '</div>' +
+      '<div class="col-md-2 tag-condition-fields d-none">' +
+        '<label class="form-label small text-secondary">Tag Value</label>' +
+        '<input type="text" name="cond_tag_value" class="form-control form-control-sm cond-tag-value-input" placeholder="prod">' +
       '</div>' +
       '<div class="col-md-1">' +
         '<label class="form-label small text-secondary">Comparator</label>' +
         '<select name="cond_comparator" class="form-select form-select-sm">' + comparatorOptions + '</select>' +
       '</div>' +
-      '<div class="col-md-2">' +
+      '<div class="col-md-1">' +
         '<label class="form-label small text-secondary">Threshold</label>' +
         '<input type="number" step="any" name="cond_threshold" class="form-control form-control-sm" value="0" required>' +
       '</div>' +
       '<div class="col-md-1">' +
-        '<label class="form-label small text-secondary">Window (min)</label>' +
+        '<label class="form-label small text-secondary">Window</label>' +
         '<input type="number" min="1" max="60" name="cond_window_minutes" class="form-control form-control-sm" value="5">' +
       '</div>' +
-      '<div class="col-md-1 d-flex align-items-end">' +
+      '<div class="col-md-1 d-flex align-items-end justify-content-end">' +
         '<button type="button" class="btn btn-outline-danger btn-sm remove-condition-btn"><i class="bi bi-trash"></i></button>' +
       '</div>';
 
     container.appendChild(row);
 
-    // Populate signal options based on initial source
     var sourceSelect = row.querySelector('.cond-source-select');
     var signalSelect = row.querySelector('.cond-signal-select');
-    populateSignals(sourceSelect.value, signalSelect);
+    var typeSelect = row.querySelector('.cond-type-select');
+    var comparatorSelect = row.querySelector('select[name="cond_comparator"]');
+    var thresholdInput = row.querySelector('input[name="cond_threshold"]');
+    var windowInput = row.querySelector('input[name="cond_window_minutes"]');
+    var serviceInput = row.querySelector('input[name="cond_service"]');
+    var recordTypeSelect = row.querySelector('select[name="cond_record_type"]');
+    var tagKeyInput = row.querySelector('.cond-tag-key-input');
+    var tagOperatorSelect = row.querySelector('select[name="cond_tag_match_operator"]');
+    var tagValueInput = row.querySelector('.cond-tag-value-input');
+
+    var serviceListId = 'notif-cond-service-suggest-' + idx;
+    var tagKeyListId = 'notif-cond-tag-key-suggest-' + idx;
+    var tagValueListId = 'notif-cond-tag-value-suggest-' + idx;
+    var serviceList = ensureDatalist(serviceListId);
+    var tagKeyList = ensureDatalist(tagKeyListId);
+    var tagValueList = ensureDatalist(tagValueListId);
+
+    if (serviceInput) {
+      serviceInput.setAttribute('autocomplete', 'off');
+      serviceInput.setAttribute('list', serviceListId);
+    }
+    if (tagKeyInput) {
+      tagKeyInput.setAttribute('autocomplete', 'off');
+      tagKeyInput.setAttribute('list', tagKeyListId);
+    }
+    if (tagValueInput) {
+      tagValueInput.setAttribute('autocomplete', 'off');
+      tagValueInput.setAttribute('list', tagValueListId);
+    }
+
+    if (initialCond && typeof initialCond === 'object') {
+      var initialType = String(initialCond.type || 'signal');
+      if (typeSelect) typeSelect.value = initialType;
+      if (comparatorSelect && initialCond.comparator) comparatorSelect.value = String(initialCond.comparator);
+      if (thresholdInput && initialCond.threshold !== undefined && initialCond.threshold !== null) {
+        thresholdInput.value = String(initialCond.threshold);
+      }
+      if (windowInput && initialCond.window_minutes !== undefined && initialCond.window_minutes !== null) {
+        windowInput.value = String(initialCond.window_minutes);
+      }
+      if (initialType === 'tag') {
+        if (recordTypeSelect && initialCond.record_type) {
+          recordTypeSelect.value = String(initialCond.record_type);
+        }
+        if (tagKeyInput && initialCond.tag_key) {
+          tagKeyInput.value = String(initialCond.tag_key);
+        }
+        if (tagOperatorSelect && initialCond.tag_match_operator) {
+          tagOperatorSelect.value = String(initialCond.tag_match_operator);
+        }
+        if (tagValueInput && initialCond.tag_value) {
+          tagValueInput.value = String(initialCond.tag_value);
+        }
+      } else {
+        if (sourceSelect && initialCond.source) {
+          sourceSelect.value = String(initialCond.source);
+        }
+        populateSignals(sourceSelect.value, signalSelect);
+        if (signalSelect && initialCond.signal) {
+          signalSelect.value = String(initialCond.signal);
+        }
+        if (serviceInput && initialCond.service) {
+          serviceInput.value = String(initialCond.service);
+        }
+      }
+    }
+
+    if (!(initialCond && typeof initialCond === 'object')) {
+      populateSignals(sourceSelect.value, signalSelect);
+    }
+
+    var requestServiceSuggestions = debounce(function () {
+      if (!serviceInput || !typeSelect || typeSelect.value !== 'signal') {
+        updateDatalist(serviceList, []);
+        return;
+      }
+      fetchConditionSuggestions(
+        {
+          scope: 'notification_rule',
+          target: 'service',
+          source: sourceSelect ? (sourceSelect.value || '') : '',
+          signal: signalSelect ? (signalSelect.value || '') : '',
+          q: serviceInput.value || '',
+          limit: '10',
+        },
+        function (values) {
+          updateDatalist(serviceList, values);
+        }
+      );
+    }, 240);
+
+    var requestTagKeySuggestions = debounce(function () {
+      if (!tagKeyInput || !typeSelect || typeSelect.value !== 'tag') {
+        updateDatalist(tagKeyList, []);
+        return;
+      }
+      fetchConditionSuggestions(
+        {
+          scope: 'notification_rule',
+          target: 'tag_key',
+          record_type: recordTypeSelect ? (recordTypeSelect.value || 'all') : 'all',
+          q: tagKeyInput.value || '',
+          limit: '10',
+        },
+        function (values) {
+          updateDatalist(tagKeyList, values);
+        }
+      );
+    }, 240);
+
+    var requestTagValueSuggestions = debounce(function () {
+      if (!tagValueInput || !tagKeyInput || !typeSelect || typeSelect.value !== 'tag') {
+        updateDatalist(tagValueList, []);
+        return;
+      }
+      if (!String(tagKeyInput.value || '').trim()) {
+        updateDatalist(tagValueList, []);
+        return;
+      }
+      fetchConditionSuggestions(
+        {
+          scope: 'notification_rule',
+          target: 'tag_value',
+          record_type: recordTypeSelect ? (recordTypeSelect.value || 'all') : 'all',
+          tag_key: tagKeyInput.value || '',
+          operator: tagOperatorSelect ? (tagOperatorSelect.value || 'eq') : 'eq',
+          q: tagValueInput.value || '',
+          limit: '10',
+        },
+        function (values) {
+          updateDatalist(tagValueList, values);
+        }
+      );
+    }, 240);
+
+    function toggleConditionType() {
+      var isTag = typeSelect && typeSelect.value === 'tag';
+      row.querySelectorAll('.signal-condition-fields').forEach(function (el) {
+        el.classList.toggle('d-none', isTag);
+      });
+      row.querySelectorAll('.tag-condition-fields').forEach(function (el) {
+        el.classList.toggle('d-none', !isTag);
+      });
+      if (tagKeyInput) {
+        tagKeyInput.required = !!isTag;
+      }
+      if (isTag) {
+        requestTagKeySuggestions();
+        requestTagValueSuggestions();
+      } else {
+        requestServiceSuggestions();
+      }
+    }
 
     sourceSelect.addEventListener('change', function () {
       populateSignals(this.value, row.querySelector('.cond-signal-select'));
+      requestServiceSuggestions();
     });
+    if (signalSelect) {
+      signalSelect.addEventListener('change', requestServiceSuggestions);
+    }
+    typeSelect.addEventListener('change', toggleConditionType);
+    if (serviceInput) {
+      serviceInput.addEventListener('input', requestServiceSuggestions);
+      serviceInput.addEventListener('focus', requestServiceSuggestions);
+    }
+    if (recordTypeSelect) {
+      recordTypeSelect.addEventListener('change', function () {
+        requestTagKeySuggestions();
+        requestTagValueSuggestions();
+      });
+    }
+    if (tagKeyInput) {
+      tagKeyInput.addEventListener('input', function () {
+        requestTagKeySuggestions();
+        requestTagValueSuggestions();
+      });
+      tagKeyInput.addEventListener('focus', requestTagKeySuggestions);
+    }
+    if (tagOperatorSelect) {
+      tagOperatorSelect.addEventListener('change', requestTagValueSuggestions);
+    }
+    if (tagValueInput) {
+      tagValueInput.addEventListener('input', requestTagValueSuggestions);
+      tagValueInput.addEventListener('focus', requestTagValueSuggestions);
+    }
     row.querySelector('.remove-condition-btn').addEventListener('click', function () {
       container.removeChild(row);
     });
+    toggleConditionType();
   }
 
   function populateSignals(source, signalSelect) {
@@ -649,8 +1108,15 @@ function escHtml(s) {
   var addConditionBtn = document.getElementById('addConditionBtn');
   if (addConditionBtn) {
     addConditionBtn.addEventListener('click', addConditionRow);
-    // Add a default condition row
-    addConditionRow();
+    var existingConditions = (editingRule && Array.isArray(editingRule.conditions)) ? editingRule.conditions : [];
+    if (existingConditions.length) {
+      existingConditions.forEach(function (cond) {
+        addConditionRow(cond);
+      });
+    } else {
+      // Add a default condition row
+      addConditionRow();
+    }
   }
 
   // ===== Test channel button =====
@@ -692,9 +1158,27 @@ function escHtml(s) {
       fetch('{{ url_for("check_notifications") }}', {
         method: 'POST',
         credentials: 'same-origin',
-      }).then(function (res) { return res.json(); }).then(function (data) {
+      }).then(function (res) {
+        return res.text().then(function (text) {
+          var data = null;
+          try {
+            data = text ? JSON.parse(text) : null;
+          } catch (_err) {
+            data = null;
+          }
+          return { ok: res.ok, status: res.status, data: data, text: text };
+        });
+      }).then(function (result) {
         checkNowBtn.disabled = false;
-        checkNowBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Check Rules Now';
+        checkNowBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i><span class="notif-btn-label">Check Rules Now</span>';
+        if (!result.ok || !result.data || result.data.ok !== true) {
+          var errMsg = (result.data && result.data.error)
+            ? String(result.data.error)
+            : ('Request failed (HTTP ' + result.status + ')');
+          checkNowResult.innerHTML = '<span class="text-danger">Error: ' + escHtml(errMsg) + '</span>';
+          return;
+        }
+        var data = result.data;
         checkNowResult.innerHTML =
           '<span class="text-secondary">Evaluated ' + data.evaluated + ' rule(s), ' +
           data.fired + ' fired. ' +
@@ -702,7 +1186,7 @@ function escHtml(s) {
           '</span>';
       }).catch(function (err) {
         checkNowBtn.disabled = false;
-        checkNowBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Check Rules Now';
+        checkNowBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i><span class="notif-btn-label">Check Rules Now</span>';
         checkNowResult.textContent = 'Error: ' + err;
       });
     });
@@ -885,7 +1369,7 @@ function escHtml(s) {
         previewContainer.innerHTML = '<p class="small text-success mt-2"><i class="bi bi-check-circle me-1"></i>All metric rules are already covered by existing notification rules.</p>';
       } else {
         createBtn.classList.remove('d-none');
-        var html = '<div class="card border-secondary mt-2"><div class="table-responsive"><table class="table table-dark table-sm align-middle mb-0"><thead><tr>' +
+        var html = '<div class="card border-secondary mt-2"><div class="table-responsive"><table class="table table-dark table-sm align-middle mb-0 notification-mobile-card-table auto-notif-preview-table"><thead><tr>' +
           '<th>Rule Name</th><th>Source</th><th>Signal</th><th>Service</th><th>Comparator</th><th>Threshold</th><th>Severity</th><th>Channels</th>' +
           '</tr></thead><tbody>';
         data.candidates.forEach(function (c) {
@@ -893,14 +1377,14 @@ function escHtml(s) {
             ? '<span class="badge text-bg-danger">Critical</span>'
             : '<span class="badge text-bg-warning text-dark">Warning</span>';
           html += '<tr>' +
-            '<td class="fw-medium">' + escHtml(c.name) + '</td>' +
-            '<td>' + escHtml(c.source) + '</td>' +
-            '<td class="font-monospace small">' + escHtml(c.signal) + '</td>' +
-            '<td>' + escHtml(c.service || 'any') + '</td>' +
-            '<td>' + escHtml(c.comparator) + '</td>' +
-            '<td class="font-monospace small">' + escHtml(String(c.threshold)) + '</td>' +
-            '<td>' + sevBadge + '</td>' +
-            '<td class="small text-secondary">' + c.channel_names.map(escHtml).join(', ') + '</td>' +
+            '<td class="fw-medium" data-label="Rule Name">' + escHtml(c.name) + '</td>' +
+            '<td data-label="Source">' + escHtml(c.source) + '</td>' +
+            '<td class="font-monospace small" data-label="Signal">' + escHtml(c.signal) + '</td>' +
+            '<td data-label="Service">' + escHtml(c.service || 'any') + '</td>' +
+            '<td data-label="Comparator">' + escHtml(c.comparator) + '</td>' +
+            '<td class="font-monospace small" data-label="Threshold">' + escHtml(String(c.threshold)) + '</td>' +
+            '<td data-label="Severity">' + sevBadge + '</td>' +
+            '<td class="small text-secondary" data-label="Channels">' + c.channel_names.map(escHtml).join(', ') + '</td>' +
             '</tr>';
         });
         html += '</tbody></table></div></div>';

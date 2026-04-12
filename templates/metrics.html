@@ -1,18 +1,20 @@
 {% extends "base.html" %}
 {% from "_multi_select_filter.html" import render_multi_select %}
 {% from "_filter_macros.html" import render_filter_accordion, render_regex_filter, render_tz_init_script %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Metrics{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
+{% set metrics_header_actions %}
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics_rules') }}" title="Manage Rules">
+    <i class="bi bi-sliders me-1"></i><span class="metrics-btn-label">Manage Rules</span>
+  </a>
+  <a href="{{ url_for('metrics_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Metrics Help"><i class="bi bi-question-circle me-1"></i><span class="metrics-btn-label">Help</span></a>
+{% endset %}
+{% set metrics_title_html %}
   <h4 class="fw-semibold mb-0"><i class="bi bi-graph-up-arrow me-2 text-info"></i>Metrics & Signals</h4>
-  <div class="d-flex align-items-center gap-3">
-    <div class="small text-secondary">Derived 1-minute telemetry signals with anomaly state</div>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics_rules') }}">
-      <i class="bi bi-sliders me-1"></i>Manage Rules
-    </a>
-    <a href="{{ url_for('metrics_help') }}" class="link-secondary text-decoration-none" title="Metrics Help" aria-label="Metrics Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+{% endset %}
+{{ render_page_header(title_html=metrics_title_html, actions_html=metrics_header_actions, subtext='Derived 1-minute telemetry signals with anomaly state') }}
 
 {% call render_filter_accordion('metricsFiltersAccordion', 'metricsFiltersHeading', 'metricsFiltersPanel', 'text-info', 'metrics-tz-badge-btn', 'metrics-tz-badge-label', body_class='py-2') %}
     <form method="get" class="d-flex flex-wrap gap-2 align-items-end sobs-filter-form">
@@ -83,7 +85,7 @@
     <span class="small text-secondary">{{ total }} series</span>
   </div>
   <div class="table-responsive">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 metrics-mobile-card-table">
       <thead>
         <tr>
           {% set last_time_next_dir = 'asc' if (sort_by == 'last_time' and sort_dir == 'desc') else 'desc' %}
@@ -112,21 +114,21 @@
         {% if rows %}
           {% for r in rows %}
           <tr>
-            <td class="small font-monospace sobs-tz-ts" data-utc-ts="{{ r.last_time }}">{{ r.last_time }}</td>
-            <td class="small">{{ r.service }}</td>
-            <td class="small" title="{{ r.source }}">{{ source_label(r.source) }}</td>
-            <td class="small" title="{{ r.signal }}{% if signal_description(r.source, r.signal) %} – {{ signal_description(r.source, r.signal) }}{% endif %}">
+            <td class="small font-monospace sobs-tz-ts" data-utc-ts="{{ r.last_time }}" data-label="Last Seen">{{ r.last_time }}</td>
+            <td class="small" data-label="Service">{{ r.service }}</td>
+            <td class="small" title="{{ r.source }}" data-label="Source">{{ source_label(r.source) }}</td>
+            <td class="small" title="{{ r.signal }}{% if signal_description(r.source, r.signal) %} – {{ signal_description(r.source, r.signal) }}{% endif %}" data-label="Signal">
               {{ signal_label(r.source, r.signal) }}
               <span class="text-secondary font-monospace signal-raw-id">{{ r.signal }}</span>
             </td>
-            <td class="small font-monospace">{{ r.last_value }}</td>
-            <td class="small font-monospace">{{ r.last_anomaly_score }}</td>
-            <td>
+            <td class="small font-monospace" data-label="Value">{{ r.last_value }}</td>
+            <td class="small font-monospace" data-label="Z">{{ r.last_anomaly_score }}</td>
+            <td data-label="State">
               <span class="badge {% if r.last_anomaly_state == 'outlier' %}bg-danger{% elif r.last_anomaly_state == 'warning' %}bg-warning text-dark{% else %}bg-success{% endif %}">
                 {{ r.last_anomaly_state }}
               </span>
             </td>
-            <td class="small">
+            <td class="small" data-label="Rule">
               {% if r.rule_name %}
               <span class="badge {% if r.rule_state == 'outlier' %}bg-danger{% elif r.rule_state == 'warning' %}bg-warning text-dark{% else %}bg-secondary{% endif %}" title="{{ r.rule_reason }}">
                 {{ r.rule_name }}
@@ -135,9 +137,9 @@
               <span class="text-secondary">—</span>
               {% endif %}
             </td>
-            <td class="small font-monospace">{{ r.last_sample_count }}</td>
-            <td class="small font-monospace">{{ r.point_count }}</td>
-            <td>
+            <td class="small font-monospace" data-label="Sample">{{ r.last_sample_count }}</td>
+            <td class="small font-monospace" data-label="Points">{{ r.point_count }}</td>
+            <td data-label="Actions">
               <a class="btn btn-sm btn-outline-info"
                  href="{{ url_for('view_metrics_anomaly', service=r.service, signal=r.signal, source=r.source, attr_fp=r.attr_fp, hours=hours) }}">
                 Details

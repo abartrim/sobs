@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ dashboard.name }}{% endblock %}
-{% block content %}
-<style>
+{% block styles %}{{ super() }}<style>
   #addChartModal .modal-dialog {
     margin: 0.5rem auto;
     height: calc(100vh - 1rem);
@@ -54,7 +53,19 @@
       padding-left: var(--sb-compact);
     }
   }
-</style>
+
+  @media (max-width: {{ mobile_breakpoint_max }}) {
+    #dashboardRefreshInlineGroup {
+      display: none !important;
+    }
+    #dashboardRefreshModalBtn {
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
+    }
+  }
+</style>{% endblock %}
+{% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <div>
     <nav aria-label="breadcrumb">
@@ -69,7 +80,7 @@
     {% endif %}
   </div>
   <div class="d-flex gap-2 align-items-center">
-    <div class="d-flex align-items-center gap-2" title="Auto-refresh interval">
+    <div id="dashboardRefreshInlineGroup" class="d-flex align-items-center gap-2" title="Auto-refresh interval">
       <span id="refreshCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
       <div class="input-group input-group-sm" style="width:auto;">
         <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
@@ -83,7 +94,11 @@
         </select>
       </div>
     </div>
+    <button id="dashboardRefreshModalBtn" type="button" class="btn btn-outline-secondary btn-sm d-none" title="Auto-refresh" aria-label="Auto-refresh" data-bs-toggle="modal" data-bs-target="#dashboardRefreshModal">
+      <i class="bi bi-arrow-repeat me-1"></i><span class="custom-dashboard-btn-label">Refresh</span>
+    </button>
     <button class="btn btn-primary btn-sm js-add-chart-btn" data-bs-toggle="modal" data-bs-target="#addChartModal"
+            title="Add Chart"
             data-ai-action-id="dashboard.chart.modal.open"
             data-ai-action-type="open_modal"
             data-ai-handler="openModal"
@@ -91,10 +106,10 @@
             data-ai-label="Open add chart modal"
             data-ai-risk="low"
             data-ai-confirm="false">
-      <i class="bi bi-plus-lg me-1"></i>Add Chart
+      <i class="bi bi-plus-lg me-1"></i><span class="custom-dashboard-btn-label">Add Chart</span>
     </button>
-    <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#importChartModal" title="Import chart from JSON template">
-      <i class="bi bi-upload me-1"></i>Import Chart
+    <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#importChartModal" title="Import Chart from JSON template">
+      <i class="bi bi-upload me-1"></i><span class="custom-dashboard-btn-label">Import Chart</span>
     </button>
         <form method="post" action="{{ url_for('delete_dashboard', dashboard_id=dashboard.id) }}"
           data-confirm-title="Delete Dashboard"
@@ -102,6 +117,7 @@
           data-confirm-ok-label="Delete"
           data-confirm-ok-class="btn-danger">
       <button type="submit" class="btn btn-outline-danger btn-sm"
+              title="Delete Dashboard"
               data-ai-action-id="dashboard.delete"
               data-ai-action-type="submit_form"
               data-ai-handler="submitForm"
@@ -109,9 +125,34 @@
               data-ai-risk="high"
               data-ai-confirm="true"
               data-ai-action-role="delete-dashboard-submit">
-        <i class="bi bi-trash me-1"></i>Delete
+        <i class="bi bi-trash me-1"></i><span class="custom-dashboard-btn-label">Delete</span>
       </button>
     </form>
+  </div>
+</div>
+
+<div class="modal fade" id="dashboardRefreshModal" tabindex="-1" aria-labelledby="dashboardRefreshModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="dashboardRefreshModalLabel"><i class="bi bi-arrow-repeat me-2"></i>Auto-refresh</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="refreshIntervalSelectMobile" class="form-label">Refresh interval</label>
+        <select id="refreshIntervalSelectMobile" class="form-select">
+          <option value="0">Off</option>
+          <option value="10">10 seconds</option>
+          <option value="30">30 seconds</option>
+          <option value="60">1 minute</option>
+          <option value="120">2 minutes</option>
+          <option value="300">5 minutes</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -816,6 +857,8 @@
   var _countdownTimer = null;
   var _countdownRemaining = 0;
   var refreshIntervalSelect = document.getElementById('refreshIntervalSelect');
+  var refreshIntervalSelectMobile = document.getElementById('refreshIntervalSelectMobile');
+  var dashboardRefreshModal = document.getElementById('dashboardRefreshModal');
   var refreshCountdown = document.getElementById('refreshCountdown');
 
   function refreshAllCharts() {
@@ -868,11 +911,36 @@
     var _storageKey = 'sobs_dash_refresh_{{ dashboard.id }}';
     refreshIntervalSelect.addEventListener('change', function () {
       localStorage.setItem(_storageKey, refreshIntervalSelect.value);
+      if (refreshIntervalSelectMobile) {
+        refreshIntervalSelectMobile.value = refreshIntervalSelect.value;
+      }
       applyRefreshInterval();
     });
+
+    if (refreshIntervalSelectMobile) {
+      refreshIntervalSelectMobile.value = refreshIntervalSelect.value;
+      refreshIntervalSelectMobile.addEventListener('change', function () {
+        if (refreshIntervalSelect.value !== refreshIntervalSelectMobile.value) {
+          refreshIntervalSelect.value = refreshIntervalSelectMobile.value;
+          refreshIntervalSelect.dispatchEvent(new Event('change'));
+        }
+      });
+    }
+
+    if (dashboardRefreshModal) {
+      dashboardRefreshModal.addEventListener('show.bs.modal', function () {
+        if (refreshIntervalSelectMobile) {
+          refreshIntervalSelectMobile.value = refreshIntervalSelect.value;
+        }
+      });
+    }
+
     var _savedInterval = localStorage.getItem(_storageKey);
     if (_savedInterval && _savedInterval !== '0') {
       refreshIntervalSelect.value = _savedInterval;
+      if (refreshIntervalSelectMobile) {
+        refreshIntervalSelectMobile.value = _savedInterval;
+      }
       applyRefreshInterval();
     }
   }
@@ -1495,13 +1563,13 @@
     }
     var head = '<thead><tr>' + columns.map(function (c, idx) {
       var t = columnTypes && columnTypes[idx] ? String(columnTypes[idx]) : 'unknown';
-      return '<th>' + c + '<div class="small text-secondary">' + t + '</div></th>';
+      return '<th>' + escapeHtml(c) + '<div class="small text-secondary">' + escapeHtml(t) + '</div></th>';
     }).join('') + '</tr></thead>';
     var sampleRows = (rows || []).slice(0, 8);
     var body = '<tbody>' + sampleRows.map(function (r) {
-      return '<tr>' + columns.map(function (_c, idx) {
-        var v = r && r[idx] !== undefined && r[idx] !== null ? String(r[idx]) : '—';
-        return '<td class="small font-monospace">' + v + '</td>';
+      return '<tr>' + columns.map(function (c, idx) {
+          var v = r && r[idx] !== undefined && r[idx] !== null ? String(r[idx]) : '—';
+          return '<td class="small font-monospace" data-label="' + escapeHtml(c) + '">' + escapeHtml(v) + '</td>';
       }).join('') + '</tr>';
     }).join('') + '</tbody>';
     dryRunTable.innerHTML = head + body;

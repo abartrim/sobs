@@ -1,23 +1,62 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Summary{% endblock %}
 {% macro fmt_num(n) %}{% if n >= 1000000 %}{{ "%.1f" | format(n / 1000000) }}M{% elif n >= 1000 %}{{ "%.1f" | format(n / 1000) }}K{% else %}{{ n }}{% endif %}{% endmacro %}
+{% block styles %}{{ super() }}<style>
+  @media (max-width: {{ mobile_breakpoint_max }}) {
+    #summaryRefreshInlineGroup {
+      display: none !important;
+    }
+    #summaryRefreshModalBtn {
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
+    }
+  }
+</style>{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-4">
-  <h4 class="fw-semibold mb-0">Summary</h4>
-  <div class="d-flex align-items-center gap-2" title="Auto-refresh interval">
-    <span id="summaryCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
-    <div class="input-group input-group-sm" style="width:auto;">
-      <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
-      <select id="summaryRefreshSelect" class="form-select form-select-sm" style="width:auto;">
-        <option value="0">Off</option>
-        <option value="10">10s</option>
-        <option value="30">30s</option>
-        <option value="60">1m</option>
-        <option value="120">2m</option>
-        <option value="300">5m</option>
-      </select>
+{% set summary_header_meta %}
+  <span id="summaryCountdown" class="text-secondary" style="font-size:0.75rem; min-width:2rem; display:none;"></span>
+  <div id="summaryRefreshInlineGroup" class="input-group input-group-sm" style="width:auto;" title="Auto-refresh interval">
+    <span class="input-group-text px-2"><i class="bi bi-arrow-repeat" style="font-size:0.85rem;"></i></span>
+    <select id="summaryRefreshSelect" class="form-select form-select-sm" style="width:auto;">
+      <option value="0">Off</option>
+      <option value="10">10s</option>
+      <option value="30">30s</option>
+      <option value="60">1m</option>
+      <option value="120">2m</option>
+      <option value="300">5m</option>
+    </select>
+  </div>
+{% endset %}
+{% set summary_header_actions %}
+  <button id="summaryRefreshModalBtn" type="button" class="btn btn-sm btn-outline-secondary d-none" title="Auto-refresh" aria-label="Auto-refresh" data-bs-toggle="modal" data-bs-target="#summaryRefreshModal"><i class="bi bi-arrow-repeat me-1"></i><span class="page-btn-label">Refresh</span></button>
+  <a href="{{ url_for('summary_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Summary Help"><i class="bi bi-question-circle me-1"></i><span class="page-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Summary', icon_class='bi bi-speedometer2', icon_text_class='text-primary', meta_html=summary_header_meta, actions_html=summary_header_actions, margin_class='mb-4') }}
+
+<div class="modal fade" id="summaryRefreshModal" tabindex="-1" aria-labelledby="summaryRefreshModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="summaryRefreshModalLabel"><i class="bi bi-arrow-repeat me-2"></i>Auto-refresh</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="summaryRefreshSelectMobile" class="form-label">Refresh interval</label>
+        <select id="summaryRefreshSelectMobile" class="form-select">
+          <option value="0">Off</option>
+          <option value="10">10 seconds</option>
+          <option value="30">30 seconds</option>
+          <option value="60">1 minute</option>
+          <option value="120">2 minutes</option>
+          <option value="300">5 minutes</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+      </div>
     </div>
-    <a href="{{ url_for('summary_help') }}" class="link-secondary text-decoration-none" title="Summary Help" aria-label="Summary Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
   </div>
 </div>
 
@@ -111,7 +150,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header d-flex justify-content-between align-items-center">
     <span><i class="bi bi-activity me-1 text-warning"></i>Signal Health <span class="text-secondary fw-normal small">(last 24 h)</span></span>
-    <a href="{{ url_for('view_metrics') }}" class="btn btn-sm btn-outline-secondary">View metrics</a>
+    <a href="{{ url_for('view_metrics') }}" class="btn btn-sm btn-outline-secondary" title="View metrics"><i class="bi bi-graph-up-arrow me-1"></i><span class="summary-btn-label">View metrics</span></a>
   </div>
   <div class="card-body py-2">
     {% for item in signal_health %}
@@ -137,18 +176,18 @@
           <span><i class="bi bi-bug me-1 text-danger"></i>Recent Open Errors</span>
           {% if recent_errors or recent_logs %}<span id="summary-errors-tz-badge-btn" class="sobs-tz-header-badge" role="button" tabindex="0" title="Display timezone - click to change"><i class="bi bi-clock"></i><span id="summary-errors-tz-badge-label">UTC</span></span>{% endif %}
         </div>
-        <a href="{{ url_for('view_errors') }}" class="btn btn-sm btn-outline-secondary">View all</a>
+        <a href="{{ url_for('view_errors') }}" class="btn btn-sm btn-outline-secondary" title="View all"><i class="bi bi-arrow-right me-1"></i><span class="summary-btn-label">View all</span></a>
       </div>
       <div class="card-body p-0">
         {% if recent_errors %}
-        <table class="table table-sm table-hover mb-0">
+        <table class="table table-sm table-hover mb-0 summary-errors-table">
           <thead><tr><th style="width:155px;">Time</th><th>Service</th><th>Message</th></tr></thead>
           <tbody>
             {% for e in recent_errors %}
             <tr>
-              <td class="text-secondary small sobs-tz-ts" data-utc-ts="{{ e.ts }}">{{ e.ts[:19] }}</td>
-              <td><span class="badge bg-secondary">{{ e.service or '—' }}</span></td>
-              <td class="small text-truncate" style="max-width:360px;" title="{{ e.message|mask }}">{{ e.message|mask }}</td>
+              <td class="text-secondary small sobs-tz-ts" data-utc-ts="{{ e.ts }}" data-label="Time">{{ e.ts[:19] }}</td>
+              <td data-label="Service"><span class="badge bg-secondary">{{ e.service or '—' }}</span></td>
+              <td class="small text-truncate" style="max-width:360px;" title="{{ e.message|mask }}" data-label="Message">{{ e.message|mask }}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -168,19 +207,19 @@
           <span><i class="bi bi-journal-text me-1 text-info"></i>Recent Logs</span>
           {% if recent_logs %}<span id="summary-logs-ansi-btn" class="sobs-tz-header-badge" role="button" tabindex="0" aria-label="Toggle colored log output" aria-pressed="false" title="Colored log output: off — click to enable"><i class="bi bi-palette"></i></span>{% endif %}
         </div>
-        <a href="{{ url_for('view_logs') }}" class="btn btn-sm btn-outline-secondary">View all</a>
+        <a href="{{ url_for('view_logs') }}" class="btn btn-sm btn-outline-secondary" title="View all"><i class="bi bi-arrow-right me-1"></i><span class="summary-btn-label">View all</span></a>
       </div>
       <div class="card-body p-0">
         {% if recent_logs %}
         <div id="summaryLogsContainer">
-        <table class="table table-sm table-hover mb-0">
+        <table class="table table-sm table-hover mb-0 summary-logs-table">
           <thead><tr><th style="width:155px;">Time</th><th>Level</th><th>Message</th></tr></thead>
           <tbody>
             {% for l in recent_logs %}
             <tr>
-              <td class="text-secondary small sobs-tz-ts" data-utc-ts="{{ l.ts }}">{{ l.ts[:19] }}</td>
-              <td><span class="badge badge-level-{{ l.level }}">{{ l.level }}</span></td>
-              <td class="small text-truncate log-body" style="max-width:380px;" title="{{ l.body|mask }}"><span class="log-body-text">{{ l.body|mask }}</span></td>
+              <td class="text-secondary small sobs-tz-ts" data-utc-ts="{{ l.ts }}" data-label="Time">{{ l.ts[:19] }}</td>
+              <td data-label="Level"><span class="badge badge-level-{{ l.level }}">{{ l.level }}</span></td>
+              <td class="small text-truncate log-body" style="max-width:380px;" title="{{ l.body|mask }}" data-label="Message"><span class="log-body-text">{{ l.body|mask }}</span></td>
             </tr>
             {% endfor %}
           </tbody>
@@ -201,13 +240,13 @@
         <i class="bi bi-globe me-1 text-primary"></i>RUM Event Types
       </div>
       <div class="card-body p-0">
-        <table class="table table-sm mb-0">
+        <table class="table table-sm mb-0 summary-rum-table">
           <thead><tr><th>Type</th><th>Count</th></tr></thead>
           <tbody>
             {% for row in rum_summary %}
             <tr>
-              <td><a href="{{ url_for('view_rum', type=row[0]) }}">{{ row[0] }}</a></td>
-              <td class="fw-semibold">{{ row[1] }}</td>
+              <td data-label="Type"><a href="{{ url_for('view_rum', type=row[0]) }}">{{ row[0] }}</a></td>
+              <td class="fw-semibold" data-label="Count">{{ row[1] }}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -225,15 +264,15 @@
         <i class="bi bi-cpu me-1 text-success"></i>AI Model Usage
       </div>
       <div class="card-body p-0">
-        <table class="table table-sm mb-0">
+        <table class="table table-sm mb-0 summary-ai-table">
           <thead><tr><th>Model</th><th>Calls</th><th>Tokens In</th><th>Tokens Out</th></tr></thead>
           <tbody>
             {% for row in ai_summary %}
             <tr>
-              <td>{{ row[0] }}</td>
-              <td>{{ row[1] }}</td>
-              <td>{{ row[2] or 0 }}</td>
-              <td>{{ row[3] or 0 }}</td>
+              <td data-label="Model">{{ row[0] }}</td>
+              <td data-label="Calls">{{ row[1] }}</td>
+              <td data-label="Tokens In">{{ row[2] or 0 }}</td>
+              <td data-label="Tokens Out">{{ row[3] or 0 }}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -314,6 +353,8 @@
   }
 
   var select = document.getElementById('summaryRefreshSelect');
+  var mobileSelect = document.getElementById('summaryRefreshSelectMobile');
+  var mobileModal = document.getElementById('summaryRefreshModal');
   var countdown = document.getElementById('summaryCountdown');
   var _refreshTimer = null;
   var _countdownTimer = null;
@@ -350,13 +391,37 @@
 
   select.addEventListener('change', function () {
     localStorage.setItem('sobs_summary_refresh', select.value);
+    if (mobileSelect) {
+      mobileSelect.value = select.value;
+    }
     apply();
   });
+
+  if (mobileSelect) {
+    mobileSelect.value = select.value;
+    mobileSelect.addEventListener('change', function () {
+      if (select.value !== mobileSelect.value) {
+        select.value = mobileSelect.value;
+        select.dispatchEvent(new Event('change'));
+      }
+    });
+  }
+
+  if (mobileModal) {
+    mobileModal.addEventListener('show.bs.modal', function () {
+      if (mobileSelect) {
+        mobileSelect.value = select.value;
+      }
+    });
+  }
 
   /* Restore saved interval across reloads */
   var saved = localStorage.getItem('sobs_summary_refresh');
   if (saved && saved !== '0') {
     select.value = saved;
+    if (mobileSelect) {
+      mobileSelect.value = saved;
+    }
     apply();
   }
 })();

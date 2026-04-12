@@ -1,23 +1,25 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Table Explorer{% endblock %}
+{% block styles %}{{ super() }}<style>
+  .table-explorer-sample-table td { word-break: break-word; }
+</style>{% endblock %}
 
 {% block content %}
 <div class="table-explorer-page">
-<div class="d-flex align-items-center justify-content-between mb-3">
+{% set table_explorer_title_html %}
   <div class="d-flex align-items-center gap-2">
     <i class="bi bi-grid-3x3 fs-4 text-primary"></i>
     <h4 class="mb-0">Table Explorer</h4>
   </div>
-  <div class="d-flex align-items-center gap-2">
-    <a href="{{ url_for('view_query') }}" class="btn btn-sm btn-outline-secondary" onclick="if (window.history.length > 1) { window.history.back(); return false; }">
-      <i class="bi bi-arrow-left me-1"></i>Back
-    </a>
-    <a href="{{ url_for('table_explorer_help') }}" class="link-secondary text-decoration-none" title="Table Explorer Help" aria-label="Table Explorer Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
-<p class="text-secondary small mb-3">
-  Inspect allowed database tables, column schemas, and sample data. Read-only view.
-</p>
+{% endset %}
+{% set table_explorer_header_actions %}
+  <a href="{{ url_for('view_query') }}" class="btn btn-sm btn-outline-secondary" title="Back" onclick="if (window.history.length > 1) { window.history.back(); return false; }">
+    <i class="bi bi-arrow-left me-1"></i><span class="table-explorer-btn-label">Back</span>
+  </a>
+  <a href="{{ url_for('table_explorer_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Table Explorer Help"><i class="bi bi-question-circle me-1"></i><span class="table-explorer-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header(title_html=table_explorer_title_html, actions_html=table_explorer_header_actions, subtext='Inspect allowed database tables, column schemas, and sample data. Read-only view.') }}
 
 <!-- Search and filter bar -->
 <div class="mb-3 d-flex align-items-center gap-2">
@@ -159,7 +161,7 @@
       return '<div class="text-secondary small p-2">No column information available.</div>';
     }
     var html = '<div class="table-responsive table-schema-scroll">'
-      + '<table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">'
+      + '<table class="table table-sm table-hover mb-0 table-explorer-schema-table" style="font-size:0.8rem;">'
       + '<thead class="table-light"><tr>'
       + '<th class="fw-semibold">Column</th>'
       + '<th class="fw-semibold">Type</th>'
@@ -170,11 +172,11 @@
     cols.forEach(function (col) {
       var defKind = col.default_kind ? escHtml(col.default_kind) : '<span class="text-secondary">—</span>';
       html += '<tr>'
-        + '<td class="font-monospace">' + escHtml(col.name) + '</td>'
-        + '<td class="font-monospace text-secondary">' + escHtml(typeLabel(col)) + '</td>'
-        + '<td>' + keyBadges(col) + '</td>'
-        + '<td>' + nullableBadge(col) + '</td>'
-        + '<td>' + defKind + '</td>'
+        + '<td class="font-monospace" data-label="Column">' + escHtml(col.name) + '</td>'
+        + '<td class="font-monospace text-secondary" data-label="Type">' + escHtml(typeLabel(col)) + '</td>'
+        + '<td data-label="Keys">' + keyBadges(col) + '</td>'
+        + '<td data-label="Nullable">' + nullableBadge(col) + '</td>'
+        + '<td data-label="Default">' + defKind + '</td>'
         + '</tr>';
     });
     html += '</tbody></table></div>';
@@ -189,7 +191,7 @@
       return '<div class="text-secondary small p-2">Table appears to be empty.</div>';
     }
     var html = '<div class="table-responsive table-sample-scroll">'
-      + '<table class="table table-sm table-hover mb-0" style="font-size:0.78rem;">'
+      + '<table class="table table-sm table-hover mb-0 table-explorer-sample-table" style="font-size:0.78rem;">'
       + '<thead class="table-light"><tr>';
     sample.columns.forEach(function (c) {
       html += '<th class="font-monospace fw-semibold">' + escHtml(c) + '</th>';
@@ -197,9 +199,10 @@
     html += '</tr></thead><tbody>';
     sample.rows.forEach(function (row) {
       html += '<tr>';
-      row.forEach(function (cell) {
+      row.forEach(function (cell, idx) {
+        var colName = sample.columns[idx] || '';
         var display = cell === null || cell === undefined ? '<span class="text-secondary">NULL</span>' : escHtml(String(cell));
-        html += '<td>' + display + '</td>';
+        html += '<td data-label="' + escHtml(colName) + '">' + display + '</td>';
       });
       html += '</tr>';
     });

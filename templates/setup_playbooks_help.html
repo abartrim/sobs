@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Setup Playbooks{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Setup Playbooks</h4>
     <p class="text-secondary mb-0">Production-oriented setup guidance for reverse proxies, Kubernetes collector filtering, and full 360 telemetry.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('summary') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Summary
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('summary') }}" title="Back to Summary">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Summary</span>
   </a>
 </div>
 
@@ -120,7 +124,7 @@
     <i class="bi bi-hdd-network me-2 text-primary"></i>Prometheus and Cluster Telemetry (360 View)
   </div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:34%">Signal Layer</th>
@@ -130,19 +134,19 @@
       </thead>
       <tbody>
         <tr>
-          <td class="fw-semibold">Application</td>
-          <td>OTLP SDKs from services, jobs, and workers</td>
-          <td><code class="small">otlp</code></td>
+          <td class="fw-semibold" data-label="Signal Layer">Application</td>
+          <td data-label="Recommended Sources">OTLP SDKs from services, jobs, and workers</td>
+          <td data-label="Collector Receiver"><code class="small">otlp</code></td>
         </tr>
         <tr>
-          <td class="fw-semibold">Host / Node</td>
-          <td>node-exporter, hostmetrics, kubelet cAdvisor</td>
-          <td><code class="small">prometheus</code>, <code class="small">hostmetrics</code></td>
+          <td class="fw-semibold" data-label="Signal Layer">Host / Node</td>
+          <td data-label="Recommended Sources">node-exporter, hostmetrics, kubelet cAdvisor</td>
+          <td data-label="Collector Receiver"><code class="small">prometheus</code>, <code class="small">hostmetrics</code></td>
         </tr>
         <tr>
-          <td class="fw-semibold">Cluster / Control Plane</td>
-          <td>kube-state-metrics, kube events, API object state</td>
-          <td><code class="small">prometheus</code>, <code class="small">k8s_cluster</code></td>
+          <td class="fw-semibold" data-label="Signal Layer">Cluster / Control Plane</td>
+          <td data-label="Recommended Sources">kube-state-metrics, kube events, API object state</td>
+          <td data-label="Collector Receiver"><code class="small">prometheus</code>, <code class="small">k8s_cluster</code></td>
         </tr>
       </tbody>
     </table>

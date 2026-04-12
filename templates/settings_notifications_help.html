@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
+{% block title %}Notifications Help{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
+{% block content %}
+{% set settings_notifications_help_header_actions %}
+  <a href="{{ url_for('view_notifications') }}" class="btn btn-sm btn-outline-warning" title="Open Notifications Settings">
+    <i class="bi bi-bell me-1"></i><span class="settings-btn-label">Notifications</span>
+  </a>
+  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
+    <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
+  </a>
+{% endset %}
+{{ render_page_header('Notifications &amp; Webhooks Help', icon_class='bi bi-question-circle', icon_text_class='text-info', actions_html=settings_notifications_help_header_actions) }}
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-plug me-1"></i>Channels</h6>
+        <p class="small text-secondary mb-0">Create destinations first: Slack, webhook, email, and browser push can coexist.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-list-check me-1"></i>Rules</h6>
+        <p class="small text-secondary mb-0">Define signal and tag conditions, then attach one or more channels with cooldown controls.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-secondary h-100">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="bi bi-arrow-repeat me-1"></i>Checks</h6>
+        <p class="small text-secondary mb-0">Rules fire when the notification check endpoint is called by schedule or manual check action.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Channels and Rules</div>
+  <div class="card-body small text-secondary">
+    Create channels first (Slack/webhook/email/browser push), then define rules that evaluate signal conditions and route notifications.
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Condition Tips</div>
+  <div class="card-body small">
+    <ul class="mb-0 ps-3">
+      <li>Use service filters to keep alerts actionable.</li>
+      <li>Use cooldown windows to avoid alert storms.</li>
+      <li>For regex tag conditions, validate syntax before saving.</li>
+      <li>Prefer explicit thresholds and avoid broad all-service rules first.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Operational Runbook</div>
+  <div class="card-body small">
+    <ol class="mb-0 ps-3 text-secondary">
+      <li>Create and test at least one channel.</li>
+      <li>Create one rule with a narrow service scope.</li>
+      <li>Run a manual check from the UI to validate end-to-end delivery.</li>
+      <li>Enable periodic scheduler calls to the check endpoint.</li>
+      <li>Review cooldown/noise behavior and tune thresholds.</li>
+    </ol>
+  </div>
+</div>
+
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold">Troubleshooting</div>
+  <div class="card-body small text-secondary">
+    <ul class="mb-0 ps-3">
+      <li>If no alerts are sent, verify at least one enabled channel is attached.</li>
+      <li>If checks run but channels stay quiet, confirm condition windows and comparator direction.</li>
+      <li>If regex-based tag rules fail, re-test expression syntax and escaping.</li>
+      <li>If notifications spam, increase cooldown and narrow service/condition scope.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="alert alert-secondary small mb-0" role="note">
+  Rules are evaluated when the check endpoint runs: POST /api/notifications/check.
+</div>
+{% endblock %}

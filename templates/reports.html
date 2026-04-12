@@ -1,21 +1,23 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Reports{% endblock %}
+{% block styles %}{{ super() }}<style>
+  @media (max-width: {{ mobile_breakpoint_max }}) {
+  }
+</style>{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-bookmark-star me-2 text-primary"></i>Saved Reports</h4>
-  <div class="d-flex gap-2">
-    <button type="button" class="btn btn-sm btn-outline-secondary" id="import-reports-btn" title="Import reports from a JSON file">
-      <i class="bi bi-upload me-1"></i>Import
-    </button>
-    <a href="{{ url_for('api_export_reports') }}" class="btn btn-sm btn-outline-secondary" id="export-all-btn" title="Export all reports as JSON">
-      <i class="bi bi-download me-1"></i>Export All
-    </a>
-    <a href="{{ url_for('reports_help') }}" class="link-secondary text-decoration-none" title="Reports Help" aria-label="Reports Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
-  </div>
-</div>
+{% set reports_header_actions %}
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="import-reports-btn" title="Import reports from a JSON file">
+    <i class="bi bi-upload me-1"></i><span class="reports-btn-label">Import</span>
+  </button>
+  <a href="{{ url_for('api_export_reports') }}" class="btn btn-sm btn-outline-secondary" id="export-all-btn" title="Export all reports as JSON">
+    <i class="bi bi-download me-1"></i><span class="reports-btn-label">Export All</span>
+  </a>
+  <a href="{{ url_for('reports_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Reports Help"><i class="bi bi-question-circle me-1"></i><span class="reports-btn-label">Help</span></a>
+{% endset %}
+{{ render_page_header('Saved Reports', icon_class='bi bi-bookmark-star', icon_text_class='text-primary', actions_html=reports_header_actions, subtext='Reports are saved filter configurations that can be quickly applied from the Logs, Traces, Errors, Metrics, RUM, AI, and Work Items pages.', margin_class='mb-4') }}
 
 <p class="text-secondary small mb-3">
-  Reports are saved filter configurations that can be quickly applied from the Logs, Traces, Errors, Metrics, RUM, AI, and Work Items pages.
   Use the <strong>Save as report</strong> button on any filter bar to save your current filters, then load them here or from the dropdown on each page.
 </p>
 

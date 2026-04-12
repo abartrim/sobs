@@ -1,21 +1,17 @@
 {% extends "base.html" %}
+{% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Enrichment Settings{% endblock %}
+{% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="fw-semibold mb-0"><i class="bi bi-database-check me-2 text-primary"></i>Enrichment Settings</h4>
-  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary">
-    <i class="bi bi-arrow-left me-1"></i>Back to Settings
+{% set settings_enrichment_header_actions %}
+  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
+    <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
   </a>
-</div>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-{% for category, message in messages %}
-<div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show py-2 small" role="alert">
-  {{ message }}
-  <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
-</div>
-{% endfor %}
-{% endwith %}
+  <a href="{{ url_for('settings_enrichment_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help">
+    <i class="bi bi-question-circle me-1"></i><span class="settings-btn-label">Help</span>
+  </a>
+{% endset %}
+{{ render_page_header('Enrichment Settings', icon_class='bi bi-database-check', icon_text_class='text-primary', actions_html=settings_enrichment_header_actions) }}
 
 <form method="post" action="{{ url_for('save_enrichment_settings') }}">
 

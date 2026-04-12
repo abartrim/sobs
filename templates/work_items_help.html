@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Work Items Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Work Items Help</h4>
     <p class="text-secondary mb-0">GitHub issues auto-created by agent rules, status tracking, and Copilot task assignments.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_work_items') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Work Items
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_work_items') }}" title="Back to Work Items">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Work Items</span>
   </a>
 </div>
 
@@ -41,7 +45,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header fw-semibold"><i class="bi bi-funnel me-2 text-secondary"></i>Filter Controls</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:20%">Control</th>
@@ -50,24 +54,24 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace">Service</td>
-          <td>Filter to work items created for a specific service.</td>
+          <td class="font-monospace" data-label="Control">Service</td>
+          <td data-label="Description">Filter to work items created for a specific service.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Agent Rule</td>
-          <td>Filter to work items created by a specific agent rule.</td>
+          <td class="font-monospace" data-label="Control">Agent Rule</td>
+          <td data-label="Description">Filter to work items created by a specific agent rule.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Action Type</td>
-          <td><em>Issue only</em> — creates a GitHub issue. <em>Issue + Copilot</em> — creates an issue and assigns it to Copilot for automated fix.</td>
+          <td class="font-monospace" data-label="Control">Action Type</td>
+          <td data-label="Description"><em>Issue only</em> — creates a GitHub issue. <em>Issue + Copilot</em> — creates an issue and assigns it to Copilot for automated fix.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Status</td>
-          <td><em>Open</em> or <em>Closed</em> GitHub issue state.</td>
+          <td class="font-monospace" data-label="Control">Status</td>
+          <td data-label="Description"><em>Open</em> or <em>Closed</em> GitHub issue state.</td>
         </tr>
         <tr>
-          <td class="font-monospace">From / To</td>
-          <td>Date range for when the work item was created.</td>
+          <td class="font-monospace" data-label="Control">From / To</td>
+          <td data-label="Description">Date range for when the work item was created.</td>
         </tr>
       </tbody>
     </table>

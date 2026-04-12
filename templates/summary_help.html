@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Summary Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Summary Help</h4>
     <p class="text-secondary mb-0">System health overview, ingest stats, database utilization, and quick navigation to all signal pages.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('summary') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Summary
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('summary') }}" title="Back to Summary">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Summary</span>
   </a>
 </div>
 
@@ -41,7 +45,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header fw-semibold"><i class="bi bi-grid-1x2 me-2"></i>Stat Cards Reference</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:20%">Card</th>
@@ -50,28 +54,28 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace">Logs</td>
-          <td>Total OTEL log records in the database (all time).</td>
+          <td class="font-monospace" data-label="Card">Logs</td>
+          <td data-label="What it counts">Total OTEL log records in the database (all time).</td>
         </tr>
         <tr>
-          <td class="font-monospace">Errors</td>
-          <td>Open (unresolved) error records. Shown in red when non-zero.</td>
+          <td class="font-monospace" data-label="Card">Errors</td>
+          <td data-label="What it counts">Open (unresolved) error records. Shown in red when non-zero.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Traces</td>
-          <td>Total trace spans in the database.</td>
+          <td class="font-monospace" data-label="Card">Traces</td>
+          <td data-label="What it counts">Total trace spans in the database.</td>
         </tr>
         <tr>
-          <td class="font-monospace">RUM</td>
-          <td>Total RUM session events captured.</td>
+          <td class="font-monospace" data-label="Card">RUM</td>
+          <td data-label="What it counts">Total RUM session events captured.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Metrics</td>
-          <td>Total derived metric signal data points.</td>
+          <td class="font-monospace" data-label="Card">Metrics</td>
+          <td data-label="What it counts">Total derived metric signal data points.</td>
         </tr>
         <tr>
-          <td class="font-monospace">AI calls</td>
-          <td>Total LLM calls logged by the AI transparency system.</td>
+          <td class="font-monospace" data-label="Card">AI calls</td>
+          <td data-label="What it counts">Total LLM calls logged by the AI transparency system.</td>
         </tr>
       </tbody>
     </table>

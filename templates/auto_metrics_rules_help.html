@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Auto Make Metric Rules Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Auto Make Metric Rules Help</h4>
     <p class="text-secondary mb-0">How to auto-generate rules and then auto-generate a dashboard from those active rules.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_metrics_rules') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Rules
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_metrics_rules') }}" title="Back to Rules">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Rules</span>
   </a>
 </div>
 
@@ -41,7 +45,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header">Panel Controls</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:22%">Control</th>
@@ -50,20 +54,20 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace">Window (hours)</td>
-          <td>How far back to scan for signal values. Typical values: 24 for day-scale baselines, 72-168 for slower-moving services.</td>
+          <td class="font-monospace" data-label="Control">Window (hours)</td>
+          <td data-label="Description">How far back to scan for signal values. Typical values: 24 for day-scale baselines, 72-168 for slower-moving services.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Min points</td>
-          <td>Minimum number of points required for a candidate. Higher values reduce noisy rules for sparse signals.</td>
+          <td class="font-monospace" data-label="Control">Min points</td>
+          <td data-label="Description">Minimum number of points required for a candidate. Higher values reduce noisy rules for sparse signals.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Service scope</td>
-          <td>Limit candidate discovery to one service, or leave as All services for global generation.</td>
+          <td class="font-monospace" data-label="Control">Service scope</td>
+          <td data-label="Description">Limit candidate discovery to one service, or leave as All services for global generation.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Mode</td>
-          <td>
+          <td class="font-monospace" data-label="Control">Mode</td>
+          <td data-label="Description">
             <strong>Threshold</strong> generates static quantile-based warning/critical thresholds (existing behaviour).
             <strong>Seasonal</strong> computes separate thresholds for every time bucket and stores them in the rule so that
             evaluation at query time uses the threshold for the current hour or day-of-week, reducing false positives on
@@ -71,20 +75,20 @@
           </td>
         </tr>
         <tr>
-          <td class="font-monospace">Strategy</td>
-          <td>Only shown when Mode = Seasonal. <strong>Hour of day</strong> creates 24 independent buckets (0–23); <strong>Day of week</strong> creates 7 buckets (Mon–Sun).</td>
+          <td class="font-monospace" data-label="Control">Strategy</td>
+          <td data-label="Description">Only shown when Mode = Seasonal. <strong>Hour of day</strong> creates 24 independent buckets (0–23); <strong>Day of week</strong> creates 7 buckets (Mon–Sun).</td>
         </tr>
         <tr>
-          <td class="font-monospace">Attr FP</td>
-          <td>When enabled, candidates can be generated per attribute fingerprint (for example route-level or method-level slices).</td>
+          <td class="font-monospace" data-label="Control">Attr FP</td>
+          <td data-label="Description">When enabled, candidates can be generated per attribute fingerprint (for example route-level or method-level slices).</td>
         </tr>
         <tr>
-          <td class="font-monospace">Preview</td>
-          <td>Shows candidate rows and summary counts only. No rules are written.</td>
+          <td class="font-monospace" data-label="Control">Preview</td>
+          <td data-label="Description">Shows candidate rows and summary counts only. No rules are written.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Create</td>
-          <td>Creates new rules from the current candidate set, skipping any existing rule with the same scope and mode (<code>source + signal + service + attr fp + rule type</code>).</td>
+          <td class="font-monospace" data-label="Control">Create</td>
+          <td data-label="Description">Creates new rules from the current candidate set, skipping any existing rule with the same scope and mode (<code>source + signal + service + attr fp + rule type</code>).</td>
         </tr>
       </tbody>
     </table>
@@ -141,7 +145,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header">Dashboard Panel Controls</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:22%">Control</th>
@@ -150,28 +154,28 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace">Dashboard Name</td>
-          <td>Name for the target dashboard. If it already exists, charts are added to it (existing titles are skipped).</td>
+          <td class="font-monospace" data-label="Control">Dashboard Name</td>
+          <td data-label="Description">Name for the target dashboard. If it already exists, charts are added to it (existing titles are skipped).</td>
         </tr>
         <tr>
-          <td class="font-monospace">Window (hours)</td>
-          <td>Time range used in generated chart SQL for each rule-derived chart.</td>
+          <td class="font-monospace" data-label="Control">Window (hours)</td>
+          <td data-label="Description">Time range used in generated chart SQL for each rule-derived chart.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Max charts</td>
-          <td>Limits how many preview candidates are used during create. Useful for staged rollout.</td>
+          <td class="font-monospace" data-label="Control">Max charts</td>
+          <td data-label="Description">Limits how many preview candidates are used during create. Useful for staged rollout.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Service scope</td>
-          <td>Restricts generated charts to rules for a specific service when selected.</td>
+          <td class="font-monospace" data-label="Control">Service scope</td>
+          <td data-label="Description">Restricts generated charts to rules for a specific service when selected.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Preview</td>
-          <td>Renders candidate chart rows with title/rule/source/signal before creation.</td>
+          <td class="font-monospace" data-label="Control">Preview</td>
+          <td data-label="Description">Renders candidate chart rows with title/rule/source/signal before creation.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Create</td>
-          <td>Creates or reuses a dashboard and inserts new rule-mapped charts.</td>
+          <td class="font-monospace" data-label="Control">Create</td>
+          <td data-label="Description">Creates or reuses a dashboard and inserts new rule-mapped charts.</td>
         </tr>
       </tbody>
     </table>

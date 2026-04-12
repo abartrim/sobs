@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Data Management Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Data Management Help</h4>
     <p class="text-secondary mb-0">TTL, backup, restore, and scheduler integration guidance with practical examples.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_dm_settings') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Data Management
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_dm_settings') }}" title="Back to Data Management">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Data Management</span>
   </a>
 </div>
 

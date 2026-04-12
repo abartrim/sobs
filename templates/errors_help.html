@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Errors Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Errors Help</h4>
     <p class="text-secondary mb-0">Error tracking, one-click resolve, and grouped deduplication mode.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_errors') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Errors
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_errors') }}" title="Back to Errors">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Errors</span>
   </a>
 </div>
 
@@ -41,7 +45,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header fw-semibold"><i class="bi bi-funnel me-2 text-danger"></i>Filter Controls</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:20%">Control</th>
@@ -50,24 +54,24 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace">Service</td>
-          <td>Multi-select dropdown. Filter to one or more services or leave empty for all services.</td>
+          <td class="font-monospace" data-label="Control">Service</td>
+          <td data-label="Description">Multi-select dropdown. Filter to one or more services or leave empty for all services.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Status</td>
-          <td><strong>Open</strong> (unresolved), <strong>Resolved</strong>, or <strong>All</strong>.</td>
+          <td class="font-monospace" data-label="Control">Status</td>
+          <td data-label="Description"><strong>Open</strong> (unresolved), <strong>Resolved</strong>, or <strong>All</strong>.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Sort by</td>
-          <td>In individual mode: <em>Timestamp</em> or <em>Service</em>. In grouped mode: <em>Count</em> (default), <em>Last Seen</em>, or <em>Service</em>.</td>
+          <td class="font-monospace" data-label="Control">Sort by</td>
+          <td data-label="Description">In individual mode: <em>Timestamp</em> or <em>Service</em>. In grouped mode: <em>Count</em> (default), <em>Last Seen</em>, or <em>Service</em>.</td>
         </tr>
         <tr>
-          <td class="font-monospace">Order</td>
-          <td>Ascending or descending sort direction.</td>
+          <td class="font-monospace" data-label="Control">Order</td>
+          <td data-label="Description">Ascending or descending sort direction.</td>
         </tr>
         <tr>
-          <td class="font-monospace">From / To</td>
-          <td>Date-time range filter. ISO date-time or relative shortcuts accepted.</td>
+          <td class="font-monospace" data-label="Control">From / To</td>
+          <td data-label="Description">Date-time range filter. ISO date-time or relative shortcuts accepted.</td>
         </tr>
       </tbody>
     </table>
@@ -124,7 +128,7 @@
 <div class="card border-secondary mb-0">
   <div class="card-header fw-semibold"><i class="bi bi-database me-2"></i>Ingest &amp; API</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:35%">Endpoint</th>
@@ -133,16 +137,16 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace small">POST /v1/errors</td>
-          <td>Direct error submission (JSON). Accepts stack trace, service, type, message.</td>
+          <td class="font-monospace small" data-label="Endpoint">POST /v1/errors</td>
+          <td data-label="Description">Direct error submission (JSON). Accepts stack trace, service, type, message.</td>
         </tr>
         <tr>
-          <td class="font-monospace small">POST /v1/traces</td>
-          <td>OTLP trace spans with <code>otel.status_code=ERROR</code> are also surfaced on the Errors page.</td>
+          <td class="font-monospace small" data-label="Endpoint">POST /v1/traces</td>
+          <td data-label="Description">OTLP trace spans with <code>otel.status_code=ERROR</code> are also surfaced on the Errors page.</td>
         </tr>
         <tr>
-          <td class="font-monospace small">POST /errors/&lt;error_id&gt;/resolve</td>
-          <td>Mark a specific error as resolved (also available via the UI resolve button).</td>
+          <td class="font-monospace small" data-label="Endpoint">POST /errors/&lt;error_id&gt;/resolve</td>
+          <td data-label="Description">Mark a specific error as resolved (also available via the UI resolve button).</td>
         </tr>
       </tbody>
     </table>

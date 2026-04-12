@@ -762,6 +762,21 @@ class TestScreenshots:
         os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
         page.screenshot(path=os.path.join(SCREENSHOTS_DIR, filename), full_page=False)
 
+    def _screenshot_at_viewport(self, page: Page, filename: str, url: str, width: int, height: int = 900) -> None:
+        page.add_init_script("""
+            try {
+                localStorage.setItem('sobs-theme', 'dark');
+                localStorage.setItem('sobs.firstRunTourSeen.v1', '1');
+                localStorage.setItem('sobs.firstRunTourShown.v1', '1');
+            } catch (_) {}
+        """)
+        page.set_viewport_size({"width": width, "height": height})
+        page.goto(url)
+        page.wait_for_load_state("networkidle")
+        self._dismiss_tour_modal(page)
+        os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+        page.screenshot(path=os.path.join(SCREENSHOTS_DIR, filename), full_page=False)
+
     def _screenshot_summary_with_assistant(self, page: Page, filename: str, live_server: str) -> None:
         page.add_init_script("""
             try {
@@ -877,6 +892,159 @@ class TestScreenshots:
         self._screenshot(page, "query.png", f"{live_server}/query")
         expect(page.get_by_role("heading", name="Natural-Language Query")).to_be_visible()
 
+    def test_screenshot_notifications_responsive_cards(self, page: Page, live_server):
+        marker = str(int(time.time() * 1000))
+        channel_name = f"Screenshot Channel {marker}"
+        rule_name = f"Screenshot Rule {marker}"
+
+        create_channel_resp = requests.post(
+            f"{live_server}/settings/notifications/channels",
+            data={
+                "name": channel_name,
+                "channel_type": "webhook",
+                "webhook_url": "http://127.0.0.1:65535/screenshot-notifications",
+                "webhook_method": "POST",
+                "webhook_headers": "{}",
+                "webhook_body_template": "",
+                "mask_output_enabled": "1",
+            },
+            allow_redirects=False,
+            timeout=10,
+        )
+        assert create_channel_resp.status_code in (200, 302, 303)
+
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(f"{live_server}/settings/notifications")
+        page.wait_for_load_state("networkidle")
+        self._dismiss_tour_modal(page)
+
+        channel_toggle = page.locator(
+            (
+                f"tr:has-text('{channel_name}') "
+                "form[action*='/notifications/channels/'][action$='/toggle'] "
+                "button[type='submit']"
+            )
+        ).first
+        expect(channel_toggle).to_be_visible()
+        channel_action = channel_toggle.locator("xpath=ancestor::form").get_attribute("action") or ""
+        channel_match = re.search(r"/channels/([^/]+)/toggle$", channel_action)
+        assert channel_match is not None
+        channel_id = channel_match.group(1)
+
+        create_rule_resp = requests.post(
+            f"{live_server}/settings/notifications/rules",
+            data={
+                "name": rule_name,
+                "logic_operator": "any",
+                "severity": "warning",
+                "cooldown_seconds": "0",
+                "channel_ids": channel_id,
+                "cond_type": "signal",
+                "cond_source": "logs",
+                "cond_signal": "error_volume",
+                "cond_service": "",
+                "cond_comparator": "gt",
+                "cond_threshold": "0",
+                "cond_window_minutes": "15",
+            },
+            allow_redirects=False,
+            timeout=10,
+        )
+        assert create_rule_resp.status_code in (200, 302, 303)
+
+        check_resp = requests.post(f"{live_server}/api/notifications/check", timeout=10)
+        assert check_resp.status_code == 200
+
+        notifications_url = f"{live_server}/settings/notifications"
+        self._screenshot_at_viewport(
+            page,
+            "notifications_desktop_1440.png",
+            notifications_url,
+            width=1440,
+            height=900,
+        )
+        self._screenshot_at_viewport(
+            page,
+            "notifications_tablet_992.png",
+            notifications_url,
+            width=992,
+            height=900,
+        )
+        self._screenshot_at_viewport(
+            page,
+            "notifications_hamburger_575.png",
+            notifications_url,
+            width=575,
+            height=1100,
+        )
+        self._screenshot_at_viewport(
+            page,
+            "notifications_mobile_480.png",
+            notifications_url,
+            width=480,
+            height=1100,
+        )
+
+        # Validate that card mode is active at hamburger/mobile width.
+        page.set_viewport_size({"width": 575, "height": 1100})
+        page.goto(notifications_url)
+        page.wait_for_load_state("networkidle")
+        self._dismiss_tour_modal(page)
+        layout = page.evaluate("""
+            () => {
+              const styleOf = (selector) => {
+                const el = document.querySelector(selector);
+                return el ? window.getComputedStyle(el).display : null;
+              };
+              return {
+                channelsHeadDisplay: styleOf('.notification-channels-table thead'),
+                channelsRowDisplay: styleOf('.notification-channels-table tbody tr'),
+                rulesHeadDisplay: styleOf('.notification-rules-table thead'),
+                rulesRowDisplay: styleOf('.notification-rules-table tbody tr'),
+                logHeadDisplay: styleOf('.notification-mobile-card-table thead'),
+                logRowDisplay: styleOf('.notification-mobile-card-table tbody tr'),
+              };
+            }
+            """)
+        assert layout["channelsHeadDisplay"] == "none"
+        assert layout["channelsRowDisplay"] == "block"
+        assert layout["rulesHeadDisplay"] == "none"
+        assert layout["rulesRowDisplay"] == "block"
+        assert layout["logHeadDisplay"] == "none"
+        assert layout["logRowDisplay"] == "block"
+
+        # Validate Auto Make preview table also renders as cards on mobile.
+        auto_make_btn = page.locator("#autoNotifPreviewBtn").first
+        if auto_make_btn.count() > 0:
+            if not auto_make_btn.is_visible():
+                auto_make_toggle = page.locator('[data-bs-target="#autoNotifCollapse"]').first
+                if auto_make_toggle.count() > 0:
+                    auto_make_toggle.click()
+                page.wait_for_selector("#autoNotifPreviewBtn", state="visible", timeout=10000)
+            auto_make_btn.click()
+            page.wait_for_selector("#autoNotifPreviewContainer .auto-notif-preview-table", timeout=10000)
+            preview_layout = page.evaluate("""
+                () => {
+                  const styleOf = (selector) => {
+                    const el = document.querySelector(selector);
+                    return el ? window.getComputedStyle(el).display : null;
+                  };
+                  return {
+                    previewHeadDisplay: styleOf('.auto-notif-preview-table thead'),
+                    previewRowDisplay: styleOf('.auto-notif-preview-table tbody tr'),
+                  };
+                }
+                """)
+            assert preview_layout["previewHeadDisplay"] == "none"
+            assert preview_layout["previewRowDisplay"] == "block"
+            self._screenshot_at_viewport(
+                page,
+                "notifications_auto_make_mobile_575.png",
+                notifications_url,
+                width=575,
+                height=1300,
+            )
+
     def test_screenshot_errors_masking_replay_artifacts(self, page: Page, live_server):
         marker = str(int(time.time() * 1000))
         seeded = self._seed_masking_rum_error(live_server, marker)
@@ -930,6 +1098,102 @@ class TestScreenshots:
         assert seeded["password"] not in visible_text
         assert "data-rum-view-url" in html
         expect(page.get_by_role("heading", name="Real User Monitoring")).to_be_visible()
+
+    def test_screenshot_tags_responsive_cards(self, page: Page, live_server):
+        """Screenshot responsive tag rules page at multiple viewports and validate mobile card mode."""
+        marker = str(int(time.time() * 1000))
+
+        # Create some sample tag rules
+        for i in range(1, 4):
+            rule_name = f"Screenshot Tag Rule {marker}-{i}"
+            create_resp = requests.post(
+                f"{live_server}/settings/tags",
+                data={
+                    "name": rule_name,
+                    "record_types": "log",
+                    "match_field": "severity" if i == 1 else "service_name",
+                    "match_operator": "eq",
+                    "match_value": "ERROR" if i == 1 else f"service-{i}",
+                    "match_attr_key": "",
+                    "tag_key": "tier",
+                    "tag_value": "critical" if i == 1 else f"level-{i}",
+                },
+                allow_redirects=False,
+                timeout=10,
+            )
+            assert create_resp.status_code in (200, 302, 303)
+
+        tags_url = f"{live_server}/settings/tags"
+
+        # Screenshot at desktop viewport (1440px)
+        self._screenshot_at_viewport(
+            page,
+            "tags_desktop_1440.png",
+            tags_url,
+            width=1440,
+            height=900,
+        )
+
+        # Screenshot at tablet viewport (992px)
+        self._screenshot_at_viewport(
+            page,
+            "tags_tablet_992.png",
+            tags_url,
+            width=992,
+            height=900,
+        )
+
+        # Screenshot at hamburger/mobile trigger viewport (575px)
+        self._screenshot_at_viewport(
+            page,
+            "tags_hamburger_575.png",
+            tags_url,
+            width=575,
+            height=1200,
+        )
+
+        # Screenshot at mobile viewport (480px)
+        self._screenshot_at_viewport(
+            page,
+            "tags_mobile_480.png",
+            tags_url,
+            width=480,
+            height=1200,
+        )
+
+        # Screenshot at small mobile viewport (375px)
+        self._screenshot_at_viewport(
+            page,
+            "tags_mobile_375.png",
+            tags_url,
+            width=375,
+            height=1200,
+        )
+
+        # Validate that mobile card mode activates at <=575px
+        page.set_viewport_size({"width": 575, "height": 1200})
+        page.goto(tags_url)
+        page.wait_for_load_state("networkidle")
+        self._dismiss_tour_modal(page)
+
+        # Check computed styles for all present tags tables to confirm card mode
+        layout = page.evaluate("""
+            () => {
+              return Array.from(document.querySelectorAll('.tags-mobile-card-table')).map((table) => {
+                const thead = table.querySelector('thead');
+                const row = table.querySelector('tbody tr');
+                return {
+                  theadDisplay: thead ? window.getComputedStyle(thead).display : null,
+                  rowDisplay: row ? window.getComputedStyle(row).display : null,
+                };
+              });
+            }
+            """)
+
+        assert layout, "Expected at least one tags-mobile-card-table on settings/tags"
+        for table_layout in layout:
+            assert table_layout["theadDisplay"] == "none", "Tags table thead should be hidden at 575px"
+            assert table_layout["rowDisplay"] == "block", "Tags table rows should be block at 575px"
 
 
 # ---------------------------------------------------------------------------

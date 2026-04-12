@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Metric Rules Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Metric Rules Help</h4>
     <p class="text-secondary mb-0">How to create threshold and composite rules to detect anomalies in derived signals, and how they interact with seasonal auto-rules.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_metrics_rules') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Rules
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_metrics_rules') }}" title="Back to Rules">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Rules</span>
   </a>
 </div>
 
@@ -43,7 +47,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header">Field Reference</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:14%">Field</th>
@@ -52,16 +56,16 @@
         </tr>
       </thead>
       <tbody>
-        <tr><td class="font-monospace">Name</td><td><span class="badge text-bg-danger">required</span></td><td>Unique human-readable label shown in the rules table and anomaly badges.</td></tr>
-        <tr><td class="font-monospace">Rule Type</td><td><span class="badge text-bg-danger">required</span></td><td><strong>Threshold</strong> — single condition. <strong>Composite</strong> — primary <em>and</em> secondary must both exceed their thresholds at the same time.</td></tr>
-        <tr><td class="font-monospace">Source</td><td><span class="badge text-bg-danger">required</span></td><td>Derived signal source (e.g. <code>otel_traces</code>, <code>otel_logs</code>). Populated from your ingested data.</td></tr>
-        <tr><td class="font-monospace">Signal</td><td><span class="badge text-bg-danger">required</span></td><td>Metric name within the source (e.g. <code>http.server.duration</code>).</td></tr>
-        <tr><td class="font-monospace">Service</td><td><span class="badge text-bg-secondary">optional</span></td><td>Restrict this rule to a specific service. Leave blank to match any service.</td></tr>
-        <tr><td class="font-monospace">Attr FP</td><td><span class="badge text-bg-secondary">optional</span></td><td>Attribute fingerprint for sub-signal targeting (e.g. a specific HTTP route or RPC method).</td></tr>
-        <tr><td class="font-monospace">Comparator</td><td><span class="badge text-bg-danger">required</span></td><td><code>value &gt;= threshold</code> — fires when value climbs above the threshold (latency, error rate). <code>value &lt;= threshold</code> — fires when value drops below (throughput, availability).</td></tr>
-        <tr><td class="font-monospace">Warning</td><td><span class="badge text-bg-danger">required</span></td><td>Threshold that puts the signal into <span class="badge text-bg-warning text-dark">warning</span> state.</td></tr>
-        <tr><td class="font-monospace">Critical</td><td><span class="badge text-bg-danger">required</span></td><td>Threshold that puts the signal into <span class="badge text-bg-danger">critical</span> state. For <code>gt</code> rules critical must be &ge; warning; for <code>lt</code> rules critical must be &le; warning.</td></tr>
-        <tr><td class="font-monospace">Min Sample</td><td><span class="badge text-bg-danger">required</span></td><td>Minimum number of data points in the window before the rule fires. Use a higher value to suppress noise on sparse signals. Default: <code>1</code>.</td></tr>
+        <tr><td class="font-monospace" data-label="Field">Name</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description">Unique human-readable label shown in the rules table and anomaly badges.</td></tr>
+        <tr><td class="font-monospace" data-label="Field">Rule Type</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description"><strong>Threshold</strong> — single condition. <strong>Composite</strong> — primary <em>and</em> secondary must both exceed their thresholds at the same time.</td></tr>
+        <tr><td class="font-monospace" data-label="Field">Source</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description">Derived signal source (e.g. <code>otel_traces</code>, <code>otel_logs</code>). Populated from your ingested data.</td></tr>
+        <tr><td class="font-monospace" data-label="Field">Signal</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description">Metric name within the source (e.g. <code>http.server.duration</code>).</td></tr>
+        <tr><td class="font-monospace" data-label="Field">Service</td><td data-label="Required"><span class="badge text-bg-secondary">optional</span></td><td data-label="Description">Restrict this rule to a specific service. Leave blank to match any service.</td></tr>
+        <tr><td class="font-monospace" data-label="Field">Attr FP</td><td data-label="Required"><span class="badge text-bg-secondary">optional</span></td><td data-label="Description">Attribute fingerprint for sub-signal targeting (e.g. a specific HTTP route or RPC method).</td></tr>
+        <tr><td class="font-monospace" data-label="Field">Comparator</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description"><code>value &gt;= threshold</code> — fires when value climbs above the threshold (latency, error rate). <code>value &lt;= threshold</code> — fires when value drops below (throughput, availability).</td></tr>
+        <tr><td class="font-monospace" data-label="Field">Warning</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description">Threshold that puts the signal into <span class="badge text-bg-warning text-dark">warning</span> state.</td></tr>
+        <tr><td class="font-monospace" data-label="Field">Critical</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description">Threshold that puts the signal into <span class="badge text-bg-danger">critical</span> state. For <code>gt</code> rules critical must be &ge; warning; for <code>lt</code> rules critical must be &le; warning.</td></tr>
+        <tr><td class="font-monospace" data-label="Field">Min Sample</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description">Minimum number of data points in the window before the rule fires. Use a higher value to suppress noise on sparse signals. Default: <code>1</code>.</td></tr>
       </tbody>
     </table>
   </div>

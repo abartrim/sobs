@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Web Traffic & CVE Help{% endblock %}
+{% block styles %}{{ super() }}<style>
+@media (max-width: {{ mobile_breakpoint_max }}) {
+}
+</style>{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-semibold mb-1">Web Traffic &amp; CVE Enrichment Help</h4>
     <p class="text-secondary mb-0">Geo analytics from RUM data, library vulnerability scanning, and enrichment settings.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_web_traffic') }}">
-    <i class="bi bi-arrow-left me-1"></i>Back to Web Traffic
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_web_traffic') }}" title="Back to Web Traffic">
+    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Web Traffic</span>
   </a>
 </div>
 
@@ -42,7 +46,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header fw-semibold"><i class="bi bi-map me-2 text-primary"></i>Web Traffic Charts</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:22%">Chart</th>
@@ -51,28 +55,28 @@
       </thead>
       <tbody>
         <tr>
-          <td class="fw-semibold">World Map</td>
-          <td>Visitor counts by country, rendered with Apache ECharts. Requires IP geo-lookup to be enabled in Enrichment Settings.</td>
+          <td class="fw-semibold" data-label="Chart">World Map</td>
+          <td data-label="Description">Visitor counts by country, rendered with Apache ECharts. Requires IP geo-lookup to be enabled in Enrichment Settings.</td>
         </tr>
         <tr>
-          <td class="fw-semibold">Browsers</td>
-          <td>Distribution of browser families (Chrome, Firefox, Safari, etc.) extracted from the RUM <code>user_agent</code> field.</td>
+          <td class="fw-semibold" data-label="Chart">Browsers</td>
+          <td data-label="Description">Distribution of browser families (Chrome, Firefox, Safari, etc.) extracted from the RUM <code>user_agent</code> field.</td>
         </tr>
         <tr>
-          <td class="fw-semibold">Operating Systems</td>
-          <td>Distribution of visitor OS platforms (Windows, macOS, Linux, iOS, Android, etc.).</td>
+          <td class="fw-semibold" data-label="Chart">Operating Systems</td>
+          <td data-label="Description">Distribution of visitor OS platforms (Windows, macOS, Linux, iOS, Android, etc.).</td>
         </tr>
         <tr>
-          <td class="fw-semibold">Timezones</td>
-          <td>Distribution of display timezones reported by the RUM client, indicating where your users are located.</td>
+          <td class="fw-semibold" data-label="Chart">Timezones</td>
+          <td data-label="Description">Distribution of display timezones reported by the RUM client, indicating where your users are located.</td>
         </tr>
         <tr>
-          <td class="fw-semibold">Languages</td>
-          <td>Distribution of browser language preferences reported by the RUM client.</td>
+          <td class="fw-semibold" data-label="Chart">Languages</td>
+          <td data-label="Description">Distribution of browser language preferences reported by the RUM client.</td>
         </tr>
         <tr>
-          <td class="fw-semibold">Devices</td>
-          <td>Distribution of device types (desktop, mobile, tablet) from the RUM event device field.</td>
+          <td class="fw-semibold" data-label="Chart">Devices</td>
+          <td data-label="Description">Distribution of device types (desktop, mobile, tablet) from the RUM event device field.</td>
         </tr>
       </tbody>
     </table>
@@ -108,7 +112,7 @@
 <div class="card border-secondary mb-3">
   <div class="card-header fw-semibold"><i class="bi bi-database me-2 text-primary"></i>API Endpoints</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:35%">Endpoint</th>
@@ -117,28 +121,28 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace small">GET /api/web-traffic/geo</td>
-          <td>Country visitor counts (used by the world map).</td>
+          <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/geo</td>
+          <td data-label="Description">Country visitor counts (used by the world map).</td>
         </tr>
         <tr>
-          <td class="font-monospace small">GET /api/web-traffic/browsers</td>
-          <td>Browser distribution data.</td>
+          <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/browsers</td>
+          <td data-label="Description">Browser distribution data.</td>
         </tr>
         <tr>
-          <td class="font-monospace small">GET /api/web-traffic/os</td>
-          <td>Operating system distribution data.</td>
+          <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/os</td>
+          <td data-label="Description">Operating system distribution data.</td>
         </tr>
         <tr>
-          <td class="font-monospace small">GET /api/web-traffic/timezones</td>
-          <td>Timezone distribution data.</td>
+          <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/timezones</td>
+          <td data-label="Description">Timezone distribution data.</td>
         </tr>
         <tr>
-          <td class="font-monospace small">GET /api/web-traffic/languages</td>
-          <td>Language distribution data.</td>
+          <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/languages</td>
+          <td data-label="Description">Language distribution data.</td>
         </tr>
         <tr>
-          <td class="font-monospace small">GET /api/web-traffic/devices</td>
-          <td>Device type distribution data.</td>
+          <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/devices</td>
+          <td data-label="Description">Device type distribution data.</td>
         </tr>
       </tbody>
     </table>
@@ -166,7 +170,7 @@
 <div class="card border-secondary mb-0">
   <div class="card-header fw-semibold"><i class="bi bi-database me-2 text-danger"></i>CVE API Endpoints</div>
   <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0">
+    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
       <thead>
         <tr>
           <th style="width:45%">Endpoint</th>
@@ -175,16 +179,16 @@
       </thead>
       <tbody>
         <tr>
-          <td class="font-monospace small">GET /api/enrichment/cve/findings</td>
-          <td>List all CVE findings with optional severity filter.</td>
+          <td class="font-monospace small" data-label="Endpoint">GET /api/enrichment/cve/findings</td>
+          <td data-label="Description">List all CVE findings with optional severity filter.</td>
         </tr>
         <tr>
-          <td class="font-monospace small">POST /api/enrichment/cve/scan</td>
-          <td>Trigger an on-demand CVE scan immediately.</td>
+          <td class="font-monospace small" data-label="Endpoint">POST /api/enrichment/cve/scan</td>
+          <td data-label="Description">Trigger an on-demand CVE scan immediately.</td>
         </tr>
         <tr>
-          <td class="font-monospace small">POST /api/enrichment/cve/findings/&lt;osv_id&gt;/disposition</td>
-          <td>Set a disposition on a specific finding (<code>{"disposition": "false_positive"}</code>).</td>
+          <td class="font-monospace small" data-label="Endpoint">POST /api/enrichment/cve/findings/&lt;osv_id&gt;/disposition</td>
+          <td data-label="Description">Set a disposition on a specific finding (<code>{"disposition": "false_positive"}</code>).</td>
         </tr>
       </tbody>
     </table>
