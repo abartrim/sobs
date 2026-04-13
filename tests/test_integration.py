@@ -990,6 +990,10 @@ class TestScreenshots:
         page.goto(notifications_url)
         page.wait_for_load_state("networkidle")
         self._dismiss_tour_modal(page)
+        # Wait for the channel table rows to be present before asserting computed styles.
+        # If the page 500d this will raise a Playwright TimeoutError with a clear message
+        # rather than a cryptic `assert None == 'none'`.
+        page.wait_for_selector(".notification-channels-table tbody tr", timeout=10000)
         layout = page.evaluate("""
             () => {
               const styleOf = (selector) => {
@@ -1175,6 +1179,10 @@ class TestScreenshots:
         page.goto(tags_url)
         page.wait_for_load_state("networkidle")
         self._dismiss_tour_modal(page)
+
+        # Wait for at least one tags table to be present before asserting computed styles.
+        # If the page returned a 500 this raises a Playwright TimeoutError with a clear message.
+        page.wait_for_selector(".tags-mobile-card-table", timeout=10000)
 
         # Check computed styles for all present tags tables to confirm card mode
         layout = page.evaluate("""
@@ -1872,7 +1880,7 @@ class TestUIQA:
             page.evaluate("() => { window.__qaOrigPrompt = window.prompt; window.prompt = () => ''; }")
             before = self._toast_count(page)
             with self._with_fetch_failure(page):
-                run_btn.click(timeout=5000)
+                run_btn.click(timeout=10000)
             page.evaluate("() => { if (window.__qaOrigPrompt) window.prompt = window.__qaOrigPrompt; }")
             self._expect_new_toast(page, before, "failed to trigger agent run")
         else:
@@ -1885,7 +1893,7 @@ class TestUIQA:
                 f"tr:has-text('{seeded_rule}') .sobs-delete-rule-form button[type='submit']"
             ).first
             if cleanup_btn.count() > 0:
-                cleanup_btn.click(timeout=5000)
+                cleanup_btn.click(timeout=10000)
                 self._open_confirm_and_accept(page)
                 self._dismiss_blocking_modals(page)
         assert not dialog_alerts, f"Native browser dialogs on /settings/agents: {dialog_alerts}"

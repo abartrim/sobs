@@ -1874,15 +1874,25 @@ class ChDbConnection:
             raise
 
     def execute(self, query: str, params=None):
-        with self._lock:
-            cur = self._conn.cursor()
-            if params:
-                cur.execute(query, params)
-            else:
-                cur.execute(query)
-            columns = [d[0] for d in (cur.description or [])]
-            rows = cur.fetchall() or []
-        return ChDbResult(columns, rows)
+        _last_exc: Exception | None = None
+        for _attempt in range(2):
+            try:
+                with self._lock:
+                    cur = self._conn.cursor()
+                    if params:
+                        cur.execute(query, params)
+                    else:
+                        cur.execute(query)
+                    columns = [d[0] for d in (cur.description or [])]
+                    rows = cur.fetchall() or []
+                return ChDbResult(columns, rows)
+            except Exception as exc:
+                _last_exc = exc
+                if _attempt == 0:
+                    log.warning("chDB: transient query error (will retry): %s", exc)
+                    time.sleep(0.05)
+        assert _last_exc is not None
+        raise _last_exc
 
     def executescript(self, script: str):
         statements = [s.strip() for s in script.split(";") if s.strip()]
