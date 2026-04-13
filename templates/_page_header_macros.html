@@ -1,24 +1,21 @@
 {% macro render_page_header(title='', icon_class='', icon_text_class='', title_class='fw-semibold mb-0', title_html='', meta_html='', actions_html='', subtext='', margin_class='mb-3') -%}
-<div class="page-header {{ margin_class }}">
-  <div class="page-header-main">
-    <div class="page-header-title-wrap">
-      {% if title_html %}
-      {{ title_html | safe }}
-      {% else %}
-      <h4 class="{{ title_class }}">
-        {% if icon_class %}<i class="{{ icon_class }} me-2{% if icon_text_class %} {{ icon_text_class }}{% endif %}"></i>{% endif %}{{ title }}
-      </h4>
-      {% endif %}
+    <div class="page-header {{ margin_class }}">
+        <div class="page-header-main">
+            <div class="page-header-title-wrap">
+                {% if title_html %}
+                    {{ title_html | safe }}
+                {% else %}
+                    <h4 class="{{ title_class }}">
+                        {% if icon_class %}
+                            <i class="{{ icon_class }} me-2{% if icon_text_class %} {{ icon_text_class }}{% endif %}"></i>
+                        {% endif %}
+                        {{ title }}
+                    </h4>
+                {% endif %}
+            </div>
+            {% if meta_html %}<div class="page-header-meta">{{ meta_html | safe }}</div>{% endif %}
+            {% if actions_html %}<div class="page-header-actions">{{ actions_html | safe }}</div>{% endif %}
+        </div>
+        {% if subtext %}<div class="page-header-subtext">{{ subtext | safe }}</div>{% endif %}
     </div>
-    {% if meta_html %}
-    <div class="page-header-meta">{{ meta_html | safe }}</div>
-    {% endif %}
-    {% if actions_html %}
-    <div class="page-header-actions">{{ actions_html | safe }}</div>
-    {% endif %}
-  </div>
-  {% if subtext %}
-  <div class="page-header-subtext">{{ subtext | safe }}</div>
-  {% endif %}
-</div>
 {%- endmacro %}

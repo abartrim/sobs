@@ -3,86 +3,100 @@
 {% block title %}Tag Rules Help{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-{% set settings_tags_help_header_actions %}
-  <a href="{{ url_for('view_tag_rules') }}" class="btn btn-sm btn-outline-info" title="Open Tag Rules">
-    <i class="bi bi-tags me-1"></i><span class="settings-btn-label">Tag Rules</span>
-  </a>
-  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
-    <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
-  </a>
-{% endset %}
-{{ render_page_header('Tag Rules Help', icon_class='bi bi-question-circle', icon_text_class='text-info', actions_html=settings_tags_help_header_actions) }}
-
-<div class="row g-3 mb-3">
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-filter-circle me-1"></i>Match</h6>
-        <p class="small text-secondary mb-0">Rules match by record type, field/operator/value, and optional attribute key.</p>
-      </div>
+    {% set settings_tags_help_header_actions %}
+        <a href="{{ url_for('view_tag_rules') }}"
+           class="btn btn-sm btn-outline-info"
+           title="Open Tag Rules">
+            <i class="bi bi-tags me-1"></i><span class="settings-btn-label">Tag Rules</span>
+        </a>
+        <a href="{{ url_for('view_settings') }}"
+           class="btn btn-sm btn-outline-secondary"
+           title="Back to Settings">
+            <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
+        </a>
+    {% endset %}
+    {{ render_page_header('Tag Rules Help', icon_class='bi bi-question-circle', icon_text_class='text-info', actions_html=settings_tags_help_header_actions) }}
+    <div class="row g-3 mb-3">
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-filter-circle me-1"></i>Match
+                    </h6>
+                    <p class="small text-secondary mb-0">Rules match by record type, field/operator/value, and optional attribute key.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-tag me-1"></i>Assign
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Matching records receive normalized key/value tags used in filtering and correlation.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-diagram-3 me-1"></i>Correlate
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Tags can drive anomaly rules, notification conditions, and service ownership views.
+                    </p>
+                </div>
+            </div>
+        </div>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-tag me-1"></i>Assign</h6>
-        <p class="small text-secondary mb-0">Matching records receive normalized key/value tags used in filtering and correlation.</p>
-      </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">Rule Basics</div>
+        <div class="card-body small text-secondary">
+            Tag rules evaluate ingest records and apply normalized key/value tags for filtering and correlation across logs, traces, errors, AI, and RUM.
+        </div>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-diagram-3 me-1"></i>Correlate</h6>
-        <p class="small text-secondary mb-0">Tags can drive anomaly rules, notification conditions, and service ownership views.</p>
-      </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">Best Practices</div>
+        <div class="card-body small">
+            <ul class="mb-0 ps-3">
+                <li>Prefer stable tag keys that map to service ownership or failure domains.</li>
+                <li>Use regex sparingly and test against expected payload samples.</li>
+                <li>Avoid overlapping rules that set conflicting values for the same key.</li>
+                <li>Use explicit record type scope before broad all-type rules.</li>
+            </ul>
+        </div>
     </div>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold">Rule Basics</div>
-  <div class="card-body small text-secondary">
-    Tag rules evaluate ingest records and apply normalized key/value tags for filtering and correlation across logs, traces, errors, AI, and RUM.
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold">Best Practices</div>
-  <div class="card-body small">
-    <ul class="mb-0 ps-3">
-      <li>Prefer stable tag keys that map to service ownership or failure domains.</li>
-      <li>Use regex sparingly and test against expected payload samples.</li>
-      <li>Avoid overlapping rules that set conflicting values for the same key.</li>
-      <li>Use explicit record type scope before broad all-type rules.</li>
-    </ul>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold">Example Rule Patterns</div>
-  <div class="card-body small text-secondary">
-    <ul class="mb-0 ps-3">
-      <li><strong>Service ownership:</strong> if service_name contains checkout -> team=payments</li>
-      <li><strong>Environment flag:</strong> if attr.env equals prod -> env=production</li>
-      <li><strong>Error family:</strong> if body matches timeout regex -> error_family=timeout</li>
-    </ul>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold">Rollout Checklist</div>
-  <div class="card-body small">
-    <ol class="mb-0 ps-3 text-secondary">
-      <li>Create rule with a narrow service scope.</li>
-      <li>Verify tag appears in recent records.</li>
-      <li>Add notifications/anomaly logic that references the tag.</li>
-      <li>Scale scope from one service to broader domains.</li>
-    </ol>
-  </div>
-</div>
-
-<div class="alert alert-secondary small mb-0" role="note">
-  Legacy rules without ConditionsJson are auto-mapped into editable condition rows for compatibility.
-</div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">Example Rule Patterns</div>
+        <div class="card-body small text-secondary">
+            <ul class="mb-0 ps-3">
+                <li>
+                    <strong>Service ownership:</strong> if service_name contains checkout -> team=payments
+                </li>
+                <li>
+                    <strong>Environment flag:</strong> if attr.env equals prod -> env=production
+                </li>
+                <li>
+                    <strong>Error family:</strong> if body matches timeout regex -> error_family=timeout
+                </li>
+            </ul>
+        </div>
+    </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">Rollout Checklist</div>
+        <div class="card-body small">
+            <ol class="mb-0 ps-3 text-secondary">
+                <li>Create rule with a narrow service scope.</li>
+                <li>Verify tag appears in recent records.</li>
+                <li>Add notifications/anomaly logic that references the tag.</li>
+                <li>Scale scope from one service to broader domains.</li>
+            </ol>
+        </div>
+    </div>
+    <div class="alert alert-secondary small mb-0" role="note">
+        Legacy rules without ConditionsJson are auto-mapped into editable condition rows for compatibility.
+    </div>
 {% endblock %}

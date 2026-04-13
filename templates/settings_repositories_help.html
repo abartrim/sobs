@@ -3,122 +3,143 @@
 {% block title %}Repositories Help{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-{% set settings_repositories_help_header_actions %}
-  <a href="{{ url_for('view_settings_repositories') }}" class="btn btn-sm btn-outline-secondary" title="Open Repositories Settings">
-    <i class="bi bi-github me-1"></i><span class="settings-btn-label">Repositories</span>
-  </a>
-  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
-    <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
-  </a>
-{% endset %}
-{{ render_page_header('GitHub Repositories Help', icon_class='bi bi-question-circle', icon_text_class='text-info', actions_html=settings_repositories_help_header_actions) }}
-
-<div class="row g-3 mb-3">
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-database-check me-1"></i>Single Source</h6>
-        <p class="small text-secondary mb-0">One repository registry powers release correlation, dependency backfill, CVE context, and onboarding issue automation.</p>
-      </div>
+    {% set settings_repositories_help_header_actions %}
+        <a href="{{ url_for('view_settings_repositories') }}"
+           class="btn btn-sm btn-outline-secondary"
+           title="Open Repositories Settings">
+            <i class="bi bi-github me-1"></i><span class="settings-btn-label">Repositories</span>
+        </a>
+        <a href="{{ url_for('view_settings') }}"
+           class="btn btn-sm btn-outline-secondary"
+           title="Back to Settings">
+            <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
+        </a>
+    {% endset %}
+    {{ render_page_header('GitHub Repositories Help', icon_class='bi bi-question-circle', icon_text_class='text-info', actions_html=settings_repositories_help_header_actions) }}
+    <div class="row g-3 mb-3">
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-database-check me-1"></i>Single Source
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        One repository registry powers release correlation, dependency backfill, CVE context, and onboarding issue automation.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-arrow-repeat me-1"></i>Polling First
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Default integration uses GitHub read APIs with conditional requests for efficient, approval-friendly operation.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-lightning-charge me-1"></i>Realtime Optional
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Realtime push/webhook support is optional and managed with explicit API key lifecycle controls.
+                    </p>
+                </div>
+            </div>
+        </div>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-arrow-repeat me-1"></i>Polling First</h6>
-        <p class="small text-secondary mb-0">Default integration uses GitHub read APIs with conditional requests for efficient, approval-friendly operation.</p>
-      </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">What This Page Controls</div>
+        <div class="card-body small text-secondary">
+            <p class="mb-2">
+                Repositories configured here are reused across onboarding, CVE enrichment, release metadata, and repo-health context.
+            </p>
+            <ul class="mb-0 ps-3">
+                <li>Owner/repository values are normalized to avoid duplicate integrations.</li>
+                <li>Repo-scoped PATs can be stored for private-repo reads.</li>
+                <li>Release rows and dependency metadata use this mapping for version-scoped CVE analysis.</li>
+            </ul>
+        </div>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-lightning-charge me-1"></i>Realtime Optional</h6>
-        <p class="small text-secondary mb-0">Realtime push/webhook support is optional and managed with explicit API key lifecycle controls.</p>
-      </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">Integration Modes</div>
+        <div class="card-body small text-secondary">
+            <p class="mb-2">
+                <strong>Mode A: Polling (default)</strong>
+            </p>
+            <ul class="mb-3 ps-3">
+                <li>No CI workflow edits required.</li>
+                <li>Sobs queries GitHub using conditional GETs (`ETag` / `If-None-Match`) to keep polling efficient.</li>
+                <li>Best when CI outbound integrations are restricted or pending approval.</li>
+            </ul>
+            <p class="mb-2">
+                <strong>Mode B: Realtime Push (optional)</strong>
+            </p>
+            <ul class="mb-0 ps-3">
+                <li>CI pushes release metadata to Sobs using a managed ingest API key.</li>
+                <li>Optional webhook setup can reduce refresh latency further.</li>
+                <li>Keep polling enabled as fallback in case webhook/CI push fails.</li>
+            </ul>
+        </div>
     </div>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold">What This Page Controls</div>
-  <div class="card-body small text-secondary">
-    <p class="mb-2">Repositories configured here are reused across onboarding, CVE enrichment, release metadata, and repo-health context.</p>
-    <ul class="mb-0 ps-3">
-      <li>Owner/repository values are normalized to avoid duplicate integrations.</li>
-      <li>Repo-scoped PATs can be stored for private-repo reads.</li>
-      <li>Release rows and dependency metadata use this mapping for version-scoped CVE analysis.</li>
-    </ul>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold">Integration Modes</div>
-  <div class="card-body small text-secondary">
-    <p class="mb-2"><strong>Mode A: Polling (default)</strong></p>
-    <ul class="mb-3 ps-3">
-      <li>No CI workflow edits required.</li>
-      <li>Sobs queries GitHub using conditional GETs (`ETag` / `If-None-Match`) to keep polling efficient.</li>
-      <li>Best when CI outbound integrations are restricted or pending approval.</li>
-    </ul>
-    <p class="mb-2"><strong>Mode B: Realtime Push (optional)</strong></p>
-    <ul class="mb-0 ps-3">
-      <li>CI pushes release metadata to Sobs using a managed ingest API key.</li>
-      <li>Optional webhook setup can reduce refresh latency further.</li>
-      <li>Keep polling enabled as fallback in case webhook/CI push fails.</li>
-    </ul>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold">Token And Key Lifecycle</div>
-  <div class="card-body small">
-    <ul class="mb-0 ps-3">
-      <li><strong>GitHub PAT:</strong> used for read operations (repo inspection, runs/checks, metadata retrieval).</li>
-      <li><strong>Sobs ingest API key:</strong> used only when realtime CI push mode is enabled.</li>
-      <li>Rotate ingest keys periodically and set finite expiry windows.</li>
-      <li>Revoke ingest keys immediately when ownership, CI pipelines, or trust boundaries change.</li>
-      <li>Validate PAT status after updates to avoid silent enrichment gaps.</li>
-    </ul>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold">Why Manual Realtime Setup Exists</div>
-  <div class="card-body small text-secondary">
-    <p class="mb-2">Automated CI recommendations can still fail in enterprise GitHub environments. Common causes:</p>
-    <ul class="mb-0 ps-3">
-      <li>Workflow secrets are blocked by environment or branch protections.</li>
-      <li>Organization policies require manual approval for outbound destinations.</li>
-      <li>Fork and contributor protections suppress secret access in CI.</li>
-      <li>Network egress controls block calls from runners to Sobs endpoints.</li>
-    </ul>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold">Realtime Setup Runbook</div>
-  <div class="card-body small">
-    <ol class="mb-0 ps-3 text-secondary">
-      <li>Enable realtime support per repository from that repository's Manage row.</li>
-      <li>Rotate/generate CI ingest API key per repository and copy each key once.</li>
-      <li>Add CI secrets: <code>SOBS_URL</code>, <code>SOBS_INGEST_API_KEY</code>, <code>SOBS_APP_ID</code>.</li>
-      <li>Add the provided curl release-registration step to CI.</li>
-      <li>Optionally configure GitHub webhook for push/workflow events.</li>
-      <li>Verify data flow by confirming new releases and CVE context in Sobs.</li>
-    </ol>
-  </div>
-</div>
-
-<div class="card border-secondary mb-0">
-  <div class="card-header fw-semibold">Troubleshooting</div>
-  <div class="card-body small text-secondary">
-    <ul class="mb-0 ps-3">
-      <li>If polling appears stale, validate PAT permissions and token expiry first.</li>
-      <li>If realtime push fails, confirm ingest key validity, expiry state, and CI secret injection.</li>
-      <li>If webhook deliveries fail, inspect webhook delivery logs and keep polling fallback enabled.</li>
-      <li>If releases do not appear, verify app ID usage and version naming consistency in CI payloads.</li>
-    </ul>
-  </div>
-</div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">Token And Key Lifecycle</div>
+        <div class="card-body small">
+            <ul class="mb-0 ps-3">
+                <li>
+                    <strong>GitHub PAT:</strong> used for read operations (repo inspection, runs/checks, metadata retrieval).
+                </li>
+                <li>
+                    <strong>Sobs ingest API key:</strong> used only when realtime CI push mode is enabled.
+                </li>
+                <li>Rotate ingest keys periodically and set finite expiry windows.</li>
+                <li>Revoke ingest keys immediately when ownership, CI pipelines, or trust boundaries change.</li>
+                <li>Validate PAT status after updates to avoid silent enrichment gaps.</li>
+            </ul>
+        </div>
+    </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">Why Manual Realtime Setup Exists</div>
+        <div class="card-body small text-secondary">
+            <p class="mb-2">Automated CI recommendations can still fail in enterprise GitHub environments. Common causes:</p>
+            <ul class="mb-0 ps-3">
+                <li>Workflow secrets are blocked by environment or branch protections.</li>
+                <li>Organization policies require manual approval for outbound destinations.</li>
+                <li>Fork and contributor protections suppress secret access in CI.</li>
+                <li>Network egress controls block calls from runners to Sobs endpoints.</li>
+            </ul>
+        </div>
+    </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">Realtime Setup Runbook</div>
+        <div class="card-body small">
+            <ol class="mb-0 ps-3 text-secondary">
+                <li>Enable realtime support per repository from that repository's Manage row.</li>
+                <li>Rotate/generate CI ingest API key per repository and copy each key once.</li>
+                <li>
+                    Add CI secrets: <code>SOBS_URL</code>, <code>SOBS_INGEST_API_KEY</code>, <code>SOBS_APP_ID</code>.
+                </li>
+                <li>Add the provided curl release-registration step to CI.</li>
+                <li>Optionally configure GitHub webhook for push/workflow events.</li>
+                <li>Verify data flow by confirming new releases and CVE context in Sobs.</li>
+            </ol>
+        </div>
+    </div>
+    <div class="card border-secondary mb-0">
+        <div class="card-header fw-semibold">Troubleshooting</div>
+        <div class="card-body small text-secondary">
+            <ul class="mb-0 ps-3">
+                <li>If polling appears stale, validate PAT permissions and token expiry first.</li>
+                <li>If realtime push fails, confirm ingest key validity, expiry state, and CI secret injection.</li>
+                <li>If webhook deliveries fail, inspect webhook delivery logs and keep polling fallback enabled.</li>
+                <li>If releases do not appear, verify app ID usage and version naming consistency in CI payloads.</li>
+            </ul>
+        </div>
+    </div>
 {% endblock %}

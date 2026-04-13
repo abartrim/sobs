@@ -1,215 +1,277 @@
 {% extends "base.html" %}
 {% block title %}Web Traffic & CVE Help{% endblock %}
-{% block styles %}{{ super() }}<style>
-@media (max-width: {{ mobile_breakpoint_max }}) {
-}
-</style>{% endblock %}
+{% block styles %}
+    {{ super() }}<style>
+    @media (max-width: {
+                {
+                mobile_breakpoint_max
+            }
+
+        }) {}
+</style>
+{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div>
-    <h4 class="fw-semibold mb-1">Web Traffic &amp; CVE Enrichment Help</h4>
-    <p class="text-secondary mb-0">Geo analytics from RUM data, library vulnerability scanning, and enrichment settings.</p>
-  </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_web_traffic') }}" title="Back to Web Traffic">
-    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Web Traffic</span>
-  </a>
-</div>
-
-<div class="row g-3 mb-3">
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Ingest RUM Events</h6>
-        <p class="small text-secondary mb-0">Embed <code>rum.js</code> in your web app. Visitor country data populates as RUM events arrive.</p>
-      </div>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h4 class="fw-semibold mb-1">Web Traffic &amp; CVE Enrichment Help</h4>
+            <p class="text-secondary mb-0">
+                Geo analytics from RUM data, library vulnerability scanning, and enrichment settings.
+            </p>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm"
+           href="{{ url_for('view_web_traffic') }}"
+           title="Back to Web Traffic">
+            <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Web Traffic</span>
+        </a>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Enable Geo Lookup</h6>
-        <p class="small text-secondary mb-0">Turn on IP geo-lookup in <strong>Settings → Enrichment</strong> to resolve visitor IPs to countries for the map.</p>
-      </div>
+    <div class="row g-3 mb-3">
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-1-circle me-1"></i>Ingest RUM Events
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Embed <code>rum.js</code> in your web app. Visitor country data populates as RUM events arrive.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-2-circle me-1"></i>Enable Geo Lookup
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Turn on IP geo-lookup in <strong>Settings → Enrichment</strong> to resolve visitor IPs to countries for the map.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-3-circle me-1"></i>Enable CVE Scanning
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Turn on CVE scanning in <strong>Settings → Enrichment</strong> to auto-scan detected libraries daily against OSV.dev.
+                    </p>
+                </div>
+            </div>
+        </div>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Enable CVE Scanning</h6>
-        <p class="small text-secondary mb-0">Turn on CVE scanning in <strong>Settings → Enrichment</strong> to auto-scan detected libraries daily against OSV.dev.</p>
-      </div>
+    <!-- Web Traffic section -->
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">
+            <i class="bi bi-map me-2 text-primary"></i>Web Traffic Charts
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
+                <thead>
+                    <tr>
+                        <th style="width:22%">Chart</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="fw-semibold" data-label="Chart">World Map</td>
+                        <td data-label="Description">
+                            Visitor counts by country, rendered with Apache ECharts. Requires IP geo-lookup to be enabled in Enrichment Settings.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="fw-semibold" data-label="Chart">Browsers</td>
+                        <td data-label="Description">
+                            Distribution of browser families (Chrome, Firefox, Safari, etc.) extracted from the RUM <code>user_agent</code> field.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="fw-semibold" data-label="Chart">Operating Systems</td>
+                        <td data-label="Description">Distribution of visitor OS platforms (Windows, macOS, Linux, iOS, Android, etc.).</td>
+                    </tr>
+                    <tr>
+                        <td class="fw-semibold" data-label="Chart">Timezones</td>
+                        <td data-label="Description">
+                            Distribution of display timezones reported by the RUM client, indicating where your users are located.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="fw-semibold" data-label="Chart">Languages</td>
+                        <td data-label="Description">Distribution of browser language preferences reported by the RUM client.</td>
+                    </tr>
+                    <tr>
+                        <td class="fw-semibold" data-label="Chart">Devices</td>
+                        <td data-label="Description">
+                            Distribution of device types (desktop, mobile, tablet) from the RUM event device field.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     </div>
-  </div>
-</div>
-
-<!-- Web Traffic section -->
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold"><i class="bi bi-map me-2 text-primary"></i>Web Traffic Charts</div>
-  <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
-      <thead>
-        <tr>
-          <th style="width:22%">Chart</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="fw-semibold" data-label="Chart">World Map</td>
-          <td data-label="Description">Visitor counts by country, rendered with Apache ECharts. Requires IP geo-lookup to be enabled in Enrichment Settings.</td>
-        </tr>
-        <tr>
-          <td class="fw-semibold" data-label="Chart">Browsers</td>
-          <td data-label="Description">Distribution of browser families (Chrome, Firefox, Safari, etc.) extracted from the RUM <code>user_agent</code> field.</td>
-        </tr>
-        <tr>
-          <td class="fw-semibold" data-label="Chart">Operating Systems</td>
-          <td data-label="Description">Distribution of visitor OS platforms (Windows, macOS, Linux, iOS, Android, etc.).</td>
-        </tr>
-        <tr>
-          <td class="fw-semibold" data-label="Chart">Timezones</td>
-          <td data-label="Description">Distribution of display timezones reported by the RUM client, indicating where your users are located.</td>
-        </tr>
-        <tr>
-          <td class="fw-semibold" data-label="Chart">Languages</td>
-          <td data-label="Description">Distribution of browser language preferences reported by the RUM client.</td>
-        </tr>
-        <tr>
-          <td class="fw-semibold" data-label="Chart">Devices</td>
-          <td data-label="Description">Distribution of device types (desktop, mobile, tablet) from the RUM event device field.</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold"><i class="bi bi-funnel me-2 text-primary"></i>Filters</div>
-  <div class="card-body">
-    <p class="small text-secondary mb-2">Use the <strong>Filters</strong> accordion at the top of the Web Traffic page to narrow the date range for all charts simultaneously.</p>
-    <ul class="small mb-0">
-      <li><strong>From / To</strong> – ISO date-time or relative shortcuts. All charts update when the form is submitted.</li>
-      <li>Leaving both empty shows data for all time.</li>
-    </ul>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold"><i class="bi bi-globe2 me-2 text-primary"></i>IP Geo-lookup</div>
-  <div class="card-body">
-    <p class="small text-secondary mb-2">
-      Country resolution uses <strong>geoip2fast</strong> (MIT license) — a bundled local database derived from IANA/RIR delegated statistics (public domain).
-      No external API calls, no registration, and no API key is required.
-    </p>
-    <ul class="small mb-0">
-      <li>All lookups are performed <strong>locally inside the SOBS process</strong>; no data leaves your environment.</li>
-      <li>Results are cached in-process for performance.</li>
-      <li>Enable under <strong>Settings → Enrichment → IP Geo-lookup</strong>.</li>
-    </ul>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold"><i class="bi bi-database me-2 text-primary"></i>API Endpoints</div>
-  <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
-      <thead>
-        <tr>
-          <th style="width:35%">Endpoint</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/geo</td>
-          <td data-label="Description">Country visitor counts (used by the world map).</td>
-        </tr>
-        <tr>
-          <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/browsers</td>
-          <td data-label="Description">Browser distribution data.</td>
-        </tr>
-        <tr>
-          <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/os</td>
-          <td data-label="Description">Operating system distribution data.</td>
-        </tr>
-        <tr>
-          <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/timezones</td>
-          <td data-label="Description">Timezone distribution data.</td>
-        </tr>
-        <tr>
-          <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/languages</td>
-          <td data-label="Description">Language distribution data.</td>
-        </tr>
-        <tr>
-          <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/devices</td>
-          <td data-label="Description">Device type distribution data.</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<!-- CVE section -->
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold"><i class="bi bi-shield-exclamation me-2 text-danger"></i>CVE / Vulnerability Findings</div>
-  <div class="card-body">
-    <p class="small text-secondary mb-2">
-      The <a href="{{ url_for('view_enrichment_cve') }}"><strong>CVE Findings</strong></a> page surfaces known vulnerabilities in software libraries
-      detected from your OTEL span attributes. Scanning is powered by
-      <a href="https://osv.dev/" target="_blank" rel="noopener">OSV.dev</a> — no API key required.
-    </p>
-    <ul class="small mb-0">
-      <li><strong>Auto-scan</strong> – runs daily in the background. Library names are extracted from incoming OTEL attributes.</li>
-      <li><strong>Scan now</strong> – manually trigger a re-scan from the CVE Findings page header button.</li>
-      <li><strong>Detected Libraries</strong> accordion – review which libraries were observed and selected for scanning.</li>
-      <li><strong>Disposition</strong> – mark each finding as <em>false positive</em>, <em>accepted</em>, <em>won't fix</em>, or <em>resolved</em> to track remediation state.</li>
-    </ul>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold"><i class="bi bi-github me-2 text-danger"></i>Repository Metadata Freshness</div>
-  <div class="card-body">
-    <p class="small text-secondary mb-2">
-      CVE quality improves when release and dependency metadata is continuously refreshed from repository settings.
-      Sobs supports both polling and optional realtime push modes.
-    </p>
-    <ul class="small mb-2">
-      <li><strong>Polling mode (default)</strong> – uses GitHub read APIs with conditional requests to limit rate usage.</li>
-      <li><strong>Realtime push mode (optional)</strong> – CI posts release metadata to Sobs using a managed ingest API key.</li>
-      <li><strong>Webhook acceleration (optional)</strong> – can reduce refresh latency when repo admins approve webhook setup.</li>
-    </ul>
-    <p class="small mb-0">
-      For setup details, see <a href="{{ url_for('settings_repositories_help') }}"><strong>Repositories Help</strong></a>.
-    </p>
-  </div>
-</div>
-
-<div class="card border-secondary mb-0">
-  <div class="card-header fw-semibold"><i class="bi bi-database me-2 text-danger"></i>CVE API Endpoints</div>
-  <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
-      <thead>
-        <tr>
-          <th style="width:45%">Endpoint</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="font-monospace small" data-label="Endpoint">GET /api/enrichment/cve/findings</td>
-          <td data-label="Description">List all CVE findings with optional severity filter.</td>
-        </tr>
-        <tr>
-          <td class="font-monospace small" data-label="Endpoint">POST /api/enrichment/cve/scan</td>
-          <td data-label="Description">Trigger an on-demand CVE scan immediately.</td>
-        </tr>
-        <tr>
-          <td class="font-monospace small" data-label="Endpoint">POST /api/enrichment/cve/findings/&lt;osv_id&gt;/disposition</td>
-          <td data-label="Description">Set a disposition on a specific finding (<code>{"disposition": "false_positive"}</code>).</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-</div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">
+            <i class="bi bi-funnel me-2 text-primary"></i>Filters
+        </div>
+        <div class="card-body">
+            <p class="small text-secondary mb-2">
+                Use the <strong>Filters</strong> accordion at the top of the Web Traffic page to narrow the date range for all charts simultaneously.
+            </p>
+            <ul class="small mb-0">
+                <li>
+                    <strong>From / To</strong> – ISO date-time or relative shortcuts. All charts update when the form is submitted.
+                </li>
+                <li>Leaving both empty shows data for all time.</li>
+            </ul>
+        </div>
+    </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">
+            <i class="bi bi-globe2 me-2 text-primary"></i>IP Geo-lookup
+        </div>
+        <div class="card-body">
+            <p class="small text-secondary mb-2">
+                Country resolution uses <strong>geoip2fast</strong> (MIT license) — a bundled local database derived from IANA/RIR delegated statistics (public domain).
+                No external API calls, no registration, and no API key is required.
+            </p>
+            <ul class="small mb-0">
+                <li>
+                    All lookups are performed <strong>locally inside the SOBS process</strong>; no data leaves your environment.
+                </li>
+                <li>Results are cached in-process for performance.</li>
+                <li>
+                    Enable under <strong>Settings → Enrichment → IP Geo-lookup</strong>.
+                </li>
+            </ul>
+        </div>
+    </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">
+            <i class="bi bi-database me-2 text-primary"></i>API Endpoints
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
+                <thead>
+                    <tr>
+                        <th style="width:35%">Endpoint</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/geo</td>
+                        <td data-label="Description">Country visitor counts (used by the world map).</td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/browsers</td>
+                        <td data-label="Description">Browser distribution data.</td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/os</td>
+                        <td data-label="Description">Operating system distribution data.</td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/timezones</td>
+                        <td data-label="Description">Timezone distribution data.</td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/languages</td>
+                        <td data-label="Description">Language distribution data.</td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace small" data-label="Endpoint">GET /api/web-traffic/devices</td>
+                        <td data-label="Description">Device type distribution data.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <!-- CVE section -->
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">
+            <i class="bi bi-shield-exclamation me-2 text-danger"></i>CVE / Vulnerability Findings
+        </div>
+        <div class="card-body">
+            <p class="small text-secondary mb-2">
+                The <a href="{{ url_for('view_enrichment_cve') }}"><strong>CVE Findings</strong></a> page surfaces known vulnerabilities in software libraries
+                detected from your OTEL span attributes. Scanning is powered by
+                <a href="https://osv.dev/" target="_blank" rel="noopener">OSV.dev</a> — no API key required.
+            </p>
+            <ul class="small mb-0">
+                <li>
+                    <strong>Auto-scan</strong> – runs daily in the background. Library names are extracted from incoming OTEL attributes.
+                </li>
+                <li>
+                    <strong>Scan now</strong> – manually trigger a re-scan from the CVE Findings page header button.
+                </li>
+                <li>
+                    <strong>Detected Libraries</strong> accordion – review which libraries were observed and selected for scanning.
+                </li>
+                <li>
+                    <strong>Disposition</strong> – mark each finding as <em>false positive</em>, <em>accepted</em>, <em>won't fix</em>, or <em>resolved</em> to track remediation state.
+                </li>
+            </ul>
+        </div>
+    </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">
+            <i class="bi bi-github me-2 text-danger"></i>Repository Metadata Freshness
+        </div>
+        <div class="card-body">
+            <p class="small text-secondary mb-2">
+                CVE quality improves when release and dependency metadata is continuously refreshed from repository settings.
+                Sobs supports both polling and optional realtime push modes.
+            </p>
+            <ul class="small mb-2">
+                <li>
+                    <strong>Polling mode (default)</strong> – uses GitHub read APIs with conditional requests to limit rate usage.
+                </li>
+                <li>
+                    <strong>Realtime push mode (optional)</strong> – CI posts release metadata to Sobs using a managed ingest API key.
+                </li>
+                <li>
+                    <strong>Webhook acceleration (optional)</strong> – can reduce refresh latency when repo admins approve webhook setup.
+                </li>
+            </ul>
+            <p class="small mb-0">
+                For setup details, see <a href="{{ url_for('settings_repositories_help') }}"><strong>Repositories Help</strong></a>.
+            </p>
+        </div>
+    </div>
+    <div class="card border-secondary mb-0">
+        <div class="card-header fw-semibold">
+            <i class="bi bi-database me-2 text-danger"></i>CVE API Endpoints
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
+                <thead>
+                    <tr>
+                        <th style="width:45%">Endpoint</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="font-monospace small" data-label="Endpoint">GET /api/enrichment/cve/findings</td>
+                        <td data-label="Description">List all CVE findings with optional severity filter.</td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace small" data-label="Endpoint">POST /api/enrichment/cve/scan</td>
+                        <td data-label="Description">Trigger an on-demand CVE scan immediately.</td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace small" data-label="Endpoint">
+                            POST /api/enrichment/cve/findings/&lt;osv_id&gt;/disposition
+                        </td>
+                        <td data-label="Description">
+                            Set a disposition on a specific finding (<code>{"disposition": "false_positive"}</code>).
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 {% endblock %}

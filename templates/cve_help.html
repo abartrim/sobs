@@ -1,101 +1,146 @@
 {% extends "base.html" %}
 {% block title %}CVE Findings Help{% endblock %}
-{% block styles %}{{ super() }}<style>
-@media (max-width: {{ mobile_breakpoint_max }}) {
-}
-</style>{% endblock %}
+{% block styles %}
+    {{ super() }}<style>
+    @media (max-width: {
+                {
+                mobile_breakpoint_max
+            }
+
+        }) {}
+</style>
+{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div>
-    <h4 class="fw-semibold mb-1">CVE Findings Help</h4>
-    <p class="text-secondary mb-0">Library vulnerability detection, OSV.dev enrichment, and manual scan triggers.</p>
-  </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_enrichment_cve') }}" title="Back to CVE Findings">
-    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to CVE Findings</span>
-  </a>
-</div>
-
-<div class="row g-3 mb-3">
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Enable Scanning</h6>
-        <p class="small text-secondary mb-0">CVE scanning is off by default. Go to <a href="{{ url_for('view_enrichment_settings') }}">Enrichment Settings</a> to enable it and set a scan interval.</p>
-      </div>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h4 class="fw-semibold mb-1">CVE Findings Help</h4>
+            <p class="text-secondary mb-0">Library vulnerability detection, OSV.dev enrichment, and manual scan triggers.</p>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm"
+           href="{{ url_for('view_enrichment_cve') }}"
+           title="Back to CVE Findings">
+            <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to CVE Findings</span>
+        </a>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Trigger a Scan</h6>
-        <p class="small text-secondary mb-0">Click <strong>Scan now</strong> to run an on-demand vulnerability scan against all libraries detected in recent OTEL attributes.</p>
-      </div>
+    <div class="row g-3 mb-3">
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-1-circle me-1"></i>Enable Scanning
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        CVE scanning is off by default. Go to <a href="{{ url_for('view_enrichment_settings') }}">Enrichment Settings</a> to enable it and set a scan interval.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-2-circle me-1"></i>Trigger a Scan
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Click <strong>Scan now</strong> to run an on-demand vulnerability scan against all libraries detected in recent OTEL attributes.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-3-circle me-1"></i>Review Findings
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Expand a CVE finding to see the affected library, CVE ID, severity, and a direct link to the OSV.dev advisory.
+                    </p>
+                </div>
+            </div>
+        </div>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Review Findings</h6>
-        <p class="small text-secondary mb-0">Expand a CVE finding to see the affected library, CVE ID, severity, and a direct link to the OSV.dev advisory.</p>
-      </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">
+            <i class="bi bi-box-seam me-2 text-info"></i>How Library Detection Works
+        </div>
+        <div class="card-body">
+            <p class="small text-secondary mb-2">
+                SOBS extracts library names and versions from OTEL span and log attributes (e.g. <code>telemetry.sdk.name</code>, <code>process.runtime.version</code>, and custom attributes set by instrumentation libraries).
+            </p>
+            <ul class="small mb-0">
+                <li>
+                    Detected libraries are listed in the <strong>Detected Libraries</strong> accordion on this page.
+                </li>
+                <li>
+                    Each library is checked against the <a href="https://osv.dev"
+    target="_blank"
+    rel="noopener"
+    class="text-info">OSV.dev</a> open-source vulnerability database.
+                </li>
+                <li>
+                    Results are cached in the <code>sobs_cve_findings</code> table and updated on each scan.
+                </li>
+            </ul>
+        </div>
     </div>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold"><i class="bi bi-box-seam me-2 text-info"></i>How Library Detection Works</div>
-  <div class="card-body">
-    <p class="small text-secondary mb-2">
-      SOBS extracts library names and versions from OTEL span and log attributes (e.g. <code>telemetry.sdk.name</code>, <code>process.runtime.version</code>, and custom attributes set by instrumentation libraries).
-    </p>
-    <ul class="small mb-0">
-      <li>Detected libraries are listed in the <strong>Detected Libraries</strong> accordion on this page.</li>
-      <li>Each library is checked against the <a href="https://osv.dev" target="_blank" rel="noopener" class="text-info">OSV.dev</a> open-source vulnerability database.</li>
-      <li>Results are cached in the <code>sobs_cve_findings</code> table and updated on each scan.</li>
-    </ul>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold"><i class="bi bi-exclamation-triangle me-2 text-danger"></i>Severity Levels</div>
-  <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
-      <thead>
-        <tr>
-          <th style="width:20%">Severity</th>
-          <th>Meaning</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td data-label="Severity"><span class="badge bg-danger">CRITICAL</span></td>
-          <td data-label="Meaning">CVSS score ≥ 9.0. Immediate remediation recommended.</td>
-        </tr>
-        <tr>
-          <td data-label="Severity"><span class="badge bg-warning text-dark">HIGH</span></td>
-          <td data-label="Meaning">CVSS score 7.0–8.9. Remediate as soon as possible.</td>
-        </tr>
-        <tr>
-          <td data-label="Severity"><span class="badge bg-info text-dark">MEDIUM</span></td>
-          <td data-label="Meaning">CVSS score 4.0–6.9. Plan remediation within your next release cycle.</td>
-        </tr>
-        <tr>
-          <td data-label="Severity"><span class="badge bg-secondary">LOW</span></td>
-          <td data-label="Meaning">CVSS score &lt; 4.0. Monitor and remediate opportunistically.</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<div class="card border-secondary mb-0">
-  <div class="card-header fw-semibold"><i class="bi bi-gear me-2"></i>Troubleshooting</div>
-  <div class="card-body">
-    <ul class="small mb-0">
-      <li><strong>No libraries detected</strong> — ensure your services are sending OTEL data with library/SDK attributes. Check the <a href="{{ url_for('view_logs') }}">Logs</a> and <a href="{{ url_for('view_traces') }}">Traces</a> pages for ingested data.</li>
-      <li><strong>Scan returns no findings</strong> — this may mean your libraries have no known CVEs. Verify the library list in the <em>Detected Libraries</em> panel is accurate.</li>
-      <li><strong>CVE scanning is disabled</strong> — enable it from <a href="{{ url_for('view_enrichment_settings') }}">Enrichment Settings</a>.</li>
-    </ul>
-  </div>
-</div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">
+            <i class="bi bi-exclamation-triangle me-2 text-danger"></i>Severity Levels
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
+                <thead>
+                    <tr>
+                        <th style="width:20%">Severity</th>
+                        <th>Meaning</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td data-label="Severity">
+                            <span class="badge bg-danger">CRITICAL</span>
+                        </td>
+                        <td data-label="Meaning">CVSS score ≥ 9.0. Immediate remediation recommended.</td>
+                    </tr>
+                    <tr>
+                        <td data-label="Severity">
+                            <span class="badge bg-warning text-dark">HIGH</span>
+                        </td>
+                        <td data-label="Meaning">CVSS score 7.0–8.9. Remediate as soon as possible.</td>
+                    </tr>
+                    <tr>
+                        <td data-label="Severity">
+                            <span class="badge bg-info text-dark">MEDIUM</span>
+                        </td>
+                        <td data-label="Meaning">CVSS score 4.0–6.9. Plan remediation within your next release cycle.</td>
+                    </tr>
+                    <tr>
+                        <td data-label="Severity">
+                            <span class="badge bg-secondary">LOW</span>
+                        </td>
+                        <td data-label="Meaning">CVSS score &lt; 4.0. Monitor and remediate opportunistically.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card border-secondary mb-0">
+        <div class="card-header fw-semibold">
+            <i class="bi bi-gear me-2"></i>Troubleshooting
+        </div>
+        <div class="card-body">
+            <ul class="small mb-0">
+                <li>
+                    <strong>No libraries detected</strong> — ensure your services are sending OTEL data with library/SDK attributes. Check the <a href="{{ url_for('view_logs') }}">Logs</a> and <a href="{{ url_for('view_traces') }}">Traces</a> pages for ingested data.
+                </li>
+                <li>
+                    <strong>Scan returns no findings</strong> — this may mean your libraries have no known CVEs. Verify the library list in the <em>Detected Libraries</em> panel is accurate.
+                </li>
+                <li>
+                    <strong>CVE scanning is disabled</strong> — enable it from <a href="{{ url_for('view_enrichment_settings') }}">Enrichment Settings</a>.
+                </li>
+            </ul>
+        </div>
+    </div>
 {% endblock %}

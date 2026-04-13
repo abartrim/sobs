@@ -1,111 +1,146 @@
 {% extends "base.html" %}
 {% block title %}AI Transparency Help{% endblock %}
-{% block styles %}{{ super() }}<style>
-@media (max-width: {{ mobile_breakpoint_max }}) {
-}
-</style>{% endblock %}
+{% block styles %}
+    {{ super() }}<style>
+    @media (max-width: {
+                {
+                mobile_breakpoint_max
+            }
+
+        }) {}
+</style>
+{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div>
-    <h4 class="fw-semibold mb-1">AI Transparency Help</h4>
-    <p class="text-secondary mb-0">Audit LLM call history, review costs, export training data, and understand agent operations.</p>
-  </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_ai') }}" title="Back to AI">
-    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to AI</span>
-  </a>
-</div>
-
-<div class="row g-3 mb-3">
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Browse Calls</h6>
-        <p class="small text-secondary mb-0">Every LLM call made by SOBS — helper, agent, or anomaly — is logged here. Filter by operation type, service, model, or date range.</p>
-      </div>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h4 class="fw-semibold mb-1">AI Transparency Help</h4>
+            <p class="text-secondary mb-0">
+                Audit LLM call history, review costs, export training data, and understand agent operations.
+            </p>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm"
+           href="{{ url_for('view_ai') }}"
+           title="Back to AI">
+            <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to AI</span>
+        </a>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Review Conversations</h6>
-        <p class="small text-secondary mb-0">Expand any row to see the full conversation: system prompt, user messages, assistant replies, and raw JSON payload.</p>
-      </div>
+    <div class="row g-3 mb-3">
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-1-circle me-1"></i>Browse Calls
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Every LLM call made by SOBS — helper, agent, or anomaly — is logged here. Filter by operation type, service, model, or date range.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-2-circle me-1"></i>Review Conversations
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Expand any row to see the full conversation: system prompt, user messages, assistant replies, and raw JSON payload.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-3-circle me-1"></i>Export Training Data
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Use the <strong>Export JSONL</strong> button to download conversations as fine-tuning data in OpenAI-compatible JSONL format.
+                    </p>
+                </div>
+            </div>
+        </div>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Export Training Data</h6>
-        <p class="small text-secondary mb-0">Use the <strong>Export JSONL</strong> button to download conversations as fine-tuning data in OpenAI-compatible JSONL format.</p>
-      </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">
+            <i class="bi bi-funnel me-2 text-success"></i>Filter Controls
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
+                <thead>
+                    <tr>
+                        <th style="width:20%">Control</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="font-monospace" data-label="Control">Operation</td>
+                        <td data-label="Description">
+                            Filter by call type: <em>helper</em>, <em>agent</em>, <em>anomaly</em>, <em>guard</em>, and others.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace" data-label="Control">Service</td>
+                        <td data-label="Description">Filter to a specific service associated with the AI call.</td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace" data-label="Control">Model</td>
+                        <td data-label="Description">
+                            Filter to a specific LLM model identifier (e.g. <code>gpt-4o</code>).
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace" data-label="Control">From / To</td>
+                        <td data-label="Description">Date-time range for the call timestamp.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     </div>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold"><i class="bi bi-funnel me-2 text-success"></i>Filter Controls</div>
-  <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
-      <thead>
-        <tr>
-          <th style="width:20%">Control</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="font-monospace" data-label="Control">Operation</td>
-          <td data-label="Description">Filter by call type: <em>helper</em>, <em>agent</em>, <em>anomaly</em>, <em>guard</em>, and others.</td>
-        </tr>
-        <tr>
-          <td class="font-monospace" data-label="Control">Service</td>
-          <td data-label="Description">Filter to a specific service associated with the AI call.</td>
-        </tr>
-        <tr>
-          <td class="font-monospace" data-label="Control">Model</td>
-          <td data-label="Description">Filter to a specific LLM model identifier (e.g. <code>gpt-4o</code>).</td>
-        </tr>
-        <tr>
-          <td class="font-monospace" data-label="Control">From / To</td>
-          <td data-label="Description">Date-time range for the call timestamp.</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold"><i class="bi bi-currency-dollar me-2 text-warning"></i>Cost Estimation</div>
-  <div class="card-body">
-    <p class="small text-secondary mb-2">
-      The <strong>Cost</strong> column shows an estimated USD cost per call based on the model's published token pricing.
-      Costs are estimates only and do not reflect actual billing from your LLM provider.
-    </p>
-    <div class="alert alert-secondary small py-2 mb-0">
-      <i class="bi bi-info-circle me-1"></i>Cost estimates are based on prompt and completion token counts multiplied by hard-coded per-model rates.
-      They may be inaccurate if your provider uses a different pricing tier.
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">
+            <i class="bi bi-currency-dollar me-2 text-warning"></i>Cost Estimation
+        </div>
+        <div class="card-body">
+            <p class="small text-secondary mb-2">
+                The <strong>Cost</strong> column shows an estimated USD cost per call based on the model's published token pricing.
+                Costs are estimates only and do not reflect actual billing from your LLM provider.
+            </p>
+            <div class="alert alert-secondary small py-2 mb-0">
+                <i class="bi bi-info-circle me-1"></i>Cost estimates are based on prompt and completion token counts multiplied by hard-coded per-model rates.
+                They may be inaccurate if your provider uses a different pricing tier.
+            </div>
+        </div>
     </div>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold"><i class="bi bi-markdown me-2"></i>Markdown Toggle</div>
-  <div class="card-body">
-    <p class="small text-secondary mb-0">
-      The <strong>MD</strong> toggle in each conversation row switches the assistant reply between rendered Markdown and raw text.
-      Use raw mode to copy the exact model output for debugging or fine-tuning.
-    </p>
-  </div>
-</div>
-
-<div class="card border-secondary mb-0">
-  <div class="card-header fw-semibold"><i class="bi bi-link-45deg me-2"></i>Related Pages</div>
-  <div class="card-body">
-    <ul class="small mb-0">
-      <li><a href="{{ url_for('view_ai_settings') }}">AI Settings</a> — configure LLM provider, model, and guard settings.</li>
-      <li><a href="{{ url_for('view_agent_rules') }}">Agent Settings</a> — create and manage autonomous agent rules.</li>
-      <li><a href="{{ url_for('view_work_items') }}">Work Items</a> — GitHub issues created by agent runs.</li>
-    </ul>
-  </div>
-</div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">
+            <i class="bi bi-markdown me-2"></i>Markdown Toggle
+        </div>
+        <div class="card-body">
+            <p class="small text-secondary mb-0">
+                The <strong>MD</strong> toggle in each conversation row switches the assistant reply between rendered Markdown and raw text.
+                Use raw mode to copy the exact model output for debugging or fine-tuning.
+            </p>
+        </div>
+    </div>
+    <div class="card border-secondary mb-0">
+        <div class="card-header fw-semibold">
+            <i class="bi bi-link-45deg me-2"></i>Related Pages
+        </div>
+        <div class="card-body">
+            <ul class="small mb-0">
+                <li>
+                    <a href="{{ url_for('view_ai_settings') }}">AI Settings</a> — configure LLM provider, model, and guard settings.
+                </li>
+                <li>
+                    <a href="{{ url_for('view_agent_rules') }}">Agent Settings</a> — create and manage autonomous agent rules.
+                </li>
+                <li>
+                    <a href="{{ url_for('view_work_items') }}">Work Items</a> — GitHub issues created by agent runs.
+                </li>
+            </ul>
+        </div>
+    </div>
 {% endblock %}

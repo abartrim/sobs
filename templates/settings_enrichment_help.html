@@ -3,83 +3,93 @@
 {% block title %}Enrichment Help{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-{% set settings_enrichment_help_header_actions %}
-  <a href="{{ url_for('view_enrichment_settings') }}" class="btn btn-sm btn-outline-primary" title="Open Enrichment Settings">
-    <i class="bi bi-database-check me-1"></i><span class="settings-btn-label">Enrichment</span>
-  </a>
-  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
-    <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
-  </a>
-{% endset %}
-{{ render_page_header('Enrichment Settings Help', icon_class='bi bi-question-circle', icon_text_class='text-info', actions_html=settings_enrichment_help_header_actions) }}
-
-<div class="row g-3 mb-3">
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-globe me-1"></i>Geo Lookup</h6>
-        <p class="small text-secondary mb-0">Resolves visitor IP data using local datasets for map and geography-focused views.</p>
-      </div>
+    {% set settings_enrichment_help_header_actions %}
+        <a href="{{ url_for('view_enrichment_settings') }}"
+           class="btn btn-sm btn-outline-primary"
+           title="Open Enrichment Settings">
+            <i class="bi bi-database-check me-1"></i><span class="settings-btn-label">Enrichment</span>
+        </a>
+        <a href="{{ url_for('view_settings') }}"
+           class="btn btn-sm btn-outline-secondary"
+           title="Back to Settings">
+            <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
+        </a>
+    {% endset %}
+    {{ render_page_header('Enrichment Settings Help', icon_class='bi bi-question-circle', icon_text_class='text-info', actions_html=settings_enrichment_help_header_actions) }}
+    <div class="row g-3 mb-3">
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-globe me-1"></i>Geo Lookup
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Resolves visitor IP data using local datasets for map and geography-focused views.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-shield-exclamation me-1"></i>CVE Scan
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Extracts dependency versions from telemetry and checks known vulnerabilities daily.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-github me-1"></i>Repo Backfill
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Uses configured repositories and lockfiles to improve dependency visibility and scan coverage.
+                    </p>
+                </div>
+            </div>
+        </div>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-shield-exclamation me-1"></i>CVE Scan</h6>
-        <p class="small text-secondary mb-0">Extracts dependency versions from telemetry and checks known vulnerabilities daily.</p>
-      </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">Geo Enrichment</div>
+        <div class="card-body small text-secondary">
+            Uses local IP databases for country resolution in web traffic views. No external API keys required.
+        </div>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-github me-1"></i>Repo Backfill</h6>
-        <p class="small text-secondary mb-0">Uses configured repositories and lockfiles to improve dependency visibility and scan coverage.</p>
-      </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">CVE Enrichment</div>
+        <div class="card-body small text-secondary">
+            Extracts dependency and SDK versions from telemetry, then checks known vulnerabilities via OSV.dev on scheduled scans.
+        </div>
     </div>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold">Geo Enrichment</div>
-  <div class="card-body small text-secondary">
-    Uses local IP databases for country resolution in web traffic views. No external API keys required.
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold">CVE Enrichment</div>
-  <div class="card-body small text-secondary">
-    Extracts dependency and SDK versions from telemetry, then checks known vulnerabilities via OSV.dev on scheduled scans.
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold">Recommended Setup Sequence</div>
-  <div class="card-body small">
-    <ol class="mb-0 ps-3 text-secondary">
-      <li>Enable geo lookup and confirm web traffic country rendering.</li>
-      <li>Enable CVE scan and verify last scan timestamp appears.</li>
-      <li>Configure repositories and token for dependency backfill.</li>
-      <li>Tune max releases per scan to balance coverage and runtime.</li>
-      <li>Review findings and refine source app repository mappings.</li>
-    </ol>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold">Troubleshooting</div>
-  <div class="card-body small text-secondary">
-    <ul class="mb-0 ps-3">
-      <li>If countries do not resolve, confirm geo enrichment is enabled and inbound IP fields are present.</li>
-      <li>If CVE findings stay empty, verify telemetry includes dependency or SDK version attributes.</li>
-      <li>If backfill fails, verify repository URL format and token scope/expiry.</li>
-      <li>If scans run slowly, reduce max releases checked per run.</li>
-    </ul>
-  </div>
-</div>
-
-<div class="alert alert-secondary small mb-0" role="note">
-  For repository-backed lockfile enrichment, configure repository URLs and a GitHub token with contents:read.
-</div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">Recommended Setup Sequence</div>
+        <div class="card-body small">
+            <ol class="mb-0 ps-3 text-secondary">
+                <li>Enable geo lookup and confirm web traffic country rendering.</li>
+                <li>Enable CVE scan and verify last scan timestamp appears.</li>
+                <li>Configure repositories and token for dependency backfill.</li>
+                <li>Tune max releases per scan to balance coverage and runtime.</li>
+                <li>Review findings and refine source app repository mappings.</li>
+            </ol>
+        </div>
+    </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">Troubleshooting</div>
+        <div class="card-body small text-secondary">
+            <ul class="mb-0 ps-3">
+                <li>If countries do not resolve, confirm geo enrichment is enabled and inbound IP fields are present.</li>
+                <li>If CVE findings stay empty, verify telemetry includes dependency or SDK version attributes.</li>
+                <li>If backfill fails, verify repository URL format and token scope/expiry.</li>
+                <li>If scans run slowly, reduce max releases checked per run.</li>
+            </ul>
+        </div>
+    </div>
+    <div class="alert alert-secondary small mb-0" role="note">
+        For repository-backed lockfile enrichment, configure repository URLs and a GitHub token with contents:read.
+    </div>
 {% endblock %}

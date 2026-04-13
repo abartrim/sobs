@@ -1,183 +1,363 @@
 {% extends "base.html" %}
 {% block title %}Metric Rules Help{% endblock %}
-{% block styles %}{{ super() }}<style>
-@media (max-width: {{ mobile_breakpoint_max }}) {
-}
-</style>{% endblock %}
+{% block styles %}
+    {{ super() }}<style>
+    @media (max-width: {
+                {
+                mobile_breakpoint_max
+            }
+
+        }) {}
+</style>
+{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div>
-    <h4 class="fw-semibold mb-1">Metric Rules Help</h4>
-    <p class="text-secondary mb-0">How to create threshold and composite rules to detect anomalies in derived signals, and how they interact with seasonal auto-rules.</p>
-  </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_metrics_rules') }}" title="Back to Rules">
-    <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Rules</span>
-  </a>
-</div>
-
-<!-- Quick-start cards -->
-<div class="row g-3 mb-3">
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Choose a Rule Type</h6>
-        <p class="small text-secondary mb-0">Use <strong>Threshold</strong> for a single signal breach. Use <strong>Composite</strong> to require two conditions to fire simultaneously. Seasonal rules are created from the Auto Rules panel.</p>
-      </div>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h4 class="fw-semibold mb-1">Metric Rules Help</h4>
+            <p class="text-secondary mb-0">
+                How to create threshold and composite rules to detect anomalies in derived signals, and how they interact with seasonal auto-rules.
+            </p>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm"
+           href="{{ url_for('view_metrics_rules') }}"
+           title="Back to Rules">
+            <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Rules</span>
+        </a>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Set Thresholds</h6>
-        <p class="small text-secondary mb-0">Warning fires at the lower bound; Critical fires at the higher bound. The comparator controls whether values <em>above</em> or <em>below</em> the threshold count.</p>
-      </div>
+    <!-- Quick-start cards -->
+    <div class="row g-3 mb-3">
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-1-circle me-1"></i>Choose a Rule Type
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Use <strong>Threshold</strong> for a single signal breach. Use <strong>Composite</strong> to require two conditions to fire simultaneously. Seasonal rules are created from the Auto Rules panel.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-2-circle me-1"></i>Set Thresholds
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Warning fires at the lower bound; Critical fires at the higher bound. The comparator controls whether values <em>above</em> or <em>below</em> the threshold count.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-3-circle me-1"></i>View Anomalies
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Once saved, rules annotate the Metrics view and appear in the Anomaly Details page with per-point state badges and drilldown links.
+                    </p>
+                </div>
+            </div>
+        </div>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>View Anomalies</h6>
-        <p class="small text-secondary mb-0">Once saved, rules annotate the Metrics view and appear in the Anomaly Details page with per-point state badges and drilldown links.</p>
-      </div>
+    <!-- Field reference -->
+    <div class="card border-secondary mb-3">
+        <div class="card-header">Field Reference</div>
+        <div class="card-body p-0">
+            <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
+                <thead>
+                    <tr>
+                        <th style="width:14%">Field</th>
+                        <th style="width:14%">Required</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="font-monospace" data-label="Field">Name</td>
+                        <td data-label="Required">
+                            <span class="badge text-bg-danger">required</span>
+                        </td>
+                        <td data-label="Description">Unique human-readable label shown in the rules table and anomaly badges.</td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace" data-label="Field">Rule Type</td>
+                        <td data-label="Required">
+                            <span class="badge text-bg-danger">required</span>
+                        </td>
+                        <td data-label="Description">
+                            <strong>Threshold</strong> — single condition. <strong>Composite</strong> — primary <em>and</em> secondary must both exceed their thresholds at the same time.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace" data-label="Field">Source</td>
+                        <td data-label="Required">
+                            <span class="badge text-bg-danger">required</span>
+                        </td>
+                        <td data-label="Description">
+                            Derived signal source (e.g. <code>otel_traces</code>, <code>otel_logs</code>). Populated from your ingested data.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace" data-label="Field">Signal</td>
+                        <td data-label="Required">
+                            <span class="badge text-bg-danger">required</span>
+                        </td>
+                        <td data-label="Description">
+                            Metric name within the source (e.g. <code>http.server.duration</code>).
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace" data-label="Field">Service</td>
+                        <td data-label="Required">
+                            <span class="badge text-bg-secondary">optional</span>
+                        </td>
+                        <td data-label="Description">Restrict this rule to a specific service. Leave blank to match any service.</td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace" data-label="Field">Attr FP</td>
+                        <td data-label="Required">
+                            <span class="badge text-bg-secondary">optional</span>
+                        </td>
+                        <td data-label="Description">
+                            Attribute fingerprint for sub-signal targeting (e.g. a specific HTTP route or RPC method).
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace" data-label="Field">Comparator</td>
+                        <td data-label="Required">
+                            <span class="badge text-bg-danger">required</span>
+                        </td>
+                        <td data-label="Description">
+                            <code>value &gt;= threshold</code> — fires when value climbs above the threshold (latency, error rate). <code>value &lt;= threshold</code> — fires when value drops below (throughput, availability).
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace" data-label="Field">Warning</td>
+                        <td data-label="Required">
+                            <span class="badge text-bg-danger">required</span>
+                        </td>
+                        <td data-label="Description">
+                            Threshold that puts the signal into <span class="badge text-bg-warning text-dark">warning</span> state.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace" data-label="Field">Critical</td>
+                        <td data-label="Required">
+                            <span class="badge text-bg-danger">required</span>
+                        </td>
+                        <td data-label="Description">
+                            Threshold that puts the signal into <span class="badge text-bg-danger">critical</span> state. For <code>gt</code> rules critical must be &ge; warning; for <code>lt</code> rules critical must be &le; warning.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="font-monospace" data-label="Field">Min Sample</td>
+                        <td data-label="Required">
+                            <span class="badge text-bg-danger">required</span>
+                        </td>
+                        <td data-label="Description">
+                            Minimum number of data points in the window before the rule fires. Use a higher value to suppress noise on sparse signals. Default: <code>1</code>.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     </div>
-  </div>
-</div>
-
-<!-- Field reference -->
-<div class="card border-secondary mb-3">
-  <div class="card-header">Field Reference</div>
-  <div class="card-body p-0">
-    <table class="table table-dark table-sm align-middle mb-0 help-ref-table">
-      <thead>
-        <tr>
-          <th style="width:14%">Field</th>
-          <th style="width:14%">Required</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr><td class="font-monospace" data-label="Field">Name</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description">Unique human-readable label shown in the rules table and anomaly badges.</td></tr>
-        <tr><td class="font-monospace" data-label="Field">Rule Type</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description"><strong>Threshold</strong> — single condition. <strong>Composite</strong> — primary <em>and</em> secondary must both exceed their thresholds at the same time.</td></tr>
-        <tr><td class="font-monospace" data-label="Field">Source</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description">Derived signal source (e.g. <code>otel_traces</code>, <code>otel_logs</code>). Populated from your ingested data.</td></tr>
-        <tr><td class="font-monospace" data-label="Field">Signal</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description">Metric name within the source (e.g. <code>http.server.duration</code>).</td></tr>
-        <tr><td class="font-monospace" data-label="Field">Service</td><td data-label="Required"><span class="badge text-bg-secondary">optional</span></td><td data-label="Description">Restrict this rule to a specific service. Leave blank to match any service.</td></tr>
-        <tr><td class="font-monospace" data-label="Field">Attr FP</td><td data-label="Required"><span class="badge text-bg-secondary">optional</span></td><td data-label="Description">Attribute fingerprint for sub-signal targeting (e.g. a specific HTTP route or RPC method).</td></tr>
-        <tr><td class="font-monospace" data-label="Field">Comparator</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description"><code>value &gt;= threshold</code> — fires when value climbs above the threshold (latency, error rate). <code>value &lt;= threshold</code> — fires when value drops below (throughput, availability).</td></tr>
-        <tr><td class="font-monospace" data-label="Field">Warning</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description">Threshold that puts the signal into <span class="badge text-bg-warning text-dark">warning</span> state.</td></tr>
-        <tr><td class="font-monospace" data-label="Field">Critical</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description">Threshold that puts the signal into <span class="badge text-bg-danger">critical</span> state. For <code>gt</code> rules critical must be &ge; warning; for <code>lt</code> rules critical must be &le; warning.</td></tr>
-        <tr><td class="font-monospace" data-label="Field">Min Sample</td><td data-label="Required"><span class="badge text-bg-danger">required</span></td><td data-label="Description">Minimum number of data points in the window before the rule fires. Use a higher value to suppress noise on sparse signals. Default: <code>1</code>.</td></tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header">Rule Interaction Semantics</div>
-  <div class="card-body">
-    <ul class="small mb-0">
-      <li>Manual create supports <strong>threshold</strong> and <strong>composite</strong>. Seasonal rules are generated via Auto Rules.</li>
-      <li>Threshold, composite, and seasonal rules can coexist for the same scope (<code>source + signal + service + attr fp</code>).</li>
-      <li>If multiple rules fire at the same severity for a point, precedence is deterministic: <code>seasonal &gt; composite &gt; threshold</code>.</li>
-      <li>Timestamp-based seasonal bucket matching is evaluated in <strong>UTC</strong> in backend logic.</li>
-    </ul>
-  </div>
-</div>
-
-<!-- Threshold rule example -->
-<div class="card border-secondary mb-3">
-  <div class="card-header">Threshold Rule — Example</div>
-  <div class="card-body">
-    <p class="small text-secondary mb-2">Fire a warning when p95 HTTP duration exceeds 500 ms and a critical when it exceeds 1 000 ms, ignoring windows with fewer than 5 samples.</p>
-    <div class="row g-3">
-      <div class="col-lg-6">
-        <h6 class="small text-uppercase text-secondary mb-1">Settings</h6>
-        <table class="table table-dark table-sm table-bordered mb-0 small">
-          <tbody>
-            <tr><td>Name</td><td class="font-monospace">High p95 Latency</td></tr>
-            <tr><td>Rule Type</td><td class="font-monospace">threshold</td></tr>
-            <tr><td>Source</td><td class="font-monospace">otel_traces</td></tr>
-            <tr><td>Signal</td><td class="font-monospace">http.server.duration</td></tr>
-            <tr><td>Comparator</td><td class="font-monospace">value &gt;= threshold</td></tr>
-            <tr><td>Warning</td><td class="font-monospace">500</td></tr>
-            <tr><td>Critical</td><td class="font-monospace">1000</td></tr>
-            <tr><td>Min Sample</td><td class="font-monospace">5</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="col-lg-6">
-        <h6 class="small text-uppercase text-secondary mb-1">Resulting States</h6>
-        <ul class="small mb-0">
-          <li>Value &lt; 500 ms → <span class="badge text-bg-success">normal</span></li>
-          <li>500 ms &le; value &lt; 1 000 ms → <span class="badge text-bg-warning text-dark">warning</span></li>
-          <li>Value &ge; 1 000 ms → <span class="badge text-bg-danger">critical</span></li>
-          <li>Fewer than 5 samples in window → <span class="badge text-bg-secondary">skipped</span></li>
-        </ul>
-      </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header">Rule Interaction Semantics</div>
+        <div class="card-body">
+            <ul class="small mb-0">
+                <li>
+                    Manual create supports <strong>threshold</strong> and <strong>composite</strong>. Seasonal rules are generated via Auto Rules.
+                </li>
+                <li>
+                    Threshold, composite, and seasonal rules can coexist for the same scope (<code>source + signal + service + attr fp</code>).
+                </li>
+                <li>
+                    If multiple rules fire at the same severity for a point, precedence is deterministic: <code>seasonal &gt; composite &gt; threshold</code>.
+                </li>
+                <li>
+                    Timestamp-based seasonal bucket matching is evaluated in <strong>UTC</strong> in backend logic.
+                </li>
+            </ul>
+        </div>
     </div>
-  </div>
-</div>
-
-<!-- Composite rule example -->
-<div class="card border-secondary mb-3">
-  <div class="card-header">Composite Rule — Example</div>
-  <div class="card-body">
-    <p class="small text-secondary mb-2">Only flag critical when <em>both</em> error rate is high <em>and</em> request volume is significant — avoids noisy alerts during low-traffic windows.</p>
-    <div class="row g-3">
-      <div class="col-lg-6">
-        <h6 class="small text-uppercase text-secondary mb-1">Primary Condition</h6>
-        <table class="table table-dark table-sm table-bordered mb-0 small">
-          <tbody>
-            <tr><td>Source</td><td class="font-monospace">otel_traces</td></tr>
-            <tr><td>Signal</td><td class="font-monospace">error_rate</td></tr>
-            <tr><td>Comparator</td><td class="font-monospace">value &gt;= threshold</td></tr>
-            <tr><td>Warning</td><td class="font-monospace">0.05</td></tr>
-            <tr><td>Critical</td><td class="font-monospace">0.15</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="col-lg-6">
-        <h6 class="small text-uppercase text-secondary mb-1">Secondary Condition</h6>
-        <table class="table table-dark table-sm table-bordered mb-0 small">
-          <tbody>
-            <tr><td>Source</td><td class="font-monospace">otel_traces</td></tr>
-            <tr><td>Signal</td><td class="font-monospace">request_count</td></tr>
-            <tr><td>Comparator</td><td class="font-monospace">value &gt;= threshold</td></tr>
-            <tr><td>Warning</td><td class="font-monospace">10</td></tr>
-            <tr><td>Critical</td><td class="font-monospace">50</td></tr>
-          </tbody>
-        </table>
-      </div>
+    <!-- Threshold rule example -->
+    <div class="card border-secondary mb-3">
+        <div class="card-header">Threshold Rule — Example</div>
+        <div class="card-body">
+            <p class="small text-secondary mb-2">
+                Fire a warning when p95 HTTP duration exceeds 500 ms and a critical when it exceeds 1 000 ms, ignoring windows with fewer than 5 samples.
+            </p>
+            <div class="row g-3">
+                <div class="col-lg-6">
+                    <h6 class="small text-uppercase text-secondary mb-1">Settings</h6>
+                    <table class="table table-dark table-sm table-bordered mb-0 small">
+                        <tbody>
+                            <tr>
+                                <td>Name</td>
+                                <td class="font-monospace">High p95 Latency</td>
+                            </tr>
+                            <tr>
+                                <td>Rule Type</td>
+                                <td class="font-monospace">threshold</td>
+                            </tr>
+                            <tr>
+                                <td>Source</td>
+                                <td class="font-monospace">otel_traces</td>
+                            </tr>
+                            <tr>
+                                <td>Signal</td>
+                                <td class="font-monospace">http.server.duration</td>
+                            </tr>
+                            <tr>
+                                <td>Comparator</td>
+                                <td class="font-monospace">value &gt;= threshold</td>
+                            </tr>
+                            <tr>
+                                <td>Warning</td>
+                                <td class="font-monospace">500</td>
+                            </tr>
+                            <tr>
+                                <td>Critical</td>
+                                <td class="font-monospace">1000</td>
+                            </tr>
+                            <tr>
+                                <td>Min Sample</td>
+                                <td class="font-monospace">5</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="col-lg-6">
+                    <h6 class="small text-uppercase text-secondary mb-1">Resulting States</h6>
+                    <ul class="small mb-0">
+                        <li>
+                            Value &lt; 500 ms → <span class="badge text-bg-success">normal</span>
+                        </li>
+                        <li>
+                            500 ms &le; value &lt; 1 000 ms → <span class="badge text-bg-warning text-dark">warning</span>
+                        </li>
+                        <li>
+                            Value &ge; 1 000 ms → <span class="badge text-bg-danger">critical</span>
+                        </li>
+                        <li>
+                            Fewer than 5 samples in window → <span class="badge text-bg-secondary">skipped</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
     </div>
-    <div class="alert alert-secondary mt-3 mb-0 small">
-      <i class="bi bi-info-circle me-1"></i>
-      Both conditions must independently reach at least <strong>warning</strong> level for the composite rule to activate. The effective state is the <em>worse</em> of the two individual states.
+    <!-- Composite rule example -->
+    <div class="card border-secondary mb-3">
+        <div class="card-header">Composite Rule — Example</div>
+        <div class="card-body">
+            <p class="small text-secondary mb-2">
+                Only flag critical when <em>both</em> error rate is high <em>and</em> request volume is significant — avoids noisy alerts during low-traffic windows.
+            </p>
+            <div class="row g-3">
+                <div class="col-lg-6">
+                    <h6 class="small text-uppercase text-secondary mb-1">Primary Condition</h6>
+                    <table class="table table-dark table-sm table-bordered mb-0 small">
+                        <tbody>
+                            <tr>
+                                <td>Source</td>
+                                <td class="font-monospace">otel_traces</td>
+                            </tr>
+                            <tr>
+                                <td>Signal</td>
+                                <td class="font-monospace">error_rate</td>
+                            </tr>
+                            <tr>
+                                <td>Comparator</td>
+                                <td class="font-monospace">value &gt;= threshold</td>
+                            </tr>
+                            <tr>
+                                <td>Warning</td>
+                                <td class="font-monospace">0.05</td>
+                            </tr>
+                            <tr>
+                                <td>Critical</td>
+                                <td class="font-monospace">0.15</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="col-lg-6">
+                    <h6 class="small text-uppercase text-secondary mb-1">Secondary Condition</h6>
+                    <table class="table table-dark table-sm table-bordered mb-0 small">
+                        <tbody>
+                            <tr>
+                                <td>Source</td>
+                                <td class="font-monospace">otel_traces</td>
+                            </tr>
+                            <tr>
+                                <td>Signal</td>
+                                <td class="font-monospace">request_count</td>
+                            </tr>
+                            <tr>
+                                <td>Comparator</td>
+                                <td class="font-monospace">value &gt;= threshold</td>
+                            </tr>
+                            <tr>
+                                <td>Warning</td>
+                                <td class="font-monospace">10</td>
+                            </tr>
+                            <tr>
+                                <td>Critical</td>
+                                <td class="font-monospace">50</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="alert alert-secondary mt-3 mb-0 small">
+                <i class="bi bi-info-circle me-1"></i>
+                Both conditions must independently reach at least <strong>warning</strong> level for the composite rule to activate. The effective state is the <em>worse</em> of the two individual states.
+            </div>
+        </div>
     </div>
-  </div>
-</div>
-
-<!-- State + badge reference -->
-<div class="card border-secondary mb-0">
-  <div class="card-header">Anomaly States &amp; Where to Find Them</div>
-  <div class="card-body">
-    <div class="row g-3">
-      <div class="col-lg-5">
-        <h6 class="small text-uppercase text-secondary mb-2">State Badges</h6>
-        <ul class="list-unstyled small mb-0">
-          <li class="mb-1"><span class="badge text-bg-success me-2">normal</span>No thresholds breached.</li>
-          <li class="mb-1"><span class="badge text-bg-warning text-dark me-2">warning</span>At or above warning threshold.</li>
-          <li class="mb-1"><span class="badge text-bg-danger me-2">critical</span>At or above critical threshold.</li>
-          <li class="mb-1"><span class="badge text-bg-secondary me-2">skipped</span>Fewer data points than Min Sample.</li>
-        </ul>
-      </div>
-      <div class="col-lg-7">
-        <h6 class="small text-uppercase text-secondary mb-2">Where States Appear</h6>
-        <ul class="small mb-0">
-          <li><strong>Metrics view</strong> — per-row state badge next to each signal row.</li>
-          <li><strong>Anomaly Details page</strong> — time-series chart with coloured per-point markers and a drilldown button to logs, traces, or errors.</li>
-          <li><strong>Dashboard chart badges</strong> — <code>anomaly_overlay</code> and <code>derived_signal_overlay</code> chart types surface the worst current state in the card header.</li>
-        </ul>
-      </div>
+    <!-- State + badge reference -->
+    <div class="card border-secondary mb-0">
+        <div class="card-header">Anomaly States &amp; Where to Find Them</div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-lg-5">
+                    <h6 class="small text-uppercase text-secondary mb-2">State Badges</h6>
+                    <ul class="list-unstyled small mb-0">
+                        <li class="mb-1">
+                            <span class="badge text-bg-success me-2">normal</span>No thresholds breached.
+                        </li>
+                        <li class="mb-1">
+                            <span class="badge text-bg-warning text-dark me-2">warning</span>At or above warning threshold.
+                        </li>
+                        <li class="mb-1">
+                            <span class="badge text-bg-danger me-2">critical</span>At or above critical threshold.
+                        </li>
+                        <li class="mb-1">
+                            <span class="badge text-bg-secondary me-2">skipped</span>Fewer data points than Min Sample.
+                        </li>
+                    </ul>
+                </div>
+                <div class="col-lg-7">
+                    <h6 class="small text-uppercase text-secondary mb-2">Where States Appear</h6>
+                    <ul class="small mb-0">
+                        <li>
+                            <strong>Metrics view</strong> — per-row state badge next to each signal row.
+                        </li>
+                        <li>
+                            <strong>Anomaly Details page</strong> — time-series chart with coloured per-point markers and a drilldown button to logs, traces, or errors.
+                        </li>
+                        <li>
+                            <strong>Dashboard chart badges</strong> — <code>anomaly_overlay</code> and <code>derived_signal_overlay</code> chart types surface the worst current state in the card header.
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
     </div>
-  </div>
-</div>
 {% endblock %}

@@ -3,74 +3,108 @@
 {% block title %}Settings Help{% endblock %}
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
-{% set settings_help_header_actions %}
-  <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
-    <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
-  </a>
-{% endset %}
-{{ render_page_header('Settings Help', icon_class='bi bi-question-circle', icon_text_class='text-info', actions_html=settings_help_header_actions) }}
-
-<div class="row g-3 mb-3">
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-1-circle me-1"></i>Platform Controls</h6>
-        <p class="small text-secondary mb-0">AI, agent flows, and notifications define how SOBS responds to incidents and automation opportunities.</p>
-      </div>
+    {% set settings_help_header_actions %}
+        <a href="{{ url_for('view_settings') }}"
+           class="btn btn-sm btn-outline-secondary"
+           title="Back to Settings">
+            <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
+        </a>
+    {% endset %}
+    {{ render_page_header('Settings Help', icon_class='bi bi-question-circle', icon_text_class='text-info', actions_html=settings_help_header_actions) }}
+    <div class="row g-3 mb-3">
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-1-circle me-1"></i>Platform Controls
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        AI, agent flows, and notifications define how SOBS responds to incidents and automation opportunities.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-2-circle me-1"></i>Data Controls
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Tags, enrichment, and masking determine data quality, safety, and cross-signal correlation in dashboards.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-secondary h-100">
+                <div class="card-body">
+                    <h6 class="mb-2">
+                        <i class="bi bi-3-circle me-1"></i>Operations Controls
+                    </h6>
+                    <p class="small text-secondary mb-0">
+                        Repositories, Kubernetes, and data management govern integrations, health signals, and retention/backup safety.
+                    </p>
+                </div>
+            </div>
+        </div>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-2-circle me-1"></i>Data Controls</h6>
-        <p class="small text-secondary mb-0">Tags, enrichment, and masking determine data quality, safety, and cross-signal correlation in dashboards.</p>
-      </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">Recommended Setup Sequence</div>
+        <div class="card-body small">
+            <ol class="mb-0 ps-3">
+                <li>Configure AI endpoint and safety guard model.</li>
+                <li>Configure repositories and validate token/expiry state.</li>
+                <li>Enable enrichment and review dependency/CVE ingestion.</li>
+                <li>Define tags and notifications for alert routing.</li>
+                <li>Configure masking defaults for safe output sharing.</li>
+                <li>Configure Kubernetes and Data Management controls.</li>
+            </ol>
+        </div>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card border-secondary h-100">
-      <div class="card-body">
-        <h6 class="mb-2"><i class="bi bi-3-circle me-1"></i>Operations Controls</h6>
-        <p class="small text-secondary mb-0">Repositories, Kubernetes, and data management govern integrations, health signals, and retention/backup safety.</p>
-      </div>
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">Quick Links</div>
+        <div class="card-body small">
+            <div class="row g-2">
+                <div class="col-md-6">
+                    <a class="btn btn-sm btn-outline-primary w-100"
+                       href="{{ url_for('view_ai_settings') }}">AI Settings</a>
+                </div>
+                <div class="col-md-6">
+                    <a class="btn btn-sm btn-outline-warning w-100"
+                       href="{{ url_for('view_agent_rules') }}">Agent Rules</a>
+                </div>
+                <div class="col-md-6">
+                    <a class="btn btn-sm btn-outline-warning w-100"
+                       href="{{ url_for('view_notifications') }}">Notifications</a>
+                </div>
+                <div class="col-md-6">
+                    <a class="btn btn-sm btn-outline-info w-100"
+                       href="{{ url_for('view_tag_rules') }}">Tag Rules</a>
+                </div>
+                <div class="col-md-6">
+                    <a class="btn btn-sm btn-outline-danger w-100"
+                       href="{{ url_for('view_masking_settings') }}">Output Masking</a>
+                </div>
+                <div class="col-md-6">
+                    <a class="btn btn-sm btn-outline-secondary w-100"
+                       href="{{ url_for('view_settings_repositories') }}">Repositories</a>
+                </div>
+                <div class="col-md-6">
+                    <a class="btn btn-sm btn-outline-info w-100"
+                       href="{{ url_for('view_k8s_settings') }}">Kubernetes</a>
+                </div>
+                <div class="col-md-6">
+                    <a class="btn btn-sm btn-outline-danger w-100"
+                       href="{{ url_for('view_dm_settings') }}">Data Management</a>
+                </div>
+            </div>
+        </div>
     </div>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold">Recommended Setup Sequence</div>
-  <div class="card-body small">
-    <ol class="mb-0 ps-3">
-      <li>Configure AI endpoint and safety guard model.</li>
-      <li>Configure repositories and validate token/expiry state.</li>
-      <li>Enable enrichment and review dependency/CVE ingestion.</li>
-      <li>Define tags and notifications for alert routing.</li>
-      <li>Configure masking defaults for safe output sharing.</li>
-      <li>Configure Kubernetes and Data Management controls.</li>
-    </ol>
-  </div>
-</div>
-
-<div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold">Quick Links</div>
-  <div class="card-body small">
-    <div class="row g-2">
-      <div class="col-md-6"><a class="btn btn-sm btn-outline-primary w-100" href="{{ url_for('view_ai_settings') }}">AI Settings</a></div>
-      <div class="col-md-6"><a class="btn btn-sm btn-outline-warning w-100" href="{{ url_for('view_agent_rules') }}">Agent Rules</a></div>
-      <div class="col-md-6"><a class="btn btn-sm btn-outline-warning w-100" href="{{ url_for('view_notifications') }}">Notifications</a></div>
-      <div class="col-md-6"><a class="btn btn-sm btn-outline-info w-100" href="{{ url_for('view_tag_rules') }}">Tag Rules</a></div>
-      <div class="col-md-6"><a class="btn btn-sm btn-outline-danger w-100" href="{{ url_for('view_masking_settings') }}">Output Masking</a></div>
-      <div class="col-md-6"><a class="btn btn-sm btn-outline-secondary w-100" href="{{ url_for('view_settings_repositories') }}">Repositories</a></div>
-      <div class="col-md-6"><a class="btn btn-sm btn-outline-info w-100" href="{{ url_for('view_k8s_settings') }}">Kubernetes</a></div>
-      <div class="col-md-6"><a class="btn btn-sm btn-outline-danger w-100" href="{{ url_for('view_dm_settings') }}">Data Management</a></div>
+    <div class="card border-secondary mb-0">
+        <div class="card-header fw-semibold">Operational Notes</div>
+        <div class="card-body small text-secondary">
+            Each settings page includes a dedicated Help button in the page header. On mobile, header actions collapse to icon-only buttons to keep controls reachable without layout wrap issues.
+        </div>
     </div>
-  </div>
-</div>
-
-<div class="card border-secondary mb-0">
-  <div class="card-header fw-semibold">Operational Notes</div>
-  <div class="card-body small text-secondary">
-    Each settings page includes a dedicated Help button in the page header. On mobile, header actions collapse to icon-only buttons to keep controls reachable without layout wrap issues.
-  </div>
-</div>
 {% endblock %}
