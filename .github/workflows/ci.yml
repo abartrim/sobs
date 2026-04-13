@@ -26,6 +26,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -119,7 +121,7 @@ jobs:
         run: mypy app.py
 
       - name: Run djlint
-        run: djlint templates --check --lint
+        run: python3 scripts/run_djlint.py --check --lint templates
 
   test:
     name: Tests

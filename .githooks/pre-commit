@@ -50,10 +50,7 @@ fi
 
 if [[ ${#template_files[@]} -gt 0 ]]; then
   echo "pre-commit: formatting staged Jinja templates with djlint"
-  djlint --reformat --configuration pyproject.toml "${template_files[@]}"
-
-  echo "pre-commit: linting staged Jinja templates with djlint"
-  djlint --lint --configuration pyproject.toml "${template_files[@]}"
+  python3 scripts/run_djlint.py --reformat --lint "${template_files[@]}"
 
   # Re-stage in case formatter made changes.
   git add -- "${template_files[@]}"

@@ -39,8 +39,9 @@ On each commit, the hook runs these checks on staged Python files:
 
 And on staged Jinja templates in `templates/*.html`:
 
-- `djlint --reformat`
-- `djlint --lint`
+- `python3 scripts/run_djlint.py --reformat --lint`
+
+The helper lints all matched templates, but only reformats/checks explicitly targeted or branch-changed templates that do not embed Jinja inside script-heavy blocks.
 
 If formatters update files, the hook re-stages those files automatically.
 
@@ -53,10 +54,12 @@ isort *.py tests/ scripts
 black *.py tests/ scripts
 flake8 *.py tests/ scripts
 mypy app.py tests scripts
-djlint templates --reformat
-djlint templates --check --lint
+python3 scripts/run_djlint.py --reformat --lint templates
+python3 scripts/run_djlint.py --check --lint templates
 pytest tests/
 ```
+
+On a clean tree, `--check` applies only to templates changed on the current branch. To format a specific file directly, pass the file path instead of the `templates` directory.
 
 ## Regenerating Docs Screenshots
 
