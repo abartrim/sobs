@@ -194,7 +194,7 @@
     <i class="bi bi-question-circle me-1"></i><span class="notif-btn-label settings-btn-label">Help</span>
   </a>
 {% endset %}
-{{ render_page_header('Notifications &amp; Webhooks', icon_class='bi bi-bell', icon_text_class='text-warning', actions_html=settings_notifications_header_actions, subtext='Configure outbound notification channels (Slack, webhook, email, browser push) and define rules that trigger notifications based on signal thresholds and anomaly conditions. Rules are evaluated on demand via <code>POST /api/notifications/check</code>; call this endpoint periodically with a scheduler or cron job.') }}
+{{ render_page_header('Notifications & Webhooks', icon_class='bi bi-bell', icon_text_class='text-warning', actions_html=settings_notifications_header_actions, subtext='Configure outbound notification channels (Slack, webhook, email, browser push) and define rules that trigger notifications based on signal thresholds and anomaly conditions. Rules are evaluated on demand via <code>POST /api/notifications/check</code>; call this endpoint periodically with a scheduler or cron job.') }}
 
 <!-- ====================== NOTIFICATION CHANNELS ====================== -->
 <div class="d-flex align-items-center justify-content-between mb-2">
