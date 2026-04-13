@@ -20354,6 +20354,49 @@ class TestOnboardingWizard:
         finally:
             sobs_app._save_ai_setting(db, "ai.github_token", original_token)
 
+    async def test_create_issues_persist_onboarding_work_item_sets_explicit_utc_timestamps(self, client, monkeypatch):
+        """Onboarding work-item inserts should pass explicit UTC CreatedAt/CompletedAt values."""
+        import app as sobs_app
+
+        db = sobs_app.get_db()
+        original_token = sobs_app._load_ai_setting(db, "ai.github_token", "")
+        original_insert = sobs_app._insert_rows_json_each_row
+        captured_rows = []
+
+        async def _fake_upsert(_token, _repo, _title, _body_md, labels):
+            return {
+                "issue_url": "https://github.com/owner/myrepo/issues/779",
+                "issue_number": 779,
+                "issue_title": "[Sobs] Set up CI metadata scripts for myrepo",
+                "issue_state": "open",
+                "status": "created",
+                "note": "Created a new onboarding issue.",
+            }
+
+        def _capture_insert(_db, _table_name, _rows):
+            if _table_name == "sobs_github_work_items":
+                captured_rows.extend(_rows)
+            return original_insert(_db, _table_name, _rows)
+
+        try:
+            sobs_app._save_ai_setting(db, "ai.github_token", "test-token")
+            monkeypatch.setattr(sobs_app, "_create_or_update_onboarding_issue", _fake_upsert)
+            monkeypatch.setattr(sobs_app, "_insert_rows_json_each_row", _capture_insert)
+
+            r = await client.post(
+                "/api/onboarding/create-issues",
+                json={"repo": "owner/myrepo", "create_ci": True, "create_otel": False},
+            )
+            assert r.status_code == 200
+            data = await r.get_json()
+            assert data["ok"] is True
+            assert captured_rows
+            inserted = captured_rows[0]
+            assert inserted.get("CreatedAt")
+            assert inserted.get("CompletedAt")
+        finally:
+            sobs_app._save_ai_setting(db, "ai.github_token", original_token)
+
     async def test_create_issues_best_effort_when_work_item_persistence_fails(self, client, monkeypatch):
         """Issue creation should succeed even when onboarding work-item persistence fails."""
         import app as sobs_app

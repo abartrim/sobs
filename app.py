@@ -6316,6 +6316,7 @@ def _persist_github_work_item(
     """Persist a GitHub issue decision as a work item for tracking and cross-linking."""
 
     try:
+        now_ts = _normalize_ch_timestamp(datetime.now(timezone.utc))
         issue_number = 0
         try:
             parts = github_issue_url.rstrip("/").split("/")
@@ -6346,6 +6347,8 @@ def _persist_github_work_item(
 
         work_item = {
             "Id": run_id,
+            "CreatedAt": now_ts,
+            "CompletedAt": now_ts,
             "AgentRunId": run_id,
             "AgentRuleId": rule.get("id", ""),
             "AgentRuleName": rule.get("name", ""),
@@ -6406,6 +6409,7 @@ def _persist_onboarding_work_item(
         return
 
     try:
+        now_ts = _normalize_ch_timestamp(datetime.now(timezone.utc))
         owner, repo = _parse_github_repo_owner_name(github_repo)
         if not owner or not repo:
             owner, repo, _ = _parse_issue_ref_from_url(issue_url)
@@ -6413,6 +6417,8 @@ def _persist_onboarding_work_item(
 
         work_item = {
             "Id": uuid.uuid4().hex,
+            "CreatedAt": now_ts,
+            "CompletedAt": now_ts,
             "AgentRunId": "",
             "AgentRuleId": "",
             "AgentRuleName": "Onboarding Wizard",
