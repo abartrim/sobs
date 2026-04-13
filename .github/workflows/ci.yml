@@ -119,7 +119,7 @@ jobs:
         run: mypy app.py
 
       - name: Run djlint
-        run: djlint templates --lint
+        run: djlint templates --check --lint
 
   test:
     name: Tests
