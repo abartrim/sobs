@@ -261,7 +261,7 @@ jobs:
     name: Cleanup Stale GHCR Versions
     runs-on: ubuntu-latest
     needs: docker
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: false # Disabled: issue #223 - cleanup is too aggressive and removes the latest tag
     permissions:
       packages: write
     steps:
