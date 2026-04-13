@@ -5711,10 +5711,33 @@ def _serialize_github_work_item_row(row: dict | Any) -> dict[str, Any]:
     r = row if isinstance(row, dict) else dict(row)
     related_issue_urls_raw = _safe_json_loads(r.get("RelatedIssueUrls", "[]"), [])
     related_issue_urls = cast(list[Any], related_issue_urls_raw) if isinstance(related_issue_urls_raw, list) else []
+
+    def _to_utc_iso(ts_value: Any) -> str:
+        raw = str(ts_value or "").strip()
+        if not raw:
+            return ""
+        if isinstance(ts_value, datetime):
+            dt = ts_value
+        else:
+            normalized = raw.replace(" ", "T")
+            if normalized.endswith("Z"):
+                normalized = normalized[:-1] + "+00:00"
+            if not re.search(r"[zZ]|[+\-]\d\d:?\d\d$", normalized):
+                normalized += "+00:00"
+            try:
+                dt = datetime.fromisoformat(normalized)
+            except ValueError:
+                return raw
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
     return {
         "id": str(r.get("Id", "")),
-        "created_at": str(r.get("CreatedAt", ""))[:19],
-        "completed_at": str(r.get("CompletedAt", ""))[:19],
+        "created_at": _to_utc_iso(r.get("CreatedAt", "")),
+        "completed_at": _to_utc_iso(r.get("CompletedAt", "")),
         "agent_rule_id": str(r.get("AgentRuleId", "")),
         "agent_rule_name": str(r.get("AgentRuleName", "")),
         "agent_action": str(r.get("AgentAction", "")),

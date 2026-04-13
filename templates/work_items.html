@@ -99,7 +99,7 @@
         {% if items %}
           {% for item in items %}
           <tr>
-            <td class="font-monospace small sobs-tz-ts" data-utc-ts="{{ item.created_at }}" data-label="Created">{{ item.created_at[:16] }}</td>
+            <td class="font-monospace small sobs-tz-ts" data-utc-ts="{{ item.created_at }}" data-label="Created">{{ item.created_at[:16] | replace('T', ' ') }}</td>
             <td class="small" data-label="Service">
               {{ item.service }}
             </td>

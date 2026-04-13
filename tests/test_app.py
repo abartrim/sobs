@@ -15349,6 +15349,10 @@ class TestReports:
         assert item["occurrence_count"] >= 1
         assert item["copilot_assignment_status"] == "requested"
         assert item["related_issue_urls"] == ["https://github.com/abartrim/sobs/issues/101"]
+        assert item["created_at"].endswith("Z")
+        assert "T" in item["created_at"]
+        assert item["completed_at"].endswith("Z")
+        assert "T" in item["completed_at"]
 
 
 # ChdbSqlRunner & Vanna Query Service
