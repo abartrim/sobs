@@ -17585,6 +17585,21 @@ class TestWebTraffic:
         db = sobs_app.get_db()
         assert sobs_app._get_app_setting(db, sobs_app._GITHUB_BACKFILL_MAX_RELEASES_SETTING) == "123"
 
+    def test_app_settings_writes_are_monotonic_per_process(self, monkeypatch):
+        db = sobs_app.get_db()
+        test_key = "test.monotonic.updated_at"
+        original_last = sobs_app._APP_SETTINGS_LAST_UPDATED_AT_MS
+
+        try:
+            sobs_app._APP_SETTINGS_LAST_UPDATED_AT_MS = 0
+            monkeypatch.setattr(sobs_app.time, "time", lambda: 1_700_000_000.0)
+            sobs_app._set_app_setting(db, test_key, "first")
+            sobs_app._set_app_setting(db, test_key, "second")
+            assert sobs_app._get_app_setting(db, test_key) == "second"
+        finally:
+            sobs_app._APP_SETTINGS_LAST_UPDATED_AT_MS = original_last
+            sobs_app._del_app_setting(db, test_key)
+
     async def test_web_traffic_browsers_api_empty(self, client):
         r = await client.get("/api/web-traffic/browsers")
         assert r.status_code == 200

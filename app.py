@@ -25021,13 +25021,28 @@ def _get_app_setting(db: "ChDbConnection", key: str) -> str | None:
     return value if value else None
 
 
+_APP_SETTINGS_LAST_UPDATED_AT_MS = 0
+
+
+def _next_app_setting_updated_at() -> str:
+    """Return a monotonic UTC timestamp string for sobs_app_settings writes."""
+    global _APP_SETTINGS_LAST_UPDATED_AT_MS
+    now_ms = int(time.time() * 1000)
+    if now_ms <= _APP_SETTINGS_LAST_UPDATED_AT_MS:
+        now_ms = _APP_SETTINGS_LAST_UPDATED_AT_MS + 1
+    _APP_SETTINGS_LAST_UPDATED_AT_MS = now_ms
+    dt = datetime.fromtimestamp(now_ms / 1000, tz=timezone.utc)
+    return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
 def _set_app_setting(db: "ChDbConnection", key: str, value: str) -> None:
     """Upsert a value in sobs_app_settings."""
     stored = _encrypt_secret_value(value) if key in {"vapid_private_key"} else value
+    updated_at_value = _next_app_setting_updated_at()
     _insert_rows_json_each_row(
         db,
         "sobs_app_settings",
-        [{"Key": key, "Value": stored, "UpdatedAt": int(time.time() * 1000)}],
+        [{"Key": key, "Value": stored, "UpdatedAt": updated_at_value}],
     )
     if key == _MASKING_OUTPUT_ENABLED_SETTING:
         _set_masking_settings_cache(output_enabled=_is_truthy_setting(value, default=True))
@@ -25037,10 +25052,11 @@ def _set_app_setting(db: "ChDbConnection", key: str, value: str) -> None:
 
 def _del_app_setting(db: "ChDbConnection", key: str) -> None:
     """Clear a setting from sobs_app_settings by writing an empty value (tombstone)."""
+    updated_at_value = _next_app_setting_updated_at()
     _insert_rows_json_each_row(
         db,
         "sobs_app_settings",
-        [{"Key": key, "Value": "", "UpdatedAt": int(time.time() * 1000)}],
+        [{"Key": key, "Value": "", "UpdatedAt": updated_at_value}],
     )
     if key == _MASKING_OUTPUT_ENABLED_SETTING:
         _set_masking_settings_cache(output_enabled=True)
