@@ -279,4 +279,4 @@ jobs:
           package-type: container
           delete-only-untagged-versions: false
           ignore-versions: '^(latest|v\d+\..*)$'
-          min-versions-to-keep: 0
+          min-versions-to-keep: 1
