@@ -16,7 +16,7 @@ Use a virtual environment and install development dependencies:
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt -r requirements-integration.txt
-pip install black isort flake8 mypy
+pip install black isort flake8 mypy djlint
 ```
 
 ## Pre-Commit Hook
@@ -37,7 +37,12 @@ On each commit, the hook runs these checks on staged Python files:
 - `flake8`
 - `mypy`
 
-If formatters update files, the hook re-stages those Python files automatically.
+And on staged Jinja templates in `templates/*.html`:
+
+- `djlint --reformat`
+- `djlint --lint`
+
+If formatters update files, the hook re-stages those files automatically.
 
 ## Manual Checks
 
@@ -48,6 +53,8 @@ isort *.py tests/ scripts
 black *.py tests/ scripts
 flake8 *.py tests/ scripts
 mypy app.py tests scripts
+djlint templates --reformat
+djlint templates --check --lint
 pytest tests/
 ```
 

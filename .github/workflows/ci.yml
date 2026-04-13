@@ -104,7 +104,7 @@ jobs:
             .github/cache-key-lint.txt
 
       - name: Install linting dependencies
-        run: pip install black isort flake8 mypy flask
+        run: pip install black isort flake8 mypy djlint flask
 
       - name: Run black
         run: black --check .
@@ -117,6 +117,9 @@ jobs:
 
       - name: Run mypy
         run: mypy app.py
+
+      - name: Run djlint
+        run: djlint templates --lint
 
   test:
     name: Tests

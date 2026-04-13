@@ -10,7 +10,7 @@ if [[ -d "$repo_root/.venv/bin" ]]; then
   export PATH="$repo_root/.venv/bin:$PATH"
 fi
 
-required_tools=(isort black flake8 mypy)
+required_tools=(isort black flake8 mypy djlint)
 for tool in "${required_tools[@]}"; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "pre-commit: missing required tool '$tool'." >&2
@@ -20,25 +20,41 @@ for tool in "${required_tools[@]}"; do
 done
 
 python_files=()
+template_files=()
 while IFS= read -r -d '' file; do
   if [[ "$file" == *.py ]]; then
     python_files+=("$file")
+  elif [[ "$file" == templates/*.html ]]; then
+    template_files+=("$file")
   fi
 done < <(git diff --cached --name-only --diff-filter=ACMR -z)
 
-if [[ ${#python_files[@]} -eq 0 ]]; then
+if [[ ${#python_files[@]} -eq 0 && ${#template_files[@]} -eq 0 ]]; then
   exit 0
 fi
 
-echo "pre-commit: formatting staged Python files with isort and black"
-isort "${python_files[@]}"
-black "${python_files[@]}"
+if [[ ${#python_files[@]} -gt 0 ]]; then
+  echo "pre-commit: formatting staged Python files with isort and black"
+  isort "${python_files[@]}"
+  black "${python_files[@]}"
 
-echo "pre-commit: linting staged Python files with flake8"
-flake8 "${python_files[@]}"
+  echo "pre-commit: linting staged Python files with flake8"
+  flake8 "${python_files[@]}"
 
-echo "pre-commit: type-checking staged Python files with mypy"
-mypy "${python_files[@]}"
+  echo "pre-commit: type-checking staged Python files with mypy"
+  mypy "${python_files[@]}"
 
-# Re-stage in case formatters made changes.
-git add -- "${python_files[@]}"
+  # Re-stage in case formatters made changes.
+  git add -- "${python_files[@]}"
+fi
+
+if [[ ${#template_files[@]} -gt 0 ]]; then
+  echo "pre-commit: formatting staged Jinja templates with djlint"
+  djlint --reformat --configuration pyproject.toml "${template_files[@]}"
+
+  echo "pre-commit: linting staged Jinja templates with djlint"
+  djlint --lint --configuration pyproject.toml "${template_files[@]}"
+
+  # Re-stage in case formatter made changes.
+  git add -- "${template_files[@]}"
+fi
