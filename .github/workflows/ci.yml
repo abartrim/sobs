@@ -196,6 +196,9 @@ jobs:
           SOBS_UIQA_SEED_WORKERS: "8"
           SOBS_SCREENSHOT_SEED_TOTAL: "240"
           SOBS_SCREENSHOT_SEED_WORKERS: "24"
+          # GitHub Actions ubuntu-latest RSS exceeds the 768 MiB default cap at
+          # startup. Raise the chDB server memory limit to 1536 MiB for CI.
+          SOBS_CHDB_MAX_SERVER_MB: "1536"
         run: pytest tests/test_integration.py -v
 
       - name: Upload screenshots
