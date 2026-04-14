@@ -75,6 +75,7 @@ def live_server():
     _prepare_screenshots_dir()
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     data_dir = tempfile.mkdtemp(prefix="sobs-integration-")
+    server_log_path = os.path.join(SCREENSHOTS_DIR, "integration-live-server.log")
 
     env = os.environ.copy()
     env["PORT"] = str(SERVER_PORT)
@@ -83,19 +84,31 @@ def live_server():
     env["SOBS_AI_ENDPOINT_URL"] = "http://localhost:9999/v1"
     env["SOBS_AI_MODEL"] = "docs-screenshot-model"
 
+    server_log = open(server_log_path, "w", encoding="utf-8")
     proc = subprocess.Popen(
         [sys.executable, "app.py"],
         cwd=repo_root,
         env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=server_log,
+        stderr=server_log,
     )
+
+    def _tail_server_log(lines: int = 120) -> str:
+        with contextlib.suppress(Exception):
+            with open(server_log_path, encoding="utf-8", errors="replace") as fh:
+                content = fh.readlines()
+                return "".join(content[-lines:]).strip()
+        return ""
 
     # Wait up to 10 s for the server to become ready.
     deadline = time.time() + 10
     while time.time() < deadline:
         if proc.poll() is not None:
-            pytest.fail("Live SOBS server process exited before becoming ready")
+            tail = _tail_server_log()
+            msg = "Live SOBS server process exited before becoming ready"
+            if tail:
+                msg += f"\n--- server log tail ---\n{tail}"
+            pytest.fail(msg)
         try:
             resp = requests.get(f"{BASE_URL}/health", timeout=1)
             if resp.status_code == 200:
@@ -105,7 +118,11 @@ def live_server():
         time.sleep(0.2)
     else:
         proc.terminate()
-        pytest.fail("Live SOBS server did not start within 10 seconds")
+        tail = _tail_server_log()
+        msg = "Live SOBS server did not start within 10 seconds"
+        if tail:
+            msg += f"\n--- server log tail ---\n{tail}"
+        pytest.fail(msg)
 
     yield BASE_URL
 
@@ -114,6 +131,10 @@ def live_server():
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
         proc.kill()
+    finally:
+        with contextlib.suppress(Exception):
+            server_log.flush()
+            server_log.close()
 
 
 # ---------------------------------------------------------------------------
