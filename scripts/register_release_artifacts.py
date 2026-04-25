@@ -142,6 +142,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--app-metadata-json", default=_env("SOBS_APP_METADATA_JSON"))
 
     p.add_argument("--release-version", default=_env("SOBS_RELEASE_VERSION"))
+    p.add_argument("--release-id", default=_env("SOBS_RELEASE_ID"))
     p.add_argument("--commit-sha", default=_env("SOBS_RELEASE_COMMIT_SHA", _env("GITHUB_SHA")))
     p.add_argument("--build-id", default=_env("SOBS_RELEASE_BUILD_ID", _env("GITHUB_RUN_ID")))
     p.add_argument("--environment", default=_env("SOBS_RELEASE_ENVIRONMENT"))
@@ -414,6 +415,7 @@ def _find_or_create_release(
                 return rel
 
     payload = {
+        "id": str(args.release_id or "").strip(),
         "version": release_version,
         "commitSha": commit_sha,
         "buildId": build_id,

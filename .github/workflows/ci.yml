@@ -256,7 +256,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=sha,prefix=
+            type=sha,prefix=,format=long
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=tag
 
@@ -325,6 +325,14 @@ jobs:
             echo "value=dev-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Resolve deterministic release id
+        if: steps.sobs_gate.outputs.enabled == 'true'
+        id: release_id
+        run: |
+          release_key="${GITHUB_REPOSITORY}|${{ steps.release_version.outputs.value }}|${GITHUB_SHA}|${GITHUB_RUN_ID}|production"
+          release_id=$(printf "%s" "${release_key}" | shasum -a 256 | awk '{print $1}')
+          echo "value=${release_id}" >> "$GITHUB_OUTPUT"
+
       - name: Download rum.min.js.map artifact
         if: steps.sobs_gate.outputs.enabled == 'true'
         uses: actions/download-artifact@v6
@@ -367,6 +375,7 @@ jobs:
           SOBS_RELEASE_COMMIT_SHA: ${{ github.sha }}
           SOBS_RELEASE_BUILD_ID: ${{ github.run_id }}
           SOBS_RELEASE_ENVIRONMENT: production
+          SOBS_RELEASE_ID: ${{ steps.release_id.outputs.value }}
         run: |
           set -euo pipefail
           dep_file=".sobs-release/pip-freeze-linux-amd64.txt"
@@ -395,6 +404,7 @@ jobs:
           SOBS_RELEASE_COMMIT_SHA: ${{ github.sha }}
           SOBS_RELEASE_BUILD_ID: ${{ github.run_id }}
           SOBS_RELEASE_ENVIRONMENT: production
+          SOBS_RELEASE_ID: ${{ steps.release_id.outputs.value }}
         run: |
           set -euo pipefail
           dep_file=".sobs-release/pip-freeze-linux-arm64.txt"

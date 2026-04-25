@@ -32738,13 +32738,13 @@ curl -sS -X POST "${{SOBS_URL}}/v1/apps/${{SOBS_APP_ID}}/releases" \\
         }}'
 ```
 
-    Best practice requirements for release identity:
+Best practice requirements for release identity:
 
-    - Use a release `version` that exactly matches deployed runtime identity (for example image tag or Git tag).
-    - Keep `commitSha` and `buildId` immutable per published release.
-        - Propagate the same release identifier into OTEL `service.version` so Sobs can
-            correlate CVEs to observed runtime activity.
-    - For containerized workloads, include image digest/tag in release metadata where available.
+- Use a release `version` that exactly matches deployed runtime identity (for example image tag or Git tag).
+- Keep `commitSha` and `buildId` immutable per published release.
+- Propagate the same release identifier into OTEL `service.version` so Sobs can
+    correlate CVEs to observed runtime activity.
+- For containerized workloads, include image digest/tag in release metadata where available.
 
 ---
 
@@ -32761,16 +32761,16 @@ curl -sS -X POST "${{SOBS_URL}}/v1/releases/${{RELEASE_ID}}/artifacts/meta" \\
         -H "Content-Type: application/json" \\
         -d '{{
                 "artifactType": "dependencies-lockfile",
-        "name": "pip-freeze-linux-amd64",
-        "contentType": "application/json",
-        "size": ${{LOCKFILE_SIZE}},
-        "storageRef": "ci://artifacts/pip-freeze-linux-amd64.txt",
-        "checksumSha256": "${{LOCKFILE_SHA256}}",
-        "platform": "linux",
-        "architecture": "amd64",
-        "metadata": {{
-          "dependencies": ${{RESOLVED_DEPS_JSON}}
-        }}
+                                "name": "pip-freeze-linux-amd64",
+                                "contentType": "application/json",
+                                "size": ${{LOCKFILE_SIZE}},
+                                "storageRef": "ci://artifacts/pip-freeze-linux-amd64.txt",
+                                "checksumSha256": "${{LOCKFILE_SHA256}}",
+                                "platform": "linux",
+                                "architecture": "amd64",
+                                "metadata": {{
+                                    "dependencies": ${{RESOLVED_DEPS_JSON}}
+                                }}
         }}'
 ```
 
