@@ -5451,6 +5451,66 @@ class TestBasePathSupport:
         assert b'var AI_CONVERSATION_URL = "/sobs/api/ai/conversation";' in body
         assert b'var AI_SPAN_ATTRIBUTES_URL = "/sobs/api/ai/span-attributes";' in body
 
+    async def test_forwarded_prefix_ai_panel_endpoints_load_successfully(self, client):
+        """Prefixed AI panel lazy-load endpoints should return conversation HTML and raw attrs."""
+        import app as app_module
+
+        service = f"prefix-ai-panel-{time.time_ns()}"
+        ingest = await client.post(
+            "/v1/ai",
+            json={
+                "service": service,
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "prompt": "hello",
+                "response": "world",
+                "tokens_in": 5,
+                "tokens_out": 3,
+                "duration_ms": 100,
+            },
+        )
+        assert ingest.status_code == 200
+
+        row = (
+            app_module.get_db()
+            .execute(
+                "SELECT Timestamp, TraceId, SpanName FROM otel_traces "
+                "WHERE ServiceName=? ORDER BY Timestamp DESC LIMIT 1",
+                [service],
+            )
+            .fetchone()
+        )
+        assert row is not None
+
+        conv = await client.get(
+            "/sobs/api/ai/conversation",
+            query_string={
+                "ts": str(row["Timestamp"]),
+                "service": service,
+                "trace_id": str(row["TraceId"]),
+                "span_name": str(row["SpanName"]),
+            },
+            headers={"X-Forwarded-Prefix": "/sobs"},
+        )
+        assert conv.status_code == 200
+        conv_html = await conv.get_data(as_text=True)
+        assert "Conversation" in conv_html or "Prompt" in conv_html or "Messages" in conv_html
+
+        attrs = await client.get(
+            "/sobs/api/ai/span-attributes",
+            query_string={
+                "ts": str(row["Timestamp"]),
+                "service": service,
+                "trace_id": str(row["TraceId"]),
+                "span_name": str(row["SpanName"]),
+            },
+            headers={"X-Forwarded-Prefix": "/sobs"},
+        )
+        assert attrs.status_code == 200
+        payload = await attrs.get_json()
+        assert payload["ok"] is True
+        assert isinstance(payload.get("raw_attrs"), str)
+
 
 # ---------------------------------------------------------------------------
 # Basic Auth
