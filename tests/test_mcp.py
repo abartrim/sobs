@@ -319,13 +319,18 @@ class TestMcpNotifications:
         body = await r.get_data()
         assert body == b""
 
-    async def test_notifications_initialized_does_not_require_api_key(self, client):
-        """notifications/initialized must work without an X-MCP-API-Key header."""
+    async def test_notifications_accepted_even_with_api_key(self, client):
+        """notifications/* must return 202 regardless of whether an API key is present."""
+        db = _get_db()
+        _clear_mcp_keys(db)
+        raw_key = _create_mcp_key(db, "test")
         r = await client.post(
             "/mcp",
             json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+            headers={"X-MCP-API-Key": raw_key},
         )
         assert r.status_code == 202
+        _clear_mcp_keys(db)
 
     async def test_notifications_cancelled_returns_202(self, client):
         """notifications/cancelled (in-flight cancellation) must also be accepted."""
@@ -354,6 +359,14 @@ class TestMcpNotifications:
 # HTTP: POST /mcp  ping (liveness check, no auth required)
 # ---------------------------------------------------------------------------
 class TestMcpPing:
+    """
+    The ``ping`` method is a standard MCP liveness check that either party may
+    send.  It requires no API key and must return HTTP 200 with an empty
+    JSON-RPC result object (``{"result": {}}``).  A missing ``id`` field must
+    not cause an error — the response echoes ``null`` for the id per JSON-RPC
+    2.0 conventions.
+    """
+
     async def test_ping_returns_empty_result(self, client):
         """ping must return HTTP 200 with an empty JSON-RPC result object."""
         r = await client.post(
@@ -375,6 +388,17 @@ class TestMcpPing:
         assert r.status_code == 200
         data = json.loads(await r.get_data())
         assert "result" in data
+
+    async def test_ping_without_id_returns_null_id(self, client):
+        """ping with no ``id`` field must not crash; response id must be null."""
+        r = await client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "method": "ping"},
+        )
+        assert r.status_code == 200
+        data = json.loads(await r.get_data())
+        assert data["id"] is None
+        assert data["result"] == {}
 
 
 # ---------------------------------------------------------------------------
