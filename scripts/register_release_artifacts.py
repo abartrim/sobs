@@ -168,6 +168,42 @@ def parse_args() -> argparse.Namespace:
         help="Label for this dependency set (e.g. 'requirements.txt', 'package-lock.json')",
     )
     p.add_argument(
+        "--dependencies-content-type",
+        default=_env("SOBS_RELEASE_DEPENDENCIES_CONTENT_TYPE", "application/json"),
+        help="Content type recorded for dependency artifact metadata",
+    )
+    p.add_argument(
+        "--dependencies-storage-ref",
+        default=_env("SOBS_RELEASE_DEPENDENCIES_STORAGE_REF"),
+        help="Storage reference recorded for dependency artifact metadata",
+    )
+    p.add_argument(
+        "--dependencies-checksum-sha256",
+        default=_env("SOBS_RELEASE_DEPENDENCIES_CHECKSUM_SHA256"),
+        help="SHA256 checksum recorded for dependency artifact metadata",
+    )
+    p.add_argument(
+        "--dependencies-size",
+        type=int,
+        default=int(_env("SOBS_RELEASE_DEPENDENCIES_SIZE", "0") or "0"),
+        help="Dependency artifact byte size for metadata",
+    )
+    p.add_argument(
+        "--dependencies-platform",
+        default=_env("SOBS_RELEASE_DEPENDENCIES_PLATFORM"),
+        help="Platform label for dependency artifact metadata",
+    )
+    p.add_argument(
+        "--dependencies-architecture",
+        default=_env("SOBS_RELEASE_DEPENDENCIES_ARCHITECTURE"),
+        help="Architecture label for dependency artifact metadata",
+    )
+    p.add_argument(
+        "--dependencies-uploaded-at",
+        default=_env("SOBS_RELEASE_DEPENDENCIES_UPLOADED_AT"),
+        help="Override uploadedAt timestamp for dependency artifact metadata",
+    )
+    p.add_argument(
         "--requirements-file",
         default=_env("SOBS_RELEASE_REQUIREMENTS_FILE"),
         help="Path to a pip requirements.txt (pip-freeze format); auto-converts to dependency list",
@@ -232,6 +268,7 @@ def _load_dependencies(args: argparse.Namespace) -> list[dict[str, str]]:
 
 def _register_dependencies(
     api: SobsApi,
+    args: argparse.Namespace,
     release_id: str,
     deps: list[dict[str, str]],
     dep_name: str,
@@ -249,14 +286,14 @@ def _register_dependencies(
     artifact = {
         "artifactType": "dependencies-lockfile",
         "name": dep_name,
-        "contentType": "application/json",
-        "size": 0,
-        "storageRef": "",
-        "checksumSha256": "",
-        "platform": "",
-        "architecture": "",
+        "contentType": str(args.dependencies_content_type or "application/json").strip() or "application/json",
+        "size": max(0, int(args.dependencies_size or 0)),
+        "storageRef": str(args.dependencies_storage_ref or "").strip(),
+        "checksumSha256": str(args.dependencies_checksum_sha256 or "").strip(),
+        "platform": str(args.dependencies_platform or "").strip(),
+        "architecture": str(args.dependencies_architecture or "").strip(),
         "metadata": {"dependencies": deps},
-        "uploadedAt": "",
+        "uploadedAt": str(args.dependencies_uploaded_at or "").strip(),
     }
 
     if dry_run:
@@ -457,7 +494,7 @@ def main() -> int:
             raise RuntimeError("release id is missing")
 
         created, skipped = _upsert_artifact_meta(api, release_id, artifacts, args.dry_run)
-        deps_registered = _register_dependencies(api, release_id, deps, args.dependencies_name, args.dry_run)
+        deps_registered = _register_dependencies(api, args, release_id, deps, args.dependencies_name, args.dry_run)
 
         print("Done.")
         print(f"  app_id={app_id}")

@@ -32742,7 +32742,10 @@ curl -sS -X POST "${{SOBS_URL}}/v1/apps/${{SOBS_APP_ID}}/releases" \\
 
 ## Step 4 - Upload dependency lockfile metadata
 
-Lockfile metadata improves release-scoped CVE enrichment:
+Lockfile metadata improves release-scoped CVE enrichment. Best practice is to
+extract resolved dependency snapshots from the built container image for each
+target architecture (for example linux/amd64 and linux/arm64), then register
+each snapshot with provenance fields (size/checksum/storageRef/platform/architecture):
 
 ```bash
 curl -sS -X POST "${{SOBS_URL}}/v1/releases/${{RELEASE_ID}}/artifacts/meta" \\
@@ -32750,11 +32753,21 @@ curl -sS -X POST "${{SOBS_URL}}/v1/releases/${{RELEASE_ID}}/artifacts/meta" \\
         -H "Content-Type: application/json" \\
         -d '{{
                 "artifactType": "dependencies-lockfile",
-                "name": "requirements.txt",
-                "contentType": "text/plain",
-                "storageRef": "ci://artifacts/requirements.txt"
+        "name": "pip-freeze-linux-amd64",
+        "contentType": "application/json",
+        "size": ${{LOCKFILE_SIZE}},
+        "storageRef": "ci://artifacts/pip-freeze-linux-amd64.txt",
+        "checksumSha256": "${{LOCKFILE_SHA256}}",
+        "platform": "linux",
+        "architecture": "amd64",
+        "metadata": {{
+          "dependencies": ${{RESOLVED_DEPS_JSON}}
+        }}
         }}'
 ```
+
+Repeat per architecture (for example `pip-freeze-linux-arm64`) to ensure CVE
+tracking reflects what is actually shipped for each target platform.
 
 ---
 
@@ -32767,9 +32780,11 @@ curl -sS -X POST "${{SOBS_URL}}/v1/releases/${{RELEASE_ID}}/artifacts/meta" \\
     -H "X-API-Key: ${{SOBS_INGEST_API_KEY}}" \\
     -H "Content-Type: application/json" \\
     -d '{{
-        "artifactType": "js-sourcemap",
+        "artifactType": "js_sourcemap",
         "name": "app.min.js.map",
         "contentType": "application/json",
+        "size": ${{SOURCEMAP_SIZE}},
+        "checksumSha256": "${{SOURCEMAP_SHA256}}",
         "storageRef": "ci://artifacts/app.min.js.map"
     }}'
 ```
