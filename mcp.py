@@ -962,11 +962,13 @@ async def mcp_endpoint():
     """
     Main MCP JSON-RPC 2.0 endpoint.
 
-    Accepts ``initialize``, ``tools/list``, and ``tools/call`` method calls.
+    Accepts ``initialize``, ``ping``, ``notifications/*``, ``tools/list``,
+    and ``tools/call`` method calls.
 
     Authentication
     --------------
     Set ``X-MCP-API-Key: <key>`` in the request header.
+    ``initialize``, ``ping``, and ``notifications/*`` do not require a key.
 
     Rate limiting
     -------------
@@ -1029,6 +1031,21 @@ async def mcp_endpoint():
                 },
             }
         )
+
+    # MCP notifications are fire-and-forget messages sent by the client (e.g.
+    # ``notifications/initialized`` after the handshake, ``notifications/cancelled``
+    # when cancelling an in-flight request).  Per the MCP Streamable HTTP transport
+    # spec, the server MUST respond with HTTP 202 Accepted and an empty body – it
+    # must NOT return a JSON-RPC error, because notifications have no ``id`` and
+    # the client does not read the response body.  Returning an error here breaks
+    # mainstream MCP clients (VS Code, etc.) at startup.
+    if method.startswith("notifications/"):
+        return "", 202
+
+    # The ``ping`` utility method can be sent by either party to check liveness.
+    # It requires no API key and returns an empty result object.
+    if method == "ping":
+        return jsonify({"jsonrpc": "2.0", "id": req_id, "result": {}})
 
     # All other methods require authentication.
     if not _authenticate_mcp_request(db):
