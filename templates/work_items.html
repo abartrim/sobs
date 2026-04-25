@@ -4,14 +4,12 @@
 {% from "_page_header_macros.html" import render_page_header %}
 {% block title %}Work Items{% endblock %}
 {% block styles %}{{ super() }}<style>
-  /* ---- POC JBS instrumentation labels (dev-only) ---- */
-  [data-jbs-phase]::after {
-    content: '';
-  }
+  /* ---- POC JBS instrumentation: explicit phase label for dev visibility ---- */
+  /* TODO: Replace with framework dev-tools panel once jbs package is installable */
 </style>{% endblock %}
 {% block content %}
 {% set work_items_header_meta %}
-  <span class="badge bg-secondary" id="work-items-count-badge">{% if total_items %}{{ total_items }}{% endif %}</span>
+  <span class="badge bg-secondary" id="work-items-count-badge" aria-label="Total work items">{{ total_items if total_items else '0' }}</span>
   <button
     class="btn btn-sm btn-outline-info d-none d-sm-inline-flex align-items-center gap-1"
     id="work-items-refresh-btn"
@@ -148,7 +146,6 @@ function toSafeGithubIssueUrl(raw) {
   }
 }
 
-// Exposed globally so jbs-runtime can call it after fragment swaps
 window.showWorkItemDetail = function showWorkItemDetail(id, issueUrl, issueTitle, analysis, suggestion) {
   document.getElementById('workItemTitle').textContent = issueTitle;
   document.getElementById('workItemAnalysis').textContent = analysis || '(no analysis)';
@@ -171,17 +168,30 @@ window.showWorkItemDetail = function showWorkItemDetail(id, issueUrl, issueTitle
   }
 };
 
-document.querySelectorAll('.work-item-detail-btn').forEach(function (btn) {
-  btn.addEventListener('click', function () {
-    window.showWorkItemDetail(
-      btn.dataset.workItemId || '',
-      btn.dataset.workItemUrl || '',
-      btn.dataset.workItemTitle || '',
-      btn.dataset.workItemAnalysis || '',
-      btn.dataset.workItemSuggestion || ''
-    );
+function _wireWorkItemDetailButtons(root) {
+  (root || document).querySelectorAll('.work-item-detail-btn').forEach(function (btn) {
+    if (btn.dataset.workItemDetailWired) return;
+    btn.dataset.workItemDetailWired = '1';
+    btn.addEventListener('click', function () {
+      window.showWorkItemDetail(
+        btn.dataset.workItemId || '',
+        btn.dataset.workItemUrl || '',
+        btn.dataset.workItemTitle || '',
+        btn.dataset.workItemAnalysis || '',
+        btn.dataset.workItemSuggestion || ''
+      );
+    });
   });
-});
+}
+// Wire initial buttons
+_wireWorkItemDetailButtons(document);
+
+// Register post-swap hook so jbs-runtime re-wires buttons after fragment replacement
+if (window.jbsRuntime && typeof window.jbsRuntime.onSwap === 'function') {
+  window.jbsRuntime.onSwap('work-items-table', function (el) {
+    _wireWorkItemDetailButtons(el);
+  });
+}
 
 {{ render_tz_init_script('initWorkItemsTimezone', 'workItemsFiltersPanel', 'work-items-tz-badge-btn', 'work-items-tz-badge-label', 'work-items-from-ts', 'work-items-to-ts') }}
 

@@ -27,7 +27,11 @@
       <tbody>
         {% for item in items %}
         <tr>
-          <td class="font-monospace small sobs-tz-ts" data-utc-ts="{{ item.created_at }}" data-label="Created">{{ item.created_at[:16] | replace('T', ' ') if item.created_at else '—' }}</td>
+          {% if item.created_at %}
+          <td class="font-monospace small sobs-tz-ts" data-utc-ts="{{ item.created_at }}" data-label="Created">{{ item.created_at[:16] | replace('T', ' ') }}</td>
+          {% else %}
+          <td class="font-monospace small" data-label="Created">—</td>
+          {% endif %}
           <td class="small" data-label="Service">{{ item.service }}</td>
           <td class="small" data-label="Signal">
             <span class="text-secondary">{{ item.signal_source }}</span>

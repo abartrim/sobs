@@ -60,6 +60,23 @@
   }
 
   // -------------------------------------------------------------------------
+  // Post-swap hook registry
+  // Pages register component-specific re-wiring callbacks here so the
+  // generic runtime does not need page-specific knowledge.
+  // TODO(framework): replace with a first-class callback API in the canonical
+  // jinja-bootstrap-spa package once it is installable.
+  // -------------------------------------------------------------------------
+  var _postSwapHooks = Object.create(null); // { componentName: [fn, ...] }
+
+  function _runPostSwapHooks(name, el) {
+    var hooks = _postSwapHooks[name];
+    if (!hooks) return;
+    for (var i = 0; i < hooks.length; i++) {
+      try { hooks[i](el); } catch (e) { console.warn('[jbs-runtime] post-swap hook error:', e); }
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // ETag store  (in-memory per component name)
   // -------------------------------------------------------------------------
   var _etags = Object.create(null);
@@ -118,6 +135,11 @@
         resp.text().then(function (html) {
           _setPhase(el, 'swapping');
           el.classList.remove('jbs-is-loading');
+          // NOTE: outerHTML replacement is used here for simplicity.
+          // This is a known limitation of this shim – it causes all event listeners
+          // to be lost and requires re-wiring.  The canonical jinja-bootstrap-spa
+          // framework implementation should use a DOM diffing / morphing strategy
+          // (see framework backlog: missing primitive #1 – smart DOM swap).
           el.outerHTML = html;
 
           // Re-resolve the element reference after outerHTML replacement
@@ -131,8 +153,10 @@
             if (window.sobsTimezone && typeof window.sobsTimezone.renderAll === 'function') {
               window.sobsTimezone.renderAll();
             }
-            // Re-wire work-item detail buttons (page-specific)
-            _wireWorkItemDetailButtons(updated);
+            // Invoke registered post-swap hooks for the component (page-specific wiring).
+            // TODO(framework): replace with a generic callback registry once the
+            // canonical jinja-bootstrap-spa package is available.
+            _runPostSwapHooks(name, updated);
           }
         });
       })
@@ -155,27 +179,6 @@
       trigger.addEventListener('click', function (e) {
         e.preventDefault();
         _refreshComponent(root);
-      });
-    });
-  }
-
-  // -------------------------------------------------------------------------
-  // Page-specific: re-wire work-item detail modal buttons after swap
-  // -------------------------------------------------------------------------
-  function _wireWorkItemDetailButtons(root) {
-    root.querySelectorAll('.work-item-detail-btn').forEach(function (btn) {
-      if (btn.dataset.jbsDetailWired) return;
-      btn.dataset.jbsDetailWired = '1';
-      btn.addEventListener('click', function () {
-        if (typeof window.showWorkItemDetail === 'function') {
-          window.showWorkItemDetail(
-            btn.dataset.workItemId || '',
-            btn.dataset.workItemUrl || '',
-            btn.dataset.workItemTitle || '',
-            btn.dataset.workItemAnalysis || '',
-            btn.dataset.workItemSuggestion || ''
-          );
-        }
       });
     });
   }
@@ -229,6 +232,18 @@
     phase: function (name) {
       var el = document.querySelector('[data-jbs-component="' + name + '"]');
       return el ? (el.dataset.jbsPhase || 'idle') : 'unknown';
+    },
+    /**
+     * Register a post-swap hook for a component.
+     * The callback receives the newly-inserted component element after each swap.
+     * Use this to re-wire page-specific event handlers without modifying the runtime.
+     *
+     * @param {string}   name  – value of data-jbs-component
+     * @param {Function} fn    – callback(element) invoked after each successful swap
+     */
+    onSwap: function (name, fn) {
+      if (!_postSwapHooks[name]) _postSwapHooks[name] = [];
+      _postSwapHooks[name].push(fn);
     },
   };
 }());

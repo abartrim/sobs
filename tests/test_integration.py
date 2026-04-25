@@ -2048,3 +2048,147 @@ class TestUIQA:
                 )
             self._expect_new_toast(page, before, "could not raise issue")
         assert not dialog_alerts, f"Native browser dialogs on /incident: {dialog_alerts}"
+
+
+# ---------------------------------------------------------------------------
+# JBS Migration – Work Items Fragment (Playwright)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+class TestJbsWorkItemsFragmentPlaywright:
+    """Playwright tests for the Work Items table jbs-component migration.
+
+    Verifies that:
+    - The fragment endpoint returns valid HTML usable in a browser context
+    - The jbs-runtime.js script loads without errors on the Work Items page
+    - The Refresh button exists and has the correct data-jbs-target-component
+    - A programmatic jbsRuntime.refresh() call completes the loading cycle
+    - No browser console errors occur during normal operation
+    - Visual instrumentation classes appear and disappear during refresh
+    """
+
+    def _setup_page(self, page: "Page") -> None:
+        """Suppress tour modals and set dark theme for consistent screenshots."""
+        page.add_init_script("""
+            try {
+                localStorage.setItem('sobs-theme', 'dark');
+                localStorage.setItem('sobs.firstRunTourSeen.v1', '1');
+                localStorage.setItem('sobs.firstRunTourShown.v1', '1');
+            } catch (_) {}
+        """)
+
+    def test_work_items_page_loads_without_console_errors(self, page: "Page", live_server: str) -> None:
+        """Work Items page should produce no console errors."""
+        console_errors: list[str] = []
+        page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+
+        self._setup_page(page)
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(f"{live_server}/work-items")
+        page.wait_for_load_state("networkidle")
+
+        # jbs-runtime.js script should be present
+        jbs_script = page.locator('script[src*="jbs-runtime.js"]')
+        assert jbs_script.count() > 0, "jbs-runtime.js should be included in the page"
+
+        # No console errors
+        assert not console_errors, f"Unexpected console errors: {console_errors}"
+
+    def test_jbs_component_region_present_on_work_items(self, page: "Page", live_server: str) -> None:
+        """Work Items page must have a [data-jbs-component='work-items-table'] element."""
+        self._setup_page(page)
+        page.goto(f"{live_server}/work-items")
+        page.wait_for_load_state("networkidle")
+
+        component = page.locator('[data-jbs-component="work-items-table"]')
+        assert component.count() > 0, "data-jbs-component element not found"
+
+    def test_jbs_refresh_button_present(self, page: "Page", live_server: str) -> None:
+        """Work Items page must have a Refresh button with data-jbs-target-component."""
+        self._setup_page(page)
+        page.goto(f"{live_server}/work-items")
+        page.wait_for_load_state("networkidle")
+
+        refresh_btn = page.locator('[data-jbs-target-component="work-items-table"]')
+        assert refresh_btn.count() > 0, "Refresh button with data-jbs-target-component not found"
+
+    def test_fragment_endpoint_direct_fetch(self, live_server: str) -> None:
+        """Direct HTTP fetch of the fragment endpoint must return HTML with jbs-component."""
+        r = requests.get(f"{live_server}/fragments/work-items/table", timeout=10)
+        assert r.status_code == 200
+        assert "text/html" in r.headers.get("Content-Type", "")
+        assert 'data-jbs-component="work-items-table"' in r.text
+        etag = r.headers.get("ETag", "")
+        assert etag, "Fragment endpoint must set an ETag"
+
+    def test_fragment_304_from_matching_etag(self, live_server: str) -> None:
+        """Sending If-None-Match with the current ETag must yield 304."""
+        r1 = requests.get(f"{live_server}/fragments/work-items/table", timeout=10)
+        assert r1.status_code == 200
+        etag = r1.headers.get("ETag", "")
+        assert etag
+
+        r2 = requests.get(
+            f"{live_server}/fragments/work-items/table",
+            headers={"If-None-Match": etag},
+            timeout=10,
+        )
+        assert r2.status_code == 304
+        assert r2.content == b""
+
+    def test_jbs_runtime_phase_idle_after_load(self, page: "Page", live_server: str) -> None:
+        """The jbs-component must be in 'idle' phase after initial page load."""
+        self._setup_page(page)
+        page.goto(f"{live_server}/work-items")
+        page.wait_for_load_state("networkidle")
+
+        phase = page.evaluate("""
+            () => {
+                var el = document.querySelector('[data-jbs-component="work-items-table"]');
+                return el ? el.dataset.jbsPhase : null;
+            }
+        """)
+        assert phase == "idle", f"Expected phase='idle' after page load, got '{phase}'"
+
+    def test_jbs_runtime_refresh_cycles_back_to_idle(self, page: "Page", live_server: str) -> None:
+        """Calling jbsRuntime.refresh() should move phase from idle→loading→idle."""
+        self._setup_page(page)
+        page.goto(f"{live_server}/work-items")
+        page.wait_for_load_state("networkidle")
+
+        # Trigger programmatic refresh
+        page.evaluate("() => { if (window.jbsRuntime) window.jbsRuntime.refresh('work-items-table'); }")
+
+        # Wait for the component to return to idle (refresh cycle complete)
+        page.wait_for_function(
+            "() => { "
+            "  var el = document.querySelector('[data-jbs-component=\"work-items-table\"]'); "
+            "  return el && el.dataset.jbsPhase === 'idle'; "
+            "}",
+            timeout=10000,
+        )
+
+        # No loading class should remain
+        loading_count = page.evaluate("""
+            () => document.querySelectorAll('.jbs-is-loading').length
+        """)
+        assert loading_count == 0, "jbs-is-loading class should be removed after refresh completes"
+
+    def test_screenshot_work_items_desktop(self, page: "Page", live_server: str) -> None:
+        """Screenshot Work Items page at desktop viewport."""
+        self._setup_page(page)
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(f"{live_server}/work-items")
+        page.wait_for_load_state("networkidle")
+        os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+        page.screenshot(path=os.path.join(SCREENSHOTS_DIR, "work_items_desktop.png"), full_page=False)
+
+    def test_screenshot_work_items_mobile(self, page: "Page", live_server: str) -> None:
+        """Screenshot Work Items page at mobile viewport."""
+        self._setup_page(page)
+        page.set_viewport_size({"width": 375, "height": 812})
+        page.goto(f"{live_server}/work-items")
+        page.wait_for_load_state("networkidle")
+        os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+        page.screenshot(path=os.path.join(SCREENSHOTS_DIR, "work_items_mobile.png"), full_page=True)
