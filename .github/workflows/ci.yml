@@ -138,6 +138,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -152,13 +154,23 @@ jobs:
             .github/cache-key-runtime.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest pytest-asyncio
+        run: pip install -r requirements.txt pytest pytest-asyncio pytest-cov
 
-      - name: Run unit tests
+      - name: Run unit tests with coverage
         run: |
           echo "SOBS/chDB env snapshot"
           env | sort | grep -E '^(SOBS_|CHDB_)' || true
-          pytest tests --ignore=tests/test_integration.py -x --maxfail=1 -vv
+          pytest tests --ignore=tests/test_integration.py -x --maxfail=1 -vv \
+            --cov=app --cov=masking --cov=mcp \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: coverage.xml
+          if-no-files-found: warn
 
   integration:
     name: Integration Tests

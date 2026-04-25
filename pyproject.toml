@@ -20,6 +20,25 @@ markers = [
     "allow_console_errors: allow expected browser console/page errors for a test (optionally with patterns=...)",
 ]
 
+[tool.coverage.run]
+source = ["app", "masking", "mcp"]
+omit = [
+    "tests/*",
+    "scripts/*",
+    "examples/*",
+    ".venv/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+]
+
 [tool.djlint]
 profile = "jinja"
 extension = "html"

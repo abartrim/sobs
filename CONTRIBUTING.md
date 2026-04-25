@@ -19,6 +19,30 @@ pip install -r requirements.txt -r requirements-integration.txt
 pip install black isort flake8 mypy djlint
 ```
 
+## Coverage
+
+`requirements-integration.txt` includes `pytest-cov` and `diff-cover`.
+
+Run unit tests with a terminal coverage summary and an XML report:
+
+```bash
+pytest tests --ignore=tests/test_integration.py \
+    --cov=app --cov=masking --cov=mcp \
+    --cov-report=term-missing \
+    --cov-report=xml:coverage.xml
+```
+
+To check coverage only on lines changed by the current branch (useful before
+opening a PR):
+
+```bash
+diff-cover coverage.xml --compare-branch=origin/main
+```
+
+`diff-cover` exits non-zero when any changed line is uncovered, so it can gate
+a PR locally in the same way CI does.  Coverage configuration (omit patterns,
+exclusion rules) lives in the `[tool.coverage.*]` sections of `pyproject.toml`.
+
 ## Pre-Commit Hook
 
 This repository ships a version-controlled Git hook at `.githooks/pre-commit`.

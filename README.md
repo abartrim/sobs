@@ -1055,6 +1055,18 @@ pip install -r requirements.txt -r requirements-integration.txt
 pytest tests/
 ```
 
+Run unit tests with a coverage report (terminal + XML):
+
+```bash
+pytest tests --ignore=tests/test_integration.py \
+    --cov=app --cov=masking --cov=mcp \
+    --cov-report=term-missing \
+    --cov-report=xml:coverage.xml
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md#coverage) for more details on local
+coverage workflows and the `diff-cover` changed-lines gate.
+
 ## Running Benchmarks
 
 ```bash
