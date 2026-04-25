@@ -1,0 +1,105 @@
+{#-
+  _work_items_table_fragment.html
+  Fragment template – renders ONLY the Work Items table card.
+  Used by both:
+    • the full page (work_items.html) via {% include %}
+    • the fragment endpoint (/fragments/work-items/table) for partial replacement
+-#}
+<div class="card border-secondary"
+     data-jbs-component="work-items-table"
+     data-jbs-src="{{ url_for('fragment_work_items_table') }}{{ '?' ~ request.query_string.decode() if request.query_string else '' }}"
+     data-jbs-poc-instrumentation="true">
+  {% if items %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0 work-items-mobile-card-table">
+      <thead>
+        <tr>
+          <th>Created</th>
+          <th>Service</th>
+          <th>Signal</th>
+          <th>Anomaly</th>
+          <th>Agent Rule</th>
+          <th style="width:100px;">Action</th>
+          <th style="width:70px;">Issue</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td class="font-monospace small sobs-tz-ts" data-utc-ts="{{ item.created_at }}" data-label="Created">{{ item.created_at[:16] | replace('T', ' ') if item.created_at else '—' }}</td>
+          <td class="small" data-label="Service">{{ item.service }}</td>
+          <td class="small" data-label="Signal">
+            <span class="text-secondary">{{ item.signal_source }}</span>
+            <br>
+            <span class="font-monospace">{{ item.signal_name }}</span>
+          </td>
+          <td class="small" data-label="Anomaly">
+            <span class="badge {% if item.anomaly_state == 'critical' %}bg-danger{% elif item.anomaly_state == 'warning' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+              {{ item.anomaly_state }}
+            </span>
+            <br>
+            <span class="text-secondary small" style="font-size: 0.75rem;">rule: {{ item.anomaly_rule_id[:8] }}</span>
+          </td>
+          <td class="small" data-label="Agent Rule">{{ item.agent_rule_name }}</td>
+          <td class="small" data-label="Action">
+            {% if item.agent_action == 'github_issue_copilot' %}
+            <span class="badge bg-primary"><i class="bi bi-robot me-1"></i>Copilot</span>
+            {% else %}
+            <span class="badge bg-secondary">Issue</span>
+            {% endif %}
+            {% if item.dedup_decision and item.dedup_decision != 'new_issue' %}
+            <br>
+            <span class="badge bg-info text-dark mt-1">{{ item.dedup_decision.replace('_', ' ') }}</span>
+            {% endif %}
+          </td>
+          <td class="small" data-label="Issue">
+            {% if item.issue_url %}
+            <a href="{{ item.issue_url }}" target="_blank" rel="noopener" class="text-decoration-none" title="{{ item.issue_title }}">
+              <i class="bi bi-github me-1"></i>#{{ item.issue_number }}
+            </a>
+            {% if item.copilot_assignment_status and item.agent_action == 'github_issue_copilot' %}
+            <br>
+            <span class="badge {% if item.copilot_assignment_status in ['requested', 'active'] %}bg-success{% elif item.copilot_assignment_status == 'blocked' %}bg-warning text-dark{% elif item.copilot_assignment_status == 'failed' %}bg-danger{% else %}bg-secondary{% endif %} mt-1">
+              {{ item.copilot_assignment_status.replace('_', ' ') }}
+            </span>
+            {% endif %}
+            {% if item.pr_url %}
+            <br>
+            <a href="{{ item.pr_url }}" target="_blank" rel="noopener" class="small text-decoration-none">
+              <i class="bi bi-git"></i> PR #{{ item.pr_number }}
+            </a>
+            {% endif %}
+            {% else %}
+            <span class="text-secondary">—</span>
+            {% endif %}
+          </td>
+          <td class="text-end">
+            <button
+              class="btn btn-sm btn-link py-0 px-1 work-item-detail-btn"
+              data-bs-toggle="modal"
+              data-bs-target="#workItemDetailModal"
+              data-work-item-id="{{ item.id }}"
+              data-work-item-url="{{ item.issue_url }}"
+              data-work-item-title="{{ item.issue_title }}"
+              data-work-item-analysis="{{ item.analysis_summary }}"
+              data-work-item-suggestion="{{ item.suggestion_summary }}">
+              <i class="bi bi-arrow-right"></i>
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="text-center text-secondary py-3">
+    <i class="bi bi-inbox me-1"></i>No work items found
+  </div>
+  {% endif %}
+  <!-- Pagination meta — consumed by the refresh trigger to update count badges -->
+  <div class="d-none" id="work-items-fragment-meta"
+       data-total="{{ total_items }}"
+       data-offset="{{ offset }}"
+       data-limit="{{ limit }}"></div>
+</div>

@@ -21097,3 +21097,223 @@ class TestOnboardingWizard:
         assert status == "requested"
         assert "accepted" in reason.lower() or "requested" in reason.lower()
         assert requested_at > 0
+
+
+# ---------------------------------------------------------------------------
+# JBS Migration – Work Items Fragment Endpoint
+# ---------------------------------------------------------------------------
+
+def _make_work_item_row(unique_id: str, service: str = "test-svc") -> dict:
+    """Build a minimal valid sobs_github_work_items row dict for tests."""
+    now_ts = sobs_app._normalize_ch_timestamp(datetime.now(timezone.utc))
+    return {
+        "Id": unique_id,
+        "CreatedAt": now_ts,
+        "CompletedAt": now_ts,
+        "AgentRunId": f"run-{unique_id}",
+        "AgentRuleId": f"rule-{unique_id}",
+        "AgentRuleName": f"Rule {unique_id}",
+        "AgentAction": "github_issue",
+        "ServiceName": service,
+        "AnomalyRuleId": f"anomaly-{unique_id}",
+        "AnomalyState": "critical",
+        "SignalSource": "metrics",
+        "SignalName": "latency_p95",
+        "SignalValue": 100.0,
+        "GithubRepo": "abartrim/sobs",
+        "DedupKey": f"key-{unique_id}",
+        "DedupDecision": "new_issue",
+        "DedupConfidence": 1.0,
+        "IssueNumber": 1,
+        "IssueUrl": "https://github.com/abartrim/sobs/issues/1",
+        "CanonicalIssueNumber": 1,
+        "CanonicalIssueUrl": "https://github.com/abartrim/sobs/issues/1",
+        "RelatedIssueUrls": "[]",
+        "OccurrenceCount": 1,
+        "IssueState": "open",
+        "IssueTitle": f"Issue {unique_id}",
+        "AnalysisSummary": "Analysis",
+        "SuggestionSummary": "Suggestion",
+        "CopilotAssignmentRequestedAt": 0,
+        "CopilotAssignmentStatus": "not_requested",
+        "CopilotAssignmentReason": "",
+        "PrLinked": 0,
+        "PrNumber": 0,
+        "PrUrl": "",
+        "IsDeleted": 0,
+        "Version": int(time.time() * 1000),
+    }
+
+
+@pytest.mark.asyncio
+class TestJbsWorkItemsFragment:
+    """Tests for the Work Items table fragment endpoint (jinja-bootstrap-spa migration)."""
+
+    async def test_fragment_returns_200_with_html(self, client):
+        """Fragment endpoint returns HTML on initial request."""
+        r = await client.get("/fragments/work-items/table")
+        assert r.status_code == 200
+        ct = r.headers.get("Content-Type", "")
+        assert "text/html" in ct
+
+    async def test_fragment_includes_jbs_component_attribute(self, client):
+        """Fragment HTML includes data-jbs-component so the runtime can track it."""
+        r = await client.get("/fragments/work-items/table")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert 'data-jbs-component="work-items-table"' in text
+
+    async def test_fragment_sets_etag_header(self, client):
+        """Fragment endpoint always sets an ETag header."""
+        r = await client.get("/fragments/work-items/table")
+        assert r.status_code == 200
+        etag = r.headers.get("ETag", "")
+        assert etag, "ETag header must be present"
+        assert etag.startswith('"') and etag.endswith('"'), "ETag must be a quoted string"
+
+    async def test_fragment_sets_cache_control_no_store(self, client):
+        """Fragment must not be cached by CDNs; only ETag re-validation is used."""
+        r = await client.get("/fragments/work-items/table")
+        assert r.status_code == 200
+        cc = r.headers.get("Cache-Control", "")
+        assert "no-store" in cc
+
+    async def test_fragment_returns_304_when_etag_matches(self, client):
+        """When the client sends a matching If-None-Match the server returns 304."""
+        # First request to get the ETag
+        r1 = await client.get("/fragments/work-items/table")
+        assert r1.status_code == 200
+        etag = r1.headers.get("ETag", "")
+        assert etag
+
+        # Second request with matching ETag
+        r2 = await client.get(
+            "/fragments/work-items/table",
+            headers={"If-None-Match": etag},
+        )
+        assert r2.status_code == 304
+        body = (await r2.get_data())
+        assert body == b"", "304 body must be empty"
+
+    async def test_fragment_304_echoes_etag(self, client):
+        """The 304 response still includes the ETag header."""
+        r1 = await client.get("/fragments/work-items/table")
+        etag = r1.headers.get("ETag", "")
+        r2 = await client.get(
+            "/fragments/work-items/table",
+            headers={"If-None-Match": etag},
+        )
+        assert r2.status_code == 304
+        assert r2.headers.get("ETag", "") == etag
+
+    async def test_fragment_returns_200_for_stale_etag(self, client):
+        """A mismatched ETag triggers a full 200 response with new HTML."""
+        r = await client.get(
+            "/fragments/work-items/table",
+            headers={"If-None-Match": '"stale-etag-value-that-wont-match"'},
+        )
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "work-items-table" in text
+
+    async def test_fragment_respects_service_filter(self, client):
+        """Service filter narrows the rows returned in the fragment."""
+        sobs_app._invalidate_work_items_cache()
+        now_ts = sobs_app._normalize_ch_timestamp(datetime.now(timezone.utc))
+        sobs_app._insert_rows_json_each_row(
+            sobs_app.get_db(),
+            "sobs_github_work_items",
+            [
+                _make_work_item_row("frag-svc-a", service="service-alpha"),
+                _make_work_item_row("frag-svc-b", service="service-beta"),
+            ],
+        )
+
+        r = await client.get("/fragments/work-items/table?service=service-alpha")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "service-alpha" in text
+        assert "service-beta" not in text
+
+    async def test_fragment_contains_table_structure(self, client):
+        """Fragment returns a full table when items exist."""
+        sobs_app._invalidate_work_items_cache()
+        sobs_app._insert_rows_json_each_row(
+            sobs_app.get_db(),
+            "sobs_github_work_items",
+            [_make_work_item_row("frag-tbl-1", service="table-test-svc")],
+        )
+
+        r = await client.get("/fragments/work-items/table")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "<table" in text
+        assert "work-items-mobile-card-table" in text
+
+    async def test_fragment_shows_empty_state_when_no_items(self, client):
+        """Fragment renders empty-state placeholder when the result set is empty."""
+        sobs_app._invalidate_work_items_cache()
+        # Use a service filter that will match nothing
+        r = await client.get("/fragments/work-items/table?service=__nonexistent_service__")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "No work items found" in text
+
+    async def test_fragment_includes_jbs_src_attribute(self, client):
+        """Fragment HTML carries data-jbs-src so the runtime knows where to refresh from."""
+        r = await client.get("/fragments/work-items/table")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "data-jbs-src=" in text
+        assert "fragment_work_items_table" in text or "/fragments/work-items/table" in text
+
+    async def test_fragment_preserves_filter_params_in_jbs_src(self, client):
+        """Query params are forwarded in data-jbs-src so refresh re-applies filters."""
+        r = await client.get("/fragments/work-items/table?service=my-svc&status=open")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        # The fragment's data-jbs-src should contain the filter params
+        assert "service=my-svc" in text or "service%3Dmy-svc" in text
+
+    async def test_work_items_page_includes_jbs_component(self, client):
+        """Main Work Items page HTML includes a jbs-component region."""
+        r = await client.get("/work-items")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert 'data-jbs-component="work-items-table"' in text
+
+    async def test_work_items_page_includes_jbs_runtime_script(self, client):
+        """Main page loads jbs-runtime.js."""
+        r = await client.get("/work-items")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert "jbs-runtime.js" in text
+
+    async def test_work_items_page_has_refresh_button(self, client):
+        """Header Refresh button carries data-jbs-target-component for the runtime."""
+        r = await client.get("/work-items")
+        assert r.status_code == 200
+        text = (await r.get_data()).decode()
+        assert 'data-jbs-target-component="work-items-table"' in text
+
+    async def test_fragment_etag_changes_when_data_changes(self, client):
+        """Adding a new work item causes the ETag to change on the next request."""
+        sobs_app._invalidate_work_items_cache()
+
+        r1 = await client.get("/fragments/work-items/table")
+        assert r1.status_code == 200
+        etag1 = r1.headers.get("ETag", "")
+
+        # Insert a new item and invalidate cache so the next query reflects it
+        sobs_app._insert_rows_json_each_row(
+            sobs_app.get_db(),
+            "sobs_github_work_items",
+            [_make_work_item_row("frag-etag-change", service="etag-change-svc")],
+        )
+        sobs_app._invalidate_work_items_cache()
+
+        r2 = await client.get("/fragments/work-items/table")
+        assert r2.status_code == 200
+        etag2 = r2.headers.get("ETag", "")
+
+        assert etag1 != etag2, "ETag must change when the underlying data changes"

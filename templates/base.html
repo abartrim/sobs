@@ -974,6 +974,7 @@
 <script src="{{ url_for('static', filename='date-range-picker.js') }}"></script>
 <script src="{{ url_for('static', filename='sobs-timezone.js') }}"></script>
 <script src="{{ url_for('static', filename='sobs-ansi.js') }}"></script>
+<script src="{{ url_for('static', filename='jbs-runtime.js') }}"></script>
 
 {% if config.get('ENABLE_FIRST_RUN_TOUR', True) and request.endpoint not in ('chart_editor_help', 'metrics_rules_help', 'auto_metrics_rules_help') %}
   {% include "_first_run_tour.html" %}

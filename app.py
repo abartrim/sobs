@@ -18190,6 +18190,129 @@ async def view_work_items():
     )
 
 
+@app.route("/fragments/work-items/table")
+@require_basic_auth
+async def fragment_work_items_table():
+    """Fragment endpoint – returns only the Work Items table HTML card.
+
+    Accepts the same filter query parameters as :func:`view_work_items`.
+
+    Implements ETag / 304 Not Modified so the jbs-runtime can skip DOM
+    replacement when content has not changed since the last fetch.
+
+    Response headers set:
+      ETag         – strong hash of the serialised item list
+      Cache-Control – no-store (fragment must always be re-validated)
+    """
+    db = get_db()
+
+    service_filter = request.args.get("service", "").strip()
+    rule_filter = request.args.get("rule_name", "").strip()
+    action_type_filter = request.args.get("action_type", "").strip()
+    status_filter = request.args.get("status", "").strip()
+    from_ts, to_ts, _time_error = _parse_time_window_args()
+    limit = _parse_limit(100)
+    offset = _parse_offset()
+
+    conditions = ["IsDeleted = 0"]
+    params: list = []
+
+    if service_filter:
+        conditions.append("ServiceName = ?")
+        params.append(service_filter)
+    if rule_filter:
+        conditions.append("AgentRuleName = ?")
+        params.append(rule_filter)
+    if action_type_filter:
+        conditions.append("AgentAction = ?")
+        params.append(action_type_filter)
+    if status_filter:
+        conditions.append("IssueState = ?")
+        params.append(status_filter)
+    if from_ts:
+        conditions.append("CreatedAt >= ?")
+        params.append(from_ts)
+    if to_ts:
+        conditions.append("CreatedAt <= ?")
+        params.append(to_ts)
+
+    where_clause = "WHERE " + " AND ".join(conditions)
+
+    items: list[dict] = []
+    total_items = 0
+    cache_key = (
+        service_filter,
+        rule_filter,
+        action_type_filter,
+        status_filter,
+        str(from_ts or ""),
+        str(to_ts or ""),
+        int(limit),
+        int(offset),
+    )
+    now = time.time()
+
+    try:
+        page_cache_hit = False
+        with _work_items_cache_lock:
+            cached_page = _work_items_page_cache.get(cache_key)
+            if cached_page and float(cached_page.get("expires_at", 0.0)) > now:
+                total_items = int(cached_page.get("total_items", 0))
+                items = list(cached_page.get("items", []))
+                page_cache_hit = True
+
+        if not page_cache_hit:
+            count_row = db.execute(
+                f"SELECT count() AS c FROM sobs_github_work_items FINAL {where_clause}", params
+            ).fetchone()
+            total_items = int(count_row["c"]) if count_row else 0
+
+            rows = db.execute(
+                f"SELECT * FROM sobs_github_work_items FINAL {where_clause} "
+                f"ORDER BY CreatedAt DESC LIMIT {limit} OFFSET {offset}",
+                params,
+            ).fetchall()
+            items = [_serialize_github_work_item_row(r) for r in rows]
+            with _work_items_cache_lock:
+                _work_items_page_cache[cache_key] = {
+                    "total_items": total_items,
+                    "items": items,
+                    "expires_at": now + max(1, WORK_ITEMS_PAGE_CACHE_TTL_SEC),
+                }
+    except Exception as exc:
+        app.logger.warning("Error loading work items fragment: %s", exc)
+        return Response("Internal error", status=500)
+
+    # ---- ETag: hash of the full serialised item list ------------------
+    etag_payload = json.dumps(items, sort_keys=True, default=str)
+    etag_value = '"' + hashlib.sha256(etag_payload.encode()).hexdigest()[:32] + '"'
+
+    if_none_match = request.headers.get("If-None-Match", "")
+    if if_none_match and if_none_match == etag_value:
+        return Response(
+            "",
+            status=304,
+            headers={"ETag": etag_value, "Cache-Control": "no-store"},
+        )
+
+    fragment_html = await render_template(
+        "_work_items_table_fragment.html",
+        items=items,
+        total_items=total_items,
+        limit=limit,
+        offset=offset,
+    )
+    return Response(
+        fragment_html,
+        status=200,
+        headers={
+            "ETag": etag_value,
+            "Cache-Control": "no-store",
+            "Content-Type": "text/html; charset=utf-8",
+        },
+    )
+
+
 @app.route("/api/work-items", methods=["GET"])
 @require_basic_auth
 async def api_get_work_items():
