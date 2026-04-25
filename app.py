@@ -32738,6 +32738,14 @@ curl -sS -X POST "${{SOBS_URL}}/v1/apps/${{SOBS_APP_ID}}/releases" \\
         }}'
 ```
 
+    Best practice requirements for release identity:
+
+    - Use a release `version` that exactly matches deployed runtime identity (for example image tag or Git tag).
+    - Keep `commitSha` and `buildId` immutable per published release.
+        - Propagate the same release identifier into OTEL `service.version` so Sobs can
+            correlate CVEs to observed runtime activity.
+    - For containerized workloads, include image digest/tag in release metadata where available.
+
 ---
 
 ## Step 4 - Upload dependency lockfile metadata
@@ -32769,6 +32777,14 @@ curl -sS -X POST "${{SOBS_URL}}/v1/releases/${{RELEASE_ID}}/artifacts/meta" \\
 Repeat per architecture (for example `pip-freeze-linux-arm64`) to ensure CVE
 tracking reflects what is actually shipped for each target platform.
 
+Dependency capture requirements:
+
+- Derive snapshots from the built/published container image, not from a host-only
+    resolver run.
+- Track per-arch snapshots independently for multi-arch releases.
+- Include provenance fields (`storageRef`, `checksumSha256`, `size`, `platform`,
+  `architecture`) on every dependency artifact.
+
 ---
 
 ## Step 5 - Upload JS source maps (web front-end only)
@@ -32788,6 +32804,11 @@ curl -sS -X POST "${{SOBS_URL}}/v1/releases/${{RELEASE_ID}}/artifacts/meta" \\
         "storageRef": "ci://artifacts/app.min.js.map"
     }}'
 ```
+
+Source map capture requirements:
+
+- Register maps from the same build outputs that were deployed.
+- Include `size` and `checksumSha256` for provenance and troubleshooting.
 
 ---
 
@@ -32812,11 +32833,34 @@ curl -sS -X POST "${{SOBS_URL}}/api/enrichment/cve/scan" \\
 
 ---
 
+## Step 8 - OTEL-linked CVE impact triage
+
+Use CVE results together with OTEL/log evidence to separate:
+
+- **Confirmed impact candidates**: vulnerable package/version appears in release
+    metadata and related services show active OTEL/log usage for that runtime.
+- **Latent exposure**: vulnerable package/version exists in release metadata but no
+    current OTEL/log evidence of active usage.
+
+This lets teams prioritize "must patch now" findings while still tracking latent risk.
+
+Recommended correlation keys:
+
+- `service.name`
+- `service.version` (must match the registered release version)
+- `deployment.environment`
+- release metadata (`version`, `commitSha`, `buildId`, image tag/digest)
+
+---
+
 ## Manual verification checklist
 
 - Confirm first pushed release appears in Sobs
-- Confirm lockfile artifact metadata is visible for the release
-- Confirm CVE findings reflect the expected dependency snapshot
+- Confirm lockfile artifact metadata is visible for each architecture
+- Confirm dependency artifacts include provenance fields (size/checksum/storageRef/platform/architecture)
+- Confirm release version matches OTEL `service.version`
+- Confirm CVE findings reflect the container-derived dependency snapshots
+- Confirm CVE review distinguishes confirmed impact candidates vs latent exposure
 - Confirm polling-only fallback works if CI push or webhook path is blocked
 
 ---
