@@ -86,6 +86,13 @@ jobs:
           test -f static/rum.min.js.map || (echo "rum.min.js.map missing" && exit 1)
           test -f static/rum.js.map   || (echo "rum.js.map missing" && exit 1)
 
+      - name: Upload rum.min.js.map artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: rum-min-js-sourcemap
+          path: static/rum.min.js.map
+          if-no-files-found: error
+
   lint:
     name: Code Style & Linting
     runs-on: ubuntu-latest
@@ -269,7 +276,7 @@ jobs:
   register-sobs-release:
     name: Register SOBS Release Metadata
     runs-on: ubuntu-latest
-    needs: [docker]
+    needs: [docker, rum-build]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
       contents: read
@@ -277,14 +284,26 @@ jobs:
       SOBS_BASE_URL: ${{ secrets.SOBS_URL }}
       SOBS_API_KEY: ${{ secrets.SOBS_INGEST_API_KEY }}
     steps:
+      - name: Determine whether SOBS registration is enabled
+        id: sobs_gate
+        run: |
+          if [[ -z "${SOBS_BASE_URL}" || -z "${SOBS_API_KEY}" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v6
+        if: steps.sobs_gate.outputs.enabled == 'true'
 
       - name: Set up Python
+        if: steps.sobs_gate.outputs.enabled == 'true'
         uses: actions/setup-python@v6
         with:
           python-version: "3.14"
 
       - name: Resolve release version
+        if: steps.sobs_gate.outputs.enabled == 'true'
         id: release_version
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
@@ -293,20 +312,22 @@ jobs:
             echo "value=dev-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
+      - name: Download rum.min.js.map artifact
+        if: steps.sobs_gate.outputs.enabled == 'true'
+        uses: actions/download-artifact@v6
         with:
-          node-version: "22"
-          cache: npm
+          name: rum-min-js-sourcemap
+          path: static
 
-      - name: Install JS dependencies and build rum assets
+      - name: Install Python dependencies and freeze resolved versions
+        if: steps.sobs_gate.outputs.enabled == 'true'
         run: |
-          npm ci
-          npm run build:rum
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip freeze --all > sobs-release-requirements.lock.txt
 
       - name: Register release and artifact metadata
-        if: ${{ env.SOBS_BASE_URL != '' && env.SOBS_API_KEY != '' }}
-        continue-on-error: true
+        if: steps.sobs_gate.outputs.enabled == 'true'
         env:
           SOBS_APP_NAME: sobs
           SOBS_APP_SLUG: sobs
@@ -319,7 +340,7 @@ jobs:
         run: |
           rum_size=$(wc -c < static/rum.min.js.map)
           python scripts/register_release_artifacts.py \
-            --requirements-file requirements.txt \
+            --requirements-file sobs-release-requirements.lock.txt \
             --artifacts-json "[{\"artifactType\":\"js_sourcemap\",\"name\":\"rum.min.js.map\",\"contentType\":\"application/json\",\"size\":${rum_size},\"storageRef\":\"ci://artifacts/rum.min.js.map\"}]"
 
   cleanup-ghcr:
