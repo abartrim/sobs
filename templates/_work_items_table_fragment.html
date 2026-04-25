@@ -28,6 +28,9 @@
         {% for item in items %}
         <tr>
           {% if item.created_at %}
+          {# Timestamps should always be present for valid rows; this guard       #}
+          {# prevents the TZ renderer from receiving an empty data-utc-ts value   #}
+          {# if a row was persisted before the schema migration added CreatedAt.  #}
           <td class="font-monospace small sobs-tz-ts" data-utc-ts="{{ item.created_at }}" data-label="Created">{{ item.created_at[:16] | replace('T', ' ') }}</td>
           {% else %}
           <td class="font-monospace small" data-label="Created">—</td>

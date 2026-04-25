@@ -2157,8 +2157,12 @@ class TestJbsWorkItemsFragmentPlaywright:
         page.goto(f"{live_server}/work-items")
         page.wait_for_load_state("networkidle")
 
+        # Assert the runtime is loaded before testing it
+        runtime_present = page.evaluate("() => typeof window.jbsRuntime !== 'undefined'")
+        assert runtime_present, "window.jbsRuntime must be defined – check that jbs-runtime.js is loaded"
+
         # Trigger programmatic refresh
-        page.evaluate("() => { if (window.jbsRuntime) window.jbsRuntime.refresh('work-items-table'); }")
+        page.evaluate("() => window.jbsRuntime.refresh('work-items-table')")
 
         # Wait for the component to return to idle (refresh cycle complete)
         page.wait_for_function(

@@ -137,8 +137,10 @@
           el.classList.remove('jbs-is-loading');
           // NOTE: outerHTML replacement is used here for simplicity.
           // This is a known limitation of this shim – it causes all event listeners
-          // to be lost and requires re-wiring.  The canonical jinja-bootstrap-spa
-          // framework implementation should use a DOM diffing / morphing strategy
+          // to be lost and requires re-wiring.  It also invalidates any cached
+          // references to `el` held by other code – callers must re-query the DOM
+          // after a swap.  The canonical jinja-bootstrap-spa framework
+          // implementation should use a DOM diffing / morphing strategy
           // (see framework backlog: missing primitive #1 – smart DOM swap).
           el.outerHTML = html;
 

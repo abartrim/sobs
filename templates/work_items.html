@@ -146,6 +146,10 @@ function toSafeGithubIssueUrl(raw) {
   }
 }
 
+// Exposed on window so it is accessible after outerHTML fragment swaps destroy
+// the original function scope.  This is a temporary workaround; once the
+// framework implements smart DOM morphing (no full-element replacement), this
+// function can be scoped locally again.
 window.showWorkItemDetail = function showWorkItemDetail(id, issueUrl, issueTitle, analysis, suggestion) {
   document.getElementById('workItemTitle').textContent = issueTitle;
   document.getElementById('workItemAnalysis').textContent = analysis || '(no analysis)';
