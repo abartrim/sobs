@@ -5443,6 +5443,14 @@ class TestBasePathSupport:
         assert b'href="/sobs/errors"' in await r.get_data()
         assert b'src="/sobs/static/bootstrap.bundle.min.js"' in await r.get_data()
 
+    async def test_forwarded_prefix_ai_page_uses_prefixed_api_urls(self, client):
+        """AI page JS should call prefixed API routes when deployed behind a forwarded path prefix."""
+        r = await client.get("/ai", headers={"X-Forwarded-Prefix": "/sobs"})
+        assert r.status_code == 200
+        body = await r.get_data()
+        assert b'var AI_CONVERSATION_URL = "/sobs/api/ai/conversation";' in body
+        assert b'var AI_SPAN_ATTRIBUTES_URL = "/sobs/api/ai/span-attributes";' in body
+
 
 # ---------------------------------------------------------------------------
 # Basic Auth

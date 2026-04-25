@@ -1031,6 +1031,8 @@ initAiErrorTips(document);
 
 var AI_PAGE_FROM_TS = {{ from_ts | tojson }};
 var AI_PAGE_TO_TS = {{ to_ts | tojson }};
+var AI_CONVERSATION_URL = {{ url_for('get_ai_conversation') | tojson }};
+var AI_SPAN_ATTRIBUTES_URL = {{ url_for('get_ai_span_attributes') | tojson }};
 
 document.addEventListener('show.bs.collapse', function(ev) {
   var target = ev.target;
@@ -1042,7 +1044,7 @@ document.addEventListener('show.bs.collapse', function(ev) {
   var service = lazy.getAttribute('data-conv-service') || '';
   var traceId = lazy.getAttribute('data-conv-trace-id') || '';
   var spanName = lazy.getAttribute('data-conv-span-name') || '';
-  var url = '/api/ai/conversation?ts=' + encodeURIComponent(ts) + '&service=' + encodeURIComponent(service);
+  var url = AI_CONVERSATION_URL + '?ts=' + encodeURIComponent(ts) + '&service=' + encodeURIComponent(service);
   if (traceId) url += '&trace_id=' + encodeURIComponent(traceId);
   if (spanName) url += '&span_name=' + encodeURIComponent(spanName);
   if (AI_PAGE_FROM_TS) url += '&from_ts=' + encodeURIComponent(AI_PAGE_FROM_TS);
@@ -1227,7 +1229,7 @@ function loadAiRawAttrs(btn, preId, copyBtnId, ts, service, traceId, spanName) {
     btn.innerHTML = '<i class="bi bi-download me-1"></i>Loading';
   }
 
-  fetch('/api/ai/span-attributes?' + params.toString(), { credentials: 'same-origin' })
+  fetch(AI_SPAN_ATTRIBUTES_URL + '?' + params.toString(), { credentials: 'same-origin' })
     .then(function(resp) { return resp.json(); })
     .then(function(payload) {
       if (!payload || !payload.ok) {
