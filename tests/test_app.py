@@ -617,6 +617,226 @@ class TestHealth:
         assert isinstance(data["write_queue_depth"], int)
 
 
+# ---------------------------------------------------------------------------
+# OTLP CORS behaviour
+# ---------------------------------------------------------------------------
+class TestOtlpCors:
+    """Tests for CORS header injection on OTLP/RUM ingest endpoints."""
+
+    # ------------------------------------------------------------------ helpers
+    def _allowed_origin(self):
+        return "http://localhost:3000"
+
+    def _disallowed_origin(self):
+        return "https://evil.example.com"
+
+    # ------------------------------------------------------------------ _origin_allowed_for_otlp unit tests
+    def test_origin_allowed_for_otlp_with_wildcard_port(self, monkeypatch):
+        monkeypatch.setattr(
+            sobs_app,
+            "_OTLP_CORS_ALLOWED_ORIGINS",
+            ("http://localhost:*",),
+        )
+        assert sobs_app._origin_allowed_for_otlp("http://localhost:3000") is True
+
+    def test_origin_allowed_for_otlp_rejects_disallowed_origin(self, monkeypatch):
+        monkeypatch.setattr(
+            sobs_app,
+            "_OTLP_CORS_ALLOWED_ORIGINS",
+            ("http://localhost:*",),
+        )
+        assert sobs_app._origin_allowed_for_otlp("https://evil.example.com") is False
+
+    def test_pattern_without_port_does_not_match_origin_with_nondefault_port(self, monkeypatch):
+        """A pattern like 'https://example.com' must NOT match 'https://example.com:8443'."""
+        monkeypatch.setattr(
+            sobs_app,
+            "_OTLP_CORS_ALLOWED_ORIGINS",
+            ("https://example.com",),
+        )
+        assert sobs_app._origin_allowed_for_otlp("https://example.com:8443") is False
+
+    def test_pattern_without_port_matches_origin_without_port(self, monkeypatch):
+        monkeypatch.setattr(
+            sobs_app,
+            "_OTLP_CORS_ALLOWED_ORIGINS",
+            ("https://example.com",),
+        )
+        assert sobs_app._origin_allowed_for_otlp("https://example.com") is True
+
+    def test_pattern_without_port_matches_origin_with_default_port(self, monkeypatch):
+        """https://example.com should match https://example.com:443 (default port)."""
+        monkeypatch.setattr(
+            sobs_app,
+            "_OTLP_CORS_ALLOWED_ORIGINS",
+            ("https://example.com",),
+        )
+        assert sobs_app._origin_allowed_for_otlp("https://example.com:443") is True
+
+    def test_origin_allowed_for_otlp_rejects_invalid_origin(self, monkeypatch):
+        monkeypatch.setattr(
+            sobs_app,
+            "_OTLP_CORS_ALLOWED_ORIGINS",
+            ("http://localhost:*",),
+        )
+        assert sobs_app._origin_allowed_for_otlp("not-an-origin") is False
+        assert sobs_app._origin_allowed_for_otlp("") is False
+
+    def test_origin_allowed_for_otlp_rejects_invalid_port(self, monkeypatch):
+        monkeypatch.setattr(
+            sobs_app,
+            "_OTLP_CORS_ALLOWED_ORIGINS",
+            ("https://example.com",),
+        )
+        assert sobs_app._origin_allowed_for_otlp("https://example.com:abc") is False
+
+    # ------------------------------------------------------------------ _append_vary_header unit tests
+    def test_append_vary_case_insensitive_dedup(self):
+        from quart.wrappers import Response as QuartResponse
+
+        resp = QuartResponse("")
+        sobs_app._append_vary_header(resp, "Origin")
+        # Adding 'origin' (different case) should not duplicate.
+        sobs_app._append_vary_header(resp, "origin")
+        vary = resp.headers.get("Vary", "")
+        # There should be exactly one "Origin"-like token.
+        tokens = [t.strip() for t in vary.split(",") if t.strip()]
+        assert len(tokens) == 1
+
+    # ------------------------------------------------------------------ CORS headers on ingest routes
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/v1/logs",
+            "/v1/traces",
+            "/v1/metrics",
+            "/v1/rum",
+            "/v1/errors",
+            "/v1/ai",
+        ],
+    )
+    async def test_allowed_origin_gets_cors_headers(self, client, monkeypatch, path):
+        monkeypatch.setattr(
+            sobs_app,
+            "_OTLP_CORS_ALLOWED_ORIGINS",
+            ("http://localhost:*",),
+        )
+        r = await client.post(
+            path,
+            json={},
+            headers={"Origin": self._allowed_origin()},
+        )
+        assert r.headers.get("Access-Control-Allow-Origin") == self._allowed_origin()
+        assert r.headers.get("Access-Control-Allow-Credentials") == "true"
+        assert "Origin" in (r.headers.get("Vary") or "")
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/v1/logs",
+            "/v1/traces",
+            "/v1/metrics",
+            "/v1/rum",
+        ],
+    )
+    async def test_disallowed_origin_gets_no_cors_headers(self, client, monkeypatch, path):
+        monkeypatch.setattr(
+            sobs_app,
+            "_OTLP_CORS_ALLOWED_ORIGINS",
+            ("http://localhost:*",),
+        )
+        r = await client.post(
+            path,
+            json={},
+            headers={"Origin": self._disallowed_origin()},
+        )
+        assert "Access-Control-Allow-Origin" not in r.headers
+        assert "Access-Control-Allow-Credentials" not in r.headers
+
+    async def test_options_preflight_with_api_key_header(self, client, monkeypatch):
+        """OPTIONS preflight including X-API-Key must succeed for an allowed origin."""
+        monkeypatch.setattr(
+            sobs_app,
+            "_OTLP_CORS_ALLOWED_ORIGINS",
+            ("http://localhost:*",),
+        )
+        r = await client.options(
+            "/v1/logs",
+            headers={
+                "Origin": self._allowed_origin(),
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "Content-Type, X-API-Key",
+            },
+        )
+        assert r.status_code == 204
+        assert r.headers.get("Access-Control-Allow-Origin") == self._allowed_origin()
+        allow_headers = r.headers.get("Access-Control-Allow-Headers", "")
+        assert "X-API-Key" in allow_headers
+
+    async def test_options_preflight_with_asset_signature_headers(self, client, monkeypatch):
+        """OPTIONS preflight including asset signature headers must succeed for an allowed origin."""
+        monkeypatch.setattr(
+            sobs_app,
+            "_OTLP_CORS_ALLOWED_ORIGINS",
+            ("http://localhost:*",),
+        )
+        r = await client.options(
+            "/v1/rum/assets",
+            headers={
+                "Origin": self._allowed_origin(),
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "Content-Type, X-SOBS-Asset-Timestamp, X-SOBS-Asset-Signature",
+            },
+        )
+        assert r.status_code == 204
+        assert r.headers.get("Access-Control-Allow-Origin") == self._allowed_origin()
+        allow_headers = r.headers.get("Access-Control-Allow-Headers", "")
+        assert "X-SOBS-Asset-Timestamp" in allow_headers
+        assert "X-SOBS-Asset-Signature" in allow_headers
+
+    async def test_options_preflight_for_dynamic_asset_get(self, client, monkeypatch):
+        """Dynamic asset GET preflight should advertise GET/HEAD support."""
+        monkeypatch.setattr(
+            sobs_app,
+            "_OTLP_CORS_ALLOWED_ORIGINS",
+            ("http://localhost:*",),
+        )
+        r = await client.options(
+            "/v1/rum/assets/test-id",
+            headers={
+                "Origin": self._allowed_origin(),
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "Authorization",
+            },
+        )
+        assert r.status_code in {200, 204}
+        assert r.headers.get("Access-Control-Allow-Origin") == self._allowed_origin()
+        allow_methods = r.headers.get("Access-Control-Allow-Methods", "")
+        assert "GET" in allow_methods
+        assert "OPTIONS" in allow_methods
+
+    # ------------------------------------------------------------------ CORS NOT applied to non-ingest routes
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/v1/apps",
+            "/v1/releases/fake-id",
+        ],
+    )
+    async def test_non_ingest_routes_do_not_get_cors_headers(self, client, monkeypatch, path):
+        """Management API routes must not receive CORS headers even when the origin is allowed."""
+        monkeypatch.setattr(
+            sobs_app,
+            "_OTLP_CORS_ALLOWED_ORIGINS",
+            ("http://localhost:*",),
+        )
+        r = await client.get(
+            path,
+            headers={"Origin": self._allowed_origin()},
+        )
+        assert "Access-Control-Allow-Origin" not in r.headers
+
+
 class TestWriteQueue:
     @pytest.mark.parametrize(
         ("path", "payload"),
@@ -1507,6 +1727,7 @@ class TestErrorsIngest:
         assert "data-err-service" in body
         assert "raiseIssueModal" in body  # Bootstrap modal replaces window.confirm
         assert "window.confirm" not in body
+        assert "raiseIssueAdditionalContext" in body  # additional context textarea
 
     async def test_errors_page_raise_issue_mask_toggle_is_disabled_when_global_masking_enabled(self, client):
         db = sobs_app.get_db()
@@ -13063,9 +13284,151 @@ class TestAISettingsAndAgentFlows:
         assert "resource not accessible" in str(data["error"]).lower()
         assert data["run_id"] == "run-user-raise-403"
 
+    async def test_raise_user_issue_propagates_additional_context(self, client, monkeypatch):
+        """additional_context from the request payload is included in the trigger context extra."""
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://analysis.example.com/v1")
+        _save_ai_setting(db, "ai.model", "analysis-model")
+
+        captured: dict[str, object] = {}
+
+        async def _fake_run_agent_rule_instance(db_arg, rule, settings, trigger_context):
+            captured["trigger_context"] = trigger_context
+            return {
+                "ok": True,
+                "run_id": "run-user-raise-ctx",
+                "result": {
+                    "status": "completed",
+                    "github_issue_url": "https://github.com/acme/demo/issues/55",
+                    "dedup_decision": "new_issue",
+                },
+            }
+
+        monkeypatch.setattr(sobs_app, "_run_agent_rule_instance", _fake_run_agent_rule_instance)
+        monkeypatch.setattr(
+            sobs_app, "_resolve_agent_github_target", lambda *_args, **_kwargs: ("acme/demo", "ghp-test")
+        )
+
+        r = await client.post(
+            "/api/issues/raise",
+            json={
+                "source_page": "errors",
+                "service": "checkout-api",
+                "err_type": "RuntimeError",
+                "message": "something broke",
+                "error_id": "err-ctx-1",
+                "additional_context": "Happened right after we deployed version 2.3.1.",
+            },
+        )
+        assert r.status_code == 200
+
+        trigger = captured["trigger_context"]
+        assert isinstance(trigger, dict)
+        extra = trigger.get("extra")
+        assert isinstance(extra, dict)
+        assert extra.get("additional_context") == "Happened right after we deployed version 2.3.1."
+
+    async def test_raise_user_issue_additional_context_truncated_at_2000_chars(self, client, monkeypatch):
+        """additional_context is silently truncated to 2000 characters."""
+        from app import _save_ai_setting, get_db
+
+        db = get_db()
+        _save_ai_setting(db, "ai.endpoint_url", "https://analysis.example.com/v1")
+        _save_ai_setting(db, "ai.model", "analysis-model")
+
+        captured: dict[str, object] = {}
+
+        async def _fake_run_agent_rule_instance(db_arg, rule, settings, trigger_context):
+            captured["trigger_context"] = trigger_context
+            return {
+                "ok": True,
+                "run_id": "run-user-raise-trunc",
+                "result": {
+                    "status": "completed",
+                    "github_issue_url": "https://github.com/acme/demo/issues/56",
+                    "dedup_decision": "new_issue",
+                },
+            }
+
+        monkeypatch.setattr(sobs_app, "_run_agent_rule_instance", _fake_run_agent_rule_instance)
+        monkeypatch.setattr(
+            sobs_app, "_resolve_agent_github_target", lambda *_args, **_kwargs: ("acme/demo", "ghp-test")
+        )
+
+        long_context = "x" * 3000
+        r = await client.post(
+            "/api/issues/raise",
+            json={
+                "source_page": "errors",
+                "service": "checkout-api",
+                "err_type": "RuntimeError",
+                "message": "something broke",
+                "error_id": "err-trunc-1",
+                "additional_context": long_context,
+            },
+        )
+        assert r.status_code == 200
+
+        extra = captured["trigger_context"]["extra"]
+        assert len(extra.get("additional_context", "")) == 2000
+
     async def test_dismiss_agent_run_not_found(self, client):
         r = await client.post("/api/agent/runs/nonexistent-run-id/dismiss")
         assert r.status_code == 404
+
+    # ── Noise/Impact response parsing ─────────────────────────────────────────
+
+    def test_noise_or_impact_header_stripped_from_analysis(self, monkeypatch):
+        """NOISE_OR_IMPACT: header must not leak into the analysis field."""
+        import asyncio
+
+        import app as sobs_app
+
+        db = sobs_app.get_db()
+
+        llm_reply = (
+            "NOISE_OR_IMPACT: NOISE\n"
+            "ROOT CAUSE: The error is a transient network blip.\n"
+            "SUGGESTED FIX: Add retry logic."
+        )
+
+        async def _fake_call_llm(*args, **kwargs):
+            return llm_reply, {}
+
+        monkeypatch.setattr(sobs_app, "_call_llm_endpoint", _fake_call_llm)
+
+        rule = {
+            "id": "test-rule",
+            "name": "Test Rule",
+            "actions": ["analyze"],
+            "rate_limit_minutes": 0,
+        }
+        settings = {
+            "ai.endpoint_url": "https://ai.example.com/v1",
+            "ai.model": "gpt-test",
+            "ai.api_key": "",
+        }
+        trigger_context = {
+            "rule_name": "Test Rule",
+            "trigger_state": "critical",
+            "trigger_type": "manual",
+            "trigger_ref_id": "err-1",
+            "service": "svc",
+            "extra": {"service": "svc", "err_type": "TestError", "message": "oops"},
+        }
+
+        async def _fake_check_guard(settings_arg, context, _hint):
+            return True, "", {}
+
+        monkeypatch.setattr(sobs_app, "_check_guard_model", _fake_check_guard)
+
+        run_id = "test-run-noise-strip"
+        result = asyncio.run(sobs_app._run_agent_flow(db, rule, settings, trigger_context, run_id))
+        analysis = result.get("analysis", "")
+        assert "NOISE_OR_IMPACT" not in analysis
+        assert "transient network blip" in analysis
 
     # ── Heuristic guard checks ────────────────────────────────────────────────
 
@@ -19855,6 +20218,88 @@ class TestIncidentView:
         assert ctx["extra"]["source_page"] == "incident"
         assert ctx["extra"]["source"] == "incident"
         assert ctx["extra"]["message"] == "packet summary"
+
+    def test_issue_trigger_context_includes_additional_context(self):
+        """additional_context from the payload is stored in extra and truncated."""
+        payload = {
+            "service": "svc",
+            "err_type": "SomeError",
+            "message": "oops",
+            "additional_context": "deployed v1.2 ten minutes ago",
+        }
+        ctx = sobs_app._build_user_issue_trigger_context("errors", payload)
+        assert ctx["extra"]["additional_context"] == "deployed v1.2 ten minutes ago"
+
+    def test_issue_trigger_context_additional_context_truncated(self):
+        """additional_context longer than 2000 chars is silently truncated."""
+        payload = {
+            "service": "svc",
+            "err_type": "SomeError",
+            "message": "oops",
+            "additional_context": "a" * 3000,
+        }
+        ctx = sobs_app._build_user_issue_trigger_context("errors", payload)
+        assert len(ctx["extra"]["additional_context"]) == 2000
+
+    def test_build_agent_context_summary_includes_additional_context(self):
+        """_build_agent_context_summary should emit user-provided additional context."""
+        trigger_context = {
+            "rule_name": "test-rule",
+            "trigger_state": "critical",
+            "extra": {
+                "service": "ctx-svc",
+                "err_type": "TestError",
+                "additional_context": "This started after the database failover.",
+            },
+        }
+        db = sobs_app.get_db()
+        summary = sobs_app._build_agent_context_summary(db, trigger_context)
+        assert "This started after the database failover." in summary
+        assert "User-provided context" in summary
+
+    def test_build_agent_context_summary_noise_indicator_low(self):
+        """Low-recurrence events should be marked as LOW noise indicator in the summary."""
+        trigger_context = {
+            "rule_name": "test-rule",
+            "trigger_state": "critical",
+            "extra": {
+                "service": "no-such-service-xyz-unique",
+                "err_type": "NoSuchErrorXyzUnique",
+            },
+        }
+        db = sobs_app.get_db()
+        summary = sobs_app._build_agent_context_summary(db, trigger_context)
+        # No matching rows → count 0 → LOW recurrence
+        assert "Event frequency" in summary
+        assert "LOW recurrence" in summary
+
+    def test_build_agent_context_summary_no_frequency_without_err_type(self):
+        """Frequency section is omitted when err_type is missing (avoids misleading broad counts)."""
+        trigger_context = {
+            "rule_name": "test-rule",
+            "trigger_state": "critical",
+            "extra": {
+                "service": "some-service",
+                # no err_type
+            },
+        }
+        db = sobs_app.get_db()
+        summary = sobs_app._build_agent_context_summary(db, trigger_context)
+        assert "Event frequency" not in summary
+
+    def test_build_agent_context_summary_no_frequency_without_service(self):
+        """Frequency section is omitted when service is missing (avoids unscoped table scan)."""
+        trigger_context = {
+            "rule_name": "test-rule",
+            "trigger_state": "critical",
+            "extra": {
+                "err_type": "SomeError",
+                # no service
+            },
+        }
+        db = sobs_app.get_db()
+        summary = sobs_app._build_agent_context_summary(db, trigger_context)
+        assert "Event frequency" not in summary
 
 
 class TestSetupWizard:

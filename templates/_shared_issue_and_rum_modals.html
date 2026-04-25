@@ -74,6 +74,15 @@
           </label>
           <div class="form-text">Copilot will be formally assigned to suggest a fix if no active work already exists.</div>
         </div>
+        <div class="mb-3 mt-3">
+          <label for="raiseIssueAdditionalContext" class="form-label small text-secondary mb-1">
+            Additional context <span class="text-muted">(optional)</span>
+          </label>
+          <textarea class="form-control form-control-sm" id="raiseIssueAdditionalContext" rows="3"
+                    placeholder="Describe what you were doing, any recent changes, or other context that may help analyze this issue…"
+                    maxlength="2000"></textarea>
+          <div class="form-text">This context is included in the LLM prompt and the generated GitHub issue.</div>
+        </div>
         <div class="form-check mt-2">
           {% set _mask_toggle_effective = raise_issue_mask_toggle_effective|default(false) %}
           <input class="form-check-input" type="checkbox" id="raiseIssueMaskOutput" checked {% if not _mask_toggle_effective %}disabled{% endif %}>
@@ -250,6 +259,8 @@
         document.getElementById('raiseIssueType').textContent = btn.dataset.errType || '';
         document.getElementById('raiseIssueMessage').textContent = btn.dataset.errMessage || '';
         document.getElementById('raiseIssueCopilot').checked = false;
+        var additionalContextEl = document.getElementById('raiseIssueAdditionalContext');
+        if (additionalContextEl) additionalContextEl.value = '';
         if (maskOutputEl) maskOutputEl.checked = true;
         confirmBtn.innerHTML = '<i class="bi bi-github me-1"></i>Raise Issue';
         confirmBtn.disabled = false;
@@ -262,6 +273,8 @@
       var btn = activeBtn;
       var assignCopilot = document.getElementById('raiseIssueCopilot').checked;
       var maskOutput = !maskOutputEl || maskOutputEl.disabled ? true : !!maskOutputEl.checked;
+      var additionalContextEl = document.getElementById('raiseIssueAdditionalContext');
+      var additionalContext = additionalContextEl ? String(additionalContextEl.value || '').trim() : '';
       modal.hide();
 
       var stackEl = document.getElementById(stackIdPrefix + (btn.dataset.errId || ''));
@@ -270,6 +283,7 @@
         source_page: sourcePage,
         assign_copilot: assignCopilot,
         mask_output: maskOutput,
+        additional_context: additionalContext,
         service: btn.dataset.errService || '',
         err_type: btn.dataset.errType || '',
         message: btn.dataset.errMessage || '',

@@ -92,6 +92,13 @@ _MCP_API_KEYS_SETTING = "mcp.api_keys"
 _MCP_ENABLED_SETTING = "mcp.enabled"
 _MCP_API_KEY_MAX = 20  # maximum number of concurrent keys
 
+# ---------------------------------------------------------------------------
+# MCP server identity – shared by GET probe and POST initialize handlers
+# ---------------------------------------------------------------------------
+_MCP_PROTOCOL_VERSION = "2024-11-05"
+_MCP_SERVER_INFO: dict[str, str] = {"name": "sobs-mcp", "version": "1.0"}
+_MCP_CAPABILITIES: dict[str, Any] = {"tools": {}}
+
 
 def _mcp_mac_key() -> bytes:
     """Return a per-installation 32-byte key derived from ``SOBS_SECRET_KEY``.
@@ -912,6 +919,44 @@ async def mcp_list_tools():
     )
 
 
+@mcp_bp.route("/mcp", methods=["GET"])
+async def mcp_endpoint_get():
+    """
+    GET /mcp – MCP transport compatibility probe.
+
+    Per the MCP Streamable HTTP transport specification, clients (including
+    VS Code) may send a ``GET`` request to the endpoint before establishing
+    a session.  Returning ``405`` here breaks those clients even when the
+    ``POST`` endpoint works correctly.
+
+    This handler returns a lightweight ``200 OK`` response with the server
+    capability descriptor so that clients can discover the server without
+    starting a full JSON-RPC session.  No authentication is required.
+    """
+    from app import get_db  # noqa: PLC0415
+
+    db = get_db()
+    if not _mcp_enabled(db):
+        return (
+            jsonify(
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32001, "message": "MCP server is disabled."},
+                }
+            ),
+            503,
+        )
+
+    return jsonify(
+        {
+            "protocolVersion": _MCP_PROTOCOL_VERSION,
+            "capabilities": _MCP_CAPABILITIES,
+            "serverInfo": _MCP_SERVER_INFO,
+        }
+    )
+
+
 @mcp_bp.route("/mcp", methods=["POST"])
 async def mcp_endpoint():
     """
@@ -978,9 +1023,9 @@ async def mcp_endpoint():
                 "jsonrpc": "2.0",
                 "id": req_id,
                 "result": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "sobs-mcp", "version": "1.0"},
+                    "protocolVersion": _MCP_PROTOCOL_VERSION,
+                    "capabilities": _MCP_CAPABILITIES,
+                    "serverInfo": _MCP_SERVER_INFO,
                 },
             }
         )

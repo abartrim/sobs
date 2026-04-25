@@ -10,6 +10,7 @@ import atexit
 import base64
 import copy
 import difflib
+import fnmatch
 import hashlib
 import hmac
 import html
@@ -33,7 +34,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache, wraps
-from typing import Any, Callable, cast
+from typing import Any, Callable, cast, overload
 
 import chdb.dbapi as chdb_driver
 import httpx
@@ -354,6 +355,94 @@ def _request_is_secure_context() -> bool:
     return str(request.scheme or "").lower() == "https"
 
 
+_OTLP_CORS_ALLOWED_ORIGINS = tuple(
+    item.strip()
+    for item in os.environ.get(
+        "SOBS_OTLP_CORS_ALLOWED_ORIGINS",
+        "http://localhost:*,https://localhost:*,http://127.0.0.1:*,https://127.0.0.1:*",
+    ).split(",")
+    if item.strip()
+)
+
+# Exact paths that are OTLP/RUM ingest endpoints exposed to browsers.
+# CORS is applied only to these paths, NOT to management API routes like
+# /v1/apps or /v1/releases which are not intended for browser cross-origin use.
+_OTLP_CORS_INGEST_PATHS = frozenset(
+    {
+        "/v1/logs",
+        "/v1/traces",
+        "/v1/metrics",
+        "/v1/rum",
+        "/v1/rum/assets",
+        "/v1/rum/client-token",
+        "/v1/errors",
+        "/v1/ai",
+    }
+)
+
+# Default ports per scheme – used to normalise origins for matching.
+_SCHEME_DEFAULT_PORTS: dict[str, int] = {"http": 80, "https": 443}
+
+
+def _origin_allowed_for_otlp(origin: str) -> bool:
+    parsed = urllib.parse.urlparse(origin)
+    scheme = (parsed.scheme or "").lower()
+    host = (parsed.hostname or "").lower()
+    netloc = (parsed.netloc or "").lower()
+    if scheme not in {"http", "https"} or not netloc:
+        return False
+
+    with_port = f"{scheme}://{netloc}"
+    # Include the port-stripped form only when the origin carries no explicit
+    # port or uses the scheme default (e.g. https://example.com:443 →
+    # https://example.com).  Non-default ports must be matched explicitly so
+    # that a pattern like "https://example.com" does not accidentally allow
+    # "https://example.com:8443".
+    candidates: list[str] = [with_port]
+    try:
+        parsed_port = parsed.port
+    except ValueError:
+        return False
+    if parsed_port is None or parsed_port == _SCHEME_DEFAULT_PORTS.get(scheme):
+        without_port = f"{scheme}://{host}" if host else with_port
+        if without_port != with_port:
+            candidates.append(without_port)
+    for pattern in _OTLP_CORS_ALLOWED_ORIGINS:
+        p = pattern.lower()
+        if any(fnmatch.fnmatch(c, p) for c in candidates):
+            return True
+    return False
+
+
+def _path_needs_otlp_cors(path: str) -> bool:
+    """Return True if *path* is an OTLP/RUM ingest endpoint that may receive
+    browser cross-origin requests."""
+    if path in _OTLP_CORS_INGEST_PATHS:
+        return True
+    # Dynamic sub-paths under /v1/rum/assets/ (individual asset downloads).
+    if path.startswith("/v1/rum/assets/"):
+        return True
+    return False
+
+
+def _otlp_cors_allow_methods(path: str) -> str:
+    """Return allowed methods for CORS preflight on OTLP/RUM endpoints."""
+    if path.startswith("/v1/rum/assets/"):
+        return "GET, HEAD, OPTIONS"
+    return "POST, OPTIONS"
+
+
+def _append_vary_header(response: Response, value: str) -> None:
+    existing = str(response.headers.get("Vary") or "")
+    if not existing:
+        response.headers["Vary"] = value
+        return
+    parts = [p.strip() for p in existing.split(",") if p.strip()]
+    # Vary tokens are case-insensitive; compare in lower-case to avoid dupes.
+    if value.lower() not in {p.lower() for p in parts}:
+        response.headers["Vary"] = ", ".join(parts + [value])
+
+
 @app.after_request
 async def _apply_security_headers(response: Response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -363,6 +452,24 @@ async def _apply_security_headers(response: Response):
     response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'self'; object-src 'none'; base-uri 'self'")
     if _request_is_secure_context():
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+
+    if _path_needs_otlp_cors(request.path):
+        origin = str(request.headers.get("Origin") or "").strip()
+        if origin and _origin_allowed_for_otlp(origin):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            _append_vary_header(response, "Origin")
+            response.headers.setdefault("Access-Control-Allow-Credentials", "true")
+            response.headers.setdefault("Access-Control-Allow-Methods", _otlp_cors_allow_methods(request.path))
+            response.headers.setdefault(
+                "Access-Control-Allow-Headers",
+                (
+                    "Content-Type, Authorization, X-API-Key, "
+                    "X-SOBS-RUM-Client, X-SOBS-RUM-Signature, X-SOBS-RUM-Timestamp, "
+                    "X-SOBS-Asset-Timestamp, X-SOBS-Asset-Signature"
+                ),
+            )
+            response.headers.setdefault("Access-Control-Max-Age", "600")
+
     return response
 
 
@@ -6477,7 +6584,52 @@ def _build_agent_context_summary(db: ChDbConnection, trigger_context: dict) -> s
     trigger_state = trigger_context.get("trigger_state", "")
     lines.append(f"Triggered by: {rule_name} ({trigger_state})")
 
-    # Recent errors
+    # Additional context from trigger (user-provided or automated)
+    extra = trigger_context.get("extra", "")
+    extra_dict: dict[str, Any] = {}
+    if isinstance(extra, dict):
+        extra_dict = extra
+    elif extra:
+        extra_dict = _safe_json_loads(str(extra), {})
+
+    additional_context = str(extra_dict.get("additional_context") or "").strip()
+    if additional_context:
+        lines.append(f"\nUser-provided context: {additional_context}")
+
+    # Event frequency / noise analysis — only when we have enough scope (service + err_type).
+    # Without both, the counts would represent "all errors for this service" which is too
+    # broad to be a meaningful noise indicator and can mislead the LLM.
+    service = str(extra_dict.get("service") or trigger_context.get("service") or "").strip()
+    err_type = str(extra_dict.get("err_type") or "").strip()
+    if service and err_type:
+        try:
+            # Single query with countIf for both windows to halve DB round-trips.
+            freq_row = db.execute(
+                "SELECT "
+                "  countIf(Timestamp >= now() - INTERVAL 1 HOUR) AS c_1h, "
+                "  count() AS c_24h "
+                "FROM otel_logs "
+                "WHERE Timestamp >= now() - INTERVAL 24 HOUR "
+                "  AND SeverityText IN ('ERROR','FATAL') "
+                "  AND ServiceName = ? "
+                "  AND LogAttributes['exception.type'] = ?",
+                [service, err_type],
+            ).fetchone()
+            count_1h = int(freq_row["c_1h"]) if freq_row else 0
+            count_24h = int(freq_row["c_24h"]) if freq_row else 0
+            lines.append(f"\nEvent frequency ({service} / {err_type}):")
+            lines.append(f"  Last 1h:  {count_1h} occurrence(s)")
+            lines.append(f"  Last 24h: {count_24h} occurrence(s)")
+            if count_1h <= 1 and count_24h <= 2:
+                lines.append("  Noise indicator: LOW recurrence — may be an isolated event")
+            elif count_1h >= 10 or count_24h >= 50:
+                lines.append("  Noise indicator: HIGH recurrence — persistent or systemic pattern")
+            else:
+                lines.append("  Noise indicator: MODERATE recurrence — monitor for escalation")
+        except Exception:
+            pass
+
+    # Recent errors (broader context across all services)
     try:
         err_rows = db.execute(
             "SELECT ServiceName, ExceptionType, count() AS c "
@@ -6486,7 +6638,7 @@ def _build_agent_context_summary(db: ChDbConnection, trigger_context: dict) -> s
             "GROUP BY ServiceName, ExceptionType ORDER BY c DESC LIMIT 5"
         ).fetchall()
         if err_rows:
-            lines.append("\nRecent errors (last 1h):")
+            lines.append("\nRecent errors (last 1h, all services):")
             for r in err_rows:
                 lines.append(f"  {r['ServiceName']} | {r['ExceptionType']} x{r['c']}")
     except Exception:
@@ -6508,9 +6660,13 @@ def _build_agent_context_summary(db: ChDbConnection, trigger_context: dict) -> s
     except Exception:
         pass
 
-    # Additional context from trigger
-    extra = trigger_context.get("extra", "")
-    if extra:
+    # Remaining extra fields (exclude already-rendered keys)
+    _RENDERED_EXTRA_KEYS = {"additional_context", "mask_output", "initiated_by"}
+    if extra_dict:
+        remaining = {k: v for k, v in extra_dict.items() if k not in _RENDERED_EXTRA_KEYS}
+        if remaining:
+            lines.append(f"\nTrigger details: {remaining}")
+    elif extra:
         lines.append(f"\nAdditional context: {extra}")
 
     return "\n".join(lines)
@@ -6641,7 +6797,15 @@ async def _run_agent_flow(
             "You are an expert SRE and observability engineer. "
             "Analyse the provided telemetry context and provide a concise root cause analysis "
             "and a specific, actionable suggested fix. "
-            "Format your response as:\nROOT CAUSE: <text>\nSUGGESTED FIX: <text>"
+            "Before concluding, assess whether this event is NOISE (transient, self-resolving, "
+            "e.g. a single reconnection attempt that succeeded, a brief timeout that did not recur) "
+            "or IMPACT (persistent fault, exhausted retries, service degradation, user-facing error). "
+            "If the event frequency is low (≤2 occurrences) and there are no active anomalies or related "
+            "errors, note that this may be noise and recommend monitoring rather than immediate escalation. "
+            "Format your response as:\n"
+            "NOISE_OR_IMPACT: <NOISE|IMPACT|UNCERTAIN>\n"
+            "ROOT CAUSE: <text>\n"
+            "SUGGESTED FIX: <text>"
         )
         messages = [
             {"role": "system", "content": system_prompt},
@@ -6656,6 +6820,11 @@ async def _run_agent_flow(
             suggestion = parts[1].strip()
         else:
             analysis = reply.strip()
+        # Strip the NOISE_OR_IMPACT classification line from analysis so it doesn't
+        # appear as raw header text in the generated GitHub issue.
+        if analysis.startswith("NOISE_OR_IMPACT:"):
+            first_newline = analysis.find("\n")
+            analysis = analysis[first_newline:].strip() if first_newline != -1 else ""
 
     # 3. Optional DLP check before GitHub issue creation
     dlp_result = "skipped"
@@ -6693,6 +6862,17 @@ async def _run_agent_flow(
         allow_new_issue = issues_this_hour < max_issues
         trigger_fields = _extract_agent_trigger_fields(trigger_context)
         issue_title = _build_agent_issue_title(rule, trigger_fields)
+
+        # Include user-provided additional context in the issue body when present.
+        extra_raw = trigger_context.get("extra")
+        extra_for_body: dict[str, Any] = {}
+        if isinstance(extra_raw, dict):
+            extra_for_body = extra_raw
+        elif extra_raw:
+            extra_for_body = _safe_json_loads(str(extra_raw or ""), {})
+        additional_context = str(extra_for_body.get("additional_context") or "").strip()
+        additional_context_section = f"\n### Additional Context\n{additional_context}\n" if additional_context else ""
+
         issue_body = (
             f"## SOBS Automated Agent Report\n\n"
             f"**Rule:** {rule.get('name', 'Agent Rule')}  \n"
@@ -6701,7 +6881,8 @@ async def _run_agent_flow(
             f"**Signal:** {trigger_fields.get('signal_source', '')}/{trigger_fields.get('signal_name', '')}  \n\n"
             f"### Telemetry Context\n```\n{context_summary}\n```\n\n"
             f"### Root Cause Analysis\n{analysis}\n\n"
-            f"### Suggested Fix\n{suggestion}\n\n"
+            f"### Suggested Fix\n{suggestion}\n"
+            f"{additional_context_section}\n"
             f"---\n*Generated automatically by [SOBS](https://github.com/abartrim/sobs). "
             f"Please review before acting.*"
         )
@@ -8612,7 +8793,15 @@ def _safe_json_dumps(value: Any) -> str:
     return "{}"
 
 
-def _safe_json_loads(value: object, default: object) -> object:
+@overload
+def _safe_json_loads(value: object, default: dict[str, Any]) -> dict[str, Any]: ...
+
+
+@overload
+def _safe_json_loads(value: object, default: list[Any]) -> list[Any]: ...
+
+
+def _safe_json_loads(value: object, default: Any) -> Any:
     raw = str(value or "").strip()
     if not raw:
         return default
@@ -8621,9 +8810,9 @@ def _safe_json_loads(value: object, default: object) -> object:
     except Exception:
         return default
     if isinstance(default, dict) and isinstance(parsed, dict):
-        return parsed
+        return cast(dict[str, Any], parsed)
     if isinstance(default, list) and isinstance(parsed, list):
-        return parsed
+        return cast(list[Any], parsed)
     return default
 
 
@@ -9429,6 +9618,14 @@ async def _parse_otlp_request(proto_class):
 # ---------------------------------------------------------------------------
 # OTLP Ingest – Logs  POST /v1/logs
 # ---------------------------------------------------------------------------
+@app.route("/v1/logs", methods=["OPTIONS"])
+@app.route("/v1/traces", methods=["OPTIONS"])
+@app.route("/v1/metrics", methods=["OPTIONS"])
+@app.route("/v1/rum/assets", methods=["OPTIONS"])
+async def ingest_preflight():
+    return "", 204
+
+
 @app.route("/v1/logs", methods=["POST"])
 @require_api_key
 async def ingest_logs():
@@ -24411,11 +24608,7 @@ async def _dispatch_browser_push_channel(config: dict, payload: dict) -> None:
     try:
         from cryptography.hazmat.backends import default_backend
         from cryptography.hazmat.primitives.asymmetric.ec import SECP256R1
-        from cryptography.hazmat.primitives.serialization import (
-            Encoding,
-            PublicFormat,
-            load_der_private_key,
-        )
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, load_der_private_key
     except ImportError as exc:
         raise RuntimeError("The `cryptography` package is required for browser push notifications") from exc
 
@@ -24493,11 +24686,7 @@ def _encrypt_push_payload(
     plaintext: bytes, subscriber_pub_key_bytes: bytes, auth_bytes: bytes, backend: object
 ) -> tuple[bytes, bytes, bytes]:
     """Encrypt a Web Push payload using AES-128-GCM (RFC 8291 / RFC 8188)."""
-    from cryptography.hazmat.primitives.asymmetric.ec import (
-        ECDH,
-        SECP256R1,
-        generate_private_key,
-    )
+    from cryptography.hazmat.primitives.asymmetric.ec import ECDH, SECP256R1, generate_private_key
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     from cryptography.hazmat.primitives.hashes import SHA256
     from cryptography.hazmat.primitives.hmac import HMAC as CryptoHMAC
@@ -24998,12 +25187,7 @@ def _generate_vapid_keys() -> tuple[str, str]:
     """Generate a new VAPID key pair. Returns (private_key_b64url, public_key_b64url)."""
     from cryptography.hazmat.backends import default_backend
     from cryptography.hazmat.primitives.asymmetric.ec import SECP256R1, generate_private_key
-    from cryptography.hazmat.primitives.serialization import (
-        Encoding,
-        NoEncryption,
-        PrivateFormat,
-        PublicFormat,
-    )
+    from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat, PublicFormat
 
     private_key = generate_private_key(SECP256R1(), default_backend())
     private_bytes = private_key.private_bytes(Encoding.DER, PrivateFormat.PKCS8, NoEncryption())
@@ -28040,6 +28224,7 @@ def _build_user_issue_trigger_context(source_page: str, payload: dict[str, Any])
         "stack": stack[:3000],
         "url": str(payload.get("url") or "").strip(),
         "timestamp": str(payload.get("timestamp") or "").strip(),
+        "additional_context": str(payload.get("additional_context") or "").strip()[:2000],
     }
 
     return {

@@ -11,7 +11,7 @@
     "echarts": "^6.0.0"
   },
   "devDependencies": {
-    "terser": "^5.46.1",
-    "typescript": "^6.0.2"
+    "terser": "^5.46.2",
+    "typescript": "^6.0.3"
   }
 }
