@@ -352,10 +352,10 @@ jobs:
       - name: Extract resolved dependency snapshots from published image (per arch)
         run: |
           set -euo pipefail
-          mkdir -p .sobs-release
+          mkdir -p sobs-release
           image_ref="ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_SHA}"
           for arch in amd64 arm64; do
-            lock_file=".sobs-release/pip-freeze-linux-${arch}.txt"
+            lock_file="sobs-release/pip-freeze-linux-${arch}.txt"
             docker run --rm --platform "linux/${arch}" "${image_ref}" \
               sh -lc 'python -m pip freeze --all' > "${lock_file}"
             if [[ ! -s "${lock_file}" ]]; then
@@ -368,7 +368,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: sobs-release-dependency-snapshots
-          path: .sobs-release/pip-freeze-linux-*.txt
+          path: sobs-release/pip-freeze-linux-*.txt
           if-no-files-found: error
 
       - name: Register release and artifact metadata (linux/amd64)
@@ -385,7 +385,7 @@ jobs:
           SOBS_RELEASE_ID: ${{ steps.release_id.outputs.value }}
         run: |
           set -euo pipefail
-          dep_file=".sobs-release/pip-freeze-linux-amd64.txt"
+          dep_file="sobs-release/pip-freeze-linux-amd64.txt"
           rum_size=$(wc -c < static/rum.min.js.map)
           dep_size=$(wc -c < "${dep_file}")
           rum_sha=$(shasum -a 256 static/rum.min.js.map | awk '{print $1}')
@@ -414,7 +414,7 @@ jobs:
           SOBS_RELEASE_ID: ${{ steps.release_id.outputs.value }}
         run: |
           set -euo pipefail
-          dep_file=".sobs-release/pip-freeze-linux-arm64.txt"
+          dep_file="sobs-release/pip-freeze-linux-arm64.txt"
           dep_size=$(wc -c < "${dep_file}")
           dep_sha=$(shasum -a 256 "${dep_file}" | awk '{print $1}')
           python scripts/register_release_artifacts.py \
