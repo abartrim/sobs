@@ -344,7 +344,7 @@ jobs:
           echo "value=${release_id}" >> "$GITHUB_OUTPUT"
 
       - name: Download rum.min.js.map artifact
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: rum-min-js-sourcemap
           path: static
