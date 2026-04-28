@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 COPY masking.py .
 COPY mcp.py .
+COPY telemetry/ telemetry/
 COPY scripts/docker-entrypoint.sh scripts/docker-entrypoint.sh
 COPY scripts/render_clickhouse_config.py scripts/render_clickhouse_config.py
 COPY templates/ templates/
