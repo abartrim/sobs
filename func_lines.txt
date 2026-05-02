@@ -1,0 +1,879 @@
+80:def _coerce_undefined_for_json(value: Any, depth: int = 0, max_depth: int = 12) -> Any:
+97:def jsonify(*args: Any, **kwargs: Any):  # type: ignore[no-redef]
+122:def _set_masking_settings_cache(
+136:def _load_masking_settings_flags(db: "ChDbConnection") -> tuple[bool, bool]:
+142:def _get_masking_settings_flags(db: "ChDbConnection | None" = None) -> tuple[bool, bool]:
+164:def _mask_json_payload(value: Any) -> Any:
+169:def masked_jsonify(*args: Any, **kwargs: Any) -> Response:
+176:def _is_truthy_setting(raw: str | None, *, default: bool = False) -> bool:
+182:def _normalize_js_regex_flags(flag_text: str) -> str:
+190:def _validate_custom_masking_pattern_for_storage(pattern: Any) -> str:
+252:def _mask_payload_for_output_json(
+281:def _is_output_masking_enabled(db: "ChDbConnection | None" = None) -> bool:
+286:def _mask_value_for_output(value: Any, db: "ChDbConnection | None" = None) -> Any:
+292:def _mask_string_for_output(value: Any, db: "ChDbConnection | None" = None) -> str:
+300:def _is_sql_output_masking_enabled(db: "ChDbConnection | None" = None) -> bool:
+305:def _jsonify_with_optional_sql_output_mask(payload: Any) -> Response:
+312:async def _get_async_http_client() -> httpx.AsyncClient:
+323:async def _startup_async_http_client() -> None:
+330:async def _shutdown_async_http_client() -> None:
+359:async def _maybe_await(value: Any) -> Any:
+365:def _request_is_secure_context() -> bool:
+403:def _origin_allowed_for_otlp(origin: str) -> bool:
+433:def _path_needs_otlp_cors(path: str) -> bool:
+444:def _otlp_cors_allow_methods(path: str) -> str:
+451:def _append_vary_header(response: Response, value: str) -> None:
+463:async def _apply_security_headers(response: Response):
+492:def _env_flag(name: str, default: bool) -> bool:
+499:def _normalize_base_path(value: str) -> str:
+512:def _merge_script_name(script_name: str, base_path: str) -> str:
+542:def _read_env_or_file(env_var: str, file_env_var: str = "") -> str:
+559:def _read_file_or_env(env_var: str, file_env_var: str = "") -> str:
+573:def _load_settings_encryption_secret() -> str:
+580:def _encrypt_secret_value(value: str) -> str:
+597:def _decrypt_secret_value(value: str) -> str:
+1880:def _build_chdb_connect_target(path: str) -> str:
+1913:def _validate_chdb_startup_configuration(conn: "ChDbConnection") -> None:
+2047:def _classify_chdb_query_name(query: str) -> str:
+2100:def _invalidate_work_items_cache() -> None:
+2112:def _json_error(message: str, status_code: int):
+2116:def get_db() -> ChDbConnection:
+2129:def init_db():
+2139:def ensure_db_schema():
+2159:def _ensure_post_schema_state(db: ChDbConnection) -> None:
+2173:def _load_log_attr_keys_from_db(db: ChDbConnection, record_type: str) -> set[str]:
+2181:def _prime_log_attr_key_cache(db: ChDbConnection) -> None:
+2191:def _get_cached_attr_keys(db: ChDbConnection, record_type: str) -> list[str]:
+2198:def _get_cached_log_attr_keys(db: ChDbConnection, record_type: str = "log") -> list[str]:
+2202:def _remember_attr_keys(db: ChDbConnection, attrs_maps: list[dict], record_type: str) -> None:
+2244:def _remember_log_attr_keys(db: ChDbConnection, attrs_maps: list[dict], record_type: str = "log") -> None:
+2248:def _extract_attr_maps(rows: list[dict], attr_field: str) -> list[dict]:
+2257:def _extract_log_attr_maps(rows: list[dict]) -> list[dict]:
+2261:def _ensure_anomaly_rule_schema(db: ChDbConnection) -> None:
+2287:def _ensure_ai_memory_schema(db: ChDbConnection) -> None:
+2297:def _ensure_github_work_item_schema(db: ChDbConnection) -> None:
+2321:def _ensure_tag_rule_schema(db: ChDbConnection) -> None:
+2337:def _parse_positive_int_env(name: str, default: str, unit: str) -> int:
+2364:def _ensure_raw_metrics_retention(db: ChDbConnection) -> None:
+2383:def _register_raw_window(
+2430:def _window_copy_counts(db: ChDbConnection, window_ids: list[str]) -> dict[str, int]:
+2445:def _list_trace_overlapping_raw_windows(
+2500:def _run_raw_window_copy_worker(db: ChDbConnection) -> dict[str, int]:
+2656:async def _raw_window_copy_loop() -> None:
+2763:def _normalize_ai_model_name(model: Any) -> str:
+2767:def _copy_ai_pricing_entry(prices: dict[str, float]) -> dict[str, float]:
+2771:def _coerce_ai_pricing_entry(prices: Any) -> dict[str, float] | None:
+2780:def _load_saved_ai_pricing(db: "ChDbConnection") -> dict[str, dict[str, float]]:
+2799:def _load_confirmed_ai_pricing_models(db: "ChDbConnection") -> set[str]:
+2817:def _infer_ai_pricing_for_model(model: str) -> dict[str, float]:
+2832:def _load_observed_ai_models(db: "ChDbConnection", limit: int = 200) -> list[str]:
+2853:def _load_ai_pricing_with_sources(db: "ChDbConnection") -> tuple[dict[str, dict[str, float]], dict[str, str]]:
+2876:def _load_ai_pricing(db: "ChDbConnection") -> dict[str, dict[str, float]]:
+2896:def _is_sensitive_ai_setting_key(key: str) -> bool:
+2901:def _github_repo_token_key(owner: str, repo: str) -> str:
+2905:def _load_repo_scoped_github_token(db: ChDbConnection, owner: str, repo: str) -> str:
+2911:def _save_repo_scoped_github_token(db: ChDbConnection, owner: str, repo: str, token: str) -> None:
+3076:def _load_ai_setting(db: ChDbConnection, key: str, default: str = "") -> str:
+3096:def _save_ai_setting(db: ChDbConnection, key: str, value: str) -> None:
+3106:def _load_all_ai_settings(db: ChDbConnection) -> dict[str, str]:
+3126:def _parse_iso_datetime(value: str) -> datetime | None:
+3141:def _normalize_github_token_expiry_input(value: str) -> str:
+3154:def _github_token_expiry_date_input_value(value: str) -> str:
+3159:def _github_token_expiry_status(
+3197:def _normalize_ttl_days(value: Any, default_days: int = _CI_PUSH_API_KEY_DEFAULT_TTL_DAYS) -> int:
+3205:def _ci_push_expiry_iso_from_days(ttl_days: int) -> str:
+3214:def _ci_push_hash_key() -> bytes:
+3220:def _hash_api_key(value: str) -> str:
+3230:def _generate_ci_push_api_key() -> str:
+3234:def _ci_push_setting_key(app_id: str, leaf: str) -> str:
+3238:def _ci_push_api_key_status(db: ChDbConnection, app_id: str) -> dict[str, Any]:
+3289:def _is_valid_ci_push_api_key(db: ChDbConnection, app_id: str, provided_key: str) -> bool:
+3310:def _set_ci_push_realtime_enabled(db: ChDbConnection, app_id: str, enabled: bool) -> None:
+3317:def _rotate_ci_push_api_key(db: ChDbConnection, app_id: str, ttl_days: int) -> tuple[str, str]:
+3330:def _revoke_ci_push_api_key(db: ChDbConnection, app_id: str) -> None:
+3339:async def _validate_github_token(github_token: str) -> tuple[str, str]:
+3367:def _query_page_enabled(settings: dict[str, str] | None = None) -> bool:
+3375:def _kubernetes_enabled() -> bool:
+3389:def inject_feature_flags() -> dict:
+3415:def _llm_chat_completions_url(endpoint_url: str) -> str:
+3422:def _llm_request_headers(api_key: str) -> dict[str, str]:
+3429:def _normalize_thinking_level(value: str) -> str:
+3436:def _model_supports_thinking(model: str) -> bool:
+3443:def _model_supports_tools(model: str) -> bool:
+3450:def _llm_reasoning_payload(model: str, thinking_level: str) -> dict[str, Any]:
+3469:def _llm_usage_stats(usage: dict[str, Any] | None, elapsed_ms: int) -> dict[str, int]:
+3485:def _query_llm_stage_stats(stats: dict[str, Any] | None) -> dict[str, int]:
+3495:def _summarize_query_llm_stats(**stages: dict[str, Any] | None) -> dict[str, Any]:
+3511:def _infer_genai_provider(endpoint_url: str) -> str:
+3532:async def _emit_internal_genai_span(
+3621:def _tokenize_for_embedding(text: str) -> list[str]:
+3627:def _text_embedding(text: str, dims: int = _AI_MEMORY_DIMENSIONS) -> list[float]:
+3641:def _cosine_similarity(a: list[float], b: list[float]) -> float:
+3650:def _embedding_to_json(vector: list[float]) -> str:
+3654:def _embedding_from_json(raw: str) -> list[float]:
+3673:def _extract_assistant_meta(answer_text: str) -> tuple[str, dict[str, Any]]:
+3715:def _coerce_summary_value(value: Any, max_len: int = 240) -> str:
+3722:def _sanitize_chat_label_candidate(value: Any) -> str:
+3743:def _chat_label_from_first_turn(first_question: Any, first_request: Any) -> str:
+3753:def _derive_turn_summary(
+3771:def _load_chat_memories(db: ChDbConnection, chat_id: str) -> list[dict[str, Any]]:
+3791:def _semantic_memory_matches(
+3819:def _upsert_ai_memory(
+3842:async def _consolidate_memory_candidates(
+3907:def _extract_memory_candidates(meta: dict[str, Any]) -> list[str]:
+3932:def _load_recent_turn_summaries(db: ChDbConnection, chat_id: str, query: str, limit: int = 4) -> list[dict[str, str]]:
+3978:def _load_recent_chat_turns(db: ChDbConnection, chat_id: str, limit: int = 8) -> list[dict[str, str]]:
+4009:def _tool_status_label(status: str, requires_confirmation: bool) -> str:
+4020:def _load_chat_tool_history(db: ChDbConnection, chat_id: str) -> dict[str, list[dict[str, Any]]]:
+4152:def _helper_action_manifest_for_page(page: str) -> list[dict[str, Any]]:
+4243:def _helper_tools_for_page(page: str) -> list[dict[str, Any]]:
+4253:def _warn_unimplemented_ai_action_annotations() -> None:
+4270:def _action_meta_for_page(page: str, action_id: str) -> dict[str, Any] | None:
+4277:def _action_meta_for_id(action_id: str) -> dict[str, Any] | None:
+4288:def _ai_action_token_secret() -> str:
+4292:def _encode_ai_action_token(payload: dict[str, Any]) -> str:
+4299:def _decode_ai_action_token(token: str) -> dict[str, Any] | None:
+4321:def _issue_ai_action_token(
+4345:def _build_client_action(action_type: str, action_payload: dict[str, Any]) -> dict[str, Any] | None:
+4403:def _normalize_generic_ui_action_tool_call(args: dict[str, Any], current_page: str) -> dict[str, Any] | None:
+4536:def _suggest_chart_dashboard_pivot_tool(question: str, current_page: str) -> dict[str, Any] | None:
+4557:def _extract_stream_tool_call_deltas(event: dict[str, Any]) -> list[dict[str, Any]]:
+4584:def _extract_stream_finish_reason(event: dict[str, Any]) -> str:
+4592:def _coerce_llm_content(content: Any) -> str:
+4606:def _extract_stream_delta(event: dict[str, Any]) -> str:
+4619:async def _call_llm_endpoint(
+4777:async def _stream_llm_endpoint(
+4894:def _heuristic_guard_check(text: str) -> bool:
+4903:def _is_benign_observability_question(text: str) -> bool:
+4916:def _is_benign_ai_usage_question(text: str) -> bool:
+4925:def _is_benign_ui_navigation_request(text: str) -> bool:
+4934:def _is_gpt_oss_safeguard_model(guard_model: str) -> bool:
+4938:def _build_llama_guard_prompt(user_input: str, context: str = "") -> tuple[str, list[dict[str, str]], str]:
+4978:def _build_oss_safeguard_prompt(user_input: str, context: str = "") -> tuple[str, list[dict[str, str]], str]:
+5013:def _parse_guard_reply(reply_text: str, *, strict: bool = False) -> tuple[str, str]:
+5046:def _parse_oss_safeguard_reply(reply_text: str, *, strict: bool = False) -> tuple[str, str]:
+5099:def _resolve_guard_thinking_level(settings: dict[str, str], guard_model: str) -> str:
+5112:def _resolve_guard_max_tokens(thinking_level: str) -> int:
+5117:def _resolve_endpoint_timeout_seconds(settings: dict[str, str]) -> int:
+5129:def _resolve_guard_timeout_seconds(settings: dict[str, str]) -> int:
+5140:async def _check_guard_model(
+5240:async def _check_dlp_endpoint(dlp_url: str, text: str, api_key: str = "") -> tuple[bool, str]:
+5263:async def _create_github_issue(
+5284:async def _github_repo_supports_copilot_assignment(github_token: str, github_repo: str) -> bool:
+5333:async def _assign_issue_to_copilot(
+5392:async def _choose_github_issue_outcome(
+5662:def _load_agent_rules(db: ChDbConnection) -> list[dict]:
+5684:def _load_agent_rule(db: ChDbConnection, rule_id: str) -> dict | None:
+5711:def _load_agent_runs(db: ChDbConnection, limit: int = 50) -> list[dict]:
+5739:def _agent_rule_last_run_ts(db: ChDbConnection, rule_id: str) -> float:
+5749:def _count_github_issues_last_hour(db: ChDbConnection) -> int:
+5759:def _count_copilot_assignments_last_hour(db: ChDbConnection) -> int:
+5769:def _count_active_copilot_assignments(db: ChDbConnection) -> int:
+5777:def _github_api_headers(
+5792:def _parse_bounded_int_setting(
+5806:def _extract_agent_trigger_fields(trigger_context: dict) -> dict[str, Any]:
+5834:def _normalize_issue_match_text(value: Any) -> str:
+5839:def _build_github_work_item_dedup_key(github_repo: str, trigger_fields: dict[str, Any]) -> str:
+5851:def _build_agent_issue_title(rule: dict, trigger_fields: dict[str, Any]) -> str:
+5862:def _serialize_github_work_item_row(row: dict | Any) -> dict[str, Any]:
+5925:async def _fetch_open_github_issues(
+5968:async def _search_open_pr_for_issue(github_token: str, github_repo: str, issue_number: int) -> dict[str, Any] | None:
+6001:def _parse_issue_ref_from_url(issue_url: str) -> tuple[str, str, int]:
+6008:def _derive_copilot_assignment_status(
+6034:async def _backfill_github_work_item_links(db: ChDbConnection, settings: dict[str, str]) -> None:
+6196:def _emit_agent_issue_decision_summary(
+6228:async def _maybe_backfill_github_work_item_links(db: ChDbConnection, settings: dict[str, str]) -> None:
+6245:def _load_recent_work_item_candidates(
+6259:def _fallback_issue_dedupe_decision(
+6296:def _extract_first_json_object(text: str) -> dict[str, Any]:
+6312:async def _classify_issue_dedupe_with_llm(
+6384:async def _create_github_issue_record(
+6442:def _persist_github_work_item(
+6544:def _persist_onboarding_work_item(
+6613:def _build_agent_context_summary(db: ChDbConnection, trigger_context: dict) -> str:
+6710:def _extract_trigger_service_name(trigger_context: dict[str, Any]) -> str:
+6730:def _resolve_agent_github_target(
+6776:async def _run_agent_flow(
+7006:def _ensure_notification_schema(db: ChDbConnection) -> None:
+7018:def _seed_rule_if_missing(db: ChDbConnection, rule: dict[str, object]) -> None:
+7028:def _seed_dashboard_if_missing(db: ChDbConnection, dashboard_name: str, description: str) -> str:
+7053:def _seed_chart_if_missing(
+7089:def _upsert_seed_chart(
+7136:def _soft_delete_seed_chart_by_title(db: ChDbConnection, dashboard_id: str, title: str) -> None:
+7164:def _seed_example_metrics_content(db: ChDbConnection) -> None:
+7389:def _seed_cwv_anomaly_rules(db: ChDbConnection) -> None:
+7418:def _run_write_batch(tasks: list[_WriteTask]) -> None:
+7431:def _write_worker_main() -> None:
+7454:def _ensure_write_worker() -> None:
+7466:def _queue_write(op: Callable[[ChDbConnection], None], wait: bool = False) -> None:
+7484:def _write_queue_depth() -> int:
+7488:def _shutdown_db_resources() -> None:
+7527:async def _sse_broadcast(event: dict) -> None:
+7539:def compress(text: str) -> str:
+7544:def decompress(data) -> str:
+7552:def compress_json(obj) -> str:
+7556:def decompress_json(data):
+7565:async def _check_external_auth(authorization: str) -> bool:
+7585:def _auth_mode() -> str:
+7604:def _resolve_managed_ci_target_app_id(db: ChDbConnection, kwargs: dict[str, Any]) -> str:
+7619:def require_api_key(f):
+7652:def _sanitize_rum_asset_name(value: str) -> str:
+7660:def _sanitize_rum_asset_type(value: str) -> str:
+7668:def _asset_extension(asset_name: str, content_type: str) -> str:
+7684:def _rum_asset_signature_payload(
+7706:def _rum_asset_signature(secret: str, payload: str) -> str:
+7710:def _verify_rum_asset_signature(
+7752:def _rum_b64url_encode(value: bytes) -> str:
+7756:def _rum_b64url_decode(value: str) -> bytes:
+7764:def _normalize_origin(value: str) -> str:
+7774:def _request_origin() -> str:
+7785:def _same_origin_request() -> bool:
+7804:def _rum_client_sign(payload: str) -> str:
+7808:def _rum_client_token_encode(claims: dict[str, Any]) -> str:
+7814:def _rum_client_token_decode(token: str) -> tuple[dict[str, Any] | None, str]:
+7831:def _verify_rum_client_auth(events: list[Any]) -> tuple[bool, int, str]:
+7885:def _rum_asset_meta_path(asset_id: str) -> str:
+7892:def require_basic_auth(f):
+7951:def _now_iso() -> str:
+7955:def _ns_to_iso(nanos: int) -> str:
+7974:def _sourcemap_lookup_for_file(js_url: str, line: int, col: int) -> tuple[str, int, int, str] | None:
+8034:def _maybe_demangle_js_stack(stack_text: str) -> str:
+8068:def _remap_rum_console_stacks(event: dict[str, Any]) -> None:
+8083:def _parse_limit(default=200) -> int:
+8090:def _parse_offset() -> int:
+8097:def _parse_sort(allowed: dict, default_col: str = "Timestamp") -> tuple:
+8112:def _parse_time_window_args() -> tuple[str, str, str]:
+8135:def _time_window_conditions(column: str, from_ts: str, to_ts: str) -> tuple[list[str], list[str]]:
+8155:def _rum_session_key_from_attrs(attrs: dict[str, str], ts: str, body_raw: str) -> str:
+8162:def _build_rum_event_item(row: Any) -> dict[str, Any]:
+8201:def _hex(b) -> str:
+8208:def _stringify_attrs(values: dict | None) -> dict[str, str]:
+8223:def _genai_tool_calls_to_text(tool_calls_value: Any) -> str:
+8246:def _genai_message_content_to_text(message: dict[str, Any]) -> str:
+8305:def _genai_message_reasoning_to_text(message: dict[str, Any]) -> str:
+8361:def _parse_genai_messages_json(messages_str: str) -> list[Any] | None:
+8378:def _extract_messages_text(messages_str: str) -> str:
+8407:def _normalize_genai_messages_for_display(messages: Any) -> list[dict[str, Any]]:
+8447:def _normalize_for_dedupe(value: Any) -> str:
+8454:def _dedupe_system_input_messages(
+8474:def _string_attr_truthy(value: Any) -> bool:
+8478:def _first_message_content(messages: list[dict[str, Any]], roles: tuple[str, ...]) -> str:
+8490:def _summarize_ai_tool_action(raw_action: str) -> str:
+8510:def _build_ai_trace_turn_cards(spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
+8651:def _map_to_dict(value) -> dict:
+8674:def _severity_number(level: str) -> int:
+8690:def _trace_status_code(status: str) -> str:
+8699:def _error_id(ts: str, service: str, err_type: str, message: str, trace_id: str, span_id: str) -> str:
+8704:def _error_id_sql_expr() -> str:
+8763:def _insert_rows_json_each_row(db, table_name: str, rows: list[dict]) -> int:
+8798:def _normalize_ch_timestamp(value) -> str:
+8817:def _safe_json_dumps(value: Any) -> str:
+8835:def _safe_json_loads(value: object, default: dict[str, Any]) -> dict[str, Any]: ...
+8839:def _safe_json_loads(value: object, default: list[Any]) -> list[Any]: ...
+8842:def _safe_json_loads(value: object, default: Any) -> Any:
+8857:def _app_slug(value: str, fallback: str = "app") -> str:
+8862:def _find_app_by_id(db: ChDbConnection, app_id: str) -> dict[str, Any] | None:
+8870:def _find_app_id_by_repo_url(db: ChDbConnection, repo_url: str) -> str:
+8886:def _find_release_by_id(db: ChDbConnection, release_id: str) -> dict[str, Any] | None:
+8894:def _serialize_app_row(row: dict[str, Any]) -> dict[str, Any]:
+8909:def _seed_app_release_registry_from_env(db: ChDbConnection) -> None:
+9040:def _attr_list_to_dict(attr_list: list) -> dict:
+9054:def _proto_any_value_to_python(val):
+9074:def _proto_kvlist_to_dict(attributes) -> dict:
+9131:def _attr_fingerprint(attrs: dict) -> str:
+9165:def _proto_logs_to_events(msg: ExportLogsServiceRequest) -> list[LogEvent]:
+9193:def _proto_traces_to_events(msg: ExportTraceServiceRequest) -> tuple[list[SpanEvent], list[ErrorEvent]]:
+9240:def _proto_metrics_to_events(msg: ExportMetricsServiceRequest) -> list[TypedMetricEvent]:
+9344:def _insert_log_events(db, events: list[LogEvent]) -> int:
+9380:def _insert_span_events(db, span_events: list[SpanEvent]) -> int:
+9416:def _insert_error_events(db, error_events: list[ErrorEvent]):
+9454:def _insert_metric_events(db, events: list[TypedMetricEvent]) -> int:
+9459:def _insert_typed_metric_events(db, events: list[TypedMetricEvent]) -> int:
+9511:def _decompress_with_limit(raw: bytes, *, wbits: int) -> bytes:
+9542:def _decompress_request_body(raw: bytes, content_encoding: str) -> bytes:
+9576:async def _parse_otlp_request(proto_class):
+9629:@app.route("/v1/logs", methods=["OPTIONS"])
+9630:@app.route("/v1/traces", methods=["OPTIONS"])
+9631:@app.route("/v1/metrics", methods=["OPTIONS"])
+9632:@app.route("/v1/rum/assets", methods=["OPTIONS"])
+9633:async def ingest_preflight():
+9637:@app.route("/v1/logs", methods=["POST"])
+9639:async def ingest_logs():
+9671:@app.route("/v1/rum/assets", methods=["POST"])
+9673:async def ingest_rum_asset():
+9733:@app.route("/v1/rum/assets/<asset_id>", methods=["GET"])
+9735:async def rum_asset_download(asset_id: str):
+9763:@app.route("/v1/rum/client-token", methods=["POST"])
+9765:async def issue_rum_client_token():
+9806:@app.route("/v1/traces", methods=["POST"])
+9808:async def ingest_traces():
+9868:@app.route("/v1/metrics", methods=["POST"])
+9870:async def ingest_metrics():
+9901:def _extract_trace_fields(event: dict[str, Any]) -> tuple[str, str, int]:
+9935:def _handle_browser_context_delta(event: dict[str, Any]) -> dict[str, str]:
+9982:@app.route("/v1/rum", methods=["POST"])
+9984:async def ingest_rum():
+10129:@app.route("/v1/ai", methods=["POST"])
+10131:async def ingest_ai():
+10221:@app.route("/v1/errors", methods=["POST"])
+10223:async def ingest_errors():
+10301:def _compact_text(value: str, limit: int = 220) -> str:
+10309:def _try_pretty_json_text(raw_value: str) -> tuple[bool, str]:
+10320:def _extract_structured_error_summary(message: str, raw_body: str) -> tuple[str, bool]:
+10404:def _build_error_item(row: dict) -> dict:
+10449:def _error_group_key(item: dict) -> tuple[str, str, str]:
+10458:def _parse_trace_filter_values(trace_id: str, raw_trace_ids: list[str]) -> tuple[list[str], str]:
+10480:def _get_resolved_error_ids(db) -> set[str]:
+10484:def _active_part_rows(db, table_name: str) -> int:
+10499:def _get_db_stats(db) -> dict:
+10575:def _fmt_bytes(n: int | None) -> str:
+10591:@app.route("/")
+10593:async def summary():
+10726:def _compute_log_stats(db, where_clause: str, params: list) -> tuple[dict, dict]:
+10745:def _fingerprint_log_message(message: str) -> str:
+10767:def _compute_advanced_log_analysis(rows: list[dict], level_stats: dict, service_stats: dict) -> dict:
+10865:def _validate_re2_pattern(db: "ChDbConnection", pattern: str) -> str | None:
+10880:def _split_regex_filter_expression_terms(expression: str) -> list[str]:
+10904:def _unescape_regex_filter_term(term: str) -> str:
+10909:def _parse_regex_filter_expression(raw: str) -> tuple[list[str], list[str], str | None]:
+10939:def _validate_re2_patterns(db: "ChDbConnection", patterns: list[str]) -> str | None:
+10947:def _prepare_re2_filter_patterns(db: "ChDbConnection", raw: str) -> tuple[list[str], list[str], str | None]:
+10962:def _append_time_window_filter(conditions: list[str], params: list[Any], column: str, from_ts: str, to_ts: str) -> None:
+10968:def _where_clause(conditions: list[str]) -> str:
+10972:def _append_regex_expression_clauses(
+10988:@app.route("/logs")
+10991:async def view_logs():
+11290:def _replace_sql_outside_single_quotes(sql: str, replacements: list[tuple[str, str]]) -> str:
+11325:def _normalize_ai_sql_where(sql_where: str) -> str:
+11365:def _validate_user_sql_where(sql_where: str) -> None:
+11397:def _list_derived_signal_dimensions(db: ChDbConnection) -> tuple[list[str], list[str], list[str]]:
+11449:def _infer_auto_rule_comparator(signal_name: str) -> str:
+11458:def _auto_rule_thresholds(
+11479:def _format_auto_rule_name(source: str, signal: str, service: str, attr_fp: str) -> str:
+11486:def _build_auto_metric_rule_candidates(
+11590:def _build_seasonal_bucket_expr(strategy: str) -> str:
+11597:def _build_seasonal_metric_rule_candidates(
+11774:def _default_auto_dashboard_name(service_filter: str) -> str:
+11780:def _auto_tag_slug(value: str, fallback: str, max_len: int = 64) -> str:
+11788:def _infer_env_from_service(service_name: str) -> str:
+11803:def _list_tag_candidate_services(db: ChDbConnection) -> list[str]:
+11814:def _build_auto_tag_rule_candidates(
+12063:def _build_auto_dashboard_chart_candidates(
+12140:def _load_anomaly_rules(db: ChDbConnection) -> list[dict[str, object]]:
+12181:def _record_id_for_log(ts: str, service: str, trace_id: str, span_id: str) -> str:
+12187:def _record_id_for_span(trace_id: str, span_id: str) -> str:
+12193:def _parse_tag_rule_conditions_json(raw: Any) -> list[dict[str, str]]:
+12220:def _load_tag_rules(db: ChDbConnection) -> list[dict]:
+12258:def _match_tag_rule(
+12303:def _match_single_condition(
+12343:def _tag_rule_attribute_key_suggestions(db: ChDbConnection, query_text: str, limit: int) -> list[str]:
+12362:def _tag_rule_value_suggestions(
+12455:def _record_tag_key_suggestions(
+12479:def _record_tag_value_suggestions(
+12507:def _notification_condition_service_suggestions(
+12529:def _apply_tag_rules(
+12585:def _get_record_tags(db: ChDbConnection, record_type: str, record_id: str) -> list[dict]:
+12604:def _get_service_tags(db: ChDbConnection, record_type: str, service: str, hours: int = 24) -> list[str]:
+12624:def _get_def_tags_for_service(db: ChDbConnection, service: str) -> list[str]:
+12642:def _get_signal_health_by_service(db: ChDbConnection, hours: int = 24) -> list[dict[str, object]]:
+12690:def _rule_matches_series(rule: dict[str, object], source: str, signal: str, service: str, attr_fp: str) -> bool:
+12704:def _evaluate_threshold_condition(
+12753:def _evaluate_threshold_rule(rule: dict[str, object], value: object, sample_count: object) -> dict[str, object] | None:
+12772:def _evaluate_seasonal_rule(
+12844:def _build_series_rule_lookups(
+12868:def _combine_rule_states(*states: str) -> str:
+12873:def _lookup_secondary_rule_row(
+12903:def _evaluate_composite_rule(
+12979:def _annotate_rows_with_rules(
+13138:def signal_label(source: str, signal: str) -> str:
+13151:def signal_description(source: str, signal: str) -> str:
+13157:def source_label(source: str) -> str:
+13179:@app.route("/metrics")
+13182:async def view_metrics():
+13353:@app.route("/metrics/rules")
+13355:async def view_metrics_rules():
+13376:@app.route("/metrics/rules", methods=["POST"])
+13378:async def create_metrics_rule():
+13471:@app.route("/metrics/rules/auto", methods=["POST"])
+13473:async def auto_metrics_rules():
+13598:@app.route("/metrics/rules/dashboard/auto", methods=["POST"])
+13600:async def auto_metrics_rules_dashboard():
+13715:@app.route("/metrics/rules/<rule_id>/delete", methods=["POST"])
+13717:async def delete_metrics_rule(rule_id: str):
+13760:@app.route("/metrics/anomaly")
+13762:async def view_metrics_anomaly():
+13930:def _load_work_item_links_for_ref_ids(db: ChDbConnection, ref_ids: list[str]) -> dict[str, dict]:
+13959:@app.route("/errors")
+13962:async def view_errors():
+14338:@app.route("/errors/<string:error_id>/resolve", methods=["POST"])
+14340:async def resolve_error(error_id: str):
+14358:def _ts_str_to_epoch_ms(ts: str) -> float:
+14375:def _build_span_tree(spans: list[dict]) -> list[dict]:
+14400:def _slice_span_tree_with_ancestors(
+14437:def _compute_active_timeline_ms(spans: list[dict]) -> float:
+14443:def _merge_span_intervals(spans: list[dict]) -> list[tuple[float, float]]:
+14464:def _build_trace_timeline_segments(
+14539:def _build_trace_window_overlay_segments(
+14658:def _group_metric_series(series: list[dict[str, object]]) -> list[dict[str, object]]:
+14681:def _compute_health_chips(series: list[dict[str, object]]) -> list[dict[str, object]]:
+14711:def _fetch_trace_metric_context(
+15061:@app.route("/traces")
+15064:async def view_traces():
+15445:@app.route("/api/traces/span/<span_id>", methods=["GET"])
+15447:async def api_raw_span(span_id: str):
+15535:@app.route("/incident")
+15537:async def view_incident():
+15904:def _is_private_ip(ip: str) -> bool:
+15913:def _build_geo_dict(
+15924:def _get_geo_db():
+15946:def _geo_lookup_batch(ips: list[str], geo_enabled: bool = True) -> dict[str, dict]:
+16003:def _lang_to_osv_ecosystem(lang: str) -> str:
+16019:def _inventory_scope_ecosystem(scope_name: str) -> str:
+16029:def _parse_github_repo_owner_name(repo_url: str) -> tuple[str, str]:
+16058:def _build_github_repo_url(owner: str, repo: str) -> str:
+16066:def _resolve_github_repo_fields(repo_url: str, owner: str = "", repo: str = "") -> tuple[str, str, str]:
+16085:def _parse_requirements_dependencies(content: str) -> list[dict[str, str]]:
+16110:def _parse_package_lock_dependencies(content: str) -> list[dict[str, str]]:
+16154:def _parse_go_sum_dependencies(content: str) -> list[dict[str, str]]:
+16178:def _parse_gemfile_lock_dependencies(content: str) -> list[dict[str, str]]:
+16208:def _decode_github_contents_payload(payload: dict[str, Any]) -> bytes:
+16219:def _github_actions_snapshot_name(filename: str) -> tuple[str, str, str] | None:
+16231:async def _github_actions_dependency_rows(
+16384:def _github_ref_candidates(release_version: str) -> list[str]:
+16408:def _github_backfill_max_releases(db: "ChDbConnection") -> int:
+16417:def _github_version_tokens(version: str) -> set[str]:
+16427:def _text_mentions_version_tokens(text: str, tokens: set[str]) -> bool:
+16438:def _github_item_is_security_related(item: dict[str, Any]) -> bool:
+16455:async def _fetch_release_deps_from_github(db: "ChDbConnection") -> dict[str, int]:
+16628:def _collect_library_inventory(db: "ChDbConnection") -> list[dict[str, str]]:
+16826:def _extract_library_versions_from_otel(db: "ChDbConnection") -> list[dict]:
+16840:def _inventory_versions_by_package(db: "ChDbConnection") -> dict[str, set[str]]:
+16853:def _effective_cve_disposition(
+16874:async def _run_cve_scan(db: "ChDbConnection | None" = None) -> dict:
+16979:async def _cve_scanner_loop() -> None:
+16996:async def _github_repo_health_loop() -> None:
+17007:async def _sync_github_repo_health_once(db: "ChDbConnection | None" = None) -> dict[str, Any]:
+17048:async def _startup_enrichment() -> None:
+17059:@app.route("/rum")
+17061:async def view_rum():
+17415:@app.route("/web-traffic")
+17417:async def view_web_traffic():
+17461:@app.route("/api/web-traffic/geo", methods=["GET"])
+17463:async def api_web_traffic_geo():
+17518:@app.route("/api/web-traffic/browsers", methods=["GET"])
+17520:async def api_web_traffic_browsers():
+17545:@app.route("/api/web-traffic/os", methods=["GET"])
+17547:async def api_web_traffic_os():
+17572:@app.route("/api/web-traffic/timezones", methods=["GET"])
+17574:async def api_web_traffic_timezones():
+17592:@app.route("/api/web-traffic/languages", methods=["GET"])
+17594:async def api_web_traffic_languages():
+17612:@app.route("/api/web-traffic/devices", methods=["GET"])
+17614:async def api_web_traffic_devices():
+17632:@app.route("/api/enrichment/libraries", methods=["GET"])
+17634:async def api_enrichment_libraries():
+17696:async def _collect_github_repo_health_summary(db: "ChDbConnection") -> dict[str, Any]:
+17838:@app.route("/api/enrichment/github/repo-health", methods=["GET"])
+17840:async def api_enrichment_github_repo_health():
+17854:@app.route("/enrichment/cve")
+17856:async def view_enrichment_cve():
+17970:@app.route("/api/enrichment/cve/findings", methods=["GET"])
+17972:async def api_cve_findings():
+18033:@app.route("/api/enrichment/cve/findings/<osv_id>/disposition", methods=["POST"])
+18035:async def api_cve_set_disposition(osv_id: str):
+18092:@app.route("/api/enrichment/cve/scan", methods=["POST"])
+18094:async def api_cve_scan():
+18111:@app.route("/work-items")
+18113:async def view_work_items():
+18243:@app.route("/api/work-items", methods=["GET"])
+18245:async def api_get_work_items():
+18299:def _get_ai_filter_metadata(db: ChDbConnection, from_ts: str, to_ts: str) -> dict[str, Any]:
+18381:@app.route("/ai")
+18383:async def view_ai():
+18753:@app.route("/api/ai/span-attributes")
+18755:async def get_ai_span_attributes():
+18798:@app.route("/api/ai/conversation")
+18800:async def get_ai_conversation():
+18873:@app.route("/api/ai/export")
+18875:async def export_ai_training():
+19484:def _validate_chart_query(query: str) -> str | None:
+19497:def _sql_literal(value: object) -> str:
+19501:def _coerce_positive_int(raw: object, default_value: int, min_value: int, max_value: int) -> int:
+19509:def _default_chart_spec(template_id: str = "derived_signal_overlay") -> dict[str, object]:
+19583:def _build_raw_chart_spec(template_id: str, query: str, options_json: str = "") -> dict[str, object]:
+19599:def _normalize_chart_spec(spec_raw: object) -> dict[str, object]:
+19666:def _compile_builder_sql(template_id: str, data: dict[str, object]) -> str:
+20048:def _compile_chart_spec(spec_raw: object) -> tuple[str, str, dict[str, object]]:
+20084:def _resolve_template_role_indices(
+20136:def _parse_bool(value: object, default_value: bool) -> bool:
+20149:def _apply_chart_spec_visual_overrides(template_id: str, option: dict, spec: dict[str, object]) -> dict:
+20225:def _infer_column_types(columns: list[str], rows: list[list[object]]) -> list[str]:
+20241:def _public_dashboard_query_error(exc: Exception) -> str:
+20261:def _deep_substitute(obj: object, bindings: dict) -> object:
+20277:def _extract_bindings(
+20506:def _format_drilldown_time(value: object) -> str:
+20532:def _attach_drilldown_metadata(template: dict, bindings: dict[str, object], option: dict) -> dict:
+20674:def _prepare_template_rows(
+20759:def _render_chart_from_template(
+20824:def _parse_custom_json_config(raw: object, field_name: str) -> object:
+20838:def _resolve_custom_binding_expr(
+20874:def _resolve_template_string(value: str, record: dict[str, object]) -> str:
+20885:def _build_custom_drilldown(mapping: dict[str, object], records: list[dict[str, object]]) -> dict[str, object] | None:
+20918:def _normalize_custom_series_point_order(option: dict[str, object]) -> None:
+20951:def _render_custom_echarts(
+21026:def _get_dashboards(db: ChDbConnection) -> list[dict]:
+21033:def _get_dashboard(db: ChDbConnection, dashboard_id: str) -> dict | None:
+21043:def _get_charts(db: ChDbConnection, dashboard_id: str) -> list[dict]:
+21072:@app.route("/api/dashboards/list", methods=["GET"])
+21074:async def api_dashboards_list():
+21081:@app.route("/api/query/add-to-dashboard", methods=["POST"])
+21083:async def api_query_add_to_dashboard():
+21162:@app.route("/dashboards")
+21164:async def list_dashboards():
+21170:@app.route("/dashboards/new", methods=["GET"])
+21172:async def new_dashboard_form():
+21176:@app.route("/dashboards", methods=["POST"])
+21178:async def create_dashboard():
+21196:@app.route("/dashboards/<dashboard_id>")
+21198:async def view_custom_dashboard(dashboard_id: str):
+21227:def _register_help_route(path: str, endpoint: str, template_name: str) -> None:
+21272:async def _soft_delete_latest_row(
+21299:@app.route("/dashboards/<dashboard_id>/delete", methods=["POST"])
+21301:async def delete_dashboard(dashboard_id: str):
+21344:@app.route("/dashboards/<dashboard_id>/charts", methods=["POST"])
+21346:async def add_chart(dashboard_id: str):
+21382:def _parse_chart_form_submission(form) -> tuple[str, str, str, str]:
+21401:@app.route("/dashboards/<dashboard_id>/charts/<chart_id>/edit", methods=["POST"])
+21403:async def edit_chart(dashboard_id: str, chart_id: str):
+21444:@app.route("/dashboards/<dashboard_id>/charts/<chart_id>/clone", methods=["POST"])
+21446:async def clone_chart(dashboard_id: str, chart_id: str):
+21488:@app.route("/dashboards/<dashboard_id>/charts/<chart_id>/delete", methods=["POST"])
+21490:async def remove_chart(dashboard_id: str, chart_id: str):
+21522:@app.route("/api/dashboards/query", methods=["POST"])
+21524:async def execute_chart_query():
+21546:@app.route("/api/dashboards/spec/templates", methods=["GET"])
+21548:async def list_chart_spec_templates():
+21566:@app.route("/api/dashboards/spec/options", methods=["GET"])
+21568:async def chart_spec_options_api():
+21642:@app.route("/api/dashboards/spec/compile", methods=["POST"])
+21644:async def compile_chart_spec_api():
+21657:@app.route("/api/dashboards/spec/dry-run", methods=["POST"])
+21659:async def dry_run_chart_spec_api():
+21701:@app.route("/api/dashboards/spec/validate", methods=["POST"])
+21703:async def validate_chart_spec_api():
+21736:@app.route("/api/dashboards/spec/render", methods=["POST"])
+21738:async def render_chart_spec_api():
+21786:@app.route("/api/dashboards/render", methods=["POST"])
+21788:async def render_chart():
+21823:async def _vanna_validate_and_execute_with_repair(
+21908:async def _vanna_execute_named_queries(
+21965:def _execute_chart_spec_named_queries(
+22013:@app.route("/api/dashboards/spec/ai-build", methods=["POST"])
+22015:async def ai_build_chart_spec():
+22186:@app.route("/api/dashboards/<dashboard_id>/charts/<chart_id>/export", methods=["GET"])
+22188:async def export_chart(dashboard_id: str, chart_id: str):
+22217:@app.route("/api/dashboards/<dashboard_id>/charts/import", methods=["POST"])
+22219:async def import_chart(dashboard_id: str):
+22290:@app.route("/api/metrics/anomaly", methods=["GET"])
+22292:async def metrics_anomaly():
+22391:def _parse_report_filters(raw_filters_json: Any) -> dict[str, Any]:
+22401:def _get_reports(db: ChDbConnection, page_type: str | None = None) -> list[dict]:
+22425:def _get_report(db: ChDbConnection, report_id: str) -> dict | None:
+22441:@app.route("/reports")
+22443:async def list_reports():
+22449:@app.route("/reports/<report_id>/delete", methods=["POST"])
+22451:async def delete_report(report_id: str):
+22477:@app.route("/api/reports", methods=["GET"])
+22479:async def api_list_reports():
+22486:@app.route("/api/reports", methods=["POST"])
+22488:async def api_create_report():
+22524:@app.route("/api/reports/<report_id>", methods=["DELETE"])
+22526:async def api_delete_report(report_id: str):
+22560:@app.route("/api/reports/export", methods=["GET"])
+22562:async def api_export_reports():
+22607:@app.route("/api/reports/import", methods=["POST"])
+22609:async def api_import_reports():
+22775:def _rum_etag(path: str) -> str:
+22784:@app.route("/static/rum.js")
+22785:async def rum_js():
+22795:@app.route("/static/rum.js.map")
+22796:async def rum_js_map():
+22804:@app.route("/static/rum.min.js")
+22805:async def rum_min_js():
+22813:@app.route("/static/rum.min.js.map")
+22814:async def rum_min_js_map():
+22819:@app.route("/static/rum.d.ts")
+22820:async def rum_d_ts():
+22828:@app.route("/settings")
+22830:async def view_settings():
+22858:@app.route("/settings/masking", methods=["GET"])
+22860:async def view_masking_settings():
+22876:@app.route("/settings/masking/keys", methods=["POST"])
+22878:async def add_masking_key():
+22896:@app.route("/settings/masking/keys/delete", methods=["POST"])
+22898:async def delete_masking_key():
+22913:@app.route("/settings/masking/patterns", methods=["POST"])
+22915:async def add_masking_pattern():
+22936:@app.route("/settings/masking/patterns/delete", methods=["POST"])
+22938:async def delete_masking_pattern():
+22959:@app.route("/settings/masking/output", methods=["POST"])
+22961:async def update_masking_output_setting():
+22978:@app.route("/settings/masking/sql-output", methods=["POST"])
+22980:async def update_masking_sql_output_setting():
+22999:@app.route("/api/settings/masking/preview", methods=["POST"])
+23001:async def api_masking_preview():
+23008:@app.route("/api/settings/masking/rules", methods=["GET"])
+23010:async def api_masking_rules():
+23028:@app.route("/settings/tags")
+23030:async def view_tag_rules():
+23057:@app.route("/api/settings/tags/condition-suggestions", methods=["GET"])
+23059:async def api_tag_rule_condition_suggestions():
+23103:@app.route("/settings/tags/auto", methods=["POST"])
+23105:async def auto_tag_rules():
+23215:@app.route("/settings/tags", methods=["POST"])
+23217:async def create_tag_rule():
+23339:@app.route("/settings/tags/<rule_id>/delete", methods=["POST"])
+23341:async def delete_tag_rule(rule_id: str):
+23374:@app.route("/api/tags/<record_type>/<record_id>", methods=["GET"])
+23376:async def api_get_tags(record_type: str, record_id: str):
+23382:@app.route("/api/tags/<record_type>/<record_id>", methods=["POST"])
+23384:async def api_add_tag(record_type: str, record_id: str):
+23410:@app.route("/api/tags/<record_type>/<record_id>/<tag_key>", methods=["DELETE"])
+23412:async def api_delete_tag(record_type: str, record_id: str, tag_key: str):
+23457:@app.route("/api/logs/field-hints", methods=["GET"])
+23459:async def api_logs_field_hints():
+23534:@app.route("/api/logs/validate-filter", methods=["POST"])
+23536:async def api_logs_validate_filter():
+23619:def _truncate_sample(sample: str | None) -> str | None:
+23626:def _regex_scope_text(scope: dict[str, Any], key: str, max_len: int = _REGEX_SCOPE_MAX_LEN) -> str:
+23634:def _regex_scope_time_conditions(scope: dict[str, Any], column: str) -> tuple[list[str], list[Any]]:
+23658:def _parse_and_validate_regex_expression_for_api(db: Any, expression: str) -> tuple[list[str], list[str], str | None]:
+23665:def _regex_best_effort_sample(
+23704:@app.route("/api/logs/validate-regex", methods=["POST"])
+23706:async def api_logs_validate_regex():
+23763:@app.route("/api/errors/validate-regex", methods=["POST"])
+23765:async def api_errors_validate_regex():
+23812:@app.route("/api/traces/validate-regex", methods=["POST"])
+23814:async def api_traces_validate_regex():
+23865:@app.route("/api/metrics/validate-regex", methods=["POST"])
+23867:async def api_metrics_validate_regex():
+23926:@app.route("/api/rum/validate-regex", methods=["POST"])
+23928:async def api_rum_validate_regex():
+23979:@app.route("/api/ai/field-hints", methods=["GET"])
+23981:async def api_ai_field_hints():
+24157:@app.route("/api/ai/validate-filter", methods=["POST"])
+24159:async def api_ai_validate_filter():
+24212:@app.route("/tail")
+24214:async def tail_stream():
+24340:def _encrypt_notification_config(config: dict) -> dict:
+24350:def _decrypt_notification_config(config: dict) -> dict:
+24360:def _load_notification_channels(db: ChDbConnection) -> list[dict]:
+24378:def _normalize_notification_condition(raw: Any) -> dict[str, Any] | None:
+24434:def _parse_notification_conditions_json(raw: Any) -> list[dict[str, Any]]:
+24453:def _load_notification_rules(db: ChDbConnection) -> list[dict]:
+24476:def _load_notification_log(db: ChDbConnection, limit: int = 50) -> list[dict]:
+24499:def _mask_channel_config(channel_type: str, config: dict) -> dict:
+24509:def _notification_channel_mask_output_enabled(channel: dict[str, Any]) -> bool:
+24519:def _build_notification_payload(
+24566:async def _dispatch_webhook_channel(config: dict, payload: dict) -> None:
+24594:async def _dispatch_slack_channel(config: dict, payload: dict) -> None:
+24610:def _dispatch_email_channel(config: dict, payload: dict) -> None:
+24647:async def _dispatch_browser_push_channel(config: dict, payload: dict) -> None:
+24715:def _pad_base64(s: str) -> str:
+24724:def _build_vapid_jwt(claims: dict, private_key: Any) -> str:
+24742:def _encrypt_push_payload(
+24810:async def _dispatch_notification_channel(channel: dict, payload: dict) -> str:
+24830:def _evaluate_signal_condition(db: ChDbConnection, cond: dict) -> tuple[bool, float]:
+24879:def _evaluate_tag_condition(db: ChDbConnection, cond: dict) -> tuple[bool, float]:
+24930:def _evaluate_notification_condition(db: ChDbConnection, cond: dict) -> tuple[bool, float]:
+24937:async def _check_notification_rule(db: ChDbConnection, rule: dict, channels_by_id: dict) -> dict:
+25087:def _normalize_agent_trigger_state(raw_state: str) -> str:
+25096:def _agent_rule_trigger_state_matches(trigger_state: str, event_state: str) -> bool:
+25103:def _collect_anomaly_agent_events(db: ChDbConnection) -> dict[str, dict[str, object]]:
+25150:def _collect_tag_rule_agent_events(db: ChDbConnection, lookback_minutes: int = 5) -> dict[str, dict[str, object]]:
+25178:async def _run_agent_rule_instance(
+25243:def _generate_vapid_keys() -> tuple[str, str]:
+25263:def _get_app_setting(db: "ChDbConnection", key: str) -> str | None:
+25278:def _next_app_setting_updated_at() -> str:
+25289:def _set_app_setting(db: "ChDbConnection", key: str, value: str) -> None:
+25304:def _del_app_setting(db: "ChDbConnection", key: str) -> None:
+25318:def _load_json_string_list_setting(db: "ChDbConnection", key: str) -> list[str]:
+25337:def _save_json_string_list_setting(db: "ChDbConnection", key: str, values: list[str]) -> None:
+25344:def _load_masking_custom_keys(db: "ChDbConnection") -> list[str]:
+25352:def _save_masking_custom_keys(db: "ChDbConnection", keys: list[str]) -> None:
+25363:def _load_masking_custom_patterns(db: "ChDbConnection") -> list[str]:
+25373:def _save_masking_custom_patterns(db: "ChDbConnection", patterns: list[str]) -> None:
+25378:def _load_masking_settings(db: "ChDbConnection") -> dict[str, Any]:
+25395:def _refresh_masking_runtime_rules(db: "ChDbConnection") -> None:
+25412:async def _refresh_masking_rules_before_request() -> None:
+25426:def _get_vapid_private_key_b64(db: "ChDbConnection | None" = None) -> tuple[str, str] | tuple[None, None]:
+25438:def _get_vapid_public_key(db: "ChDbConnection | None" = None) -> tuple[str, str] | tuple[None, None]:
+25460:@app.route("/settings/notifications")
+25462:async def view_notifications():
+25492:@app.route("/settings/notifications/channels", methods=["POST"])
+25494:async def create_notification_channel():
+25568:@app.route("/settings/notifications/channels/<channel_id>/delete", methods=["POST"])
+25570:async def delete_notification_channel(channel_id: str):
+25598:@app.route("/settings/notifications/channels/<channel_id>/toggle", methods=["POST"])
+25600:async def toggle_notification_channel(channel_id: str):
+25632:@app.route("/api/notifications/channels/<channel_id>/test", methods=["POST"])
+25634:async def test_notification_channel(channel_id: str):
+25668:@app.route("/settings/notifications/rules", methods=["POST"])
+25670:async def create_notification_rule():
+25844:@app.route("/settings/notifications/rules/<rule_id>/toggle", methods=["POST"])
+25846:async def toggle_notification_rule(rule_id: str):
+25883:@app.route("/settings/notifications/rules/<rule_id>/delete", methods=["POST"])
+25885:async def delete_notification_rule(rule_id: str):
+25917:def _get_notification_auto_candidates(
+26008:@app.route("/api/notifications/rules/auto-generate", methods=["POST"])
+26010:async def auto_generate_notification_rules():
+26091:@app.route("/api/notifications/check", methods=["POST"])
+26093:async def check_notifications():
+26202:@app.route("/api/notifications/vapid-public-key", methods=["GET"])
+26204:async def get_vapid_public_key():
+26212:@app.route("/service-worker.js", methods=["GET"])
+26213:async def service_worker_js():
+26247:@app.route("/api/notifications/subscribe", methods=["POST"])
+26249:async def subscribe_browser_push():
+26290:@app.route("/api/notifications/vapid-keygen", methods=["POST"])
+26292:async def generate_vapid_key():
+26326:@app.route("/api/notifications/vapid-keys", methods=["DELETE"])
+26328:async def delete_vapid_keys():
+26355:@app.route("/health")
+26356:async def health():
+26360:@app.route("/health/db")
+26361:async def health_db():
+26393:def _sse_json_event(event_name: str, payload: dict[str, Any]) -> str:
+26397:def _guard_telemetry_attrs(allowed: bool, guard_reason: str, guard_stats: dict[str, Any]) -> dict[str, Any]:
+26418:def _build_ai_turn_logs_url(chat_id: str, turn_id: str) -> str:
+26431:def _emit_ai_helper_log_event(
+26528:@app.route("/api/ai/helper/capabilities", methods=["GET"])
+26530:async def ai_helper_capabilities():
+26551:@app.route("/api/ai/helper/actions/manifest", methods=["GET"])
+26553:async def ai_helper_action_manifest():
+26564:@app.route("/api/ai/helper/chats", methods=["GET"])
+26566:async def ai_helper_chats():
+26623:@app.route("/api/ai/helper/chats/<chat_id>", methods=["GET"])
+26625:async def ai_helper_chat_detail(chat_id: str):
+26695:@app.route("/api/ai/helper/feedback", methods=["POST"])
+26697:async def ai_helper_feedback():
+26723:@app.route("/api/ai/helper", methods=["POST"])
+26725:async def ai_helper():
+27516:@app.route("/api/ai/helper/actions/execute", methods=["POST"])
+27518:async def ai_helper_execute_action():
+27594:def _build_user_issue_trigger_context(source_page: str, payload: dict[str, Any]) -> dict[str, Any]:
+27663:@app.route("/api/issues/raise", methods=["POST"])
+27665:async def raise_issue_from_user_observation():
+27775:@app.route("/api/agent/runs", methods=["GET"])
+27777:async def list_agent_runs():
+27787:@app.route("/api/agent/runs", methods=["POST"])
+27789:async def trigger_agent_run():
+27848:@app.route("/api/agent/runs/<run_id>/dismiss", methods=["POST"])
+27850:async def dismiss_agent_run(run_id: str):
+27934:def _build_query_allowed_tables() -> frozenset[str]:
+27954:def _suggest_allowed_table_names(blocked_ref: str, max_suggestions: int = 5) -> list[str]:
+28479:def _normalize_chart_spec_text(spec_raw: str) -> str:
+28497:def _insert_missing_json_commas(text: str) -> str:
+28528:def _parse_chart_spec_json(spec_raw: str) -> tuple[dict[str, Any] | None, str]:
+28552:async def _repair_chart_spec_json_with_llm(
+28593:async def _vanna_generate_sql(
+28673:async def _vanna_generate_named_queries(
+28769:async def _vanna_repair_sql(
+28831:def _repair_truncated_in_clause_literals(sql: str) -> str:
+28864:def _auto_repair_incomplete_cte_sql(sql: str) -> str:
+28906:async def _vanna_generate_chart_spec(
+29010:def _extract_chart_option_placeholders(option_json: str) -> set[str]:
+29018:def _infer_custom_mapping_from_option(option_json: str, columns: list[str]) -> dict[str, object]:
+29048:def _build_fallback_custom_option_json() -> str:
+29068:def _load_chart_types_catalog() -> dict[str, Any]:
+29085:def _build_chart_refinement_prompt() -> str:
+29133:async def _vanna_refine_chart_spec(
+29210:def _infer_query_field_types(df: "pd.DataFrame") -> list[dict[str, str]]:
+29244:def _json_safe_scalar(value: Any) -> Any:
+29251:def _json_safe_rows(rows: list[list[Any]]) -> list[list[Any]]:
+29256:def _vanna_explain_sql(db: "ChDbConnection", sql: str) -> str:
+29279:def _vanna_run_query(db: "ChDbConnection", sql: str) -> tuple["pd.DataFrame | None", str]:
+29308:@app.route("/query")
+29310:async def view_query():
+29319:@app.route("/api/query/ask", methods=["POST"])
+29321:async def api_query_ask():
+29627:@app.route("/api/query/run", methods=["POST"])
+29629:async def api_query_run():
+29886:@app.route("/api/query/refine-chart", methods=["POST"])
+29888:async def api_query_refine_chart():
+29990:@app.route("/api/query/schema", methods=["GET"])
+29992:async def api_query_schema():
+30010:@app.route("/table-explorer")
+30012:async def view_table_explorer():
+30022:@app.route("/api/table-explorer/tables", methods=["GET"])
+30024:async def api_table_explorer_tables():
+30064:@app.route("/api/table-explorer/table/<name>", methods=["GET"])
+30066:async def api_table_explorer_table(name: str):
+30106:@app.route("/api/chart-types", methods=["GET"])
+30108:async def api_chart_types():
+30145:def _load_k8s_settings(db: "ChDbConnection") -> dict[str, str]:
+30155:def _k8s_settings_from_form(form: "dict[str, str]") -> dict[str, str]:
+30165:def _detect_k8s_metric_format(db: "ChDbConnection") -> str:
+30189:def _fetch_k8s_from_otel(db: "ChDbConnection", query: dict[str, Any] | None = None) -> dict[str, Any]:
+30818:@app.route("/settings/kubernetes", methods=["GET"])
+30820:async def view_k8s_settings():
+30834:@app.route("/settings/kubernetes", methods=["POST"])
+30836:async def save_k8s_settings():
+30850:@app.route("/kubernetes")
+30852:async def view_kubernetes():
+30862:@app.route("/api/kubernetes/status", methods=["GET"])
+30864:async def api_kubernetes_status():
+30965:def _is_sensitive_dm_setting_key(key: str) -> bool:
+30969:def _sql_quote_literal(value: str) -> str:
+30974:def _require_dm_safe_value(field_name: str, value: str, pattern: re.Pattern[str]) -> None:
+30979:def _validate_dm_backup_name(backup_name: str) -> None:
+30984:def _validate_dm_s3_settings(settings: dict[str, str]) -> None:
+30998:def _load_dm_settings(db: "ChDbConnection", *, include_sensitive_values: bool = True) -> dict[str, str]:
+31011:def _get_app_setting_raw(db: "ChDbConnection", key: str) -> str:
+31020:def _set_dm_setting(db: "ChDbConnection", key: str, value: str) -> None:
+31029:def _dm_settings_from_form(form: "dict[str, str]") -> dict[str, str]:
+31050:def _dm_backup_enabled(db: "ChDbConnection | None" = None) -> bool:
+31056:def _apply_dm_ttl(db: "ChDbConnection", settings: dict[str, str]) -> list[str]:
+31095:def _get_dm_prune_lock() -> threading.Lock:
+31099:def _acquire_dm_prune_lock() -> "threading.Lock | None":
+31106:def _parse_dm_prune_period(payload: dict[str, object]) -> tuple[int, str] | None:
+31129:def _get_dm_column_type(db: "ChDbConnection", table: str, column: str) -> str | None:
+31142:def _run_dm_prune(db: "ChDbConnection", prune_period: tuple[int, str] | None = None) -> dict[str, object]:
+31204:def _build_s3_backup_dest(settings: dict[str, str], backup_name: str) -> str:
+31227:def _list_dm_backups(db: "ChDbConnection", settings: dict[str, str]) -> list[dict[str, str]]:
+31252:def _run_dm_backup(db: "ChDbConnection", settings: dict[str, str], backup_type: str = "full") -> dict[str, str]:
+31291:def _run_dm_restore(db: "ChDbConnection", settings: dict[str, str], backup_name: str) -> dict[str, str]:
+31307:@app.route("/settings/data-management", methods=["GET"])
+31309:async def view_dm_settings():
+31331:@app.route("/settings/data-management", methods=["POST"])
+31333:async def save_dm_settings():
+31369:@app.route("/api/data-management/backup/list", methods=["GET"])
+31371:async def api_dm_backup_list():
+31379:@app.route("/api/data-management/backup/run", methods=["POST"])
+31381:async def api_dm_backup_run():
+31395:@app.route("/api/data-management/restore", methods=["POST"])
+31397:async def api_dm_restore():
+31414:@app.route("/api/data-management/prune", methods=["POST"])
+31416:async def api_dm_prune():
+31455:def _build_setup_wizard_steps(env: str, language: str, deployment: str) -> dict:
+31898:@app.route("/api/setup-wizard/steps", methods=["GET"])
+31900:async def api_setup_wizard_steps():
+31960:async def _github_list_directory(
+31980:async def _github_file_text(github_token: str, owner: str, repo: str, path: str) -> tuple[str, str]:
+32001:async def _inspect_repo_for_onboarding(github_token: str, owner: str, repo: str) -> dict[str, Any]:
+32080:async def _github_get_issue_detail(github_token: str, github_repo: str, issue_number: int) -> dict[str, Any]:
+32101:def _github_issue_is_new_state(issue_payload: dict[str, Any]) -> bool:
+32112:async def _update_github_issue_record(
+32168:async def _create_or_update_onboarding_issue(
+32226:def _build_ci_metadata_issue_body(owner: str, repo: str, has_github_actions: bool) -> str:
+32451:def _build_otel_audit_issue_body(owner: str, repo: str) -> str:
+32580:@app.route("/api/onboarding/create-repo", methods=["POST"])
+32582:async def api_onboarding_create_repo():
+32654:@app.route("/api/onboarding/import-repo", methods=["POST"])
+32656:async def api_onboarding_import_repo():
+32719:@app.route("/api/onboarding/list-repos", methods=["POST"])
+32721:async def api_onboarding_list_repos():
+32799:@app.route("/api/onboarding/inspect-repo", methods=["GET"])
+32801:async def api_onboarding_inspect_repo():
+32854:@app.route("/api/onboarding/create-issues", methods=["POST"])
+32856:async def api_onboarding_create_issues():
