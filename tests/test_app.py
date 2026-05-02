@@ -1977,6 +1977,40 @@ class TestErrorsIngest:
         body = await page.get_data(as_text=True)
         assert "[mapped] saveOrder (src/components/Checkout.tsx:88:21)" in body
 
+    def test_sourcemap_lookup_loads_map_index_from_disk(self, monkeypatch):
+        class _FakeToken:
+            src = "src/app.ts"
+            src_line = 4
+            src_col = 8
+            name = "renderWidget"
+
+        class _FakeIndex:
+            def lookup(self, line: int, col: int):
+                assert line == 0
+                assert col == 1
+                return _FakeToken()
+
+        class _FakeSourcemapModule:
+            @staticmethod
+            def loads(_content: str):
+                return _FakeIndex()
+
+        with tempfile.TemporaryDirectory(prefix="sobs-sourcemap-") as temp_dir:
+            assets_dir = os.path.join(temp_dir, "assets")
+            os.makedirs(assets_dir, exist_ok=True)
+            map_path = os.path.join(assets_dir, "app.min.js.map")
+            with open(map_path, "w", encoding="utf-8") as handle:
+                handle.write('{"version":3}')
+
+            monkeypatch.setattr(sobs_app, "SOURCE_MAP_ENABLE", True)
+            monkeypatch.setattr(sobs_app, "SOURCE_MAP_DIR", temp_dir)
+            monkeypatch.setitem(sys.modules, "sourcemap", _FakeSourcemapModule())
+            sobs_app._SOURCE_MAP_CACHE.clear()
+
+            result = sobs_app._sourcemap_lookup_for_file("https://cdn.example.com/assets/app.min.js", 1, 2)
+
+        assert result == ("src/app.ts", 5, 9, "renderWidget")
+
     async def test_errors_page_renders_with_invalid_utf8_bytes(self, client):
         """Errors page must render without UnicodeDecodeError when stored data contains
         invalid UTF-8 byte sequences in body or attributes on either error source."""
@@ -7911,6 +7945,45 @@ class TestInternalAssistantOtelCompliance:
 
 
 class TestCustomDashboards:
+    def test_extract_bindings_builds_boxplot_series(self):
+        template = {
+            "id": "box_plot",
+            "column_roles": {
+                "dimension": 0,
+                "min": 1,
+                "q1": 2,
+                "median": 3,
+                "q3": 4,
+                "max": 5,
+            },
+        }
+        columns = ["dimension", "min", "q1", "median", "q3", "max"]
+        rows = [
+            ["svc-a", 1, 2, 3, 4, 5],
+            ["svc-b", 6, 7, 8, 9, 10],
+        ]
+
+        bindings = sobs_app._extract_bindings(template, columns, rows)
+
+        assert bindings["boxplot_data"] == [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]]
+        assert bindings["dimension_values"] == ["svc-a", "svc-b"]
+
+    def test_render_chart_from_template_rejects_non_mapping_option(self, monkeypatch):
+        template_id = "unit_test_invalid_option"
+        monkeypatch.setitem(
+            sobs_app.CHART_TEMPLATES,
+            template_id,
+            {
+                "id": template_id,
+                "min_columns": 1,
+                "column_roles": {"value": 0},
+                "echarts_option_template": "not-a-dict",
+            },
+        )
+
+        with pytest.raises(ValueError, match="produced an invalid ECharts option"):
+            sobs_app._render_chart_from_template(template_id, ["value"], [[1]])
+
     async def test_list_dashboards_empty(self, client):
         r = await client.get("/dashboards")
         assert r.status_code == 200
@@ -15410,6 +15483,30 @@ class TestNotifications:
         assert ch is not None
         assert ch["config"]["webhook_url"] == "https://hooks.slack.com/services/SECRET"
         assert ch["config"]["smtp_password"] == "top-secret"
+
+    def test_encrypt_push_payload_returns_webpush_envelope(self):
+        from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives.asymmetric.ec import SECP256R1, generate_private_key
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+        backend = default_backend()
+        subscriber_private = generate_private_key(SECP256R1(), backend)
+        subscriber_pub = subscriber_private.public_key().public_bytes(
+            Encoding.X962,
+            PublicFormat.UncompressedPoint,
+        )
+
+        ciphertext, salt, server_pub = sobs_app._encrypt_push_payload(
+            b'{"title":"Alert"}',
+            subscriber_pub,
+            b"0123456789abcdef",
+            backend,
+        )
+
+        assert len(salt) == 16
+        assert len(server_pub) == 65
+        assert ciphertext.startswith(salt)
+        assert ciphertext != b'{"title":"Alert"}'
 
     async def test_subscribe_browser_push_requires_fields(self, client):
         r = await client.post(
