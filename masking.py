@@ -260,7 +260,8 @@ def build_redacting_filter() -> _SobsRedactingFilter:
 def _get_filter() -> _SobsRedactingFilter:
     if _filter is None:
         build_redacting_filter()
-    return _filter  # type: ignore[return-value]
+    assert _filter is not None
+    return _filter
 
 
 # ---------------------------------------------------------------------------

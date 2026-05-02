@@ -1294,6 +1294,29 @@ except RuntimeError as exc:
 
 
 class TestDbBootstrap:
+    def test_python_app_py_entrypoint_starts_without_circular_import(self):
+        data_dir = tempfile.mkdtemp(prefix="sobs-script-startup-")
+        repo_root = os.path.dirname(os.path.dirname(__file__))
+        script = f"""
+import os
+import runpy
+import hypercorn.asyncio
+
+os.chdir({repo_root!r})
+
+async def fake_serve(app, config):
+    print("serve-called")
+    return None
+
+hypercorn.asyncio.serve = fake_serve
+runpy.run_path("app.py", run_name="__main__")
+"""
+
+        result = TestStorageConfiguration._run_probe_script(script, {"SOBS_DATA_DIR": data_dir})
+
+        assert result.returncode == 0, result.stderr
+        assert "serve-called" in result.stdout
+
     async def test_init_db_skips_example_seed_when_testing(self):
         data_dir = tempfile.mkdtemp(prefix="sobs-chdb-testing-init-")
         script = """

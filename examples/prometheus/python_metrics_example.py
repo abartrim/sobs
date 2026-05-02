@@ -60,7 +60,7 @@ def run_push_mode(sobs_endpoint: str, iterations: int = 10, interval: float = 2.
     # ---- Gauge – CPU utilisation (observable) ----
     cpu_usage: list[float] = [0.0]
 
-    def observe_cpu(_options: metrics.CallbackOptions):  # type: ignore[name-defined]
+    def observe_cpu(_options: "metrics.CallbackOptions"):
         cpu_usage[0] = random.uniform(10.0, 90.0)
         yield metrics.Observation(cpu_usage[0], {"core": "0"})
 

@@ -23,7 +23,6 @@ import argparse
 import subprocess
 import sys
 
-
 TARGETS = [
     "app.py",
     "masking.py",

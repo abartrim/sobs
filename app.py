@@ -23,6 +23,7 @@ import os
 import queue
 import re
 import secrets
+import sys
 import threading
 import time
 import urllib.error
@@ -57,7 +58,6 @@ from quart import (
     render_template,
     request,
     send_from_directory,
-    session,
     url_for,
 )
 
@@ -69,6 +69,10 @@ import telemetry as _telemetry
 # App setup
 # ---------------------------------------------------------------------------
 app = Quart(__name__)
+
+# Keep a stable module name for extracted route imports when the app is started
+# via `python app.py`, where this module would otherwise only exist as __main__.
+sys.modules.setdefault("app", sys.modules[__name__])
 
 _base_jsonify = jsonify
 
@@ -10263,7 +10267,6 @@ async def ingest_errors():
         return _json_error("error ingest write failed", 500)
     _telemetry.record_ingest_events(1, "error")
     return jsonify({"ok": True}), 200
-
 
 
 ERROR_SOURCES_SQL = """
@@ -33049,11 +33052,11 @@ async def api_onboarding_create_issues():
 # Blueprint registration (deferred – placed here so all app.py helpers are
 # already defined when the blueprint modules import from app).
 # ---------------------------------------------------------------------------
-from routes.apps import apps_bp as _apps_bp  # noqa: E402  # type: ignore[has-type]
-from routes.settings import settings_bp as _settings_bp  # noqa: E402  # type: ignore[has-type]
+from routes.apps import apps_bp as _apps_bp  # noqa: E402
+from routes.settings import settings_bp as _settings_bp  # noqa: E402
 
-app.register_blueprint(_apps_bp)  # type: ignore[has-type]
-app.register_blueprint(_settings_bp)  # type: ignore[has-type]
+app.register_blueprint(_apps_bp)
+app.register_blueprint(_settings_bp)
 
 
 if __name__ == "__main__":
