@@ -118,7 +118,7 @@
     </button>
     <div id="traceMeta" class="d-none small text-secondary d-flex align-items-center gap-2 ms-auto">
       <span>Trace:</span>
-      <a id="traceIdLink" class="text-decoration-none" href="{{ url_for('view_traces') }}" title="Open trace in Traces view">
+      <a id="traceIdLink" class="text-decoration-none" href="{{ url_for('traces.view_traces') }}" title="Open trace in Traces view">
         <code id="traceIdText"></code>
       </a>
       <button id="copyTraceBtn" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Copy trace ID" type="button">
@@ -415,7 +415,7 @@
   var preferredChartType = '';
   var preferredChartInstruction = '';
   var thinkingLevel = 'off';
-  var tracesUrlBase = '{{ url_for("view_traces") }}';
+  var tracesUrlBase = '{{ url_for('traces.view_traces') }}';
   var dashboardsListApiUrl = '{{ url_for("api_dashboards_list") }}';
   var addToDashboardApiUrl = '{{ url_for("api_query_add_to_dashboard") }}';
   var QUERY_HISTORY_KEY = 'sobs.query.history.v1';

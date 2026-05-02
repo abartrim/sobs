@@ -50,7 +50,7 @@
       {% endif %}
     </div>
     <div class="d-flex gap-2 align-items-center flex-shrink-0">
-      {% set page_url_map = {'logs': url_for('logs.view_logs'), 'traces': url_for('view_traces'), 'errors': url_for('errors.view_errors'), 'metrics': url_for('view_metrics'), 'rum': url_for('view_rum'), 'ai': url_for('view_ai'), 'work_items': url_for('view_work_items'), 'web_traffic': url_for('view_web_traffic')} %}
+      {% set page_url_map = {'logs': url_for('logs.view_logs'), 'traces': url_for('traces.view_traces'), 'errors': url_for('errors.view_errors'), 'metrics': url_for('view_metrics'), 'rum': url_for('view_rum'), 'ai': url_for('view_ai'), 'work_items': url_for('view_work_items'), 'web_traffic': url_for('view_web_traffic')} %}
       {% if report.page_type in page_url_map %}
       <a href="{{ page_url_map[report.page_type] }}?{{ report.filters | urlencode }}" class="btn btn-sm btn-outline-primary">
         <i class="bi bi-play me-1"></i>Apply
@@ -78,7 +78,7 @@
 <div class="text-center py-5 text-secondary">
   <i class="bi bi-bookmark-star fs-1 d-block mb-3"></i>
   <p class="mb-3">No saved reports yet.</p>
-  <p class="small">Go to <a href="{{ url_for('logs.view_logs') }}">Logs</a>, <a href="{{ url_for('view_traces') }}">Traces</a>, or another page,
+  <p class="small">Go to <a href="{{ url_for('logs.view_logs') }}">Logs</a>, <a href="{{ url_for('traces.view_traces') }}">Traces</a>, or another page,
   apply filters, then click <strong>Save as report</strong> to save them here.</p>
 </div>
 {% endif %}

@@ -40,7 +40,7 @@
        data-ai-risk="low"
        data-ai-confirm="false"
        title="Open Related Traces"
-       href="{{ url_for('view_traces', service=service, from_ts=from_ts, to_ts=to_ts) }}">
+       href="{{ url_for('traces.view_traces', service=service, from_ts=from_ts, to_ts=to_ts) }}">
       <i class="bi bi-diagram-3 me-1"></i><span class="metrics-anomaly-btn-label">Open Related Traces</span>
     </a>
     {% elif related_target == 'errors' %}
@@ -228,7 +228,7 @@
               </a>
               {% elif r.related_target == 'traces' %}
               <a class="btn btn-sm btn-outline-info"
-                 href="{{ url_for('view_traces', service=r.service, from_ts=r.time, window_s=60) }}">
+                 href="{{ url_for('traces.view_traces', service=r.service, from_ts=r.time, window_s=60) }}">
                 Traces
               </a>
               {% elif r.related_target == 'errors' %}

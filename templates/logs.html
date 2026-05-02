@@ -376,7 +376,7 @@
         </td>
         <td data-label="Trace">
           {% if log.trace_id %}
-          <a href="{{ url_for('view_traces', trace_id=log.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="trace-link text-truncate d-inline-block" style="max-width:110px;" title="{{ log.trace_id }}">
+          <a href="{{ url_for('traces.view_traces', trace_id=log.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="trace-link text-truncate d-inline-block" style="max-width:110px;" title="{{ log.trace_id }}">
             {{ log.trace_id[:12] }}…
           </a>
           {% else %}
@@ -476,7 +476,7 @@
   const liveRequested = {{ (live == '1')|tojson }};
 
   const MAX_LIVE_ROWS = 200;
-  const tracesUrlBase = {{ url_for('view_traces')|tojson }};
+  const tracesUrlBase = {{ url_for('traces.view_traces')|tojson }};
   let liveSource = null;
   let pendingEvents = [];
 

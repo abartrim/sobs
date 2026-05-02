@@ -67,7 +67,7 @@
       <div><span class="text-secondary">Time:</span> <span class="sobs-tz-ts" data-utc-ts="{{ primary_error.ts }}">{{ primary_error.ts[:19] }}</span></div>
       {% if primary_error.trace_id %}
       <div><span class="text-secondary">Trace:</span>
-        <a href="{{ url_for('view_traces', trace_id=primary_error.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="font-monospace text-break">{{ primary_error.trace_id }}</a>
+        <a href="{{ url_for('traces.view_traces', trace_id=primary_error.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="font-monospace text-break">{{ primary_error.trace_id }}</a>
       </div>
       {% endif %}
     </div>
@@ -95,7 +95,7 @@
       <div><span class="text-secondary">Service:</span> <strong>{{ primary_rum.service or '—' }}</strong></div>
       <div><span class="text-secondary">Time:</span> <span class="sobs-tz-ts" data-utc-ts="{{ primary_rum.ts }}">{{ primary_rum.ts[:19] }}</span></div>
       {% if primary_rum.trace_id %}
-      <div><span class="text-secondary">Trace:</span> <a href="{{ url_for('view_traces', trace_id=primary_rum.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="font-monospace text-break">{{ primary_rum.trace_id }}</a></div>
+      <div><span class="text-secondary">Trace:</span> <a href="{{ url_for('traces.view_traces', trace_id=primary_rum.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="font-monospace text-break">{{ primary_rum.trace_id }}</a></div>
       {% endif %}
       {% if primary_rum.session_key %}
       <div><span class="text-secondary">Session:</span> <code class="font-monospace">{{ primary_rum.session_key[:16] }}{% if primary_rum.session_key|length > 16 %}…{% endif %}</code></div>
@@ -136,11 +136,11 @@
   </button>
 
   {% if trace_id %}
-  <a href="{{ url_for('view_traces', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
+  <a href="{{ url_for('traces.view_traces', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
     <i class="bi bi-diagram-3 me-1"></i>Open in Traces
   </a>
   {% elif primary_rum and primary_rum.trace_id %}
-  <a href="{{ url_for('view_traces', trace_id=primary_rum.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
+  <a href="{{ url_for('traces.view_traces', trace_id=primary_rum.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
     <i class="bi bi-diagram-3 me-1"></i>Open in Traces
   </a>
   {% endif %}
@@ -262,7 +262,7 @@
               <td data-label="Actions">
                 <div class="d-flex gap-2 flex-wrap">
                   {% if ev.trace_id %}
-                  <a href="{{ url_for('view_traces', trace_id=ev.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">Trace</a>
+                  <a href="{{ url_for('traces.view_traces', trace_id=ev.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">Trace</a>
                   {% endif %}
                   <a href="{{ url_for('view_incident', trace_id=ev.trace_id, rum_session=ev.session_key, rum_ts=ev.ts, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-primary">Incident</a>
                 </div>
