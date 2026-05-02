@@ -392,7 +392,7 @@
                     Related telemetry
                   </a>
                   {% if turn.trace_id %}
-                  <a href="{{ url_for('view_logs', trace_id=turn.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" title="View related logs">
+                  <a href="{{ url_for('logs.view_logs', trace_id=turn.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" title="View related logs">
                     <i class="bi bi-journal-text me-1"></i>Logs
                   </a>
                   <a href="{{ url_for('view_traces', trace_id=turn.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="trace-link">

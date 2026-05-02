@@ -132,7 +132,7 @@
         <div class="card-body">
             <ul class="small mb-0">
                 <li>
-                    <strong>No libraries detected</strong> — ensure your services are sending OTEL data with library/SDK attributes. Check the <a href="{{ url_for('view_logs') }}">Logs</a> and <a href="{{ url_for('view_traces') }}">Traces</a> pages for ingested data.
+                    <strong>No libraries detected</strong> — ensure your services are sending OTEL data with library/SDK attributes. Check the <a href="{{ url_for('logs.view_logs') }}">Logs</a> and <a href="{{ url_for('view_traces') }}">Traces</a> pages for ingested data.
                 </li>
                 <li>
                     <strong>Scan returns no findings</strong> — this may mean your libraries have no known CVEs. Verify the library list in the <em>Detected Libraries</em> panel is accurate.

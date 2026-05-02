@@ -63,7 +63,7 @@
 <!-- Stats row -->
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-4 col-lg-2">
-     <a href="{{ url_for('view_logs') }}" class="text-decoration-none"
+     <a href="{{ url_for('logs.view_logs') }}" class="text-decoration-none"
        data-ai-action-id="summary.nav.logs"
        data-ai-action-type="navigate"
        data-ai-handler="navigate"
@@ -207,7 +207,7 @@
           <span><i class="bi bi-journal-text me-1 text-info"></i>Recent Logs</span>
           {% if recent_logs %}<span id="summary-logs-ansi-btn" class="sobs-tz-header-badge" role="button" tabindex="0" aria-label="Toggle colored log output" aria-pressed="false" title="Colored log output: off — click to enable"><i class="bi bi-palette"></i></span>{% endif %}
         </div>
-        <a href="{{ url_for('view_logs') }}" class="btn btn-sm btn-outline-secondary" title="View all"><i class="bi bi-arrow-right me-1"></i><span class="summary-btn-label">View all</span></a>
+        <a href="{{ url_for('logs.view_logs') }}" class="btn btn-sm btn-outline-secondary" title="View all"><i class="bi bi-arrow-right me-1"></i><span class="summary-btn-label">View all</span></a>
       </div>
       <div class="card-body p-0">
         {% if recent_logs %}

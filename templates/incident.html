@@ -146,11 +146,11 @@
   {% endif %}
 
   {% if (primary_error and primary_error.trace_id) or trace_id %}
-  <a href="{{ url_for('view_logs', trace_id=(primary_error.trace_id if primary_error and primary_error.trace_id else trace_id), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
+  <a href="{{ url_for('logs.view_logs', trace_id=(primary_error.trace_id if primary_error and primary_error.trace_id else trace_id), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-journal-text me-1"></i>View Logs
   </a>
   {% elif service %}
-  <a href="{{ url_for('view_logs', service=service, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
+  <a href="{{ url_for('logs.view_logs', service=service, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-journal-text me-1"></i>View Logs
   </a>
   {% endif %}
@@ -590,9 +590,9 @@
       lines.push('- [Trace Detail]({{ url_for("view_traces", trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) | safe }})');
       {% endif %}
       {% if (primary_error and primary_error.trace_id) or trace_id %}
-      lines.push('- [Logs]({{ url_for("view_logs", trace_id=(primary_error.trace_id if primary_error and primary_error.trace_id else trace_id), from_ts=from_ts, to_ts=to_ts) | safe }})');
+      lines.push('- [Logs]({{ url_for('logs.view_logs', trace_id=(primary_error.trace_id if primary_error and primary_error.trace_id else trace_id), from_ts=from_ts, to_ts=to_ts) | safe }})');
       {% elif service %}
-      lines.push('- [Logs]({{ url_for("view_logs", service=service, from_ts=from_ts, to_ts=to_ts) | safe }})');
+      lines.push('- [Logs]({{ url_for('logs.view_logs', service=service, from_ts=from_ts, to_ts=to_ts) | safe }})');
       {% endif %}
       {% if service %}
       lines.push('- [Errors]({{ url_for('errors.view_errors', service=service, from_ts=from_ts, to_ts=to_ts) | safe }})');
