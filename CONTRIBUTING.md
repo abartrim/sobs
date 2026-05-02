@@ -13,7 +13,7 @@
 Use a virtual environment and install development dependencies:
 
 ```bash
-python -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt -r requirements-integration.txt
 pip install black isort flake8 mypy djlint
@@ -51,19 +51,22 @@ Enable it once per clone:
 
 ```bash
 git config core.hooksPath .githooks
-chmod +x .githooks/pre-commit
+chmod +x .githooks/pre-commit .githooks/pre-push
 ```
 
 On each commit, the hook runs these checks on staged Python files:
 
-- `isort`
-- `black`
-- `flake8`
-- `mypy`
+- `bash scripts/check_python.sh --fix ...`
 
 And on staged Jinja templates in `templates/*.html`:
 
-- `python3 scripts/run_djlint.py --reformat --lint`
+- `bash scripts/check_templates.sh --fix ...`
+
+On push, the companion `.githooks/pre-push` hook runs the full shared gate:
+
+- `bash scripts/check_python.sh --check`
+- `bash scripts/check_templates.sh --check`
+- `bash scripts/check_unit_tests.sh`
 
 The helper lints all matched templates, but only reformats/checks explicitly targeted or branch-changed templates that do not embed Jinja inside script-heavy blocks.
 
@@ -74,12 +77,9 @@ If formatters update files, the hook re-stages those files automatically.
 Run these before opening or updating a PR:
 
 ```bash
-isort *.py tests/ scripts
-black *.py tests/ scripts
-flake8 *.py tests/ scripts
-mypy app.py tests scripts
-python3 scripts/run_djlint.py --reformat --lint templates
-python3 scripts/run_djlint.py --check --lint templates
+bash scripts/check_python.sh --check
+bash scripts/check_templates.sh --check
+bash scripts/check_unit_tests.sh
 pytest tests/
 ```
 

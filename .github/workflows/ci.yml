@@ -113,22 +113,15 @@ jobs:
             .github/cache-key-lint.txt
 
       - name: Install linting dependencies
-        run: pip install black isort flake8 mypy djlint flask
+        run: |
+          pip install -r requirements.txt -r requirements-integration.txt
+          pip install black isort flake8 mypy djlint
 
-      - name: Run black
-        run: black --check .
+      - name: Run shared Python lint checks
+        run: bash scripts/check_python.sh --check
 
-      - name: Run isort
-        run: isort --check-only .
-
-      - name: Run flake8
-        run: flake8 .
-
-      - name: Run mypy
-        run: mypy app.py
-
-      - name: Run djlint
-        run: python3 scripts/run_djlint.py --check --lint templates
+      - name: Run shared template lint checks
+        run: bash scripts/check_templates.sh --check
 
   test:
     name: Tests
@@ -156,17 +149,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-integration.txt
 
-      - name: Run unit tests with coverage
+      - name: Run shared unit-test gate
         run: |
           echo "SOBS/chDB env snapshot"
           env | sort | grep -E '^(SOBS_|CHDB_)' || true
-          pytest tests --ignore=tests/test_integration.py -x --maxfail=1 -vv \
-            --cov=app --cov=masking --cov=mcp \
-            --cov-report=term-missing \
-            --cov-report=xml:coverage.xml
-
-      - name: Diff coverage gate
-        run: diff-cover coverage.xml --compare-branch=origin/main --fail-under=90
+          bash scripts/check_unit_tests.sh
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v7

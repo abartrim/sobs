@@ -34,23 +34,16 @@ if [[ ${#python_files[@]} -eq 0 && ${#template_files[@]} -eq 0 ]]; then
 fi
 
 if [[ ${#python_files[@]} -gt 0 ]]; then
-  echo "pre-commit: formatting staged Python files with isort and black"
-  isort "${python_files[@]}"
-  black "${python_files[@]}"
-
-  echo "pre-commit: linting staged Python files with flake8"
-  flake8 "${python_files[@]}"
-
-  echo "pre-commit: type-checking staged Python files with mypy"
-  mypy "${python_files[@]}"
+  echo "pre-commit: running staged Python checks"
+  bash scripts/check_python.sh --fix "${python_files[@]}"
 
   # Re-stage in case formatters made changes.
   git add -- "${python_files[@]}"
 fi
 
 if [[ ${#template_files[@]} -gt 0 ]]; then
-  echo "pre-commit: formatting staged Jinja templates with djlint"
-  python3 scripts/run_djlint.py --reformat --lint "${template_files[@]}"
+  echo "pre-commit: running staged template checks"
+  bash scripts/check_templates.sh --fix "${template_files[@]}"
 
   # Re-stage in case formatter made changes.
   git add -- "${template_files[@]}"

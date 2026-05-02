@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+echo "pre-push: running full Python lint checks"
+bash scripts/check_python.sh --check
+
+echo "pre-push: running full template lint checks"
+bash scripts/check_templates.sh --check
+
+echo "pre-push: running unit tests"
+bash scripts/check_unit_tests.sh

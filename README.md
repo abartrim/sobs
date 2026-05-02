@@ -1051,6 +1051,8 @@ The script starts local port-forwards for LLM, embeddings, and DLP, exports `SOB
 ## Running Tests
 
 ```bash
+python3.14 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt -r requirements-integration.txt
 pytest tests/
 ```
@@ -1101,21 +1103,28 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for local development setup and quality c
 
 This repository includes a version-controlled Git pre-commit hook at `.githooks/pre-commit`.
 
+The repository also includes `.githooks/pre-push` for the full local lint and unit-test gate.
+
 It runs on staged Python files and performs:
 
-- `isort`
-- `black`
-- `flake8`
-- `mypy`
+- `bash scripts/check_python.sh --fix ...`
 
 Enable it once per clone:
 
 ```bash
 git config core.hooksPath .githooks
-chmod +x .githooks/pre-commit
+chmod +x .githooks/pre-commit .githooks/pre-push
 ```
 
 If formatting changes are applied, the hook re-stages those Python files before commit.
+
+For the full shared local gate, run:
+
+```bash
+bash scripts/check_python.sh --check
+bash scripts/check_templates.sh --check
+bash scripts/check_unit_tests.sh
+```
 
 ## Output Masking (PII / Secret Redaction)
 
