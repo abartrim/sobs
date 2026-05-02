@@ -31978,7 +31978,7 @@ def _get_dm_prune_lock() -> threading.Lock:
     return _dm_prune_lock
 
 
-def _acquire_dm_prune_lock() -> threading.Lock | None:
+def _acquire_dm_prune_lock() -> "threading.Lock | None":
     lock = _get_dm_prune_lock()
     if not lock.acquire(blocking=False):
         return None
