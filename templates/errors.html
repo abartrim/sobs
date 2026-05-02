@@ -16,12 +16,12 @@
 {% endset %}
 {% set errors_header_actions %}
   <div class="btn-group" role="group" aria-label="Errors view mode">
-    <a href="{{ url_for('view_errors', service=service, from_ts=from_ts, to_ts=to_ts, resolved=resolved, sort_by=sort_by, sort_dir=sort_dir, q=q) }}"
+    <a href="{{ url_for('errors.view_errors', service=service, from_ts=from_ts, to_ts=to_ts, resolved=resolved, sort_by=sort_by, sort_dir=sort_dir, q=q) }}"
        class="btn btn-sm {% if not grouped_mode %}btn-primary{% else %}btn-outline-secondary{% endif %}"
        title="Show individual error records">
       <i class="bi bi-list-ul me-1"></i><span class="errors-btn-label">Records</span>
     </a>
-    <a href="{{ url_for('view_errors', service=service, from_ts=from_ts, to_ts=to_ts, resolved=resolved, grouped='1', sort_by=sort_by, sort_dir=sort_dir, q=q) }}"
+    <a href="{{ url_for('errors.view_errors', service=service, from_ts=from_ts, to_ts=to_ts, resolved=resolved, grouped='1', sort_by=sort_by, sort_dir=sort_dir, q=q) }}"
        class="btn btn-sm {% if grouped_mode %}btn-primary{% else %}btn-outline-secondary{% endif %}"
        title="Best-effort grouping: deduplicate recent errors by fingerprint">
       <i class="bi bi-stack me-1"></i><span class="errors-btn-label">Grouped</span>
@@ -83,7 +83,7 @@
           data-ai-risk="low"
           data-ai-confirm="false"
           data-ai-action-role="filter-submit"><i class="bi bi-search"></i></button>
-        <a href="{{ url_for('view_errors') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
+        <a href="{{ url_for('errors.view_errors') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
         <div class="btn-group btn-group-sm" id="errors-reports-group">
           <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Saved reports">
             <i class="bi bi-bookmark-star"></i>
@@ -169,19 +169,19 @@
       <small class="text-secondary">Showing {{ offset + 1 }}–{{ [offset + errors | length, total] | min }} of {{ total }}{% if grouped_mode %} groups (best effort){% endif %}</small>
     <select class="form-select form-select-sm" style="width:auto;" onchange="window.location.href=this.value" aria-label="Rows per page">
       {% for n in [10, 25, 50, 100, 200] %}
-      <option value="{{ url_for('view_errors', service=service, from_ts=from_ts, to_ts=to_ts, resolved=resolved, sort_by=sort_by, sort_dir=sort_dir, limit=n, offset=0, grouped=_g, q=q) }}" {% if limit == n %}selected{% endif %}>{{ n }} / page</option>
+      <option value="{{ url_for('errors.view_errors', service=service, from_ts=from_ts, to_ts=to_ts, resolved=resolved, sort_by=sort_by, sort_dir=sort_dir, limit=n, offset=0, grouped=_g, q=q) }}" {% if limit == n %}selected{% endif %}>{{ n }} / page</option>
       {% endfor %}
     </select>
   </div>
   <ul class="pagination pagination-sm mb-0">
     {% if offset > 0 %}
     <li class="page-item">
-      <a class="page-link" href="{{ url_for('view_errors', service=service, from_ts=from_ts, to_ts=to_ts, resolved=resolved, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=prev_offset, grouped=_g, q=q) }}">← Prev</a>
+      <a class="page-link" href="{{ url_for('errors.view_errors', service=service, from_ts=from_ts, to_ts=to_ts, resolved=resolved, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=prev_offset, grouped=_g, q=q) }}">← Prev</a>
     </li>
     {% endif %}
     {% if next_offset < total %}
     <li class="page-item">
-      <a class="page-link" href="{{ url_for('view_errors', service=service, from_ts=from_ts, to_ts=to_ts, resolved=resolved, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=next_offset, grouped=_g, q=q) }}">Next →</a>
+      <a class="page-link" href="{{ url_for('errors.view_errors', service=service, from_ts=from_ts, to_ts=to_ts, resolved=resolved, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=next_offset, grouped=_g, q=q) }}">Next →</a>
     </li>
     {% endif %}
   </ul>
@@ -250,7 +250,7 @@ window.SOBS.initSavedReportsDropdown({
   groupId: 'errors-reports-group',
   saveButtonId: 'errors-save-report-btn',
   pageType: 'errors',
-  pageBaseUrl: {{ url_for('view_errors') | tojson }},
+  pageBaseUrl: {{ url_for('errors.view_errors') | tojson }},
   listReportsUrl: {{ url_for('api_list_reports') | tojson }},
   manageReportsUrl: {{ url_for('list_reports') | tojson }}
 });

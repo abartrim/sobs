@@ -581,7 +581,7 @@
     logs: {{ url_for('view_logs') | tojson }},
     metrics: {{ url_for('view_metrics_anomaly') | tojson }},
     traces: {{ url_for('view_traces') | tojson }},
-    errors: {{ url_for('view_errors') | tojson }}
+    errors: {{ url_for('errors.view_errors') | tojson }}
   };
 
   function extractWhereLiteral(query, fieldName) {

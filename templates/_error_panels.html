@@ -299,7 +299,7 @@
                             {% endif %}
                             {% if show_resolve and not err.resolved %}
                                 <button class="btn btn-sm btn-outline-success {{ resolve_btn_class }}"
-                                        data-resolve-url="{{ url_for('resolve_error', error_id=err.id) }}"
+                                        data-resolve-url="{{ url_for('errors.resolve_error', error_id=err.id) }}"
                                         data-ai-action-id="errors.resolve.mark"
                                         data-ai-action-type="invoke_click"
                                         data-ai-handler="invokeClick"

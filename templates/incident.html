@@ -156,7 +156,7 @@
   {% endif %}
 
   {% if service %}
-  <a href="{{ url_for('view_errors', service=service, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
+  <a href="{{ url_for('errors.view_errors', service=service, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-bug me-1"></i>All Errors
   </a>
   {% endif %}
@@ -595,7 +595,7 @@
       lines.push('- [Logs]({{ url_for("view_logs", service=service, from_ts=from_ts, to_ts=to_ts) | safe }})');
       {% endif %}
       {% if service %}
-      lines.push('- [Errors]({{ url_for("view_errors", service=service, from_ts=from_ts, to_ts=to_ts) | safe }})');
+      lines.push('- [Errors]({{ url_for('errors.view_errors', service=service, from_ts=from_ts, to_ts=to_ts) | safe }})');
       {% endif %}
       lines.push('- [RUM]({{ url_for("view_rum", from_ts=from_ts, to_ts=to_ts, q=(trace_id or "")) | safe }})');
 

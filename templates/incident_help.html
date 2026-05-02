@@ -10,7 +10,7 @@
     <h4 class="fw-semibold mb-1">Incident View Help</h4>
     <p class="text-secondary mb-0">Correlated cross-signal incident timeline: primary event, related errors, logs, spans, and anomaly state.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_errors') }}" title="Back to Errors">
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('errors.view_errors') }}" title="Back to Errors">
     <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Errors</span>
   </a>
 </div>
@@ -101,7 +101,7 @@
   <div class="card-header fw-semibold"><i class="bi bi-link-45deg me-2"></i>How to Navigate Here</div>
   <div class="card-body">
     <ul class="small mb-0">
-      <li>From <a href="{{ url_for('view_errors') }}">Errors</a> — expand an error accordion and click <strong>Incident View</strong>.</li>
+      <li>From <a href="{{ url_for('errors.view_errors') }}">Errors</a> — expand an error accordion and click <strong>Incident View</strong>.</li>
       <li>From <a href="{{ url_for('view_traces') }}">Traces</a> — open a trace detail and click <strong>Incident View</strong> in the span header.</li>
       <li>Direct URL — <code>/incident?trace_id=&lt;id&gt;</code> or <code>/incident?error_id=&lt;id&gt;</code>.</li>
     </ul>
