@@ -19,7 +19,7 @@
             </p>
         </div>
         <a class="btn btn-outline-secondary btn-sm"
-           href="{{ url_for('view_web_traffic') }}"
+           href="{{ url_for('rum.view_web_traffic') }}"
            title="Back to Web Traffic">
             <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Web Traffic</span>
         </a>
@@ -196,7 +196,7 @@
         </div>
         <div class="card-body">
             <p class="small text-secondary mb-2">
-                The <a href="{{ url_for('view_enrichment_cve') }}"><strong>CVE Findings</strong></a> page surfaces known vulnerabilities in software libraries
+                The <a href="{{ url_for('rum.view_enrichment_cve') }}"><strong>CVE Findings</strong></a> page surfaces known vulnerabilities in software libraries
                 detected from your OTEL span attributes. Scanning is powered by
                 <a href="https://osv.dev/" target="_blank" rel="noopener">OSV.dev</a> — no API key required.
             </p>

@@ -750,17 +750,17 @@
         </a>
       </li>
       <li class="nav-item">
-        <a href="{{ url_for('view_rum') }}" class="nav-link {% if request.endpoint == 'view_rum' %}active{% endif %}" title="RUM">
+        <a href="{{ url_for('rum.view_rum') }}" class="nav-link {% if request.endpoint == 'rum.view_rum' %}active{% endif %}" title="RUM">
           <i class="bi bi-globe"></i><span class="sb-label">RUM</span>
         </a>
       </li>
       <li class="nav-item">
-        <a href="{{ url_for('view_web_traffic') }}" class="nav-link {% if request.endpoint == 'view_web_traffic' %}active{% endif %}" title="Web Traffic">
+        <a href="{{ url_for('rum.view_web_traffic') }}" class="nav-link {% if request.endpoint == 'rum.view_web_traffic' %}active{% endif %}" title="Web Traffic">
           <i class="bi bi-map"></i><span class="sb-label">Web Traffic</span>
         </a>
       </li>
       <li class="nav-item">
-        <a href="{{ url_for('view_enrichment_cve') }}" class="nav-link {% if request.endpoint == 'view_enrichment_cve' %}active{% endif %}" title="CVE Findings">
+        <a href="{{ url_for('rum.view_enrichment_cve') }}" class="nav-link {% if request.endpoint == 'rum.view_enrichment_cve' %}active{% endif %}" title="CVE Findings">
           <i class="bi bi-shield-exclamation"></i><span class="sb-label">CVE</span>
         </a>
       </li>

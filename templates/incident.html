@@ -234,7 +234,7 @@
           <div class="fw-semibold text-danger">{{ related_rum_error_count }}</div>
         </div>
         <div class="col-6 col-md-3 d-flex align-items-end">
-          <a href="{{ url_for('view_rum', from_ts=from_ts, to_ts=to_ts, q=(trace_id or '')) }}" class="btn btn-sm btn-outline-secondary">
+          <a href="{{ url_for('rum.view_rum', from_ts=from_ts, to_ts=to_ts, q=(trace_id or '')) }}" class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-globe me-1"></i>Open RUM
           </a>
         </div>
@@ -597,7 +597,7 @@
       {% if service %}
       lines.push('- [Errors]({{ url_for('errors.view_errors', service=service, from_ts=from_ts, to_ts=to_ts) | safe }})');
       {% endif %}
-      lines.push('- [RUM]({{ url_for("view_rum", from_ts=from_ts, to_ts=to_ts, q=(trace_id or "")) | safe }})');
+      lines.push('- [RUM]({{ url_for('rum.view_rum', from_ts=from_ts, to_ts=to_ts, q=(trace_id or "")) | safe }})');
 
       var md = lines.join('\n');
       navigator.clipboard.writeText(md).then(function () {

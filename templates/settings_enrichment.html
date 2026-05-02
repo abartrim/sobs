@@ -26,7 +26,7 @@
             <div class="card-body">
                 <p class="small text-secondary mb-3">
                     Resolves visitor IP addresses to country for the
-                    <a href="{{ url_for('view_web_traffic') }}">Web Traffic</a> map.
+                    <a href="{{ url_for('rum.view_web_traffic') }}">Web Traffic</a> map.
                     Lookups are performed <strong>locally</strong> using a bundled database — no external API calls.
                     Results are cached in-process.
                 </p>
@@ -62,7 +62,7 @@
                     (<code>telemetry.sdk.*</code> ResourceAttributes and instrumentation scope versions),
                     then checks <a href="https://osv.dev" target="_blank" rel="noopener">OSV.dev</a> daily for known CVEs.
                     Findings are stored in <code>sobs_cve_findings</code> and displayed on the
-                    <a href="{{ url_for('view_web_traffic') }}">Web Traffic</a> page.
+                    <a href="{{ url_for('rum.view_web_traffic') }}">Web Traffic</a> page.
                 </p>
                 <div class="form-check form-switch">
                     <input class="form-check-input"

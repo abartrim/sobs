@@ -108,7 +108,7 @@
     </a>
   </div>
   <div class="col-6 col-md-4 col-lg-2">
-     <a href="{{ url_for('view_rum') }}" class="text-decoration-none"
+     <a href="{{ url_for('rum.view_rum') }}" class="text-decoration-none"
        data-ai-action-id="summary.nav.rum"
        data-ai-action-type="navigate"
        data-ai-handler="navigate"
@@ -245,7 +245,7 @@
           <tbody>
             {% for row in rum_summary %}
             <tr>
-              <td data-label="Type"><a href="{{ url_for('view_rum', type=row[0]) }}">{{ row[0] }}</a></td>
+              <td data-label="Type"><a href="{{ url_for('rum.view_rum', type=row[0]) }}">{{ row[0] }}</a></td>
               <td class="fw-semibold" data-label="Count">{{ row[1] }}</td>
             </tr>
             {% endfor %}
@@ -287,7 +287,7 @@
     <div class="card border-secondary h-100">
       <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-shield-exclamation me-1 text-danger"></i>Security Overview (CVE)</span>
-        <a href="{{ url_for('view_enrichment_cve') }}" class="btn btn-sm btn-outline-secondary">View All</a>
+        <a href="{{ url_for('rum.view_enrichment_cve') }}" class="btn btn-sm btn-outline-secondary">View All</a>
       </div>
       <div class="card-body">
         {% if cve_overview.enabled %}

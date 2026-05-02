@@ -36,7 +36,7 @@
           </div>
           <div class="d-flex gap-1" style="flex: 0 0 auto">
             <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i></button>
-            <a href="{{ url_for('view_web_traffic') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
+            <a href="{{ url_for('rum.view_web_traffic') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
             <div class="btn-group btn-group-sm" id="wt-reports-group">
               <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Saved reports">
                 <i class="bi bi-bookmark-star"></i>
@@ -536,7 +536,7 @@ function escHtml(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt
           return;
         }
         menu.innerHTML = reports.map(rep => {
-          var href = '{{ url_for("view_web_traffic") }}?from_ts=' + encodeURIComponent(rep.filters?.from_ts || '') + 
+          var href = '{{ url_for('rum.view_web_traffic') }}?from_ts=' + encodeURIComponent(rep.filters?.from_ts || '') + 
                      '&to_ts=' + encodeURIComponent(rep.filters?.to_ts || '');
           return `<li><a class="dropdown-item small" href="${href}" title="${escHtml(rep.description || '')}">${escHtml(rep.name || 'Unnamed')}</a></li>`;
         }).join('') + 
