@@ -42,7 +42,7 @@ SERVICE_NAME = "prometheus-demo"
 def run_push_mode(sobs_endpoint: str, iterations: int = 10, interval: float = 2.0) -> None:
     """Push gauge, counter, and histogram metrics directly to SOBS via OTLP/HTTP."""
 
-    from opentelemetry import metrics
+    import opentelemetry.metrics as otel_metrics
     from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
     from opentelemetry.sdk.metrics import MeterProvider
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
@@ -53,16 +53,16 @@ def run_push_mode(sobs_endpoint: str, iterations: int = 10, interval: float = 2.
     exporter = OTLPMetricExporter(endpoint=f"{sobs_endpoint}/v1/metrics")
     reader = PeriodicExportingMetricReader(exporter, export_interval_millis=int(interval * 1000))
     provider = MeterProvider(resource=resource, metric_readers=[reader])
-    metrics.set_meter_provider(provider)
+    otel_metrics.set_meter_provider(provider)
 
-    meter = metrics.get_meter(__name__)
+    meter = otel_metrics.get_meter(__name__)
 
     # ---- Gauge – CPU utilisation (observable) ----
     cpu_usage: list[float] = [0.0]
 
-    def observe_cpu(_options: "metrics.CallbackOptions"):
+    def observe_cpu(_options: "otel_metrics.CallbackOptions"):
         cpu_usage[0] = random.uniform(10.0, 90.0)
-        yield metrics.Observation(cpu_usage[0], {"core": "0"})
+        yield otel_metrics.Observation(cpu_usage[0], {"core": "0"})
 
     meter.create_observable_gauge(
         name="system.cpu.utilization",
