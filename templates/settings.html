@@ -183,7 +183,7 @@
                     </p>
                     <div class="d-flex align-items-center justify-content-between mt-2">
                         <span class="badge text-bg-secondary">{{ notification_channel_count }} channel{{ 's' if notification_channel_count != 1 else '' }} · {{ notification_rule_count }} rule{{ 's' if notification_rule_count != 1 else '' }}</span>
-                        <a href="{{ url_for('view_notifications') }}"
+                        <a href="{{ url_for('notifications.view_notifications') }}"
                            class="btn btn-sm btn-outline-warning"
                            data-ai-action-id="settings.nav.notifications"
                            data-ai-action-type="navigate"

@@ -208,7 +208,7 @@
   <div class="card border-secondary">
     <div class="card-body">
       <h6 class="card-title mb-3">New Notification Channel</h6>
-      <form method="post" action="{{ url_for('create_notification_channel') }}" id="addChannelForm">
+      <form method="post" action="{{ url_for('notifications.create_notification_channel') }}" id="addChannelForm">
         <div class="row g-3 mb-3">
           <div class="col-md-4">
             <label class="form-label small text-secondary">Channel Name <span class="text-danger">*</span></label>
@@ -409,7 +409,7 @@
             <button class="btn btn-sm btn-outline-secondary test-channel-btn" data-channel-id="{{ ch.id }}" data-channel-name="{{ ch.name }}" title="Test channel">
               <i class="bi bi-send"></i>
             </button>
-            <form method="post" action="{{ url_for('toggle_notification_channel', channel_id=ch.id) }}" class="d-inline">
+            <form method="post" action="{{ url_for('notifications.toggle_notification_channel', channel_id=ch.id) }}" class="d-inline">
               <button type="submit" class="btn btn-sm btn-outline-secondary" title="{{ 'Disable' if ch.enabled else 'Enable' }}"
                       data-ai-action-id="settings.notifications.channel.toggle"
                       data-ai-action-type="submit_form"
@@ -420,7 +420,7 @@
                 <i class="bi bi-{{ 'pause-circle' if ch.enabled else 'play-circle' }}"></i>
               </button>
             </form>
-            <form method="post" action="{{ url_for('delete_notification_channel', channel_id=ch.id) }}" class="d-inline"
+            <form method="post" action="{{ url_for('notifications.delete_notification_channel', channel_id=ch.id) }}" class="d-inline"
               data-confirm-title="Delete Notification Channel"
               data-confirm-message="Delete channel '{{ ch.name }}'?"
               data-confirm-ok-label="Delete"
@@ -495,7 +495,7 @@
   <div class="card border-secondary">
     <div class="card-body">
       <h6 class="card-title mb-3">{{ 'Edit Notification Rule' if edit_rule else 'New Notification Rule' }}</h6>
-      <form method="post" action="{{ url_for('create_notification_rule') }}" id="addRuleForm">
+      <form method="post" action="{{ url_for('notifications.create_notification_rule') }}" id="addRuleForm">
         <input type="hidden" name="edit_rule_id" value="{{ edit_rule.id if edit_rule else '' }}">
         <div class="row g-3 mb-3">
           <div class="col-md-4">
@@ -558,7 +558,7 @@
               data-ai-risk="high"
               data-ai-confirm="true"><i class="bi bi-plus-circle me-1"></i><span class="notif-btn-label">{{ 'Update Rule' if edit_rule else 'Create Rule' }}</span></button>
             {% if edit_rule %}
-            <a href="{{ url_for('view_notifications') }}" class="btn btn-outline-secondary btn-sm ms-2">Cancel Edit</a>
+            <a href="{{ url_for('notifications.view_notifications') }}" class="btn btn-outline-secondary btn-sm ms-2">Cancel Edit</a>
             {% endif %}
         </div>
       </form>
@@ -618,7 +618,7 @@
         </td>
         <td class="text-end col-actions" data-label="Actions" style="white-space: nowrap;">
           <div class="d-flex gap-2 justify-content-end">
-            <form method="post" action="{{ url_for('toggle_notification_rule', rule_id=rule.id) }}" class="d-inline">
+            <form method="post" action="{{ url_for('notifications.toggle_notification_rule', rule_id=rule.id) }}" class="d-inline">
               <button type="submit" class="btn btn-sm btn-outline-secondary" title="{{ 'Disable' if rule.enabled else 'Enable' }}"
                       data-ai-action-id="settings.notifications.rule.toggle"
                       data-ai-action-type="submit_form"
@@ -634,7 +634,7 @@
                title="Edit rule">
               <i class="bi bi-pencil"></i>
             </a>
-            <form method="post" action="{{ url_for('delete_notification_rule', rule_id=rule.id) }}" class="d-inline"
+            <form method="post" action="{{ url_for('notifications.delete_notification_rule', rule_id=rule.id) }}" class="d-inline"
               data-confirm-title="Delete Notification Rule"
               data-confirm-message="Delete rule '{{ rule.name }}'?"
               data-confirm-ok-label="Delete"
@@ -1155,7 +1155,7 @@ function escHtml(s) {
       checkNowBtn.disabled = true;
       checkNowBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Checking…';
       checkNowResult.textContent = '';
-      fetch('{{ url_for("check_notifications") }}', {
+      fetch('{{ url_for('notifications.check_notifications') }}', {
         method: 'POST',
         credentials: 'same-origin',
       }).then(function (res) {
@@ -1203,7 +1203,7 @@ function escHtml(s) {
     // in the installing/waiting state — pushManager.subscribe() requires an
     // *active* SW.  Chaining navigator.serviceWorker.ready guarantees we only
     // resolve once the SW is controlling the page and is fully active.
-    swRegistrationPromise = navigator.serviceWorker.register('{{ url_for("service_worker_js") }}').then(function () {
+    swRegistrationPromise = navigator.serviceWorker.register('{{ url_for('notifications.service_worker_js') }}').then(function () {
       return navigator.serviceWorker.ready;
     });
     return swRegistrationPromise;
@@ -1215,7 +1215,7 @@ function escHtml(s) {
     generateVapidBtn.addEventListener('click', function () {
       generateVapidBtn.disabled = true;
       generateVapidBtn.textContent = 'Generating…';
-      fetch('{{ url_for("generate_vapid_key") }}', { method: 'POST', credentials: 'same-origin' })
+      fetch('{{ url_for('notifications.generate_vapid_key') }}', { method: 'POST', credentials: 'same-origin' })
         .then(function (res) { return res.json(); })
         .then(function (data) {
           if (data.ok) {
@@ -1247,7 +1247,7 @@ function escHtml(s) {
       if (!confirmed) return;
       regenerateVapidBtn.disabled = true;
       regenerateVapidBtn.textContent = 'Regenerating…';
-      fetch('{{ url_for("generate_vapid_key") }}', { method: 'POST', credentials: 'same-origin' })
+      fetch('{{ url_for('notifications.generate_vapid_key') }}', { method: 'POST', credentials: 'same-origin' })
         .then(function (res) { return res.json(); })
         .then(function (data) {
           if (data.ok) {
@@ -1277,7 +1277,7 @@ function escHtml(s) {
         okClass: 'btn-danger'
       });
       if (!confirmed) return;
-      fetch('{{ url_for("delete_vapid_keys") }}', { method: 'DELETE', credentials: 'same-origin' })
+      fetch('{{ url_for('notifications.delete_vapid_keys') }}', { method: 'DELETE', credentials: 'same-origin' })
         .then(function (res) { return res.json(); })
         .then(function (data) {
           if (data.ok) {
@@ -1298,7 +1298,7 @@ function escHtml(s) {
         window.SOBS.notify('This browser does not support Web Push notifications.', { level: 'warning', title: 'Browser Push' });
         return;
       }
-      fetch('{{ url_for("get_vapid_public_key") }}', { credentials: 'same-origin' })
+      fetch('{{ url_for('notifications.get_vapid_public_key') }}', { credentials: 'same-origin' })
         .then(function (res) { return res.json(); })
         .then(function (data) {
           if (!data.ok) {
