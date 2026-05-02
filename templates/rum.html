@@ -2240,7 +2240,7 @@ _sobsInitRegexFilter({
     if (replayMaskedText) return replayMaskedText;
     var previewValue = replayRawParsed || replayRawText || '';
     try {
-      const resp = await fetch({{ url_for('api_masking_preview') | tojson }}, {
+      const resp = await fetch({{ url_for('masking.api_masking_preview') | tojson }}, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },

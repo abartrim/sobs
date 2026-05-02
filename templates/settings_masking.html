@@ -47,7 +47,7 @@
     <h6 class="mb-0"><i class="bi bi-shield-check me-2 text-success"></i>Global Output Masking</h6>
   </div>
   <div class="card-body">
-    <form method="post" action="{{ url_for('update_masking_output_setting') }}" class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
+    <form method="post" action="{{ url_for('masking.update_masking_output_setting') }}" class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
       <div>
         <div class="fw-semibold">Master switch for masking across UI/API outputs</div>
         <div class="small text-secondary">When disabled, masking is bypassed for templates, preview endpoints, JSON display payloads, notifications, and GitHub issue payload masking.</div>
@@ -71,7 +71,7 @@
     <h6 class="mb-0"><i class="bi bi-toggle-on me-2 text-primary"></i>SQL/Query Field Masking</h6>
   </div>
   <div class="card-body">
-    <form method="post" action="{{ url_for('update_masking_sql_output_setting') }}" class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
+    <form method="post" action="{{ url_for('masking.update_masking_sql_output_setting') }}" class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
       <div>
         <div class="fw-semibold">Mask <span class="font-monospace">sql</span>/<span class="font-monospace">query</span> fields for NLQ and chart APIs</div>
         <div class="small text-secondary">Applies to <span class="font-monospace">/api/query/*</span> and chart-spec endpoints. This control is evaluated only when Global Output Masking is enabled.</div>
@@ -120,7 +120,7 @@
         <h6 class="mb-0"><i class="bi bi-key me-2 text-warning"></i>Add Custom Sensitive Key</h6>
       </div>
       <div class="card-body">
-        <form method="post" action="{{ url_for('add_masking_key') }}" class="row g-2 align-items-end">
+        <form method="post" action="{{ url_for('masking.add_masking_key') }}" class="row g-2 align-items-end">
           <div class="col-sm-8">
             <label class="form-label small text-secondary">Key name</label>
             <input type="text" name="key" class="form-control form-control-sm font-monospace" placeholder="e.g. session_cookie" required>
@@ -192,7 +192,7 @@
         <h6 class="mb-0"><i class="bi bi-regex me-2 text-info"></i>Add Custom Regex Pattern</h6>
       </div>
       <div class="card-body">
-        <form method="post" action="{{ url_for('add_masking_pattern') }}" class="row g-2 align-items-end" id="maskingPatternForm">
+        <form method="post" action="{{ url_for('masking.add_masking_pattern') }}" class="row g-2 align-items-end" id="maskingPatternForm">
           <div class="col-sm-9">
             <label class="form-label small text-secondary">Regex pattern</label>
             <input type="text" name="pattern" id="maskingPatternInput" class="form-control form-control-sm font-monospace" placeholder="e.g. (?i)customer[_-]?id\s*[=:]\s*\w+" required>
@@ -354,7 +354,7 @@
     }
     output.textContent = 'Previewing...';
     try {
-      var resp = await fetch({{ url_for('api_masking_preview') | tojson }}, {
+      var resp = await fetch({{ url_for('masking.api_masking_preview') | tojson }}, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },

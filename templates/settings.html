@@ -214,7 +214,7 @@
                     </p>
                     <div class="d-flex align-items-center justify-content-between mt-2">
                         <span class="badge text-bg-secondary">{{ masking_custom_key_count }} custom key{{ 's' if masking_custom_key_count != 1 else '' }} · {{ masking_custom_pattern_count }} custom pattern{{ 's' if masking_custom_pattern_count != 1 else '' }}</span>
-                        <a href="{{ url_for('view_masking_settings') }}"
+                        <a href="{{ url_for('masking.view_masking_settings') }}"
                            class="btn btn-sm btn-outline-danger">
                             <i class="bi bi-pencil-square me-1"></i><span class="settings-btn-label">Manage Masking</span>
                         </a>
