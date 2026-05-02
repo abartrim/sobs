@@ -13,18 +13,18 @@ Milestone: 2 (Completed)
 | 0 – Baseline inventory | ✅ Done | — |
 | 1 – `routes/apps.py` Blueprint (9 routes) | ✅ Done | −212 lines |
 | 2 – `routes/settings.py` Blueprint (16 routes) | ✅ Done | −632 lines |
-| 3 – Wrapper reduction sweep | ⬜ Todo | — |
+| 3 – Wrapper reduction sweep | ✅ Done | −30 lines |
 | 4 – Coverage consolidation | ⬜ Todo | — |
 
-**app.py total: 33,957 → 33,113 lines (−844)**
+**app.py total: 33,957 → 33,083 lines (−874)**
 
 ---
 
 ## Current State
 
-| Metric | Baseline | After M1+M2 | Delta |
-|--------|----------|-------------|-------|
-| `app.py` total lines | 33,957 | 33,113 | −844 |
+| Metric | Baseline | After M1+M2+M3 | Delta |
+|--------|----------|----------------|-------|
+| `app.py` total lines | 33,957 | 33,083 | −874 |
 | `app.py` sync functions | 501 | 501 | 0 |
 | `app.py` async route handlers | 245 | 217 | −28 |
 | `app.py` registered routes | 188 | 160 | −28 |

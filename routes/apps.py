@@ -54,6 +54,10 @@ apps_bp = Blueprint("apps", __name__)
 
 
 def _serialize_release_row(row: dict) -> dict:
+    """Serialise a sobs_app_releases row to the JSON response shape.
+
+    Moved from app.py to this blueprint (Milestone 3); only routes/apps.py calls it.
+    """
     return {
         "id": str(row.get("Id", "")),
         "appId": str(row.get("AppId", "")),
@@ -67,6 +71,10 @@ def _serialize_release_row(row: dict) -> dict:
 
 
 def _serialize_artifact_row(row: dict) -> dict:
+    """Serialise a sobs_release_artifacts row to the JSON response shape.
+
+    Moved from app.py to this blueprint (Milestone 3); only routes/apps.py calls it.
+    """
     return {
         "id": str(row.get("Id", "")),
         "releaseId": str(row.get("ReleaseId", "")),
