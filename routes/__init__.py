@@ -1,0 +1,1 @@
+"""SOBS route blueprints package."""

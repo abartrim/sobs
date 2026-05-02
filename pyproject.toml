@@ -10,6 +10,8 @@ line_length = 120
 python_version = "3.12"
 ignore_missing_imports = true
 disable_error_code = ["annotation-unchecked"]
+warn_unused_ignores = true
+warn_redundant_casts = true
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -21,7 +23,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["app", "masking", "mcp", "telemetry"]
+source = ["app", "masking", "mcp", "telemetry", "routes"]
 omit = [
     "tests/*",
     "scripts/*",
