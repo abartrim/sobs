@@ -126,7 +126,7 @@ class _SobsRedactingFilter(RedactingFilter):
     each key to lowercase before checking membership in ``_mask_keys``.
     """
 
-    def redact(self, content: Any, key: Any = None) -> Any:  # type: ignore[override]
+    def redact(self, content: Any, key: Any = None) -> Any:
         return self._redact_value(content, key=key, visited=set())
 
     def _redact_value(self, content: Any, *, key: Any = None, visited: set[int]) -> Any:

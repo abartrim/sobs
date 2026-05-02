@@ -20770,7 +20770,7 @@ class TestDataManagementSettings:
             def execute(self, sql: str):
                 executed.append(sql)
 
-        result = sobs_app._run_dm_prune(_SuccessDb())  # type: ignore[arg-type]
+        result = sobs_app._run_dm_prune(_SuccessDb())
         assert result["ok"] is True
         assert len(executed) == 6  # 3 TTL tables + 3 metric tables
         assert all("OPTIMIZE TABLE" in s and "FINAL" in s for s in executed)
@@ -20783,7 +20783,7 @@ class TestDataManagementSettings:
             def execute(self, sql: str):
                 executed.append(sql)
 
-        result = sobs_app._run_dm_prune(_SuccessDb(), prune_period=(7, "days"))  # type: ignore[arg-type]
+        result = sobs_app._run_dm_prune(_SuccessDb(), prune_period=(7, "days"))
         assert result["ok"] is True
         assert len(executed) == 15
         assert sum(1 for s in executed if s.startswith("DESCRIBE TABLE otel_metrics_")) == 3
@@ -20800,7 +20800,7 @@ class TestDataManagementSettings:
                 if "otel_metrics_" in sql and "toDateTime(intDiv(" in sql:
                     raise RuntimeError("ILLEGAL_TYPE_OF_ARGUMENT")
 
-        result = sobs_app._run_dm_prune(_MetricDeleteFallbackDb(), prune_period=(1, "hours"))  # type: ignore[arg-type]
+        result = sobs_app._run_dm_prune(_MetricDeleteFallbackDb(), prune_period=(1, "hours"))
         assert result["ok"] is True
         assert sum(1 for s in executed if "otel_metrics_" in s and "toDateTime(intDiv(" in s) == 3
         assert sum(1 for s in executed if "otel_metrics_" in s and "DELETE WHERE TimeUnixMs < now()" in s) == 3
@@ -20820,7 +20820,7 @@ class TestDataManagementSettings:
                     return _DescribeResult()
                 executed.append(sql)
 
-        result = sobs_app._run_dm_prune(_TypeAwareDb(), prune_period=(1, "hours"))  # type: ignore[arg-type]
+        result = sobs_app._run_dm_prune(_TypeAwareDb(), prune_period=(1, "hours"))
         assert result["ok"] is True
         assert sum(1 for s in executed if "otel_metrics_" in s and "DELETE WHERE TimeUnixMs < now()" in s) == 3
         assert sum(1 for s in executed if "otel_metrics_" in s and "toDateTime(intDiv(" in s) == 0
@@ -20832,7 +20832,7 @@ class TestDataManagementSettings:
             def execute(self, sql: str):
                 raise RuntimeError("table not found")
 
-        result = sobs_app._run_dm_prune(_FailDb())  # type: ignore[arg-type]
+        result = sobs_app._run_dm_prune(_FailDb())
         assert result["ok"] is False
         assert "errors" in result["message"]
 
@@ -20894,7 +20894,7 @@ class TestDataManagementSettings:
             def execute(self, sql: str):
                 raise RuntimeError("table not found")
 
-        result = sobs_app._get_dm_column_type(_FailDb(), "otel_metrics_60_3", "TimeUnixMs")  # type: ignore[arg-type]
+        result = sobs_app._get_dm_column_type(_FailDb(), "otel_metrics_60_3", "TimeUnixMs")
         assert result is None
 
     def test_get_dm_column_type_returns_none_when_column_not_found(self):
@@ -20910,9 +20910,7 @@ class TestDataManagementSettings:
                     return _DescribeResult()
                 return None
 
-        result = sobs_app._get_dm_column_type(
-            _TypeAwareDb(), "otel_metrics_60_3", "TimeUnixMs"  # type: ignore[arg-type]
-        )
+        result = sobs_app._get_dm_column_type(_TypeAwareDb(), "otel_metrics_60_3", "TimeUnixMs")
         assert result is None
 
     def test_run_dm_prune_fallback_when_primary_metric_delete_fails(self):
@@ -20925,7 +20923,7 @@ class TestDataManagementSettings:
                 if "otel_metrics_" in sql and "toDateTime(intDiv(" in sql:
                     raise RuntimeError("ILLEGAL_TYPE_OF_ARGUMENT")
 
-        result = sobs_app._run_dm_prune(_FallbackDb(), prune_period=(1, "hours"))  # type: ignore[arg-type]
+        result = sobs_app._run_dm_prune(_FallbackDb(), prune_period=(1, "hours"))
         assert result["ok"] is True
         # Verify both primary (failed) and fallback (succeeded) SQLs were executed for metrics
         assert sum(1 for s in executed if "toDateTime(intDiv(" in s) >= 3
@@ -20941,7 +20939,7 @@ class TestDataManagementSettings:
                 if "OPTIMIZE TABLE" in sql:
                     raise RuntimeError("lock timeout")
 
-        result = sobs_app._run_dm_prune(_OptimizeFailDb())  # type: ignore[arg-type]
+        result = sobs_app._run_dm_prune(_OptimizeFailDb())
         assert result["ok"] is False
         assert "lock timeout" in result["message"]
 
@@ -20952,7 +20950,7 @@ class TestDataManagementSettings:
             def execute(self, sql: str):
                 pass
 
-        result = sobs_app._run_dm_prune(_SuccessDb(), prune_period=(14, "days"))  # type: ignore[arg-type]
+        result = sobs_app._run_dm_prune(_SuccessDb(), prune_period=(14, "days"))
         assert result["ok"] is True
         assert "14 days" in result["message"]
         assert "custom period" in result["message"]
@@ -20966,7 +20964,7 @@ class TestDataManagementSettings:
                 executed.append(sql)
                 raise RuntimeError("column not found")
 
-        result = sobs_app._run_dm_prune(_BothFailDb(), prune_period=(1, "hours"))  # type: ignore[arg-type]
+        result = sobs_app._run_dm_prune(_BothFailDb(), prune_period=(1, "hours"))
         assert result["ok"] is False
         assert "errors" in result["message"]
         assert "column not found" in result["message"]

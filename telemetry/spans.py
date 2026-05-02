@@ -51,7 +51,7 @@ def span(name: str, **attributes: Any) -> Generator[Any, None, None]:
                 try:
                     current_span.record_exception(exc)
                     try:
-                        from opentelemetry.trace import Status, StatusCode  # type: ignore[import]
+                        from opentelemetry.trace import Status, StatusCode
 
                         current_span.set_status(Status(StatusCode.ERROR, str(exc)))
                     except ImportError:

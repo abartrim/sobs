@@ -3757,7 +3757,7 @@ def _derive_turn_summary(
     tool_summary: str,
     meta_summary: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    summary = cast(dict[str, Any], meta_summary or {})
+    summary = meta_summary or {}
     request_text = _coerce_summary_value(summary.get("request") or question, 180)
     action_text = _coerce_summary_value(summary.get("action") or tool_summary or "answer_only", 180)
     result_text = _coerce_summary_value(summary.get("result") or answer, 280)
@@ -4411,7 +4411,7 @@ def _normalize_generic_ui_action_tool_call(args: dict[str, Any], current_page: s
         return None
 
     template_manifest = {item.get("action_id"): item for item in _helper_action_manifest_for_page(current_page)}
-    template_action = cast(dict[str, Any] | None, template_manifest.get(action_id))
+    template_action = template_manifest.get(action_id)
     template_args_pre = cast(dict[str, Any], (template_action or {}).get("arguments") or {})
     explicit_target = str(args.get("target_page") or "").strip()
     default_target = str(template_args_pre.get("target_page") or "").strip()
@@ -4422,10 +4422,10 @@ def _normalize_generic_ui_action_tool_call(args: dict[str, Any], current_page: s
     # Resolve action meta from the current page manifest first.
     # This allows cross-page navigation actions declared on the current page
     # (e.g., summary.nav.ai with target_page=/ai) to remain valid.
-    action_meta = cast(dict[str, Any] | None, template_manifest.get(action_id))
+    action_meta = template_manifest.get(action_id)
     if not action_meta:
         target_manifest = {item.get("action_id"): item for item in _helper_action_manifest_for_page(target_page)}
-        action_meta = cast(dict[str, Any] | None, target_manifest.get(action_id))
+        action_meta = target_manifest.get(action_id)
 
     # Return unsupported if action not in manifest
     if not action_meta:
@@ -5862,7 +5862,7 @@ def _build_agent_issue_title(rule: dict, trigger_fields: dict[str, Any]) -> str:
 def _serialize_github_work_item_row(row: dict | Any) -> dict[str, Any]:
     r = row if isinstance(row, dict) else dict(row)
     related_issue_urls_raw = _safe_json_loads(r.get("RelatedIssueUrls", "[]"), [])
-    related_issue_urls = cast(list[Any], related_issue_urls_raw) if isinstance(related_issue_urls_raw, list) else []
+    related_issue_urls = related_issue_urls_raw if isinstance(related_issue_urls_raw, list) else []
 
     def _to_utc_iso(ts_value: Any) -> str:
         raw = str(ts_value or "").strip()
@@ -8009,7 +8009,7 @@ def _sourcemap_lookup_for_file(js_url: str, line: int, col: int) -> tuple[str, i
         index = cache_entry[1]
     else:
         try:
-            import sourcemap  # type: ignore
+            import sourcemap
 
             with open(map_path, encoding="utf-8") as handle:
                 index = sourcemap.loads(handle.read())
@@ -8850,7 +8850,7 @@ def _safe_json_loads(value: object, default: Any) -> Any:
     if isinstance(default, dict) and isinstance(parsed, dict):
         return cast(dict[str, Any], parsed)
     if isinstance(default, list) and isinstance(parsed, list):
-        return cast(list[Any], parsed)
+        return parsed
     return default
 
 
@@ -15973,7 +15973,7 @@ def _geo_lookup_batch(ips: list[str], geo_enabled: bool = True) -> dict[str, dic
     fresh: dict[str, dict] = {}
     for ip in uncached:
         try:
-            r = geo_db.lookup(ip)  # type: ignore[union-attr]
+            r = geo_db.lookup(ip)
             if r and not r.is_private:
                 fresh[ip] = _build_geo_dict(
                     country=r.country_name or "",
@@ -20279,7 +20279,7 @@ def _extract_bindings(
     columns: list[str],
     rows: list,
     role_indices: dict[str, int] | None = None,
-) -> dict:  # type: ignore
+) -> dict[str, object]:
     """Extract data bindings from query results based on column roles."""
     column_roles = role_indices if isinstance(role_indices, dict) else template.get("column_roles", {})
     bindings: dict[str, object] = {}
@@ -20327,11 +20327,14 @@ def _extract_bindings(
         med_vals = bindings["median"]
         q3_vals = bindings["q3"]
         max_vals = bindings["max"]
-        if all(isinstance(v, list) for v in [min_vals, q1_vals, med_vals, q3_vals, max_vals]):
-            boxplot_data = [
-                [_v[0], _v[1], _v[2], _v[3], _v[4]]  # type: ignore
-                for _v in zip(min_vals, q1_vals, med_vals, q3_vals, max_vals)  # type: ignore
-            ]
+        if (
+            isinstance(min_vals, list)
+            and isinstance(q1_vals, list)
+            and isinstance(med_vals, list)
+            and isinstance(q3_vals, list)
+            and isinstance(max_vals, list)
+        ):
+            boxplot_data = [list(values) for values in zip(min_vals, q1_vals, med_vals, q3_vals, max_vals)]
             bindings["boxplot_data"] = boxplot_data
             bindings["dimension_values"] = bindings.get("dimension", [])
 
@@ -20497,7 +20500,7 @@ def _extract_bindings(
             bindings["warning_points"] = warning_points
             bindings["outlier_points"] = outlier_points
 
-    return bindings  # type: ignore
+    return bindings
 
 
 def _format_drilldown_time(value: object) -> str:
@@ -20572,14 +20575,14 @@ def _attach_drilldown_metadata(template: dict, bindings: dict[str, object], opti
                                 {
                                     "_anomaly_state": (
                                         (
-                                            anomaly_states[idx]  # type: ignore[index]
+                                            anomaly_states[idx]
                                             if isinstance(anomaly_states, list) and idx < len(anomaly_states)
                                             else "normal"
                                         )
                                     ),
                                     "_anomaly_score": (
                                         (
-                                            anomaly_scores[idx]  # type: ignore[index]
+                                            anomaly_scores[idx]
                                             if isinstance(anomaly_scores, list) and idx < len(anomaly_scores)
                                             else 0
                                         )
@@ -20587,42 +20590,38 @@ def _attach_drilldown_metadata(template: dict, bindings: dict[str, object], opti
                                     **(
                                         {
                                             "_rule_state": (
-                                                rule_states[idx]  # type: ignore[index]
+                                                rule_states[idx]
                                                 if isinstance(rule_states, list) and idx < len(rule_states)
                                                 else "normal"
                                             ),
                                             "_rule_name": (
-                                                rule_names[idx]  # type: ignore[index]
+                                                rule_names[idx]
                                                 if isinstance(rule_names, list) and idx < len(rule_names)
                                                 else ""
                                             ),
                                             "_rule_reason": (
-                                                rule_reasons[idx]  # type: ignore[index]
+                                                rule_reasons[idx]
                                                 if isinstance(rule_reasons, list) and idx < len(rule_reasons)
                                                 else ""
                                             ),
                                             "_effective_state": (
-                                                effective_states[idx]  # type: ignore[index]
+                                                effective_states[idx]
                                                 if isinstance(effective_states, list) and idx < len(effective_states)
                                                 else "normal"
                                             ),
                                             "service": (
-                                                services[idx]  # type: ignore[index]
+                                                services[idx]
                                                 if isinstance(services, list) and idx < len(services)
                                                 else ""
                                             ),
                                             "source": (
-                                                sources[idx]  # type: ignore[index]
-                                                if isinstance(sources, list) and idx < len(sources)
-                                                else ""
+                                                sources[idx] if isinstance(sources, list) and idx < len(sources) else ""
                                             ),
                                             "signal": (
-                                                signals[idx]  # type: ignore[index]
-                                                if isinstance(signals, list) and idx < len(signals)
-                                                else ""
+                                                signals[idx] if isinstance(signals, list) and idx < len(signals) else ""
                                             ),
                                             "attr_fp": (
-                                                attr_fps[idx]  # type: ignore[index]
+                                                attr_fps[idx]
                                                 if isinstance(attr_fps, list) and idx < len(attr_fps)
                                                 else ""
                                             ),
@@ -20763,7 +20762,7 @@ def _render_chart_from_template(
     rows: list,
     spec: dict[str, object] | None = None,
     named_datasets: dict[str, dict[str, object]] | None = None,
-) -> dict:  # type: ignore
+) -> dict[str, object]:
     """
     Render chart option by substituting query results into template.
 
@@ -20811,14 +20810,15 @@ def _render_chart_from_template(
 
     # Substitute into template and add dark theme styling
     option = _deep_substitute(template["echarts_option_template"], bindings)
-    if isinstance(option, dict):
-        option = _attach_drilldown_metadata(template, bindings, option)
-        # Ensure consistent transparent background across all templates
-        if "backgroundColor" not in option:
-            option["backgroundColor"] = "transparent"
-        if "textStyle" not in option:
-            option["textStyle"] = {"color": "#adb5bd"}
-    return option  # type: ignore
+    if not isinstance(option, dict):
+        raise ValueError(f"Template {template_id} produced an invalid ECharts option")
+    option = _attach_drilldown_metadata(template, bindings, option)
+    # Ensure consistent transparent background across all templates
+    if "backgroundColor" not in option:
+        option["backgroundColor"] = "transparent"
+    if "textStyle" not in option:
+        option["textStyle"] = {"color": "#adb5bd"}
+    return option
 
 
 def _parse_custom_json_config(raw: object, field_name: str) -> object:
@@ -22368,7 +22368,7 @@ async def metrics_anomaly():
             ]
         )
 
-        def _safe(v):  # type: ignore
+        def _safe(v: Any) -> Any:
             if isinstance(v, float) and (v != v):  # IEEE 754: NaN is the only value not equal to itself
                 return None
             return v
@@ -24750,7 +24750,7 @@ def _encrypt_push_payload(
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
     # Generate ephemeral server key pair
-    server_private = generate_private_key(SECP256R1(), backend)  # type: ignore[call-arg]
+    server_private = generate_private_key(SECP256R1(), backend)
     server_pub_bytes = server_private.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
 
     # Load subscriber public key (uncompressed P-256 point, 65 bytes)
@@ -24759,7 +24759,7 @@ def _encrypt_push_payload(
     # Build DER-encoded SubjectPublicKeyInfo for P-256 uncompressed point
     oid_prefix = bytes.fromhex("3059301306072a8648ce3d020106082a8648ce3d030107034200")
     subscriber_pub_der = oid_prefix + subscriber_pub_key_bytes
-    subscriber_pub_key = load_der_public_key(subscriber_pub_der, backend=backend)  # type: ignore[call-arg]
+    subscriber_pub_key = load_der_public_key(subscriber_pub_der, backend=backend)
 
     # ECDH shared secret
     from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey as _ECPubKey
@@ -24771,7 +24771,7 @@ def _encrypt_push_payload(
 
     # PRK (RFC 8291 §3.4)
     def hkdf_extract(salt_bytes: bytes, ikm: bytes) -> bytes:
-        h = CryptoHMAC(salt_bytes, SHA256(), backend=backend)  # type: ignore[call-arg]
+        h = CryptoHMAC(salt_bytes, SHA256(), backend=backend)
         h.update(ikm)
         return h.finalize()
 
@@ -24780,7 +24780,7 @@ def _encrypt_push_payload(
         t = b""
         counter = 1
         while len(output) < length:
-            h = CryptoHMAC(prk, SHA256(), backend=backend)  # type: ignore[call-arg]
+            h = CryptoHMAC(prk, SHA256(), backend=backend)
             h.update(t + info + bytes([counter]))
             t = h.finalize()
             output += t

@@ -90,7 +90,7 @@ def _reset_runtime_state(app=None) -> None:  # noqa: ANN001
         app.asgi_app = getattr(app, _APP_ORIGINAL_ASGI_ATTR)
     elif instrumentation_kind == "flask":
         try:
-            from opentelemetry.instrumentation.flask import FlaskInstrumentor  # type: ignore[import]
+            from opentelemetry.instrumentation.flask import FlaskInstrumentor
 
             FlaskInstrumentor().uninstrument_app(app)
         except Exception:  # noqa: BLE001
@@ -105,10 +105,10 @@ def _setup_sdk(exporter_type: str, app=None) -> None:  # noqa: ANN001
     """Internal: build and register TracerProvider + MeterProvider."""
     global _tracer, _tracer_provider
 
-    from opentelemetry import trace as otel_trace  # type: ignore[import]
-    from opentelemetry.sdk.resources import Resource  # type: ignore[import]
-    from opentelemetry.sdk.trace import TracerProvider  # type: ignore[import]
-    from opentelemetry.sdk.trace.sampling import TraceIdRatioBased  # type: ignore[import]
+    from opentelemetry import trace as otel_trace
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
 
     service_name = get_service_name()
     environment = get_environment()
@@ -156,26 +156,23 @@ def _setup_sdk(exporter_type: str, app=None) -> None:  # noqa: ANN001
 
 
 def _add_console_span_exporter(tracer_provider) -> None:  # noqa: ANN001
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor  # type: ignore[import]
-    from opentelemetry.sdk.trace.export import ConsoleSpanExporter  # type: ignore[import]
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 
     tracer_provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
 
 
 def _add_otlp_span_exporter(tracer_provider, endpoint: str) -> None:  # noqa: ANN001
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor  # type: ignore[import]
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
     try:
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # type: ignore[import]
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
             OTLPSpanExporter,
         )
 
         tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
     except ImportError:
         try:
-            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
-                OTLPSpanExporter as OTLPSpanExporterHTTP,  # type: ignore[import]
-            )
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter as OTLPSpanExporterHTTP
 
             tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporterHTTP(endpoint=endpoint)))
         except ImportError as exc:
@@ -186,8 +183,8 @@ def _add_otlp_span_exporter(tracer_provider, endpoint: str) -> None:  # noqa: AN
 
 
 def _setup_meter_provider(resource, exporter_type: str) -> None:  # noqa: ANN001
-    from opentelemetry import metrics as otel_metrics  # type: ignore[import]
-    from opentelemetry.sdk.metrics import MeterProvider  # type: ignore[import]
+    from opentelemetry import metrics as otel_metrics
+    from opentelemetry.sdk.metrics import MeterProvider
 
     global _meter
 
@@ -195,7 +192,7 @@ def _setup_meter_provider(resource, exporter_type: str) -> None:  # noqa: ANN001
 
     if exporter_type == "console":
         try:
-            from opentelemetry.sdk.metrics.export import (  # type: ignore[import]
+            from opentelemetry.sdk.metrics.export import (
                 ConsoleMetricExporter,
                 PeriodicExportingMetricReader,
             )
@@ -207,18 +204,18 @@ def _setup_meter_provider(resource, exporter_type: str) -> None:  # noqa: ANN001
         endpoint = get_otlp_endpoint()
         if endpoint:
             try:
-                from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (  # type: ignore[import]
+                from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
                     OTLPMetricExporter,
                 )
-                from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader  # type: ignore[import]
+                from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
                 readers.append(PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=endpoint)))
             except ImportError:
                 try:
                     from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
-                        OTLPMetricExporter as OTLPMetricExporterHTTP,  # type: ignore[import]
+                        OTLPMetricExporter as OTLPMetricExporterHTTP,
                     )
-                    from opentelemetry.sdk.metrics.export import (  # type: ignore[import]
+                    from opentelemetry.sdk.metrics.export import (
                         PeriodicExportingMetricReader,
                     )
 
@@ -239,7 +236,7 @@ def _instrument_app(app, tracer_provider) -> None:  # noqa: ANN001
     # Quart uses ASGI; try opentelemetry-instrumentation-asgi first.
     excluded_urls = "/health,/healthz,/static,/favicon.ico"
     try:
-        from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware  # type: ignore[import]
+        from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
 
         setattr(app, _APP_ORIGINAL_ASGI_ATTR, app.asgi_app)
         app.asgi_app = OpenTelemetryMiddleware(
@@ -256,7 +253,7 @@ def _instrument_app(app, tracer_provider) -> None:  # noqa: ANN001
 
     # Fallback: try Flask instrumentation (works for Flask-compatible apps).
     try:
-        from opentelemetry.instrumentation.flask import FlaskInstrumentor  # type: ignore[import]
+        from opentelemetry.instrumentation.flask import FlaskInstrumentor
 
         FlaskInstrumentor().instrument_app(app, tracer_provider=tracer_provider)
         setattr(app, _APP_INSTRUMENTED_ATTR, True)
@@ -273,7 +270,7 @@ def get_tracer(name: str = "sobs"):
     if _tracer is not None:
         return _tracer
     try:
-        from opentelemetry import trace  # type: ignore[import]
+        from opentelemetry import trace
 
         return trace.get_tracer(name)
     except ImportError:
@@ -287,7 +284,7 @@ def get_meter(name: str = "sobs"):
     if _meter is not None:
         return _meter
     try:
-        from opentelemetry import metrics  # type: ignore[import]
+        from opentelemetry import metrics
 
         return metrics.get_meter(name)
     except ImportError:
