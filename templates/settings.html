@@ -28,7 +28,7 @@
                     </p>
                     <div class="d-flex align-items-center justify-content-between mt-2">
                         <span class="badge text-bg-secondary">{{ tag_rule_count }} rule{{ 's' if tag_rule_count != 1 else '' }}</span>
-                        <a href="{{ url_for('view_tag_rules') }}"
+                        <a href="{{ url_for('tags.view_tag_rules') }}"
                            class="btn btn-sm btn-outline-info"
                            data-ai-action-id="settings.nav.tags"
                            data-ai-action-type="navigate"

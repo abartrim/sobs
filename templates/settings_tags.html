@@ -31,7 +31,7 @@
     <div id="autoTagsCollapse" class="accordion-collapse collapse" aria-labelledby="autoTagsHeading" data-bs-parent="#tagRulesAutoAccordion">
       <div class="accordion-body">
         <p class="small text-secondary mb-3">Generate baseline tag rules from recent logs, traces, errors, AI spans, and RUM events. Existing rules are skipped automatically. Create is capped at 200 rules per run.</p>
-        <form method="post" action="{{ url_for('auto_tag_rules') }}" class="row g-2 align-items-end">
+        <form method="post" action="{{ url_for('tags.auto_tag_rules') }}" class="row g-2 align-items-end">
           <div class="col-md-2">
             <label class="form-label small text-secondary">Window (hours)</label>
             <input type="number" min="1" max="168" name="hours" class="form-control form-control-sm" value="{{ auto_summary.hours if auto_summary else 24 }}">
@@ -137,7 +137,7 @@
     <h6 class="mb-0"><i class="bi bi-plus-circle me-2 text-success"></i>{{ 'Edit Tag Rule' if edit_rule else 'Create Tag Rule' }}</h6>
   </div>
   <div class="card-body">
-    <form method="post" action="{{ url_for('create_tag_rule') }}" class="row g-3" id="createTagRuleForm">
+    <form method="post" action="{{ url_for('tags.create_tag_rule') }}" class="row g-3" id="createTagRuleForm">
       <input type="hidden" name="edit_rule_id" value="{{ edit_rule.id if edit_rule else '' }}">
       <!-- Rule name -->
       <div class="col-md-4">
@@ -238,7 +238,7 @@
           <i class="bi bi-plus-circle me-1"></i><span class="tags-btn-label">{{ 'Update Rule' if edit_rule else 'Create Rule' }}</span>
         </button>
         {% if edit_rule %}
-        <a href="{{ url_for('view_tag_rules') }}" class="btn btn-outline-secondary btn-sm ms-2" title="Cancel edit">
+        <a href="{{ url_for('tags.view_tag_rules') }}" class="btn btn-outline-secondary btn-sm ms-2" title="Cancel edit">
           <i class="bi bi-x-circle me-1"></i><span class="tags-btn-label">Cancel Edit</span>
         </a>
         {% endif %}
@@ -301,13 +301,13 @@
           <td data-label="Tag Value"><span class="badge text-bg-light border word-break-break-word">{{ rule.tag_value }}</span></td>
           <td data-label="Actions">
             <div class="d-flex gap-2 align-items-center flex-nowrap">
-              <a href="{{ url_for('view_tag_rules', edit_rule=rule.id) }}#tagRuleFormCard"
+              <a href="{{ url_for('tags.view_tag_rules', edit_rule=rule.id) }}#tagRuleFormCard"
                  class="btn btn-sm btn-outline-info py-0 px-1"
                  title="Edit rule"
                  aria-label="Edit rule">
                 <i class="bi bi-pencil"></i>
               </a>
-              <form method="post" action="{{ url_for('delete_tag_rule', rule_id=rule.id) }}" class="d-inline"
+              <form method="post" action="{{ url_for('tags.delete_tag_rule', rule_id=rule.id) }}" class="d-inline"
               data-confirm-title="Delete Tag Rule"
               data-confirm-message="Delete tag rule '{{ rule.name }}'?"
               data-confirm-ok-label="Delete"
@@ -392,7 +392,7 @@
   var conditionsContainer = document.getElementById('conditionsContainer');
   var addConditionBtn = document.getElementById('addConditionBtn');
   var compositeLabel = document.getElementById('compositeLabel');
-  var suggestionUrl = {{ url_for('api_tag_rule_condition_suggestions') | tojson }};
+  var suggestionUrl = {{ url_for('tags.api_tag_rule_condition_suggestions') | tojson }};
   var matchFields = {{ match_fields | tojson }};
   var matchOperators = {{ match_operators | tojson }};
   var rowCounter = 0;
@@ -612,7 +612,7 @@
   // ── Auto-tag accordion ─────────────────────────────────────────────────────
   var allowAutoTagSubmit = false;
 
-  var autoForm = document.querySelector('form[action="{{ url_for("auto_tag_rules") }}"]');
+  var autoForm = document.querySelector('form[action="{{ url_for('tags.auto_tag_rules') }}"]');
   if (autoForm) {
     autoForm.addEventListener('submit', async function (e) {
       var btn = e.submitter;

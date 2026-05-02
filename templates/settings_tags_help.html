@@ -4,7 +4,7 @@
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
     {% set settings_tags_help_header_actions %}
-        <a href="{{ url_for('view_tag_rules') }}"
+        <a href="{{ url_for('tags.view_tag_rules') }}"
            class="btn btn-sm btn-outline-info"
            title="Open Tag Rules">
             <i class="bi bi-tags me-1"></i><span class="settings-btn-label">Tag Rules</span>

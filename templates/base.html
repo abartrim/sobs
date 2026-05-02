@@ -794,7 +794,7 @@
         </a>
       </li>
       <li class="nav-item">
-        <a href="{{ url_for('view_settings') }}" class="nav-link {% if request.endpoint in ('view_settings', 'view_tag_rules', 'settings.view_ai_settings', 'settings.view_agent_rules', 'notifications.view_notifications', 'settings.view_enrichment_settings', 'view_k8s_settings') %}active{% endif %}" title="Settings">
+        <a href="{{ url_for('view_settings') }}" class="nav-link {% if request.endpoint in ('view_settings', 'tags.view_tag_rules', 'settings.view_ai_settings', 'settings.view_agent_rules', 'notifications.view_notifications', 'settings.view_enrichment_settings', 'view_k8s_settings') %}active{% endif %}" title="Settings">
           <i class="bi bi-gear"></i><span class="sb-label">Settings</span>
         </a>
       </li>

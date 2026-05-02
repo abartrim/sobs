@@ -777,7 +777,7 @@ function escHtml(s) {
   var comparators = {{ comparators | tojson }};
   var tagMatchOperators = {{ tag_match_operators | tojson }};
   var tagRecordTypes = {{ tag_record_types | tojson }};
-  var suggestionUrl = {{ url_for("api_tag_rule_condition_suggestions") | tojson }};
+  var suggestionUrl = {{ url_for('tags.api_tag_rule_condition_suggestions') | tojson }};
   var editingRule = {{ (edit_rule or {}) | tojson }};
   var conditionCount = 0;
 
