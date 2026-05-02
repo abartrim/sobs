@@ -11,10 +11,10 @@
   </span>
 {% endset %}
 {% set metrics_anomaly_header_actions %}
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics') }}" title="Back to Metrics">
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('metrics.view_metrics') }}" title="Back to Metrics">
       <i class="bi bi-arrow-left me-1"></i><span class="metrics-anomaly-btn-label">Back to Metrics</span>
     </a>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_metrics_rules') }}" title="Rules">
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('metrics.view_metrics_rules') }}" title="Rules">
       <i class="bi bi-sliders me-1"></i><span class="metrics-anomaly-btn-label">Rules</span>
     </a>
     {% if related_target == 'logs' %}
@@ -102,7 +102,7 @@
           data-ai-risk="low"
           data-ai-confirm="false"
           data-ai-action-role="filter-submit"><i class="bi bi-search"></i></button>
-        <a href="{{ url_for('view_metrics_anomaly') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
+        <a href="{{ url_for('metrics.view_metrics_anomaly') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
       </div>
     </form>
     {% if error_msg %}

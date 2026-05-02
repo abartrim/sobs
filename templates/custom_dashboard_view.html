@@ -579,7 +579,7 @@
   TEMPLATES.forEach(function (t) { templatesMap[t.id] = t; });
   var sourceUrls = {
     logs: {{ url_for('logs.view_logs') | tojson }},
-    metrics: {{ url_for('view_metrics_anomaly') | tojson }},
+    metrics: {{ url_for('metrics.view_metrics_anomaly') | tojson }},
     traces: {{ url_for('traces.view_traces') | tojson }},
     errors: {{ url_for('errors.view_errors') | tojson }}
   };

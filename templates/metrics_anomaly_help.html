@@ -10,7 +10,7 @@
     <h4 class="fw-semibold mb-1">Metrics Anomaly Help</h4>
     <p class="text-secondary mb-0">Understanding anomaly detail charts, related telemetry links, and seasonal baselines.</p>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('view_metrics') }}" title="Back to Metrics">
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('metrics.view_metrics') }}" title="Back to Metrics">
     <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Metrics</span>
   </a>
 </div>
@@ -92,8 +92,8 @@
   <div class="card-header fw-semibold"><i class="bi bi-link-45deg me-2"></i>Related Pages</div>
   <div class="card-body">
     <ul class="small mb-0">
-      <li><a href="{{ url_for('view_metrics') }}">Metrics</a> — browse all signals and their current anomaly state.</li>
-      <li><a href="{{ url_for('view_metrics_rules') }}">Metric Rules</a> — manage threshold and seasonal rules.</li>
+      <li><a href="{{ url_for('metrics.view_metrics') }}">Metrics</a> — browse all signals and their current anomaly state.</li>
+      <li><a href="{{ url_for('metrics.view_metrics_rules') }}">Metric Rules</a> — manage threshold and seasonal rules.</li>
       <li><a href="{{ url_for('metrics_rules_help') }}">Metric Rules Help</a> — full documentation on rule types.</li>
     </ul>
   </div>

@@ -58,7 +58,7 @@
                     </p>
                     <div class="d-flex align-items-center justify-content-between mt-2">
                         <span class="badge text-bg-secondary">{{ anomaly_rule_count }} rule{{ 's' if anomaly_rule_count != 1 else '' }}</span>
-                        <a href="{{ url_for('view_metrics_rules') }}"
+                        <a href="{{ url_for('metrics.view_metrics_rules') }}"
                            class="btn btn-sm btn-outline-warning"
                            data-ai-action-id="settings.nav.metrics_rules"
                            data-ai-action-type="navigate"

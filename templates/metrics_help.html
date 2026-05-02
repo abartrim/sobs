@@ -17,7 +17,7 @@
             <p class="text-secondary mb-0">Derived 1-minute telemetry signals, anomaly state, and signal drilldown.</p>
         </div>
         <a class="btn btn-outline-secondary btn-sm"
-           href="{{ url_for('view_metrics') }}"
+           href="{{ url_for('metrics.view_metrics') }}"
            title="Back to Metrics">
             <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Metrics</span>
         </a>
@@ -128,7 +128,7 @@
                 </li>
             </ul>
             <p class="small text-secondary mb-0">
-                Manage rules on the <a href="{{ url_for('view_metrics_rules') }}">Metric Rules</a> page.
+                Manage rules on the <a href="{{ url_for('metrics.view_metrics_rules') }}">Metric Rules</a> page.
             </p>
         </div>
     </div>

@@ -745,7 +745,7 @@
         </a>
       </li>
       <li class="nav-item">
-        <a href="{{ url_for('view_metrics') }}" class="nav-link {% if request.endpoint in ('view_metrics', 'view_metrics_anomaly', 'view_metrics_rules') %}active{% endif %}" title="Metrics">
+        <a href="{{ url_for('metrics.view_metrics') }}" class="nav-link {% if request.endpoint in ('metrics.view_metrics', 'metrics.view_metrics_anomaly', 'metrics.view_metrics_rules') %}active{% endif %}" title="Metrics">
           <i class="bi bi-graph-up-arrow"></i><span class="sb-label">Metrics</span>
         </a>
       </li>
