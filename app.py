@@ -668,7 +668,7 @@ class BasePathMiddleware:
         return await self.wrapped_app(scope, receive, send)
 
 
-app.asgi_app = BasePathMiddleware(app.asgi_app, BASE_PATH)  # type: ignore[method-assign]
+setattr(app, "asgi_app", BasePathMiddleware(app.asgi_app, BASE_PATH))
 app.register_blueprint(_mcp.mcp_bp)
 
 DATA_DIR = os.environ.get("SOBS_DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
