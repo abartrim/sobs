@@ -18,7 +18,7 @@
             data-ai-label="Open work items walkthrough modal">
       <i class="bi bi-mortarboard me-1"></i><span class="agents-btn-label settings-btn-label">Walkthrough</span>
     </button>
-    <a href="{{ url_for('view_ai_settings') }}" class="btn btn-sm btn-outline-primary" title="AI Settings">
+    <a href="{{ url_for('settings.view_ai_settings') }}" class="btn btn-sm btn-outline-primary" title="AI Settings">
       <i class="bi bi-gear me-1"></i><span class="agents-btn-label settings-btn-label">AI Settings</span>
     </a>
     <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary" title="Back to Settings">
@@ -43,7 +43,7 @@
     <i class="bi bi-plus-circle me-1 text-success"></i>Create Agent Rule
   </div>
   <div class="card-body">
-    <form method="post" action="{{ url_for('create_agent_rule') }}">
+    <form method="post" action="{{ url_for('settings.create_agent_rule') }}">
       <div class="row g-3">
         <div class="col-md-4">
           <label class="form-label small fw-semibold">Rule Name <span class="text-danger">*</span></label>
@@ -193,7 +193,7 @@
                   data-ai-confirm="true">
               <i class="bi bi-play me-1"></i>Run
             </button>
-            <form method="post" action="{{ url_for('delete_agent_rule', rule_id=r.id) }}"
+            <form method="post" action="{{ url_for('settings.delete_agent_rule', rule_id=r.id) }}"
                   style="display:inline;"
                   class="sobs-delete-rule-form"
                   data-rule-name="{{ r.name | e }}">

@@ -4,7 +4,7 @@
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
     {% set settings_enrichment_help_header_actions %}
-        <a href="{{ url_for('view_enrichment_settings') }}"
+        <a href="{{ url_for('settings.view_enrichment_settings') }}"
            class="btn btn-sm btn-outline-primary"
            title="Open Enrichment Settings">
             <i class="bi bi-database-check me-1"></i><span class="settings-btn-label">Enrichment</span>

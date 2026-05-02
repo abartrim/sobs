@@ -199,7 +199,7 @@
       {% if github_token_validation_status.message %}
       <span>{{ github_token_validation_status.message }}</span>
       {% endif %}
-      <form method="post" action="{{ url_for('validate_settings_repository_github_token') }}" class="d-inline">
+      <form method="post" action="{{ url_for('settings.validate_settings_repository_github_token') }}" class="d-inline">
         <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2">Validate Token</button>
       </form>
     </div>
@@ -326,7 +326,7 @@
                 <div class="repo-settings-panel">
                   <div class="repo-setting-section">
                     <div class="repo-setting-title">Repository URL</div>
-                    <form method="post" action="{{ url_for('update_settings_repository', app_id=app.id) }}" class="repo-action-form" data-role="repo-url-builder">
+                    <form method="post" action="{{ url_for('settings.update_settings_repository', app_id=app.id) }}" class="repo-action-form" data-role="repo-url-builder">
                       <input type="hidden" name="repo_url" value="{{ app.repo_url }}" data-role="repo-url-hidden">
                       <input type="text" name="repo_owner" class="form-control form-control-sm font-monospace repo-owner-input" value="{{ app.repo_owner }}" placeholder="owner" autocomplete="username" spellcheck="false" data-role="repo-owner" required>
                       <input type="text" name="repo_name" class="form-control form-control-sm font-monospace repo-name-input" value="{{ app.repo_name }}" placeholder="repository" autocomplete="off" spellcheck="false" data-role="repo-name" required>
@@ -339,7 +339,7 @@
 
                   <div class="repo-setting-section">
                     <div class="repo-setting-title">Repository Token</div>
-                    <form method="post" action="{{ url_for('update_settings_repository', app_id=app.id) }}" class="repo-action-form">
+                    <form method="post" action="{{ url_for('settings.update_settings_repository', app_id=app.id) }}" class="repo-action-form">
                       <input type="hidden" name="repo_url" value="{{ app.repo_url }}">
                       <input type="password" name="repo_token" class="form-control form-control-sm font-monospace" placeholder="repo PAT (optional)" autocomplete="new-password" autocorrect="off" autocapitalize="none" spellcheck="false">
                       <label class="repo-token-toggle">
@@ -357,7 +357,7 @@
 
                   <div class="repo-setting-section">
                     <div class="repo-setting-title">Add Release</div>
-                    <form method="post" action="{{ url_for('add_settings_repository_release', app_id=app.id) }}" class="repo-action-form">
+                    <form method="post" action="{{ url_for('settings.add_settings_repository_release', app_id=app.id) }}" class="repo-action-form">
                       <input type="text" name="version" class="form-control form-control-sm" placeholder="release version" autocomplete="off" spellcheck="false" required>
                       <input type="text" name="environment" class="form-control form-control-sm" placeholder="env" autocomplete="off" autocapitalize="none" spellcheck="false">
                       <button type="submit" class="btn btn-sm btn-outline-secondary" title="Add Release">
@@ -391,7 +391,7 @@
                     {% endif %}
 
                     <div class="d-flex flex-column gap-2">
-                      <form method="post" action="{{ url_for('save_settings_repository_realtime_mode', app_id=app.id) }}" class="ci-key-row">
+                      <form method="post" action="{{ url_for('settings.save_settings_repository_realtime_mode', app_id=app.id) }}" class="ci-key-row">
                         <label class="repo-token-toggle mb-0 flex-grow-1">
                           <input type="checkbox" name="realtime_enabled" value="1" {% if app.ci_push_status.realtime_enabled %}checked{% endif %}>
                           Enable realtime mode
@@ -401,7 +401,7 @@
                         </button>
                       </form>
 
-                      <form method="post" action="{{ url_for('rotate_settings_repository_ci_ingest_key', app_id=app.id) }}" class="ci-key-row">
+                      <form method="post" action="{{ url_for('settings.rotate_settings_repository_ci_ingest_key', app_id=app.id) }}" class="ci-key-row">
                         <label class="small text-secondary flex-shrink-0 mb-0 align-self-center" for="ttl_{{ app.id }}">Expiry (days)</label>
                         <input type="number" id="ttl_{{ app.id }}" name="ttl_days" min="1" max="{{ ci_push_max_ttl_days }}" value="{{ ci_push_default_ttl_days }}" class="form-control form-control-sm ms-2" style="width:5.5rem;" title="Expiry in days" required>
                         <button type="submit" class="btn btn-sm btn-outline-primary ms-2 flex-shrink-0" title="Rotate CI Ingest Key">
@@ -411,7 +411,7 @@
 
                       <form
                         method="post"
-                        action="{{ url_for('revoke_settings_repository_ci_ingest_key', app_id=app.id) }}"
+                        action="{{ url_for('settings.revoke_settings_repository_ci_ingest_key', app_id=app.id) }}"
                         class="ci-key-row"
                         data-confirm-title="Revoke CI Ingest Key"
                         data-confirm-message="Revoke realtime CI ingest key for '{{ app.name }}'? Existing CI pushes for this repo will fail until rotated."
@@ -429,7 +429,7 @@
                     <div class="repo-setting-title text-danger">Danger Zone</div>
                     <form
                       method="post"
-                      action="{{ url_for('delete_settings_repository', app_id=app.id) }}"
+                      action="{{ url_for('settings.delete_settings_repository', app_id=app.id) }}"
                       class="repo-action-form"
                       data-confirm-title="Delete Repository"
                       data-confirm-message="Delete repository '{{ app.name }}' ({{ app.slug }})?"

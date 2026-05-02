@@ -123,7 +123,7 @@
                         {% else %}
                             <span class="badge text-bg-secondary">Not configured</span>
                         {% endif %}
-                        <a href="{{ url_for('view_ai_settings') }}"
+                        <a href="{{ url_for('settings.view_ai_settings') }}"
                            class="btn btn-sm btn-outline-primary"
                            data-ai-action-id="settings.nav.ai"
                            data-ai-action-type="navigate"
@@ -154,7 +154,7 @@
                     </p>
                     <div class="d-flex align-items-center justify-content-between mt-2">
                         <span class="badge text-bg-secondary">{{ agent_rule_count }} rule{{ 's' if agent_rule_count != 1 else '' }}</span>
-                        <a href="{{ url_for('view_agent_rules') }}"
+                        <a href="{{ url_for('settings.view_agent_rules') }}"
                            class="btn btn-sm btn-outline-warning"
                            data-ai-action-id="settings.nav.agents"
                            data-ai-action-type="navigate"
@@ -238,7 +238,7 @@
                         <a href="{{ url_for('view_web_traffic') }}">Web Traffic</a> page.
                     </p>
                     <div class="d-flex align-items-center justify-content-end mt-2">
-                        <a href="{{ url_for('view_enrichment_settings') }}"
+                        <a href="{{ url_for('settings.view_enrichment_settings') }}"
                            class="btn btn-sm btn-outline-primary"
                            data-ai-action-id="settings.nav.enrichment"
                            data-ai-action-type="navigate"
@@ -266,7 +266,7 @@
                         and version-scoped repo health. Configure repos once here for all enrichment workflows.
                     </p>
                     <div class="d-flex align-items-center justify-content-end mt-2">
-                        <a href="{{ url_for('view_settings_repositories') }}"
+                        <a href="{{ url_for('settings.view_settings_repositories') }}"
                            class="btn btn-sm btn-outline-secondary">
                             <i class="bi bi-pencil-square me-1"></i><span class="settings-btn-label">Manage Repositories</span>
                         </a>

@@ -43,7 +43,7 @@
 {% endset %}
 {{ render_page_header('AI & Agent Configuration', icon_class='bi bi-robot', icon_text_class='text-primary', actions_html=settings_ai_header_actions) }}
 
-<form method="post" action="{{ url_for('save_ai_settings') }}">
+<form method="post" action="{{ url_for('settings.save_ai_settings') }}">
   <!-- LLM Endpoint -->
   <div class="card border-secondary mb-3">
     <div class="card-header d-flex align-items-center gap-2">
@@ -198,7 +198,7 @@
                  value="{{ settings.get('ai.github_repo', '') }}">
           <div class="form-text">
             Used only by agent flows for issue creation. CVE/enrichment repo sources are managed in
-            <a href="{{ url_for('view_settings_repositories') }}">GitHub Repositories</a>.
+            <a href="{{ url_for('settings.view_settings_repositories') }}">GitHub Repositories</a>.
             {% if github_token_validation_status.status %}
               Last validation: {{ github_token_validation_status.status }}{% if github_token_validation_status.last_validated_at %} (<span class="sobs-tz-ts" data-utc-ts="{{ github_token_validation_status.last_validated_at }}">{{ github_token_validation_status.last_validated_at[:19] }}</span>){% endif %}.
             {% endif %}
@@ -320,7 +320,7 @@
           model and must return <code>safe</code> (or <code>ALLOWED</code>); otherwise the request is blocked.</li>
         <li><strong>Agent Flows</strong> — Configurable rules that automatically invoke the LLM when
           anomaly rules fire or tag rules match. Results appear in
-          <a href="{{ url_for('view_agent_rules') }}">Agent Rules</a> and can optionally create
+          <a href="{{ url_for('settings.view_agent_rules') }}">Agent Rules</a> and can optionally create
           or reuse GitHub issues, then request Copilot work when the issue is eligible.</li>
         <li><strong>DLP</strong> — When enabled, issue text is scanned for PII/secrets before
           being posted to GitHub.</li>

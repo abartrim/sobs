@@ -16,7 +16,7 @@
         </a>
     {% endset %}
     {{ render_page_header('Enrichment Settings', icon_class='bi bi-database-check', icon_text_class='text-primary', actions_html=settings_enrichment_header_actions) }}
-    <form method="post" action="{{ url_for('save_enrichment_settings') }}">
+    <form method="post" action="{{ url_for('settings.save_enrichment_settings') }}">
         <!-- Geo Lookup -->
         <div class="card border-secondary mb-3">
             <div class="card-header d-flex align-items-center gap-2">
@@ -104,7 +104,7 @@
                     <strong>How repo URLs are configured:</strong> Each app registered in SOBS has a
                     <em>Repository URL</em> field (set via the Release Registry or the CI helper
                     <code>--repo-url</code> arg). SOBS uses the global GitHub token from
-                    <a href="{{ url_for('view_ai_settings') }}" class="alert-link">AI Settings → GitHub token</a>
+                    <a href="{{ url_for('settings.view_ai_settings') }}" class="alert-link">AI Settings → GitHub token</a>
                     to access all configured repositories — a single personal access token or GitHub App
                     installation token with <code>contents:read</code> scope is sufficient.
                 </div>
@@ -114,7 +114,7 @@
                     <code>contents:read</code> — read access to repository file contents (lockfiles).
                     <br>
                     No write access or issue access is needed for dependency enrichment.
-                    Set the token in <a href="{{ url_for('view_ai_settings') }}">AI Settings</a>.
+                    Set the token in <a href="{{ url_for('settings.view_ai_settings') }}">AI Settings</a>.
                 </div>
                 <hr class="my-3">
                 <label class="form-label small fw-semibold"

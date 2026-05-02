@@ -10794,11 +10794,13 @@ class TestTagRules:
 
     async def test_validate_github_token_route_persists_validation_status(self, client, monkeypatch):
         import app as sobs_app
+        import routes.settings as settings_module
 
         async def _fake_validate(_token: str):
             return "valid", "Token is valid"
 
-        monkeypatch.setattr(sobs_app, "_validate_github_token", _fake_validate)
+        # Patch on the module that holds the bound reference used by the route handler.
+        monkeypatch.setattr(settings_module, "_validate_github_token", _fake_validate)
         sobs_app._save_ai_setting(sobs_app.get_db(), "ai.github_token", "github_pat_test")
 
         r = await client.post("/settings/repositories/github-token/validate")

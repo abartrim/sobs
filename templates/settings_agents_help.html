@@ -4,7 +4,7 @@
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
     {% set settings_agents_help_header_actions %}
-        <a href="{{ url_for('view_agent_rules') }}"
+        <a href="{{ url_for('settings.view_agent_rules') }}"
            class="btn btn-sm btn-outline-warning"
            title="Open Agent Rules">
             <i class="bi bi-lightning-charge me-1"></i><span class="settings-btn-label">Agent Rules</span>

@@ -4,7 +4,7 @@
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
     {% set settings_repositories_help_header_actions %}
-        <a href="{{ url_for('view_settings_repositories') }}"
+        <a href="{{ url_for('settings.view_settings_repositories') }}"
            class="btn btn-sm btn-outline-secondary"
            title="Open Repositories Settings">
             <i class="bi bi-github me-1"></i><span class="settings-btn-label">Repositories</span>

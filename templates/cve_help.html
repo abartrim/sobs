@@ -30,7 +30,7 @@
                         <i class="bi bi-1-circle me-1"></i>Enable Scanning
                     </h6>
                     <p class="small text-secondary mb-0">
-                        CVE scanning is off by default. Go to <a href="{{ url_for('view_enrichment_settings') }}">Enrichment Settings</a> to enable it and set a scan interval.
+                        CVE scanning is off by default. Go to <a href="{{ url_for('settings.view_enrichment_settings') }}">Enrichment Settings</a> to enable it and set a scan interval.
                     </p>
                 </div>
             </div>
@@ -138,7 +138,7 @@
                     <strong>Scan returns no findings</strong> — this may mean your libraries have no known CVEs. Verify the library list in the <em>Detected Libraries</em> panel is accurate.
                 </li>
                 <li>
-                    <strong>CVE scanning is disabled</strong> — enable it from <a href="{{ url_for('view_enrichment_settings') }}">Enrichment Settings</a>.
+                    <strong>CVE scanning is disabled</strong> — enable it from <a href="{{ url_for('settings.view_enrichment_settings') }}">Enrichment Settings</a>.
                 </li>
             </ul>
         </div>

@@ -40,14 +40,47 @@ from app import (  # noqa: E402
     _safe_json_dumps,
     _safe_json_loads,
     _serialize_app_row,
-    _serialize_artifact_row,
-    _serialize_release_row,
     get_db,
     jsonify,
     require_api_key,
 )
 
 apps_bp = Blueprint("apps", __name__)
+
+
+# ---------------------------------------------------------------------------
+# Helpers used exclusively by this blueprint (moved from app.py Milestone 3)
+# ---------------------------------------------------------------------------
+
+
+def _serialize_release_row(row: dict) -> dict:
+    return {
+        "id": str(row.get("Id", "")),
+        "appId": str(row.get("AppId", "")),
+        "version": str(row.get("ReleaseVersion", "")),
+        "commitSha": str(row.get("CommitSha", "")),
+        "buildId": str(row.get("BuildId", "")),
+        "environment": str(row.get("Environment", "")),
+        "releasedAt": str(row.get("ReleasedAt", "")),
+        "metadata": _safe_json_loads(row.get("MetadataJson", ""), {}),
+    }
+
+
+def _serialize_artifact_row(row: dict) -> dict:
+    return {
+        "id": str(row.get("Id", "")),
+        "releaseId": str(row.get("ReleaseId", "")),
+        "artifactType": str(row.get("ArtifactType", "")),
+        "name": str(row.get("Name", "")),
+        "contentType": str(row.get("ContentType", "")),
+        "size": int(row.get("Size", 0) or 0),
+        "storageRef": str(row.get("StorageRef", "")),
+        "checksumSha256": str(row.get("ChecksumSha256", "")),
+        "platform": str(row.get("Platform", "")),
+        "architecture": str(row.get("Architecture", "")),
+        "metadata": _safe_json_loads(row.get("MetadataJson", ""), {}),
+        "uploadedAt": str(row.get("UploadedAt", "")),
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
     {% set settings_ai_help_header_actions %}
-        <a href="{{ url_for('view_ai_settings') }}"
+        <a href="{{ url_for('settings.view_ai_settings') }}"
            class="btn btn-sm btn-outline-primary"
            title="Open AI Settings">
             <i class="bi bi-gear me-1"></i><span class="settings-btn-label">AI Settings</span>

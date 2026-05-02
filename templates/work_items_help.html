@@ -113,13 +113,13 @@
             </p>
             <ul class="small mb-2">
                 <li>
-                    Configure agent rules on the <a href="{{ url_for('view_agent_rules') }}">Agent Settings</a> page.
+                    Configure agent rules on the <a href="{{ url_for('settings.view_agent_rules') }}">Agent Settings</a> page.
                 </li>
                 <li>Each rule specifies the trigger condition, target GitHub repository, and action type.</li>
                 <li>A cooldown period prevents duplicate issues from being created for the same event.</li>
             </ul>
             <div class="alert alert-secondary small py-2 mb-0">
-                <i class="bi bi-info-circle me-1"></i>GitHub API credentials must be configured in <a href="{{ url_for('view_ai_settings') }}" class="alert-link">AI Settings</a> for issue creation to work.
+                <i class="bi bi-info-circle me-1"></i>GitHub API credentials must be configured in <a href="{{ url_for('settings.view_ai_settings') }}" class="alert-link">AI Settings</a> for issue creation to work.
             </div>
         </div>
     </div>
@@ -130,7 +130,7 @@
         <div class="card-body">
             <ul class="small mb-0">
                 <li>
-                    <a href="{{ url_for('view_agent_rules') }}">Agent Settings</a> — create and manage agent rules that trigger work item creation.
+                    <a href="{{ url_for('settings.view_agent_rules') }}">Agent Settings</a> — create and manage agent rules that trigger work item creation.
                 </li>
                 <li>
                     <a href="{{ url_for('view_ai') }}">AI Transparency</a> — audit all AI and agent calls that led to work item creation.
