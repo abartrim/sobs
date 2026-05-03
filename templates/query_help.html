@@ -19,7 +19,7 @@
             </p>
         </div>
         <a class="btn btn-outline-secondary btn-sm"
-           href="{{ url_for('view_query') }}"
+           href="{{ url_for('query.view_query') }}"
            title="Back to Query">
             <i class="bi bi-arrow-left me-1"></i><span class="help-btn-label">Back to Query</span>
         </a>
@@ -44,7 +44,7 @@
                         <i class="bi bi-2-circle me-1"></i>Explore Tables First
                     </h6>
                     <p class="small text-secondary mb-0">
-                        Use the <a href="{{ url_for('view_table_explorer') }}"><strong>Table Explorer</strong></a> to browse available tables and columns before writing a query.
+                        Use the <a href="{{ url_for('query.view_table_explorer') }}"><strong>Table Explorer</strong></a> to browse available tables and columns before writing a query.
                     </p>
                 </div>
             </div>
@@ -130,7 +130,7 @@
         <div class="card-body">
             <ul class="small mb-0">
                 <li>
-                    <a href="{{ url_for('view_table_explorer') }}">Table Explorer</a> — browse schema and sample data for all available tables.
+                    <a href="{{ url_for('query.view_table_explorer') }}">Table Explorer</a> — browse schema and sample data for all available tables.
                 </li>
                 <li>
                     <a href="{{ url_for('table_explorer_help') }}">Table Explorer Help</a> — full table and column reference.

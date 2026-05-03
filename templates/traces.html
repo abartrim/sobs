@@ -1080,8 +1080,8 @@ window.SOBS.initSavedReportsDropdown({
   saveButtonId: 'traces-save-report-btn',
   pageType: 'traces',
   pageBaseUrl: {{ url_for('traces.view_traces') | tojson }},
-  listReportsUrl: {{ url_for('api_list_reports') | tojson }},
-  manageReportsUrl: {{ url_for('list_reports') | tojson }}
+  listReportsUrl: {{ url_for('reports.api_list_reports') | tojson }},
+  manageReportsUrl: {{ url_for('reports.list_reports') | tojson }}
 });
 
 // ── Metric timeline chart + sparklines ───────────────────────────────────

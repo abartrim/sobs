@@ -10,7 +10,7 @@
   <button type="button" class="btn btn-sm btn-outline-secondary" id="import-reports-btn" title="Import reports from a JSON file">
     <i class="bi bi-upload me-1"></i><span class="reports-btn-label">Import</span>
   </button>
-  <a href="{{ url_for('api_export_reports') }}" class="btn btn-sm btn-outline-secondary" id="export-all-btn" title="Export all reports as JSON">
+  <a href="{{ url_for('reports.api_export_reports') }}" class="btn btn-sm btn-outline-secondary" id="export-all-btn" title="Export all reports as JSON">
     <i class="bi bi-download me-1"></i><span class="reports-btn-label">Export All</span>
   </a>
   <a href="{{ url_for('reports_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Reports Help"><i class="bi bi-question-circle me-1"></i><span class="reports-btn-label">Help</span></a>
@@ -56,7 +56,7 @@
         <i class="bi bi-play me-1"></i>Apply
       </a>
       {% endif %}
-      <a href="{{ url_for('api_export_reports') }}?ids={{ report.id }}"
+      <a href="{{ url_for('reports.api_export_reports') }}?ids={{ report.id }}"
          class="btn btn-sm btn-outline-secondary" title="Export this report">
         <i class="bi bi-download"></i>
       </a>
@@ -64,7 +64,7 @@
               data-report-id="{{ report.id }}" title="Copy report JSON to clipboard">
         <i class="bi bi-share"></i>
       </button>
-        <form method="post" action="{{ url_for('delete_report', report_id=report.id) }}"
+        <form method="post" action="{{ url_for('reports.delete_report', report_id=report.id) }}"
           class="delete-report-form" data-report-name="{{ report.name }}" data-report-id="{{ report.id }}">
         <button type="submit" class="btn btn-sm btn-outline-danger">
           <i class="bi bi-trash"></i>
@@ -256,7 +256,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return;
       }
       var resp = await fetch(
-        {{ url_for('api_import_reports') | tojson }} +
+        {{ url_for('reports.api_import_reports') | tojson }} +
           '?on_conflict=' + encodeURIComponent(conflictSelect.value),
         {
         method: 'POST',
@@ -287,7 +287,7 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   // ── Share (copy JSON to clipboard) ────────────────────────────────────────
-  var exportUrl = {{ url_for('api_export_reports') | tojson }};
+  var exportUrl = {{ url_for('reports.api_export_reports') | tojson }};
   document.querySelectorAll('.share-report-btn').forEach(function (btn) {
     btn.addEventListener('click', async function () {
       var reportId = btn.dataset.reportId;
@@ -334,7 +334,7 @@ document.addEventListener('DOMContentLoaded', function () {
       var reportId = pendingDeleteForm.dataset.reportId;
       var reportName = pendingDeleteForm.dataset.reportName || 'Report';
       try {
-        var resp = await fetch({{ url_for('api_list_reports') | tojson }} + '/' + encodeURIComponent(reportId), {
+        var resp = await fetch({{ url_for('reports.api_list_reports') | tojson }} + '/' + encodeURIComponent(reportId), {
           method: 'DELETE'
         });
         var result = await resp.json();

@@ -5,7 +5,7 @@
   <div>
     <nav aria-label="breadcrumb">
       <ol class="breadcrumb mb-1">
-        <li class="breadcrumb-item"><a href="{{ url_for('list_dashboards') }}">Dashboards</a></li>
+        <li class="breadcrumb-item"><a href="{{ url_for('dashboards.list_dashboards') }}">Dashboards</a></li>
         <li class="breadcrumb-item active">{{ dashboard.name }}</li>
       </ol>
     </nav>
@@ -18,7 +18,7 @@
     <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addChartModal">
       <i class="bi bi-plus-lg me-1"></i>Add Chart
     </button>
-    <form method="post" action="{{ url_for('delete_dashboard', dashboard_id=dashboard.id) }}"
+    <form method="post" action="{{ url_for('dashboards.delete_dashboard', dashboard_id=dashboard.id) }}"
           onsubmit="return confirm('Delete this dashboard and all its charts?')">
       <button type="submit" class="btn btn-outline-danger btn-sm">
         <i class="bi bi-trash me-1"></i>Delete
@@ -37,7 +37,7 @@
         <div class="d-flex gap-2 align-items-center">
           <span class="badge bg-secondary text-capitalize">{{ chart.chart_type }}</span>
           <form method="post"
-                action="{{ url_for('remove_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
+                action="{{ url_for('dashboards.remove_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
                 onsubmit="return confirm('Remove this chart?')">
             <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">
               <i class="bi bi-x"></i>
@@ -70,7 +70,7 @@
 <div class="modal fade" id="addChartModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
-      <form method="post" action="{{ url_for('add_chart', dashboard_id=dashboard.id) }}">
+      <form method="post" action="{{ url_for('dashboards.add_chart', dashboard_id=dashboard.id) }}">
         <div class="modal-header">
           <h5 class="modal-title">Add Chart</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

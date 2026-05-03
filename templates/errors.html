@@ -251,8 +251,8 @@ window.SOBS.initSavedReportsDropdown({
   saveButtonId: 'errors-save-report-btn',
   pageType: 'errors',
   pageBaseUrl: {{ url_for('errors.view_errors') | tojson }},
-  listReportsUrl: {{ url_for('api_list_reports') | tojson }},
-  manageReportsUrl: {{ url_for('list_reports') | tojson }}
+  listReportsUrl: {{ url_for('reports.api_list_reports') | tojson }},
+  manageReportsUrl: {{ url_for('reports.list_reports') | tojson }}
 });
 </script>
 {% endblock %}

@@ -286,7 +286,7 @@ document.querySelectorAll('.work-item-detail-btn').forEach(function (btn) {
   }
 
   group.addEventListener('show.bs.dropdown', function () {
-    fetch({{ url_for('api_list_reports') | tojson }} + '?page_type=work_items')
+    fetch({{ url_for('reports.api_list_reports') | tojson }} + '?page_type=work_items')
       .then(function (r) { return r.json(); })
       .then(function (reports) {
         if (!reports.length) {
@@ -299,7 +299,7 @@ document.querySelectorAll('.work-item-detail-btn').forEach(function (btn) {
           return '<li><a class="dropdown-item small" href="' + url + '" title="' + escHtml(rep.description || '') + '">' + escHtml(rep.name || 'Unnamed') + '</a></li>';
         }).join('') +
           '<li><hr class="dropdown-divider my-1"></li>' +
-          '<li><a class="dropdown-item small text-secondary" href="{{ url_for('list_reports') }}"><i class="bi bi-gear me-1"></i>Manage reports</a></li>';
+          '<li><a class="dropdown-item small text-secondary" href="{{ url_for('reports.list_reports') }}"><i class="bi bi-gear me-1"></i>Manage reports</a></li>';
       })
       .catch(function () {
         menu.innerHTML = '<li><span class="dropdown-item text-danger small">Failed to load</span></li>';

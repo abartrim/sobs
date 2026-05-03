@@ -14,7 +14,7 @@
   </div>
 {% endset %}
 {% set table_explorer_header_actions %}
-  <a href="{{ url_for('view_query') }}" class="btn btn-sm btn-outline-secondary" title="Back" onclick="if (window.history.length > 1) { window.history.back(); return false; }">
+  <a href="{{ url_for('query.view_query') }}" class="btn btn-sm btn-outline-secondary" title="Back" onclick="if (window.history.length > 1) { window.history.back(); return false; }">
     <i class="bi bi-arrow-left me-1"></i><span class="table-explorer-btn-label">Back</span>
   </a>
   <a href="{{ url_for('table_explorer_help') }}" class="btn btn-sm btn-outline-secondary page-help-btn" title="Help" aria-label="Table Explorer Help"><i class="bi bi-question-circle me-1"></i><span class="table-explorer-btn-label">Help</span></a>

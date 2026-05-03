@@ -221,7 +221,7 @@ _sobsInitRegexFilter({
   }
 
   group.addEventListener('show.bs.dropdown', function () {
-    fetch({{ url_for('api_list_reports') | tojson }} + '?page_type=metrics')
+    fetch({{ url_for('reports.api_list_reports') | tojson }} + '?page_type=metrics')
       .then(r => r.json())
       .then(reports => {
         if (!reports.length) {
@@ -234,7 +234,7 @@ _sobsInitRegexFilter({
           return `<li><a class="dropdown-item small" href="${url}" title="${escHtml(rep.description)}">${escHtml(rep.name)}</a></li>`;
         }).join('') +
           '<li><hr class="dropdown-divider my-1"></li>' +
-          `<li><a class="dropdown-item small text-secondary" href="{{ url_for('list_reports') }}"><i class="bi bi-gear me-1"></i>Manage reports</a></li>`;
+          `<li><a class="dropdown-item small text-secondary" href="{{ url_for('reports.list_reports') }}"><i class="bi bi-gear me-1"></i>Manage reports</a></li>`;
       })
       .catch(() => {
         menu.innerHTML = '<li><span class="dropdown-item text-danger small">Failed to load</span></li>';

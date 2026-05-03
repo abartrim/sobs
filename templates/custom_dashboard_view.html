@@ -70,7 +70,7 @@
   <div>
     <nav aria-label="breadcrumb">
       <ol class="breadcrumb mb-1">
-        <li class="breadcrumb-item"><a href="{{ url_for('list_dashboards') }}">Dashboards</a></li>
+        <li class="breadcrumb-item"><a href="{{ url_for('dashboards.list_dashboards') }}">Dashboards</a></li>
         <li class="breadcrumb-item active">{{ dashboard.name }}</li>
       </ol>
     </nav>
@@ -111,7 +111,7 @@
     <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#importChartModal" title="Import Chart from JSON template">
       <i class="bi bi-upload me-1"></i><span class="custom-dashboard-btn-label">Import Chart</span>
     </button>
-        <form method="post" action="{{ url_for('delete_dashboard', dashboard_id=dashboard.id) }}"
+        <form method="post" action="{{ url_for('dashboards.delete_dashboard', dashboard_id=dashboard.id) }}"
           data-confirm-title="Delete Dashboard"
           data-confirm-message="Delete this dashboard and all its charts?"
           data-confirm-ok-label="Delete"
@@ -169,14 +169,14 @@
           <button type="button"
                   class="btn btn-sm btn-outline-secondary py-0 px-1 js-edit-chart"
                   data-chart-id="{{ chart.id }}"
-                  data-edit-url="{{ url_for('edit_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
+                  data-edit-url="{{ url_for('dashboards.edit_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
                   title="Edit chart">
             <i class="bi bi-pencil"></i>
           </button>
           <button type="button"
                   class="btn btn-sm btn-outline-info py-0 px-1 js-clone-chart"
                   data-chart-id="{{ chart.id }}"
-                  data-clone-url="{{ url_for('clone_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
+                  data-clone-url="{{ url_for('dashboards.clone_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
                   title="Clone chart">
             <i class="bi bi-files"></i>
           </button>
@@ -187,7 +187,7 @@
             <i class="bi bi-download"></i>
           </a>
               <form method="post"
-                action="{{ url_for('remove_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
+                action="{{ url_for('dashboards.remove_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
                 data-confirm-title="Remove Chart"
                 data-confirm-message="Remove this chart?"
                 data-confirm-ok-label="Remove"
@@ -300,11 +300,11 @@
 <div class="modal fade" id="addChartModal" tabindex="-1">
   <div class="modal-dialog modal-xl modal-dialog-scrollable" style="max-width:min(96vw, 1480px);">
     <div class="modal-content">
-      <form method="post" action="{{ url_for('add_chart', dashboard_id=dashboard.id) }}" id="chartEditorForm">
+      <form method="post" action="{{ url_for('dashboards.add_chart', dashboard_id=dashboard.id) }}" id="chartEditorForm">
         <div class="modal-header">
           <h5 class="modal-title" id="chartEditorModalTitle">Add Chart</h5>
           <div class="d-flex gap-2 align-items-center ms-auto">
-              <a href="{{ url_for('view_table_explorer') }}" class="btn btn-sm btn-outline-secondary" title="Browse available tables, columns, and sample data">
+              <a href="{{ url_for('query.view_table_explorer') }}" class="btn btn-sm btn-outline-secondary" title="Browse available tables, columns, and sample data">
                 <i class="bi bi-grid-3x3 me-1"></i>Table Explorer
               </a>
             <a href="{{ url_for('chart_editor_help') }}" target="_blank" class="link-secondary text-decoration-none" title="Chart Help" aria-label="Chart Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
