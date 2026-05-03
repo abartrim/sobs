@@ -827,7 +827,7 @@
     if (activeFilters.service) {
       params.set("service", activeFilters.service);
     }
-    liveSource = new EventSource(`{{ url_for("tail_stream") }}?${params.toString()}`);
+    liveSource = new EventSource(`{{ url_for("misc.tail_stream") }}?${params.toString()}`);
     setButton(true);
     setStatus("on", `Live on (${sortDescription()})`);
     updateLiveParam(true);

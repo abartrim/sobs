@@ -416,8 +416,8 @@
   var preferredChartInstruction = '';
   var thinkingLevel = 'off';
   var tracesUrlBase = '{{ url_for('traces.view_traces') }}';
-  var dashboardsListApiUrl = '{{ url_for("api_dashboards_list") }}';
-  var addToDashboardApiUrl = '{{ url_for("api_query_add_to_dashboard") }}';
+  var dashboardsListApiUrl = '{{ url_for("dashboards.api_dashboards_list") }}';
+  var addToDashboardApiUrl = '{{ url_for("dashboards.api_query_add_to_dashboard") }}';
   var QUERY_HISTORY_KEY = 'sobs.query.history.v1';
   var CHART_PRESET_KEY = 'sobs.query.chart.preset.v1';
   var THINKING_LEVEL_KEY = 'sobs.query.thinking.level.v1';
@@ -466,7 +466,7 @@
 
   async function loadChartTypes() {
     try {
-      var resp = await fetch('{{ url_for("api_chart_types") }}');
+      var resp = await fetch('{{ url_for("query.api_chart_types") }}');
       var data = await resp.json();
       if (data.ok && data.data && data.data.chartTypes) {
         chartTypesCatalog = data.data.chartTypes;
@@ -641,7 +641,7 @@
     setLoading(true);
 
     try {
-      var resp = await fetch('{{ url_for("api_query_ask") }}', {
+      var resp = await fetch('{{ url_for("query.api_query_ask") }}', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1612,7 +1612,7 @@
     setLoading(true);
 
     try {
-      var resp = await fetch('{{ url_for("api_query_run") }}', {
+      var resp = await fetch('{{ url_for("query.api_query_run") }}', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1934,7 +1934,7 @@
     applyChartCustomizationBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Refining...';
 
     try {
-      var resp = await fetch('{{ url_for("api_query_refine_chart") }}', {
+      var resp = await fetch('{{ url_for("query.api_query_refine_chart") }}', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

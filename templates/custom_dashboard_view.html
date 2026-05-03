@@ -181,7 +181,7 @@
             <i class="bi bi-files"></i>
           </button>
           <a class="btn btn-sm btn-outline-secondary py-0 px-1"
-             href="{{ url_for('export_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
+             href="{{ url_for('dashboards.export_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
              title="Export chart as JSON template"
              download>
             <i class="bi bi-download"></i>
@@ -567,14 +567,14 @@
 
   var CHART_DATA = {{ charts | tojson }};
   var TEMPLATES = {{ templates | tojson }};
-  var queryRenderUrl = {{ url_for('render_chart') | tojson }};
-  var specCompileUrl = {{ url_for('compile_chart_spec_api') | tojson }};
-  var specDryRunUrl = {{ url_for('dry_run_chart_spec_api') | tojson }};
-  var specValidateUrl = {{ url_for('validate_chart_spec_api') | tojson }};
-  var specRenderUrl = {{ url_for('render_chart_spec_api') | tojson }};
-  var specOptionsUrl = {{ url_for('chart_spec_options_api') | tojson }};
-  var aiAskUrl = {{ url_for('ai_build_chart_spec') | tojson }};
-  var importChartUrl = {{ url_for('import_chart', dashboard_id=dashboard.id) | tojson }};
+  var queryRenderUrl = {{ url_for('dashboards.render_chart') | tojson }};
+  var specCompileUrl = {{ url_for('dashboards.compile_chart_spec_api') | tojson }};
+  var specDryRunUrl = {{ url_for('dashboards.dry_run_chart_spec_api') | tojson }};
+  var specValidateUrl = {{ url_for('dashboards.validate_chart_spec_api') | tojson }};
+  var specRenderUrl = {{ url_for('dashboards.render_chart_spec_api') | tojson }};
+  var specOptionsUrl = {{ url_for('dashboards.chart_spec_options_api') | tojson }};
+  var aiAskUrl = {{ url_for('dashboards.ai_build_chart_spec') | tojson }};
+  var importChartUrl = {{ url_for('dashboards.import_chart', dashboard_id=dashboard.id) | tojson }};
   var templatesMap = {};
   TEMPLATES.forEach(function (t) { templatesMap[t.id] = t; });
   var sourceUrls = {

@@ -345,7 +345,7 @@
                                 </button>
                             {% endif %}
                             {% if show_incident_view %}
-                                <a href="{{ url_for('view_incident', error_id=err.id, trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
+                                <a href="{{ url_for('misc.view_incident', error_id=err.id, trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
                                    class="btn btn-sm btn-outline-primary"
                                    title="Open unified incident evidence view">
                                     <i class="bi bi-shield-exclamation me-1"></i><span class="error-panel-btn-label">Incident View</span>

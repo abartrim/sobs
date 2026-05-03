@@ -154,7 +154,7 @@
             <tr>
               <td class="font-monospace" data-label="Key">{{ key }}</td>
               <td data-label="Actions">
-                <form method="post" action="{{ url_for('delete_masking_key') }}">
+                <form method="post" action="{{ url_for('masking.delete_masking_key') }}">
                   <input type="hidden" name="key" value="{{ key }}">
                   <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2" title="Delete key">
                     <i class="bi bi-trash"></i>
@@ -227,7 +227,7 @@
             <tr>
               <td class="font-monospace small text-break" data-label="Pattern">{{ pattern }}</td>
               <td data-label="Actions">
-                <form method="post" action="{{ url_for('delete_masking_pattern') }}">
+                <form method="post" action="{{ url_for('masking.delete_masking_pattern') }}">
                   <input type="hidden" name="pattern" value="{{ pattern }}">
                   <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2" title="Delete pattern">
                     <i class="bi bi-trash"></i>

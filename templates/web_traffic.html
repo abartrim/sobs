@@ -251,12 +251,12 @@
 (function () {
   'use strict';
 
-  var geoApiUrl = {{ url_for('api_web_traffic_geo', from_ts=from_ts, to_ts=to_ts) | tojson }};
-  var browsersApiUrl = {{ url_for('api_web_traffic_browsers', from_ts=from_ts, to_ts=to_ts) | tojson }};
-  var osApiUrl = {{ url_for('api_web_traffic_os', from_ts=from_ts, to_ts=to_ts) | tojson }};
-  var timezonesApiUrl = {{ url_for('api_web_traffic_timezones', from_ts=from_ts, to_ts=to_ts) | tojson }};
-  var languagesApiUrl = {{ url_for('api_web_traffic_languages', from_ts=from_ts, to_ts=to_ts) | tojson }};
-  var devicesApiUrl = {{ url_for('api_web_traffic_devices', from_ts=from_ts, to_ts=to_ts) | tojson }};
+  var geoApiUrl = {{ url_for('rum.api_web_traffic_geo', from_ts=from_ts, to_ts=to_ts) | tojson }};
+  var browsersApiUrl = {{ url_for('rum.api_web_traffic_browsers', from_ts=from_ts, to_ts=to_ts) | tojson }};
+  var osApiUrl = {{ url_for('rum.api_web_traffic_os', from_ts=from_ts, to_ts=to_ts) | tojson }};
+  var timezonesApiUrl = {{ url_for('rum.api_web_traffic_timezones', from_ts=from_ts, to_ts=to_ts) | tojson }};
+  var languagesApiUrl = {{ url_for('rum.api_web_traffic_languages', from_ts=from_ts, to_ts=to_ts) | tojson }};
+  var devicesApiUrl = {{ url_for('rum.api_web_traffic_devices', from_ts=from_ts, to_ts=to_ts) | tojson }};
   var geoEnabled = {{ geo_enabled | tojson }};
   var eventTypesData = {{ event_types | tojson }};
 

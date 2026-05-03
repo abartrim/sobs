@@ -629,7 +629,7 @@
                 <i class="bi bi-{{ 'pause-circle' if rule.enabled else 'play-circle' }}"></i>
               </button>
             </form>
-            <a href="{{ url_for('view_notifications', edit_rule=rule.id) }}#notifRuleFormCard"
+            <a href="{{ url_for('notifications.view_notifications', edit_rule=rule.id) }}#notifRuleFormCard"
                class="btn btn-sm btn-outline-info"
                title="Edit rule">
               <i class="bi bi-pencil"></i>
@@ -1126,7 +1126,7 @@ function escHtml(s) {
       var channelName = this.dataset.channelName;
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-      fetch('{{ url_for("test_notification_channel", channel_id="__CHANNEL_ID__") }}'.replace('__CHANNEL_ID__', channelId), {
+      fetch('{{ url_for("notifications.test_notification_channel", channel_id="__CHANNEL_ID__") }}'.replace('__CHANNEL_ID__', channelId), {
         method: 'POST',
         credentials: 'same-origin',
       }).then(function (res) {
@@ -1358,7 +1358,7 @@ function escHtml(s) {
     previewContainer.innerHTML = '';
     createBtn.classList.add('d-none');
     try {
-      var resp = await fetch({{ url_for('auto_generate_notification_rules') | tojson }}, {
+      var resp = await fetch({{ url_for('notifications.auto_generate_notification_rules') | tojson }}, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'action=preview'
@@ -1408,7 +1408,7 @@ function escHtml(s) {
     createBtn.disabled = true;
     createBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating\u2026';
     try {
-      var resp = await fetch({{ url_for('auto_generate_notification_rules') | tojson }}, {
+      var resp = await fetch({{ url_for('notifications.auto_generate_notification_rules') | tojson }}, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'action=create'

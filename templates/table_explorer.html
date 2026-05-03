@@ -277,7 +277,7 @@
     setLoading(true);
     hideError();
     try {
-      var resp = await fetch('{{ url_for("api_table_explorer_tables") }}');
+      var resp = await fetch('{{ url_for("query.api_table_explorer_tables") }}');
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       var data = await resp.json();
       if (!data.ok) throw new Error(data.error || 'Failed to load tables');
@@ -295,7 +295,7 @@
       return tableDetailCache[name];
     }
     try {
-      var resp = await fetch('{{ url_for("api_table_explorer_table", name="__NAME__") }}'.replace('__NAME__', encodeURIComponent(name)));
+      var resp = await fetch('{{ url_for("query.api_table_explorer_table", name="__NAME__") }}'.replace('__NAME__', encodeURIComponent(name)));
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       var data = await resp.json();
       if (!data.ok) throw new Error(data.error || 'Failed to load table detail');

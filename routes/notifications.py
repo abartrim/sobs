@@ -354,7 +354,7 @@ async def create_notification_rule():
                 except re.error as exc:
                     await flash(f"Invalid tag regex pattern: {exc}", "warning")
                     return redirect(
-                        url_for("view_notifications", edit_rule=edit_rule_id)
+                        url_for("notifications.view_notifications", edit_rule=edit_rule_id)
                         if edit_rule_id
                         else url_for("notifications.view_notifications")
                     )

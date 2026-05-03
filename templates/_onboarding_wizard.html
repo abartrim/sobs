@@ -498,7 +498,7 @@
     }
     renderRepoAutocomplete();
 
-    fetch({{ url_for('api_onboarding_list_repos') | tojson }}, {
+    fetch({{ url_for('onboarding.api_onboarding_list_repos') | tojson }}, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
@@ -603,7 +603,7 @@
     if (btn) btn.disabled = true;
     setImportStatus('Importing metadata from GitHub...', false);
 
-    fetch({{ url_for('api_onboarding_import_repo') | tojson }}, {
+    fetch({{ url_for('onboarding.api_onboarding_import_repo') | tojson }}, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
@@ -772,7 +772,7 @@
       return;
     }
 
-    var createUrl = {{ url_for('api_onboarding_create_repo') | tojson }};
+    var createUrl = {{ url_for('onboarding.api_onboarding_create_repo') | tojson }};
     var body = newRepoFormBody();
     var container = document.getElementById('obInspectResults');
     if (container) {
@@ -813,7 +813,7 @@
       container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-success me-2" role="status"></div><span class="text-secondary small">Inspecting&hellip;</span></div>';
       nextBtn.disabled = true;
 
-      var url = {{ url_for('api_onboarding_inspect_repo') | tojson }};
+      var url = {{ url_for('onboarding.api_onboarding_inspect_repo') | tojson }};
       if (state.appId) {
         url += '?app_id=' + encodeURIComponent(state.appId);
       } else if (state.repoUrl) {
@@ -899,7 +899,7 @@
       has_github_actions: state.hasGithubActions,
     };
 
-    fetch({{ url_for('api_onboarding_create_issues') | tojson }}, {
+    fetch({{ url_for('onboarding.api_onboarding_create_issues') | tojson }}, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },

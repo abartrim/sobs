@@ -32,7 +32,7 @@
   <i class="bi bi-database me-2 text-info"></i>Database Stats &amp; Retention
 </h5>
 
-<form method="post" action="{{ url_for('save_dm_settings') }}">
+<form method="post" action="{{ url_for('k8s_dm.save_dm_settings') }}">
 
   <div class="row g-3 align-items-start mb-3">
     <div class="col-12 col-xl-5">
@@ -535,9 +535,9 @@
   const BYTES_TO_MB = 1048576;
   const MSG_TIMEOUT_MS = 8000;
   const msgEl = document.getElementById('backupActionMsg');
-  const backupListApiUrl = {{ url_for('api_dm_backup_list') | tojson }};
-  const backupRunApiUrl = {{ url_for('api_dm_backup_run') | tojson }};
-  const restoreApiUrl = {{ url_for('api_dm_restore') | tojson }};
+  const backupListApiUrl = {{ url_for('k8s_dm.api_dm_backup_list') | tojson }};
+  const backupRunApiUrl = {{ url_for('k8s_dm.api_dm_backup_run') | tojson }};
+  const restoreApiUrl = {{ url_for('k8s_dm.api_dm_restore') | tojson }};
 
   function showMsg(text, type) {
     msgEl.className = 'alert alert-' + type + ' mb-3';
@@ -787,7 +787,7 @@
   if (!pruneBtn || !pruneMsgEl || !prunePeriodValueEl || !prunePeriodUnitEl) return;
 
   const PRUNE_MSG_TIMEOUT_MS = 10000;
-  const pruneApiUrl = {{ url_for('api_dm_prune') | tojson }};
+  const pruneApiUrl = {{ url_for('k8s_dm.api_dm_prune') | tojson }};
   const pruneRequiresBackupWarning = {{ (
     dm_settings.get('data_management.ttl_backup_coupling_enabled') == '1'
     and (

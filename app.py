@@ -17783,7 +17783,7 @@ def _build_ai_turn_logs_url(chat_id: str, turn_id: str) -> str:
         + turn_id.replace("'", "''")
         + "'"
     )
-    return f"{url_for('view_logs')}?sql={urllib.parse.quote(where, safe='')}"
+    return f"{url_for('logs.view_logs')}?sql={urllib.parse.quote(where, safe='')}"
 
 
 def _emit_ai_helper_log_event(

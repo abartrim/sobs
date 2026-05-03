@@ -264,7 +264,7 @@
                   {% if ev.trace_id %}
                   <a href="{{ url_for('traces.view_traces', trace_id=ev.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">Trace</a>
                   {% endif %}
-                  <a href="{{ url_for('view_incident', trace_id=ev.trace_id, rum_session=ev.session_key, rum_ts=ev.ts, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-primary">Incident</a>
+                  <a href="{{ url_for('misc.view_incident', trace_id=ev.trace_id, rum_session=ev.session_key, rum_ts=ev.ts, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-primary">Incident</a>
                 </div>
               </td>
             </tr>
@@ -449,17 +449,17 @@
       </div>
       <div class="d-flex flex-wrap gap-2 mt-2">
         <span class="text-secondary align-self-center me-1">Keep range:</span>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=15) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 15 %} active{% endif %}">15 min</a>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=30) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 30 %} active{% endif %}">30 min</a>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=60) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 60 %} active{% endif %}">60 min</a>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=180) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 180 %} active{% endif %}">180 min</a>
+        <a href="{{ url_for('misc.view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=15) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 15 %} active{% endif %}">15 min</a>
+        <a href="{{ url_for('misc.view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=30) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 30 %} active{% endif %}">30 min</a>
+        <a href="{{ url_for('misc.view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=60) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 60 %} active{% endif %}">60 min</a>
+        <a href="{{ url_for('misc.view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, from_ts=from_ts, to_ts=to_ts, window_minutes=180) }}" class="btn btn-sm btn-outline-secondary{% if window_minutes == 180 %} active{% endif %}">180 min</a>
       </div>
       <div class="d-flex flex-wrap gap-2 mt-2">
         <span class="text-secondary align-self-center me-1">Recenter:</span>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=15) }}" class="btn btn-sm btn-outline-primary">15 min</a>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=30) }}" class="btn btn-sm btn-outline-primary">30 min</a>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=60) }}" class="btn btn-sm btn-outline-primary">60 min</a>
-        <a href="{{ url_for('view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=180) }}" class="btn btn-sm btn-outline-primary">180 min</a>
+        <a href="{{ url_for('misc.view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=15) }}" class="btn btn-sm btn-outline-primary">15 min</a>
+        <a href="{{ url_for('misc.view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=30) }}" class="btn btn-sm btn-outline-primary">30 min</a>
+        <a href="{{ url_for('misc.view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=60) }}" class="btn btn-sm btn-outline-primary">60 min</a>
+        <a href="{{ url_for('misc.view_incident', trace_id=trace_id, error_id=error_id, rum_session=rum_session, rum_ts=rum_ts, window_minutes=180) }}" class="btn btn-sm btn-outline-primary">180 min</a>
       </div>
     </div>
   </div>
@@ -587,7 +587,7 @@
       {% endif %}
       lines.push('## Links');
       {% if trace_id %}
-      lines.push('- [Trace Detail]({{ url_for("view_traces", trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) | safe }})');
+      lines.push('- [Trace Detail]({{ url_for("traces.view_traces", trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) | safe }})');
       {% endif %}
       {% if (primary_error and primary_error.trace_id) or trace_id %}
       lines.push('- [Logs]({{ url_for('logs.view_logs', trace_id=(primary_error.trace_id if primary_error and primary_error.trace_id else trace_id), from_ts=from_ts, to_ts=to_ts) | safe }})');

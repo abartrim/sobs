@@ -449,7 +449,7 @@ async def auto_metrics_rules():
             ),
             "success",
         )
-        return redirect(url_for("view_metrics_rules", open_panel="auto-rules"))
+        return redirect(url_for("metrics.view_metrics_rules", open_panel="auto-rules"))
 
     await flash(
         (
@@ -514,7 +514,7 @@ async def auto_metrics_rules_dashboard():
     if action == "create":
         if not capped_candidates:
             await flash("No matching rules found for dashboard generation", "warning")
-            return redirect(url_for("view_metrics_rules", open_panel="auto-dashboard"))
+            return redirect(url_for("metrics.view_metrics_rules", open_panel="auto-dashboard"))
 
         dashboard_description = (
             "Auto-generated from active metric rules. "
@@ -566,7 +566,7 @@ async def auto_metrics_rules_dashboard():
             ),
             "success",
         )
-        return redirect(url_for("view_custom_dashboard", dashboard_id=dashboard_id))
+        return redirect(url_for("dashboards.view_custom_dashboard", dashboard_id=dashboard_id))
 
     await flash(
         (

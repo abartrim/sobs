@@ -247,8 +247,8 @@
 <script>
 var librariesApiUrl = {{ url_for('rum.api_enrichment_libraries') | tojson }};
 var repoHealthApiUrl = {{ url_for('rum.api_enrichment_github_repo_health') | tojson }};
-var cveScanUrl = {{ url_for('api_cve_scan') | tojson }};
-var cveDispositionBaseUrl = {{ url_for('api_cve_set_disposition', osv_id='__OSV_ID__') | tojson }};
+var cveScanUrl = {{ url_for('rum.api_cve_scan') | tojson }};
+var cveDispositionBaseUrl = {{ url_for('rum.api_cve_set_disposition', osv_id='__OSV_ID__') | tojson }};
 
 {{ render_tz_init_script('initCveTimezone', 'cveFiltersPanel', 'cve-tz-badge-btn', 'cve-tz-badge-label') }}
 
