@@ -689,7 +689,7 @@
   <button id="sbHamburgerBtn" class="btn btn-sm btn-outline-secondary d-flex align-items-center" aria-label="Open menu" aria-expanded="false" aria-controls="sbSidebar">
     <i class="bi bi-list fs-5"></i>
   </button>
-  <a href="{{ url_for('summary') }}" class="text-decoration-none d-flex align-items-center gap-2">
+  <a href="{{ url_for('misc.summary') }}" class="text-decoration-none d-flex align-items-center gap-2">
     <span>🔭</span>
     <span class="fw-bold text-body-emphasis">SOBS</span>
   </a>
@@ -714,13 +714,13 @@
     <button id="sbToggleBtn" class="sb-toggle-btn" aria-label="Toggle sidebar">
       <i id="sbToggleIcon" class="bi bi-chevron-left"></i>
     </button>
-    <a href="{{ url_for('summary') }}" class="text-decoration-none mb-4 d-flex align-items-center gap-2 sb-brand">
+    <a href="{{ url_for('misc.summary') }}" class="text-decoration-none mb-4 d-flex align-items-center gap-2 sb-brand">
       <span style="font-size:1.4rem;">🔭</span>
       <span class="fw-bold fs-5 text-body-emphasis sb-brand-text">SObS</span>
     </a>
     <ul class="nav flex-column gap-1">
       <li class="nav-item">
-        <a href="{{ url_for('summary') }}" class="nav-link {% if request.endpoint == 'summary' %}active{% endif %}" title="Summary">
+        <a href="{{ url_for('misc.summary') }}" class="nav-link {% if request.endpoint == 'misc.summary' %}active{% endif %}" title="Summary">
           <i class="bi bi-house"></i><span class="sb-label">Summary</span>
         </a>
       </li>
@@ -765,7 +765,7 @@
         </a>
       </li>
       <li class="nav-item">
-        <a href="{{ url_for('view_work_items') }}" class="nav-link {% if request.endpoint == 'view_work_items' %}active{% endif %}" title="Work Items">
+        <a href="{{ url_for('misc.view_work_items') }}" class="nav-link {% if request.endpoint == 'misc.view_work_items' %}active{% endif %}" title="Work Items">
           <i class="bi bi-github"></i><span class="sb-label">Work Items</span>
         </a>
       </li>
@@ -794,7 +794,7 @@
         </a>
       </li>
       <li class="nav-item">
-        <a href="{{ url_for('view_settings') }}" class="nav-link {% if request.endpoint in ('view_settings', 'tags.view_tag_rules', 'settings.view_ai_settings', 'settings.view_agent_rules', 'notifications.view_notifications', 'settings.view_enrichment_settings', 'k8s_dm.view_k8s_settings') %}active{% endif %}" title="Settings">
+        <a href="{{ url_for('misc.view_settings') }}" class="nav-link {% if request.endpoint in ('misc.view_settings', 'tags.view_tag_rules', 'settings.view_ai_settings', 'settings.view_agent_rules', 'notifications.view_notifications', 'settings.view_enrichment_settings', 'k8s_dm.view_k8s_settings') %}active{% endif %}" title="Settings">
           <i class="bi bi-gear"></i><span class="sb-label">Settings</span>
         </a>
       </li>

@@ -4,7 +4,7 @@
 {% block styles %}{{ super() }}{% endblock %}
 {% block content %}
     {% set settings_enrichment_header_actions %}
-        <a href="{{ url_for('view_settings') }}"
+        <a href="{{ url_for('misc.view_settings') }}"
            class="btn btn-sm btn-outline-secondary"
            title="Back to Settings">
             <i class="bi bi-arrow-left me-1"></i><span class="settings-btn-label">Back to Settings</span>
@@ -136,7 +136,7 @@
             <button type="submit" class="btn btn-primary btn-sm">
                 <i class="bi bi-save me-1"></i>Save Enrichment Settings
             </button>
-            <a href="{{ url_for('view_settings') }}"
+            <a href="{{ url_for('misc.view_settings') }}"
                class="btn btn-outline-secondary btn-sm">Cancel</a>
         </div>
     </form>

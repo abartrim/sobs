@@ -1052,7 +1052,7 @@ window.SOBS.initRaiseIssueModal({
   buttonSelector: '.trace-raise-issue-btn',
   sourcePage: 'traces',
   stackIdPrefix: 'trace-stack-',
-  raiseIssueUrl: {{ url_for('raise_issue_from_user_observation') | tojson }}
+  raiseIssueUrl: {{ url_for('misc.raise_issue_from_user_observation') | tojson }}
 });
 
   // ── RUM Asset / Replay Viewer (shared) ───────────────────────────────────

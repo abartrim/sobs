@@ -629,7 +629,7 @@
           timestamp: btn.dataset.errTs || '',
           url: window.location.href,
         };
-        var resp = await fetch({{ url_for('raise_issue_from_user_observation') | tojson }}, {
+        var resp = await fetch({{ url_for('misc.raise_issue_from_user_observation') | tojson }}, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -670,7 +670,7 @@
         span_id: btn.dataset.spanId || '',
         url: btn.dataset.errUrl || '',
       };
-      var resp = await fetch({{ url_for('raise_issue_from_user_observation') | tojson }}, {
+      var resp = await fetch({{ url_for('misc.raise_issue_from_user_observation') | tojson }}, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

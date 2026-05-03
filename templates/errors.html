@@ -224,7 +224,7 @@ window.SOBS.initRaiseIssueModal({
   buttonSelector: '.raise-issue-btn',
   sourcePage: 'errors',
   stackIdPrefix: 'stack-',
-  raiseIssueUrl: {{ url_for('raise_issue_from_user_observation') | tojson }}
+  raiseIssueUrl: {{ url_for('misc.raise_issue_from_user_observation') | tojson }}
 });
 
   // ── RUM Asset / Replay Viewer (shared) ───────────────────────────────────
@@ -235,7 +235,7 @@ window.SOBS.initRaiseIssueModal({
 _sobsInitRegexFilter({
   inputId: "errors-regex-filter-input",
   dropdownId: "errors-regex-ac-dropdown",
-  validateUrl: {{ url_for('api_errors_validate_regex') | tojson }},
+  validateUrl: {{ url_for('misc.api_errors_validate_regex') | tojson }},
   scope: {
     service: {{ service | tojson }},
     from_ts: {{ from_ts | tojson }},

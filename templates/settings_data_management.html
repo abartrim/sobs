@@ -9,7 +9,7 @@
 </style>{% endblock %}
 {% block content %}
 {% set settings_data_management_header_actions %}
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_settings') }}" title="Back to Settings">
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('misc.view_settings') }}" title="Back to Settings">
     <i class="bi bi-arrow-left me-1"></i><span class="dm-btn-label settings-btn-label">Back to Settings</span>
   </a>
   <a class="btn btn-sm btn-outline-secondary page-help-btn" href="{{ url_for('data_management_help') }}" title="Help">
@@ -448,7 +448,7 @@
     <button type="submit" class="btn btn-sm btn-primary" name="apply_ttl" value="0">
       <i class="bi bi-floppy me-1"></i><span class="dm-btn-label">Save Settings</span>
     </button>
-    <a href="{{ url_for('view_settings') }}" class="btn btn-sm btn-outline-secondary">Cancel</a>
+    <a href="{{ url_for('misc.view_settings') }}" class="btn btn-sm btn-outline-secondary">Cancel</a>
   </div>
 
 </form>

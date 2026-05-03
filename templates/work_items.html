@@ -63,7 +63,7 @@
           </div>
           <div class="d-flex gap-1" style="flex: 0 0 auto">
             <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i></button>
-            <a href="{{ url_for('view_work_items') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
+            <a href="{{ url_for('misc.view_work_items') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
             <div class="btn-group btn-group-sm" id="work-items-reports-group">
               <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Saved reports">
                 <i class="bi bi-bookmark-star"></i>
@@ -272,7 +272,7 @@ document.querySelectorAll('.work-item-detail-btn').forEach(function (btn) {
   var saveBtn = document.getElementById('work-items-save-report-btn');
   var menu = document.getElementById('work-items-reports-menu');
   var form = document.querySelector('#workItemsFiltersPanel form[method="get"]');
-  var pageBaseUrl = {{ url_for('view_work_items') | tojson }};
+  var pageBaseUrl = {{ url_for('misc.view_work_items') | tojson }};
 
   if (!group || !saveBtn || !menu || !form) return;
 
