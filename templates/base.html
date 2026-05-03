@@ -725,7 +725,7 @@
         </a>
       </li>
       <li class="nav-item">
-        <a href="{{ url_for('dashboards.list_dashboards') }}" class="nav-link {% if request.endpoint in ('list_dashboards', 'view_custom_dashboard', 'new_dashboard_form') %}active{% endif %}" title="Dashboards">
+        <a href="{{ url_for('dashboards.list_dashboards') }}" class="nav-link {% if request.endpoint in ('dashboards.list_dashboards', 'dashboards.view_custom_dashboard', 'dashboards.new_dashboard_form') %}active{% endif %}" title="Dashboards">
           <i class="bi bi-speedometer2"></i><span class="sb-label">Dashboards</span>
         </a>
       </li>
@@ -776,7 +776,7 @@
       </li>
       {% if query_enabled %}
       <li class="nav-item">
-        <a href="{{ url_for('query.view_query') }}" class="nav-link {% if request.endpoint in ('view_query',) %}active{% endif %}" title="Query">
+        <a href="{{ url_for('query.view_query') }}" class="nav-link {% if request.endpoint in ('query.view_query',) %}active{% endif %}" title="Query">
           <i class="bi bi-database-check"></i><span class="sb-label">Query</span>
         </a>
       </li>
@@ -789,7 +789,7 @@
       </li>
       {% endif %}
       <li class="nav-item">
-        <a href="{{ url_for('reports.list_reports') }}" class="nav-link {% if request.endpoint == 'list_reports' %}active{% endif %}" title="Reports">
+        <a href="{{ url_for('reports.list_reports') }}" class="nav-link {% if request.endpoint == 'reports.list_reports' %}active{% endif %}" title="Reports">
           <i class="bi bi-bookmark-star"></i><span class="sb-label">Reports</span>
         </a>
       </li>
