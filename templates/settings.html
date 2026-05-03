@@ -293,7 +293,7 @@
                         {% else %}
                             <span class="badge text-bg-secondary">Disabled</span>
                         {% endif %}
-                        <a href="{{ url_for('view_k8s_settings') }}"
+                        <a href="{{ url_for('k8s_dm.view_k8s_settings') }}"
                            class="btn btn-sm btn-outline-info"
                            data-ai-action-id="settings.nav.kubernetes"
                            data-ai-action-type="navigate"
@@ -335,7 +335,7 @@
                         {% else %}
                             <span class="badge text-bg-secondary">Backup disabled</span>
                         {% endif %}
-                        <a href="{{ url_for('view_dm_settings') }}"
+                        <a href="{{ url_for('k8s_dm.view_dm_settings') }}"
                            class="btn btn-sm btn-outline-danger"
                            data-ai-action-id="settings.nav.data_management"
                            data-ai-action-type="navigate"

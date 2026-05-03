@@ -311,7 +311,7 @@
           data-ai-risk="low"
           data-ai-confirm="false"
           data-ai-action-role="filter-submit"><i class="bi bi-search"></i></button>
-        <a href="{{ url_for('view_ai') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
+        <a href="{{ url_for('ai.view_ai') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
         <div class="btn-group btn-group-sm" id="ai-reports-group">
           <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Saved reports">
             <i class="bi bi-bookmark-star"></i>
@@ -1031,7 +1031,7 @@ initAiErrorTips(document);
 
 var AI_PAGE_FROM_TS = {{ from_ts | tojson }};
 var AI_PAGE_TO_TS = {{ to_ts | tojson }};
-var AI_CONVERSATION_URL = {{ url_for('get_ai_conversation') | tojson }};
+var AI_CONVERSATION_URL = {{ url_for('ai.get_ai_conversation') | tojson }};
 var AI_SPAN_ATTRIBUTES_URL = {{ url_for('get_ai_span_attributes') | tojson }};
 
 document.addEventListener('show.bs.collapse', function(ev) {
@@ -1405,8 +1405,8 @@ document.addEventListener('click', function(evt) {
   let validateController = null;
   let statusState = null; // { level, message } — shown as pinned row in dropdown
 
-  const fieldHintsUrl = {{ url_for('api_ai_field_hints')|tojson }};
-  const validateUrl = {{ url_for('api_ai_validate_filter')|tojson }};
+  const fieldHintsUrl = {{ url_for('ai.api_ai_field_hints')|tojson }};
+  const validateUrl = {{ url_for('ai.api_ai_validate_filter')|tojson }};
   const localOperators = ["=", "!=", "LIKE", "NOT LIKE", "ILIKE", "NOT ILIKE", "IN", "NOT IN", ">", "<", ">=", "<="];
 
   function compactSqlMessage(message) {
@@ -1762,7 +1762,7 @@ document.addEventListener('click', function(evt) {
   const saveBtn = document.getElementById('ai-save-report-btn');
   if (!group || !saveBtn) return;
   const menu = group.querySelector('ul');
-  const pageBaseUrl = {{ url_for('view_ai') | tojson }};
+  const pageBaseUrl = {{ url_for('ai.view_ai') | tojson }};
 
   function escHtml(value) {
     return String(value || '')

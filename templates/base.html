@@ -770,7 +770,7 @@
         </a>
       </li>
       <li class="nav-item">
-        <a href="{{ url_for('view_ai') }}" class="nav-link {% if request.endpoint == 'view_ai' %}active{% endif %}" title="AI">
+        <a href="{{ url_for('ai.view_ai') }}" class="nav-link {% if request.endpoint == 'ai.view_ai' %}active{% endif %}" title="AI">
           <i class="bi bi-cpu"></i><span class="sb-label">AI</span>
         </a>
       </li>
@@ -783,7 +783,7 @@
       {% endif %}
       {% if kubernetes_enabled %}
       <li class="nav-item">
-        <a href="{{ url_for('view_kubernetes') }}" class="nav-link {% if request.endpoint in ('view_kubernetes',) %}active{% endif %}" title="Kubernetes">
+        <a href="{{ url_for('k8s_dm.view_kubernetes') }}" class="nav-link {% if request.endpoint in ('k8s_dm.view_kubernetes',) %}active{% endif %}" title="Kubernetes">
           <i class="bi bi-hdd-network"></i><span class="sb-label">Kubernetes</span>
         </a>
       </li>
@@ -794,7 +794,7 @@
         </a>
       </li>
       <li class="nav-item">
-        <a href="{{ url_for('view_settings') }}" class="nav-link {% if request.endpoint in ('view_settings', 'tags.view_tag_rules', 'settings.view_ai_settings', 'settings.view_agent_rules', 'notifications.view_notifications', 'settings.view_enrichment_settings', 'view_k8s_settings') %}active{% endif %}" title="Settings">
+        <a href="{{ url_for('view_settings') }}" class="nav-link {% if request.endpoint in ('view_settings', 'tags.view_tag_rules', 'settings.view_ai_settings', 'settings.view_agent_rules', 'notifications.view_notifications', 'settings.view_enrichment_settings', 'k8s_dm.view_k8s_settings') %}active{% endif %}" title="Settings">
           <i class="bi bi-gear"></i><span class="sb-label">Settings</span>
         </a>
       </li>
@@ -2407,7 +2407,7 @@
     loadingEl.textContent = '…';
     if (historySentinelEl) historySentinelEl.appendChild(loadingEl);
     try {
-      var url = new URL('{{ url_for("ai_helper_chats") }}', window.location.origin);
+      var url = new URL('{{ url_for("ai.ai_helper_chats") }}', window.location.origin);
       url.searchParams.set('page', window.location.pathname || '/');
       url.searchParams.set('offset', String(historyState.offset));
       url.searchParams.set('limit', String(_historyPageSize()));
@@ -2487,7 +2487,7 @@
   async function loadChatConversation(chatId) {
     if (!chatId) return;
     try {
-      var url = new URL('{{ url_for("ai_helper_chats") }}' + '/' + encodeURIComponent(chatId), window.location.origin);
+      var url = new URL('{{ url_for("ai.ai_helper_chats") }}' + '/' + encodeURIComponent(chatId), window.location.origin);
       var resp = await fetch(url.toString());
       var data = await resp.json();
       if (!resp.ok || !data.ok) return;
@@ -2517,7 +2517,7 @@
 
   async function loadCapabilities() {
     try {
-      var capUrl = new URL('{{ url_for("ai_helper_capabilities") }}', window.location.origin);
+      var capUrl = new URL('{{ url_for("ai.ai_helper_capabilities") }}', window.location.origin);
       capUrl.searchParams.set('page', window.location.pathname || '/logs');
       var r = await fetch(capUrl.toString());
       var data = await r.json();
@@ -3146,7 +3146,7 @@
     }
 
     try {
-      var execResp = await fetch('{{ url_for("ai_helper_execute_action") }}', {
+      var execResp = await fetch('{{ url_for("ai.ai_helper_execute_action") }}', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
@@ -3650,7 +3650,7 @@
     button.disabled = true;
     setMessageActionButtonLabel(button, 'Saving');
     try {
-      var resp = await fetch('{{ url_for("ai_helper_feedback") }}', {
+      var resp = await fetch('{{ url_for("ai.ai_helper_feedback") }}', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
@@ -3981,7 +3981,7 @@
 
     try {
       currentAbortController = new AbortController();
-      var response = await fetch('{{ url_for("ai_helper") }}', {
+      var response = await fetch('{{ url_for("ai.ai_helper") }}', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

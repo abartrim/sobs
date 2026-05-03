@@ -64,7 +64,7 @@
 {% endset %}
 {% set kubernetes_header_actions %}
   <button id="k8sRefreshModalBtn" type="button" class="btn btn-sm btn-outline-secondary d-none" title="Auto-refresh" aria-label="Auto-refresh" data-bs-toggle="modal" data-bs-target="#k8sRefreshModal"><i class="bi bi-arrow-repeat me-1"></i><span class="k8s-btn-label">Refresh</span></button>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_k8s_settings') }}" title="Settings">
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('k8s_dm.view_k8s_settings') }}" title="Settings">
     <i class="bi bi-gear me-1"></i><span class="k8s-btn-label">Settings</span>
   </a>
   <a class="btn btn-sm btn-outline-secondary page-help-btn" href="{{ url_for('kubernetes_help') }}" title="Help" aria-label="Kubernetes Help">
