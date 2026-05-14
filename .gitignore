@@ -208,3 +208,4 @@ file:/tmp/
 
 # Integration test screenshots (uploaded as CI artifacts)
 tests/screenshots/
+.DS_Store
