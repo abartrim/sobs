@@ -4755,11 +4755,9 @@ async def _call_llm_endpoint(
             except Exception:
                 error_text = str(exc)
         log.warning(
-            "LLM endpoint call failed (model=%s, endpoint=%s, type=%s): %r",
-            model,
-            endpoint_url,
+            "LLM endpoint call failed (type=%s, elapsed_ms=%s)",
             type(exc).__name__,
-            exc,
+            elapsed_ms,
         )
         error_stats = {"elapsed_ms": elapsed_ms, "error": error_text}
         await _emit_internal_genai_span(

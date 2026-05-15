@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import io
 import json
+import logging
 import os
 import re
 import secrets
@@ -7868,6 +7869,39 @@ class TestInternalAssistantOtelCompliance:
         assert str(row[0]) == "STATUS_CODE_ERROR"
         assert str(row[1]) == "RuntimeError"
         assert "simulated endpoint failure" in str(row[2])
+
+    async def test_internal_llm_call_failure_log_omits_endpoint_context(self, monkeypatch, caplog):
+        import app as app_module
+
+        model = f"internal-fail-log-{secrets.token_hex(4)}"
+        endpoint_url = "https://user:secret@example.internal/v1?api_key=hidden"
+
+        class _FakeClient:
+            async def post(self, *_args, **_kwargs):
+                raise RuntimeError("simulated endpoint failure")
+
+        async def _fake_get_client():
+            return _FakeClient()
+
+        monkeypatch.setattr(app_module, "_get_async_http_client", _fake_get_client)
+        app_module.app.config["TESTING"] = True
+
+        with caplog.at_level(logging.WARNING):
+            reply, stats = await app_module._call_llm_endpoint(
+                endpoint_url,
+                model,
+                "no-key",
+                [{"role": "user", "content": "this will fail"}],
+            )
+
+        assert reply == ""
+        assert "error" in stats
+        warning_messages = [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING]
+        assert any("LLM endpoint call failed" in message for message in warning_messages)
+        assert all(model not in message for message in warning_messages)
+        assert all(endpoint_url not in message for message in warning_messages)
+        assert all("secret@example.internal" not in message for message in warning_messages)
+        assert all("api_key=hidden" not in message for message in warning_messages)
 
     async def test_internal_streaming_llm_aggregates_deltas_into_single_span(self, monkeypatch):
         import app as app_module
