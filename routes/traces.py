@@ -7,6 +7,7 @@ from typing import Any, cast
 
 from quart import Blueprint, render_template, request
 
+import app as sobs_app
 import telemetry as _telemetry
 from app import (  # noqa: E402
     _TRACE_DETAIL_COLLAPSE_THRESHOLD,
@@ -24,8 +25,6 @@ from app import (  # noqa: E402
     _coerce_positive_int,
     _compute_active_timeline_ms,
     _error_id_sql_expr,
-    _fetch_trace_metric_context,
-    _list_trace_overlapping_raw_windows,
     _load_work_item_links_for_ref_ids,
     _map_to_dict,
     _mask_value_for_output,
@@ -37,7 +36,6 @@ from app import (  # noqa: E402
     _slice_span_tree_with_ancestors,
     _ts_str_to_epoch_ms,
     _where_clause,
-    get_db,
     jsonify,
     masked_jsonify,
     require_basic_auth,
@@ -50,7 +48,19 @@ from routes.logs import (  # noqa: E402
 )
 
 log = logging.getLogger("sobs")
-traces_bp = Blueprint("traces", __name__)
+traces_bp: Blueprint = Blueprint("traces", __name__)
+
+
+def _fetch_trace_metric_context(*args: Any, **kwargs: Any):
+    return sobs_app._fetch_trace_metric_context(*args, **kwargs)
+
+
+def _list_trace_overlapping_raw_windows(*args: Any, **kwargs: Any):
+    return sobs_app._list_trace_overlapping_raw_windows(*args, **kwargs)
+
+
+def get_db():
+    return sobs_app.get_db()
 
 
 @traces_bp.route("/traces")

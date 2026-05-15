@@ -13987,10 +13987,16 @@ async def _github_repo_health_loop() -> None:
         await asyncio.sleep(_GITHUB_REPO_HEALTH_INTERVAL_S)
 
 
+async def _collect_github_repo_health_summary(db: "ChDbConnection") -> dict[str, Any]:
+    from routes.rum import (  # noqa: PLC0415
+        _collect_github_repo_health_summary as _rum_collect_github_repo_health_summary,
+    )
+
+    return await _rum_collect_github_repo_health_summary(db)
+
+
 async def _sync_github_repo_health_once(db: "ChDbConnection | None" = None) -> dict[str, Any]:
     """Run a single GitHub repo-health sync and persist summary settings."""
-    from routes.rum import _collect_github_repo_health_summary  # noqa: PLC0415
-
     resolved_db = db if db is not None else get_db()
     summary = await _collect_github_repo_health_summary(resolved_db)
     if not bool(summary.get("ok")):
@@ -21584,6 +21590,9 @@ from routes.logs import logs_bp as _logs_bp  # noqa: E402
 from routes.masking import masking_bp as _masking_bp  # noqa: E402
 from routes.metrics import metrics_bp as _metrics_bp  # noqa: E402
 from routes.misc import misc_bp as _misc_bp  # noqa: E402
+from routes.notifications import (  # noqa: E402
+    _get_notification_auto_candidates as _notifications_get_notification_auto_candidates,
+)
 from routes.notifications import notifications_bp as _notifications_bp  # noqa: E402
 from routes.onboarding import onboarding_bp as _onboarding_bp  # noqa: E402
 from routes.query import query_bp as _query_bp  # noqa: E402
@@ -21592,6 +21601,11 @@ from routes.rum import rum_bp as _rum_bp  # noqa: E402
 from routes.settings import settings_bp as _settings_bp  # noqa: E402
 from routes.tags import tags_bp as _tags_bp  # noqa: E402
 from routes.traces import traces_bp as _traces_bp  # noqa: E402
+
+
+def _get_notification_auto_candidates(*args: Any, **kwargs: Any):
+    return _notifications_get_notification_auto_candidates(*args, **kwargs)
+
 
 app.register_blueprint(_errors_bp)
 app.register_blueprint(_ingest_bp)

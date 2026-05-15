@@ -9,6 +9,7 @@ from typing import Any
 
 from quart import Blueprint, jsonify, request, send_from_directory
 
+import app as sobs_app
 from app import (  # noqa: E402
     _CI_PUSH_API_KEY_DEFAULT_TTL_DAYS,
     _WIZARD_DEPLOYMENTS,
@@ -21,11 +22,8 @@ from app import (  # noqa: E402
     _build_otel_audit_issue_body,
     _build_setup_wizard_steps,
     _ci_push_api_key_status,
-    _create_or_update_onboarding_issue,
     _find_app_id_by_repo_url,
-    _get_async_http_client,
     _github_api_headers,
-    _insert_rows_json_each_row,
     _inspect_repo_for_onboarding,
     _load_ai_setting,
     _load_repo_scoped_github_token,
@@ -43,7 +41,19 @@ from app import (  # noqa: E402
     require_basic_auth,
 )
 
-onboarding_bp = Blueprint("onboarding", __name__)
+onboarding_bp: Blueprint = Blueprint("onboarding", __name__)
+
+
+async def _get_async_http_client(*args: Any, **kwargs: Any):
+    return await sobs_app._get_async_http_client(*args, **kwargs)
+
+
+async def _create_or_update_onboarding_issue(*args: Any, **kwargs: Any):
+    return await sobs_app._create_or_update_onboarding_issue(*args, **kwargs)
+
+
+def _insert_rows_json_each_row(*args: Any, **kwargs: Any):
+    return sobs_app._insert_rows_json_each_row(*args, **kwargs)
 
 
 @onboarding_bp.route("/static/rum.js")

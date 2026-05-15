@@ -11,6 +11,7 @@ from typing import Any, cast
 
 from quart import Blueprint, Response, flash, redirect, render_template, request, url_for
 
+import app as sobs_app
 from app import (  # noqa: E402
     _NOTIFICATION_CHANNEL_TYPES,
     _NOTIFICATION_COMPARATORS,
@@ -25,29 +26,20 @@ from app import (  # noqa: E402
     RowCompat,
     _agent_rule_last_run_ts,
     _agent_rule_trigger_state_matches,
-    _check_notification_rule,
-    _collect_anomaly_agent_events,
-    _collect_tag_rule_agent_events,
     _decrypt_notification_config,
     _del_app_setting,
     _dispatch_notification_channel,
     _encrypt_notification_config,
-    _generate_vapid_keys,
     _get_vapid_public_key,
     _insert_rows_json_each_row,
     _is_truthy_setting,
-    _load_agent_rules,
-    _load_all_ai_settings,
     _load_anomaly_rules,
-    _load_notification_channels,
     _load_notification_log,
-    _load_notification_rules,
     _mask_string_for_output,
     _maybe_await,
     _normalize_agent_trigger_state,
     _notification_channel_mask_output_enabled,
     _register_raw_window,
-    _run_agent_rule_instance,
     _set_app_setting,
     _soft_delete_latest_row,
     get_db,
@@ -56,7 +48,43 @@ from app import (  # noqa: E402
     require_basic_auth,
 )
 
-notifications_bp = Blueprint("notifications", __name__)
+notifications_bp: Blueprint = Blueprint("notifications", __name__)
+
+
+def _load_notification_channels(*args: Any, **kwargs: Any):
+    return sobs_app._load_notification_channels(*args, **kwargs)
+
+
+def _load_notification_rules(*args: Any, **kwargs: Any):
+    return sobs_app._load_notification_rules(*args, **kwargs)
+
+
+def _check_notification_rule(*args: Any, **kwargs: Any):
+    return sobs_app._check_notification_rule(*args, **kwargs)
+
+
+def _collect_anomaly_agent_events(*args: Any, **kwargs: Any):
+    return sobs_app._collect_anomaly_agent_events(*args, **kwargs)
+
+
+def _collect_tag_rule_agent_events(*args: Any, **kwargs: Any):
+    return sobs_app._collect_tag_rule_agent_events(*args, **kwargs)
+
+
+def _generate_vapid_keys(*args: Any, **kwargs: Any):
+    return sobs_app._generate_vapid_keys(*args, **kwargs)
+
+
+def _load_agent_rules(*args: Any, **kwargs: Any):
+    return sobs_app._load_agent_rules(*args, **kwargs)
+
+
+def _load_all_ai_settings(*args: Any, **kwargs: Any):
+    return sobs_app._load_all_ai_settings(*args, **kwargs)
+
+
+def _run_agent_rule_instance(*args: Any, **kwargs: Any):
+    return sobs_app._run_agent_rule_instance(*args, **kwargs)
 
 
 @notifications_bp.route("/settings/notifications")

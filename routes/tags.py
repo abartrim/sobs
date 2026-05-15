@@ -32,7 +32,7 @@ from app import (  # noqa: E402
     require_basic_auth,
 )
 
-tags_bp = Blueprint("tags", __name__)
+tags_bp: Blueprint = Blueprint("tags", __name__)
 
 
 @tags_bp.route("/settings/tags")
@@ -375,7 +375,7 @@ async def delete_tag_rule(rule_id: str):
         build_deleted_row=_deleted_row,
         not_found_message="Tag rule not found",
         success_message="Tag rule '{name}' deleted",
-        redirect_endpoint="view_tag_rules",
+        redirect_endpoint="tags.view_tag_rules",
     )
 
 

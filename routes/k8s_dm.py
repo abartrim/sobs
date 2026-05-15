@@ -6,34 +6,62 @@ from typing import Any
 
 from quart import Blueprint, jsonify, redirect, render_template, request, url_for
 
+import app as sobs_app
 from app import (  # noqa: E402
     _acquire_dm_prune_lock,
     _apply_dm_ttl,
     _del_app_setting,
-    _dm_backup_enabled,
     _dm_settings_from_form,
-    _fetch_k8s_from_otel,
     _fmt_bytes,
     _get_app_setting_raw,
     _get_db_stats,
     _is_sensitive_dm_setting_key,
     _k8s_settings_from_form,
-    _kubernetes_enabled,
-    _list_dm_backups,
-    _load_dm_settings,
     _load_k8s_settings,
     _parse_dm_prune_period,
-    _run_dm_backup,
-    _run_dm_prune,
-    _run_dm_restore,
     _set_app_setting,
     _set_dm_setting,
     _validate_dm_backup_name,
-    get_db,
     require_basic_auth,
 )
 
-k8s_dm_bp = Blueprint("k8s_dm", __name__)
+k8s_dm_bp: Blueprint = Blueprint("k8s_dm", __name__)
+
+
+def _kubernetes_enabled():
+    return sobs_app._kubernetes_enabled()
+
+
+def _fetch_k8s_from_otel(*args: Any, **kwargs: Any):
+    return sobs_app._fetch_k8s_from_otel(*args, **kwargs)
+
+
+def _dm_backup_enabled(*args: Any, **kwargs: Any):
+    return sobs_app._dm_backup_enabled(*args, **kwargs)
+
+
+def _list_dm_backups(*args: Any, **kwargs: Any):
+    return sobs_app._list_dm_backups(*args, **kwargs)
+
+
+def _load_dm_settings(*args: Any, **kwargs: Any):
+    return sobs_app._load_dm_settings(*args, **kwargs)
+
+
+def _run_dm_backup(*args: Any, **kwargs: Any):
+    return sobs_app._run_dm_backup(*args, **kwargs)
+
+
+def _run_dm_prune(*args: Any, **kwargs: Any):
+    return sobs_app._run_dm_prune(*args, **kwargs)
+
+
+def _run_dm_restore(*args: Any, **kwargs: Any):
+    return sobs_app._run_dm_restore(*args, **kwargs)
+
+
+def get_db():
+    return sobs_app.get_db()
 
 
 @k8s_dm_bp.route("/settings/kubernetes", methods=["GET"])

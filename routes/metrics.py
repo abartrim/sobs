@@ -8,6 +8,7 @@ from typing import Any
 
 from quart import Blueprint, flash, redirect, render_template, request, url_for
 
+import app as sobs_app
 import telemetry as _telemetry
 from app import (  # noqa: E402
     _AUTO_DASHBOARD_CREATE_MAX,
@@ -18,7 +19,6 @@ from app import (  # noqa: E402
     _append_regex_expression_clauses,
     _append_time_window_filter,
     _build_auto_dashboard_chart_candidates,
-    _build_auto_metric_rule_candidates,
     _build_raw_chart_spec,
     _build_seasonal_metric_rule_candidates,
     _coerce_positive_int,
@@ -37,7 +37,6 @@ from app import (  # noqa: E402
     _soft_delete_latest_row,
     _time_window_conditions,
     _where_clause,
-    get_db,
     jsonify,
     masked_jsonify,
     require_basic_auth,
@@ -50,7 +49,15 @@ from routes.logs import (  # noqa: E402
 )
 
 log = logging.getLogger("sobs")
-metrics_bp = Blueprint("metrics", __name__)
+metrics_bp: Blueprint = Blueprint("metrics", __name__)
+
+
+def _build_auto_metric_rule_candidates(*args: Any, **kwargs: Any):
+    return sobs_app._build_auto_metric_rule_candidates(*args, **kwargs)
+
+
+def get_db():
+    return sobs_app.get_db()
 
 
 @metrics_bp.route("/metrics")
@@ -627,7 +634,7 @@ async def delete_metrics_rule(rule_id: str):
         build_deleted_row=_deleted_row,
         not_found_message="Rule not found",
         success_message="Rule '{name}' deleted",
-        redirect_endpoint="view_metrics_rules",
+        redirect_endpoint="metrics.view_metrics_rules",
     )
 
 

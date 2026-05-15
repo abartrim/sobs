@@ -12,6 +12,7 @@ from typing import Any
 
 from quart import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
+import app as sobs_app
 from app import (  # noqa: E402
     CHART_TEMPLATES,
     ChDbConnection,
@@ -29,7 +30,6 @@ from app import (  # noqa: E402
     _insert_rows_json_each_row,
     _json_safe_rows,
     _jsonify_with_optional_sql_output_mask,
-    _load_all_ai_settings,
     _normalize_thinking_level,
     _parse_chart_form_submission,
     _public_dashboard_query_error,
@@ -37,16 +37,32 @@ from app import (  # noqa: E402
     _sql_literal,
     _validate_chart_query,
     _vanna_execute_named_queries,
-    _vanna_generate_chart_spec,
-    _vanna_generate_named_queries,
-    _vanna_generate_sql,
     _vanna_validate_and_execute_with_repair,
-    get_db,
     require_basic_auth,
 )
 
-dashboards_bp = Blueprint("dashboards", __name__)
+dashboards_bp: Blueprint = Blueprint("dashboards", __name__)
 log = logging.getLogger("sobs")
+
+
+def _load_all_ai_settings(*args: Any, **kwargs: Any):
+    return sobs_app._load_all_ai_settings(*args, **kwargs)
+
+
+def _vanna_generate_chart_spec(*args: Any, **kwargs: Any):
+    return sobs_app._vanna_generate_chart_spec(*args, **kwargs)
+
+
+def _vanna_generate_named_queries(*args: Any, **kwargs: Any):
+    return sobs_app._vanna_generate_named_queries(*args, **kwargs)
+
+
+def _vanna_generate_sql(*args: Any, **kwargs: Any):
+    return sobs_app._vanna_generate_sql(*args, **kwargs)
+
+
+def get_db():
+    return sobs_app.get_db()
 
 
 @dashboards_bp.route("/api/dashboards/list", methods=["GET"])

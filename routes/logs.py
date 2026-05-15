@@ -34,7 +34,7 @@ from app import (  # noqa: E402
 )
 
 log = logging.getLogger("sobs")
-logs_bp = Blueprint("logs", __name__)
+logs_bp: Blueprint = Blueprint("logs", __name__)
 
 
 @logs_bp.route("/logs")

@@ -6,6 +6,7 @@ from typing import Any
 
 from quart import Blueprint, render_template, request
 
+import app as sobs_app
 import telemetry as _telemetry
 from app import (  # noqa: E402
     ERROR_SOURCES_SQL,
@@ -28,7 +29,6 @@ from app import (  # noqa: E402
     _parse_sort,
     _parse_time_window_args,
     _prepare_re2_filter_patterns,
-    _queue_write,
     _where_clause,
     get_db,
     jsonify,
@@ -36,7 +36,11 @@ from app import (  # noqa: E402
 )
 
 log = logging.getLogger("sobs")
-errors_bp = Blueprint("errors", __name__)
+errors_bp: Blueprint = Blueprint("errors", __name__)
+
+
+def _queue_write(*args: Any, **kwargs: Any):
+    return sobs_app._queue_write(*args, **kwargs)
 
 
 @errors_bp.route("/errors")

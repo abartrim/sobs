@@ -11,6 +11,7 @@ from typing import Any
 
 from quart import Blueprint, Response, jsonify, render_template, request
 
+import app as sobs_app
 from app import (  # noqa: E402
     _AI_SPAN_CONDITION,
     _CVE_ENABLED_SETTING,
@@ -31,20 +32,16 @@ from app import (  # noqa: E402
     _build_rum_event_item,
     _build_user_issue_trigger_context,
     _error_id_sql_expr,
-    _fetch_trace_metric_context,
     _get_app_setting,
     _get_resolved_error_ids,
     _get_signal_health_by_service,
-    _list_trace_overlapping_raw_windows,
     _load_agent_rules,
-    _load_all_ai_settings,
     _load_anomaly_rules,
     _load_k8s_settings,
     _load_masking_settings,
     _load_notification_channels,
     _load_notification_rules,
     _load_tag_rules,
-    _load_work_item_links_for_ref_ids,
     _maybe_await,
     _maybe_backfill_github_work_item_links,
     _normalize_ch_timestamp,
@@ -54,8 +51,6 @@ from app import (  # noqa: E402
     _parse_offset,
     _parse_time_window_args,
     _public_dashboard_query_error,
-    _resolve_agent_github_target,
-    _run_agent_rule_instance,
     _serialize_github_work_item_row,
     _sse_subscribers,
     _summary_stats_cache,
@@ -66,8 +61,6 @@ from app import (  # noqa: E402
     _work_items_filter_cache,
     _work_items_page_cache,
     _write_queue_depth,
-    ensure_db_schema,
-    get_db,
     masked_jsonify,
     require_basic_auth,
 )
@@ -78,8 +71,40 @@ from routes.logs import (  # noqa: E402
     _regex_scope_time_conditions,
 )
 
-misc_bp = Blueprint("misc", __name__)
+misc_bp: Blueprint = Blueprint("misc", __name__)
 log = logging.getLogger("sobs")
+
+
+def ensure_db_schema():
+    return sobs_app.ensure_db_schema()
+
+
+def get_db():
+    return sobs_app.get_db()
+
+
+def _fetch_trace_metric_context(*args: Any, **kwargs: Any):
+    return sobs_app._fetch_trace_metric_context(*args, **kwargs)
+
+
+def _list_trace_overlapping_raw_windows(*args: Any, **kwargs: Any):
+    return sobs_app._list_trace_overlapping_raw_windows(*args, **kwargs)
+
+
+def _load_work_item_links_for_ref_ids(*args: Any, **kwargs: Any):
+    return sobs_app._load_work_item_links_for_ref_ids(*args, **kwargs)
+
+
+def _load_all_ai_settings(*args: Any, **kwargs: Any):
+    return sobs_app._load_all_ai_settings(*args, **kwargs)
+
+
+def _resolve_agent_github_target(*args: Any, **kwargs: Any):
+    return sobs_app._resolve_agent_github_target(*args, **kwargs)
+
+
+def _run_agent_rule_instance(*args: Any, **kwargs: Any):
+    return sobs_app._run_agent_rule_instance(*args, **kwargs)
 
 
 @misc_bp.route("/")
@@ -139,7 +164,7 @@ async def summary():
         with _summary_stats_cache_lock:
             _summary_stats_cache["expires_at"] = _now + SUMMARY_STATS_CACHE_TTL_SEC
             _summary_stats_cache["data"] = _cached_stats
-    stats = {}
+    stats = dict(_cached_stats)
 
     # Recent logs (last 10)
     recent_logs = []

@@ -16726,6 +16726,287 @@ class TestQueryAllowedTablesEnvVar:
         assert "v_otel_metrics_signal_context" in builtin
 
 
+class TestAutoRuleHelperCoverage:
+    class _FakeResult:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def fetchall(self):
+            return self._rows
+
+    class _QueryMapDb:
+        def __init__(self, mapping):
+            self._mapping = mapping
+
+        def execute(self, sql, _params=None):
+            for needle, rows in self._mapping:
+                if needle in sql:
+                    return TestAutoRuleHelperCoverage._FakeResult(rows)
+            raise AssertionError(f"Unexpected SQL: {sql}")
+
+    def test_replace_sql_outside_single_quotes_and_normalize_ai_sql_where(self):
+        replaced = sobs_app._replace_sql_outside_single_quotes(
+            "service = 'service' AND model = provider AND prompt = 'prompt'",
+            [(r"\bservice\b", "ServiceName"), (r"\bprovider\b", "ProviderName")],
+        )
+        assert replaced == "ServiceName = 'service' AND model = ProviderName AND prompt = 'prompt'"
+
+        normalized = sobs_app._normalize_ai_sql_where(
+            "service = 'service' AND model = provider AND prompt != 'prompt' AND LogAttributes['user'] = 'response'"
+        )
+        assert "ServiceName = 'service'" in normalized
+        assert "SpanAttributes['gen_ai.request.model'] = SpanAttributes['gen_ai.provider.name']" in normalized
+        assert "SpanAttributes['user'] = 'response'" in normalized
+        assert "'prompt'" in normalized
+
+    def test_auto_rule_threshold_helpers_and_dashboard_defaults(self):
+        assert sobs_app._infer_auto_rule_comparator("success_ratio") == "lt"
+        assert sobs_app._infer_auto_rule_comparator("latency_p95_ms") == "gt"
+        assert sobs_app._auto_rule_thresholds("gt", 1.0, 2.0, 3.0, 4.0, 5.0) == (4.0, 5.0)
+        assert sobs_app._auto_rule_thresholds("lt", 1.0, 2.0, 3.0, 4.0, 5.0) == (2.0, 1.0)
+        assert sobs_app._default_auto_dashboard_name("") == "Auto Metric Rules Dashboard"
+        assert sobs_app._default_auto_dashboard_name("checkout") == "Auto Metric Rules - checkout"
+        assert sobs_app._auto_tag_slug("Timeout Error!", "fallback") == "timeout_error"
+        assert sobs_app._infer_env_from_service("checkout-prod") == "production"
+        assert sobs_app._infer_env_from_service("api-stg") == "staging"
+        assert sobs_app._infer_env_from_service("worker-dev") == "development"
+        assert sobs_app._infer_env_from_service("jobs-uat") == "test"
+
+    def test_build_auto_metric_rule_candidates_tracks_existing_and_invalid(self, monkeypatch):
+        db = self._QueryMapDb(
+            [
+                (
+                    "FROM v_derived_signals_anomaly",
+                    [
+                        {
+                            "ServiceName": "checkout",
+                            "SignalSource": "errors",
+                            "SignalName": "error_volume",
+                            "AttrFingerprint": "",
+                            "point_count": 24,
+                            "q05": 1.0,
+                            "q20": 2.0,
+                            "q50": 3.0,
+                            "q80": 5.0,
+                            "q95": 8.0,
+                        },
+                        {
+                            "ServiceName": "existing-svc",
+                            "SignalSource": "logs",
+                            "SignalName": "latency_p95_ms",
+                            "AttrFingerprint": "",
+                            "point_count": 30,
+                            "q05": 2.0,
+                            "q20": 3.0,
+                            "q50": 4.0,
+                            "q80": 6.0,
+                            "q95": 9.0,
+                        },
+                        {
+                            "ServiceName": "broken",
+                            "SignalSource": "errors",
+                            "SignalName": "error_volume",
+                            "AttrFingerprint": "",
+                            "point_count": 12,
+                            "q05": 1.0,
+                            "q20": 2.0,
+                            "q50": 3.0,
+                            "q80": 9.0,
+                            "q95": 7.0,
+                        },
+                    ],
+                )
+            ]
+        )
+        monkeypatch.setattr(
+            sobs_app,
+            "_load_anomaly_rules",
+            lambda _db: [
+                {
+                    "source": "logs",
+                    "signal": "latency_p95_ms",
+                    "service": "existing-svc",
+                    "attr_fp": "",
+                    "rule_type": "threshold",
+                },
+                {
+                    "source": "errors",
+                    "signal": "error_volume",
+                    "service": "broken",
+                    "attr_fp": "",
+                    "rule_type": "threshold",
+                },
+            ],
+        )
+
+        candidates, stats = sobs_app._build_auto_metric_rule_candidates(db, hours=24, min_points=10)
+
+        assert stats == {"examined": 3, "existing": 2, "invalid": 0}
+        assert len(candidates) == 1
+        assert candidates[0]["name"] == "Auto errors/error_volume [checkout]"
+        assert candidates[0]["warning_threshold"] == 5.0
+        assert candidates[0]["critical_threshold"] == 8.0
+
+    def test_build_seasonal_metric_rule_candidates_adds_bucket_payloads(self, monkeypatch):
+        db = self._QueryMapDb(
+            [
+                (
+                    "bucket_key",
+                    [
+                        {
+                            "ServiceName": "checkout",
+                            "SignalSource": "traces",
+                            "SignalName": "latency_p95_ms",
+                            "AttrFingerprint": "fp-a",
+                            "bucket_key": 9,
+                            "point_count": 6,
+                            "q05": 8.0,
+                            "q20": 12.0,
+                            "q50": 20.0,
+                            "q80": 30.0,
+                            "q95": 40.0,
+                        },
+                        {
+                            "ServiceName": "checkout",
+                            "SignalSource": "traces",
+                            "SignalName": "latency_p95_ms",
+                            "AttrFingerprint": "fp-a",
+                            "bucket_key": 10,
+                            "point_count": 8,
+                            "q05": 10.0,
+                            "q20": 15.0,
+                            "q50": 25.0,
+                            "q80": 35.0,
+                            "q95": 45.0,
+                        },
+                    ],
+                ),
+                (
+                    "HAVING point_count >= ?",
+                    [
+                        {
+                            "ServiceName": "checkout",
+                            "SignalSource": "traces",
+                            "SignalName": "latency_p95_ms",
+                            "AttrFingerprint": "fp-a",
+                            "point_count": 40,
+                            "q05": 10.0,
+                            "q20": 20.0,
+                            "q50": 30.0,
+                            "q80": 40.0,
+                            "q95": 55.0,
+                        }
+                    ],
+                ),
+            ]
+        )
+        monkeypatch.setattr(sobs_app, "_load_anomaly_rules", lambda _db: [])
+
+        candidates, stats = sobs_app._build_seasonal_metric_rule_candidates(
+            db,
+            hours=24,
+            min_points=10,
+            include_attr_fp=True,
+            strategy="hour_of_day",
+        )
+
+        assert stats == {"examined": 1, "existing": 0, "invalid": 0}
+        assert len(candidates) == 1
+        assert candidates[0]["rule_type"] == "seasonal"
+        assert candidates[0]["seasonal_bucket_count"] == 2
+        seasonal = json.loads(candidates[0]["seasonal_buckets_json"])
+        assert seasonal["strategy"] == "hour_of_day"
+        assert set(seasonal["buckets"].keys()) == {"9", "10"}
+
+    def test_build_auto_tag_rule_candidates_covers_existing_invalid_and_generated(self, monkeypatch):
+        db = self._QueryMapDb(
+            [
+                ("SELECT ServiceName, count() AS c FROM otel_logs", [{"ServiceName": "checkout-prod", "c": 12}]),
+                (
+                    "SELECT ServiceName, count() AS c FROM otel_traces",
+                    [{"ServiceName": "api", "c": 8}],
+                ),
+                (
+                    "SELECT coalesce(LogAttributes['exception.type'], '') AS ExceptionType",
+                    [{"ExceptionType": "TimeoutError", "c": 5}, {"ExceptionType": "", "c": 4}],
+                ),
+                (
+                    "SELECT coalesce(SpanAttributes['gen_ai.provider.name'], '') AS Provider",
+                    [{"Provider": "openai", "c": 6}, {"Provider": "", "c": 3}],
+                ),
+                (
+                    "SELECT EventName, count() AS c FROM hyperdx_sessions",
+                    [{"EventName": "page_view", "c": 7}],
+                ),
+            ]
+        )
+        monkeypatch.setattr(
+            sobs_app,
+            "_load_tag_rules",
+            lambda _db: [
+                {
+                    "record_types": ["log"],
+                    "match_field": "service_name",
+                    "match_operator": "contains",
+                    "match_value": "checkout-prod",
+                    "match_attr_key": "",
+                    "tag_key": "env",
+                    "tag_value": "production",
+                }
+            ],
+        )
+
+        candidates, stats = sobs_app._build_auto_tag_rule_candidates(db, hours=24, min_count=3)
+
+        assert stats == {"examined": 7, "existing": 1, "invalid": 2}
+        assert {candidate["tag_key"] for candidate in candidates} == {
+            "service",
+            "error_type",
+            "ai_provider",
+            "rum_event",
+        }
+        assert any(candidate["tag_value"] == "timeouterror" for candidate in candidates)
+        assert any(candidate["tag_value"] == "openai" for candidate in candidates)
+        assert any(candidate["tag_value"] == "page_view" for candidate in candidates)
+
+    def test_build_auto_dashboard_chart_candidates_deduplicates_titles_and_filters_service(self):
+        candidates = sobs_app._build_auto_dashboard_chart_candidates(
+            [
+                {
+                    "name": "Checkout Latency",
+                    "rule_type": "threshold",
+                    "source": "traces",
+                    "signal": "latency_p95_ms",
+                    "service": "checkout",
+                    "attr_fp": "fp-1",
+                },
+                {
+                    "name": "Checkout Latency",
+                    "rule_type": "threshold",
+                    "source": "traces",
+                    "signal": "latency_p95_ms",
+                    "service": "checkout",
+                    "attr_fp": "fp-2",
+                },
+                {
+                    "name": "Ignored Service",
+                    "rule_type": "threshold",
+                    "source": "logs",
+                    "signal": "error_volume",
+                    "service": "billing",
+                    "attr_fp": "",
+                },
+            ],
+            service_filter="checkout",
+            hours=12,
+        )
+
+        assert [candidate["title"] for candidate in candidates] == ["Checkout Latency", "Checkout Latency (2)"]
+        assert all(candidate["chart_type"] == "derived_signal_overlay" for candidate in candidates)
+        assert "ServiceName = 'checkout'" in candidates[0]["query"]
+        assert "AttrFingerprint = 'fp-1'" in candidates[0]["query"]
+
+
 class TestValidateUserSqlWhere:
     """Unit tests for the _validate_user_sql_where() centralised injection guard."""
 
@@ -17633,6 +17914,399 @@ class TestTableExplorer:
 
 
 class TestChartSpecHelpers:
+    def test_build_raw_chart_spec_falls_back_to_raw_mode_default(self):
+        spec = sobs_app._build_raw_chart_spec("heatmap", "SELECT 1 AS value", "not-json")
+
+        assert spec["template_id"] == "heatmap"
+        assert spec["sql"]["mode"] == "raw"
+        assert spec["sql"]["override_sql"] == "SELECT 1 AS value"
+
+    def test_normalize_chart_spec_filters_role_map_and_named_queries(self):
+        spec = sobs_app._normalize_chart_spec(
+            {
+                "template_id": "time_series_percentiles",
+                "sql": {"mode": "builder"},
+                "visual": {
+                    "role_map": {"time": "Timestamp", "value": "Value", "": "ignored", "signal": ""},
+                    "legend_show": False,
+                },
+                "named_queries": [
+                    {"name": "secondary", "sql": "SELECT 2;", "purpose": "extra"},
+                    {"name": "Bad Name", "sql": "SELECT 3", "purpose": "skip"},
+                    {"name": "empty", "sql": "", "purpose": "skip"},
+                    "not-a-dict",
+                ],
+            }
+        )
+
+        assert spec["visual"]["role_map"] == {"time": "Timestamp", "value": "Value"}
+        assert spec["visual"]["legend_show"] is False
+        assert spec["named_queries"] == [{"name": "secondary", "sql": "SELECT 2", "purpose": "extra"}]
+
+    def test_normalize_chart_spec_rejects_invalid_sql_mode(self):
+        with pytest.raises(ValueError, match="sql.mode must be 'builder' or 'raw'"):
+            sobs_app._normalize_chart_spec({"template_id": "heatmap", "sql": {"mode": "interactive"}})
+
+    @pytest.mark.parametrize(
+        ("template_id", "data", "expected_fragments"),
+        [
+            (
+                "derived_signal_overlay",
+                {
+                    "source_view": "v_derived_signals_anomaly",
+                    "service": "checkout",
+                    "signal_source": "logs",
+                    "signal_name": "error_rate",
+                    "attr_fp": "abc123",
+                    "window_hours": 12,
+                    "limit": 50,
+                },
+                [
+                    "FROM v_derived_signals_anomaly",
+                    "ServiceName = 'checkout'",
+                    "SignalSource = 'logs'",
+                    "LIMIT 50",
+                ],
+            ),
+            (
+                "anomaly_overlay",
+                {
+                    "source_view": "v_otel_metrics_anomaly",
+                    "service": "payments",
+                    "metric_name": "http.server.duration",
+                    "attr_fp": "fp-1",
+                },
+                ["FROM v_otel_metrics_anomaly", "MetricName = 'http.server.duration'", "anomaly_state"],
+            ),
+            (
+                "dual_axis_anomaly",
+                {
+                    "source_view": "otel_metrics_histogram",
+                    "service": "api",
+                    "metric_name": "latency_ms",
+                },
+                ["FROM otel_metrics_histogram", "Sum / toFloat64(Count)", "anomaly_score"],
+            ),
+            (
+                "time_series_percentiles",
+                {"source_view": "otel_logs", "service": "frontend"},
+                ["FROM otel_logs", "baseline_upper AS p95", "greatest(baseline_upper, value) AS p99"],
+            ),
+            (
+                "heatmap",
+                {"source_view": "otel_traces", "service": "edge", "limit": 25},
+                ["FROM otel_traces", "x_category", "LIMIT 25"],
+            ),
+            (
+                "box_plot",
+                {"source_view": "sobs_error_resolutions", "window_hours": 24},
+                ["FROM sobs_error_resolutions", "quantile(0.5)(value) AS median", "max(value) AS max"],
+            ),
+            (
+                "gauge_kpi",
+                {"source_view": "otel_metrics_sum", "service": "worker", "metric_name": "jobs_processed"},
+                ["FROM otel_metrics_sum", "avg(if(anomaly_state = 'normal', 1.0, 0.0))", "AS value"],
+            ),
+        ],
+    )
+    def test_compile_builder_sql_supported_paths(self, template_id, data, expected_fragments):
+        sql = sobs_app._compile_builder_sql(template_id, data)
+
+        for fragment in expected_fragments:
+            assert fragment in sql
+
+    def test_compile_builder_sql_rejects_unsupported_inputs(self):
+        with pytest.raises(ValueError, match="custom_echarts requires sql.mode='raw'"):
+            sobs_app._compile_builder_sql("custom_echarts", {})
+
+        with pytest.raises(ValueError, match="Unsupported source for builder mode"):
+            sobs_app._compile_builder_sql("heatmap", {"source_view": "definitely_not_supported"})
+
+        with pytest.raises(ValueError, match="Builder mode does not support template: radar"):
+            sobs_app._compile_builder_sql("radar", {"source_view": "otel_logs"})
+
+    def test_compile_chart_spec_validates_named_queries(self, monkeypatch):
+        monkeypatch.setattr(
+            sobs_app,
+            "_validate_chart_query",
+            lambda query: "named query invalid" if "SELECT bad" in query else "",
+        )
+
+        with pytest.raises(ValueError, match="Named query 'secondary': named query invalid"):
+            sobs_app._compile_chart_spec(
+                {
+                    "template_id": "heatmap",
+                    "sql": {"mode": "raw", "override_sql": "SELECT 1"},
+                    "named_queries": [{"name": "secondary", "sql": "SELECT bad", "purpose": "demo"}],
+                }
+            )
+
+    def test_resolve_template_role_indices_supports_case_insensitive_columns(self):
+        result = sobs_app._resolve_template_role_indices(
+            "demo",
+            {"column_roles": {"time": 0, "value": 1}},
+            ["Timestamp", "metric"],
+            {"visual": {"role_map": {"time": "timestamp", "value": "METRIC"}}},
+        )
+
+        assert result == {"time": 0, "value": 1}
+
+    def test_resolve_template_role_indices_rejects_unknown_roles_and_columns(self):
+        with pytest.raises(ValueError, match="Unknown role 'signal'"):
+            sobs_app._resolve_template_role_indices(
+                "demo",
+                {"column_roles": {"time": 0, "value": 1}},
+                ["ts", "value"],
+                {"visual": {"role_map": {"signal": "value"}}},
+            )
+
+        with pytest.raises(ValueError, match="maps to unknown column 'missing'"):
+            sobs_app._resolve_template_role_indices(
+                "demo",
+                {"column_roles": {"time": 0, "value": 1}},
+                ["ts", "value"],
+                {"visual": {"role_map": {"time": "missing"}}},
+            )
+
+    def test_apply_chart_spec_visual_overrides_updates_zoom_and_value_color(self):
+        option = {
+            "legend": {"show": True},
+            "dataZoom": [{"type": "inside", "start": 0, "end": 100}],
+            "series": [
+                {"name": "Value", "type": "line"},
+                {"name": "Baseline", "type": "line"},
+            ],
+        }
+
+        updated = sobs_app._apply_chart_spec_visual_overrides(
+            "anomaly_overlay",
+            option,
+            {
+                "visual": {
+                    "legend_show": "false",
+                    "zoom_inside": "true",
+                    "zoom_slider": "true",
+                    "zoom_start_pct": 10,
+                    "zoom_end_pct": 70,
+                    "smooth_line": "false",
+                    "value_color": "#123456",
+                }
+            },
+        )
+
+        assert updated["legend"]["show"] is False
+        assert len(updated["dataZoom"]) == 2
+        assert updated["dataZoom"][0]["start"] == 10
+        assert updated["dataZoom"][1]["end"] == 70
+        assert updated["series"][0]["smooth"] is False
+        assert updated["series"][0]["lineStyle"]["color"] == "#123456"
+        assert "lineStyle" not in updated["series"][1]
+
+    def test_extract_bindings_builds_heatmap_boxplot_and_gauge_shapes(self):
+        heatmap_bindings = sobs_app._extract_bindings(
+            {"column_roles": {"x_category": 0, "y_category": 1, "value": 2}},
+            ["service", "bucket", "value"],
+            [["api", "2026-01-01T00:00:00Z", 2], ["worker", "2026-01-01T00:00:00Z", 5]],
+        )
+        assert heatmap_bindings["x_unique_values"] == ["api", "worker"]
+        assert heatmap_bindings["heatmap_data"] == [[0, 0, 2], [1, 0, 5]]
+        assert heatmap_bindings["value_min"] == 2
+        assert heatmap_bindings["value_max"] == 5
+
+        box_bindings = sobs_app._extract_bindings(
+            {"column_roles": {"dimension": 0, "min": 1, "q1": 2, "median": 3, "q3": 4, "max": 5}},
+            ["dimension", "min", "q1", "median", "q3", "max"],
+            [["latency", 10, 20, 30, 40, 50]],
+        )
+        assert box_bindings["boxplot_data"] == [[10, 20, 30, 40, 50]]
+        assert box_bindings["dimension_values"] == ["latency"]
+
+        gauge_bindings = sobs_app._extract_bindings(
+            {"column_roles": {"value": 0}},
+            ["value"],
+            [[97.5]],
+        )
+        assert gauge_bindings["value_first"] == 97.5
+
+    def test_extract_bindings_derived_signal_overlay_builds_delta_summary(self):
+        bindings = sobs_app._extract_bindings(
+            {
+                "id": "derived_signal_overlay",
+                "column_roles": {
+                    "time": 0,
+                    "signal": 1,
+                    "value": 2,
+                    "baseline_mean": 3,
+                    "baseline_lower": 4,
+                    "baseline_upper": 5,
+                    "effective_state": 6,
+                },
+            },
+            ["time", "signal", "value", "baseline_mean", "baseline_lower", "baseline_upper", "effective_state"],
+            [
+                ["2026-01-01T00:00:00Z", "latency_ms", 120.0, 100.0, 90.0, 130.0, "warning"],
+                ["2026-01-01T00:05:00Z", "latency_ms", 180.0, 100.0, 90.0, 130.0, "outlier"],
+            ],
+        )
+
+        assert bindings["y_axis_name"] == "Delta %"
+        assert bindings["warning_points"] == [["2026-01-01T00:00:00Z", 20.0]]
+        assert bindings["outlier_points"] == [["2026-01-01T00:05:00Z", 80.0]]
+        assert bindings["signal_summary"].startswith("now 180.0 | baseline 100.0 | Δ +80%")
+        assert bindings["value_axis_min"] < 0
+        assert bindings["value_axis_max"] > 80
+
+    def test_extract_bindings_derived_signal_overlay_ratio_mode_preserves_zero_to_one_axis(self):
+        bindings = sobs_app._extract_bindings(
+            {
+                "id": "derived_signal_overlay",
+                "column_roles": {
+                    "time": 0,
+                    "signal": 1,
+                    "value": 2,
+                    "baseline_mean": 3,
+                    "baseline_lower": 4,
+                    "baseline_upper": 5,
+                    "anomaly_state": 6,
+                },
+            },
+            ["time", "signal", "value", "baseline_mean", "baseline_lower", "baseline_upper", "anomaly_state"],
+            [["2026-01-01T00:00:00Z", "error_ratio", 0.25, 0.2, 0.1, 0.3, "normal"]],
+        )
+
+        assert bindings["value_axis_min"] == 0
+        assert bindings["value_axis_max"] == 1
+        assert bindings["y_axis_name"] == "Value"
+
+    def test_prepare_template_rows_adds_rule_fields(self, monkeypatch):
+        monkeypatch.setattr(sobs_app, "_load_anomaly_rules", lambda _db: [{"id": "rule-1"}])
+
+        def _fake_annotate(rows, *_args, **_kwargs):
+            for row in rows:
+                row["rule_state"] = "warning"
+                row["rule_name"] = "High CPU"
+                row["rule_reason"] = "Burn rate exceeded"
+                row["effective_state"] = "warning"
+
+        monkeypatch.setattr(sobs_app, "_annotate_rows_with_rules", _fake_annotate)
+
+        prepared_columns, prepared_rows = sobs_app._prepare_template_rows(
+            "derived_signal_overlay",
+            [
+                "bucket",
+                "svc",
+                "src",
+                "sig",
+                "fp",
+                "val",
+                "samples",
+                "baseline",
+                "low",
+                "high",
+                "state",
+                "score",
+            ],
+            [
+                {
+                    "bucket": "2026-01-01T00:00:00Z",
+                    "svc": "api",
+                    "src": "metrics",
+                    "sig": "latency_ms",
+                    "fp": "abc",
+                    "val": 120.0,
+                    "samples": 5,
+                    "baseline": 100.0,
+                    "low": 90.0,
+                    "high": 130.0,
+                    "state": "warning",
+                    "score": 2.5,
+                }
+            ],
+            {
+                "time": 0,
+                "service": 1,
+                "source": 2,
+                "signal": 3,
+                "attr_fp": 4,
+                "value": 5,
+                "sample_count": 6,
+                "baseline_mean": 7,
+                "baseline_lower": 8,
+                "baseline_upper": 9,
+                "anomaly_state": 10,
+                "anomaly_score": 11,
+            },
+        )
+
+        assert prepared_columns[-4:] == ["rule_state", "rule_name", "rule_reason", "effective_state"]
+        assert prepared_rows[0]["rule_name"] == "High CPU"
+        assert prepared_rows[0]["effective_state"] == "warning"
+
+    def test_attach_drilldown_metadata_formats_time_series_and_heatmap_points(self):
+        time_series_option = sobs_app._attach_drilldown_metadata(
+            {"id": "derived_signal_overlay", "drilldown": {"bucket_seconds": 300}},
+            {
+                "time": ["2026-01-01T00:00:00Z"],
+                "anomaly_state": ["warning"],
+                "anomaly_score": [3.5],
+                "rule_state": ["warning"],
+                "rule_name": ["High Latency"],
+                "rule_reason": ["Budget exceeded"],
+                "effective_state": ["warning"],
+                "service": ["checkout"],
+                "source": ["metrics"],
+                "signal": ["latency_ms"],
+                "attr_fp": ["abc"],
+            },
+            {"series": [{"name": "Value", "data": [123.0]}, {"name": "Baseline", "data": [100.0]}]},
+        )
+        drilldown = time_series_option["series"][0]["data"][0]["drilldown"]
+        assert drilldown["from_ts"] == "2026-01-01T00:00:00Z"
+        assert drilldown["window_s"] == 300
+        assert drilldown["_rule_name"] == "High Latency"
+        assert drilldown["service"] == "checkout"
+
+        heatmap_option = sobs_app._attach_drilldown_metadata(
+            {"id": "heatmap", "drilldown": {"bucket_seconds": 60}},
+            {
+                "x_unique_values": ["checkout"],
+                "y_unique_values": ["2026-01-01T00:00:00Z"],
+            },
+            {"series": [{"data": [[0, 0, 7.0]]}]},
+        )
+        heatmap_drilldown = heatmap_option["series"][0]["data"][0]["drilldown"]
+        assert heatmap_drilldown["service"] == "checkout"
+        assert heatmap_drilldown["from_ts"] == "2026-01-01T00:00:00Z"
+
+    def test_render_custom_echarts_sorts_points_and_builds_drilldown(self):
+        option = sobs_app._render_custom_echarts(
+            {"echarts_option_template": {"series": [{"type": "line", "data": "{{points}}"}]}},
+            ["time", "value", "service"],
+            [
+                ["2026-01-02T00:00:00Z", 2, "api"],
+                ["2026-01-01T00:00:00Z", 1, "api"],
+            ],
+            {
+                "visual": {
+                    "custom_mapping_json": {
+                        "points": "rows",
+                        "_drilldown": {
+                            "target": "logs",
+                            "label": "Open Logs",
+                            "extra": {"service": "{{service}}"},
+                        },
+                    },
+                    "custom_option_json": {"series": [{"type": "line", "data": "{{points}}"}]},
+                }
+            },
+        )
+
+        assert option["backgroundColor"] == "transparent"
+        assert option["textStyle"]["color"] == "#adb5bd"
+        assert option["series"][0]["data"][0][0] == "2026-01-01T00:00:00Z"
+        assert option["_customDrilldown"]["target"] == "logs"
+        assert option["_customDrilldown"]["extra"]["service"] == "api"
+
     async def test_refine_chart_spec_requires_ai_configuration(self):
         spec, err, stats = await sobs_app._vanna_refine_chart_spec(
             current_spec='{"series": [{"type": "line"}]}',

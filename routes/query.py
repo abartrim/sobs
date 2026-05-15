@@ -12,32 +12,63 @@ from typing import Any
 
 from quart import Blueprint, jsonify, render_template, request
 
+import app as sobs_app
 from app import (  # noqa: E402
     _QUERY_ALLOWED_TABLES,
     ChdbSqlRunner,
-    _check_guard_model,
-    _emit_ai_helper_log_event,
     _guard_telemetry_attrs,
     _infer_query_field_types,
     _json_safe_rows,
     _jsonify_with_optional_sql_output_mask,
-    _load_all_ai_settings,
     _normalize_thinking_level,
     _query_page_enabled,
     _summarize_query_llm_stats,
     _vanna_execute_named_queries,
-    _vanna_explain_sql,
-    _vanna_generate_chart_spec,
-    _vanna_generate_named_queries,
-    _vanna_generate_sql,
-    _vanna_refine_chart_spec,
-    _vanna_run_query,
     _vanna_validate_and_execute_with_repair,
-    get_db,
     require_basic_auth,
 )
 
-query_bp = Blueprint("query", __name__)
+query_bp: Blueprint = Blueprint("query", __name__)
+
+
+def _check_guard_model(*args: Any, **kwargs: Any):
+    return sobs_app._check_guard_model(*args, **kwargs)
+
+
+def _emit_ai_helper_log_event(*args: Any, **kwargs: Any):
+    return sobs_app._emit_ai_helper_log_event(*args, **kwargs)
+
+
+def _load_all_ai_settings(*args: Any, **kwargs: Any):
+    return sobs_app._load_all_ai_settings(*args, **kwargs)
+
+
+def _vanna_explain_sql(*args: Any, **kwargs: Any):
+    return sobs_app._vanna_explain_sql(*args, **kwargs)
+
+
+def _vanna_generate_chart_spec(*args: Any, **kwargs: Any):
+    return sobs_app._vanna_generate_chart_spec(*args, **kwargs)
+
+
+def _vanna_generate_named_queries(*args: Any, **kwargs: Any):
+    return sobs_app._vanna_generate_named_queries(*args, **kwargs)
+
+
+def _vanna_generate_sql(*args: Any, **kwargs: Any):
+    return sobs_app._vanna_generate_sql(*args, **kwargs)
+
+
+def _vanna_run_query(*args: Any, **kwargs: Any):
+    return sobs_app._vanna_run_query(*args, **kwargs)
+
+
+def _vanna_refine_chart_spec(*args: Any, **kwargs: Any):
+    return sobs_app._vanna_refine_chart_spec(*args, **kwargs)
+
+
+def get_db():
+    return sobs_app.get_db()
 
 
 @query_bp.route("/query")

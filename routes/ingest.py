@@ -10,13 +10,11 @@ from typing import Any
 
 from quart import Blueprint, current_app, request, send_from_directory, url_for
 
+import app as sobs_app
 import telemetry as _telemetry
 from app import (  # noqa: E402
     RUM_ASSET_DIR,
     RUM_ASSET_MAX_BYTES,
-    RUM_CLIENT_AUTH_MODE,
-    RUM_CLIENT_SIGNING_KEY,
-    RUM_CLIENT_TOKEN_TTL_SEC,
     ChDbConnection,
     ExportLogsServiceRequest,
     ExportMetricsServiceRequest,
@@ -39,7 +37,6 @@ from app import (  # noqa: E402
     _proto_logs_to_events,
     _proto_metrics_to_events,
     _proto_traces_to_events,
-    _queue_write,
     _remap_rum_console_stacks,
     _remember_log_attr_keys,
     _request_origin,
@@ -58,7 +55,11 @@ from app import (  # noqa: E402
     require_basic_auth,
 )
 
-ingest_bp = Blueprint("ingest", __name__)
+ingest_bp: Blueprint = Blueprint("ingest", __name__)
+
+
+def _queue_write(*args: Any, **kwargs: Any):
+    return sobs_app._queue_write(*args, **kwargs)
 
 
 @ingest_bp.route("/v1/logs", methods=["OPTIONS"])
@@ -198,14 +199,14 @@ async def rum_asset_download(asset_id: str):
 @ingest_bp.route("/v1/rum/client-token", methods=["POST"])
 @require_api_key
 async def issue_rum_client_token():
-    mode = (RUM_CLIENT_AUTH_MODE or "none").strip().lower()
+    mode = (sobs_app.RUM_CLIENT_AUTH_MODE or "none").strip().lower()
     if mode in ("", "none", "off", "disabled"):
         return jsonify({"enabled": False, "token": "", "error": "RUM client auth is disabled"}), 200
 
     if mode not in ("origin", "origin-session"):
         return jsonify({"error": "Invalid SOBS_RUM_CLIENT_AUTH_MODE"}), 500
 
-    if not RUM_CLIENT_SIGNING_KEY:
+    if not sobs_app.RUM_CLIENT_SIGNING_KEY:
         return jsonify({"error": "RUM client signing key is not configured"}), 503
 
     payload = await request.get_json(force=True, silent=True) or {}
@@ -215,11 +216,11 @@ async def issue_rum_client_token():
     if not origin:
         return jsonify({"error": "origin is required"}), 400
 
-    ttl_raw = payload.get("ttlSec", RUM_CLIENT_TOKEN_TTL_SEC)
+    ttl_raw = payload.get("ttlSec", sobs_app.RUM_CLIENT_TOKEN_TTL_SEC)
     try:
         ttl_sec = int(ttl_raw)
     except (TypeError, ValueError):
-        ttl_sec = RUM_CLIENT_TOKEN_TTL_SEC
+        ttl_sec = sobs_app.RUM_CLIENT_TOKEN_TTL_SEC
     ttl_sec = max(30, min(ttl_sec, 24 * 60 * 60))
 
     now = int(time.time())

@@ -12,6 +12,7 @@ from typing import Any, AsyncIterator, cast
 
 from quart import Blueprint, Response, jsonify, render_template, request
 
+import app as sobs_app
 from app import (  # noqa: E402
     _AI_HELPER_SERVICE_NAME,
     _AI_MEMORY_CONSOLIDATION_SCORE,
@@ -26,13 +27,11 @@ from app import (  # noqa: E402
     _build_ai_turn_logs_url,
     _build_client_action,
     _chat_label_from_first_turn,
-    _check_guard_model,
     _coerce_summary_value,
     _consolidate_memory_candidates,
     _decode_ai_action_token,
     _dedupe_system_input_messages,
     _derive_turn_summary,
-    _emit_ai_helper_log_event,
     _error_id,
     _extract_assistant_meta,
     _extract_memory_candidates,
@@ -47,7 +46,6 @@ from app import (  # noqa: E402
     _load_agent_rule,
     _load_agent_runs,
     _load_ai_pricing_with_sources,
-    _load_all_ai_settings,
     _load_chat_memories,
     _load_chat_tool_history,
     _load_recent_chat_turns,
@@ -56,7 +54,6 @@ from app import (  # noqa: E402
     _maybe_await,
     _model_supports_thinking,
     _model_supports_tools,
-    _normalize_ai_sql_where,
     _normalize_genai_messages_for_display,
     _normalize_generic_ui_action_tool_call,
     _normalize_thinking_level,
@@ -69,17 +66,39 @@ from app import (  # noqa: E402
     _run_agent_rule_instance,
     _semantic_memory_matches,
     _sse_json_event,
-    _stream_llm_endpoint,
     _suggest_chart_dashboard_pivot_tool,
     _time_window_conditions,
     _upsert_ai_memory,
     _where_clause,
-    get_db,
     require_basic_auth,
 )
 
-ai_bp = Blueprint("ai", __name__)
+ai_bp: Blueprint = Blueprint("ai", __name__)
 log = logging.getLogger("sobs")
+
+
+def _check_guard_model(*args: Any, **kwargs: Any):
+    return sobs_app._check_guard_model(*args, **kwargs)
+
+
+def _emit_ai_helper_log_event(*args: Any, **kwargs: Any):
+    return sobs_app._emit_ai_helper_log_event(*args, **kwargs)
+
+
+def _load_all_ai_settings(*args: Any, **kwargs: Any):
+    return sobs_app._load_all_ai_settings(*args, **kwargs)
+
+
+def _normalize_ai_sql_where(*args: Any, **kwargs: Any):
+    return sobs_app._normalize_ai_sql_where(*args, **kwargs)
+
+
+def _stream_llm_endpoint(*args: Any, **kwargs: Any):
+    return sobs_app._stream_llm_endpoint(*args, **kwargs)
+
+
+def get_db():
+    return sobs_app.get_db()
 
 
 @ai_bp.route("/ai")

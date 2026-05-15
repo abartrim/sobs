@@ -6,6 +6,7 @@ from typing import Any
 
 from quart import Blueprint, render_template, request
 
+import app as sobs_app
 from app import (  # noqa: E402
     _CVE_DISPOSITION_VALUES,
     _CVE_ENABLED_SETTING,
@@ -23,11 +24,9 @@ from app import (  # noqa: E402
     _append_regex_expression_clauses,
     _append_time_window_filter,
     _build_rum_event_item,
-    _collect_library_inventory,
     _effective_cve_disposition,
     _geo_lookup_batch,
     _get_app_setting,
-    _get_async_http_client,
     _github_backfill_max_releases,
     _github_item_is_security_related,
     _github_version_tokens,
@@ -46,7 +45,6 @@ from app import (  # noqa: E402
     _text_mentions_version_tokens,
     _time_window_conditions,
     _where_clause,
-    get_db,
     jsonify,
     masked_jsonify,
     require_basic_auth,
@@ -59,7 +57,19 @@ from routes.logs import (  # noqa: E402
 )
 
 log = logging.getLogger("sobs")
-rum_bp = Blueprint("rum", __name__)
+rum_bp: Blueprint = Blueprint("rum", __name__)
+
+
+def _collect_library_inventory(*args: Any, **kwargs: Any):
+    return sobs_app._collect_library_inventory(*args, **kwargs)
+
+
+def _get_async_http_client(*args: Any, **kwargs: Any):
+    return sobs_app._get_async_http_client(*args, **kwargs)
+
+
+def get_db():
+    return sobs_app.get_db()
 
 
 @rum_bp.route("/rum")
@@ -846,7 +856,7 @@ async def _collect_github_repo_health_summary(db: "ChDbConnection") -> dict[str,
 async def api_enrichment_github_repo_health():
     """Return version-scoped GitHub repo health counts for CVE workflow context."""
     db = get_db()
-    summary = await _collect_github_repo_health_summary(db)
+    summary = await sobs_app._collect_github_repo_health_summary(db)
     if not bool(summary.get("ok")):
         return jsonify(summary), 500
     return jsonify(summary)
