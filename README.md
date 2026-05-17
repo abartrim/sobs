@@ -103,6 +103,8 @@ docker-compose up -d
 # Python (dev)
 pip install -r requirements.txt
 python app.py
+# or module entry point
+python -m sobs
 ```
 
 Note: `python app.py` runs Hypercorn with a Quart ASGI app in single-process mode.
@@ -1221,5 +1223,4 @@ The SQL toggle is evaluated only when global output masking is enabled.
 Replay/artifact metadata remains masked in visible labels and summaries, while action URLs
 used by "View Replay", "View Artifact", and "Open Raw" remain functional so operators can
 open attached resources directly from the UI.
-
 
