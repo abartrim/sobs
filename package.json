@@ -8,10 +8,10 @@
   "dependencies": {
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
-    "echarts": "^6.0.0"
+    "echarts": "^6.1.0"
   },
   "devDependencies": {
-    "terser": "^5.47.1",
+    "terser": "^5.48.0",
     "typescript": "^6.0.3"
   }
 }
