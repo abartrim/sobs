@@ -1,6 +1,6 @@
 quart>=0.20.0
 hypercorn>=0.18.0
-chdb>=4.1.8
+chdb>=4.1.9
 opentelemetry-proto>=1.42.1
 cryptography>=48.0.0
 httpx>=0.28.1
