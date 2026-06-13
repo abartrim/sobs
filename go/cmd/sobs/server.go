@@ -90,6 +90,8 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/settings/notifications/rules", s.handleNotifRulesCreate)
 	s.mux.HandleFunc("/settings/masking/keys", s.handleMaskingKeysCreate)
 	s.mux.HandleFunc("/settings/masking/patterns", s.handleMaskingPatternsCreate)
+	s.mux.HandleFunc("/settings/masking/keys/delete", s.handleMaskingKeysDelete)
+	s.mux.HandleFunc("/settings/masking/patterns/delete", s.handleMaskingPatternsDelete)
 	s.mux.HandleFunc("/settings/agents/", s.handleSettingsAgentsSub)
 	s.mux.HandleFunc("/settings/tags/", s.handleSettingsTagsSub)
 	s.mux.HandleFunc("/settings/repositories/", s.handleSettingsRepositoriesSub)

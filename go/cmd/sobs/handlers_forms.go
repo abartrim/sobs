@@ -213,6 +213,31 @@ func (s *server) handleMaskingKeysCreate(w http.ResponseWriter, r *http.Request)
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
+// POST /settings/masking/keys/delete — app.py delete_masking_key: an empty/unknown key is not
+// in the custom-keys set, so it flashes "Custom sensitive key not found".
+func (s *server) handleMaskingKeysDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	if s.formRequire(w, r, "key", "warning", "Custom sensitive key not found", "/settings/masking") {
+		return
+	}
+	http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
+// POST /settings/masking/patterns/delete — empty/unknown pattern -> "Custom masking pattern not found".
+func (s *server) handleMaskingPatternsDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	if s.formRequire(w, r, "pattern", "warning", "Custom masking pattern not found", "/settings/masking") {
+		return
+	}
+	http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
 // POST /settings/masking/patterns — empty form -> "Invalid regex pattern: Pattern is required".
 func (s *server) handleMaskingPatternsCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

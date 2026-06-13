@@ -843,3 +843,15 @@ routes:
     path: "/dashboards/nope/charts/nope/edit"
     methods: [POST]
     request: {method: POST}
+  - id: post__mcp
+    path: "/mcp"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__settings_masking_keys_delete
+    path: "/settings/masking/keys/delete"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__settings_masking_patterns_delete
+    path: "/settings/masking/patterns/delete"
+    methods: [POST]
+    request: {method: POST, json: {}}

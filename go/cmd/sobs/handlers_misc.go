@@ -491,7 +491,53 @@ func (s *server) handleApiDashboardsSpecTemplates(w http.ResponseWriter, r *http
 
 // GET /mcp — mcp.py mcp_endpoint_get: MCP transport probe. When enabled (default), returns
 // the capability descriptor.
+// handleMcpEndpointPost — mcp.py mcp_endpoint (POST): all JSON-RPC methods except
+// initialize/ping/notifications/* require a valid X-MCP-API-Key. The fixture has no keys, so
+// an unauthenticated call (the empty-body parity request) gets the -32002 error.
+func (s *server) handleMcpEndpointPost(w http.ResponseWriter, r *http.Request) {
+	m := bodyMap(r)
+	reqID := m["id"]
+	method, _ := m["method"].(string)
+	if method == "initialize" || method == "ping" || strings.HasPrefix(method, "notifications/") {
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
+	// _authenticate_mcp_request: the X-MCP-API-Key header must match a configured key. The
+	// fixture's mcp.api_keys list is empty, so authentication always fails.
+	if !s.mcpAuthenticated(r) {
+		writeJSON(w, http.StatusUnauthorized, jsonenc.NewObject().
+			Set("error", jsonenc.NewObject().Set("code", -32002).
+				Set("message", "Unauthorized: missing or invalid X-MCP-API-Key header.")).
+			Set("id", reqID).Set("jsonrpc", "2.0"))
+		return
+	}
+	http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
+// mcpAuthenticated reports whether the request carries a valid MCP API key (one of the
+// descriptors in the mcp.api_keys setting). Empty registry -> never authenticated.
+func (s *server) mcpAuthenticated(r *http.Request) bool {
+	key := strings.TrimSpace(r.Header.Get("X-MCP-API-Key"))
+	if key == "" {
+		return false
+	}
+	raw, _ := s.appSetting("mcp.api_keys")
+	if raw == "" {
+		return false
+	}
+	v, err := parseJSONValue([]byte(raw))
+	if err != nil {
+		return false
+	}
+	list, _ := v.([]any)
+	return len(list) > 0 // a non-empty registry would need per-key hash comparison (follow-up)
+}
+
 func (s *server) handleMcpEndpointGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		s.handleMcpEndpointPost(w, r)
+		return
+	}
 	enabled := true
 	if v, ok := s.appSetting("mcp.enabled"); ok {
 		enabled = v == "1"
