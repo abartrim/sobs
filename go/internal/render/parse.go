@@ -35,6 +35,13 @@ type setNode struct {
 	expr string
 }
 
+// setBlockNode is {% set name %}...{% endset %}: the rendered body is captured (as safe
+// Markup) into the variable.
+type setBlockNode struct {
+	name string
+	body []node
+}
+
 type blockNode struct {
 	name string
 	body []node
@@ -44,22 +51,39 @@ type includeNode struct{ name string }
 
 type extendsNode struct{ name string }
 
+// macro support
+type macroParam struct {
+	name string
+	def  string // default-value expression, "" if required
+}
+type macroDef struct {
+	name   string
+	params []macroParam
+	body   []node
+}
+type importSpec struct {
+	template string
+	names    []string // imported macro names
+}
+
 // parseResult is the parsed template: its node list plus, if it extends a parent, the
 // parent name (the top-level nodes of an extending child are only its block overrides).
 type parseResult struct {
 	nodes   []node
 	extends string
-	blocks  map[string][]node // block name -> body (collected from this template)
+	blocks  map[string][]node    // block name -> body (collected from this template)
+	macros  map[string]*macroDef // macros defined in this template
+	imports []importSpec         // {% from "x" import a, b %}
 }
 
 func parse(src string) (*parseResult, error) {
 	toks := lex(src)
-	p := &parser{toks: toks, blocks: map[string][]node{}}
+	p := &parser{toks: toks, blocks: map[string][]node{}, macros: map[string]*macroDef{}}
 	nodes, err := p.parseUntil(nil)
 	if err != nil {
 		return nil, err
 	}
-	return &parseResult{nodes: nodes, extends: p.extends, blocks: p.blocks}, nil
+	return &parseResult{nodes: nodes, extends: p.extends, blocks: p.blocks, macros: p.macros, imports: p.imports}, nil
 }
 
 type parser struct {
@@ -67,6 +91,8 @@ type parser struct {
 	pos     int
 	extends string
 	blocks  map[string][]node
+	macros  map[string]*macroDef
+	imports []importSpec
 }
 
 // parseUntil parses nodes until it hits one of the stop keywords (e.g. "endif","else").
@@ -112,12 +138,19 @@ func (p *parser) parseTag(text, kw string) (node, error) {
 		p.pos++
 		return includeNode{name: unquote(strings.TrimSpace(strings.TrimPrefix(text, "include")))}, nil
 	case "set":
-		p.pos++
 		rest := strings.TrimSpace(strings.TrimPrefix(text, "set"))
-		if eq := strings.Index(rest, "="); eq >= 0 {
+		if eq := topLevelAssign(rest); eq >= 0 {
+			p.pos++
 			return setNode{name: strings.TrimSpace(rest[:eq]), expr: strings.TrimSpace(rest[eq+1:])}, nil
 		}
-		return nil, fmt.Errorf("bad set: %q", text)
+		// block form: {% set name %}...{% endset %} -> capture rendered body
+		p.pos++
+		body, err := p.parseUntil([]string{"endset"})
+		if err != nil {
+			return nil, err
+		}
+		p.pos++ // endset
+		return setBlockNode{name: rest, body: body}, nil
 	case "if":
 		return p.parseIf(text)
 	case "for":
@@ -126,9 +159,74 @@ func (p *parser) parseTag(text, kw string) (node, error) {
 		return p.parseWith(text)
 	case "block":
 		return p.parseBlock(text)
+	case "from":
+		return p.parseFrom(text)
+	case "import":
+		// {% import "x" as y %} — not used by current templates; record nothing.
+		p.pos++
+		return nil, nil
+	case "macro":
+		return p.parseMacro(text)
 	default:
 		return nil, fmt.Errorf("unsupported tag: %q", text)
 	}
+}
+
+// parseFrom handles {% from "tpl" import a, b as c %} (the `as` alias is rare; we keep
+// the original name).
+func (p *parser) parseFrom(text string) (node, error) {
+	p.pos++
+	rest := strings.TrimSpace(strings.TrimPrefix(text, "from"))
+	idx := strings.Index(rest, " import ")
+	if idx < 0 {
+		return nil, fmt.Errorf("bad from: %q", text)
+	}
+	tpl := unquote(strings.TrimSpace(rest[:idx]))
+	var names []string
+	for _, n := range strings.Split(rest[idx+len(" import "):], ",") {
+		n = strings.TrimSpace(n)
+		if sp := strings.Index(n, " as "); sp >= 0 {
+			n = strings.TrimSpace(n[:sp])
+		}
+		if n != "" {
+			names = append(names, n)
+		}
+	}
+	p.imports = append(p.imports, importSpec{template: tpl, names: names})
+	return nil, nil
+}
+
+func (p *parser) parseMacro(text string) (node, error) {
+	inner := strings.TrimSpace(strings.TrimPrefix(text, "macro"))
+	lp := strings.IndexByte(inner, '(')
+	name := strings.TrimSpace(inner[:lp])
+	rp := strings.LastIndexByte(inner, ')')
+	params := parseParams(inner[lp+1 : rp])
+	p.pos++
+	body, err := p.parseUntil([]string{"endmacro"})
+	if err != nil {
+		return nil, err
+	}
+	p.pos++ // endmacro
+	p.macros[name] = &macroDef{name: name, params: params, body: body}
+	return nil, nil
+}
+
+// parseParams parses a macro parameter list: name, name='default', name="d".
+func parseParams(s string) []macroParam {
+	var out []macroParam
+	for _, part := range splitTop(s, ',') {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if eq := topLevelAssign(part); eq >= 0 {
+			out = append(out, macroParam{name: strings.TrimSpace(part[:eq]), def: strings.TrimSpace(part[eq+1:])})
+		} else {
+			out = append(out, macroParam{name: part})
+		}
+	}
+	return out
 }
 
 func (p *parser) parseIf(text string) (node, error) {

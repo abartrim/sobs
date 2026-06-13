@@ -57,3 +57,119 @@ routes:
   #     body_b64: "<base64 of a fixed ExportLogsServiceRequest>"
 
   # … reconcile the remaining 185 routes from routes.generated.yaml here.
+  - id: get__cve_help
+    path: "/cve/help"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__dashboards_help_chart_editor
+    path: "/dashboards/help/chart-editor"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__errors_help
+    path: "/errors/help"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__incident_help
+    path: "/incident/help"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__kubernetes_help
+    path: "/kubernetes/help"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__logs_help
+    path: "/logs/help"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__metrics_help
+    path: "/metrics/help"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__metrics_help_anomaly
+    path: "/metrics/help/anomaly"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__metrics_help_rules
+    path: "/metrics/help/rules"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__metrics_help_rules_auto
+    path: "/metrics/help/rules/auto"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__query_help
+    path: "/query/help"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__reports_help
+    path: "/reports/help"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__rum_help
+    path: "/rum/help"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__settings_help
+    path: "/settings/help"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__settings_help_agents
+    path: "/settings/help/agents"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__settings_help_ai
+    path: "/settings/help/ai"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__settings_help_data_management
+    path: "/settings/help/data-management"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__settings_help_enrichment
+    path: "/settings/help/enrichment"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__settings_help_kubernetes
+    path: "/settings/help/kubernetes"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__settings_help_masking
+    path: "/settings/help/masking"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__settings_help_notifications
+    path: "/settings/help/notifications"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__settings_help_repositories
+    path: "/settings/help/repositories"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__settings_help_tags
+    path: "/settings/help/tags"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__setup_help_playbooks
+    path: "/setup/help/playbooks"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__summary_help
+    path: "/summary/help"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__table_explorer_help
+    path: "/table-explorer/help"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__traces_help
+    path: "/traces/help"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__web_traffic_help
+    path: "/web-traffic/help"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__work_items_help
+    path: "/work-items/help"
+    methods: [GET]
+    request: {method: GET}

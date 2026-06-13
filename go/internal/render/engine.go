@@ -13,9 +13,11 @@ type Func func(pos []any, kw map[string]any) (any, error)
 
 // Engine loads and renders Jinja templates from a directory.
 type Engine struct {
-	dir   string
-	cache map[string]*parseResult
-	funcs map[string]Func
+	dir      string
+	cache    map[string]*parseResult
+	funcs    map[string]Func
+	macros   map[string]*macroDef // active macro registry (per Render)
+	activeRC *renderCtx           // active render context (for macro-body rendering)
 }
 
 func New(dir string) *Engine {
@@ -101,8 +103,30 @@ func (e *Engine) Render(name string, ctx map[string]any) (string, error) {
 		}
 	}
 
+	// Collect the macro registry: every template's own macros plus those it imports
+	// via {% from "x" import ... %}.
+	macros := map[string]*macroDef{}
+	for _, pr := range chain {
+		for mn, md := range pr.macros {
+			macros[mn] = md
+		}
+		for _, imp := range pr.imports {
+			ipr, err := e.load(imp.template)
+			if err != nil {
+				return "", err
+			}
+			for _, mn := range imp.names {
+				if md, ok := ipr.macros[mn]; ok {
+					macros[mn] = md
+				}
+			}
+		}
+	}
+	e.macros = macros
+
 	root := chain[0]
 	rc := &renderCtx{engine: e, blockChains: blockChains, superDepth: map[string]int{}}
+	e.activeRC = rc
 	top := newScope(nil)
 	for k, v := range ctx {
 		top.vars[k] = v
@@ -147,6 +171,12 @@ func (rc *renderCtx) renderNode(n node, sc *scope, sb *strings.Builder) error {
 			return err
 		}
 		sc.vars[x.name] = val
+	case setBlockNode:
+		var bb strings.Builder
+		if err := rc.renderNodes(x.body, sc, &bb); err != nil {
+			return err
+		}
+		sc.vars[x.name] = safeString{bb.String()}
 	case ifNode:
 		for _, br := range x.branches {
 			if br.cond == "" { // else

@@ -283,11 +283,46 @@ func (e *Engine) callFunc(name, argstr string, ctx *scope) (any, error) {
 			pos = append(pos, v)
 		}
 	}
+	if m, ok := e.macros[name]; ok {
+		return e.invokeMacro(m, pos, kw, ctx)
+	}
 	fn, ok := e.funcs[name]
 	if !ok {
 		return nil, fmt.Errorf("unknown function %q", name)
 	}
 	return fn(pos, kw)
+}
+
+// invokeMacro renders a macro body with its parameters bound (positional, then keyword,
+// then defaults). Jinja imported macros don't see the caller's locals, so the body runs
+// in a fresh scope containing only the parameters. The result is safe (Markup).
+func (e *Engine) invokeMacro(m *macroDef, pos []any, kw map[string]any, ctx *scope) (any, error) {
+	sc := newScope(nil)
+	for i, p := range m.params {
+		switch {
+		case i < len(pos):
+			sc.vars[p.name] = pos[i]
+		case kw[p.name] != nil:
+			sc.vars[p.name] = kw[p.name]
+		case p.def != "":
+			v, err := e.evalExpr(p.def, ctx)
+			if err != nil {
+				return nil, err
+			}
+			sc.vars[p.name] = v
+		default:
+			sc.vars[p.name] = ""
+		}
+	}
+	// allow keyword args that match params even when the param's default would apply
+	for k, v := range kw {
+		sc.vars[k] = v
+	}
+	var sb strings.Builder
+	if err := e.activeRC.renderNodes(m.body, sc, &sb); err != nil {
+		return nil, err
+	}
+	return safeString{sb.String()}, nil
 }
 
 // applyFilter implements the template filters used by the SOBS templates.
