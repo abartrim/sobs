@@ -178,6 +178,10 @@ func (p *parser) parseTag(text, kw string) (node, error) {
 	case "call":
 		return p.parseCall(text)
 	default:
+		// {% call(params) macro() %} — no space after `call`, so kw is "call(...)".
+		if strings.HasPrefix(text, "call(") {
+			return p.parseCall(text)
+		}
 		return nil, fmt.Errorf("unsupported tag: %q", text)
 	}
 }

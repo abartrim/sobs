@@ -243,6 +243,18 @@ func (s *server) activePartRows(table string) int {
 		"WHERE active = 1 AND database = currentDatabase() AND table = '" + table + "'")
 }
 
+// GET /errors — app.py view_errors. No error rows on the fixture -> empty lists/defaults.
+func (s *server) handleViewErrors(w http.ResponseWriter, r *http.Request) {
+	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM (" + errorSourcesSQL + ") WHERE ServiceName != ''")
+	s.renderPage(w, "errors.html", "view_errors", map[string]any{
+		"errors": []any{}, "total": 0, "limit": 100, "offset": 0,
+		"service": "", "selected_services": []any{}, "from_ts": "", "to_ts": "",
+		"error_msg": "", "q": "", "resolved": "0", "services": services,
+		"sort_by": "Timestamp", "sort_dir": "desc", "grouped_mode": false,
+		"work_item_links": map[string]any{},
+	})
+}
+
 // GET / — app.py summary: the overview/home page.
 func (s *server) handleSummary(w http.ResponseWriter, r *http.Request) {
 	unresolved := errorIDExpr + " NOT IN (SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId)"

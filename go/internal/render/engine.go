@@ -18,7 +18,12 @@ type Engine struct {
 	funcs    map[string]Func
 	macros   map[string]*macroDef // active macro registry (per Render)
 	activeRC *renderCtx           // active render context (for macro-body rendering)
+	kwOrder  []string             // keyword-arg order of the in-flight callFunc (for url_for)
 }
+
+// KWOrder returns the keyword-arg order of the function call currently being dispatched —
+// used by url_for to emit leftover kwargs as query params in insertion order (Quart).
+func (e *Engine) KWOrder() []string { return e.kwOrder }
 
 func New(dir string) *Engine {
 	e := &Engine{dir: dir, cache: map[string]*parseResult{}, funcs: map[string]Func{}}

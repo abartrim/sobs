@@ -249,9 +249,9 @@ func (e *Engine) evalAtom(s string, ctx *scope) (any, error) {
 	if s == "" {
 		return "", nil
 	}
-	// string literal
+	// string literal (process Jinja/Python escapes: \\ -> \, \n, \t, \' ...)
 	if (s[0] == '\'' || s[0] == '"') && s[len(s)-1] == s[0] {
-		return s[1 : len(s)-1], nil
+		return unescapeStringLiteral(s[1 : len(s)-1]), nil
 	}
 	// super() inside an overridden block -> the pre-rendered parent block content.
 	if s == "super()" {
@@ -347,6 +347,44 @@ func (e *Engine) evalAtom(s string, ctx *scope) (any, error) {
 }
 
 // evalSeq evaluates a comma-separated list of expressions into a []any (tuple/list).
+// unescapeStringLiteral processes the backslash escapes Python/Jinja string literals use.
+// Unrecognized escapes keep the backslash (Python semantics, e.g. `\&` stays `\&`).
+func unescapeStringLiteral(s string) string {
+	if !strings.Contains(s, "\\") {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case '\\':
+				b.WriteByte('\\')
+				i++
+			case '\'':
+				b.WriteByte('\'')
+				i++
+			case '"':
+				b.WriteByte('"')
+				i++
+			case 'n':
+				b.WriteByte('\n')
+				i++
+			case 't':
+				b.WriteByte('\t')
+				i++
+			case 'r':
+				b.WriteByte('\r')
+				i++
+			default:
+				b.WriteByte('\\') // keep backslash; next char emitted normally
+			}
+		} else {
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
+}
+
 func (e *Engine) evalSeq(elems []string, ctx *scope) (any, error) {
 	var out []any
 	for _, el := range elems {
@@ -434,6 +472,7 @@ func atomKind(v any) int {
 func (e *Engine) callFunc(name, argstr string, ctx *scope) (any, error) {
 	var pos []any
 	kw := map[string]any{}
+	var kwKeys []string // keyword-arg order (Quart's url_for preserves it for query params)
 	for _, a := range splitTop(argstr, ',') {
 		a = strings.TrimSpace(a)
 		if a == "" {
@@ -446,6 +485,7 @@ func (e *Engine) callFunc(name, argstr string, ctx *scope) (any, error) {
 				return nil, err
 			}
 			kw[key] = v
+			kwKeys = append(kwKeys, key)
 		} else {
 			v, err := e.evalExpr(a, ctx)
 			if err != nil {
@@ -461,6 +501,7 @@ func (e *Engine) callFunc(name, argstr string, ctx *scope) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("unknown function %q", name)
 	}
+	e.kwOrder = kwKeys // url_for reads this to emit query params in insertion order
 	return fn(pos, kw)
 }
 

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -37,7 +36,9 @@ func pyTitle(s string) string {
 // newEngine builds the template engine with the globals the templates call.
 func (s *server) newEngine() *render.Engine {
 	e := render.New(s.cfg.TemplateDir)
-	e.AddFunc("url_for", s.urlFor)
+	e.AddFunc("url_for", func(pos []any, kw map[string]any) (any, error) {
+		return s.urlFor(pos, kw, e.KWOrder())
+	})
 	e.AddFunc("get_flashed_messages", func(pos []any, kw map[string]any) (any, error) {
 		// No session flashes in parity captures -> empty list.
 		return []any{}, nil
@@ -80,7 +81,7 @@ func argStr(pos []any, i int) string {
 
 // urlFor mirrors Quart's url_for for the cases the templates use: a named endpoint
 // (optionally with path params) and the special 'static' endpoint with a filename.
-func (s *server) urlFor(pos []any, kw map[string]any) (any, error) {
+func (s *server) urlFor(pos []any, kw map[string]any, kwOrder []string) (any, error) {
 	if len(pos) == 0 {
 		return "", fmt.Errorf("url_for requires an endpoint")
 	}
@@ -93,27 +94,19 @@ func (s *server) urlFor(pos []any, kw map[string]any) (any, error) {
 	if !ok {
 		return "", fmt.Errorf("url_for: unknown endpoint %q", endpoint)
 	}
-	// Path-param kwargs are substituted into the rule; the rest become query params
-	// (Quart appends leftover url_for kwargs as ?k=v). Query keys are sorted.
-	query := map[string]string{}
-	for k, v := range kw {
+	// Path-param kwargs are substituted into the rule; the rest become query params, in
+	// the kwargs INSERTION order (Quart/Werkzeug preserves it — not sorted).
+	var qs []string
+	for _, k := range kwOrder {
+		v := fmt.Sprintf("%v", kw[k])
 		if pathHasParam(rule, k) {
-			rule = replaceParam(rule, k, fmt.Sprintf("%v", v))
+			rule = replaceParam(rule, k, v)
 		} else {
-			query[k] = fmt.Sprintf("%v", v)
+			qs = append(qs, url.QueryEscape(k)+"="+url.QueryEscape(v))
 		}
 	}
 	out := s.cfg.BasePath + rule
-	if len(query) > 0 {
-		keys := make([]string, 0, len(query))
-		for k := range query {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		var qs []string
-		for _, k := range keys {
-			qs = append(qs, url.QueryEscape(k)+"="+url.QueryEscape(query[k]))
-		}
+	if len(qs) > 0 {
 		out += "?" + strings.Join(qs, "&")
 	}
 	return out, nil
@@ -143,9 +136,10 @@ func replaceParam(rule, name, value string) string {
 // templates reference. `endpoint` is the Quart endpoint name for the active route.
 func (s *server) baseContext(endpoint string) map[string]any {
 	return map[string]any{
-		"query_enabled":                     s.cfg.QueryPageEnabled,
-		"kubernetes_enabled":                s.cfg.KubernetesEnabled,
-		"raise_issue_mask_toggle_effective": true, // masking off in parity -> effective
+		"query_enabled":      s.cfg.QueryPageEnabled,
+		"kubernetes_enabled": s.cfg.KubernetesEnabled,
+		// not _is_output_masking_enabled() — masking.output_enabled defaults on, so False.
+		"raise_issue_mask_toggle_effective": !s.appSettingBool("masking.output_enabled", true),
 		"mobile_breakpoint_max":             mobileBreakpointMax,
 		"sobs_version":                      s.cfg.BuildVersion,
 		// request.args is empty for the param-less page captures; macros call

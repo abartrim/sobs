@@ -425,3 +425,7 @@ routes:
     path: "/"
     methods: [GET]
     request: {method: GET}
+  - id: get__errors
+    path: "/errors"
+    methods: [GET]
+    request: {method: GET}
