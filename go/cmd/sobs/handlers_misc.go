@@ -367,6 +367,82 @@ func (s *server) handleApiMetricsAnomaly(w http.ResponseWriter, r *http.Request)
 		Set("columns", strsToAny(cols)).Set("rows", rows))
 }
 
+// GET /api/ai/helper/chats — app.py ai_helper_chats: AI-helper chat summaries from
+// otel_logs (empty on the fixture).
+func (s *server) handleApiAiHelperChats(w http.ResponseWriter, r *http.Request) {
+	page := strings.TrimSpace(r.URL.Query().Get("page"))
+	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	limit := queryIntClamp(r, "limit", 20, 5, 100)
+	offset := 0
+	if v, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("offset"))); err == nil && v > 0 {
+		offset = v
+	}
+	where := "ServiceName=? AND EventName='turn.summary' AND LogAttributes['gen_ai.chat_id'] != ''"
+	params := []any{"sobs-ai-helper"}
+	if page != "" {
+		where += " AND LogAttributes['sobs.ai.page'] = ?"
+		params = append(params, page)
+	}
+	res, err := s.db.Execute(
+		"SELECT   LogAttributes['gen_ai.chat_id'] AS chat_id,   min(Timestamp) AS first_ts,   max(Timestamp) AS last_ts,"+
+			"   argMin(LogAttributes['gen_ai.input.question'], Timestamp) AS first_question,"+
+			"   argMin(LogAttributes['gen_ai.turn.summary.request'], Timestamp) AS first_request,"+
+			"   count() AS turn_count FROM otel_logs WHERE "+where+" GROUP BY chat_id ORDER BY last_ts DESC LIMIT 500", params...)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	chats := []any{}
+	for _, m := range rowMaps(res) {
+		chatID := strings.TrimSpace(cStr(m, "chat_id"))
+		if chatID == "" {
+			continue
+		}
+		label := chatLabelFromFirstTurn(cStr(m, "first_question"), cStr(m, "first_request"))
+		if q != "" && !strings.Contains(strings.ToLower(label), q) {
+			continue
+		}
+		chats = append(chats, jsonenc.NewObject().
+			Set("chat_id", chatID).
+			Set("first_ts", cStr(m, "first_ts")).
+			Set("last_ts", cStr(m, "last_ts")).
+			Set("label", label).
+			Set("turn_count", cInt(m, "turn_count")))
+	}
+	total := len(chats)
+	start := offset
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	pageChats := chats[start:end]
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).Set("chats", pageChats).Set("total", total).
+		Set("has_more", start+len(pageChats) < total).Set("offset", offset))
+}
+
+// chatLabelFromFirstTurn mirrors _chat_label_from_first_turn (truncate to 80; fallback).
+func chatLabelFromFirstTurn(question, request string) string {
+	if q := strings.TrimSpace(question); q != "" {
+		return truncate80(q)
+	}
+	if rq := strings.TrimSpace(request); rq != "" {
+		return truncate80(rq)
+	}
+	return "New chat"
+}
+
+func truncate80(s string) string {
+	r := []rune(s)
+	if len(r) > 80 {
+		return string(r[:80])
+	}
+	return s
+}
+
 // GET /api/dashboards/spec/templates — app.py list_chart_spec_templates: the static
 // chart-spec template catalog (request-independent). Re-serialized via jsonify.
 func (s *server) handleApiDashboardsSpecTemplates(w http.ResponseWriter, r *http.Request) {

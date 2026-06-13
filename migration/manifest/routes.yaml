@@ -369,3 +369,7 @@ routes:
     path: "/api/metrics/anomaly"
     methods: [GET]
     request: {method: GET}
+  - id: get__api_ai_helper_chats
+    path: "/api/ai/helper/chats"
+    methods: [GET]
+    request: {method: GET}
