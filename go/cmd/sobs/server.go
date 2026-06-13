@@ -77,6 +77,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/api/logs/field-hints", s.handleApiLogsFieldHints)
 	s.mux.HandleFunc("/api/metrics/anomaly", s.handleApiMetricsAnomaly)
 	s.mux.HandleFunc("/api/ai/helper/chats", s.handleApiAiHelperChats)
+	s.mux.HandleFunc("/api/ai/conversation", s.handleApiAiConversation)
 	s.mux.HandleFunc("/api/mcp/keys", s.handleApiMcpKeys)
 	s.mux.HandleFunc("/api/settings/masking/rules", s.handleApiMaskingRules)
 

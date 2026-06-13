@@ -373,3 +373,7 @@ routes:
     path: "/api/ai/helper/chats"
     methods: [GET]
     request: {method: GET}
+  - id: get__api_ai_conversation
+    path: "/api/ai/conversation"
+    methods: [GET]
+    request: {method: GET}

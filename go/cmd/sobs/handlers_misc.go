@@ -325,6 +325,20 @@ func (s *server) handleApiLogsFieldHints(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, obj)
 }
 
+// GET /api/ai/conversation — app.py get_ai_conversation: requires ts+service (400 HTML
+// else). The success path renders the AI conversation partial for a matched span — needs
+// seeded AI traces (the fixture otel_traces has none), so only the guard is reachable here.
+func (s *server) handleApiAiConversation(w http.ResponseWriter, r *http.Request) {
+	ts := strings.TrimSpace(r.URL.Query().Get("ts"))
+	service := strings.TrimSpace(r.URL.Query().Get("service"))
+	if ts == "" || service == "" {
+		textStatus(w, http.StatusBadRequest,
+			"<p class='text-danger small'>Missing required params: ts and service.</p>")
+		return
+	}
+	textStatus(w, http.StatusNotFound, "<p class='text-danger small'>Span not found.</p>")
+}
+
 // GET /api/metrics/anomaly — app.py metrics_anomaly. Requires service+metric (400 else);
 // returns the per-minute anomaly series (empty on the fixture).
 func (s *server) handleApiMetricsAnomaly(w http.ResponseWriter, r *http.Request) {
