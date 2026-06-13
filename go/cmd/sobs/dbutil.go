@@ -94,6 +94,19 @@ func toEncodable(v any) any {
 	}
 }
 
+// parseJSONValue decodes an arbitrary JSON document into a jsonenc-encodable tree
+// (objects/arrays/numbers preserved via UseNumber). Mirrors json.load(f) feeding into
+// jsonify — used by routes that load a static JSON catalog and re-serialize it.
+func parseJSONValue(raw []byte) (any, error) {
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.UseNumber()
+	var parsed any
+	if err := dec.Decode(&parsed); err != nil {
+		return nil, err
+	}
+	return toEncodable(parsed), nil
+}
+
 // parseJSONObject decodes a stored JSON string into a jsonenc.Object, returning an empty
 // object when the value is blank or not a JSON object — matching _parse_report_filters and
 // friends (json.loads with a {} fallback). UseNumber preserves int/float literals.

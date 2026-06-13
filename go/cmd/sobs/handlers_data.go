@@ -2,11 +2,33 @@ package main
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/sobs/sobs/internal/jsonenc"
 )
+
+// GET /api/chart-types — app.py api_chart_types(): load static/echarts-chart-types.json
+// and return {"ok": true, "data": <catalog>}. Go reads the SAME file and re-serializes it
+// through jsonenc, so jsonify's sorted/compact bytes match. 404 if the file is absent.
+func (s *server) handleApiChartTypes(w http.ResponseWriter, r *http.Request) {
+	path := filepath.Join(s.cfg.StaticDir, "echarts-chart-types.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		s.errorJSON(w, http.StatusNotFound,
+			"Chart types catalog not found. Run: node scripts/extract-echarts-types.js")
+		return
+	}
+	catalog, err := parseJSONValue(raw)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError,
+			jsonenc.NewObject().Set("ok", false).Set("error", "Failed to load chart types: "+err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("data", catalog))
+}
 
 // Data-backed JSON API handlers. Each issues the SAME SQL as its app.py counterpart and
 // rebuilds the response object with identical keys + Python type coercion. Because Go and

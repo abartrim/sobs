@@ -2,15 +2,19 @@ package main
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/sobs/sobs/internal/jsonenc"
 )
 
 // writeJSON emits a JSON body byte-identical to Quart's jsonify and sets the same
-// Content-Type. The security headers are applied by the headerCapture middleware.
+// Content-Type. Content-Length is set explicitly: Quart always emits it, but net/http
+// drops it (switches to chunked) once a body exceeds its internal buffer (~2KB), which
+// diverged on large JSON catalogs. The security headers are applied by headerCapture.
 func writeJSON(w http.ResponseWriter, status int, obj any) {
 	body := jsonenc.Encode(obj, jsonenc.QuartJSONify)
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(status)
 	_, _ = w.Write(body)
 }

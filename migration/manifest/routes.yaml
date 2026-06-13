@@ -228,3 +228,7 @@ routes:
     path: "/api/web-traffic/devices"
     methods: [GET]
     request: {method: GET}
+  - id: get__api_chart_types
+    path: "/api/chart-types"
+    methods: [GET]
+    request: {method: GET}
