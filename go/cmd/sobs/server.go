@@ -97,6 +97,8 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/v1/traces", s.handleV1IngestGet)
 	s.mux.HandleFunc("/v1/rum/assets", s.handleV1IngestGet)
 	s.mux.HandleFunc("/v1/apps", s.handleV1Apps)
+	s.mux.HandleFunc("/v1/apps/", s.handleV1AppByID)
+	s.mux.HandleFunc("/v1/releases/", s.handleV1ReleaseByID)
 	s.mux.HandleFunc("/query", s.handleViewQuery)
 	s.mux.HandleFunc("/table-explorer", s.handleViewTableExplorer)
 	s.mux.HandleFunc("/kubernetes", s.handleViewKubernetes)

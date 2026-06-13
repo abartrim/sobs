@@ -389,3 +389,19 @@ routes:
     path: "/api/table-explorer/table/otel_logs"
     methods: [GET]
     request: {method: GET}
+  - id: get__v1_apps_someapp
+    path: "/v1/apps/someapp"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__v1_apps_someapp_releases
+    path: "/v1/apps/someapp/releases"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__v1_releases_somerel
+    path: "/v1/releases/somerel"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__v1_releases_somerel_artifacts
+    path: "/v1/releases/somerel/artifacts"
+    methods: [GET]
+    request: {method: GET}
