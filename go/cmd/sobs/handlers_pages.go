@@ -243,6 +243,51 @@ func (s *server) activePartRows(table string) int {
 		"WHERE active = 1 AND database = currentDatabase() AND table = '" + table + "'")
 }
 
+// GET / — app.py summary: the overview/home page.
+func (s *server) handleSummary(w http.ResponseWriter, r *http.Request) {
+	unresolved := errorIDExpr + " NOT IN (SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId)"
+	stats := map[string]any{
+		"logs":         s.activePartRows("otel_logs"),
+		"spans":        s.activePartRows("otel_traces"),
+		"rum":          s.activePartRows("hyperdx_sessions"),
+		"ai":           s.countRows("SELECT COUNT(*) AS c FROM otel_traces WHERE " + aiSpanCondition),
+		"errors_total": s.countRows("SELECT count() AS c FROM (" + errorSourcesSQL + ")"),
+		"errors":       s.countRows("SELECT count() AS c FROM (" + errorSourcesSQL + ") WHERE " + unresolved),
+		"services": s.distinctStrings("SELECT DISTINCT ServiceName FROM otel_logs WHERE ServiceName!='' " +
+			"UNION DISTINCT SELECT DISTINCT ServiceName FROM otel_traces WHERE ServiceName!='' " +
+			"UNION DISTINCT SELECT DISTINCT ServiceName FROM hyperdx_sessions WHERE ServiceName!=''"),
+	}
+	// recent_errors / recent_logs: empty on the fixture (no error/log rows).
+	recentErrors := []any{}
+	recentLogs := []any{}
+	if res, err := s.db.Execute("SELECT Timestamp, SeverityText, ServiceName, Body FROM otel_logs ORDER BY Timestamp DESC LIMIT 10"); err == nil {
+		for _, m := range rowMaps(res) {
+			recentLogs = append(recentLogs, map[string]any{
+				"ts": cStr(m, "Timestamp"), "level": cStr(m, "SeverityText"),
+				"service": cStr(m, "ServiceName"), "body": cStr(m, "Body")})
+		}
+	}
+	rumSummary := []any{}
+	if res, err := s.db.Execute("SELECT EventName, COUNT(*) as cnt FROM hyperdx_sessions GROUP BY EventName ORDER BY cnt DESC"); err == nil {
+		for _, m := range rowMaps(res) {
+			rumSummary = append(rumSummary, []any{cStr(m, "EventName"), cInt(m, "cnt")})
+		}
+	}
+	cveLastScan, _ := s.appSetting("enrichment.cve_last_scan")
+	s.renderPage(w, "summary.html", "summary", map[string]any{
+		"stats":         stats,
+		"recent_errors": recentErrors,
+		"recent_logs":   recentLogs,
+		"rum_summary":   rumSummary,
+		"ai_summary":    []any{},
+		"signal_health": []any{},
+		"cve_overview": map[string]any{
+			"enabled": s.appSettingBool("enrichment.cve_enabled", true), "last_scan": cveLastScan,
+			"total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0,
+		},
+	})
+}
+
 // GET /web-traffic — app.py view_web_traffic.
 func (s *server) handleViewWebTraffic(w http.ResponseWriter, r *http.Request) {
 	total := s.activePartRows("hyperdx_sessions")

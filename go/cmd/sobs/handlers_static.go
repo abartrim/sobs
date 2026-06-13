@@ -43,6 +43,18 @@ var logsFieldHintsStaticJSON []byte
 //go:embed assets/ai_field_hints_static.json
 var aiFieldHintsStaticJSON []byte
 
+// errorSourcesSQL is app.py ERROR_SOURCES_SQL (the otel_logs ∪ hyperdx_sessions error
+// subquery) used by the summary/errors pages.
+//
+//go:embed assets/error_sources.sql
+var errorSourcesSQL string
+
+// errorIDExpr is app.py _error_id_sql_expr() — the stable ErrorId MD5 expression.
+const errorIDExpr = "lower(hex(MD5(concat(toString(Timestamp), '|', ServiceName, '|', " +
+	"if(mapContains(LogAttributes, 'exception.type'), LogAttributes['exception.type'], 'Error'), '|', " +
+	"if(mapContains(LogAttributes, 'exception.message'), LogAttributes['exception.message'], Body), '|', " +
+	"TraceId, '|', SpanId))))"
+
 // GET /service-worker.js — fixed JS + push-notification headers (app.py:26461).
 func (s *server) handleServiceWorker(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")

@@ -113,6 +113,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/metrics/rules", s.handleViewMetricsRules)
 	s.mux.HandleFunc("/settings/agents", s.handleViewAgentRules)
 	s.mux.HandleFunc("/web-traffic", s.handleViewWebTraffic)
+	s.mux.HandleFunc("/{$}", s.handleSummary) // exact root "/" only (not a catch-all)
 	s.mux.HandleFunc("/settings/notifications", s.handleViewNotifications)
 	s.mux.HandleFunc("/dashboards", s.handleListDashboards)
 

@@ -421,3 +421,7 @@ routes:
     path: "/web-traffic"
     methods: [GET]
     request: {method: GET}
+  - id: get__root
+    path: "/"
+    methods: [GET]
+    request: {method: GET}
