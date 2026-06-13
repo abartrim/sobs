@@ -349,3 +349,7 @@ routes:
     path: "/settings/agents"
     methods: [GET]
     request: {method: GET}
+  - id: get__settings_notifications
+    path: "/settings/notifications"
+    methods: [GET]
+    request: {method: GET}

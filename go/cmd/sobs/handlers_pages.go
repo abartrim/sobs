@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/sobs/sobs/internal/jsonenc"
 )
 
 // HTML page handlers. Pages render Jinja templates via the render engine; feature-gated
@@ -205,6 +207,33 @@ func (s *server) handleViewMetricsRules(w http.ResponseWriter, r *http.Request) 
 		"auto_dashboard_preview": []any{},
 		"auto_dashboard_summary": nil,
 		"auto_open_panel":        openPanel,
+	})
+}
+
+// GET /settings/notifications — app.py view_notifications. Channels/rules/log empty on the
+// fixture; metric_rules = the 4 seeded anomaly rules; the rest are constants. VAPID is
+// unconfigured -> (nil, nil). signal_sources is an ORDERED object (tojson'd in template).
+func (s *server) handleViewNotifications(w http.ResponseWriter, r *http.Request) {
+	signalSources := jsonenc.NewObject().
+		Set("logs", []any{"log_volume", "error_volume", "error_ratio"}).
+		Set("traces", []any{"trace_volume", "trace_error_ratio", "latency_p95_ms"}).
+		Set("errors", []any{"exception_volume"})
+	s.renderPage(w, "settings_notifications.html", "view_notifications", map[string]any{
+		"channels":            []any{},
+		"rules":               []any{},
+		"notification_log":    []any{},
+		"channel_types":       []any{"webhook", "slack", "email", "browser_push"},
+		"comparators":         []any{"gt", "lt", "gte", "lte", "eq"},
+		"condition_types":     []any{"signal", "tag"},
+		"severities":          []any{"warning", "critical"},
+		"logic_operators":     []any{"any", "all"},
+		"signal_sources":      signalSources,
+		"tag_match_operators": []any{"eq", "contains", "regex"},
+		"tag_record_types":    []any{"all", "log", "trace", "error", "ai", "rum"},
+		"edit_rule":           nil,
+		"vapid_public_key":    nil,
+		"vapid_key_source":    nil,
+		"metric_rules":        s.loadAnomalyRulesCtx(),
 	})
 }
 

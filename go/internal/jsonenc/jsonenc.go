@@ -41,9 +41,14 @@ var QuartJSONify = Options{
 	TrailingNL:  true,
 }
 
-// Compact mirrors json.dumps(separators=(",", ":")) — used by some call sites and by
-// the template `tojson` filter (which additionally HTML-escapes, see render.Tojson).
+// Compact mirrors json.dumps(separators=(",", ":")).
 var Compact = Options{SortKeys: false, EnsureASCII: false, ItemSep: ",", KeySep: ":"}
+
+// JinjaTojson mirrors Jinja/Flask's `| tojson`: json.dumps with DEFAULT separators
+// (", ", ": "), sort_keys + ensure_ascii on. (The template filter additionally
+// HTML-escapes <>&' — see render.tojson.) Pinned from the settings_notifications golden:
+// `["signal", "tag"]` (spaces) and sorted object keys.
+var JinjaTojson = Options{SortKeys: true, EnsureASCII: true, ItemSep: ", ", KeySep: ": "}
 
 // Object is an ordered JSON object. Use it instead of map[string]any so key order is
 // explicit and controllable (Python preserves dict insertion order; with SortKeys the

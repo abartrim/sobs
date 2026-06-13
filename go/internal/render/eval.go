@@ -662,9 +662,10 @@ func formatPyFloat(f float64) string {
 	return s
 }
 
-// tojson reproduces Jinja's tojson: json.dumps(compact) then HTML-escape <>&' to \uXXXX.
+// tojson reproduces Jinja's tojson: json.dumps(sort_keys, default separators) then
+// HTML-escape <>&' to \uXXXX.
 func tojson(v any) string {
-	raw := string(jsonenc.Encode(toJSONValue(v), jsonenc.Compact))
+	raw := string(jsonenc.Encode(toJSONValue(v), jsonenc.JinjaTojson))
 	r := strings.NewReplacer(
 		"<", `<`,
 		">", `>`,
@@ -674,11 +675,24 @@ func tojson(v any) string {
 	return r.Replace(raw)
 }
 
-// toJSONValue coerces interpreter values into types jsonenc understands.
+// toJSONValue coerces interpreter values into types jsonenc understands: native maps
+// become ordered Objects (JinjaTojson sorts keys), slices are converted element-wise.
 func toJSONValue(v any) any {
 	switch x := v.(type) {
 	case safeString:
 		return x.s
+	case map[string]any:
+		obj := jsonenc.NewObject()
+		for k, vv := range x {
+			obj.Set(k, toJSONValue(vv))
+		}
+		return obj
+	case []any:
+		out := make([]any, len(x))
+		for i, vv := range x {
+			out[i] = toJSONValue(vv)
+		}
+		return out
 	default:
 		return x
 	}
