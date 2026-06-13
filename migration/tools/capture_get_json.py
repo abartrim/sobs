@@ -9,7 +9,6 @@ Run:  .venv/bin/python migration/tools/capture_get_json.py
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import sys
 from pathlib import Path
