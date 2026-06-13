@@ -36,7 +36,9 @@ func TestGate0RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("chdb-go NewSession: %v (is libchdb/chdb-core installed & pinned? see CHDB_PIN.md)", err)
 	}
-	defer sess.Cleanup()
+	// Close (NOT Cleanup) — Cleanup does os.RemoveAll(path) and would destroy the shared
+	// directory; Close persists a non-temp session so Python can re-open it.
+	defer sess.Close()
 
 	// 1. Read the rows Python wrote.
 	out, err := sess.Query("SELECT Id,Name FROM gate0 FINAL ORDER BY Id", "CSV")

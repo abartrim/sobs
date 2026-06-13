@@ -208,3 +208,6 @@ file:/tmp/
 
 # Integration test screenshots (uploaded as CI artifacts)
 tests/screenshots/
+
+# Pinned libchdb native library for chdb-go (Phase 0) — 326MB, downloaded not committed
+/.libchdb/
