@@ -53,3 +53,21 @@ func (s *server) handleViewTableExplorer(w http.ResponseWriter, r *http.Request)
 	}
 	s.renderPage(w, "table_explorer.html", "view_table_explorer", nil)
 }
+
+// GET /kubernetes — app.py view_kubernetes: 404 string when k8s is disabled (fixture).
+func (s *server) handleViewKubernetes(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.KubernetesEnabled {
+		textStatus(w, http.StatusNotFound, "Kubernetes health view is disabled. Enable it in Settings → Kubernetes.")
+		return
+	}
+	s.renderPage(w, "kubernetes.html", "view_kubernetes", nil)
+}
+
+// GET /dashboards/new — app.py new_dashboard_form: render custom_dashboards.html with an
+// empty dashboards list and the new-form flag.
+func (s *server) handleNewDashboardForm(w http.ResponseWriter, r *http.Request) {
+	s.renderPage(w, "custom_dashboards.html", "new_dashboard_form", map[string]any{
+		"dashboards":    []any{},
+		"show_new_form": true,
+	})
+}

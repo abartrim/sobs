@@ -313,3 +313,11 @@ routes:
     path: "/table-explorer"
     methods: [GET]
     request: {method: GET}
+  - id: get__kubernetes
+    path: "/kubernetes"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__dashboards_new
+    path: "/dashboards/new"
+    methods: [GET]
+    request: {method: GET}
