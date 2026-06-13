@@ -243,6 +243,32 @@ func (s *server) activePartRows(table string) int {
 		"WHERE active = 1 AND database = currentDatabase() AND table = '" + table + "'")
 }
 
+// GET /enrichment/cve — app.py view_enrichment_cve. No CVE data on the fixture.
+func (s *server) handleViewEnrichmentCve(w http.ResponseWriter, r *http.Request) {
+	cveLastScan, _ := s.appSetting("enrichment.cve_last_scan")
+	maxRel := 300
+	if raw, ok := s.appSetting("enrichment.github_backfill_max_releases"); ok {
+		if n, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
+			if n < 1 {
+				n = 1
+			} else if n > 2000 {
+				n = 2000
+			}
+			maxRel = n
+		}
+	}
+	s.renderPage(w, "cve.html", "view_enrichment_cve", map[string]any{
+		"cve_enabled":                  s.appSettingBool("enrichment.cve_enabled", true),
+		"cve_last_scan":                cveLastScan,
+		"github_backfill_max_releases": maxRel,
+		"cve_last_backfill_attempted":  0, "cve_last_backfill_inserted": 0, "cve_last_backfill_cap": 0,
+		"cve_findings": []any{}, "ecosystems": []any{}, "severities": []any{},
+		"severity_filter": "", "ecosystem_filter": "",
+		"selected_severities": []any{}, "selected_ecosystems": []any{},
+		"package_filter": "", "show_all": false,
+	})
+}
+
 // GET /work-items — app.py view_work_items. Empty work items on the fixture.
 func (s *server) handleViewWorkItemsPage(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, "work_items.html", "view_work_items", map[string]any{

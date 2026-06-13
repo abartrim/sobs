@@ -453,3 +453,7 @@ routes:
     path: "/work-items"
     methods: [GET]
     request: {method: GET}
+  - id: get__enrichment_cve
+    path: "/enrichment/cve"
+    methods: [GET]
+    request: {method: GET}
