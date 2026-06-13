@@ -39,6 +39,43 @@ func (s *server) handleValidateRegex(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("sample", nil))
 }
 
+// POST /api/query/ask — 400 "question is required" on an empty body (validation precedes
+// the query-page guard).
+func (s *server) handleApiQueryAsk(w http.ResponseWriter, r *http.Request) {
+	if jsonBodyStr(r, "question") == "" {
+		s.errorJSON(w, http.StatusBadRequest, "question is required")
+		return
+	}
+	http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
+// POST /api/query/run — 400 "sql is required" on an empty body.
+func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
+	if jsonBodyStr(r, "sql") == "" {
+		s.errorJSON(w, http.StatusBadRequest, "sql is required")
+		return
+	}
+	http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
+// POST /api/query/refine-chart — 404 query-page guard (disabled on the fixture).
+func (s *server) handleApiQueryRefineChart(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.QueryPageEnabled {
+		s.errorJSON(w, http.StatusNotFound, "Query page is unavailable.")
+		return
+	}
+	http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
+// POST /api/query/add-to-dashboard — 400 "dashboard_id is required" on an empty body.
+func (s *server) handleApiQueryAddToDashboard(w http.ResponseWriter, r *http.Request) {
+	if jsonBodyStr(r, "dashboard_id") == "" {
+		s.errorJSON(w, http.StatusBadRequest, "dashboard_id is required")
+		return
+	}
+	http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
 // POST /api/data-management/backup/run and /restore — app.py: 403 when the backup feature
 // is disabled (data_management.backup_enabled off by default on the fixture).
 func (s *server) handleDmBackupGuard(w http.ResponseWriter, r *http.Request) {

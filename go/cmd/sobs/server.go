@@ -53,6 +53,10 @@ func (s *server) routes() {
 
 	// Phase 3: JSON API guard routes (feature-disabled returns in the parity state).
 	s.mux.HandleFunc("/api/query/schema", s.handleApiQuerySchema)
+	s.mux.HandleFunc("/api/query/ask", s.handleApiQueryAsk)
+	s.mux.HandleFunc("/api/query/run", s.handleApiQueryRun)
+	s.mux.HandleFunc("/api/query/refine-chart", s.handleApiQueryRefineChart)
+	s.mux.HandleFunc("/api/query/add-to-dashboard", s.handleApiQueryAddToDashboard)
 	s.mux.HandleFunc("/api/table-explorer/tables", s.handleApiTableExplorerTables)
 	s.mux.HandleFunc("/api/kubernetes/status", s.handleApiKubernetesStatus)
 	s.mux.HandleFunc("/api/notifications/vapid-public-key", s.handleApiVapidPublicKey)

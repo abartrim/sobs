@@ -525,3 +525,19 @@ routes:
     path: "/api/data-management/restore"
     methods: [POST]
     request: {method: POST, json: {}}
+  - id: post__api_query_ask
+    path: "/api/query/ask"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_query_run
+    path: "/api/query/run"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_query_refine_chart
+    path: "/api/query/refine-chart"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_query_add_to_dashboard
+    path: "/api/query/add-to-dashboard"
+    methods: [POST]
+    request: {method: POST, json: {}}
