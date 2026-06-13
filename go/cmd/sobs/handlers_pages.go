@@ -447,6 +447,17 @@ func (s *server) handleViewAgentRules(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /settings/mcp — mcp.py mcp_settings_page. now_iso is the frozen determinism clock.
+func (s *server) handleMcpSettingsPage(w http.ResponseWriter, r *http.Request) {
+	enabled := true
+	if v, ok := s.appSetting("mcp.enabled"); ok {
+		enabled = v == "1"
+	}
+	s.renderPage(w, "settings_mcp.html", "mcp.mcp_settings_page", map[string]any{
+		"mcp_keys": []any{}, "mcp_enabled": enabled, "now_iso": "2024-01-02T03:04:05+00:00",
+	})
+}
+
 // GET /settings/tags — app.py view_tag_rules. Empty tag rules; services from telemetry.
 func (s *server) handleViewTagRules(w http.ResponseWriter, r *http.Request) {
 	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM (" +

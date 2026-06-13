@@ -465,3 +465,7 @@ routes:
     path: "/settings/tags"
     methods: [GET]
     request: {method: GET}
+  - id: get__settings_mcp
+    path: "/settings/mcp"
+    methods: [GET]
+    request: {method: GET}
