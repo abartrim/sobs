@@ -78,6 +78,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/api/metrics/anomaly", s.handleApiMetricsAnomaly)
 	s.mux.HandleFunc("/api/ai/helper/chats", s.handleApiAiHelperChats)
 	s.mux.HandleFunc("/api/ai/conversation", s.handleApiAiConversation)
+	s.mux.HandleFunc("/api/settings/tags/condition-suggestions", s.handleApiTagRuleConditionSuggestions)
 	s.mux.HandleFunc("/api/tags/", s.handleApiGetTags)
 	s.mux.HandleFunc("/api/traces/span/", s.handleApiRawSpan)
 	s.mux.HandleFunc("/api/table-explorer/table/", s.handleApiTableExplorerTable)

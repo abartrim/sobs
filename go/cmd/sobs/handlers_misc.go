@@ -325,6 +325,27 @@ func (s *server) handleApiLogsFieldHints(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, obj)
 }
 
+// GET /api/settings/tags/condition-suggestions — app.py api_tag_rule_condition_suggestions.
+// Suggestions come from queries over empty fixture tables -> always [] here; the request
+// args (scope/field/operator/target) are echoed back.
+func (s *server) handleApiTagRuleConditionSuggestions(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	get := func(k, def string) string {
+		v := strings.ToLower(strings.TrimSpace(q.Get(k)))
+		if v == "" {
+			return def
+		}
+		return v
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).
+		Set("scope", get("scope", "tag_rule")).
+		Set("field", get("field", "")).
+		Set("operator", get("operator", "eq")).
+		Set("target", get("target", "value")).
+		Set("suggestions", []any{}))
+}
+
 // GET /api/ai/conversation — app.py get_ai_conversation: requires ts+service (400 HTML
 // else). The success path renders the AI conversation partial for a matched span — needs
 // seeded AI traces (the fixture otel_traces has none), so only the guard is reachable here.

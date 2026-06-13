@@ -405,3 +405,7 @@ routes:
     path: "/v1/releases/somerel/artifacts"
     methods: [GET]
     request: {method: GET}
+  - id: get__api_settings_tags_condition_suggestions
+    path: "/api/settings/tags/condition-suggestions"
+    methods: [GET]
+    request: {method: GET}
