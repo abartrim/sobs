@@ -68,6 +68,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/api/web-traffic/devices", s.handleApiWebTrafficDevices)
 	s.mux.HandleFunc("/api/chart-types", s.handleApiChartTypes)
 	s.mux.HandleFunc("/api/data-management/backup/list", s.handleApiDmBackupList)
+	s.mux.HandleFunc("/api/work-items", s.handleApiWorkItems)
 	s.mux.HandleFunc("/api/ai/span-attributes", s.handleApiAiSpanAttributes)
 	s.mux.HandleFunc("/api/enrichment/cve/findings", s.handleApiCveFindings)
 	s.mux.HandleFunc("/api/web-traffic/geo", s.handleApiWebTrafficGeo)

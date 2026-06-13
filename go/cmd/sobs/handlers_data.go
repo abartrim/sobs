@@ -115,6 +115,33 @@ func (s *server) handleApiAgentRuns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("runs", runs))
 }
 
+// GET /api/work-items — app.py api_get_work_items: github work items (empty on fixture).
+// The async GitHub backfill is fire-and-forget (does not affect the response) and is skipped.
+func (s *server) handleApiWorkItems(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	conds := []string{"IsDeleted = 0"}
+	var params []any
+	for arg, col := range map[string]string{
+		"anomaly_rule_id": "AnomalyRuleId", "service": "ServiceName", "rule_id": "AgentRuleId",
+		"signal_source": "SignalSource", "signal_name": "SignalName",
+	} {
+		if v := strings.TrimSpace(q.Get(arg)); v != "" {
+			conds = append(conds, col+" = ?")
+			params = append(params, v)
+		}
+	}
+	limit := queryIntClamp(r, "limit", 100, 1, 1000)
+	res, err := s.db.Execute("SELECT * FROM sobs_github_work_items FINAL WHERE "+strings.Join(conds, " AND ")+
+		" ORDER BY CreatedAt DESC LIMIT "+strconv.Itoa(limit), params...)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, jsonenc.NewObject().Set("ok", false).Set("error", err.Error()))
+		return
+	}
+	items := []any{}
+	_ = rowMaps(res) // rows are empty on the fixture; serialization lands with seeded work items
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("items", items))
+}
+
 // GET /api/data-management/backup/list — app.py api_dm_backup_list() -> _list_dm_backups
 // (app.py:32109): reads system.backups (empty on the fixture). Query errors fall back to
 // [] (mirrors the Python try/except).

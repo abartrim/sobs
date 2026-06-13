@@ -409,3 +409,7 @@ routes:
     path: "/api/settings/tags/condition-suggestions"
     methods: [GET]
     request: {method: GET}
+  - id: get__api_work_items
+    path: "/api/work-items"
+    methods: [GET]
+    request: {method: GET}
