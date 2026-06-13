@@ -445,3 +445,7 @@ routes:
     path: "/metrics/anomaly"
     methods: [GET]
     request: {method: GET}
+  - id: get__incident
+    path: "/incident"
+    methods: [GET]
+    request: {method: GET}

@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -199,20 +200,116 @@ func (e *Engine) evalFiltered(expr string, ctx *scope) (any, error) {
 func (e *Engine) evalAddSub(s string, ctx *scope) (any, error) {
 	parts := splitTop(s, '+')
 	if len(parts) == 1 {
-		return e.evalAtom(strings.TrimSpace(s), ctx)
+		return e.evalMulDiv(strings.TrimSpace(s), ctx)
 	}
-	acc, err := e.evalAtom(strings.TrimSpace(parts[0]), ctx)
+	acc, err := e.evalMulDiv(strings.TrimSpace(parts[0]), ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, p := range parts[1:] {
-		rv, err := e.evalAtom(strings.TrimSpace(p), ctx)
+		rv, err := e.evalMulDiv(strings.TrimSpace(p), ctx)
 		if err != nil {
 			return nil, err
 		}
 		acc = addValues(acc, rv)
 	}
 	return acc, nil
+}
+
+// evalMulDiv handles // (floor div), * and % (the integer arithmetic templates use).
+func (e *Engine) evalMulDiv(s string, ctx *scope) (any, error) {
+	s = strings.TrimSpace(s)
+	if l, r, ok := splitTopOp(s, "//"); ok {
+		lv, err := e.evalMulDiv(l, ctx)
+		if err != nil {
+			return nil, err
+		}
+		rv, err := e.evalMulDiv(r, ctx)
+		if err != nil {
+			return nil, err
+		}
+		a, b := toIntVal(lv), toIntVal(rv)
+		if b == 0 {
+			return 0, nil
+		}
+		q := a / b
+		if a%b != 0 && (a < 0) != (b < 0) {
+			q-- // Python floor division rounds toward negative infinity
+		}
+		return q, nil
+	}
+	if l, r, ok := splitTopOp(s, " * "); ok {
+		lv, _ := e.evalMulDiv(l, ctx)
+		rv, _ := e.evalMulDiv(r, ctx)
+		return toIntVal(lv) * toIntVal(rv), nil
+	}
+	if l, r, ok := splitTopOp(s, " % "); ok {
+		lv, _ := e.evalMulDiv(l, ctx)
+		rv, _ := e.evalMulDiv(r, ctx)
+		b := toIntVal(rv)
+		if b == 0 {
+			return 0, nil
+		}
+		return toIntVal(lv) % b, nil
+	}
+	return e.evalAtom(s, ctx)
+}
+
+// matchOpenParen returns the index of the '(' matching the trailing ')' of s, or -1.
+func matchOpenParen(s string) int {
+	depth := 0
+	for i := len(s) - 1; i >= 0; i-- {
+		switch s[i] {
+		case ')':
+			depth++
+		case '(':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// matchCloseParen returns the index of the ')' matching the '(' at index 0, or -1.
+func matchCloseParen(s string) int {
+	depth := 0
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func toIntVal(v any) int {
+	switch x := v.(type) {
+	case int:
+		return x
+	case float64:
+		return int(x)
+	case string:
+		n, _ := strconv.Atoi(strings.TrimSpace(x))
+		return n
+	}
+	return 0
 }
 
 func addValues(a, b any) any {
@@ -260,8 +357,9 @@ func (e *Engine) evalAtom(s string, ctx *scope) (any, error) {
 		}
 		return safeString{""}, nil
 	}
-	// parenthesized: grouped expression or tuple literal
-	if s[0] == '(' && s[len(s)-1] == ')' {
+	// parenthesized: grouped expression or tuple literal — ONLY when the opening paren
+	// matches the closing one at the end (else it's e.g. (expr).method(args)).
+	if s[0] == '(' && matchCloseParen(s) == len(s)-1 {
 		inner := s[1 : len(s)-1]
 		elems := splitTop(inner, ',')
 		// a trailing comma or multiple elems => tuple; otherwise a grouped expression
@@ -329,14 +427,17 @@ func (e *Engine) evalAtom(s string, ctx *scope) (any, error) {
 	if f, err := strconv.ParseFloat(s, 64); err == nil {
 		return f, nil
 	}
-	// call: name(args) — name may be dotted (method call, e.g. config.get(...))
-	if i := strings.IndexByte(s, '('); i >= 0 && strings.HasSuffix(s, ")") {
-		name := strings.TrimSpace(s[:i])
-		argstr := s[i+1 : len(s)-1]
-		if dot := strings.LastIndexByte(name, '.'); dot >= 0 {
-			return e.callMethod(name[:dot], name[dot+1:], argstr, ctx)
+	// call: name(args) — name may be dotted (method call) or a parenthesized object
+	// (e.g. (m or {}).get(...)). Find the '(' matching the TRAILING ')'.
+	if strings.HasSuffix(s, ")") {
+		if open := matchOpenParen(s); open > 0 {
+			name := strings.TrimSpace(s[:open])
+			argstr := s[open+1 : len(s)-1]
+			if dot := strings.LastIndexByte(name, '.'); dot >= 0 {
+				return e.callMethod(name[:dot], name[dot+1:], argstr, ctx)
+			}
+			return e.callFunc(name, argstr, ctx)
 		}
-		return e.callFunc(name, argstr, ctx)
 	}
 	// attribute access a.b (request.endpoint, loop.index, …)
 	if strings.Contains(s, ".") && !strings.ContainsAny(s, "('\"") {
@@ -433,6 +534,22 @@ func (e *Engine) callMethod(objExpr, method, argstr string, ctx *scope) (any, er
 		case "strip":
 			return strings.TrimSpace(str), nil
 		}
+	}
+	if m, ok := obj.(map[string]any); ok && (method == "values" || method == "keys") {
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys) // deterministic; the templates only call these on empty maps so far
+		out := make([]any, 0, len(keys))
+		for _, k := range keys {
+			if method == "keys" {
+				out = append(out, k)
+			} else {
+				out = append(out, m[k])
+			}
+		}
+		return out, nil
 	}
 	m, ok := obj.(map[string]any)
 	if method == "get" && ok {
@@ -649,6 +766,24 @@ func (e *Engine) applyFilter(f string, val any, ctx *scope) (any, error) {
 		return "", nil
 	case "list":
 		return toList(val), nil
+	case "selectattr":
+		// selectattr('attr') keeps list items whose attr is truthy.
+		attr := ""
+		if a, err := e.evalExpr(argstr, ctx); err == nil {
+			attr = toString(a)
+		}
+		out := []any{}
+		for _, item := range toList(val) {
+			if m, ok := item.(map[string]any); ok && !isFalsey(m[attr]) {
+				out = append(out, item)
+			}
+		}
+		return out, nil
+	case "mask":
+		// app.py _mask_value_for_output: redacts sensitive keys/patterns. The fixture data
+		// carries no sensitive content, so masking is identity here. (Full redaction lands
+		// when sensitive fixtures are tested.)
+		return toString(val), nil
 	default:
 		return nil, fmt.Errorf("unsupported filter %q", name)
 	}

@@ -243,6 +243,24 @@ func (s *server) activePartRows(table string) int {
 		"WHERE active = 1 AND database = currentDatabase() AND table = '" + table + "'")
 }
 
+// GET /incident — app.py view_incident. No incident reference on a param-less request.
+func (s *server) handleViewIncident(w http.ResponseWriter, r *http.Request) {
+	s.renderPage(w, "incident.html", "view_incident", map[string]any{
+		"trace_id": "", "error_id": "", "rum_session": "", "rum_ts": "",
+		"primary_error": nil, "primary_trace": nil, "primary_rum": nil,
+		"service": "", "from_ts": "", "to_ts": "", "window_minutes": 30,
+		"related_errors": []any{}, "related_log_count": 0, "related_span_count": 0,
+		"related_rum_count": 0, "related_rum_sessions": 0, "related_rum_error_count": 0,
+		"related_rum_events": []any{}, "raw_windows": []any{},
+		"metrics_context": map[string]any{
+			"source_mode": "none", "total_points": 0, "series": []any{},
+			"match_mode": "none", "match_label": "no match", "match_dimensions": []any{},
+		},
+		"anomaly_state": nil, "work_item_links": map[string]any{}, "time_error": "",
+		"error_msg": "No incident reference provided. Specify trace_id, error_id, or rum_session.",
+	})
+}
+
 // GET /metrics/anomaly — app.py view_metrics_anomaly. Empty derived signals.
 func (s *server) handleViewMetricsAnomaly(w http.ResponseWriter, r *http.Request) {
 	services, signals, sources := s.listDerivedSignalDimensions()
