@@ -76,6 +76,9 @@ def _boot_go(workdir: Path):
     env["SOBS_PARITY"] = "1"
     env["SOBS_DATA_DIR"] = str(workdir)
     env["SOBS_PORT"] = str(PORT)
+    # Point chdb-go at the pinned libchdb (purego dlopen at runtime). See go/CHDB_PIN.md.
+    libdefault = REPO / ".libchdb" / "libchdb.so"
+    env.setdefault("CHDB_LIB_PATH", str(libdefault))
     _source_parity_env(env)
     proc = subprocess.Popen([str(GO_DIR / "sobs")], env=env, cwd=REPO)
     # wait for readiness

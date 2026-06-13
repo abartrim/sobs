@@ -1,8 +1,11 @@
 package main
 
 import (
+	"log"
 	"net/http"
 	"strings"
+
+	"github.com/sobs/sobs/internal/store"
 )
 
 // server is the root http.Handler. It owns the router and the response middleware that
@@ -12,10 +15,18 @@ import (
 type server struct {
 	cfg config
 	mux *http.ServeMux
+	db  store.DB
 }
 
 func newServer(cfg config) *server {
 	s := &server{cfg: cfg, mux: http.NewServeMux()}
+	// Open the shared chdb session. Tolerate failure so non-DB routes still serve (and
+	// so a missing libchdb only breaks data routes, not the whole server).
+	if db, err := store.Open(cfg.DataDir); err != nil {
+		log.Printf("warning: chdb open failed (%v) — data routes will error", err)
+	} else {
+		s.db = db
+	}
 	s.routes()
 	return s
 }
@@ -36,6 +47,9 @@ func (s *server) routes() {
 
 	// Phase 1: first real parity route. app.py: health() -> jsonify({...}).
 	s.mux.HandleFunc("/health", s.handleHealth)
+
+	// Phase 3: first data-backed route. app.py: health_db() -> SELECT 1 + status JSON.
+	s.mux.HandleFunc("/health/db", s.handleHealthDB)
 
 	// Static assets — served byte-for-byte from static/ (Quart's default static endpoint).
 	s.mux.HandleFunc("/static/", s.handleStatic)

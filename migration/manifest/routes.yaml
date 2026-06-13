@@ -26,6 +26,12 @@ routes:
     methods: [GET]
     request: {method: GET}
 
+  # First data-backed route: SELECT 1 against the shared chdb fixture DB.
+  - id: get__health_db
+    path: "/health/db"
+    methods: [GET]
+    request: {method: GET}
+
   # A first-party static asset — exercises static serving (no DB, no template).
   - id: get__static_sobs_ansi_js
     path: "/static/sobs-ansi.js"
