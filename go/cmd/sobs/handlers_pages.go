@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -126,6 +128,36 @@ func (s *server) handleViewEnrichmentSettings(w http.ResponseWriter, r *http.Req
 		"github_backfill_max_releases":       maxRel,
 		"github_backfill_min_releases":       1,
 		"github_backfill_max_releases_limit": 2000,
+	})
+}
+
+// GET /settings/masking — app.py view_masking_settings: render the masking config page.
+func (s *server) handleViewMaskingSettings(w http.ResponseWriter, r *http.Request) {
+	var def struct {
+		Keys     []string `json:"keys"`
+		Patterns []string `json:"patterns"`
+	}
+	_ = json.Unmarshal(maskingDefaultsJSON, &def)
+	customKeys := s.loadJSONStringListSetting("masking.custom_keys")
+	customPatterns := s.loadJSONStringListSetting("masking.custom_patterns")
+	defaultKeys := append([]string{}, def.Keys...)
+	sort.Strings(defaultKeys)
+	keySet := map[string]bool{}
+	for _, k := range def.Keys {
+		keySet[k] = true
+	}
+	for _, k := range customKeys {
+		keySet[k] = true
+	}
+	s.renderPage(w, "settings_masking.html", "view_masking_settings", map[string]any{
+		"custom_keys":                strsToAny(customKeys),
+		"custom_patterns":            strsToAny(customPatterns),
+		"default_keys":               strsToAny(defaultKeys),
+		"default_patterns":           strsToAny(def.Patterns),
+		"effective_key_count":        len(keySet),
+		"effective_pattern_count":    len(def.Patterns) + len(customPatterns),
+		"output_masking_enabled":     s.appSettingBool("masking.output_enabled", true),
+		"sql_output_masking_enabled": s.appSettingBool("masking.sql_output_enabled", true),
 	})
 }
 

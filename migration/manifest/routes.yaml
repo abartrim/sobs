@@ -333,3 +333,7 @@ routes:
     path: "/settings/enrichment"
     methods: [GET]
     request: {method: GET}
+  - id: get__settings_masking
+    path: "/settings/masking"
+    methods: [GET]
+    request: {method: GET}
