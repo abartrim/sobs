@@ -433,3 +433,7 @@ routes:
     path: "/traces"
     methods: [GET]
     request: {method: GET}
+  - id: get__metrics
+    path: "/metrics"
+    methods: [GET]
+    request: {method: GET}
