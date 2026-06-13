@@ -243,6 +243,15 @@ func (s *server) activePartRows(table string) int {
 		"WHERE active = 1 AND database = currentDatabase() AND table = '" + table + "'")
 }
 
+// GET /work-items — app.py view_work_items. Empty work items on the fixture.
+func (s *server) handleViewWorkItemsPage(w http.ResponseWriter, r *http.Request) {
+	s.renderPage(w, "work_items.html", "view_work_items", map[string]any{
+		"items": []any{}, "total_items": 0, "services": []any{}, "rules": []any{},
+		"service_filter": "", "rule_filter": "", "action_type_filter": "", "status_filter": "",
+		"from_ts": "", "to_ts": "", "time_error": "",
+	})
+}
+
 // GET /incident — app.py view_incident. No incident reference on a param-less request.
 func (s *server) handleViewIncident(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, "incident.html", "view_incident", map[string]any{

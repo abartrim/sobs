@@ -449,3 +449,7 @@ routes:
     path: "/incident"
     methods: [GET]
     request: {method: GET}
+  - id: get__work_items
+    path: "/work-items"
+    methods: [GET]
+    request: {method: GET}
