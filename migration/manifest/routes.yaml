@@ -489,3 +489,31 @@ routes:
     path: "/ai"
     methods: [GET]
     request: {method: GET}
+  - id: post__api_logs_validate_regex
+    path: "/api/logs/validate-regex"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_errors_validate_regex
+    path: "/api/errors/validate-regex"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_traces_validate_regex
+    path: "/api/traces/validate-regex"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_metrics_validate_regex
+    path: "/api/metrics/validate-regex"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_rum_validate_regex
+    path: "/api/rum/validate-regex"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_logs_validate_filter
+    path: "/api/logs/validate-filter"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_ai_validate_filter
+    path: "/api/ai/validate-filter"
+    methods: [POST]
+    request: {method: POST, json: {}}

@@ -85,6 +85,13 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/api/traces/span/", s.handleApiRawSpan)
 	s.mux.HandleFunc("/api/table-explorer/table/", s.handleApiTableExplorerTable)
 	s.mux.HandleFunc("/api/mcp/keys", s.handleApiMcpKeys)
+	s.mux.HandleFunc("/api/logs/validate-regex", s.handleValidateRegex)
+	s.mux.HandleFunc("/api/errors/validate-regex", s.handleValidateRegex)
+	s.mux.HandleFunc("/api/traces/validate-regex", s.handleValidateRegex)
+	s.mux.HandleFunc("/api/metrics/validate-regex", s.handleValidateRegex)
+	s.mux.HandleFunc("/api/rum/validate-regex", s.handleValidateRegex)
+	s.mux.HandleFunc("/api/logs/validate-filter", s.handleValidateFilter)
+	s.mux.HandleFunc("/api/ai/validate-filter", s.handleValidateFilter)
 	s.mux.HandleFunc("/api/settings/masking/rules", s.handleApiMaskingRules)
 
 	// Dedicated static assets (explicit mimetypes / content-hash ETags) + service worker.
