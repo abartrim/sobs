@@ -29,17 +29,19 @@ func main() {
 // ---- config ----------------------------------------------------------------------
 
 type config struct {
-	Parity  bool
-	DataDir string
-	Port    string
+	Parity      bool
+	DataDir     string
+	Port        string
+	StaticDir   string
+	TemplateDir string
 
-	SecretKey            string
-	EncryptionSecret     string
-	BuildVersion         string
-	BasePath             string
-	QueryPageEnabled     bool
-	KubernetesEnabled    bool
-	FirstRunTourEnabled  bool
+	SecretKey           string
+	EncryptionSecret    string
+	BuildVersion        string
+	BasePath            string
+	QueryPageEnabled    bool
+	KubernetesEnabled   bool
+	FirstRunTourEnabled bool
 }
 
 func loadConfig() config {
@@ -47,6 +49,8 @@ func loadConfig() config {
 		Parity:              os.Getenv("SOBS_PARITY") == "1",
 		DataDir:             envOr("SOBS_DATA_DIR", "./data"),
 		Port:                envOr("SOBS_PORT", "8799"),
+		StaticDir:           envOr("SOBS_STATIC_DIR", "static"),
+		TemplateDir:         envOr("SOBS_TEMPLATE_DIR", "templates"),
 		SecretKey:           envOr("SOBS_SECRET_KEY", "sobs-dev-secret-key"),
 		EncryptionSecret:    os.Getenv("SOBS_SETTINGS_ENCRYPTION_SECRET"),
 		BuildVersion:        envOr("BUILD_VERSION", "dev"),

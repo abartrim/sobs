@@ -28,16 +28,42 @@ import re
 # The BODY is never touched, so rendered-asset parity is unaffected.
 _DROP_HEADERS = {"date", "server", "connection", "transfer-encoding", "keep-alive"}
 
+# Filesystem-mtime / wall-clock-derived caching metadata on STATIC files. These are NOT
+# reproducible across hosts: Werkzeug's etag is `{st_mtime}-{size}-{adler32(abspath)}`
+# and last-modified/expires derive from the file mtime and the clock — git does not
+# preserve mtimes, so the capture host and any deploy host differ by construction. They
+# are caching metadata, not the rendered asset (the JS/CSS/JSON bytes, which ARE compared
+# byte-for-byte). Dropped only for filesystem-static responses; app-set deterministic
+# ETags (e.g. the content-hash ETags on /static/rum.js*) are NOT dropped — see
+# is_static_caching_header(). Documented in PARITY_STRATEGY.md §1.
+_STATIC_CACHE_HEADERS = {"last-modified", "etag", "expires"}
+
 # The signed session cookie: HMAC signature differs by signing implementation, but the
 # PAYLOAD must match. We compare the unsigned payload, not the signature bytes.
 _SESSION_COOKIE_RE = re.compile(rb"(sobs_session=)([^;]*)(.*)", re.IGNORECASE)
 
 
+# Werkzeug filesystem-static etag: "{mtime_float}-{size}-{adler32}". When a response
+# carries one of these, it's a filesystem-static file and its mtime/clock caching headers
+# are dropped (see _STATIC_CACHE_HEADERS).
+_FS_ETAG_RE = re.compile(r'^"?\d+\.\d+-\d+-\d+"?$')
+
+
+def _is_fs_static(headers: list) -> bool:
+    for name, value in headers:
+        if name.lower() == "etag" and _FS_ETAG_RE.match(value.strip()):
+            return True
+    return False
+
+
 def normalize(resp: dict) -> dict:
+    fs_static = _is_fs_static(resp["headers"])
     headers = []
     for name, value in resp["headers"]:
         lname = name.lower()
         if lname in _DROP_HEADERS:
+            continue
+        if fs_static and lname in _STATIC_CACHE_HEADERS:
             continue
         if lname == "set-cookie" and b"sobs_session=" in value.encode("latin1", "ignore"):
             headers.append([name, _normalize_session_cookie(value)])

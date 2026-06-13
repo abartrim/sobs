@@ -20,11 +20,11 @@ import (
 
 // Options mirrors the knobs of Python's json.dumps.
 type Options struct {
-	SortKeys     bool   // json.dumps(sort_keys=...)
-	EnsureASCII  bool   // json.dumps(ensure_ascii=...) -> non-ASCII as \uXXXX
-	ItemSep      string // separator between items: ", " (default) or "," (compact)
-	KeySep       string // separator between key and value: ": " (default) or ":"
-	TrailingNL   bool   // Flask/Quart jsonify appends "\n"
+	SortKeys    bool   // json.dumps(sort_keys=...)
+	EnsureASCII bool   // json.dumps(ensure_ascii=...) -> non-ASCII as \uXXXX
+	ItemSep     string // separator between items: ", " (default) or "," (compact)
+	KeySep      string // separator between key and value: ": " (default) or ":"
+	TrailingNL  bool   // Flask/Quart jsonify appends "\n"
 }
 
 // QuartJSONify is the option set Quart's jsonify uses for response bodies. Pinned from

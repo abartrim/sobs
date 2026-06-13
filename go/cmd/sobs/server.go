@@ -37,6 +37,9 @@ func (s *server) routes() {
 	// Phase 1: first real parity route. app.py: health() -> jsonify({...}).
 	s.mux.HandleFunc("/health", s.handleHealth)
 
+	// Static assets — served byte-for-byte from static/ (Quart's default static endpoint).
+	s.mux.HandleFunc("/static/", s.handleStatic)
+
 	// TODO (Phase 1+): register real handlers here, one per app.py @app.route.
 	//   s.mux.HandleFunc("/", s.handleSummary)
 	//   s.mux.HandleFunc("/api/...", s.handleX)
