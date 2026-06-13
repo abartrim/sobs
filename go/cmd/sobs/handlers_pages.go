@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 // HTML page handlers. Pages render Jinja templates via the render engine; feature-gated
@@ -88,6 +89,44 @@ func (s *server) handleListReportsPage(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	s.renderPage(w, "reports.html", "list_reports", map[string]any{"reports": reports})
+}
+
+// GET /settings/kubernetes — app.py view_k8s_settings: render with k8s settings + flash.
+func (s *server) handleViewK8sSettings(w http.ResponseWriter, r *http.Request) {
+	val, _ := s.appSetting("kubernetes.enabled")
+	msgType := r.URL.Query().Get("msg_type")
+	if msgType == "" {
+		msgType = "success"
+	}
+	s.renderPage(w, "settings_kubernetes.html", "view_k8s_settings", map[string]any{
+		"k8s_settings": map[string]any{"kubernetes.enabled": val},
+		"flash_msg":    r.URL.Query().Get("msg"),
+		"flash_type":   msgType,
+	})
+}
+
+// GET /settings/enrichment — app.py view_enrichment_settings: geo/cve flags + backfill.
+func (s *server) handleViewEnrichmentSettings(w http.ResponseWriter, r *http.Request) {
+	cveLastScan, _ := s.appSetting("enrichment.cve_last_scan")
+	maxRel := 300
+	if raw, ok := s.appSetting("enrichment.github_backfill_max_releases"); ok {
+		if n, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
+			if n < 1 {
+				n = 1
+			} else if n > 2000 {
+				n = 2000
+			}
+			maxRel = n
+		}
+	}
+	s.renderPage(w, "settings_enrichment.html", "view_enrichment_settings", map[string]any{
+		"geo_enabled":                        s.appSettingBool("enrichment.geo_enabled", true),
+		"cve_enabled":                        s.appSettingBool("enrichment.cve_enabled", true),
+		"cve_last_scan":                      cveLastScan,
+		"github_backfill_max_releases":       maxRel,
+		"github_backfill_min_releases":       1,
+		"github_backfill_max_releases_limit": 2000,
+	})
 }
 
 // GET /kubernetes — app.py view_kubernetes: 404 string when k8s is disabled (fixture).

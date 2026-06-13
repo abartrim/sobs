@@ -325,3 +325,11 @@ routes:
     path: "/dashboards"
     methods: [GET]
     request: {method: GET}
+  - id: get__settings_kubernetes
+    path: "/settings/kubernetes"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__settings_enrichment
+    path: "/settings/enrichment"
+    methods: [GET]
+    request: {method: GET}
