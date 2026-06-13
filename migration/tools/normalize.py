@@ -68,17 +68,44 @@ def normalize(resp: dict) -> dict:
 
 
 def _normalize_session_cookie(value: str) -> str:
-    # Quart secure cookie = base64(payload).timestamp.signature  — keep the payload,
-    # blank timestamp+signature. If the format differs, compare the decoded session
-    # dict instead (left as a TODO hook for the rare session-setting routes).
+    # Quart secure cookie = payload.timestamp.signature, where payload is base64(json) or,
+    # when itsdangerous decided zlib shrinks it, ".".base64(zlib(json)). We DECODE the payload
+    # to the session dict and emit a canonical sorted JSON, then blank timestamp+signature.
+    # Comparing the decoded dict (not the raw base64) makes the result independent of the
+    # compress/no-compress decision — Go's stdlib zlib is a few bytes larger than CPython's, so
+    # the two disagree at the threshold; the underlying flash payload is identical either way.
     raw = value.encode("latin1", "ignore")
     m = _SESSION_COOKIE_RE.match(raw)
     if not m:
         return value
     cookie_val = m.group(2).decode("latin1")
-    payload = cookie_val.split(".", 1)[0]  # the unsigned payload segment
     rest = m.group(3).decode("latin1")
-    return f"sobs_session={payload}.<sig>{rest}"
+    segments = cookie_val.split(".")
+    # The last two segments are the timestamp and signature; the rest is the payload (which is
+    # itself ".".join-able for the compressed ".{b64}" form).
+    payload = ".".join(segments[:-2]) if len(segments) >= 3 else segments[0]
+    canonical = _decode_session_payload(payload)
+    if canonical is None:
+        # Unknown format: fall back to the raw payload segment (signature blanked).
+        return f"sobs_session={payload}.<sig>{rest}"
+    return f"sobs_session={canonical}.<sig>{rest}"
+
+
+def _decode_session_payload(payload: str) -> str | None:
+    import base64
+    import json
+    import zlib
+
+    try:
+        compressed = payload.startswith(".")
+        b64 = payload[1:] if compressed else payload
+        data = base64.urlsafe_b64decode(b64 + "=" * (-len(b64) % 4))
+        if compressed:
+            data = zlib.decompress(data)
+        session = json.loads(data)
+        return json.dumps(session, sort_keys=True, separators=(",", ":"))
+    except Exception:
+        return None
 
 
 def _header_multiset(headers: list) -> list:

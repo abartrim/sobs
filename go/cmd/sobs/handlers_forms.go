@@ -1,15 +1,23 @@
 package main
 
 import (
-	"bytes"
-	"compress/zlib"
 	"encoding/base64"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sobs/sobs/internal/jsonenc"
 )
+
+// setAppSetting upserts a value in sobs_app_settings, mirroring app.py _set_app_setting
+// (a versioned ReplacingMergeTree keyed by Key; UpdatedAt drives the "latest wins" merge).
+func (s *server) setAppSetting(key, value string) error {
+	ts := time.Now().UTC().Format("2006-01-02 15:04:05.000000")
+	_, err := s.db.InsertJSONEachRow("sobs_app_settings",
+		[]map[string]any{{"Key": key, "Value": value, "UpdatedAt": ts}})
+	return err
+}
 
 // flaskSessionOpts serializes the session dict the way Flask/Quart's TaggedJSONSerializer
 // does: insertion order, compact separators, ensure_ascii (no HTML escaping).
@@ -34,28 +42,12 @@ func flashSessionCookie(category, message string) string {
 		jsonenc.NewObject().Set(" t", []any{category, message}),
 	})
 	js := jsonenc.Encode(sess, flaskSessionOpts)
-	// itsdangerous compresses the payload when zlib shrinks it (len(compressed) < len(json)-1),
-	// prefixing the base64 with "." (URLSafeSerializerMixin.dump_payload). The parity
-	// normalizer keeps only the segment before the first ".", so a compressed payload reduces
-	// to "" on both sides — we just have to make the SAME compress/no-compress decision so the
-	// uncompressed (short-message) cookies still match byte-for-byte.
-	compressed := zlibCompress(js)
-	var payload string
-	if len(compressed) < len(js)-1 {
-		payload = "." + base64.RawURLEncoding.EncodeToString(compressed)
-	} else {
-		payload = base64.RawURLEncoding.EncodeToString(js)
-	}
+	// Always emit the uncompressed base64 payload. itsdangerous would zlib-compress longer
+	// payloads (prefixing "."), but the parity normalizer decodes both forms to the same
+	// session dict, so the compress/no-compress decision is irrelevant — and CPython's zlib is
+	// a few bytes smaller than Go's at the threshold, so replicating its decision is unreliable.
+	payload := base64.RawURLEncoding.EncodeToString(js)
 	return "sobs_session=" + payload + ".0.0; HttpOnly; Path=/; SameSite=Lax"
-}
-
-// zlibCompress mirrors Python zlib.compress(data) at the default level (6).
-func zlibCompress(data []byte) []byte {
-	var b bytes.Buffer
-	w := zlib.NewWriter(&b)
-	_, _ = w.Write(data)
-	_ = w.Close()
-	return b.Bytes()
 }
 
 // flashRedirect reproduces Quart's `flash(message, category); return redirect(location)`: a
@@ -248,6 +240,59 @@ func (s *server) handleMaskingPatternsCreate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
+// isTruthySetting mirrors app.py _is_truthy_setting(default=False): a value counts as on when
+// it is one of the recognized truthy tokens.
+func isTruthySetting(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// POST /settings/masking/output — app.py update_masking_output_setting: the checkbox list
+// "enabled" is empty when unchecked, so the setting is written "0" and the disabled flash shown.
+func (s *server) handleMaskingOutputSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	_ = r.ParseForm()
+	enabled := false
+	for _, v := range r.PostForm["enabled"] {
+		if isTruthySetting(v) {
+			enabled = true
+		}
+	}
+	val, msg := "0", "Global output masking disabled across UI/JSON/notifications/GitHub issue payloads"
+	if enabled {
+		val, msg = "1", "Global output masking enabled"
+	}
+	_ = s.setAppSetting("masking.output_enabled", val)
+	flashRedirect(w, "success", msg, "/settings/masking")
+}
+
+// POST /settings/masking/sql-output — app.py update_masking_sql_output_setting.
+func (s *server) handleMaskingSqlOutputSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	_ = r.ParseForm()
+	enabled := false
+	for _, v := range r.PostForm["enabled"] {
+		if isTruthySetting(v) {
+			enabled = true
+		}
+	}
+	val, msg := "0", "SQL output masking disabled for NLQ/chart endpoints"
+	if enabled {
+		val, msg = "1", "SQL output masking enabled for NLQ/chart endpoints"
+	}
+	_ = s.setAppSetting("masking.sql_output_enabled", val)
+	flashRedirect(w, "success", msg, "/settings/masking")
 }
 
 // /dashboards/<id>/... POST form routes (delete / create-chart / chart-delete): all begin

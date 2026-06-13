@@ -565,6 +565,16 @@ func (s *server) handleViewAiSettings(w http.ResponseWriter, r *http.Request) {
 
 // GET /settings/repositories — app.py view_settings_repositories. Empty apps/AI settings.
 func (s *server) handleViewSettingsRepositories(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// app.py register_repository: an empty form lacks the required name/repository.
+		_ = r.ParseForm()
+		if r.PostFormValue("name") == "" || r.PostFormValue("repository") == "" {
+			flashRedirect(w, "warning", "App name and repository are required", "/settings/repositories")
+			return
+		}
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
 	s.renderPage(w, "settings_repositories.html", "view_settings_repositories", map[string]any{
 		"apps":                      []any{},
 		"github_token_configured":   false,

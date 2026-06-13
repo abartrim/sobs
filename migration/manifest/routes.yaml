@@ -855,3 +855,15 @@ routes:
     path: "/settings/masking/patterns/delete"
     methods: [POST]
     request: {method: POST, json: {}}
+  - id: post__settings_repositories
+    path: "/settings/repositories"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_masking_output
+    path: "/settings/masking/output"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_masking_sql_output
+    path: "/settings/masking/sql-output"
+    methods: [POST]
+    request: {method: POST}
