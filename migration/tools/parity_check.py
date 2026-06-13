@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -82,16 +83,44 @@ def _route_key(path: str, methods: list) -> str:
     return f"{primary} {path}"
 
 
+def _route_regex(path: str):
+    """Compile a Flask rule path (with <param>/<conv:param>) into a regex that matches the
+    concrete paths a manifest entry would use. Literal paths match themselves."""
+    parts = re.split(r"(<[^>]+>)", path)
+    out = []
+    for p in parts:
+        if p.startswith("<") and p.endswith(">"):
+            conv = p[1:-1].split(":")[0] if ":" in p[1:-1] else ""
+            out.append(".+" if conv == "path" else "[^/]+")
+        else:
+            out.append(re.escape(p))
+    return re.compile("^" + "".join(out) + "$")
+
+
 def _compute_uncovered(routes: list, generated: list, excluded: set) -> list[str]:
-    """Authoritative routes (minus exclusions) whose (method, path) no manifest entry
-    covers. These are SILENT GAPS — not ported, not tested — and they fail the run."""
-    manifest_keys = {_route_key(r["path"], r.get("methods", [])) for r in routes}
+    """Authoritative routes (minus exclusions) that no manifest entry covers. A manifest
+    entry covers a generated route when the primary methods match AND the manifest's
+    (concrete) path equals the rule, or matches the rule's <param> pattern. These are
+    SILENT GAPS — not ported, not tested — and they fail the run."""
+    # Index manifest entries by primary method -> list of concrete paths.
+    by_method: dict = {}
+    for r in routes:
+        method = _route_key(r["path"], r.get("methods", [])).split(" ", 1)[0]
+        by_method.setdefault(method, []).append(r["path"])
     uncovered = set()
     for g in generated:
         if g.get("id") in excluded:
             continue
-        if _route_key(g["path"], g.get("methods", [])) not in manifest_keys:
-            uncovered.add(_route_key(g["path"], g.get("methods", [])))
+        key = _route_key(g["path"], g.get("methods", []))
+        method, gpath = key.split(" ", 1)
+        candidates = by_method.get(method, [])
+        if gpath in candidates:
+            continue
+        if "<" in gpath:
+            rx = _route_regex(gpath)
+            if any(rx.match(mp) for mp in candidates):
+                continue
+        uncovered.add(key)
     return sorted(uncovered)
 
 

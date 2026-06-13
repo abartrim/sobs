@@ -377,3 +377,15 @@ routes:
     path: "/api/ai/conversation"
     methods: [GET]
     request: {method: GET}
+  - id: get__api_tags_log_rec1
+    path: "/api/tags/log/rec1"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_traces_span_abc
+    path: "/api/traces/span/abc"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_table_explorer_table_otel_logs
+    path: "/api/table-explorer/table/otel_logs"
+    methods: [GET]
+    request: {method: GET}
