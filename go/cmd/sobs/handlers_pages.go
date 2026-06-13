@@ -192,6 +192,17 @@ func (s *server) listDerivedSignalDimensions() (services, signals, sources []any
 
 // GET /metrics/rules — app.py view_metrics_rules.
 func (s *server) handleViewMetricsRules(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// app.py create_metric_rule: an empty form lacks the required name/source/signal and
+		// flashes a warning without inserting.
+		_ = r.ParseForm()
+		if r.PostFormValue("name") == "" || r.PostFormValue("source") == "" || r.PostFormValue("signal") == "" {
+			flashRedirect(w, "warning", "Rule name, source, and signal are required", "/metrics/rules")
+			return
+		}
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
 	openPanel := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("open_panel")))
 	if openPanel != "auto-rules" && openPanel != "auto-dashboard" {
 		openPanel = ""

@@ -165,6 +165,14 @@ def _source_parity_env(env: dict) -> None:
             env.setdefault(k.strip(), v.strip().strip('"'))
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None  # treat 3xx as a terminal response (raises HTTPError, caught below)
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def _replay(route: dict) -> dict:
     req = route.get("request") or {}
     method = (req.get("method") or route["methods"][0]).upper()
@@ -178,9 +186,15 @@ def _replay(route: dict) -> dict:
     if req.get("json") is not None:
         data = json.dumps(req["json"]).encode()
         headers["Content-Type"] = "application/json"
+    elif req.get("body_b64"):
+        import base64
+
+        data = base64.b64decode(req["body_b64"])
     r = urllib.request.Request(f"http://{HOST}:{PORT}{path}", data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(r, timeout=10) as resp:
+        # Do NOT follow redirects: the Quart test client returns the raw 3xx (Location +
+        # flash cookie), so the Go replay must compare that response, not the redirect target.
+        with _NO_REDIRECT_OPENER.open(r, timeout=10) as resp:
             return {
                 "status": resp.status,
                 "headers": [[k, v] for k, v in resp.headers.items()],

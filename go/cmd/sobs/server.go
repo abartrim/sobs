@@ -85,6 +85,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/api/enrichment/cve/findings/", s.handleCveDispositionSub)
 	s.mux.HandleFunc("/api/dashboards/", s.handleDashboardSub)
 	s.mux.HandleFunc("/errors/", s.handleErrorSub)
+	s.mux.HandleFunc("/reports/", s.handleReportsFormSub)
 	s.mux.HandleFunc("/api/ai/helper/actions/manifest", s.handleApiAiHelperActionsManifest)
 	s.mux.HandleFunc("/api/ai/helper/capabilities", s.handleApiAiHelperCapabilities)
 	s.mux.HandleFunc("/api/ai/helper/chats/", s.handleApiAiHelperChatDetail)

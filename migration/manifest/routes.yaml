@@ -699,3 +699,11 @@ routes:
   - id: get__v1_rum_assets__id
     path: "/v1/rum/assets/nonexistent"
     methods: [GET]
+  - id: post__reports__id_delete
+    path: "/reports/nonexistent/delete"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__metrics_rules
+    path: "/metrics/rules"
+    methods: [POST]
+    request: {method: POST}

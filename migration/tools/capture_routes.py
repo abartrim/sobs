@@ -82,8 +82,12 @@ async def capture_one(client, route: dict) -> tuple[str, int, int]:
 
 
 async def run(app, routes: list[dict]) -> None:
-    client = app.test_client()
+    # A FRESH test client per route: each request starts with an empty session, so flash()
+    # messages do not accumulate across routes (Quart flashes persist in the session until a
+    # render consumes them — a shared client would pile redirect-route flashes into later
+    # cookies, making the goldens capture-order-dependent).
     for route in routes:
+        client = app.test_client()
         rid, status, n = await capture_one(client, route)
         print(f"  captured {rid}: {status} {n}B")
 
