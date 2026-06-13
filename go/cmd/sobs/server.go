@@ -73,6 +73,8 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/api/web-traffic/geo", s.handleApiWebTrafficGeo)
 	s.mux.HandleFunc("/api/dashboards/spec/options", s.handleApiDashboardsSpecOptions)
 	s.mux.HandleFunc("/api/dashboards/spec/templates", s.handleApiDashboardsSpecTemplates)
+	s.mux.HandleFunc("/api/ai/field-hints", s.handleApiAiFieldHints)
+	s.mux.HandleFunc("/api/logs/field-hints", s.handleApiLogsFieldHints)
 	s.mux.HandleFunc("/api/mcp/keys", s.handleApiMcpKeys)
 	s.mux.HandleFunc("/api/settings/masking/rules", s.handleApiMaskingRules)
 

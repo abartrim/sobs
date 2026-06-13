@@ -287,6 +287,44 @@ func strsToAny(ss []string) []any {
 	return out
 }
 
+// GET /api/ai/field-hints — app.py api_ai_field_hints: static field/operator/keyword/
+// function/snippet catalog (field values empty on the fixture).
+func (s *server) handleApiAiFieldHints(w http.ResponseWriter, r *http.Request) {
+	v, err := parseJSONValue(aiFieldHintsStaticJSON)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+// GET /api/logs/field-hints — app.py api_logs_field_hints: static catalog + DB-derived
+// attr_keys/tag_keys/tag_values (empty on the fixture).
+func (s *server) handleApiLogsFieldHints(w http.ResponseWriter, r *http.Request) {
+	v, err := parseJSONValue(logsFieldHintsStaticJSON)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	obj, ok := v.(*jsonenc.Object)
+	if !ok {
+		obj = jsonenc.NewObject()
+	}
+	obj.Set("attr_keys", s.distinctStrings(
+		"SELECT DISTINCT AttrKey FROM sobs_log_attr_keys FINAL WHERE RecordType='log' AND IsDeleted=0 ORDER BY AttrKey"))
+	tagKeys := s.distinctStrings(
+		"SELECT DISTINCT TagKey FROM sobs_record_tags FINAL WHERE RecordType='log' AND IsDeleted=0 ORDER BY TagKey LIMIT 100")
+	obj.Set("tag_keys", tagKeys)
+	tagValues := jsonenc.NewObject()
+	for _, tk := range tagKeys {
+		key, _ := tk.(string)
+		tagValues.Set(key, s.distinctStrings(
+			"SELECT DISTINCT TagValue FROM sobs_record_tags FINAL WHERE RecordType='log' AND TagKey=? AND IsDeleted=0 ORDER BY TagValue LIMIT 20", key))
+	}
+	obj.Set("tag_values", tagValues)
+	writeJSON(w, http.StatusOK, obj)
+}
+
 // GET /api/dashboards/spec/templates — app.py list_chart_spec_templates: the static
 // chart-spec template catalog (request-independent). Re-serialized via jsonify.
 func (s *server) handleApiDashboardsSpecTemplates(w http.ResponseWriter, r *http.Request) {

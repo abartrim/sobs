@@ -357,3 +357,11 @@ routes:
     path: "/api/dashboards/spec/templates"
     methods: [GET]
     request: {method: GET}
+  - id: get__api_ai_field_hints
+    path: "/api/ai/field-hints"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_logs_field_hints
+    path: "/api/logs/field-hints"
+    methods: [GET]
+    request: {method: GET}

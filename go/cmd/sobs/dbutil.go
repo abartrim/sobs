@@ -231,6 +231,20 @@ func parseReportFiltersNative(raw string) any {
 	return map[string]any{}
 }
 
+// distinctStrings runs a query returning one string column and collects the values.
+func (s *server) distinctStrings(query string, params ...any) []any {
+	out := []any{}
+	res, err := s.db.Execute(query, params...)
+	if err != nil || len(res.Columns) == 0 {
+		return out
+	}
+	col := res.Columns[0]
+	for _, m := range rowMaps(res) {
+		out = append(out, cStr(m, col))
+	}
+	return out
+}
+
 // countRows runs a `SELECT count() AS c …` and returns the integer (0 on error).
 func (s *server) countRows(query string) int {
 	res, err := s.db.Execute(query)

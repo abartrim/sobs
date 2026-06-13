@@ -34,6 +34,15 @@ var signalLabelsJSON []byte
 //go:embed assets/chart_spec_templates.json
 var chartSpecTemplatesJSON []byte
 
+// field-hints static config (operators/keywords/functions/snippets/fields) — the
+// query-derived parts (attr_keys/tag_keys/tag_values) are computed in the handler.
+//
+//go:embed assets/logs_field_hints_static.json
+var logsFieldHintsStaticJSON []byte
+
+//go:embed assets/ai_field_hints_static.json
+var aiFieldHintsStaticJSON []byte
+
 // GET /service-worker.js — fixed JS + push-notification headers (app.py:26461).
 func (s *server) handleServiceWorker(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
