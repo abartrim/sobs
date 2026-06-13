@@ -17,7 +17,31 @@ type safeString struct{ s string }
 // names, dotted attribute access, function/method calls with positional+keyword args,
 // tuple/list literals, and the template filters the SOBS templates use.
 func (e *Engine) evalExpr(expr string, ctx *scope) (any, error) {
-	return e.evalOr(strings.TrimSpace(expr), ctx)
+	return e.evalTernary(strings.TrimSpace(expr), ctx)
+}
+
+// evalTernary handles Jinja's inline conditional `A if COND [else B]` (lowest precedence).
+// With no else and a false condition, the result is undefined -> empty string.
+func (e *Engine) evalTernary(s string, ctx *scope) (any, error) {
+	l, r, ok := splitTopOp(s, " if ")
+	if !ok {
+		return e.evalOr(s, ctx)
+	}
+	cond, falseExpr := r, ""
+	if c, f, ok2 := splitTopOp(r, " else "); ok2 {
+		cond, falseExpr = c, f
+	}
+	cv, err := e.evalOr(strings.TrimSpace(cond), ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !isFalsey(cv) {
+		return e.evalOr(strings.TrimSpace(l), ctx)
+	}
+	if strings.TrimSpace(falseExpr) == "" {
+		return "", nil
+	}
+	return e.evalTernary(strings.TrimSpace(falseExpr), ctx)
 }
 
 func (e *Engine) evalOr(s string, ctx *scope) (any, error) {
@@ -263,6 +287,27 @@ func (e *Engine) callMethod(objExpr, method, argstr string, ctx *scope) (any, er
 		return nil, err
 	}
 	argList, _ := args.([]any)
+	// String methods used by templates.
+	if str, isStr := obj.(string); isStr {
+		switch method {
+		case "startswith":
+			if len(argList) > 0 {
+				return strings.HasPrefix(str, toString(argList[0])), nil
+			}
+			return false, nil
+		case "endswith":
+			if len(argList) > 0 {
+				return strings.HasSuffix(str, toString(argList[0])), nil
+			}
+			return false, nil
+		case "lower":
+			return strings.ToLower(str), nil
+		case "upper":
+			return strings.ToUpper(str), nil
+		case "strip":
+			return strings.TrimSpace(str), nil
+		}
+	}
 	m, ok := obj.(map[string]any)
 	if method == "get" && ok {
 		var key string

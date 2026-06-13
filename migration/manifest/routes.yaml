@@ -337,3 +337,7 @@ routes:
     path: "/settings/masking"
     methods: [GET]
     request: {method: GET}
+  - id: get__settings
+    path: "/settings"
+    methods: [GET]
+    request: {method: GET}

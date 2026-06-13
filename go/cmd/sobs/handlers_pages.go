@@ -93,6 +93,40 @@ func (s *server) handleListReportsPage(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, "reports.html", "list_reports", map[string]any{"reports": reports})
 }
 
+// queryAllowedTables mirrors sorted(_QUERY_ALLOWED_TABLES) (app.py).
+var queryAllowedTables = []any{
+	"hyperdx_sessions", "otel_logs", "otel_metrics_1m_agg", "otel_metrics_gauge",
+	"otel_metrics_gauge_pinned", "otel_metrics_histogram", "otel_metrics_histogram_pinned",
+	"otel_metrics_sum", "otel_metrics_sum_pinned", "otel_traces", "sobs_anomaly_rules",
+	"sobs_raw_windows", "v_derived_signals_1m", "v_derived_signals_anomaly",
+	"v_otel_metrics_1m", "v_otel_metrics_anomaly", "v_otel_metrics_dedup",
+	"v_otel_metrics_signal_context",
+}
+
+// GET /settings — app.py view_settings: the config hub (counts + flags).
+func (s *server) handleViewSettings(w http.ResponseWriter, r *http.Request) {
+	cnt := func(table string) int {
+		return s.countRows("SELECT count() AS c FROM " + table + " FINAL WHERE IsDeleted=0")
+	}
+	aiURL, _ := s.appSetting("ai.endpoint_url")
+	aiModel, _ := s.appSetting("ai.model")
+	kEnabled, _ := s.appSetting("kubernetes.enabled")
+	backup, _ := s.appSetting("data_management.backup_enabled")
+	s.renderPage(w, "settings.html", "view_settings", map[string]any{
+		"tag_rule_count":               cnt("sobs_tag_rules"),
+		"anomaly_rule_count":           cnt("sobs_anomaly_rules"),
+		"agent_rule_count":             cnt("sobs_agent_rules"),
+		"ai_configured":                aiURL != "" && aiModel != "",
+		"notification_channel_count":   cnt("sobs_notification_channels"),
+		"notification_rule_count":      cnt("sobs_notification_rules"),
+		"masking_custom_key_count":     len(s.loadJSONStringListSetting("masking.custom_keys")),
+		"masking_custom_pattern_count": len(s.loadJSONStringListSetting("masking.custom_patterns")),
+		"kubernetes_view_enabled":      kEnabled == "1",
+		"backup_enabled":               backup == "1",
+		"query_allowed_tables":         queryAllowedTables,
+	})
+}
+
 // GET /settings/kubernetes — app.py view_k8s_settings: render with k8s settings + flash.
 func (s *server) handleViewK8sSettings(w http.ResponseWriter, r *http.Request) {
 	val, _ := s.appSetting("kubernetes.enabled")

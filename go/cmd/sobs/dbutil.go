@@ -218,6 +218,15 @@ func parseReportFiltersNative(raw string) any {
 	return map[string]any{}
 }
 
+// countRows runs a `SELECT count() AS c …` and returns the integer (0 on error).
+func (s *server) countRows(query string) int {
+	res, err := s.db.Execute(query)
+	if err != nil || len(res.Rows) == 0 {
+		return 0
+	}
+	return cInt(rowMaps(res)[0], "c")
+}
+
 // dbError reproduces the generic 500 JSON some handlers return on a query exception
 // ({"ok": false, "error": "..."}). Most parity routes never hit this on the fixture DB.
 func (s *server) dbError(w http.ResponseWriter, err error) {
