@@ -140,6 +140,22 @@ const methodNotAllowed405Body = "<!doctype html>\n<html lang=en>\n<title>405 Met
 // v1 ingest endpoints are POST-only; a GET yields Quart's 405 with Allow: POST, OPTIONS.
 // (The POST ingest branch lands with the OTLP work.)
 func (s *server) handleV1IngestGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		switch r.URL.Path {
+		case "/v1/logs":
+			s.v1IngestOTLP(w, r, "resourceLogs", "scopeLogs", "logRecords")
+		case "/v1/metrics":
+			s.v1IngestOTLP(w, r, "resourceMetrics", "scopeMetrics", "metrics")
+		case "/v1/traces":
+			s.v1IngestOTLP(w, r, "resourceSpans", "scopeSpans", "spans")
+		case "/v1/rum/assets":
+			// ingest_rum_asset: 503 when the asset-upload signing key is unconfigured (fixture).
+			s.v1err(w, http.StatusServiceUnavailable, "Asset upload signing key is not configured")
+		default:
+			http.Error(w, "not implemented", http.StatusNotImplemented)
+		}
+		return
+	}
 	w.Header().Set("Allow", "POST, OPTIONS")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.Itoa(len(methodNotAllowed405Body)))

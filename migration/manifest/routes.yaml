@@ -771,3 +771,35 @@ routes:
     path: "/settings/masking/patterns"
     methods: [POST]
     request: {method: POST}
+  - id: post__v1_apps
+    path: "/v1/apps"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__v1_apps__id_releases
+    path: "/v1/apps/nonexistent/releases"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__v1_logs
+    path: "/v1/logs"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__v1_metrics
+    path: "/v1/metrics"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__v1_traces
+    path: "/v1/traces"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__v1_rum_assets
+    path: "/v1/rum/assets"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__v1_rum_client_token
+    path: "/v1/rum/client-token"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__v1_releases__id_artifacts_meta
+    path: "/v1/releases/nonexistent/artifacts/meta"
+    methods: [POST]
+    request: {method: POST, json: {}}

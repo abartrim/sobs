@@ -40,13 +40,22 @@ func (s *server) rowExists(query string, params ...any) bool {
 // GET /v1/apps/<app_id>  and  /v1/apps/<app_id>/releases — app.py get_app_registry_entry /
 // list_app_releases. Empty registry on the fixture -> 404.
 func (s *server) handleV1AppByID(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodPatch {
+	if r.Method != http.MethodGet && r.Method != http.MethodPatch && r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/v1/apps/")
 	appExists := func(id string) bool {
 		return s.rowExists("SELECT 1 FROM sobs_apps FINAL WHERE (Id=? OR Slug=?) AND IsDeleted=0 LIMIT 1", id, id)
+	}
+	// POST /v1/apps/<app_id>/releases (register a release): 404 when the app is absent.
+	if appID, ok := strings.CutSuffix(rest, "/releases"); ok && r.Method == http.MethodPost {
+		if !appExists(appID) {
+			s.v1err(w, http.StatusNotFound, "app not found")
+			return
+		}
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
 	}
 	// PATCH /v1/apps/<app_id> (update_app_registry_entry): _find_app_by_id absent -> 404
 	// {"error":"not found"} before any body validation. The fixture has no apps.
@@ -76,13 +85,23 @@ func (s *server) handleV1AppByID(w http.ResponseWriter, r *http.Request) {
 // GET /v1/releases/<release_id>  and  /v1/releases/<release_id>/artifacts — app.py
 // get_release / list_release_artifacts. Empty registry -> 404.
 func (s *server) handleV1ReleaseByID(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/v1/releases/")
 	relExists := func(id string) bool {
 		return s.rowExists("SELECT 1 FROM sobs_app_releases FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1", id)
+	}
+	// POST /v1/releases/<release_id>/artifacts/meta (register artifact metadata): 404 when the
+	// release is absent.
+	if relID, ok := strings.CutSuffix(rest, "/artifacts/meta"); ok && r.Method == http.MethodPost {
+		if !relExists(relID) {
+			s.v1err(w, http.StatusNotFound, "release not found")
+			return
+		}
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
 	}
 	if relID, ok := strings.CutSuffix(rest, "/artifacts"); ok {
 		if !relExists(relID) {
@@ -102,6 +121,15 @@ func (s *server) handleV1ReleaseByID(w http.ResponseWriter, r *http.Request) {
 // GET /v1/apps — app.py list_apps (app.py:10301). All non-deleted apps, optional ?q filter
 // on name/slug. Empty registry on the fixture -> [].
 func (s *server) handleV1Apps(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// register_app_registry_entry requires a name; an empty body fails validation.
+		if bstr(bodyMap(r), "name") == "" {
+			s.v1err(w, http.StatusBadRequest, "name is required")
+			return
+		}
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
 	res, err := s.db.Execute("SELECT * FROM sobs_apps FINAL WHERE IsDeleted=0 ORDER BY Name ASC")
 	if err != nil {
 		s.dbError(w, err)
