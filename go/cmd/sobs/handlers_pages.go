@@ -243,6 +243,26 @@ func (s *server) activePartRows(table string) int {
 		"WHERE active = 1 AND database = currentDatabase() AND table = '" + table + "'")
 }
 
+// GET /logs — app.py view_logs. Empty otel_logs on the fixture (all lists/stats empty).
+func (s *server) handleViewLogs(w http.ResponseWriter, r *http.Request) {
+	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM otel_logs WHERE ServiceName!='' ORDER BY ServiceName")
+	levels := s.distinctStrings("SELECT DISTINCT SeverityText FROM otel_logs ORDER BY SeverityText")
+	eventNames := s.distinctStrings("SELECT DISTINCT EventName FROM otel_logs WHERE EventName!='' ORDER BY EventName")
+	s.renderPage(w, "logs.html", "view_logs", map[string]any{
+		"logs": []any{}, "total": 0, "limit": 200, "offset": 0, "q": "",
+		"level": "", "selected_levels": []any{}, "service": "", "selected_services": []any{},
+		"trace_id": "", "trace_ids_csv": "", "trace_ids_count": 0, "sql_where": "",
+		"from_ts": "", "to_ts": "", "services": services, "levels": levels,
+		"event_names": eventNames, "event_name": "", "selected_event_names": []any{},
+		"error_msg": "", "sort_by": "Timestamp", "sort_dir": "desc",
+		"run_advanced_analysis": false, "level_stats": map[string]any{},
+		"service_stats": map[string]any{}, "tag_stats": []any{}, "advanced_analysis": nil,
+		// epoch-0 formatted under determinism (stats not generated); display is "" so its
+		// {% if %} block is skipped.
+		"stats_generated_at_iso": "1969-12-31T17:00:00+00:00", "stats_generated_at_display": "", "stats_generated_age_s": 0,
+	})
+}
+
 // GET /metrics — app.py view_metrics. Empty derived signals on the fixture.
 func (s *server) handleViewMetrics(w http.ResponseWriter, r *http.Request) {
 	services, signals, sources := s.listDerivedSignalDimensions()
