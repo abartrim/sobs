@@ -287,6 +287,17 @@ func strsToAny(ss []string) []any {
 	return out
 }
 
+// GET /api/dashboards/spec/templates — app.py list_chart_spec_templates: the static
+// chart-spec template catalog (request-independent). Re-serialized via jsonify.
+func (s *server) handleApiDashboardsSpecTemplates(w http.ResponseWriter, r *http.Request) {
+	templates, err := parseJSONValue(chartSpecTemplatesJSON)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("templates", templates))
+}
+
 // GET /api/mcp/keys — mcp.py mcp_api_list_keys: load the mcp.api_keys setting (a JSON
 // array of key descriptors; "[]" default) and return id/label/created_at/expires_at only.
 func (s *server) handleApiMcpKeys(w http.ResponseWriter, r *http.Request) {

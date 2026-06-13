@@ -28,6 +28,12 @@ var maskingDefaultsJSON []byte
 //go:embed assets/signal_labels.json
 var signalLabelsJSON []byte
 
+// chartSpecTemplatesJSON is the static chart-spec template catalog (app.py CHART_TEMPLATES
+// + _default_chart_spec), served by /api/dashboards/spec/templates.
+//
+//go:embed assets/chart_spec_templates.json
+var chartSpecTemplatesJSON []byte
+
 // GET /service-worker.js — fixed JS + push-notification headers (app.py:26461).
 func (s *server) handleServiceWorker(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")

@@ -353,3 +353,7 @@ routes:
     path: "/settings/notifications"
     methods: [GET]
     request: {method: GET}
+  - id: get__api_dashboards_spec_templates
+    path: "/api/dashboards/spec/templates"
+    methods: [GET]
+    request: {method: GET}
