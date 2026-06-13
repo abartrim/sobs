@@ -1,0 +1,72 @@
+columns substreams version: 1
+17 columns:
+1 substreams for column `Timestamp`:
+	Timestamp
+1 substreams for column `TimestampTime`:
+	TimestampTime
+3 substreams for column `TraceId`:
+	TraceId.sparse.idx
+	TraceId.size
+	TraceId
+3 substreams for column `SpanId`:
+	SpanId.sparse.idx
+	SpanId.size
+	SpanId
+2 substreams for column `TraceFlags`:
+	TraceFlags.sparse.idx
+	TraceFlags
+3 substreams for column `SeverityText`:
+	SeverityText.dict_prefix
+	SeverityText.dict
+	SeverityText
+2 substreams for column `SeverityNumber`:
+	SeverityNumber.sparse.idx
+	SeverityNumber
+3 substreams for column `ServiceName`:
+	ServiceName.dict_prefix
+	ServiceName.dict
+	ServiceName
+2 substreams for column `Body`:
+	Body.size
+	Body
+3 substreams for column `ResourceSchemaUrl`:
+	ResourceSchemaUrl.dict_prefix
+	ResourceSchemaUrl.dict
+	ResourceSchemaUrl
+6 substreams for column `ResourceAttributes`:
+	ResourceAttributes%2Ekeys.dict_prefix
+	ResourceAttributes.size0
+	ResourceAttributes%2Ekeys.dict
+	ResourceAttributes%2Ekeys
+	ResourceAttributes%2Evalues.size
+	ResourceAttributes%2Evalues
+3 substreams for column `ScopeSchemaUrl`:
+	ScopeSchemaUrl.dict_prefix
+	ScopeSchemaUrl.dict
+	ScopeSchemaUrl
+3 substreams for column `ScopeName`:
+	ScopeName.sparse.idx
+	ScopeName.size
+	ScopeName
+3 substreams for column `ScopeVersion`:
+	ScopeVersion.dict_prefix
+	ScopeVersion.dict
+	ScopeVersion
+6 substreams for column `ScopeAttributes`:
+	ScopeAttributes%2Ekeys.dict_prefix
+	ScopeAttributes.size0
+	ScopeAttributes%2Ekeys.dict
+	ScopeAttributes%2Ekeys
+	ScopeAttributes%2Evalues.size
+	ScopeAttributes%2Evalues
+6 substreams for column `LogAttributes`:
+	LogAttributes%2Ekeys.dict_prefix
+	LogAttributes.size0
+	LogAttributes%2Ekeys.dict
+	LogAttributes%2Ekeys
+	LogAttributes%2Evalues.size
+	LogAttributes%2Evalues
+3 substreams for column `EventName`:
+	EventName.sparse.idx
+	EventName.size
+	EventName

@@ -1,0 +1,9 @@
+columns format version: 1
+7 columns:
+`Id` String
+`Name` String
+`Description` String
+`PageType` LowCardinality(String)
+`FiltersJson` String
+`IsDeleted` UInt8
+`Version` UInt64

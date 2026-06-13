@@ -1,0 +1,7 @@
+columns format version: 1
+5 columns:
+`Id` String
+`Name` String
+`Description` String
+`IsDeleted` UInt8
+`Version` UInt64

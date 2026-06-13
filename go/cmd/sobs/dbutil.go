@@ -172,6 +172,32 @@ func queryIntClamp(r *http.Request, key string, def, lo, hi int) int {
 	return n
 }
 
+// appSetting mirrors _get_app_setting: SELECT Value FROM sobs_app_settings FINAL WHERE
+// Key=? — returns the trimmed value and whether it is present+non-empty.
+func (s *server) appSetting(key string) (string, bool) {
+	res, err := s.db.Execute("SELECT Value FROM sobs_app_settings FINAL WHERE Key = ? LIMIT 1", key)
+	if err != nil || len(res.Rows) == 0 {
+		return "", false
+	}
+	v := strings.TrimSpace(cStr(rowMaps(res)[0], "Value"))
+	return v, v != ""
+}
+
+// appSettingBool mirrors the `(_get_app_setting(key) or "<default>").lower() in
+// ("1","true","yes")` idiom: when the setting is absent, def is the fallback truthiness.
+func (s *server) appSettingBool(key string, def bool) bool {
+	v, ok := s.appSetting(key)
+	if !ok {
+		return def
+	}
+	switch strings.ToLower(v) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
 // dbError reproduces the generic 500 JSON some handlers return on a query exception
 // ({"ok": false, "error": "..."}). Most parity routes never hit this on the fixture DB.
 func (s *server) dbError(w http.ResponseWriter, err error) {

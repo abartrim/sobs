@@ -236,3 +236,19 @@ routes:
     path: "/api/data-management/backup/list"
     methods: [GET]
     request: {method: GET}
+  - id: get__api_ai_span_attributes
+    path: "/api/ai/span-attributes"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_enrichment_cve_findings
+    path: "/api/enrichment/cve/findings"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_web_traffic_geo
+    path: "/api/web-traffic/geo"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_dashboards_spec_options
+    path: "/api/dashboards/spec/options"
+    methods: [GET]
+    request: {method: GET}

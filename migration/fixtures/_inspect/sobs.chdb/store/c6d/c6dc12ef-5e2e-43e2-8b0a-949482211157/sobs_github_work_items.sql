@@ -1,0 +1,41 @@
+ATTACH TABLE _ UUID '5bb3636c-f9ce-4f18-9ccc-ddc321d2c827'
+(
+    `Id` String CODEC(ZSTD(1)),
+    `CreatedAt` DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1)),
+    `CompletedAt` DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1)),
+    `AgentRunId` String CODEC(ZSTD(1)),
+    `AgentRuleId` String CODEC(ZSTD(1)),
+    `AgentRuleName` String CODEC(ZSTD(1)),
+    `AgentAction` LowCardinality(String) CODEC(ZSTD(1)),
+    `ServiceName` String CODEC(ZSTD(1)),
+    `AnomalyRuleId` String CODEC(ZSTD(1)),
+    `AnomalyState` LowCardinality(String) CODEC(ZSTD(1)),
+    `SignalSource` String CODEC(ZSTD(1)),
+    `SignalName` String CODEC(ZSTD(1)),
+    `SignalValue` Float64 CODEC(ZSTD(1)),
+    `GithubRepo` String CODEC(ZSTD(1)),
+    `DedupKey` String CODEC(ZSTD(1)),
+    `DedupDecision` LowCardinality(String) DEFAULT 'new_issue' CODEC(ZSTD(1)),
+    `DedupConfidence` Float64 DEFAULT 0 CODEC(ZSTD(1)),
+    `IssueNumber` UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    `IssueUrl` String CODEC(ZSTD(1)),
+    `CanonicalIssueNumber` UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    `CanonicalIssueUrl` String CODEC(ZSTD(1)),
+    `RelatedIssueUrls` String CODEC(ZSTD(1)),
+    `OccurrenceCount` UInt32 DEFAULT 1 CODEC(T64, ZSTD(1)),
+    `IssueState` LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
+    `IssueTitle` String CODEC(ZSTD(1)),
+    `AnalysisSummary` String CODEC(ZSTD(1)),
+    `SuggestionSummary` String CODEC(ZSTD(1)),
+    `CopilotAssignmentRequestedAt` UInt64 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    `CopilotAssignmentStatus` LowCardinality(String) DEFAULT 'not_requested' CODEC(ZSTD(1)),
+    `CopilotAssignmentReason` String CODEC(ZSTD(1)),
+    `PrLinked` UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    `PrNumber` UInt32 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    `PrUrl` String CODEC(ZSTD(1)),
+    `IsDeleted` UInt8 DEFAULT 0 CODEC(T64, ZSTD(1)),
+    `Version` UInt64 DEFAULT 0 CODEC(T64, ZSTD(1))
+)
+ENGINE = ReplacingMergeTree(Version)
+ORDER BY (CreatedAt, AgentRunId)
+SETTINGS index_granularity = 8192
