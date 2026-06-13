@@ -87,6 +87,19 @@ func cStrDef(m map[string]any, key, def string) string {
 	}
 }
 
+// cFloat mirrors Python float(row[key]) — Float64 columns arrive as JSON numbers.
+func cFloat(m map[string]any, key string) float64 {
+	switch v := m[key].(type) {
+	case float64:
+		return v
+	case string:
+		f, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return f
+	default:
+		return 0
+	}
+}
+
 // cBool mirrors Python bool(int(row[key])) — the IsDeleted/IsDismissed UInt8 idiom.
 func cBool(m map[string]any, key string) bool {
 	return cInt(m, key) != 0

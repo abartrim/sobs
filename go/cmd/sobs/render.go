@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,6 +13,25 @@ import (
 // mobileBreakpointMax mirrors app.py MOBILE_BREAKPOINT_MAX.
 const mobileBreakpointMax = "575.98px"
 
+// sourceLabels mirrors app.py _SOURCE_LABELS (signal source -> display name).
+var sourceLabels = map[string]string{
+	"logs": "Logs", "traces": "Traces", "errors": "Errors",
+	"rum_vitals": "RUM Vitals", "metrics": "Metrics",
+}
+
+// signalLabels is the parsed _SIGNAL_LABELS ("source|signal" -> {label, description}).
+var signalLabels = func() map[string]map[string]string {
+	m := map[string]map[string]string{}
+	_ = json.Unmarshal(signalLabelsJSON, &m)
+	return m
+}()
+
+// pyTitle approximates Python str.title() for ASCII identifier fallbacks (capitalize the
+// first letter of each space-separated word).
+func pyTitle(s string) string {
+	return strings.Title(strings.ToLower(s)) //nolint:staticcheck
+}
+
 // newEngine builds the template engine with the globals the templates call.
 func (s *server) newEngine() *render.Engine {
 	e := render.New(s.cfg.TemplateDir)
@@ -20,7 +40,40 @@ func (s *server) newEngine() *render.Engine {
 		// No session flashes in parity captures -> empty list.
 		return []any{}, nil
 	})
+	// Label globals (app.jinja_env.globals): source_label, signal_label, signal_description.
+	e.AddFunc("source_label", func(pos []any, kw map[string]any) (any, error) {
+		src := argStr(pos, 0)
+		if v, ok := sourceLabels[src]; ok {
+			return v, nil
+		}
+		return pyTitle(strings.ReplaceAll(src, "_", " ")), nil
+	})
+	e.AddFunc("signal_label", func(pos []any, kw map[string]any) (any, error) {
+		src, sig := argStr(pos, 0), argStr(pos, 1)
+		if entry, ok := signalLabels[src+"|"+sig]; ok {
+			return entry["label"], nil
+		}
+		return pyTitle(strings.ReplaceAll(sig, "_", " ")), nil
+	})
+	e.AddFunc("signal_description", func(pos []any, kw map[string]any) (any, error) {
+		src, sig := argStr(pos, 0), argStr(pos, 1)
+		if entry, ok := signalLabels[src+"|"+sig]; ok {
+			return entry["description"], nil
+		}
+		return "", nil
+	})
 	return e
+}
+
+// argStr returns positional arg i as a string, or "".
+func argStr(pos []any, i int) string {
+	if i < len(pos) {
+		if s, ok := pos[i].(string); ok {
+			return s
+		}
+		return fmt.Sprintf("%v", pos[i])
+	}
+	return ""
 }
 
 // urlFor mirrors Quart's url_for for the cases the templates use: a named endpoint

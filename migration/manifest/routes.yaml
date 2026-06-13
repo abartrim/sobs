@@ -341,3 +341,7 @@ routes:
     path: "/settings"
     methods: [GET]
     request: {method: GET}
+  - id: get__metrics_rules
+    path: "/metrics/rules"
+    methods: [GET]
+    request: {method: GET}

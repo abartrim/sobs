@@ -125,6 +125,14 @@ func (e *Engine) Render(name string, ctx map[string]any) (string, error) {
 			if err != nil {
 				return "", err
 			}
+			// Register the explicitly-imported names AND every sibling macro in the same
+			// file: in Jinja, macros within a module can call one another, so an imported
+			// macro's body may invoke a sibling that wasn't named in the import.
+			for mn, md := range ipr.macros {
+				if _, exists := macros[mn]; !exists {
+					macros[mn] = md
+				}
+			}
 			for _, mn := range imp.names {
 				if md, ok := ipr.macros[mn]; ok {
 					macros[mn] = md

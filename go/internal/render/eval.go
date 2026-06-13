@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -96,6 +97,13 @@ func (e *Engine) evalNot(s string, ctx *scope) (any, error) {
 
 func (e *Engine) evalCompare(s string, ctx *scope) (any, error) {
 	s = strings.TrimSpace(s)
+	// Jinja `is`/`is not` tests (checked before in/==): x is [not] none|defined|string|…
+	if l, r, ok := splitTopOp(s, " is not "); ok {
+		return e.isTest(l, r, ctx, true)
+	}
+	if l, r, ok := splitTopOp(s, " is "); ok {
+		return e.isTest(l, r, ctx, false)
+	}
 	// 'not in' first (longer operator), then 'in', '==', '!='
 	if l, r, ok := splitTopOp(s, " not in "); ok {
 		return e.membership(l, r, ctx, true)
@@ -110,6 +118,32 @@ func (e *Engine) evalCompare(s string, ctx *scope) (any, error) {
 		return e.compareEq(l, r, ctx, false)
 	}
 	return e.evalFiltered(s, ctx)
+}
+
+// isTest implements Jinja `x is TEST` / `x is not TEST` for the tests templates use.
+func (e *Engine) isTest(l, test string, ctx *scope, negate bool) (any, error) {
+	lv, err := e.evalFiltered(strings.TrimSpace(l), ctx)
+	if err != nil {
+		return nil, err
+	}
+	var result bool
+	switch strings.TrimSpace(test) {
+	case "none", "None", "undefined":
+		result = lv == nil
+	case "defined":
+		result = lv != nil
+	case "string":
+		_, result = lv.(string)
+	case "mapping":
+		_, result = lv.(map[string]any)
+	case "iterable", "sequence":
+		_, isList := lv.([]any)
+		_, isStr := lv.(string)
+		result = isList || isStr
+	default:
+		result = !isFalsey(lv)
+	}
+	return result != negate, nil
 }
 
 func (e *Engine) membership(l, r string, ctx *scope, negate bool) (any, error) {
@@ -143,11 +177,11 @@ func (e *Engine) compareEq(l, r string, ctx *scope, want bool) (any, error) {
 	return equalValues(lv, rv) == want, nil
 }
 
-// evalFiltered handles an atom followed by | filters.
+// evalFiltered handles an atom (with + concatenation/addition) followed by | filters.
 func (e *Engine) evalFiltered(expr string, ctx *scope) (any, error) {
 	expr = strings.TrimSpace(expr)
 	parts := splitTop(expr, '|')
-	val, err := e.evalAtom(strings.TrimSpace(parts[0]), ctx)
+	val, err := e.evalAddSub(strings.TrimSpace(parts[0]), ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +192,56 @@ func (e *Engine) evalFiltered(expr string, ctx *scope) (any, error) {
 		}
 	}
 	return val, nil
+}
+
+// evalAddSub handles top-level `+` (list concat / numeric add / string concat). Only `+`
+// is supported (the only binary arithmetic the templates use at expression level).
+func (e *Engine) evalAddSub(s string, ctx *scope) (any, error) {
+	parts := splitTop(s, '+')
+	if len(parts) == 1 {
+		return e.evalAtom(strings.TrimSpace(s), ctx)
+	}
+	acc, err := e.evalAtom(strings.TrimSpace(parts[0]), ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range parts[1:] {
+		rv, err := e.evalAtom(strings.TrimSpace(p), ctx)
+		if err != nil {
+			return nil, err
+		}
+		acc = addValues(acc, rv)
+	}
+	return acc, nil
+}
+
+func addValues(a, b any) any {
+	if al, ok := a.([]any); ok {
+		if bl, ok := b.([]any); ok {
+			return append(append([]any{}, al...), bl...)
+		}
+	}
+	if ai, ok := a.(int); ok {
+		if bi, ok := b.(int); ok {
+			return ai + bi
+		}
+	}
+	if af, ok := numFloat(a); ok {
+		if bf, ok := numFloat(b); ok {
+			return af + bf
+		}
+	}
+	return toString(a) + toString(b)
+}
+
+func numFloat(v any) (float64, bool) {
+	switch x := v.(type) {
+	case int:
+		return float64(x), true
+	case float64:
+		return x, true
+	}
+	return 0, false
 }
 
 func (e *Engine) evalAtom(s string, ctx *scope) (any, error) {
@@ -240,6 +324,10 @@ func (e *Engine) evalAtom(s string, ctx *scope) (any, error) {
 	// int literal
 	if n, err := strconv.Atoi(s); err == nil {
 		return n, nil
+	}
+	// float literal (e.g. 0.0, 1.5) — checked before dotted-attribute access
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		return f, nil
 	}
 	// call: name(args) — name may be dotted (method call, e.g. config.get(...))
 	if i := strings.IndexByte(s, '('); i >= 0 && strings.HasSuffix(s, ")") {
@@ -472,6 +560,54 @@ func (e *Engine) applyFilter(f string, val any, ctx *scope) (any, error) {
 		return val, nil
 	case "length", "count":
 		return lengthOf(val), nil
+	case "lower":
+		return strings.ToLower(toString(val)), nil
+	case "upper":
+		return strings.ToUpper(toString(val)), nil
+	case "trim":
+		return strings.TrimSpace(toString(val)), nil
+	case "capitalize":
+		s := strings.ToLower(toString(val))
+		if s == "" {
+			return s, nil
+		}
+		return strings.ToUpper(s[:1]) + s[1:], nil
+	case "title":
+		return strings.Title(strings.ToLower(toString(val))), nil //nolint:staticcheck
+	case "replace":
+		args, _ := e.evalSeq(splitTop(argstr, ','), ctx)
+		al, _ := args.([]any)
+		if len(al) >= 2 {
+			return strings.ReplaceAll(toString(val), toString(al[0]), toString(al[1])), nil
+		}
+		return val, nil
+	case "join":
+		sep := ""
+		if argstr != "" {
+			a, err := e.evalExpr(argstr, ctx)
+			if err != nil {
+				return nil, err
+			}
+			sep = toString(a)
+		}
+		items := toList(val)
+		parts := make([]string, len(items))
+		for i, it := range items {
+			parts[i] = toString(it)
+		}
+		return strings.Join(parts, sep), nil
+	case "first":
+		if items := toList(val); len(items) > 0 {
+			return items[0], nil
+		}
+		return "", nil
+	case "last":
+		if items := toList(val); len(items) > 0 {
+			return items[len(items)-1], nil
+		}
+		return "", nil
+	case "list":
+		return toList(val), nil
 	default:
 		return nil, fmt.Errorf("unsupported filter %q", name)
 	}
@@ -501,9 +637,29 @@ func toString(v any) string {
 		return "False"
 	case int:
 		return strconv.Itoa(x)
+	case float64:
+		return formatPyFloat(x)
 	default:
 		return fmt.Sprintf("%v", x)
 	}
+}
+
+// formatPyFloat mirrors Python str(float): shortest round-trip with a trailing ".0" for
+// whole numbers (250.0, not 250).
+func formatPyFloat(f float64) string {
+	switch {
+	case math.IsInf(f, 1):
+		return "inf"
+	case math.IsInf(f, -1):
+		return "-inf"
+	case math.IsNaN(f):
+		return "nan"
+	}
+	s := strconv.FormatFloat(f, 'g', -1, 64)
+	if !strings.ContainsAny(s, ".eE") {
+		s += ".0"
+	}
+	return s
 }
 
 // tojson reproduces Jinja's tojson: json.dumps(compact) then HTML-escape <>&' to \uXXXX.
@@ -539,6 +695,8 @@ func isFalsey(v any) bool {
 	case safeString:
 		return x.s == ""
 	case int:
+		return x == 0
+	case float64:
 		return x == 0
 	case []any:
 		return len(x) == 0

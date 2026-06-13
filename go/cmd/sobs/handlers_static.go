@@ -22,6 +22,12 @@ var serviceWorkerJS []byte
 //go:embed assets/masking_defaults.json
 var maskingDefaultsJSON []byte
 
+// signalLabelsJSON maps "source|signal" -> {label, description} (from app.py _SIGNAL_LABELS),
+// powering the signal_label/signal_description Jinja globals.
+//
+//go:embed assets/signal_labels.json
+var signalLabelsJSON []byte
+
 // GET /service-worker.js — fixed JS + push-notification headers (app.py:26461).
 func (s *server) handleServiceWorker(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")

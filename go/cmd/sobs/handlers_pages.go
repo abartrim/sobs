@@ -127,6 +127,87 @@ func (s *server) handleViewSettings(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// loadAnomalyRulesCtx mirrors _load_anomaly_rules (app.py): native maps for templates,
+// with float thresholds (rendered Python-exact by the engine).
+func (s *server) loadAnomalyRulesCtx() []any {
+	res, err := s.db.Execute(
+		"SELECT Id, Name, RuleType, SignalSource, SignalName, ServiceName, AttrFingerprint, Comparator, " +
+			"WarningThreshold, CriticalThreshold, SecondarySignalSource, SecondarySignalName, " +
+			"SecondaryComparator, SecondaryWarningThreshold, SecondaryCriticalThreshold, MinSampleCount, " +
+			"SeasonalBucketsJson FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 ORDER BY Name")
+	out := []any{}
+	if err != nil {
+		return out
+	}
+	for _, m := range rowMaps(res) {
+		ruleType := cStr(m, "RuleType")
+		if ruleType == "" {
+			ruleType = "threshold"
+		}
+		secCmp := cStr(m, "SecondaryComparator")
+		if secCmp == "" {
+			secCmp = "gt"
+		}
+		out = append(out, map[string]any{
+			"id": cStr(m, "Id"), "name": cStr(m, "Name"), "rule_type": ruleType,
+			"source": cStr(m, "SignalSource"), "signal": cStr(m, "SignalName"),
+			"service": cStr(m, "ServiceName"), "attr_fp": cStr(m, "AttrFingerprint"),
+			"comparator":                   cStr(m, "Comparator"),
+			"warning_threshold":            cFloat(m, "WarningThreshold"),
+			"critical_threshold":           cFloat(m, "CriticalThreshold"),
+			"secondary_source":             cStr(m, "SecondarySignalSource"),
+			"secondary_signal":             cStr(m, "SecondarySignalName"),
+			"secondary_comparator":         secCmp,
+			"secondary_warning_threshold":  cFloat(m, "SecondaryWarningThreshold"),
+			"secondary_critical_threshold": cFloat(m, "SecondaryCriticalThreshold"),
+			"min_sample_count":             cInt(m, "MinSampleCount"),
+			"seasonal_buckets_json":        cStr(m, "SeasonalBucketsJson"),
+		})
+	}
+	return out
+}
+
+// listDerivedSignalDimensions mirrors _list_derived_signal_dimensions.
+func (s *server) listDerivedSignalDimensions() (services, signals, sources []any) {
+	services = []any{}
+	res, err := s.db.Execute(
+		"SELECT DISTINCT ServiceName FROM otel_logs WHERE ServiceName != ''" +
+			" UNION DISTINCT SELECT DISTINCT ServiceName FROM otel_traces WHERE ServiceName != ''" +
+			" UNION DISTINCT SELECT DISTINCT ServiceName FROM hyperdx_sessions WHERE ServiceName != ''" +
+			" ORDER BY ServiceName")
+	if err == nil {
+		for _, m := range rowMaps(res) {
+			services = append(services, cStr(m, "ServiceName"))
+		}
+	}
+	sig := []string{"log_volume", "error_volume", "error_ratio", "trace_volume", "trace_error_ratio",
+		"latency_p95_ms", "exception_volume", "LCP", "FID", "CLS", "INP", "TTFB", "FCP"}
+	sort.Strings(sig)
+	signals = strsToAny(sig)
+	sources = []any{"errors", "logs", "rum_vitals", "traces"}
+	return
+}
+
+// GET /metrics/rules — app.py view_metrics_rules.
+func (s *server) handleViewMetricsRules(w http.ResponseWriter, r *http.Request) {
+	openPanel := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("open_panel")))
+	if openPanel != "auto-rules" && openPanel != "auto-dashboard" {
+		openPanel = ""
+	}
+	services, signals, sources := s.listDerivedSignalDimensions()
+	s.renderPage(w, "metrics_rules.html", "view_metrics_rules", map[string]any{
+		"rules":                  s.loadAnomalyRulesCtx(),
+		"services":               services,
+		"signals":                signals,
+		"sources":                sources,
+		"auto_preview":           []any{},
+		"auto_summary":           nil,
+		"auto_dashboard_preview": []any{},
+		"auto_dashboard_summary": nil,
+		"auto_open_panel":        openPanel,
+	})
+}
+
 // GET /settings/kubernetes — app.py view_k8s_settings: render with k8s settings + flash.
 func (s *server) handleViewK8sSettings(w http.ResponseWriter, r *http.Request) {
 	val, _ := s.appSetting("kubernetes.enabled")
