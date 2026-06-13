@@ -867,3 +867,11 @@ routes:
     path: "/settings/masking/sql-output"
     methods: [POST]
     request: {method: POST}
+  - id: post__settings_ai
+    path: "/settings/ai"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_enrichment
+    path: "/settings/enrichment"
+    methods: [POST]
+    request: {method: POST}

@@ -537,7 +537,30 @@ func (s *server) handleViewTagRules(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /settings/ai — app.py view_ai_settings. Empty AI settings -> all keys "".
+// aiSaveSkipKeys are the ai.* settings NOT written by the simple form loop in app.py
+// save_ai_settings (token-validation bookkeeping + the pricing fields handled separately).
+var aiSaveSkipKeys = map[string]bool{
+	"ai.github_token_expires_at": true, "ai.github_token_last_validated_at": true,
+	"ai.github_token_last_validation_status": true, "ai.github_token_last_validation_message": true,
+	"ai.model_pricing": true, "ai.model_pricing_confirmed": true,
+}
+
 func (s *server) handleViewAiSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// app.py save_ai_settings: write each ai.* key from its prefix-stripped form field
+		// (empty form -> ""), then flash success. Pricing/token-bookkeeping keys are skipped.
+		_ = r.ParseForm()
+		var aiKeys []string
+		_ = json.Unmarshal(aiSettingKeysJSON, &aiKeys)
+		for _, k := range aiKeys {
+			if aiSaveSkipKeys[k] {
+				continue
+			}
+			_ = s.setAppSetting(k, strings.TrimSpace(r.PostFormValue(strings.TrimPrefix(k, "ai."))))
+		}
+		flashRedirect(w, "success", "AI settings saved", "/settings/ai")
+		return
+	}
 	var keys []string
 	_ = json.Unmarshal(aiSettingKeysJSON, &keys)
 	settings := map[string]any{}
@@ -610,6 +633,28 @@ func (s *server) handleViewK8sSettings(w http.ResponseWriter, r *http.Request) {
 
 // GET /settings/enrichment — app.py view_enrichment_settings: geo/cve flags + backfill.
 func (s *server) handleViewEnrichmentSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// app.py save_enrichment_settings: geo/cve checkboxes (absent -> "false") + backfill
+		// max-releases (empty -> default 300), then flash success.
+		_ = r.ParseForm()
+		geo := "false"
+		if r.PostFormValue("geo_enabled") != "" {
+			geo = "true"
+		}
+		cve := "false"
+		if r.PostFormValue("cve_enabled") != "" {
+			cve = "true"
+		}
+		maxRel := strings.TrimSpace(r.PostFormValue("github_backfill_max_releases"))
+		if maxRel == "" {
+			maxRel = "300"
+		}
+		_ = s.setAppSetting("enrichment.geo_enabled", geo)
+		_ = s.setAppSetting("enrichment.cve_enabled", cve)
+		_ = s.setAppSetting("enrichment.github_backfill_max_releases", maxRel)
+		flashRedirect(w, "success", "Enrichment settings saved", "/settings/enrichment")
+		return
+	}
 	cveLastScan, _ := s.appSetting("enrichment.cve_last_scan")
 	maxRel := 300
 	if raw, ok := s.appSetting("enrichment.github_backfill_max_releases"); ok {
