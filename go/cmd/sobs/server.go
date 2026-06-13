@@ -34,6 +34,9 @@ func (s *server) routes() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
+	// Phase 1: first real parity route. app.py: health() -> jsonify({...}).
+	s.mux.HandleFunc("/health", s.handleHealth)
+
 	// TODO (Phase 1+): register real handlers here, one per app.py @app.route.
 	//   s.mux.HandleFunc("/", s.handleSummary)
 	//   s.mux.HandleFunc("/api/...", s.handleX)

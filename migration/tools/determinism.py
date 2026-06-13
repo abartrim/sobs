@@ -1,10 +1,17 @@
 """Freeze every entropy source so the Python app emits stable, reproducible bytes.
 
-MUST be imported *before* `app` is imported (so module-level timestamps freeze too):
+IMPORTANT — install AFTER importing the app, not before:
 
-    import migration.tools.determinism as determinism
-    determinism.install()
-    import app   # now frozen
+    import app                       # import heavy C extensions (pandas/numpy/pyarrow)
+    import determinism               # with the REAL clock
+    determinism.install()            # now freeze time/uuid/random for serving+capture
+
+Why after, not before: freezing the clock and replacing datetime.datetime with a
+subclass BEFORE importing pandas/numpy hangs their C-extension import (timing
+calibration / datetime use at import). Output timestamps are produced at REQUEST time
+(datetime.now() in handlers), so freezing post-import still yields byte-stable output.
+install() sweeps sys.modules to rebind `datetime` in every module that did
+`from datetime import datetime`, so app.py/mcp.py/masking.py all see the frozen class.
 
 The Go app mirrors these exact values when SOBS_PARITY=1 (see go/internal/clock,
 go/internal/idgen). The fixed instant and UUID/byte sequences are part of the parity
@@ -18,6 +25,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import os
+import sys
 import time as _time
 import uuid as _uuid
 
@@ -27,15 +35,18 @@ FIXED_DT_UTC = _dt.datetime(2024, 1, 2, 3, 4, 5, 0, tzinfo=_dt.timezone.utc)
 UUID_SEED = 0
 BYTE_SEED = b"sobs-parity-seed"
 
+_REAL_DATETIME = _dt.datetime  # captured before patching, for the sys.modules sweep
 _installed = False
 
 
 def install() -> None:
+    """Freeze time/datetime/uuid/random. Call AFTER the app (and pandas) are imported."""
     global _installed
     if _installed:
         return
     _installed = True
     _freeze_time()
+    _freeze_datetime()
     _freeze_uuid()
     _freeze_random_bytes()
 
@@ -44,8 +55,14 @@ def install() -> None:
 def _freeze_time() -> None:
     _time.time = lambda: FIXED_EPOCH  # type: ignore[assignment]
     _time.time_ns = lambda: int(FIXED_EPOCH * 1_000_000_000)  # type: ignore[assignment]
+    # perf_counter/monotonic feed latency fields that render into output (e.g.
+    # /health/db latency_ms). Freeze to a constant so any elapsed == 0.0.
+    _time.perf_counter = lambda: 0.0  # type: ignore[assignment]
+    _time.monotonic = lambda: 0.0  # type: ignore[assignment]
 
-    class _FrozenDateTime(_dt.datetime):
+
+def _freeze_datetime() -> None:
+    class _FrozenDateTime(_REAL_DATETIME):  # type: ignore[misc, valid-type]
         @classmethod
         def now(cls, tz=None):  # noqa: D401
             return FIXED_DT_UTC.astimezone(tz) if tz else FIXED_DT_UTC.replace(tzinfo=None)
@@ -58,17 +75,21 @@ def _freeze_time() -> None:
         def today(cls):
             return FIXED_DT_UTC.replace(tzinfo=None)
 
-    # Patch the datetime class app code references. NOTE: app.py does
-    # `from datetime import datetime` — patch there post-import too via patch_module().
     _dt.datetime = _FrozenDateTime  # type: ignore[misc]
+    # Sweep every already-imported module that bound the real datetime class by name
+    # (`from datetime import datetime`) and rebind it to the frozen subclass.
+    for mod in list(sys.modules.values()):
+        try:
+            if getattr(mod, "datetime", None) is _REAL_DATETIME:
+                mod.datetime = _FrozenDateTime  # type: ignore[attr-defined]
+        except Exception:
+            continue
 
 
 def patch_module(mod) -> None:
-    """Re-bind frozen names inside a module that did `from datetime import datetime`."""
-    if hasattr(mod, "datetime"):
-        mod.datetime = _dt.datetime
-    if hasattr(mod, "time") and isinstance(getattr(mod, "time"), type(_time)):
-        pass  # module imported the `time` module object; already patched in place
+    """Back-compat no-op-ish: ensure a specific module sees the frozen datetime."""
+    if getattr(mod, "datetime", None) is _REAL_DATETIME:
+        mod.datetime = _dt.datetime  # type: ignore[attr-defined]
 
 
 # ---- uuid -------------------------------------------------------------------------

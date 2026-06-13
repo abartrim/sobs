@@ -61,9 +61,12 @@ against itself can never validate the Go port.
 
 ## 3. Capture mechanism
 
-`capture_golden.py`:
-1. Imports `determinism.py` **before** importing `app` (monkeypatch must precede app
-   import so module-level timestamps are frozen too).
+`capture_golden.py` (and `bootstrap_phase1.py`):
+1. Imports `app` **first** (under the real clock), then calls `determinism.install()`.
+   Freezing before import hangs pandas/numpy/pyarrow's C-extension import, so the shim
+   freezes post-import and sweeps `sys.modules` to rebind `datetime` everywhere. Output
+   timestamps come from request-time `datetime.now()`, so post-import freezing is still
+   byte-stable. (Verified: import-then-freeze captures `/health` byte-for-byte.)
 2. Sources `parity_env.sh` values.
 3. Points the app at the seeded fixture DB (`SOBS_DATA_DIR=migration/fixtures/data`).
 4. Builds Quart's `app.test_client()`.

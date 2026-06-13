@@ -67,16 +67,17 @@ def _load_manifest() -> list[dict]:
 
 
 def _boot_app():
-    # Pin the parity environment, then freeze, then import the app.
+    # Pin the parity env, import the app under the REAL clock, THEN freeze. Freezing
+    # before import hangs pandas/numpy C-extension imports — see determinism.py.
     _source_parity_env()
     os.environ["SOBS_PARITY"] = "1"
+    FIXTURE_DATA.mkdir(parents=True, exist_ok=True)
     os.environ["SOBS_DATA_DIR"] = str(FIXTURE_DATA)
     import determinism
 
-    determinism.install()
     import app as app_module  # noqa: E402
 
-    determinism.patch_module(app_module)
+    determinism.install()
     return app_module.app
 
 
@@ -148,7 +149,11 @@ def _capture_all(app, routes: list[dict], only: str | None) -> dict[str, dict]:
             spec = _spec_request(route)
             results[route["id"]] = await _do_request(client, spec)
 
-    asyncio.get_event_loop().run_until_complete(run())
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(run())
+    finally:
+        loop.close()
     return results
 
 

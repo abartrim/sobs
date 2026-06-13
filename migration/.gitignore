@@ -5,7 +5,8 @@ fixtures/_gate0.chdb/
 golden/RESULTS.json
 tools/__pycache__/
 
-# The golden corpus itself (golden/<route_id>/) IS the parity contract — decide per repo
-# policy whether to commit it (reproducible CI, but large binary blobs) or regenerate it
-# from the frozen Python app via capture_golden.py. If regenerating in CI, uncomment:
-# golden/
+# The golden corpus is regenerated from the frozen Python app (bootstrap_phase1.py /
+# capture_golden.py). Not committed: large binary blobs, and some captures (static-file
+# headers) carry environment-derived mtimes. Regenerate locally to run parity_check.
+golden/
+_run/

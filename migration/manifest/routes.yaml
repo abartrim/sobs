@@ -19,21 +19,23 @@
 #              baking state into seed_fixtures.py so it's identical for both sides.
 
 routes:
-  # ---- Phase 1 smoke subset (start here) ----
-  - id: get__healthz
-    path: "/healthz"
+  # ---- Phase 1 smoke subset (real paths, verified against the live url_map) ----
+  # /health returns jsonify({"status":"ok","version":"1.0.0"}) — no DB. First JSON target.
+  - id: get__health
+    path: "/health"
     methods: [GET]
     request: {method: GET}
 
-  - id: get__root
-    path: "/"
+  # A first-party static asset — exercises static serving (no DB, no template).
+  - id: get__static_sobs_ansi_js
+    path: "/static/sobs-ansi.js"
     methods: [GET]
-    request:
-      method: GET
-      query: {from_ts: "1704160000", to_ts: "1704164645"}
+    request: {method: GET}
 
-  - id: get__summary_help
-    path: "/summary/help"          # representative *_help.html page; adjust to real path
+  # A *_help.html page — exercises the template engine + base.html chrome + context
+  # processor. Registered dynamically via _register_help_route.
+  - id: get__ai_help
+    path: "/ai/help"
     methods: [GET]
     request: {method: GET}
 

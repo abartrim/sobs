@@ -21,9 +21,12 @@ from __future__ import annotations
 
 import re
 
-# Headers whose VALUE is server/clock identity, not app output. Value is blanked but
-# presence + position is still compared (so a missing/extra Date still fails).
-_BLANK_VALUE_HEADERS = {"date", "server"}
+# Transport / server-identity headers: dropped entirely from BOTH sides before compare.
+# These are artifacts of the HTTP transport (real net/http server vs Quart test client),
+# never application output. Dropping (not blanking) avoids false presence-asymmetry
+# failures: the test client emits no Date/Connection; a live net/http server does.
+# The BODY is never touched, so rendered-asset parity is unaffected.
+_DROP_HEADERS = {"date", "server", "connection", "transfer-encoding", "keep-alive"}
 
 # The signed session cookie: HMAC signature differs by signing implementation, but the
 # PAYLOAD must match. We compare the unsigned payload, not the signature bytes.
@@ -34,8 +37,7 @@ def normalize(resp: dict) -> dict:
     headers = []
     for name, value in resp["headers"]:
         lname = name.lower()
-        if lname in _BLANK_VALUE_HEADERS:
-            headers.append([name, "<normalized>"])
+        if lname in _DROP_HEADERS:
             continue
         if lname == "set-cookie" and b"sobs_session=" in value.encode("latin1", "ignore"):
             headers.append([name, _normalize_session_cookie(value)])
