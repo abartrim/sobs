@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/sobs/sobs/internal/jsonenc"
 )
 
 // Func is a template-callable global (url_for, get_flashed_messages, signal_label, …).
@@ -87,11 +89,14 @@ func (s *scope) lookupDotted(path string) any {
 	parts := strings.Split(path, ".")
 	cur := s.lookup(parts[0])
 	for _, p := range parts[1:] {
-		m, ok := cur.(map[string]any)
-		if !ok {
+		switch m := cur.(type) {
+		case map[string]any:
+			cur = m[p]
+		case *jsonenc.Object:
+			cur, _ = m.Get(p)
+		default:
 			return nil
 		}
-		cur = m[p]
 	}
 	return cur
 }
@@ -359,6 +364,13 @@ func toList(v any) []any {
 	switch x := v.(type) {
 	case []any:
 		return x
+	case *jsonenc.Object:
+		// iterating a mapping yields its keys (Jinja), in insertion order
+		out := make([]any, 0, x.Len())
+		for _, k := range x.Keys() {
+			out = append(out, k)
+		}
+		return out
 	case nil:
 		return nil
 	default:

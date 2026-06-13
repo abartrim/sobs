@@ -474,6 +474,33 @@ func (s *server) handleViewTagRules(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /settings/ai — app.py view_ai_settings. Empty AI settings -> all keys "".
+func (s *server) handleViewAiSettings(w http.ResponseWriter, r *http.Request) {
+	var keys []string
+	_ = json.Unmarshal(aiSettingKeysJSON, &keys)
+	settings := map[string]any{}
+	for _, k := range keys {
+		settings[k] = ""
+	}
+	defPricing, _ := parseJSONValue(defaultAiPricingJSON)
+	savedPricing, _ := parseJSONValue(savedAiPricingJSON)
+	sources, _ := parseJSONValue(aiPricingSourcesJSON)
+	s.renderPage(w, "settings_ai.html", "view_ai_settings", map[string]any{
+		"settings":                  settings,
+		"anomaly_rules":             s.loadAnomalyRulesCtx(),
+		"tag_rules":                 []any{},
+		"github_token_expires_date": "",
+		"github_token_expiry_status": map[string]any{
+			"state": "unknown", "expires_at": "", "days_remaining": nil, "message": "Token expiry date not set"},
+		"github_token_validation_status": map[string]any{
+			"status": "", "message": "", "last_validated_at": ""},
+		"default_ai_pricing":          defPricing,
+		"saved_ai_pricing":            savedPricing,
+		"ai_pricing_sources":          sources,
+		"confirmed_ai_pricing_models": []any{},
+	})
+}
+
 // GET /settings/repositories — app.py view_settings_repositories. Empty apps/AI settings.
 func (s *server) handleViewSettingsRepositories(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, "settings_repositories.html", "view_settings_repositories", map[string]any{

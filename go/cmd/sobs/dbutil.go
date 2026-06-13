@@ -128,17 +128,52 @@ func toEncodable(v any) any {
 	}
 }
 
-// parseJSONValue decodes an arbitrary JSON document into a jsonenc-encodable tree
-// (objects/arrays/numbers preserved via UseNumber). Mirrors json.load(f) feeding into
-// jsonify — used by routes that load a static JSON catalog and re-serialize it.
+// parseJSONValue decodes a JSON document into a jsonenc-encodable tree, PRESERVING object
+// key insertion order (objects -> *jsonenc.Object, arrays -> []any, numbers -> json.Number).
+// Order matters for `.keys()`/`.items()`/`.values()` in templates (jsonify/tojson sort, but
+// e.g. default_ai_pricing.keys()|list does not).
 func parseJSONValue(raw []byte) (any, error) {
 	dec := json.NewDecoder(strings.NewReader(string(raw)))
 	dec.UseNumber()
-	var parsed any
-	if err := dec.Decode(&parsed); err != nil {
+	return decodeOrdered(dec)
+}
+
+func decodeOrdered(dec *json.Decoder) (any, error) {
+	tok, err := dec.Token()
+	if err != nil {
 		return nil, err
 	}
-	return toEncodable(parsed), nil
+	if delim, ok := tok.(json.Delim); ok {
+		switch delim {
+		case '{':
+			obj := jsonenc.NewObject()
+			for dec.More() {
+				keyTok, err := dec.Token()
+				if err != nil {
+					return nil, err
+				}
+				val, err := decodeOrdered(dec)
+				if err != nil {
+					return nil, err
+				}
+				obj.Set(keyTok.(string), val)
+			}
+			_, _ = dec.Token() // consume '}'
+			return obj, nil
+		case '[':
+			arr := []any{}
+			for dec.More() {
+				val, err := decodeOrdered(dec)
+				if err != nil {
+					return nil, err
+				}
+				arr = append(arr, val)
+			}
+			_, _ = dec.Token() // consume ']'
+			return arr, nil
+		}
+	}
+	return tok, nil // string / json.Number / bool / nil
 }
 
 // parseJSONObject decodes a stored JSON string into a jsonenc.Object, returning an empty
@@ -217,18 +252,16 @@ func (s *server) appSettingBool(key string, def bool) bool {
 // JSON responses; templates need native maps.)
 func parseReportFiltersNative(raw string) any {
 	if strings.TrimSpace(raw) == "" {
-		return map[string]any{}
+		return jsonenc.NewObject()
 	}
-	dec := json.NewDecoder(strings.NewReader(raw))
-	dec.UseNumber()
-	var v any
-	if dec.Decode(&v) != nil {
-		return map[string]any{}
+	v, err := parseJSONValue([]byte(raw))
+	if err != nil {
+		return jsonenc.NewObject()
 	}
-	if m, ok := v.(map[string]any); ok {
-		return m
+	if _, ok := v.(*jsonenc.Object); ok {
+		return v
 	}
-	return map[string]any{}
+	return jsonenc.NewObject()
 }
 
 // distinctStrings runs a query returning one string column and collects the values.

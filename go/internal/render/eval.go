@@ -542,6 +542,43 @@ func (e *Engine) callMethod(objExpr, method, argstr string, ctx *scope) (any, er
 			return strings.Title(strings.ToLower(str)), nil //nolint:staticcheck
 		}
 	}
+	// Ordered map (*jsonenc.Object): keys/values/items preserve insertion order.
+	if om, ok := obj.(*jsonenc.Object); ok {
+		switch method {
+		case "keys":
+			out := make([]any, 0, om.Len())
+			for _, k := range om.Keys() {
+				out = append(out, k)
+			}
+			return out, nil
+		case "values":
+			out := []any{}
+			for _, k := range om.Keys() {
+				v, _ := om.Get(k)
+				out = append(out, v)
+			}
+			return out, nil
+		case "items":
+			out := []any{}
+			for _, k := range om.Keys() {
+				v, _ := om.Get(k)
+				out = append(out, []any{k, v})
+			}
+			return out, nil
+		case "get":
+			key := ""
+			if len(argList) > 0 {
+				key = toString(argList[0])
+			}
+			if v, present := om.Get(key); present {
+				return v, nil
+			}
+			if len(argList) > 1 {
+				return argList[1], nil
+			}
+			return nil, nil
+		}
+	}
 	if m, ok := obj.(map[string]any); ok && (method == "values" || method == "keys") {
 		keys := make([]string, 0, len(m))
 		for k := range m {
@@ -682,6 +719,9 @@ func matchingSubscript(s string) int {
 // subscript indexes a map by string key or a list by integer index.
 func subscript(base, idx any) any {
 	switch b := base.(type) {
+	case *jsonenc.Object:
+		v, _ := b.Get(toString(idx))
+		return v
 	case map[string]any:
 		return b[toString(idx)]
 	case []any:
@@ -900,6 +940,8 @@ func isFalsey(v any) bool {
 		return len(x) == 0
 	case map[string]any:
 		return len(x) == 0
+	case *jsonenc.Object:
+		return x.Len() == 0
 	default:
 		return false
 	}

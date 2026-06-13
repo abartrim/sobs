@@ -54,6 +54,21 @@ var errorSourcesSQL string
 //go:embed assets/mcp_tools.json
 var mcpToolsJSON []byte
 
+// AI settings page static data: the 24 ai.* setting keys (all default ""), and the
+// pricing catalogs (default/saved/sources) — extracted from app.py for /settings/ai.
+//
+//go:embed assets/ai_setting_keys.json
+var aiSettingKeysJSON []byte
+
+//go:embed assets/default_ai_pricing.json
+var defaultAiPricingJSON []byte
+
+//go:embed assets/saved_ai_pricing.json
+var savedAiPricingJSON []byte
+
+//go:embed assets/ai_pricing_sources.json
+var aiPricingSourcesJSON []byte
+
 // errorIDExpr is app.py _error_id_sql_expr() — the stable ErrorId MD5 expression.
 const errorIDExpr = "lower(hex(MD5(concat(toString(Timestamp), '|', ServiceName, '|', " +
 	"if(mapContains(LogAttributes, 'exception.type'), LogAttributes['exception.type'], 'Error'), '|', " +

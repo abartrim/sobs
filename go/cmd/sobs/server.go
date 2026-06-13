@@ -108,6 +108,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/dashboards/new", s.handleNewDashboardForm)
 	s.mux.HandleFunc("/settings/kubernetes", s.handleViewK8sSettings)
 	s.mux.HandleFunc("/settings/repositories", s.handleViewSettingsRepositories)
+	s.mux.HandleFunc("/settings/ai", s.handleViewAiSettings)
 	s.mux.HandleFunc("/settings/tags", s.handleViewTagRules)
 	s.mux.HandleFunc("/settings/mcp", s.handleMcpSettingsPage)
 	s.mux.HandleFunc("/mcp", s.handleMcpEndpointGet)

@@ -68,6 +68,16 @@ func (o *Object) Set(k string, v any) *Object {
 	return o
 }
 
+// Keys returns the insertion-ordered keys. Get returns a value and whether present. Len is
+// the entry count. These let the template engine treat an Object as an ordered map (so
+// .keys()/.items() preserve order, unlike a Go map).
+func (o *Object) Keys() []string { return o.keys }
+func (o *Object) Get(k string) (any, bool) {
+	v, ok := o.vals[k]
+	return v, ok
+}
+func (o *Object) Len() int { return len(o.keys) }
+
 // Encode renders v to JSON bytes per opts.
 func Encode(v any, opts Options) []byte {
 	var b strings.Builder

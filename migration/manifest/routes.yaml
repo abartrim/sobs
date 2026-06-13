@@ -477,3 +477,7 @@ routes:
     path: "/mcp/tools"
     methods: [GET]
     request: {method: GET}
+  - id: get__settings_ai
+    path: "/settings/ai"
+    methods: [GET]
+    request: {method: GET}
