@@ -39,6 +39,17 @@ func (s *server) handleValidateRegex(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("sample", nil))
 }
 
+// POST /api/data-management/backup/run and /restore — app.py: 403 when the backup feature
+// is disabled (data_management.backup_enabled off by default on the fixture).
+func (s *server) handleDmBackupGuard(w http.ResponseWriter, r *http.Request) {
+	if !s.appSettingBool("data_management.backup_enabled", false) {
+		writeJSON(w, http.StatusForbidden,
+			jsonenc.NewObject().Set("ok", false).Set("message", "Backup feature is disabled"))
+		return
+	}
+	http.Error(w, "not implemented", http.StatusNotImplemented) // enabled branch: follow-up
+}
+
 // POST /api/{logs,ai}/validate-filter — empty filter -> {"issues":[],"normalized":"","ok":true}.
 func (s *server) handleValidateFilter(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().

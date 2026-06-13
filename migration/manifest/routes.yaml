@@ -517,3 +517,11 @@ routes:
     path: "/api/ai/validate-filter"
     methods: [POST]
     request: {method: POST, json: {}}
+  - id: post__api_data_management_backup_run
+    path: "/api/data-management/backup/run"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_data_management_restore
+    path: "/api/data-management/restore"
+    methods: [POST]
+    request: {method: POST, json: {}}
