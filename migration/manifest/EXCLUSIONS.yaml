@@ -1,0 +1,15 @@
+# Routes deliberately excluded from byte-for-byte parity. Each needs a reason and a
+# Phase-6 follow-up. The ONLY legitimate exclusions are routes that cannot be captured
+# deterministically AND are out of scope per AUDIT.md §10 (e.g. timing-dependent SSE).
+#
+# parity_check.py counts these as EXCLUDED (not a pass). "Migration complete" means
+# RED == 0 and EXCLUDED is only this documented set.
+#
+# Do NOT use exclusions to dodge hard routes. A tojson-heavy page is hard, not
+# excludable. Exclude only genuine non-determinism.
+
+exclusions: []
+  # - id: get__events_stream
+  #   reason: "Server-Sent Events; framing is timing-dependent, not byte-stable."
+  #   followup: "Phase 6 — integration test asserting event payloads, not raw stream bytes."
+  #   owner: "TBD"

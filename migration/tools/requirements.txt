@@ -1,0 +1,5 @@
+# Harness dependencies (Python side). The app's own requirements.txt is also needed to
+# import app.py for capture. Keep this list tiny — the harness is plumbing.
+pyyaml>=6.0        # parse manifest/routes.yaml (or provide routes.json to avoid even this)
+# (capture imports the app, so the project's runtime deps must be installed too:
+#  quart, chdb, opentelemetry-proto, cryptography, httpx, pandas, geoip2fast, sourcemap)

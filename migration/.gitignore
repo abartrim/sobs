@@ -1,0 +1,11 @@
+# Runtime / generated artifacts — not source.
+fixtures/data/
+fixtures/_run/
+fixtures/_gate0.chdb/
+golden/RESULTS.json
+tools/__pycache__/
+
+# The golden corpus itself (golden/<route_id>/) IS the parity contract — decide per repo
+# policy whether to commit it (reproducible CI, but large binary blobs) or regenerate it
+# from the frozen Python app via capture_golden.py. If regenerating in CI, uncomment:
+# golden/

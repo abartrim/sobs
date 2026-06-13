@@ -1,0 +1,57 @@
+# HUMAN-AUTHORED route manifest — the request specs that drive capture & replay.
+#
+# Start from routes.generated.yaml (run extract_routes.py --yaml). For each route, add
+# a `request:` block describing the EXACT request to issue and any `state:` setup the
+# route needs. A route with no `request:` is captured as a bare GET of its path with no
+# body — fine for simple pages, insufficient for POST/PATCH/stateful routes.
+#
+# The set of ids here MUST cover every id in routes.generated.yaml, minus EXCLUSIONS.yaml.
+# parity_check.py enforces this (no silent gaps).
+#
+# request fields:
+#   method:    override (defaults to the route's first method)
+#   query:     {k: v}  -> urlencoded query string
+#   headers:   {Name: value}
+#   json:      <obj>   -> body = json.dumps(obj), Content-Type: application/json
+#   body_b64:  "..."   -> raw body bytes (for protobuf OTLP, form posts, etc.)
+# state:       optional list of setup ops applied before the request (e.g. seed a
+#              specific row). Implement handlers in capture/replay as needed; prefer
+#              baking state into seed_fixtures.py so it's identical for both sides.
+
+routes:
+  # ---- Phase 1 smoke subset (start here) ----
+  - id: get__healthz
+    path: "/healthz"
+    methods: [GET]
+    request: {method: GET}
+
+  - id: get__root
+    path: "/"
+    methods: [GET]
+    request:
+      method: GET
+      query: {from_ts: "1704160000", to_ts: "1704164645"}
+
+  - id: get__summary_help
+    path: "/summary/help"          # representative *_help.html page; adjust to real path
+    methods: [GET]
+    request: {method: GET}
+
+  # ---- Example JSON route with a body ----
+  # - id: post__api_reports
+  #   path: "/api/reports"
+  #   methods: [POST]
+  #   request:
+  #     method: POST
+  #     json: {name: "fixture-report", query: "SELECT 1"}
+
+  # ---- Example OTLP protobuf ingest ----
+  # - id: post__v1_logs
+  #   path: "/v1/logs"
+  #   methods: [POST]
+  #   request:
+  #     method: POST
+  #     headers: {Content-Type: "application/x-protobuf"}
+  #     body_b64: "<base64 of a fixed ExportLogsServiceRequest>"
+
+  # … reconcile the remaining 185 routes from routes.generated.yaml here.
