@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+"""Re-capture golden responses for specific manifest routes against the seeded fixture DB.
+
+One app boot, deterministic. Reads request specs from manifest/routes.yaml and writes
+golden/<id>/{status,headers.txt,body.bin} — the exact layout parity_check.py replays.
+Use after seed_fixtures.py changes the data a route reads.
+
+  .venv/bin/python migration/tools/capture_routes.py --only get__api_reports,get__api_web_traffic_os
+  .venv/bin/python migration/tools/capture_routes.py            # all manifest routes
+
+Pure stdlib + pyyaml. Run from repo root.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import base64
+import json
+import os
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
+TOOLS = Path(__file__).resolve().parent
+FIXTURE_DATA = REPO / "migration" / "fixtures" / "data"
+GOLDEN = REPO / "migration" / "golden"
+ROUTES_YAML = REPO / "migration" / "manifest" / "routes.yaml"
+
+sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(TOOLS))
+
+
+def boot():
+    for line in (TOOLS / "parity_env.sh").read_text().splitlines():
+        line = line.strip()
+        if line.startswith("export ") and "=" in line:
+            k, v = line[len("export ") :].split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"'))
+    os.environ["SOBS_PARITY"] = "1"
+    os.environ["SOBS_DATA_DIR"] = str(FIXTURE_DATA)
+    import determinism
+
+    import app as app_module
+
+    determinism.install()
+    return app_module
+
+
+def _load_routes() -> list[dict]:
+    import yaml  # type: ignore
+
+    return yaml.safe_load(ROUTES_YAML.read_text())["routes"]
+
+
+async def capture_one(client, route: dict) -> tuple[str, int, int]:
+    req = route.get("request") or {}
+    method = (req.get("method") or route["methods"][0]).upper()
+    path = route["path"]
+    if req.get("query"):
+        from urllib.parse import urlencode
+
+        path = f"{path}?{urlencode(req['query'])}"
+    kwargs: dict = {"method": method}
+    headers = dict(req.get("headers") or {})
+    if req.get("json") is not None:
+        kwargs["data"] = json.dumps(req["json"]).encode()
+        headers["Content-Type"] = "application/json"
+    elif req.get("body_b64"):
+        kwargs["data"] = base64.b64decode(req["body_b64"])
+    if headers:
+        kwargs["headers"] = headers
+
+    resp = await client.open(path, **kwargs)
+    body = await resp.get_data()
+    d = GOLDEN / route["id"]
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "status").write_text(str(resp.status_code))
+    (d / "headers.txt").write_text("\n".join(f"{k}: {v}" for k, v in resp.headers.items()))
+    (d / "body.bin").write_bytes(body)
+    return route["id"], resp.status_code, len(body)
+
+
+async def run(app, routes: list[dict]) -> None:
+    client = app.test_client()
+    for route in routes:
+        rid, status, n = await capture_one(client, route)
+        print(f"  captured {rid}: {status} {n}B")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--only", help="comma-separated route ids; default = all manifest routes")
+    args = ap.parse_args()
+
+    app_module = boot()
+    routes = _load_routes()
+    if args.only:
+        wanted = {s.strip() for s in args.only.split(",") if s.strip()}
+        routes = [r for r in routes if r["id"] in wanted]
+        missing = wanted - {r["id"] for r in routes}
+        if missing:
+            raise SystemExit(f"Unknown route ids: {sorted(missing)}")
+    print(f"Capturing {len(routes)} route(s) against {FIXTURE_DATA}…")
+    asyncio.new_event_loop().run_until_complete(run(app_module.app, routes))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

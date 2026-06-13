@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
-"""Build a deterministic chdb fixture dataset for parity capture & replay.
+"""Build the deterministic chdb fixture dataset for parity capture & replay.
 
 The golden corpus is only meaningful if both Python and Go read the SAME, FIXED data.
-This script creates migration/fixtures/data/sobs.chdb (+ rum_assets) seeded with a
-small, stable, ORDER-BY-deterministic dataset covering every table a golden route
-queries. Python capture and Go replay both point SOBS_DATA_DIR at this directory
-(parity_check.py copies it to a scratch dir per run so writes don't poison reruns).
+This script is the CANONICAL, reproducible builder for migration/fixtures/data/sobs.chdb:
 
-Design rules:
-  * Every inserted row uses fixed timestamps within the determinism window
-    (around determinism.FIXED_EPOCH) so time-derived output is stable.
-  * Enough rows per table to exercise pagination/empty/non-empty branches, but small.
-  * Data is chosen so queries that lack a total ORDER BY still return a stable order
-    (e.g. unique sortable keys). If a golden route's output order is unstable, add an
-    ORDER BY assumption here, never a normalization rule.
+  1. Boot app.py in parity mode (determinism frozen) and call get_db(), which applies the
+     production SCHEMA and runs the app's OWN example seeder (anomaly rules, an example
+     dashboard + charts, example metrics, app-release registry). That seeded content is
+     the realistic baseline — it is exactly what a fresh production install ships with.
+  2. Insert a few extra DETERMINISTIC rows for tables the example seeder leaves empty but
+     that captured routes read (saved reports, RUM web-traffic sessions). Grow this as
+     more routes come online — only seed what a captured route reads.
+  3. OPTIMIZE ... FINAL the ReplacingMergeTree tables so FINAL reads are stable.
 
-This is intentionally a GUIDED SKELETON: it reuses app.py's own SCHEMA and insert
-helpers so the fixture tables exactly match production DDL. Fill in the per-table
-fixture rows as routes are brought online (you only need to seed what a captured route
-reads — grow it with the ledger).
+Determinism: app import happens FIRST, then determinism.install() (freezing before the
+pandas/numpy C-extension import hangs). get_db()'s example seeder therefore runs with
+frozen uuid4/time, so the baseline is byte-reproducible. The app's _seed_*_if_missing
+helpers key off natural columns (Name/Title), so re-booting never duplicates rows.
 
-Run from repo root:  python migration/tools/seed_fixtures.py
+Run from repo root:  .venv/bin/python migration/tools/seed_fixtures.py
 """
 
 from __future__ import annotations
@@ -31,10 +29,11 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+TOOLS = Path(__file__).resolve().parent
 FIXTURE_DIR = REPO / "migration" / "fixtures" / "data"
 
 sys.path.insert(0, str(REPO))
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # sibling tool modules
+sys.path.insert(0, str(TOOLS))
 
 
 def _fresh_dir() -> None:
@@ -45,74 +44,118 @@ def _fresh_dir() -> None:
 
 
 def _boot_app_db():
-    # Freeze first so any module-level timestamps in app.py are fixed, then import.
+    # Pin the parity env (auth=none, fixed secret, etc.) before import.
+    for line in (TOOLS / "parity_env.sh").read_text().splitlines():
+        line = line.strip()
+        if line.startswith("export ") and "=" in line:
+            k, v = line[len("export ") :].split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"'))
     os.environ["SOBS_PARITY"] = "1"
     os.environ["SOBS_DATA_DIR"] = str(FIXTURE_DIR)
+
     import determinism
 
-    determinism.install()
-    import app as app_module
+    import app as app_module  # import FIRST
 
-    determinism.patch_module(app_module)
-    # get_db() applies SCHEMA on first open — gives us the exact production DDL.
-    db = app_module.get_db()
+    determinism.install()  # ...then freeze entropy
+    db = app_module.get_db()  # applies SCHEMA + runs the example seeder deterministically
     return app_module, db
 
 
-# ---- Fixture rows -----------------------------------------------------------------
-# Add one function per table/area as routes come online. Each must be DETERMINISTIC.
-# Use app's own insert helpers (e.g. _insert_rows_json_each_row) so format matches.
+# ---- Extra fixture rows ------------------------------------------------------------
+# Direct JSONEachRow inserts (what _insert_rows_json_each_row does, minus the
+# _WRITABLE_TABLES guard) with pre-normalized DateTime64 strings inside the determinism
+# window. Every value is fixed so the on-disk bytes — and thus the goldens — reproduce.
+
+_TS = "2024-01-02 03:00:00.000000"  # within the determinism window
 
 
-def seed_logs(app, db) -> None:
+def _insert(db, table: str, rows: list[dict]) -> None:
+    import json
+
+    payload = "\n".join(json.dumps(r, ensure_ascii=False) for r in rows)
+    db.execute(f"INSERT INTO {table} FORMAT JSONEachRow\n" + payload)
+
+
+def seed_reports(db) -> None:
+    # Two saved reports with nested FiltersJson — exercises /api/reports' filter parsing
+    # and the PageType, Name ORDER BY (logs < traces).
+    _insert(
+        db,
+        "sobs_reports",
+        [
+            {
+                "Id": "11111111-0000-4000-8000-0000000000a1",
+                "Name": "Checkout errors",
+                "Description": "ERROR-level checkout logs",
+                "PageType": "logs",
+                "FiltersJson": '{"service":"checkout","severity":["ERROR"],"limit":100}',
+                "IsDeleted": 0,
+                "Version": 1704164645000,
+            },
+            {
+                "Id": "22222222-0000-4000-8000-0000000000b2",
+                "Name": "Slow traces",
+                "Description": "Spans over 250ms",
+                "PageType": "traces",
+                "FiltersJson": '{"min_duration_ms":250}',
+                "IsDeleted": 0,
+                "Version": 1704164645000,
+            },
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_reports FINAL")
+
+
+def seed_rum_sessions(db) -> None:
+    # RUM browser events feeding the /api/web-traffic/* aggregations. Two identical Chrome
+    # rows + one Safari row => deterministic, tie-free COUNT(*) ordering.
+    def attrs(browser, bver, osn, osv, tz, lang, device):
+        return {
+            "browser.context.browserName": browser,
+            "browser.context.browserVersion": bver,
+            "browser.context.osName": osn,
+            "browser.context.osVersion": osv,
+            "browser.context.timezone": tz,
+            "browser.context.language": lang,
+            "browser.context.deviceClass": device,
+        }
+
     rows = [
         {
-            "Timestamp": "2024-01-02 03:00:00.000",
-            "ServiceName": "checkout",
-            "SeverityText": "ERROR",
-            "Body": "payment declined",
-            "TraceId": "00000000000000000000000000000001",
-            "SpanId": "0000000000000001",
-            # …match the real otel_logs columns; pull the exact column set from SCHEMA.
+            "Timestamp": _TS,
+            "ServiceName": "web",
+            "Body": "pageview",
+            "LogAttributes": attrs("Chrome", "120", "macOS", "14.2", "America/New_York", "en-US", "Desktop"),
         },
         {
-            "Timestamp": "2024-01-02 03:01:00.000",
-            "ServiceName": "checkout",
-            "SeverityText": "INFO",
-            "Body": "order created",
-            "TraceId": "00000000000000000000000000000002",
-            "SpanId": "0000000000000002",
+            "Timestamp": _TS,
+            "ServiceName": "web",
+            "Body": "pageview",
+            "LogAttributes": attrs("Chrome", "120", "macOS", "14.2", "America/New_York", "en-US", "Desktop"),
+        },
+        {
+            "Timestamp": _TS,
+            "ServiceName": "web",
+            "Body": "pageview",
+            "LogAttributes": attrs("Safari", "17.1", "iOS", "17.2", "Europe/London", "en-GB", "Mobile"),
         },
     ]
-    app._insert_rows_json_each_row(db, "otel_logs", rows)
+    _insert(db, "hyperdx_sessions", rows)
 
 
-def seed_settings(app, db) -> None:
-    # Settings drive feature flags + many page branches. Seed a fixed, known config.
-    # Use the app's own setter so encryption/format matches.
-    pass  # TODO: app._set_app_setting(db, "key", "value") for each flag a golden needs
-
-
-def seed_all(app, db) -> None:
-    # Order matters only for FK-like joins; otherwise independent.
-    seed_logs(app, db)
-    seed_settings(app, db)
-    # seed_traces(app, db); seed_metrics(app, db); seed_rum(app, db);
-    # seed_reports/dashboards/tags/agents/cve/work_items/... — grow with the ledger.
+def seed_extra(app, db) -> None:
+    seed_reports(db)
+    seed_rum_sessions(db)
 
 
 def main() -> int:
     _fresh_dir()
     app, db = _boot_app_db()
-    seed_all(app, db)
-    # Force merges so ReplacingMergeTree FINAL reads are stable across engines.
-    try:
-        for t in ("otel_logs", "sobs_app_settings"):
-            db.execute(f"OPTIMIZE TABLE {t} FINAL")
-    except Exception as e:
-        print(f"(non-fatal) OPTIMIZE skipped: {e}")
+    seed_extra(app, db)
     print(f"Seeded fixture DB at {FIXTURE_DIR}")
-    print("Grow seed_*() coverage as routes are captured — only seed what goldens read.")
+    print("Baseline = app example seeder (dashboards/rules/metrics) + extra reports/RUM rows.")
+    print("Next: re-capture affected goldens (capture_routes.py) then parity_check.py.")
     return 0
 
 

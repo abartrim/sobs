@@ -186,7 +186,7 @@ def _add_otlp_span_exporter(tracer_provider, endpoint: str) -> None:  # noqa: AN
 
 
 def _setup_meter_provider(resource, exporter_type: str) -> None:  # noqa: ANN001
-    from opentelemetry import metrics as otel_metrics  # type: ignore[import]
+    from opentelemetry import metrics as otel_metrics  # type: ignore[import,attr-defined]
     from opentelemetry.sdk.metrics import MeterProvider  # type: ignore[import]
 
     global _meter
@@ -287,7 +287,7 @@ def get_meter(name: str = "sobs"):
     if _meter is not None:
         return _meter
     try:
-        from opentelemetry import metrics  # type: ignore[import]
+        from opentelemetry import metrics  # type: ignore[import,attr-defined]
 
         return metrics.get_meter(name)
     except ImportError:
