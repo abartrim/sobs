@@ -166,6 +166,44 @@ func (e *Engine) evalAtom(s string, ctx *scope) (any, error) {
 	if s[0] == '[' && s[len(s)-1] == ']' {
 		return e.evalSeq(splitTop(s[1:len(s)-1], ','), ctx)
 	}
+	// dict literal {'k': v, ...}
+	if s[0] == '{' && s[len(s)-1] == '}' {
+		out := map[string]any{}
+		for _, pair := range splitTop(s[1:len(s)-1], ',') {
+			pair = strings.TrimSpace(pair)
+			if pair == "" {
+				continue
+			}
+			c := splitTop(pair, ':')
+			if len(c) != 2 {
+				return nil, fmt.Errorf("bad dict entry %q", pair)
+			}
+			kv, err := e.evalExpr(strings.TrimSpace(c[0]), ctx)
+			if err != nil {
+				return nil, err
+			}
+			vv, err := e.evalExpr(strings.TrimSpace(c[1]), ctx)
+			if err != nil {
+				return nil, err
+			}
+			out[toString(kv)] = vv
+		}
+		return out, nil
+	}
+	// subscript base[index] (not a list literal: '[' is not at position 0)
+	if s[len(s)-1] == ']' {
+		if open := matchingSubscript(s); open > 0 {
+			base, err := e.evalAtom(strings.TrimSpace(s[:open]), ctx)
+			if err != nil {
+				return nil, err
+			}
+			idx, err := e.evalExpr(strings.TrimSpace(s[open+1:len(s)-1]), ctx)
+			if err != nil {
+				return nil, err
+			}
+			return subscript(base, idx), nil
+		}
+	}
 	// bool / none
 	switch s {
 	case "true", "True":
@@ -323,6 +361,43 @@ func (e *Engine) invokeMacro(m *macroDef, pos []any, kw map[string]any, ctx *sco
 		return nil, err
 	}
 	return safeString{sb.String()}, nil
+}
+
+// matchingSubscript returns the index of the '[' that matches the trailing ']' of s, or
+// -1. Used to detect base[index] subscripts (index 0 means it's a list literal instead).
+func matchingSubscript(s string) int {
+	depth := 0
+	for i := len(s) - 1; i >= 0; i-- {
+		switch s[i] {
+		case ']':
+			depth++
+		case '[':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// subscript indexes a map by string key or a list by integer index.
+func subscript(base, idx any) any {
+	switch b := base.(type) {
+	case map[string]any:
+		return b[toString(idx)]
+	case []any:
+		n, ok := idx.(int)
+		if !ok {
+			if ni, err := strconv.Atoi(toString(idx)); err == nil {
+				n, ok = ni, true
+			}
+		}
+		if ok && n >= 0 && n < len(b) {
+			return b[n]
+		}
+	}
+	return nil
 }
 
 // applyFilter implements the template filters used by the SOBS templates.
