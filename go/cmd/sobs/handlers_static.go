@@ -49,6 +49,11 @@ var aiFieldHintsStaticJSON []byte
 //go:embed assets/error_sources.sql
 var errorSourcesSQL string
 
+// mcpToolsJSON is the static MCP tools list response (mcp.py MCP_TOOLS via jsonify).
+//
+//go:embed assets/mcp_tools.json
+var mcpToolsJSON []byte
+
 // errorIDExpr is app.py _error_id_sql_expr() — the stable ErrorId MD5 expression.
 const errorIDExpr = "lower(hex(MD5(concat(toString(Timestamp), '|', ServiceName, '|', " +
 	"if(mapContains(LogAttributes, 'exception.type'), LogAttributes['exception.type'], 'Error'), '|', " +

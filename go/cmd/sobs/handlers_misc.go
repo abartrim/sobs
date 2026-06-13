@@ -489,6 +489,34 @@ func (s *server) handleApiDashboardsSpecTemplates(w http.ResponseWriter, r *http
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("templates", templates))
 }
 
+// GET /mcp — mcp.py mcp_endpoint_get: MCP transport probe. When enabled (default), returns
+// the capability descriptor.
+func (s *server) handleMcpEndpointGet(w http.ResponseWriter, r *http.Request) {
+	enabled := true
+	if v, ok := s.appSetting("mcp.enabled"); ok {
+		enabled = v == "1"
+	}
+	if !enabled {
+		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("jsonrpc", "2.0").Set("id", nil).
+			Set("error", jsonenc.NewObject().Set("code", -32001).Set("message", "MCP server is disabled.")))
+		return
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("capabilities", jsonenc.NewObject().Set("tools", jsonenc.NewObject())).
+		Set("protocolVersion", "2024-11-05").
+		Set("serverInfo", jsonenc.NewObject().Set("name", "sobs-mcp").Set("version", "1.0")))
+}
+
+// GET /mcp/tools — mcp.py mcp_list_tools: the static MCP tools list.
+func (s *server) handleMcpListTools(w http.ResponseWriter, r *http.Request) {
+	v, err := parseJSONValue(mcpToolsJSON)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
 // GET /api/mcp/keys — mcp.py mcp_api_list_keys: load the mcp.api_keys setting (a JSON
 // array of key descriptors; "[]" default) and return id/label/created_at/expires_at only.
 func (s *server) handleApiMcpKeys(w http.ResponseWriter, r *http.Request) {

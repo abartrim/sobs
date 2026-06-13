@@ -110,6 +110,8 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/settings/repositories", s.handleViewSettingsRepositories)
 	s.mux.HandleFunc("/settings/tags", s.handleViewTagRules)
 	s.mux.HandleFunc("/settings/mcp", s.handleMcpSettingsPage)
+	s.mux.HandleFunc("/mcp", s.handleMcpEndpointGet)
+	s.mux.HandleFunc("/mcp/tools", s.handleMcpListTools)
 	s.mux.HandleFunc("/settings/enrichment", s.handleViewEnrichmentSettings)
 	s.mux.HandleFunc("/settings/masking", s.handleViewMaskingSettings)
 	s.mux.HandleFunc("/settings", s.handleViewSettings)

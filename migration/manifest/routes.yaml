@@ -469,3 +469,11 @@ routes:
     path: "/settings/mcp"
     methods: [GET]
     request: {method: GET}
+  - id: get__mcp
+    path: "/mcp"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__mcp_tools
+    path: "/mcp/tools"
+    methods: [GET]
+    request: {method: GET}
