@@ -8,8 +8,16 @@
 # Do NOT use exclusions to dodge hard routes. A tojson-heavy page is hard, not
 # excludable. Exclude only genuine non-determinism.
 
-exclusions: []
-  # - id: get__events_stream
-  #   reason: "Server-Sent Events; framing is timing-dependent, not byte-stable."
-  #   followup: "Phase 6 — integration test asserting event payloads, not raw stream bytes."
-  #   owner: "TBD"
+exclusions:
+  - id: get__tail
+    reason: "Server-Sent Events live-tail stream; framing/heartbeats are timing-dependent, not byte-stable."
+    followup: "Phase 6 — integration test asserting SSE event payloads, not raw stream bytes."
+    owner: "TBD"
+  - id: post__api_notifications_vapid-keygen
+    reason: "Generates an EC VAPID key pair via the cryptography lib's own CSPRNG, which the determinism harness does NOT freeze — the golden body differs run-to-run (verified). Not byte-reproducible by anyone, Python included."
+    followup: "Phase 6 — assert response shape + that a valid key pair is persisted, not the key bytes."
+    owner: "TBD"
+  - id: post__api_mcp_keys
+    reason: "Mints a secrets.token_urlsafe API key + id. The Python capture is only stable because the harness freezes os.urandom to a counter-seeded SHA-256 stream; a live Go server has no such frozen global counter to replay, and in production the key MUST be truly random. Not byte-reproducible by the Go server."
+    followup: "Phase 6 — assert response shape + that the minted key authenticates, not the key bytes."
+    owner: "TBD"
