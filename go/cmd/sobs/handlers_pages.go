@@ -447,6 +447,27 @@ func (s *server) handleViewAgentRules(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /settings/repositories — app.py view_settings_repositories. Empty apps/AI settings.
+func (s *server) handleViewSettingsRepositories(w http.ResponseWriter, r *http.Request) {
+	s.renderPage(w, "settings_repositories.html", "view_settings_repositories", map[string]any{
+		"apps":                      []any{},
+		"github_token_configured":   false,
+		"default_agent_repo":        "",
+		"github_token_expires_date": "",
+		"github_token_expiry_status": map[string]any{
+			"state": "unknown", "expires_at": "", "days_remaining": nil, "message": "Token expiry date not set"},
+		"github_token_validation_status": map[string]any{
+			"status": "", "message": "", "last_validated_at": ""},
+		"github_token_expiry_warning_days": 14,
+		"realtime_seed": map[string]any{
+			"enabled": false, "configured": false, "expires_at": "",
+			"expiry_message": "Per-repository CI ingest keys are managed from each repository row.",
+			"api_key":        "", "api_key_show_once": false},
+		"ci_push_default_ttl_days": 30,
+		"ci_push_max_ttl_days":     365,
+	})
+}
+
 // GET /settings/kubernetes — app.py view_k8s_settings: render with k8s settings + flash.
 func (s *server) handleViewK8sSettings(w http.ResponseWriter, r *http.Request) {
 	val, _ := s.appSetting("kubernetes.enabled")

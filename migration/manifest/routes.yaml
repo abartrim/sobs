@@ -457,3 +457,7 @@ routes:
     path: "/enrichment/cve"
     methods: [GET]
     request: {method: GET}
+  - id: get__settings_repositories
+    path: "/settings/repositories"
+    methods: [GET]
+    request: {method: GET}

@@ -144,7 +144,9 @@ func (s *server) baseContext(endpoint string) map[string]any {
 		"sobs_version":                      s.cfg.BuildVersion,
 		// request.args is empty for the param-less page captures; macros call
 		// request.args.get(...) which falls back to defaults on an empty map.
-		"request": map[string]any{"endpoint": endpoint, "args": map[string]any{}},
+		"request": map[string]any{
+			"endpoint": endpoint, "args": map[string]any{}, "cookies": map[string]any{},
+		},
 		"config": map[string]any{
 			"ENABLE_FIRST_RUN_TOUR": s.cfg.FirstRunTourEnabled,
 		},
