@@ -67,6 +67,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/api/web-traffic/languages", s.handleApiWebTrafficLanguages)
 	s.mux.HandleFunc("/api/web-traffic/devices", s.handleApiWebTrafficDevices)
 	s.mux.HandleFunc("/api/chart-types", s.handleApiChartTypes)
+	s.mux.HandleFunc("/api/data-management/backup/list", s.handleApiDmBackupList)
 
 	// Static assets — served byte-for-byte from static/ (Quart's default static endpoint).
 	s.mux.HandleFunc("/static/", s.handleStatic)

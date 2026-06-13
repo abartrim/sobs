@@ -232,3 +232,7 @@ routes:
     path: "/api/chart-types"
     methods: [GET]
     request: {method: GET}
+  - id: get__api_data_management_backup_list
+    path: "/api/data-management/backup/list"
+    methods: [GET]
+    request: {method: GET}

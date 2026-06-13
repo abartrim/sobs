@@ -66,6 +66,27 @@ func cInt(m map[string]any, key string) int {
 	}
 }
 
+// cStrDef mirrors Python `str(row[key]) if row[key] else default` — falsy ("" / 0 / nil)
+// yields the default.
+func cStrDef(m map[string]any, key, def string) string {
+	switch x := m[key].(type) {
+	case nil:
+		return def
+	case string:
+		if x == "" {
+			return def
+		}
+		return x
+	case float64:
+		if x == 0 {
+			return def
+		}
+		return cStr(m, key)
+	default:
+		return cStr(m, key)
+	}
+}
+
 // cBool mirrors Python bool(int(row[key])) — the IsDeleted/IsDismissed UInt8 idiom.
 func cBool(m map[string]any, key string) bool {
 	return cInt(m, key) != 0

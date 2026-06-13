@@ -115,6 +115,29 @@ func (s *server) handleApiAgentRuns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("runs", runs))
 }
 
+// GET /api/data-management/backup/list — app.py api_dm_backup_list() -> _list_dm_backups
+// (app.py:32109): reads system.backups (empty on the fixture). Query errors fall back to
+// [] (mirrors the Python try/except).
+func (s *server) handleApiDmBackupList(w http.ResponseWriter, r *http.Request) {
+	backups := []any{}
+	res, err := s.db.Execute(
+		"SELECT name, status, start_time, end_time, num_files, total_size, error " +
+			"FROM system.backups ORDER BY start_time DESC LIMIT 100")
+	if err == nil {
+		for _, m := range rowMaps(res) {
+			backups = append(backups, jsonenc.NewObject().
+				Set("name", cStrDef(m, "name", "")).
+				Set("status", cStrDef(m, "status", "")).
+				Set("start_time", cStrDef(m, "start_time", "")).
+				Set("end_time", cStrDef(m, "end_time", "")).
+				Set("num_files", cStrDef(m, "num_files", "0")).
+				Set("total_size", cStrDef(m, "total_size", "0")).
+				Set("error", cStrDef(m, "error", "")))
+		}
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("backups", backups))
+}
+
 // --- Web traffic (RUM) aggregations over hyperdx_sessions (app.py:17766+) -----------
 // No time-window query args => empty WHERE (matches _parse_time_window_args returning "").
 
