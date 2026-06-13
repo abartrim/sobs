@@ -243,6 +243,17 @@ func (s *server) activePartRows(table string) int {
 		"WHERE active = 1 AND database = currentDatabase() AND table = '" + table + "'")
 }
 
+// GET /metrics/anomaly — app.py view_metrics_anomaly. Empty derived signals.
+func (s *server) handleViewMetricsAnomaly(w http.ResponseWriter, r *http.Request) {
+	services, signals, sources := s.listDerivedSignalDimensions()
+	s.renderPage(w, "metrics_anomaly.html", "view_metrics_anomaly", map[string]any{
+		"rows": []any{}, "total": 0, "service": "", "metric": "", "signal": "", "source": "",
+		"attr_fp": "", "from_ts": "", "to_ts": "", "hours": 24, "error_msg": "",
+		"point_state": "", "point_score": "", "related_target": "",
+		"services": services, "signals": signals, "sources": sources,
+	})
+}
+
 // GET /logs — app.py view_logs. Empty otel_logs on the fixture (all lists/stats empty).
 func (s *server) handleViewLogs(w http.ResponseWriter, r *http.Request) {
 	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM otel_logs WHERE ServiceName!='' ORDER BY ServiceName")
