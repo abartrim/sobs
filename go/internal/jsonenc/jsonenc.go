@@ -11,6 +11,7 @@
 package jsonenc
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -88,6 +89,10 @@ func (e *encoder) value(v any) {
 		} else {
 			e.b.WriteString("false")
 		}
+	case json.Number:
+		// Verbatim literal — preserves int vs float as parsed (UseNumber), matching
+		// json.dumps of a re-parsed value (5 stays 5, not 5.0).
+		e.b.WriteString(string(x))
 	case string:
 		e.encodeString(x)
 	case int:

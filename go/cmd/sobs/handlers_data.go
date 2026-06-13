@@ -1,0 +1,187 @@
+package main
+
+import (
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/sobs/sobs/internal/jsonenc"
+)
+
+// Data-backed JSON API handlers. Each issues the SAME SQL as its app.py counterpart and
+// rebuilds the response object with identical keys + Python type coercion. Because Go and
+// Python read the SAME on-disk chdb fixture, identical SQL yields identical rows, and
+// jsonenc.QuartJSONify reproduces jsonify's bytes.
+
+// GET /api/dashboards/list — app.py api_dashboards_list() -> _get_dashboards (app.py:21274).
+func (s *server) handleApiDashboardsList(w http.ResponseWriter, r *http.Request) {
+	res, err := s.db.Execute(
+		"SELECT Id, Name, Description FROM sobs_dashboards FINAL WHERE IsDeleted = 0 ORDER BY Name")
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	dashboards := []any{}
+	for _, m := range rowMaps(res) {
+		dashboards = append(dashboards, jsonenc.NewObject().
+			Set("id", cStr(m, "Id")).
+			Set("name", cStr(m, "Name")).
+			Set("description", cStr(m, "Description")))
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("dashboards", dashboards))
+}
+
+// GET /api/reports — app.py api_list_reports() -> _get_reports (app.py:22649). Returns a
+// top-level JSON array. Optional ?page_type filter changes the WHERE + ORDER BY.
+func (s *server) handleApiReports(w http.ResponseWriter, r *http.Request) {
+	pageType := strings.TrimSpace(r.URL.Query().Get("page_type"))
+	query := "SELECT Id, Name, Description, PageType, FiltersJson " +
+		"FROM sobs_reports FINAL WHERE IsDeleted = 0 ORDER BY PageType, Name"
+	var params []any
+	if pageType != "" {
+		query = "SELECT Id, Name, Description, PageType, FiltersJson " +
+			"FROM sobs_reports FINAL WHERE IsDeleted = 0 AND PageType = ? ORDER BY Name"
+		params = []any{pageType}
+	}
+	res, err := s.db.Execute(query, params...)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	reports := []any{}
+	for _, m := range rowMaps(res) {
+		reports = append(reports, jsonenc.NewObject().
+			Set("id", cStr(m, "Id")).
+			Set("name", cStr(m, "Name")).
+			Set("description", cStr(m, "Description")).
+			Set("page_type", cStr(m, "PageType")).
+			Set("filters", parseJSONObject(cStr(m, "FiltersJson"))))
+	}
+	writeJSON(w, http.StatusOK, reports)
+}
+
+// GET /api/agent/runs — app.py list_agent_runs() -> _load_agent_runs (app.py:5707).
+func (s *server) handleApiAgentRuns(w http.ResponseWriter, r *http.Request) {
+	limit := queryIntClamp(r, "limit", 50, 1, 200)
+	res, err := s.db.Execute(
+		"SELECT Id, RuleId, RuleName, TriggerContext, Status, GuardDecision, DlpResult, " +
+			"Analysis, Suggestion, GithubIssueUrl, ErrorMessage, CreatedAt, CompletedAt, IsDismissed " +
+			"FROM sobs_agent_runs FINAL WHERE IsDeleted=0 ORDER BY CreatedAt DESC " +
+			"LIMIT " + strconv.Itoa(limit))
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	runs := []any{}
+	for _, m := range rowMaps(res) {
+		runs = append(runs, jsonenc.NewObject().
+			Set("id", cStr(m, "Id")).
+			Set("rule_id", cStr(m, "RuleId")).
+			Set("rule_name", cStr(m, "RuleName")).
+			Set("trigger_context", cStr(m, "TriggerContext")).
+			Set("status", cStr(m, "Status")).
+			Set("guard_decision", cStr(m, "GuardDecision")).
+			Set("dlp_result", cStr(m, "DlpResult")).
+			Set("analysis", cStr(m, "Analysis")).
+			Set("suggestion", cStr(m, "Suggestion")).
+			Set("github_issue_url", cStr(m, "GithubIssueUrl")).
+			Set("error_message", cStr(m, "ErrorMessage")).
+			Set("created_at", cStr(m, "CreatedAt")).
+			Set("completed_at", cStr(m, "CompletedAt")).
+			Set("is_dismissed", cBool(m, "IsDismissed")))
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("runs", runs))
+}
+
+// --- Web traffic (RUM) aggregations over hyperdx_sessions (app.py:17766+) -----------
+// No time-window query args => empty WHERE (matches _parse_time_window_args returning "").
+
+// GET /api/web-traffic/browsers
+func (s *server) handleApiWebTrafficBrowsers(w http.ResponseWriter, r *http.Request) {
+	res, err := s.db.Execute(
+		"SELECT LogAttributes['browser.context.browserName'] AS browser, " +
+			"LogAttributes['browser.context.browserVersion'] AS version, COUNT(*) AS cnt " +
+			"FROM hyperdx_sessions GROUP BY browser, version ORDER BY cnt DESC LIMIT 50")
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	browsers := []any{}
+	for _, m := range rowMaps(res) {
+		name := strings.TrimSpace(cStr(m, "browser") + " " + cStr(m, "version"))
+		if name == "" {
+			name = "Unknown"
+		}
+		browsers = append(browsers, jsonenc.NewObject().Set("name", name).Set("value", cInt(m, "cnt")))
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("browsers", browsers))
+}
+
+// GET /api/web-traffic/os
+func (s *server) handleApiWebTrafficOS(w http.ResponseWriter, r *http.Request) {
+	res, err := s.db.Execute(
+		"SELECT LogAttributes['browser.context.osName'] AS os, " +
+			"LogAttributes['browser.context.osVersion'] AS version, COUNT(*) AS cnt " +
+			"FROM hyperdx_sessions GROUP BY os, version ORDER BY cnt DESC LIMIT 50")
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	osList := []any{}
+	for _, m := range rowMaps(res) {
+		name := strings.TrimSpace(cStr(m, "os") + " " + cStr(m, "version"))
+		if name == "" {
+			name = "Unknown"
+		}
+		osList = append(osList, jsonenc.NewObject().Set("name", name).Set("value", cInt(m, "cnt")))
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("operating_systems", osList))
+}
+
+// GET /api/web-traffic/timezones
+func (s *server) handleApiWebTrafficTimezones(w http.ResponseWriter, r *http.Request) {
+	res, err := s.db.Execute(
+		"SELECT LogAttributes['browser.context.timezone'] AS tz, COUNT(*) AS cnt " +
+			"FROM hyperdx_sessions GROUP BY tz HAVING tz != '' ORDER BY cnt DESC LIMIT 50")
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	tzs := []any{}
+	for _, m := range rowMaps(res) {
+		tzs = append(tzs, jsonenc.NewObject().Set("name", cStr(m, "tz")).Set("value", cInt(m, "cnt")))
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("timezones", tzs))
+}
+
+// GET /api/web-traffic/languages
+func (s *server) handleApiWebTrafficLanguages(w http.ResponseWriter, r *http.Request) {
+	res, err := s.db.Execute(
+		"SELECT LogAttributes['browser.context.language'] AS lang, COUNT(*) AS cnt " +
+			"FROM hyperdx_sessions GROUP BY lang HAVING lang != '' ORDER BY cnt DESC LIMIT 50")
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	langs := []any{}
+	for _, m := range rowMaps(res) {
+		langs = append(langs, jsonenc.NewObject().Set("name", cStr(m, "lang")).Set("value", cInt(m, "cnt")))
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("languages", langs))
+}
+
+// GET /api/web-traffic/devices
+func (s *server) handleApiWebTrafficDevices(w http.ResponseWriter, r *http.Request) {
+	res, err := s.db.Execute(
+		"SELECT LogAttributes['browser.context.deviceClass'] AS device, COUNT(*) AS cnt " +
+			"FROM hyperdx_sessions GROUP BY device HAVING device != '' ORDER BY cnt DESC")
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	devices := []any{}
+	for _, m := range rowMaps(res) {
+		devices = append(devices, jsonenc.NewObject().Set("name", cStr(m, "device")).Set("value", cInt(m, "cnt")))
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("devices", devices))
+}

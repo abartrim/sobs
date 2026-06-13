@@ -161,7 +161,10 @@ def main() -> int:
     workdir = REPO / "migration" / "fixtures" / "_run"
     if workdir.exists():
         shutil.rmtree(workdir)
-    shutil.copytree(FIXTURE_SRC, workdir)
+    # symlinks=True is REQUIRED: chdb's Atomic database engine maps the `default` database
+    # to its on-disk store via a relative symlink (metadata/default -> ../store/<uuid>).
+    # Dereferencing it (copytree's default) breaks that mapping and the copy sees 0 tables.
+    shutil.copytree(FIXTURE_SRC, workdir, symlinks=True)
     proc = _boot_go(workdir)
 
     results = {"green": [], "red": [], "missing_golden": [], "excluded": sorted(excluded)}

@@ -57,6 +57,16 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/api/kubernetes/status", s.handleApiKubernetesStatus)
 	s.mux.HandleFunc("/api/notifications/vapid-public-key", s.handleApiVapidPublicKey)
 
+	// Phase 3: data-backed JSON list/aggregation routes (read the shared chdb fixture).
+	s.mux.HandleFunc("/api/dashboards/list", s.handleApiDashboardsList)
+	s.mux.HandleFunc("/api/reports", s.handleApiReports)
+	s.mux.HandleFunc("/api/agent/runs", s.handleApiAgentRuns)
+	s.mux.HandleFunc("/api/web-traffic/browsers", s.handleApiWebTrafficBrowsers)
+	s.mux.HandleFunc("/api/web-traffic/os", s.handleApiWebTrafficOS)
+	s.mux.HandleFunc("/api/web-traffic/timezones", s.handleApiWebTrafficTimezones)
+	s.mux.HandleFunc("/api/web-traffic/languages", s.handleApiWebTrafficLanguages)
+	s.mux.HandleFunc("/api/web-traffic/devices", s.handleApiWebTrafficDevices)
+
 	// Static assets — served byte-for-byte from static/ (Quart's default static endpoint).
 	s.mux.HandleFunc("/static/", s.handleStatic)
 

@@ -195,3 +195,36 @@ routes:
     path: "/api/notifications/vapid-public-key"
     methods: [GET]
     request: {method: GET}
+  # ---- Phase 3 data-backed JSON routes ----
+  - id: get__api_dashboards_list
+    path: "/api/dashboards/list"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_reports
+    path: "/api/reports"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_agent_runs
+    path: "/api/agent/runs"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_web_traffic_browsers
+    path: "/api/web-traffic/browsers"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_web_traffic_os
+    path: "/api/web-traffic/os"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_web_traffic_timezones
+    path: "/api/web-traffic/timezones"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_web_traffic_languages
+    path: "/api/web-traffic/languages"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_web_traffic_devices
+    path: "/api/web-traffic/devices"
+    methods: [GET]
+    request: {method: GET}
