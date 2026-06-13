@@ -56,6 +56,15 @@ func (s *server) handleApiDashboardsList(w http.ResponseWriter, r *http.Request)
 // GET /api/reports — app.py api_list_reports() -> _get_reports (app.py:22649). Returns a
 // top-level JSON array. Optional ?page_type filter changes the WHERE + ORDER BY.
 func (s *server) handleApiReports(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// app.py api_create_report requires a name; an empty body fails with this message.
+		if bstr(bodyMap(r), "name") == "" {
+			errorOnly(w, http.StatusBadRequest, "name is required")
+			return
+		}
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
 	pageType := strings.TrimSpace(r.URL.Query().Get("page_type"))
 	query := "SELECT Id, Name, Description, PageType, FiltersJson " +
 		"FROM sobs_reports FINAL WHERE IsDeleted = 0 ORDER BY PageType, Name"
@@ -84,6 +93,15 @@ func (s *server) handleApiReports(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/agent/runs — app.py list_agent_runs() -> _load_agent_runs (app.py:5707).
 func (s *server) handleApiAgentRuns(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// app.py trigger_agent_run requires rule_id; an empty body fails validation.
+		if bstr(bodyMap(r), "rule_id") == "" {
+			s.errorJSON(w, http.StatusBadRequest, "rule_id is required")
+			return
+		}
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
 	limit := queryIntClamp(r, "limit", 50, 1, 200)
 	res, err := s.db.Execute(
 		"SELECT Id, RuleId, RuleName, TriggerContext, Status, GuardDecision, DlpResult, " +

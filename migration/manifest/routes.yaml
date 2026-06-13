@@ -541,3 +541,143 @@ routes:
     path: "/api/query/add-to-dashboard"
     methods: [POST]
     request: {method: POST, json: {}}
+  - id: post__api_dashboards_spec_compile
+    path: "/api/dashboards/spec/compile"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_dashboards_spec_validate
+    path: "/api/dashboards/spec/validate"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_dashboards_spec_dry_run
+    path: "/api/dashboards/spec/dry-run"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_dashboards_spec_render
+    path: "/api/dashboards/spec/render"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_dashboards_query
+    path: "/api/dashboards/query"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_dashboards_render
+    path: "/api/dashboards/render"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_settings_masking_preview
+    path: "/api/settings/masking/preview"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_notifications_check
+    path: "/api/notifications/check"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_mcp_enabled
+    path: "/api/mcp/enabled"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_issues_raise
+    path: "/api/issues/raise"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_reports_import
+    path: "/api/reports/import"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_data_management_prune
+    path: "/api/data-management/prune"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_reports
+    path: "/api/reports"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_agent_runs
+    path: "/api/agent/runs"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_ai_helper
+    path: "/api/ai/helper"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_ai_helper_actions_execute
+    path: "/api/ai/helper/actions/execute"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_ai_helper_feedback
+    path: "/api/ai/helper/feedback"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_dashboards_spec_ai_build
+    path: "/api/dashboards/spec/ai-build"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_notifications_subscribe
+    path: "/api/notifications/subscribe"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_onboarding_create_issues
+    path: "/api/onboarding/create-issues"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_onboarding_create_repo
+    path: "/api/onboarding/create-repo"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_onboarding_import_repo
+    path: "/api/onboarding/import-repo"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_onboarding_list_repos
+    path: "/api/onboarding/list-repos"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_data_management_prune_invalid
+    path: "/api/data-management/prune"
+    methods: [POST]
+    request: {method: POST, body_b64: "LQ=="}
+  - id: delete__api_mcp_keys__id
+    path: "/api/mcp/keys/nonexistent"
+    methods: [DELETE]
+    request: {method: DELETE}
+  - id: delete__api_notifications_vapid_keys
+    path: "/api/notifications/vapid-keys"
+    methods: [DELETE]
+    request: {method: DELETE}
+  - id: delete__api_reports__id
+    path: "/api/reports/nonexistent"
+    methods: [DELETE]
+    request: {method: DELETE}
+  - id: delete__api_tags__type__id__key
+    path: "/api/tags/log/nonexistent-id/any-key"
+    methods: [DELETE]
+    request: {method: DELETE}
+  - id: patch__v1_apps__id
+    path: "/v1/apps/nonexistent-uuid"
+    methods: [PATCH]
+    request: {method: PATCH, json: {}}
+  - id: post__api_agent_runs__id_dismiss
+    path: "/api/agent/runs/nonexistent/dismiss"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_dashboards__id_charts_import
+    path: "/api/dashboards/nonexistent/charts/import"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_notifications_channels__id_test
+    path: "/api/notifications/channels/nonexistent/test"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_enrichment_cve_disposition
+    path: "/api/enrichment/cve/findings/nonexistent/disposition"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__api_tags__type__id
+    path: "/api/tags/log/nonexistent-id"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__errors__id_resolve
+    path: "/errors/someerrorid/resolve"
+    methods: [POST]
+    request: {method: POST, json: {}}

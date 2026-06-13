@@ -12,11 +12,32 @@ import (
 
 // GET /api/tags/<record_type>/<record_id> — app.py api_get_tags -> _get_record_tags.
 func (s *server) handleApiGetTags(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/api/tags/")
+	seg := strings.Split(rest, "/")
+	// DELETE /api/tags/<record_type>/<record_id>/<tag_key> — 404 when the tag is absent.
+	if r.Method == http.MethodDelete && len(seg) == 3 && seg[2] != "" {
+		if !s.rowExists("SELECT TagKey FROM sobs_record_tags FINAL "+
+			"WHERE RecordType = ? AND RecordId = ? AND TagKey = ? AND IsDeleted = 0",
+			seg[0], seg[1], seg[2]) {
+			errorOnly(w, http.StatusNotFound, "tag not found")
+			return
+		}
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
+	// POST /api/tags/<record_type>/<record_id> — requires a `key`; empty body fails.
+	if r.Method == http.MethodPost && len(seg) == 2 && seg[1] != "" {
+		if bstr(bodyMap(r), "key") == "" {
+			errorOnly(w, http.StatusBadRequest, "key is required")
+			return
+		}
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
-	rest := strings.TrimPrefix(r.URL.Path, "/api/tags/")
 	parts := strings.SplitN(rest, "/", 2)
 	if len(parts) < 2 || parts[1] == "" {
 		http.NotFound(w, r)

@@ -40,13 +40,23 @@ func (s *server) rowExists(query string, params ...any) bool {
 // GET /v1/apps/<app_id>  and  /v1/apps/<app_id>/releases — app.py get_app_registry_entry /
 // list_app_releases. Empty registry on the fixture -> 404.
 func (s *server) handleV1AppByID(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodPatch {
 		http.NotFound(w, r)
 		return
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/v1/apps/")
 	appExists := func(id string) bool {
 		return s.rowExists("SELECT 1 FROM sobs_apps FINAL WHERE (Id=? OR Slug=?) AND IsDeleted=0 LIMIT 1", id, id)
+	}
+	// PATCH /v1/apps/<app_id> (update_app_registry_entry): _find_app_by_id absent -> 404
+	// {"error":"not found"} before any body validation. The fixture has no apps.
+	if r.Method == http.MethodPatch {
+		if !s.rowExists("SELECT 1 FROM sobs_apps FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1", rest) {
+			s.v1err(w, http.StatusNotFound, "not found")
+			return
+		}
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
 	}
 	if appID, ok := strings.CutSuffix(rest, "/releases"); ok {
 		if !appExists(appID) {
