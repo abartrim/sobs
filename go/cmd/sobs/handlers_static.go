@@ -16,6 +16,12 @@ import (
 //go:embed assets/service-worker.js
 var serviceWorkerJS []byte
 
+// maskingDefaultsJSON holds masking.py DEFAULT_SENSITIVE_KEYS/PATTERNS (extracted from the
+// Python source of truth) — static security config, served by /api/settings/masking/rules.
+//
+//go:embed assets/masking_defaults.json
+var maskingDefaultsJSON []byte
+
 // GET /service-worker.js — fixed JS + push-notification headers (app.py:26461).
 func (s *server) handleServiceWorker(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")

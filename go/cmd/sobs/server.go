@@ -73,6 +73,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/api/web-traffic/geo", s.handleApiWebTrafficGeo)
 	s.mux.HandleFunc("/api/dashboards/spec/options", s.handleApiDashboardsSpecOptions)
 	s.mux.HandleFunc("/api/mcp/keys", s.handleApiMcpKeys)
+	s.mux.HandleFunc("/api/settings/masking/rules", s.handleApiMaskingRules)
 
 	// Dedicated static assets (explicit mimetypes / content-hash ETags) + service worker.
 	s.mux.HandleFunc("/service-worker.js", s.handleServiceWorker)

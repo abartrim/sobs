@@ -301,3 +301,7 @@ routes:
     path: "/v1/apps"
     methods: [GET]
     request: {method: GET}
+  - id: get__api_settings_masking_rules
+    path: "/api/settings/masking/rules"
+    methods: [GET]
+    request: {method: GET}

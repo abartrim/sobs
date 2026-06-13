@@ -222,6 +222,71 @@ func (s *server) handleApiDashboardsSpecOptions(w http.ResponseWriter, r *http.R
 		Set("metrics", metrics))
 }
 
+// GET /api/settings/masking/rules — app.py api_masking_rules -> _load_masking_settings.
+// Default sensitive keys/patterns are static config (embedded from masking.py); custom
+// keys/patterns come from settings (empty on the fixture); flags default to true.
+func (s *server) handleApiMaskingRules(w http.ResponseWriter, r *http.Request) {
+	var def struct {
+		Keys     []string `json:"keys"`
+		Patterns []string `json:"patterns"`
+	}
+	_ = json.Unmarshal(maskingDefaultsJSON, &def)
+	customKeys := s.loadJSONStringListSetting("masking.custom_keys")
+	customPatterns := s.loadJSONStringListSetting("masking.custom_patterns")
+
+	keySet := map[string]bool{}
+	for _, k := range def.Keys {
+		keySet[k] = true
+	}
+	for _, k := range customKeys {
+		keySet[k] = true
+	}
+	keys := make([]string, 0, len(keySet))
+	for k := range keySet {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys) // Python sorted({...}) — lexicographic, matches byte sort for ASCII
+
+	patterns := append(append([]string{}, def.Patterns...), customPatterns...)
+
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).
+		Set("keys", strsToAny(keys)).
+		Set("patterns", strsToAny(patterns)).
+		Set("custom_keys", strsToAny(customKeys)).
+		Set("custom_patterns", strsToAny(customPatterns)).
+		Set("output_masking_enabled", s.appSettingBool("masking.output_enabled", true)).
+		Set("sql_output_masking_enabled", s.appSettingBool("masking.sql_output_enabled", true)))
+}
+
+// loadJSONStringListSetting mirrors _load_json_string_list_setting: parse a setting whose
+// value is a JSON array of strings; empty list when absent or invalid.
+func (s *server) loadJSONStringListSetting(key string) []string {
+	out := []string{}
+	raw, ok := s.appSetting(key)
+	if !ok {
+		return out
+	}
+	var arr []any
+	if json.Unmarshal([]byte(raw), &arr) != nil {
+		return out
+	}
+	for _, v := range arr {
+		if str, ok := v.(string); ok {
+			out = append(out, str)
+		}
+	}
+	return out
+}
+
+func strsToAny(ss []string) []any {
+	out := make([]any, len(ss))
+	for i, s := range ss {
+		out[i] = s
+	}
+	return out
+}
+
 // GET /api/mcp/keys — mcp.py mcp_api_list_keys: load the mcp.api_keys setting (a JSON
 // array of key descriptors; "[]" default) and return id/label/created_at/expires_at only.
 func (s *server) handleApiMcpKeys(w http.ResponseWriter, r *http.Request) {
