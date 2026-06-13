@@ -179,3 +179,19 @@ routes:
     path: "/work-items/help"
     methods: [GET]
     request: {method: GET}
+  - id: get__api_query_schema
+    path: "/api/query/schema"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_table_explorer_tables
+    path: "/api/table-explorer/tables"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_kubernetes_status
+    path: "/api/kubernetes/status"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__api_notifications_vapid_public_key
+    path: "/api/notifications/vapid-public-key"
+    methods: [GET]
+    request: {method: GET}

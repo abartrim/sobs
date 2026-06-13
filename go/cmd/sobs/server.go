@@ -51,6 +51,12 @@ func (s *server) routes() {
 	// Phase 3: first data-backed route. app.py: health_db() -> SELECT 1 + status JSON.
 	s.mux.HandleFunc("/health/db", s.handleHealthDB)
 
+	// Phase 3: JSON API guard routes (feature-disabled returns in the parity state).
+	s.mux.HandleFunc("/api/query/schema", s.handleApiQuerySchema)
+	s.mux.HandleFunc("/api/table-explorer/tables", s.handleApiTableExplorerTables)
+	s.mux.HandleFunc("/api/kubernetes/status", s.handleApiKubernetesStatus)
+	s.mux.HandleFunc("/api/notifications/vapid-public-key", s.handleApiVapidPublicKey)
+
 	// Static assets — served byte-for-byte from static/ (Quart's default static endpoint).
 	s.mux.HandleFunc("/static/", s.handleStatic)
 
