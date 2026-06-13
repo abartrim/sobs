@@ -97,6 +97,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/settings/masking", s.handleViewMaskingSettings)
 	s.mux.HandleFunc("/settings", s.handleViewSettings)
 	s.mux.HandleFunc("/metrics/rules", s.handleViewMetricsRules)
+	s.mux.HandleFunc("/settings/agents", s.handleViewAgentRules)
 	s.mux.HandleFunc("/dashboards", s.handleListDashboards)
 
 	// Static assets — served byte-for-byte from static/ (Quart's default static endpoint).

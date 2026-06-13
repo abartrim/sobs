@@ -208,6 +208,20 @@ func (s *server) handleViewMetricsRules(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// GET /settings/agents — app.py view_agent_rules. rules/runs/tag_rules are empty on the
+// fixture; anomaly_rules has the 4 seeded rules; the trigger/action lists are constants.
+func (s *server) handleViewAgentRules(w http.ResponseWriter, r *http.Request) {
+	s.renderPage(w, "settings_agents.html", "view_agent_rules", map[string]any{
+		"rules":          []any{},
+		"runs":           []any{},
+		"anomaly_rules":  s.loadAnomalyRulesCtx(),
+		"tag_rules":      []any{},
+		"trigger_types":  []any{"anomaly_rule", "tag_rule", "manual"},
+		"trigger_states": []any{"warning", "critical", "any"},
+		"agent_actions":  []any{"analyze", "github_issue", "github_issue_copilot", "dlp_check"},
+	})
+}
+
 // GET /settings/kubernetes — app.py view_k8s_settings: render with k8s settings + flash.
 func (s *server) handleViewK8sSettings(w http.ResponseWriter, r *http.Request) {
 	val, _ := s.appSetting("kubernetes.enabled")
