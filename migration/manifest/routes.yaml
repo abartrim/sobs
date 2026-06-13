@@ -413,3 +413,7 @@ routes:
     path: "/api/work-items"
     methods: [GET]
     request: {method: GET}
+  - id: get__api_enrichment_libraries
+    path: "/api/enrichment/libraries"
+    methods: [GET]
+    request: {method: GET}

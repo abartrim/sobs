@@ -115,6 +115,15 @@ func (s *server) handleApiAgentRuns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("runs", runs))
 }
 
+// GET /api/enrichment/libraries — app.py api_enrichment_libraries. The merged library
+// inventory (release registry + OTEL SDK/scope tiers) and CVE findings are all empty on
+// the fixture -> libraries []. scanned_at from the cve_last_scan setting ("").
+func (s *server) handleApiEnrichmentLibraries(w http.ResponseWriter, r *http.Request) {
+	scanned, _ := s.appSetting("enrichment.cve_last_scan")
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).Set("libraries", []any{}).Set("scanned_at", scanned))
+}
+
 // GET /api/work-items — app.py api_get_work_items: github work items (empty on fixture).
 // The async GitHub backfill is fire-and-forget (does not affect the response) and is skipped.
 func (s *server) handleApiWorkItems(w http.ResponseWriter, r *http.Request) {
