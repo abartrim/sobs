@@ -237,6 +237,36 @@ func (s *server) handleViewNotifications(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// activePartRows mirrors _active_part_rows: row count of a table's active parts.
+func (s *server) activePartRows(table string) int {
+	return s.countRows("SELECT COALESCE(sum(rows), 0) AS c FROM system.parts " +
+		"WHERE active = 1 AND database = currentDatabase() AND table = '" + table + "'")
+}
+
+// GET /web-traffic — app.py view_web_traffic.
+func (s *server) handleViewWebTraffic(w http.ResponseWriter, r *http.Request) {
+	total := s.activePartRows("hyperdx_sessions")
+	topUrls := []any{}
+	if res, err := s.db.Execute("SELECT LogAttributes['url'] AS url, COUNT(*) AS cnt " +
+		"FROM hyperdx_sessions  GROUP BY url HAVING url != '' ORDER BY cnt DESC LIMIT 20"); err == nil {
+		for _, m := range rowMaps(res) {
+			topUrls = append(topUrls, []any{cStr(m, "url"), cInt(m, "cnt")})
+		}
+	}
+	eventTypes := []any{}
+	if res, err := s.db.Execute("SELECT EventName, COUNT(*) AS cnt FROM hyperdx_sessions  " +
+		"GROUP BY EventName ORDER BY cnt DESC LIMIT 20"); err == nil {
+		for _, m := range rowMaps(res) {
+			eventTypes = append(eventTypes, []any{cStr(m, "EventName"), cInt(m, "cnt")})
+		}
+	}
+	s.renderPage(w, "web_traffic.html", "view_web_traffic", map[string]any{
+		"total": total, "top_urls": topUrls, "event_types": eventTypes,
+		"from_ts": "", "to_ts": "", "error_msg": "",
+		"geo_enabled": s.appSettingBool("enrichment.geo_enabled", true),
+	})
+}
+
 // GET /settings/agents — app.py view_agent_rules. rules/runs/tag_rules are empty on the
 // fixture; anomaly_rules has the 4 seeded rules; the trigger/action lists are constants.
 func (s *server) handleViewAgentRules(w http.ResponseWriter, r *http.Request) {

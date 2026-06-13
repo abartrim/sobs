@@ -222,6 +222,10 @@ func (rc *renderCtx) renderNode(n node, sc *scope, sb *strings.Builder) error {
 		return rc.renderFor(&x, sc, sb)
 	case *forNode:
 		return rc.renderFor(x, sc, sb)
+	case *callNode:
+		return rc.renderCall(x, sc, sb)
+	case callNode:
+		return rc.renderCall(&x, sc, sb)
 	case withNode:
 		return rc.renderWith(&x, sc, sb)
 	case *withNode:
@@ -285,6 +289,37 @@ func (rc *renderCtx) renderFor(n *forNode, sc *scope, sb *strings.Builder) error
 			return err
 		}
 	}
+	return nil
+}
+
+// renderCall implements {% call %}: bind caller() to the block body (rendered in a child
+// of the call-site scope with the caller params), then invoke the macro expression.
+func (rc *renderCtx) renderCall(n *callNode, sc *scope, sb *strings.Builder) error {
+	e := rc.engine
+	prev, had := e.funcs["caller"]
+	e.funcs["caller"] = func(pos []any, kw map[string]any) (any, error) {
+		cs := newScope(sc)
+		for i, p := range n.callerParams {
+			if i < len(pos) {
+				cs.vars[p] = pos[i]
+			}
+		}
+		var bb strings.Builder
+		if err := rc.renderNodes(n.body, cs, &bb); err != nil {
+			return nil, err
+		}
+		return safeString{bb.String()}, nil
+	}
+	val, err := e.evalExpr(n.macroExpr, sc)
+	if had {
+		e.funcs["caller"] = prev
+	} else {
+		delete(e.funcs, "caller")
+	}
+	if err != nil {
+		return err
+	}
+	sb.WriteString(renderOutput(val))
 	return nil
 }
 

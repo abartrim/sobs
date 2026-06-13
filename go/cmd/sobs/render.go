@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -91,11 +93,40 @@ func (s *server) urlFor(pos []any, kw map[string]any) (any, error) {
 	if !ok {
 		return "", fmt.Errorf("url_for: unknown endpoint %q", endpoint)
 	}
-	// substitute <param> / <conv:param> path params from kwargs
+	// Path-param kwargs are substituted into the rule; the rest become query params
+	// (Quart appends leftover url_for kwargs as ?k=v). Query keys are sorted.
+	query := map[string]string{}
 	for k, v := range kw {
-		rule = replaceParam(rule, k, fmt.Sprintf("%v", v))
+		if pathHasParam(rule, k) {
+			rule = replaceParam(rule, k, fmt.Sprintf("%v", v))
+		} else {
+			query[k] = fmt.Sprintf("%v", v)
+		}
 	}
-	return s.cfg.BasePath + rule, nil
+	out := s.cfg.BasePath + rule
+	if len(query) > 0 {
+		keys := make([]string, 0, len(query))
+		for k := range query {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var qs []string
+		for _, k := range keys {
+			qs = append(qs, url.QueryEscape(k)+"="+url.QueryEscape(query[k]))
+		}
+		out += "?" + strings.Join(qs, "&")
+	}
+	return out, nil
+}
+
+// pathHasParam reports whether a rule contains the named path param (<name> or <conv:name>).
+func pathHasParam(rule, name string) bool {
+	for _, t := range []string{"<" + name + ">", "<int:" + name + ">", "<path:" + name + ">", "<string:" + name + ">"} {
+		if strings.Contains(rule, t) {
+			return true
+		}
+	}
+	return false
 }
 
 func replaceParam(rule, name, value string) string {
@@ -117,7 +148,9 @@ func (s *server) baseContext(endpoint string) map[string]any {
 		"raise_issue_mask_toggle_effective": true, // masking off in parity -> effective
 		"mobile_breakpoint_max":             mobileBreakpointMax,
 		"sobs_version":                      s.cfg.BuildVersion,
-		"request":                           map[string]any{"endpoint": endpoint},
+		// request.args is empty for the param-less page captures; macros call
+		// request.args.get(...) which falls back to defaults on an empty map.
+		"request": map[string]any{"endpoint": endpoint, "args": map[string]any{}},
 		"config": map[string]any{
 			"ENABLE_FIRST_RUN_TOUR": s.cfg.FirstRunTourEnabled,
 		},

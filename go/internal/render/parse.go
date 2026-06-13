@@ -47,6 +47,14 @@ type blockNode struct {
 	body []node
 }
 
+// callNode is {% call [(params)] macroexpr %}body{% endcall %}: invokes macroexpr with
+// caller() bound to the body (rendered in the call-site scope + optional params).
+type callNode struct {
+	callerParams []string
+	macroExpr    string
+	body         []node
+}
+
 type includeNode struct{ name string }
 
 type extendsNode struct{ name string }
@@ -167,6 +175,8 @@ func (p *parser) parseTag(text, kw string) (node, error) {
 		return nil, nil
 	case "macro":
 		return p.parseMacro(text)
+	case "call":
+		return p.parseCall(text)
 	default:
 		return nil, fmt.Errorf("unsupported tag: %q", text)
 	}
@@ -259,6 +269,28 @@ func (p *parser) parseIf(text string) (node, error) {
 			return n, nil
 		}
 	}
+}
+
+// parseCall handles {% call [(p1,p2)] macroname(args) %}body{% endcall %} — invokes the
+// macro with `caller()` bound to the rendered body (optionally taking the params).
+func (p *parser) parseCall(text string) (node, error) {
+	inner := strings.TrimSpace(strings.TrimPrefix(text, "call"))
+	var callerParams []string
+	if strings.HasPrefix(inner, "(") {
+		if end := strings.IndexByte(inner, ')'); end >= 0 {
+			callerParams = splitVars(inner[1:end])
+			inner = strings.TrimSpace(inner[end+1:])
+		}
+	}
+	n := &callNode{callerParams: callerParams, macroExpr: inner}
+	p.pos++
+	body, err := p.parseUntil([]string{"endcall"})
+	if err != nil {
+		return nil, err
+	}
+	n.body = body
+	p.pos++ // endcall
+	return n, nil
 }
 
 func (p *parser) parseFor(text string) (node, error) {

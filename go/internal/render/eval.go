@@ -666,13 +666,14 @@ func formatPyFloat(f float64) string {
 // HTML-escape <>&' to \uXXXX.
 func tojson(v any) string {
 	raw := string(jsonenc.Encode(toJSONValue(v), jsonenc.JinjaTojson))
-	r := strings.NewReplacer(
-		"<", `<`,
-		">", `>`,
-		"&", `&`,
-		"'", `'`,
-	)
-	return r.Replace(raw)
+	// Flask/Jinja htmlsafe_json: escape <, >, &, ' as \uXXXX so the JSON is safe inside
+	// <script> and HTML attributes.
+	m := raw
+	m = strings.ReplaceAll(m, "<", "\\u003c")
+	m = strings.ReplaceAll(m, ">", "\\u003e")
+	m = strings.ReplaceAll(m, "&", "\\u0026")
+	m = strings.ReplaceAll(m, "'", "\\u0027")
+	return m
 }
 
 // toJSONValue coerces interpreter values into types jsonenc understands: native maps

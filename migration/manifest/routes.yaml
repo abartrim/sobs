@@ -417,3 +417,7 @@ routes:
     path: "/api/enrichment/libraries"
     methods: [GET]
     request: {method: GET}
+  - id: get__web_traffic
+    path: "/web-traffic"
+    methods: [GET]
+    request: {method: GET}
