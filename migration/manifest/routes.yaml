@@ -681,3 +681,21 @@ routes:
     path: "/errors/someerrorid/resolve"
     methods: [POST]
     request: {method: POST, json: {}}
+  - id: get__api_ai_helper_actions_manifest
+    path: "/api/ai/helper/actions/manifest"
+    methods: [GET]
+  - id: get__api_ai_helper_capabilities
+    path: "/api/ai/helper/capabilities"
+    methods: [GET]
+  - id: get__api_ai_helper_chats__id
+    path: "/api/ai/helper/chats/nonexistent"
+    methods: [GET]
+  - id: get__api_dashboards_chart_export
+    path: "/api/dashboards/nope/charts/nope/export"
+    methods: [GET]
+  - id: get__api_onboarding_inspect_repo
+    path: "/api/onboarding/inspect-repo"
+    methods: [GET]
+  - id: get__v1_rum_assets__id
+    path: "/v1/rum/assets/nonexistent"
+    methods: [GET]

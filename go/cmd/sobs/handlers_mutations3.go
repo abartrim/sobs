@@ -139,6 +139,17 @@ func (s *server) handleDashboardSub(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not implemented", http.StatusNotImplemented)
 		return
 	}
+	// GET /api/dashboards/<dashboard_id>/charts/<chart_id>/export — 404 when the dashboard
+	// is absent (the lookup precedes the chart lookup).
+	if seg := strings.Split(rest, "/"); r.Method == http.MethodGet && len(seg) == 4 &&
+		seg[1] == "charts" && seg[3] == "export" {
+		if !s.rowExists("SELECT Id FROM sobs_dashboards FINAL WHERE IsDeleted = 0 AND Id = ?", seg[0]) {
+			s.errorJSON(w, http.StatusNotFound, "Dashboard not found")
+			return
+		}
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
 	http.NotFound(w, r)
 }
 
