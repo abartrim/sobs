@@ -92,6 +92,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/table-explorer", s.handleViewTableExplorer)
 	s.mux.HandleFunc("/kubernetes", s.handleViewKubernetes)
 	s.mux.HandleFunc("/dashboards/new", s.handleNewDashboardForm)
+	s.mux.HandleFunc("/dashboards", s.handleListDashboards)
 
 	// Static assets — served byte-for-byte from static/ (Quart's default static endpoint).
 	s.mux.HandleFunc("/static/", s.handleStatic)

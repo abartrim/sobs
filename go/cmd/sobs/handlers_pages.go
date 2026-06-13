@@ -54,6 +54,42 @@ func (s *server) handleViewTableExplorer(w http.ResponseWriter, r *http.Request)
 	s.renderPage(w, "table_explorer.html", "view_table_explorer", nil)
 }
 
+// GET /dashboards — app.py list_dashboards: render custom_dashboards.html with the
+// non-deleted dashboards (_get_dashboards).
+func (s *server) handleListDashboards(w http.ResponseWriter, r *http.Request) {
+	res, err := s.db.Execute(
+		"SELECT Id, Name, Description FROM sobs_dashboards FINAL WHERE IsDeleted = 0 ORDER BY Name")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	dashboards := []any{}
+	for _, m := range rowMaps(res) {
+		dashboards = append(dashboards, map[string]any{
+			"id": cStr(m, "Id"), "name": cStr(m, "Name"), "description": cStr(m, "Description"),
+		})
+	}
+	s.renderPage(w, "custom_dashboards.html", "list_dashboards", map[string]any{"dashboards": dashboards})
+}
+
+// GET /reports — app.py list_reports: render reports.html with all reports (_get_reports).
+func (s *server) handleListReportsPage(w http.ResponseWriter, r *http.Request) {
+	res, err := s.db.Execute("SELECT Id, Name, Description, PageType, FiltersJson " +
+		"FROM sobs_reports FINAL WHERE IsDeleted = 0 ORDER BY PageType, Name")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	reports := []any{}
+	for _, m := range rowMaps(res) {
+		reports = append(reports, map[string]any{
+			"id": cStr(m, "Id"), "name": cStr(m, "Name"), "description": cStr(m, "Description"),
+			"page_type": cStr(m, "PageType"), "filters": parseReportFiltersNative(cStr(m, "FiltersJson")),
+		})
+	}
+	s.renderPage(w, "reports.html", "list_reports", map[string]any{"reports": reports})
+}
+
 // GET /kubernetes — app.py view_kubernetes: 404 string when k8s is disabled (fixture).
 func (s *server) handleViewKubernetes(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.KubernetesEnabled {

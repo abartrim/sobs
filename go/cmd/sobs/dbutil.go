@@ -198,6 +198,26 @@ func (s *server) appSettingBool(key string, def bool) bool {
 	}
 }
 
+// parseReportFiltersNative decodes a stored FiltersJson into a NATIVE Go value (maps,
+// slices, json.Number) for template rendering / the tojson filter — mirrors
+// _parse_report_filters with a {} fallback. (parseJSONObject builds a jsonenc.Object for
+// JSON responses; templates need native maps.)
+func parseReportFiltersNative(raw string) any {
+	if strings.TrimSpace(raw) == "" {
+		return map[string]any{}
+	}
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if dec.Decode(&v) != nil {
+		return map[string]any{}
+	}
+	if m, ok := v.(map[string]any); ok {
+		return m
+	}
+	return map[string]any{}
+}
+
 // dbError reproduces the generic 500 JSON some handlers return on a query exception
 // ({"ok": false, "error": "..."}). Most parity routes never hit this on the fixture DB.
 func (s *server) dbError(w http.ResponseWriter, err error) {

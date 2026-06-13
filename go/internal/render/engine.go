@@ -21,7 +21,17 @@ type Engine struct {
 }
 
 func New(dir string) *Engine {
-	return &Engine{dir: dir, cache: map[string]*parseResult{}, funcs: map[string]Func{}}
+	e := &Engine{dir: dir, cache: map[string]*parseResult{}, funcs: map[string]Func{}}
+	// Jinja builtin: namespace(**kw) returns a mutable attribute container. Modeled as a
+	// map[string]any (Go maps are references, so `{% set ns.x = v %}` mutations persist).
+	e.funcs["namespace"] = func(pos []any, kw map[string]any) (any, error) {
+		ns := map[string]any{}
+		for k, v := range kw {
+			ns[k] = v
+		}
+		return ns, nil
+	}
+	return e
 }
 
 // AddFunc registers a template-callable global.
@@ -169,6 +179,14 @@ func (rc *renderCtx) renderNode(n node, sc *scope, sb *strings.Builder) error {
 		val, err := rc.engine.evalExpr(x.expr, sc)
 		if err != nil {
 			return err
+		}
+		// Dotted target ({% set ns.found = true %}): mutate the attribute of the
+		// (map-backed) object — e.g. a namespace. Falls back to a plain var otherwise.
+		if dot := strings.LastIndexByte(x.name, '.'); dot >= 0 {
+			if m, ok := sc.lookupDotted(x.name[:dot]).(map[string]any); ok {
+				m[x.name[dot+1:]] = val
+				return nil
+			}
 		}
 		sc.vars[x.name] = val
 	case setBlockNode:

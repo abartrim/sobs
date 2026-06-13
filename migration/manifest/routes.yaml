@@ -321,3 +321,7 @@ routes:
     path: "/dashboards/new"
     methods: [GET]
     request: {method: GET}
+  - id: get__dashboards
+    path: "/dashboards"
+    methods: [GET]
+    request: {method: GET}
