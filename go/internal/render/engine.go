@@ -371,6 +371,13 @@ func toList(v any) []any {
 			out = append(out, k)
 		}
 		return out
+	case map[string]any:
+		// iterating / `in` on a dict yields its keys
+		out := make([]any, 0, len(x))
+		for k := range x {
+			out = append(out, k)
+		}
+		return out
 	case nil:
 		return nil
 	default:

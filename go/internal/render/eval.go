@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"math"
+	neturl "net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -297,6 +298,50 @@ func matchCloseParen(s string) int {
 		}
 	}
 	return -1
+}
+
+// pyStr mirrors Python str(v) for the values templates urlencode (str/list/int/dict/...).
+func pyStr(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case nil:
+		return "None"
+	case bool:
+		if x {
+			return "True"
+		}
+		return "False"
+	case []any:
+		parts := make([]string, len(x))
+		for i, e := range x {
+			parts[i] = pyRepr(e)
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	case *jsonenc.Object:
+		parts := make([]string, 0, x.Len())
+		for _, k := range x.Keys() {
+			vv, _ := x.Get(k)
+			parts = append(parts, pyRepr(k)+": "+pyRepr(vv))
+		}
+		return "{" + strings.Join(parts, ", ") + "}"
+	default:
+		return toString(v)
+	}
+}
+
+// pyRepr mirrors Python repr() for the cases inside a list/dict str() (strings get quotes).
+func pyRepr(v any) string {
+	if s, ok := v.(string); ok {
+		return "'" + s + "'"
+	}
+	return pyStr(v)
+}
+
+// urlQueryEscape matches urllib.parse.quote_via for query values (space -> %20, and the
+// reserved chars Werkzeug escapes). Go's url.QueryEscape uses '+' for space; replace it.
+func urlQueryEscape(s string) string {
+	return strings.ReplaceAll(neturl.QueryEscape(s), "+", "%20")
 }
 
 func toIntVal(v any) int {
@@ -826,6 +871,18 @@ func (e *Engine) applyFilter(f string, val any, ctx *scope) (any, error) {
 			}
 		}
 		return out, nil
+	case "urlencode":
+		// Jinja urlencode: a mapping -> "k=v&..." in insertion order, each side URL-escaped;
+		// values are Python str()-formatted (lists/ints/etc.).
+		if om, ok := val.(*jsonenc.Object); ok {
+			parts := make([]string, 0, om.Len())
+			for _, k := range om.Keys() {
+				v, _ := om.Get(k)
+				parts = append(parts, urlQueryEscape(k)+"="+urlQueryEscape(pyStr(v)))
+			}
+			return strings.Join(parts, "&"), nil
+		}
+		return urlQueryEscape(toString(val)), nil
 	case "mask":
 		// app.py _mask_value_for_output: redacts sensitive keys/patterns. The fixture data
 		// carries no sensitive content, so masking is identity here. (Full redaction lands
@@ -862,6 +919,10 @@ func toString(v any) string {
 		return strconv.Itoa(x)
 	case float64:
 		return formatPyFloat(x)
+	case []any:
+		return pyStr(x) // {{ list }} -> Python str(list), e.g. "['ERROR']"
+	case *jsonenc.Object:
+		return pyStr(x) // {{ dict }} -> Python str(dict)
 	default:
 		return fmt.Sprintf("%v", x)
 	}

@@ -130,6 +130,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/{$}", s.handleSummary) // exact root "/" only (not a catch-all)
 	s.mux.HandleFunc("/settings/notifications", s.handleViewNotifications)
 	s.mux.HandleFunc("/dashboards", s.handleListDashboards)
+	s.mux.HandleFunc("/reports", s.handleListReportsPage)
 
 	// Static assets — served byte-for-byte from static/ (Quart's default static endpoint).
 	s.mux.HandleFunc("/static/", s.handleStatic)
