@@ -124,17 +124,57 @@ func (s *server) handleSettingsAgentsSub(w http.ResponseWriter, r *http.Request)
 func (s *server) handleSettingsTagsSub(w http.ResponseWriter, r *http.Request) {
 	s.formDeleteGuard(w, r, "/settings/tags/", "sobs_tag_rules", "warning", "Tag rule not found", "/settings/tags")
 }
-func (s *server) handleSettingsRepositoriesSub(w http.ResponseWriter, r *http.Request) {
-	s.formDeleteGuard(w, r, "/settings/repositories/", "sobs_apps", "warning", "Repository entry not found", "/settings/repositories")
-}
 func (s *server) handleMetricsRulesSub(w http.ResponseWriter, r *http.Request) {
 	s.formDeleteGuard(w, r, "/metrics/rules/", "sobs_anomaly_rules", "warning", "Rule not found", "/metrics/rules")
 }
+
+// formLookupGuard handles every POST .../<id>/<action> form route under `prefix` (delete,
+// toggle, rotate, …): it looks the first path segment up by Id in `table` and flashes the
+// not-found message when absent — the deterministic branch for every action on the fixture.
+func (s *server) formLookupGuard(w http.ResponseWriter, r *http.Request, prefix, table, category, msg, location string) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, prefix)
+	id := strings.SplitN(rest, "/", 2)[0]
+	if !s.rowExists("SELECT Id FROM "+table+" FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1", id) {
+		flashRedirect(w, category, msg, location)
+		return
+	}
+	http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
 func (s *server) handleNotifChannelsSub(w http.ResponseWriter, r *http.Request) {
-	s.formDeleteGuard(w, r, "/settings/notifications/channels/", "sobs_notification_channels", "warning", "Notification channel not found", "/settings/notifications")
+	s.formLookupGuard(w, r, "/settings/notifications/channels/", "sobs_notification_channels", "warning", "Notification channel not found", "/settings/notifications")
 }
 func (s *server) handleNotifRulesSub(w http.ResponseWriter, r *http.Request) {
-	s.formDeleteGuard(w, r, "/settings/notifications/rules/", "sobs_notification_rules", "warning", "Notification rule not found", "/settings/notifications")
+	s.formLookupGuard(w, r, "/settings/notifications/rules/", "sobs_notification_rules", "warning", "Notification rule not found", "/settings/notifications")
+}
+
+// /settings/repositories/<app_id>/... (delete, realtime-mode, ci-ingest-key/rotate|revoke,
+// releases, save): a missing app flashes "Repository entry not found". The github-token/validate
+// action is not an app route — it flashes when no GitHub token is configured.
+func (s *server) handleSettingsRepositoriesSub(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/settings/repositories/")
+	if rest == "github-token/validate" {
+		if tok, _ := s.appSetting("ai.github_token"); tok == "" {
+			flashRedirect(w, "warning", "No GitHub token configured to validate", "/settings/repositories")
+			return
+		}
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
+	id := strings.SplitN(rest, "/", 2)[0]
+	if !s.rowExists("SELECT Id FROM sobs_apps FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1", id) {
+		flashRedirect(w, "warning", "Repository entry not found", "/settings/repositories")
+		return
+	}
+	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
 // POST /settings/notifications/channels (create) — empty form -> "Channel name is required".

@@ -803,3 +803,43 @@ routes:
     path: "/v1/releases/nonexistent/artifacts/meta"
     methods: [POST]
     request: {method: POST, json: {}}
+  - id: post__settings_notif_channels__id_toggle
+    path: "/settings/notifications/channels/nonexistent/toggle"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_notif_rules__id_toggle
+    path: "/settings/notifications/rules/nonexistent/toggle"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_repositories__id_realtime
+    path: "/settings/repositories/nonexistent/realtime-mode"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_repositories__id_ci_rotate
+    path: "/settings/repositories/nonexistent/ci-ingest-key/rotate"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_repositories__id_ci_revoke
+    path: "/settings/repositories/nonexistent/ci-ingest-key/revoke"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_repositories__id_releases
+    path: "/settings/repositories/nonexistent/releases"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_repositories__id
+    path: "/settings/repositories/nonexistent"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_repositories_ghtoken_validate
+    path: "/settings/repositories/github-token/validate"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__dashboards__id_charts__cid_clone
+    path: "/dashboards/nope/charts/nope/clone"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__dashboards__id_charts__cid_edit
+    path: "/dashboards/nope/charts/nope/edit"
+    methods: [POST]
+    request: {method: POST}
