@@ -297,3 +297,7 @@ routes:
     path: "/v1/rum/assets"
     methods: [GET]
     request: {method: GET}
+  - id: get__v1_apps
+    path: "/v1/apps"
+    methods: [GET]
+    request: {method: GET}
