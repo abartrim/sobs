@@ -256,3 +256,44 @@ routes:
     path: "/api/mcp/keys"
     methods: [GET]
     request: {method: GET}
+  # ---- static assets w/ dedicated handlers + v1 ingest preflight ----
+  - id: get__service_worker_js
+    path: "/service-worker.js"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__static_rum_js
+    path: "/static/rum.js"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__static_rum_js_map
+    path: "/static/rum.js.map"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__static_rum_min_js
+    path: "/static/rum.min.js"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__static_rum_min_js_map
+    path: "/static/rum.min.js.map"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__static_rum_d_ts
+    path: "/static/rum.d.ts"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__v1_logs
+    path: "/v1/logs"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__v1_metrics
+    path: "/v1/metrics"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__v1_traces
+    path: "/v1/traces"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__v1_rum_assets
+    path: "/v1/rum/assets"
+    methods: [GET]
+    request: {method: GET}

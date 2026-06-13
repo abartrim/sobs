@@ -28,15 +28,15 @@ import re
 # The BODY is never touched, so rendered-asset parity is unaffected.
 _DROP_HEADERS = {"date", "server", "connection", "transfer-encoding", "keep-alive"}
 
-# Filesystem-mtime / wall-clock-derived caching metadata on STATIC files. These are NOT
-# reproducible across hosts: Werkzeug's etag is `{st_mtime}-{size}-{adler32(abspath)}`
-# and last-modified/expires derive from the file mtime and the clock — git does not
-# preserve mtimes, so the capture host and any deploy host differ by construction. They
-# are caching metadata, not the rendered asset (the JS/CSS/JSON bytes, which ARE compared
-# byte-for-byte). Dropped only for filesystem-static responses; app-set deterministic
-# ETags (e.g. the content-hash ETags on /static/rum.js*) are NOT dropped — see
-# is_static_caching_header(). Documented in PARITY_STRATEGY.md §1.
-_STATIC_CACHE_HEADERS = {"last-modified", "etag", "expires"}
+# Wall-clock / filesystem-mtime caching metadata. last-modified and expires derive from
+# the file mtime and the wall clock; they are NEVER reproducible across a frozen-clock
+# Python capture and a live Go server (git does not preserve mtimes either), so they are
+# ALWAYS dropped — they are caching metadata, not the rendered asset (the JS/CSS/JSON
+# bytes, which ARE compared byte-for-byte). The etag is handled separately: Werkzeug's
+# filesystem etag `{mtime}-{size}-{adler32}` is mtime-derived and dropped, but app-set
+# content-hash ETags (e.g. on /static/rum.js, sha256 of the bytes) ARE deterministic and
+# are KEPT and compared. Documented in PARITY_STRATEGY.md §1.
+_ALWAYS_DROP_CACHE_HEADERS = {"last-modified", "expires"}
 
 # The signed session cookie: HMAC signature differs by signing implementation, but the
 # PAYLOAD must match. We compare the unsigned payload, not the signature bytes.
@@ -49,21 +49,16 @@ _SESSION_COOKIE_RE = re.compile(rb"(sobs_session=)([^;]*)(.*)", re.IGNORECASE)
 _FS_ETAG_RE = re.compile(r'^"?\d+\.\d+-\d+-\d+"?$')
 
 
-def _is_fs_static(headers: list) -> bool:
-    for name, value in headers:
-        if name.lower() == "etag" and _FS_ETAG_RE.match(value.strip()):
-            return True
-    return False
-
-
 def normalize(resp: dict) -> dict:
-    fs_static = _is_fs_static(resp["headers"])
     headers = []
     for name, value in resp["headers"]:
         lname = name.lower()
         if lname in _DROP_HEADERS:
             continue
-        if fs_static and lname in _STATIC_CACHE_HEADERS:
+        if lname in _ALWAYS_DROP_CACHE_HEADERS:
+            continue
+        # Drop ONLY the mtime-format Werkzeug etag; keep content-hash etags for comparison.
+        if lname == "etag" and _FS_ETAG_RE.match(value.strip()):
             continue
         if lname == "set-cookie" and b"sobs_session=" in value.encode("latin1", "ignore"):
             headers.append([name, _normalize_session_cookie(value)])

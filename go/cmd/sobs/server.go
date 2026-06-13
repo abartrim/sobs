@@ -74,6 +74,19 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/api/dashboards/spec/options", s.handleApiDashboardsSpecOptions)
 	s.mux.HandleFunc("/api/mcp/keys", s.handleApiMcpKeys)
 
+	// Dedicated static assets (explicit mimetypes / content-hash ETags) + service worker.
+	s.mux.HandleFunc("/service-worker.js", s.handleServiceWorker)
+	s.mux.HandleFunc("/static/rum.js", s.handleRumJS)
+	s.mux.HandleFunc("/static/rum.min.js", s.handleRumMinJS)
+	s.mux.HandleFunc("/static/rum.js.map", s.handleRumJSMap)
+	s.mux.HandleFunc("/static/rum.min.js.map", s.handleRumMinJSMap)
+	s.mux.HandleFunc("/static/rum.d.ts", s.handleRumDTS)
+	// v1 ingest endpoints: GET -> 405 (POST ingest lands with OTLP).
+	s.mux.HandleFunc("/v1/logs", s.handleV1IngestGet)
+	s.mux.HandleFunc("/v1/metrics", s.handleV1IngestGet)
+	s.mux.HandleFunc("/v1/traces", s.handleV1IngestGet)
+	s.mux.HandleFunc("/v1/rum/assets", s.handleV1IngestGet)
+
 	// Static assets — served byte-for-byte from static/ (Quart's default static endpoint).
 	s.mux.HandleFunc("/static/", s.handleStatic)
 
