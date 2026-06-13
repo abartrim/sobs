@@ -252,3 +252,7 @@ routes:
     path: "/api/dashboards/spec/options"
     methods: [GET]
     request: {method: GET}
+  - id: get__api_mcp_keys
+    path: "/api/mcp/keys"
+    methods: [GET]
+    request: {method: GET}

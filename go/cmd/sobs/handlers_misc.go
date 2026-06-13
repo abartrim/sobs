@@ -222,6 +222,40 @@ func (s *server) handleApiDashboardsSpecOptions(w http.ResponseWriter, r *http.R
 		Set("metrics", metrics))
 }
 
+// GET /api/mcp/keys — mcp.py mcp_api_list_keys: load the mcp.api_keys setting (a JSON
+// array of key descriptors; "[]" default) and return id/label/created_at/expires_at only.
+func (s *server) handleApiMcpKeys(w http.ResponseWriter, r *http.Request) {
+	keys := []any{}
+	if raw, ok := s.appSetting("mcp.api_keys"); ok {
+		var arr []any
+		dec := json.NewDecoder(strings.NewReader(raw))
+		dec.UseNumber()
+		if dec.Decode(&arr) == nil {
+			for _, item := range arr {
+				m, isMap := item.(map[string]any)
+				if !isMap {
+					continue
+				}
+				obj := jsonenc.NewObject().
+					Set("id", strOrEmpty(m["id"])).
+					Set("label", strOrEmpty(m["label"])).
+					Set("created_at", strOrEmpty(m["created_at"])).
+					Set("expires_at", toEncodable(m["expires_at"])) // k.get("expires_at") -> null if absent
+				keys = append(keys, obj)
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("keys", keys))
+}
+
+// strOrEmpty mirrors dict.get(key, "") for a string-valued field.
+func strOrEmpty(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
 // --- small helpers ------------------------------------------------------------------
 
 // sqlLiteral mirrors _sql_literal: single-quote and double interior quotes.
