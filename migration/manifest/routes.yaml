@@ -707,3 +707,67 @@ routes:
     path: "/metrics/rules"
     methods: [POST]
     request: {method: POST}
+  - id: post__metrics_rules__id_delete
+    path: "/metrics/rules/nonexistent/delete"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_agents__id_delete
+    path: "/settings/agents/nonexistent/delete"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_tags__id_delete
+    path: "/settings/tags/nonexistent/delete"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_notif_channels__id_delete
+    path: "/settings/notifications/channels/nonexistent/delete"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_notif_rules__id_delete
+    path: "/settings/notifications/rules/nonexistent/delete"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_repositories__id_delete
+    path: "/settings/repositories/nonexistent/delete"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__dashboards__id_delete
+    path: "/dashboards/nonexistent/delete"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__dashboards__id_charts__cid_delete
+    path: "/dashboards/nope/charts/nope/delete"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_agents
+    path: "/settings/agents"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_tags
+    path: "/settings/tags"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_notif_channels
+    path: "/settings/notifications/channels"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_notif_rules
+    path: "/settings/notifications/rules"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__dashboards
+    path: "/dashboards"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__dashboards__id_charts
+    path: "/dashboards/nope/charts"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_masking_keys
+    path: "/settings/masking/keys"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__settings_masking_patterns
+    path: "/settings/masking/patterns"
+    methods: [POST]
+    request: {method: POST}

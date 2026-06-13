@@ -62,6 +62,14 @@ func (s *server) handleViewTableExplorer(w http.ResponseWriter, r *http.Request)
 // GET /dashboards — app.py list_dashboards: render custom_dashboards.html with the
 // non-deleted dashboards (_get_dashboards).
 func (s *server) handleListDashboards(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// app.py create_dashboard: an empty form lacks the required name.
+		if s.formRequire(w, r, "name", "warning", "Dashboard name is required", "/dashboards") {
+			return
+		}
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
 	res, err := s.db.Execute(
 		"SELECT Id, Name, Description FROM sobs_dashboards FINAL WHERE IsDeleted = 0 ORDER BY Name")
 	if err != nil {
@@ -473,6 +481,14 @@ func (s *server) handleViewWebTraffic(w http.ResponseWriter, r *http.Request) {
 // GET /settings/agents — app.py view_agent_rules. rules/runs/tag_rules are empty on the
 // fixture; anomaly_rules has the 4 seeded rules; the trigger/action lists are constants.
 func (s *server) handleViewAgentRules(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// app.py create_agent_rule: an empty form lacks the required name.
+		if s.formRequire(w, r, "name", "warning", "Rule name is required", "/settings/agents") {
+			return
+		}
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
 	s.renderPage(w, "settings_agents.html", "view_agent_rules", map[string]any{
 		"rules":          []any{},
 		"runs":           []any{},
@@ -497,6 +513,15 @@ func (s *server) handleMcpSettingsPage(w http.ResponseWriter, r *http.Request) {
 
 // GET /settings/tags — app.py view_tag_rules. Empty tag rules; services from telemetry.
 func (s *server) handleViewTagRules(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// app.py create_tag_rule: an empty form lacks name/conditions/tag key/value.
+		if s.formRequire(w, r, "name", "warning",
+			"Name, at least one match condition, tag key, and tag value are required", "/settings/tags") {
+			return
+		}
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
 	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM (" +
 		"  SELECT ServiceName FROM otel_logs " +
 		"  UNION DISTINCT SELECT ServiceName FROM otel_traces " +
