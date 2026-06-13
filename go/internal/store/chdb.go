@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	chdb "github.com/chdb-io/chdb-go/chdb"
 )
@@ -85,8 +86,35 @@ func (s *chdbStore) Execute(query string, params ...any) (*Result, error) {
 	return &Result{Columns: cols, Rows: rows}, nil
 }
 
-// InsertJSONEachRow inserts rows via ClickHouse JSONEachRow (mirrors app.py
-// _insert_rows_json_each_row). Implemented when ingest routes land (Phase 3).
+// InsertJSONEachRow inserts rows via ClickHouse JSONEachRow, mirroring app.py
+// _insert_rows_json_each_row: one JSON object per line after "INSERT INTO t FORMAT
+// JSONEachRow". HTML escaping is disabled so stored strings keep <, >, & verbatim
+// (Go's json HTML-escapes by default). Key order is irrelevant — JSONEachRow maps by
+// column name. Callers must pre-normalize DateTime columns to ClickHouse strings, exactly
+// as the Python helper does before insert.
 func (s *chdbStore) InsertJSONEachRow(table string, rows []map[string]any) (int, error) {
-	return 0, fmt.Errorf("InsertJSONEachRow not yet implemented")
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	var b strings.Builder
+	b.WriteString("INSERT INTO ")
+	b.WriteString(table)
+	b.WriteString(" FORMAT JSONEachRow\n")
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	for _, row := range rows {
+		if err := enc.Encode(row); err != nil { // Encode appends '\n' per row
+			return 0, fmt.Errorf("encode row for %s: %w", table, err)
+		}
+	}
+	res, err := s.sess.Query(b.String(), "")
+	if err != nil {
+		return 0, fmt.Errorf("chdb insert into %s: %w", table, err)
+	}
+	if res != nil {
+		if e := res.Error(); e != nil {
+			return 0, fmt.Errorf("chdb insert into %s: %w", table, e)
+		}
+	}
+	return len(rows), nil
 }
