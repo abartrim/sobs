@@ -429,3 +429,7 @@ routes:
     path: "/errors"
     methods: [GET]
     request: {method: GET}
+  - id: get__traces
+    path: "/traces"
+    methods: [GET]
+    request: {method: GET}

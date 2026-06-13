@@ -243,6 +243,18 @@ func (s *server) activePartRows(table string) int {
 		"WHERE active = 1 AND database = currentDatabase() AND table = '" + table + "'")
 }
 
+// GET /traces — app.py view_traces. Empty otel_traces on the fixture.
+func (s *server) handleViewTraces(w http.ResponseWriter, r *http.Request) {
+	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM otel_traces WHERE ServiceName != '' ORDER BY ServiceName")
+	s.renderPage(w, "traces.html", "view_traces", map[string]any{
+		"spans": []any{}, "total": 0, "limit": 100, "offset": 0,
+		"service": "", "selected_services": []any{}, "trace_id": "",
+		"from_ts": "", "to_ts": "", "error_msg": "", "q": "", "services": services,
+		"sort_by": "Timestamp", "sort_dir": "desc", "trace_detail": nil,
+		"work_item_links": map[string]any{},
+	})
+}
+
 // GET /errors — app.py view_errors. No error rows on the fixture -> empty lists/defaults.
 func (s *server) handleViewErrors(w http.ResponseWriter, r *http.Request) {
 	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM (" + errorSourcesSQL + ") WHERE ServiceName != ''")
