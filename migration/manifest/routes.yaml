@@ -461,3 +461,7 @@ routes:
     path: "/settings/repositories"
     methods: [GET]
     request: {method: GET}
+  - id: get__settings_tags
+    path: "/settings/tags"
+    methods: [GET]
+    request: {method: GET}

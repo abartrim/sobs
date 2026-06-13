@@ -533,6 +533,13 @@ func (e *Engine) callMethod(objExpr, method, argstr string, ctx *scope) (any, er
 			return strings.ToUpper(str), nil
 		case "strip":
 			return strings.TrimSpace(str), nil
+		case "replace":
+			if len(argList) >= 2 {
+				return strings.ReplaceAll(str, toString(argList[0]), toString(argList[1])), nil
+			}
+			return str, nil
+		case "title":
+			return strings.Title(strings.ToLower(str)), nil //nolint:staticcheck
 		}
 	}
 	if m, ok := obj.(map[string]any); ok && (method == "values" || method == "keys") {

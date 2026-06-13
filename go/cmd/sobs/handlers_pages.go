@@ -447,6 +447,22 @@ func (s *server) handleViewAgentRules(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /settings/tags — app.py view_tag_rules. Empty tag rules; services from telemetry.
+func (s *server) handleViewTagRules(w http.ResponseWriter, r *http.Request) {
+	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM (" +
+		"  SELECT ServiceName FROM otel_logs " +
+		"  UNION DISTINCT SELECT ServiceName FROM otel_traces " +
+		"  UNION DISTINCT SELECT ServiceName FROM hyperdx_sessions)")
+	s.renderPage(w, "settings_tags.html", "view_tag_rules", map[string]any{
+		"rules": []any{}, "edit_rule": nil,
+		"record_types":    []any{"log", "trace", "error", "ai", "rum", "all"},
+		"match_fields":    []any{"service_name", "severity", "body", "span_name", "event_type", "attribute"},
+		"match_operators": []any{"eq", "contains", "regex"},
+		"services":        services,
+		"auto_preview":    []any{}, "auto_summary": nil, "auto_open_panel": "",
+	})
+}
+
 // GET /settings/repositories — app.py view_settings_repositories. Empty apps/AI settings.
 func (s *server) handleViewSettingsRepositories(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, "settings_repositories.html", "view_settings_repositories", map[string]any{
