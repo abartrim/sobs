@@ -325,6 +325,48 @@ func (s *server) handleApiLogsFieldHints(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, obj)
 }
 
+// GET /api/metrics/anomaly — app.py metrics_anomaly. Requires service+metric (400 else);
+// returns the per-minute anomaly series (empty on the fixture).
+func (s *server) handleApiMetricsAnomaly(w http.ResponseWriter, r *http.Request) {
+	service := strings.TrimSpace(r.URL.Query().Get("service"))
+	metric := strings.TrimSpace(r.URL.Query().Get("metric"))
+	if service == "" || metric == "" {
+		writeJSON(w, http.StatusBadRequest,
+			jsonenc.NewObject().Set("error", "service and metric query parameters are required"))
+		return
+	}
+	hours := queryIntClamp(r, "hours", 24, 1, 168)
+	attrFp := strings.TrimSpace(r.URL.Query().Get("attr_fp"))
+	cols := []string{"time", "value", "sample_count", "baseline_mean", "baseline_stddev",
+		"baseline_lower", "baseline_upper", "anomaly_score", "anomaly_state", "metric_kind", "attr_fp"}
+	params := []any{service, metric, hours}
+	fpClause := ""
+	if attrFp != "" {
+		fpClause = " AND AttrFingerprint = ?"
+		params = append(params, attrFp)
+	}
+	res, err := s.db.Execute(
+		"SELECT  time,  value,  SampleCount AS sample_count,  baseline_mean,  baseline_stddev,"+
+			"  baseline_lower,  baseline_upper,  anomaly_score,  anomaly_state,  MetricKind AS metric_kind,"+
+			"  AttrFingerprint AS attr_fp FROM v_otel_metrics_anomaly WHERE ServiceName = ?   AND MetricName = ?"+
+			"   AND time >= now() - INTERVAL ? HOUR"+fpClause+" ORDER BY time LIMIT 1440", params...)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().Set("error", err.Error()))
+		return
+	}
+	rows := []any{}
+	for _, m := range rowMaps(res) {
+		row := make([]any, len(cols))
+		for i, c := range cols {
+			row[i] = m[c]
+		}
+		rows = append(rows, row)
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("service", service).Set("metric", metric).
+		Set("columns", strsToAny(cols)).Set("rows", rows))
+}
+
 // GET /api/dashboards/spec/templates — app.py list_chart_spec_templates: the static
 // chart-spec template catalog (request-independent). Re-serialized via jsonify.
 func (s *server) handleApiDashboardsSpecTemplates(w http.ResponseWriter, r *http.Request) {
