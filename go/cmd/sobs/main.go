@@ -53,7 +53,7 @@ func loadConfig() config {
 		TemplateDir:         envOr("SOBS_TEMPLATE_DIR", "templates"),
 		SecretKey:           envOr("SOBS_SECRET_KEY", "sobs-dev-secret-key"),
 		EncryptionSecret:    os.Getenv("SOBS_SETTINGS_ENCRYPTION_SECRET"),
-		BuildVersion:        envOr("BUILD_VERSION", "dev"),
+		BuildVersion:        envOr("SOBS_BUILD_VERSION", "dev"),
 		BasePath:            os.Getenv("SOBS_BASE_PATH"),
 		QueryPageEnabled:    os.Getenv("SOBS_QUERY_PAGE_ENABLED") == "1",
 		KubernetesEnabled:   os.Getenv("SOBS_KUBERNETES_ENABLED") == "1",

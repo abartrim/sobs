@@ -10,14 +10,16 @@ export SOBS_SECRET_KEY="parity-fixed-secret-key"
 export SOBS_SETTINGS_ENCRYPTION_SECRET="parity-fixed-encryption-secret"
 export SOBS_SESSION_COOKIE_NAME="sobs_session"
 export SOBS_SESSION_COOKIE_SAMESITE="Lax"
-export BUILD_VERSION="parity-build"
+# app.py reads SOBS_BUILD_VERSION (default "" -> sobs_version renders "dev"). Leave unset
+# so the goldens render "dev"; the Go side defaults to "dev" too.
 export SOBS_BASE_PATH=""
 
-# Feature flags — pin to a known config so page branches are stable. Mirror these in
-# the Go config loader's parity defaults.
+# Feature flags. NOTE: query_enabled and kubernetes_enabled are NOT env-controlled —
+# the app computes them from DB settings (_query_page_enabled needs ai.endpoint_url +
+# ai.model; _kubernetes_enabled needs the kubernetes.enabled setting). With the empty
+# fixture DB both are False, which is what the goldens capture. The Go side must compute
+# them from the same settings once the DB layer lands; until then they default False.
 export SOBS_ENABLE_FIRST_RUN_TOUR="0"
-export SOBS_QUERY_PAGE_ENABLED="1"
-export SOBS_KUBERNETES_ENABLED="1"
 
 # chdb memory caps — pin so any size-derived output (rare) is stable.
 export CHDB_MAX_SERVER_MB="768"

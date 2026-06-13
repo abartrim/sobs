@@ -40,6 +40,9 @@ func (s *server) routes() {
 	// Static assets — served byte-for-byte from static/ (Quart's default static endpoint).
 	s.mux.HandleFunc("/static/", s.handleStatic)
 
+	// Phase 2: help pages (template engine). Start with /ai/help.
+	s.mux.HandleFunc("/ai/help", s.handleHelpPage("ai_help", "ai_help.html"))
+
 	// TODO (Phase 1+): register real handlers here, one per app.py @app.route.
 	//   s.mux.HandleFunc("/", s.handleSummary)
 	//   s.mux.HandleFunc("/api/...", s.handleX)
