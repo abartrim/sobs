@@ -485,3 +485,7 @@ routes:
     path: "/reports"
     methods: [GET]
     request: {method: GET}
+  - id: get__ai
+    path: "/ai"
+    methods: [GET]
+    request: {method: GET}

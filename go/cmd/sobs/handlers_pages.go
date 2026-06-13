@@ -278,6 +278,32 @@ func (s *server) handleViewWorkItemsPage(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// GET /ai — app.py view_ai. Empty AI traces on the fixture.
+func (s *server) handleViewAi(w http.ResponseWriter, r *http.Request) {
+	s.renderPage(w, "ai.html", "view_ai", map[string]any{
+		"ai_items": []any{}, "total": 0, "limit": 50, "offset": 0,
+		"service": "", "selected_services": []any{}, "model": "", "selected_models": []any{},
+		"operation": "", "selected_operations": []any{}, "span_name": "", "selected_span_names": []any{},
+		"row_type": "", "selected_row_types": []any{}, "sql_where": "", "view_mode": "flat",
+		"services": []any{}, "models": []any{}, "operations": []any{}, "span_names": []any{},
+		"trace_groups":    []any{},
+		"total_tokens_in": 0, "total_tokens_out": 0, "total_calls": 0, "total_errors": 0,
+		"error_msg": "", "sort_by": "Timestamp", "sort_dir": "desc", "from_ts": "", "to_ts": "",
+		"ai_pricing_json":         mustParseJSON(savedAiPricingJSON),
+		"ai_pricing_sources_json": mustParseJSON(aiPricingSourcesJSON),
+	})
+}
+
+// mustParseJSON parses an embedded JSON asset (order-preserving), returning an empty
+// object on error.
+func mustParseJSON(raw []byte) any {
+	v, err := parseJSONValue(raw)
+	if err != nil {
+		return jsonenc.NewObject()
+	}
+	return v
+}
+
 // GET /incident — app.py view_incident. No incident reference on a param-less request.
 func (s *server) handleViewIncident(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, "incident.html", "view_incident", map[string]any{
