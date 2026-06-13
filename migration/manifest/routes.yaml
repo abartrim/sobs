@@ -305,3 +305,11 @@ routes:
     path: "/api/settings/masking/rules"
     methods: [GET]
     request: {method: GET}
+  - id: get__query
+    path: "/query"
+    methods: [GET]
+    request: {method: GET}
+  - id: get__table_explorer
+    path: "/table-explorer"
+    methods: [GET]
+    request: {method: GET}
