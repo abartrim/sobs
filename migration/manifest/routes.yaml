@@ -203,6 +203,13 @@ routes:
   - GET
   request:
     method: GET
+- id: get__api_query_schema__ai
+  path: /api/query/schema
+  methods:
+  - GET
+  profile: ai
+  request:
+    method: GET
 - id: get__api_table_explorer_tables
   path: /api/table-explorer/tables
   methods:
@@ -514,6 +521,13 @@ routes:
   path: /api/table-explorer/table/otel_logs
   methods:
   - GET
+  request:
+    method: GET
+- id: get__api_table_explorer_table_otel_logs__ai
+  path: /api/table-explorer/table/otel_logs
+  methods:
+  - GET
+  profile: ai
   request:
     method: GET
 - id: get__v1_apps_someapp

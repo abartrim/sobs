@@ -127,13 +127,27 @@ func (s *server) handleApiRawSpan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusNotFound, jsonenc.NewObject().Set("error", "span not found"))
 }
 
-// GET /api/table-explorer/table/<name> — app.py api_table_explorer_table. Query page is
-// disabled on the fixture -> 404 guard.
+// GET /api/table-explorer/table/<name> — app.py api_table_explorer_table: query-page guard,
+// allowlist guard (403), then {columns, ddl, sample} for the single table.
 func (s *server) handleApiTableExplorerTable(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.QueryPageEnabled {
 		writeJSON(w, http.StatusNotFound,
 			jsonenc.NewObject().Set("ok", false).Set("error", "Table Explorer is unavailable."))
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented) // enabled branch: Phase follow-up
+	name := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/table-explorer/table/"))
+	if !queryAllowedTableSet[name] {
+		s.writeMaskedJSON(w, http.StatusForbidden,
+			jsonenc.NewObject().Set("ok", false).Set("error", "Table '"+name+"' is not accessible."))
+		return
+	}
+	cols, err := s.describeTableExtended(name)
+	if err != nil {
+		s.writeMaskedJSON(w, http.StatusInternalServerError,
+			jsonenc.NewObject().Set("ok", false).Set("error", err.Error()))
+		return
+	}
+	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).Set("table", name).
+		Set("columns", cols).Set("ddl", s.getTableDDL(name)).Set("sample", s.getTableSample(name, 5)))
 }

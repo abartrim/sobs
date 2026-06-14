@@ -17,13 +17,15 @@ func (s *server) errorJSON(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, jsonenc.NewObject().Set("error", msg).Set("ok", false))
 }
 
-// GET /api/query/schema — app.py api_query_schema(): guarded by _query_page_enabled.
+// GET /api/query/schema — app.py api_query_schema(): query-page guard, then the schema-context
+// string used for LLM prompts.
 func (s *server) handleApiQuerySchema(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.QueryPageEnabled {
 		s.errorJSON(w, http.StatusNotFound, "Query page is unavailable.")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented) // enabled branch: Phase 3 follow-up
+	s.writeMaskedJSON(w, http.StatusOK,
+		jsonenc.NewObject().Set("ok", true).Set("schema", s.getSchemaContext()))
 }
 
 // GET /api/table-explorer/tables — app.py api_table_explorer_tables(): query-page guard, then
