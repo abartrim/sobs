@@ -871,10 +871,6 @@ routes:
     path: "/settings/ai"
     methods: [POST]
     request: {method: POST}
-  - id: post__settings_enrichment
-    path: "/settings/enrichment"
-    methods: [POST]
-    request: {method: POST}
   - id: post__settings_kubernetes
     path: "/settings/kubernetes"
     methods: [POST]
@@ -909,5 +905,13 @@ routes:
     request: {method: POST, json: {}}
   - id: post__api_notifications_rules_auto_generate
     path: "/api/notifications/rules/auto-generate"
+    methods: [POST]
+    request: {method: POST}
+  - id: post__api_enrichment_cve_scan
+    path: "/api/enrichment/cve/scan"
+    methods: [POST]
+    request: {method: POST, json: {}}
+  - id: post__settings_enrichment
+    path: "/settings/enrichment"
     methods: [POST]
     request: {method: POST}

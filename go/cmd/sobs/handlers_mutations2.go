@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/sobs/sobs/internal/jsonenc"
@@ -262,6 +263,67 @@ func (s *server) handleApiNotificationsCheck(w http.ResponseWriter, r *http.Requ
 		Set("fired", 0).
 		Set("ok", true).
 		Set("results", []any{}))
+}
+
+// githubBackfillMaxReleases mirrors app.py _github_backfill_max_releases: the
+// enrichment.github_backfill_max_releases setting clamped to [1, 2000], default 300.
+func (s *server) githubBackfillMaxReleases() int {
+	n := 300
+	if v, _ := s.appSetting("enrichment.github_backfill_max_releases"); v != "" {
+		if p, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			n = p
+		}
+	}
+	if n < 1 {
+		n = 1
+	}
+	if n > 2000 {
+		n = 2000
+	}
+	return n
+}
+
+// cveInventoryCount counts library-inventory rows across the three _collect_library_inventory
+// tiers (release lockfiles, telemetry.sdk.* attrs, scope name+version). 0 on the fixture.
+func (s *server) cveInventoryCount() int {
+	return s.countRows("SELECT count() FROM sobs_release_artifacts FINAL WHERE ArtifactType='dependencies-lockfile' AND IsDeleted=0") +
+		s.countRows("SELECT count() FROM otel_traces WHERE ResourceAttributes['telemetry.sdk.version'] != ''") +
+		s.countRows("SELECT count() FROM otel_logs WHERE ResourceAttributes['telemetry.sdk.version'] != ''") +
+		s.countRows("SELECT count() FROM otel_traces WHERE ScopeName != '' AND ScopeVersion != ''") +
+		s.countRows("SELECT count() FROM otel_logs WHERE ScopeName != '' AND ScopeVersion != ''")
+}
+
+// POST /api/enrichment/cve/scan — app.py _run_cve_scan. CVE enrichment is enabled by default;
+// with no ai.github_token the GitHub backfill is a no-op (0/0/cap) and persists its bookkeeping
+// settings, and an empty library inventory short-circuits to the zero summary. Manifest-last.
+func (s *server) handleApiEnrichmentCveScan(w http.ResponseWriter, r *http.Request) {
+	if v, ok := s.appSetting("enrichment.cve_enabled"); ok {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "1", "true", "yes":
+		default:
+			writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", false).Set("reason", "disabled"))
+			return
+		}
+	}
+	if tok, _ := s.appSetting("ai.github_token"); tok != "" {
+		http.Error(w, "not implemented", http.StatusNotImplemented) // live GitHub backfill is a follow-up
+		return
+	}
+	maxRel := s.githubBackfillMaxReleases()
+	_ = s.setAppSetting("enrichment.cve_last_scan_github_backfill_attempted", "0")
+	_ = s.setAppSetting("enrichment.cve_last_scan_github_backfill_inserted", "0")
+	_ = s.setAppSetting("enrichment.cve_last_scan_github_backfill_cap", strconv.Itoa(maxRel))
+	if s.cveInventoryCount() != 0 {
+		http.Error(w, "not implemented", http.StatusNotImplemented) // real OSV scan is a follow-up
+		return
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("github_backfill_attempted", 0).
+		Set("github_backfill_inserted", 0).
+		Set("github_backfill_max_releases", maxRel).
+		Set("libraries_found", 0).
+		Set("ok", true).
+		Set("vulns_found", 0))
 }
 
 // POST /api/notifications/rules/auto-generate — app.py auto_generate_notification_rules in
