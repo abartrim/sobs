@@ -1494,6 +1494,27 @@ routes:
     method: POST
     form:
       pattern: 'custompat-[0-9]+'
+- id: post__settings_notif_channel_create_ok
+  path: /settings/notifications/channels
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      name: Webhook Alerts
+      channel_type: webhook
+      webhook_url: https://example.com/hook
+- id: post__settings_notif_rule_create_ok
+  path: /settings/notifications/rules
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      name: Error Rule
+      cond_type: signal
+      cond_source: logs
+      cond_signal: errors
 - id: post__settings_ai
   path: /settings/ai
   methods:

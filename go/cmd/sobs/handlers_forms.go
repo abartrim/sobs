@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -185,28 +187,156 @@ func (s *server) handleSettingsRepositoriesSub(w http.ResponseWriter, r *http.Re
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
-// POST /settings/notifications/channels (create) — empty form -> "Channel name is required".
+var notificationChannelTypes = map[string]bool{"webhook": true, "slack": true, "email": true, "browser_push": true}
+var notificationLogicOperators = map[string]bool{"any": true, "all": true}
+var notificationSeverities = map[string]bool{"warning": true, "critical": true}
+var notificationComparators = map[string]bool{"gt": true, "lt": true, "gte": true, "lte": true, "eq": true}
+var notificationConditionTypes = map[string]bool{"signal": true, "tag": true}
+
+// POST /settings/notifications/channels — app.py create_notification_channel.
 func (s *server) handleNotifChannelsCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
-	if s.formRequire(w, r, "name", "warning", "Channel name is required", "/settings/notifications") {
+	_ = r.ParseForm()
+	loc := "/settings/notifications"
+	name := strings.TrimSpace(r.PostFormValue("name"))
+	channelType := strings.ToLower(strings.TrimSpace(r.PostFormValue("channel_type")))
+	maskVals := r.PostForm["mask_output_enabled"]
+	maskEnabled := len(maskVals) == 0
+	for _, v := range maskVals {
+		if isTruthySetting(v) {
+			maskEnabled = true
+		}
+	}
+	if name == "" {
+		flashRedirect(w, "warning", "Channel name is required", loc)
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	if !notificationChannelTypes[channelType] {
+		flashRedirect(w, "warning", "Invalid channel type: "+channelType, loc)
+		return
+	}
+	ff := func(k string) string { return strings.TrimSpace(r.PostFormValue(k)) }
+	config := map[string]any{}
+	switch channelType {
+	case "webhook":
+		method := strings.ToUpper(ff("webhook_method"))
+		if method == "" {
+			method = "POST"
+		}
+		headers := ff("webhook_headers")
+		if headers == "" {
+			headers = "{}"
+		}
+		config["url"], config["method"], config["headers"], config["body_template"] = ff("webhook_url"), method, headers, ff("webhook_body_template")
+		if config["url"] == "" {
+			flashRedirect(w, "warning", "Webhook URL is required", loc)
+			return
+		}
+	case "slack":
+		config["webhook_url"] = ff("slack_webhook_url")
+		if config["webhook_url"] == "" {
+			flashRedirect(w, "warning", "Slack webhook URL is required", loc)
+			return
+		}
+	case "email":
+		config["smtp_host"] = orDefault(ff("smtp_host"), "localhost")
+		config["smtp_port"] = orDefault(ff("smtp_port"), "587")
+		config["smtp_user"], config["smtp_password"] = ff("smtp_user"), ff("smtp_password")
+		config["from_addr"] = orDefault(ff("from_addr"), "sobs@localhost")
+		config["to_addr"] = ff("to_addr")
+		config["use_tls"] = orDefault(ff("use_tls"), "1")
+		if config["to_addr"] == "" {
+			flashRedirect(w, "warning", "Email recipient (to_addr) is required", loc)
+			return
+		}
+	case "browser_push":
+		config["endpoint"], config["p256dh"], config["auth"] = ff("push_endpoint"), ff("push_p256dh"), ff("push_auth")
+		if config["endpoint"] == "" {
+			flashRedirect(w, "warning", "Push endpoint is required", loc)
+			return
+		}
+	}
+	config["mask_output_enabled"] = "0"
+	if maskEnabled {
+		config["mask_output_enabled"] = "1"
+	}
+	cfgJSON, _ := json.Marshal(config)
+	row := map[string]any{
+		"Id": newUUIDHex(), "Name": name, "ChannelType": channelType,
+		"ConfigJson": string(cfgJSON), "Enabled": 1, "IsDeleted": 0, "Version": fixedVersionMillis(),
+	}
+	if _, err := s.insertRowsNormalized("sobs_notification_channels", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	flashRedirect(w, "success", fmt.Sprintf("Notification channel '%s' created", name), loc)
 }
 
-// POST /settings/notifications/rules (create) — empty form -> "Rule name is required".
+// POST /settings/notifications/rules — app.py create_notification_rule (create path; the
+// edit_rule_id path requires an existing rule which the fixture lacks).
 func (s *server) handleNotifRulesCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
-	if s.formRequire(w, r, "name", "warning", "Rule name is required", "/settings/notifications") {
+	_ = r.ParseForm()
+	loc := "/settings/notifications"
+	name := strings.TrimSpace(r.PostFormValue("name"))
+	logicOp := orDefault(strings.ToLower(strings.TrimSpace(r.PostFormValue("logic_operator"))), "any")
+	severity := orDefault(strings.ToLower(strings.TrimSpace(r.PostFormValue("severity"))), "warning")
+	cooldown := 300
+	if v, err := strconv.Atoi(strings.TrimSpace(r.PostFormValue("cooldown_seconds"))); err == nil {
+		cooldown = clampInt(v, 0, 86400)
+	}
+	if name == "" {
+		flashRedirect(w, "warning", "Rule name is required", loc)
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	if !notificationLogicOperators[logicOp] {
+		flashRedirect(w, "warning", "Invalid logic operator: "+logicOp, loc)
+		return
+	}
+	if !notificationSeverities[severity] {
+		flashRedirect(w, "warning", "Invalid severity: "+severity, loc)
+		return
+	}
+	conditions, ok := s.buildNotificationConditions(w, r, loc)
+	if !ok {
+		return // a validation flash was already written
+	}
+	if len(conditions) == 0 {
+		flashRedirect(w, "warning", "At least one condition is required", loc)
+		return
+	}
+	// Only channel ids that exist are kept; the fixture has none, so channel_ids -> "".
+	valid := map[string]bool{}
+	if res, err := s.db.Execute("SELECT Id FROM sobs_notification_channels FINAL WHERE IsDeleted = 0"); err == nil {
+		for _, m := range rowMaps(res) {
+			valid[cStr(m, "Id")] = true
+		}
+	}
+	chIDs := []string{}
+	for _, c := range r.PostForm["channel_ids"] {
+		c = strings.TrimSpace(c)
+		if valid[c] {
+			chIDs = append(chIDs, c)
+		}
+	}
+	condJSON, _ := json.Marshal(conditions)
+	row := map[string]any{
+		"Id": newUUIDHex(), "Name": name, "Enabled": 1, "LogicOperator": logicOp,
+		"ConditionsJson": string(condJSON), "ChannelIds": strings.Join(chIDs, ","),
+		"Severity": severity, "CooldownSeconds": cooldown, "LastFiredAt": "1970-01-01 00:00:00.000",
+		"IsDeleted": 0, "Version": fixedVersionMillis(),
+	}
+	if _, err := s.insertRowsNormalized("sobs_notification_rules", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	flashRedirect(w, "success", fmt.Sprintf("Notification rule '%s' created", name), loc)
 }
 
 // POST /settings/masking/keys — app.py add_masking_key.
@@ -297,6 +427,86 @@ func (s *server) handleMaskingPatternsDelete(w http.ResponseWriter, r *http.Requ
 	}
 	s.saveMaskingCustomPatterns(kept)
 	flashRedirect(w, "success", "Custom masking pattern removed", "/settings/masking")
+}
+
+var notificationTagMatchOps = map[string]bool{"eq": true, "contains": true, "regex": true}
+var notificationTagRecordTypes = map[string]bool{"all": true, "log": true, "trace": true, "error": true, "ai": true, "rum": true}
+
+// buildNotificationConditions mirrors the per-row condition loop in create_notification_rule.
+// Returns (conditions, ok); ok=false means a validation flash was already written.
+func (s *server) buildNotificationConditions(w http.ResponseWriter, r *http.Request, loc string) ([]any, bool) {
+	get := func(k string) []string { return r.PostForm[k] }
+	at := func(xs []string, i int) string {
+		if i < len(xs) {
+			return strings.TrimSpace(xs[i])
+		}
+		return ""
+	}
+	condTypes, sources, signals, services := get("cond_type"), get("cond_source"), get("cond_signal"), get("cond_service")
+	recordTypes, tagKeys, tagOps, tagValues := get("cond_record_type"), get("cond_tag_key"), get("cond_tag_match_operator"), get("cond_tag_value")
+	comparators, thresholds, windows := get("cond_comparator"), get("cond_threshold"), get("cond_window_minutes")
+	rowCount := 0
+	for _, xs := range [][]string{condTypes, sources, signals, services, recordTypes, tagKeys, tagOps, tagValues, comparators, thresholds, windows} {
+		if len(xs) > rowCount {
+			rowCount = len(xs)
+		}
+	}
+	conditions := []any{}
+	for i := 0; i < rowCount; i++ {
+		condType := strings.ToLower(orDefault(at(condTypes, i), "signal"))
+		if !notificationConditionTypes[condType] {
+			flashRedirect(w, "warning", "Invalid notification condition type: "+condType, loc)
+			return nil, false
+		}
+		comparator := strings.ToLower(orDefault(at(comparators, i), "gt"))
+		threshold := 0.0
+		if f, err := strconv.ParseFloat(orDefault(at(thresholds, i), "0"), 64); err == nil {
+			threshold = f
+		}
+		window := 5
+		if v, err := strconv.Atoi(orDefault(at(windows, i), "5")); err == nil {
+			window = clampInt(v, 1, 60)
+		}
+		if !notificationComparators[comparator] {
+			comparator = "gt"
+		}
+		if condType == "tag" {
+			recordType := strings.ToLower(orDefault(at(recordTypes, i), "all"))
+			tagKey := at(tagKeys, i)
+			tagOp := strings.ToLower(orDefault(at(tagOps, i), "eq"))
+			tagValue := at(tagValues, i)
+			if tagKey == "" {
+				continue
+			}
+			if !notificationTagRecordTypes[recordType] {
+				recordType = "all"
+			}
+			if !notificationTagMatchOps[tagOp] {
+				tagOp = "eq"
+			}
+			if tagOp == "regex" {
+				if _, err := regexp.Compile(tagValue); err != nil {
+					flashRedirect(w, "warning", "Invalid tag regex pattern: "+err.Error(), loc)
+					return nil, false
+				}
+			}
+			conditions = append(conditions, map[string]any{
+				"type": "tag", "record_type": recordType, "tag_key": tagKey,
+				"tag_match_operator": tagOp, "tag_value": tagValue,
+				"comparator": comparator, "threshold": threshold, "window_minutes": window,
+			})
+			continue
+		}
+		source, signal, service := at(sources, i), at(signals, i), at(services, i)
+		if source == "" || signal == "" {
+			continue
+		}
+		conditions = append(conditions, map[string]any{
+			"type": "signal", "source": source, "signal": signal, "service": service,
+			"comparator": comparator, "threshold": threshold, "window_minutes": window,
+		})
+	}
+	return conditions, true
 }
 
 // isTruthySetting mirrors app.py _is_truthy_setting(default=False): a value counts as on when

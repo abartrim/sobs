@@ -80,6 +80,25 @@ func payloadStrDefault(m map[string]any, key, def string) string {
 	return strings.TrimSpace(def)
 }
 
+// orDefault returns v if non-empty, else def (mirrors `(form.get(k) or default)`).
+func orDefault(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
+}
+
+// clampInt mirrors `max(lo, min(hi, n))`.
+func clampInt(n, lo, hi int) int {
+	if n < lo {
+		return lo
+	}
+	if n > hi {
+		return hi
+	}
+	return n
+}
+
 // chDateTimeRe matches a chdb DateTime64 string "YYYY-MM-DD HH:MM:SS.ffffff" (space separator,
 // fractional part). ISO strings (with 'T' / timezone) do not match and pass through untouched.
 var chDateTimeRe = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\.(\d+)$`)
