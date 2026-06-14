@@ -1,8 +1,8 @@
 # SOBS Python → Go: Functional Completion Target
 
-> **Status:** 76 → **38 `not implemented` stubs remaining**. `parity_check.py` = **GREEN 296 / RED 0 / MISSING_GOLDEN 0 / UNCOVERED 0 / EXCLUDED 0**. dashboards/render handles 7/8 templates (derived needs the anomaly engine; spec/render also needs output-masking). Branch `claude/jolly-wu-5fc6a3` / PR #304. Also done: **G8 mcp** initialize/ping/notifications (unauthenticated); cve-disposition upsert; v1 `Allow` non-determinism fixed via `normalize.py` (method-set sort).
-> **G1 done:** agent/tag/metrics rule delete, create_metrics_rule, notifications/subscribe. **G3 done:** chart-spec compile foundation (`chart_spec.go`/`chart_builder_sql.go`), spec/compile, import/add/remove chart, delete_dashboard, add-to-dashboard, export_chart, **dashboards/query, spec/dry-run, spec/validate** (query-exec foundation: `store.Result.Types` + `chQueryValue` faithful typed serializer in `query_exec.go`). **§4 done:** OTLP CORS (byte-verified), stale TODO. **Also fixed:** v1 405 Allow ordering, Jinja `>`/`<` comparisons, agent/tag/notif readers that hardcoded empty lists.
-> **G3 COMPLETE ✅** — the full dashboards/spec cluster is done & byte-verified: spec/compile+dry-run+validate+render, dashboards/query+render (all 8 echarts templates incl. custom_echarts + derived_signal_overlay), import/add/remove/export chart, add-to-dashboard, delete_dashboard. Ported the echarts binding pipeline (`chart_render_binding.go`), the anomaly rule-evaluation engine (`chart_anomaly_engine.go` — threshold/composite/seasonal, reusable by G4), and the output-masking subsystem (`output_mask.go` — masking.py redact + the datetime→"****" fallthrough via a `chDateTime` Stringer).
+> **Status:** 76 → **28 `not implemented` stubs remaining**. `parity_check.py` = **GREEN 311 / RED 0 / MISSING_GOLDEN 0 / UNCOVERED 0 / EXCLUDED 0**. Branch `claude/jolly-wu-5fc6a3` / PR #304. **G3 COMPLETE** (full dashboards/spec cluster, render binding + anomaly engine + output masking). **§2b harness BUILT** (file-backed variant — see §2b). **Cleared since GREEN 296:** query-page introspection (schema/tables/table-detail, ai profile), masking-preview value branch, rum_asset_download 404, onboarding list_repos + import_repo (github mock), dismiss_agent_run (agentrun seed round-trip), notification channel/rule toggle+delete + test (notif seed — the previously-reverted bundle, now decoupled).
+> **G8 mcp** initialize/ping/notifications (unauthenticated); cve-disposition upsert; OTLP CORS; v1 `Allow` sort; Jinja `>`/`<`; agent/tag/notif real readers.
+> **Remaining 28 (all need the built infra + a per-route port):** G6 AI-call routes (~9: ai/helper{,/execute,/feedback}, spec/ai-build, query/ask, query/run, query/refine, issues/raise, chat-detail — add the AI endpoint host to the shim's `intercept_hosts`, port `_emit_ai_helper_log_event` + the vanna orchestration); G7 external (inspect_repo, create_repo, create_issues, cve_scan github/osv — github mock + a `githubtoken` profile seeding `ai.github_token`); G5 OTLP ingest; G4 candidate-gen (tag/metrics auto in-window); notifications check/auto-generate (rule-eval engine); G8 authenticated mcp (scrypt); k8s status; dm backup; rum asset upload (signing key); ai/export (seed gen_ai spans).
 
 ---
 
@@ -33,14 +33,15 @@ The original worry was that LLM and external-network success paths can't be froz
 
 Only genuinely irreproducible bytes (uuid, CSPRNG key material, wall-clock, `system.parts` storage sizes) stay masked — never real logic, never a whole route.
 
-## 2b. Mock-upstream harness (build once, unblocks G6 + G7 + the config-gated half of G2)
+## 2b. Mock-upstream + dual-profile + per-profile-seed harness — **BUILT** (file-backed variant)
 
-1. **`migration/tools/mock_upstream.py`** — a tiny deterministic HTTP server on a pinned port. Routes by path (+ optional request-hash) → canned JSON: `/chat/completions` (+ guard/dlp variants), GitHub repos/issues/contents/actions/rate_limit, OSV `/v1/query`. Fixed responses (request-byte differences between Python and Go don't matter; the response is what's compared).
-2. **`determinism.py`** — install an httpx mock transport (or `respx`) redirecting `api.github.com`/`api.osv.dev` to the mock, so the frozen Python app reaches it without touching `app.py`.
-3. **Go** — `loadAISetting`/`loadAllAISettings` honor `SOBS_AI_*` env overrides (mirrors `_AI_ENV_OVERRIDES`); the github/osv client reads `SOBS_GITHUB_API_BASE`/`SOBS_OSV_API_BASE` (default real, mock in parity).
-4. **Dual-profile capture** — turning AI config on flips `query_enabled` **globally** (ripples into every page's `baseContext`), so the AI-on/mock env is a **separate capture profile** over ONLY the AI + query-gated routes (a second manifest tag/file + AI-on env + mock running). The default corpus stays AI-off so the 404-guard branches remain tested. `capture_routes`/`parity_check` start the mock and run the AI-on profile as a second pass.
+Implemented equivalently to the original design but **file-backed (no running server)**, which is simpler and needs no port coordination. Three reusable mechanisms (full details in the `go-migration-route-recipe` memory):
 
-This is a self-contained harness phase; build it before G6/G7 and the G2 enabled branches.
+1. **File-backed mock upstream** — both sides read the SAME canned files keyed by `sha256("METHOD url")[:32]`. Python: `determinism._install_upstream_fixtures()` patches `httpx.AsyncClient.__init__` to inject an `httpx.MockTransport` intercepting `intercept_hosts` (api.github.com, api.osv.dev, hooks.example.com) → `<key>.json`. Go: `upstream.go upstreamGet(method,url)` reads the same files. Activated by `SOBS_UPSTREAM_FIXTURES`. Covers GET and POST. **To extend to G6 LLM routes: add the AI endpoint host to `intercept_hosts` + author `/chat/completions` canned bodies.**
+2. **Dual-profile capture/replay** — `migration/tools/profiles.py` `PROFILES` (env overlays) + a `profile:` manifest tag; `capture_routes --profile <p>` and `parity_check` boot a separate Go server per profile. The `ai` profile flips `query_enabled` via env (`SOBS_AI_ENDPOINT_URL`/`SOBS_AI_MODEL`/`SOBS_QUERY_PAGE_ENABLED`) — pure overlay, no mock needed for the gate-only introspection routes. The `github` profile sets `SOBS_UPSTREAM_FIXTURES`.
+3. **Per-profile DB seed** — `seed_fixtures.py --only-profile <p>` inserts a profile's rows into ITS fixture only (never base), so found/mutate branches run without rippling base readers. `parity_check._seed_profile` applies it to `_run`. Used by `agentrun` (dismiss round-trip) and `notif` (channel/rule toggle/delete/test). This is how the notification bundle was decoupled.
+
+Go `loadAISetting` already honors `SOBS_AI_*` (`aiEnvOverrides`). The original `SOBS_GITHUB_API_BASE`/`SOBS_OSV_API_BASE` knobs are unnecessary — the file-backed lookup keys on the (unchanged, hardcoded) request URL, so Go and Python hit the same key without any base rewrite.
 
 ---
 
@@ -120,7 +121,7 @@ Per-stub loop, gotchas, harness capabilities, and chdb-determinism traps: see th
 - [ ] `grep -rc 'not implemented", http.StatusNotImplemented' go/cmd/sobs | grep -v ':0'` → **empty** (0 stubs).
 - [ ] `parity_check.py` exits 0: GREEN = full surface, RED/MISSING/UNCOVERED/EXCLUDED all 0.
 - [ ] Every route has a manifest entry that drives its **success** path (not just the error branch) — including AI/external routes via the §2b mock upstream + AI-on profile.
-- [ ] `migration/tools/mock_upstream.py` exists and is deterministic; `determinism.py` redirects github/osv to it; Go honors `SOBS_AI_*` / `SOBS_GITHUB_API_BASE` / `SOBS_OSV_API_BASE`.
+- [x] Deterministic mock upstream both sides reach (file-backed, §2b): `determinism._install_upstream_fixtures` (httpx MockTransport) + Go `upstream.go`, keyed on `sha256("METHOD url")`; Go honors `SOBS_AI_*`. (The `mock_upstream.py` server + `SOBS_GITHUB_API_BASE` form was superseded by the file-backed variant — same guarantee, no server. The AI endpoint host still needs adding to `intercept_hosts` for G6.)
 - [ ] `EXCLUSIONS.yaml` stays empty; every `mask` has a `mask_reason` limited to random/wall-clock/storage bytes.
 - [ ] §4 non-stub gaps (OTLP CORS, source-map, mcp hash) closed or explicitly tracked.
 - [ ] `go build ./...` clean; pre-commit (flake8/mypy/black) passes.
