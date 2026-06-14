@@ -59,6 +59,10 @@ PROFILES: dict[str, dict[str, str]] = {
     # githubtoken = the github mock + a seeded ai.github_token, so the onboarding inspect/issue
     # routes reach (and exercise) their token-gated GitHub branch.
     "githubtoken": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
+    # createrepo: a no-env isolation profile for create_repo — its sobs_apps/ai-settings INSERTs
+    # run in their own fixture copy so they don't ripple into the base registry/repository readers
+    # (a profile pass = fresh fixture, and only this route runs in it).
+    "createrepo": {},
 }
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via

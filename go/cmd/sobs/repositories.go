@@ -2,13 +2,32 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
 
+var githubExpiryDateOnlyRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+
 // ciPushSettingKey mirrors app.py _ci_push_setting_key.
 func ciPushSettingKey(appID, leaf string) string {
 	return "ai.ci_push.app." + strings.ToLower(strings.TrimSpace(appID)) + "." + leaf
+}
+
+// normalizeGithubTokenExpiry mirrors app.py _normalize_github_token_expiry_input: a bare date
+// becomes end-of-day UTC; a full ISO timestamp is normalized; anything else -> "".
+func normalizeGithubTokenExpiry(value string) string {
+	raw := strings.TrimSpace(value)
+	if raw == "" {
+		return ""
+	}
+	if githubExpiryDateOnlyRe.MatchString(raw) {
+		return raw + "T23:59:59+00:00"
+	}
+	if t, ok := parseISODatetime(raw); ok {
+		return t.Format("2006-01-02T15:04:05-07:00")
+	}
+	return ""
 }
 
 // parseISODatetime mirrors app.py _parse_iso_datetime (UTC-normalized, or ok=false).

@@ -131,14 +131,62 @@ func (s *server) handleApiOnboardingCreateIssues(w http.ResponseWriter, r *http.
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
-// POST /api/onboarding/create-repo — requires app name and repository.
+// bodyBool mirrors bool(body.get(key, default)).
+func bodyBool(m map[string]any, key string, def bool) bool {
+	if v, ok := m[key]; ok {
+		return truthy(v)
+	}
+	return def
+}
+
+// POST /api/onboarding/create-repo — app.py api_onboarding_create_repo: register a repo/app row
+// (sobs_apps) and optionally persist GitHub-token settings, returning the created app.
 func (s *server) handleApiOnboardingCreateRepo(w http.ResponseWriter, r *http.Request) {
 	m := bodyMap(r)
-	if bstr(m, "name") == "" || bstr(m, "repository") == "" {
+	name := bstr(m, "name")
+	repoURL, owner, repo := resolveGithubRepoFields(bstr(m, "repo_url"), bstr(m, "repo_owner"), bstr(m, "repo_name"))
+	if name == "" || repoURL == "" {
 		s.errorJSON(w, http.StatusBadRequest, "App name and repository are required")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	slugSrc := bstr(m, "slug")
+	if slugSrc == "" {
+		slugSrc = name
+	}
+	slug := appSlug(slugSrc, "app")
+	if s.rowExists("SELECT Id FROM sobs_apps FINAL WHERE Slug=? AND IsDeleted=0 LIMIT 1", slug) {
+		s.writeMaskedJSON(w, http.StatusConflict,
+			jsonenc.NewObject().Set("ok", false).Set("error", "App slug already exists"))
+		return
+	}
+	appID := newUUIDHex()
+	now := nowISO()
+	row := map[string]any{
+		"Id": appID, "Name": name, "Slug": slug, "OwnerTeam": "", "RepoUrl": repoURL,
+		"DefaultEnvironment": bstr(m, "default_environment"), "Enabled": 1, "MetadataJson": "{}",
+		"IsDeleted": 0, "Version": fixedVersionMillis(), "CreatedAt": now, "UpdatedAt": now,
+	}
+	if _, err := s.insertRowsNormalized("sobs_apps", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	githubToken := bstr(m, "github_token")
+	if bodyBool(m, "set_github_token", false) && githubToken != "" {
+		s.saveAISetting("ai.github_token", githubToken)
+		s.saveAISetting("ai.github_token_expires_at", normalizeGithubTokenExpiry(bstr(m, "github_token_expires_at")))
+		s.saveAISetting("ai.github_token_last_validated_at", "")
+		s.saveAISetting("ai.github_token_last_validation_status", "")
+		s.saveAISetting("ai.github_token_last_validation_message", "")
+	}
+	if bodyBool(m, "set_repo_token", true) && githubToken != "" && owner != "" && repo != "" {
+		s.saveAISetting(githubRepoTokenKey(owner, repo), githubToken)
+	}
+	if bodyBool(m, "set_agent_repo", true) && owner != "" && repo != "" {
+		s.saveAISetting("ai.github_repo", owner+"/"+repo)
+	}
+	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).Set("app_id", appID).Set("name", name).Set("slug", slug).
+		Set("repo_url", repoURL).Set("owner", owner).Set("repo", repo))
 }
 
 // POST /api/onboarding/import-repo — app.py api_onboarding_import_repo: fetch repo metadata from

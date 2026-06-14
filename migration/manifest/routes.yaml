@@ -1192,6 +1192,20 @@ routes:
   request:
     method: POST
     json: {}
+- id: post__api_onboarding_create_repo__create
+  path: /api/onboarding/create-repo
+  methods:
+  - POST
+  profile: createrepo
+  mask:
+  - '"app_id":"[^"]*"'
+  mask_reason: app_id is a freshly generated uuid (frozen-counter Python vs random Go)
+  request:
+    method: POST
+    json:
+      name: Demo App
+      repo_owner: testowner
+      repo_name: demo-svc
 - id: post__api_onboarding_import_repo
   path: /api/onboarding/import-repo
   methods:
