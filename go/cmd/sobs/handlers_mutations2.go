@@ -264,6 +264,56 @@ func (s *server) handleApiNotificationsCheck(w http.ResponseWriter, r *http.Requ
 		Set("results", []any{}))
 }
 
+// POST /api/notifications/rules/auto-generate — app.py auto_generate_notification_rules in
+// the default "preview" action (empty form): derive one candidate notification rule per active
+// metric anomaly rule. On the fixture there are no existing notification rules (so nothing is
+// skipped as already-covered) and no enabled channels (so channel_ids/names are empty).
+func (s *server) handleApiNotificationsAutoGenerate(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	action := strings.ToLower(strings.TrimSpace(r.PostFormValue("action")))
+	if action == "" {
+		action = "preview"
+	}
+	// The "create" action (and the already-covered/channel-selection logic when notification
+	// rules or channels exist) is a follow-up; the fixture exercises the empty-state preview.
+	if action != "preview" ||
+		s.countRows("SELECT count() FROM sobs_notification_rules FINAL WHERE IsDeleted = 0") != 0 ||
+		s.countRows("SELECT count() FROM sobs_notification_channels FINAL WHERE IsDeleted = 0 AND Enabled = 1") != 0 {
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
+	res, err := s.db.Execute("SELECT Id, Name, SignalSource, SignalName, ServiceName, Comparator, " +
+		"WarningThreshold, CriticalThreshold FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 ORDER BY Name")
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	candidates := []any{}
+	for _, m := range rowMaps(res) {
+		crit, warn := cFloat(m, "CriticalThreshold"), cFloat(m, "WarningThreshold")
+		threshold, severity := 0.0, "warning"
+		if crit > 0 {
+			threshold, severity = crit, "critical"
+		} else if warn > 0 {
+			threshold, severity = warn, "warning"
+		}
+		candidates = append(candidates, jsonenc.NewObject().
+			Set("metric_rule_id", cStr(m, "Id")).
+			Set("name", "Auto: "+cStr(m, "Name")).
+			Set("source", cStr(m, "SignalSource")).
+			Set("signal", cStr(m, "SignalName")).
+			Set("service", cStr(m, "ServiceName")).
+			Set("comparator", cStr(m, "Comparator")).
+			Set("threshold", threshold).
+			Set("severity", severity).
+			Set("channel_ids", []any{}).
+			Set("channel_names", []any{}))
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("candidates", candidates).Set("examined", len(candidates)).
+		Set("ok", true).Set("skipped", 0))
+}
+
 // truthy mirrors Python bool() for the JSON scalar types that reach a request body.
 func truthy(v any) bool {
 	switch x := v.(type) {

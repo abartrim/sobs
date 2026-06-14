@@ -907,3 +907,7 @@ routes:
     path: "/v1/rum"
     methods: [POST]
     request: {method: POST, json: {}}
+  - id: post__api_notifications_rules_auto_generate
+    path: "/api/notifications/rules/auto-generate"
+    methods: [POST]
+    request: {method: POST}
