@@ -267,6 +267,46 @@ func isTruthySetting(v string) bool {
 	return false
 }
 
+// POST /settings/data-management — app.py save_dm_settings: write the data_management.*
+// config from the form (_dm_settings_from_form), preserving the two sensitive secrets when
+// their fields are blank, then a plain query-param redirect. GET (the db-stats page) is a
+// follow-up. apply_ttl is off for the empty parity request, so no ALTER TABLE runs.
+func (s *server) handleSettingsDataManagement(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
+	_ = r.ParseForm()
+	txt := func(k string) string { return strings.TrimSpace(r.PostFormValue(k)) }
+	chk := func(k string) string {
+		if r.PostFormValue(k) == "1" {
+			return "1"
+		}
+		return "0"
+	}
+	_ = s.setAppSetting("data_management.backup_enabled", chk("backup_enabled"))
+	_ = s.setAppSetting("data_management.s3_bucket", txt("s3_bucket"))
+	_ = s.setAppSetting("data_management.s3_access_key_id", txt("s3_access_key_id"))
+	_ = s.setAppSetting("data_management.s3_region", txt("s3_region"))
+	_ = s.setAppSetting("data_management.s3_path_prefix", txt("s3_path_prefix"))
+	_ = s.setAppSetting("data_management.s3_encrypt_backup", chk("s3_encrypt_backup"))
+	_ = s.setAppSetting("data_management.backup_schedule_full", txt("backup_schedule_full"))
+	_ = s.setAppSetting("data_management.backup_schedule_incremental", txt("backup_schedule_incremental"))
+	_ = s.setAppSetting("data_management.ttl_logs_days", txt("ttl_logs_days"))
+	_ = s.setAppSetting("data_management.ttl_traces_days", txt("ttl_traces_days"))
+	_ = s.setAppSetting("data_management.ttl_metrics_hours", txt("ttl_metrics_hours"))
+	_ = s.setAppSetting("data_management.ttl_sessions_days", txt("ttl_sessions_days"))
+	_ = s.setAppSetting("data_management.ttl_backup_coupling_enabled", chk("ttl_backup_coupling_enabled"))
+	// Sensitive secrets are preserved (not overwritten) when the form leaves them blank.
+	if v := txt("s3_secret_access_key"); v != "" {
+		_ = s.setAppSetting("data_management.s3_secret_access_key", v)
+	}
+	if v := txt("backup_encryption_password"); v != "" {
+		_ = s.setAppSetting("data_management.backup_encryption_password", v)
+	}
+	plainRedirect(w, "/settings/data-management?msg=Settings+saved&msg_type=success")
+}
+
 // POST /settings/masking/output — app.py update_masking_output_setting: the checkbox list
 // "enabled" is empty when unchecked, so the setting is written "0" and the disabled flash shown.
 func (s *server) handleMaskingOutputSave(w http.ResponseWriter, r *http.Request) {

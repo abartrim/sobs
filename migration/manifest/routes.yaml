@@ -879,3 +879,7 @@ routes:
     path: "/settings/kubernetes"
     methods: [POST]
     request: {method: POST}
+  - id: post__settings_data_management
+    path: "/settings/data-management"
+    methods: [POST]
+    request: {method: POST}

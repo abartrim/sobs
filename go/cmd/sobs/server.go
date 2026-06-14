@@ -92,6 +92,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/settings/masking/patterns", s.handleMaskingPatternsCreate)
 	s.mux.HandleFunc("/settings/masking/keys/delete", s.handleMaskingKeysDelete)
 	s.mux.HandleFunc("/settings/masking/patterns/delete", s.handleMaskingPatternsDelete)
+	s.mux.HandleFunc("/settings/data-management", s.handleSettingsDataManagement)
 	s.mux.HandleFunc("/settings/masking/output", s.handleMaskingOutputSave)
 	s.mux.HandleFunc("/settings/masking/sql-output", s.handleMaskingSqlOutputSave)
 	s.mux.HandleFunc("/settings/agents/", s.handleSettingsAgentsSub)
