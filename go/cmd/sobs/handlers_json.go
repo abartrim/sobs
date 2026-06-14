@@ -26,13 +26,20 @@ func (s *server) handleApiQuerySchema(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "not implemented", http.StatusNotImplemented) // enabled branch: Phase 3 follow-up
 }
 
-// GET /api/table-explorer/tables — app.py api_table_explorer_tables(): query-page guard.
+// GET /api/table-explorer/tables — app.py api_table_explorer_tables(): query-page guard, then
+// metadata for every allowlisted table that exists (name, column_count, columns).
 func (s *server) handleApiTableExplorerTables(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.QueryPageEnabled {
 		s.errorJSON(w, http.StatusNotFound, "Table Explorer is unavailable.")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	tables, err := s.allowedTablesInfo()
+	if err != nil {
+		s.writeMaskedJSON(w, http.StatusInternalServerError,
+			jsonenc.NewObject().Set("ok", false).Set("error", err.Error()))
+		return
+	}
+	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("tables", tables))
 }
 
 // GET /api/kubernetes/status — app.py api_kubernetes_status(): guarded by _kubernetes_enabled.

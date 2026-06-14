@@ -209,6 +209,13 @@ routes:
   - GET
   request:
     method: GET
+- id: get__api_table_explorer_tables__ai
+  path: /api/table-explorer/tables
+  methods:
+  - GET
+  profile: ai
+  request:
+    method: GET
 - id: get__api_kubernetes_status
   path: /api/kubernetes/status
   methods:
