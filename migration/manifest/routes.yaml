@@ -1083,6 +1083,17 @@ routes:
   request:
     method: POST
     json: {}
+- id: post__api_settings_masking_preview__masked
+  path: /api/settings/masking/preview
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      value:
+        password: topsecret
+        contact: ops@example.com
+        note: all good
 - id: post__api_notifications_check
   path: /api/notifications/check
   methods:

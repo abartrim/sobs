@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -277,12 +278,24 @@ func (s *server) handleApiMcpEnabled(w http.ResponseWriter, r *http.Request) {
 // POST /api/settings/masking/preview — mask the supplied value; an empty/absent value masks
 // to the empty string.
 func (s *server) handleApiSettingsMaskingPreview(w http.ResponseWriter, r *http.Request) {
-	v := bodyMap(r)["value"]
-	if v == nil || v == "" {
-		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("masked", "").Set("ok", true))
-		return
+	// Parse with the ordered decoder so a dict/list `value` becomes a *jsonenc.Object/[]any
+	// the masker can traverse (bodyMap's plain decode would make nested dicts map[string]any,
+	// which the masker treats as an opaque scalar).
+	var value any
+	raw, _ := io.ReadAll(r.Body)
+	if parsed, err := parseJSONValue(raw); err == nil {
+		if obj, ok := parsed.(*jsonenc.Object); ok {
+			value, _ = obj.Get("value")
+		}
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	var masked any
+	switch value.(type) {
+	case *jsonenc.Object, []any:
+		masked = s.maskValueForOutput(value)
+	default:
+		masked = s.maskStringForOutput(value)
+	}
+	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("masked", masked))
 }
 
 // POST /api/data-management/prune — app.py prunes the retention-eligible tables; on the

@@ -92,6 +92,45 @@ func (s *server) maskPayloadForOutput(v any, maskSQLFields bool) any {
 	return maskPayloadJSON(v, s.activeSensitiveKeys(), s.activeMaskPatterns(), maskSQLFields)
 }
 
+// maskValueForOutput mirrors app.py _mask_value_for_output: masking.mask_value when output
+// masking is on (recursive key + pattern redaction, same-type), else the value unchanged.
+func (s *server) maskValueForOutput(value any) any {
+	if !s.appSettingBool("masking.output_enabled", true) {
+		return value
+	}
+	return maskPayloadJSON(value, s.activeSensitiveKeys(), s.activeMaskPatterns(), true)
+}
+
+// maskStringForOutput mirrors app.py _mask_string_for_output → masking.mask_string: None→"",
+// non-strings get recursive key masking + json.dumps then pattern redaction, strings get
+// pattern redaction. Output masking off → str(value) (None→""). The handler only routes
+// scalars here (dict/list go through maskValueForOutput), so the json.dumps branch sees
+// numbers/bools only — no HTML-escaping divergence from Python's ensure_ascii=False dumps.
+func (s *server) maskStringForOutput(value any) string {
+	if !s.appSettingBool("masking.output_enabled", true) {
+		if value == nil {
+			return ""
+		}
+		return pyStrAny(value)
+	}
+	if value == nil {
+		return ""
+	}
+	str, isStr := value.(string)
+	if !isStr {
+		mv := maskPayloadJSON(value, s.activeSensitiveKeys(), s.activeMaskPatterns(), true)
+		if b, err := json.Marshal(mv); err == nil {
+			str = string(b)
+		} else {
+			str = pyStrAny(mv)
+		}
+	}
+	for _, re := range s.activeMaskPatterns() {
+		str = re.ReplaceAllString(str, maskMASK)
+	}
+	return str
+}
+
 func maskPayloadJSON(v any, keys map[string]bool, patterns []*regexp.Regexp, maskSQL bool) any {
 	switch x := v.(type) {
 	case *jsonenc.Object:
