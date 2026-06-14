@@ -144,9 +144,105 @@ def seed_rum_sessions(db) -> None:
     _insert(db, "hyperdx_sessions", rows)
 
 
+# App-registry fixtures (the example seeder leaves sobs_apps/releases/artifacts empty). These
+# drive the /v1 registry serialize + found paths. Deterministic ids/timestamps so goldens
+# reproduce. DateTime64(3) columns are pre-normalized ("YYYY-MM-DD HH:MM:SS.ffffff").
+APP_ID = "a0000000000000000000000000000a01"
+REL_ID = "a0000000000000000000000000000b02"
+ART_ID = "a0000000000000000000000000000c03"
+
+
+def seed_apps(db) -> None:
+    _insert(
+        db,
+        "sobs_apps",
+        [
+            {
+                "Id": APP_ID,
+                "Name": "Checkout Service",
+                "Slug": "checkout-service",
+                "OwnerTeam": "payments",
+                "RepoUrl": "https://github.com/acme/checkout",
+                "DefaultEnvironment": "production",
+                "Enabled": 1,
+                "MetadataJson": '{"tier":"gold"}',
+                "IsDeleted": 0,
+                "Version": 1704164645000,
+                "CreatedAt": _TS,
+                "UpdatedAt": _TS,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_app_releases",
+        [
+            {
+                "Id": REL_ID,
+                "AppId": APP_ID,
+                "ReleaseVersion": "1.2.0",
+                "CommitSha": "abc123def456",
+                "BuildId": "build-42",
+                "Environment": "production",
+                "ReleasedAt": _TS,
+                "MetadataJson": '{"channel":"stable"}',
+                "IsDeleted": 0,
+                "Version": 1704164645000,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_release_artifacts",
+        [
+            {
+                "Id": ART_ID,
+                "ReleaseId": REL_ID,
+                "ArtifactType": "binary",
+                "Name": "checkout-linux-amd64",
+                "ContentType": "application/octet-stream",
+                "Size": 1048576,
+                "StorageRef": "s3://artifacts/checkout/1.2.0/linux-amd64",
+                "ChecksumSha256": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef0",
+                "Platform": "linux",
+                "Architecture": "amd64",
+                "MetadataJson": "{}",
+                "UploadedAt": _TS,
+                "IsDeleted": 0,
+                "Version": 1704164645000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_apps FINAL")
+    db.execute("OPTIMIZE TABLE sobs_app_releases FINAL")
+    db.execute("OPTIMIZE TABLE sobs_release_artifacts FINAL")
+
+
 def seed_extra(app, db) -> None:
     seed_reports(db)
     seed_rum_sessions(db)
+    # NOTE: sobs_apps/releases/artifacts are intentionally NOT seeded as persistent baseline
+    # rows. The /settings/data-management page reports system.parts byte sizes, which chdb
+    # varies across boots; adding app tables there made the size masking non-robust. The v1
+    # registry serialize/GET paths are instead exercised by create-then-read-back manifest
+    # entries (in the mutator section, after every reader) so data-management & repositories
+    # readers see an empty registry — their proven-stable state. seed_apps() is retained for
+    # any future opt-in but is not called.
+
+
+def _optimize_all(db) -> None:
+    # Force a full merge of EVERY table to one part. The example seeder leaves several tables
+    # (anomaly_rules, chart_configs, ...) as multiple un-merged parts, so `sum(rows) FROM
+    # system.parts` — the data-management page's unmasked total_rows — is merge-timing-dependent
+    # (a fresh boot can see transient pre-merge active parts). OPTIMIZE FINAL collapses each
+    # table to its deduplicated single part, making total_rows a stable, capture-reproducible
+    # value that the Go replay reads identically.
+    rows = db.execute(
+        "SELECT DISTINCT table FROM system.parts WHERE active=1 AND database=currentDatabase()"
+    ).fetchall()
+    for row in rows:
+        table = str(row[0] if not isinstance(row, dict) else row.get("table"))
+        db.execute(f"OPTIMIZE TABLE {table} FINAL")
 
 
 def main() -> int:

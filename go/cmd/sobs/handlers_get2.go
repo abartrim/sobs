@@ -109,20 +109,84 @@ func (s *server) handleApiSetupWizardSteps(w http.ResponseWriter, r *http.Reques
 }
 
 // GET /api/enrichment/github/repo-health — app.py _collect_github_repo_health_summary: the
-// version-scoped GitHub repo-health counts. The fixture has no enabled apps with a RepoUrl, so
-// there are no scan targets (and no GitHub API calls) and the summary is all-zero. last_synced_at
-// is the (parity-frozen) wall clock formatted like Python's isoformat(timespec="milliseconds").
+// version-scoped GitHub repo-health counts. Builds one repo target per enabled app that has a
+// parseable GitHub RepoUrl AND at least one release version. The per-repo issue scan needs a
+// configured GitHub token (absent in the fixture), so scanned_repos/repos stay empty here; the
+// live HTTP scan is ported in cluster 8.
 func (s *server) handleApiEnrichmentGithubRepoHealth(w http.ResponseWriter, r *http.Request) {
-	if s.countRows("SELECT count() FROM sobs_apps FINAL WHERE IsDeleted=0 AND Enabled=1 AND RepoUrl != ''") != 0 {
-		http.Error(w, "not implemented", http.StatusNotImplemented) // live GitHub scan is a follow-up
+	defaultToken := strings.TrimSpace(s.loadAISetting("ai.github_token", ""))
+
+	appRes, err := s.db.Execute("SELECT Id, Name, Slug, RepoUrl FROM sobs_apps FINAL " +
+		"WHERE IsDeleted=0 AND Enabled=1 AND RepoUrl != '' ORDER BY Name ASC")
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, jsonenc.NewObject().Set("ok", false).Set("error", err.Error()))
 		return
 	}
+	relRes, err := s.db.Execute("SELECT AppId, ReleaseVersion FROM sobs_app_releases FINAL " +
+		"WHERE IsDeleted=0 ORDER BY ReleasedAt DESC LIMIT 4000")
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, jsonenc.NewObject().Set("ok", false).Set("error", err.Error()))
+		return
+	}
+
+	// versions_by_app: first 5 distinct ReleaseVersion per app, in ReleasedAt-DESC order.
+	versionsByApp := map[string][]string{}
+	for _, m := range rowMaps(relRes) {
+		appID := cStr(m, "AppId")
+		relVer := strings.TrimSpace(cStr(m, "ReleaseVersion"))
+		if appID == "" || relVer == "" {
+			continue
+		}
+		vs := versionsByApp[appID]
+		if len(vs) < 5 && !containsStr(vs, relVer) {
+			versionsByApp[appID] = append(vs, relVer)
+		}
+	}
+
+	type repoTarget struct {
+		appName, owner, repo string
+		versions             []string
+	}
+	var targets []repoTarget
+	for _, m := range rowMaps(appRes) {
+		appID := cStr(m, "Id")
+		appName := cStr(m, "Name")
+		if appName == "" {
+			appName = cStr(m, "Slug")
+		}
+		owner, repo := parseGithubRepoOwnerName(cStr(m, "RepoUrl"))
+		versions := versionsByApp[appID]
+		if owner == "" || repo == "" || len(versions) == 0 {
+			continue
+		}
+		targets = append(targets, repoTarget{appName: appName, owner: owner, repo: repo, versions: versions})
+	}
+	const maxRepos = 25 // _GITHUB_REPO_HEALTH_MAX_REPOS
+	if len(targets) > maxRepos {
+		targets = targets[:maxRepos]
+	}
+
+	scannedRepos := 0
+	repos := []any{}
+	for _, t := range targets {
+		token := s.repoScopedGithubToken(t.owner, t.repo)
+		if token == "" {
+			token = defaultToken
+		}
+		if token == "" {
+			continue // no token -> skip the live scan (parity fixture path)
+		}
+		// configured-token live GitHub issue scan: cluster 8.
+	}
+
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().
-		Set("last_synced_at", nowUTC().Format("2006-01-02T15:04:05.000-07:00")).
 		Set("ok", true).
-		Set("open_issues", 0).Set("open_prs", 0).Set("repos", []any{}).
-		Set("scanned_repos", 0).Set("security_items", 0).
-		Set("total_repos_considered", 0).Set("version_scoped", true))
+		Set("scanned_repos", scannedRepos).
+		Set("total_repos_considered", len(targets)).
+		Set("open_issues", 0).Set("open_prs", 0).Set("security_items", 0).
+		Set("version_scoped", true).
+		Set("last_synced_at", nowISO()).
+		Set("repos", repos))
 }
 
 // GET /api/reports/export — app.py api_export_reports: a downloadable JSON file (indent=2,

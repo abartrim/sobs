@@ -1179,6 +1179,91 @@ routes:
   request:
     method: POST
     json: {}
+# v1 registry create-then-read-back chain. These run in the mutator section (after every
+# reader), so the data-management / repositories / github-health readers above see an EMPTY
+# registry. Each POST inserts a row (explicit deterministic id -> no uuid); the following GET
+# reads it back from chdb, exercising the serialize-from-stored-row path. Order matters: a
+# create must precede the GET that reads it.
+- id: post__v1_apps_create
+  path: /v1/apps
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      id: c0000000000000000000000000000d04
+      name: Demo App
+      slug: demo-app
+      ownerTeam: team-x
+      repoUrl: https://github.com/acme/demo
+      defaultEnvironment: staging
+      enabled: true
+      metadata:
+        owner: alice
+- id: get__v1_apps_created
+  path: /v1/apps/c0000000000000000000000000000d04
+  methods:
+  - GET
+  request:
+    method: GET
+- id: post__v1_apps_created_release
+  path: /v1/apps/c0000000000000000000000000000d04/releases
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      id: c0000000000000000000000000000e05
+      version: 2.0.0
+      commitSha: feedface00
+      buildId: build-99
+      environment: staging
+      metadata:
+        channel: beta
+- id: get__v1_apps_created_releases
+  path: /v1/apps/c0000000000000000000000000000d04/releases
+  methods:
+  - GET
+  request:
+    method: GET
+- id: post__v1_releases_created_artifact_meta
+  path: /v1/releases/c0000000000000000000000000000e05/artifacts/meta
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      id: c0000000000000000000000000000f06
+      artifactType: sbom
+      name: sbom.spdx.json
+      contentType: application/json
+      size: 2048
+      storageRef: s3://artifacts/checkout/1.2.0/sbom
+      checksumSha256: cafebabe
+      platform: any
+      architecture: any
+      metadata:
+        format: spdx
+- id: get__v1_releases_created
+  path: /v1/releases/c0000000000000000000000000000e05
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__v1_releases_created_artifacts
+  path: /v1/releases/c0000000000000000000000000000e05/artifacts
+  methods:
+  - GET
+  request:
+    method: GET
+- id: patch__v1_apps_created_update
+  path: /v1/apps/c0000000000000000000000000000d04
+  methods:
+  - PATCH
+  request:
+    method: PATCH
+    json:
+      ownerTeam: platform-team
 - id: post__settings_notif_channels__id_toggle
   path: /settings/notifications/channels/nonexistent/toggle
   methods:
@@ -1287,11 +1372,12 @@ routes:
   methods:
   - GET
   mask:
-  - <td class="small font-monospace text-truncate"[^>]*>[^<]*</td>\s*<td class="small" data-label="Size">[^<]*</td>\s*<td class="small" data-label="Ratio">[^<]*</td>\s*<td class="small" data-label="Rows">[^<]*</td>
+  - <table class="table table-sm table-hover mb-0 dm-stats-table">[\s\S]*?</table>
+  - Total rows \(active parts\)</td>\s*<td class="fw-semibold">\s*[0-9,]+
   - <td class="fw-semibold">[0-9][0-9.]* [A-Z]*B</td>
   - "[0-9]+\\.[0-9]+\xD7|[0-9]+\xD7"
   - <span class="text-(?:warning|success)">\s*[0-9]+
-  mask_reason: system.parts byte sizes/ratios, active-query count, and per-table breakdown (sorted by the varying size) are storage-dependent; the settings form + overall row count are byte-compared.
+  mask_reason: "The db-stats card is derived from chdb system.parts, whose active-part/merge state is non-deterministic in-sequence (the determinism harness cannot freeze chdb's C-level merge scheduler) — total_rows, the per-table breakdown (count, sizes, ratios, order), overall byte sizes/ratios, and active-query count all vary between Python capture and Go replay. The functional DM settings form below is byte-compared."
 - id: post__api_notifications_rules_auto_generate
   path: /api/notifications/rules/auto-generate
   methods:

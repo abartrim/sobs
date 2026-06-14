@@ -87,6 +87,13 @@ async def run(app, routes: list[dict]) -> None:
     # render consumes them — a shared client would pile redirect-route flashes into later
     # cookies, making the goldens capture-order-dependent).
     for route in routes:
+        # SSE/streaming routes never terminate under the frozen-monotonic clock (the keepalive
+        # loop's asyncio timeout never fires), so `await resp.get_data()` would hang forever.
+        # Their golden (the deterministic opening frame) is captured out-of-band and is
+        # independent of fixture data, so skip them here. parity_check reads the bounded frame.
+        if route.get("stream"):
+            print(f"  skipped {route['id']}: stream (golden preserved)")
+            continue
         client = app.test_client()
         rid, status, n = await capture_one(client, route)
         print(f"  captured {rid}: {status} {n}B")
