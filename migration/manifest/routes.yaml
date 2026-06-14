@@ -1371,6 +1371,15 @@ routes:
   path: /api/onboarding/inspect-repo
   methods:
   - GET
+- id: get__api_onboarding_inspect_repo__github
+  path: /api/onboarding/inspect-repo
+  methods:
+  - GET
+  profile: githubtoken
+  request:
+    method: GET
+    query:
+      repo: testowner/demo-svc
 - id: get__v1_rum_assets__id
   path: /v1/rum/assets/nonexistent
   methods:

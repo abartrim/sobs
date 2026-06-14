@@ -56,11 +56,14 @@ PROFILES: dict[str, dict[str, str]] = {
     # notif also points at the upstream fixtures so the channel /test webhook POST is served
     # from a canned response (the toggle/delete routes make no HTTP calls, so it's a no-op there).
     "notif": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
+    # githubtoken = the github mock + a seeded ai.github_token, so the onboarding inspect/issue
+    # routes reach (and exercise) their token-gated GitHub branch.
+    "githubtoken": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
 }
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via
 # `seed_fixtures.py --only-profile <name>`). Isolated to the profile — never seeded into base.
-SEEDED_PROFILES = {"agentrun", "notif"}
+SEEDED_PROFILES = {"agentrun", "notif", "githubtoken"}
 
 
 def route_profile(route: dict) -> str:

@@ -400,9 +400,21 @@ def seed_notif(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_notification_rules FINAL")
 
 
+def seed_github_token(db) -> None:
+    # A configured global GitHub token so onboarding inspect/issue routes reach their GitHub
+    # branch (the repo-scoped key is absent, so this global one is used).
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [{"Key": "ai.github_token", "Value": "ghp_parityfixturetoken", "IsDeleted": 0, "Version": 1704164645000}],
+    )
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+
+
 PROFILE_SEEDS = {
     "agentrun": seed_agent_run,
     "notif": seed_notif,
+    "githubtoken": seed_github_token,
 }
 
 

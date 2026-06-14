@@ -289,14 +289,58 @@ func (s *server) handleApiAiExport(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// GET /api/onboarding/inspect-repo — requires an app_id or repo query parameter.
+// GET /api/onboarding/inspect-repo — app.py api_onboarding_inspect_repo: resolve owner/repo from
+// app_id (DB) or the repo param, then (with a token) inspect the GitHub repo for onboarding
+// readiness. No configured token → the deterministic "no token" payload.
 func (s *server) handleApiOnboardingInspectRepo(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	if strings.TrimSpace(q.Get("app_id")) == "" && strings.TrimSpace(q.Get("repo")) == "" {
+	appID := strings.TrimSpace(q.Get("app_id"))
+	repoParam := strings.TrimSpace(q.Get("repo"))
+	repoURL := ""
+	switch {
+	case appID != "":
+		res, err := s.db.Execute("SELECT RepoUrl FROM sobs_apps FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1", appID)
+		if err != nil {
+			s.dbError(w, err)
+			return
+		}
+		if len(res.Rows) == 0 {
+			s.writeMaskedJSON(w, http.StatusNotFound, jsonenc.NewObject().Set("ok", false).Set("error", "App not found"))
+			return
+		}
+		repoURL = cStr(rowMaps(res)[0], "RepoUrl")
+	case repoParam != "":
+		repoURL = repoParam
+	default:
 		s.errorJSON(w, http.StatusBadRequest, "app_id or repo parameter required")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	owner, repo := parseGithubRepoOwnerName(repoURL)
+	if owner == "" || repo == "" {
+		s.writeMaskedJSON(w, http.StatusBadRequest, jsonenc.NewObject().
+			Set("ok", false).Set("error", "Could not parse owner/repo from '"+repoURL+"'"))
+		return
+	}
+	githubToken := s.repoScopedGithubToken(owner, repo)
+	if githubToken == "" {
+		githubToken = strings.TrimSpace(s.loadAISetting("ai.github_token", ""))
+	}
+	if githubToken == "" {
+		s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().
+			Set("ok", true).Set("owner", owner).Set("repo", repo).
+			Set("has_github_actions", false).Set("sobs_ci_found", false).
+			Set("sobs_otel_found", false).Set("copilot_available", false).
+			Set("workflow_files", []any{}).
+			Set("error", "No GitHub token configured for this repository"))
+		return
+	}
+	result := s.inspectRepoForOnboarding(owner, repo)
+	out := jsonenc.NewObject().Set("ok", true).Set("owner", owner).Set("repo", repo)
+	for _, k := range result.Keys() {
+		v, _ := result.Get(k)
+		out.Set(k, v)
+	}
+	s.writeMaskedJSON(w, http.StatusOK, out)
 }
 
 var rumAssetIDRe = regexp.MustCompile(`^[a-f0-9]{32}$`)
