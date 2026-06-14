@@ -69,13 +69,24 @@ func (s *server) handleReportsSub(w http.ResponseWriter, r *http.Request) {
 		errorOnly(w, http.StatusBadRequest, "Not a valid SOBS reports export file")
 		return
 	}
-	// /api/reports/<report_id>
+	// DELETE /api/reports/<report_id> — app.py api_delete_report (soft-delete -> {"deleted":true}).
 	if r.Method == http.MethodDelete {
-		if !s.rowExists("SELECT Id FROM sobs_reports FINAL WHERE IsDeleted = 0 AND Id = ?", rest) {
+		res, err := s.db.Execute("SELECT Id, Name, Description, PageType, FiltersJson FROM sobs_reports FINAL WHERE IsDeleted = 0 AND Id = ?", rest)
+		if err != nil || len(res.Rows) == 0 {
 			errorOnly(w, http.StatusNotFound, "not found")
 			return
 		}
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+		m := rowMaps(res)[0]
+		row := map[string]any{
+			"Id": rest, "Name": cStr(m, "Name"), "Description": cStr(m, "Description"),
+			"PageType": cStr(m, "PageType"), "FiltersJson": cStr(m, "FiltersJson"),
+			"IsDeleted": 1, "Version": fixedVersionMillis(),
+		}
+		if _, err := s.db.InsertJSONEachRow("sobs_reports", []map[string]any{row}); err != nil {
+			s.dbError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("deleted", true))
 		return
 	}
 	http.NotFound(w, r)

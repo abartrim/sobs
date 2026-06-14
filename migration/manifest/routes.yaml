@@ -1584,6 +1584,13 @@ routes:
   - POST
   request:
     method: POST
+# API soft-delete the other seeded report -> {"deleted": true} (mutator).
+- id: delete__api_reports_found
+  path: /api/reports/22222222-0000-4000-8000-0000000000b2
+  methods:
+  - DELETE
+  request:
+    method: DELETE
 - id: post__settings_ai
   path: /settings/ai
   methods:
