@@ -1690,6 +1690,13 @@ routes:
   mask:
   - '"chart_id":"[^"]*"'
   mask_reason: the imported chart's id is a fresh uuid4 (random); ok/dashboard_id/dashboard_url are byte-compared.
+# Export a seeded chart as a downloadable JSON template (read-only; deterministic indent=2 body).
+- id: get__api_dashboards_chart_export_ok
+  path: /api/dashboards/00000000-0000-4000-8000-00000000000a/charts/00000000-0000-4000-8000-00000000000c/export
+  methods:
+  - GET
+  request:
+    method: GET
 # Persist a query + custom eCharts JSON onto the seeded dashboard (mutator; chart_id masked).
 - id: post__api_query_add_to_dashboard_ok
   path: /api/query/add-to-dashboard

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"sort"
@@ -632,4 +633,17 @@ func jsonDumpsIndent2(v any) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// jsonDumpsIndent2NoEsc mirrors json.dumps(obj, ensure_ascii=False, indent=2) WITHOUT Go's
+// default HTML escaping (so `<`, `>`, `&` in embedded SQL stay literal, like CPython).
+func jsonDumpsIndent2NoEsc(v any) (string, error) {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
+		return "", err
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
 }

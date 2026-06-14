@@ -3,6 +3,8 @@ package main
 import (
 	"io"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/sobs/sobs/internal/jsonenc"
@@ -159,10 +161,50 @@ func (s *server) handleDashboardSub(w http.ResponseWriter, r *http.Request) {
 			s.errorJSON(w, http.StatusNotFound, "Dashboard not found")
 			return
 		}
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+		s.exportChart(w, seg[0], seg[2])
 		return
 	}
 	http.NotFound(w, r)
+}
+
+var chartTitleUnsafeRe = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
+
+// exportChart mirrors app.py export_chart: emit a chart as a downloadable JSON template
+// (indent=2, attachment Content-Disposition). The dashboard existence check is the caller's.
+func (s *server) exportChart(w http.ResponseWriter, dashID, chartID string) {
+	res, err := s.db.Execute("SELECT Id, Title, ChartType, Query, OptionsJson "+
+		"FROM sobs_chart_configs FINAL WHERE IsDeleted = 0 AND DashboardId = ? AND Id = ?", dashID, chartID)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	if len(res.Rows) == 0 {
+		s.errorJSON(w, http.StatusNotFound, "Chart not found")
+		return
+	}
+	c := rowMaps(res)[0]
+	title := cStr(c, "Title")
+	chartSpec := buildRawChartSpec(cStr(c, "ChartType"), cStr(c, "Query"), cStr(c, "OptionsJson"))
+	payload := jsonenc.NewObject().
+		Set("sobs_chart_template_version", 1).Set("title", title).Set("chart_spec", chartSpec)
+	body, err := jsonDumpsIndent2NoEsc(payload)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	safeTitle := chartTitleUnsafeRe.ReplaceAllString(title, "_")
+	if len(safeTitle) > 64 {
+		safeTitle = safeTitle[:64]
+	}
+	if safeTitle == "" {
+		safeTitle = "chart"
+	}
+	h := w.Header()
+	h.Set("Content-Type", "application/json")
+	h.Set("Content-Disposition", `attachment; filename="sobs_chart_`+safeTitle+`.json"`)
+	h.Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(body))
 }
 
 // importChart mirrors app.py import_chart: validate the template, compile the chart_spec, and

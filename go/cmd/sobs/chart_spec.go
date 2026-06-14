@@ -264,6 +264,29 @@ func normalizeChartSpec(rawAny any) (*jsonenc.Object, string) {
 	return normalized, ""
 }
 
+// buildRawChartSpec mirrors app.py _build_raw_chart_spec: if options_json carries a chart_spec
+// dict, normalize it; otherwise synthesize a default spec for template_id with a raw override
+// SQL. A normalize failure falls back to the default (matching the Python try/except).
+func buildRawChartSpec(templateID, query, optionsJSON string) *jsonenc.Object {
+	if optionsJSON != "" {
+		if v, err := parseJSONValue([]byte(optionsJSON)); err == nil {
+			if obj, ok := v.(*jsonenc.Object); ok {
+				if sc, has := obj.Get("chart_spec"); has {
+					if scObj, ok := sc.(*jsonenc.Object); ok {
+						if norm, errMsg := normalizeChartSpec(scObj); errMsg == "" {
+							return norm
+						}
+					}
+				}
+			}
+		}
+	}
+	spec := defaultChartSpec(templateID)
+	spec.Set("template_id", templateID)
+	spec.Set("sql", jsonenc.NewObject().Set("mode", "raw").Set("override_sql", query))
+	return spec
+}
+
 // compileChartSpec mirrors _compile_chart_spec: returns (template_id, query, normalizedSpec) or
 // a ValueError-style message.
 func (s *server) compileChartSpec(rawAny any) (string, string, *jsonenc.Object, string) {
