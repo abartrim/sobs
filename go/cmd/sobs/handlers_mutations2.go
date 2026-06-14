@@ -76,14 +76,46 @@ func (s *server) handleApiDashboardsSpecAiBuild(w http.ResponseWriter, r *http.R
 
 // ---- Notifications / onboarding (field-required 400s) --------------------------------
 
-// POST /api/notifications/subscribe — requires endpoint, p256dh, and auth.
+// POST /api/notifications/subscribe — app.py subscribe_browser_push: register a browser push
+// subscription as a browser_push notification channel (dedup by endpoint).
 func (s *server) handleApiNotificationsSubscribe(w http.ResponseWriter, r *http.Request) {
 	m := bodyMap(r)
-	if bstr(m, "endpoint") == "" || bstr(m, "p256dh") == "" || bstr(m, "auth") == "" {
+	name := strings.TrimSpace(orDefault(bstr(m, "name"), "Browser Push"))
+	endpoint := strings.TrimSpace(bstr(m, "endpoint"))
+	p256dh := strings.TrimSpace(bstr(m, "p256dh"))
+	auth := strings.TrimSpace(bstr(m, "auth"))
+	if endpoint == "" || p256dh == "" || auth == "" {
 		s.errorJSON(w, http.StatusBadRequest, "endpoint, p256dh, and auth are required")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	// Dedup: an existing browser_push channel with the same endpoint short-circuits.
+	res, err := s.db.Execute("SELECT Id, ConfigJson FROM sobs_notification_channels FINAL " +
+		"WHERE IsDeleted = 0 AND ChannelType = 'browser_push'")
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	for _, row := range rowMaps(res) {
+		cfg := parseJSONObject(cStr(row, "ConfigJson"))
+		if ep, _ := cfg.Get("endpoint"); toStr(ep) == endpoint {
+			writeJSON(w, http.StatusOK, jsonenc.NewObject().
+				Set("ok", true).Set("channel_id", cStr(row, "Id")).Set("existing", true))
+			return
+		}
+	}
+	channelID := newUUIDv4()
+	cfg := jsonenc.NewObject().Set("endpoint", endpoint).Set("p256dh", p256dh).Set("auth", auth)
+	row := map[string]any{
+		"Id": channelID, "Name": name, "ChannelType": "browser_push",
+		"ConfigJson": jsonenc.Encode(cfg, jsonenc.Options{SortKeys: false}),
+		"Enabled":    1, "IsDeleted": 0, "Version": fixedVersionMillis(),
+	}
+	if _, err := s.insertRowsNormalized("sobs_notification_channels", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).Set("channel_id", channelID).Set("existing", false))
 }
 
 // POST /api/onboarding/create-issues — requires an app_id or repo parameter.
