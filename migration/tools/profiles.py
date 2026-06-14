@@ -48,7 +48,15 @@ PROFILES: dict[str, dict[str, str]] = {
         # network). determinism.install() activates the httpx shim when this is set.
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # `agentrun` has NO env overlay — it is a SEEDED-state profile (see SEEDED_PROFILES): a
+    # fixed agent-run row is inserted into its (and only its) fixture so the found/dismiss
+    # branches run without that row rippling into every base reader.
+    "agentrun": {},
 }
+
+# Profiles whose fixture needs extra rows inserted before capture/replay (via
+# `seed_fixtures.py --only-profile <name>`). Isolated to the profile — never seeded into base.
+SEEDED_PROFILES = {"agentrun"}
 
 
 def route_profile(route: dict) -> str:

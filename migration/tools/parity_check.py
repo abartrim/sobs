@@ -160,6 +160,28 @@ def _boot_go(workdir: Path, extra_env: dict | None = None):
     raise SystemExit("Go server did not become ready.")
 
 
+def _seed_profile(profile: str, workdir: Path) -> None:
+    """Insert a profile's extra rows into the freshly-copied fixture (via
+    `seed_fixtures.py --only-profile`) so the Go server for this profile sees the seeded state —
+    isolated to this pass, never in the base corpus."""
+    env = dict(os.environ)
+    env.setdefault("CHDB_LIB_PATH", str(REPO / ".libchdb" / "libchdb.so"))
+    r = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "migration" / "tools" / "seed_fixtures.py"),
+            "--only-profile",
+            profile,
+            "--data-dir",
+            str(workdir),
+        ],
+        cwd=str(REPO),
+        env=env,
+    )
+    if r.returncode != 0:
+        raise SystemExit(f"Profile seed failed for '{profile}'.")
+
+
 def _source_parity_env(env: dict) -> None:
     f = REPO / "migration" / "tools" / "parity_env.sh"
     if not f.exists():
@@ -335,6 +357,8 @@ def main() -> int:
         # Dereferencing it (copytree's default) breaks that mapping and the copy sees 0 tables.
         # Re-copied per profile so a profile pass never sees a prior profile's mutations.
         shutil.copytree(FIXTURE_SRC, workdir, symlinks=True)
+        if profile in PROF.SEEDED_PROFILES:
+            _seed_profile(profile, workdir)
         proc = _boot_go(workdir, PROF.profile_env(profile))
         try:
             for route in prof_routes:

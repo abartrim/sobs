@@ -43,7 +43,7 @@ def _fresh_dir() -> None:
     (FIXTURE_DIR / "rum_assets").mkdir(parents=True, exist_ok=True)
 
 
-def _boot_app_db():
+def _boot_app_db(data_dir: Path | None = None):
     # Pin the parity env (auth=none, fixed secret, etc.) before import.
     for line in (TOOLS / "parity_env.sh").read_text().splitlines():
         line = line.strip()
@@ -51,7 +51,7 @@ def _boot_app_db():
             k, v = line[len("export ") :].split("=", 1)
             os.environ.setdefault(k.strip(), v.strip().strip('"'))
     os.environ["SOBS_PARITY"] = "1"
-    os.environ["SOBS_DATA_DIR"] = str(FIXTURE_DIR)
+    os.environ["SOBS_DATA_DIR"] = str(data_dir or FIXTURE_DIR)
 
     import determinism
 
@@ -285,6 +285,50 @@ def seed_extra(app, db) -> None:
     # any future opt-in but is not called.
 
 
+# ---- per-profile seeds -------------------------------------------------------------
+# Rows seeded ONLY for a specific capture/replay profile (see profiles.py / parity_check),
+# NOT into the base fixture — so a "found"/non-empty branch can be exercised without the
+# seeded state rippling into every base reader (the trap that forced the notification cluster
+# revert). Applied by `seed_fixtures.py --only-profile <name> [--data-dir <dir>]`: it boots the
+# app on the EXISTING db (schema + example seeder are idempotent) and inserts just these rows.
+
+
+def seed_agent_run(db) -> None:
+    # One completed, not-yet-dismissed agent run so /api/agent/runs serializes a real row and
+    # /api/agent/runs/<id>/dismiss can flip it. Version is 1ms BELOW the dismiss re-insert
+    # (1704164645000) so the dismissed row wins the ReplacingMergeTree FINAL.
+    _insert(
+        db,
+        "sobs_agent_runs",
+        [
+            {
+                "Id": "a9000000000000000000000000000001",
+                "RuleId": "b0000000000000000000000000000a01",
+                "RuleName": "Parity Agent Rule",
+                "TriggerContext": "error spike on checkout",
+                "Status": "completed",
+                "GuardDecision": "allow",
+                "DlpResult": "clean",
+                "Analysis": "Investigated the error spike.",
+                "Suggestion": "Roll back the last deploy.",
+                "GithubIssueUrl": "",
+                "ErrorMessage": "",
+                "CreatedAt": _TS,
+                "CompletedAt": _TS,
+                "IsDismissed": 0,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_agent_runs FINAL")
+
+
+PROFILE_SEEDS = {
+    "agentrun": seed_agent_run,
+}
+
+
 def _optimize_all(db) -> None:
     # Force a full merge of EVERY table to one part. The example seeder leaves several tables
     # (anomaly_rules, chart_configs, ...) as multiple un-merged parts, so `sum(rows) FROM
@@ -301,6 +345,24 @@ def _optimize_all(db) -> None:
 
 
 def main() -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--only-profile", help="insert ONLY this profile's seed rows into an already-seeded db")
+    ap.add_argument("--data-dir", help="target chdb data dir (default migration/fixtures/data)")
+    args = ap.parse_args()
+
+    if args.only_profile:
+        seed = PROFILE_SEEDS.get(args.only_profile)
+        if not seed:
+            print(f"No profile seed for '{args.only_profile}' (no-op).")
+            return 0
+        data_dir = Path(args.data_dir) if args.data_dir else FIXTURE_DIR
+        _app, db = _boot_app_db(data_dir)  # schema + example seeder are idempotent on an existing db
+        seed(db)
+        print(f"Seeded profile '{args.only_profile}' rows into {data_dir}")
+        return 0
+
     _fresh_dir()
     app, db = _boot_app_db()
     seed_extra(app, db)

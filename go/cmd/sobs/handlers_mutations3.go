@@ -103,11 +103,34 @@ func (s *server) handleAgentRunSub(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if !s.rowExists("SELECT Id FROM sobs_agent_runs FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1", runID) {
+	res, err := s.db.Execute("SELECT Id, RuleId, RuleName, TriggerContext, Status, GuardDecision, "+
+		"DlpResult, Analysis, Suggestion, GithubIssueUrl, ErrorMessage, CreatedAt, CompletedAt "+
+		"FROM sobs_agent_runs FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1", runID)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	if len(res.Rows) == 0 {
 		s.errorJSON(w, http.StatusNotFound, "run not found")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	// app.py dismiss_agent_run: re-insert the row with IsDismissed=1 (ReplacingMergeTree upsert),
+	// copying every column forward; the new Version (fixed millis) wins FINAL.
+	ex := rowMaps(res)[0]
+	row := map[string]any{
+		"Id": runID, "RuleId": cStr(ex, "RuleId"), "RuleName": cStr(ex, "RuleName"),
+		"TriggerContext": cStr(ex, "TriggerContext"), "Status": cStr(ex, "Status"),
+		"GuardDecision": cStr(ex, "GuardDecision"), "DlpResult": cStr(ex, "DlpResult"),
+		"Analysis": cStr(ex, "Analysis"), "Suggestion": cStr(ex, "Suggestion"),
+		"GithubIssueUrl": cStr(ex, "GithubIssueUrl"), "ErrorMessage": cStr(ex, "ErrorMessage"),
+		"CreatedAt": cStr(ex, "CreatedAt"), "CompletedAt": cStr(ex, "CompletedAt"),
+		"IsDismissed": 1, "IsDeleted": 0, "Version": fixedVersionMillis(),
+	}
+	if _, err := s.insertRowsNormalized("sobs_agent_runs", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
 }
 
 // POST /api/notifications/channels/<channel_id>/test — 404 when the channel does not exist.

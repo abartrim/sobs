@@ -1271,6 +1271,31 @@ routes:
   request:
     method: POST
     json: {}
+# agentrun profile: a fixed agent run is seeded into this profile's fixture (seed_agent_run).
+# These three replay IN ORDER on one server — list shows it undismissed, dismiss flips it,
+# list shows it dismissed — a genuine seed→mutate→read-back verification.
+- id: get__api_agent_runs__seeded
+  path: /api/agent/runs
+  methods:
+  - GET
+  profile: agentrun
+  request:
+    method: GET
+- id: post__api_agent_runs_dismiss__seeded
+  path: /api/agent/runs/a9000000000000000000000000000001/dismiss
+  methods:
+  - POST
+  profile: agentrun
+  request:
+    method: POST
+    json: {}
+- id: get__api_agent_runs__dismissed
+  path: /api/agent/runs
+  methods:
+  - GET
+  profile: agentrun
+  request:
+    method: GET
 - id: post__api_dashboards__id_charts_import
   path: /api/dashboards/nonexistent/charts/import
   methods:
