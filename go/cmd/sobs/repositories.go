@@ -96,7 +96,7 @@ func (s *server) ciPushStatus(appID string) map[string]any {
 		return map[string]any{
 			"app_id": "", "configured": false, "expires_at": "", "rotated_at": "", "hash": "",
 			"realtime_enabled": false,
-			"expiry": map[string]any{"state": "missing", "expires_at": "", "days_remaining": nil, "message": "CI push API key not configured"},
+			"expiry":           map[string]any{"state": "missing", "expires_at": "", "days_remaining": nil, "message": "CI push API key not configured"},
 		}
 	}
 	keyHash := strings.TrimSpace(s.loadAISetting(ciPushSettingKey(id, "hash"), ""))

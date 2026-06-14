@@ -1307,7 +1307,7 @@ func (s *server) createSettingsRepository(w http.ResponseWriter, r *http.Request
 	row := map[string]any{
 		"Id": newUUIDHex(), "Name": name, "Slug": slug, "OwnerTeam": "", "RepoUrl": repoURL,
 		"DefaultEnvironment": strings.TrimSpace(r.PostFormValue("default_environment")),
-		"Enabled": 1, "MetadataJson": "{}", "IsDeleted": 0, "Version": fixedVersionMillis(),
+		"Enabled":            1, "MetadataJson": "{}", "IsDeleted": 0, "Version": fixedVersionMillis(),
 		"CreatedAt": nowISO(), "UpdatedAt": nowISO(),
 	}
 	if _, err := s.insertRowsNormalized("sobs_apps", []map[string]any{row}); err != nil {
@@ -1349,10 +1349,10 @@ func (s *server) handleViewSettingsRepositories(w http.ResponseWriter, r *http.R
 	}
 	expiresAt := strings.TrimSpace(s.loadAISetting("ai.github_token_expires_at", ""))
 	s.renderPage(w, "settings_repositories.html", "view_settings_repositories", map[string]any{
-		"apps":                      apps,
-		"github_token_configured":   strings.TrimSpace(s.loadAISetting("ai.github_token", "")) != "",
-		"default_agent_repo":        strings.TrimSpace(s.loadAISetting("ai.github_repo", "")),
-		"github_token_expires_date": githubTokenExpiryDateInputValue(expiresAt),
+		"apps":                       apps,
+		"github_token_configured":    strings.TrimSpace(s.loadAISetting("ai.github_token", "")) != "",
+		"default_agent_repo":         strings.TrimSpace(s.loadAISetting("ai.github_repo", "")),
+		"github_token_expires_date":  githubTokenExpiryDateInputValue(expiresAt),
 		"github_token_expiry_status": githubTokenExpiryStatus(expiresAt, 14),
 		"github_token_validation_status": map[string]any{
 			"status":            strings.TrimSpace(s.loadAISetting("ai.github_token_last_validation_status", "")),

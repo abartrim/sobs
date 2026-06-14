@@ -732,7 +732,7 @@ func maxFloats(xs []float64) float64 {
 	}
 	return m
 }
-func sprintf1f(f float64) string     { return strconv.FormatFloat(f, 'f', 1, 64) }
+func sprintf1f(f float64) string { return strconv.FormatFloat(f, 'f', 1, 64) }
 func sprintfPlus0f(f float64) string { // Python {:+.0f}
 	s := strconv.FormatFloat(f, 'f', 0, 64)
 	if f >= 0 && !strings.HasPrefix(s, "+") {

@@ -145,7 +145,7 @@ func (s *server) buildAutoMetricRuleCandidates(hours, minPoints int, serviceFilt
 			continue
 		}
 		candidates = append(candidates, map[string]any{
-			"name": formatAutoRuleName(source, signal, service, attrFp),
+			"name":      formatAutoRuleName(source, signal, service, attrFp),
 			"rule_type": "threshold", "source": source, "signal": signal,
 			"service": service, "attr_fp": attrFp, "comparator": comparator,
 			"warning_threshold": warning, "critical_threshold": critical,
@@ -245,7 +245,7 @@ func (s *server) buildSeasonalMetricRuleCandidates(hours, minPoints int, service
 		seasonalJSON := string(jsonenc.Encode(
 			jsonenc.NewObject().Set("strategy", strategy).Set("buckets", buckets), jsonDumpsDefault))
 		candidates = append(candidates, map[string]any{
-			"name": formatAutoRuleName(source, signal, service, attrFp),
+			"name":      formatAutoRuleName(source, signal, service, attrFp),
 			"rule_type": "seasonal", "source": source, "signal": signal,
 			"service": service, "attr_fp": attrFp, "comparator": comparator,
 			"warning_threshold": warning, "critical_threshold": critical,

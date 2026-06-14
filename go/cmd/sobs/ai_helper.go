@@ -70,7 +70,7 @@ func buildAITurnLogsURL(chatID, turnID string) string {
 	return "/logs?sql=" + pyQuoteAll(where)
 }
 
-// pyQuoteAll mirrors urllib.parse.quote(s, safe='') — percent-encode every byte except the
+// pyQuoteAll mirrors urllib.parse.quote(s, safe=”) — percent-encode every byte except the
 // unreserved set A-Z a-z 0-9 _ . - ~.
 func pyQuoteAll(s string) string {
 	const unreserved = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-~"
