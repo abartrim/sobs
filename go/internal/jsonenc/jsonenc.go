@@ -78,6 +78,13 @@ func (o *Object) Get(k string) (any, bool) {
 }
 func (o *Object) Len() int { return len(o.keys) }
 
+// MarshalJSON lets the stdlib encoding/json package serialize an Object in INSERTION order
+// (compact, ensure_ascii) — used by json.MarshalIndent for the indent-2 export payloads that
+// must preserve order (a plain Go map would sort). Other code paths use Encode directly.
+func (o *Object) MarshalJSON() ([]byte, error) {
+	return Encode(o, Options{SortKeys: false, EnsureASCII: true, ItemSep: ",", KeySep: ":"}), nil
+}
+
 // Encode renders v to JSON bytes per opts.
 func Encode(v any, opts Options) []byte {
 	var b strings.Builder

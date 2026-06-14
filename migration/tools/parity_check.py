@@ -134,6 +134,7 @@ def _build_go() -> None:
 def _boot_go(workdir: Path):
     env = dict(os.environ)
     env["SOBS_PARITY"] = "1"
+    env["SOBS_FAKE_EPOCH"] = "1704164645.0"  # FIXED_EPOCH (determinism.py) — freezes the Go clock for parity
     env["SOBS_DATA_DIR"] = str(workdir)
     env["SOBS_PORT"] = str(PORT)
     # Point chdb-go at the pinned libchdb (purego dlopen at runtime). See go/CHDB_PIN.md.

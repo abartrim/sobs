@@ -108,6 +108,41 @@ func (s *server) handleApiSetupWizardSteps(w http.ResponseWriter, r *http.Reques
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
+// GET /api/reports/export — app.py api_export_reports: a downloadable JSON file (indent=2,
+// INSERTION order) of all saved reports plus an exported_at wall-clock stamp.
+func (s *server) handleApiReportsExport(w http.ResponseWriter, r *http.Request) {
+	res, err := s.db.Execute("SELECT Id, Name, Description, PageType, FiltersJson " +
+		"FROM sobs_reports FINAL WHERE IsDeleted = 0 ORDER BY PageType, Name")
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	reports := []any{}
+	for _, m := range rowMaps(res) {
+		reports = append(reports, jsonenc.NewObject().
+			Set("id", cStr(m, "Id")).
+			Set("name", cStr(m, "Name")).
+			Set("description", cStr(m, "Description")).
+			Set("page_type", cStr(m, "PageType")).
+			Set("filters", parseJSONObject(cStr(m, "FiltersJson"))))
+	}
+	payload := jsonenc.NewObject().
+		Set("sobs_reports_export", true).
+		Set("version", "1").
+		Set("exported_at", nowUTC().Format("2006-01-02T15:04:05Z")).
+		Set("reports", reports)
+	body, err := jsonDumpsIndent2(payload)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="sobs_reports_export.json"`)
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(body))
+}
+
 // GET /api/ai/export — app.py export_ai_training: streams matching AI spans as JSONL. The
 // fixture has no gen_ai spans, so the export is empty (a 0-byte attachment).
 func (s *server) handleApiAiExport(w http.ResponseWriter, r *http.Request) {

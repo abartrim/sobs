@@ -106,6 +106,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/api/ai/helper/capabilities", s.handleApiAiHelperCapabilities)
 	s.mux.HandleFunc("/api/ai/helper/chats/", s.handleApiAiHelperChatDetail)
 	s.mux.HandleFunc("/api/onboarding/inspect-repo", s.handleApiOnboardingInspectRepo)
+	s.mux.HandleFunc("/api/reports/export", s.handleApiReportsExport)
 	s.mux.HandleFunc("/api/ai/export", s.handleApiAiExport)
 	s.mux.HandleFunc("/api/setup-wizard/steps", s.handleApiSetupWizardSteps)
 	s.mux.HandleFunc("/v1/rum/assets/", s.handleV1RumAssetByID)

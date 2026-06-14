@@ -889,3 +889,6 @@ routes:
   - id: get__api_setup_wizard_steps
     path: "/api/setup-wizard/steps"
     methods: [GET]
+  - id: get__api_reports_export
+    path: "/api/reports/export"
+    methods: [GET]
