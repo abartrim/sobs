@@ -40,15 +40,7 @@ func (s *server) handleValidateRegex(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("sample", nil))
 }
 
-// POST /api/query/ask — 400 "question is required" on an empty body (validation precedes
-// the query-page guard).
-func (s *server) handleApiQueryAsk(w http.ResponseWriter, r *http.Request) {
-	if jsonBodyStr(r, "question") == "" {
-		s.errorJSON(w, http.StatusBadRequest, "question is required")
-		return
-	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
-}
+// handleApiQueryAsk is defined in query_exec.go (guard + NL→SQL + execute).
 
 // handleApiQueryRun is defined in query_exec.go (full SQL exec + telemetry).
 

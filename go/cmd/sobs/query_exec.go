@@ -420,6 +420,97 @@ func severityFor(err error) string {
 	return "INFO"
 }
 
+// handleApiQueryAsk — app.py api_query_ask (no-chart path): guard the question, generate SQL via
+// the LLM (canned), execute it, and return the results + llm_stats.
+func (s *server) handleApiQueryAsk(w http.ResponseWriter, r *http.Request) {
+	m := bodyMap(r)
+	question := strings.TrimSpace(bstr(m, "question"))
+	if question == "" {
+		s.errorJSON(w, http.StatusBadRequest, "question is required")
+		return
+	}
+	if !s.cfg.QueryPageEnabled {
+		s.writeMaskedJSON(w, http.StatusNotFound,
+			jsonenc.NewObject().Set("ok", false).Set("error", "Query page is unavailable."))
+		return
+	}
+	traceID := md5Hex("query|" + question + "|" + fakeTimeNs())
+	turnID := traceID[:16]
+	model := strings.TrimSpace(s.loadAISetting("ai.model", ""))
+	guardModel := strings.TrimSpace(s.loadAISetting("ai.guard_model", ""))
+	endpoint := strings.TrimSpace(s.loadAISetting("ai.endpoint_url", ""))
+	s.emitAiHelperLogEvent("query.turn.start", traceID, turnID, "/query", model, guardModel, "off",
+		question, "INFO", map[string]string{"gen_ai.input.question": question})
+
+	allowed, reason, _ := s.checkGuardModel(question)
+	s.emitAiHelperLogEvent("query.guard.result", traceID, turnID, "/query", model, guardModel, "off",
+		"Guard verdict: "+reason, "INFO", map[string]string{"gen_ai.operation.name": "guard"})
+	if !allowed {
+		s.writeMaskedJSON(w, http.StatusForbidden, jsonenc.NewObject().
+			Set("ok", false).Set("error", "Request blocked by safety guard: "+reason).
+			Set("trace_id", traceID).Set("turn_id", turnID))
+		return
+	}
+
+	sql, sqlErr, sqlStats := s.generateSQLViaLLM(endpoint)
+	emitSQLBody := sql
+	if sqlErr != "" {
+		emitSQLBody = sqlErr
+	}
+	s.emitAiHelperLogEvent("query.sql.generated", traceID, turnID, "/query", model, guardModel, "off",
+		emitSQLBody, "INFO", map[string]string{"gen_ai.operation.name": "query_sql", "sobs.gen_ai.response": sql})
+	if sqlErr != "" {
+		s.writeMaskedJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().
+			Set("ok", false).Set("error", sqlErr).Set("trace_id", traceID).Set("turn_id", turnID).
+			Set("sql", "").Set("columns", []any{}).Set("rows", []any{}).
+			Set("llm_stats", queryAskLLMStats(sqlStats)))
+		return
+	}
+
+	res, execErr := s.db.Execute(sql)
+	columns, rows, fieldTypes := []any{}, []any{}, []any{}
+	execErrStr := ""
+	if execErr != nil {
+		execErrStr = publicDashboardQueryError(execErr)
+	} else {
+		columns, rows = serializeQueryResult(res)
+		fieldTypes = inferQueryFieldTypes(columns, rows)
+	}
+	s.emitAiHelperLogEvent("query.sql.executed", traceID, turnID, "/query", model, guardModel, "off",
+		sql, severityFor(execErr), map[string]string{
+			"gen_ai.operation.name": "query_sql_execute", "sobs.query.exec.attempt": "1",
+			"sobs.query.exec.error": execErrStr, "sobs.gen_ai.response": sql,
+		})
+	datasets := []any{}
+	if execErr == nil {
+		datasets = append(datasets, jsonenc.NewObject().
+			Set("name", "main").Set("purpose", "primary dataset").Set("sql", sql).
+			Set("columns", columns).Set("field_types", fieldTypes).Set("rows", rows).Set("error", ""))
+	}
+	s.emitAiHelperLogEvent("query.turn.complete", traceID, turnID, "/query", model, guardModel, "off",
+		"Query turn completed", severityFor(execErr), map[string]string{
+			"gen_ai.input.question": question, "gen_ai.operation.name": "query",
+		})
+
+	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).Set("trace_id", traceID).Set("turn_id", turnID).Set("sql", sql).
+		Set("columns", columns).Set("field_types", fieldTypes).Set("rows", rows).
+		Set("retry_count", 0).Set("datasets", datasets).Set("chart_spec", "").
+		Set("error", execErrStr).Set("llm_stats", queryAskLLMStats(sqlStats)))
+}
+
+// queryAskLLMStats mirrors _summarize_query_llm_stats(sql_generation, sql_repair,
+// named_query_generation, chart_generation): the sql stage + three zero stages (no repair / named
+// / chart on the success path) + totals (= sql, since the others are 0).
+func queryAskLLMStats(sqlStats llmStats) *jsonenc.Object {
+	return jsonenc.NewObject().
+		Set("sql_generation", queryStageStats(sqlStats)).
+		Set("sql_repair", queryStageStats(llmStats{})).
+		Set("named_query_generation", queryStageStats(llmStats{})).
+		Set("chart_generation", queryStageStats(llmStats{})).
+		Set("totals", queryStageStats(sqlStats))
+}
+
 // handleApiDashboardsQuery — app.py execute_chart_query: validate + execute a SELECT and return
 // {columns, rows}. Not query-page gated.
 func (s *server) handleApiDashboardsQuery(w http.ResponseWriter, r *http.Request) {

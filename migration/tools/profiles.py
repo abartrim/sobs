@@ -87,6 +87,15 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_QUERY_PAGE_ENABLED": "1",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # ask: query/ask — guard + main endpoints on DISTINCT mock paths (two canned responses).
+    "ask": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/ask/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/ask-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
 }
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via

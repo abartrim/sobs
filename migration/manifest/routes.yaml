@@ -750,6 +750,15 @@ routes:
   request:
     method: POST
     json: {}
+- id: post__api_query_ask__llm
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: ask
+  request:
+    method: POST
+    json:
+      question: how many logs are there
 - id: post__api_query_run
   path: /api/query/run
   methods:
