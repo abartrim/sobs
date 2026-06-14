@@ -2,8 +2,26 @@ package main
 
 import (
 	"net/url"
+	"os"
 	"strings"
 )
+
+// aiEnvOverrides mirrors app.py _AI_ENV_OVERRIDES: an ai.* setting is overridden by its env var
+// (the `_FILE` secret-file variants are deploy-time concerns the parity fixture never sets). The
+// §2b mock-upstream profile points SOBS_AI_ENDPOINT_URL/SOBS_AI_MODEL at the canned responder so
+// both Python (which honors these) and Go reach the same upstream.
+var aiEnvOverrides = map[string]string{
+	"ai.endpoint_url":             "SOBS_AI_ENDPOINT_URL",
+	"ai.model":                    "SOBS_AI_MODEL",
+	"ai.thinking_level":           "SOBS_AI_THINKING_LEVEL",
+	"ai.api_key":                  "SOBS_AI_API_KEY",
+	"ai.endpoint_timeout_seconds": "SOBS_AI_ENDPOINT_TIMEOUT_SECONDS",
+	"ai.guard_endpoint_url":       "SOBS_AI_GUARD_ENDPOINT_URL",
+	"ai.guard_model":              "SOBS_AI_GUARD_MODEL",
+	"ai.guard_thinking_level":     "SOBS_AI_GUARD_THINKING_LEVEL",
+	"ai.guard_timeout_seconds":    "SOBS_AI_GUARD_TIMEOUT_SECONDS",
+	"ai.dlp_endpoint_url":         "SOBS_AI_DLP_ENDPOINT_URL",
+}
 
 // parseGithubRepoOwnerName mirrors app.py _parse_github_repo_owner_name: extract owner/repo from
 // an HTTPS, SSH, or plain "owner/repo" GitHub URL. Returns ("","") when not a github.com repo.
@@ -100,6 +118,11 @@ func githubVersionTokens(version string) map[string]bool {
 // sobs_ai_settings. (Env-var/secret-file fallbacks are deploy-time concerns; the parity fixture
 // has neither, so an absent key resolves to default — matching Python.)
 func (s *server) loadAISetting(key, def string) string {
+	if envName, ok := aiEnvOverrides[key]; ok {
+		if v := strings.TrimSpace(os.Getenv(envName)); v != "" {
+			return v
+		}
+	}
 	res, err := s.db.Execute("SELECT Value FROM sobs_ai_settings FINAL WHERE Key=? AND IsDeleted=0 LIMIT 1", key)
 	if err == nil && len(res.Rows) > 0 {
 		if v := strings.TrimSpace(cStr(rowMaps(res)[0], "Value")); v != "" {
