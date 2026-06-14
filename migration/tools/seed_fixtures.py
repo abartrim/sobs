@@ -465,6 +465,28 @@ def seed_tagauto(db) -> None:
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
 
 
+def seed_metricsauto(db) -> None:
+    # 150 recent otel_logs rows for the EXISTING base service "web", laid out as 5 logs in each of
+    # 30 distinct minute buckets (minutes now()-1 … now()-30, real wall-clock). The 1m
+    # derived-signals view turns this into a CONSTANT log_volume=5 series across 30 buckets, so
+    # every quantile equals 5.0 exactly (quantile of a constant is that constant — deterministic
+    # even though chDB's reservoir sampler is otherwise non-deterministic). error_volume /
+    # error_ratio are likewise constant 0. auto_metrics_rules' threshold scan therefore yields three
+    # fixed candidates whose thresholds (5.0/5.5, 0.0/0.1) are timestamp-independent.
+    #
+    # We reuse "web" (already the lone base derived-signal service) rather than a fresh name on
+    # PURPOSE: _list_derived_signal_dimensions' service dropdown is a DISTINCT-over-UNION whose
+    # trailing ORDER BY binds only to the last branch, so its row order is genuinely racy in chDB
+    # (verified: alternates run-to-run) once two services are present. Keeping the set at a single
+    # service makes that list trivially deterministic. The candidate GROUP BY order is stable.
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, Body) "
+        "SELECT now() - INTERVAL (intDiv(number, 5) + 1) MINUTE, 'web', 'req' "
+        "FROM numbers(150)"
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+
 def seed_issues_raise(db) -> None:
     # A global github repo + token so raise_issue_from_user_observation's agent flow resolves a
     # github target and creates an issue (via the canned POST). The AI endpoints come from the
@@ -664,6 +686,7 @@ PROFILE_SEEDS = {
     "repoapp": seed_repo_app,  # registered app + release + github token; repositories-sub actions
     "cveosv": seed_cve_osv,  # telemetry.sdk row -> non-empty inventory -> OSV scan finds a vuln
     "tagauto": seed_tagauto,  # 30 recent prod-service logs -> auto_tag_rules in-window candidate
+    "metricsauto": seed_metricsauto,  # constant log_volume series -> auto_metrics_rules candidates
     "cvebackfill": seed_repo_app,  # app+release+github token -> cve github backfill attempts a release
     "onboard": seed_repo_app,  # app+token -> onboarding create-issues realtime + github-issue paths
     "issuesraise": seed_issues_raise,  # global github repo+token -> issues/raise agent flow creates an issue

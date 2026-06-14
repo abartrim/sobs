@@ -216,19 +216,120 @@ func (s *server) handleMetricsRulesAutoPreview(w http.ResponseWriter, r *http.Re
 		http.NotFound(w, r)
 		return
 	}
-	examined := s.countRows("SELECT count() FROM (SELECT ServiceName, SignalSource, SignalName " +
-		"FROM v_derived_signals_anomaly WHERE time >= now() - INTERVAL 24 HOUR " +
-		"GROUP BY ServiceName, SignalSource, SignalName HAVING count() >= 30)")
-	if examined != 0 {
-		http.Error(w, "not implemented", http.StatusNotImplemented) // candidate generation is a follow-up
+	_ = r.ParseForm()
+
+	rawAction := r.PostFormValue("action")
+	if rawAction == "" {
+		rawAction = "preview"
+	}
+	action := strings.ToLower(strings.TrimSpace(rawAction))
+
+	hours := 24
+	if raw := r.PostFormValue("hours"); raw != "" {
+		if v, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
+			hours = v
+			if hours < 1 {
+				hours = 1
+			} else if hours > 168 {
+				hours = 168
+			}
+		}
+	}
+	minPoints := 30
+	if raw := r.PostFormValue("min_points"); raw != "" {
+		if v, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
+			minPoints = v
+			if minPoints < 1 {
+				minPoints = 1
+			} else if minPoints > 5000 {
+				minPoints = 5000
+			}
+		}
+	}
+	serviceFilter := strings.TrimSpace(r.PostFormValue("service_filter"))
+	includeAttrFp := false
+	switch r.PostFormValue("include_attr_fp") {
+	case "1", "true", "on", "yes":
+		includeAttrFp = true
+	}
+	mode := strings.ToLower(strings.TrimSpace(orDefault(r.PostFormValue("mode"), "threshold")))
+	if mode != "threshold" && mode != "seasonal" {
+		mode = "threshold"
+	}
+	seasonalStrategy := strings.ToLower(strings.TrimSpace(orDefault(r.PostFormValue("seasonal_strategy"), "hour_of_day")))
+	if seasonalStrategy != "hour_of_day" && seasonalStrategy != "day_of_week" {
+		seasonalStrategy = "hour_of_day"
+	}
+
+	services, signals, sources := s.listDerivedSignalDimensions()
+	existingRules := s.loadAnomalyRulesCtx()
+
+	var candidates []any
+	var stats map[string]int
+	if mode == "seasonal" {
+		candidates, stats = s.buildSeasonalMetricRuleCandidates(hours, minPoints, serviceFilter, includeAttrFp, seasonalStrategy)
+	} else {
+		candidates, stats = s.buildAutoMetricRuleCandidates(hours, minPoints, serviceFilter, includeAttrFp)
+	}
+
+	const createMax = 200
+	summary := jsonenc.NewObject().
+		Set("action", action).Set("hours", hours).Set("min_points", minPoints).
+		Set("service_filter", serviceFilter).Set("include_attr_fp", includeAttrFp).
+		Set("mode", mode).Set("seasonal_strategy", seasonalStrategy).
+		Set("examined", stats["examined"]).Set("existing", stats["existing"]).
+		Set("invalid", stats["invalid"]).Set("candidates", len(candidates)).
+		Set("create_cap", createMax).Set("capped", len(candidates) > createMax).Set("created", 0)
+
+	if action == "create" {
+		limited := candidates
+		if len(limited) > createMax {
+			limited = limited[:createMax]
+		}
+		rowsToInsert := []map[string]any{}
+		base := fixedVersionMillis()
+		for idx, cv := range limited {
+			c := cv.(map[string]any)
+			sbj := ""
+			if v, ok := c["seasonal_buckets_json"].(string); ok {
+				sbj = v
+			}
+			rowsToInsert = append(rowsToInsert, map[string]any{
+				"Id": newUUIDv4(), "Name": c["name"], "RuleType": c["rule_type"],
+				"SignalSource": c["source"], "SignalName": c["signal"],
+				"ServiceName": c["service"], "AttrFingerprint": c["attr_fp"],
+				"Comparator":       c["comparator"],
+				"WarningThreshold": c["warning_threshold"], "CriticalThreshold": c["critical_threshold"],
+				"SecondarySignalSource": "", "SecondarySignalName": "", "SecondaryComparator": "gt",
+				"SecondaryWarningThreshold": 0.0, "SecondaryCriticalThreshold": 0.0,
+				"MinSampleCount": c["min_sample_count"], "SeasonalBucketsJson": sbj,
+				"IsDeleted": 0, "Version": base + int64(idx),
+			})
+		}
+		if len(rowsToInsert) > 0 {
+			if _, err := s.insertRowsNormalized("sobs_anomaly_rules", rowsToInsert); err != nil {
+				s.dbError(w, err)
+				return
+			}
+		}
+		skippedByCap := len(candidates) - len(limited)
+		capSuffix := "."
+		if skippedByCap > 0 {
+			capSuffix = fmt.Sprintf(", skipped %d by max cap (%d).", skippedByCap, createMax)
+		}
+		flashRedirect(w, "success", fmt.Sprintf(
+			"Auto rule generation complete: created %d rule(s), skipped %d existing, %d invalid%s",
+			len(rowsToInsert), stats["existing"], stats["invalid"], capSuffix),
+			"/metrics/rules?open_panel=auto-rules")
 		return
 	}
-	services, signals, sources := s.listDerivedSignalDimensions()
+
 	s.renderPageFlash(w, "metrics_rules.html", "auto_metrics_rules", "info",
-		"Auto-rule preview: 0 candidate(s), 0 existing skipped, 0 invalid.",
+		fmt.Sprintf("Auto-rule preview: %d candidate(s), %d existing skipped, %d invalid.",
+			len(candidates), stats["existing"], stats["invalid"]),
 		map[string]any{
-			"rules": s.loadAnomalyRulesCtx(), "services": services, "signals": signals, "sources": sources,
-			"auto_preview": []any{}, "auto_summary": autoRulePreviewSummary(),
+			"rules": existingRules, "services": services, "signals": signals, "sources": sources,
+			"auto_preview": candidates, "auto_summary": summary,
 			"auto_dashboard_preview": []any{}, "auto_dashboard_summary": nil, "auto_open_panel": "auto-rules",
 		})
 }

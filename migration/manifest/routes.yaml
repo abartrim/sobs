@@ -2289,6 +2289,16 @@ routes:
   - POST
   request:
     method: POST
+# Same route under the metricsauto profile: a constant recent log_volume series puts the scan
+# in-window, so the threshold preview renders the three fixed candidates (log_volume/error_volume/
+# error_ratio) instead of the empty-window page. Exercises _build_auto_metric_rule_candidates.
+- id: post__metrics_rules_auto_window
+  path: /metrics/rules/auto
+  profile: metricsauto
+  methods:
+  - POST
+  request:
+    method: POST
 - id: post__metrics_rules_dashboard_auto
   path: /metrics/rules/dashboard/auto
   methods:

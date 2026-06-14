@@ -109,6 +109,9 @@ PROFILES: dict[str, dict[str, str]] = {
     # tagauto: 30 recent prod-service otel_logs rows so auto_tag_rules' in-window branch generates
     # one candidate. No env overlay — just the (isolated) seed. Timestamp-independent output.
     "tagauto": {},
+    # metricsauto: a constant recent log_volume series so auto_metrics_rules' threshold scan
+    # generates fixed candidates (exact quantiles of a constant). No env overlay — just the seed.
+    "metricsauto": {},
     # onboard: a seeded app+token so onboarding create-issues runs its realtime path (rotate CI key)
     # and its github-issue path (open-issue search 404s -> empty -> create via the canned POST).
     "onboard": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
@@ -178,6 +181,7 @@ SEEDED_PROFILES = {
     "repoapp",
     "cveosv",
     "tagauto",
+    "metricsauto",
     "cvebackfill",
     "onboard",
     "issuesraise",
