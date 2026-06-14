@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sobs/sobs/internal/store"
 )
@@ -25,12 +26,27 @@ type server struct {
 
 func newServer(cfg config) *server {
 	s := &server{cfg: cfg, mux: http.NewServeMux(), sse: newSSEBroker()}
-	// Open the shared chdb session. Tolerate failure so non-DB routes still serve (and
-	// so a missing libchdb only breaks data routes, not the whole server).
-	if db, err := store.Open(cfg.DataDir); err != nil {
-		log.Printf("warning: chdb open failed (%v) — data routes will error", err)
-	} else {
-		s.db = db
+	// Open the shared chdb session, retrying the intermittent embedded-server "recursive_mutex
+	// lock failed" boot error (a chdb-go contention bug seen under many sequential per-profile
+	// boots). A server that lists but can't open chdb would hang every data route, so in parity
+	// mode (SOBS_PARITY) exit after exhausting retries — the harness's boot-retry then re-spawns a
+	// fresh process, which clears the global chdb state.
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		db, err := store.Open(cfg.DataDir)
+		if err == nil {
+			s.db = db
+			break
+		}
+		lastErr = err
+		log.Printf("warning: chdb open failed (attempt %d: %v) — retrying", attempt+1, err)
+		time.Sleep(time.Duration(300*(attempt+1)) * time.Millisecond)
+	}
+	if s.db == nil {
+		log.Printf("warning: chdb open failed (%v) — data routes will error", lastErr)
+		if os.Getenv("SOBS_PARITY") == "1" {
+			log.Fatalf("chdb open failed in parity mode: %v", lastErr)
+		}
 	}
 	s.routes()
 	return s
