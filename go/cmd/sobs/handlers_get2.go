@@ -4,6 +4,8 @@ import (
 	_ "embed"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -311,5 +313,35 @@ func (s *server) handleV1RumAssetByID(w http.ResponseWriter, r *http.Request) {
 		errorOnly(w, http.StatusBadRequest, "invalid asset id")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	// app.py rum_asset_download: read {id}.meta.json under DATA_DIR/rum_assets; 404 when absent
+	// (the fixture seeds no assets, so every valid id resolves here), else serve the stored file.
+	dir := filepath.Join(s.cfg.DataDir, "rum_assets")
+	metaRaw, err := os.ReadFile(filepath.Join(dir, assetID+".meta.json"))
+	if err != nil {
+		errorOnly(w, http.StatusNotFound, "not found")
+		return
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(metaRaw, &meta); err != nil {
+		errorOnly(w, http.StatusInternalServerError, "asset metadata unavailable")
+		return
+	}
+	storageName, _ := meta["storage_name"].(string)
+	if storageName == "" || strings.ContainsAny(storageName, `/\`) {
+		errorOnly(w, http.StatusInternalServerError, "invalid asset metadata")
+		return
+	}
+	data, err := os.ReadFile(filepath.Join(dir, storageName))
+	if err != nil {
+		errorOnly(w, http.StatusNotFound, "not found")
+		return
+	}
+	contentType, _ := meta["content_type"].(string)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
 }

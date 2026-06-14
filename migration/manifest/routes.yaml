@@ -1322,6 +1322,12 @@ routes:
   path: /v1/rum/assets/nonexistent
   methods:
   - GET
+- id: get__v1_rum_assets__id_missing
+  path: /v1/rum/assets/abcdef0123456789abcdef0123456789
+  methods:
+  - GET
+  request:
+    method: GET
 - id: post__reports__id_delete
   path: /reports/nonexistent/delete
   methods:
