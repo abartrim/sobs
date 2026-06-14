@@ -1690,6 +1690,25 @@ routes:
   mask:
   - '"chart_id":"[^"]*"'
   mask_reason: the imported chart's id is a fresh uuid4 (random); ok/dashboard_id/dashboard_url are byte-compared.
+# Persist a query + custom eCharts JSON onto the seeded dashboard (mutator; chart_id masked).
+- id: post__api_query_add_to_dashboard_ok
+  path: /api/query/add-to-dashboard
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      dashboard_id: 00000000-0000-4000-8000-00000000000a
+      title: Saved Query Chart
+      sql: SELECT 1 AS time, 2 AS value
+      chart_spec:
+        tooltip:
+          trigger: axis
+        series:
+        - type: line
+  mask:
+  - '"chart_id":"[^"]*"'
+  mask_reason: the new chart's id is a fresh uuid4 (random); ok/dashboard_id/dashboard_name/dashboard_url byte-compared.
 # Add a chart to the seeded dashboard via the form route (mutator; plain redirect to the
 # dashboard). New chart id is an unread uuid.
 - id: post__dashboards_add_chart_ok

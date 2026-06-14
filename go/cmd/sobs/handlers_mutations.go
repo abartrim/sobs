@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 
@@ -67,13 +68,78 @@ func (s *server) handleApiQueryRefineChart(w http.ResponseWriter, r *http.Reques
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
-// POST /api/query/add-to-dashboard — 400 "dashboard_id is required" on an empty body.
+// POST /api/query/add-to-dashboard — app.py api_query_add_to_dashboard: persist query SQL + a
+// custom eCharts JSON as a custom_echarts chart on a dashboard. Deterministic (not query-gated).
 func (s *server) handleApiQueryAddToDashboard(w http.ResponseWriter, r *http.Request) {
-	if jsonBodyStr(r, "dashboard_id") == "" {
+	raw, _ := io.ReadAll(r.Body)
+	body := asObject(func() any { v, _ := parseJSONValue(raw); return v }())
+	get := func(k string) string { v, ok := body.Get(k); return pyStrOrStrip(v, ok) }
+	dashID, title, sql := get("dashboard_id"), get("title"), get("sql")
+	chartSpecRaw, csOK := body.Get("chart_spec")
+	if dashID == "" {
 		s.errorJSON(w, http.StatusBadRequest, "dashboard_id is required")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	if sql == "" {
+		s.errorJSON(w, http.StatusBadRequest, "sql is required")
+		return
+	}
+	if !isTruthyVal(chartSpecRaw, csOK) {
+		s.errorJSON(w, http.StatusBadRequest, "chart_spec is required")
+		return
+	}
+	dres, err := s.db.Execute("SELECT Id, Name, Description FROM sobs_dashboards FINAL WHERE IsDeleted = 0 AND Id = ?", dashID)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	if len(dres.Rows) == 0 {
+		s.errorJSON(w, http.StatusNotFound, "Dashboard not found")
+		return
+	}
+	dashName := cStr(rowMaps(dres)[0], "Name")
+	if title == "" {
+		title = "Query Chart"
+	}
+	// chart_option = json.loads(chart_spec) if it's a string, else the value itself.
+	chartOption := chartSpecRaw
+	if str, ok := chartSpecRaw.(string); ok {
+		v, perr := parseJSONValue([]byte(str))
+		if perr != nil {
+			s.errorJSON(w, http.StatusBadRequest, "chart_spec must be valid JSON: "+perr.Error())
+			return
+		}
+		chartOption = v
+	}
+	if _, ok := chartOption.(*jsonenc.Object); !ok {
+		s.errorJSON(w, http.StatusBadRequest, "chart_spec must be a JSON object")
+		return
+	}
+	specRaw := jsonenc.NewObject().
+		Set("template_id", "custom_echarts").
+		Set("sql", jsonenc.NewObject().Set("mode", "raw").Set("override_sql", sql)).
+		Set("visual", jsonenc.NewObject().
+			Set("custom_option_json", string(jsonenc.Encode(chartOption, jsonDumpsDefault))).
+			Set("custom_mapping_json", "{}"))
+	templateID, query, normSpec, errMsg := s.compileChartSpec(specRaw)
+	if errMsg != "" {
+		s.errorJSON(w, http.StatusBadRequest, "Chart spec error: "+errMsg)
+		return
+	}
+	optionsJSON := string(jsonenc.Encode(jsonenc.NewObject().Set("chart_spec", normSpec), jsonDumpsDefault))
+	chartID := newUUIDv4()
+	row := map[string]any{
+		"Id": chartID, "DashboardId": dashID, "Title": title, "ChartType": templateID,
+		"Query": query, "OptionsJson": optionsJSON, "Position": s.nextChartPosition(dashID),
+		"IsDeleted": 0, "Version": fixedVersionMillis(),
+	}
+	if _, err := s.insertRowsNormalized("sobs_chart_configs", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).Set("chart_id", chartID).Set("dashboard_id", dashID).
+		Set("dashboard_name", dashName).Set("dashboard_url", "/dashboards/"+dashID))
 }
 
 // POST /api/data-management/backup/run and /restore — app.py: 403 when the backup feature
