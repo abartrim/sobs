@@ -227,7 +227,10 @@ func (s *server) handleApiDashboardsSpecCompile(w http.ResponseWriter, r *http.R
 		Set("template_id", tid).Set("query", query).Set("spec", spec))
 }
 
-// POST /api/dashboards/spec/render.
+// POST /api/dashboards/spec/render — compile + execute + renderChartFromTemplate +
+// applyChartSpecVisualOverrides are ready (see chart_render_binding.go), but the response goes
+// through _mask_payload_for_output_json (the masking.py redact subsystem, not yet ported) and
+// derived_signal_overlay needs the anomaly engine — so this stays a 501 until both land.
 func (s *server) handleApiDashboardsSpecRender(w http.ResponseWriter, r *http.Request) {
 	if specModeGuard(w, r, nil) {
 		return

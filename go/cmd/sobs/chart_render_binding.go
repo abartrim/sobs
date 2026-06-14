@@ -501,6 +501,134 @@ const renderNotImplemented = "\x00render-not-implemented\x00"
 // attachDerivedDrilldownFields injects derived_signal_overlay's per-point rule metadata (phase 3).
 func attachDerivedDrilldownFields(dd *jsonenc.Object, bindings map[string]any, idx int) {}
 
+// parseBool3 mirrors app.py _parse_bool.
+func parseBool3(v any, present bool, def bool) bool {
+	if !present || v == nil {
+		return def
+	}
+	if b, ok := v.(bool); ok {
+		return b
+	}
+	raw := strings.ToLower(strings.TrimSpace(toStr(v)))
+	switch raw {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	}
+	return def
+}
+
+// applyChartSpecVisualOverrides mirrors app.py _apply_chart_spec_visual_overrides.
+func applyChartSpecVisualOverrides(templateID string, option any, spec *jsonenc.Object) any {
+	opt, ok := option.(*jsonenc.Object)
+	if !ok || templateID == "custom_echarts" {
+		return option
+	}
+	var visual *jsonenc.Object
+	if spec != nil {
+		if vv, _ := spec.Get("visual"); vv != nil {
+			visual, _ = vv.(*jsonenc.Object)
+		}
+	}
+	if visual == nil {
+		return option
+	}
+	gv := func(k string) (any, bool) { return visual.Get(k) }
+
+	lsV, lsOK := gv("legend_show")
+	legendShow := parseBool3(lsV, lsOK, true)
+	if lv, _ := opt.Get("legend"); lv != nil {
+		if lo, ok := lv.(*jsonenc.Object); ok {
+			lo.Set("show", legendShow)
+		}
+	}
+
+	ziV, ziOK := gv("zoom_inside")
+	zoomInside := parseBool3(ziV, ziOK, true)
+	zsV, zsOK := gv("zoom_slider")
+	zoomSlider := parseBool3(zsV, zsOK, false)
+	var dataZoom []any
+	if dz, _ := opt.Get("dataZoom"); dz != nil {
+		dataZoom, _ = dz.([]any)
+	}
+	zStartV, _ := gv("zoom_start_pct")
+	zEndV, _ := gv("zoom_end_pct")
+	zoomStart := coercePositiveInt(zStartV, zStartV != nil, 0, 0, 100)
+	zoomEnd := coercePositiveInt(zEndV, zEndV != nil, 100, 0, 100)
+	endVal := zoomStart
+	if zoomEnd > endVal {
+		endVal = zoomEnd
+	}
+	next := []any{}
+	if zoomInside {
+		next = append(next, jsonenc.NewObject().Set("type", "inside").Set("xAxisIndex", 0).
+			Set("filterMode", "none").Set("start", zoomStart).Set("end", endVal))
+	}
+	if zoomSlider {
+		next = append(next, jsonenc.NewObject().Set("type", "slider").Set("xAxisIndex", 0).
+			Set("start", zoomStart).Set("end", endVal).Set("height", 16).Set("bottom", 30).
+			Set("borderColor", "#495057").Set("fillerColor", "rgba(13, 110, 253, 0.20)").
+			Set("handleStyle", jsonenc.NewObject().Set("color", "#0d6efd")))
+	}
+	if len(next) > 0 {
+		opt.Set("dataZoom", next)
+	} else {
+		opt.Set("dataZoom", anyOrEmpty(dataZoom))
+	}
+
+	smV, smOK := gv("smooth_line")
+	smoothLine := parseBool3(smV, smOK, true)
+	vcV, _ := gv("value_color")
+	valueColor := strings.TrimSpace(toStr(vcV))
+	if sv, _ := opt.Get("series"); sv != nil {
+		if series, ok := sv.([]any); ok {
+			for _, se := range series {
+				so, ok := se.(*jsonenc.Object)
+				if !ok {
+					continue
+				}
+				nameV, _ := so.Get("name")
+				if toStr(nameV) != "Value" {
+					continue
+				}
+				if tv, has := so.Get("type"); has && toStr(tv) == "line" {
+					so.Set("smooth", smoothLine)
+				}
+				if valueColor != "" {
+					ls := cloneOrNew(so, "lineStyle")
+					is := cloneOrNew(so, "itemStyle")
+					ls.Set("color", valueColor)
+					is.Set("color", valueColor)
+					so.Set("lineStyle", ls)
+					so.Set("itemStyle", is)
+				}
+			}
+		}
+	}
+	return opt
+}
+
+func anyOrEmpty(xs []any) []any {
+	if xs == nil {
+		return []any{}
+	}
+	return xs
+}
+
+func cloneOrNew(o *jsonenc.Object, key string) *jsonenc.Object {
+	out := jsonenc.NewObject()
+	if v, _ := o.Get(key); v != nil {
+		if existing, ok := v.(*jsonenc.Object); ok {
+			for _, k := range existing.Keys() {
+				ev, _ := existing.Get(k)
+				out.Set(k, ev)
+			}
+		}
+	}
+	return out
+}
+
 // ---- custom_echarts render (phase 2) ----
 
 // renderCustomEcharts mirrors app.py _render_custom_echarts (named_datasets is nil here; the
