@@ -187,6 +187,11 @@ def _replay(route: dict) -> dict:
     if req.get("json") is not None:
         data = json.dumps(req["json"]).encode()
         headers["Content-Type"] = "application/json"
+    elif req.get("form") is not None:
+        from urllib.parse import urlencode
+
+        data = urlencode(req["form"], doseq=True).encode()
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
     elif req.get("body_b64"):
         import base64
 

@@ -1460,6 +1460,40 @@ routes:
   - POST
   request:
     method: POST
+# Masking custom keys/patterns add-then-delete success chain (mutator section; writes the
+# masking.custom_keys/patterns app-settings, read only by the early masking page reader).
+- id: post__settings_masking_keys_add_ok
+  path: /settings/masking/keys
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      key: my_custom_secret
+- id: post__settings_masking_keys_del_ok
+  path: /settings/masking/keys/delete
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      key: my_custom_secret
+- id: post__settings_masking_patterns_add_ok
+  path: /settings/masking/patterns
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      pattern: 'custompat-[0-9]+'
+- id: post__settings_masking_patterns_del_ok
+  path: /settings/masking/patterns/delete
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      pattern: 'custompat-[0-9]+'
 - id: post__settings_ai
   path: /settings/ai
   methods:

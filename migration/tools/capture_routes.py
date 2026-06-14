@@ -66,6 +66,11 @@ async def capture_one(client, route: dict) -> tuple[str, int, int]:
     if req.get("json") is not None:
         kwargs["data"] = json.dumps(req["json"]).encode()
         headers["Content-Type"] = "application/json"
+    elif req.get("form") is not None:
+        from urllib.parse import urlencode
+
+        kwargs["data"] = urlencode(req["form"], doseq=True).encode()
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
     elif req.get("body_b64"):
         kwargs["data"] = base64.b64decode(req["body_b64"])
     if headers:

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -208,53 +209,94 @@ func (s *server) handleNotifRulesCreate(w http.ResponseWriter, r *http.Request) 
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
-// POST /settings/masking/keys — empty form -> "Sensitive key name is required".
+// POST /settings/masking/keys — app.py add_masking_key.
 func (s *server) handleMaskingKeysCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
-	if s.formRequire(w, r, "key", "warning", "Sensitive key name is required", "/settings/masking") {
+	_ = r.ParseForm()
+	key := normalizeSensitiveKey(r.PostFormValue("key"))
+	if key == "" {
+		flashRedirect(w, "warning", "Sensitive key name is required", "/settings/masking")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	if s.effectiveKeyActive(key) {
+		flashRedirect(w, "info", fmt.Sprintf("Sensitive key '%s' is already active", key), "/settings/masking")
+		return
+	}
+	s.saveMaskingCustomKeys(append(s.loadMaskingCustomKeys(), key))
+	flashRedirect(w, "success", fmt.Sprintf("Sensitive key '%s' added", key), "/settings/masking")
 }
 
-// POST /settings/masking/keys/delete — app.py delete_masking_key: an empty/unknown key is not
-// in the custom-keys set, so it flashes "Custom sensitive key not found".
+// POST /settings/masking/keys/delete — app.py delete_masking_key.
 func (s *server) handleMaskingKeysDelete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
-	if s.formRequire(w, r, "key", "warning", "Custom sensitive key not found", "/settings/masking") {
+	_ = r.ParseForm()
+	key := normalizeSensitiveKey(r.PostFormValue("key"))
+	custom := s.loadMaskingCustomKeys()
+	if !containsStr(custom, key) {
+		flashRedirect(w, "warning", "Custom sensitive key not found", "/settings/masking")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	kept := []string{}
+	for _, k := range custom {
+		if k != key {
+			kept = append(kept, k)
+		}
+	}
+	s.saveMaskingCustomKeys(kept)
+	flashRedirect(w, "success", fmt.Sprintf("Sensitive key '%s' removed", key), "/settings/masking")
 }
 
-// POST /settings/masking/patterns/delete — empty/unknown pattern -> "Custom masking pattern not found".
-func (s *server) handleMaskingPatternsDelete(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.NotFound(w, r)
-		return
-	}
-	if s.formRequire(w, r, "pattern", "warning", "Custom masking pattern not found", "/settings/masking") {
-		return
-	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
-}
-
-// POST /settings/masking/patterns — empty form -> "Invalid regex pattern: Pattern is required".
+// POST /settings/masking/patterns — app.py add_masking_pattern.
 func (s *server) handleMaskingPatternsCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
-	if s.formRequire(w, r, "pattern", "warning", "Invalid regex pattern: Pattern is required", "/settings/masking") {
+	_ = r.ParseForm()
+	pattern, err := validateCustomMaskingPattern(r.PostFormValue("pattern"))
+	if err != nil {
+		flashRedirect(w, "warning", "Invalid regex pattern: "+err.Error(), "/settings/masking")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	if s.effectivePatternActive(pattern) {
+		flashRedirect(w, "info", "That regex pattern is already active", "/settings/masking")
+		return
+	}
+	s.saveMaskingCustomPatterns(append(s.loadMaskingCustomPatterns(), pattern))
+	flashRedirect(w, "success", "Custom masking pattern added", "/settings/masking")
+}
+
+// POST /settings/masking/patterns/delete — app.py delete_masking_pattern.
+func (s *server) handleMaskingPatternsDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	_ = r.ParseForm()
+	pattern, err := validateCustomMaskingPattern(r.PostFormValue("pattern"))
+	if err != nil {
+		flashRedirect(w, "warning", "Custom masking pattern not found", "/settings/masking")
+		return
+	}
+	custom := s.loadMaskingCustomPatterns()
+	if !containsStr(custom, pattern) {
+		flashRedirect(w, "warning", "Custom masking pattern not found", "/settings/masking")
+		return
+	}
+	kept := []string{}
+	for _, p := range custom {
+		if p != pattern {
+			kept = append(kept, p)
+		}
+	}
+	s.saveMaskingCustomPatterns(kept)
+	flashRedirect(w, "success", "Custom masking pattern removed", "/settings/masking")
 }
 
 // isTruthySetting mirrors app.py _is_truthy_setting(default=False): a value counts as on when
