@@ -1206,6 +1206,15 @@ routes:
   request:
     method: POST
     json: {}
+- id: post__api_onboarding_list_repos__github
+  path: /api/onboarding/list-repos
+  methods:
+  - POST
+  profile: github
+  request:
+    method: POST
+    json:
+      owner: testowner
 - id: post__api_data_management_prune_invalid
   path: /api/data-management/prune
   methods:

@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -149,14 +151,95 @@ func (s *server) handleApiOnboardingImportRepo(w http.ResponseWriter, r *http.Re
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
-// POST /api/onboarding/list-repos — requires an owner/username.
+// POST /api/onboarding/list-repos — app.py api_onboarding_list_repos: list an owner's repos via
+// GitHub (users then orgs endpoint), shaped to {name, full_name, repo_url, private} and sorted.
 func (s *server) handleApiOnboardingListRepos(w http.ResponseWriter, r *http.Request) {
 	m := bodyMap(r)
-	if bstr(m, "owner") == "" && bstr(m, "username") == "" {
+	owner := strings.Trim(bstr(m, "owner"), "/")
+	if owner == "" {
 		s.errorJSON(w, http.StatusBadRequest, "Owner or username is required")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	githubToken := bstr(m, "github_token")
+	if githubToken == "" {
+		githubToken = strings.TrimSpace(s.loadAISetting("ai.github_token", ""))
+	}
+	tokenUsed := githubToken != ""
+	typeParam := "public"
+	if tokenUsed {
+		typeParam = "all"
+	}
+	endpoints := []string{
+		"https://api.github.com/users/" + owner + "/repos?per_page=100&type=" + typeParam + "&sort=full_name",
+		"https://api.github.com/orgs/" + owner + "/repos?per_page=100&type=" + typeParam + "&sort=full_name",
+	}
+	var payload any
+	responseStatus := 0
+	for _, url := range endpoints {
+		resp, err := s.upstreamGet("GET", url)
+		if err != nil {
+			s.writeMaskedJSON(w, http.StatusBadGateway,
+				jsonenc.NewObject().Set("ok", false).Set("error", "GitHub lookup failed: "+err.Error()))
+			return
+		}
+		responseStatus = resp.Status
+		payload = resp.Body
+		if responseStatus == 200 {
+			break
+		}
+	}
+	list, isList := payload.([]any)
+	if responseStatus != 200 || !isList {
+		detail := ""
+		if obj, ok := payload.(*jsonenc.Object); ok {
+			detail = objStrOr(obj, "message")
+		}
+		if detail == "" {
+			detail = fmt.Sprintf("GitHub lookup failed (%d)", responseStatus)
+		}
+		s.writeMaskedJSON(w, http.StatusBadRequest,
+			jsonenc.NewObject().Set("ok", false).Set("error", detail))
+		return
+	}
+	repos := []any{}
+	for _, itAny := range list {
+		item, ok := itAny.(*jsonenc.Object)
+		if !ok {
+			continue
+		}
+		repoName := objStrOr(item, "name")
+		if repoName == "" {
+			continue
+		}
+		repoOwner := owner
+		if ownerObj, ok := objSub(item, "owner"); ok {
+			if login := objStrOr(ownerObj, "login"); login != "" {
+				repoOwner = login
+			}
+		}
+		fullName := objStrOr(item, "full_name")
+		if fullName == "" {
+			fullName = repoOwner + "/" + repoName
+		}
+		repoURL := objStrOr(item, "html_url")
+		if repoURL == "" {
+			repoURL = buildGithubRepoURL(repoOwner, repoName)
+		}
+		repos = append(repos, jsonenc.NewObject().
+			Set("name", repoName).Set("full_name", fullName).
+			Set("repo_url", repoURL).Set("private", objTruthy(item, "private")))
+	}
+	sort.SliceStable(repos, func(i, j int) bool {
+		return strings.ToLower(objStrOr(repos[i].(*jsonenc.Object), "name")) <
+			strings.ToLower(objStrOr(repos[j].(*jsonenc.Object), "name"))
+	})
+	visNote := ""
+	if !tokenUsed {
+		visNote = "Need PAT to see private repositories."
+	}
+	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).Set("owner", owner).Set("repos", repos).
+		Set("token_used", tokenUsed).Set("visibility_note", visNote))
 }
 
 // ---- Dashboards query/spec (error-only 400s) -----------------------------------------

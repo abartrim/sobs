@@ -49,6 +49,59 @@ def install() -> None:
     _freeze_datetime()
     _freeze_uuid()
     _freeze_random_bytes()
+    _install_upstream_fixtures()
+
+
+# ---- upstream HTTP fixtures (GitHub / OSV) -----------------------------------------
+def upstream_fixture_key(method: str, url: str) -> str:
+    """Deterministic filename stem for a canned upstream response. MUST match the Go side
+    (go/cmd/sobs/upstream.go upstreamFixtureKey): sha256 of "METHOD url", first 32 hex."""
+    import hashlib
+
+    return hashlib.sha256(f"{method.upper()} {url}".encode("utf-8")).hexdigest()[:32]
+
+
+def _install_upstream_fixtures() -> None:
+    """Serve api.github.com / api.osv.dev from canned files instead of the network, so the
+    external-integration routes are byte-reproducible. Both the Python oracle (this httpx
+    MockTransport) and the Go server (upstream.go) read the SAME files keyed by request URL,
+    so neither side touches the network and both build identical route responses.
+
+    Activated only when SOBS_UPSTREAM_FIXTURES points at the canned-response directory.
+    A request with no matching fixture returns 404 (matching a not-found GitHub/OSV lookup).
+    """
+    fixtures_dir = os.environ.get("SOBS_UPSTREAM_FIXTURES", "").strip()
+    if not fixtures_dir:
+        return
+    import json as _json
+    from pathlib import Path as _Path
+
+    import httpx  # app.py already imports httpx, so it is importable here
+
+    base = _Path(fixtures_dir)
+    intercept_hosts = {"api.github.com", "api.osv.dev"}
+
+    def _handler(request: "httpx.Request") -> "httpx.Response":
+        host = request.url.host
+        if host not in intercept_hosts:
+            return httpx.Response(599, json={"error": f"unmocked upstream host {host}"})
+        stem = upstream_fixture_key(request.method, str(request.url))
+        path = base / f"{stem}.json"
+        if not path.exists():
+            return httpx.Response(404, json={"message": "Not Found (no upstream fixture)"})
+        spec = _json.loads(path.read_text())
+        status = int(spec.get("status", 200))
+        if "json" in spec:
+            return httpx.Response(status, json=spec["json"])
+        return httpx.Response(status, content=str(spec.get("content", "")).encode("utf-8"))
+
+    _orig_init = httpx.AsyncClient.__init__
+
+    def _patched_init(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        kwargs["transport"] = httpx.MockTransport(_handler)
+        _orig_init(self, *args, **kwargs)
+
+    httpx.AsyncClient.__init__ = _patched_init  # type: ignore[assignment]
 
 
 # ---- time -------------------------------------------------------------------------

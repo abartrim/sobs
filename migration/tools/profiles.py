@@ -26,6 +26,12 @@ they never call the endpoint. So any non-empty endpoint/model value flips the ga
 
 from __future__ import annotations
 
+from pathlib import Path
+
+# Absolute path to the canned upstream (GitHub/OSV) response directory, shared by the Python
+# determinism httpx shim and the Go upstream.go fixtures transport.
+_UPSTREAM_DIR = str(Path(__file__).resolve().parents[2] / "migration" / "fixtures" / "upstream")
+
 # name -> {ENV_VAR: value}. "base" is the empty overlay (current corpus behavior, unchanged).
 PROFILES: dict[str, dict[str, str]] = {
     "base": {},
@@ -36,6 +42,11 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_ENDPOINT_URL": "http://127.0.0.1:8788/v1",
         "SOBS_AI_MODEL": "sobs-parity-model",
         "SOBS_QUERY_PAGE_ENABLED": "1",
+    },
+    "github": {
+        # External GitHub/OSV routes: both sides read canned responses from this dir (no
+        # network). determinism.install() activates the httpx shim when this is set.
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
 }
 
