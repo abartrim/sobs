@@ -875,3 +875,7 @@ routes:
     path: "/settings/enrichment"
     methods: [POST]
     request: {method: POST}
+  - id: post__settings_kubernetes
+    path: "/settings/kubernetes"
+    methods: [POST]
+    request: {method: POST}

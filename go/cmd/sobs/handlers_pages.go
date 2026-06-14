@@ -619,6 +619,18 @@ func (s *server) handleViewSettingsRepositories(w http.ResponseWriter, r *http.R
 
 // GET /settings/kubernetes — app.py view_k8s_settings: render with k8s settings + flash.
 func (s *server) handleViewK8sSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// app.py save_k8s_settings: _k8s_settings_from_form -> {"kubernetes.enabled": "1"/"0"},
+		// then a plain query-param redirect (no flash).
+		_ = r.ParseForm()
+		enabled := "0"
+		if r.PostFormValue("enabled") == "1" {
+			enabled = "1"
+		}
+		_ = s.setAppSetting("kubernetes.enabled", enabled)
+		plainRedirect(w, "/settings/kubernetes?msg=Settings+saved&msg_type=success")
+		return
+	}
 	val, _ := s.appSetting("kubernetes.enabled")
 	msgType := r.URL.Query().Get("msg_type")
 	if msgType == "" {

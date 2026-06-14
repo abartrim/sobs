@@ -50,6 +50,21 @@ func flashSessionCookie(category, message string) string {
 	return "sobs_session=" + payload + ".0.0; HttpOnly; Path=/; SameSite=Lax"
 }
 
+// plainRedirect reproduces a bare `return redirect(location)` (no flash): a 302 with
+// Werkzeug's redirect body and no session cookie.
+func plainRedirect(w http.ResponseWriter, location string) {
+	esc := htmlEscapeMarkup(location)
+	body := "<!doctype html>\n<html lang=en>\n<title>Redirecting...</title>\n" +
+		"<h1>Redirecting...</h1>\n<p>You should be redirected automatically to the target URL: " +
+		"<a href=\"" + esc + "\">" + esc + "</a>. If not, click the link.\n"
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Location", location)
+	h.Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(http.StatusFound)
+	_, _ = w.Write([]byte(body))
+}
+
 // flashRedirect reproduces Quart's `flash(message, category); return redirect(location)`: a
 // 302 carrying the flash session cookie and Werkzeug's standard redirect body.
 func flashRedirect(w http.ResponseWriter, category, message, location string) {
