@@ -1,7 +1,8 @@
 # SOBS Python → Go: Functional Completion Target
 
-> **Status:** 76 → **46 `not implemented` stubs remaining**. `parity_check.py` = **GREEN 263 / RED 0 / MISSING_GOLDEN 0 / UNCOVERED 0 / EXCLUDED 0**. Branch `claude/jolly-wu-5fc6a3` / PR #304.
-> **G1 done:** agent/tag/metrics rule delete, create_metrics_rule, notifications/subscribe. **G3 done:** chart-spec compile foundation (`chart_spec.go`/`chart_builder_sql.go`), spec/compile, import/add/remove chart, delete_dashboard, add-to-dashboard, export_chart. **Also fixed:** v1 405 Allow ordering, Jinja `>`/`<` comparisons, agent/tag/notif readers that hardcoded empty lists. **Remaining G3:** spec/validate+dry-run+render, dashboards/query+render (need query exec + echarts render).
+> **Status:** 76 → **43 `not implemented` stubs remaining**. `parity_check.py` = **GREEN 268 / RED 0 / MISSING_GOLDEN 0 / UNCOVERED 0 / EXCLUDED 0**. Branch `claude/jolly-wu-5fc6a3` / PR #304.
+> **G1 done:** agent/tag/metrics rule delete, create_metrics_rule, notifications/subscribe. **G3 done:** chart-spec compile foundation (`chart_spec.go`/`chart_builder_sql.go`), spec/compile, import/add/remove chart, delete_dashboard, add-to-dashboard, export_chart, **dashboards/query, spec/dry-run, spec/validate** (query-exec foundation: `store.Result.Types` + `chQueryValue` faithful typed serializer in `query_exec.go`). **§4 done:** OTLP CORS (byte-verified), stale TODO. **Also fixed:** v1 405 Allow ordering, Jinja `>`/`<` comparisons, agent/tag/notif readers that hardcoded empty lists.
+> **Remaining G3:** spec/render + dashboards/render need the ~600-line echarts BINDING pipeline (`_extract_bindings`/`_deep_substitute`/`_attach_drilldown_metadata`/`_prepare_template_rows`/`_render_custom_echarts`/`_apply_chart_spec_visual_overrides`) + the per-template `echarts_option_template` data (NOT embedded in Go). On the fixture every builder query is empty → render returns the fixed "No data" placeholder; do NOT fake-complete behind that — implement the binding so non-empty renders are real. `renderWouldError`+`chartTemplateMeta` (chart_render.go) already encode the render RAISE conditions (reused by validate).
 
 ---
 
@@ -95,10 +96,10 @@ Python reaches the mock via the `determinism.py` httpx transport; Go via `SOBS_G
 
 ## 4. Non-stub unfinished work (no 501, but incomplete)
 
-- **OTLP CORS** (`server.go:281`, `_ = strings.HasPrefix` placeholder): `app.py _path_needs_otlp_cors` adds CORS headers to `/v1/*`; Go does not. Parity-invisible (normalize drops/ the tested v1 routes don't trigger it) but **real OTLP browser clients need it**. Implement.
+- ~~**OTLP CORS**~~ ✅ DONE — `applyOtlpCors` in server.go ports `_path_needs_otlp_cors`/`_origin_allowed_for_otlp`/`_otlp_cors_allow_methods`/`_append_vary_header`; byte-verified via `post__v1_ai_cors` (a `/v1/ai` POST with a localhost `Origin`).
 - **JS source-map demangling** (`handlers_v1_ingest.go:189`): RUM stack-trace demangling deferred even within the ingest path.
 - **MCP per-key hash comparison** (`handlers_misc.go:533`): key validation returns `len(list)>0` instead of a real per-key hash check.
-- **Stale comment** (`server.go:224` "TODO Phase 1+: register real handlers"): handlers ARE registered now — delete the comment.
+- ~~**Stale comment**~~ ✅ DONE — the obsolete `server.go` "register real handlers" TODO is deleted.
 
 ---
 
