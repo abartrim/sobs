@@ -157,6 +157,17 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_QUERY_PAGE_ENABLED": "1",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # aihelper: /api/ai/helper (non-streaming) — guard + main /chat/completions on DISTINCT mock
+    # paths. The main endpoint returns a CANNED SSE stream (the mock's `content` field) that both
+    # _stream_llm_endpoint (Python) and streamLLMEndpoint (Go) parse identically; the guard returns
+    # a plain JSON "safe" reply. A plain (no-tool, no-memory) answer keeps the turn deterministic.
+    "aihelper": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aihelper/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aihelper-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # ask: query/ask — guard + main endpoints on DISTINCT mock paths (two canned responses).
     "ask": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/ask/v1",

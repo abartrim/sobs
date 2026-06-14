@@ -1240,6 +1240,21 @@ routes:
   request:
     method: POST
     json: {}
+# Success path under the aihelper profile: a fixed chat_id/turn_id (so no CSPRNG ids leak), a
+# benign no-chart-keyword question (guard allows, no fallback tool), and the canned guard+SSE
+# mocks. Exercises the full guard -> stream -> turn-summary turn and returns the assembled JSON.
+- id: post__api_ai_helper_answer
+  path: /api/ai/helper
+  profile: aihelper
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: How do I find errors in my logs?
+      page: /logs
+      chat_id: chat-parity-0001
+      turn_id: turn-parity-0001
 - id: post__api_ai_helper_actions_execute
   path: /api/ai/helper/actions/execute
   methods:

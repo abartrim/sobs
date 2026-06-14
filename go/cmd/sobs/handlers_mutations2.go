@@ -38,16 +38,7 @@ func errorOnly(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, jsonenc.NewObject().Set("error", msg))
 }
 
-// ---- AI helper (field-required 400s) -------------------------------------------------
-
-// POST /api/ai/helper — app.py ai_helper: requires `question`.
-func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
-	if bstr(bodyMap(r), "question") == "" {
-		s.errorJSON(w, http.StatusBadRequest, "question is required")
-		return
-	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
-}
+// handleApiAiHelper is defined in ai_helper.go.
 
 // handleApiAiHelperExecute is defined in ai_action_execute.go.
 

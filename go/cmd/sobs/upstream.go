@@ -21,10 +21,13 @@ func upstreamFixtureKey(method, url string) string {
 }
 
 // upstreamResponse is a canned upstream HTTP response: a status and a parsed JSON body
-// (jsonenc.Object / []any / json.Number, via parseJSONValue), or nil body.
+// (jsonenc.Object / []any / json.Number, via parseJSONValue), or nil body. RawContent holds the
+// fixture's raw "content" string (used for non-JSON bodies such as the SSE streams the AI helper's
+// /chat/completions mock returns), mirroring the determinism shim's `content` branch.
 type upstreamResponse struct {
-	Status int
-	Body   any
+	Status     int
+	Body       any
+	RawContent string
 }
 
 // upstreamGet / upstreamPost issue an external request (GitHub / OSV / webhook). Under parity
@@ -62,7 +65,11 @@ func (s *server) upstreamGet(method, url string) (upstreamResponse, error) {
 	if b, ok := spec.Get("json"); ok {
 		body = b
 	}
-	return upstreamResponse{Status: status, Body: body}, nil
+	rawContent := ""
+	if c, ok := spec.Get("content"); ok {
+		rawContent, _ = c.(string)
+	}
+	return upstreamResponse{Status: status, Body: body, RawContent: rawContent}, nil
 }
 
 // dispatchNotificationChannel mirrors app.py _dispatch_notification_channel: send to one
