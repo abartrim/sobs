@@ -1498,6 +1498,88 @@ routes:
   path: /api/setup-wizard/steps
   methods:
   - GET
+# Setup-wizard non-default combos (static per (env, language, deployment)) + validation errors.
+- id: get__api_setup_wizard_prod_go_k8s
+  path: /api/setup-wizard/steps
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      env: prod
+      language: go
+      deployment: kubernetes
+- id: get__api_setup_wizard_dev_node_cloud
+  path: /api/setup-wizard/steps
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      env: dev
+      language: node
+      deployment: cloud
+- id: get__api_setup_wizard_prod_java_baremetal
+  path: /api/setup-wizard/steps
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      env: prod
+      language: java
+      deployment: baremetal
+- id: get__api_setup_wizard_dev_dotnet_docker
+  path: /api/setup-wizard/steps
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      language: dotnet
+- id: get__api_setup_wizard_prod_ruby_cloud
+  path: /api/setup-wizard/steps
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      env: prod
+      language: ruby
+      deployment: cloud
+- id: get__api_setup_wizard_dev_php_k8s
+  path: /api/setup-wizard/steps
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      language: php
+      deployment: kubernetes
+- id: get__api_setup_wizard_bad_env
+  path: /api/setup-wizard/steps
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      env: staging
+- id: get__api_setup_wizard_bad_language
+  path: /api/setup-wizard/steps
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      language: rust
+- id: get__api_setup_wizard_bad_deployment
+  path: /api/setup-wizard/steps
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      deployment: serverless
 - id: get__api_reports_export
   path: /api/reports/export
   methods:

@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "embed"
+	"encoding/json"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -83,29 +84,78 @@ func (s *server) handleApiAiHelperChatDetail(w http.ResponseWriter, r *http.Requ
 		Set("chat_id", chatID).Set("messages", []any{}).Set("ok", true))
 }
 
-// setupWizardDefaultJSON is app.py _build_setup_wizard_steps("dev","python","docker") — the
-// default-context OTEL setup steps (purely a transcription of the Python step templates; no
-// data/clock/random). Served verbatim for the default context.
+// setupWizardCombosJSON maps "env|language|deployment" -> the exact jsonify body of app.py
+// _build_setup_wizard_steps for that combo. The builder is a PURE function of the three params
+// (no data/clock/random), so its 2×7×4=56 outputs are static and embedded verbatim — the same
+// caching the single-combo default embed already used, now covering every combo.
 //
-//go:embed assets/setup_wizard_default.json
-var setupWizardDefaultJSON []byte
+//go:embed assets/setup_wizard_combos.json
+var setupWizardCombosJSON []byte
 
-// GET /api/setup-wizard/steps — tailored OTEL setup steps. The no-parameter request resolves
-// to the dev/python/docker default, which is static.
+var setupWizardCombos = func() map[string]string {
+	m := map[string]string{}
+	_ = json.Unmarshal(setupWizardCombosJSON, &m)
+	return m
+}()
+
+var (
+	wizardEnvs        = []string{"dev", "prod"}
+	wizardLanguages   = []string{"dotnet", "go", "java", "node", "php", "python", "ruby"}
+	wizardDeployments = []string{"baremetal", "cloud", "docker", "kubernetes"}
+)
+
+func inStrSlice(s string, xs []string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// pyListRepr renders a string slice as Python's repr of a sorted list: ['a', 'b'].
+func pyListRepr(xs []string) string {
+	parts := make([]string, len(xs))
+	for i, x := range xs {
+		parts[i] = "'" + x + "'"
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+// GET /api/setup-wizard/steps — app.py api_setup_wizard_steps: tailored OTEL setup steps for the
+// (env, language, deployment) combo. Validation errors mirror Python's sorted-list messages.
 func (s *server) handleApiSetupWizardSteps(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	get := func(k, def string) string {
-		if v := strings.ToLower(strings.TrimSpace(q.Get(k))); v != "" {
-			return v
+		if vals, ok := q[k]; ok && len(vals) > 0 {
+			return strings.ToLower(strings.TrimSpace(vals[0]))
 		}
 		return def
 	}
-	if get("env", "dev") == "dev" && get("language", "python") == "python" && get("deployment", "docker") == "docker" {
-		writeRawJSON(w, http.StatusOK, setupWizardDefaultJSON)
+	env := get("env", "dev")
+	language := get("language", "python")
+	deployment := get("deployment", "docker")
+	if !inStrSlice(env, wizardEnvs) {
+		s.wizardError(w, "Invalid env '"+env+"'. Must be one of: "+pyListRepr(wizardEnvs))
 		return
 	}
-	// Other env/language/deployment combinations (and their validation) are a follow-up.
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	if !inStrSlice(language, wizardLanguages) {
+		s.wizardError(w, "Invalid language '"+language+"'. Must be one of: "+pyListRepr(wizardLanguages))
+		return
+	}
+	if !inStrSlice(deployment, wizardDeployments) {
+		s.wizardError(w, "Invalid deployment '"+deployment+"'. Must be one of: "+pyListRepr(wizardDeployments))
+		return
+	}
+	if body, ok := setupWizardCombos[env+"|"+language+"|"+deployment]; ok {
+		writeRawJSON(w, http.StatusOK, []byte(body))
+		return
+	}
+	s.errorJSON(w, http.StatusInternalServerError, "setup wizard combo unavailable")
+}
+
+func (s *server) wizardError(w http.ResponseWriter, msg string) {
+	writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().Set("ok", false).Set("error", msg))
 }
 
 // GET /api/enrichment/github/repo-health — app.py _collect_github_repo_health_summary: the
