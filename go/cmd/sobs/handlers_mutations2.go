@@ -204,14 +204,6 @@ func (s *server) handleApiDashboardsSpecCompile(w http.ResponseWriter, r *http.R
 		Set("template_id", tid).Set("query", query).Set("spec", spec))
 }
 
-// POST /api/dashboards/spec/dry-run.
-func (s *server) handleApiDashboardsSpecDryRun(w http.ResponseWriter, r *http.Request) {
-	if specModeGuard(w, r, nil) {
-		return
-	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
-}
-
 // POST /api/dashboards/spec/render.
 func (s *server) handleApiDashboardsSpecRender(w http.ResponseWriter, r *http.Request) {
 	if specModeGuard(w, r, nil) {

@@ -119,6 +119,115 @@ func injectLimit(query string, n int) string {
 	return strings.TrimRight(strings.TrimSpace(query), ";") + " LIMIT " + strconv.Itoa(n)
 }
 
+// pythonTypeName maps a serialized cell value to the Python type name _infer_column_types reports
+// (json.Number from Int columns -> "int", float64 -> "float", string -> "str", bool -> "bool").
+func pythonTypeName(v any) string {
+	switch x := v.(type) {
+	case json.Number:
+		s := x.String()
+		if strings.ContainsAny(s, ".eE") {
+			return "float"
+		}
+		return "int"
+	case float64:
+		return "float"
+	case bool:
+		return "bool"
+	case string:
+		return "str"
+	default:
+		return "str"
+	}
+}
+
+// inferColumnTypes mirrors _infer_column_types: the type name of the first non-null value per
+// column (or "null").
+func inferColumnTypes(columns, rows []any) []any {
+	out := []any{}
+	for idx := range columns {
+		detected := "null"
+		for _, rowAny := range rows {
+			row, ok := rowAny.([]any)
+			if !ok || idx >= len(row) {
+				continue
+			}
+			if row[idx] == nil {
+				continue
+			}
+			detected = pythonTypeName(row[idx])
+			break
+		}
+		out = append(out, detected)
+	}
+	return out
+}
+
+// executeNamedQueries mirrors _execute_chart_spec_named_queries (include_records=False): run each
+// {name, sql, purpose} with a LIMIT and collect {name, purpose, columns, rows, error}.
+func (s *server) executeNamedQueries(named []any, defaultLimit int) []any {
+	results := []any{}
+	for _, nqAny := range named {
+		nq, ok := nqAny.(*jsonenc.Object)
+		if !ok {
+			continue
+		}
+		nameV, nameOK := nq.Get("name")
+		name := pyStrOrStrip(nameV, nameOK)
+		sqlV, sqlOK := nq.Get("sql")
+		nqSQL := pyStrOrStrip(sqlV, sqlOK)
+		purposeV, purposeOK := nq.Get("purpose")
+		purpose := pyStr2(purposeV, purposeOK)
+		if name == "" || nqSQL == "" {
+			continue
+		}
+		item := jsonenc.NewObject().Set("name", name).Set("purpose", purpose)
+		res, err := s.db.Execute(injectLimit(nqSQL, defaultLimit))
+		if err != nil {
+			results = append(results, item.Set("columns", []any{}).Set("rows", []any{}).
+				Set("error", publicDashboardQueryError(err)))
+			continue
+		}
+		cols, rows := serializeQueryResult(res)
+		results = append(results, item.Set("columns", cols).Set("rows", rows).Set("error", ""))
+	}
+	return results
+}
+
+// pyStr2 mirrors str(x or "") without the .strip() (used for `purpose`).
+func pyStr2(v any, present bool) string {
+	if !present || v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return pyStr(v, present)
+}
+
+// handleApiDashboardsSpecDryRun — app.py dry_run_chart_spec_api: compile, execute (LIMIT 20),
+// infer column types, run named queries, and return all of it.
+func (s *server) handleApiDashboardsSpecDryRun(w http.ResponseWriter, r *http.Request) {
+	tid, query, spec, errMsg := s.compileChartSpec(specFromBody(r))
+	if errMsg != "" {
+		errorOnly(w, http.StatusBadRequest, errMsg)
+		return
+	}
+	res, err := s.db.Execute(injectLimit(query, 20))
+	if err != nil {
+		errorOnly(w, http.StatusBadRequest, publicDashboardQueryError(err))
+		return
+	}
+	columns, rows := serializeQueryResult(res)
+	var named []any
+	if nqV, ok := spec.Get("named_queries"); ok {
+		named, _ = nqV.([]any)
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("template_id", tid).Set("query", query).Set("spec", spec).
+		Set("columns", columns).Set("column_types", inferColumnTypes(columns, rows)).
+		Set("rows", rows).Set("named_query_results", s.executeNamedQueries(named, 5)))
+}
+
 // handleApiDashboardsQuery — app.py execute_chart_query: validate + execute a SELECT and return
 // {columns, rows}. Not query-page gated.
 func (s *server) handleApiDashboardsQuery(w http.ResponseWriter, r *http.Request) {

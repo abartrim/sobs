@@ -757,6 +757,23 @@ routes:
   request:
     method: POST
     json: {}
+# Dry-run a spec: compile + execute (typed result -> column_types) + a named query.
+- id: post__api_dashboards_spec_dry_run_ok
+  path: /api/dashboards/spec/dry-run
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: time_series_percentiles
+        sql:
+          mode: raw
+          override_sql: SELECT toUInt32(5) AS a, 1.5 AS b, 'x' AS c
+        named_queries:
+        - name: extra
+          sql: SELECT toUInt8(7) AS v
+          purpose: side dataset
 # Execute a chart query (deterministic typed literals exercise Int/Float/String serialization).
 - id: post__api_dashboards_query_ok
   path: /api/dashboards/query
