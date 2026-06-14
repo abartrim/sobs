@@ -1515,6 +1515,22 @@ routes:
       cond_type: signal
       cond_source: logs
       cond_signal: errors
+# Create a report via the JSON API; the response id is a fresh uuid (masked).
+- id: post__api_reports_create_ok
+  path: /api/reports
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      name: Latency report
+      description: p99 latency spikes
+      page_type: traces
+      filters:
+        service: checkout
+  mask:
+  - '"id":"[^"]*"'
+  mask_reason: the created report id is a fresh uuid4 (random); name/description/page_type/filters are byte-compared.
 # Soft-delete a seeded report (mutator; nothing reads sobs_reports after the early readers).
 - id: post__reports_delete_ok
   path: /reports/11111111-0000-4000-8000-0000000000a1/delete

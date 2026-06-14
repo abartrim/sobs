@@ -57,12 +57,40 @@ func (s *server) handleApiDashboardsList(w http.ResponseWriter, r *http.Request)
 // top-level JSON array. Optional ?page_type filter changes the WHERE + ORDER BY.
 func (s *server) handleApiReports(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		// app.py api_create_report requires a name; an empty body fails with this message.
-		if bstr(bodyMap(r), "name") == "" {
+		body := bodyMap(r)
+		name := bstr(body, "name")
+		if name == "" {
 			errorOnly(w, http.StatusBadRequest, "name is required")
 			return
 		}
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+		pageType := bstr(body, "page_type")
+		if !reportPageTypes[pageType] {
+			errorOnly(w, http.StatusBadRequest, "page_type must be one of: "+strings.Join(sortedReportPageTypes, ", "))
+			return
+		}
+		// filters = body.get("filters") or {}; must be an object.
+		var filters any = map[string]any{}
+		if v, ok := body["filters"]; ok && !isFalsy(v) {
+			m, isMap := v.(map[string]any)
+			if !isMap {
+				errorOnly(w, http.StatusBadRequest, "filters must be an object")
+				return
+			}
+			filters = m
+		}
+		filtersJSON := safeJSONDumps(filters)
+		row := map[string]any{
+			"Id": newUUIDHex(), "Name": name, "Description": bstr(body, "description"),
+			"PageType": pageType, "FiltersJson": filtersJSON, "IsDeleted": 0, "Version": fixedVersionMillis(),
+		}
+		if _, err := s.db.InsertJSONEachRow("sobs_reports", []map[string]any{row}); err != nil {
+			s.dbError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, jsonenc.NewObject().
+			Set("id", cStr(row, "Id")).Set("name", name).
+			Set("description", bstr(body, "description")).Set("page_type", pageType).
+			Set("filters", parseJSONObject(filtersJSON)))
 		return
 	}
 	pageType := strings.TrimSpace(r.URL.Query().Get("page_type"))

@@ -80,6 +80,33 @@ func payloadStrDefault(m map[string]any, key, def string) string {
 	return strings.TrimSpace(def)
 }
 
+// reportPageTypes mirrors app.py _REPORT_PAGE_TYPES; sortedReportPageTypes is its sorted join
+// source for the validation error message.
+var reportPageTypes = map[string]bool{
+	"logs": true, "traces": true, "errors": true, "metrics": true, "rum": true,
+	"ai": true, "work_items": true, "web_traffic": true,
+}
+var sortedReportPageTypes = []string{"ai", "errors", "logs", "metrics", "rum", "traces", "web_traffic", "work_items"}
+
+// isFalsy mirrors Python truthiness for JSON-decoded values (used by `x or {}` idioms).
+func isFalsy(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return true
+	case bool:
+		return !t
+	case string:
+		return t == ""
+	case float64:
+		return t == 0
+	case map[string]any:
+		return len(t) == 0
+	case []any:
+		return len(t) == 0
+	}
+	return false
+}
+
 // orDefault returns v if non-empty, else def (mirrors `(form.get(k) or default)`).
 func orDefault(v, def string) string {
 	if v == "" {
