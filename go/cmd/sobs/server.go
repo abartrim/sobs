@@ -98,6 +98,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/settings/masking/output", s.handleMaskingOutputSave)
 	s.mux.HandleFunc("/settings/masking/sql-output", s.handleMaskingSqlOutputSave)
 	s.mux.HandleFunc("/settings/agents/", s.handleSettingsAgentsSub)
+	s.mux.HandleFunc("/settings/tags/auto", s.handleSettingsTagsAuto)
 	s.mux.HandleFunc("/settings/tags/", s.handleSettingsTagsSub)
 	s.mux.HandleFunc("/settings/repositories/", s.handleSettingsRepositoriesSub)
 	s.mux.HandleFunc("/settings/notifications/channels/", s.handleNotifChannelsSub)

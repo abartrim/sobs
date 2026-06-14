@@ -923,3 +923,7 @@ routes:
     path: "/metrics/rules/dashboard/auto"
     methods: [POST]
     request: {method: POST}
+  - id: post__settings_tags_auto
+    path: "/settings/tags/auto"
+    methods: [POST]
+    request: {method: POST}

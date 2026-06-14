@@ -22,6 +22,42 @@ func autoRulePreviewSummary() *jsonenc.Object {
 		Set("create_cap", 200).Set("capped", false).Set("created", 0)
 }
 
+// POST /settings/tags/auto — app.py auto_tag_rules (preview). The tag-candidate builder scans
+// records in the last `hours`; the fixture's records predate now()-24h, so 0 are examined and
+// the empty all-zero preview renders on settings_tags.html with the auto-tags panel + flash.
+func (s *server) handleSettingsTagsAuto(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	inWindow := s.countRows("SELECT count() FROM otel_logs WHERE Timestamp >= now() - INTERVAL 24 HOUR") +
+		s.countRows("SELECT count() FROM otel_traces WHERE Timestamp >= now() - INTERVAL 24 HOUR") +
+		s.countRows("SELECT count() FROM hyperdx_sessions WHERE Timestamp >= now() - INTERVAL 24 HOUR")
+	if inWindow != 0 {
+		http.Error(w, "not implemented", http.StatusNotImplemented) // candidate generation is a follow-up
+		return
+	}
+	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM (" +
+		"  SELECT ServiceName FROM otel_logs " +
+		"  UNION DISTINCT SELECT ServiceName FROM otel_traces " +
+		"  UNION DISTINCT SELECT ServiceName FROM hyperdx_sessions)")
+	summary := jsonenc.NewObject().
+		Set("action", "preview").Set("hours", 24).Set("min_count", 30).Set("service_filter", "").
+		Set("record_types", []any{"log", "trace", "error", "ai", "rum"}).
+		Set("examined", 0).Set("existing", 0).Set("invalid", 0).Set("candidates", 0).
+		Set("create_cap", 200).Set("capped", false).Set("created", 0)
+	s.renderPageFlash(w, "settings_tags.html", "auto_tag_rules", "info",
+		"Auto-tag preview: 0 candidate(s), 0 existing skipped, 0 invalid.",
+		map[string]any{
+			"rules": []any{}, "edit_rule": nil,
+			"record_types":    []any{"log", "trace", "error", "ai", "rum", "all"},
+			"match_fields":    []any{"service_name", "severity", "body", "span_name", "event_type", "attribute"},
+			"match_operators": []any{"eq", "contains", "regex"},
+			"services":        services,
+			"auto_preview":    []any{}, "auto_summary": summary, "auto_open_panel": "auto-tags",
+		})
+}
+
 func mapStr(m map[string]any, k string) string {
 	if v, ok := m[k].(string); ok {
 		return v
