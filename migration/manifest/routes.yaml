@@ -1330,6 +1330,16 @@ routes:
   - POST
   request:
     method: POST
+- id: get__settings_data_management
+  path: /settings/data-management
+  methods:
+  - GET
+  mask:
+  - <td class="small font-monospace text-truncate"[^>]*>[^<]*</td>\s*<td class="small" data-label="Size">[^<]*</td>\s*<td class="small" data-label="Ratio">[^<]*</td>\s*<td class="small" data-label="Rows">[^<]*</td>
+  - <td class="fw-semibold">[0-9][0-9.]* [A-Z]*B</td>
+  - "[0-9]+\\.[0-9]+\xD7|[0-9]+\xD7"
+  - <span class="text-(?:warning|success)">\s*[0-9]+
+  mask_reason: system.parts byte sizes/ratios, active-query count, and per-table breakdown (sorted by the varying size) are storage-dependent; the settings form + overall row count are byte-compared.
 - id: post__v1_ai
   path: /v1/ai
   methods:

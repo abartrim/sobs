@@ -585,6 +585,8 @@ func (e *Engine) callMethod(objExpr, method, argstr string, ctx *scope) (any, er
 			return str, nil
 		case "title":
 			return strings.Title(strings.ToLower(str)), nil //nolint:staticcheck
+		case "format":
+			return pyStrFormat(str, argList), nil
 		}
 	}
 	// Ordered map (*jsonenc.Object): keys/values/items preserve insertion order.
@@ -1141,4 +1143,114 @@ func topLevelAssign(s string) int {
 		}
 	}
 	return -1
+}
+
+// pyStrFormat implements a focused subset of Python str.format() for the specs templates use:
+// auto/positional fields and the format specs "" (plain), "," (thousands grouping), and ".Nf"
+// (fixed-point float).
+func pyStrFormat(tmpl string, args []any) string {
+	var b strings.Builder
+	auto := 0
+	for i := 0; i < len(tmpl); {
+		c := tmpl[i]
+		if c == '{' {
+			if i+1 < len(tmpl) && tmpl[i+1] == '{' {
+				b.WriteByte('{')
+				i += 2
+				continue
+			}
+			j := strings.IndexByte(tmpl[i:], '}')
+			if j < 0 {
+				b.WriteByte(c)
+				i++
+				continue
+			}
+			inner := tmpl[i+1 : i+j]
+			i += j + 1
+			field, spec := inner, ""
+			if k := strings.IndexByte(inner, ':'); k >= 0 {
+				field, spec = inner[:k], inner[k+1:]
+			}
+			var arg any
+			if field == "" {
+				if auto < len(args) {
+					arg = args[auto]
+				}
+				auto++
+			} else if n, err := strconv.Atoi(field); err == nil && n >= 0 && n < len(args) {
+				arg = args[n]
+			}
+			b.WriteString(applyFormatSpec(arg, spec))
+		} else if c == '}' {
+			if i+1 < len(tmpl) && tmpl[i+1] == '}' {
+				b.WriteByte('}')
+				i += 2
+				continue
+			}
+			b.WriteByte(c)
+			i++
+		} else {
+			b.WriteByte(c)
+			i++
+		}
+	}
+	return b.String()
+}
+
+func applyFormatSpec(arg any, spec string) string {
+	switch {
+	case spec == ",":
+		return commaInt(toInt64Format(arg))
+	case strings.HasSuffix(spec, "f"):
+		prec := 6
+		if dot := strings.IndexByte(spec, '.'); dot >= 0 {
+			if p, err := strconv.Atoi(spec[dot+1 : len(spec)-1]); err == nil {
+				prec = p
+			}
+		}
+		var f float64
+		switch v := arg.(type) {
+		case float64:
+			f = v
+		case int:
+			f = float64(v)
+		case int64:
+			f = float64(v)
+		}
+		return strconv.FormatFloat(f, 'f', prec, 64)
+	default:
+		return toString(arg)
+	}
+}
+
+func toInt64Format(v any) int64 {
+	switch x := v.(type) {
+	case int64:
+		return x
+	case int:
+		return int64(x)
+	case float64:
+		return int64(x)
+	}
+	return 0
+}
+
+// commaInt formats an integer with thousands separators, like Python's "{:,}".
+func commaInt(n int64) string {
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	s := strconv.FormatInt(n, 10)
+	var out []byte
+	for i, c := range []byte(s) {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, c)
+	}
+	if neg {
+		return "-" + string(out)
+	}
+	return string(out)
 }

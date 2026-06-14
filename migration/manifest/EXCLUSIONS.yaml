@@ -8,14 +8,15 @@
 
 exclusions:
   - id: get__tail
-    reason: "SSE live-tail stream; needs bounded-stream capture + Go pub/sub. In progress."
-    followup: "Implement Go SSE + pub/sub; capture the deterministic opening frame."
+    reason: SSE live-tail stream; needs bounded-stream capture + Go pub/sub. In progress.
+...
+    followup: Implement Go SSE + pub/sub; capture the deterministic opening frame.
+...
     owner: "TBD"
   - id: get__rum
-    reason: "Full RUM page; error-rate sparkline has chdb now()-derived bucket timestamps. Port handler + mask the sparkline t-values. In progress."
-    followup: "Port view_rum; mask the 180 sparkline timestamps."
-    owner: "TBD"
-  - id: get__settings_data-management
-    reason: "DB-stats page; system.parts byte sizes vary. Port page + mask the size cells. In progress."
-    followup: "Port the page; mask the formatted byte-size cells."
+    reason: Full RUM page; error-rate sparkline has chdb now()-derived bucket timestamps. Port
+  handler + mask the sparkline t-values. In progress.
+...
+    followup: Port view_rum; mask the 180 sparkline timestamps.
+...
     owner: "TBD"

@@ -44,6 +44,10 @@ func (s *server) newEngineFlash(flashes []any) *render.Engine {
 	e.AddFunc("url_for", func(pos []any, kw map[string]any) (any, error) {
 		return s.urlFor(pos, kw, e.KWOrder())
 	})
+	// fmt_bytes (app.py _fmt_bytes): human-readable byte count, passed to the DM-stats page.
+	e.AddFunc("fmt_bytes", func(pos []any, kw map[string]any) (any, error) {
+		return fmtBytes(pos), nil
+	})
 	e.AddFunc("get_flashed_messages", func(pos []any, kw map[string]any) (any, error) {
 		if withCat, ok := kw["with_categories"]; ok && truthy(withCat) {
 			return flashes, nil // [[category, message], ...]

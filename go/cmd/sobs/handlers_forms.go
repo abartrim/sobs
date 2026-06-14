@@ -273,7 +273,7 @@ func isTruthySetting(v string) bool {
 // follow-up. apply_ttl is off for the empty parity request, so no ALTER TABLE runs.
 func (s *server) handleSettingsDataManagement(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+		s.handleDataManagementGet(w, r)
 		return
 	}
 	_ = r.ParseForm()
