@@ -141,14 +141,62 @@ func (s *server) handleApiOnboardingCreateRepo(w http.ResponseWriter, r *http.Re
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
-// POST /api/onboarding/import-repo — requires a valid GitHub owner and repository name.
+// POST /api/onboarding/import-repo — app.py api_onboarding_import_repo: fetch repo metadata from
+// GitHub (GET /repos/{owner}/{repo}) for onboarding form auto-fill. The token (body override or
+// ai.github_token) only sets request headers, which don't change the canned lookup.
 func (s *server) handleApiOnboardingImportRepo(w http.ResponseWriter, r *http.Request) {
 	m := bodyMap(r)
-	if bstr(m, "owner") == "" || bstr(m, "repo") == "" {
+	_, owner, repo := resolveGithubRepoFields(bstr(m, "repo_url"), bstr(m, "repo_owner"), bstr(m, "repo_name"))
+	if owner == "" || repo == "" {
 		s.errorJSON(w, http.StatusBadRequest, "Enter a valid GitHub owner and repository name")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	resp, err := s.upstreamGet("GET", "https://api.github.com/repos/"+owner+"/"+repo)
+	if err != nil {
+		s.writeMaskedJSON(w, http.StatusBadGateway,
+			jsonenc.NewObject().Set("ok", false).Set("error", "GitHub lookup failed: "+err.Error()))
+		return
+	}
+	if resp.Status != 200 {
+		detail := ""
+		if obj, ok := resp.Body.(*jsonenc.Object); ok {
+			detail = objStrOr(obj, "message")
+		}
+		if detail == "" {
+			detail = fmt.Sprintf("GitHub lookup failed (%d)", resp.Status)
+		}
+		s.writeMaskedJSON(w, http.StatusBadRequest,
+			jsonenc.NewObject().Set("ok", false).Set("error", detail))
+		return
+	}
+	obj, ok := resp.Body.(*jsonenc.Object)
+	if !ok {
+		s.writeMaskedJSON(w, http.StatusBadGateway,
+			jsonenc.NewObject().Set("ok", false).Set("error", "Unexpected GitHub response payload"))
+		return
+	}
+	fullName := objStrOr(obj, "full_name")
+	if fullName == "" {
+		fullName = owner + "/" + repo
+	}
+	importedRepoURL := objStrOr(obj, "html_url")
+	if importedRepoURL == "" {
+		importedRepoURL = "https://github.com/" + owner + "/" + repo
+	}
+	suggestedName := objStrOr(obj, "name")
+	if suggestedName == "" {
+		suggestedName = repo
+	}
+	visibility := objStrOr(obj, "visibility")
+	if visibility == "" {
+		visibility = "public"
+	}
+	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).Set("owner", owner).Set("repo", repo).
+		Set("full_name", fullName).Set("repo_url", importedRepoURL).
+		Set("name", suggestedName).Set("slug", appSlug(suggestedName, "app")).
+		Set("default_branch", objStrOr(obj, "default_branch")).
+		Set("visibility", visibility).Set("description", objStrOr(obj, "description")))
 }
 
 // POST /api/onboarding/list-repos — app.py api_onboarding_list_repos: list an owner's repos via

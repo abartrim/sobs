@@ -1199,6 +1199,17 @@ routes:
   request:
     method: POST
     json: {}
+- id: post__api_onboarding_import_repo__github
+  path: /api/onboarding/import-repo
+  methods:
+  - POST
+  profile: github
+  request:
+    method: POST
+    json:
+      repo_owner: testowner
+      repo_name: demo-svc
+      github_token: ghp_parityfixturetoken
 - id: post__api_onboarding_list_repos
   path: /api/onboarding/list-repos
   methods:
