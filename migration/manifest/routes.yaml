@@ -757,6 +757,33 @@ routes:
   request:
     method: POST
     json: {}
+# Validate a spec — valid (builder spec, empty result on this fixture renders the placeholder).
+- id: post__api_dashboards_spec_validate_ok
+  path: /api/dashboards/spec/validate
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: derived_signal_overlay
+        sql:
+          mode: builder
+        data:
+          service: api
+# Validate a spec — invalid (raw query column count below the template minimum -> render raises).
+- id: post__api_dashboards_spec_validate_bad_cols
+  path: /api/dashboards/spec/validate
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: time_series_percentiles
+        sql:
+          mode: raw
+          override_sql: SELECT toUInt32(5) AS a, 1.5 AS b
 # Dry-run a spec: compile + execute (typed result -> column_types) + a named query.
 - id: post__api_dashboards_spec_dry_run_ok
   path: /api/dashboards/spec/dry-run

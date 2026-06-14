@@ -212,13 +212,6 @@ func (s *server) handleApiDashboardsSpecRender(w http.ResponseWriter, r *http.Re
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
-// POST /api/dashboards/spec/validate — adds a "valid": false alongside the error.
-func (s *server) handleApiDashboardsSpecValidate(w http.ResponseWriter, r *http.Request) {
-	if specModeGuard(w, r, func(o *jsonenc.Object) { o.Set("valid", false) }) {
-		return
-	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
-}
 
 // ---- Fixed-response success/guard ----------------------------------------------------
 
