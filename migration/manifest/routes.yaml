@@ -757,6 +757,36 @@ routes:
   request:
     method: POST
     json: {}
+# Compile success paths (deterministic transform; no DB execution, no mutation).
+- id: post__api_dashboards_spec_compile_builder_ok
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: derived_signal_overlay
+        sql:
+          mode: builder
+        data:
+          service: api
+          signal_source: traces
+          signal_name: trace_volume
+          window_hours: 12
+          limit: 500
+- id: post__api_dashboards_spec_compile_raw_ok
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: time_series_percentiles
+        sql:
+          mode: raw
+          override_sql: SELECT toStartOfMinute(Timestamp) AS time, count() AS value FROM otel_logs GROUP BY time ORDER BY time
 - id: post__api_dashboards_spec_validate
   path: /api/dashboards/spec/validate
   methods:

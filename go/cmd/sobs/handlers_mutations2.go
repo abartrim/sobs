@@ -201,12 +201,16 @@ func specModeGuard(w http.ResponseWriter, r *http.Request, extra func(o *jsonenc
 	return false
 }
 
-// POST /api/dashboards/spec/compile.
+// POST /api/dashboards/spec/compile — app.py compile_chart_spec_api: compile a chart spec to
+// (template_id, query, normalized spec). A ValueError-style failure returns {"error": msg} 400.
 func (s *server) handleApiDashboardsSpecCompile(w http.ResponseWriter, r *http.Request) {
-	if specModeGuard(w, r, nil) {
+	tid, query, spec, errMsg := s.compileChartSpec(specFromBody(r))
+	if errMsg != "" {
+		errorOnly(w, http.StatusBadRequest, errMsg)
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("template_id", tid).Set("query", query).Set("spec", spec))
 }
 
 // POST /api/dashboards/spec/dry-run.
