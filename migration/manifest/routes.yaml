@@ -1309,6 +1309,13 @@ routes:
   - '"id":"[^"]*"'
   - '"key":"[^"]*"'
   mask_reason: id+key are cryptographically random (secrets.token_*); the rest (created_at frozen, label, expires_at, ok) is byte-compared.
+- id: get__rum
+  path: /rum
+  methods:
+  - GET
+  mask:
+  - '"t": "[^"]*"'
+  mask_reason: the error-rate sparkline's 180 bucket timestamps come from chdb now() (WITH FILL now()-180min..now()); the bucket counts (v) + the entire rest of the page (session aggregation, vitals) are byte-compared.
 - id: post__metrics_rules_auto
   path: /metrics/rules/auto
   methods:

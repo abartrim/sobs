@@ -3,11 +3,9 @@
 # over a whole-route exclusion. These 2 are mid-port.
 
 exclusions:
-  - id: get__rum
-    reason: "Full RUM page; porting handler (session aggregation + vitals + error_stats), will mask the now()-derived sparkline timestamps."
-    followup: "Port view_rum; mask the 180 sparkline bucket timestamps."
-    owner: "TBD"
   - id: get__tail
-    reason: "SSE live-tail; porting Go pub/sub + bounded-stream capture."
-    followup: "Implement Go SSE + pub/sub; capture the deterministic opening frame."
+    reason: SSE live-tail; porting Go pub/sub + bounded-stream capture.
+...
+    followup: Implement Go SSE + pub/sub; capture the deterministic opening frame.
+...
     owner: "TBD"

@@ -202,6 +202,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/logs", s.handleViewLogs)
 	s.mux.HandleFunc("/metrics/anomaly", s.handleViewMetricsAnomaly)
 	s.mux.HandleFunc("/incident", s.handleViewIncident)
+	s.mux.HandleFunc("/rum", s.handleViewRum)
 	s.mux.HandleFunc("/ai", s.handleViewAi)
 	s.mux.HandleFunc("/work-items", s.handleViewWorkItemsPage)
 	s.mux.HandleFunc("/enrichment/cve", s.handleViewEnrichmentCve)

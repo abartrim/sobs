@@ -441,14 +441,22 @@ func (e *Engine) evalAtom(s string, ctx *scope) (any, error) {
 		}
 		return out, nil
 	}
-	// subscript base[index] (not a list literal: '[' is not at position 0)
+	// subscript base[index] / slice base[a:b] (not a list literal: '[' is not at position 0)
 	if s[len(s)-1] == ']' {
 		if open := matchingSubscript(s); open > 0 {
 			base, err := e.evalAtom(strings.TrimSpace(s[:open]), ctx)
 			if err != nil {
 				return nil, err
 			}
-			idx, err := e.evalExpr(strings.TrimSpace(s[open+1:len(s)-1]), ctx)
+			inner := strings.TrimSpace(s[open+1 : len(s)-1])
+			// Python slice: base[start:end] (start/end optional). ':' at top level signals it.
+			if ci := strings.IndexByte(inner, ':'); ci >= 0 {
+				start, end := strings.TrimSpace(inner[:ci]), strings.TrimSpace(inner[ci+1:])
+				si, hasS := e.sliceBound(start, ctx)
+				ei, hasE := e.sliceBound(end, ctx)
+				return sliceValue(base, si, hasS, ei, hasE), nil
+			}
+			idx, err := e.evalExpr(inner, ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -812,6 +820,14 @@ func (e *Engine) applyFilter(f string, val any, ctx *scope) (any, error) {
 		return val, nil
 	case "length", "count":
 		return lengthOf(val), nil
+	case "truncate":
+		length := 255
+		if argstr != "" {
+			if d, err := e.evalExpr(splitTop(argstr, ',')[0], ctx); err == nil {
+				length = toIntVal(d)
+			}
+		}
+		return jinjaTruncate(toString(val), length), nil
 	case "lower":
 		return strings.ToLower(toString(val)), nil
 	case "upper":
@@ -888,8 +904,8 @@ func (e *Engine) applyFilter(f string, val any, ctx *scope) (any, error) {
 	case "mask":
 		// app.py _mask_value_for_output: redacts sensitive keys/patterns. The fixture data
 		// carries no sensitive content, so masking is identity here. (Full redaction lands
-		// when sensitive fixtures are tested.)
-		return toString(val), nil
+		// when sensitive fixtures are tested.) Identity preserves objects for | tojson.
+		return val, nil
 	default:
 		return nil, fmt.Errorf("unsupported filter %q", name)
 	}
@@ -1253,4 +1269,84 @@ func commaInt(n int64) string {
 		return "-" + string(out)
 	}
 	return string(out)
+}
+
+// jinjaTruncate mirrors Jinja's |truncate(length) with its defaults (end="...", leeway=5,
+// killwords=False): short strings (<= length+leeway) pass through; otherwise cut to
+// length-len(end), break at the last space, and append the ellipsis.
+func jinjaTruncate(s string, length int) string {
+	const end = "..."
+	const leeway = 5
+	r := []rune(s)
+	if len(r) <= length+leeway {
+		return s
+	}
+	cut := length - len(end)
+	if cut < 0 {
+		cut = 0
+	}
+	truncated := string(r[:cut])
+	if idx := strings.LastIndex(truncated, " "); idx >= 0 {
+		truncated = truncated[:idx]
+	}
+	return truncated + end
+}
+
+// sliceBound evaluates an optional slice bound expression; ok=false when omitted (e.g. [:10]).
+func (e *Engine) sliceBound(expr string, ctx *scope) (int, bool) {
+	if expr == "" {
+		return 0, false
+	}
+	v, err := e.evalExpr(expr, ctx)
+	if err != nil {
+		return 0, false
+	}
+	return toIntVal(v), true
+}
+
+// sliceValue implements Python slicing base[start:end] for strings (rune-based) and []any.
+func sliceValue(base any, start int, hasStart bool, end int, hasEnd bool) any {
+	switch b := base.(type) {
+	case string:
+		r := []rune(b)
+		s, e2 := normSlice(len(r), start, hasStart, end, hasEnd)
+		return string(r[s:e2])
+	case safeString:
+		r := []rune(b.s)
+		s, e2 := normSlice(len(r), start, hasStart, end, hasEnd)
+		return safeString{string(r[s:e2])}
+	case []any:
+		s, e2 := normSlice(len(b), start, hasStart, end, hasEnd)
+		return b[s:e2]
+	}
+	return ""
+}
+
+func normSlice(n, start int, hasStart bool, end int, hasEnd bool) (int, int) {
+	s, e := 0, n
+	if hasStart {
+		s = start
+		if s < 0 {
+			s += n
+		}
+	}
+	if hasEnd {
+		e = end
+		if e < 0 {
+			e += n
+		}
+	}
+	if s < 0 {
+		s = 0
+	}
+	if e > n {
+		e = n
+	}
+	if s > n {
+		s = n
+	}
+	if e < s {
+		e = s
+	}
+	return s, e
 }

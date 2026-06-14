@@ -119,7 +119,7 @@ func (s *server) urlFor(pos []any, kw map[string]any, kwOrder []string) (any, er
 		if pathHasParam(rule, k) {
 			rule = replaceParam(rule, k, v)
 		} else {
-			qs = append(qs, url.QueryEscape(k)+"="+url.QueryEscape(v))
+			qs = append(qs, url.QueryEscape(k)+"="+strings.ReplaceAll(url.QueryEscape(v), "%3A", ":"))
 		}
 	}
 	out := s.cfg.BasePath + rule
