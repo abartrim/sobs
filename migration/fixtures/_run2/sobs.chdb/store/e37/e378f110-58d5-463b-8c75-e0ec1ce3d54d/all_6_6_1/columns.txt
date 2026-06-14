@@ -1,0 +1,21 @@
+columns format version: 1
+19 columns:
+`Id` String
+`Name` String
+`RuleType` LowCardinality(String)
+`SignalSource` LowCardinality(String)
+`SignalName` LowCardinality(String)
+`ServiceName` String
+`AttrFingerprint` String
+`Comparator` LowCardinality(String)
+`WarningThreshold` Float64
+`CriticalThreshold` Float64
+`SecondarySignalSource` LowCardinality(String)
+`SecondarySignalName` LowCardinality(String)
+`SecondaryComparator` LowCardinality(String)
+`SecondaryWarningThreshold` Float64
+`SecondaryCriticalThreshold` Float64
+`MinSampleCount` UInt32
+`SeasonalBucketsJson` String
+`IsDeleted` UInt8
+`Version` UInt64

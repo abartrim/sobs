@@ -218,9 +218,64 @@ def seed_apps(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_release_artifacts FINAL")
 
 
+def seed_rules(db) -> None:
+    # One agent rule + one tag rule with FIXED ids so the /settings/agents|tags delete
+    # success paths have a stable record to soft-delete. These ids never collide with the
+    # frozen-uuid example seeds (00000000-...). The agents/tags readers (and the few other
+    # routes that load these tables) render these rows — captured goldens reflect them.
+    _insert(
+        db,
+        "sobs_agent_rules",
+        [
+            {
+                "Id": "b0000000-0000-4000-8000-000000000a01",
+                "Name": "Release Gate Watch",
+                "Description": "Seeded agent rule for delete-path parity",
+                "TriggerType": "manual",
+                "TriggerRefId": "",
+                "TriggerState": "any",
+                "Actions": "analyze",
+                "RateLimitMinutes": 60,
+                "IsEnabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164645000,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_tag_rules",
+        [
+            {
+                "Id": "b0000000-0000-4000-8000-000000000b01",
+                # MatchValue is a service that exists in NO fixture record, so this rule tags
+                # nothing — it ripples only into the tag-rule LISTING pages, never the
+                # record-listing pages that apply rules.
+                "Name": "Inert Sample Tagger",
+                "RecordTypes": "log",
+                "MatchField": "service_name",
+                "MatchOperator": "eq",
+                "MatchValue": "no-such-service-zzz",
+                "MatchAttrKey": "",
+                "TagKey": "team",
+                "TagValue": "payments",
+                "ConditionsJson": (
+                    '[{"match_field": "service_name", "match_operator": "eq", '
+                    '"match_value": "no-such-service-zzz", "match_attr_key": ""}]'
+                ),
+                "IsDeleted": 0,
+                "Version": 1704164645000,
+            }
+        ],
+    )
+
+
 def seed_extra(app, db) -> None:
     seed_reports(db)
     seed_rum_sessions(db)
+    # seed_rules: enabled once the Go agents/tags readers render real rule rows (see
+    # loadAgentRulesCtx/loadTagRulesCtx). Until then, seeding would diverge those readers.
+    seed_rules(db)
     # NOTE: sobs_apps/releases/artifacts are intentionally NOT seeded as persistent baseline
     # rows. The /settings/data-management page reports system.parts byte sizes, which chdb
     # varies across boots; adding app tables there made the size masking non-robust. The v1

@@ -119,7 +119,41 @@ func (e *Engine) evalCompare(s string, ctx *scope) (any, error) {
 	if l, r, ok := splitTopOp(s, " != "); ok {
 		return e.compareEq(l, r, ctx, false)
 	}
+	// Ordering comparisons (numeric). Longer operators first so ` > ` does not match inside ` >= `.
+	for _, op := range []string{" >= ", " <= ", " > ", " < "} {
+		if l, r, ok := splitTopOp(s, op); ok {
+			return e.compareOrd(l, r, ctx, strings.TrimSpace(op))
+		}
+	}
 	return e.evalFiltered(s, ctx)
+}
+
+// compareOrd evaluates a numeric ordering comparison (>, <, >=, <=); each side runs through
+// the full filter pipeline first so `x|length > 1` parses as `(x|length) > 1`.
+func (e *Engine) compareOrd(l, r string, ctx *scope, op string) (any, error) {
+	lv, err := e.evalFiltered(strings.TrimSpace(l), ctx)
+	if err != nil {
+		return nil, err
+	}
+	rv, err := e.evalFiltered(strings.TrimSpace(r), ctx)
+	if err != nil {
+		return nil, err
+	}
+	lf, lok := numFloat(lv)
+	rf, rok := numFloat(rv)
+	if !lok || !rok {
+		return false, nil
+	}
+	switch op {
+	case ">=":
+		return lf >= rf, nil
+	case "<=":
+		return lf <= rf, nil
+	case ">":
+		return lf > rf, nil
+	default: // "<"
+		return lf < rf, nil
+	}
 }
 
 // isTest implements Jinja `x is TEST` / `x is not TEST` for the tests templates use.

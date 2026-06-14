@@ -51,7 +51,7 @@ func (s *server) handleSettingsTagsAuto(w http.ResponseWriter, r *http.Request) 
 	s.renderPageFlash(w, "settings_tags.html", "auto_tag_rules", "info",
 		"Auto-tag preview: 0 candidate(s), 0 existing skipped, 0 invalid.",
 		map[string]any{
-			"rules": []any{}, "edit_rule": nil,
+			"rules": s.loadTagRulesCtx(), "edit_rule": nil,
 			"record_types":    []any{"log", "trace", "error", "ai", "rum", "all"},
 			"match_fields":    []any{"service_name", "severity", "body", "span_name", "event_type", "attribute"},
 			"match_operators": []any{"eq", "contains", "regex"},
@@ -343,6 +343,110 @@ func (s *server) loadAnomalyRulesCtx() []any {
 			"secondary_critical_threshold": cFloat(m, "SecondaryCriticalThreshold"),
 			"min_sample_count":             cInt(m, "MinSampleCount"),
 			"seasonal_buckets_json":        cStr(m, "SeasonalBucketsJson"),
+		})
+	}
+	return out
+}
+
+// loadAgentRulesCtx mirrors app.py _load_agent_rules: active agent rules ordered by Name,
+// shaped for settings_agents.html (actions split on commas, is_enabled as bool).
+func (s *server) loadAgentRulesCtx() []any {
+	res, err := s.db.Execute(
+		"SELECT Id, Name, Description, TriggerType, TriggerRefId, TriggerState, " +
+			"Actions, RateLimitMinutes, IsEnabled " +
+			"FROM sobs_agent_rules FINAL WHERE IsDeleted=0 ORDER BY Name")
+	out := []any{}
+	if err != nil {
+		return out
+	}
+	for _, m := range rowMaps(res) {
+		actions := []any{}
+		for _, a := range strings.Split(cStr(m, "Actions"), ",") {
+			if a = strings.TrimSpace(a); a != "" {
+				actions = append(actions, a)
+			}
+		}
+		out = append(out, map[string]any{
+			"id": cStr(m, "Id"), "name": cStr(m, "Name"), "description": cStr(m, "Description"),
+			"trigger_type": cStr(m, "TriggerType"), "trigger_ref_id": cStr(m, "TriggerRefId"),
+			"trigger_state": cStr(m, "TriggerState"), "actions": actions,
+			"rate_limit_minutes": cInt(m, "RateLimitMinutes"), "is_enabled": cInt(m, "IsEnabled") != 0,
+		})
+	}
+	return out
+}
+
+// parseTagRuleConditions mirrors app.py _parse_tag_rule_conditions_json: best-effort decode of
+// the ConditionsJson array into normalized {match_field, match_operator, match_value,
+// match_attr_key} string maps (non-list/parse-failure -> empty).
+func parseTagRuleConditions(raw string) []any {
+	out := []any{}
+	if strings.TrimSpace(raw) == "" {
+		return out
+	}
+	v, err := parseJSONValue([]byte(raw))
+	if err != nil {
+		return out
+	}
+	list, ok := v.([]any)
+	if !ok {
+		return out
+	}
+	for _, it := range list {
+		o, ok := it.(*jsonenc.Object)
+		if !ok {
+			continue
+		}
+		gs := func(k string) string {
+			if val, has := o.Get(k); has {
+				if str, ok := val.(string); ok {
+					return str
+				}
+			}
+			return ""
+		}
+		out = append(out, map[string]any{
+			"match_field": gs("match_field"), "match_operator": gs("match_operator"),
+			"match_value": gs("match_value"), "match_attr_key": gs("match_attr_key"),
+		})
+	}
+	return out
+}
+
+// loadTagRulesCtx mirrors app.py _load_tag_rules: active tag rules ordered by Name, with the
+// ConditionsJson decoded (and the pre-ConditionsJson MatchField backward-compat fallback).
+func (s *server) loadTagRulesCtx() []any {
+	res, err := s.db.Execute(
+		"SELECT Id, Name, RecordTypes, MatchField, MatchOperator, MatchValue, " +
+			"MatchAttrKey, TagKey, TagValue, ConditionsJson " +
+			"FROM sobs_tag_rules FINAL WHERE IsDeleted = 0 ORDER BY Name")
+	out := []any{}
+	if err != nil {
+		return out
+	}
+	for _, m := range rowMaps(res) {
+		conditions := parseTagRuleConditions(cStr(m, "ConditionsJson"))
+		if len(conditions) == 0 && strings.TrimSpace(cStr(m, "MatchField")) != "" {
+			op := cStr(m, "MatchOperator")
+			if op == "" {
+				op = "eq"
+			}
+			conditions = []any{map[string]any{
+				"match_field": cStr(m, "MatchField"), "match_operator": op,
+				"match_value": cStr(m, "MatchValue"), "match_attr_key": cStr(m, "MatchAttrKey"),
+			}}
+		}
+		recordTypes := []any{}
+		for _, t := range strings.Split(cStr(m, "RecordTypes"), ",") {
+			if t = strings.TrimSpace(t); t != "" {
+				recordTypes = append(recordTypes, t)
+			}
+		}
+		out = append(out, map[string]any{
+			"id": cStr(m, "Id"), "name": cStr(m, "Name"), "record_types": recordTypes,
+			"match_field": cStr(m, "MatchField"), "match_operator": cStr(m, "MatchOperator"),
+			"match_value": cStr(m, "MatchValue"), "match_attr_key": cStr(m, "MatchAttrKey"),
+			"tag_key": cStr(m, "TagKey"), "tag_value": cStr(m, "TagValue"), "conditions": conditions,
 		})
 	}
 	return out
@@ -657,10 +761,10 @@ func (s *server) handleViewAgentRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.renderPage(w, "settings_agents.html", "view_agent_rules", map[string]any{
-		"rules":          []any{},
+		"rules":          s.loadAgentRulesCtx(),
 		"runs":           []any{},
 		"anomaly_rules":  s.loadAnomalyRulesCtx(),
-		"tag_rules":      []any{},
+		"tag_rules":      s.loadTagRulesCtx(),
 		"trigger_types":  []any{"anomaly_rule", "tag_rule", "manual"},
 		"trigger_states": []any{"warning", "critical", "any"},
 		"agent_actions":  []any{"analyze", "github_issue", "github_issue_copilot", "dlp_check"},
@@ -833,7 +937,7 @@ func (s *server) handleViewTagRules(w http.ResponseWriter, r *http.Request) {
 		"  UNION DISTINCT SELECT ServiceName FROM otel_traces " +
 		"  UNION DISTINCT SELECT ServiceName FROM hyperdx_sessions)")
 	s.renderPage(w, "settings_tags.html", "view_tag_rules", map[string]any{
-		"rules": []any{}, "edit_rule": nil,
+		"rules": s.loadTagRulesCtx(), "edit_rule": nil,
 		"record_types":    []any{"log", "trace", "error", "ai", "rum", "all"},
 		"match_fields":    []any{"service_name", "severity", "body", "span_name", "event_type", "attribute"},
 		"match_operators": []any{"eq", "contains", "regex"},

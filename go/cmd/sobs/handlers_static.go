@@ -137,8 +137,8 @@ func (s *server) handleRumDTS(w http.ResponseWriter, r *http.Request) {
 const methodNotAllowed405Body = "<!doctype html>\n<html lang=en>\n<title>405 Method Not Allowed</title>\n" +
 	"<h1>Method Not Allowed</h1>\n<p>The method is not allowed for the requested URL.</p>\n"
 
-// v1 ingest endpoints are POST-only; a GET yields Quart's 405 with Allow: POST, OPTIONS.
-// (The POST ingest branch lands with the OTLP work.)
+// v1 ingest endpoints are POST-only; a GET yields Quart's 405. Werkzeug sorts the allowed
+// methods alphabetically, so the Allow header is "OPTIONS, POST" (not "POST, OPTIONS").
 func (s *server) handleV1IngestGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		switch r.URL.Path {
@@ -156,7 +156,7 @@ func (s *server) handleV1IngestGet(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	w.Header().Set("Allow", "POST, OPTIONS")
+	w.Header().Set("Allow", "OPTIONS, POST")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.Itoa(len(methodNotAllowed405Body)))
 	w.WriteHeader(http.StatusMethodNotAllowed)

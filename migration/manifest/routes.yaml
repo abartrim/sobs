@@ -1641,6 +1641,27 @@ routes:
   mask:
   - '"public_key":"[^"]*"'
   mask_reason: public_key is a random EC P-256 keypair (must be random for security); env_override/note/ok/saved_to_db are byte-compared.
+# --- Soft-delete success paths (mutators; ordered AFTER every reader of their tables, and
+# --- after the metrics auto-routes that read sobs_anomaly_rules). Each targets a fixed-id
+# --- seeded record and flashes a deterministic "<thing> '<name>' deleted" message.
+- id: post__metrics_rules_delete_ok
+  path: /metrics/rules/00000000-0000-4000-8000-000000000006/delete
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_agents_delete_ok
+  path: /settings/agents/b0000000-0000-4000-8000-000000000a01/delete
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_tags_delete_ok
+  path: /settings/tags/b0000000-0000-4000-8000-000000000b01/delete
+  methods:
+  - POST
+  request:
+    method: POST
 - id: get__tail
   path: /tail
   methods:

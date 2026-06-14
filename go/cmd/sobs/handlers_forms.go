@@ -111,21 +111,42 @@ func (s *server) handleReportsFormSub(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-// formDeleteGuard handles a POST .../<id>/delete form route: it looks the record up by Id in
-// `table`, and when absent flashes `msg`/`category` and redirects to `location` (the deterministic
-// branch on the fixture). `table` is a compile-time constant, never user input.
-func (s *server) formDeleteGuard(w http.ResponseWriter, r *http.Request, prefix, table, category, msg, location string) {
+// softDeleteLatestRow mirrors app.py _soft_delete_latest_row: select the live row, and when
+// present re-insert a tombstone (the build-deleted-row payload + IsDeleted=1 + Version) and
+// flash success; when absent flash the not-found message. Both branches redirect to location.
+func (s *server) softDeleteLatestRow(w http.ResponseWriter, selectSQL string, params []any,
+	table string, buildDeletedRow func(m map[string]any) map[string]any,
+	notFoundCategory, notFoundMsg, successCategory, successMsgTmpl, location string) {
+	res, err := s.db.Execute(selectSQL, params...)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	if len(res.Rows) == 0 {
+		flashRedirect(w, notFoundCategory, notFoundMsg, location)
+		return
+	}
+	m := rowMaps(res)[0]
+	payload := buildDeletedRow(m)
+	payload["IsDeleted"] = 1
+	payload["Version"] = fixedVersionMillis()
+	if _, err := s.insertRowsNormalized(table, []map[string]any{payload}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	flashRedirect(w, successCategory, strings.ReplaceAll(successMsgTmpl, "{name}", cStr(m, "Name")), location)
+}
+
+// deleteFormID extracts the <id> from a POST .../<id>/delete form route, writing 404 and
+// returning ("", false) for any other shape so the caller can return early.
+func deleteFormID(w http.ResponseWriter, r *http.Request, prefix string) (string, bool) {
 	rest := strings.TrimPrefix(r.URL.Path, prefix)
 	id, ok := strings.CutSuffix(rest, "/delete")
 	if !ok || r.Method != http.MethodPost {
 		http.NotFound(w, r)
-		return
+		return "", false
 	}
-	if !s.rowExists("SELECT Id FROM "+table+" FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1", id) {
-		flashRedirect(w, category, msg, location)
-		return
-	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	return id, true
 }
 
 // formRequire flashes `msg` and redirects to `location` when the POST form lacks a non-empty
@@ -139,14 +160,66 @@ func (s *server) formRequire(w http.ResponseWriter, r *http.Request, field, cate
 	return false
 }
 
+// POST /settings/agents/<id>/delete — app.py delete_agent_rule.
 func (s *server) handleSettingsAgentsSub(w http.ResponseWriter, r *http.Request) {
-	s.formDeleteGuard(w, r, "/settings/agents/", "sobs_agent_rules", "warning", "Agent rule not found", "/settings/agents")
+	id, ok := deleteFormID(w, r, "/settings/agents/")
+	if !ok {
+		return
+	}
+	s.softDeleteLatestRow(w,
+		"SELECT Id, Name FROM sobs_agent_rules FINAL WHERE Id=? AND IsDeleted=0 LIMIT 1", []any{id},
+		"sobs_agent_rules", func(m map[string]any) map[string]any {
+			return map[string]any{
+				"Id": id, "Name": cStr(m, "Name"), "Description": "", "TriggerType": "manual",
+				"TriggerRefId": "", "TriggerState": "any", "Actions": "analyze",
+				"RateLimitMinutes": 60, "IsEnabled": 0,
+			}
+		}, "warning", "Agent rule not found", "success", "Agent rule '{name}' deleted", "/settings/agents")
 }
+
+// POST /settings/tags/<id>/delete — app.py delete_tag_rule.
 func (s *server) handleSettingsTagsSub(w http.ResponseWriter, r *http.Request) {
-	s.formDeleteGuard(w, r, "/settings/tags/", "sobs_tag_rules", "warning", "Tag rule not found", "/settings/tags")
+	id, ok := deleteFormID(w, r, "/settings/tags/")
+	if !ok {
+		return
+	}
+	s.softDeleteLatestRow(w,
+		"SELECT Id, Name FROM sobs_tag_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1", []any{id},
+		"sobs_tag_rules", func(m map[string]any) map[string]any {
+			return map[string]any{
+				"Id": id, "Name": cStr(m, "Name"), "RecordTypes": "", "MatchField": "",
+				"MatchOperator": "eq", "MatchValue": "", "MatchAttrKey": "", "TagKey": "",
+				"TagValue": "", "ConditionsJson": "[]",
+			}
+		}, "warning", "Tag rule not found", "success", "Tag rule '{name}' deleted", "/settings/tags")
 }
+
+// POST /metrics/rules/<id>/delete — app.py delete_metrics_rule.
 func (s *server) handleMetricsRulesSub(w http.ResponseWriter, r *http.Request) {
-	s.formDeleteGuard(w, r, "/metrics/rules/", "sobs_anomaly_rules", "warning", "Rule not found", "/metrics/rules")
+	id, ok := deleteFormID(w, r, "/metrics/rules/")
+	if !ok {
+		return
+	}
+	s.softDeleteLatestRow(w,
+		"SELECT Id, Name, RuleType, SignalSource, SignalName, ServiceName, AttrFingerprint, Comparator, "+
+			"WarningThreshold, CriticalThreshold, SecondarySignalSource, SecondarySignalName, "+
+			"SecondaryComparator, SecondaryWarningThreshold, SecondaryCriticalThreshold, MinSampleCount "+
+			"FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 AND Id = ?", []any{id},
+		"sobs_anomaly_rules", func(m map[string]any) map[string]any {
+			return map[string]any{
+				"Id": cStr(m, "Id"), "Name": cStr(m, "Name"),
+				"RuleType":      orDefault(cStr(m, "RuleType"), "threshold"),
+				"SignalSource":  cStr(m, "SignalSource"), "SignalName": cStr(m, "SignalName"),
+				"ServiceName":   cStr(m, "ServiceName"), "AttrFingerprint": cStr(m, "AttrFingerprint"),
+				"Comparator":    cStr(m, "Comparator"),
+				"WarningThreshold":  cFloat(m, "WarningThreshold"), "CriticalThreshold": cFloat(m, "CriticalThreshold"),
+				"SecondarySignalSource": cStr(m, "SecondarySignalSource"), "SecondarySignalName": cStr(m, "SecondarySignalName"),
+				"SecondaryComparator":   orDefault(cStr(m, "SecondaryComparator"), "gt"),
+				"SecondaryWarningThreshold": cFloat(m, "SecondaryWarningThreshold"),
+				"SecondaryCriticalThreshold": cFloat(m, "SecondaryCriticalThreshold"),
+				"MinSampleCount": cInt(m, "MinSampleCount"),
+			}
+		}, "warning", "Rule not found", "success", "Rule '{name}' deleted", "/metrics/rules")
 }
 
 // formLookupGuard handles every POST .../<id>/<action> form route under `prefix` (delete,
