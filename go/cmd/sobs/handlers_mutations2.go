@@ -58,15 +58,7 @@ func (s *server) handleApiAiHelperExecute(w http.ResponseWriter, r *http.Request
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
-// POST /api/ai/helper/feedback — requires chat_id, turn_id, and note.
-func (s *server) handleApiAiHelperFeedback(w http.ResponseWriter, r *http.Request) {
-	m := bodyMap(r)
-	if bstr(m, "chat_id") == "" || bstr(m, "turn_id") == "" || bstr(m, "note") == "" {
-		s.errorJSON(w, http.StatusBadRequest, "chat_id, turn_id, and note are required")
-		return
-	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
-}
+// handleApiAiHelperFeedback is defined in ai_emit.go.
 
 // POST /api/dashboards/spec/ai-build — requires `question`.
 func (s *server) handleApiDashboardsSpecAiBuild(w http.ResponseWriter, r *http.Request) {

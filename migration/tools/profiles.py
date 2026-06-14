@@ -68,6 +68,9 @@ PROFILES: dict[str, dict[str, str]] = {
     # aichat: a seeded gen_ai chat turn (otel_logs) so the chat-detail reader serializes it. The
     # otel_logs row is isolated to this profile so base telemetry readers stay empty.
     "aichat": {},
+    # feedback: a no-env isolation profile — ai_helper_feedback's telemetry INSERT (otel_logs +
+    # otel_traces) runs in its own fixture copy so it doesn't ripple into base telemetry readers.
+    "feedback": {},
 }
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via

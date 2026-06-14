@@ -1164,6 +1164,17 @@ routes:
   request:
     method: POST
     json: {}
+- id: post__api_ai_helper_feedback__recorded
+  path: /api/ai/helper/feedback
+  methods:
+  - POST
+  profile: feedback
+  request:
+    method: POST
+    json:
+      chat_id: chat-parity-001
+      turn_id: turn-parity-001
+      note: Very helpful answer
 - id: post__api_dashboards_spec_ai_build
   path: /api/dashboards/spec/ai-build
   methods:
