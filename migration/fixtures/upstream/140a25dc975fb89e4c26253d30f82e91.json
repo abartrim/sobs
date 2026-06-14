@@ -1,0 +1,1 @@
+{"status": 200, "json": {"resources": {"core": {"limit": 5000, "remaining": 4999, "reset": 1704168245}}, "rate": {"limit": 5000, "remaining": 4999, "reset": 1704168245}}}

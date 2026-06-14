@@ -362,6 +362,58 @@ def seed_dm_backup(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_app_settings FINAL")
 
 
+def seed_repo_app(db) -> None:
+    # One registered app + a release + a github token, so the /settings/repositories/<id>/...
+    # actions (realtime/rotate/revoke/save/releases/delete) and github-token/validate run their
+    # real branch. Version is 1ms below fixedVersionMillis so re-inserts (save/delete) win FINAL.
+    _insert(
+        db,
+        "sobs_apps",
+        [
+            {
+                "Id": "f1000000000000000000000000000001",
+                "Name": "Widget Service",
+                "Slug": "widget-service",
+                "OwnerTeam": "platform",
+                "RepoUrl": "https://github.com/acme/widget",
+                "DefaultEnvironment": "prod",
+                "Enabled": 1,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+                "CreatedAt": _TS,
+                "UpdatedAt": _TS,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_app_releases",
+        [
+            {
+                "Id": "f2000000000000000000000000000001",
+                "AppId": "f1000000000000000000000000000001",
+                "ReleaseVersion": "1.0.0",
+                "CommitSha": "",
+                "BuildId": "",
+                "Environment": "prod",
+                "ReleasedAt": _TS,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [{"Key": "ai.github_token", "Value": "ghp_parity_token", "IsDeleted": 0, "Version": 1704164644000}],
+    )
+    db.execute("OPTIMIZE TABLE sobs_apps FINAL")
+    db.execute("OPTIMIZE TABLE sobs_app_releases FINAL")
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+
+
 def seed_notif(db) -> None:
     # Two channels + two rules, each on its OWN id so toggle/delete don't collide on the
     # ReplacingMergeTree version (both actions re-insert at Version 1704164645000). Seed Version
@@ -522,6 +574,7 @@ PROFILE_SEEDS = {
     "notifgen": seed_notif,  # channels+rules; auto-generate create inserts new rules (isolated)
     "agenttrigger": seed_agent_rule,  # analyze-only rule; trigger_agent_run runs the agent flow
     "dmbackup": seed_dm_backup,  # backup_enabled=1; backup/run + restore reach their enabled branch
+    "repoapp": seed_repo_app,  # registered app + release + github token; repositories-sub actions
     "githubtoken": seed_github_token,
     "mcpkey": seed_mcp_key,
     "aichat": seed_aichat,

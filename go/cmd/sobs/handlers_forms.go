@@ -85,6 +85,28 @@ func flashRedirect(w http.ResponseWriter, category, message, location string) {
 	_, _ = w.Write([]byte(body))
 }
 
+// flashRedirectWithCiKey is flashRedirect plus the one-time CI-push key stashed in the session
+// (mirrors session["ci_push_api_key_plain_by_app"][app_id] = key_plain). The plaintext key makes
+// the signed session cookie non-deterministic, so parity masks the whole Set-Cookie value.
+func flashRedirectWithCiKey(w http.ResponseWriter, category, message, location, appID, keyPlain string) {
+	esc := htmlEscapeMarkup(location)
+	body := "<!doctype html>\n<html lang=en>\n<title>Redirecting...</title>\n" +
+		"<h1>Redirecting...</h1>\n<p>You should be redirected automatically to the target URL: " +
+		"<a href=\"" + esc + "\">" + esc + "</a>. If not, click the link.\n"
+	sess := jsonenc.NewObject().
+		Set("ci_push_api_key_plain_by_app", jsonenc.NewObject().Set(appID, keyPlain)).
+		Set("_flashes", []any{jsonenc.NewObject().Set(" t", []any{category, message})})
+	payload := base64.RawURLEncoding.EncodeToString(jsonenc.Encode(sess, flaskSessionOpts))
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Location", location)
+	h.Set("Set-Cookie", "sobs_session="+payload+".0.0; HttpOnly; Path=/; SameSite=Lax")
+	h.Set("Vary", "Cookie")
+	h.Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(http.StatusFound)
+	_, _ = w.Write([]byte(body))
+}
+
 // POST /reports/<report_id>/delete — app.py delete_report: soft-delete (re-insert IsDeleted=1)
 // and flash; a missing report flashes "Report not found".
 func (s *server) handleReportsFormSub(w http.ResponseWriter, r *http.Request) {
@@ -208,16 +230,16 @@ func (s *server) handleMetricsRulesSub(w http.ResponseWriter, r *http.Request) {
 		"sobs_anomaly_rules", func(m map[string]any) map[string]any {
 			return map[string]any{
 				"Id": cStr(m, "Id"), "Name": cStr(m, "Name"),
-				"RuleType":      orDefault(cStr(m, "RuleType"), "threshold"),
-				"SignalSource":  cStr(m, "SignalSource"), "SignalName": cStr(m, "SignalName"),
-				"ServiceName":   cStr(m, "ServiceName"), "AttrFingerprint": cStr(m, "AttrFingerprint"),
-				"Comparator":    cStr(m, "Comparator"),
-				"WarningThreshold":  cFloat(m, "WarningThreshold"), "CriticalThreshold": cFloat(m, "CriticalThreshold"),
+				"RuleType":     orDefault(cStr(m, "RuleType"), "threshold"),
+				"SignalSource": cStr(m, "SignalSource"), "SignalName": cStr(m, "SignalName"),
+				"ServiceName": cStr(m, "ServiceName"), "AttrFingerprint": cStr(m, "AttrFingerprint"),
+				"Comparator":       cStr(m, "Comparator"),
+				"WarningThreshold": cFloat(m, "WarningThreshold"), "CriticalThreshold": cFloat(m, "CriticalThreshold"),
 				"SecondarySignalSource": cStr(m, "SecondarySignalSource"), "SecondarySignalName": cStr(m, "SecondarySignalName"),
-				"SecondaryComparator":   orDefault(cStr(m, "SecondaryComparator"), "gt"),
-				"SecondaryWarningThreshold": cFloat(m, "SecondaryWarningThreshold"),
+				"SecondaryComparator":        orDefault(cStr(m, "SecondaryComparator"), "gt"),
+				"SecondaryWarningThreshold":  cFloat(m, "SecondaryWarningThreshold"),
 				"SecondaryCriticalThreshold": cFloat(m, "SecondaryCriticalThreshold"),
-				"MinSampleCount": cInt(m, "MinSampleCount"),
+				"MinSampleCount":             cInt(m, "MinSampleCount"),
 			}
 		}, "warning", "Rule not found", "success", "Rule '{name}' deleted", "/metrics/rules")
 }
@@ -355,20 +377,40 @@ func (s *server) handleSettingsRepositoriesSub(w http.ResponseWriter, r *http.Re
 		return
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/settings/repositories/")
+	const repos = "/settings/repositories"
 	if rest == "github-token/validate" {
-		if tok, _ := s.appSetting("ai.github_token"); tok == "" {
-			flashRedirect(w, "warning", "No GitHub token configured to validate", "/settings/repositories")
-			return
-		}
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+		s.repoGithubTokenValidate(w, r)
 		return
 	}
-	id := strings.SplitN(rest, "/", 2)[0]
-	if !s.rowExists("SELECT Id FROM sobs_apps FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1", id) {
-		flashRedirect(w, "warning", "Repository entry not found", "/settings/repositories")
+	// All other actions are app-scoped: "<app_id>[/<action>]".
+	parts := strings.SplitN(rest, "/", 2)
+	appID := parts[0]
+	action := ""
+	if len(parts) > 1 {
+		action = parts[1]
+	}
+	current, ok := s.findAppByID(appID)
+	if !ok {
+		flashRedirect(w, "warning", "Repository entry not found", repos)
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	_ = r.ParseForm()
+	switch action {
+	case "realtime-mode":
+		s.repoRealtimeMode(w, r, appID, current)
+	case "ci-ingest-key/rotate":
+		s.repoCiKeyRotate(w, r, appID, current)
+	case "ci-ingest-key/revoke":
+		s.repoCiKeyRevoke(w, appID, current)
+	case "releases":
+		s.repoAddRelease(w, r, appID, current)
+	case "delete":
+		s.repoDelete(w, appID, current)
+	case "":
+		s.repoUpdate(w, r, appID, current)
+	default:
+		flashRedirect(w, "warning", "Repository entry not found", repos)
+	}
 }
 
 var notificationChannelTypes = map[string]bool{"webhook": true, "slack": true, "email": true, "browser_push": true}

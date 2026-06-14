@@ -1847,6 +1847,70 @@ routes:
   - POST
   request:
     method: POST
+# repoapp profile: a seeded app f100…01 (+ release + github token). These run IN ORDER on one
+# server (each a real DB mutation); delete is LAST (it tombstones the app). github-token/validate
+# uses the github mock's canned /rate_limit response.
+- id: post__settings_repositories__id_realtime__seeded
+  path: /settings/repositories/f1000000000000000000000000000001/realtime-mode
+  methods:
+  - POST
+  profile: repoapp
+  request:
+    method: POST
+    form:
+      realtime_enabled: "1"
+- id: post__settings_repositories__id_ci_revoke__seeded
+  path: /settings/repositories/f1000000000000000000000000000001/ci-ingest-key/revoke
+  methods:
+  - POST
+  profile: repoapp
+  request:
+    method: POST
+- id: post__settings_repositories__id_ci_rotate__seeded
+  path: /settings/repositories/f1000000000000000000000000000001/ci-ingest-key/rotate
+  methods:
+  - POST
+  profile: repoapp
+  request:
+    method: POST
+    form:
+      ttl_days: "30"
+  mask:
+  - 'sobs_session=[^;]*'
+  mask_reason: the rotated plaintext CI key is stashed in the signed session cookie (CSPRNG); the whole sobs_session payload is masked. Status/Location/Vary/body are byte-compared.
+- id: post__settings_repositories__id_releases__seeded
+  path: /settings/repositories/f1000000000000000000000000000001/releases
+  methods:
+  - POST
+  profile: repoapp
+  request:
+    method: POST
+    form:
+      version: 2.0.0
+      environment: prod
+- id: post__settings_repositories__id__seeded
+  path: /settings/repositories/f1000000000000000000000000000001
+  methods:
+  - POST
+  profile: repoapp
+  request:
+    method: POST
+    form:
+      repo_url: https://github.com/acme/widget
+- id: post__settings_repositories_ghtoken_validate__seeded
+  path: /settings/repositories/github-token/validate
+  methods:
+  - POST
+  profile: repoapp
+  request:
+    method: POST
+- id: post__settings_repositories__id_delete__seeded
+  path: /settings/repositories/f1000000000000000000000000000001/delete
+  methods:
+  - POST
+  profile: repoapp
+  request:
+    method: POST
 - id: post__dashboards__id_charts__cid_clone
   path: /dashboards/nope/charts/nope/clone
   methods:
