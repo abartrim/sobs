@@ -412,7 +412,6 @@ func (s *server) handleApiDashboardsSpecRender(w http.ResponseWriter, r *http.Re
 		Set("template_id", tid).Set("query", query).Set("spec", spec).Set("option", option))
 }
 
-
 // ---- Fixed-response success/guard ----------------------------------------------------
 
 // POST /api/issues/raise — app.py raise_issue_from_user_observation gates on AI config first;
@@ -520,17 +519,28 @@ func (s *server) handleApiEnrichmentCveScan(w http.ResponseWriter, r *http.Reque
 	_ = s.setAppSetting("enrichment.cve_last_scan_github_backfill_attempted", "0")
 	_ = s.setAppSetting("enrichment.cve_last_scan_github_backfill_inserted", "0")
 	_ = s.setAppSetting("enrichment.cve_last_scan_github_backfill_cap", strconv.Itoa(maxRel))
-	if s.cveInventoryCount() != 0 {
-		http.Error(w, "not implemented", http.StatusNotImplemented) // real OSV scan is a follow-up
+	libraries := s.collectLibraryInventory()
+	if len(libraries) == 0 {
+		_ = s.setAppSetting("enrichment.cve_last_scan", nowISO())
+		writeJSON(w, http.StatusOK, jsonenc.NewObject().
+			Set("github_backfill_attempted", 0).
+			Set("github_backfill_inserted", 0).
+			Set("github_backfill_max_releases", maxRel).
+			Set("libraries_found", 0).
+			Set("ok", true).
+			Set("vulns_found", 0))
 		return
 	}
+	scanTS := nowISO()
+	librariesFound, vulnsFound := s.runCveOSVScan(scanTS, libraries)
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().
 		Set("github_backfill_attempted", 0).
 		Set("github_backfill_inserted", 0).
 		Set("github_backfill_max_releases", maxRel).
-		Set("libraries_found", 0).
+		Set("libraries_found", librariesFound).
 		Set("ok", true).
-		Set("vulns_found", 0))
+		Set("scanned_at", scanTS).
+		Set("vulns_found", vulnsFound))
 }
 
 // POST /api/notifications/rules/auto-generate — app.py auto_generate_notification_rules in

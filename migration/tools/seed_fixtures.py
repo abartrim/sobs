@@ -414,6 +414,29 @@ def seed_repo_app(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
 
 
+def seed_cve_osv(db) -> None:
+    # One otel_logs row carrying telemetry.sdk.* resource attributes so _collect_library_inventory
+    # (tier 2) yields a single library; the cve scan then queries OSV (canned) for it and records a
+    # finding. No github token, so the github backfill stays the 0/0/cap no-op.
+    _insert(
+        db,
+        "otel_logs",
+        [
+            {
+                "Timestamp": _TS,
+                "ServiceName": "api",
+                "Body": "startup",
+                "ResourceAttributes": {
+                    "telemetry.sdk.name": "opentelemetry",
+                    "telemetry.sdk.version": "1.20.0",
+                    "telemetry.sdk.language": "python",
+                },
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+
 def seed_notif(db) -> None:
     # Two channels + two rules, each on its OWN id so toggle/delete don't collide on the
     # ReplacingMergeTree version (both actions re-insert at Version 1704164645000). Seed Version
@@ -575,6 +598,7 @@ PROFILE_SEEDS = {
     "agenttrigger": seed_agent_rule,  # analyze-only rule; trigger_agent_run runs the agent flow
     "dmbackup": seed_dm_backup,  # backup_enabled=1; backup/run + restore reach their enabled branch
     "repoapp": seed_repo_app,  # registered app + release + github token; repositories-sub actions
+    "cveosv": seed_cve_osv,  # telemetry.sdk row -> non-empty inventory -> OSV scan finds a vuln
     "githubtoken": seed_github_token,
     "mcpkey": seed_mcp_key,
     "aichat": seed_aichat,

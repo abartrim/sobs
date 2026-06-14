@@ -95,6 +95,9 @@ PROFILES: dict[str, dict[str, str]] = {
     # repoapp: a seeded registered app + release + github token so /settings/repositories/<id>/...
     # actions run their real branch; the github mock serves the token-validate /rate_limit call.
     "repoapp": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
+    # cveosv: a seeded telemetry.sdk library so the cve scan reaches its OSV branch; the OSV mock
+    # serves the canned /v1/query vuln response. No github token (backfill stays the 0/0/cap no-op).
+    "cveosv": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
     # refine: query/refine-chart — query gate on + the LLM endpoint pointed at the canned
     # /chat/completions mock (distinct path so its URL key is unique to this route).
     "refine": {
@@ -134,6 +137,7 @@ SEEDED_PROFILES = {
     "agenttrigger",
     "dmbackup",
     "repoapp",
+    "cveosv",
     "githubtoken",
     "mcpkey",
     "aichat",

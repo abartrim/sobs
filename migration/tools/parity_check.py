@@ -233,24 +233,37 @@ def _replay(route: dict) -> dict:
 
         data = base64.b64decode(req["body_b64"])
     r = urllib.request.Request(f"http://{HOST}:{PORT}{path}", data=data, method=method, headers=headers)
-    try:
-        # Do NOT follow redirects: the Quart test client returns the raw 3xx (Location +
-        # flash cookie), so the Go replay must compare that response, not the redirect target.
-        # Timeout is generous: some routes (e.g. the agent flow) issue chdb queries that hit a
-        # permanent error the chdb wrapper still retries with backoff — faithful to Python (which
-        # catches them) but several seconds of latency under a cold-booted per-profile server.
-        with _NO_REDIRECT_OPENER.open(r, timeout=45) as resp:
-            if route.get("stream"):
-                body = _read_first_sse_frame(resp)
-            else:
-                body = resp.read()
-            return {
-                "status": resp.status,
-                "headers": [[k, v] for k, v in resp.headers.items()],
-                "body": body,
-            }
-    except urllib.error.HTTPError as e:  # non-2xx is a valid response to compare
-        return {"status": e.code, "headers": [[k, v] for k, v in e.headers.items()], "body": e.read()}
+    # Do NOT follow redirects: the Quart test client returns the raw 3xx (Location + flash cookie),
+    # so the Go replay must compare that response, not the redirect target. Timeout is generous:
+    # some routes (e.g. the agent flow) issue chdb queries that hit a permanent error the chdb
+    # wrapper still retries with backoff — faithful to Python (which catches them) but several
+    # seconds of latency on a cold-booted per-profile server. With ~20 profiles each booting their
+    # own embedded server the host can momentarily starve, so a transient read timeout / dropped
+    # connection is retried a few times rather than crashing the whole run; the slow routes are
+    # mutation-safe to replay (their non-deterministic bytes — run_id, finding rows — are masked or
+    # recomputed deterministically from the seed).
+    import socket
+    import time as _time
+
+    last_exc: BaseException = RuntimeError("replay failed without an exception")
+    for attempt in range(4):
+        try:
+            with _NO_REDIRECT_OPENER.open(r, timeout=45) as resp:
+                if route.get("stream"):
+                    body = _read_first_sse_frame(resp)
+                else:
+                    body = resp.read()
+                return {
+                    "status": resp.status,
+                    "headers": [[k, v] for k, v in resp.headers.items()],
+                    "body": body,
+                }
+        except urllib.error.HTTPError as e:  # non-2xx is a valid response to compare
+            return {"status": e.code, "headers": [[k, v] for k, v in e.headers.items()], "body": e.read()}
+        except (TimeoutError, socket.timeout, ConnectionError, OSError) as exc:
+            last_exc = exc
+            _time.sleep(2.0 * (attempt + 1))
+    raise last_exc
 
 
 def _read_first_sse_frame(resp) -> bytes:

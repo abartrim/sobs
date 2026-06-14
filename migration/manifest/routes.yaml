@@ -2169,6 +2169,19 @@ routes:
   request:
     method: POST
     json: {}
+# cveosv profile: a seeded telemetry.sdk library so the scan reaches its OSV branch and records a
+# finding (the OSV mock serves the canned /v1/query response). scanned_at is wall-clock derived.
+- id: post__api_enrichment_cve_scan__osv
+  path: /api/enrichment/cve/scan
+  methods:
+  - POST
+  profile: cveosv
+  request:
+    method: POST
+    json: {}
+  mask:
+  - '"scanned_at": ?"[^"]*"'
+  mask_reason: scanned_at is _now_iso() (wall-clock); libraries_found/vulns_found/github_backfill_* are byte-compared.
 - id: post__settings_masking_output
   path: /settings/masking/output
   methods:
