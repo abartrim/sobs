@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/sobs/sobs/internal/jsonenc"
@@ -14,24 +15,61 @@ import (
 func (s *server) handleApiGetTags(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/tags/")
 	seg := strings.Split(rest, "/")
-	// DELETE /api/tags/<record_type>/<record_id>/<tag_key> — 404 when the tag is absent.
+	// DELETE /api/tags/<record_type>/<record_id>/<tag_key> — app.py api_delete_tag (soft-delete
+	// every matching tag row, deduped by (value, is_auto)) -> {"ok": true}.
 	if r.Method == http.MethodDelete && len(seg) == 3 && seg[2] != "" {
-		if !s.rowExists("SELECT TagKey FROM sobs_record_tags FINAL "+
-			"WHERE RecordType = ? AND RecordId = ? AND TagKey = ? AND IsDeleted = 0",
-			seg[0], seg[1], seg[2]) {
+		res, err := s.db.Execute("SELECT TagKey, TagValue, IsAuto FROM sobs_record_tags FINAL "+
+			"WHERE RecordType = ? AND RecordId = ? AND TagKey = ? AND IsDeleted = 0", seg[0], seg[1], seg[2])
+		if err != nil || len(res.Rows) == 0 {
 			errorOnly(w, http.StatusNotFound, "tag not found")
 			return
 		}
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+		seen := map[string]bool{}
+		tombstones := []map[string]any{}
+		version := fixedVersionMillis()
+		for _, m := range rowMaps(res) {
+			val := cStr(m, "TagValue")
+			isAuto := cInt(m, "IsAuto")
+			dk := val + "\x00" + strconv.Itoa(isAuto)
+			if seen[dk] {
+				continue
+			}
+			seen[dk] = true
+			tombstones = append(tombstones, map[string]any{
+				"RecordType": seg[0], "RecordId": seg[1], "TagKey": seg[2], "TagValue": val,
+				"IsAuto": isAuto, "IsDeleted": 1, "Version": version,
+			})
+			version++
+		}
+		if _, err := s.db.InsertJSONEachRow("sobs_record_tags", tombstones); err != nil {
+			s.dbError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
 		return
 	}
-	// POST /api/tags/<record_type>/<record_id> — requires a `key`; empty body fails.
+	// POST /api/tags/<record_type>/<record_id> — app.py api_add_tag: insert a manual tag -> {"ok": true}.
 	if r.Method == http.MethodPost && len(seg) == 2 && seg[1] != "" {
-		if bstr(bodyMap(r), "key") == "" {
+		payload := bodyMap(r)
+		key := bstr(payload, "key")
+		value := bstr(payload, "value")
+		if key == "" {
 			errorOnly(w, http.StatusBadRequest, "key is required")
 			return
 		}
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+		if len(key) > 128 || len(value) > 512 {
+			errorOnly(w, http.StatusBadRequest, "tag key or value too long")
+			return
+		}
+		row := map[string]any{
+			"RecordType": seg[0], "RecordId": seg[1], "TagKey": key, "TagValue": value,
+			"IsAuto": 0, "IsDeleted": 0, "Version": fixedVersionMillis(),
+		}
+		if _, err := s.db.InsertJSONEachRow("sobs_record_tags", []map[string]any{row}); err != nil {
+			s.dbError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, jsonenc.NewObject().Set("ok", true))
 		return
 	}
 	if r.Method != http.MethodGet {

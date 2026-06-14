@@ -1591,6 +1591,22 @@ routes:
   - DELETE
   request:
     method: DELETE
+# Add then delete a record tag (mutator; sobs_record_tags read only by the early get-tags reader).
+- id: post__api_tags_add_ok
+  path: /api/tags/logs/rec-abc123
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      key: env
+      value: prod
+- id: delete__api_tags_found
+  path: /api/tags/logs/rec-abc123/env
+  methods:
+  - DELETE
+  request:
+    method: DELETE
 - id: post__settings_ai
   path: /settings/ai
   methods:
