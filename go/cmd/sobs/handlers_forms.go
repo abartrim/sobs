@@ -222,28 +222,128 @@ func (s *server) handleMetricsRulesSub(w http.ResponseWriter, r *http.Request) {
 		}, "warning", "Rule not found", "success", "Rule '{name}' deleted", "/metrics/rules")
 }
 
-// formLookupGuard handles every POST .../<id>/<action> form route under `prefix` (delete,
-// toggle, rotate, …): it looks the first path segment up by Id in `table` and flashes the
-// not-found message when absent — the deterministic branch for every action on the fixture.
-func (s *server) formLookupGuard(w http.ResponseWriter, r *http.Request, prefix, table, category, msg, location string) {
+// splitIDAction splits "<id>/<action>" from a trimmed sub-route path.
+func splitIDAction(rest string) (id, action string) {
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return parts[0], ""
+}
+
+// handleNotifChannelsSub dispatches POST /settings/notifications/channels/<id>/{delete,toggle}
+// (app.py delete_/toggle_notification_channel). A missing channel flashes "not found"; otherwise
+// the action mutates and flashes. (The /api/.../test action is a separate route.)
+func (s *server) handleNotifChannelsSub(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
-	rest := strings.TrimPrefix(r.URL.Path, prefix)
-	id := strings.SplitN(rest, "/", 2)[0]
-	if !s.rowExists("SELECT Id FROM "+table+" FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1", id) {
-		flashRedirect(w, category, msg, location)
-		return
+	id, action := splitIDAction(strings.TrimPrefix(r.URL.Path, "/settings/notifications/channels/"))
+	switch action {
+	case "delete":
+		s.softDeleteLatestRow(w,
+			"SELECT Id, Name, ChannelType, ConfigJson, Enabled FROM sobs_notification_channels FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
+			[]any{id}, "sobs_notification_channels",
+			func(m map[string]any) map[string]any {
+				return map[string]any{"Id": id, "Name": cStr(m, "Name"), "ChannelType": cStr(m, "ChannelType"),
+					"ConfigJson": cStr(m, "ConfigJson"), "Enabled": cInt(m, "Enabled")}
+			},
+			"warning", "Notification channel not found", "success", "Notification channel '{name}' deleted",
+			"/settings/notifications")
+	case "toggle":
+		s.toggleNotifChannel(w, id)
+	default:
+		http.NotFound(w, r)
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
-func (s *server) handleNotifChannelsSub(w http.ResponseWriter, r *http.Request) {
-	s.formLookupGuard(w, r, "/settings/notifications/channels/", "sobs_notification_channels", "warning", "Notification channel not found", "/settings/notifications")
+func (s *server) toggleNotifChannel(w http.ResponseWriter, id string) {
+	res, err := s.db.Execute(
+		"SELECT Id, Name, ChannelType, ConfigJson, Enabled FROM sobs_notification_channels FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1", id)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	if len(res.Rows) == 0 {
+		flashRedirect(w, "warning", "Notification channel not found", "/settings/notifications")
+		return
+	}
+	m := rowMaps(res)[0]
+	newEnabled := 1
+	if cInt(m, "Enabled") != 0 {
+		newEnabled = 0
+	}
+	row := map[string]any{"Id": id, "Name": cStr(m, "Name"), "ChannelType": cStr(m, "ChannelType"),
+		"ConfigJson": cStr(m, "ConfigJson"), "Enabled": newEnabled, "IsDeleted": 0, "Version": fixedVersionMillis()}
+	if _, err := s.insertRowsNormalized("sobs_notification_channels", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	state := "disabled"
+	if newEnabled != 0 {
+		state = "enabled"
+	}
+	flashRedirect(w, "success", "Notification channel '"+cStr(m, "Name")+"' "+state, "/settings/notifications")
 }
+
+// handleNotifRulesSub dispatches POST /settings/notifications/rules/<id>/{toggle,delete}.
 func (s *server) handleNotifRulesSub(w http.ResponseWriter, r *http.Request) {
-	s.formLookupGuard(w, r, "/settings/notifications/rules/", "sobs_notification_rules", "warning", "Notification rule not found", "/settings/notifications")
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	id, action := splitIDAction(strings.TrimPrefix(r.URL.Path, "/settings/notifications/rules/"))
+	switch action {
+	case "delete":
+		s.softDeleteLatestRow(w,
+			"SELECT Id, Name, LogicOperator, ConditionsJson, ChannelIds, Severity, CooldownSeconds, Enabled FROM sobs_notification_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1",
+			[]any{id}, "sobs_notification_rules",
+			func(m map[string]any) map[string]any {
+				return map[string]any{"Id": id, "Name": cStr(m, "Name"), "Enabled": cInt(m, "Enabled"),
+					"LogicOperator": cStr(m, "LogicOperator"), "ConditionsJson": cStr(m, "ConditionsJson"),
+					"ChannelIds": cStr(m, "ChannelIds"), "Severity": cStr(m, "Severity"),
+					"CooldownSeconds": cInt(m, "CooldownSeconds"), "LastFiredAt": "1970-01-01 00:00:00.000"}
+			},
+			"warning", "Notification rule not found", "success", "Notification rule '{name}' deleted",
+			"/settings/notifications")
+	case "toggle":
+		s.toggleNotifRule(w, id)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (s *server) toggleNotifRule(w http.ResponseWriter, id string) {
+	res, err := s.db.Execute(
+		"SELECT Id, Name, Enabled, LogicOperator, ConditionsJson, ChannelIds, Severity, CooldownSeconds FROM sobs_notification_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1", id)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	if len(res.Rows) == 0 {
+		flashRedirect(w, "warning", "Notification rule not found", "/settings/notifications")
+		return
+	}
+	m := rowMaps(res)[0]
+	newEnabled := 1
+	if cInt(m, "Enabled") != 0 {
+		newEnabled = 0
+	}
+	row := map[string]any{"Id": id, "Name": cStr(m, "Name"), "Enabled": newEnabled,
+		"LogicOperator": cStr(m, "LogicOperator"), "ConditionsJson": cStr(m, "ConditionsJson"),
+		"ChannelIds": cStr(m, "ChannelIds"), "Severity": cStr(m, "Severity"),
+		"CooldownSeconds": cInt(m, "CooldownSeconds"), "LastFiredAt": "1970-01-01 00:00:00.000",
+		"IsDeleted": 0, "Version": fixedVersionMillis()}
+	if _, err := s.insertRowsNormalized("sobs_notification_rules", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	state := "disabled"
+	if newEnabled != 0 {
+		state = "enabled"
+	}
+	flashRedirect(w, "success", "Notification rule '"+cStr(m, "Name")+"' "+state, "/settings/notifications")
 }
 
 // /settings/repositories/<app_id>/... (delete, realtime-mode, ci-ingest-key/rotate|revoke,

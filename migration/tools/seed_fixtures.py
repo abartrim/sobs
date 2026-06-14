@@ -324,8 +324,74 @@ def seed_agent_run(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_agent_runs FINAL")
 
 
+def seed_notif(db) -> None:
+    # Two channels + two rules, each on its OWN id so toggle/delete don't collide on the
+    # ReplacingMergeTree version (both actions re-insert at Version 1704164645000). Seed Version
+    # is 1ms lower so the action's re-insert wins FINAL. ConfigJson is plaintext (decrypt is
+    # identity on un-prefixed values).
+    _insert(
+        db,
+        "sobs_notification_channels",
+        [
+            {
+                "Id": "c1000000000000000000000000000001",
+                "Name": "Ops Webhook",
+                "ChannelType": "webhook",
+                "ConfigJson": '{"webhook_url": "https://hooks.example.com/ops"}',
+                "Enabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "Id": "c1000000000000000000000000000002",
+                "Name": "Alerts Webhook",
+                "ChannelType": "webhook",
+                "ConfigJson": '{"webhook_url": "https://hooks.example.com/alerts"}',
+                "Enabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+        ],
+    )
+    _insert(
+        db,
+        "sobs_notification_rules",
+        [
+            {
+                "Id": "d1000000000000000000000000000001",
+                "Name": "High error rate",
+                "Enabled": 1,
+                "LogicOperator": "any",
+                "ConditionsJson": "[]",
+                "ChannelIds": "[]",
+                "Severity": "critical",
+                "CooldownSeconds": 300,
+                "LastFiredAt": "1970-01-01 00:00:00.000",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "Id": "d1000000000000000000000000000002",
+                "Name": "Latency spike",
+                "Enabled": 1,
+                "LogicOperator": "all",
+                "ConditionsJson": "[]",
+                "ChannelIds": "[]",
+                "Severity": "warning",
+                "CooldownSeconds": 600,
+                "LastFiredAt": "1970-01-01 00:00:00.000",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_notification_channels FINAL")
+    db.execute("OPTIMIZE TABLE sobs_notification_rules FINAL")
+
+
 PROFILE_SEEDS = {
     "agentrun": seed_agent_run,
+    "notif": seed_notif,
 }
 
 

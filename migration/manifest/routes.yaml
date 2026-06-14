@@ -1415,6 +1415,36 @@ routes:
   - POST
   request:
     method: POST
+# notif profile: seeded channels (c1…01/02) + rules (d1…01/02); each action targets its own
+# row (toggle vs delete don't collide on the re-insert version). 302 + flash on success.
+- id: post__settings_notif_channels__toggle__seeded
+  path: /settings/notifications/channels/c1000000000000000000000000000001/toggle
+  methods:
+  - POST
+  profile: notif
+  request:
+    method: POST
+- id: post__settings_notif_channels__delete__seeded
+  path: /settings/notifications/channels/c1000000000000000000000000000002/delete
+  methods:
+  - POST
+  profile: notif
+  request:
+    method: POST
+- id: post__settings_notif_rules__toggle__seeded
+  path: /settings/notifications/rules/d1000000000000000000000000000001/toggle
+  methods:
+  - POST
+  profile: notif
+  request:
+    method: POST
+- id: post__settings_notif_rules__delete__seeded
+  path: /settings/notifications/rules/d1000000000000000000000000000002/delete
+  methods:
+  - POST
+  profile: notif
+  request:
+    method: POST
 - id: post__settings_repositories__id_delete
   path: /settings/repositories/nonexistent/delete
   methods:
