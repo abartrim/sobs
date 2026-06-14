@@ -135,6 +135,74 @@ func (s *server) handleV1Ai(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
 }
 
+// mstrDef returns m[key] as a string, or def when the key is absent (mirrors
+// str(payload.get(key, def))).
+func mstrDef(m map[string]any, key, def string) string {
+	if _, ok := m[key]; !ok {
+		return def
+	}
+	return mstr(m, key)
+}
+
+// stringifyAttrMap converts a JSON object value to app.py _stringify_attrs output: a
+// string->string map (scalars via Python str(); other values via compact ensure_ascii JSON).
+func stringifyAttrMap(v any) map[string]any {
+	out := map[string]any{}
+	o, ok := v.(map[string]any)
+	if !ok {
+		return out
+	}
+	for k, val := range o {
+		if val == nil {
+			continue
+		}
+		switch x := val.(type) {
+		case string:
+			out[k] = x
+		case bool:
+			if x {
+				out[k] = "True"
+			} else {
+				out[k] = "False"
+			}
+		case float64:
+			out[k] = formatPyNumber(x)
+		default:
+			out[k] = string(jsonenc.Encode(val, jsonenc.Options{SortKeys: false, EnsureASCII: true, ItemSep: ",", KeySep: ":"}))
+		}
+	}
+	return out
+}
+
+// POST /v1/errors — app.py ingest_errors: build an ERROR otel_logs row from the body and
+// insert it. An empty body yields exception.type "Error", empty message. Returns {"ok": true}.
+func (s *server) handleV1Errors(w http.ResponseWriter, r *http.Request) {
+	m := bodyMap(r)
+	ts := mstr(m, "timestamp")
+	if ts == "" {
+		ts = nowUTC().Format("2006-01-02T15:04:05.000-07:00")
+	}
+	attrs := stringifyAttrMap(m["attributes"])
+	attrs["exception.type"] = mstrDef(m, "type", "Error")
+	attrs["exception.message"] = mstr(m, "message")
+	if v := mstr(m, "stack"); v != "" {
+		attrs["exception.stacktrace"] = v // JS source-map demangling is a follow-up
+	}
+	row := map[string]any{
+		"Timestamp": ts, "TraceId": mstr(m, "trace_id"), "SpanId": mstr(m, "span_id"),
+		"TraceFlags": 0, "SeverityText": "ERROR", "SeverityNumber": 17,
+		"ServiceName": mstr(m, "service"), "Body": mstr(m, "message"),
+		"ResourceSchemaUrl": "", "ResourceAttributes": map[string]any{},
+		"ScopeSchemaUrl": "", "ScopeName": "", "ScopeVersion": "", "ScopeAttributes": map[string]any{},
+		"LogAttributes": attrs, "EventName": "exception",
+	}
+	if _, err := s.db.InsertJSONEachRow("otel_logs", []map[string]any{row}); err != nil {
+		s.errorJSON(w, http.StatusInternalServerError, "error ingest write failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
+}
+
 // stringifyInto copies m[srcKey] into attrs[dstKey] as a string (raw string verbatim, else
 // compact ensure_ascii JSON) — mirroring app.py's gen_ai content-attribute handling.
 func stringifyInto(attrs map[string]any, m map[string]any, srcKey, dstKey string) {

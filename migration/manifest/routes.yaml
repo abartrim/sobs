@@ -899,3 +899,7 @@ routes:
     path: "/v1/ai"
     methods: [POST]
     request: {method: POST, json: {}}
+  - id: post__v1_errors
+    path: "/v1/errors"
+    methods: [POST]
+    request: {method: POST, json: {}}
