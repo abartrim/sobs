@@ -600,6 +600,7 @@ PROFILE_SEEDS = {
     "repoapp": seed_repo_app,  # registered app + release + github token; repositories-sub actions
     "cveosv": seed_cve_osv,  # telemetry.sdk row -> non-empty inventory -> OSV scan finds a vuln
     "cvebackfill": seed_repo_app,  # app+release+github token -> cve github backfill attempts a release
+    "onboard": seed_repo_app,  # app+token -> onboarding create-issues realtime + github-issue paths
     "githubtoken": seed_github_token,
     "mcpkey": seed_mcp_key,
     "aichat": seed_aichat,

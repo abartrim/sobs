@@ -106,15 +106,7 @@ func (s *server) handleApiNotificationsSubscribe(w http.ResponseWriter, r *http.
 		Set("ok", true).Set("channel_id", channelID).Set("existing", false))
 }
 
-// POST /api/onboarding/create-issues — requires an app_id or repo parameter.
-func (s *server) handleApiOnboardingCreateIssues(w http.ResponseWriter, r *http.Request) {
-	m := bodyMap(r)
-	if bstr(m, "app_id") == "" && bstr(m, "repo") == "" {
-		s.errorJSON(w, http.StatusBadRequest, "app_id or repo parameter required")
-		return
-	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
-}
+// handleApiOnboardingCreateIssues is defined in onboarding_issues.go.
 
 // bodyBool mirrors bool(body.get(key, default)).
 func bodyBool(m map[string]any, key string, def bool) bool {

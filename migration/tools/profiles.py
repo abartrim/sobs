@@ -101,6 +101,9 @@ PROFILES: dict[str, dict[str, str]] = {
     # otlpingest: a no-env isolation profile so the OTLP /v1/{logs,traces,metrics} ingest INSERTs
     # (which would otherwise ripple into every otel reader) land in their own fixture copy.
     "otlpingest": {},
+    # onboard: a seeded app+token so onboarding create-issues runs its realtime path (rotate CI key)
+    # and its github-issue path (open-issue search 404s -> empty -> create via the canned POST).
+    "onboard": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
     # cvebackfill: a seeded app+release+github token so the cve scan's github backfill attempts a
     # release (the repo has no fetchable lockfile -> every contents GET 404s -> attempted=1,
     # inserted=0). The github mock dir must be set so the fetches 404 rather than erroring.
@@ -146,6 +149,7 @@ SEEDED_PROFILES = {
     "repoapp",
     "cveosv",
     "cvebackfill",
+    "onboard",
     "githubtoken",
     "mcpkey",
     "aichat",

@@ -1272,6 +1272,35 @@ routes:
   request:
     method: POST
     json: {}
+# onboard profile (seeded app f100…01 + github token). Realtime path: rotate the CI key + return
+# the setup guidance (api_key is the fresh CSPRNG key -> masked). Issue path: search 404s -> create
+# via the canned POST /issues.
+- id: post__api_onboarding_create_issues__realtime
+  path: /api/onboarding/create-issues
+  methods:
+  - POST
+  profile: onboard
+  request:
+    method: POST
+    json:
+      app_id: f1000000000000000000000000000001
+      create_ci: false
+      create_otel: false
+      enable_realtime_support: true
+  mask:
+  - '"api_key": ?"[^"]*"'
+  mask_reason: api_key is the freshly rotated CI-push key (CSPRNG); the rest of the realtime block (expires_at frozen, instructions, app_id) is byte-compared.
+- id: post__api_onboarding_create_issues__ci
+  path: /api/onboarding/create-issues
+  methods:
+  - POST
+  profile: onboard
+  request:
+    method: POST
+    json:
+      app_id: f1000000000000000000000000000001
+      create_ci: true
+      create_otel: false
 - id: post__api_onboarding_create_repo
   path: /api/onboarding/create-repo
   methods:

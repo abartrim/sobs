@@ -80,15 +80,35 @@ func (s *server) repoRealtimeMode(w http.ResponseWriter, r *http.Request, appID 
 	flashRedirect(w, "success", "Realtime CI support "+state+" for "+strings.TrimSpace(cStr(current, "Name")), reposURL)
 }
 
+// rotateCiPushKey mirrors _rotate_ci_push_api_key: generate a fresh CI-push key, store its hash +
+// expiry + rotated-at, enable realtime, and return (plaintext key, expiry ISO).
+func (s *server) rotateCiPushKey(appID string, ttlDays int) (string, string) {
+	if strings.TrimSpace(appID) == "" {
+		return "", ""
+	}
+	keyPlain := generateCiPushAPIKey()
+	expiresAt := ciPushExpiryISOFromDays(normalizeTTLDaysInt(ttlDays))
+	s.saveAISetting(ciPushSettingKey(appID, "hash"), hashAPIKey(keyPlain))
+	s.saveAISetting(ciPushSettingKey(appID, "expires_at"), expiresAt)
+	s.saveAISetting(ciPushSettingKey(appID, "rotated_at"), nowISO())
+	return keyPlain, expiresAt
+}
+
+func normalizeTTLDaysInt(ttlDays int) int {
+	if ttlDays < ciPushMinTTLDays {
+		return ciPushMinTTLDays
+	}
+	if ttlDays > ciPushMaxTTLDays {
+		return ciPushMaxTTLDays
+	}
+	return ttlDays
+}
+
 // repoCiKeyRotate mirrors rotate_settings_repository_ci_ingest_key (the plaintext key is stashed in
 // the session for one-time display; the session cookie is therefore non-deterministic and masked).
 func (s *server) repoCiKeyRotate(w http.ResponseWriter, r *http.Request, appID string, current map[string]any) {
 	ttlDays := normalizeTTLDays(r.PostFormValue("ttl_days"))
-	keyPlain := generateCiPushAPIKey()
-	expiresAt := ciPushExpiryISOFromDays(ttlDays)
-	s.saveAISetting(ciPushSettingKey(appID, "hash"), hashAPIKey(keyPlain))
-	s.saveAISetting(ciPushSettingKey(appID, "expires_at"), expiresAt)
-	s.saveAISetting(ciPushSettingKey(appID, "rotated_at"), nowISO())
+	keyPlain, expiresAt := s.rotateCiPushKey(appID, ttlDays)
 	s.setCiPushRealtimeEnabled(appID, true)
 	expiresDate := expiresAt
 	if len(expiresDate) >= 10 {
