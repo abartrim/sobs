@@ -1266,6 +1266,95 @@ routes:
   - POST
   request:
     method: POST
+- id: get__api_ai_export
+  path: /api/ai/export
+  methods:
+  - GET
+- id: get__api_setup_wizard_steps
+  path: /api/setup-wizard/steps
+  methods:
+  - GET
+- id: get__api_reports_export
+  path: /api/reports/export
+  methods:
+  - GET
+- id: get__api_enrichment_github_repo_health
+  path: /api/enrichment/github/repo-health
+  methods:
+  - GET
+- id: get__settings_data_management
+  path: /settings/data-management
+  methods:
+  - GET
+  mask:
+  - <td class="small font-monospace text-truncate"[^>]*>[^<]*</td>\s*<td class="small" data-label="Size">[^<]*</td>\s*<td class="small" data-label="Ratio">[^<]*</td>\s*<td class="small" data-label="Rows">[^<]*</td>
+  - <td class="fw-semibold">[0-9][0-9.]* [A-Z]*B</td>
+  - "[0-9]+\\.[0-9]+\xD7|[0-9]+\xD7"
+  - <span class="text-(?:warning|success)">\s*[0-9]+
+  mask_reason: system.parts byte sizes/ratios, active-query count, and per-table breakdown (sorted by the varying size) are storage-dependent; the settings form + overall row count are byte-compared.
+- id: post__api_notifications_rules_auto_generate
+  path: /api/notifications/rules/auto-generate
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__api_mcp_keys
+  path: /api/mcp/keys
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+  mask:
+  - '"id":"[^"]*"'
+  - '"key":"[^"]*"'
+  mask_reason: id+key are cryptographically random (secrets.token_*); the rest (created_at frozen, label, expires_at, ok) is byte-compared.
+- id: post__metrics_rules_auto
+  path: /metrics/rules/auto
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__metrics_rules_dashboard_auto
+  path: /metrics/rules/dashboard/auto
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_tags_auto
+  path: /settings/tags/auto
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__v1_ai
+  path: /v1/ai
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__v1_errors
+  path: /v1/errors
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__v1_rum
+  path: /v1/rum
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_enrichment_cve_scan
+  path: /api/enrichment/cve/scan
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
 - id: post__settings_masking_output
   path: /settings/masking/output
   methods:
@@ -1296,101 +1385,12 @@ routes:
   - POST
   request:
     method: POST
-- id: get__api_ai_export
-  path: /api/ai/export
-  methods:
-  - GET
-- id: get__api_setup_wizard_steps
-  path: /api/setup-wizard/steps
-  methods:
-  - GET
-- id: get__api_reports_export
-  path: /api/reports/export
-  methods:
-  - GET
-- id: get__api_enrichment_github_repo_health
-  path: /api/enrichment/github/repo-health
-  methods:
-  - GET
-- id: post__metrics_rules_auto
-  path: /metrics/rules/auto
-  methods:
-  - POST
-  request:
-    method: POST
-- id: post__metrics_rules_dashboard_auto
-  path: /metrics/rules/dashboard/auto
-  methods:
-  - POST
-  request:
-    method: POST
-- id: post__settings_tags_auto
-  path: /settings/tags/auto
-  methods:
-  - POST
-  request:
-    method: POST
-- id: get__settings_data_management
-  path: /settings/data-management
-  methods:
-  - GET
-  mask:
-  - <td class="small font-monospace text-truncate"[^>]*>[^<]*</td>\s*<td class="small" data-label="Size">[^<]*</td>\s*<td class="small" data-label="Ratio">[^<]*</td>\s*<td class="small" data-label="Rows">[^<]*</td>
-  - <td class="fw-semibold">[0-9][0-9.]* [A-Z]*B</td>
-  - "[0-9]+\\.[0-9]+\xD7|[0-9]+\xD7"
-  - <span class="text-(?:warning|success)">\s*[0-9]+
-  mask_reason: system.parts byte sizes/ratios, active-query count, and per-table breakdown (sorted by the varying size) are storage-dependent; the settings form + overall row count are byte-compared.
-- id: post__v1_ai
-  path: /v1/ai
-  methods:
-  - POST
-  request:
-    method: POST
-    json: {}
-- id: post__v1_errors
-  path: /v1/errors
-  methods:
-  - POST
-  request:
-    method: POST
-    json: {}
-- id: post__v1_rum
-  path: /v1/rum
-  methods:
-  - POST
-  request:
-    method: POST
-    json: {}
-- id: post__api_notifications_rules_auto_generate
-  path: /api/notifications/rules/auto-generate
-  methods:
-  - POST
-  request:
-    method: POST
-- id: post__api_enrichment_cve_scan
-  path: /api/enrichment/cve/scan
-  methods:
-  - POST
-  request:
-    method: POST
-    json: {}
 - id: post__settings_enrichment
   path: /settings/enrichment
   methods:
   - POST
   request:
     method: POST
-- id: post__api_mcp_keys
-  path: /api/mcp/keys
-  methods:
-  - POST
-  request:
-    method: POST
-    json: {}
-  mask:
-  - '"id":"[^"]*"'
-  - '"key":"[^"]*"'
-  mask_reason: id+key are cryptographically random (secrets.token_*); the rest (created_at frozen, label, expires_at, ok) is byte-compared.
 - id: post__api_notifications_vapid_keygen
   path: /api/notifications/vapid-keygen
   methods:
