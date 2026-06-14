@@ -1693,6 +1693,82 @@ routes:
   request:
     method: POST
     json: {}
+# otlpingest profile: non-empty OTLP-JSON batches exercise the real parse+insert; the response is
+# {"accepted": <count>}. Isolated profile so the inserted rows don't ripple into base otel readers.
+- id: post__v1_logs__ingest
+  path: /v1/logs
+  methods:
+  - POST
+  profile: otlpingest
+  request:
+    method: POST
+    json:
+      resourceLogs:
+      - resource:
+          attributes:
+          - key: service.name
+            value:
+              stringValue: api
+        scopeLogs:
+        - logRecords:
+          - timeUnixNano: '1704164645000000000'
+            severityText: ERROR
+            body:
+              stringValue: boom
+            attributes:
+            - key: event.name
+              value:
+                stringValue: request.failed
+- id: post__v1_traces__ingest
+  path: /v1/traces
+  methods:
+  - POST
+  profile: otlpingest
+  request:
+    method: POST
+    json:
+      resourceSpans:
+      - resource:
+          attributes:
+          - key: service.name
+            value:
+              stringValue: api
+        scopeSpans:
+        - spans:
+          - name: GET /
+            startTimeUnixNano: '1704164645000000000'
+            endTimeUnixNano: '1704164646000000000'
+            status:
+              code: 1
+            attributes:
+            - key: http.method
+              value:
+                stringValue: GET
+- id: post__v1_metrics__ingest
+  path: /v1/metrics
+  methods:
+  - POST
+  profile: otlpingest
+  request:
+    method: POST
+    json:
+      resourceMetrics:
+      - resource:
+          attributes:
+          - key: service.name
+            value:
+              stringValue: api
+        scopeMetrics:
+        - metrics:
+          - name: cpu.usage
+            gauge:
+              dataPoints:
+              - timeUnixNano: '1704164645000000000'
+                asDouble: 0.5
+                attributes:
+                - key: core
+                  value:
+                    stringValue: '0'
 - id: post__v1_rum_assets
   path: /v1/rum/assets
   methods:

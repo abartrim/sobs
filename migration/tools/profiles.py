@@ -98,6 +98,9 @@ PROFILES: dict[str, dict[str, str]] = {
     # cveosv: a seeded telemetry.sdk library so the cve scan reaches its OSV branch; the OSV mock
     # serves the canned /v1/query vuln response. No github token (backfill stays the 0/0/cap no-op).
     "cveosv": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
+    # otlpingest: a no-env isolation profile so the OTLP /v1/{logs,traces,metrics} ingest INSERTs
+    # (which would otherwise ripple into every otel reader) land in their own fixture copy.
+    "otlpingest": {},
     # refine: query/refine-chart — query gate on + the LLM endpoint pointed at the canned
     # /chat/completions mock (distinct path so its URL key is unique to this route).
     "refine": {

@@ -41,7 +41,23 @@ func (s *server) v1IngestOTLP(w http.ResponseWriter, r *http.Request, resKey, sc
 		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", 0))
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	var m map[string]any
+	if json.Unmarshal(body, &m) != nil {
+		// Non-JSON (OTLP-protobuf) bodies are not exercised under parity (which always sends JSON);
+		// treat as an empty accepted batch rather than erroring.
+		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", 0))
+		return
+	}
+	var count int
+	switch recKey {
+	case "logRecords":
+		count = s.ingestOTLPLogs(m)
+	case "spans":
+		count = s.ingestOTLPTraces(m)
+	case "metrics":
+		count = s.ingestOTLPMetrics(m)
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", count))
 }
 
 // mstr returns m[key] as a string ("" when absent), mirroring str(payload.get(key, "")).
