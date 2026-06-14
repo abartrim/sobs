@@ -1515,6 +1515,13 @@ routes:
       cond_type: signal
       cond_source: logs
       cond_signal: errors
+# Soft-delete a seeded report (mutator; nothing reads sobs_reports after the early readers).
+- id: post__reports_delete_ok
+  path: /reports/11111111-0000-4000-8000-0000000000a1/delete
+  methods:
+  - POST
+  request:
+    method: POST
 - id: post__settings_ai
   path: /settings/ai
   methods:

@@ -85,16 +85,27 @@ func flashRedirect(w http.ResponseWriter, category, message, location string) {
 	_, _ = w.Write([]byte(body))
 }
 
-// POST /reports/<report_id>/delete — app.py delete_report: a missing report flashes "Report
-// not found" and redirects to the reports list.
+// POST /reports/<report_id>/delete — app.py delete_report: soft-delete (re-insert IsDeleted=1)
+// and flash; a missing report flashes "Report not found".
 func (s *server) handleReportsFormSub(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/reports/")
 	if id, ok := strings.CutSuffix(rest, "/delete"); ok && r.Method == http.MethodPost {
-		if !s.rowExists("SELECT Id FROM sobs_reports FINAL WHERE IsDeleted = 0 AND Id = ?", id) {
+		res, err := s.db.Execute("SELECT Id, Name, Description, PageType, FiltersJson FROM sobs_reports FINAL WHERE IsDeleted = 0 AND Id = ?", id)
+		if err != nil || len(res.Rows) == 0 {
 			flashRedirect(w, "danger", "Report not found", "/reports")
 			return
 		}
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+		m := rowMaps(res)[0]
+		row := map[string]any{
+			"Id": id, "Name": cStr(m, "Name"), "Description": cStr(m, "Description"),
+			"PageType": cStr(m, "PageType"), "FiltersJson": cStr(m, "FiltersJson"),
+			"IsDeleted": 1, "Version": fixedVersionMillis(),
+		}
+		if _, err := s.insertRowsNormalized("sobs_reports", []map[string]any{row}); err != nil {
+			s.dbError(w, err)
+			return
+		}
+		flashRedirect(w, "success", fmt.Sprintf("Report '%s' deleted", cStr(m, "Name")), "/reports")
 		return
 	}
 	http.NotFound(w, r)
