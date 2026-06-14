@@ -44,14 +44,7 @@ func (s *server) handleApiTableExplorerTables(w http.ResponseWriter, r *http.Req
 	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("tables", tables))
 }
 
-// GET /api/kubernetes/status — app.py api_kubernetes_status(): guarded by _kubernetes_enabled.
-func (s *server) handleApiKubernetesStatus(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.KubernetesEnabled {
-		s.errorJSON(w, http.StatusNotFound, "Kubernetes health view is disabled.")
-		return
-	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
-}
+// handleApiKubernetesStatus is defined in k8s_status.go.
 
 // GET /api/notifications/vapid-public-key — 404 when no VAPID key is configured (parity).
 func (s *server) handleApiVapidPublicKey(w http.ResponseWriter, r *http.Request) {

@@ -229,6 +229,15 @@ routes:
   - GET
   request:
     method: GET
+# k8s profile: the view is enabled (boot flag + seeded kubernetes.enabled=1), but no k8s metrics
+# exist, so the status fetch returns its structured empty result with the "no data found" message.
+- id: get__api_kubernetes_status__enabled
+  path: /api/kubernetes/status
+  methods:
+  - GET
+  profile: k8s
+  request:
+    method: GET
 - id: get__api_notifications_vapid_public_key
   path: /api/notifications/vapid-public-key
   methods:

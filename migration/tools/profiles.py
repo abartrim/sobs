@@ -92,6 +92,8 @@ PROFILES: dict[str, dict[str, str]] = {
     # dmbackup: data_management.backup_enabled=1 so backup/run + restore reach their enabled branch
     # (no S3 configured -> deterministic "S3 bucket is not configured" / "backup_name is required").
     "dmbackup": {},
+    # k8s: Go boot flag on; Python reads the seeded kubernetes.enabled=1. No k8s metrics -> empty status.
+    "k8s": {"SOBS_KUBERNETES_ENABLED": "1"},
     # repoapp: a seeded registered app + release + github token so /settings/repositories/<id>/...
     # actions run their real branch; the github mock serves the token-validate /rate_limit call.
     "repoapp": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
@@ -166,6 +168,7 @@ SEEDED_PROFILES = {
     "notifgen",
     "agenttrigger",
     "dmbackup",
+    "k8s",
     "repoapp",
     "cveosv",
     "cvebackfill",

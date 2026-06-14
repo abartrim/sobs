@@ -350,6 +350,18 @@ def seed_agent_rule(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_agent_rules FINAL")
 
 
+def seed_k8s(db) -> None:
+    # Enable the Kubernetes health view (DB setting that Python's _kubernetes_enabled reads). The Go
+    # side reads the SOBS_KUBERNETES_ENABLED boot flag from the profile env. With no k8s metrics in
+    # otel_metrics, the status fetch returns the structured empty result.
+    _insert(
+        db,
+        "sobs_app_settings",
+        [{"Key": "kubernetes.enabled", "Value": "1", "UpdatedAt": _TS}],
+    )
+    db.execute("OPTIMIZE TABLE sobs_app_settings FINAL")
+
+
 def seed_dm_backup(db) -> None:
     # Enable the data-management backup feature so backup/run + restore reach their real work.
     # No S3 bucket is configured, so both short-circuit to a deterministic message (the actual
@@ -611,7 +623,8 @@ PROFILE_SEEDS = {
     "notifcheck": seed_notif,  # same rows; isolated so check doesn't see toggle/delete mutations
     "notifgen": seed_notif,  # channels+rules; auto-generate create inserts new rules (isolated)
     "agenttrigger": seed_agent_rule,  # analyze-only rule; trigger_agent_run runs the agent flow
-    "dmbackup": seed_dm_backup,  # backup_enabled=1; backup/run + restore reach their enabled branch
+    "dmbackup": seed_dm_backup,
+    "k8s": seed_k8s,  # backup_enabled=1; backup/run + restore reach their enabled branch
     "repoapp": seed_repo_app,  # registered app + release + github token; repositories-sub actions
     "cveosv": seed_cve_osv,  # telemetry.sdk row -> non-empty inventory -> OSV scan finds a vuln
     "cvebackfill": seed_repo_app,  # app+release+github token -> cve github backfill attempts a release
