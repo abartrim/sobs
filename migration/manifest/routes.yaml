@@ -1531,6 +1531,16 @@ routes:
   mask:
   - '"id":"[^"]*"'
   mask_reason: the created report id is a fresh uuid4 (random); name/description/page_type/filters are byte-compared.
+# Create an agent rule (mutator; sobs_agent_rules read only by the early agents page reader).
+- id: post__settings_agents_create_ok
+  path: /settings/agents
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      name: Deploy Watcher
+      trigger_type: manual
 # Soft-delete a seeded report (mutator; nothing reads sobs_reports after the early readers).
 - id: post__reports_delete_ok
   path: /reports/11111111-0000-4000-8000-0000000000a1/delete

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -639,11 +640,7 @@ func (s *server) handleViewWebTraffic(w http.ResponseWriter, r *http.Request) {
 // fixture; anomaly_rules has the 4 seeded rules; the trigger/action lists are constants.
 func (s *server) handleViewAgentRules(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		// app.py create_agent_rule: an empty form lacks the required name.
-		if s.formRequire(w, r, "name", "warning", "Rule name is required", "/settings/agents") {
-			return
-		}
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+		s.createAgentRule(w, r)
 		return
 	}
 	s.renderPage(w, "settings_agents.html", "view_agent_rules", map[string]any{
@@ -655,6 +652,56 @@ func (s *server) handleViewAgentRules(w http.ResponseWriter, r *http.Request) {
 		"trigger_states": []any{"warning", "critical", "any"},
 		"agent_actions":  []any{"analyze", "github_issue", "github_issue_copilot", "dlp_check"},
 	})
+}
+
+var agentTriggerTypes = map[string]bool{"anomaly_rule": true, "tag_rule": true, "manual": true}
+var agentTriggerStates = map[string]bool{"warning": true, "critical": true, "any": true}
+var agentActions = map[string]bool{"analyze": true, "github_issue": true, "github_issue_copilot": true, "dlp_check": true}
+
+// createAgentRule mirrors app.py create_agent_rule (POST /settings/agents): validate, insert,
+// flash + redirect. The inserted uuid id is not in the response.
+func (s *server) createAgentRule(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	loc := "/settings/agents"
+	name := strings.TrimSpace(r.PostFormValue("name"))
+	triggerType := orDefault(strings.ToLower(strings.TrimSpace(r.PostFormValue("trigger_type"))), "manual")
+	triggerState := orDefault(strings.ToLower(strings.TrimSpace(r.PostFormValue("trigger_state"))), "any")
+	rateLimit := 60
+	if v, err := strconv.Atoi(strings.TrimSpace(r.PostFormValue("rate_limit_minutes"))); err == nil {
+		rateLimit = clampInt(v, 1, 10080)
+	}
+	if name == "" {
+		flashRedirect(w, "warning", "Rule name is required", loc)
+		return
+	}
+	if !agentTriggerTypes[triggerType] {
+		flashRedirect(w, "warning", "Invalid trigger type: "+triggerType, loc)
+		return
+	}
+	if !agentTriggerStates[triggerState] {
+		flashRedirect(w, "warning", "Invalid trigger state: "+triggerState, loc)
+		return
+	}
+	valid := []string{}
+	for _, a := range r.PostForm["actions"] {
+		if agentActions[a] {
+			valid = append(valid, a)
+		}
+	}
+	if len(valid) == 0 {
+		valid = []string{"analyze"}
+	}
+	row := map[string]any{
+		"Id": newUUIDHex(), "Name": name, "Description": strings.TrimSpace(r.PostFormValue("description")),
+		"TriggerType": triggerType, "TriggerRefId": strings.TrimSpace(r.PostFormValue("trigger_ref_id")),
+		"TriggerState": triggerState, "Actions": strings.Join(valid, ","), "RateLimitMinutes": rateLimit,
+		"IsEnabled": 1, "IsDeleted": 0, "Version": fixedVersionMillis(),
+	}
+	if _, err := s.db.InsertJSONEachRow("sobs_agent_rules", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	flashRedirect(w, "success", fmt.Sprintf("Agent rule '%s' created", name), loc)
 }
 
 // GET /settings/mcp — mcp.py mcp_settings_page. now_iso is the frozen determinism clock.
