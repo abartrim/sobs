@@ -1,6 +1,7 @@
 # SOBS Python → Go: Functional Completion Target
 
-> **Status as of this audit:** 76 → **54 `not implemented` stubs remaining**. `parity_check.py` = **GREEN 250 / RED 0 / MISSING_GOLDEN 0 / UNCOVERED 0 / EXCLUDED 0**. Branch `claude/jolly-wu-5fc6a3` / PR #304.
+> **Status:** 76 → **46 `not implemented` stubs remaining**. `parity_check.py` = **GREEN 263 / RED 0 / MISSING_GOLDEN 0 / UNCOVERED 0 / EXCLUDED 0**. Branch `claude/jolly-wu-5fc6a3` / PR #304.
+> **G1 done:** agent/tag/metrics rule delete, create_metrics_rule, notifications/subscribe. **G3 done:** chart-spec compile foundation (`chart_spec.go`/`chart_builder_sql.go`), spec/compile, import/add/remove chart, delete_dashboard, add-to-dashboard, export_chart. **Also fixed:** v1 405 Allow ordering, Jinja `>`/`<` comparisons, agent/tag/notif readers that hardcoded empty lists. **Remaining G3:** spec/validate+dry-run+render, dashboards/query+render (need query exec + echarts render).
 
 ---
 
