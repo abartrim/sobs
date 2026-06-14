@@ -63,11 +63,13 @@ PROFILES: dict[str, dict[str, str]] = {
     # run in their own fixture copy so they don't ripple into the base registry/repository readers
     # (a profile pass = fresh fixture, and only this route runs in it).
     "createrepo": {},
+    # mcpkey: a seeded mcp.api_keys descriptor so DELETE /api/mcp/keys/<id> can revoke it.
+    "mcpkey": {},
 }
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via
 # `seed_fixtures.py --only-profile <name>`). Isolated to the profile — never seeded into base.
-SEEDED_PROFILES = {"agentrun", "notif", "githubtoken"}
+SEEDED_PROFILES = {"agentrun", "notif", "githubtoken", "mcpkey"}
 
 
 def route_profile(route: dict) -> str:

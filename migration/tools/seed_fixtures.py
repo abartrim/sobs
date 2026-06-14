@@ -411,10 +411,29 @@ def seed_github_token(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
 
 
+def seed_mcp_key(db) -> None:
+    # One MCP API key descriptor (mcp.api_keys is a JSON list in sobs_app_settings) so the
+    # DELETE /api/mcp/keys/<id> route can revoke it. Persisted via the app's own setter so the
+    # on-disk encoding matches exactly.
+    import json as _json
+
+    import app as _app
+
+    descriptor = {
+        "id": "mk-parity-0001",
+        "name": "Parity Key",
+        "prefix": "sk-parity",
+        "created_at": "2024-01-02T03:00:00+00:00",
+        "last_used_at": "",
+    }
+    _app._set_app_setting(db, "mcp.api_keys", _json.dumps([descriptor], ensure_ascii=False))
+
+
 PROFILE_SEEDS = {
     "agentrun": seed_agent_run,
     "notif": seed_notif,
     "githubtoken": seed_github_token,
+    "mcpkey": seed_mcp_key,
 }
 
 

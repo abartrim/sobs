@@ -1253,6 +1253,13 @@ routes:
   - DELETE
   request:
     method: DELETE
+- id: delete__api_mcp_keys__id__seeded
+  path: /api/mcp/keys/mk-parity-0001
+  methods:
+  - DELETE
+  profile: mcpkey
+  request:
+    method: DELETE
 - id: delete__api_notifications_vapid_keys
   path: /api/notifications/vapid-keys
   methods:

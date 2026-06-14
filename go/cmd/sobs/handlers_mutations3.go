@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"regexp"
@@ -26,24 +27,34 @@ func (s *server) handleMcpKeyByID(w http.ResponseWriter, r *http.Request) {
 	if raw == "" {
 		raw = "[]"
 	}
-	found := false
+	keys := []any{}
 	if v, err := parseJSONValue([]byte(raw)); err == nil {
 		if list, ok := v.([]any); ok {
-			for _, it := range list {
-				if o, ok := it.(*jsonenc.Object); ok {
-					if id, _ := o.Get("id"); id == keyID {
-						found = true
-						break
-					}
-				}
-			}
+			keys = list
 		}
 	}
-	if !found {
+	// mcp.py mcp_api_delete_key: drop the descriptor whose id matches; 404 if none did.
+	newKeys := []any{}
+	for _, it := range keys {
+		if o, ok := it.(*jsonenc.Object); ok {
+			if idv, _ := o.Get("id"); idv == keyID {
+				continue
+			}
+		}
+		newKeys = append(newKeys, it)
+	}
+	if len(newKeys) == len(keys) {
 		s.errorJSON(w, http.StatusNotFound, "Key not found.")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	saved := "[]"
+	if len(newKeys) > 0 {
+		if b, err := json.Marshal(newKeys); err == nil {
+			saved = string(b)
+		}
+	}
+	_ = s.setAppSetting("mcp.api_keys", saved)
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
 }
 
 // DELETE /api/notifications/vapid-keys — app.py delete_vapid_keys: clears the DB VAPID key
