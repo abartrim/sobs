@@ -406,19 +406,7 @@ func (s *server) handleApiDashboardsSpecRender(w http.ResponseWriter, r *http.Re
 
 // ---- Fixed-response success/guard ----------------------------------------------------
 
-// POST /api/issues/raise — app.py raise_issue_from_user_observation gates on AI config first;
-// the fixture has no ai.endpoint_url/ai.model, so it always returns 503.
-func (s *server) handleApiIssuesRaise(w http.ResponseWriter, r *http.Request) {
-	endpoint, _ := s.appSetting("ai.endpoint_url")
-	model, _ := s.appSetting("ai.model")
-	if endpoint == "" || model == "" {
-		writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().
-			Set("error", "AI endpoint not configured. Visit Settings -> AI Configuration.").
-			Set("ok", false))
-		return
-	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
-}
+// handleApiIssuesRaise is defined in agent_flow.go.
 
 // POST /api/mcp/enabled — app.py(mcp.py) mcp_api_set_enabled: enabled = bool(body.get(
 // "enabled", True)); persists and echoes. (The persist is an unobservable side effect here.)

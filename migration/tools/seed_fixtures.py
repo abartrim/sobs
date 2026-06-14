@@ -437,6 +437,21 @@ def seed_cve_osv(db) -> None:
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
 
 
+def seed_issues_raise(db) -> None:
+    # A global github repo + token so raise_issue_from_user_observation's agent flow resolves a
+    # github target and creates an issue (via the canned POST). The AI endpoints come from the
+    # profile env (agent mock paths), like agenttrigger.
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [
+            {"Key": "ai.github_repo", "Value": "acme/widget", "IsDeleted": 0, "Version": 1704164644000},
+            {"Key": "ai.github_token", "Value": "ghp_parity_token", "IsDeleted": 0, "Version": 1704164644000},
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+
+
 def seed_notif(db) -> None:
     # Two channels + two rules, each on its OWN id so toggle/delete don't collide on the
     # ReplacingMergeTree version (both actions re-insert at Version 1704164645000). Seed Version
@@ -601,6 +616,7 @@ PROFILE_SEEDS = {
     "cveosv": seed_cve_osv,  # telemetry.sdk row -> non-empty inventory -> OSV scan finds a vuln
     "cvebackfill": seed_repo_app,  # app+release+github token -> cve github backfill attempts a release
     "onboard": seed_repo_app,  # app+token -> onboarding create-issues realtime + github-issue paths
+    "issuesraise": seed_issues_raise,  # global github repo+token -> issues/raise agent flow creates an issue
     "githubtoken": seed_github_token,
     "mcpkey": seed_mcp_key,
     "aichat": seed_aichat,

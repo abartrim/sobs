@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/sobs/sobs/internal/jsonenc"
@@ -158,14 +160,28 @@ func (s *server) runAgentFlow(rule *agentRule, settings map[string]string, tctx 
 		analysis, suggestion = parseAgentAnalysis(reply)
 	}
 
-	// 3. DLP + GitHub issue creation — skipped unless a github action AND a resolved repo+token
-	// are present (the analyze-only parity rule has none). Full issue creation is a follow-up.
+	// 3. DLP + GitHub issue creation. The DLP sub-check needs ai.dlp_endpoint_url (unset here, so
+	// dlp_result stays "skipped"); the issue branch runs only with a github action AND a resolved
+	// repo+token. The dedup/reuse + copilot-assignment sub-branches are a follow-up (the parity
+	// fixture has no prior work items or open issues, so every issue is a fresh new_issue).
 	dlpResult := "skipped"
 	githubIssueURL := ""
+	issueOutcome := map[string]any{}
 	wantsIssue := rule.hasAction("github_issue") || rule.hasAction("github_issue_copilot")
-	_ = wantsIssue
-	_ = githubRepo
-	_ = githubToken
+	wantsCopilot := rule.hasAction("github_issue_copilot")
+	if wantsIssue && githubToken != "" && githubRepo != "" {
+		issueTitle := buildAgentIssueTitle(rule)
+		issueBody := "## SOBS Automated Agent Report\n\n" + analysis + "\n\n" + suggestion + "\n"
+		issueOutcome = s.chooseGithubIssueOutcome(githubRepo, githubToken, wantsCopilot, issueTitle, issueBody)
+		githubIssueURL = toStr(issueOutcome["issue_url"])
+		if githubIssueURL != "" || len(issueOutcome) > 0 {
+			s.persistOnboardingWorkItem(githubRepo, githubIssueURL, mapInt(issueOutcome, "canonical_issue_number"),
+				toStr(issueOutcome["issue_title"]), toStr(issueOutcome["issue_state"]),
+				toStr(issueOutcome["dedup_decision"]), "", toStr(issueOutcome["copilot_assignment_status"]),
+				toStr(issueOutcome["copilot_assignment_reason"]), mapInt(issueOutcome, "copilot_assignment_requested_at"),
+				"agent", rule.name)
+		}
+	}
 
 	updateRun(map[string]any{
 		"Status": "completed", "GuardDecision": guardDecision, "DlpResult": dlpResult,
@@ -179,10 +195,61 @@ func (s *server) runAgentFlow(rule *agentRule, settings map[string]string, tctx 
 		Set("analysis", analysis).
 		Set("suggestion", suggestion).
 		Set("github_issue_url", githubIssueURL).
-		Set("dedup_decision", "").
-		Set("issue_error", "").
-		Set("copilot_assignment_status", "").
-		Set("copilot_assignment_reason", ""), nil
+		Set("dedup_decision", toStr(issueOutcome["dedup_decision"])).
+		Set("issue_error", toStr(issueOutcome["issue_error"])).
+		Set("copilot_assignment_status", toStr(issueOutcome["copilot_assignment_status"])).
+		Set("copilot_assignment_reason", toStr(issueOutcome["copilot_assignment_reason"])), nil
+}
+
+// buildAgentIssueTitle mirrors _build_agent_issue_title (the title is sent to GitHub, never returned).
+func buildAgentIssueTitle(rule *agentRule) string {
+	focus := rule.name
+	if focus == "" {
+		focus = "Agent Rule"
+	}
+	return "[SOBS Agent] " + focus + " — detected anomaly"
+}
+
+// chooseGithubIssueOutcome mirrors the NEW-issue path of _choose_github_issue_outcome: with no prior
+// work items and no matching open issue, create a fresh issue. (The dedup/reuse + copilot branches
+// are a follow-up.)
+func (s *server) chooseGithubIssueOutcome(githubRepo, githubToken string, wantsCopilot bool, issueTitle, issueBody string) map[string]any {
+	allowNewIssue := s.countGithubIssuesLastHour() < agentMaxIssuesDefault
+	created := map[string]any{}
+	if allowNewIssue {
+		created = s.createGithubIssueRecord(githubToken, githubRepo, issueTitle, issueBody, []string{"sobs-agent", "automated"})
+	}
+	dedupDecision := "create_failed"
+	assignmentReason := ""
+	if toStr(created["issue_url"]) != "" {
+		dedupDecision = "new_issue"
+	} else if !allowNewIssue {
+		dedupDecision = "suppressed_rate_limit"
+		assignmentReason = "GitHub issue creation suppressed by hourly limit"
+	}
+	copilotStatus := "not_requested"
+	if wantsCopilot && dedupDecision != "new_issue" {
+		copilotStatus = "blocked"
+		if dedupDecision == "create_failed" {
+			assignmentReason = "issue not created"
+		}
+	}
+	return map[string]any{
+		"issue_url": toStr(created["issue_url"]), "issue_title": toStr(created["issue_title"]),
+		"issue_state": orDefault(toStr(created["issue_state"]), "open"), "dedup_decision": dedupDecision,
+		"canonical_issue_url": toStr(created["issue_url"]), "canonical_issue_number": mapInt(created, "issue_number"),
+		"occurrence_count": 1, "copilot_assignment_status": copilotStatus,
+		"copilot_assignment_reason": assignmentReason, "copilot_assignment_requested_at": 0,
+		"created_new_issue": toStr(created["issue_url"]) != "", "issue_error": toStr(created["error"]),
+	}
+}
+
+const agentMaxIssuesDefault = 5
+
+// countGithubIssuesLastHour mirrors _count_github_issues_last_hour.
+func (s *server) countGithubIssuesLastHour() int {
+	return s.countRows("SELECT count() FROM sobs_agent_runs FINAL WHERE IsDeleted=0 AND GithubIssueUrl != '' " +
+		"AND CreatedAt >= now() - INTERVAL 1 HOUR")
 }
 
 // handleTriggerAgentRun mirrors app.py trigger_agent_run (POST /api/agent/runs): validate rule_id,
@@ -227,6 +294,86 @@ func (s *server) handleTriggerAgentRun(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().
 		Set("ok", true).Set("run_id", outcome.runID).Set("result", outcome.result))
+}
+
+// handleApiIssuesRaise mirrors app.py raise_issue_from_user_observation: gate on AI config, then run
+// the agent flow (analyze + github_issue + dlp_check) for a synthetic user-observation rule.
+func (s *server) handleApiIssuesRaise(w http.ResponseWriter, r *http.Request) {
+	body := bodyMap(r)
+	sourcePage := strings.ToLower(strings.TrimSpace(orDefault(bstr(body, "source_page"), "errors")))
+	assignCopilot := bodyBool(body, "assign_copilot", false)
+	settings := map[string]string{
+		"ai.endpoint_url": s.loadAISetting("ai.endpoint_url", ""),
+		"ai.model":        s.loadAISetting("ai.model", ""),
+		"ai.github_repo":  s.loadAISetting("ai.github_repo", ""),
+		"ai.github_token": s.loadAISetting("ai.github_token", ""),
+	}
+	if strings.TrimSpace(settings["ai.endpoint_url"]) == "" || strings.TrimSpace(settings["ai.model"]) == "" {
+		writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().
+			Set("ok", false).Set("error", "AI endpoint not configured. Visit Settings -> AI Configuration."))
+		return
+	}
+	tctx := jsonenc.NewObject().
+		Set("rule_name", "User Raised Issue ("+sourcePage+")").Set("trigger_state", "user").
+		Set("trigger_type", "user_observation").Set("trigger_ref_id", "").
+		Set("extra", jsonenc.NewObject().Set("source_page", sourcePage).Set("mask_output", bodyBool(body, "mask_output", true)))
+	githubRepo, githubToken := s.resolveAgentGithubTarget(settings, tctx)
+	if githubRepo == "" || githubToken == "" {
+		writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().Set("ok", false).
+			Set("error", "GitHub repo/token not configured for issue creation. Visit Settings -> AI Configuration."))
+		return
+	}
+	actions := []string{"analyze", "github_issue", "dlp_check"}
+	if assignCopilot {
+		actions = append(actions, "github_issue_copilot")
+	}
+	rule := &agentRule{id: "user-observation-" + sourcePage, name: "User Raised Issue (" + sourcePage + ")",
+		actions: actions, rateLimitMinutes: 0}
+	outcome := s.runAgentRuleInstance(rule, settings, tctx)
+	if !outcome.ok {
+		writeJSON(w, http.StatusInternalServerError, jsonenc.NewObject().
+			Set("ok", false).Set("error", orDefault(outcome.err, "agent flow failed")).Set("run_id", outcome.runID))
+		return
+	}
+	res := outcome.result
+	issueURL := objGetStr(res, "github_issue_url")
+	dedupDecision := objGetStr(res, "dedup_decision")
+	issueError := strings.TrimSpace(objGetStr(res, "issue_error"))
+	if owner, repo, num := parseIssueRefFromURL(issueURL); owner == "" || repo == "" || num <= 0 {
+		issueError = orDefault(issueError, "Agent returned an invalid issue URL")
+		dedupDecision = "create_failed"
+		issueURL = ""
+	}
+	if issueURL == "" && dedupDecision == "create_failed" {
+		writeJSON(w, http.StatusBadGateway, jsonenc.NewObject().Set("ok", false).
+			Set("error", orDefault(issueError, "GitHub issue creation failed. Check repository settings and token scopes.")).
+			Set("run_id", outcome.runID).Set("source", "user").Set("source_page", sourcePage))
+		return
+	}
+	if issueURL == "" && dedupDecision == "suppressed_rate_limit" {
+		writeJSON(w, http.StatusTooManyRequests, jsonenc.NewObject().Set("ok", false).
+			Set("error", "GitHub issue creation suppressed by hourly limit. Try again later.").
+			Set("run_id", outcome.runID).Set("source", "user").Set("source_page", sourcePage))
+		return
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).Set("run_id", outcome.runID).Set("source", "user").Set("source_page", sourcePage).
+		Set("issue_url", issueURL).Set("dedup_decision", dedupDecision).
+		Set("copilot_assignment_status", objGetStr(res, "copilot_assignment_status")).
+		Set("copilot_assignment_reason", objGetStr(res, "copilot_assignment_reason")).
+		Set("status", objGetStr(res, "status")))
+}
+
+var issueRefRE = regexp.MustCompile(`github\.com/([^/]+)/([^/]+)/issues/(\d+)`)
+
+// parseIssueRefFromURL mirrors _parse_issue_ref_from_url.
+func parseIssueRefFromURL(issueURL string) (string, string, int) {
+	m := issueRefRE.FindStringSubmatch(issueURL)
+	if m == nil {
+		return "", "", 0
+	}
+	n, _ := strconv.Atoi(m[3])
+	return m[1], m[2], n
 }
 
 // normalizeCHTimestampNow mirrors _normalize_ch_timestamp(datetime.now(timezone.utc)).

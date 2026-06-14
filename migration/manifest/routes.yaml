@@ -1182,6 +1182,20 @@ routes:
   request:
     method: POST
     json: {}
+# issuesraise profile: AI configured (agent mock) + a global github repo+token. The agent flow runs
+# (guard -> analyze -> github issue create via the canned POST) and returns the new issue URL. run_id
+# is a fresh uuid.
+- id: post__api_issues_raise__create
+  path: /api/issues/raise
+  methods:
+  - POST
+  profile: issuesraise
+  request:
+    method: POST
+    json: {}
+  mask:
+  - '"run_id": ?"[^"]*"'
+  mask_reason: run_id is a server-generated uuid4; issue_url/dedup_decision/status/copilot fields are byte-compared.
 - id: post__api_reports_import
   path: /api/reports/import
   methods:
