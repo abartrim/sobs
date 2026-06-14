@@ -919,6 +919,65 @@ routes:
   request:
     method: POST
     json: {}
+# dashboards/render with non-empty results across the standard templates (synthetic literal
+# queries) -> the echarts option after binding + deep-substitute + drilldown. Plus the empty
+# (placeholder) path. (custom_echarts + derived_signal_overlay render are a later phase.)
+- id: post__api_dashboards_render_gauge
+  path: /api/dashboards/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      template_id: gauge_kpi
+      query: SELECT 99.5 AS value
+- id: post__api_dashboards_render_timeseries
+  path: /api/dashboards/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      template_id: time_series_percentiles
+      query: SELECT toDateTime('2024-01-01 00:00:00') AS time, 2.0 AS value, 3.0 AS p95, 4.0 AS p99
+- id: post__api_dashboards_render_dualaxis
+  path: /api/dashboards/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      template_id: dual_axis_anomaly
+      query: SELECT toDateTime('2024-01-01 00:00:00') AS time, 5.0 AS metric, 0.3 AS anomaly_score
+- id: post__api_dashboards_render_anomaly
+  path: /api/dashboards/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      template_id: anomaly_overlay
+      query: SELECT toDateTime('2024-01-01 00:00:00') AS time, 5.0 AS value, 4.0 AS baseline_mean, 2.0 AS baseline_lower, 6.0 AS baseline_upper, 'normal' AS anomaly_state
+- id: post__api_dashboards_render_heatmap
+  path: /api/dashboards/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      template_id: heatmap
+      query: SELECT 'svc-a' AS x_category, toDateTime('2024-01-01 00:00:00') AS y_category, 7.0 AS value
+- id: post__api_dashboards_render_boxplot
+  path: /api/dashboards/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      template_id: box_plot
+      query: SELECT 'dim1' AS dimension, 1.0 AS min, 2.0 AS q1, 3.0 AS median, 4.0 AS q3, 5.0 AS max
+- id: post__api_dashboards_render_empty
+  path: /api/dashboards/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      template_id: time_series_percentiles
+      query: SELECT 1 AS time, 2 AS value WHERE 1=0
 - id: post__api_settings_masking_preview
   path: /api/settings/masking/preview
   methods:

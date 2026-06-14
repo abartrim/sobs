@@ -168,13 +168,36 @@ func specSQLMode(m map[string]any) string {
 	return strings.TrimSpace(mode)
 }
 
-// POST /api/dashboards/render — empty query -> {"error":"Query cannot be empty"}.
+// POST /api/dashboards/render — app.py render_chart: execute a query and render it with a
+// template to produce the eCharts option.
 func (s *server) handleApiDashboardsRender(w http.ResponseWriter, r *http.Request) {
-	if bstr(bodyMap(r), "query") == "" {
-		errorOnly(w, http.StatusBadRequest, "Query cannot be empty")
+	m := bodyMap(r)
+	query := bstr(m, "query")
+	templateID := strings.TrimSpace(orDefault(bstr(m, "template_id"), "time_series_percentiles"))
+	if e := validateChartQuery(query); e != "" {
+		errorOnly(w, http.StatusBadRequest, e)
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	if _, ok := chartTemplateMeta[templateID]; !ok {
+		errorOnly(w, http.StatusBadRequest, "Unknown template: "+templateID)
+		return
+	}
+	res, err := s.db.Execute(injectLimit(query, 1000))
+	if err != nil {
+		errorOnly(w, http.StatusBadRequest, publicDashboardQueryError(err))
+		return
+	}
+	columns, rows := serializeQueryDictRows(res)
+	option, errMsg := s.renderChartFromTemplate(templateID, columns, rows, nil)
+	if errMsg == renderNotImplemented {
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
+	if errMsg != "" {
+		errorOnly(w, http.StatusBadRequest, errMsg)
+		return
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("option", option))
 }
 
 // specModeGuard rejects a spec whose sql.mode is not 'builder' or 'raw' (the first gate in

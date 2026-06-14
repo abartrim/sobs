@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sobs/sobs/internal/jsonenc"
 	"github.com/sobs/sobs/internal/store"
@@ -84,8 +85,35 @@ func chQueryValue(v any, chType string) any {
 				return f
 			}
 		}
+	case strings.HasPrefix(base, "DateTime") || strings.HasPrefix(base, "Date"):
+		// The Python chdb driver returns Date/DateTime cells as datetime objects, which Flask
+		// jsonify renders as an RFC-822 http_date ("Mon, 02 Jan 2006 15:04:05 GMT").
+		if str, ok := v.(string); ok {
+			if d := flaskHTTPDate(str); d != "" {
+				return d
+			}
+		}
 	}
 	return v
+}
+
+// flaskHTTPDate parses a chdb Date/DateTime string and renders Flask's http_date (UTC, RFC-822,
+// no sub-second). Returns "" when unparseable.
+func flaskHTTPDate(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	for _, layout := range drilldownTimeLayouts {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t.UTC().Format("Mon, 02 Jan 2006 15:04:05") + " GMT"
+		}
+	}
+	// Date-only.
+	if t, err := time.Parse("2006-01-02", raw); err == nil {
+		return t.UTC().Format("Mon, 02 Jan 2006 15:04:05") + " GMT"
+	}
+	return ""
 }
 
 // serializeQueryResult mirrors app.py's `columns = keys if rows else []` + row-as-list shaping.
@@ -109,6 +137,31 @@ func serializeQueryResult(res *store.Result) (columns []any, rows []any) {
 		rows = append(rows, rec)
 	}
 	return
+}
+
+// serializeQueryDictRows mirrors the render handlers' shaping: columns = first row's keys (or
+// [] when empty), rows = list-of-dicts (column name -> typed-serialized value).
+func serializeQueryDictRows(res *store.Result) ([]any, []map[string]any) {
+	if len(res.Rows) == 0 {
+		return []any{}, []map[string]any{}
+	}
+	columns := make([]any, len(res.Columns))
+	for i, c := range res.Columns {
+		columns[i] = c
+	}
+	rows := make([]map[string]any, len(res.Rows))
+	for i, row := range res.Rows {
+		m := map[string]any{}
+		for j, c := range res.Columns {
+			t := ""
+			if j < len(res.Types) {
+				t = res.Types[j]
+			}
+			m[c] = chQueryValue(row[j], t)
+		}
+		rows[i] = m
+	}
+	return columns, rows
 }
 
 // injectLimit appends " LIMIT n" when the query has no LIMIT (mirrors the spec/query routes).
