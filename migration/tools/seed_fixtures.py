@@ -449,6 +449,22 @@ def seed_cve_osv(db) -> None:
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
 
 
+def seed_tagauto(db) -> None:
+    # 30 recent otel_logs rows for a single prod-named service so auto_tag_rules' in-window branch
+    # finds EXACTLY one candidate ("log env=production", point_count=30). Seeded at now()-1h (real
+    # wall-clock, NOT the frozen 2024 epoch) so the rows land inside the 24h scan window; the base
+    # fixture has nothing in-window, so this is the only candidate. The candidate output
+    # (service/operator/tag/count) is timestamp-independent, so capture and replay — seeded at
+    # different real times — produce byte-identical goldens. SeverityNumber/EventName stay at
+    # their column defaults (0 / '') so the error-branch scan excludes these rows.
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, Body) "
+        "SELECT now() - INTERVAL 1 HOUR, 'checkout-prod', 'request handled' "
+        "FROM numbers(30)"
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+
 def seed_issues_raise(db) -> None:
     # A global github repo + token so raise_issue_from_user_observation's agent flow resolves a
     # github target and creates an issue (via the canned POST). The AI endpoints come from the
@@ -647,6 +663,7 @@ PROFILE_SEEDS = {
     "k8s": seed_k8s,  # backup_enabled=1; backup/run + restore reach their enabled branch
     "repoapp": seed_repo_app,  # registered app + release + github token; repositories-sub actions
     "cveosv": seed_cve_osv,  # telemetry.sdk row -> non-empty inventory -> OSV scan finds a vuln
+    "tagauto": seed_tagauto,  # 30 recent prod-service logs -> auto_tag_rules in-window candidate
     "cvebackfill": seed_repo_app,  # app+release+github token -> cve github backfill attempts a release
     "onboard": seed_repo_app,  # app+token -> onboarding create-issues realtime + github-issue paths
     "issuesraise": seed_issues_raise,  # global github repo+token -> issues/raise agent flow creates an issue

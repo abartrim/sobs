@@ -32,31 +32,114 @@ func (s *server) handleSettingsTagsAuto(w http.ResponseWriter, r *http.Request) 
 		http.NotFound(w, r)
 		return
 	}
-	inWindow := s.countRows("SELECT count() FROM otel_logs WHERE Timestamp >= now() - INTERVAL 24 HOUR") +
-		s.countRows("SELECT count() FROM otel_traces WHERE Timestamp >= now() - INTERVAL 24 HOUR") +
-		s.countRows("SELECT count() FROM hyperdx_sessions WHERE Timestamp >= now() - INTERVAL 24 HOUR")
-	if inWindow != 0 {
-		http.Error(w, "not implemented", http.StatusNotImplemented) // candidate generation is a follow-up
+	_ = r.ParseForm()
+
+	rawAction := r.PostFormValue("action")
+	if rawAction == "" {
+		rawAction = "preview"
+	}
+	action := strings.ToLower(strings.TrimSpace(rawAction))
+
+	hours := 24
+	if raw := r.PostFormValue("hours"); raw != "" {
+		if v, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
+			hours = v
+			if hours < 1 {
+				hours = 1
+			} else if hours > 168 {
+				hours = 168
+			}
+		}
+	}
+	minCount := 30
+	if raw := r.PostFormValue("min_count"); raw != "" {
+		if v, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
+			minCount = v
+			if minCount < 1 {
+				minCount = 1
+			} else if minCount > 5000 {
+				minCount = 5000
+			}
+		}
+	}
+	serviceFilter := strings.TrimSpace(r.PostFormValue("service_filter"))
+
+	selected := []string{}
+	for _, rt := range r.PostForm["auto_record_types"] {
+		if v := strings.ToLower(strings.TrimSpace(rt)); v != "" {
+			selected = append(selected, v)
+		}
+	}
+	if len(selected) == 0 {
+		selected = []string{"log", "trace", "error", "ai", "rum"}
+	}
+
+	rules := s.loadTagRulesCtx()
+	services := s.listTagCandidateServices()
+	candidates, stats := s.buildAutoTagRuleCandidates(hours, minCount, serviceFilter, selected)
+
+	const createMax = 200
+	summary := jsonenc.NewObject().
+		Set("action", action).Set("hours", hours).Set("min_count", minCount).
+		Set("service_filter", serviceFilter).Set("record_types", strsToAny(selected)).
+		Set("examined", stats["examined"]).Set("existing", stats["existing"]).
+		Set("invalid", stats["invalid"]).Set("candidates", len(candidates)).
+		Set("create_cap", createMax).Set("capped", len(candidates) > createMax).Set("created", 0)
+
+	if action == "create" {
+		limited := candidates
+		if len(limited) > createMax {
+			limited = limited[:createMax]
+		}
+		rowsToInsert := []map[string]any{}
+		base := fixedVersionMillis()
+		for idx, cv := range limited {
+			c := cv.(map[string]any)
+			rts := []string{}
+			for _, t := range c["record_types"].([]any) {
+				rts = append(rts, fmt.Sprintf("%v", t))
+			}
+			condList := []any{map[string]any{
+				"match_field": c["match_field"], "match_operator": c["match_operator"],
+				"match_value": c["match_value"], "match_attr_key": c["match_attr_key"],
+			}}
+			condJSON, _ := json.Marshal(condList)
+			rowsToInsert = append(rowsToInsert, map[string]any{
+				"Id": newUUIDv4(), "Name": c["name"], "RecordTypes": strings.Join(rts, ","),
+				"MatchField": c["match_field"], "MatchOperator": c["match_operator"],
+				"MatchValue": c["match_value"], "MatchAttrKey": c["match_attr_key"],
+				"TagKey": c["tag_key"], "TagValue": c["tag_value"], "ConditionsJson": string(condJSON),
+				"IsDeleted": 0, "Version": base + int64(idx),
+			})
+		}
+		if len(rowsToInsert) > 0 {
+			if _, err := s.insertRowsNormalized("sobs_tag_rules", rowsToInsert); err != nil {
+				s.dbError(w, err)
+				return
+			}
+		}
+		skippedByCap := len(candidates) - len(limited)
+		capSuffix := "."
+		if skippedByCap > 0 {
+			capSuffix = fmt.Sprintf(", skipped %d by max cap (%d).", skippedByCap, createMax)
+		}
+		flashRedirect(w, "success", fmt.Sprintf(
+			"Auto tag rule generation complete: created %d rule(s), skipped %d existing, %d invalid%s",
+			len(rowsToInsert), stats["existing"], stats["invalid"], capSuffix),
+			"/settings/tags?open_panel=auto-tags")
 		return
 	}
-	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM (" +
-		"  SELECT ServiceName FROM otel_logs " +
-		"  UNION DISTINCT SELECT ServiceName FROM otel_traces " +
-		"  UNION DISTINCT SELECT ServiceName FROM hyperdx_sessions)")
-	summary := jsonenc.NewObject().
-		Set("action", "preview").Set("hours", 24).Set("min_count", 30).Set("service_filter", "").
-		Set("record_types", []any{"log", "trace", "error", "ai", "rum"}).
-		Set("examined", 0).Set("existing", 0).Set("invalid", 0).Set("candidates", 0).
-		Set("create_cap", 200).Set("capped", false).Set("created", 0)
+
 	s.renderPageFlash(w, "settings_tags.html", "auto_tag_rules", "info",
-		"Auto-tag preview: 0 candidate(s), 0 existing skipped, 0 invalid.",
+		fmt.Sprintf("Auto-tag preview: %d candidate(s), %d existing skipped, %d invalid.",
+			len(candidates), stats["existing"], stats["invalid"]),
 		map[string]any{
-			"rules": s.loadTagRulesCtx(), "edit_rule": nil,
+			"rules": rules, "edit_rule": nil,
 			"record_types":    []any{"log", "trace", "error", "ai", "rum", "all"},
 			"match_fields":    []any{"service_name", "severity", "body", "span_name", "event_type", "attribute"},
 			"match_operators": []any{"eq", "contains", "regex"},
 			"services":        services,
-			"auto_preview":    []any{}, "auto_summary": summary, "auto_open_panel": "auto-tags",
+			"auto_preview":    candidates, "auto_summary": summary, "auto_open_panel": "auto-tags",
 		})
 }
 

@@ -2301,6 +2301,16 @@ routes:
   - POST
   request:
     method: POST
+# Same route under the tagauto profile: 30 recent prod-service otel_logs rows put the scan
+# in-window, so the preview renders one candidate ("log env=production", 30 points) instead of
+# the empty-window 0-candidate page. Exercises _build_auto_tag_rule_candidates' real success path.
+- id: post__settings_tags_auto_window
+  path: /settings/tags/auto
+  profile: tagauto
+  methods:
+  - POST
+  request:
+    method: POST
 - id: post__v1_ai
   path: /v1/ai
   methods:

@@ -106,6 +106,9 @@ PROFILES: dict[str, dict[str, str]] = {
     # otlpingest: a no-env isolation profile so the OTLP /v1/{logs,traces,metrics} ingest INSERTs
     # (which would otherwise ripple into every otel reader) land in their own fixture copy.
     "otlpingest": {},
+    # tagauto: 30 recent prod-service otel_logs rows so auto_tag_rules' in-window branch generates
+    # one candidate. No env overlay — just the (isolated) seed. Timestamp-independent output.
+    "tagauto": {},
     # onboard: a seeded app+token so onboarding create-issues runs its realtime path (rotate CI key)
     # and its github-issue path (open-issue search 404s -> empty -> create via the canned POST).
     "onboard": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
@@ -174,6 +177,7 @@ SEEDED_PROFILES = {
     "k8s",
     "repoapp",
     "cveosv",
+    "tagauto",
     "cvebackfill",
     "onboard",
     "issuesraise",
