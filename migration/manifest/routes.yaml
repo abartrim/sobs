@@ -1641,6 +1641,23 @@ routes:
   mask:
   - '"public_key":"[^"]*"'
   mask_reason: public_key is a random EC P-256 keypair (must be random for security); env_override/note/ok/saved_to_db are byte-compared.
+# Create a metrics rule (mutator; sobs_anomaly_rules read by readers + auto-routes above).
+# The flash message carries the rule name (deterministic); the inserted id is an unread uuid.
+- id: post__metrics_rules_create_ok
+  path: /metrics/rules
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      name: API Latency Guard
+      source: traces
+      signal: latency_p95_ms
+      service: api
+      comparator: gt
+      warning_threshold: '120'
+      critical_threshold: '300'
+      min_sample_count: '5'
 # --- Soft-delete success paths (mutators; ordered AFTER every reader of their tables, and
 # --- after the metrics auto-routes that read sobs_anomaly_rules). Each targets a fixed-id
 # --- seeded record and flashes a deterministic "<thing> '<name>' deleted" message.

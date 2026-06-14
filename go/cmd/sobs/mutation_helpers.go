@@ -43,6 +43,17 @@ func fixedVersionMillis() int64 { return nowUTC().UnixMilli() }
 // explicit `id`, so this is never reached under capture/replay (uuid is not parity-frozen in Go).
 func newUUIDHex() string { return hex.EncodeToString(randBytes(16)) }
 
+// newUUIDv4 mirrors str(uuid.uuid4()) — the dashed 36-char v4 form used by app.py inserts
+// whose id is server-generated. Parity test bodies pass explicit ids or never read the row
+// back, so the exact random value is never compared.
+func newUUIDv4() string {
+	b := randBytes(16)
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant
+	h := hex.EncodeToString(b)
+	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32]
+}
+
 // toStr mirrors Python str(): used for payload values that app.py wraps in str(...).
 func toStr(v any) string {
 	switch t := v.(type) {

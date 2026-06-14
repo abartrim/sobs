@@ -476,14 +476,7 @@ func (s *server) listDerivedSignalDimensions() (services, signals, sources []any
 // GET /metrics/rules — app.py view_metrics_rules.
 func (s *server) handleViewMetricsRules(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		// app.py create_metric_rule: an empty form lacks the required name/source/signal and
-		// flashes a warning without inserting.
-		_ = r.ParseForm()
-		if r.PostFormValue("name") == "" || r.PostFormValue("source") == "" || r.PostFormValue("signal") == "" {
-			flashRedirect(w, "warning", "Rule name, source, and signal are required", "/metrics/rules")
-			return
-		}
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+		s.createMetricsRule(w, r)
 		return
 	}
 	openPanel := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("open_panel")))
@@ -502,6 +495,112 @@ func (s *server) handleViewMetricsRules(w http.ResponseWriter, r *http.Request) 
 		"auto_dashboard_summary": nil,
 		"auto_open_panel":        openPanel,
 	})
+}
+
+// pyFloat mirrors Python float(str): strips surrounding whitespace, accepts int/float/exponent
+// forms. Returns ok=false on parse failure (Python would raise ValueError).
+func pyFloat(s string) (float64, bool) {
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	return f, err == nil
+}
+
+// createMetricsRule mirrors app.py create_metrics_rule (POST /metrics/rules): validate the
+// form, insert one sobs_anomaly_rules row, flash success. Validation flash messages and order
+// match app.py exactly so the warning branches stay byte-identical.
+func (s *server) createMetricsRule(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	loc := "/metrics/rules"
+	g := func(k string) string { return strings.TrimSpace(r.PostFormValue(k)) }
+	name, source, signal := g("name"), g("source"), g("signal")
+	ruleType := strings.ToLower(orDefault(g("rule_type"), "threshold"))
+	service, attrFp := g("service"), g("attr_fp")
+	comparator := strings.ToLower(orDefault(g("comparator"), "gt"))
+	secondarySource, secondarySignal := g("secondary_source"), g("secondary_signal")
+	secondaryComparator := strings.ToLower(orDefault(g("secondary_comparator"), "gt"))
+
+	if name == "" || source == "" || signal == "" {
+		flashRedirect(w, "warning", "Rule name, source, and signal are required", loc)
+		return
+	}
+	if ruleType != "threshold" && ruleType != "composite" {
+		flashRedirect(w, "warning", "Rule type must be 'threshold' or 'composite'", loc)
+		return
+	}
+	if comparator != "gt" && comparator != "lt" {
+		flashRedirect(w, "warning", "Comparator must be 'gt' or 'lt'", loc)
+		return
+	}
+	if secondaryComparator != "gt" && secondaryComparator != "lt" {
+		flashRedirect(w, "warning", "Secondary comparator must be 'gt' or 'lt'", loc)
+		return
+	}
+	// Python: float(... or "") -> empty thresholds raise; min_sample_count int(... or 1).
+	warnTh, ok1 := pyFloat(r.PostFormValue("warning_threshold"))
+	critTh, ok2 := pyFloat(r.PostFormValue("critical_threshold"))
+	minSample := 1
+	msRaw := strings.TrimSpace(r.PostFormValue("min_sample_count"))
+	ok3 := true
+	if msRaw != "" {
+		if v, err := strconv.Atoi(msRaw); err == nil {
+			minSample = v
+		} else {
+			ok3 = false
+		}
+	}
+	if minSample < 1 {
+		minSample = 1
+	}
+	secWarn, ok4 := 0.0, true
+	if v := strings.TrimSpace(r.PostFormValue("secondary_warning_threshold")); v != "" {
+		secWarn, ok4 = pyFloat(v)
+	}
+	secCrit, ok5 := 0.0, true
+	if v := strings.TrimSpace(r.PostFormValue("secondary_critical_threshold")); v != "" {
+		secCrit, ok5 = pyFloat(v)
+	}
+	if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 {
+		flashRedirect(w, "warning", "Thresholds must be numeric and sample count must be an integer", loc)
+		return
+	}
+	if comparator == "gt" && critTh < warnTh {
+		flashRedirect(w, "warning", "For 'gt' rules, critical threshold must be >= warning threshold", loc)
+		return
+	}
+	if comparator == "lt" && critTh > warnTh {
+		flashRedirect(w, "warning", "For 'lt' rules, critical threshold must be <= warning threshold", loc)
+		return
+	}
+	if ruleType == "composite" {
+		if secondarySource == "" || secondarySignal == "" {
+			flashRedirect(w, "warning", "Composite rules require a secondary source and signal", loc)
+			return
+		}
+		if secondaryComparator == "gt" && secCrit < secWarn {
+			flashRedirect(w, "warning", "For secondary 'gt' rules, critical threshold must be >= warning threshold", loc)
+			return
+		}
+		if secondaryComparator == "lt" && secCrit > secWarn {
+			flashRedirect(w, "warning", "For secondary 'lt' rules, critical threshold must be <= warning threshold", loc)
+			return
+		}
+	} else {
+		secondarySource, secondarySignal, secondaryComparator = "", "", "gt"
+		secWarn, secCrit = 0.0, 0.0
+	}
+	row := map[string]any{
+		"Id": newUUIDv4(), "Name": name, "RuleType": ruleType,
+		"SignalSource": source, "SignalName": signal, "ServiceName": service, "AttrFingerprint": attrFp,
+		"Comparator": comparator, "WarningThreshold": warnTh, "CriticalThreshold": critTh,
+		"SecondarySignalSource": secondarySource, "SecondarySignalName": secondarySignal,
+		"SecondaryComparator": secondaryComparator, "SecondaryWarningThreshold": secWarn,
+		"SecondaryCriticalThreshold": secCrit, "MinSampleCount": minSample,
+		"IsDeleted": 0, "Version": fixedVersionMillis(),
+	}
+	if _, err := s.insertRowsNormalized("sobs_anomaly_rules", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	flashRedirect(w, "success", "Rule '"+name+"' created", loc)
 }
 
 // GET /settings/notifications — app.py view_notifications. Channels/rules/log empty on the
