@@ -743,6 +743,34 @@ routes:
   request:
     method: POST
     json: {}
+# dmbackup profile: backup_enabled=1 (seeded). With no S3 bucket configured, the enabled branch
+# returns a deterministic message — the route's real work short of an actual ClickHouse BACKUP.
+- id: post__api_data_management_backup_run__enabled
+  path: /api/data-management/backup/run
+  methods:
+  - POST
+  profile: dmbackup
+  request:
+    method: POST
+    json:
+      type: full
+- id: post__api_data_management_restore__enabled_noname
+  path: /api/data-management/restore
+  methods:
+  - POST
+  profile: dmbackup
+  request:
+    method: POST
+    json: {}
+- id: post__api_data_management_restore__enabled_named
+  path: /api/data-management/restore
+  methods:
+  - POST
+  profile: dmbackup
+  request:
+    method: POST
+    json:
+      backup_name: sobs-full-20240102T030000Z
 - id: post__api_query_ask
   path: /api/query/ask
   methods:

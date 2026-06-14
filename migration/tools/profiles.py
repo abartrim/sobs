@@ -89,6 +89,9 @@ PROFILES: dict[str, dict[str, str]] = {
     # notifgen: seeded channels+rules so auto-generate *create* runs its insert branch (derives a
     # notification rule per uncovered anomaly rule); isolated so the new rows don't ripple.
     "notifgen": {},
+    # dmbackup: data_management.backup_enabled=1 so backup/run + restore reach their enabled branch
+    # (no S3 configured -> deterministic "S3 bucket is not configured" / "backup_name is required").
+    "dmbackup": {},
     # refine: query/refine-chart — query gate on + the LLM endpoint pointed at the canned
     # /chat/completions mock (distinct path so its URL key is unique to this route).
     "refine": {
@@ -126,6 +129,7 @@ SEEDED_PROFILES = {
     "notifcheck",
     "notifgen",
     "agenttrigger",
+    "dmbackup",
     "githubtoken",
     "mcpkey",
     "aichat",

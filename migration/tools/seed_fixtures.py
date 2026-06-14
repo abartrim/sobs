@@ -350,6 +350,18 @@ def seed_agent_rule(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_agent_rules FINAL")
 
 
+def seed_dm_backup(db) -> None:
+    # Enable the data-management backup feature so backup/run + restore reach their real work.
+    # No S3 bucket is configured, so both short-circuit to a deterministic message (the actual
+    # BACKUP ALL TO S3 needs a real bucket).
+    _insert(
+        db,
+        "sobs_app_settings",
+        [{"Key": "data_management.backup_enabled", "Value": "1", "UpdatedAt": _TS}],
+    )
+    db.execute("OPTIMIZE TABLE sobs_app_settings FINAL")
+
+
 def seed_notif(db) -> None:
     # Two channels + two rules, each on its OWN id so toggle/delete don't collide on the
     # ReplacingMergeTree version (both actions re-insert at Version 1704164645000). Seed Version
@@ -509,6 +521,7 @@ PROFILE_SEEDS = {
     "notifcheck": seed_notif,  # same rows; isolated so check doesn't see toggle/delete mutations
     "notifgen": seed_notif,  # channels+rules; auto-generate create inserts new rules (isolated)
     "agenttrigger": seed_agent_rule,  # analyze-only rule; trigger_agent_run runs the agent flow
+    "dmbackup": seed_dm_backup,  # backup_enabled=1; backup/run + restore reach their enabled branch
     "githubtoken": seed_github_token,
     "mcpkey": seed_mcp_key,
     "aichat": seed_aichat,

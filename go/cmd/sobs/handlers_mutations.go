@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/sobs/sobs/internal/jsonenc"
@@ -165,14 +166,111 @@ func (s *server) handleApiQueryAddToDashboard(w http.ResponseWriter, r *http.Req
 }
 
 // POST /api/data-management/backup/run and /restore — app.py: 403 when the backup feature
-// is disabled (data_management.backup_enabled off by default on the fixture).
+// is disabled (default), else run the ClickHouse BACKUP/RESTORE. Without a configured S3 bucket
+// both short-circuit to a deterministic message (the actual BACKUP ALL TO S3 needs real S3).
 func (s *server) handleDmBackupGuard(w http.ResponseWriter, r *http.Request) {
 	if !s.appSettingBool("data_management.backup_enabled", false) {
 		writeJSON(w, http.StatusForbidden,
 			jsonenc.NewObject().Set("ok", false).Set("message", "Backup feature is disabled"))
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented) // enabled branch: follow-up
+	if strings.HasSuffix(r.URL.Path, "/restore") {
+		body := bodyMap(r)
+		backupName := strings.TrimSpace(bstr(body, "backup_name"))
+		if backupName != "" && !dmBackupNameRE.MatchString(backupName) {
+			writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().
+				Set("ok", false).Set("message", "backup_name contains unsupported characters"))
+			return
+		}
+		ok, msg := s.runDmRestore(backupName)
+		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", ok).Set("message", msg))
+		return
+	}
+	backupType := strings.ToLower(bstr(bodyMap(r), "type"))
+	if backupType != "full" && backupType != "incremental" {
+		backupType = "full"
+	}
+	ok, msg := s.runDmBackup(backupType)
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", ok).Set("message", msg))
+}
+
+var dmBackupNameRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,200}$`)
+
+// dmS3Bucket returns the configured S3 bucket (empty if unset).
+func (s *server) dmS3Bucket() string {
+	v, _ := s.appSetting("data_management.s3_bucket")
+	return strings.TrimSpace(v)
+}
+
+// runDmBackup mirrors app.py _run_dm_backup: a missing S3 bucket short-circuits; otherwise a
+// ClickHouse BACKUP ALL TO S3(...) is issued (reached only when S3 is configured).
+func (s *server) runDmBackup(backupType string) (bool, string) {
+	if s.dmS3Bucket() == "" {
+		return false, "S3 bucket is not configured"
+	}
+	if v, _ := s.appSetting("data_management.s3_encrypt_backup"); strings.TrimSpace(v) == "1" {
+		if pw, _ := s.appSetting("data_management.backup_encryption_password"); strings.TrimSpace(pw) == "" {
+			return false, "Backup encryption is enabled but no encryption password is configured"
+		}
+	}
+	backupName := "sobs-" + backupType + "-" + nowUTC().Format("20060102T150405Z")
+	dest := s.buildS3BackupDest(backupName)
+	if _, err := s.db.Execute("BACKUP ALL TO " + dest); err != nil {
+		return false, err.Error()
+	}
+	return true, "Backup '" + backupName + "' started successfully"
+}
+
+// runDmRestore mirrors app.py _run_dm_restore.
+func (s *server) runDmRestore(backupName string) (bool, string) {
+	if backupName == "" {
+		return false, "backup_name is required"
+	}
+	if s.dmS3Bucket() == "" {
+		return false, "S3 bucket is not configured"
+	}
+	dest := s.buildS3BackupDest(backupName)
+	if _, err := s.db.Execute("RESTORE ALL FROM " + dest); err != nil {
+		return false, err.Error()
+	}
+	return true, "Restore from '" + backupName + "' started successfully"
+}
+
+// buildS3BackupDest mirrors app.py _build_s3_backup_dest (the S3(...) destination clause). The
+// _validate_dm_s3_settings regex guards are a follow-up — they only reject malformed S3 config,
+// an edge unreachable without a configured (and valid) bucket.
+func (s *server) buildS3BackupDest(backupName string) string {
+	bucket := strings.TrimRight(s.dmS3Bucket(), "/")
+	prefix := strings.Trim(strings.TrimSpace(s.appSettingOr("data_management.s3_path_prefix")), "/")
+	region := strings.TrimSpace(s.appSettingOr("data_management.s3_region"))
+	accessKey := strings.TrimSpace(s.appSettingOr("data_management.s3_access_key_id"))
+	secretKey := strings.TrimSpace(s.appSettingOr("data_management.s3_secret_access_key"))
+
+	path := bucket + "/" + backupName
+	if prefix != "" {
+		path = bucket + "/" + prefix + "/" + backupName
+	}
+	endpoint := path
+	if !strings.HasPrefix(path, "http") {
+		if region != "" {
+			endpoint = "https://s3." + region + ".amazonaws.com/" + path
+		} else {
+			endpoint = "https://s3.amazonaws.com/" + path
+		}
+	}
+	if accessKey != "" && secretKey != "" {
+		return "S3(" + sqlQuoteLiteral(endpoint) + ", " + sqlQuoteLiteral(accessKey) + ", " + sqlQuoteLiteral(secretKey) + ")"
+	}
+	return "S3(" + sqlQuoteLiteral(endpoint) + ")"
+}
+
+// sqlQuoteLiteral mirrors app.py _sql_quote_literal.
+func sqlQuoteLiteral(v string) string { return "'" + strings.ReplaceAll(v, "'", "''") + "'" }
+
+// appSettingOr returns the app-setting value or empty string.
+func (s *server) appSettingOr(key string) string {
+	v, _ := s.appSetting(key)
+	return v
 }
 
 // POST /api/{logs,ai}/validate-filter — empty filter -> {"issues":[],"normalized":"","ok":true}.
