@@ -189,10 +189,6 @@ func (s *server) handleApiDashboardsRender(w http.ResponseWriter, r *http.Reques
 	}
 	columns, rows := serializeQueryDictRows(res)
 	option, errMsg := s.renderChartFromTemplate(templateID, columns, rows, nil)
-	if errMsg == renderNotImplemented {
-		http.Error(w, "not implemented", http.StatusNotImplemented)
-		return
-	}
 	if errMsg != "" {
 		errorOnly(w, http.StatusBadRequest, errMsg)
 		return
