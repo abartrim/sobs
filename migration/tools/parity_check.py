@@ -196,13 +196,36 @@ def _replay(route: dict) -> dict:
         # Do NOT follow redirects: the Quart test client returns the raw 3xx (Location +
         # flash cookie), so the Go replay must compare that response, not the redirect target.
         with _NO_REDIRECT_OPENER.open(r, timeout=10) as resp:
+            if route.get("stream"):
+                body = _read_first_sse_frame(resp)
+            else:
+                body = resp.read()
             return {
                 "status": resp.status,
                 "headers": [[k, v] for k, v in resp.headers.items()],
-                "body": resp.read(),
+                "body": body,
             }
     except urllib.error.HTTPError as e:  # non-2xx is a valid response to compare
         return {"status": e.code, "headers": [[k, v] for k, v in e.headers.items()], "body": e.read()}
+
+
+def _read_first_sse_frame(resp) -> bytes:
+    """Bounded read of an SSE stream: collect bytes only up to the first complete frame (the
+    deterministic opening, e.g. `retry: 5000\\n\\n`), then stop. Subsequent frames are
+    timing-dependent keepalives, so we never read them."""
+    import socket
+
+    resp.fp.raw._sock.settimeout(3)
+    buf = b""
+    try:
+        while b"\n\n" not in buf and len(buf) < 4096:
+            chunk = resp.read(1)
+            if not chunk:
+                break
+            buf += chunk
+    except (socket.timeout, TimeoutError, OSError):
+        pass
+    return buf
 
 
 def _apply_masks(resp: dict, masks) -> dict:
@@ -216,7 +239,10 @@ def _apply_masks(resp: dict, masks) -> dict:
     body = resp["body"]
     for pat in masks:
         body = re.sub(pat.encode("utf-8"), b"<MASKED>", body)
-    return {**resp, "body": body}
+    # Masking changes the body length, so rewrite Content-Length on BOTH sides to the masked
+    # length (otherwise a masked-out '12.6 KB' vs '5.0 KB' leaves a 1-byte header mismatch).
+    headers = [[k, str(len(body)) if k.lower() == "content-length" else v] for k, v in resp["headers"]]
+    return {**resp, "body": body, "headers": headers}
 
 
 def _read_golden(route_id: str) -> dict | None:

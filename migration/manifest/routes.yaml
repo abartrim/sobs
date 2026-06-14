@@ -1408,3 +1408,9 @@ routes:
   mask:
   - '"public_key":"[^"]*"'
   mask_reason: public_key is a random EC P-256 keypair (must be random for security); env_override/note/ok/saved_to_db are byte-compared.
+- id: get__tail
+  path: /tail
+  methods:
+  - GET
+  stream: true
+  stream_reason: "SSE live-tail; the parity harness reads only the deterministic opening frame (retry: 5000) \u2014 keepalive cadence is timing-dependent."

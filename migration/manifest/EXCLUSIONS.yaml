@@ -1,11 +1,6 @@
 # Routes deliberately excluded from byte-for-byte parity. Prefer a per-route `mask` in
-# routes.yaml (neutralize the few random/wall-clock bytes, byte-compare everything else)
-# over a whole-route exclusion. These 2 are mid-port.
+# routes.yaml (neutralize the few random/wall-clock bytes, byte-compare everything else) or a
+# bounded `stream` capture over a whole-route exclusion. None are excluded — every authoritative
+# route is GREEN (some via documented field masks for inherently-random/wall-clock output).
 
-exclusions:
-  - id: get__tail
-    reason: SSE live-tail; porting Go pub/sub + bounded-stream capture.
-...
-    followup: Implement Go SSE + pub/sub; capture the deterministic opening frame.
-...
-    owner: "TBD"
+exclusions: []

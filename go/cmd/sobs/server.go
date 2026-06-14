@@ -16,10 +16,11 @@ type server struct {
 	cfg config
 	mux *http.ServeMux
 	db  store.DB
+	sse *sseBroker
 }
 
 func newServer(cfg config) *server {
-	s := &server{cfg: cfg, mux: http.NewServeMux()}
+	s := &server{cfg: cfg, mux: http.NewServeMux(), sse: newSSEBroker()}
 	// Open the shared chdb session. Tolerate failure so non-DB routes still serve (and
 	// so a missing libchdb only breaks data routes, not the whole server).
 	if db, err := store.Open(cfg.DataDir); err != nil {
@@ -203,6 +204,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/metrics/anomaly", s.handleViewMetricsAnomaly)
 	s.mux.HandleFunc("/incident", s.handleViewIncident)
 	s.mux.HandleFunc("/rum", s.handleViewRum)
+	s.mux.HandleFunc("/tail", s.handleTail)
 	s.mux.HandleFunc("/ai", s.handleViewAi)
 	s.mux.HandleFunc("/work-items", s.handleViewWorkItemsPage)
 	s.mux.HandleFunc("/enrichment/cve", s.handleViewEnrichmentCve)
@@ -250,6 +252,18 @@ func (h *headerCapture) Write(b []byte) (int, error) {
 		h.wroteHeader = true
 	}
 	return h.ResponseWriter.Write(b)
+}
+
+// Flush exposes the underlying writer's http.Flusher so streaming handlers (e.g. /tail SSE)
+// can push frames as they are written.
+func (h *headerCapture) Flush() {
+	if !h.wroteHeader {
+		h.applySecurityHeaders()
+		h.wroteHeader = true
+	}
+	if f, ok := h.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func (h *headerCapture) applySecurityHeaders() {
