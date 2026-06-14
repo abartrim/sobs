@@ -69,6 +69,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/api/dashboards/spec/validate", s.handleApiDashboardsSpecValidate)
 	s.mux.HandleFunc("/api/notifications/subscribe", s.handleApiNotificationsSubscribe)
 	s.mux.HandleFunc("/api/notifications/check", s.handleApiNotificationsCheck)
+	s.mux.HandleFunc("/api/notifications/vapid-keygen", s.handleApiNotificationsVapidKeygen)
 	s.mux.HandleFunc("/api/notifications/rules/auto-generate", s.handleApiNotificationsAutoGenerate)
 	s.mux.HandleFunc("/api/enrichment/cve/scan", s.handleApiEnrichmentCveScan)
 	s.mux.HandleFunc("/api/onboarding/create-issues", s.handleApiOnboardingCreateIssues)

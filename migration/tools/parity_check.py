@@ -205,6 +205,20 @@ def _replay(route: dict) -> dict:
         return {"status": e.code, "headers": [[k, v] for k, v in e.headers.items()], "body": e.read()}
 
 
+def _apply_masks(resp: dict, masks) -> dict:
+    """Replace inherently-non-deterministic byte runs (random keys, wall-clock-derived
+    timestamps, storage sizes) with a fixed placeholder on BOTH golden and replay before
+    diffing. Each route's masks are documented in the manifest with a `mask_reason`. This is a
+    surgical alternative to excluding a whole route: everything outside the masked runs is still
+    compared byte-for-byte."""
+    if not masks:
+        return resp
+    body = resp["body"]
+    for pat in masks:
+        body = re.sub(pat.encode("utf-8"), b"<MASKED>", body)
+    return {**resp, "body": body}
+
+
 def _read_golden(route_id: str) -> dict | None:
     d = GOLDEN / route_id
     if not (d / "body.bin").exists():
@@ -266,7 +280,8 @@ def main() -> int:
                 results["missing_golden"].append(rid)
                 continue
             got = _replay(route)
-            if N.equal(golden, got):
+            masks = route.get("mask")
+            if N.equal(_apply_masks(golden, masks), _apply_masks(got, masks)):
                 results["green"].append(rid)
             else:
                 results["red"].append(rid)

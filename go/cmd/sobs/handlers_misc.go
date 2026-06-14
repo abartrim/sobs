@@ -566,6 +566,10 @@ func (s *server) handleMcpListTools(w http.ResponseWriter, r *http.Request) {
 // GET /api/mcp/keys — mcp.py mcp_api_list_keys: load the mcp.api_keys setting (a JSON
 // array of key descriptors; "[]" default) and return id/label/created_at/expires_at only.
 func (s *server) handleApiMcpKeys(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		s.mcpAPIKeysCreate(w, r)
+		return
+	}
 	keys := []any{}
 	if raw, ok := s.appSetting("mcp.api_keys"); ok {
 		var arr []any

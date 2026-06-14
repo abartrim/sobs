@@ -1370,3 +1370,24 @@ routes:
   - POST
   request:
     method: POST
+- id: post__api_mcp_keys
+  path: /api/mcp/keys
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+  mask:
+  - '"id":"[^"]*"'
+  - '"key":"[^"]*"'
+  mask_reason: id+key are cryptographically random (secrets.token_*); the rest (created_at frozen, label, expires_at, ok) is byte-compared.
+- id: post__api_notifications_vapid_keygen
+  path: /api/notifications/vapid-keygen
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+  mask:
+  - '"public_key":"[^"]*"'
+  mask_reason: public_key is a random EC P-256 keypair (must be random for security); env_override/note/ok/saved_to_db are byte-compared.
