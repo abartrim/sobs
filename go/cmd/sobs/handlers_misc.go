@@ -532,7 +532,31 @@ func (s *server) handleMcpEndpointPost(w http.ResponseWriter, r *http.Request) {
 			Set("id", reqID).Set("jsonrpc", "2.0"))
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	if method == "tools/list" {
+		// mcpToolsJSON is the full /mcp/tools response ({id:null, jsonrpc, result:{tools}}); reuse
+		// its tools list here under this request's id.
+		var tools any = []any{}
+		if parsed, err := parseJSONValue(mcpToolsJSON); err == nil {
+			if o, ok := parsed.(*jsonenc.Object); ok {
+				if res, ok := o.Get("result"); ok {
+					if ro, ok := res.(*jsonenc.Object); ok {
+						if t, ok := ro.Get("tools"); ok {
+							tools = t
+						}
+					}
+				}
+			}
+		}
+		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("jsonrpc", "2.0").Set("id", reqID).
+			Set("result", jsonenc.NewObject().Set("tools", tools)))
+		return
+	}
+	if method == "tools/call" {
+		s.handleMcpToolsCall(w, reqID, body)
+		return
+	}
+	writeJSON(w, http.StatusNotFound, jsonenc.NewObject().Set("jsonrpc", "2.0").Set("id", reqID).
+		Set("error", jsonenc.NewObject().Set("code", -32601).Set("message", "Method not found: '"+method+"'")))
 }
 
 // mcpAuthenticated reports whether the request carries a valid MCP API key (one of the
@@ -551,7 +575,13 @@ func (s *server) mcpAuthenticated(r *http.Request) bool {
 		return false
 	}
 	list, _ := v.([]any)
-	return len(list) > 0 // a non-empty registry would need per-key hash comparison (follow-up)
+	keyHash := hashMcpKey(key)
+	for _, e := range list {
+		if o, ok := e.(*jsonenc.Object); ok && objGetStr(o, "key_hash") == keyHash {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *server) handleMcpEndpointGet(w http.ResponseWriter, r *http.Request) {

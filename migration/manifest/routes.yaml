@@ -2070,6 +2070,37 @@ routes:
   request:
     method: POST
     json: {}
+# mcpauth profile: a seeded MCP key (scrypt hash of "mcp-parity-token"). Sending that token
+# authenticates the tools/list (static catalog) + tools/call (get_anomaly_rules -> seeded rules) paths.
+- id: post__mcp_tools_list__auth
+  path: /mcp
+  methods:
+  - POST
+  profile: mcpauth
+  request:
+    method: POST
+    headers:
+      X-MCP-API-Key: mcp-parity-token
+    json:
+      jsonrpc: '2.0'
+      id: 1
+      method: tools/list
+- id: post__mcp_tools_call__anomaly
+  path: /mcp
+  methods:
+  - POST
+  profile: mcpauth
+  request:
+    method: POST
+    headers:
+      X-MCP-API-Key: mcp-parity-token
+    json:
+      jsonrpc: '2.0'
+      id: 2
+      method: tools/call
+      params:
+        name: get_anomaly_rules
+        arguments: {}
 - id: post__settings_masking_keys_delete
   path: /settings/masking/keys/delete
   methods:

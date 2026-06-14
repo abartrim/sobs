@@ -73,6 +73,9 @@ PROFILES: dict[str, dict[str, str]] = {
     "createrepo": {},
     # mcpkey: a seeded mcp.api_keys descriptor so DELETE /api/mcp/keys/<id> can revoke it.
     "mcpkey": {},
+    # mcpauth: a seeded mcp key (scrypt hash of "mcp-parity-token") so authenticated tools/list +
+    # tools/call run. Isolated so the seeded key doesn't ripple into base mcp tests.
+    "mcpauth": {},
     # aichat: a seeded gen_ai chat turn (otel_logs) so the chat-detail reader serializes it. The
     # otel_logs row is isolated to this profile so base telemetry readers stay empty.
     "aichat": {},
@@ -176,6 +179,7 @@ SEEDED_PROFILES = {
     "issuesraise",
     "githubtoken",
     "mcpkey",
+    "mcpauth",
     "aichat",
 }
 

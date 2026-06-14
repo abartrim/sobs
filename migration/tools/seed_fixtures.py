@@ -569,6 +569,26 @@ def seed_mcp_key(db) -> None:
     _app._set_app_setting(db, "mcp.api_keys", _json.dumps([descriptor], ensure_ascii=False))
 
 
+def seed_mcp_auth(db) -> None:
+    # An MCP API key descriptor whose key_hash is the scrypt fingerprint of "mcp-parity-token"
+    # (computed by mcp._hash_key so it matches the Go hand-rolled scrypt). Sending that token in
+    # X-MCP-API-Key authenticates tools/list + tools/call.
+    import json as _json
+
+    import app as _app
+    import mcp as _mcp
+
+    descriptor = {
+        "id": "mk-auth-0001",
+        "name": "Parity Auth Key",
+        "prefix": "sk-parity",
+        "key_hash": _mcp._hash_key("mcp-parity-token"),
+        "created_at": "2024-01-02T03:00:00+00:00",
+        "last_used_at": "",
+    }
+    _app._set_app_setting(db, "mcp.api_keys", _json.dumps([descriptor], ensure_ascii=False))
+
+
 def seed_aichat(db) -> None:
     # One AI-helper chat turn (otel_logs turn.complete) so /api/ai/helper/chats/<id> reconstructs
     # a user+assistant exchange. LogAttributes is a Map(String,String); output.messages is the
@@ -632,6 +652,7 @@ PROFILE_SEEDS = {
     "issuesraise": seed_issues_raise,  # global github repo+token -> issues/raise agent flow creates an issue
     "githubtoken": seed_github_token,
     "mcpkey": seed_mcp_key,
+    "mcpauth": seed_mcp_auth,  # api key whose hash auths tools/list + tools/call
     "aichat": seed_aichat,
 }
 
