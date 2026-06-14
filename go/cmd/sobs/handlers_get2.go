@@ -108,6 +108,23 @@ func (s *server) handleApiSetupWizardSteps(w http.ResponseWriter, r *http.Reques
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
+// GET /api/enrichment/github/repo-health — app.py _collect_github_repo_health_summary: the
+// version-scoped GitHub repo-health counts. The fixture has no enabled apps with a RepoUrl, so
+// there are no scan targets (and no GitHub API calls) and the summary is all-zero. last_synced_at
+// is the (parity-frozen) wall clock formatted like Python's isoformat(timespec="milliseconds").
+func (s *server) handleApiEnrichmentGithubRepoHealth(w http.ResponseWriter, r *http.Request) {
+	if s.countRows("SELECT count() FROM sobs_apps FINAL WHERE IsDeleted=0 AND Enabled=1 AND RepoUrl != ''") != 0 {
+		http.Error(w, "not implemented", http.StatusNotImplemented) // live GitHub scan is a follow-up
+		return
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("last_synced_at", nowUTC().Format("2006-01-02T15:04:05.000-07:00")).
+		Set("ok", true).
+		Set("open_issues", 0).Set("open_prs", 0).Set("repos", []any{}).
+		Set("scanned_repos", 0).Set("security_items", 0).
+		Set("total_repos_considered", 0).Set("version_scoped", true))
+}
+
 // GET /api/reports/export — app.py api_export_reports: a downloadable JSON file (indent=2,
 // INSERTION order) of all saved reports plus an exported_at wall-clock stamp.
 func (s *server) handleApiReportsExport(w http.ResponseWriter, r *http.Request) {
