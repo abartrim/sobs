@@ -19,15 +19,26 @@ Produce a **genuinely complete, functional Go replacement** for the Python (Quar
 
 ---
 
-## 2. What "verified" can and cannot mean
+## 2. What "verified" means — everything is byte-verifiable via a mock upstream
 
-Three tiers, because not every success path is deterministically capturable offline:
+The original worry was that LLM and external-network success paths can't be frozen into a deterministic golden. **A deterministic mock upstream removes that worry:** point BOTH the Python oracle (capture) and the Go port (replay) at the same canned responder, and the upstream *response* is pinned — so the only thing under test is each side's request-building + response-handling, which is exactly the logic to verify. This collapses the former Tiers B/C into the deterministic, byte-verifiable Tier A.
 
-- **Tier A — deterministic, byte-verifiable** (the bar for "done"): DB create/update/serialize/delete, spec compile/validate/render, ingest inserts, candidate generation, config-gated branches. These MUST be implemented AND parity-GREEN on the success path.
-- **Tier B — external network (GitHub / OSV / web-push endpoints)**: Python itself cannot be frozen into a deterministic golden for a live `api.github.com` call. These MUST be implemented faithfully (port the HTTP logic) and **documented as network-dependent / not-offline-capturable** — verified by code review + a mocked/integration check, not the golden corpus.
-- **Tier C — real LLM calls (`ai.endpoint_url`/`ai.model`)**: `ai/helper`, `ai/helper/execute`, `dashboards/spec/ai-build`. Same as Tier B — implement faithfully, document as model-dependent. The deterministic *guard/validation* branches are already GREEN.
+**The bar for "done" is byte-GREEN on the success path for EVERY route** (no "implement-but-trust-me" routes), achieved as follows:
 
-A Tier-B/C route is "done" when its real logic is ported (not a 501) even though its golden is the error/guard branch; this must be **explicitly noted**, never silently left as a stub.
+- **Pure-deterministic** (DB CRUD/serialize, spec compile/validate/render, ingest, candidate generation, config-gated branches): seeded/created records or valid bodies + (for config-gated) the AI-on profile. Done = parity GREEN on the success path.
+- **LLM routes** (`ai/helper`, `ai/helper/execute`, `ai/helper/feedback`, `dashboards/spec/ai-build`, guard/dlp): the call is `POST {ai.endpoint_url}/chat/completions` (OpenAI-compatible; reads `choices[0].message.content`). Set `SOBS_AI_ENDPOINT_URL`/`SOBS_AI_MODEL` (and guard/dlp) to the **mock upstream** — both Python (`_load_all_ai_settings` honors `_AI_ENV_OVERRIDES`) and Go (make `loadAISetting`/`loadAllAISettings` honor the same env). The mock returns a fixed OpenAI-shaped body; both sides post-process it identically → GREEN.
+- **External network** (GitHub `api.github.com/*`, OSV `api.osv.dev/v1/query`): URLs are hardcoded in read-only `app.py`. Python side — add an **httpx mock transport in `determinism.py`** (editable) that maps those hosts → canned JSON. Go side — the Go HTTP client (ours) reads `SOBS_GITHUB_API_BASE`/`SOBS_OSV_API_BASE`, set to the mock. Same canned responses both sides → GREEN.
+
+Only genuinely irreproducible bytes (uuid, CSPRNG key material, wall-clock, `system.parts` storage sizes) stay masked — never real logic, never a whole route.
+
+## 2b. Mock-upstream harness (build once, unblocks G6 + G7 + the config-gated half of G2)
+
+1. **`migration/tools/mock_upstream.py`** — a tiny deterministic HTTP server on a pinned port. Routes by path (+ optional request-hash) → canned JSON: `/chat/completions` (+ guard/dlp variants), GitHub repos/issues/contents/actions/rate_limit, OSV `/v1/query`. Fixed responses (request-byte differences between Python and Go don't matter; the response is what's compared).
+2. **`determinism.py`** — install an httpx mock transport (or `respx`) redirecting `api.github.com`/`api.osv.dev` to the mock, so the frozen Python app reaches it without touching `app.py`.
+3. **Go** — `loadAISetting`/`loadAllAISettings` honor `SOBS_AI_*` env overrides (mirrors `_AI_ENV_OVERRIDES`); the github/osv client reads `SOBS_GITHUB_API_BASE`/`SOBS_OSV_API_BASE` (default real, mock in parity).
+4. **Dual-profile capture** — turning AI config on flips `query_enabled` **globally** (ripples into every page's `baseContext`), so the AI-on/mock env is a **separate capture profile** over ONLY the AI + query-gated routes (a second manifest tag/file + AI-on env + mock running). The default corpus stays AI-off so the 404-guard branches remain tested. `capture_routes`/`parity_check` start the mock and run the AI-on profile as a second pass.
+
+This is a self-contained harness phase; build it before G6/G7 and the G2 enabled branches.
 
 ---
 
@@ -64,13 +75,13 @@ Build the full otel row(s) from the body and `InsertJSONEachRow`; manifest-LAST 
 - `handlers_get2.go:79` chat messages with turns (needs seeded otel_logs turns), `:231` gen_ai export with spans (needs seeded gen_ai spans).
 - `handlers_static.go:155` rum asset upload (needs the asset-upload signing key configured).
 
-### G6. AI / LLM routes — *Tier C* (≈6 stub-lines)
-Port faithfully; success path is model-dependent (document, don't byte-capture).
+### G6. AI / LLM routes — *byte-verifiable via mock upstream §2b* (≈6 stub-lines)
+Point `SOBS_AI_*` at the mock `/chat/completions`; capture under the AI-on profile → GREEN.
 - `handlers_mutations2.go` ai/helper (46), ai/helper/execute (55), ai/helper/feedback (65), dashboards/spec/ai-build (74), the 503-when-unconfigured branch (217), `:238` adjacent.
 - **NOT AI** — `handlers_mutations2.go:86` notifications/subscribe is a **Tier A** deterministic insert (registers a browser_push channel, dedup-by-endpoint, `@require_basic_auth` only) — do it in the G1/G3 batch, not here. (Confirmed: `spec/compile|validate|render|dry-run` are also `@require_basic_auth`-only deterministic transforms, NOT query/AI-gated.)
 
-### G7. External network (GitHub / OSV / onboarding) — *Tier B* (≈8 stub-lines)
-Port the HTTP logic; not offline-capturable.
+### G7. External network (GitHub / OSV / onboarding) — *byte-verifiable via mock upstream §2b* (≈8 stub-lines)
+Python reaches the mock via the `determinism.py` httpx transport; Go via `SOBS_GITHUB_API_BASE`/`SOBS_OSV_API_BASE` → same canned JSON → GREEN.
 - `handlers_mutations2.go` onboarding create-issues (96), create-repo (106), import-repo (116), list-repos (126); live GitHub backfill (309); real OSV scan (317).
 - `handlers_get2.go:247` onboarding/inspect-repo.
 - (github-repo-health's *counting* is already done; only the token-gated live issue scan remains — same Tier B.)
@@ -92,12 +103,11 @@ Port the HTTP logic; not offline-capturable.
 
 ## 5. Execution order (recommended)
 
-1. **G1 action handlers** (Tier A, no external deps) — biggest stub-count win; establish seeded-record + create-then-act + ordering patterns.
-2. **G3 dashboards spec** + **G2 config-gated** (Tier A, deterministic) — pure transforms / flip-a-flag.
-3. **G5 ingest** (Tier A, manifest-last).
-4. **G4 candidate generation** (Tier A, hard — statistical ports).
-5. **G7 external + G6 AI + G8 mcp** (Tier B/C — implement faithfully, document the non-offline-capturable ones; do NOT leave as 501).
-6. Clean up §4 non-stub items; delete stale TODOs; final `grep` must show **zero** stubs.
+1. **G1 action handlers** (deterministic, no external deps) — biggest stub-count win; establish seeded-record + create-then-act + ordering patterns.
+2. **G3 dashboards spec** (deterministic transforms) + **G5 ingest** (manifest-last).
+3. **§2b mock-upstream harness** (build once) — then **G2 config-gated** + **G6 AI** + **G7 external** all become byte-verifiable under the AI-on / mock profile.
+4. **G8 mcp** (seed mcp keys) and **G4 candidate generation** (hard — statistical ports).
+5. Clean up §4 non-stub items; delete stale TODOs; final `grep` must show **zero** stubs.
 
 Per-stub loop, gotchas, harness capabilities, and chdb-determinism traps: see the `go-migration-route-recipe` memory. Workflow per route: read `app.py` handler → port to Go → add success-path manifest entry (`json:`/`form:` body or seeded/created id) → `seed_fixtures.py` → `capture_routes.py --only <ids>` → **re-seed** → `parity_check.py` (kill zombies first) → commit on GREEN.
 
@@ -107,8 +117,8 @@ Per-stub loop, gotchas, harness capabilities, and chdb-determinism traps: see th
 
 - [ ] `grep -rc 'not implemented", http.StatusNotImplemented' go/cmd/sobs | grep -v ':0'` → **empty** (0 stubs).
 - [ ] `parity_check.py` exits 0: GREEN = full surface, RED/MISSING/UNCOVERED/EXCLUDED all 0.
-- [ ] Every Tier-A route has a manifest entry that drives its **success** path (not just the error branch).
-- [ ] Every Tier-B/C route's real logic is ported (not a 501) and its network/model dependency is documented (here + in code).
+- [ ] Every route has a manifest entry that drives its **success** path (not just the error branch) — including AI/external routes via the §2b mock upstream + AI-on profile.
+- [ ] `migration/tools/mock_upstream.py` exists and is deterministic; `determinism.py` redirects github/osv to it; Go honors `SOBS_AI_*` / `SOBS_GITHUB_API_BASE` / `SOBS_OSV_API_BASE`.
 - [ ] `EXCLUSIONS.yaml` stays empty; every `mask` has a `mask_reason` limited to random/wall-clock/storage bytes.
 - [ ] §4 non-stub gaps (OTLP CORS, source-map, mcp hash) closed or explicitly tracked.
 - [ ] `go build ./...` clean; pre-commit (flake8/mypy/black) passes.
