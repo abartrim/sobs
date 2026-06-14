@@ -72,8 +72,10 @@ func (s *chdbStore) Execute(query string, params ...any) (*Result, error) {
 		return nil, fmt.Errorf("chdb decode JSON: %w (got %.200q)", err, out)
 	}
 	cols := make([]string, len(env.Meta))
+	types := make([]string, len(env.Meta))
 	for i, m := range env.Meta {
 		cols[i] = m.Name
+		types[i] = m.Type
 	}
 	rows := make([][]any, len(env.Data))
 	for i, d := range env.Data {
@@ -83,7 +85,7 @@ func (s *chdbStore) Execute(query string, params ...any) (*Result, error) {
 		}
 		rows[i] = row
 	}
-	return &Result{Columns: cols, Rows: rows}, nil
+	return &Result{Columns: cols, Types: types, Rows: rows}, nil
 }
 
 // InsertJSONEachRow inserts rows via ClickHouse JSONEachRow, mirroring app.py

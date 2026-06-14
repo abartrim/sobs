@@ -17,7 +17,11 @@ package store
 // see migration/JINJA_TO_GO_SPEC.md §3 and PARITY_STRATEGY.md §4.
 type Result struct {
 	Columns []string
-	Rows    [][]any
+	// Types holds the ClickHouse column type for each column (FORMAT JSON meta), parallel to
+	// Columns. Used by query-result serializers that must distinguish Int/Float/String to match
+	// the Python chdb driver + jsonify. Empty when no rows/meta.
+	Types []string
+	Rows  [][]any
 }
 
 // DB is the interface handlers depend on, so the chdb-go implementation (build-tagged)

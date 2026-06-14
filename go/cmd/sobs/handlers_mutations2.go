@@ -168,15 +168,6 @@ func specSQLMode(m map[string]any) string {
 	return strings.TrimSpace(mode)
 }
 
-// POST /api/dashboards/query — empty query -> {"error":"Query cannot be empty"}.
-func (s *server) handleApiDashboardsQuery(w http.ResponseWriter, r *http.Request) {
-	if bstr(bodyMap(r), "query") == "" {
-		errorOnly(w, http.StatusBadRequest, "Query cannot be empty")
-		return
-	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
-}
-
 // POST /api/dashboards/render — empty query -> {"error":"Query cannot be empty"}.
 func (s *server) handleApiDashboardsRender(w http.ResponseWriter, r *http.Request) {
 	if bstr(bodyMap(r), "query") == "" {

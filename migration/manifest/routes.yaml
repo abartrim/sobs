@@ -757,6 +757,15 @@ routes:
   request:
     method: POST
     json: {}
+# Execute a chart query (deterministic typed literals exercise Int/Float/String serialization).
+- id: post__api_dashboards_query_ok
+  path: /api/dashboards/query
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      query: SELECT toUInt32(5) AS a, 1.5 AS b, 'x' AS c, toInt64(9999999999) AS big
 # Compile success paths (deterministic transform; no DB execution, no mutation).
 - id: post__api_dashboards_spec_compile_builder_ok
   path: /api/dashboards/spec/compile
