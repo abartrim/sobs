@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -654,6 +655,100 @@ func (s *server) handleViewAgentRules(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+var tagRuleFields = map[string]bool{"service_name": true, "severity": true, "body": true, "span_name": true, "event_type": true, "attribute": true}
+var tagRuleOperators = map[string]bool{"eq": true, "contains": true, "regex": true}
+var tagRuleRecordTypes = map[string]bool{"log": true, "trace": true, "error": true, "ai": true, "rum": true, "all": true}
+
+// createTagRule mirrors app.py create_tag_rule (POST /settings/tags) create path.
+func (s *server) createTagRule(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	loc := "/settings/tags"
+	name := strings.TrimSpace(r.PostFormValue("name"))
+	tagKey := strings.TrimSpace(r.PostFormValue("tag_key"))
+	tagValue := strings.TrimSpace(r.PostFormValue("tag_value"))
+	at := func(xs []string, i int) string {
+		if i < len(xs) {
+			return strings.TrimSpace(xs[i])
+		}
+		return ""
+	}
+	cf, co, cv, ca := r.PostForm["condition_field"], r.PostForm["condition_operator"], r.PostForm["condition_value"], r.PostForm["condition_attr_key"]
+	n := 0
+	for _, xs := range [][]string{cf, co, cv, ca} {
+		if len(xs) > n {
+			n = len(xs)
+		}
+	}
+	type cond struct{ field, op, val, attr string }
+	conditions := []cond{}
+	for i := 0; i < n; i++ {
+		f := strings.ToLower(at(cf, i))
+		if f == "" {
+			continue
+		}
+		conditions = append(conditions, cond{f, orDefault(strings.ToLower(at(co, i)), "eq"), at(cv, i), at(ca, i)})
+	}
+	if len(conditions) == 0 {
+		f := strings.ToLower(strings.TrimSpace(r.PostFormValue("match_field")))
+		if f != "" {
+			conditions = []cond{{f, orDefault(strings.ToLower(strings.TrimSpace(r.PostFormValue("match_operator"))), "eq"),
+				strings.TrimSpace(r.PostFormValue("match_value")), strings.TrimSpace(r.PostFormValue("match_attr_key"))}}
+		}
+	}
+	if name == "" || len(conditions) == 0 || tagKey == "" || tagValue == "" {
+		flashRedirect(w, "warning", "Name, at least one match condition, tag key, and tag value are required", loc)
+		return
+	}
+	for _, c := range conditions {
+		if !tagRuleFields[c.field] {
+			flashRedirect(w, "warning", "Invalid match field: "+c.field, loc)
+			return
+		}
+		if !tagRuleOperators[c.op] {
+			flashRedirect(w, "warning", "Invalid match operator: "+c.op, loc)
+			return
+		}
+		if c.field == "attribute" && c.attr == "" {
+			flashRedirect(w, "warning", "Attribute key is required when match field is 'attribute'", loc)
+			return
+		}
+		if c.op == "regex" {
+			if _, err := regexp.Compile(c.val); err != nil {
+				flashRedirect(w, "warning", "Invalid regex pattern: "+err.Error(), loc)
+				return
+			}
+		}
+	}
+	chosen := []string{}
+	for _, t := range r.PostForm["record_types"] {
+		t = strings.TrimSpace(t)
+		if tagRuleRecordTypes[t] {
+			chosen = append(chosen, t)
+		}
+	}
+	recordTypesStr := "all"
+	if len(chosen) > 0 {
+		recordTypesStr = strings.Join(chosen, ",")
+	}
+	condList := make([]any, len(conditions))
+	for i, c := range conditions {
+		condList[i] = map[string]any{"match_field": c.field, "match_operator": c.op, "match_value": c.val, "match_attr_key": c.attr}
+	}
+	condJSON, _ := json.Marshal(condList)
+	p := conditions[0]
+	row := map[string]any{
+		"Id": newUUIDHex(), "Name": name, "RecordTypes": recordTypesStr,
+		"MatchField": p.field, "MatchOperator": p.op, "MatchValue": p.val, "MatchAttrKey": p.attr,
+		"TagKey": tagKey, "TagValue": tagValue, "ConditionsJson": string(condJSON),
+		"IsDeleted": 0, "Version": fixedVersionMillis(),
+	}
+	if _, err := s.db.InsertJSONEachRow("sobs_tag_rules", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	flashRedirect(w, "success", fmt.Sprintf("Tag rule '%s' created", name), loc)
+}
+
 var agentTriggerTypes = map[string]bool{"anomaly_rule": true, "tag_rule": true, "manual": true}
 var agentTriggerStates = map[string]bool{"warning": true, "critical": true, "any": true}
 var agentActions = map[string]bool{"analyze": true, "github_issue": true, "github_issue_copilot": true, "dlp_check": true}
@@ -718,12 +813,7 @@ func (s *server) handleMcpSettingsPage(w http.ResponseWriter, r *http.Request) {
 // GET /settings/tags — app.py view_tag_rules. Empty tag rules; services from telemetry.
 func (s *server) handleViewTagRules(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		// app.py create_tag_rule: an empty form lacks name/conditions/tag key/value.
-		if s.formRequire(w, r, "name", "warning",
-			"Name, at least one match condition, tag key, and tag value are required", "/settings/tags") {
-			return
-		}
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+		s.createTagRule(w, r)
 		return
 	}
 	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM (" +

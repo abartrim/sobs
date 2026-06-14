@@ -1541,6 +1541,20 @@ routes:
     form:
       name: Deploy Watcher
       trigger_type: manual
+# Create a tag rule (mutator; sobs_tag_rules read only by the early tags page reader).
+- id: post__settings_tags_create_ok
+  path: /settings/tags
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      name: Prod Tagger
+      match_field: service_name
+      match_operator: eq
+      match_value: checkout
+      tag_key: env
+      tag_value: prod
 # Soft-delete a seeded report (mutator; nothing reads sobs_reports after the early readers).
 - id: post__reports_delete_ok
   path: /reports/11111111-0000-4000-8000-0000000000a1/delete
