@@ -1384,6 +1384,13 @@ routes:
   path: /api/ai/helper/chats/nonexistent
   methods:
   - GET
+- id: get__api_ai_helper_chats__id__seeded
+  path: /api/ai/helper/chats/chat-parity-001
+  methods:
+  - GET
+  profile: aichat
+  request:
+    method: GET
 - id: get__api_dashboards_chart_export
   path: /api/dashboards/nope/charts/nope/export
   methods:

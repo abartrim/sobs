@@ -64,27 +64,7 @@ func (s *server) handleApiAiHelperCapabilities(w http.ResponseWriter, r *http.Re
 		Set("thinking_levels", []any{"off", "low", "medium", "high"}))
 }
 
-// GET /api/ai/helper/chats/<chat_id> — app.py ai_helper_chat_detail: reconstructs a chat from
-// its otel_logs turns. An unknown chat has no turns, so it returns empty messages.
-func (s *server) handleApiAiHelperChatDetail(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.NotFound(w, r)
-		return
-	}
-	chatID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/ai/helper/chats/"))
-	if chatID == "" {
-		s.errorJSON(w, http.StatusBadRequest, "chat_id is required")
-		return
-	}
-	turns := s.countRows("SELECT count() FROM otel_logs WHERE ServiceName='sobs-ai-helper' " +
-		"AND EventName='turn.complete' AND LogAttributes['gen_ai.chat_id']='" + sqlLiteral(chatID) + "'")
-	if turns != 0 {
-		http.Error(w, "not implemented", http.StatusNotImplemented)
-		return
-	}
-	writeJSON(w, http.StatusOK, jsonenc.NewObject().
-		Set("chat_id", chatID).Set("messages", []any{}).Set("ok", true))
-}
+// handleApiAiHelperChatDetail is defined in ai_chat.go (full turn serialization).
 
 // setupWizardCombosJSON maps "env|language|deployment" -> the exact jsonify body of app.py
 // _build_setup_wizard_steps for that combo. The builder is a PURE function of the three params

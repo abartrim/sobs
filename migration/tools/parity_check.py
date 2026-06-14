@@ -359,6 +359,7 @@ def main() -> int:
         shutil.copytree(FIXTURE_SRC, workdir, symlinks=True)
         if profile in PROF.SEEDED_PROFILES:
             _seed_profile(profile, workdir)
+            time.sleep(1.0)  # let the seed subprocess' chdb fully release before Go opens _run
         proc = _boot_go(workdir, PROF.profile_env(profile))
         try:
             for route in prof_routes:
@@ -377,7 +378,14 @@ def main() -> int:
                         diffs_state["shown"] += 1
                         _print_diff(rid, golden, got, args.bisect_body)
         finally:
+            # Fully release the chdb embedded server (lock + ~768MB) before the next profile's
+            # copytree/seed/boot reuses the _run dir — terminate alone races the next chdb open.
             proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except Exception:
+                proc.kill()
+            time.sleep(1.0)
 
     _write_results(results, routes, excluded)
     if args.update_ledger or not args.only:

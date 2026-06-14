@@ -429,11 +429,38 @@ def seed_mcp_key(db) -> None:
     _app._set_app_setting(db, "mcp.api_keys", _json.dumps([descriptor], ensure_ascii=False))
 
 
+def seed_aichat(db) -> None:
+    # One AI-helper chat turn (otel_logs turn.complete) so /api/ai/helper/chats/<id> reconstructs
+    # a user+assistant exchange. LogAttributes is a Map(String,String); output.messages is the
+    # JSON the assistant content is parsed from.
+    _insert(
+        db,
+        "otel_logs",
+        [
+            {
+                "Timestamp": _TS,
+                "ServiceName": "sobs-ai-helper",
+                "EventName": "turn.complete",
+                "Body": "turn.complete",
+                "LogAttributes": {
+                    "gen_ai.chat_id": "chat-parity-001",
+                    "gen_ai.turn_id": "turn-parity-001",
+                    "gen_ai.input.question": "What is the error rate?",
+                    "gen_ai.turn.summary.request": "What is the error rate?",
+                    "gen_ai.output.messages": '[{"role": "assistant", "content": "The error rate is 2%."}]',
+                },
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+
 PROFILE_SEEDS = {
     "agentrun": seed_agent_run,
     "notif": seed_notif,
     "githubtoken": seed_github_token,
     "mcpkey": seed_mcp_key,
+    "aichat": seed_aichat,
 }
 
 

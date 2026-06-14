@@ -65,11 +65,14 @@ PROFILES: dict[str, dict[str, str]] = {
     "createrepo": {},
     # mcpkey: a seeded mcp.api_keys descriptor so DELETE /api/mcp/keys/<id> can revoke it.
     "mcpkey": {},
+    # aichat: a seeded gen_ai chat turn (otel_logs) so the chat-detail reader serializes it. The
+    # otel_logs row is isolated to this profile so base telemetry readers stay empty.
+    "aichat": {},
 }
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via
 # `seed_fixtures.py --only-profile <name>`). Isolated to the profile — never seeded into base.
-SEEDED_PROFILES = {"agentrun", "notif", "githubtoken", "mcpkey"}
+SEEDED_PROFILES = {"agentrun", "notif", "githubtoken", "mcpkey", "aichat"}
 
 
 def route_profile(route: dict) -> str:
