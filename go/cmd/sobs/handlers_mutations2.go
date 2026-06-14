@@ -49,14 +49,7 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
-// POST /api/ai/helper/actions/execute — requires `action_token`.
-func (s *server) handleApiAiHelperExecute(w http.ResponseWriter, r *http.Request) {
-	if bstr(bodyMap(r), "action_token") == "" {
-		s.errorJSON(w, http.StatusBadRequest, "action_token is required")
-		return
-	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
-}
+// handleApiAiHelperExecute is defined in ai_action_execute.go.
 
 // handleApiAiHelperFeedback is defined in ai_emit.go.
 

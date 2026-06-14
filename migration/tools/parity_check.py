@@ -146,18 +146,25 @@ def _boot_go(workdir: Path, extra_env: dict | None = None):
     # server reads the gates once at boot, so each profile needs its own server process.
     if extra_env:
         env.update(extra_env)
-    proc = subprocess.Popen([str(GO_DIR / "sobs")], env=env, cwd=REPO)
-    # wait for readiness
-    for _ in range(100):
+    # In a many-profile run the previous chdb embedded server can still hold the data dir when the
+    # next boot opens it, so the server exits during startup. Retry the boot a few times.
+    for attempt in range(4):
+        proc = subprocess.Popen([str(GO_DIR / "sobs")], env=env, cwd=REPO)
+        for _ in range(150):  # ~15s readiness window
+            try:
+                urllib.request.urlopen(f"http://{HOST}:{PORT}/healthz", timeout=0.2)
+                return proc
+            except Exception:
+                if proc.poll() is not None:
+                    break  # exited during startup -> retry
+                time.sleep(0.1)
         try:
-            urllib.request.urlopen(f"http://{HOST}:{PORT}/healthz", timeout=0.2)
-            return proc
+            proc.terminate()
+            proc.wait(timeout=5)
         except Exception:
-            if proc.poll() is not None:
-                raise SystemExit("Go server exited during startup.")
-            time.sleep(0.1)
-    proc.terminate()
-    raise SystemExit("Go server did not become ready.")
+            proc.kill()
+        time.sleep(2.0 * (attempt + 1))
+    raise SystemExit("Go server did not become ready after retries.")
 
 
 def _seed_profile(profile: str, workdir: Path) -> None:

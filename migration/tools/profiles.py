@@ -79,6 +79,9 @@ PROFILES: dict[str, dict[str, str]] = {
     # feedback: a no-env isolation profile — ai_helper_feedback's telemetry INSERT (otel_logs +
     # otel_traces) runs in its own fixture copy so it doesn't ripple into base telemetry readers.
     "feedback": {},
+    # execute: ai_helper_execute decodes a signed action token + emits tool.executed telemetry;
+    # isolation so that insert doesn't ripple into base telemetry readers.
+    "execute": {},
     # refine: query/refine-chart — query gate on + the LLM endpoint pointed at the canned
     # /chat/completions mock (distinct path so its URL key is unique to this route).
     "refine": {

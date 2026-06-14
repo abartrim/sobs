@@ -1188,6 +1188,15 @@ routes:
   request:
     method: POST
     json: {}
+- id: post__api_ai_helper_actions_execute__token
+  path: /api/ai/helper/actions/execute
+  methods:
+  - POST
+  profile: execute
+  request:
+    method: POST
+    json:
+      action_token: eyJhY3Rpb24iOnsic3FsIjoiU2VydmljZU5hbWUgPSAnY2hlY2tvdXQnIiwidGFyZ2V0X3BhZ2UiOiIvbG9ncyJ9LCJhY3Rpb25faWQiOiJsb2dzLmZpbHRlci5hcHBseV9zcWwiLCJjaGF0X2lkIjoiY2hhdC1leGVjLTAwMDEiLCJleHAiOjk5OTk5OTk5OTksInJlcXVpcmVzX2NvbmZpcm1hdGlvbiI6ZmFsc2UsInRhcmdldF9wYWdlIjoiL2xvZ3MiLCJ0dXJuX2lkIjoidHVybi1leGVjLTAwMDEifQ.03a293253824c95208659efb5bade6e56fa99bc6d0f8855a78e9475053e08ee5
 - id: post__api_ai_helper_feedback
   path: /api/ai/helper/feedback
   methods:
