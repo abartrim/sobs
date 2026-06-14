@@ -801,6 +801,36 @@ routes:
         - name: extra
           sql: SELECT toUInt8(7) AS v
           purpose: side dataset
+# MCP unauthenticated JSON-RPC methods (no API key needed): initialize / ping / notifications.
+- id: post__mcp_initialize
+  path: /mcp
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      jsonrpc: '2.0'
+      id: 1
+      method: initialize
+- id: post__mcp_ping
+  path: /mcp
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      jsonrpc: '2.0'
+      id: ping-1
+      method: ping
+- id: post__mcp_notification
+  path: /mcp
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      jsonrpc: '2.0'
+      method: notifications/initialized
 # Execute a chart query (deterministic typed literals exercise Int/Float/String serialization).
 - id: post__api_dashboards_query_ok
   path: /api/dashboards/query

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -496,11 +497,30 @@ func (s *server) handleApiDashboardsSpecTemplates(w http.ResponseWriter, r *http
 // initialize/ping/notifications/* require a valid X-MCP-API-Key. The fixture has no keys, so
 // an unauthenticated call (the empty-body parity request) gets the -32002 error.
 func (s *server) handleMcpEndpointPost(w http.ResponseWriter, r *http.Request) {
-	m := bodyMap(r)
-	reqID := m["id"]
-	method, _ := m["method"].(string)
-	if method == "initialize" || method == "ping" || strings.HasPrefix(method, "notifications/") {
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+	raw, _ := io.ReadAll(r.Body)
+	body := asObject(func() any { v, _ := parseJSONValue(raw); return v }())
+	reqID, _ := body.Get("id")
+	methodV, _ := body.Get("method")
+	method, _ := methodV.(string)
+	// initialize / ping / notifications/* need no API key (capability discovery + liveness).
+	if method == "initialize" {
+		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("jsonrpc", "2.0").Set("id", reqID).
+			Set("result", jsonenc.NewObject().
+				Set("protocolVersion", "2024-11-05").
+				Set("capabilities", jsonenc.NewObject().Set("tools", jsonenc.NewObject())).
+				Set("serverInfo", jsonenc.NewObject().Set("name", "sobs-mcp").Set("version", "1.0"))))
+		return
+	}
+	if strings.HasPrefix(method, "notifications/") {
+		// MCP spec: respond 202 with an empty body (Quart `return "", 202`).
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Length", "0")
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	if method == "ping" {
+		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("jsonrpc", "2.0").Set("id", reqID).
+			Set("result", jsonenc.NewObject()))
 		return
 	}
 	// _authenticate_mcp_request: the X-MCP-API-Key header must match a configured key. The
