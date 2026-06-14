@@ -40,6 +40,7 @@ PORT = int(os.environ.get("SOBS_PARITY_PORT", "8799"))
 
 sys.path.insert(0, str(REPO / "migration" / "tools"))
 import normalize as N  # noqa: E402
+import profiles as PROF  # noqa: E402
 
 
 def _load_manifest() -> list[dict]:
@@ -131,7 +132,7 @@ def _build_go() -> None:
         raise SystemExit("Go build failed — fix compilation before parity can run.")
 
 
-def _boot_go(workdir: Path):
+def _boot_go(workdir: Path, extra_env: dict | None = None):
     env = dict(os.environ)
     env["SOBS_PARITY"] = "1"
     env["SOBS_FAKE_EPOCH"] = "1704164645.0"  # FIXED_EPOCH (determinism.py) — freezes the Go clock for parity
@@ -141,6 +142,10 @@ def _boot_go(workdir: Path):
     libdefault = REPO / ".libchdb" / "libchdb.so"
     env.setdefault("CHDB_LIB_PATH", str(libdefault))
     _source_parity_env(env)
+    # A profile's env overlay (gate flags) is applied last so it is authoritative; the Go
+    # server reads the gates once at boot, so each profile needs its own server process.
+    if extra_env:
+        env.update(extra_env)
     proc = subprocess.Popen([str(GO_DIR / "sobs")], env=env, cwd=REPO)
     # wait for readiness
     for _ in range(100):
@@ -290,14 +295,6 @@ def main() -> int:
     authoritative_total = len([g for g in generated if g.get("id") not in excluded]) or len(routes)
 
     _build_go()
-    workdir = REPO / "migration" / "fixtures" / "_run"
-    if workdir.exists():
-        shutil.rmtree(workdir)
-    # symlinks=True is REQUIRED: chdb's Atomic database engine maps the `default` database
-    # to its on-disk store via a relative symlink (metadata/default -> ../store/<uuid>).
-    # Dereferencing it (copytree's default) breaks that mapping and the copy sees 0 tables.
-    shutil.copytree(FIXTURE_SRC, workdir, symlinks=True)
-    proc = _boot_go(workdir)
 
     results: dict = {
         "green": [],
@@ -307,29 +304,56 @@ def main() -> int:
         "uncovered": uncovered,
         "authoritative_total": authoritative_total,
     }
-    diffs_shown = 0
-    try:
-        for route in routes:
-            rid = route["id"]
-            if rid in excluded:
-                continue
-            if args.only and rid != args.only:
-                continue
-            golden = _read_golden(rid)
-            if golden is None:
-                results["missing_golden"].append(rid)
-                continue
-            got = _replay(route)
-            masks = route.get("mask")
-            if N.equal(_apply_masks(golden, masks), _apply_masks(got, masks)):
-                results["green"].append(rid)
-            else:
-                results["red"].append(rid)
-                if diffs_shown < args.max_diffs:
-                    diffs_shown += 1
-                    _print_diff(rid, golden, got, args.bisect_body)
-    finally:
-        proc.terminate()
+
+    # Group the replayable routes by profile. Each profile is a distinct gate state (e.g. the
+    # query page enabled) that the Go server reads once at boot, so each profile needs its own
+    # server process against its own fresh fixture copy. "base" runs first; others sorted.
+    def _wanted(route: dict) -> bool:
+        rid = route["id"]
+        if rid in excluded:
+            return False
+        if args.only and rid != args.only:
+            return False
+        return True
+
+    by_profile: dict[str, list] = {}
+    for route in routes:
+        if _wanted(route):
+            by_profile.setdefault(PROF.route_profile(route), []).append(route)
+    profile_order = ["base"] + sorted(p for p in by_profile if p != "base")
+
+    diffs_state = {"shown": 0}
+    for profile in profile_order:
+        prof_routes = by_profile.get(profile)
+        if not prof_routes:
+            continue
+        workdir = REPO / "migration" / "fixtures" / "_run"
+        if workdir.exists():
+            shutil.rmtree(workdir)
+        # symlinks=True is REQUIRED: chdb's Atomic database engine maps the `default` database
+        # to its on-disk store via a relative symlink (metadata/default -> ../store/<uuid>).
+        # Dereferencing it (copytree's default) breaks that mapping and the copy sees 0 tables.
+        # Re-copied per profile so a profile pass never sees a prior profile's mutations.
+        shutil.copytree(FIXTURE_SRC, workdir, symlinks=True)
+        proc = _boot_go(workdir, PROF.profile_env(profile))
+        try:
+            for route in prof_routes:
+                rid = route["id"]
+                golden = _read_golden(rid)
+                if golden is None:
+                    results["missing_golden"].append(rid)
+                    continue
+                got = _replay(route)
+                masks = route.get("mask")
+                if N.equal(_apply_masks(golden, masks), _apply_masks(got, masks)):
+                    results["green"].append(rid)
+                else:
+                    results["red"].append(rid)
+                    if diffs_state["shown"] < args.max_diffs:
+                        diffs_state["shown"] += 1
+                        _print_diff(rid, golden, got, args.bisect_body)
+        finally:
+            proc.terminate()
 
     _write_results(results, routes, excluded)
     if args.update_ledger or not args.only:
