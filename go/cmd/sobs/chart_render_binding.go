@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -70,10 +71,11 @@ func (s *server) renderChartFromTemplate(templateID string, columns []any, rows 
 	if !ok || !metaOK {
 		return nil, "Unknown template: " + templateID
 	}
-	// custom_echarts (the custom-mapping subsystem) and derived_signal_overlay (the anomaly
-	// rule-evaluation engine) render paths are follow-up phases; signal not-implemented so the
-	// caller keeps a 501 rather than emitting a wrong-but-plausible body.
-	if templateID == "custom_echarts" || templateID == "derived_signal_overlay" {
+	if templateID == "custom_echarts" {
+		return renderCustomEcharts(tmpl, columns, rows, spec)
+	}
+	// derived_signal_overlay's render needs the anomaly rule-evaluation engine (phase 3).
+	if templateID == "derived_signal_overlay" {
 		return nil, renderNotImplemented
 	}
 	if len(rows) == 0 {
@@ -496,9 +498,329 @@ func attachDrilldownMetadata(templateID string, drilldown *jsonenc.Object, bindi
 // yet" — the caller (render handlers) translates it into a 501 (NOT a fake 400/200).
 const renderNotImplemented = "\x00render-not-implemented\x00"
 
-// ---- phase placeholders (custom_echarts + derived_signal_overlay added in later phases) ----
-
+// attachDerivedDrilldownFields injects derived_signal_overlay's per-point rule metadata (phase 3).
 func attachDerivedDrilldownFields(dd *jsonenc.Object, bindings map[string]any, idx int) {}
+
+// ---- custom_echarts render (phase 2) ----
+
+// renderCustomEcharts mirrors app.py _render_custom_echarts (named_datasets is nil here; the
+// spec/render path that supplies them is wired separately).
+func renderCustomEcharts(tmpl echartsTemplate, columns []any, rows []map[string]any, spec *jsonenc.Object) (any, string) {
+	var visual *jsonenc.Object
+	if spec != nil {
+		if vv, _ := spec.Get("visual"); vv != nil {
+			visual, _ = vv.(*jsonenc.Object)
+		}
+	}
+	mappingRaw, mok := parseCustomJSONConfig(visual, "custom_mapping_json")
+	mapping, isObj := mappingRaw.(*jsonenc.Object)
+	if !mok {
+		return nil, "visual.custom_mapping_json must be valid JSON"
+	}
+	if !isObj {
+		return nil, "visual.custom_mapping_json must be a JSON object"
+	}
+	var optionTemplate any
+	optRaw, present := getVisual(visual, "custom_option_json")
+	if !present || optRaw == nil || (isStr(optRaw) && strings.TrimSpace(toStr(optRaw)) == "") {
+		optionTemplate = deepCopyJSON(tmpl.option)
+	} else {
+		v, ok := parseCustomJSONConfig(visual, "custom_option_json")
+		if !ok {
+			return nil, "visual.custom_option_json must be valid JSON"
+		}
+		optionTemplate = v
+	}
+	if _, ok := optionTemplate.(*jsonenc.Object); !ok {
+		return nil, "visual.custom_option_json must be a JSON object"
+	}
+
+	records := make([]map[string]any, len(rows))
+	for i, row := range rows {
+		rec := map[string]any{}
+		for _, c := range columns {
+			col := toStr(c)
+			rec[col] = row[col]
+		}
+		records[i] = rec
+	}
+	rows2d := make([]any, len(records))
+	for i, rec := range records {
+		r := make([]any, len(columns))
+		for j, c := range columns {
+			r[j] = rec[toStr(c)]
+		}
+		rows2d[i] = r
+	}
+	colsAny := append([]any(nil), columns...)
+	bindings := map[string]any{"columns": colsAny, "records": recordsToAny(records), "rows": rows2d}
+	for _, key := range mapping.Keys() {
+		expr, _ := mapping.Get(key)
+		bk := strings.TrimSpace(key)
+		if bk == "" || strings.HasPrefix(bk, "_") {
+			continue
+		}
+		val, e := resolveCustomBindingExpr(expr, colsAny, records, rows2d)
+		if e != "" {
+			return nil, e
+		}
+		bindings[bk] = val
+	}
+
+	option := deepSubstitute(optionTemplate, bindings)
+	oo, ok := option.(*jsonenc.Object)
+	if !ok {
+		return nil, "Custom ECharts option must resolve to a JSON object"
+	}
+	if _, has := oo.Get("backgroundColor"); !has {
+		oo.Set("backgroundColor", "transparent")
+	}
+	if _, has := oo.Get("textStyle"); !has {
+		oo.Set("textStyle", jsonenc.NewObject().Set("color", "#adb5bd"))
+	}
+	normalizeCustomSeriesPointOrder(oo)
+	if dd := buildCustomDrilldown(mapping, records); dd != nil {
+		oo.Set("_customDrilldown", dd)
+	}
+	return oo, ""
+}
+
+func recordsToAny(records []map[string]any) []any {
+	out := make([]any, len(records))
+	for i, rec := range records {
+		o := jsonenc.NewObject()
+		// jsonenc.Object preserves insertion order; records iterate columns order is lost in a
+		// map, but the records binding is only consumed via {{records:...}}/column expressions —
+		// matched by key, not order. Build sorted for determinism.
+		keys := make([]string, 0, len(rec))
+		for k := range rec {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			o.Set(k, rec[k])
+		}
+		out[i] = o
+	}
+	return out
+}
+
+func getVisual(visual *jsonenc.Object, key string) (any, bool) {
+	if visual == nil {
+		return nil, false
+	}
+	return visual.Get(key)
+}
+func isStr(v any) bool { _, ok := v.(string); return ok }
+
+// parseCustomJSONConfig mirrors _parse_custom_json_config: dict/list pass through; nil -> {};
+// a string is json-parsed (ok=false on failure).
+func parseCustomJSONConfig(visual *jsonenc.Object, key string) (any, bool) {
+	raw, _ := getVisual(visual, key)
+	switch x := raw.(type) {
+	case *jsonenc.Object:
+		return x, true
+	case []any:
+		return x, true
+	case nil:
+		return jsonenc.NewObject(), true
+	}
+	text := strings.TrimSpace(toStr(raw))
+	if text == "" {
+		return jsonenc.NewObject(), true
+	}
+	v, err := parseJSONValue([]byte(text))
+	if err != nil {
+		return nil, false
+	}
+	return v, true
+}
+
+// resolveCustomBindingExpr mirrors _resolve_custom_binding_expr.
+func resolveCustomBindingExpr(expr any, columns []any, records []map[string]any, rows2d []any) (any, string) {
+	if s, ok := expr.(string); ok {
+		key := strings.TrimSpace(s)
+		switch key {
+		case "":
+			return nil, ""
+		case "columns":
+			return columns, ""
+		case "rows":
+			return rows2d, ""
+		case "records":
+			return recordsToAny(records), ""
+		}
+		out := make([]any, len(records))
+		for i, rec := range records {
+			out[i] = rec[key]
+		}
+		return out, ""
+	}
+	eo, ok := expr.(*jsonenc.Object)
+	if !ok {
+		return nil, "custom_mapping_json values must be strings or objects"
+	}
+	modeV, _ := eo.Get("from")
+	mode := strings.ToLower(strings.TrimSpace(firstNonEmpty(pyStrOrStrip(modeV, modeV != nil), "column")))
+	switch mode {
+	case "columns":
+		return columns, ""
+	case "rows":
+		return rows2d, ""
+	case "records":
+		return recordsToAny(records), ""
+	case "literal":
+		v, _ := eo.Get("value")
+		return v, ""
+	case "column":
+		nameV, _ := eo.Get("name")
+		name := strings.TrimSpace(toStr(nameV))
+		if name == "" {
+			return nil, "custom_mapping_json column mapping requires a non-empty 'name'"
+		}
+		out := make([]any, len(records))
+		for i, rec := range records {
+			out[i] = rec[name]
+		}
+		return out, ""
+	}
+	return nil, "Unsupported custom mapping mode: " + mode
+}
+
+// normalizeCustomSeriesPointOrder mirrors _normalize_custom_series_point_order: sort tuple-like
+// series points by their first element.
+func normalizeCustomSeriesPointOrder(option *jsonenc.Object) {
+	seriesV, _ := option.Get("series")
+	series, ok := seriesV.([]any)
+	if !ok {
+		return
+	}
+	for _, e := range series {
+		eo, ok := e.(*jsonenc.Object)
+		if !ok {
+			continue
+		}
+		dataV, _ := eo.Get("data")
+		data, ok := dataV.([]any)
+		if !ok || len(data) < 2 {
+			continue
+		}
+		allPoints := true
+		for _, p := range data {
+			if pl, ok := p.([]any); !ok || len(pl) < 2 {
+				allPoints = false
+				break
+			}
+		}
+		if !allPoints {
+			continue
+		}
+		sort.SliceStable(data, func(i, j int) bool {
+			return customSortKeyLess(data[i].([]any)[0], data[j].([]any)[0])
+		})
+	}
+}
+
+func customSortRank(v any) (int, float64, string) {
+	if f, ok := numOf(v); ok {
+		// Numbers rank 1 unless they're ISO datetime strings (handled below).
+		if _, isStr := v.(string); !isStr {
+			return 1, f, ""
+		}
+	}
+	if s, ok := v.(string); ok {
+		txt := strings.TrimSpace(s)
+		for _, layout := range drilldownTimeLayouts {
+			if t, err := time.Parse(layout, strings.Replace(txt, "Z", "+00:00", 1)); err == nil {
+				return 0, float64(t.UTC().UnixNano()), ""
+			}
+		}
+		if f, err := strconv.ParseFloat(txt, 64); err == nil {
+			return 1, f, ""
+		}
+		return 2, 0, txt
+	}
+	return 3, 0, toStr(v)
+}
+
+func customSortKeyLess(a, b any) bool {
+	ra, fa, sa := customSortRank(a)
+	rb, fb, sb := customSortRank(b)
+	if ra != rb {
+		return ra < rb
+	}
+	if ra == 2 || ra == 3 {
+		return sa < sb
+	}
+	return fa < fb
+}
+
+// buildCustomDrilldown mirrors _build_custom_drilldown.
+func buildCustomDrilldown(mapping *jsonenc.Object, records []map[string]any) *jsonenc.Object {
+	ddV, _ := mapping.Get("_drilldown")
+	dd, ok := ddV.(*jsonenc.Object)
+	if !ok {
+		return nil
+	}
+	targetV, _ := dd.Get("target")
+	target := strings.TrimSpace(toStr(targetV))
+	if target != "logs" && target != "metrics" && target != "traces" && target != "errors" {
+		return nil
+	}
+	labelV, _ := dd.Get("label")
+	label := strings.TrimSpace(toStr(labelV))
+	if label == "" {
+		label = "Open Source View"
+	}
+	var firstRecord map[string]any
+	if len(records) > 0 {
+		firstRecord = records[0]
+	}
+	out := jsonenc.NewObject().Set("target", target).Set("label", label)
+	for _, k := range []string{"bucket_seconds", "time_axis", "service_axis"} {
+		if v, ok := dd.Get(k); ok {
+			out.Set(k, v)
+		}
+	}
+	extraV, _ := dd.Get("extra")
+	if extra, ok := extraV.(*jsonenc.Object); ok && extra.Len() > 0 {
+		eo := jsonenc.NewObject()
+		for _, k := range extra.Keys() {
+			key := strings.TrimSpace(k)
+			if key == "" {
+				continue
+			}
+			v, _ := extra.Get(k)
+			if s, ok := v.(string); ok {
+				eo.Set(key, resolveTemplateStringCustom(s, firstRecord))
+			} else {
+				eo.Set(key, v)
+			}
+		}
+		if eo.Len() > 0 {
+			out.Set("extra", eo)
+		}
+	}
+	return out
+}
+
+var customTplVarRe = regexp.MustCompile(`\{\{\s*([a-zA-Z0-9_]+)\s*\}\}`)
+
+// resolveTemplateStringCustom mirrors _resolve_template_string: replace {{ key }} with
+// str(record[key]) ("" when None/absent).
+func resolveTemplateStringCustom(value string, record map[string]any) string {
+	return customTplVarRe.ReplaceAllStringFunc(value, func(m string) string {
+		sub := customTplVarRe.FindStringSubmatch(m)
+		if len(sub) < 2 {
+			return ""
+		}
+		v, ok := record[strings.TrimSpace(sub[1])]
+		if !ok || v == nil {
+			return ""
+		}
+		return toStr(v)
+	})
+}
 
 var drilldownTimeLayouts = []string{
 	"2006-01-02T15:04:05.999999999-07:00", "2006-01-02 15:04:05.999999999-07:00",

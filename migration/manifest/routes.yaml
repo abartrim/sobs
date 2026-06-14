@@ -978,6 +978,14 @@ routes:
     json:
       template_id: time_series_percentiles
       query: SELECT 1 AS time, 2 AS value WHERE 1=0
+- id: post__api_dashboards_render_custom
+  path: /api/dashboards/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      template_id: custom_echarts
+      query: SELECT toDateTime('2024-01-01 00:00:00') AS t, 5.0 AS v
 - id: post__api_settings_masking_preview
   path: /api/settings/masking/preview
   methods:
