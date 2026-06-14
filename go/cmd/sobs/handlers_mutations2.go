@@ -219,19 +219,32 @@ func (s *server) handleApiDashboardsSpecCompile(w http.ResponseWriter, r *http.R
 		errorOnly(w, http.StatusBadRequest, errMsg)
 		return
 	}
-	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().
 		Set("template_id", tid).Set("query", query).Set("spec", spec))
 }
 
-// POST /api/dashboards/spec/render — compile + execute + renderChartFromTemplate +
-// applyChartSpecVisualOverrides are ready (see chart_render_binding.go), but the response goes
-// through _mask_payload_for_output_json (the masking.py redact subsystem, not yet ported) and
-// derived_signal_overlay needs the anomaly engine — so this stays a 501 until both land.
+// POST /api/dashboards/spec/render — app.py render_chart_spec_api: compile, execute, render to an
+// eCharts option + apply the spec's visual overrides, masked through the output-masking wrapper.
 func (s *server) handleApiDashboardsSpecRender(w http.ResponseWriter, r *http.Request) {
-	if specModeGuard(w, r, nil) {
+	tid, query, spec, errMsg := s.compileChartSpec(specFromBody(r))
+	if errMsg != "" {
+		errorOnly(w, http.StatusBadRequest, errMsg)
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	res, err := s.db.Execute(injectLimit(query, 1000))
+	if err != nil {
+		errorOnly(w, http.StatusBadRequest, publicDashboardQueryError(err))
+		return
+	}
+	columns, rows := serializeQueryDictRows(res)
+	option, rErr := s.renderChartFromTemplate(tid, columns, rows, spec)
+	if rErr != "" {
+		errorOnly(w, http.StatusBadRequest, rErr)
+		return
+	}
+	option = applyChartSpecVisualOverrides(tid, option, spec)
+	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("template_id", tid).Set("query", query).Set("spec", spec).Set("option", option))
 }
 
 

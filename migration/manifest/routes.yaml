@@ -905,6 +905,57 @@ routes:
   request:
     method: POST
     json: {}
+# spec/render success: compile + execute + render + visual-overrides + OUTPUT MASKING (the
+# time/DateTime values mask to "****" via the redact datetime fallthrough). Covers a standard
+# template, derived_signal_overlay (anomaly engine), gauge w/ visual overrides, builder->empty.
+- id: post__api_dashboards_spec_render_timeseries
+  path: /api/dashboards/spec/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: time_series_percentiles
+        sql:
+          mode: raw
+          override_sql: SELECT toDateTime('2024-01-01 00:00:00') AS time, 2.0 AS value, 3.0 AS p95, 4.0 AS p99
+- id: post__api_dashboards_spec_render_derived
+  path: /api/dashboards/spec/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: derived_signal_overlay
+        sql:
+          mode: raw
+          override_sql: SELECT toDateTime('2024-01-01 00:00:00') AS time, 'trace-svc-0' AS service, 'traces' AS source, 'latency_p95_ms' AS signal, '' AS attr_fp, 500.0 AS value, toUInt32(10) AS sample_count, 100.0 AS baseline_mean, 50.0 AS baseline_lower, 150.0 AS baseline_upper, 'outlier' AS anomaly_state, 0.9 AS anomaly_score
+- id: post__api_dashboards_spec_render_gauge_overrides
+  path: /api/dashboards/spec/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: gauge_kpi
+        sql:
+          mode: raw
+          override_sql: SELECT 88.0 AS value
+        visual:
+          legend_show: false
+          zoom_slider: true
+- id: post__api_dashboards_spec_render_builder_empty
+  path: /api/dashboards/spec/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: derived_signal_overlay
+        sql:
+          mode: builder
+        data:
+          service: api
 - id: post__api_dashboards_query
   path: /api/dashboards/query
   methods:

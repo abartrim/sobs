@@ -156,7 +156,7 @@ func (s *server) handleApiDashboardsSpecValidate(w http.ResponseWriter, r *http.
 		writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().Set("valid", false).Set("error", e))
 		return
 	}
-	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().
 		Set("valid", true).Set("template_id", tid).Set("query", query).Set("spec", spec).
 		Set("columns", columns).Set("row_count", len(rows)))
 }

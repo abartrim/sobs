@@ -86,16 +86,25 @@ func chQueryValue(v any, chType string) any {
 			}
 		}
 	case strings.HasPrefix(base, "DateTime") || strings.HasPrefix(base, "Date"):
-		// The Python chdb driver returns Date/DateTime cells as datetime objects, which Flask
-		// jsonify renders as an RFC-822 http_date ("Mon, 02 Jan 2006 15:04:05 GMT").
+		// The Python chdb driver returns Date/DateTime cells as datetime objects. They jsonify as
+		// an RFC-822 http_date, but the output-masking redact masks them to "****" (a datetime is
+		// an "unhandled type" in redact). chDateTime carries both behaviours: it Stringer-encodes
+		// as the http_date (identical bytes for unmasked routes) and redacts to MASK.
 		if str, ok := v.(string); ok {
 			if d := flaskHTTPDate(str); d != "" {
-				return d
+				return chDateTime{d}
 			}
 		}
 	}
 	return v
 }
+
+// chDateTime wraps a chdb Date/DateTime cell rendered as Flask's RFC-822 http_date. Its String()
+// makes the jsonenc encoder's default case emit the http_date verbatim; the output-masking
+// redact treats it as an unhandled type and masks it to "****" (matching Python's datetime).
+type chDateTime struct{ s string }
+
+func (d chDateTime) String() string { return d.s }
 
 // flaskHTTPDate parses a chdb Date/DateTime string and renders Flask's http_date (UTC, RFC-822,
 // no sub-second). Returns "" when unparseable.
@@ -275,7 +284,7 @@ func (s *server) handleApiDashboardsSpecDryRun(w http.ResponseWriter, r *http.Re
 	if nqV, ok := spec.Get("named_queries"); ok {
 		named, _ = nqV.([]any)
 	}
-	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().
 		Set("template_id", tid).Set("query", query).Set("spec", spec).
 		Set("columns", columns).Set("column_types", inferColumnTypes(columns, rows)).
 		Set("rows", rows).Set("named_query_results", s.executeNamedQueries(named, 5)))
