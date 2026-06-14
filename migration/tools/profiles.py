@@ -79,6 +79,14 @@ PROFILES: dict[str, dict[str, str]] = {
     # feedback: a no-env isolation profile — ai_helper_feedback's telemetry INSERT (otel_logs +
     # otel_traces) runs in its own fixture copy so it doesn't ripple into base telemetry readers.
     "feedback": {},
+    # refine: query/refine-chart — query gate on + the LLM endpoint pointed at the canned
+    # /chat/completions mock (distinct path so its URL key is unique to this route).
+    "refine": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/refine/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
 }
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via

@@ -80,8 +80,9 @@ def _install_upstream_fixtures() -> None:
 
     base = _Path(fixtures_dir)
     # api.github.com / api.osv.dev are the real upstreams; hooks.example.com is the parity test
-    # webhook sink (notification channel dispatch). All served from canned files, never dialed.
-    intercept_hosts = {"api.github.com", "api.osv.dev", "hooks.example.com"}
+    # webhook sink; sobs-ai.mock is the LLM /chat/completions endpoint (each AI route's profile
+    # points at a distinct path so the URL-keyed canned response is per-route). All canned.
+    intercept_hosts = {"api.github.com", "api.osv.dev", "hooks.example.com", "sobs-ai.mock"}
 
     def _handler(request: "httpx.Request") -> "httpx.Response":
         host = request.url.host

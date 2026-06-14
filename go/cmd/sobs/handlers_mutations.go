@@ -52,13 +52,50 @@ func (s *server) handleApiQueryAsk(w http.ResponseWriter, r *http.Request) {
 
 // handleApiQueryRun is defined in query_exec.go (full SQL exec + telemetry).
 
-// POST /api/query/refine-chart — 404 query-page guard (disabled on the fixture).
+// POST /api/query/refine-chart — app.py api_query_refine_chart: refine an ECharts spec via one
+// LLM call (canned in parity). trace_id/turn_id are uuids (masked).
 func (s *server) handleApiQueryRefineChart(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.QueryPageEnabled {
-		s.errorJSON(w, http.StatusNotFound, "Query page is unavailable.")
+		s.writeMaskedJSON(w, http.StatusNotFound,
+			jsonenc.NewObject().Set("ok", false).Set("error", "Query page is unavailable."))
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	m := bodyMap(r)
+	currentSpec, _ := m["chart_spec"].(string)
+	instruction := strings.TrimSpace(bstr(m, "instruction"))
+	if currentSpec == "" {
+		s.writeMaskedJSON(w, http.StatusBadRequest,
+			jsonenc.NewObject().Set("ok", false).Set("error", "No chart spec provided."))
+		return
+	}
+	if instruction == "" {
+		s.writeMaskedJSON(w, http.StatusBadRequest,
+			jsonenc.NewObject().Set("ok", false).Set("error", "No instruction provided."))
+		return
+	}
+	traceID := newUUIDv4()
+	turnID := newUUIDv4()
+	model := strings.TrimSpace(s.loadAISetting("ai.model", ""))
+	endpoint := strings.TrimSpace(s.loadAISetting("ai.endpoint_url", ""))
+	instrAttrs := map[string]string{"gen_ai.operation.name": "refine_chart", "sobs.gen_ai.instruction": instruction}
+	s.emitAiHelperLogEvent("query.turn.start", traceID, turnID, "/query", model, "", "off",
+		"Chart refinement requested: "+instruction, "INFO", instrAttrs)
+	chartSpec, chartErr := s.vannaRefineChartSpec(endpoint, model, currentSpec)
+	sev := "INFO"
+	emitBody := chartSpec
+	if chartErr != "" {
+		sev, emitBody = "ERROR", chartErr
+	}
+	s.emitAiHelperLogEvent("query.chart.refined", traceID, turnID, "/query", model, "", "off", emitBody, sev, instrAttrs)
+	s.emitAiHelperLogEvent("query.turn.complete", traceID, turnID, "/query", model, "", "off", "", sev,
+		map[string]string{"gen_ai.operation.name": "refine_chart"})
+	if chartErr != "" {
+		s.writeMaskedJSON(w, http.StatusInternalServerError,
+			jsonenc.NewObject().Set("ok", false).Set("error", chartErr).Set("trace_id", traceID))
+		return
+	}
+	s.writeMaskedJSON(w, http.StatusOK,
+		jsonenc.NewObject().Set("ok", true).Set("trace_id", traceID).Set("chart_spec", chartSpec))
 }
 
 // POST /api/query/add-to-dashboard — app.py api_query_add_to_dashboard: persist query SQL + a
