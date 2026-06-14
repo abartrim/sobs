@@ -83,8 +83,12 @@ PROFILES: dict[str, dict[str, str]] = {
     # isolation so that insert doesn't ripple into base telemetry readers.
     "execute": {},
     # notifcheck: seeded notification rules so check_notifications evaluates real (empty-condition,
-    # non-firing) rules; isolated from the notif toggle/delete tests.
+    # non-firing) rules; isolated from the notif toggle/delete tests. Also exercises auto-generate
+    # *preview* with enabled channels (channel pre-selection + covered-set build).
     "notifcheck": {},
+    # notifgen: seeded channels+rules so auto-generate *create* runs its insert branch (derives a
+    # notification rule per uncovered anomaly rule); isolated so the new rows don't ripple.
+    "notifgen": {},
     # refine: query/refine-chart — query gate on + the LLM endpoint pointed at the canned
     # /chat/completions mock (distinct path so its URL key is unique to this route).
     "refine": {
@@ -106,7 +110,7 @@ PROFILES: dict[str, dict[str, str]] = {
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via
 # `seed_fixtures.py --only-profile <name>`). Isolated to the profile — never seeded into base.
-SEEDED_PROFILES = {"agentrun", "notif", "notifcheck", "githubtoken", "mcpkey", "aichat"}
+SEEDED_PROFILES = {"agentrun", "notif", "notifcheck", "notifgen", "githubtoken", "mcpkey", "aichat"}
 
 
 def route_profile(route: dict) -> str:

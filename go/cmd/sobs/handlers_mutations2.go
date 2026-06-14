@@ -543,22 +543,91 @@ func (s *server) handleApiNotificationsAutoGenerate(w http.ResponseWriter, r *ht
 	if action == "" {
 		action = "preview"
 	}
-	// The "create" action (and the already-covered/channel-selection logic when notification
-	// rules or channels exist) is a follow-up; the fixture exercises the empty-state preview.
-	if action != "preview" ||
-		s.countRows("SELECT count() FROM sobs_notification_rules FINAL WHERE IsDeleted = 0") != 0 ||
-		s.countRows("SELECT count() FROM sobs_notification_channels FINAL WHERE IsDeleted = 0 AND Enabled = 1") != 0 {
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+	metricRuleID := strings.TrimSpace(r.PostFormValue("metric_rule_id"))
+
+	examined, skipped, candidates := s.notificationAutoCandidates(metricRuleID)
+
+	if action == "create" {
+		// Re-derive the covered set to guard against a race between preview and create.
+		coveredNow := s.coveredSignalKeys()
+		created := 0
+		for _, c := range candidates {
+			cand := c.(*jsonenc.Object)
+			source, signal := objGetStr(cand, "source"), objGetStr(cand, "signal")
+			key := source + "\x00" + signal
+			if coveredNow[key] {
+				skipped++
+				continue
+			}
+			coveredNow[key] = true // prevent duplicates within this batch
+			threshold, _ := cand.Get("threshold")
+			conditions := []any{jsonenc.NewObject().
+				Set("source", source).Set("signal", signal).
+				Set("service", objGetStr(cand, "service")).
+				Set("comparator", objGetStr(cand, "comparator")).
+				Set("threshold", threshold).Set("window_minutes", 5)}
+			chIDs := []string{}
+			if v, ok := cand.Get("channel_ids"); ok {
+				if list, ok := v.([]any); ok {
+					for _, id := range list {
+						chIDs = append(chIDs, id.(string))
+					}
+				}
+			}
+			_, _ = s.insertRowsNormalized("sobs_notification_rules", []map[string]any{{
+				"Id": newUUIDv4(), "Name": objGetStr(cand, "name"), "Enabled": 1,
+				"LogicOperator": "any", "ConditionsJson": string(jsonenc.Encode(conditions, dumpsDefault)),
+				"ChannelIds": strings.Join(chIDs, ","), "Severity": objGetStr(cand, "severity"),
+				"CooldownSeconds": 300, "LastFiredAt": "1970-01-01 00:00:00.000",
+				"IsDeleted": 0, "Version": fixedVersionMillis(),
+			}})
+			created++
+		}
+		writeJSON(w, http.StatusOK, jsonenc.NewObject().
+			Set("created", created).Set("examined", examined).Set("ok", true).Set("skipped", skipped))
 		return
 	}
-	res, err := s.db.Execute("SELECT Id, Name, SignalSource, SignalName, ServiceName, Comparator, " +
-		"WarningThreshold, CriticalThreshold FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 ORDER BY Name")
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("candidates", candidates).Set("examined", examined).Set("ok", true).Set("skipped", skipped))
+}
+
+// notificationAutoCandidates mirrors _get_notification_auto_candidates: derive candidate
+// notification rules from active anomaly (metric) rules, skipping any (source, signal) pair already
+// covered by an existing notification rule's conditions, with all enabled channels pre-selected.
+func (s *server) notificationAutoCandidates(metricRuleID string) (examined, skipped int, candidates []any) {
+	query := "SELECT Id, Name, SignalSource, SignalName, ServiceName, Comparator, " +
+		"WarningThreshold, CriticalThreshold FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0"
+	var qArgs []any
+	if metricRuleID != "" {
+		query += " AND Id = ? LIMIT 1"
+		qArgs = append(qArgs, metricRuleID)
+	} else {
+		query += " ORDER BY Name"
+	}
+	res, err := s.db.Execute(query, qArgs...)
 	if err != nil {
-		s.dbError(w, err)
-		return
+		return 0, 0, []any{}
 	}
-	candidates := []any{}
-	for _, m := range rowMaps(res) {
+	metricRows := rowMaps(res)
+	covered := s.coveredSignalKeys()
+
+	// All currently enabled channels are the default selection for every candidate.
+	channelIDs, channelNames := []any{}, []any{}
+	if chRes, err := s.db.Execute(
+		"SELECT Id, Name FROM sobs_notification_channels FINAL WHERE IsDeleted = 0 AND Enabled = 1"); err == nil {
+		for _, c := range rowMaps(chRes) {
+			channelIDs = append(channelIDs, cStr(c, "Id"))
+			channelNames = append(channelNames, cStr(c, "Name"))
+		}
+	}
+
+	candidates = []any{}
+	for _, m := range metricRows {
+		source, signal := cStr(m, "SignalSource"), cStr(m, "SignalName")
+		if covered[source+"\x00"+signal] {
+			skipped++
+			continue
+		}
 		crit, warn := cFloat(m, "CriticalThreshold"), cFloat(m, "WarningThreshold")
 		threshold, severity := 0.0, "warning"
 		if crit > 0 {
@@ -569,18 +638,40 @@ func (s *server) handleApiNotificationsAutoGenerate(w http.ResponseWriter, r *ht
 		candidates = append(candidates, jsonenc.NewObject().
 			Set("metric_rule_id", cStr(m, "Id")).
 			Set("name", "Auto: "+cStr(m, "Name")).
-			Set("source", cStr(m, "SignalSource")).
-			Set("signal", cStr(m, "SignalName")).
+			Set("source", source).
+			Set("signal", signal).
 			Set("service", cStr(m, "ServiceName")).
 			Set("comparator", cStr(m, "Comparator")).
 			Set("threshold", threshold).
 			Set("severity", severity).
-			Set("channel_ids", []any{}).
-			Set("channel_names", []any{}))
+			Set("channel_ids", append([]any{}, channelIDs...)).
+			Set("channel_names", append([]any{}, channelNames...)))
 	}
-	writeJSON(w, http.StatusOK, jsonenc.NewObject().
-		Set("candidates", candidates).Set("examined", len(candidates)).
-		Set("ok", true).Set("skipped", 0))
+	return len(metricRows), skipped, candidates
+}
+
+// coveredSignalKeys is the set of "source\x00signal" pairs already covered by an existing
+// notification rule's conditions (mirrors the `covered` set in _get_notification_auto_candidates).
+func (s *server) coveredSignalKeys() map[string]bool {
+	covered := map[string]bool{}
+	for _, rule := range s.loadNotificationRulesForCheck() {
+		for _, c := range rule.conditions {
+			if o, ok := c.(*jsonenc.Object); ok {
+				covered[objGetStr(o, "source")+"\x00"+objGetStr(o, "signal")] = true
+			}
+		}
+	}
+	return covered
+}
+
+// objGetStr returns a string field of an ordered object (empty if absent or non-string).
+func objGetStr(o *jsonenc.Object, key string) string {
+	if v, ok := o.Get(key); ok {
+		if str, ok := v.(string); ok {
+			return str
+		}
+	}
+	return ""
 }
 
 // truthy mirrors Python bool() for the JSON scalar types that reach a request body.

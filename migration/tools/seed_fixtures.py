@@ -481,6 +481,7 @@ PROFILE_SEEDS = {
     "agentrun": seed_agent_run,
     "notif": seed_notif,
     "notifcheck": seed_notif,  # same rows; isolated so check doesn't see toggle/delete mutations
+    "notifgen": seed_notif,  # channels+rules; auto-generate create inserts new rules (isolated)
     "githubtoken": seed_github_token,
     "mcpkey": seed_mcp_key,
     "aichat": seed_aichat,

@@ -1965,6 +1965,28 @@ routes:
   - POST
   request:
     method: POST
+# preview WITH enabled channels seeded: candidates carry channel_ids/channel_names pre-selected,
+# and the already-covered set is built (empty-condition rules cover nothing -> skipped 0).
+- id: post__api_notifications_rules_auto_generate__preview
+  path: /api/notifications/rules/auto-generate
+  methods:
+  - POST
+  profile: notifcheck
+  request:
+    method: POST
+    form:
+      action: preview
+# create: derive + INSERT a notification rule per uncovered anomaly rule; response is the
+# created/examined/skipped counts (the inserted rows' uuid/version are not in the body).
+- id: post__api_notifications_rules_auto_generate__create
+  path: /api/notifications/rules/auto-generate
+  methods:
+  - POST
+  profile: notifgen
+  request:
+    method: POST
+    form:
+      action: create
 - id: post__api_mcp_keys
   path: /api/mcp/keys
   methods:
