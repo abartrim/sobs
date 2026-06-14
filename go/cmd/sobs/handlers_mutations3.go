@@ -125,20 +125,54 @@ func (s *server) handleChannelSub(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
-// POST /api/enrichment/cve/findings/<osv_id>/disposition — validates required fields before
-// any record lookup; an empty body fails with the fixed message.
+var cveDispositionValues = map[string]bool{"open": true, "accepted": true, "false_positive": true, "fixed": true}
+
+// POST /api/enrichment/cve/findings/<osv_id>/disposition — app.py api_cve_set_disposition:
+// upsert a CVE finding disposition + optional note (deterministic; frozen timestamp).
 func (s *server) handleCveDispositionSub(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/enrichment/cve/findings/")
-	if _, ok := strings.CutSuffix(rest, "/disposition"); !ok || r.Method != http.MethodPost {
+	osvID, ok := strings.CutSuffix(rest, "/disposition")
+	if !ok || r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
 	m := bodyMap(r)
-	if bstr(m, "osv_id") == "" || bstr(m, "package") == "" || bstr(m, "ecosystem") == "" || bstr(m, "version") == "" {
+	pkg, eco, ver := bstr(m, "package"), bstr(m, "ecosystem"), bstr(m, "version")
+	disp := strings.ToLower(bstr(m, "disposition"))
+	note := bstr(m, "note")
+	if strings.TrimSpace(osvID) == "" || pkg == "" || eco == "" || ver == "" {
 		s.errorJSON(w, http.StatusBadRequest, "osv_id, package, ecosystem, and version are required")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	if !cveDispositionValues[disp] {
+		writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().
+			Set("ok", false).Set("error", "invalid disposition: "+disp).
+			Set("allowed", []any{"accepted", "false_positive", "fixed", "open"}))
+		return
+	}
+	nowTs := nowISO()
+	currentVersion := fixedVersionMillis()
+	createdAt, versionUnder := nowTs, currentVersion
+	if res, err := s.db.Execute("SELECT CreatedAt, Version_ FROM sobs_cve_dispositions FINAL "+
+		"WHERE OsvId=? AND Package=? AND Ecosystem=? AND Version=? LIMIT 1", osvID, pkg, eco, ver); err == nil && len(res.Rows) > 0 {
+		ex := rowMaps(res)[0]
+		createdAt = pyDateTimeStr(cStr(ex, "CreatedAt"))
+		if v := int64(cInt(ex, "Version_")) + 1; v > versionUnder {
+			versionUnder = v
+		}
+	}
+	row := map[string]any{
+		"OsvId": osvID, "Package": pkg, "Ecosystem": eco, "Version": ver,
+		"Disposition": disp, "Note": note, "CreatedAt": createdAt, "UpdatedAt": nowTs,
+		"Version_": versionUnder,
+	}
+	if _, err := s.insertRowsNormalized("sobs_cve_dispositions", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).Set("osv_id", osvID).Set("package", pkg).Set("ecosystem", eco).
+		Set("version", ver).Set("disposition", disp).Set("note", note).Set("updated_at", nowTs))
 }
 
 // POST /api/dashboards/<dashboard_id>/charts/import — 404 when the dashboard does not exist.

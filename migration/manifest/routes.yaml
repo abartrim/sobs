@@ -801,6 +801,20 @@ routes:
         - name: extra
           sql: SELECT toUInt8(7) AS v
           purpose: side dataset
+# Set a CVE finding disposition (mutator; inserts into sobs_cve_dispositions. The frozen-clock
+# updated_at is deterministic; CreatedAt/Version_ are not in the response).
+- id: post__api_enrichment_cve_disposition_ok
+  path: /api/enrichment/cve/findings/GHSA-abc-123/disposition
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      package: lodash
+      ecosystem: npm
+      version: 4.17.0
+      disposition: accepted
+      note: reviewed and accepted
 # MCP unauthenticated JSON-RPC methods (no API key needed): initialize / ping / notifications.
 - id: post__mcp_initialize
   path: /mcp
@@ -1090,6 +1104,18 @@ routes:
   request:
     method: POST
     json: {}
+# Invalid disposition value -> 400 with the allowed list (read-only, no insert).
+- id: post__api_enrichment_cve_disposition_bad
+  path: /api/enrichment/cve/findings/GHSA-abc-123/disposition
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      package: lodash
+      ecosystem: npm
+      version: 4.17.0
+      disposition: bogus
 - id: post__api_tags__type__id
   path: /api/tags/log/nonexistent-id
   methods:
