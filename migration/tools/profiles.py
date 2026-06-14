@@ -136,6 +136,16 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # aibuild: dashboards/spec/ai-build — the vanna pipeline (generate SQL -> execute -> named
+    # queries -> chart option). No guard check; one canned /chat/completions ("SELECT 1 AS x") is
+    # reused for every stage (URL-keyed), so the named-query/chart stages fail to parse identically
+    # on both sides and fall back deterministically.
+    "aibuild": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aibuild/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # ask: query/ask — guard + main endpoints on DISTINCT mock paths (two canned responses).
     "ask": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/ask/v1",

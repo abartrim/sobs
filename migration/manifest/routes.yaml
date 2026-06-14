@@ -1272,6 +1272,18 @@ routes:
   request:
     method: POST
     json: {}
+# aibuild profile: AI configured (mock). The vanna pipeline generates SQL ("SELECT 1 AS x"),
+# executes it, finds no named queries / chart spec (the single canned reply isn't valid JSON for
+# those stages on either side), and falls back to the safe custom_echarts option template.
+- id: post__api_dashboards_spec_ai_build__vanna
+  path: /api/dashboards/spec/ai-build
+  methods:
+  - POST
+  profile: aibuild
+  request:
+    method: POST
+    json:
+      question: Show request volume over time
 - id: post__api_notifications_subscribe
   path: /api/notifications/subscribe
   methods:

@@ -53,14 +53,7 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 
 // handleApiAiHelperFeedback is defined in ai_emit.go.
 
-// POST /api/dashboards/spec/ai-build — requires `question`.
-func (s *server) handleApiDashboardsSpecAiBuild(w http.ResponseWriter, r *http.Request) {
-	if bstr(bodyMap(r), "question") == "" {
-		s.errorJSON(w, http.StatusBadRequest, "question is required")
-		return
-	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
-}
+// handleApiDashboardsSpecAiBuild is defined in ai_build.go.
 
 // ---- Notifications / onboarding (field-required 400s) --------------------------------
 
