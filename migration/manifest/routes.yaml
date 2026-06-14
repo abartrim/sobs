@@ -1,929 +1,1372 @@
-# HUMAN-AUTHORED route manifest — the request specs that drive capture & replay.
-#
-# Start from routes.generated.yaml (run extract_routes.py --yaml). For each route, add
-# a `request:` block describing the EXACT request to issue and any `state:` setup the
-# route needs. A route with no `request:` is captured as a bare GET of its path with no
-# body — fine for simple pages, insufficient for POST/PATCH/stateful routes.
-#
-# The set of ids here MUST cover every id in routes.generated.yaml, minus EXCLUSIONS.yaml.
-# parity_check.py enforces this (no silent gaps).
-#
-# request fields:
-#   method:    override (defaults to the route's first method)
-#   query:     {k: v}  -> urlencoded query string
-#   headers:   {Name: value}
-#   json:      <obj>   -> body = json.dumps(obj), Content-Type: application/json
-#   body_b64:  "..."   -> raw body bytes (for protobuf OTLP, form posts, etc.)
-# state:       optional list of setup ops applied before the request (e.g. seed a
-#              specific row). Implement handlers in capture/replay as needed; prefer
-#              baking state into seed_fixtures.py so it's identical for both sides.
-
 routes:
-  # ---- Phase 1 smoke subset (real paths, verified against the live url_map) ----
-  # /health returns jsonify({"status":"ok","version":"1.0.0"}) — no DB. First JSON target.
-  - id: get__health
-    path: "/health"
-    methods: [GET]
-    request: {method: GET}
-
-  # First data-backed route: SELECT 1 against the shared chdb fixture DB.
-  - id: get__health_db
-    path: "/health/db"
-    methods: [GET]
-    request: {method: GET}
-
-  # A first-party static asset — exercises static serving (no DB, no template).
-  - id: get__static_sobs_ansi_js
-    path: "/static/sobs-ansi.js"
-    methods: [GET]
-    request: {method: GET}
-
-  # A *_help.html page — exercises the template engine + base.html chrome + context
-  # processor. Registered dynamically via _register_help_route.
-  - id: get__ai_help
-    path: "/ai/help"
-    methods: [GET]
-    request: {method: GET}
-
-  # ---- Example JSON route with a body ----
-  # - id: post__api_reports
-  #   path: "/api/reports"
-  #   methods: [POST]
-  #   request:
-  #     method: POST
-  #     json: {name: "fixture-report", query: "SELECT 1"}
-
-  # ---- Example OTLP protobuf ingest ----
-  # - id: post__v1_logs
-  #   path: "/v1/logs"
-  #   methods: [POST]
-  #   request:
-  #     method: POST
-  #     headers: {Content-Type: "application/x-protobuf"}
-  #     body_b64: "<base64 of a fixed ExportLogsServiceRequest>"
-
-  # … reconcile the remaining 185 routes from routes.generated.yaml here.
-  - id: get__cve_help
-    path: "/cve/help"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__dashboards_help_chart_editor
-    path: "/dashboards/help/chart-editor"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__errors_help
-    path: "/errors/help"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__incident_help
-    path: "/incident/help"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__kubernetes_help
-    path: "/kubernetes/help"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__logs_help
-    path: "/logs/help"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__metrics_help
-    path: "/metrics/help"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__metrics_help_anomaly
-    path: "/metrics/help/anomaly"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__metrics_help_rules
-    path: "/metrics/help/rules"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__metrics_help_rules_auto
-    path: "/metrics/help/rules/auto"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__query_help
-    path: "/query/help"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__reports_help
-    path: "/reports/help"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__rum_help
-    path: "/rum/help"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_help
-    path: "/settings/help"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_help_agents
-    path: "/settings/help/agents"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_help_ai
-    path: "/settings/help/ai"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_help_data_management
-    path: "/settings/help/data-management"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_help_enrichment
-    path: "/settings/help/enrichment"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_help_kubernetes
-    path: "/settings/help/kubernetes"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_help_masking
-    path: "/settings/help/masking"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_help_notifications
-    path: "/settings/help/notifications"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_help_repositories
-    path: "/settings/help/repositories"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_help_tags
-    path: "/settings/help/tags"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__setup_help_playbooks
-    path: "/setup/help/playbooks"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__summary_help
-    path: "/summary/help"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__table_explorer_help
-    path: "/table-explorer/help"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__traces_help
-    path: "/traces/help"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__web_traffic_help
-    path: "/web-traffic/help"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__work_items_help
-    path: "/work-items/help"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_query_schema
-    path: "/api/query/schema"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_table_explorer_tables
-    path: "/api/table-explorer/tables"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_kubernetes_status
-    path: "/api/kubernetes/status"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_notifications_vapid_public_key
-    path: "/api/notifications/vapid-public-key"
-    methods: [GET]
-    request: {method: GET}
-  # ---- Phase 3 data-backed JSON routes ----
-  - id: get__api_dashboards_list
-    path: "/api/dashboards/list"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_reports
-    path: "/api/reports"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_agent_runs
-    path: "/api/agent/runs"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_web_traffic_browsers
-    path: "/api/web-traffic/browsers"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_web_traffic_os
-    path: "/api/web-traffic/os"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_web_traffic_timezones
-    path: "/api/web-traffic/timezones"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_web_traffic_languages
-    path: "/api/web-traffic/languages"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_web_traffic_devices
-    path: "/api/web-traffic/devices"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_chart_types
-    path: "/api/chart-types"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_data_management_backup_list
-    path: "/api/data-management/backup/list"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_ai_span_attributes
-    path: "/api/ai/span-attributes"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_enrichment_cve_findings
-    path: "/api/enrichment/cve/findings"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_web_traffic_geo
-    path: "/api/web-traffic/geo"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_dashboards_spec_options
-    path: "/api/dashboards/spec/options"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_mcp_keys
-    path: "/api/mcp/keys"
-    methods: [GET]
-    request: {method: GET}
-  # ---- static assets w/ dedicated handlers + v1 ingest preflight ----
-  - id: get__service_worker_js
-    path: "/service-worker.js"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__static_rum_js
-    path: "/static/rum.js"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__static_rum_js_map
-    path: "/static/rum.js.map"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__static_rum_min_js
-    path: "/static/rum.min.js"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__static_rum_min_js_map
-    path: "/static/rum.min.js.map"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__static_rum_d_ts
-    path: "/static/rum.d.ts"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__v1_logs
-    path: "/v1/logs"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__v1_metrics
-    path: "/v1/metrics"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__v1_traces
-    path: "/v1/traces"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__v1_rum_assets
-    path: "/v1/rum/assets"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__v1_apps
-    path: "/v1/apps"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_settings_masking_rules
-    path: "/api/settings/masking/rules"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__query
-    path: "/query"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__table_explorer
-    path: "/table-explorer"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__kubernetes
-    path: "/kubernetes"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__dashboards_new
-    path: "/dashboards/new"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__dashboards
-    path: "/dashboards"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_kubernetes
-    path: "/settings/kubernetes"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_enrichment
-    path: "/settings/enrichment"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_masking
-    path: "/settings/masking"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings
-    path: "/settings"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__metrics_rules
-    path: "/metrics/rules"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_agents
-    path: "/settings/agents"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_notifications
-    path: "/settings/notifications"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_dashboards_spec_templates
-    path: "/api/dashboards/spec/templates"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_ai_field_hints
-    path: "/api/ai/field-hints"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_logs_field_hints
-    path: "/api/logs/field-hints"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_metrics_anomaly
-    path: "/api/metrics/anomaly"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_ai_helper_chats
-    path: "/api/ai/helper/chats"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_ai_conversation
-    path: "/api/ai/conversation"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_tags_log_rec1
-    path: "/api/tags/log/rec1"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_traces_span_abc
-    path: "/api/traces/span/abc"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_table_explorer_table_otel_logs
-    path: "/api/table-explorer/table/otel_logs"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__v1_apps_someapp
-    path: "/v1/apps/someapp"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__v1_apps_someapp_releases
-    path: "/v1/apps/someapp/releases"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__v1_releases_somerel
-    path: "/v1/releases/somerel"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__v1_releases_somerel_artifacts
-    path: "/v1/releases/somerel/artifacts"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_settings_tags_condition_suggestions
-    path: "/api/settings/tags/condition-suggestions"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_work_items
-    path: "/api/work-items"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__api_enrichment_libraries
-    path: "/api/enrichment/libraries"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__web_traffic
-    path: "/web-traffic"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__root
-    path: "/"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__errors
-    path: "/errors"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__traces
-    path: "/traces"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__metrics
-    path: "/metrics"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__logs
-    path: "/logs"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__metrics_anomaly
-    path: "/metrics/anomaly"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__incident
-    path: "/incident"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__work_items
-    path: "/work-items"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__enrichment_cve
-    path: "/enrichment/cve"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_repositories
-    path: "/settings/repositories"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_tags
-    path: "/settings/tags"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_mcp
-    path: "/settings/mcp"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__mcp
-    path: "/mcp"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__mcp_tools
-    path: "/mcp/tools"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__settings_ai
-    path: "/settings/ai"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__reports
-    path: "/reports"
-    methods: [GET]
-    request: {method: GET}
-  - id: get__ai
-    path: "/ai"
-    methods: [GET]
-    request: {method: GET}
-  - id: post__api_logs_validate_regex
-    path: "/api/logs/validate-regex"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_errors_validate_regex
-    path: "/api/errors/validate-regex"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_traces_validate_regex
-    path: "/api/traces/validate-regex"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_metrics_validate_regex
-    path: "/api/metrics/validate-regex"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_rum_validate_regex
-    path: "/api/rum/validate-regex"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_logs_validate_filter
-    path: "/api/logs/validate-filter"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_ai_validate_filter
-    path: "/api/ai/validate-filter"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_data_management_backup_run
-    path: "/api/data-management/backup/run"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_data_management_restore
-    path: "/api/data-management/restore"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_query_ask
-    path: "/api/query/ask"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_query_run
-    path: "/api/query/run"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_query_refine_chart
-    path: "/api/query/refine-chart"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_query_add_to_dashboard
-    path: "/api/query/add-to-dashboard"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_dashboards_spec_compile
-    path: "/api/dashboards/spec/compile"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_dashboards_spec_validate
-    path: "/api/dashboards/spec/validate"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_dashboards_spec_dry_run
-    path: "/api/dashboards/spec/dry-run"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_dashboards_spec_render
-    path: "/api/dashboards/spec/render"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_dashboards_query
-    path: "/api/dashboards/query"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_dashboards_render
-    path: "/api/dashboards/render"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_settings_masking_preview
-    path: "/api/settings/masking/preview"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_notifications_check
-    path: "/api/notifications/check"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_mcp_enabled
-    path: "/api/mcp/enabled"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_issues_raise
-    path: "/api/issues/raise"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_reports_import
-    path: "/api/reports/import"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_data_management_prune
-    path: "/api/data-management/prune"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_reports
-    path: "/api/reports"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_agent_runs
-    path: "/api/agent/runs"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_ai_helper
-    path: "/api/ai/helper"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_ai_helper_actions_execute
-    path: "/api/ai/helper/actions/execute"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_ai_helper_feedback
-    path: "/api/ai/helper/feedback"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_dashboards_spec_ai_build
-    path: "/api/dashboards/spec/ai-build"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_notifications_subscribe
-    path: "/api/notifications/subscribe"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_onboarding_create_issues
-    path: "/api/onboarding/create-issues"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_onboarding_create_repo
-    path: "/api/onboarding/create-repo"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_onboarding_import_repo
-    path: "/api/onboarding/import-repo"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_onboarding_list_repos
-    path: "/api/onboarding/list-repos"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_data_management_prune_invalid
-    path: "/api/data-management/prune"
-    methods: [POST]
-    request: {method: POST, body_b64: "LQ=="}
-  - id: delete__api_mcp_keys__id
-    path: "/api/mcp/keys/nonexistent"
-    methods: [DELETE]
-    request: {method: DELETE}
-  - id: delete__api_notifications_vapid_keys
-    path: "/api/notifications/vapid-keys"
-    methods: [DELETE]
-    request: {method: DELETE}
-  - id: delete__api_reports__id
-    path: "/api/reports/nonexistent"
-    methods: [DELETE]
-    request: {method: DELETE}
-  - id: delete__api_tags__type__id__key
-    path: "/api/tags/log/nonexistent-id/any-key"
-    methods: [DELETE]
-    request: {method: DELETE}
-  - id: patch__v1_apps__id
-    path: "/v1/apps/nonexistent-uuid"
-    methods: [PATCH]
-    request: {method: PATCH, json: {}}
-  - id: post__api_agent_runs__id_dismiss
-    path: "/api/agent/runs/nonexistent/dismiss"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_dashboards__id_charts_import
-    path: "/api/dashboards/nonexistent/charts/import"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_notifications_channels__id_test
-    path: "/api/notifications/channels/nonexistent/test"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_enrichment_cve_disposition
-    path: "/api/enrichment/cve/findings/nonexistent/disposition"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_tags__type__id
-    path: "/api/tags/log/nonexistent-id"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__errors__id_resolve
-    path: "/errors/someerrorid/resolve"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: get__api_ai_helper_actions_manifest
-    path: "/api/ai/helper/actions/manifest"
-    methods: [GET]
-  - id: get__api_ai_helper_capabilities
-    path: "/api/ai/helper/capabilities"
-    methods: [GET]
-  - id: get__api_ai_helper_chats__id
-    path: "/api/ai/helper/chats/nonexistent"
-    methods: [GET]
-  - id: get__api_dashboards_chart_export
-    path: "/api/dashboards/nope/charts/nope/export"
-    methods: [GET]
-  - id: get__api_onboarding_inspect_repo
-    path: "/api/onboarding/inspect-repo"
-    methods: [GET]
-  - id: get__v1_rum_assets__id
-    path: "/v1/rum/assets/nonexistent"
-    methods: [GET]
-  - id: post__reports__id_delete
-    path: "/reports/nonexistent/delete"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__metrics_rules
-    path: "/metrics/rules"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__metrics_rules__id_delete
-    path: "/metrics/rules/nonexistent/delete"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_agents__id_delete
-    path: "/settings/agents/nonexistent/delete"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_tags__id_delete
-    path: "/settings/tags/nonexistent/delete"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_notif_channels__id_delete
-    path: "/settings/notifications/channels/nonexistent/delete"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_notif_rules__id_delete
-    path: "/settings/notifications/rules/nonexistent/delete"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_repositories__id_delete
-    path: "/settings/repositories/nonexistent/delete"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__dashboards__id_delete
-    path: "/dashboards/nonexistent/delete"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__dashboards__id_charts__cid_delete
-    path: "/dashboards/nope/charts/nope/delete"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_agents
-    path: "/settings/agents"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_tags
-    path: "/settings/tags"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_notif_channels
-    path: "/settings/notifications/channels"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_notif_rules
-    path: "/settings/notifications/rules"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__dashboards
-    path: "/dashboards"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__dashboards__id_charts
-    path: "/dashboards/nope/charts"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_masking_keys
-    path: "/settings/masking/keys"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_masking_patterns
-    path: "/settings/masking/patterns"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__v1_apps
-    path: "/v1/apps"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__v1_apps__id_releases
-    path: "/v1/apps/nonexistent/releases"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__v1_logs
-    path: "/v1/logs"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__v1_metrics
-    path: "/v1/metrics"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__v1_traces
-    path: "/v1/traces"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__v1_rum_assets
-    path: "/v1/rum/assets"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__v1_rum_client_token
-    path: "/v1/rum/client-token"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__v1_releases__id_artifacts_meta
-    path: "/v1/releases/nonexistent/artifacts/meta"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__settings_notif_channels__id_toggle
-    path: "/settings/notifications/channels/nonexistent/toggle"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_notif_rules__id_toggle
-    path: "/settings/notifications/rules/nonexistent/toggle"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_repositories__id_realtime
-    path: "/settings/repositories/nonexistent/realtime-mode"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_repositories__id_ci_rotate
-    path: "/settings/repositories/nonexistent/ci-ingest-key/rotate"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_repositories__id_ci_revoke
-    path: "/settings/repositories/nonexistent/ci-ingest-key/revoke"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_repositories__id_releases
-    path: "/settings/repositories/nonexistent/releases"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_repositories__id
-    path: "/settings/repositories/nonexistent"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_repositories_ghtoken_validate
-    path: "/settings/repositories/github-token/validate"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__dashboards__id_charts__cid_clone
-    path: "/dashboards/nope/charts/nope/clone"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__dashboards__id_charts__cid_edit
-    path: "/dashboards/nope/charts/nope/edit"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__mcp
-    path: "/mcp"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__settings_masking_keys_delete
-    path: "/settings/masking/keys/delete"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__settings_masking_patterns_delete
-    path: "/settings/masking/patterns/delete"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__settings_repositories
-    path: "/settings/repositories"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_masking_output
-    path: "/settings/masking/output"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_masking_sql_output
-    path: "/settings/masking/sql-output"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_ai
-    path: "/settings/ai"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_kubernetes
-    path: "/settings/kubernetes"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_data_management
-    path: "/settings/data-management"
-    methods: [POST]
-    request: {method: POST}
-  - id: get__api_ai_export
-    path: "/api/ai/export"
-    methods: [GET]
-  - id: get__api_setup_wizard_steps
-    path: "/api/setup-wizard/steps"
-    methods: [GET]
-  - id: get__api_reports_export
-    path: "/api/reports/export"
-    methods: [GET]
-  - id: get__api_enrichment_github_repo_health
-    path: "/api/enrichment/github/repo-health"
-    methods: [GET]
-  - id: post__v1_ai
-    path: "/v1/ai"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__v1_errors
-    path: "/v1/errors"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__v1_rum
-    path: "/v1/rum"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__api_notifications_rules_auto_generate
-    path: "/api/notifications/rules/auto-generate"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__api_enrichment_cve_scan
-    path: "/api/enrichment/cve/scan"
-    methods: [POST]
-    request: {method: POST, json: {}}
-  - id: post__settings_enrichment
-    path: "/settings/enrichment"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__metrics_rules_auto
-    path: "/metrics/rules/auto"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__metrics_rules_dashboard_auto
-    path: "/metrics/rules/dashboard/auto"
-    methods: [POST]
-    request: {method: POST}
-  - id: post__settings_tags_auto
-    path: "/settings/tags/auto"
-    methods: [POST]
-    request: {method: POST}
+- id: get__health
+  path: /health
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__health_db
+  path: /health/db
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__static_sobs_ansi_js
+  path: /static/sobs-ansi.js
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__ai_help
+  path: /ai/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__cve_help
+  path: /cve/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__dashboards_help_chart_editor
+  path: /dashboards/help/chart-editor
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__errors_help
+  path: /errors/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__incident_help
+  path: /incident/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__kubernetes_help
+  path: /kubernetes/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__logs_help
+  path: /logs/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__metrics_help
+  path: /metrics/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__metrics_help_anomaly
+  path: /metrics/help/anomaly
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__metrics_help_rules
+  path: /metrics/help/rules
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__metrics_help_rules_auto
+  path: /metrics/help/rules/auto
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__query_help
+  path: /query/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__reports_help
+  path: /reports/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__rum_help
+  path: /rum/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_help
+  path: /settings/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_help_agents
+  path: /settings/help/agents
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_help_ai
+  path: /settings/help/ai
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_help_data_management
+  path: /settings/help/data-management
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_help_enrichment
+  path: /settings/help/enrichment
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_help_kubernetes
+  path: /settings/help/kubernetes
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_help_masking
+  path: /settings/help/masking
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_help_notifications
+  path: /settings/help/notifications
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_help_repositories
+  path: /settings/help/repositories
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_help_tags
+  path: /settings/help/tags
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__setup_help_playbooks
+  path: /setup/help/playbooks
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__summary_help
+  path: /summary/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__table_explorer_help
+  path: /table-explorer/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__traces_help
+  path: /traces/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__web_traffic_help
+  path: /web-traffic/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__work_items_help
+  path: /work-items/help
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_query_schema
+  path: /api/query/schema
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_table_explorer_tables
+  path: /api/table-explorer/tables
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_kubernetes_status
+  path: /api/kubernetes/status
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_notifications_vapid_public_key
+  path: /api/notifications/vapid-public-key
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_dashboards_list
+  path: /api/dashboards/list
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_reports
+  path: /api/reports
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_agent_runs
+  path: /api/agent/runs
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_web_traffic_browsers
+  path: /api/web-traffic/browsers
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_web_traffic_os
+  path: /api/web-traffic/os
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_web_traffic_timezones
+  path: /api/web-traffic/timezones
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_web_traffic_languages
+  path: /api/web-traffic/languages
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_web_traffic_devices
+  path: /api/web-traffic/devices
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_chart_types
+  path: /api/chart-types
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_data_management_backup_list
+  path: /api/data-management/backup/list
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_ai_span_attributes
+  path: /api/ai/span-attributes
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_enrichment_cve_findings
+  path: /api/enrichment/cve/findings
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_web_traffic_geo
+  path: /api/web-traffic/geo
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_dashboards_spec_options
+  path: /api/dashboards/spec/options
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_mcp_keys
+  path: /api/mcp/keys
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__service_worker_js
+  path: /service-worker.js
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__static_rum_js
+  path: /static/rum.js
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__static_rum_js_map
+  path: /static/rum.js.map
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__static_rum_min_js
+  path: /static/rum.min.js
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__static_rum_min_js_map
+  path: /static/rum.min.js.map
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__static_rum_d_ts
+  path: /static/rum.d.ts
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__v1_logs
+  path: /v1/logs
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__v1_metrics
+  path: /v1/metrics
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__v1_traces
+  path: /v1/traces
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__v1_rum_assets
+  path: /v1/rum/assets
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__v1_apps
+  path: /v1/apps
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_settings_masking_rules
+  path: /api/settings/masking/rules
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__query
+  path: /query
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__table_explorer
+  path: /table-explorer
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__kubernetes
+  path: /kubernetes
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__dashboards_new
+  path: /dashboards/new
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__dashboards
+  path: /dashboards
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_kubernetes
+  path: /settings/kubernetes
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_enrichment
+  path: /settings/enrichment
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_masking
+  path: /settings/masking
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings
+  path: /settings
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__metrics_rules
+  path: /metrics/rules
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_agents
+  path: /settings/agents
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_notifications
+  path: /settings/notifications
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_dashboards_spec_templates
+  path: /api/dashboards/spec/templates
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_ai_field_hints
+  path: /api/ai/field-hints
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_logs_field_hints
+  path: /api/logs/field-hints
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_metrics_anomaly
+  path: /api/metrics/anomaly
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_ai_helper_chats
+  path: /api/ai/helper/chats
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_ai_conversation
+  path: /api/ai/conversation
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_tags_log_rec1
+  path: /api/tags/log/rec1
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_traces_span_abc
+  path: /api/traces/span/abc
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_table_explorer_table_otel_logs
+  path: /api/table-explorer/table/otel_logs
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__v1_apps_someapp
+  path: /v1/apps/someapp
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__v1_apps_someapp_releases
+  path: /v1/apps/someapp/releases
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__v1_releases_somerel
+  path: /v1/releases/somerel
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__v1_releases_somerel_artifacts
+  path: /v1/releases/somerel/artifacts
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_settings_tags_condition_suggestions
+  path: /api/settings/tags/condition-suggestions
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_work_items
+  path: /api/work-items
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__api_enrichment_libraries
+  path: /api/enrichment/libraries
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__web_traffic
+  path: /web-traffic
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__root
+  path: /
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__errors
+  path: /errors
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__traces
+  path: /traces
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__metrics
+  path: /metrics
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__logs
+  path: /logs
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__metrics_anomaly
+  path: /metrics/anomaly
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__incident
+  path: /incident
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__work_items
+  path: /work-items
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__enrichment_cve
+  path: /enrichment/cve
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_repositories
+  path: /settings/repositories
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_tags
+  path: /settings/tags
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_mcp
+  path: /settings/mcp
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__mcp
+  path: /mcp
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__mcp_tools
+  path: /mcp/tools
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__settings_ai
+  path: /settings/ai
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__reports
+  path: /reports
+  methods:
+  - GET
+  request:
+    method: GET
+- id: get__ai
+  path: /ai
+  methods:
+  - GET
+  request:
+    method: GET
+- id: post__api_logs_validate_regex
+  path: /api/logs/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_errors_validate_regex
+  path: /api/errors/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_traces_validate_regex
+  path: /api/traces/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_metrics_validate_regex
+  path: /api/metrics/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_rum_validate_regex
+  path: /api/rum/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_logs_validate_filter
+  path: /api/logs/validate-filter
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_ai_validate_filter
+  path: /api/ai/validate-filter
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_data_management_backup_run
+  path: /api/data-management/backup/run
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_data_management_restore
+  path: /api/data-management/restore
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_query_ask
+  path: /api/query/ask
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_query_run
+  path: /api/query/run
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_query_refine_chart
+  path: /api/query/refine-chart
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_query_add_to_dashboard
+  path: /api/query/add-to-dashboard
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_dashboards_spec_compile
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_dashboards_spec_validate
+  path: /api/dashboards/spec/validate
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_dashboards_spec_dry_run
+  path: /api/dashboards/spec/dry-run
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_dashboards_spec_render
+  path: /api/dashboards/spec/render
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_dashboards_query
+  path: /api/dashboards/query
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_dashboards_render
+  path: /api/dashboards/render
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_settings_masking_preview
+  path: /api/settings/masking/preview
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_notifications_check
+  path: /api/notifications/check
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_mcp_enabled
+  path: /api/mcp/enabled
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_issues_raise
+  path: /api/issues/raise
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_reports_import
+  path: /api/reports/import
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_data_management_prune
+  path: /api/data-management/prune
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_reports
+  path: /api/reports
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_agent_runs
+  path: /api/agent/runs
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_ai_helper
+  path: /api/ai/helper
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_ai_helper_actions_execute
+  path: /api/ai/helper/actions/execute
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_ai_helper_feedback
+  path: /api/ai/helper/feedback
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_dashboards_spec_ai_build
+  path: /api/dashboards/spec/ai-build
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_notifications_subscribe
+  path: /api/notifications/subscribe
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_onboarding_create_issues
+  path: /api/onboarding/create-issues
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_onboarding_create_repo
+  path: /api/onboarding/create-repo
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_onboarding_import_repo
+  path: /api/onboarding/import-repo
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_onboarding_list_repos
+  path: /api/onboarding/list-repos
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_data_management_prune_invalid
+  path: /api/data-management/prune
+  methods:
+  - POST
+  request:
+    method: POST
+    body_b64: LQ==
+- id: delete__api_mcp_keys__id
+  path: /api/mcp/keys/nonexistent
+  methods:
+  - DELETE
+  request:
+    method: DELETE
+- id: delete__api_notifications_vapid_keys
+  path: /api/notifications/vapid-keys
+  methods:
+  - DELETE
+  request:
+    method: DELETE
+- id: delete__api_reports__id
+  path: /api/reports/nonexistent
+  methods:
+  - DELETE
+  request:
+    method: DELETE
+- id: delete__api_tags__type__id__key
+  path: /api/tags/log/nonexistent-id/any-key
+  methods:
+  - DELETE
+  request:
+    method: DELETE
+- id: patch__v1_apps__id
+  path: /v1/apps/nonexistent-uuid
+  methods:
+  - PATCH
+  request:
+    method: PATCH
+    json: {}
+- id: post__api_agent_runs__id_dismiss
+  path: /api/agent/runs/nonexistent/dismiss
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_dashboards__id_charts_import
+  path: /api/dashboards/nonexistent/charts/import
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_notifications_channels__id_test
+  path: /api/notifications/channels/nonexistent/test
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_enrichment_cve_disposition
+  path: /api/enrichment/cve/findings/nonexistent/disposition
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_tags__type__id
+  path: /api/tags/log/nonexistent-id
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__errors__id_resolve
+  path: /errors/someerrorid/resolve
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: get__api_ai_helper_actions_manifest
+  path: /api/ai/helper/actions/manifest
+  methods:
+  - GET
+- id: get__api_ai_helper_capabilities
+  path: /api/ai/helper/capabilities
+  methods:
+  - GET
+- id: get__api_ai_helper_chats__id
+  path: /api/ai/helper/chats/nonexistent
+  methods:
+  - GET
+- id: get__api_dashboards_chart_export
+  path: /api/dashboards/nope/charts/nope/export
+  methods:
+  - GET
+- id: get__api_onboarding_inspect_repo
+  path: /api/onboarding/inspect-repo
+  methods:
+  - GET
+- id: get__v1_rum_assets__id
+  path: /v1/rum/assets/nonexistent
+  methods:
+  - GET
+- id: post__reports__id_delete
+  path: /reports/nonexistent/delete
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__metrics_rules
+  path: /metrics/rules
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__metrics_rules__id_delete
+  path: /metrics/rules/nonexistent/delete
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_agents__id_delete
+  path: /settings/agents/nonexistent/delete
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_tags__id_delete
+  path: /settings/tags/nonexistent/delete
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_notif_channels__id_delete
+  path: /settings/notifications/channels/nonexistent/delete
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_notif_rules__id_delete
+  path: /settings/notifications/rules/nonexistent/delete
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_repositories__id_delete
+  path: /settings/repositories/nonexistent/delete
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__dashboards__id_delete
+  path: /dashboards/nonexistent/delete
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__dashboards__id_charts__cid_delete
+  path: /dashboards/nope/charts/nope/delete
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_agents
+  path: /settings/agents
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_tags
+  path: /settings/tags
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_notif_channels
+  path: /settings/notifications/channels
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_notif_rules
+  path: /settings/notifications/rules
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__dashboards
+  path: /dashboards
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__dashboards__id_charts
+  path: /dashboards/nope/charts
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_masking_keys
+  path: /settings/masking/keys
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_masking_patterns
+  path: /settings/masking/patterns
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__v1_apps
+  path: /v1/apps
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__v1_apps__id_releases
+  path: /v1/apps/nonexistent/releases
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__v1_logs
+  path: /v1/logs
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__v1_metrics
+  path: /v1/metrics
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__v1_traces
+  path: /v1/traces
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__v1_rum_assets
+  path: /v1/rum/assets
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__v1_rum_client_token
+  path: /v1/rum/client-token
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__v1_releases__id_artifacts_meta
+  path: /v1/releases/nonexistent/artifacts/meta
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__settings_notif_channels__id_toggle
+  path: /settings/notifications/channels/nonexistent/toggle
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_notif_rules__id_toggle
+  path: /settings/notifications/rules/nonexistent/toggle
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_repositories__id_realtime
+  path: /settings/repositories/nonexistent/realtime-mode
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_repositories__id_ci_rotate
+  path: /settings/repositories/nonexistent/ci-ingest-key/rotate
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_repositories__id_ci_revoke
+  path: /settings/repositories/nonexistent/ci-ingest-key/revoke
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_repositories__id_releases
+  path: /settings/repositories/nonexistent/releases
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_repositories__id
+  path: /settings/repositories/nonexistent
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_repositories_ghtoken_validate
+  path: /settings/repositories/github-token/validate
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__dashboards__id_charts__cid_clone
+  path: /dashboards/nope/charts/nope/clone
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__dashboards__id_charts__cid_edit
+  path: /dashboards/nope/charts/nope/edit
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__mcp
+  path: /mcp
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__settings_masking_keys_delete
+  path: /settings/masking/keys/delete
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__settings_masking_patterns_delete
+  path: /settings/masking/patterns/delete
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__settings_repositories
+  path: /settings/repositories
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_masking_output
+  path: /settings/masking/output
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_masking_sql_output
+  path: /settings/masking/sql-output
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_ai
+  path: /settings/ai
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_kubernetes
+  path: /settings/kubernetes
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_data_management
+  path: /settings/data-management
+  methods:
+  - POST
+  request:
+    method: POST
+- id: get__api_ai_export
+  path: /api/ai/export
+  methods:
+  - GET
+- id: get__api_setup_wizard_steps
+  path: /api/setup-wizard/steps
+  methods:
+  - GET
+- id: get__api_reports_export
+  path: /api/reports/export
+  methods:
+  - GET
+- id: get__api_enrichment_github_repo_health
+  path: /api/enrichment/github/repo-health
+  methods:
+  - GET
+- id: post__metrics_rules_auto
+  path: /metrics/rules/auto
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__metrics_rules_dashboard_auto
+  path: /metrics/rules/dashboard/auto
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__settings_tags_auto
+  path: /settings/tags/auto
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__v1_ai
+  path: /v1/ai
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__v1_errors
+  path: /v1/errors
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__v1_rum
+  path: /v1/rum
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__api_notifications_rules_auto_generate
+  path: /api/notifications/rules/auto-generate
+  methods:
+  - POST
+  request:
+    method: POST
+- id: post__api_enrichment_cve_scan
+  path: /api/enrichment/cve/scan
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+- id: post__settings_enrichment
+  path: /settings/enrichment
+  methods:
+  - POST
+  request:
+    method: POST
