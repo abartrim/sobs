@@ -152,7 +152,8 @@ func (s *server) handleV1IngestGet(w http.ResponseWriter, r *http.Request) {
 			// ingest_rum_asset: 503 when the asset-upload signing key is unconfigured (fixture).
 			s.v1err(w, http.StatusServiceUnavailable, "Asset upload signing key is not configured")
 		default:
-			http.Error(w, "not implemented", http.StatusNotImplemented)
+			// Unreachable: this handler is registered only for the four paths above.
+			http.NotFound(w, r)
 		}
 		return
 	}
