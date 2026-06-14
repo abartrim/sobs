@@ -1690,6 +1690,24 @@ routes:
   mask:
   - '"chart_id":"[^"]*"'
   mask_reason: the imported chart's id is a fresh uuid4 (random); ok/dashboard_id/dashboard_url are byte-compared.
+# Add a chart to the seeded dashboard via the form route (mutator; plain redirect to the
+# dashboard). New chart id is an unread uuid.
+- id: post__dashboards_add_chart_ok
+  path: /dashboards/00000000-0000-4000-8000-00000000000a/charts
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      title: Added Chart
+      chart_spec_json: '{"template_id":"anomaly_overlay","sql":{"mode":"raw","override_sql":"SELECT 1 AS time, 2 AS value"}}'
+# Remove seeded chart ...00b from the dashboard (mutator; plain redirect).
+- id: post__dashboards_remove_chart_ok
+  path: /dashboards/00000000-0000-4000-8000-00000000000a/charts/00000000-0000-4000-8000-00000000000b/delete
+  methods:
+  - POST
+  request:
+    method: POST
 # Register a browser_push subscription as a notification channel (mutator; the new channel's
 # id is a fresh uuid, masked). sobs_notification_channels is read only by earlier readers.
 - id: post__api_notifications_subscribe_ok
@@ -1740,6 +1758,14 @@ routes:
     method: POST
 - id: post__settings_tags_delete_ok
   path: /settings/tags/b0000000-0000-4000-8000-000000000b01/delete
+  methods:
+  - POST
+  request:
+    method: POST
+# Soft-delete the seeded dashboard ...00a (+ its charts). LAST 00a-touching entry — every other
+# dashboard test (import/add/remove chart) runs earlier so they still see the live dashboard.
+- id: post__dashboards_delete_ok
+  path: /dashboards/00000000-0000-4000-8000-00000000000a/delete
   methods:
   - POST
   request:

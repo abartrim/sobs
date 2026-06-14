@@ -694,10 +694,126 @@ func (s *server) handleDashboardsFormSub(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/dashboards/")
-	dashID := strings.Split(rest, "/")[0]
-	if !s.rowExists("SELECT Id FROM sobs_dashboards FINAL WHERE IsDeleted = 0 AND Id = ?", dashID) {
+	parts := strings.Split(rest, "/")
+	dashID := parts[0]
+	res, err := s.db.Execute("SELECT Id, Name, Description FROM sobs_dashboards FINAL WHERE IsDeleted = 0 AND Id = ?", dashID)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	if len(res.Rows) == 0 {
 		flashRedirect(w, "danger", "Dashboard not found", "/dashboards")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	dash := rowMaps(res)[0]
+	switch {
+	case rest == dashID+"/delete":
+		s.deleteDashboard(w, dashID, cStr(dash, "Name"), cStr(dash, "Description"))
+	case rest == dashID+"/charts":
+		s.addChart(w, r, dashID)
+	case len(parts) == 4 && parts[1] == "charts" && parts[3] == "delete":
+		s.removeChart(w, parts[2], dashID)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// deleteDashboard mirrors app.py delete_dashboard: soft-delete the dashboard and all its charts,
+// then flash success and redirect to the dashboards list.
+func (s *server) deleteDashboard(w http.ResponseWriter, dashID, name, description string) {
+	version := fixedVersionMillis()
+	if _, err := s.insertRowsNormalized("sobs_dashboards", []map[string]any{{
+		"Id": dashID, "Name": name, "Description": description, "IsDeleted": 1, "Version": version,
+	}}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	res, err := s.db.Execute("SELECT Id, Title, ChartType, Query, OptionsJson, Position "+
+		"FROM sobs_chart_configs FINAL WHERE IsDeleted = 0 AND DashboardId = ?", dashID)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	tombstones := []map[string]any{}
+	for _, c := range rowMaps(res) {
+		tombstones = append(tombstones, map[string]any{
+			"Id": cStr(c, "Id"), "DashboardId": dashID, "Title": cStr(c, "Title"),
+			"ChartType": cStr(c, "ChartType"), "Query": cStr(c, "Query"),
+			"OptionsJson": cStr(c, "OptionsJson"), "Position": cInt(c, "Position"),
+			"IsDeleted": 1, "Version": version,
+		})
+	}
+	if len(tombstones) > 0 {
+		if _, err := s.insertRowsNormalized("sobs_chart_configs", tombstones); err != nil {
+			s.dbError(w, err)
+			return
+		}
+	}
+	flashRedirect(w, "success", "Dashboard '"+name+"' deleted", "/dashboards")
+}
+
+// addChart mirrors app.py add_chart + _parse_chart_form_submission: validate title/chart_spec_json,
+// compile, insert at the next position, then plain-redirect to the dashboard.
+func (s *server) addChart(w http.ResponseWriter, r *http.Request, dashID string) {
+	_ = r.ParseForm()
+	loc := "/dashboards/" + dashID
+	title := strings.TrimSpace(r.PostFormValue("title"))
+	chartSpecJSON := strings.TrimSpace(r.PostFormValue("chart_spec_json"))
+	if title == "" {
+		flashRedirect(w, "warning", "Chart title is required", loc)
+		return
+	}
+	if chartSpecJSON == "" {
+		flashRedirect(w, "warning", "Chart spec is required", loc)
+		return
+	}
+	specRaw, perr := parseJSONValue([]byte(chartSpecJSON))
+	if perr != nil {
+		flashRedirect(w, "warning", "Chart spec error: "+perr.Error(), loc)
+		return
+	}
+	templateID, query, normSpec, errMsg := s.compileChartSpec(specRaw)
+	if errMsg != "" {
+		flashRedirect(w, "warning", "Chart spec error: "+errMsg, loc)
+		return
+	}
+	optionsJSON := string(jsonenc.Encode(jsonenc.NewObject().Set("chart_spec", normSpec), jsonDumpsDefault))
+	row := map[string]any{
+		"Id": newUUIDv4(), "DashboardId": dashID, "Title": title, "ChartType": templateID,
+		"Query": query, "OptionsJson": optionsJSON, "Position": s.nextChartPosition(dashID),
+		"IsDeleted": 0, "Version": fixedVersionMillis(),
+	}
+	if _, err := s.insertRowsNormalized("sobs_chart_configs", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	plainRedirect(w, loc)
+}
+
+// removeChart mirrors app.py remove_chart: tombstone the chart (404-flash when absent), then
+// plain-redirect to the dashboard.
+func (s *server) removeChart(w http.ResponseWriter, chartID, dashID string) {
+	loc := "/dashboards/" + dashID
+	res, err := s.db.Execute("SELECT Id, Title, ChartType, Query, OptionsJson, Position "+
+		"FROM sobs_chart_configs FINAL WHERE IsDeleted = 0 AND DashboardId = ? AND Id = ?", dashID, chartID)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	if len(res.Rows) == 0 {
+		flashRedirect(w, "warning", "Chart not found", loc)
+		return
+	}
+	c := rowMaps(res)[0]
+	row := map[string]any{
+		"Id": chartID, "DashboardId": dashID, "Title": cStr(c, "Title"),
+		"ChartType": cStr(c, "ChartType"), "Query": cStr(c, "Query"),
+		"OptionsJson": cStr(c, "OptionsJson"), "Position": cInt(c, "Position"),
+		"IsDeleted": 1, "Version": fixedVersionMillis(),
+	}
+	if _, err := s.insertRowsNormalized("sobs_chart_configs", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	plainRedirect(w, loc)
 }
