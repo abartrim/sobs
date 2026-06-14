@@ -166,20 +166,22 @@ def _seed_profile(profile: str, workdir: Path) -> None:
     isolated to this pass, never in the base corpus."""
     env = dict(os.environ)
     env.setdefault("CHDB_LIB_PATH", str(REPO / ".libchdb" / "libchdb.so"))
-    r = subprocess.run(
-        [
-            sys.executable,
-            str(REPO / "migration" / "tools" / "seed_fixtures.py"),
-            "--only-profile",
-            profile,
-            "--data-dir",
-            str(workdir),
-        ],
-        cwd=str(REPO),
-        env=env,
-    )
-    if r.returncode != 0:
-        raise SystemExit(f"Profile seed failed for '{profile}'.")
+    cmd = [
+        sys.executable,
+        str(REPO / "migration" / "tools" / "seed_fixtures.py"),
+        "--only-profile",
+        profile,
+        "--data-dir",
+        str(workdir),
+    ]
+    # The seed boots its own chdb embedded server on _run; with many profiles per run the
+    # previous server's teardown can still hold the dir, so retry a few times with backoff.
+    for attempt in range(4):
+        r = subprocess.run(cmd, cwd=str(REPO), env=env)
+        if r.returncode == 0:
+            return
+        time.sleep(2.0 * (attempt + 1))
+    raise SystemExit(f"Profile seed failed for '{profile}' after retries.")
 
 
 def _source_parity_env(env: dict) -> None:
