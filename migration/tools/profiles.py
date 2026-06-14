@@ -82,6 +82,9 @@ PROFILES: dict[str, dict[str, str]] = {
     # execute: ai_helper_execute decodes a signed action token + emits tool.executed telemetry;
     # isolation so that insert doesn't ripple into base telemetry readers.
     "execute": {},
+    # notifcheck: seeded notification rules so check_notifications evaluates real (empty-condition,
+    # non-firing) rules; isolated from the notif toggle/delete tests.
+    "notifcheck": {},
     # refine: query/refine-chart — query gate on + the LLM endpoint pointed at the canned
     # /chat/completions mock (distinct path so its URL key is unique to this route).
     "refine": {
@@ -103,7 +106,7 @@ PROFILES: dict[str, dict[str, str]] = {
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via
 # `seed_fixtures.py --only-profile <name>`). Isolated to the profile — never seeded into base.
-SEEDED_PROFILES = {"agentrun", "notif", "githubtoken", "mcpkey", "aichat"}
+SEEDED_PROFILES = {"agentrun", "notif", "notifcheck", "githubtoken", "mcpkey", "aichat"}
 
 
 def route_profile(route: dict) -> str:

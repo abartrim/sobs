@@ -1132,6 +1132,14 @@ routes:
   request:
     method: POST
     json: {}
+- id: post__api_notifications_check__rules
+  path: /api/notifications/check
+  methods:
+  - POST
+  profile: notifcheck
+  request:
+    method: POST
+    json: {}
 - id: post__api_mcp_enabled
   path: /api/mcp/enabled
   methods:

@@ -480,6 +480,7 @@ def seed_aichat(db) -> None:
 PROFILE_SEEDS = {
     "agentrun": seed_agent_run,
     "notif": seed_notif,
+    "notifcheck": seed_notif,  # same rows; isolated so check doesn't see toggle/delete mutations
     "githubtoken": seed_github_token,
     "mcpkey": seed_mcp_key,
     "aichat": seed_aichat,

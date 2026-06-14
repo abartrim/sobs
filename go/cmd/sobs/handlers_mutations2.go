@@ -470,24 +470,7 @@ func (s *server) handleApiDataManagementPrune(w http.ResponseWriter, r *http.Req
 		Set("message", "Prune completed successfully (6 tables processed)").Set("ok", true))
 }
 
-// POST /api/notifications/check — app.py check_notifications evaluates every enabled
-// notification rule and every agent rule. The fixture defines none of either, so the
-// evaluation loops never execute and the response is the fully-empty summary. (When rules
-// exist the per-rule evaluation path is a follow-up.)
-func (s *server) handleApiNotificationsCheck(w http.ResponseWriter, r *http.Request) {
-	notifRules := s.countRows("SELECT count() FROM sobs_notification_rules FINAL WHERE IsDeleted = 0")
-	agentRules := s.countRows("SELECT count() FROM sobs_agent_rules FINAL WHERE IsDeleted=0")
-	if notifRules != 0 || agentRules != 0 {
-		http.Error(w, "not implemented", http.StatusNotImplemented)
-		return
-	}
-	writeJSON(w, http.StatusOK, jsonenc.NewObject().
-		Set("agent_runs", []any{}).
-		Set("evaluated", 0).
-		Set("fired", 0).
-		Set("ok", true).
-		Set("results", []any{}))
-}
+// handleApiNotificationsCheck is defined in notif_check.go.
 
 // githubBackfillMaxReleases mirrors app.py _github_backfill_max_releases: the
 // enrichment.github_backfill_max_releases setting clamped to [1, 2000], default 300.
