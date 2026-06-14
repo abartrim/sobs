@@ -883,3 +883,9 @@ routes:
     path: "/settings/data-management"
     methods: [POST]
     request: {method: POST}
+  - id: get__api_ai_export
+    path: "/api/ai/export"
+    methods: [GET]
+  - id: get__api_setup_wizard_steps
+    path: "/api/setup-wizard/steps"
+    methods: [GET]

@@ -83,6 +83,44 @@ func (s *server) handleApiAiHelperChatDetail(w http.ResponseWriter, r *http.Requ
 		Set("chat_id", chatID).Set("messages", []any{}).Set("ok", true))
 }
 
+// setupWizardDefaultJSON is app.py _build_setup_wizard_steps("dev","python","docker") — the
+// default-context OTEL setup steps (purely a transcription of the Python step templates; no
+// data/clock/random). Served verbatim for the default context.
+//
+//go:embed assets/setup_wizard_default.json
+var setupWizardDefaultJSON []byte
+
+// GET /api/setup-wizard/steps — tailored OTEL setup steps. The no-parameter request resolves
+// to the dev/python/docker default, which is static.
+func (s *server) handleApiSetupWizardSteps(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	get := func(k, def string) string {
+		if v := strings.ToLower(strings.TrimSpace(q.Get(k))); v != "" {
+			return v
+		}
+		return def
+	}
+	if get("env", "dev") == "dev" && get("language", "python") == "python" && get("deployment", "docker") == "docker" {
+		writeRawJSON(w, http.StatusOK, setupWizardDefaultJSON)
+		return
+	}
+	// Other env/language/deployment combinations (and their validation) are a follow-up.
+	http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
+// GET /api/ai/export — app.py export_ai_training: streams matching AI spans as JSONL. The
+// fixture has no gen_ai spans, so the export is empty (a 0-byte attachment).
+func (s *server) handleApiAiExport(w http.ResponseWriter, r *http.Request) {
+	if s.countRows("SELECT count() FROM otel_traces WHERE "+aiSpanCondition) != 0 {
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("Content-Disposition", `attachment; filename="ai_training_data.jsonl"`)
+	w.Header().Set("Content-Length", "0")
+	w.WriteHeader(http.StatusOK)
+}
+
 // GET /api/onboarding/inspect-repo — requires an app_id or repo query parameter.
 func (s *server) handleApiOnboardingInspectRepo(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
