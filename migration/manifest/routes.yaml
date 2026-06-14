@@ -1376,6 +1376,21 @@ routes:
   profile: agentrun
   request:
     method: GET
+# agenttrigger profile: a seeded analyze-only rule; POST runs the full agent flow (guard model ->
+# root-cause LLM -> completed run). run_id is a fresh uuid; the analysis/suggestion/guard are driven
+# by the canned guard + analyze LLM responses.
+- id: post__api_agent_runs__trigger
+  path: /api/agent/runs
+  methods:
+  - POST
+  profile: agenttrigger
+  request:
+    method: POST
+    json:
+      rule_id: e1000000000000000000000000000001
+  mask:
+  - '"run_id": ?"[^"]*"'
+  mask_reason: run_id is a server-generated uuid4; the result (guard_decision/analysis/suggestion/status) is byte-compared.
 - id: post__api_dashboards__id_charts_import
   path: /api/dashboards/nonexistent/charts/import
   methods:

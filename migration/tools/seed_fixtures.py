@@ -324,6 +324,32 @@ def seed_agent_run(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_agent_runs FINAL")
 
 
+def seed_agent_rule(db) -> None:
+    # One enabled "analyze"-only agent rule so POST /api/agent/runs (trigger_agent_run) can run the
+    # full agent flow: guard -> LLM root-cause analysis -> record a completed run. Actions is
+    # "analyze" alone, so the github-issue/DLP/dedup branch is skipped entirely.
+    _insert(
+        db,
+        "sobs_agent_rules",
+        [
+            {
+                "Id": "e1000000000000000000000000000001",
+                "Name": "Parity Analyze Rule",
+                "Description": "Analyze-only agent rule for parity.",
+                "TriggerType": "manual",
+                "TriggerRefId": "",
+                "TriggerState": "any",
+                "Actions": "analyze",
+                "RateLimitMinutes": 60,
+                "IsEnabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_agent_rules FINAL")
+
+
 def seed_notif(db) -> None:
     # Two channels + two rules, each on its OWN id so toggle/delete don't collide on the
     # ReplacingMergeTree version (both actions re-insert at Version 1704164645000). Seed Version
@@ -482,6 +508,7 @@ PROFILE_SEEDS = {
     "notif": seed_notif,
     "notifcheck": seed_notif,  # same rows; isolated so check doesn't see toggle/delete mutations
     "notifgen": seed_notif,  # channels+rules; auto-generate create inserts new rules (isolated)
+    "agenttrigger": seed_agent_rule,  # analyze-only rule; trigger_agent_run runs the agent flow
     "githubtoken": seed_github_token,
     "mcpkey": seed_mcp_key,
     "aichat": seed_aichat,

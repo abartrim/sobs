@@ -122,12 +122,7 @@ func (s *server) handleApiReports(w http.ResponseWriter, r *http.Request) {
 // GET /api/agent/runs — app.py list_agent_runs() -> _load_agent_runs (app.py:5707).
 func (s *server) handleApiAgentRuns(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		// app.py trigger_agent_run requires rule_id; an empty body fails validation.
-		if bstr(bodyMap(r), "rule_id") == "" {
-			s.errorJSON(w, http.StatusBadRequest, "rule_id is required")
-			return
-		}
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+		s.handleTriggerAgentRun(w, r)
 		return
 	}
 	limit := queryIntClamp(r, "limit", 50, 1, 200)

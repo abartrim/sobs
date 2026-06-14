@@ -97,6 +97,16 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_QUERY_PAGE_ENABLED": "1",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # agenttrigger: trigger_agent_run runs the full agent flow (guard + analyze LLM call) for a
+    # seeded analyze-only rule. Guard + analyze endpoints on DISTINCT mock paths (two canned
+    # responses); the runs it inserts are isolated so the agent-runs list test stays stable.
+    "agenttrigger": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # ask: query/ask — guard + main endpoints on DISTINCT mock paths (two canned responses).
     "ask": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/ask/v1",
@@ -110,7 +120,16 @@ PROFILES: dict[str, dict[str, str]] = {
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via
 # `seed_fixtures.py --only-profile <name>`). Isolated to the profile — never seeded into base.
-SEEDED_PROFILES = {"agentrun", "notif", "notifcheck", "notifgen", "githubtoken", "mcpkey", "aichat"}
+SEEDED_PROFILES = {
+    "agentrun",
+    "notif",
+    "notifcheck",
+    "notifgen",
+    "agenttrigger",
+    "githubtoken",
+    "mcpkey",
+    "aichat",
+}
 
 
 def route_profile(route: dict) -> str:

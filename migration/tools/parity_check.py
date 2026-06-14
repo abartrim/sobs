@@ -236,7 +236,10 @@ def _replay(route: dict) -> dict:
     try:
         # Do NOT follow redirects: the Quart test client returns the raw 3xx (Location +
         # flash cookie), so the Go replay must compare that response, not the redirect target.
-        with _NO_REDIRECT_OPENER.open(r, timeout=10) as resp:
+        # Timeout is generous: some routes (e.g. the agent flow) issue chdb queries that hit a
+        # permanent error the chdb wrapper still retries with backoff — faithful to Python (which
+        # catches them) but several seconds of latency under a cold-booted per-profile server.
+        with _NO_REDIRECT_OPENER.open(r, timeout=45) as resp:
             if route.get("stream"):
                 body = _read_first_sse_frame(resp)
             else:
@@ -256,7 +259,7 @@ def _read_first_sse_frame(resp) -> bytes:
     timing-dependent keepalives, so we never read them."""
     import socket
 
-    resp.fp.raw._sock.settimeout(3)
+    resp.fp.raw._sock.settimeout(8)
     buf = b""
     try:
         while b"\n\n" not in buf and len(buf) < 4096:

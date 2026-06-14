@@ -1,0 +1,1 @@
+{"status": 200, "json": {"choices": [{"message": {"role": "assistant", "content": "NOISE_OR_IMPACT: IMPACT\nROOT CAUSE: Connection pool exhausted under sustained load, causing request queueing.\nSUGGESTED FIX: Raise the pool ceiling and add bounded retry with exponential backoff."}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 64, "completion_tokens": 40}}}
