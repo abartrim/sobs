@@ -599,6 +599,7 @@ PROFILE_SEEDS = {
     "dmbackup": seed_dm_backup,  # backup_enabled=1; backup/run + restore reach their enabled branch
     "repoapp": seed_repo_app,  # registered app + release + github token; repositories-sub actions
     "cveosv": seed_cve_osv,  # telemetry.sdk row -> non-empty inventory -> OSV scan finds a vuln
+    "cvebackfill": seed_repo_app,  # app+release+github token -> cve github backfill attempts a release
     "githubtoken": seed_github_token,
     "mcpkey": seed_mcp_key,
     "aichat": seed_aichat,

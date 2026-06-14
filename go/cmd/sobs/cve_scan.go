@@ -1,10 +1,20 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/sobs/sobs/internal/jsonenc"
 )
+
+func sha256Sum(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
 
 // cveLib is one collected library inventory item (mirrors the dicts from _collect_library_inventory).
 type cveLib struct {
@@ -55,6 +65,333 @@ func inventoryScopeEcosystem(scopeName string) string {
 }
 
 var cveSourcePriority = map[string]int{"release_registry": 0, "otel_sdk": 1, "otel_scope": 2}
+
+type lockfileCandidate struct{ path, contentType, kind string }
+
+var cveLockfileCandidates = []lockfileCandidate{
+	{"requirements.txt", "text/plain", "requirements"},
+	{"package-lock.json", "application/json", "package_lock"},
+	{"go.sum", "text/plain", "go_sum"},
+	{"Gemfile.lock", "text/plain", "gemfile_lock"},
+}
+
+// fetchReleaseDepsFromGithub mirrors _fetch_release_deps_from_github: backfill dependencies-lockfile
+// artifacts from GitHub for releases that lack them. Returns (attempted, inserted, maxReleases). No
+// token -> (0, 0, cap). A release whose repo has no fetchable lockfile attempts but inserts nothing.
+func (s *server) fetchReleaseDepsFromGithub() (attempted, inserted, maxReleases int) {
+	token := strings.TrimSpace(s.loadAISetting("ai.github_token", ""))
+	maxReleases = s.githubBackfillMaxReleases()
+	if token == "" {
+		return 0, 0, maxReleases
+	}
+	existing := map[string]bool{}
+	if res, err := s.db.Execute("SELECT DISTINCT ReleaseId FROM sobs_release_artifacts FINAL " +
+		"WHERE ArtifactType='dependencies-lockfile' AND IsDeleted=0"); err == nil {
+		for _, r := range rowMaps(res) {
+			existing[cStr(r, "ReleaseId")] = true
+		}
+	}
+	relRes, err := s.db.Execute("SELECT Id, AppId, ReleaseVersion, CommitSha FROM sobs_app_releases FINAL " +
+		"WHERE IsDeleted=0 ORDER BY ReleasedAt DESC LIMIT " + strconv.Itoa(maxReleases))
+	if err != nil {
+		return 0, 0, maxReleases
+	}
+	apps := map[string]map[string]string{}
+	if ar, err := s.db.Execute("SELECT Id, RepoUrl, Enabled FROM sobs_apps FINAL WHERE IsDeleted=0"); err == nil {
+		for _, r := range rowMaps(ar) {
+			apps[cStr(r, "Id")] = map[string]string{"repo_url": strings.TrimSpace(cStr(r, "RepoUrl")), "enabled": cStr(r, "Enabled")}
+		}
+	}
+	insertedRows := []map[string]any{}
+	for _, row := range rowMaps(relRes) {
+		releaseID := cStr(row, "Id")
+		releaseVersion := strings.TrimSpace(cStr(row, "ReleaseVersion"))
+		commitSha := strings.TrimSpace(cStr(row, "CommitSha"))
+		app := apps[cStr(row, "AppId")]
+		repoURL := app["repo_url"]
+		if releaseID == "" || releaseVersion == "" || existing[releaseID] {
+			continue
+		}
+		if app["enabled"] == "0" || app["enabled"] == "" || repoURL == "" {
+			continue
+		}
+		owner, repo := parseGithubRepoOwnerName(repoURL)
+		if owner == "" || repo == "" {
+			continue
+		}
+		attempted++
+		if rows := s.githubActionsDependencyRows(commitSha); len(rows) > 0 {
+			insertedRows = append(insertedRows, rows...)
+			existing[releaseID] = true
+			inserted += len(rows)
+			continue
+		}
+		if rows := s.githubContentsLockfileRows(owner, repo, releaseID, releaseVersion); len(rows) > 0 {
+			insertedRows = append(insertedRows, rows...)
+			existing[releaseID] = true
+			inserted += len(rows)
+		}
+	}
+	if len(insertedRows) > 0 {
+		if _, err := s.insertRowsNormalized("sobs_release_artifacts", insertedRows); err != nil {
+			inserted = 0
+		}
+	}
+	return attempted, inserted, maxReleases
+}
+
+// githubActionsDependencyRows mirrors _github_actions_dependency_rows. Without a commit identity (and
+// for the parity release, which has none) it returns nil, so the contents-API fallback is used; the
+// full GH-Actions-snapshot artifact path is a follow-up.
+func (s *server) githubActionsDependencyRows(commitSha string) []map[string]any {
+	if strings.TrimSpace(commitSha) == "" {
+		return nil
+	}
+	return nil
+}
+
+// githubContentsLockfileRows tries each (ref, lockfile) via the GitHub Contents API, parsing the
+// first lockfile found into a dependencies artifact row (mirrors the contents loop in
+// _fetch_release_deps_from_github). A repo with no lockfile yields no rows (every fetch 404s).
+func (s *server) githubContentsLockfileRows(owner, repo, releaseID, releaseVersion string) []map[string]any {
+	for _, ref := range githubRefCandidates(releaseVersion) {
+		for _, cand := range cveLockfileCandidates {
+			url := "https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + cand.path
+			resp, err := s.upstreamGet("GET", url)
+			if err != nil || resp.Status == 404 {
+				continue
+			}
+			if resp.Status != 200 {
+				break
+			}
+			body, ok := resp.Body.(*jsonenc.Object)
+			if !ok {
+				continue
+			}
+			raw := decodeGithubContentsPayload(body)
+			if len(raw) == 0 {
+				continue
+			}
+			deps := parseLockfileDependencies(cand.kind, string(raw))
+			if len(deps) == 0 {
+				continue
+			}
+			sum := sha256Sum(raw)
+			meta := jsonenc.NewObject().Set("source", "github_contents_api").
+				Set("repo", owner+"/"+repo).Set("ref", ref).Set("path", cand.path).Set("dependencies", deps)
+			return []map[string]any{{
+				"Id": newUUIDv4(), "ReleaseId": releaseID, "ArtifactType": "dependencies-lockfile",
+				"Name": cand.path, "ContentType": cand.contentType, "Size": len(raw),
+				"StorageRef":     "github://" + owner + "/" + repo + "/" + cand.path + "?ref=" + ref,
+				"ChecksumSha256": sum, "Platform": "", "Architecture": "",
+				"MetadataJson": string(jsonenc.Encode(meta, jsonenc.Options{SortKeys: false})),
+				"UploadedAt":   normalizeCHTimestampNow(), "IsDeleted": 0, "Version": fixedVersionMillis(),
+			}}
+		}
+	}
+	return nil
+}
+
+// githubRefCandidates mirrors _github_ref_candidates.
+func githubRefCandidates(releaseVersion string) []string {
+	v := strings.TrimSpace(releaseVersion)
+	if v == "" {
+		return nil
+	}
+	cands := []string{"refs/tags/" + v}
+	if !strings.HasPrefix(v, "v") {
+		cands = append(cands, "refs/tags/v"+v)
+	}
+	cands = append(cands, "refs/heads/"+v, v)
+	seen := map[string]bool{}
+	out := []string{}
+	for _, c := range cands {
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// decodeGithubContentsPayload mirrors _decode_github_contents_payload (base64 content field).
+func decodeGithubContentsPayload(body *jsonenc.Object) []byte {
+	content := objGetStr(body, "content")
+	if content == "" || strings.ToLower(objGetStr(body, "encoding")) != "base64" {
+		return nil
+	}
+	dec, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(content, "\n", ""))
+	if err != nil {
+		return nil
+	}
+	return dec
+}
+
+// parseLockfileDependencies dispatches to the per-ecosystem lockfile parser.
+func parseLockfileDependencies(kind, content string) []any {
+	switch kind {
+	case "requirements":
+		return parseRequirementsDeps(content)
+	case "package_lock":
+		return parsePackageLockDeps(content)
+	case "go_sum":
+		return parseGoSumDeps(content)
+	case "gemfile_lock":
+		return parseGemfileLockDeps(content)
+	}
+	return nil
+}
+
+func depObj(pkg, version, ecosystem string) *jsonenc.Object {
+	return jsonenc.NewObject().Set("package", pkg).Set("version", version).Set("ecosystem", ecosystem)
+}
+
+func parseRequirementsDeps(content string) []any {
+	out := []any{}
+	seen := map[string]bool{}
+	for _, raw := range strings.Split(content, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if i := strings.Index(line, " #"); i >= 0 {
+			line = strings.TrimSpace(line[:i])
+		}
+		line = strings.TrimSpace(strings.SplitN(line, ";", 2)[0])
+		if !strings.Contains(line, "==") {
+			continue
+		}
+		parts := strings.SplitN(line, "==", 2)
+		pkg, ver := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+		if pkg == "" || ver == "" {
+			continue
+		}
+		key := strings.ToLower(pkg) + "==" + ver
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, depObj(pkg, ver, "PyPI"))
+	}
+	return out
+}
+
+func parseGoSumDeps(content string) []any {
+	out := []any{}
+	seen := map[string]bool{}
+	for _, raw := range strings.Split(content, "\n") {
+		fields := strings.Fields(strings.TrimSpace(raw))
+		if len(fields) < 2 {
+			continue
+		}
+		name, ver := fields[0], fields[1]
+		ver = strings.TrimSuffix(ver, "/go.mod")
+		if name == "" || ver == "" {
+			continue
+		}
+		key := strings.ToLower(name) + " " + ver
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, depObj(name, ver, "Go"))
+	}
+	return out
+}
+
+var gemfileLockRE = regexp.MustCompile(`^([A-Za-z0-9_\-.]+)\s+\(([^)]+)\)`)
+
+func parseGemfileLockDeps(content string) []any {
+	out := []any{}
+	seen := map[string]bool{}
+	inSpecs := false
+	for _, raw := range strings.Split(content, "\n") {
+		if strings.TrimSpace(raw) == "specs:" {
+			inSpecs = true
+			continue
+		}
+		if !inSpecs {
+			continue
+		}
+		if raw != "" && !strings.HasPrefix(raw, " ") {
+			break
+		}
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		m := gemfileLockRE.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		name := strings.TrimSpace(m[1])
+		ver := strings.TrimSpace(strings.SplitN(m[2], ",", 2)[0])
+		if name == "" || ver == "" {
+			continue
+		}
+		key := strings.ToLower(name) + " " + ver
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, depObj(name, ver, "RubyGems"))
+	}
+	return out
+}
+
+func parsePackageLockDeps(content string) []any {
+	out := []any{}
+	seen := map[string]bool{}
+	parsed, err := parseJSONValue([]byte(content))
+	if err != nil {
+		return out
+	}
+	body, ok := parsed.(*jsonenc.Object)
+	if !ok {
+		return out
+	}
+	addDep := func(name, ver string) {
+		if name == "" || ver == "" {
+			return
+		}
+		key := strings.ToLower(name) + " " + ver
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, depObj(name, ver, "npm"))
+	}
+	if pv, ok := body.Get("packages"); ok {
+		if packages, ok := pv.(*jsonenc.Object); ok {
+			for _, pkgPath := range packages.Keys() {
+				if pkgPath == "" || pkgPath == "." || !strings.HasPrefix(pkgPath, "node_modules/") {
+					continue
+				}
+				info, _ := packages.Get(pkgPath)
+				io, ok := info.(*jsonenc.Object)
+				if !ok {
+					continue
+				}
+				idx := strings.LastIndex(pkgPath, "node_modules/")
+				addDep(pkgPath[idx+len("node_modules/"):], strings.TrimSpace(objGetStr(io, "version")))
+			}
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+	if lv, ok := body.Get("dependencies"); ok {
+		if legacy, ok := lv.(*jsonenc.Object); ok {
+			for _, name := range legacy.Keys() {
+				info, _ := legacy.Get(name)
+				if io, ok := info.(*jsonenc.Object); ok {
+					addDep(name, strings.TrimSpace(objGetStr(io, "version")))
+				}
+			}
+		}
+	}
+	return out
+}
 
 // collectLibraryInventory mirrors _collect_library_inventory: dedup libraries from release-registry
 // lockfile artifacts (tier 1), telemetry.sdk.* resource attrs (tier 2), and ScopeName/Version (tier 3).

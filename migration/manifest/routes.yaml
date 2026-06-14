@@ -2258,6 +2258,17 @@ routes:
   mask:
   - '"scanned_at": ?"[^"]*"'
   mask_reason: scanned_at is _now_iso() (wall-clock); libraries_found/vulns_found/github_backfill_* are byte-compared.
+# cvebackfill profile: a seeded app+release+token so the github backfill attempts the release. The
+# repo has no fetchable lockfile (every contents GET 404s) -> attempted=1, inserted=0. Inventory is
+# still empty (no artifact inserted, no telemetry.sdk) -> zero OSV summary (no scanned_at field).
+- id: post__api_enrichment_cve_scan__backfill
+  path: /api/enrichment/cve/scan
+  methods:
+  - POST
+  profile: cvebackfill
+  request:
+    method: POST
+    json: {}
 - id: post__settings_masking_output
   path: /settings/masking/output
   methods:

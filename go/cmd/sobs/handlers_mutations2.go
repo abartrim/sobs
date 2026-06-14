@@ -511,20 +511,16 @@ func (s *server) handleApiEnrichmentCveScan(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
-	if tok, _ := s.appSetting("ai.github_token"); tok != "" {
-		http.Error(w, "not implemented", http.StatusNotImplemented) // live GitHub backfill is a follow-up
-		return
-	}
-	maxRel := s.githubBackfillMaxReleases()
-	_ = s.setAppSetting("enrichment.cve_last_scan_github_backfill_attempted", "0")
-	_ = s.setAppSetting("enrichment.cve_last_scan_github_backfill_inserted", "0")
+	attempted, inserted, maxRel := s.fetchReleaseDepsFromGithub()
+	_ = s.setAppSetting("enrichment.cve_last_scan_github_backfill_attempted", strconv.Itoa(attempted))
+	_ = s.setAppSetting("enrichment.cve_last_scan_github_backfill_inserted", strconv.Itoa(inserted))
 	_ = s.setAppSetting("enrichment.cve_last_scan_github_backfill_cap", strconv.Itoa(maxRel))
 	libraries := s.collectLibraryInventory()
 	if len(libraries) == 0 {
 		_ = s.setAppSetting("enrichment.cve_last_scan", nowISO())
 		writeJSON(w, http.StatusOK, jsonenc.NewObject().
-			Set("github_backfill_attempted", 0).
-			Set("github_backfill_inserted", 0).
+			Set("github_backfill_attempted", attempted).
+			Set("github_backfill_inserted", inserted).
 			Set("github_backfill_max_releases", maxRel).
 			Set("libraries_found", 0).
 			Set("ok", true).
@@ -534,8 +530,8 @@ func (s *server) handleApiEnrichmentCveScan(w http.ResponseWriter, r *http.Reque
 	scanTS := nowISO()
 	librariesFound, vulnsFound := s.runCveOSVScan(scanTS, libraries)
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().
-		Set("github_backfill_attempted", 0).
-		Set("github_backfill_inserted", 0).
+		Set("github_backfill_attempted", attempted).
+		Set("github_backfill_inserted", inserted).
 		Set("github_backfill_max_releases", maxRel).
 		Set("libraries_found", librariesFound).
 		Set("ok", true).
