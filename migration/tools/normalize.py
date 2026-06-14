@@ -63,6 +63,13 @@ def normalize(resp: dict) -> dict:
         if lname == "set-cookie" and b"sobs_session=" in value.encode("latin1", "ignore"):
             headers.append([name, _normalize_session_cookie(value)])
             continue
+        # The 405 `Allow` header lists methods in a set-iteration order that Werkzeug does NOT
+        # fix (it flips between "POST, OPTIONS" and "OPTIONS, POST" across captures). The method
+        # SET is order-irrelevant, so sort it on both sides before comparing.
+        if lname == "allow":
+            methods = sorted(p.strip() for p in value.split(",") if p.strip())
+            headers.append([name, ", ".join(methods)])
+            continue
         headers.append([name, value])
     return {"status": resp["status"], "headers": headers, "body": resp["body"]}
 
