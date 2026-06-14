@@ -22,6 +22,70 @@ func autoRulePreviewSummary() *jsonenc.Object {
 		Set("create_cap", 200).Set("capped", false).Set("created", 0)
 }
 
+func mapStr(m map[string]any, k string) string {
+	if v, ok := m[k].(string); ok {
+		return v
+	}
+	return ""
+}
+
+// POST /metrics/rules/dashboard/auto — app.py auto_metrics_rules_dashboard (preview): one chart
+// candidate per anomaly rule (deduped title, sorted by service/source/signal/title), rendered on
+// metrics_rules.html with the auto-dashboard panel open.
+func (s *server) handleMetricsRulesDashboardAuto(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	rules := s.loadAnomalyRulesCtx()
+	candidates := []any{}
+	titleCounts := map[string]int{}
+	for _, ri := range rules {
+		rule, _ := ri.(map[string]any)
+		source, signal := mapStr(rule, "source"), mapStr(rule, "signal")
+		if source == "" || signal == "" {
+			continue
+		}
+		name := mapStr(rule, "name")
+		base := name
+		if base == "" {
+			base = source + "/" + signal
+		}
+		idx := titleCounts[base]
+		titleCounts[base]++
+		title := base
+		if idx > 0 {
+			title = base + " (" + strconv.Itoa(idx+1) + ")"
+		}
+		candidates = append(candidates, map[string]any{
+			"title": title, "rule_name": name, "rule_type": mapStr(rule, "rule_type"),
+			"source": source, "signal": signal, "service": mapStr(rule, "service"), "attr_fp": mapStr(rule, "attr_fp"),
+		})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		a, b := candidates[i].(map[string]any), candidates[j].(map[string]any)
+		for _, k := range []string{"service", "source", "signal", "title"} {
+			if mapStr(a, k) != mapStr(b, k) {
+				return mapStr(a, k) < mapStr(b, k)
+			}
+		}
+		return false
+	})
+	services, signals, sources := s.listDerivedSignalDimensions()
+	summary := jsonenc.NewObject().
+		Set("action", "preview").Set("hours", 24).Set("service_filter", "").
+		Set("max_charts", 12).Set("create_cap", 24).Set("dashboard_name", "Auto Metric Rules Dashboard").
+		Set("rules_total", len(rules)).Set("candidates", len(candidates)).
+		Set("capped", false).Set("created", 0).Set("existing", 0)
+	s.renderPageFlash(w, "metrics_rules.html", "auto_metrics_rules_dashboard", "info",
+		"Auto-dashboard preview: "+strconv.Itoa(len(candidates))+" candidate chart(s) from "+strconv.Itoa(len(rules))+" rule(s).",
+		map[string]any{
+			"rules": rules, "services": services, "signals": signals, "sources": sources,
+			"auto_preview": []any{}, "auto_summary": nil,
+			"auto_dashboard_preview": candidates, "auto_dashboard_summary": summary, "auto_open_panel": "auto-dashboard",
+		})
+}
+
 // POST /metrics/rules/auto — app.py auto_metrics_rules (default "preview" action). The candidate
 // builder examines derived-signal series with >= min_points in the last `hours`; the fixture's
 // data is far older than now()-24h, so 0 series are examined and no candidates are proposed. The

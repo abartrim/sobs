@@ -919,3 +919,7 @@ routes:
     path: "/metrics/rules/auto"
     methods: [POST]
     request: {method: POST}
+  - id: post__metrics_rules_dashboard_auto
+    path: "/metrics/rules/dashboard/auto"
+    methods: [POST]
+    request: {method: POST}
