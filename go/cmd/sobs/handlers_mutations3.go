@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"net/http"
 	"strings"
 
@@ -147,7 +148,7 @@ func (s *server) handleDashboardSub(w http.ResponseWriter, r *http.Request) {
 			s.errorJSON(w, http.StatusNotFound, "Dashboard not found")
 			return
 		}
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+		s.importChart(w, r, dashID)
 		return
 	}
 	// GET /api/dashboards/<dashboard_id>/charts/<chart_id>/export — 404 when the dashboard
@@ -162,6 +163,63 @@ func (s *server) handleDashboardSub(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.NotFound(w, r)
+}
+
+// importChart mirrors app.py import_chart: validate the template, compile the chart_spec, and
+// insert a new chart at the next position. The dashboard existence check is done by the caller.
+func (s *server) importChart(w http.ResponseWriter, r *http.Request, dashID string) {
+	raw, _ := io.ReadAll(r.Body)
+	body := asObject(func() any { v, _ := parseJSONValue(raw); return v }())
+	tv, tvOK := body.Get("sobs_chart_template_version")
+	if !numEquals(tv, tvOK, 1) {
+		s.errorJSON(w, http.StatusBadRequest,
+			"Invalid or unsupported chart template format (expected sobs_chart_template_version: 1)")
+		return
+	}
+	titleV, titleOK := body.Get("title")
+	title := pyStrOrStrip(titleV, titleOK)
+	if title == "" {
+		title = "Imported Chart"
+	}
+	chartSpecRaw, csOK := body.Get("chart_spec")
+	if !isTruthyVal(chartSpecRaw, csOK) {
+		s.errorJSON(w, http.StatusBadRequest, "chart_spec is required in template")
+		return
+	}
+	templateID, query, normSpec, errMsg := s.compileChartSpec(chartSpecRaw)
+	if errMsg != "" {
+		s.errorJSON(w, http.StatusBadRequest, "Chart spec error: "+errMsg)
+		return
+	}
+	optionsJSON := string(jsonenc.Encode(jsonenc.NewObject().Set("chart_spec", normSpec), jsonDumpsDefault))
+	position := s.nextChartPosition(dashID)
+	chartID := newUUIDv4()
+	row := map[string]any{
+		"Id": chartID, "DashboardId": dashID, "Title": title, "ChartType": templateID,
+		"Query": query, "OptionsJson": optionsJSON, "Position": position,
+		"IsDeleted": 0, "Version": fixedVersionMillis(),
+	}
+	if _, err := s.insertRowsNormalized("sobs_chart_configs", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).Set("chart_id", chartID).Set("dashboard_id", dashID).
+		Set("dashboard_url", "/dashboards/"+dashID))
+}
+
+// nextChartPosition returns max(Position)+1 over a dashboard's live charts (-1 default -> 0).
+func (s *server) nextChartPosition(dashID string) int {
+	res, err := s.db.Execute("SELECT max(Position) AS m FROM sobs_chart_configs FINAL "+
+		"WHERE IsDeleted = 0 AND DashboardId = ?", dashID)
+	if err != nil || len(res.Rows) == 0 {
+		return 0
+	}
+	m := rowMaps(res)[0]
+	if v, ok := m["m"]; !ok || v == nil {
+		return 0
+	}
+	return cInt(m, "m") + 1
 }
 
 // POST /errors/<error_id>/resolve — app.py marks the error resolved; idempotent, so an

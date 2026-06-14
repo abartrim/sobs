@@ -1671,6 +1671,25 @@ routes:
   mask:
   - '"public_key":"[^"]*"'
   mask_reason: public_key is a random EC P-256 keypair (must be random for security); env_override/note/ok/saved_to_db are byte-compared.
+# Import a chart into the seeded dashboard (mutator; adds a chart to dashboard ...00a, whose
+# detail view is not in the corpus). chart_id is a fresh uuid (masked).
+- id: post__api_dashboards_charts_import_ok
+  path: /api/dashboards/00000000-0000-4000-8000-00000000000a/charts/import
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      sobs_chart_template_version: 1
+      title: Imported Latency
+      chart_spec:
+        template_id: time_series_percentiles
+        sql:
+          mode: raw
+          override_sql: SELECT toStartOfMinute(Timestamp) AS time, count() AS value FROM otel_traces GROUP BY time ORDER BY time
+  mask:
+  - '"chart_id":"[^"]*"'
+  mask_reason: the imported chart's id is a fresh uuid4 (random); ok/dashboard_id/dashboard_url are byte-compared.
 # Register a browser_push subscription as a notification channel (mutator; the new channel's
 # id is a fresh uuid, masked). sobs_notification_channels is read only by earlier readers.
 - id: post__api_notifications_subscribe_ok

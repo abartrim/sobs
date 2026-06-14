@@ -330,6 +330,41 @@ func mustGet(o *jsonenc.Object, key string) any {
 	return v
 }
 
+// isTruthyVal mirrors Python truthiness (for `if not x` / `if x`): nil/""/0/false/empty
+// object/empty list are falsy.
+func isTruthyVal(v any, present bool) bool {
+	if !present || v == nil {
+		return false
+	}
+	switch x := v.(type) {
+	case string:
+		return x != ""
+	case bool:
+		return x
+	case json.Number:
+		f, err := x.Float64()
+		return !(err == nil && f == 0)
+	case *jsonenc.Object:
+		return x.Len() > 0
+	case []any:
+		return len(x) > 0
+	default:
+		return true
+	}
+}
+
+// numEquals reports whether v is numerically equal to n (Python `x == 1`, where 1.0 == 1).
+func numEquals(v any, present bool, n float64) bool {
+	if !present {
+		return false
+	}
+	if num, ok := v.(json.Number); ok {
+		f, err := num.Float64()
+		return err == nil && f == n
+	}
+	return false
+}
+
 func cloneObject(o *jsonenc.Object) *jsonenc.Object {
 	out := jsonenc.NewObject()
 	for _, k := range o.Keys() {
