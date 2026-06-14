@@ -881,15 +881,57 @@ func (s *server) handleViewAiSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /settings/repositories — app.py view_settings_repositories. Empty apps/AI settings.
+// createSettingsRepository mirrors app.py create_settings_repository (POST /settings/repositories
+// create path). The github-token/repo-token/agent-repo saves are gated behind set_* flags
+// (absent in the create test). The inserted app's uuid id is not in the response.
+func (s *server) createSettingsRepository(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	loc := "/settings/repositories"
+	name := strings.TrimSpace(r.PostFormValue("name"))
+	repoURL, owner, repo := resolveGithubRepoFields(
+		strings.TrimSpace(r.PostFormValue("repo_url")),
+		strings.TrimSpace(r.PostFormValue("repo_owner")),
+		strings.TrimSpace(r.PostFormValue("repo_name")))
+	if name == "" || repoURL == "" {
+		flashRedirect(w, "warning", "App name and repository are required", loc)
+		return
+	}
+	slugSrc := strings.TrimSpace(r.PostFormValue("slug"))
+	if slugSrc == "" {
+		slugSrc = name
+	}
+	slug := appSlug(slugSrc, "app")
+	if s.rowExists("SELECT Id FROM sobs_apps FINAL WHERE Slug=? AND IsDeleted=0 LIMIT 1", slug) {
+		flashRedirect(w, "warning", "App slug already exists", loc)
+		return
+	}
+	row := map[string]any{
+		"Id": newUUIDHex(), "Name": name, "Slug": slug, "OwnerTeam": "", "RepoUrl": repoURL,
+		"DefaultEnvironment": strings.TrimSpace(r.PostFormValue("default_environment")),
+		"Enabled": 1, "MetadataJson": "{}", "IsDeleted": 0, "Version": fixedVersionMillis(),
+		"CreatedAt": nowISO(), "UpdatedAt": nowISO(),
+	}
+	if _, err := s.insertRowsNormalized("sobs_apps", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	githubToken := strings.TrimSpace(r.PostFormValue("github_token"))
+	if r.PostFormValue("set_github_token") != "" && githubToken != "" {
+		s.saveAISetting("ai.github_token", githubToken)
+		s.saveAISetting("ai.github_token_expires_at", strings.TrimSpace(r.PostFormValue("github_token_expires_at")))
+	}
+	if r.PostFormValue("set_repo_token") != "" && githubToken != "" && owner != "" && repo != "" {
+		s.saveAISetting(githubRepoTokenKey(owner, repo), githubToken)
+	}
+	if r.PostFormValue("set_agent_repo") != "" && owner != "" && repo != "" {
+		s.saveAISetting("ai.github_repo", owner+"/"+repo)
+	}
+	flashRedirect(w, "success", "Repository added", loc)
+}
+
 func (s *server) handleViewSettingsRepositories(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		// app.py register_repository: an empty form lacks the required name/repository.
-		_ = r.ParseForm()
-		if r.PostFormValue("name") == "" || r.PostFormValue("repository") == "" {
-			flashRedirect(w, "warning", "App name and repository are required", "/settings/repositories")
-			return
-		}
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+		s.createSettingsRepository(w, r)
 		return
 	}
 	apps := s.buildRepositoriesApps()

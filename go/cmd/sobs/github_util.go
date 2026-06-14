@@ -53,6 +53,36 @@ func nonEmpty(parts []string) []string {
 	return out
 }
 
+// buildGithubRepoURL mirrors app.py _build_github_repo_url.
+func buildGithubRepoURL(owner, repo string) string {
+	o := strings.Trim(strings.TrimSpace(owner), "/")
+	rp := strings.TrimSuffix(strings.Trim(strings.TrimSpace(repo), "/"), ".git")
+	if o == "" || rp == "" {
+		return ""
+	}
+	return "https://github.com/" + o + "/" + rp
+}
+
+// resolveGithubRepoFields mirrors app.py _resolve_github_repo_fields.
+func resolveGithubRepoFields(repoURL, owner, repo string) (string, string, string) {
+	urlClean := strings.TrimSpace(repoURL)
+	o := strings.Trim(strings.TrimSpace(owner), "/")
+	rp := strings.TrimSuffix(strings.Trim(strings.TrimSpace(repo), "/"), ".git")
+	if (o == "" || rp == "") && urlClean != "" {
+		po, pr := parseGithubRepoOwnerName(urlClean)
+		if o == "" {
+			o = po
+		}
+		if rp == "" {
+			rp = pr
+		}
+	}
+	if canonical := buildGithubRepoURL(o, rp); canonical != "" {
+		urlClean = canonical
+	}
+	return urlClean, o, rp
+}
+
 // githubVersionTokens mirrors app.py _github_version_tokens.
 func githubVersionTokens(version string) map[string]bool {
 	v := strings.ToLower(strings.TrimSpace(version))
@@ -77,6 +107,13 @@ func (s *server) loadAISetting(key, def string) string {
 		}
 	}
 	return def
+}
+
+// saveAISetting mirrors app.py _save_ai_setting (writes sobs_ai_settings). At-rest encryption of
+// sensitive keys is omitted — a hard-cutover Go app reads back via loadAISetting self-consistently.
+func (s *server) saveAISetting(key, value string) {
+	_, _ = s.db.InsertJSONEachRow("sobs_ai_settings",
+		[]map[string]any{{"Key": key, "Value": value, "IsDeleted": 0, "Version": fixedVersionMillis()}})
 }
 
 // repoScopedGithubToken mirrors app.py _load_repo_scoped_github_token.

@@ -1555,6 +1555,16 @@ routes:
       match_value: checkout
       tag_key: env
       tag_value: prod
+# Register a repository/app (mutator; sobs_apps read only by early repositories/health readers).
+- id: post__settings_repositories_create_ok
+  path: /settings/repositories
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      name: Billing Service
+      repo_url: https://github.com/acme/billing
 # Soft-delete a seeded report (mutator; nothing reads sobs_reports after the early readers).
 - id: post__reports_delete_ok
   path: /reports/11111111-0000-4000-8000-0000000000a1/delete
