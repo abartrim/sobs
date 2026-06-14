@@ -452,7 +452,29 @@ def seed_aichat(db) -> None:
             }
         ],
     )
+    # A gen_ai span (otel_traces) matching _AI_SPAN_CONDITION so /api/ai/export emits a JSONL row.
+    _insert(
+        db,
+        "otel_traces",
+        [
+            {
+                "Timestamp": _TS,
+                "ServiceName": "sobs-ai-helper",
+                "TraceId": "trace-parity-001",
+                "Duration": 1500000000,
+                "SpanAttributes": {
+                    "gen_ai.provider.name": "openai",
+                    "gen_ai.request.model": "gpt-4",
+                    "gen_ai.input.messages": '[{"role": "user", "content": "Hello"}]',
+                    "gen_ai.output.messages": '[{"role": "assistant", "content": "Hi there"}]',
+                    "gen_ai.usage.input_tokens": "42",
+                    "gen_ai.usage.output_tokens": "100",
+                },
+            }
+        ],
+    )
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
+    db.execute("OPTIMIZE TABLE otel_traces FINAL")
 
 
 PROFILE_SEEDS = {

@@ -1788,6 +1788,13 @@ routes:
   path: /api/ai/export
   methods:
   - GET
+- id: get__api_ai_export__seeded
+  path: /api/ai/export
+  methods:
+  - GET
+  profile: aichat
+  request:
+    method: GET
 - id: get__api_setup_wizard_steps
   path: /api/setup-wizard/steps
   methods:

@@ -256,17 +256,104 @@ func (s *server) handleApiReportsExport(w http.ResponseWriter, r *http.Request) 
 	_, _ = w.Write([]byte(body))
 }
 
-// GET /api/ai/export — app.py export_ai_training: streams matching AI spans as JSONL. The
-// fixture has no gen_ai spans, so the export is empty (a 0-byte attachment).
+// dumpsDefault mirrors json.dumps(ensure_ascii=False) with default (spaced) separators and
+// insertion order — the encoding export_ai_training uses for each JSONL record / the json body.
+var dumpsDefault = jsonenc.Options{ItemSep: ", ", KeySep: ": "}
+
+// GET /api/ai/export — app.py export_ai_training: matching gen_ai spans as JSONL (or JSON) for
+// training-set creation. Empty result -> empty body (the fixture's no-span case).
 func (s *server) handleApiAiExport(w http.ResponseWriter, r *http.Request) {
-	if s.countRows("SELECT count() FROM otel_traces WHERE "+aiSpanCondition) != 0 {
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+	q := r.URL.Query()
+	conds := []string{aiSpanCondition}
+	params := []any{}
+	if v := strings.TrimSpace(q.Get("service")); v != "" {
+		conds = append(conds, "ServiceName=?")
+		params = append(params, v)
+	}
+	if v := strings.TrimSpace(q.Get("model")); v != "" {
+		conds = append(conds, "SpanAttributes['gen_ai.request.model']=?")
+		params = append(params, v)
+	}
+	if v := strings.TrimSpace(q.Get("operation")); v != "" {
+		if strings.EqualFold(v, "chat") {
+			conds = append(conds, "(SpanAttributes['gen_ai.operation.name']=? OR SpanAttributes['gen_ai.operation.name']='')")
+		} else {
+			conds = append(conds, "SpanAttributes['gen_ai.operation.name']=?")
+		}
+		params = append(params, v)
+	}
+	maxRows := 1000
+	if n, err := strconv.Atoi(strings.TrimSpace(q.Get("limit"))); err == nil {
+		maxRows = n
+	}
+	if maxRows < 1 {
+		maxRows = 1
+	} else if maxRows > 5000 {
+		maxRows = 5000
+	}
+	sql := "SELECT Timestamp, ServiceName, TraceId, Duration, " +
+		"SpanAttributes['gen_ai.provider.name'] AS provider_name, SpanAttributes['gen_ai.system'] AS system, " +
+		"SpanAttributes['gen_ai.request.model'] AS req_model, " +
+		"SpanAttributes['gen_ai.input.messages'] AS input_messages, " +
+		"SpanAttributes['gen_ai.output.messages'] AS output_messages, " +
+		"SpanAttributes['gen_ai.usage.input_tokens'] AS tokens_in, " +
+		"SpanAttributes['gen_ai.usage.output_tokens'] AS tokens_out " +
+		"FROM otel_traces WHERE " + strings.Join(conds, " AND ") + " ORDER BY Timestamp DESC LIMIT ?"
+	res, err := s.db.Execute(sql, append(params, maxRows)...)
+	if err != nil {
+		s.dbError(w, err)
 		return
 	}
-	w.Header().Set("Content-Type", "application/x-ndjson")
-	w.Header().Set("Content-Disposition", `attachment; filename="ai_training_data.jsonl"`)
-	w.Header().Set("Content-Length", "0")
+	records := []any{}
+	for _, m := range rowMaps(res) {
+		provider := cStr(m, "provider_name")
+		if provider == "" {
+			provider = cStr(m, "system")
+		}
+		messages := []any{}
+		appendMsgs := func(raw, fallbackRole string) {
+			if raw == "" {
+				return
+			}
+			if parsed, perr := parseJSONValue([]byte(raw)); perr == nil {
+				if list, ok := parsed.([]any); ok {
+					messages = append(messages, list...)
+				}
+			} else {
+				messages = append(messages, jsonenc.NewObject().Set("role", fallbackRole).Set("content", raw))
+			}
+		}
+		appendMsgs(cStr(m, "input_messages"), "user")
+		appendMsgs(cStr(m, "output_messages"), "assistant")
+		records = append(records, jsonenc.NewObject().
+			Set("messages", messages).
+			Set("metadata", jsonenc.NewObject().
+				Set("timestamp", cStr(m, "Timestamp")).
+				Set("service", cStr(m, "ServiceName")).
+				Set("provider", provider).
+				Set("model", cStr(m, "req_model")).
+				Set("tokens_in", int(cFloat(m, "tokens_in"))).
+				Set("tokens_out", int(cFloat(m, "tokens_out"))).
+				Set("duration_ms", roundHalfEven(cFloat(m, "Duration")/1_000_000, 1)).
+				Set("trace_id", cStr(m, "TraceId"))))
+	}
+	var body, mime, filename string
+	if strings.EqualFold(strings.TrimSpace(q.Get("format")), "json") {
+		body, _ = jsonDumpsIndent2NoEsc(records) // json.dumps(records, ensure_ascii=False, indent=2)
+		mime, filename = "application/json", "ai_training_data.json"
+	} else {
+		lines := make([]string, len(records))
+		for i, rec := range records {
+			lines[i] = string(jsonenc.Encode(rec, dumpsDefault))
+		}
+		body = strings.Join(lines, "\n")
+		mime, filename = "application/x-ndjson", "ai_training_data.jsonl"
+	}
+	w.Header().Set("Content-Type", mime)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(body))
 }
 
 // GET /api/onboarding/inspect-repo — app.py api_onboarding_inspect_repo: resolve owner/repo from
