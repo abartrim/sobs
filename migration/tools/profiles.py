@@ -53,7 +53,9 @@ PROFILES: dict[str, dict[str, str]] = {
     # notification toggle/delete bundle (seed channels+rules → test toggle/delete, while base
     # check_notifications/auto-generate stay on their empty path).
     "agentrun": {},
-    "notif": {},
+    # notif also points at the upstream fixtures so the channel /test webhook POST is served
+    # from a canned response (the toggle/delete routes make no HTTP calls, so it's a no-op there).
+    "notif": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
 }
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via

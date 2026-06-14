@@ -141,11 +141,24 @@ func (s *server) handleChannelSub(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if !s.rowExists("SELECT Id FROM sobs_notification_channels FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1", chID) {
+	res, err := s.db.Execute("SELECT Id, Name, ChannelType, ConfigJson, Enabled "+
+		"FROM sobs_notification_channels FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1", chID)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	if len(res.Rows) == 0 {
 		s.errorJSON(w, http.StatusNotFound, "channel not found")
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	// app.py test_notification_channel: dispatch a test payload through the channel; "ok" => 200,
+	// any error => 500 with the message (the test payload itself is the unobservable POST body).
+	m := rowMaps(res)[0]
+	if result := s.dispatchNotificationChannel(cStr(m, "ChannelType"), cStr(m, "ConfigJson")); result == "ok" {
+		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
+	} else {
+		writeJSON(w, http.StatusInternalServerError, jsonenc.NewObject().Set("ok", false).Set("error", result))
+	}
 }
 
 var cveDispositionValues = map[string]bool{"open": true, "accepted": true, "false_positive": true, "fixed": true}

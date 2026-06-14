@@ -1310,6 +1310,14 @@ routes:
   request:
     method: POST
     json: {}
+- id: post__api_notifications_channels__test__seeded
+  path: /api/notifications/channels/c1000000000000000000000000000003/test
+  methods:
+  - POST
+  profile: notif
+  request:
+    method: POST
+    json: {}
 - id: post__api_enrichment_cve_disposition
   path: /api/enrichment/cve/findings/nonexistent/disposition
   methods:

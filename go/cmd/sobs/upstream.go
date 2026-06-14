@@ -27,10 +27,11 @@ type upstreamResponse struct {
 	Body   any
 }
 
-// upstreamGet fetches an external URL (GitHub / OSV). Under parity it is served from
-// SOBS_UPSTREAM_FIXTURES — canned files keyed by request URL, the same set the Python
-// determinism httpx shim reads — so neither side touches the network and both build identical
-// route responses. A missing fixture resolves to a 404 (a not-found upstream lookup).
+// upstreamGet / upstreamPost issue an external request (GitHub / OSV / webhook). Under parity
+// they are served from SOBS_UPSTREAM_FIXTURES — canned files keyed by request URL, the same set
+// the Python determinism httpx shim reads — so neither side touches the network and both build
+// identical route responses. The request body is NOT part of the key (mirroring the shim), so a
+// webhook POST's payload doesn't affect the lookup. A missing fixture resolves to a 404.
 func (s *server) upstreamGet(method, url string) (upstreamResponse, error) {
 	dir := strings.TrimSpace(os.Getenv("SOBS_UPSTREAM_FIXTURES"))
 	if dir == "" {
@@ -62,6 +63,54 @@ func (s *server) upstreamGet(method, url string) (upstreamResponse, error) {
 		body = b
 	}
 	return upstreamResponse{Status: status, Body: body}, nil
+}
+
+// dispatchNotificationChannel mirrors app.py _dispatch_notification_channel: send to one
+// channel, returning "ok" or an error message. Config decryption is identity on the
+// parity fixture's plaintext config. Only the webhook type is seeded; others are a follow-up.
+func (s *server) dispatchNotificationChannel(channelType, configJSON string) string {
+	var config *jsonenc.Object
+	if parsed, err := parseJSONValue([]byte(strOrBrace(configJSON))); err == nil {
+		config, _ = parsed.(*jsonenc.Object)
+	}
+	switch channelType {
+	case "webhook":
+		return s.dispatchWebhookChannel(config)
+	default:
+		return "Unknown channel type: " + channelType
+	}
+}
+
+// dispatchWebhookChannel mirrors app.py _dispatch_webhook_channel: POST (or configured method)
+// to config["url"]; HTTP >= 400 (or a missing url) is an error, otherwise "ok".
+func (s *server) dispatchWebhookChannel(config *jsonenc.Object) string {
+	if config == nil {
+		return "Webhook URL is not configured"
+	}
+	url := objStrOr(config, "url")
+	if url == "" {
+		return "Webhook URL is not configured"
+	}
+	method := "POST"
+	if mv := objStrOr(config, "method"); mv != "" {
+		method = strings.ToUpper(mv)
+	}
+	resp, err := s.upstreamGet(method, url)
+	if err != nil {
+		return err.Error()
+	}
+	if resp.Status >= 400 {
+		return fmt.Sprintf("Webhook returned HTTP %d", resp.Status)
+	}
+	return "ok"
+}
+
+// strOrBrace returns "{}" for an empty config string (mirrors `str(ConfigJson) or "{}"`).
+func strOrBrace(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "{}"
+	}
+	return s
 }
 
 // objStrOr mirrors `str(obj.get(key) or "").strip()` for a parsed-JSON object: a falsy value

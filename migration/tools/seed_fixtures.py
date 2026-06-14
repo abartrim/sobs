@@ -351,6 +351,17 @@ def seed_notif(db) -> None:
                 "IsDeleted": 0,
                 "Version": 1704164644000,
             },
+            {
+                # The /test target: a generic webhook (config key "url") whose POST is served by
+                # the canned upstream fixture, so dispatch returns "ok".
+                "Id": "c1000000000000000000000000000003",
+                "Name": "Test Webhook",
+                "ChannelType": "webhook",
+                "ConfigJson": '{"url": "https://hooks.example.com/ops"}',
+                "Enabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
         ],
     )
     _insert(

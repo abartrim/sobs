@@ -79,7 +79,9 @@ def _install_upstream_fixtures() -> None:
     import httpx  # app.py already imports httpx, so it is importable here
 
     base = _Path(fixtures_dir)
-    intercept_hosts = {"api.github.com", "api.osv.dev"}
+    # api.github.com / api.osv.dev are the real upstreams; hooks.example.com is the parity test
+    # webhook sink (notification channel dispatch). All served from canned files, never dialed.
+    intercept_hosts = {"api.github.com", "api.osv.dev", "hooks.example.com"}
 
     def _handler(request: "httpx.Request") -> "httpx.Response":
         host = request.url.host
