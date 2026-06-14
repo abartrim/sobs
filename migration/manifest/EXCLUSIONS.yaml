@@ -17,6 +17,10 @@ exclusions:
     reason: "Generates an EC VAPID key pair via the cryptography lib's own CSPRNG, which the determinism harness does NOT freeze — the golden body differs run-to-run (verified). Not byte-reproducible by anyone, Python included."
     followup: "Phase 6 — assert response shape + that a valid key pair is persisted, not the key bytes."
     owner: "TBD"
+  - id: get__settings_data-management
+    reason: "The DB-stats panel embeds per-table on-disk byte sizes from system.parts (e.g. '5.0 KB'), which vary run-to-run with ClickHouse compression/merge state — verified non-deterministic across two frozen-clock captures (168994 vs 168995 bytes). The POST save IS ported."
+    followup: "Phase 6 — assert the page structure + that sizes render, not the exact byte counts."
+    owner: "TBD"
   - id: post__api_mcp_keys
     reason: "Mints a secrets.token_urlsafe API key + id. The Python capture is only stable because the harness freezes os.urandom to a counter-seeded SHA-256 stream; a live Go server has no such frozen global counter to replay, and in production the key MUST be truly random. Not byte-reproducible by the Go server."
     followup: "Phase 6 — assert response shape + that the minted key authenticates, not the key bytes."
