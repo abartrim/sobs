@@ -1510,6 +1510,17 @@ routes:
   request:
     method: POST
     json: {}
+# Same /v1/ai POST but with a (default-allowlisted localhost) Origin -> exercises the OTLP CORS
+# headers added by _apply_security_headers for browser cross-origin ingest.
+- id: post__v1_ai_cors
+  path: /v1/ai
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {}
+    headers:
+      Origin: http://localhost:5173
 - id: post__v1_errors
   path: /v1/errors
   methods:

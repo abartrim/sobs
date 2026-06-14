@@ -3,6 +3,10 @@ package main
 import (
 	"log"
 	"net/http"
+	"net/url"
+	"os"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/sobs/sobs/internal/store"
@@ -221,11 +225,8 @@ func (s *server) routes() {
 		s.mux.HandleFunc(h.Path, s.handleHelpPage(h.Endpoint, h.Template))
 	}
 
-	// TODO (Phase 1+): register real handlers here, one per app.py @app.route.
-	//   s.mux.HandleFunc("/", s.handleSummary)
-	//   s.mux.HandleFunc("/api/...", s.handleX)
-	// Static serving (Phase 1) — byte-identical to the committed static/ tree, with the
-	// explicit ETag/X-SourceMap routes for rum.js* (see AUDIT.md §8).
+	// Static serving — byte-identical to the committed static/ tree, with the explicit
+	// ETag/X-SourceMap routes for rum.js* (see AUDIT.md §8).
 }
 
 // headerCapture wraps the ResponseWriter to apply the security headers via setdefault
@@ -278,8 +279,145 @@ func (h *headerCapture) applySecurityHeaders() {
 	if isSecure(h.req) {
 		setDefault(hdr, "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 	}
-	// OTLP CORS for /v1/* (app.py:_path_needs_otlp_cors) — TODO Phase 3.
-	_ = strings.HasPrefix
+	applyOtlpCors(hdr, h.req)
+}
+
+// otlpCorsIngestPaths mirrors app.py _OTLP_CORS_INGEST_PATHS.
+var otlpCorsIngestPaths = map[string]bool{
+	"/v1/logs": true, "/v1/traces": true, "/v1/metrics": true, "/v1/rum": true,
+	"/v1/rum/assets": true, "/v1/rum/client-token": true, "/v1/errors": true, "/v1/ai": true,
+}
+
+const otlpCorsAllowHeaders = "Content-Type, Authorization, X-API-Key, " +
+	"X-SOBS-RUM-Client, X-SOBS-RUM-Signature, X-SOBS-RUM-Timestamp, " +
+	"X-SOBS-Asset-Timestamp, X-SOBS-Asset-Signature"
+
+// applyOtlpCors mirrors app.py _apply_security_headers' OTLP CORS block: on an OTLP/RUM ingest
+// path with an allowed Origin, set the Access-Control-Allow-* headers (setdefault semantics).
+func applyOtlpCors(hdr http.Header, req *http.Request) {
+	path := req.URL.Path
+	if !otlpCorsIngestPaths[path] && !strings.HasPrefix(path, "/v1/rum/assets/") {
+		return
+	}
+	origin := strings.TrimSpace(req.Header.Get("Origin"))
+	if origin == "" || !originAllowedForOtlp(origin) {
+		return
+	}
+	hdr.Set("Access-Control-Allow-Origin", origin)
+	appendVaryHeader(hdr, "Origin")
+	setDefault(hdr, "Access-Control-Allow-Credentials", "true")
+	methods := "POST, OPTIONS"
+	if strings.HasPrefix(path, "/v1/rum/assets/") {
+		methods = "GET, HEAD, OPTIONS"
+	}
+	setDefault(hdr, "Access-Control-Allow-Methods", methods)
+	setDefault(hdr, "Access-Control-Allow-Headers", otlpCorsAllowHeaders)
+	setDefault(hdr, "Access-Control-Max-Age", "600")
+}
+
+var schemeDefaultPorts = map[string]int{"http": 80, "https": 443}
+
+// otlpCorsAllowedOrigins mirrors app.py _OTLP_CORS_ALLOWED_ORIGINS (env override + default).
+var otlpCorsAllowedOrigins = parseOtlpAllowedOrigins()
+
+func parseOtlpAllowedOrigins() []string {
+	raw := os.Getenv("SOBS_OTLP_CORS_ALLOWED_ORIGINS")
+	if raw == "" {
+		raw = "http://localhost:*,https://localhost:*,http://127.0.0.1:*,https://127.0.0.1:*"
+	}
+	out := []string{}
+	for _, item := range strings.Split(raw, ",") {
+		if s := strings.TrimSpace(item); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// originAllowedForOtlp mirrors app.py _origin_allowed_for_otlp (fnmatch against the allow-list,
+// with the port-stripped candidate added only for default/absent ports).
+func originAllowedForOtlp(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Hostname())
+	netloc := strings.ToLower(u.Host)
+	if (scheme != "http" && scheme != "https") || netloc == "" {
+		return false
+	}
+	withPort := scheme + "://" + netloc
+	candidates := []string{withPort}
+	portStr := u.Port()
+	var port int
+	if portStr != "" {
+		if port, err = strconv.Atoi(portStr); err != nil {
+			return false
+		}
+	}
+	if portStr == "" || port == schemeDefaultPorts[scheme] {
+		withoutPort := withPort
+		if host != "" {
+			withoutPort = scheme + "://" + host
+		}
+		if withoutPort != withPort {
+			candidates = append(candidates, withoutPort)
+		}
+	}
+	for _, pattern := range otlpCorsAllowedOrigins {
+		p := strings.ToLower(pattern)
+		for _, c := range candidates {
+			if fnmatchMatch(p, c) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// appendVaryHeader mirrors app.py _append_vary_header (case-insensitive token de-dup).
+func appendVaryHeader(hdr http.Header, value string) {
+	existing := strings.TrimSpace(hdr.Get("Vary"))
+	if existing == "" {
+		hdr.Set("Vary", value)
+		return
+	}
+	parts := []string{}
+	lower := map[string]bool{}
+	for _, p := range strings.Split(existing, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			parts = append(parts, p)
+			lower[strings.ToLower(p)] = true
+		}
+	}
+	if !lower[strings.ToLower(value)] {
+		parts = append(parts, value)
+	}
+	hdr.Set("Vary", strings.Join(parts, ", "))
+}
+
+// fnmatchMatch implements Python fnmatch.fnmatch: `*` matches any run (incl. separators), `?`
+// any single char. Patterns here have no character classes.
+func fnmatchMatch(pattern, s string) bool {
+	var b strings.Builder
+	b.WriteString("^")
+	for _, r := range pattern {
+		switch r {
+		case '*':
+			b.WriteString(".*")
+		case '?':
+			b.WriteString(".")
+		default:
+			b.WriteString(regexp.QuoteMeta(string(r)))
+		}
+	}
+	b.WriteString("$")
+	re, err := regexp.Compile(b.String())
+	if err != nil {
+		return false
+	}
+	return re.MatchString(s)
 }
 
 func setDefault(h http.Header, k, v string) {
