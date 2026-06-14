@@ -169,6 +169,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/v1/rum/client-token", s.handleV1RumClientToken)
 	s.mux.HandleFunc("/v1/ai", s.handleV1Ai)
 	s.mux.HandleFunc("/v1/errors", s.handleV1Errors)
+	s.mux.HandleFunc("/v1/rum", s.handleV1Rum)
 	s.mux.HandleFunc("/v1/apps", s.handleV1Apps)
 	s.mux.HandleFunc("/v1/apps/", s.handleV1AppByID)
 	s.mux.HandleFunc("/v1/releases/", s.handleV1ReleaseByID)

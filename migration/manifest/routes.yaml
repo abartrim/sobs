@@ -903,3 +903,7 @@ routes:
     path: "/v1/errors"
     methods: [POST]
     request: {method: POST, json: {}}
+  - id: post__v1_rum
+    path: "/v1/rum"
+    methods: [POST]
+    request: {method: POST, json: {}}

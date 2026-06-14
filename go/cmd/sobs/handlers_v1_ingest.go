@@ -217,6 +217,97 @@ func stringifyInto(attrs map[string]any, m map[string]any, srcKey, dstKey string
 	attrs[dstKey] = string(jsonenc.Encode(v, jsonenc.Options{SortKeys: false, EnsureASCII: true, ItemSep: ",", KeySep: ":"}))
 }
 
+// POST /v1/rum — app.py ingest_rum: each event in the body (a bare event, or {"events":[...]},
+// or a top-level array) becomes a browser-rum hyperdx_sessions row; error/unhandledrejection
+// events also index into otel_logs. An empty body is one default "unknown" INFO event, so the
+// response is {"accepted": 1}. Manifest-last (inserts into hyperdx_sessions/otel_logs).
+func (s *server) handleV1Rum(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	body, _ := io.ReadAll(r.Body)
+	var payload any
+	_ = json.Unmarshal(body, &payload)
+	var events []any
+	switch p := payload.(type) {
+	case []any:
+		events = p
+	case map[string]any:
+		if e, ok := p["events"].([]any); ok {
+			events = e
+		} else {
+			events = []any{p}
+		}
+	default: // null/absent -> {} -> [{}]
+		events = []any{map[string]any{}}
+	}
+	clientIP := r.RemoteAddr
+	if i := strings.LastIndexByte(clientIP, ':'); i >= 0 {
+		clientIP = clientIP[:i]
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		clientIP = strings.TrimSpace(strings.SplitN(xff, ",", 2)[0])
+	}
+	bodyOpts := jsonenc.Options{SortKeys: false, EnsureASCII: false, ItemSep: ",", KeySep: ":"}
+	now := nowUTC().Format("2006-01-02T15:04:05.000-07:00")
+	sessionRows := []map[string]any{}
+	errorRows := []map[string]any{}
+	for _, ev := range events {
+		e, ok := ev.(map[string]any)
+		if !ok {
+			continue
+		}
+		eventType := mstrDef(e, "type", "unknown")
+		isErr := eventType == "error" || eventType == "unhandledrejection"
+		sevText, sevNum := "INFO", 9
+		if isErr {
+			sevText, sevNum = "ERROR", 17
+		}
+		attrs := stringifyAttrMap(e)
+		if clientIP != "" {
+			attrs["client.ip"] = clientIP
+		}
+		sessionRows = append(sessionRows, map[string]any{
+			"Timestamp":    mstrDef(e, "timestamp", now),
+			"TraceId":      strings.ToLower(strings.TrimSpace(mstr(e, "traceId"))),
+			"SpanId":       strings.ToLower(strings.TrimSpace(mstr(e, "spanId"))),
+			"TraceFlags":   0,
+			"SeverityText": sevText, "SeverityNumber": sevNum,
+			"ServiceName":       mstrDef(e, "service", "browser"),
+			"Body":              string(jsonenc.Encode(e, bodyOpts)),
+			"ResourceSchemaUrl": "", "ResourceAttributes": map[string]any{},
+			"ScopeSchemaUrl": "", "ScopeName": "browser-rum", "ScopeVersion": "", "ScopeAttributes": map[string]any{},
+			"LogAttributes": attrs, "EventName": eventType,
+		})
+		if isErr {
+			errAttrs := map[string]any{
+				"exception.type":    mstrDef(e, "errorType", "JSError"),
+				"exception.message": mstr(e, "message"),
+				"url.full":          mstr(e, "url"),
+				"session.id":        mstr(e, "sessionId"),
+			}
+			errorRows = append(errorRows, map[string]any{
+				"Timestamp": mstrDef(e, "timestamp", now), "TraceId": "", "SpanId": "", "TraceFlags": 0,
+				"SeverityText": "ERROR", "SeverityNumber": 17, "ServiceName": mstrDef(e, "service", "browser"),
+				"Body": mstr(e, "message"), "ResourceSchemaUrl": "", "ResourceAttributes": map[string]any{},
+				"ScopeSchemaUrl": "", "ScopeName": "browser-rum", "ScopeVersion": "", "ScopeAttributes": map[string]any{},
+				"LogAttributes": errAttrs, "EventName": "exception",
+			})
+		}
+	}
+	if len(sessionRows) > 0 {
+		if _, err := s.db.InsertJSONEachRow("hyperdx_sessions", sessionRows); err != nil {
+			s.errorJSON(w, http.StatusInternalServerError, "rum ingest write failed")
+			return
+		}
+	}
+	if len(errorRows) > 0 {
+		_, _ = s.db.InsertJSONEachRow("otel_logs", errorRows)
+	}
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", len(sessionRows)))
+}
+
 // POST /v1/rum/client-token — app.py issue_rum_client_token: RUM client auth is disabled on
 // the fixture (RUM_CLIENT_AUTH_MODE unset), so it reports the disabled state.
 func (s *server) handleV1RumClientToken(w http.ResponseWriter, r *http.Request) {
