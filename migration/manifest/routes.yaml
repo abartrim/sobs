@@ -1565,6 +1565,18 @@ routes:
     form:
       name: Billing Service
       repo_url: https://github.com/acme/billing
+# Create a dashboard; redirects to /dashboards/<fresh-uuid> (masked in body + Location header).
+- id: post__dashboards_create_ok
+  path: /dashboards
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      name: Latency Board
+  mask:
+  - /dashboards/[0-9a-fA-F-]+
+  mask_reason: the redirect target (Location header + body href) carries the new dashboard's fresh uuid.
 # Soft-delete a seeded report (mutator; nothing reads sobs_reports after the early readers).
 - id: post__reports_delete_ok
   path: /reports/11111111-0000-4000-8000-0000000000a1/delete

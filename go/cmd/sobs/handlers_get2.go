@@ -205,7 +205,7 @@ func (s *server) handleApiReportsExport(w http.ResponseWriter, r *http.Request) 
 			Set("name", cStr(m, "Name")).
 			Set("description", cStr(m, "Description")).
 			Set("page_type", cStr(m, "PageType")).
-			Set("filters", parseJSONObject(cStr(m, "FiltersJson"))))
+			Set("filters", parseJSONObjectOrdered(cStr(m, "FiltersJson"))))
 	}
 	payload := jsonenc.NewObject().
 		Set("sobs_reports_export", true).

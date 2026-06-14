@@ -176,6 +176,24 @@ func decodeOrdered(dec *json.Decoder) (any, error) {
 	return tok, nil // string / json.Number / bool / nil
 }
 
+// parseJSONObjectOrdered is parseJSONObject but PRESERVES key insertion order (via
+// decodeOrdered). Use it for values rendered by an insertion-order-preserving serializer
+// (json.dumps(indent=2) exports), not the key-sorting jsonify path. parseJSONObject's map
+// decode loses order, which only matters when the output keeps it.
+func parseJSONObjectOrdered(raw string) *jsonenc.Object {
+	if strings.TrimSpace(raw) == "" {
+		return jsonenc.NewObject()
+	}
+	v, err := parseJSONValue([]byte(raw))
+	if err != nil {
+		return jsonenc.NewObject()
+	}
+	if obj, ok := v.(*jsonenc.Object); ok {
+		return obj
+	}
+	return jsonenc.NewObject()
+}
+
 // parseJSONObject decodes a stored JSON string into a jsonenc.Object, returning an empty
 // object when the value is blank or not a JSON object — matching _parse_report_filters and
 // friends (json.loads with a {} fallback). UseNumber preserves int/float literals.

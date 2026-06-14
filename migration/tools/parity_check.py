@@ -244,9 +244,18 @@ def _apply_masks(resp: dict, masks) -> dict:
     body = resp["body"]
     for pat in masks:
         body = re.sub(pat.encode("utf-8"), b"<MASKED>", body)
-    # Masking changes the body length, so rewrite Content-Length on BOTH sides to the masked
-    # length (otherwise a masked-out '12.6 KB' vs '5.0 KB' leaves a 1-byte header mismatch).
-    headers = [[k, str(len(body)) if k.lower() == "content-length" else v] for k, v in resp["headers"]]
+
+    def _mask_header(k: str, v: str) -> str:
+        # Content-Length is rewritten to the masked body length (otherwise a masked-out
+        # '12.6 KB' vs '5.0 KB' leaves a header mismatch). Other header VALUES get the same
+        # masks applied (e.g. a redirect Location carrying a fresh uuid).
+        if k.lower() == "content-length":
+            return str(len(body))
+        for pat in masks:
+            v = re.sub(pat, "<MASKED>", v)
+        return v
+
+    headers = [[k, _mask_header(k, v)] for k, v in resp["headers"]]
     return {**resp, "body": body, "headers": headers}
 
 

@@ -222,11 +222,23 @@ func (s *server) handleViewTableExplorer(w http.ResponseWriter, r *http.Request)
 // non-deleted dashboards (_get_dashboards).
 func (s *server) handleListDashboards(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		// app.py create_dashboard: an empty form lacks the required name.
-		if s.formRequire(w, r, "name", "warning", "Dashboard name is required", "/dashboards") {
+		// app.py create_dashboard: insert and redirect to the new dashboard's page (no flash).
+		_ = r.ParseForm()
+		name := strings.TrimSpace(r.PostFormValue("name"))
+		if name == "" {
+			flashRedirect(w, "warning", "Dashboard name is required", "/dashboards")
 			return
 		}
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+		id := newUUIDHex()
+		row := map[string]any{
+			"Id": id, "Name": name, "Description": strings.TrimSpace(r.PostFormValue("description")),
+			"IsDeleted": 0, "Version": fixedVersionMillis(),
+		}
+		if _, err := s.db.InsertJSONEachRow("sobs_dashboards", []map[string]any{row}); err != nil {
+			s.dbError(w, err)
+			return
+		}
+		plainRedirect(w, "/dashboards/"+id)
 		return
 	}
 	res, err := s.db.Execute(
