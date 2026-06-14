@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -74,10 +75,6 @@ func (s *server) renderChartFromTemplate(templateID string, columns []any, rows 
 	if templateID == "custom_echarts" {
 		return renderCustomEcharts(tmpl, columns, rows, spec)
 	}
-	// derived_signal_overlay's render needs the anomaly rule-evaluation engine (phase 3).
-	if templateID == "derived_signal_overlay" {
-		return nil, renderNotImplemented
-	}
 	if len(rows) == 0 {
 		return noDataPlaceholder(), ""
 	}
@@ -90,6 +87,13 @@ func (s *server) renderChartFromTemplate(templateID string, columns []any, rows 
 	roleIndices, e := resolveTemplateRoleIndices(templateID, meta, columns, spec)
 	if e != "" {
 		return nil, e
+	}
+	if templateID == "derived_signal_overlay" {
+		var perr string
+		columns, rows, perr = s.prepareTemplateRows(columns, rows, roleIndices)
+		if perr != "" {
+			return nil, perr
+		}
 	}
 	bindings := extractBindings(templateID, columns, rows, roleIndices)
 	option := deepSubstitute(deepCopyJSON(tmpl.option), bindings)
@@ -348,6 +352,9 @@ func extractBindings(templateID string, columns []any, rows []map[string]any, ro
 		bindings["anomaly_symbol_size"] = ss
 	}
 
+	if templateID == "derived_signal_overlay" {
+		extractDerivedSignalBindings(templateID, bindings)
+	}
 	return bindings
 }
 
@@ -498,8 +505,260 @@ func attachDrilldownMetadata(templateID string, drilldown *jsonenc.Object, bindi
 // yet" — the caller (render handlers) translates it into a 501 (NOT a fake 400/200).
 const renderNotImplemented = "\x00render-not-implemented\x00"
 
-// attachDerivedDrilldownFields injects derived_signal_overlay's per-point rule metadata (phase 3).
-func attachDerivedDrilldownFields(dd *jsonenc.Object, bindings map[string]any, idx int) {}
+// numList coerces a binding list to floats (best-effort).
+func numListAt(bindings map[string]any, key string) []any {
+	if v, ok := bindings[key].([]any); ok {
+		return v
+	}
+	return nil
+}
+
+func fAt(list []any, i int) float64 {
+	if i < len(list) {
+		if f, ok := numOf(list[i]); ok {
+			return f
+		}
+	}
+	return 0
+}
+
+// extractDerivedSignalBindings mirrors the derived_signal_overlay block of app.py _extract_bindings.
+func extractDerivedSignalBindings(templateID string, bindings map[string]any) {
+	bindings["value_axis_min"] = "dataMin"
+	bindings["value_axis_max"] = "dataMax"
+	bindings["zoom_start_pct"] = 0
+	bindings["signal_summary"] = ""
+	bindings["y_axis_name"] = "Value"
+
+	signalName := ""
+	if sb, ok := bindings["signal"].([]any); ok && len(sb) > 0 {
+		signalName = strings.ToLower(toStr(sb[0]))
+	}
+	if strings.Contains(signalName, "ratio") {
+		bindings["value_axis_min"] = 0
+		bindings["value_axis_max"] = 1
+	} else {
+		for _, tok := range []string{"volume", "count", "latency", "duration", "p95", "p99"} {
+			if strings.Contains(signalName, tok) {
+				bindings["value_axis_min"] = 0
+				break
+			}
+		}
+	}
+
+	timeValues := numListAt(bindings, "time")
+	valueValues := numListAt(bindings, "value")
+	baselineMean := numListAt(bindings, "baseline_mean")
+	baselineLower := numListAt(bindings, "baseline_lower")
+	baselineUpper := numListAt(bindings, "baseline_upper")
+	effStatesAny := bindings["effective_state"]
+	if effStatesAny == nil {
+		effStatesAny = bindings["anomaly_state"]
+	}
+	effStates, _ := effStatesAny.([]any)
+	if timeValues == nil || valueValues == nil || baselineMean == nil || baselineLower == nil || baselineUpper == nil {
+		return
+	}
+
+	stateRank := map[string]int{"normal": 0, "warning": 1, "outlier": 2}
+	rankSeries := make([]int, 0)
+	if effStates != nil {
+		for _, s := range effStates {
+			rankSeries = append(rankSeries, stateRank[toStr(s)])
+		}
+	}
+	if len(rankSeries) == 0 {
+		rankSeries = make([]int, len(valueValues))
+	}
+
+	useDelta := !strings.Contains(signalName, "ratio")
+	var plotValues, plotBaseline, plotLower, plotUpper []float64
+	if useDelta {
+		bindings["y_axis_name"] = "Delta %"
+		n := min4(len(valueValues), len(baselineMean), len(baselineLower), len(baselineUpper))
+		for idx := 0; idx < n; idx++ {
+			base := fAt(baselineMean, idx)
+			val := fAt(valueValues, idx)
+			low := fAt(baselineLower, idx)
+			up := fAt(baselineUpper, idx)
+			if math.Abs(base) < 1e-9 {
+				plotValues = append(plotValues, 0)
+				plotBaseline = append(plotBaseline, 0)
+				plotLower = append(plotLower, 0)
+				plotUpper = append(plotUpper, 0)
+			} else {
+				denom := math.Abs(base)
+				plotValues = append(plotValues, ((val-base)/denom)*100.0)
+				plotBaseline = append(plotBaseline, 0)
+				plotLower = append(plotLower, ((low-base)/denom)*100.0)
+				plotUpper = append(plotUpper, ((up-base)/denom)*100.0)
+			}
+		}
+		if len(plotValues) > 0 {
+			minBound := minFloats(append(append([]float64{}, plotLower...), plotValues...))
+			maxBound := maxFloats(append(append([]float64{}, plotUpper...), plotValues...))
+			span := math.Max(5.0, (maxBound-minBound)*0.15)
+			bindings["value_axis_min"] = roundHalfEven(minBound-span, 2)
+			bindings["value_axis_max"] = roundHalfEven(maxBound+span, 2)
+		}
+	} else {
+		for _, v := range valueValues {
+			f, _ := numOf(v)
+			plotValues = append(plotValues, f)
+		}
+		for _, v := range baselineMean {
+			f, _ := numOf(v)
+			plotBaseline = append(plotBaseline, f)
+		}
+		for _, v := range baselineLower {
+			f, _ := numOf(v)
+			plotLower = append(plotLower, math.Max(0, f))
+		}
+		for _, v := range baselineUpper {
+			f, _ := numOf(v)
+			plotUpper = append(plotUpper, f)
+		}
+	}
+
+	valuePoints := []any{}
+	for idx := 0; idx < min2(len(timeValues), len(plotValues)); idx++ {
+		rk := 0
+		if idx < len(rankSeries) {
+			rk = rankSeries[idx]
+		}
+		valuePoints = append(valuePoints, []any{timeValues[idx], plotValues[idx], rk})
+	}
+	baselineMeanPoints := []any{}
+	for idx := 0; idx < min2(len(timeValues), len(plotBaseline)); idx++ {
+		baselineMeanPoints = append(baselineMeanPoints, []any{timeValues[idx], plotBaseline[idx]})
+	}
+	baselineLowerPoints := []any{}
+	for idx := 0; idx < min2(len(timeValues), len(plotLower)); idx++ {
+		baselineLowerPoints = append(baselineLowerPoints, []any{timeValues[idx], plotLower[idx]})
+	}
+	baselineUpperPoints := []any{}
+	for idx := 0; idx < min3(len(timeValues), len(plotUpper), len(plotLower)); idx++ {
+		baselineUpperPoints = append(baselineUpperPoints, []any{timeValues[idx], math.Max(0, plotUpper[idx]-plotLower[idx])})
+	}
+
+	markAreas := []any{}
+	if effStates != nil && len(timeValues) > 0 {
+		i := 0
+		for i < min2(len(effStates), len(timeValues)) {
+			state := toStr(effStates[i])
+			if state == "normal" {
+				i++
+				continue
+			}
+			startIdx := i
+			for i+1 < len(effStates) && toStr(effStates[i+1]) == state {
+				i++
+			}
+			endIdx := i
+			shade := "rgba(220, 53, 69, 0.15)"
+			if state == "warning" {
+				shade = "rgba(255, 193, 7, 0.15)"
+			}
+			markAreas = append(markAreas, []any{
+				jsonenc.NewObject().Set("name", pyTitle(state)).
+					Set("itemStyle", jsonenc.NewObject().Set("color", shade)).
+					Set("xAxis", timeValues[startIdx]),
+				jsonenc.NewObject().Set("xAxis", timeValues[endIdx]),
+			})
+			i++
+		}
+	}
+
+	warningPoints := []any{}
+	outlierPoints := []any{}
+	for _, p := range valuePoints {
+		pl := p.([]any)
+		if len(pl) >= 3 {
+			if rk, _ := pl[2].(int); rk == 1 {
+				warningPoints = append(warningPoints, []any{pl[0], pl[1]})
+			} else if rk == 2 {
+				outlierPoints = append(outlierPoints, []any{pl[0], pl[1]})
+			}
+		}
+	}
+
+	latestValue := 0.0
+	if len(valueValues) > 0 {
+		latestValue, _ = numOf(valueValues[len(valueValues)-1])
+	}
+	latestBaseline := 0.0
+	if len(baselineMean) > 0 {
+		latestBaseline, _ = numOf(baselineMean[len(baselineMean)-1])
+	}
+	deltaPct := 0.0
+	if math.Abs(latestBaseline) > 1e-9 {
+		deltaPct = ((latestValue - latestBaseline) / math.Abs(latestBaseline)) * 100.0
+	}
+	bindings["signal_summary"] = "now " + sprintf1f(latestValue) + " | baseline " + sprintf1f(latestBaseline) +
+		" | Δ " + sprintfPlus0f(deltaPct) + "% | warn " + itoa(len(warningPoints)) + " | outlier " + itoa(len(outlierPoints))
+
+	bindings["value_points"] = valuePoints
+	bindings["baseline_mean_points"] = baselineMeanPoints
+	bindings["baseline_lower_points"] = baselineLowerPoints
+	bindings["baseline_upper_points"] = baselineUpperPoints
+	bindings["anomaly_mark_areas"] = markAreas
+	bindings["warning_points"] = warningPoints
+	bindings["outlier_points"] = outlierPoints
+}
+
+func min2(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+func min3(a, b, c int) int    { return min2(min2(a, b), c) }
+func min4(a, b, c, d int) int { return min2(min2(a, b), min2(c, d)) }
+func minFloats(xs []float64) float64 {
+	m := xs[0]
+	for _, x := range xs {
+		if x < m {
+			m = x
+		}
+	}
+	return m
+}
+func maxFloats(xs []float64) float64 {
+	m := xs[0]
+	for _, x := range xs {
+		if x > m {
+			m = x
+		}
+	}
+	return m
+}
+func sprintf1f(f float64) string     { return strconv.FormatFloat(f, 'f', 1, 64) }
+func sprintfPlus0f(f float64) string { // Python {:+.0f}
+	s := strconv.FormatFloat(f, 'f', 0, 64)
+	if f >= 0 && !strings.HasPrefix(s, "+") {
+		return "+" + s
+	}
+	return s
+}
+
+// attachDerivedDrilldownFields mirrors the derived-signal extra metadata block in
+// _attach_drilldown_metadata (only injected on the "Value" series).
+func attachDerivedDrilldownFields(dd *jsonenc.Object, bindings map[string]any, idx int) {
+	get := func(key, def string) string {
+		if l, ok := bindings[key].([]any); ok && idx < len(l) {
+			return toStr(l[idx])
+		}
+		return def
+	}
+	dd.Set("_rule_state", get("rule_state", "normal"))
+	dd.Set("_rule_name", get("rule_name", ""))
+	dd.Set("_rule_reason", get("rule_reason", ""))
+	dd.Set("_effective_state", get("effective_state", "normal"))
+	dd.Set("service", get("service", ""))
+	dd.Set("source", get("source", ""))
+	dd.Set("signal", get("signal", ""))
+	dd.Set("attr_fp", get("attr_fp", ""))
+}
 
 // parseBool3 mirrors app.py _parse_bool.
 func parseBool3(v any, present bool, def bool) bool {

@@ -986,6 +986,24 @@ routes:
     json:
       template_id: custom_echarts
       query: SELECT toDateTime('2024-01-01 00:00:00') AS t, 5.0 AS v
+# derived_signal_overlay: anomaly-engine annotate + delta-mode binding + drilldown. Non-matching
+# (defaults) + a query whose (source,signal,service) matches seeded threshold+composite rules.
+- id: post__api_dashboards_render_derived_nomatch
+  path: /api/dashboards/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      template_id: derived_signal_overlay
+      query: SELECT toDateTime('2024-01-01 00:00:00') AS time, 'svc' AS service, 'mysource' AS source, 'mysignal' AS signal, '' AS attr_fp, 5.0 AS value, toUInt32(1) AS sample_count, 4.0 AS baseline_mean, 2.0 AS baseline_lower, 6.0 AS baseline_upper, 'normal' AS anomaly_state, 0.3 AS anomaly_score
+- id: post__api_dashboards_render_derived_match
+  path: /api/dashboards/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      template_id: derived_signal_overlay
+      query: SELECT toDateTime('2024-01-01 00:00:00') AS time, 'trace-svc-0' AS service, 'traces' AS source, 'latency_p95_ms' AS signal, '' AS attr_fp, 500.0 AS value, toUInt32(10) AS sample_count, 100.0 AS baseline_mean, 50.0 AS baseline_lower, 150.0 AS baseline_upper, 'outlier' AS anomaly_state, 0.9 AS anomaly_score
 - id: post__api_settings_masking_preview
   path: /api/settings/masking/preview
   methods:
