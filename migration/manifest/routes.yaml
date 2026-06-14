@@ -757,6 +757,15 @@ routes:
   request:
     method: POST
     json: {}
+- id: post__api_query_run__exec
+  path: /api/query/run
+  methods:
+  - POST
+  profile: queryrun
+  request:
+    method: POST
+    json:
+      sql: SELECT 1 AS one
 - id: post__api_query_refine_chart
   path: /api/query/refine-chart
   methods:

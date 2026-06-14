@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"regexp"
@@ -288,6 +290,134 @@ func (s *server) handleApiDashboardsSpecDryRun(w http.ResponseWriter, r *http.Re
 		Set("template_id", tid).Set("query", query).Set("spec", spec).
 		Set("columns", columns).Set("column_types", inferColumnTypes(columns, rows)).
 		Set("rows", rows).Set("named_query_results", s.executeNamedQueries(named, 5)))
+}
+
+// md5Hex16Plus returns the full hex md5 of s (used for query trace ids).
+func md5Hex(s string) string {
+	sum := md5.Sum([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
+// inferQueryFieldTypes mirrors app.py _infer_query_field_types: the pandas-dtype + display kind
+// per column. The dtype is the dtype pandas infers from the chdb DB-API values (int->int64,
+// float->float64, str->object, bool->bool, datetime->datetime64[ns]); empty column -> object.
+func inferQueryFieldTypes(columns, rows []any) []any {
+	out := []any{}
+	for idx, col := range columns {
+		dtype, kind := "object", "string"
+		for _, rowAny := range rows {
+			row, ok := rowAny.([]any)
+			if !ok || idx >= len(row) || row[idx] == nil {
+				continue
+			}
+			switch v := row[idx].(type) {
+			case json.Number:
+				if strings.ContainsAny(v.String(), ".eE") {
+					dtype, kind = "float64", "number"
+				} else {
+					dtype, kind = "int64", "integer"
+				}
+			case float64:
+				dtype, kind = "float64", "number"
+			case bool:
+				dtype, kind = "bool", "boolean"
+			case chDateTime:
+				dtype, kind = "datetime64[ns]", "datetime"
+			default:
+				dtype, kind = "object", "string"
+			}
+			break
+		}
+		out = append(out, jsonenc.NewObject().Set("name", pyStrAny(col)).Set("dtype", dtype).Set("kind", kind))
+	}
+	return out
+}
+
+// zeroQueryLLMStats mirrors _summarize_query_llm_stats(named_query_generation={}, chart_generation={})
+// for the no-chart path: every stage and the totals are zero.
+func zeroQueryLLMStats() *jsonenc.Object {
+	stage := func() *jsonenc.Object {
+		return jsonenc.NewObject().Set("prompt_tokens", 0).Set("completion_tokens", 0).
+			Set("thinking_tokens", 0).Set("elapsed_ms", 0)
+	}
+	return jsonenc.NewObject().Set("totals", stage()).
+		Set("named_query_generation", stage()).Set("chart_generation", stage())
+}
+
+// handleApiQueryRun — app.py api_query_run (no-chart path): execute a user SQL statement and
+// return the results + telemetry trace ids. (The do_chart branch needs the LLM mock — follow-up.)
+func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
+	m := bodyMap(r)
+	sql := strings.TrimSpace(bstr(m, "sql"))
+	question := strings.TrimSpace(bstr(m, "question"))
+	if sql == "" {
+		s.errorJSON(w, http.StatusBadRequest, "sql is required")
+		return
+	}
+	if !s.cfg.QueryPageEnabled {
+		s.writeMaskedJSON(w, http.StatusNotFound,
+			jsonenc.NewObject().Set("ok", false).Set("error", "Query page is unavailable."))
+		return
+	}
+	model := strings.TrimSpace(s.loadAISetting("ai.model", ""))
+	guardModel := strings.TrimSpace(s.loadAISetting("ai.guard_model", ""))
+	traceID := md5Hex("query-run|" + sql + "|" + fakeTimeNs())
+	turnID := traceID[:16]
+	startBody := question
+	if startBody == "" {
+		startBody = sql
+	}
+	startQ := question
+	if startQ == "" {
+		startQ = "(manual SQL execution)"
+	}
+	s.emitAiHelperLogEvent("query.turn.start", traceID, turnID, "/query", model, guardModel, "off",
+		startBody, "INFO", map[string]string{"gen_ai.input.question": startQ})
+
+	res, execErr := s.db.Execute(sql)
+	var columns, rows, fieldTypes []any
+	rowCount := 0
+	if execErr == nil {
+		columns, rows = serializeQueryResult(res)
+		rowCount = len(rows)
+		fieldTypes = inferQueryFieldTypes(columns, rows)
+	} else {
+		columns, rows, fieldTypes = []any{}, []any{}, []any{}
+	}
+	execStatus, execErrStr := "ok", ""
+	if execErr != nil {
+		execStatus, execErrStr = "error", publicDashboardQueryError(execErr)
+	}
+	s.emitAiHelperLogEvent("query.sql.executed", traceID, turnID, "/query", model, guardModel, "off",
+		sql, severityFor(execErr), map[string]string{
+			"gen_ai.operation.name": "query_sql_execute", "sobs.query.exec.attempt": "1",
+			"sobs.query.exec.status": execStatus, "sobs.query.exec.row_count": strconv.Itoa(rowCount),
+			"sobs.query.exec.error": execErrStr, "gen_ai.response.latency_ms": "0",
+			"sobs.gen_ai.prompt": question, "sobs.gen_ai.response": sql,
+		})
+
+	datasets := []any{jsonenc.NewObject().
+		Set("name", "main").Set("purpose", "primary dataset").Set("sql", sql).
+		Set("columns", columns).Set("field_types", fieldTypes).Set("rows", rows).Set("error", "")}
+
+	s.emitAiHelperLogEvent("query.turn.complete", traceID, turnID, "/query", model, guardModel, "off",
+		"Query turn completed", severityFor(execErr), map[string]string{
+			"gen_ai.input.question": question, "sobs.gen_ai.prompt": question,
+			"sobs.gen_ai.response": sql, "gen_ai.operation.name": "query",
+		})
+
+	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).Set("trace_id", traceID).Set("turn_id", turnID).Set("sql", sql).
+		Set("columns", columns).Set("field_types", fieldTypes).Set("rows", rows).
+		Set("retry_count", 0).Set("datasets", datasets).Set("chart_spec", "").
+		Set("error", execErrStr).Set("llm_stats", zeroQueryLLMStats()))
+}
+
+func severityFor(err error) string {
+	if err != nil {
+		return "ERROR"
+	}
+	return "INFO"
 }
 
 // handleApiDashboardsQuery — app.py execute_chart_query: validate + execute a SELECT and return

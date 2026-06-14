@@ -50,14 +50,7 @@ func (s *server) handleApiQueryAsk(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
-// POST /api/query/run — 400 "sql is required" on an empty body.
-func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
-	if jsonBodyStr(r, "sql") == "" {
-		s.errorJSON(w, http.StatusBadRequest, "sql is required")
-		return
-	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
-}
+// handleApiQueryRun is defined in query_exec.go (full SQL exec + telemetry).
 
 // POST /api/query/refine-chart — 404 query-page guard (disabled on the fixture).
 func (s *server) handleApiQueryRefineChart(w http.ResponseWriter, r *http.Request) {

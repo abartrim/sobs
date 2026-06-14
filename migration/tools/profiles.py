@@ -48,6 +48,14 @@ PROFILES: dict[str, dict[str, str]] = {
         # network). determinism.install() activates the httpx shim when this is set.
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # queryrun: the query-page gate ON (same as `ai`) but its OWN fixture, so query_run's
+    # telemetry emit (otel_logs/traces inserts) doesn't ripple into the ai-profile schema route
+    # (whose attr-key context reads otel_logs).
+    "queryrun": {
+        "SOBS_AI_ENDPOINT_URL": "http://127.0.0.1:8788/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+    },
     # SEEDED-state profiles (no env overlay): rows inserted ONLY into their own fixture so a
     # found/mutate branch runs without rippling into base readers. `notif` decouples the
     # notification toggle/delete bundle (seed channels+rules → test toggle/delete, while base
