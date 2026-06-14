@@ -8,7 +8,45 @@ import (
 	"strings"
 
 	"github.com/sobs/sobs/internal/jsonenc"
+	"github.com/sobs/sobs/internal/render"
 )
+
+// autoRulePreviewSummary builds the all-zero auto_summary for a preview render (the empty-form
+// default). _AUTO_RULE_CREATE_MAX = 200.
+func autoRulePreviewSummary() *jsonenc.Object {
+	return jsonenc.NewObject().
+		Set("action", "preview").Set("hours", 24).Set("min_points", 30).
+		Set("service_filter", "").Set("include_attr_fp", false).
+		Set("mode", "threshold").Set("seasonal_strategy", "hour_of_day").
+		Set("examined", 0).Set("existing", 0).Set("invalid", 0).Set("candidates", 0).
+		Set("create_cap", 200).Set("capped", false).Set("created", 0)
+}
+
+// POST /metrics/rules/auto — app.py auto_metrics_rules (default "preview" action). The candidate
+// builder examines derived-signal series with >= min_points in the last `hours`; the fixture's
+// data is far older than now()-24h, so 0 series are examined and no candidates are proposed. The
+// page renders with the info flash + the auto-rules panel open.
+func (s *server) handleMetricsRulesAutoPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	examined := s.countRows("SELECT count() FROM (SELECT ServiceName, SignalSource, SignalName " +
+		"FROM v_derived_signals_anomaly WHERE time >= now() - INTERVAL 24 HOUR " +
+		"GROUP BY ServiceName, SignalSource, SignalName HAVING count() >= 30)")
+	if examined != 0 {
+		http.Error(w, "not implemented", http.StatusNotImplemented) // candidate generation is a follow-up
+		return
+	}
+	services, signals, sources := s.listDerivedSignalDimensions()
+	s.renderPageFlash(w, "metrics_rules.html", "auto_metrics_rules", "info",
+		"Auto-rule preview: 0 candidate(s), 0 existing skipped, 0 invalid.",
+		map[string]any{
+			"rules": s.loadAnomalyRulesCtx(), "services": services, "signals": signals, "sources": sources,
+			"auto_preview": []any{}, "auto_summary": autoRulePreviewSummary(),
+			"auto_dashboard_preview": []any{}, "auto_dashboard_summary": nil, "auto_open_panel": "auto-rules",
+		})
+}
 
 // HTML page handlers. Pages render Jinja templates via the render engine; feature-gated
 // pages return a plain 404 string when disabled (the fixture state for query/k8s pages).
@@ -29,7 +67,26 @@ func (s *server) renderPage(w http.ResponseWriter, templateName, endpoint string
 	for k, v := range extra {
 		ctx[k] = v
 	}
-	out, err := s.newEngine().Render(templateName, ctx)
+	s.renderInto(w, s.newEngine(), templateName, ctx)
+}
+
+// renderPageFlash renders a page with a single pre-seeded flash (category, message) consumed
+// by get_flashed_messages — for handlers that flash() then render rather than redirect.
+func (s *server) renderPageFlash(w http.ResponseWriter, templateName, endpoint, flashCategory, flashMessage string, extra map[string]any) {
+	ctx := s.baseContext(endpoint)
+	for k, v := range extra {
+		ctx[k] = v
+	}
+	eng := s.newEngineFlash([]any{[]any{flashCategory, flashMessage}})
+	// Consuming the flash empties the session, so Quart clears the session cookie and marks
+	// the response Vary: Cookie (it read the request session).
+	w.Header().Set("Set-Cookie", "sobs_session=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; Path=/; SameSite=Lax")
+	w.Header().Set("Vary", "Cookie")
+	s.renderInto(w, eng, templateName, ctx)
+}
+
+func (s *server) renderInto(w http.ResponseWriter, eng *render.Engine, templateName string, ctx map[string]any) {
+	out, err := eng.Render(templateName, ctx)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

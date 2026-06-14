@@ -915,3 +915,7 @@ routes:
     path: "/settings/enrichment"
     methods: [POST]
     request: {method: POST}
+  - id: post__metrics_rules_auto
+    path: "/metrics/rules/auto"
+    methods: [POST]
+    request: {method: POST}

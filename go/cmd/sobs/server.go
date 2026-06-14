@@ -102,6 +102,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/settings/repositories/", s.handleSettingsRepositoriesSub)
 	s.mux.HandleFunc("/settings/notifications/channels/", s.handleNotifChannelsSub)
 	s.mux.HandleFunc("/settings/notifications/rules/", s.handleNotifRulesSub)
+	s.mux.HandleFunc("/metrics/rules/auto", s.handleMetricsRulesAutoPreview)
 	s.mux.HandleFunc("/metrics/rules/", s.handleMetricsRulesSub)
 	s.mux.HandleFunc("/dashboards/", s.handleDashboardsFormSub)
 	s.mux.HandleFunc("/api/ai/helper/actions/manifest", s.handleApiAiHelperActionsManifest)

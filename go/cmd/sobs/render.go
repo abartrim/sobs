@@ -34,14 +34,27 @@ func pyTitle(s string) string {
 }
 
 // newEngine builds the template engine with the globals the templates call.
-func (s *server) newEngine() *render.Engine {
+func (s *server) newEngine() *render.Engine { return s.newEngineFlash(nil) }
+
+// newEngineFlash is newEngine with pre-seeded flash messages (each []any{category, message})
+// that get_flashed_messages consumes — for handlers that flash() then render a page (rather
+// than redirect), e.g. the auto-rule preview pages.
+func (s *server) newEngineFlash(flashes []any) *render.Engine {
 	e := render.New(s.cfg.TemplateDir)
 	e.AddFunc("url_for", func(pos []any, kw map[string]any) (any, error) {
 		return s.urlFor(pos, kw, e.KWOrder())
 	})
 	e.AddFunc("get_flashed_messages", func(pos []any, kw map[string]any) (any, error) {
-		// No session flashes in parity captures -> empty list.
-		return []any{}, nil
+		if withCat, ok := kw["with_categories"]; ok && truthy(withCat) {
+			return flashes, nil // [[category, message], ...]
+		}
+		msgs := make([]any, 0, len(flashes))
+		for _, f := range flashes {
+			if pair, ok := f.([]any); ok && len(pair) == 2 {
+				msgs = append(msgs, pair[1])
+			}
+		}
+		return msgs, nil
 	})
 	// Label globals (app.jinja_env.globals): source_label, signal_label, signal_description.
 	e.AddFunc("source_label", func(pos []any, kw map[string]any) (any, error) {
