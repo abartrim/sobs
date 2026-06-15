@@ -1,5 +1,13 @@
 package main
 
+import (
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/sobs/sobs/internal/jsonenc"
+)
+
 // LLM prompt templates ported from app.py. These are sent in the request body, which the parity
 // mock ignores (it keys on the URL), so their exact text is parity-irrelevant — at runtime they
 // shape the real model output. Markdown code backticks in the Python source are rendered here as
@@ -78,3 +86,87 @@ LIMIT 20
 Schema context:
 {schema}
 `
+
+// chartRefinementPromptTemplate mirrors app.py _build_chart_refinement_prompt's static base;
+// {catalog} is filled with the dynamic chart-types section at call time.
+const chartRefinementPromptTemplate = `You are an expert in Apache ECharts data visualization. The user will ask you to modify or refine an existing chart spec based on the available data.
+
+Your primary task: Fulfill the user's request, even if it requires changing the chart type.
+{catalog}
+Data-Aware Chart Transformation:
+1. If the user requests a chart type different from current, intelligently restructure the data:
+   - For pie/gauge: Select top values or aggregate by category
+   - For scatter: Use first two numeric columns as x,y
+   - For heatmap: Pivot or aggregate data into matrix form
+   - For radar: Use all numeric columns as dimensions
+   - For hierarchical (tree, treemap, sunburst): Organize data with parent-child structure
+2. Always maintain data accuracy during transformation
+3. The data object contains 'columns' (field names) and 'rows' (actual data)
+
+Guidelines:
+- Update chart.type to the requested chart type
+- Restructure series.data if needed for the new chart type
+- Change xAxis, yAxis, or other coordinate systems based on new chart type
+- Update colors, gridlines, legends, tooltips, animations per user request
+- Use Bootstrap 5 colors (primary: #0d6efd, success: #198754, danger: #dc3545, etc.) unless specified
+- Set backgroundColor: 'transparent'
+- Return ONLY valid JSON—no markdown, no explanations
+- The result must be parseable by JSON.parse()
+`
+
+// loadChartTypesCatalog reads the committed ECharts chart-types catalog (same file
+// handleApiChartTypes serves).
+func (s *server) loadChartTypesCatalog() *jsonenc.Object {
+	raw, err := os.ReadFile(filepath.Join(s.cfg.StaticDir, "echarts-chart-types.json"))
+	if err != nil {
+		return nil
+	}
+	parsed, err := parseJSONValue(raw)
+	if err != nil {
+		return nil
+	}
+	o, _ := parsed.(*jsonenc.Object)
+	return o
+}
+
+// buildChartRefinementPrompt mirrors app.py _build_chart_refinement_prompt: the base prompt with a
+// dynamic per-chart-type catalog section spliced in.
+func (s *server) buildChartRefinementPrompt() string {
+	safeStr := func(o *jsonenc.Object, k string) string {
+		if o == nil {
+			return ""
+		}
+		return objStrOr(o, k)
+	}
+	section := ""
+	if cat := s.loadChartTypesCatalog(); cat != nil {
+		if ctv, ok := cat.Get("chartTypes"); ok {
+			if ct, _ := ctv.(*jsonenc.Object); ct != nil {
+				var b strings.Builder
+				b.WriteString("\nAvailable Chart Types and Data Requirements:\n")
+				for _, key := range ct.Keys() {
+					iv, _ := ct.Get(key)
+					info, _ := iv.(*jsonenc.Object)
+					if info == nil {
+						continue
+					}
+					name := objStrOr(info, "name")
+					if name == "" {
+						name = key
+					}
+					var ds *jsonenc.Object
+					if dv, _ := info.Get("dataStructure"); dv != nil {
+						ds, _ = dv.(*jsonenc.Object)
+					}
+					b.WriteString("\n**" + name + "** (" + key + ")\n")
+					b.WriteString("  Description: " + objStrOr(info, "description") + "\n")
+					b.WriteString("  Data Structure: " + safeStr(ds, "type") + "\n")
+					b.WriteString("  Example: " + safeStr(ds, "example") + "\n")
+					b.WriteString("  Best For: " + objStrOr(info, "goodFor") + "\n")
+				}
+				section = b.String()
+			}
+		}
+	}
+	return strings.Replace(chartRefinementPromptTemplate, "{catalog}", section, 1)
+}

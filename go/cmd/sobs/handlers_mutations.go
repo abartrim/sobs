@@ -73,7 +73,9 @@ func (s *server) handleApiQueryRefineChart(w http.ResponseWriter, r *http.Reques
 	instrAttrs := map[string]string{"gen_ai.operation.name": "refine_chart", "sobs.gen_ai.instruction": instruction}
 	s.emitAiHelperLogEvent("query.turn.start", traceID, turnID, "/query", model, "", "off",
 		"Chart refinement requested: "+instruction, "INFO", instrAttrs)
-	chartSpec, chartErr := s.vannaRefineChartSpec(endpoint, model, currentSpec)
+	columns, _ := m["columns"].([]any)
+	rows, _ := m["rows"].([]any)
+	chartSpec, chartErr := s.vannaRefineChartSpec(endpoint, model, currentSpec, instruction, columns, rows)
 	sev := "INFO"
 	emitBody := chartSpec
 	if chartErr != "" {

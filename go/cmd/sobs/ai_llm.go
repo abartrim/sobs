@@ -277,16 +277,37 @@ func parseChartSpecJSON(raw string) (*jsonenc.Object, string) {
 	return obj, ""
 }
 
-// vannaRefineChartSpec mirrors app.py _vanna_refine_chart_spec: validate the current spec, ask
-// the LLM (canned), and return the re-serialized refined spec.
-func (s *server) vannaRefineChartSpec(endpoint, model, currentSpec string) (string, string) {
+// vannaRefineChartSpec mirrors app.py _vanna_refine_chart_spec: validate the current spec, build
+// the refinement system+user messages (spec + a data sample of up to 20 rows + the user
+// instruction), ask the LLM, and return the re-serialized refined spec.
+func (s *server) vannaRefineChartSpec(endpoint, model, currentSpec, instruction string, columns, sampleRows []any) (string, string) {
 	if endpoint == "" || model == "" {
 		return "", "AI endpoint not configured."
 	}
 	if _, err := parseJSONValue([]byte(currentSpec)); err != nil {
 		return "", "Current chart spec is invalid JSON: " + err.Error()
 	}
-	content, _, err := s.callLLMEndpoint(endpoint)
+	rows := sampleRows
+	if len(rows) > 20 {
+		rows = rows[:20]
+	}
+	sampleOpts := jsonenc.Options{SortKeys: false, EnsureASCII: false, ItemSep: ",", KeySep: ":"}
+	sampleStr := string(jsonenc.Encode(jsonenc.NewObject().Set("columns", columns).Set("rows", rows), sampleOpts))
+	userMsg := "Current ECharts spec structure:\n" + currentSpec +
+		"\n\nData available (columns + up to 20 sample rows):\n" + sampleStr +
+		"\n\nUser instruction: " + instruction +
+		"\n\nPlease refine the chart spec to fulfill this request. Return only the updated JSON."
+	messages := []any{
+		jsonenc.NewObject().Set("role", "system").Set("content", s.buildChartRefinementPrompt()),
+		jsonenc.NewObject().Set("role", "user").Set("content", userMsg),
+	}
+	content, _, err := s.callLLMChat(llmRequest{
+		endpoint:      endpoint,
+		model:         model,
+		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
+		thinkingLevel: strings.TrimSpace(s.loadAISetting("ai.thinking_level", "off")),
+		messages:      messages,
+	})
 	if err != nil || content == "" {
 		return "", "LLM did not return a refined chart spec."
 	}
