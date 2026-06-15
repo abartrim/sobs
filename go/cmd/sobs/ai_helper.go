@@ -279,7 +279,13 @@ func (s *server) aiHelperGuardCheck(question, context string) (bool, string, *js
 		return false, "guard_not_configured", jsonenc.NewObject()
 	}
 	systemMsg, messages := buildLlamaGuardPrompt(question, context)
-	reply, st, err := s.callLLMEndpoint(guardURL)
+	reply, st, err := s.callLLMChat(llmRequest{
+		endpoint:      guardURL,
+		model:         guardModel,
+		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
+		thinkingLevel: strings.TrimSpace(s.loadAISetting("ai.guard_thinking_level", "off")),
+		messages:      messages,
+	})
 	guardStats := queryStageStats(st)
 	guardStats.Set("system_instructions", systemMsg)
 	guardStats.Set("input_messages", messages)
@@ -308,8 +314,9 @@ type aiToolSlot struct {
 // streamLLMEndpoint mirrors app.py _stream_llm_endpoint: POST the endpoint, parse the canned SSE
 // body (data: lines), accumulate content deltas + tool-call deltas + usage. Returns the joined
 // answer, the completed tool calls in index order, and usage stats (elapsed_ms 0 under parity).
-func (s *server) streamLLMEndpoint(endpoint string) (string, []aiToolCall, llmStats) {
-	resp, err := s.upstreamGet("POST", chatCompletionsURL(endpoint))
+func (s *server) streamLLMEndpoint(req llmRequest) (string, []aiToolCall, llmStats) {
+	req.stream = true
+	resp, err := s.upstreamRequest("POST", chatCompletionsURL(req.endpoint), llmRequestBody(req), llmRequestHeaders(req.apiKey))
 	if err != nil || resp.Status >= 400 {
 		return "", nil, llmStats{}
 	}
@@ -589,9 +596,19 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 	var proposedTools []any
 	var modelStats *jsonenc.Object
 	const maxToolRounds = 3
+	streamReq := llmRequest{
+		endpoint:      endpointURL,
+		model:         model,
+		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
+		thinkingLevel: thinkingLevel,
+		messages: []any{
+			jsonenc.NewObject().Set("role", "system").Set("content", aiHelperSystemPrompt),
+			jsonenc.NewObject().Set("role", "user").Set("content", aiHelperUserContent(question, page)),
+		},
+	}
 	for loopRound := 0; loopRound <= maxToolRounds; loopRound++ {
 		var roundFeedback []any
-		content, toolCalls, stats := s.streamLLMEndpoint(endpointURL)
+		content, toolCalls, stats := s.streamLLMEndpoint(streamReq)
 		if content != "" {
 			answerParts = append(answerParts, content)
 		}

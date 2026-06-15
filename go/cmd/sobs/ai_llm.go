@@ -29,6 +29,8 @@ type llmRequest struct {
 	endpoint, model, apiKey, thinkingLevel string
 	messages                               []any
 	maxTokens                              int
+	stream                                 bool
+	tools                                  []any
 }
 
 // llmRequestBody builds the JSON request body (app.py _call_llm_endpoint payload +
@@ -45,6 +47,13 @@ func llmRequestBody(req llmRequest) []byte {
 	// _llm_reasoning_payload: include both common reasoning keys when thinking is on + supported.
 	if level := normalizeThinkingLevel(req.thinkingLevel); level != "off" && modelSupportsThinking(req.model) {
 		payload.Set("reasoning", jsonenc.NewObject().Set("effort", level)).Set("reasoning_effort", level)
+	}
+	// _stream_llm_endpoint payload: stream + usage; tools when the model supports them.
+	if req.stream {
+		payload.Set("stream", true).Set("stream_options", jsonenc.NewObject().Set("include_usage", true))
+	}
+	if len(req.tools) > 0 {
+		payload.Set("tools", req.tools)
 	}
 	return jsonenc.Encode(payload, dumpsDefault)
 }
