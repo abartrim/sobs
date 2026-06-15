@@ -18,14 +18,15 @@ import (
 // this middleware byte-exact is a Phase-1/2 prerequisite: every response carries these
 // headers, in this order, so parity_check.py compares them on every route.
 type server struct {
-	cfg config
-	mux *http.ServeMux
-	db  store.DB
-	sse *sseBroker
+	cfg  config
+	mux  *http.ServeMux
+	db   store.DB
+	sse  *sseBroker
+	auth authConfig
 }
 
 func newServer(cfg config) *server {
-	s := &server{cfg: cfg, mux: http.NewServeMux(), sse: newSSEBroker()}
+	s := &server{cfg: cfg, mux: http.NewServeMux(), sse: newSSEBroker(), auth: loadAuthConfig()}
 	// Open the shared chdb session, retrying the intermittent embedded-server "recursive_mutex
 	// lock failed" boot error (a chdb-go contention bug seen under many sequential per-profile
 	// boots). A server that lists but can't open chdb would hang every data route, so in parity
@@ -57,6 +58,11 @@ func newServer(cfg config) *server {
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rec := &headerCapture{ResponseWriter: w, req: r, cfg: s.cfg}
+	// Optional auth layers (no-ops unless SOBS_API_KEY / SOBS_BASIC_AUTH_* / SOBS_EXTERNAL_AUTH_URL
+	// are set), written through rec so blocking responses still carry the security headers.
+	if s.enforceAuth(rec, r) {
+		return
+	}
 	s.mux.ServeHTTP(rec, r)
 }
 
