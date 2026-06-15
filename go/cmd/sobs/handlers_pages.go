@@ -910,23 +910,292 @@ func (s *server) handleViewMetricsAnomaly(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// GET /logs — app.py view_logs. Empty otel_logs on the fixture (all lists/stats empty).
+// GET /logs — app.py view_logs. Faithful port: q (RE2 regex) / level[] / service[] /
+// event_name[] / trace_id(s) / sql_where / time-window filtering, sort/limit/offset, the
+// otel_logs row list + total, level/service/tag stats, optional advanced analysis, and the
+// stats-snapshot timestamps. On the empty fixture every list/stat is empty (the .items()
+// stats use ordered Objects that render identically to the prior empty map), so byte-parity
+// with the golden empty render is preserved. (/logs is excluded from byte-compare for
+// ORDER BY tie order, but this still matches Python exactly.)
 func (s *server) handleViewLogs(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	var selectedLevels []string
+	for _, v := range queryGetList(r, "level") {
+		if t := strings.TrimSpace(v); t != "" {
+			selectedLevels = append(selectedLevels, strings.ToUpper(t))
+		}
+	}
+	var selectedServices []string
+	for _, v := range queryGetList(r, "service") {
+		if t := strings.TrimSpace(v); t != "" {
+			selectedServices = append(selectedServices, t)
+		}
+	}
+	traceID := strings.TrimSpace(r.URL.Query().Get("trace_id"))
+	traceIDs, traceID := parseTraceFilterValues(traceID, queryGetList(r, "trace_ids"))
+	traceIDsCSV := strings.Join(traceIDs, ",")
+	traceIDsCount := len(traceIDs)
+	var selectedEventNames []string
+	for _, v := range queryGetList(r, "event_name") {
+		if t := strings.TrimSpace(v); t != "" {
+			selectedEventNames = append(selectedEventNames, t)
+		}
+	}
+	eventName := "" // backward compatibility; use selected_event_names for filtering
+	fromTs, toTs, timeError := parseTimeWindowArgs(r)
+	sqlWhere := strings.TrimSpace(r.URL.Query().Get("sql"))
+	runAdvancedAnalysis := strings.TrimSpace(r.URL.Query().Get("analyze")) == "1"
+	limit := parseLimitArg(r, 200)
+	offset := parseOffsetArg(r)
+	sortBy, sortCol, sortDir := parseSortArg(r, map[string]string{
+		"Timestamp": "Timestamp", "SeverityText": "SeverityText", "ServiceName": "ServiceName",
+	}, "Timestamp")
+	orderDir := "DESC"
+	if sortDir == "asc" {
+		orderDir = "ASC"
+	}
+	orderClause := "ORDER BY " + sortCol + " " + orderDir
+
+	var rows []map[string]any
+	logRows := []any{}
+	total := 0
+	errorMsg := ""
+	var levelStats, serviceStats *jsonenc.Object
+	levelStats = jsonenc.NewObject()
+	serviceStats = jsonenc.NewObject()
+	var advancedAnalysis any = nil
+	statsGeneratedAtISO := ""
+	statsGeneratedAtDisplay := ""
+	statsGeneratedAgeS := 0
+	where := ""
+	var params []any
+	var includePatterns, excludePatterns []string
+
+	if timeError != "" {
+		errorMsg = timeError
+	}
+	if q != "" {
+		inc, exc, regexErr := s.prepareRE2FilterPatterns(q)
+		includePatterns, excludePatterns = inc, exc
+		if regexErr != "" {
+			errorMsg = regexErr
+		}
+	}
+
+	if errorMsg != "" {
+		// keep error
+	} else if sqlWhere != "" {
+		if vErr := validateUserSQLWhere(sqlWhere); vErr != "" {
+			errorMsg = "SQL error: " + vErr
+		} else {
+			safeSQL := translateLogsSQLWhere(sqlWhere)
+			where = "WHERE " + safeSQL
+			timeConds, timeParams := timeWindowConditions("Timestamp", fromTs, toTs)
+			if len(timeConds) > 0 {
+				where = where + " AND " + strings.Join(timeConds, " AND ")
+				params = append(params, timeParams...)
+			}
+		}
+	} else {
+		var conditions []string
+		params = nil
+		if len(selectedLevels) > 0 {
+			conditions = append(conditions, "SeverityText IN ("+placeholders(len(selectedLevels))+")")
+			for _, v := range selectedLevels {
+				params = append(params, v)
+			}
+		}
+		if len(selectedServices) > 0 {
+			conditions = append(conditions, "ServiceName IN ("+placeholders(len(selectedServices))+")")
+			for _, v := range selectedServices {
+				params = append(params, v)
+			}
+		}
+		if len(selectedEventNames) > 0 {
+			conditions = append(conditions, "EventName IN ("+placeholders(len(selectedEventNames))+")")
+			for _, v := range selectedEventNames {
+				params = append(params, v)
+			}
+		}
+		if len(traceIDs) > 0 {
+			conditions = append(conditions, "lower(TraceId) IN ("+placeholders(len(traceIDs))+")")
+			for _, v := range traceIDs {
+				params = append(params, v)
+			}
+		} else if traceID != "" {
+			conditions = append(conditions, "lower(TraceId)=?")
+			params = append(params, strings.ToLower(traceID))
+		}
+		appendTimeWindowFilter(&conditions, &params, "Timestamp", fromTs, toTs)
+		where = whereClauseSQL(conditions)
+	}
+
+	if errorMsg == "" {
+		queryWhere := where
+		queryParams := append([]any{}, params...)
+		if q != "" {
+			var regexConditions []string
+			appendRegexExpressionClauses(&regexConditions, &queryParams, "Body", includePatterns, excludePatterns)
+			if len(regexConditions) > 0 {
+				regexSQL := strings.Join(regexConditions, " AND ")
+				if queryWhere != "" {
+					queryWhere = queryWhere + " AND " + regexSQL
+				} else {
+					queryWhere = "WHERE " + regexSQL
+				}
+			}
+		}
+
+		selectBase := "SELECT Timestamp, SeverityText, ServiceName, Body, TraceId, SpanId FROM otel_logs " + queryWhere + " "
+
+		var queryErr error
+		if queryWhere == "" {
+			total = s.activePartRows("otel_logs")
+		} else {
+			if res, err := s.db.Execute("SELECT COUNT(*) AS c FROM otel_logs "+queryWhere, queryParams...); err == nil {
+				total = cInt(rowMaps(res)[0], "c")
+			} else {
+				queryErr = err
+			}
+		}
+		if queryErr == nil {
+			if res, err := s.db.Execute(selectBase+orderClause+" LIMIT ? OFFSET ?", append(append([]any{}, queryParams...), limit, offset)...); err == nil {
+				rows = rowMaps(res)
+			} else {
+				queryErr = err
+			}
+		}
+		if queryErr == nil {
+			levelStats, serviceStats = s.computeLogStats(queryWhere, queryParams)
+			if runAdvancedAnalysis {
+				if res, err := s.db.Execute("SELECT SeverityText, ServiceName, Body, LogAttributes FROM otel_logs "+queryWhere, queryParams...); err == nil {
+					advancedAnalysis = computeAdvancedLogAnalysis(rowMaps(res), levelStats, serviceStats)
+				} else {
+					queryErr = err
+				}
+			}
+		}
+		if queryErr == nil {
+			generatedAt := nowUTC()
+			snapshotAt := generatedAt
+			if res, err := s.db.Execute("SELECT max(Timestamp) AS m FROM otel_logs "+queryWhere, queryParams...); err == nil {
+				m := rowMaps(res)[0]
+				if raw := m["m"]; raw != nil {
+					if rawStr := cStr(m, "m"); rawStr != "" {
+						if parsed, ok := parseISOTime(strings.ReplaceAll(rawStr, "Z", "+00:00")); ok {
+							snapshotAt = parsed.UTC()
+						}
+					}
+				}
+			}
+			statsGeneratedAtISO = pyISOFormatUTC(snapshotAt)
+			statsGeneratedAtDisplay = snapshotAt.UTC().Format("2006-01-02 15:04:05") + " UTC"
+			age := int(generatedAt.Sub(snapshotAt).Seconds())
+			if age < 0 {
+				age = 0
+			}
+			statsGeneratedAgeS = age
+		}
+		if queryErr != nil {
+			if sqlWhere != "" {
+				errorMsg = "SQL error: " + publicDashboardQueryError(queryErr)
+			} else {
+				errorMsg = "Query error: " + queryErr.Error()
+			}
+			rows = nil
+			total = 0
+			levelStats = jsonenc.NewObject()
+			serviceStats = jsonenc.NewObject()
+			advancedAnalysis = nil
+		}
+	}
+
+	// Record IDs for visible rows so tags can be batch-fetched.
+	var rowRecordIDs []string
+	for _, rmap := range rows {
+		rowRecordIDs = append(rowRecordIDs, recordIDForLog(
+			cStr(rmap, "Timestamp"), cStr(rmap, "ServiceName"), cStr(rmap, "TraceId"), cStr(rmap, "SpanId")))
+	}
+	tagsByRecordID := map[string][]any{}
+	type tagStatKey struct{ k, v string }
+	tagStatsCount := map[tagStatKey]int{}
+	var tagStatsOrder []tagStatKey
+	if len(rowRecordIDs) > 0 {
+		idParams := make([]any, len(rowRecordIDs))
+		for i, id := range rowRecordIDs {
+			idParams[i] = id
+		}
+		tagQuery := "SELECT RecordId, TagKey, TagValue, IsAuto FROM sobs_record_tags FINAL " +
+			"WHERE RecordType='log' AND RecordId IN (" + placeholders(len(rowRecordIDs)) + ") AND IsDeleted=0 " +
+			"ORDER BY RecordId, TagKey"
+		if res, err := s.db.Execute(tagQuery, idParams...); err == nil {
+			for _, tr := range rowMaps(res) {
+				rid := cStr(tr, "RecordId")
+				entry := map[string]any{
+					"key": cStr(tr, "TagKey"), "value": cStr(tr, "TagValue"), "is_auto": cBool(tr, "IsAuto"),
+				}
+				tagsByRecordID[rid] = append(tagsByRecordID[rid], entry)
+				sk := tagStatKey{cStr(tr, "TagKey"), cStr(tr, "TagValue")}
+				if _, seen := tagStatsCount[sk]; !seen {
+					tagStatsOrder = append(tagStatsOrder, sk)
+				}
+				tagStatsCount[sk]++
+			}
+		}
+	}
+	// tag_stats sorted by (-count, key, value).
+	sortedKeys := append([]tagStatKey{}, tagStatsOrder...)
+	sort.SliceStable(sortedKeys, func(i, j int) bool {
+		ci, cj := tagStatsCount[sortedKeys[i]], tagStatsCount[sortedKeys[j]]
+		if ci != cj {
+			return ci > cj
+		}
+		if sortedKeys[i].k != sortedKeys[j].k {
+			return sortedKeys[i].k < sortedKeys[j].k
+		}
+		return sortedKeys[i].v < sortedKeys[j].v
+	})
+	tagStats := []any{}
+	for _, sk := range sortedKeys {
+		tagStats = append(tagStats, map[string]any{"key": sk.k, "value": sk.v, "count": tagStatsCount[sk]})
+	}
+
+	for _, rmap := range rows {
+		rid := recordIDForLog(cStr(rmap, "Timestamp"), cStr(rmap, "ServiceName"), cStr(rmap, "TraceId"), cStr(rmap, "SpanId"))
+		tags := tagsByRecordID[rid]
+		if tags == nil {
+			tags = []any{}
+		}
+		logRows = append(logRows, map[string]any{
+			"ts":        cStr(rmap, "Timestamp"),
+			"level":     rmap["SeverityText"],
+			"service":   rmap["ServiceName"],
+			"body":      rmap["Body"],
+			"trace_id":  rmap["TraceId"],
+			"span_id":   rmap["SpanId"],
+			"record_id": rid,
+			"tags":      tags,
+		})
+	}
+
 	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM otel_logs WHERE ServiceName!='' ORDER BY ServiceName")
 	levels := s.distinctStrings("SELECT DISTINCT SeverityText FROM otel_logs ORDER BY SeverityText")
 	eventNames := s.distinctStrings("SELECT DISTINCT EventName FROM otel_logs WHERE EventName!='' ORDER BY EventName")
+
 	s.renderPage(w, "logs.html", "view_logs", map[string]any{
-		"logs": []any{}, "total": 0, "limit": 200, "offset": 0, "q": "",
-		"level": "", "selected_levels": []any{}, "service": "", "selected_services": []any{},
-		"trace_id": "", "trace_ids_csv": "", "trace_ids_count": 0, "sql_where": "",
-		"from_ts": "", "to_ts": "", "services": services, "levels": levels,
-		"event_names": eventNames, "event_name": "", "selected_event_names": []any{},
-		"error_msg": "", "sort_by": "Timestamp", "sort_dir": "desc",
-		"run_advanced_analysis": false, "level_stats": map[string]any{},
-		"service_stats": map[string]any{}, "tag_stats": []any{}, "advanced_analysis": nil,
-		// epoch-0 formatted under determinism (stats not generated); display is "" so its
-		// {% if %} block is skipped.
-		"stats_generated_at_iso": "1969-12-31T17:00:00+00:00", "stats_generated_at_display": "", "stats_generated_age_s": 0,
+		"logs": logRows, "total": total, "limit": limit, "offset": offset, "q": q,
+		"level": "", "selected_levels": toAnySlice(selectedLevels),
+		"service": "", "selected_services": toAnySlice(selectedServices),
+		"trace_id": traceID, "trace_ids_csv": traceIDsCSV, "trace_ids_count": traceIDsCount,
+		"sql_where": sqlWhere, "from_ts": fromTs, "to_ts": toTs,
+		"services": services, "levels": levels, "event_names": eventNames,
+		"event_name": eventName, "selected_event_names": toAnySlice(selectedEventNames),
+		"error_msg": errorMsg, "sort_by": sortBy, "sort_dir": sortDir,
+		"run_advanced_analysis": runAdvancedAnalysis,
+		"level_stats":           levelStats, "service_stats": serviceStats, "tag_stats": tagStats,
+		"advanced_analysis":      advancedAnalysis,
+		"stats_generated_at_iso": statsGeneratedAtISO, "stats_generated_at_display": statsGeneratedAtDisplay,
+		"stats_generated_age_s": statsGeneratedAgeS,
 	})
 }
 
@@ -955,16 +1224,341 @@ func (s *server) handleViewTraces(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /errors — app.py view_errors. No error rows on the fixture -> empty lists/defaults.
+// GET /errors — app.py view_errors. Faithful port of the ERROR_SOURCES (otel_logs ∪
+// hyperdx_sessions) error feed: service[]/q(RE2)/resolved/time-window/sort filters, the
+// grouped (best-effort dedup) and non-grouped (resolved SQL + hydrate, or simple) paths,
+// resolution flags, error rows + total, and work_item_links. On the empty fixture every list
+// is empty and work_item_links is an empty ordered Object (renders like the prior empty map),
+// so byte-parity with the golden empty render holds.
 func (s *server) handleViewErrors(w http.ResponseWriter, r *http.Request) {
-	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM (" + errorSourcesSQL + ") WHERE ServiceName != ''")
+	errorIDSQL := errorIDExpr
+	const groupedTraceChunkSize = 200
+	const hydrateKeyChunkSize = 200
+
+	var selectedServices []string
+	for _, v := range queryGetList(r, "service") {
+		if t := strings.TrimSpace(v); t != "" {
+			selectedServices = append(selectedServices, t)
+		}
+	}
+	service := ""
+	if len(selectedServices) > 0 {
+		service = selectedServices[0]
+	}
+	groupBy := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("group_by")))
+	groupedMode := strings.TrimSpace(r.URL.Query().Get("grouped")) == "1" ||
+		groupBy == "group" || groupBy == "message" || groupBy == "fingerprint" || groupBy == "signature"
+	fromTs, toTs, timeError := parseTimeWindowArgs(r)
+	// request.args.get("resolved", "0"): default "0" only when the key is ABSENT; a
+	// present-but-empty value (?resolved=) yields "" after strip.
+	resolvedRaw := "0"
+	if vals, ok := r.URL.Query()["resolved"]; ok {
+		if len(vals) > 0 {
+			resolvedRaw = vals[0]
+		} else {
+			resolvedRaw = ""
+		}
+	}
+	resolved := strings.TrimSpace(resolvedRaw)
+	limit := parseLimitArg(r, 100)
+	offset := parseOffsetArg(r)
+
+	var sortBy, sortCol, sortDir string
+	if groupedMode {
+		sortBy, sortCol, sortDir = parseSortArg(r, map[string]string{
+			"count": "Count", "last_seen": "LastSeen", "ServiceName": "RepServiceName", "Timestamp": "LastSeen",
+		}, "count")
+	} else {
+		sortBy, sortCol, sortDir = parseSortArg(r, map[string]string{
+			"Timestamp": "Timestamp", "ServiceName": "ServiceName",
+		}, "Timestamp")
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	var includePatterns, excludePatterns []string
+	errorMsg := timeError
+	if q != "" && errorMsg == "" {
+		inc, exc, regexErr := s.prepareRE2FilterPatterns(q)
+		includePatterns, excludePatterns = inc, exc
+		if regexErr != "" {
+			errorMsg = regexErr
+		}
+	}
+	var resolvedIDs map[string]bool
+	if resolved != "0" && resolved != "1" {
+		resolvedIDs = s.getResolvedErrorIDs()
+	}
+
+	var whereParts []string
+	var whereParams []any
+	if len(selectedServices) > 0 {
+		whereParts = append(whereParts, "ServiceName IN ("+placeholders(len(selectedServices))+")")
+		for _, v := range selectedServices {
+			whereParams = append(whereParams, v)
+		}
+	}
+	appendTimeWindowFilter(&whereParts, &whereParams, "Timestamp", fromTs, toTs)
+	if q != "" && errorMsg == "" {
+		appendRegexExpressionClauses(&whereParts, &whereParams, "Body", includePatterns, excludePatterns)
+	}
+	whereSQL := whereClauseSQL(whereParts)
+
+	errors := []any{}
+	total := 0
+
+	if groupedMode {
+		probeLimit := limit * 100
+		if probeLimit < 2000 {
+			probeLimit = 2000
+		}
+		if probeLimit > 10000 {
+			probeLimit = 10000
+		}
+		groupedWhereSQL := whereSQL
+		if resolved == "1" {
+			cond := errorIDSQL + " IN (SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId)"
+			groupedWhereSQL = combineWhere(groupedWhereSQL, cond)
+		} else if resolved == "0" {
+			cond := errorIDSQL + " NOT IN (SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId)"
+			groupedWhereSQL = combineWhere(groupedWhereSQL, cond)
+		}
+
+		groupedProbeSQL := "SELECT " +
+			"Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes, " +
+			"substring(replaceRegexpAll(lower(ServiceName), '\\s+', ' '), 1, 220) AS GroupService, " +
+			"substring(replaceRegexpAll(lower(if(LogAttributes['exception.type'] != '', LogAttributes['exception.type'], 'Error')), '\\s+', ' '), 1, 220) AS GroupType, " +
+			"substring(replaceRegexpAll(lower(if(LogAttributes['exception.message'] != '', LogAttributes['exception.message'], Body)), '\\s+', ' '), 1, 220) AS GroupMessage " +
+			"FROM (" + errorSourcesSQL + ") " + groupedWhereSQL + " " +
+			"ORDER BY Timestamp DESC LIMIT ?"
+		groupedAggregateSQL := "SELECT " +
+			"GroupService, GroupType, GroupMessage, " +
+			"count() AS Count, min(Timestamp) AS FirstSeen, max(Timestamp) AS LastSeen, " +
+			"argMax(Timestamp, Timestamp) AS RepTimestamp, argMax(ServiceName, Timestamp) AS RepServiceName, " +
+			"argMax(TraceId, Timestamp) AS RepTraceId, argMax(SpanId, Timestamp) AS RepSpanId, " +
+			"argMax(Body, Timestamp) AS RepBody, argMax(LogAttributes, Timestamp) AS RepLogAttributes, " +
+			"groupUniqArray(64)(TraceId) AS TraceIds " +
+			"FROM (" + groupedProbeSQL + ") " +
+			"GROUP BY GroupService, GroupType, GroupMessage"
+
+		if res, err := s.db.Execute("SELECT COUNT(*) AS c FROM ("+groupedAggregateSQL+")", append(append([]any{}, whereParams...), probeLimit)...); err == nil {
+			total = cInt(rowMaps(res)[0], "c")
+		}
+		sortDirection := "DESC"
+		if sortDir == "asc" {
+			sortDirection = "ASC"
+		}
+		pageSQL := groupedAggregateSQL + " ORDER BY " + sortCol + " " + sortDirection + " LIMIT ? OFFSET ?"
+		var groupRows []map[string]any
+		if res, err := s.db.Execute(pageSQL, append(append([]any{}, whereParams...), probeLimit, limit, offset)...); err == nil {
+			groupRows = rowMaps(res)
+		}
+
+		type groupTuple struct{ service, gtype, message string }
+		var visibleGroupTuples []groupTuple
+		itemGroupTuples := map[int]groupTuple{}
+		for _, row := range groupRows {
+			gt := groupTuple{cStr(row, "GroupService"), cStr(row, "GroupType"), cStr(row, "GroupMessage")}
+			item := s.buildErrorItem(map[string]any{
+				"Timestamp": row["RepTimestamp"], "ServiceName": row["RepServiceName"],
+				"TraceId": row["RepTraceId"], "SpanId": row["RepSpanId"],
+				"Body": row["RepBody"], "LogAttributes": row["RepLogAttributes"],
+			})
+			if resolved == "1" {
+				item["resolved"] = true
+			} else if resolved == "0" {
+				item["resolved"] = false
+			} else {
+				item["resolved"] = resolvedIDs[item["id"].(string)]
+			}
+			item["count"] = cInt(row, "Count")
+			fs := cStr(row, "FirstSeen")
+			if fs == "" {
+				fs = item["ts"].(string)
+			}
+			ls := cStr(row, "LastSeen")
+			if ls == "" {
+				ls = item["ts"].(string)
+			}
+			item["first_seen"] = fs
+			item["last_seen"] = ls
+			itemGroupTuples[len(errors)] = gt
+			visibleGroupTuples = append(visibleGroupTuples, gt)
+			errors = append(errors, item)
+		}
+
+		if len(errors) > 0 {
+			var uniqueGroupTuples []groupTuple
+			seen := map[groupTuple]bool{}
+			for _, gt := range visibleGroupTuples {
+				if seen[gt] {
+					continue
+				}
+				seen[gt] = true
+				uniqueGroupTuples = append(uniqueGroupTuples, gt)
+			}
+			traceIDsByGroup := map[groupTuple][]string{}
+			for chunkStart := 0; chunkStart < len(uniqueGroupTuples); chunkStart += groupedTraceChunkSize {
+				end := chunkStart + groupedTraceChunkSize
+				if end > len(uniqueGroupTuples) {
+					end = len(uniqueGroupTuples)
+				}
+				groupChunk := uniqueGroupTuples[chunkStart:end]
+				chunkParams := append([]any{}, whereParams...)
+				chunkParams = append(chunkParams, probeLimit)
+				tuplePlaceholders := strings.TrimSuffix(strings.Repeat("(?, ?, ?), ", len(groupChunk)), ", ")
+				for _, gt := range groupChunk {
+					chunkParams = append(chunkParams, gt.service, gt.gtype, gt.message)
+				}
+				groupedTraceSQL := "SELECT GroupService, GroupType, GroupMessage, " +
+					"arrayStringConcat(groupUniqArray(64)(TraceId), ',') AS TraceIdsCsv " +
+					"FROM (" + groupedProbeSQL + ") " +
+					"WHERE (GroupService, GroupType, GroupMessage) IN (" + tuplePlaceholders + ") " +
+					"GROUP BY GroupService, GroupType, GroupMessage"
+				if res, err := s.db.Execute(groupedTraceSQL, chunkParams...); err == nil {
+					for _, row := range rowMaps(res) {
+						gt := groupTuple{cStr(row, "GroupService"), cStr(row, "GroupType"), cStr(row, "GroupMessage")}
+						var vals []string
+						for _, v := range strings.Split(cStr(row, "TraceIdsCsv"), ",") {
+							if t := strings.TrimSpace(v); t != "" {
+								vals = append(vals, t)
+							}
+						}
+						traceIDsByGroup[gt] = vals
+					}
+				}
+			}
+			for i, item := range errors {
+				m := item.(map[string]any)
+				gt := itemGroupTuples[i]
+				traceValues := append([]string{}, traceIDsByGroup[gt]...)
+				primaryTrace := strings.TrimSpace(cStr(m, "trace_id"))
+				if primaryTrace != "" && !containsStr(traceValues, primaryTrace) {
+					traceValues = append([]string{primaryTrace}, traceValues...)
+				}
+				if len(traceValues) > 0 {
+					m["trace_ids"] = toAnySlice(traceValues)
+					m["trace_ids_csv"] = strings.Join(traceValues, ",")
+				}
+			}
+		}
+	} else {
+		orderDir := "DESC"
+		if sortDir == "asc" {
+			orderDir = "ASC"
+		}
+		orderClause := "ORDER BY " + sortCol + " " + orderDir
+		sourceSQL := "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes " +
+			"FROM (" + errorSourcesSQL + ") " + whereSQL + " " + orderClause + " LIMIT ? OFFSET ?"
+		useResolvedSQLPath := resolved == "0" || resolved == "1"
+		if useResolvedSQLPath {
+			pocWhereSQL := whereSQL
+			pocWhereParams := append([]any{}, whereParams...)
+			if resolved == "1" {
+				cond := errorIDSQL + " IN (SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId)"
+				pocWhereSQL = combineWhere(pocWhereSQL, cond)
+			} else if resolved == "0" {
+				cond := errorIDSQL + " NOT IN (SELECT ErrorId FROM sobs_error_resolutions GROUP BY ErrorId)"
+				pocWhereSQL = combineWhere(pocWhereSQL, cond)
+			}
+			narrowSourceSQL := "SELECT Timestamp, ServiceName, TraceId, SpanId, " + errorIDSQL + " AS ErrorId " +
+				"FROM (" + errorSourcesSQL + ") " + pocWhereSQL + " " + orderClause + " LIMIT ? OFFSET ?"
+
+			if res, err := s.db.Execute("SELECT COUNT(*) AS c FROM ("+errorSourcesSQL+") "+pocWhereSQL, pocWhereParams...); err == nil {
+				total = cInt(rowMaps(res)[0], "c")
+			}
+			var pageRows []map[string]any
+			if res, err := s.db.Execute(narrowSourceSQL, append(append([]any{}, pocWhereParams...), limit, offset)...); err == nil {
+				pageRows = rowMaps(res)
+			}
+			detailsByID := map[string]map[string]any{}
+			if len(pageRows) > 0 {
+				type detailKey struct{ ts, service, trace, span string }
+				var detailKeyTuples []detailKey
+				seenDetail := map[detailKey]bool{}
+				for _, row := range pageRows {
+					dk := detailKey{cStr(row, "Timestamp"), cStr(row, "ServiceName"), cStr(row, "TraceId"), cStr(row, "SpanId")}
+					if seenDetail[dk] {
+						continue
+					}
+					seenDetail[dk] = true
+					detailKeyTuples = append(detailKeyTuples, dk)
+				}
+				for chunkStart := 0; chunkStart < len(detailKeyTuples); chunkStart += hydrateKeyChunkSize {
+					end := chunkStart + hydrateKeyChunkSize
+					if end > len(detailKeyTuples) {
+						end = len(detailKeyTuples)
+					}
+					detailChunk := detailKeyTuples[chunkStart:end]
+					var detailParams []any
+					tuplePlaceholders := strings.TrimSuffix(strings.Repeat("(?, ?, ?, ?), ", len(detailChunk)), ", ")
+					for _, dk := range detailChunk {
+						detailParams = append(detailParams, dk.ts, dk.service, dk.trace, dk.span)
+					}
+					detailSQL := "SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes " +
+						"FROM (" + errorSourcesSQL + ") " +
+						"WHERE (Timestamp, ServiceName, TraceId, SpanId) IN (" + tuplePlaceholders + ")"
+					if res, err := s.db.Execute(detailSQL, detailParams...); err == nil {
+						for _, drow := range rowMaps(res) {
+							detailItem := s.buildErrorItem(drow)
+							detailsByID[detailItem["id"].(string)] = detailItem
+						}
+					}
+				}
+			}
+			for _, row := range pageRows {
+				rowID := cStr(row, "ErrorId")
+				var resolvedFlag bool
+				if resolved == "1" {
+					resolvedFlag = true
+				} else if resolved == "0" {
+					resolvedFlag = false
+				} else {
+					resolvedFlag = resolvedIDs[rowID]
+				}
+				item := buildErrorStubFromNarrow(row, resolvedFlag)
+				if detailItem, ok := detailsByID[item["id"].(string)]; ok {
+					detailItem["resolved"] = resolvedFlag
+					item = detailItem
+				}
+				errors = append(errors, item)
+			}
+		} else {
+			if res, err := s.db.Execute("SELECT COUNT(*) AS c FROM ("+errorSourcesSQL+") "+whereSQL, whereParams...); err == nil {
+				total = cInt(rowMaps(res)[0], "c")
+			}
+			if res, err := s.db.Execute(sourceSQL, append(append([]any{}, whereParams...), limit, offset)...); err == nil {
+				for _, row := range rowMaps(res) {
+					item := s.buildErrorItem(row)
+					item["resolved"] = resolvedIDs[item["id"].(string)]
+					errors = append(errors, item)
+				}
+			}
+		}
+	}
+
+	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM (" + errorSourcesSQL + ") WHERE ServiceName!='' ORDER BY ServiceName")
+
+	refIDs := make([]string, 0, len(errors))
+	for _, e := range errors {
+		refIDs = append(refIDs, e.(map[string]any)["id"].(string))
+	}
+	workItemLinks := s.loadWorkItemLinksForRefIDs(refIDs)
+
 	s.renderPage(w, "errors.html", "view_errors", map[string]any{
-		"errors": []any{}, "total": 0, "limit": 100, "offset": 0,
-		"service": "", "selected_services": []any{}, "from_ts": "", "to_ts": "",
-		"error_msg": "", "q": "", "resolved": "0", "services": services,
-		"sort_by": "Timestamp", "sort_dir": "desc", "grouped_mode": false,
-		"work_item_links": map[string]any{},
+		"errors": errors, "total": total, "limit": limit, "offset": offset,
+		"service": service, "selected_services": toAnySlice(selectedServices),
+		"from_ts": fromTs, "to_ts": toTs, "error_msg": errorMsg, "q": q, "resolved": resolved,
+		"services": services, "sort_by": sortBy, "sort_dir": sortDir, "grouped_mode": groupedMode,
+		"work_item_links": workItemLinks,
 	})
+}
+
+// combineWhere appends a condition to an existing WHERE fragment (or opens one), mirroring
+// the Python `f"{w} AND {cond}" if w else f"WHERE {cond}"` idiom.
+func combineWhere(where, cond string) string {
+	if where != "" {
+		return where + " AND " + cond
+	}
+	return "WHERE " + cond
 }
 
 // GET / — app.py summary: the overview/home page.
