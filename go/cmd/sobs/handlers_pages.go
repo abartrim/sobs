@@ -3,11 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sobs/sobs/internal/jsonenc"
 	"github.com/sobs/sobs/internal/render"
@@ -1359,22 +1361,416 @@ func mustParseJSON(raw []byte) any {
 	return v
 }
 
-// GET /incident — app.py view_incident. No incident reference on a param-less request.
+// GET /incident — app.py view_incident: incident-correlation view. A param-less request hits
+// the "no incident reference" branch (the only corpus-tested path, byte-identical to the prior
+// stub); a trace_id/error_id/rum_session resolves the primary entity, then gathers related
+// errors, log/span/RUM evidence, overlapping raw windows, metric context, anomaly state, and
+// work-item links.
 func (s *server) handleViewIncident(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	traceID := strings.TrimSpace(q.Get("trace_id"))
+	errorID := strings.TrimSpace(q.Get("error_id"))
+	rumSession := strings.TrimSpace(q.Get("rum_session"))
+	rumTS := strings.TrimSpace(q.Get("rum_ts"))
+	fromTS, toTS, timeError := parseTimeWindowArgs(q)
+
+	windowMinutes := incidentWindowDefaultMinutes
+	if wmRaw := strings.TrimSpace(q.Get("window_minutes")); wmRaw != "" {
+		if wmInt, err := strconv.Atoi(wmRaw); err == nil {
+			wm := wmInt
+			if wm < 1 {
+				wm = 1
+			}
+			if wm > incidentWindowMaxMinutes {
+				wm = incidentWindowMaxMinutes
+			}
+			windowMinutes = wm
+		}
+	}
+
+	// ── No incident reference: empty render (the corpus-tested branch) ──────────
+	if traceID == "" && errorID == "" && rumSession == "" {
+		s.renderPage(w, "incident.html", "view_incident", map[string]any{
+			"trace_id": "", "error_id": "", "rum_session": "", "rum_ts": "",
+			"primary_error": nil, "primary_trace": nil, "primary_rum": nil,
+			"service": "", "from_ts": "", "to_ts": "", "window_minutes": windowMinutes,
+			"related_errors": []any{}, "related_log_count": 0, "related_span_count": 0,
+			"related_rum_count": 0, "related_rum_sessions": 0, "related_rum_error_count": 0,
+			"related_rum_events": []any{}, "raw_windows": []any{},
+			"metrics_context": map[string]any{
+				"source_mode": "none", "total_points": 0, "series": []any{},
+				"match_mode": "none", "match_label": "no match", "match_dimensions": []any{},
+			},
+			"anomaly_state": nil, "work_item_links": map[string]any{}, "time_error": "",
+			"error_msg": "No incident reference provided. Specify trace_id, error_id, or rum_session.",
+		})
+		return
+	}
+
+	// ── Resolve primary error ───────────────────────────────────────────────
+	var primaryError map[string]any
+	if errorID != "" {
+		const scanLimit = 5000
+		if res, err := s.db.Execute(
+			"SELECT * FROM ("+errorSourcesSQL+") ORDER BY Timestamp DESC LIMIT ?", scanLimit); err == nil {
+			resolvedIDs := s.resolvedErrorIDs()
+			for _, row := range rowMaps(res) {
+				candidate := s.buildErrorItem(row)
+				if toStr(candidate["id"]) == errorID {
+					candidate["resolved"] = resolvedIDs[toStr(candidate["id"])]
+					primaryError = candidate
+					break
+				}
+			}
+		}
+	}
+
+	// ── Resolve primary trace (root span summary) ───────────────────────────
+	var primaryTrace map[string]any
+	if traceID != "" {
+		if res, err := s.db.Execute(
+			"SELECT Timestamp, TraceId, SpanId, ParentSpanId, SpanName, ServiceName, "+
+				"Duration, StatusCode, SpanAttributes "+
+				"FROM otel_traces WHERE TraceId=? ORDER BY Timestamp ASC", traceID); err == nil {
+			spanRows := rowMaps(res)
+			if len(spanRows) > 0 {
+				svcSet := map[string]bool{}
+				for _, sr := range spanRows {
+					if sn := cStr(sr, "ServiceName"); sn != "" {
+						svcSet[sn] = true
+					}
+				}
+				services := make([]any, 0, len(svcSet))
+				svcSorted := make([]string, 0, len(svcSet))
+				for sn := range svcSet {
+					svcSorted = append(svcSorted, sn)
+				}
+				sort.Strings(svcSorted)
+				for _, sn := range svcSorted {
+					services = append(services, sn)
+				}
+				root := spanRows[0]
+				startMs := tsStrToEpochMs(cStr(root, "Timestamp"))
+				endMs := math.Inf(-1)
+				for _, sr := range spanRows {
+					cand := tsStrToEpochMs(cStr(sr, "Timestamp")) + roundHalfEven(cFloat(sr, "Duration")/1000000.0, 2)
+					if cand > endMs {
+						endMs = cand
+					}
+				}
+				firstSvc := ""
+				if len(svcSorted) > 0 {
+					firstSvc = svcSorted[0]
+				}
+				primaryTrace = map[string]any{
+					"trace_id":   traceID,
+					"services":   services,
+					"service":    firstSvc,
+					"span_count": len(spanRows),
+					"start_ts":   cStr(root, "Timestamp"),
+					"start_ms":   int(roundHalfEven(startMs, 0)),
+					"end_ms":     int(roundHalfEven(endMs, 0)),
+					"total_ms":   roundHalfEven(endMs-startMs, 2),
+					"root_name":  cStr(root, "SpanName"),
+					"status":     cStr(root, "StatusCode"),
+				}
+			}
+		}
+	}
+
+	// ── Resolve primary RUM event (session-scoped fallback) ─────────────────
+	var primaryRum map[string]any
+	if rumSession != "" {
+		rumWhereParts := []string{rumSessionKeySQL + "=?"}
+		rumWhereParams := []any{rumSession}
+		if rumTS != "" {
+			rumWhereParts = append(rumWhereParts, "Timestamp <= parseDateTime64BestEffort(?, 9)")
+			rumWhereParams = append(rumWhereParams, rumTS)
+		}
+		rumWhereSQL := "WHERE " + strings.Join(rumWhereParts, " AND ")
+		if res, err := s.db.Execute(
+			"SELECT Timestamp, EventName, Body, LogAttributes, TraceId, SpanId, ServiceName "+
+				"FROM hyperdx_sessions "+rumWhereSQL+" "+
+				"ORDER BY Timestamp DESC LIMIT 1", rumWhereParams...); err == nil {
+			rows := rowMaps(res)
+			if len(rows) > 0 {
+				primaryRum = jsonObjToMap(buildRumEventItem(rows[0]))
+			}
+		}
+	}
+
+	// ── Determine primary service and event timestamp ───────────────────────
+	service := ""
+	eventTS := ""
+	if primaryError != nil {
+		service = toStr(primaryError["service"])
+		eventTS = toStr(primaryError["ts"])
+	} else if primaryTrace != nil {
+		service = toStr(primaryTrace["service"])
+		eventTS = toStr(primaryTrace["start_ts"])
+	} else if primaryRum != nil {
+		service = toStr(primaryRum["service"])
+		eventTS = toStr(primaryRum["ts"])
+	}
+
+	// ── Expand time window around event if caller did not supply one ────────
+	if eventTS != "" && !(fromTS != "" && toTS != "") && timeError == "" {
+		isoStr := strings.TrimRight(strings.Replace(eventTS, " ", "T", 1), "Z")
+		if dt, ok := parseISOLocalNaive(isoStr); ok {
+			half := time.Duration(windowMinutes/2) * time.Minute
+			fromTS = normalizeCHTimestamp(dt.Add(-half))
+			toTS = normalizeCHTimestamp(dt.Add(half))
+		}
+	}
+
+	// ── Gather related errors ───────────────────────────────────────────────
+	relatedErrors := []any{}
+	relatedErrorsTruncated := false
+	{
+		var whereParts []string
+		var whereParams []any
+		if traceID != "" {
+			whereParts = append(whereParts, "TraceId=?")
+			whereParams = append(whereParams, traceID)
+		} else if service != "" {
+			whereParts = append(whereParts, "ServiceName=?")
+			whereParams = append(whereParams, service)
+		}
+		tc, tp := timeWindowConditions("Timestamp", fromTS, toTS)
+		whereParts = append(whereParts, tc...)
+		whereParams = append(whereParams, tp...)
+		whereSQL := ""
+		if len(whereParts) > 0 {
+			whereSQL = "WHERE " + strings.Join(whereParts, " AND ")
+		}
+		errParams := append(append([]any{}, whereParams...), incidentMaxRelatedErrors+1)
+		if res, err := s.db.Execute(
+			"SELECT * FROM ("+errorSourcesSQL+") "+whereSQL+" ORDER BY Timestamp DESC LIMIT ?", errParams...); err == nil {
+			errRows := rowMaps(res)
+			resolvedIDs := s.resolvedErrorIDs()
+			primaryErrorID := ""
+			if primaryError != nil {
+				primaryErrorID = toStr(primaryError["id"])
+			}
+			upper := len(errRows)
+			if upper > incidentMaxRelatedErrors {
+				upper = incidentMaxRelatedErrors
+			}
+			for _, row := range errRows[:upper] {
+				item := s.buildErrorItem(row)
+				item["resolved"] = resolvedIDs[toStr(item["id"])]
+				if toStr(item["id"]) != primaryErrorID {
+					relatedErrors = append(relatedErrors, item)
+				}
+			}
+			relatedErrorsTruncated = len(errRows) > incidentMaxRelatedErrors
+		}
+	}
+
+	// ── Count related logs ──────────────────────────────────────────────────
+	relatedLogCount := 0
+	{
+		var logWhereParts []string
+		var logWhereParams []any
+		if traceID != "" {
+			logWhereParts = append(logWhereParts, "TraceId=?")
+			logWhereParams = append(logWhereParams, traceID)
+		} else if service != "" {
+			logWhereParts = append(logWhereParts, "ServiceName=?")
+			logWhereParams = append(logWhereParams, service)
+		}
+		tc, tp := timeWindowConditions("Timestamp", fromTS, toTS)
+		logWhereParts = append(logWhereParts, tc...)
+		logWhereParams = append(logWhereParams, tp...)
+		logWhereSQL := ""
+		if len(logWhereParts) > 0 {
+			logWhereSQL = "WHERE " + strings.Join(logWhereParts, " AND ")
+		}
+		if res, err := s.db.Execute("SELECT count() AS cnt FROM otel_logs "+logWhereSQL, logWhereParams...); err == nil {
+			rows := rowMaps(res)
+			if len(rows) > 0 {
+				relatedLogCount = cInt(rows[0], "cnt")
+			}
+		}
+	}
+
+	// ── Count related spans ─────────────────────────────────────────────────
+	relatedSpanCount := 0
+	if service != "" {
+		spanWhereParts := []string{"ServiceName=?"}
+		spanWhereParams := []any{service}
+		tc, tp := timeWindowConditions("Timestamp", fromTS, toTS)
+		spanWhereParts = append(spanWhereParts, tc...)
+		spanWhereParams = append(spanWhereParams, tp...)
+		spanWhereSQL := "WHERE " + strings.Join(spanWhereParts, " AND ")
+		if res, err := s.db.Execute("SELECT count() AS cnt FROM otel_traces "+spanWhereSQL, spanWhereParams...); err == nil {
+			rows := rowMaps(res)
+			if len(rows) > 0 {
+				relatedSpanCount = cInt(rows[0], "cnt")
+			}
+		}
+	}
+
+	// ── RUM evidence summary ───────────────────────────────────────────────
+	relatedRumCount := 0
+	relatedRumSessions := 0
+	relatedRumErrorCount := 0
+	relatedRumEvents := []any{}
+	{
+		var rumWhereParts []string
+		var rumWhereParams []any
+		if traceID != "" {
+			rumWhereParts = append(rumWhereParts, "TraceId=?")
+			rumWhereParams = append(rumWhereParams, traceID)
+		} else if service != "" {
+			rumWhereParts = append(rumWhereParts, "(LogAttributes['service.name']=? OR LogAttributes['service']=?)")
+			rumWhereParams = append(rumWhereParams, service, service)
+		}
+		tc, tp := timeWindowConditions("Timestamp", fromTS, toTS)
+		rumWhereParts = append(rumWhereParts, tc...)
+		rumWhereParams = append(rumWhereParams, tp...)
+		rumWhereSQL := ""
+		if len(rumWhereParts) > 0 {
+			rumWhereSQL = "WHERE " + strings.Join(rumWhereParts, " AND ")
+		}
+		if res, err := s.db.Execute(
+			"SELECT count() AS ev_count, "+
+				"uniq("+rumSessionKeySQL+") AS session_count, "+
+				"countIf(EventName IN ('error', 'unhandledrejection')) AS err_count "+
+				"FROM hyperdx_sessions "+rumWhereSQL, rumWhereParams...); err == nil {
+			rows := rowMaps(res)
+			if len(rows) > 0 {
+				relatedRumCount = cInt(rows[0], "ev_count")
+				relatedRumSessions = cInt(rows[0], "session_count")
+				relatedRumErrorCount = cInt(rows[0], "err_count")
+			}
+		}
+		evParams := append(append([]any{}, rumWhereParams...), incidentMaxRelatedRumEvents)
+		if res, err := s.db.Execute(
+			"SELECT Timestamp, EventName, Body, LogAttributes, TraceId, SpanId, ServiceName "+
+				"FROM hyperdx_sessions "+rumWhereSQL+" "+
+				"ORDER BY Timestamp DESC LIMIT ?", evParams...); err == nil {
+			for _, row := range rowMaps(res) {
+				relatedRumEvents = append(relatedRumEvents, jsonObjToMap(buildRumEventItem(row)))
+			}
+		}
+	}
+
+	// ── Overlapping preserved raw windows + metric context ─────────────────
+	rawWindows := []any{}
+	metricsContext := map[string]any{
+		"source_mode": "none", "total_points": 0, "series": []any{},
+		"match_mode": "none", "match_label": "no match", "match_dimensions": []any{},
+	}
+	if fromTS != "" && toTS != "" {
+		serviceNames := []string{}
+		if service != "" {
+			serviceNames = []string{service}
+		}
+		rawWindows = s.listTraceOverlappingRawWindows(serviceNames, fromTS, toTS, 25)
+		windowIDs := []string{}
+		for _, wAny := range rawWindows {
+			wm, _ := wAny.(map[string]any)
+			if id := toStr(wm["id"]); id != "" {
+				windowIDs = append(windowIDs, id)
+			}
+		}
+		metricsContext = s.fetchTraceMetricContext(serviceNames, fromTS, toTS, windowIDs, 12, nil, nil, nil, nil)
+	}
+
+	// ── Service anomaly state ───────────────────────────────────────────────
+	var anomalyState any = nil
+	if service != "" {
+		if res, err := s.db.Execute(
+			"SELECT anomaly_state FROM v_derived_signals_anomaly "+
+				"WHERE ServiceName=? AND SignalSource='traces' "+
+				"AND time >= now() - INTERVAL 48 HOUR "+
+				"ORDER BY time DESC LIMIT 1", service); err == nil {
+			rows := rowMaps(res)
+			if len(rows) > 0 {
+				anomalyState = cStr(rows[0], "anomaly_state")
+			}
+		}
+	}
+
+	// ── Work item links ─────────────────────────────────────────────────────
+	var refIDs []string
+	if primaryError != nil {
+		refIDs = append(refIDs, toStr(primaryError["id"]))
+	} else if errorID != "" {
+		refIDs = append(refIDs, errorID)
+	}
+	if traceID != "" {
+		refIDs = append(refIDs, traceID)
+	}
+	if rumSession != "" {
+		refIDs = append(refIDs, rumSession)
+	}
+	workItemLinks := s.loadWorkItemLinksForRefIDs(refIDs)
+
+	// ── Resolve best existing work item for the raise-issue button ──────────
+	var existingWorkItem any = nil
+	for _, ref := range refIDs {
+		if wiAny, ok := workItemLinks[ref]; ok {
+			wi, _ := wiAny.(map[string]any)
+			if wi != nil && toStr(wi["issue_url"]) != "" {
+				existingWorkItem = wi
+				break
+			}
+		}
+	}
+
+	errorMsg := timeError
+
 	s.renderPage(w, "incident.html", "view_incident", map[string]any{
-		"trace_id": "", "error_id": "", "rum_session": "", "rum_ts": "",
-		"primary_error": nil, "primary_trace": nil, "primary_rum": nil,
-		"service": "", "from_ts": "", "to_ts": "", "window_minutes": 30,
-		"related_errors": []any{}, "related_log_count": 0, "related_span_count": 0,
-		"related_rum_count": 0, "related_rum_sessions": 0, "related_rum_error_count": 0,
-		"related_rum_events": []any{}, "raw_windows": []any{},
-		"metrics_context": map[string]any{
-			"source_mode": "none", "total_points": 0, "series": []any{},
-			"match_mode": "none", "match_label": "no match", "match_dimensions": []any{},
-		},
-		"anomaly_state": nil, "work_item_links": map[string]any{}, "time_error": "",
-		"error_msg": "No incident reference provided. Specify trace_id, error_id, or rum_session.",
+		"trace_id":                 traceID,
+		"error_id":                 errorID,
+		"rum_session":              rumSession,
+		"rum_ts":                   rumTS,
+		"primary_error":            nilIfNil(primaryError),
+		"primary_trace":            nilIfNil(primaryTrace),
+		"primary_rum":              nilIfNil(primaryRum),
+		"service":                  service,
+		"from_ts":                  fromTS,
+		"to_ts":                    toTS,
+		"window_minutes":           windowMinutes,
+		"related_errors":           relatedErrors,
+		"related_errors_truncated": relatedErrorsTruncated,
+		"related_log_count":        relatedLogCount,
+		"related_span_count":       relatedSpanCount,
+		"related_rum_count":        relatedRumCount,
+		"related_rum_sessions":     relatedRumSessions,
+		"related_rum_error_count":  relatedRumErrorCount,
+		"related_rum_events":       relatedRumEvents,
+		"raw_windows":              rawWindows,
+		"metrics_context":          metricsContext,
+		"anomaly_state":            anomalyState,
+		"work_item_links":          workItemLinks,
+		"existing_work_item":       existingWorkItem,
+		"time_error":               timeError,
+		"error_msg":                errorMsg,
 	})
+}
+
+// nilIfNil returns an untyped nil when the map is nil, so a nil map[string]any renders as the
+// template's None (a typed nil map would not compare equal to nil in the engine).
+func nilIfNil(m map[string]any) any {
+	if m == nil {
+		return nil
+	}
+	return m
+}
+
+// jsonObjToMap flattens a *jsonenc.Object into a map[string]any so the incident render path
+// uses the same map type as the other template vars. Order is irrelevant for these dicts (they
+// are accessed by key in the template, never iterated).
+func jsonObjToMap(o *jsonenc.Object) map[string]any {
+	out := map[string]any{}
+	for _, k := range o.Keys() {
+		v, _ := o.Get(k)
+		out[k] = v
+	}
+	return out
 }
 
 // GET /metrics/anomaly — app.py view_metrics_anomaly. Empty derived signals.
