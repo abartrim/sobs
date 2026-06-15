@@ -596,14 +596,24 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 	var proposedTools []any
 	var modelStats *jsonenc.Object
 	const maxToolRounds = 3
+	var contextData map[string]any
+	if cv, ok := payload["context"].(map[string]any); ok {
+		contextData = cv
+	}
+	// Full context assembly (mirrors app.py ai_helper): per-page + dashboard action manifests,
+	// persistent memories, chat continuity, prior-turn summaries, page-context user content, and
+	// per-page tools. All of it lands in the LLM request body/tools, which the parity mock ignores.
+	systemPrompt, userContent, helperTools := s.buildAIHelperContext(question, page, chatID, model, contextData)
 	streamReq := llmRequest{
 		endpoint:      endpointURL,
 		model:         model,
 		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
 		thinkingLevel: thinkingLevel,
+		maxTokens:     768,
+		tools:         helperTools,
 		messages: []any{
-			jsonenc.NewObject().Set("role", "system").Set("content", aiHelperSystemPrompt),
-			jsonenc.NewObject().Set("role", "user").Set("content", aiHelperUserContent(question, page)),
+			jsonenc.NewObject().Set("role", "system").Set("content", systemPrompt),
+			jsonenc.NewObject().Set("role", "user").Set("content", userContent),
 		},
 	}
 	for loopRound := 0; loopRound <= maxToolRounds; loopRound++ {
