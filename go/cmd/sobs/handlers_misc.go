@@ -58,24 +58,18 @@ func (s *server) handleApiAiSpanAttributes(w http.ResponseWriter, r *http.Reques
 }
 
 // GET /api/enrichment/cve/findings — app.py api_cve_findings (app.py:18220). Feature-flag
-// guard (default enabled); returns the latest findings (empty on the fixture).
+// guard (default enabled); returns the latest findings joined with their dispositions. The
+// effective disposition auto-expires a `fixed` mark to `open` once a newer inventory version
+// appears; accepted/false_positive/fixed are hidden unless show_all is set. cve_ids is the
+// comma-string split into a list (empties dropped). Empty on the fixture (no findings).
 func (s *server) handleApiCveFindings(w http.ResponseWriter, r *http.Request) {
 	if !s.appSettingBool("enrichment.cve_enabled", true) {
 		s.errorJSON(w, http.StatusForbidden, "CVE enrichment is disabled")
 		return
 	}
-	disp := map[string][2]string{} // key -> {disposition, note}
-	if res, err := s.db.Execute(
-		"SELECT OsvId, Package, Ecosystem, Version, Disposition, Note FROM sobs_cve_dispositions FINAL"); err == nil {
-		for _, m := range rowMaps(res) {
-			k := cStr(m, "OsvId") + "::" + cStr(m, "Package") + "::" + cStr(m, "Ecosystem") + "::" + cStr(m, "Version")
-			d := cStr(m, "Disposition")
-			if d == "" {
-				d = "open"
-			}
-			disp[k] = [2]string{d, cStr(m, "Note")}
-		}
-	}
+	showAll := truthyStr(strings.TrimSpace(r.URL.Query().Get("show_all")))
+	versionsByPackage := s.inventoryVersionsByPackage()
+	dispositions := s.loadCveDispositions()
 	res, err := s.db.Execute(
 		"SELECT Package, Ecosystem, Version, ServiceName, OsvId, CveIds, Summary, Severity, Published " +
 			"FROM sobs_cve_findings FINAL ORDER BY Published DESC LIMIT 100")
@@ -85,26 +79,34 @@ func (s *server) handleApiCveFindings(w http.ResponseWriter, r *http.Request) {
 	}
 	findings := []any{}
 	for _, m := range rowMaps(res) {
-		key := cStr(m, "OsvId") + "::" + cStr(m, "Package") + "::" + cStr(m, "Ecosystem") + "::" + cStr(m, "Version")
-		raw := "open"
-		note := ""
-		if d, ok := disp[key]; ok {
-			raw, note = d[0], d[1]
+		pkg := cStr(m, "Package")
+		ecosystem := cStr(m, "Ecosystem")
+		version := cStr(m, "Version")
+		osvID := cStr(m, "OsvId")
+		key := osvID + "::" + pkg + "::" + ecosystem + "::" + version
+		entry := dispositions[key]
+		rawDisposition := entry.disposition
+		if rawDisposition == "" {
+			rawDisposition = "open"
+		}
+		disposition, dispositionExpired := effectiveCveDisposition(rawDisposition, pkg, ecosystem, version, versionsByPackage)
+		if !showAll && (disposition == "accepted" || disposition == "false_positive" || disposition == "fixed") {
+			continue
 		}
 		findings = append(findings, jsonenc.NewObject().
-			Set("package", cStr(m, "Package")).
-			Set("ecosystem", cStr(m, "Ecosystem")).
-			Set("version", cStr(m, "Version")).
+			Set("package", pkg).
+			Set("ecosystem", ecosystem).
+			Set("version", version).
 			Set("service", cStr(m, "ServiceName")).
-			Set("osv_id", cStr(m, "OsvId")).
-			Set("cve_ids", toEncodable(m["CveIds"])).
+			Set("osv_id", osvID).
+			Set("cve_ids", cveSplitIds(cStr(m, "CveIds"))).
 			Set("summary", cStr(m, "Summary")).
 			Set("severity", cStr(m, "Severity")).
 			Set("published", cStr(m, "Published")).
-			Set("disposition", raw).
-			Set("raw_disposition", raw).
-			Set("disposition_expired", false).
-			Set("disposition_note", note))
+			Set("disposition", disposition).
+			Set("raw_disposition", rawDisposition).
+			Set("disposition_expired", dispositionExpired).
+			Set("disposition_note", entry.note))
 	}
 	lastScan, _ := s.appSetting("enrichment.cve_last_scan")
 	writeJSON(w, http.StatusOK,

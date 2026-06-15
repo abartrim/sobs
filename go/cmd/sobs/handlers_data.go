@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -156,13 +157,91 @@ func (s *server) handleApiAgentRuns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("runs", runs))
 }
 
-// GET /api/enrichment/libraries — app.py api_enrichment_libraries. The merged library
-// inventory (release registry + OTEL SDK/scope tiers) and CVE findings are all empty on
-// the fixture -> libraries []. scanned_at from the cve_last_scan setting ("").
+// GET /api/enrichment/libraries — app.py api_enrichment_libraries. Returns the merged
+// library inventory (release registry + OTEL SDK/scope tiers) joined with per-(package,
+// ecosystem,version) CVE counts (countDistinct(OsvId) over sobs_cve_findings), derives a
+// status, and sorts by (cve_count desc, source order, package, version, service). Empty on
+// the fixture (no inventory, no findings) -> libraries []. scanned_at from cve_last_scan ("").
 func (s *server) handleApiEnrichmentLibraries(w http.ResponseWriter, r *http.Request) {
+	inventory := s.collectLibraryInventory()
+	cveRes, err := s.db.Execute(
+		"SELECT Package, Ecosystem, Version, countDistinct(OsvId) AS cve_count " +
+			"FROM sobs_cve_findings FINAL " +
+			"GROUP BY Package, Ecosystem, Version")
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError,
+			jsonenc.NewObject().Set("ok", false).Set("error", err.Error()))
+		return
+	}
+	cveCountByKey := map[string]int{}
+	for _, m := range rowMaps(cveRes) {
+		cveCountByKey[cStr(m, "Package")+"::"+cStr(m, "Ecosystem")+"::"+cStr(m, "Version")] = cInt(m, "cve_count")
+	}
+
+	type libRow struct {
+		obj      *jsonenc.Object
+		cveCount int
+		source   string
+		pkgLower string
+		verLower string
+		svcLower string
+	}
+	rows := make([]libRow, 0, len(inventory))
+	for _, item := range inventory {
+		pkg := item.pkg
+		ecosystem := item.ecosystem
+		version := item.version
+		service := cveServiceLabel(item)
+		source := item.source
+		cveCount := cveCountByKey[pkg+"::"+ecosystem+"::"+version]
+		status := "clean"
+		if ecosystem == "" {
+			status = "unknown_ecosystem"
+		} else if cveCount > 0 {
+			status = "vulnerable"
+		}
+		rows = append(rows, libRow{
+			obj: jsonenc.NewObject().
+				Set("package", pkg).
+				Set("ecosystem", ecosystem).
+				Set("version", version).
+				Set("service", service).
+				Set("source", source).
+				Set("app_name", item.appName).
+				Set("release_version", item.releaseVersion).
+				Set("environment", item.environment).
+				Set("cve_count", cveCount).
+				Set("status", status),
+			cveCount: cveCount,
+			source:   source,
+			pkgLower: strings.ToLower(pkg),
+			verLower: strings.ToLower(version),
+			svcLower: strings.ToLower(service),
+		})
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		if a.cveCount != b.cveCount {
+			return a.cveCount > b.cveCount
+		}
+		if pa, pb := cveSourcePriorityOr(a.source), cveSourcePriorityOr(b.source); pa != pb {
+			return pa < pb
+		}
+		if a.pkgLower != b.pkgLower {
+			return a.pkgLower < b.pkgLower
+		}
+		if a.verLower != b.verLower {
+			return a.verLower < b.verLower
+		}
+		return a.svcLower < b.svcLower
+	})
+	libraries := make([]any, len(rows))
+	for i, r := range rows {
+		libraries[i] = r.obj
+	}
 	scanned, _ := s.appSetting("enrichment.cve_last_scan")
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().
-		Set("ok", true).Set("libraries", []any{}).Set("scanned_at", scanned))
+		Set("ok", true).Set("libraries", libraries).Set("scanned_at", scanned))
 }
 
 // GET /api/work-items — app.py api_get_work_items: serialize sobs_github_work_items (FINAL),

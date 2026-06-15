@@ -822,8 +822,12 @@ func (s *server) activePartRows(table string) int {
 		"WHERE active = 1 AND database = currentDatabase() AND table = '" + table + "'")
 }
 
-// GET /enrichment/cve — app.py view_enrichment_cve. No CVE data on the fixture.
+// GET /enrichment/cve — app.py view_enrichment_cve. Renders the CVE findings page: the same
+// findings query as the API (dispositions + fixed-mark auto-expiry), the ecosystem/severity
+// facets, and the severity/ecosystem/package + show_all filters. Empty on the fixture (no
+// findings) -> cve_findings/ecosystems/severities []. cve_enabled gates the whole block.
 func (s *server) handleViewEnrichmentCve(w http.ResponseWriter, r *http.Request) {
+	cveEnabled := s.appSettingBool("enrichment.cve_enabled", true)
 	cveLastScan, _ := s.appSetting("enrichment.cve_last_scan")
 	maxRel := 300
 	if raw, ok := s.appSetting("enrichment.github_backfill_max_releases"); ok {
@@ -836,15 +840,117 @@ func (s *server) handleViewEnrichmentCve(w http.ResponseWriter, r *http.Request)
 			maxRel = n
 		}
 	}
+
+	q := r.URL.Query()
+	selectedSeverities := trimmedNonEmpty(q["severity"])
+	selectedEcosystems := trimmedNonEmpty(q["ecosystem"])
+	severityFilter := ""
+	if len(selectedSeverities) > 0 {
+		severityFilter = selectedSeverities[0]
+	}
+	ecosystemFilter := ""
+	if len(selectedEcosystems) > 0 {
+		ecosystemFilter = selectedEcosystems[0]
+	}
+	packageFilter := strings.TrimSpace(q.Get("package"))
+	showAll := truthyStr(strings.TrimSpace(q.Get("show_all")))
+
+	cveFindings := []any{}
+	ecosystems := []any{}
+	severities := []any{}
+	if cveEnabled {
+		versionsByPackage := s.inventoryVersionsByPackage()
+		dispositions := s.loadCveDispositions()
+		if res, err := s.db.Execute(
+			"SELECT Package, Ecosystem, Version, ServiceName, OsvId, CveIds, Summary, Severity, Published " +
+				"FROM sobs_cve_findings FINAL ORDER BY Published DESC LIMIT 500"); err == nil {
+			type cveFinding struct {
+				obj       *jsonenc.Object
+				ecosystem string
+				severity  string
+				pkgLower  string
+				disp      string
+			}
+			rows := []cveFinding{}
+			ecoSet := map[string]struct{}{}
+			sevSet := map[string]struct{}{}
+			for _, m := range rowMaps(res) {
+				pkg := cStr(m, "Package")
+				ecosystem := cStr(m, "Ecosystem")
+				version := cStr(m, "Version")
+				osvID := cStr(m, "OsvId")
+				severity := cStr(m, "Severity")
+				key := osvID + "::" + pkg + "::" + ecosystem + "::" + version
+				entry := dispositions[key]
+				rawDisposition := entry.disposition
+				if rawDisposition == "" {
+					rawDisposition = "open"
+				}
+				disposition, dispositionExpired := effectiveCveDisposition(rawDisposition, pkg, ecosystem, version, versionsByPackage)
+				rows = append(rows, cveFinding{
+					obj: jsonenc.NewObject().
+						Set("package", pkg).
+						Set("ecosystem", ecosystem).
+						Set("version", version).
+						Set("service", cStr(m, "ServiceName")).
+						Set("osv_id", osvID).
+						Set("cve_ids", cveSplitIds(cStr(m, "CveIds"))).
+						Set("summary", cStr(m, "Summary")).
+						Set("severity", severity).
+						Set("published", cStr(m, "Published")).
+						Set("disposition", disposition).
+						Set("raw_disposition", rawDisposition).
+						Set("disposition_expired", dispositionExpired).
+						Set("disposition_note", entry.note),
+					ecosystem: ecosystem,
+					severity:  severity,
+					pkgLower:  strings.ToLower(pkg),
+					disp:      disposition,
+				})
+				if ecosystem != "" {
+					ecoSet[ecosystem] = struct{}{}
+				}
+				if severity != "" {
+					sevSet[severity] = struct{}{}
+				}
+			}
+			ecosystems = sortedStringSet(ecoSet)
+			severities = sortedStringSet(sevSet)
+
+			selectedSeveritySet := toStringSet(selectedSeverities)
+			selectedEcosystemSet := toStringSet(selectedEcosystems)
+			pkgLower := strings.ToLower(packageFilter)
+			for _, row := range rows {
+				if len(selectedSeveritySet) > 0 {
+					if _, ok := selectedSeveritySet[row.severity]; !ok {
+						continue
+					}
+				}
+				if len(selectedEcosystemSet) > 0 {
+					if _, ok := selectedEcosystemSet[row.ecosystem]; !ok {
+						continue
+					}
+				}
+				if packageFilter != "" && !strings.Contains(row.pkgLower, pkgLower) {
+					continue
+				}
+				if !showAll && (row.disp == "accepted" || row.disp == "false_positive" || row.disp == "fixed") {
+					continue
+				}
+				cveFindings = append(cveFindings, row.obj)
+			}
+		}
+	}
+
 	s.renderPage(w, "cve.html", "view_enrichment_cve", map[string]any{
-		"cve_enabled":                  s.appSettingBool("enrichment.cve_enabled", true),
+		"cve_enabled":                  cveEnabled,
 		"cve_last_scan":                cveLastScan,
 		"github_backfill_max_releases": maxRel,
 		"cve_last_backfill_attempted":  0, "cve_last_backfill_inserted": 0, "cve_last_backfill_cap": 0,
-		"cve_findings": []any{}, "ecosystems": []any{}, "severities": []any{},
-		"severity_filter": "", "ecosystem_filter": "",
-		"selected_severities": []any{}, "selected_ecosystems": []any{},
-		"package_filter": "", "show_all": false,
+		"cve_findings": cveFindings, "ecosystems": ecosystems, "severities": severities,
+		"severity_filter": severityFilter, "ecosystem_filter": ecosystemFilter,
+		"selected_severities": toAnySlice(selectedSeverities), "selected_ecosystems": toAnySlice(selectedEcosystems),
+		"package_filter": packageFilter, "show_all": showAll,
 	})
 }
 
