@@ -83,8 +83,9 @@ func attrsToStringMap(v any) map[string]string {
 	return out
 }
 
-// attrGet mirrors `str(attrs.get(key, default))` for a normalized string-attr map.
-func attrGet(attrs map[string]string, key, def string) string {
+// attrGetDef mirrors `str(attrs.get(key, default))` for a normalized string-attr map. (Named
+// distinctly from the variadic attrGet(any, ...string) in query_filters.go.)
+func attrGetDef(attrs map[string]string, key, def string) string {
 	if v, ok := attrs[key]; ok {
 		return v
 	}
@@ -261,7 +262,7 @@ func extractStructuredErrorSummary(message, rawBody string) (string, bool) {
 		if summary != "" {
 			return summary, true
 		}
-		dumped, derr := jsonDumpsNoEsc(parsed)
+		dumped, derr := jsonDumpsNoEscErr(parsed)
 		if derr != nil {
 			return compactText("", 220), true
 		}
@@ -286,8 +287,9 @@ func parseJSONNative(raw []byte) (any, error) {
 	return v, nil
 }
 
-// jsonDumpsNoEsc mirrors json.dumps(value, ensure_ascii=False) (compact, no HTML escaping).
-func jsonDumpsNoEsc(v any) (string, error) {
+// jsonDumpsNoEscErr mirrors json.dumps(value, ensure_ascii=False) (compact, no HTML escaping).
+// Returns an error (vs the string-only jsonDumpsNoEsc in ai_view.go).
+func jsonDumpsNoEscErr(v any) (string, error) {
 	var b strings.Builder
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
@@ -304,13 +306,13 @@ func (s *server) buildErrorItem(m map[string]any) map[string]any {
 	attrs := attrsToStringMap(m["LogAttributes"])
 	ts := cStr(m, "Timestamp")
 	service := cStr(m, "ServiceName")
-	errType := attrGet(attrs, "exception.type", "Error")
-	message := attrGet(attrs, "exception.message", cStr(m, "Body"))
+	errType := attrGetDef(attrs, "exception.type", "Error")
+	message := attrGetDef(attrs, "exception.message", cStr(m, "Body"))
 	rawBody := cStr(m, "Body")
 	messageSummary, summaryFromJSON := extractStructuredErrorSummary(message, rawBody)
 	messageIsJSON, messagePretty := tryPrettyJSONText(message)
 	bodyIsJSON, bodyPretty := tryPrettyJSONText(rawBody)
-	stack := s.srcMap.demangleStack(attrGet(attrs, "exception.stacktrace", ""))
+	stack := s.srcMap.demangleStack(attrGetDef(attrs, "exception.stacktrace", ""))
 	stackIsJSON, stackPretty := tryPrettyJSONText(stack)
 	traceID := cStr(m, "TraceId")
 	spanID := cStr(m, "SpanId")
@@ -333,15 +335,15 @@ func (s *server) buildErrorItem(m map[string]any) map[string]any {
 		"stack_pretty_json":    stackPretty,
 		"trace_id":             traceID,
 		"span_id":              spanID,
-		"url":                  attrGet(attrs, "url.full", ""),
-		"error_source":         attrGet(attrs, "error.source", ""),
-		"page_title":           attrGet(attrs, "browser.page.title", ""),
-		"viewport":             attrGet(attrs, "browser.viewport", ""),
-		"artifact_type":        attrGet(attrs, "artifact.type", ""),
-		"artifact_id":          attrGet(attrs, "artifact.id", ""),
-		"artifact_url":         attrGet(attrs, "artifact.url", ""),
-		"replay_id":            attrGet(attrs, "replay.id", ""),
-		"replay_url":           attrGet(attrs, "replay.url", ""),
+		"url":                  attrGetDef(attrs, "url.full", ""),
+		"error_source":         attrGetDef(attrs, "error.source", ""),
+		"page_title":           attrGetDef(attrs, "browser.page.title", ""),
+		"viewport":             attrGetDef(attrs, "browser.viewport", ""),
+		"artifact_type":        attrGetDef(attrs, "artifact.type", ""),
+		"artifact_id":          attrGetDef(attrs, "artifact.id", ""),
+		"artifact_url":         attrGetDef(attrs, "artifact.url", ""),
+		"replay_id":            attrGetDef(attrs, "replay.id", ""),
+		"replay_url":           attrGetDef(attrs, "replay.url", ""),
 	}
 }
 
@@ -358,8 +360,9 @@ func (s *server) resolvedErrorIDs() map[string]bool {
 	return out
 }
 
-// parseTimeWindowArgs mirrors app.py _parse_time_window_args: (from_ts, to_ts, time_error).
-func parseTimeWindowArgs(q map[string][]string) (string, string, string) {
+// parseTimeWindowArgsQuery mirrors app.py _parse_time_window_args: (from_ts, to_ts, time_error).
+// Takes a url.Values map (vs the *http.Request-based parseTimeWindowArgs in query_filters.go).
+func parseTimeWindowArgsQuery(q map[string][]string) (string, string, string) {
 	getArg := func(k string) string {
 		if vs, ok := q[k]; ok && len(vs) > 0 {
 			return strings.TrimSpace(vs[0])
@@ -420,21 +423,6 @@ func parseISOLocalNaive(s string) (time.Time, bool) {
 		}
 	}
 	return time.Time{}, false
-}
-
-// timeWindowConditions mirrors app.py _time_window_conditions (DateTime64 column).
-func timeWindowConditions(column, fromTS, toTS string) ([]string, []any) {
-	var conditions []string
-	var params []any
-	if fromTS != "" {
-		conditions = append(conditions, column+" >= parseDateTime64BestEffort(?, 9)")
-		params = append(params, fromTS)
-	}
-	if toTS != "" {
-		conditions = append(conditions, column+" < parseDateTime64BestEffort(?, 9)")
-		params = append(params, toTS)
-	}
-	return conditions, params
 }
 
 // tsStrToEpochMs mirrors app.py _ts_str_to_epoch_ms.
@@ -993,14 +981,6 @@ func (s *server) fetchTraceMetricContext(serviceNames []string, startTS, endTS s
 		"source_mode": "none", "total_points": 0, "series": []any{},
 		"match_mode": "none", "match_label": "no match", "match_dimensions": []any{},
 	}
-}
-
-func toAnySlice(values []string) []any {
-	out := make([]any, len(values))
-	for i, v := range values {
-		out[i] = v
-	}
-	return out
 }
 
 // loadWorkItemLinksForRefIDs mirrors app.py _load_work_item_links_for_ref_ids.

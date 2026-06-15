@@ -1100,14 +1100,14 @@ func (s *server) handleViewAi(w http.ResponseWriter, r *http.Request) {
 	spanName := firstOr(selectedSpanNames)
 	rowType := firstOr(selectedRowTypes)
 	sqlWhere := strings.TrimSpace(q.Get("sql"))
-	fromTS, toTS, timeError := parseTimeWindowArgs(q.Get("from_ts"), q.Get("to_ts"), q.Get("window_s"))
+	fromTS, toTS, timeError := parseTimeWindowArgsStrings(q.Get("from_ts"), q.Get("to_ts"), q.Get("window_s"))
 	viewMode := strings.ToLower(strings.TrimSpace(q.Get("view")))
 	if viewMode != "flat" && viewMode != "trace" {
 		viewMode = "flat"
 	}
-	limit := parseLimit(q.Get("limit"), 50)
-	offset := parseOffset(q.Get("offset"))
-	sortBy, sortCol, sortDir := parseSort(q.Get("sort_by"), q.Get("sort_dir"),
+	limit := parseLimitStr(q.Get("limit"), 50)
+	offset := parseOffsetStr(q.Get("offset"))
+	sortBy, sortCol, sortDir := parseSortStr(q.Get("sort_by"), q.Get("sort_dir"),
 		map[string]string{"Timestamp": "Timestamp", "Duration": "Duration", "ServiceName": "ServiceName"},
 		"Timestamp")
 	orderDir := "DESC"
@@ -1537,13 +1537,7 @@ func firstOr(values []string) string {
 	return ""
 }
 
-// placeholders builds "?,?,?" with n placeholders.
-func placeholders(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	return strings.Repeat("?,", n-1) + "?"
-}
+// placeholders is provided once in query_filters.go.
 
 // toAnySlice converts []string to []any (for SQL params / template lists of strings).
 func toAnySlice(values []string) []any {
@@ -1589,7 +1583,7 @@ func (s *server) handleViewIncident(w http.ResponseWriter, r *http.Request) {
 	errorID := strings.TrimSpace(q.Get("error_id"))
 	rumSession := strings.TrimSpace(q.Get("rum_session"))
 	rumTS := strings.TrimSpace(q.Get("rum_ts"))
-	fromTS, toTS, timeError := parseTimeWindowArgs(q)
+	fromTS, toTS, timeError := parseTimeWindowArgsQuery(q)
 
 	windowMinutes := incidentWindowDefaultMinutes
 	if wmRaw := strings.TrimSpace(q.Get("window_minutes")); wmRaw != "" {

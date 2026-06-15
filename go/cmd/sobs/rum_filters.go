@@ -36,22 +36,6 @@ func parseLimitDefault(r *http.Request, def int) int {
 	return n
 }
 
-// parseOffset mirrors app.py _parse_offset: max(0, int(?offset)) with a fallback to 0.
-func parseOffset(r *http.Request) int {
-	raw := r.URL.Query().Get("offset")
-	if raw == "" {
-		return 0
-	}
-	n, err := strconv.Atoi(strings.TrimSpace(raw))
-	if err != nil {
-		return 0
-	}
-	if n < 0 {
-		return 0
-	}
-	return n
-}
-
 // sortOption pairs a URL param value with its SQL column. A slice (not a map) preserves the
 // allowed-key set without affecting behavior — only membership + the mapped column matter.
 type sortOption struct{ key, col string }
@@ -65,10 +49,11 @@ func lookupSort(allowed []sortOption, key string) (string, bool) {
 	return "", false
 }
 
-// parseSort mirrors app.py _parse_sort(allowed, default_col): validate ?sort_by against the
-// allowed map (falling back to defaultBy) and ?sort_dir to asc/desc (default desc). Returns
-// (sortBy, sqlCol, sortDir).
-func parseSort(r *http.Request, allowed []sortOption, defaultBy string) (sortBy, sqlCol, sortDir string) {
+// parseSortOptions mirrors app.py _parse_sort(allowed, default_col): validate ?sort_by against
+// the allowed map (falling back to defaultBy) and ?sort_dir to asc/desc (default desc). Returns
+// (sortBy, sqlCol, sortDir). Takes a []sortOption allow-list (vs the map[string]string form used
+// by the canonical parseSort in query_filters.go).
+func parseSortOptions(r *http.Request, allowed []sortOption, defaultBy string) (sortBy, sqlCol, sortDir string) {
 	sortBy = r.URL.Query().Get("sort_by")
 	if sortBy == "" {
 		sortBy = defaultBy
@@ -96,10 +81,11 @@ func orderDir(sortDir string) string {
 	return "DESC"
 }
 
-// parseTimeWindowArgs mirrors app.py _parse_time_window_args: normalize from_ts/to_ts (and
+// parseRumTimeWindowArgs mirrors app.py _parse_time_window_args: normalize from_ts/to_ts (and
 // optional window_s) to ClickHouse DateTime64 strings, returning ("", "", error) on a bad
-// value or a non-increasing window. Empty inputs yield ("", "", "").
-func parseTimeWindowArgs(r *http.Request) (fromTS, toTS, errMsg string) {
+// value or a non-increasing window. Empty inputs yield ("", "", ""). Uses the package
+// normalizeCHTimestamp(any) (first-T fallback) + the local parseCHTimestamp.
+func parseRumTimeWindowArgs(r *http.Request) (fromTS, toTS, errMsg string) {
 	const valueErr = "Invalid time value. Use ISO-8601, e.g. 2026-03-29T12:00:00Z"
 	q := r.URL.Query()
 	fromRaw := strings.TrimSpace(q.Get("from_ts"))
@@ -160,39 +146,18 @@ func parseCHTimestamp(s string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// timeWindowConditions mirrors app.py _time_window_conditions: build the parseDateTime64BestEffort
-// fragments for a from/to window on a DateTime64 column.
-func timeWindowConditions(column, fromTS, toTS string) (conds []string, params []any) {
-	if fromTS != "" {
-		conds = append(conds, column+" >= parseDateTime64BestEffort(?, 9)")
-		params = append(params, fromTS)
-	}
-	if toTS != "" {
-		conds = append(conds, column+" < parseDateTime64BestEffort(?, 9)")
-		params = append(params, toTS)
-	}
-	return conds, params
-}
-
-// whereClause mirrors app.py _where_clause: "WHERE a AND b" or "" when empty.
-func whereClause(conds []string) string {
-	if len(conds) == 0 {
-		return ""
-	}
-	return "WHERE " + strings.Join(conds, " AND ")
-}
-
 // regexFilter holds the parsed include/exclude pattern lists from a `q` expression.
 type regexFilter struct {
 	include []string
 	exclude []string
 }
 
-// prepareRE2FilterPatterns mirrors app.py _prepare_re2_filter_patterns: parse the
+// prepareRumRE2FilterPatterns mirrors app.py _prepare_re2_filter_patterns: parse the
 // `include && !exclude` expression, then RE2-validate every pattern via the DB. Returns the
-// pattern lists and a non-empty error string on a parse/RE2 failure.
-func (s *server) prepareRE2FilterPatterns(raw string) (regexFilter, string) {
-	rf, parseErr := parseRegexFilterExpression(raw)
+// pattern lists (as a regexFilter) and a non-empty error string on a parse/RE2 failure. Named
+// distinctly from the []string-returning prepareRE2FilterPatterns in handlers_pages_logs_errors.go.
+func (s *server) prepareRumRE2FilterPatterns(raw string) (regexFilter, string) {
+	rf, parseErr := parseRumRegexFilterExpression(raw)
 	if parseErr != "" {
 		return regexFilter{}, parseErr
 	}
@@ -205,10 +170,10 @@ func (s *server) prepareRE2FilterPatterns(raw string) (regexFilter, string) {
 	return rf, ""
 }
 
-// parseRegexFilterExpression mirrors app.py _parse_regex_filter_expression: split on
-// unescaped `&&`, treat a leading `!` as exclude, unescape `\&&`, and compile each pattern
-// (Go's regexp is RE2, the same engine ClickHouse match() uses) to surface a syntax error.
-func parseRegexFilterExpression(raw string) (regexFilter, string) {
+// parseRumRegexFilterExpression mirrors app.py _parse_regex_filter_expression but returns a
+// regexFilter struct (vs the (include, exclude, err) form of the canonical
+// parseRegexFilterExpression in query_filters.go).
+func parseRumRegexFilterExpression(raw string) (regexFilter, string) {
 	expr := strings.TrimSpace(raw)
 	if expr == "" {
 		return regexFilter{}, ""
@@ -245,36 +210,6 @@ func parseRegexFilterExpression(raw string) (regexFilter, string) {
 	return rf, ""
 }
 
-// splitRegexFilterExpressionTerms mirrors app.py _split_regex_filter_expression_terms: split
-// on `&&` only when an even number of backslashes precedes it (so `\&&` stays literal).
-func splitRegexFilterExpressionTerms(expression string) []string {
-	var parts []string
-	var buf strings.Builder
-	n := len(expression)
-	for i := 0; i < n; i++ {
-		if i+1 < n && expression[i] == '&' && expression[i+1] == '&' {
-			backslashes := 0
-			for j := i - 1; j >= 0 && expression[j] == '\\'; j-- {
-				backslashes++
-			}
-			if backslashes%2 == 0 {
-				parts = append(parts, strings.TrimSpace(buf.String()))
-				buf.Reset()
-				i++ // skip the second '&'; loop's i++ skips the first
-				continue
-			}
-		}
-		buf.WriteByte(expression[i])
-	}
-	parts = append(parts, strings.TrimSpace(buf.String()))
-	return parts
-}
-
-// unescapeRegexFilterTerm mirrors app.py _unescape_regex_filter_term: `\&&` -> `&&`.
-func unescapeRegexFilterTerm(term string) string {
-	return strings.ReplaceAll(term, `\&&`, "&&")
-}
-
 // compileRE2Surface mirrors app.py's `re.compile(token, re.IGNORECASE)` syntax check that
 // precedes the DB-side RE2 validation: it returns a "Regex error: ..." message when the
 // pattern fails to compile, else "". Python uses the stdlib `re` engine here (Go's regexp is
@@ -288,28 +223,11 @@ func compileRE2Surface(token string) string {
 	return ""
 }
 
-// validateRE2Pattern mirrors app.py _validate_re2_pattern: a blank pattern is fine; otherwise
-// probe ClickHouse's RE2 via `SELECT match(”, ?)`, trimming the "...: while executing
-// function" tail off any error the same way Python does.
-func (s *server) validateRE2Pattern(pattern string) string {
-	value := strings.TrimSpace(pattern)
-	if value == "" {
-		return ""
-	}
-	_, err := s.db.Execute("SELECT match('', ?)", value)
-	if err == nil {
-		return ""
-	}
-	msg := strings.TrimSpace(err.Error())
-	if idx := strings.Index(msg, ": while executing function"); idx >= 0 {
-		msg = strings.TrimSpace(msg[:idx])
-	}
-	return "Regex error: " + msg
-}
-
-// appendRegexExpressionClauses mirrors app.py _append_regex_expression_clauses: one
-// match(col, ?) per include pattern and one NOT match(col, ?) per exclude pattern.
-func appendRegexExpressionClauses(conds []string, params []any, column string, rf regexFilter) ([]string, []any) {
+// appendRumRegexExpressionClauses mirrors app.py _append_regex_expression_clauses: one
+// match(col, ?) per include pattern and one NOT match(col, ?) per exclude pattern. Takes a
+// regexFilter and returns the extended slices (vs the pointer-extend canonical
+// appendRegexExpressionClauses in query_filters.go).
+func appendRumRegexExpressionClauses(conds []string, params []any, column string, rf regexFilter) ([]string, []any) {
 	for _, p := range rf.include {
 		conds = append(conds, "match("+column+", ?)")
 		params = append(params, p)

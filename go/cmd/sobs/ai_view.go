@@ -36,9 +36,10 @@ const aiTraceResponseSQL = "coalesce(SpanAttributes['sobs.gen_ai.response'], " +
 // callers stay net/http-native.
 // ---------------------------------------------------------------------------
 
-// parseLimit mirrors app.py _parse_limit(default): clamp to [1, 5000]; the literal default
-// (not 1) on a parse failure.
-func parseLimit(raw string, def int) int {
+// parseLimitStr mirrors app.py _parse_limit(default): clamp to [1, 5000]; the literal default
+// (not 1) on a parse failure. Takes the raw string value (vs the *http.Request-based parseLimit
+// in query_filters.go).
+func parseLimitStr(raw string, def int) int {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return clampLimit(def)
@@ -60,8 +61,9 @@ func clampLimit(n int) int {
 	return n
 }
 
-// parseOffset mirrors app.py _parse_offset: max(0, int(offset)); 0 on parse failure.
-func parseOffset(raw string) int {
+// parseOffsetStr mirrors app.py _parse_offset: max(0, int(offset)); 0 on parse failure. Takes
+// the raw string value (vs the *http.Request-based parseOffset in query_filters.go).
+func parseOffsetStr(raw string) int {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return 0
@@ -76,8 +78,10 @@ func parseOffset(raw string) int {
 	return n
 }
 
-// parseSort mirrors app.py _parse_sort(allowed, default_col). Returns (sortBy, sqlCol, sortDir).
-func parseSort(sortByRaw, sortDirRaw string, allowed map[string]string, defaultCol string) (string, string, string) {
+// parseSortStr mirrors app.py _parse_sort(allowed, default_col). Returns (sortBy, sqlCol,
+// sortDir). Takes the raw sort_by/sort_dir string values (vs the *http.Request-based parseSort
+// in query_filters.go).
+func parseSortStr(sortByRaw, sortDirRaw string, allowed map[string]string, defaultCol string) (string, string, string) {
 	sortBy := sortByRaw
 	if sortByRaw == "" {
 		sortBy = defaultCol
@@ -95,8 +99,10 @@ func parseSort(sortByRaw, sortDirRaw string, allowed map[string]string, defaultC
 	return sortBy, allowed[sortBy], sortDir
 }
 
-// parseTimeWindowArgs mirrors app.py _parse_time_window_args. Returns (fromTS, toTS, errMsg).
-func parseTimeWindowArgs(fromRaw, toRaw, windowRaw string) (string, string, string) {
+// parseTimeWindowArgsStrings mirrors app.py _parse_time_window_args. Returns (fromTS, toTS,
+// errMsg). Takes the raw from/to/window string values (vs the *http.Request-based
+// parseTimeWindowArgs in query_filters.go).
+func parseTimeWindowArgsStrings(fromRaw, toRaw, windowRaw string) (string, string, string) {
 	fromRaw = strings.TrimSpace(fromRaw)
 	toRaw = strings.TrimSpace(toRaw)
 	windowRaw = strings.TrimSpace(windowRaw)
@@ -158,28 +164,7 @@ func parseISOFloor(s string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// timeWindowConditions mirrors app.py _time_window_conditions.
-func timeWindowConditions(column, fromTS, toTS string) ([]string, []any) {
-	conditions := []string{}
-	params := []any{}
-	if fromTS != "" {
-		conditions = append(conditions, column+" >= parseDateTime64BestEffort(?, 9)")
-		params = append(params, fromTS)
-	}
-	if toTS != "" {
-		conditions = append(conditions, column+" < parseDateTime64BestEffort(?, 9)")
-		params = append(params, toTS)
-	}
-	return conditions, params
-}
-
-// whereClause mirrors app.py _where_clause.
-func whereClause(conditions []string) string {
-	if len(conditions) == 0 {
-		return ""
-	}
-	return "WHERE " + strings.Join(conditions, " AND ")
-}
+// timeWindowConditions and whereClause are provided once in query_filters.go.
 
 // ---------------------------------------------------------------------------
 // User SQL WHERE normalization (app.py _normalize_ai_sql_where / _validate_user_sql_where /

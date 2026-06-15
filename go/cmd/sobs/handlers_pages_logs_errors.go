@@ -25,24 +25,6 @@ func queryGetList(r *http.Request, key string) []string {
 	return r.URL.Query()[key]
 }
 
-// placeholders returns "?,?,...,?" with n entries (mirrors ",".join(["?"] * n)).
-func placeholders(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	return strings.Repeat("?,", n-1) + "?"
-}
-
-// toAnySlice converts a []string to []any for template iteration (nil → empty slice so the
-// template's {% for %} sees an empty list, matching Python's empty getlist result).
-func toAnySlice(s []string) []any {
-	out := make([]any, 0, len(s))
-	for _, v := range s {
-		out = append(out, v)
-	}
-	return out
-}
-
 // pyISOFormatUTC mirrors datetime.isoformat() for a UTC-aware datetime: microseconds are
 // emitted only when non-zero, and the offset renders as "+00:00".
 func pyISOFormatUTC(dt time.Time) string {
@@ -113,79 +95,6 @@ func parseSortArg(r *http.Request, allowed map[string]string, defaultCol string)
 	return sortBy, allowed[sortBy], sortDir
 }
 
-// parseTimeWindowArgs mirrors _parse_time_window_args(): normalize from_ts/to_ts (with
-// optional window_s) and validate ordering. Returns (from_ts, to_ts, error_msg).
-func parseTimeWindowArgs(r *http.Request) (string, string, string) {
-	fromRaw := strings.TrimSpace(r.URL.Query().Get("from_ts"))
-	toRaw := strings.TrimSpace(r.URL.Query().Get("to_ts"))
-	windowRaw := strings.TrimSpace(r.URL.Query().Get("window_s"))
-
-	const badValue = "Invalid time value. Use ISO-8601, e.g. 2026-03-29T12:00:00Z"
-	fromTs := ""
-	if fromRaw != "" {
-		v, ok := normalizeChTimestamp(fromRaw)
-		if !ok {
-			return "", "", badValue
-		}
-		fromTs = v
-	}
-	toTs := ""
-	if toRaw != "" {
-		v, ok := normalizeChTimestamp(toRaw)
-		if !ok {
-			return "", "", badValue
-		}
-		toTs = v
-	}
-	if fromTs != "" && toTs == "" && windowRaw != "" {
-		win, err := strconv.Atoi(windowRaw)
-		if err != nil {
-			return "", "", badValue
-		}
-		if win < 1 {
-			win = 1
-		}
-		fromDt, ok := parseISOTime(fromTs)
-		if !ok {
-			return "", "", badValue
-		}
-		toTs = normalizeChTimestampDt(fromDt.Add(time.Duration(win) * time.Second))
-	}
-	if fromTs != "" && toTs != "" {
-		fromDt, fOK := parseISOTime(fromTs)
-		toDt, tOK := parseISOTime(toTs)
-		if !fOK || !tOK {
-			return "", "", badValue
-		}
-		if !toDt.After(fromDt) {
-			return "", "", "Invalid time window: to_ts must be later than from_ts"
-		}
-	}
-	return fromTs, toTs, ""
-}
-
-// normalizeChTimestamp mirrors _normalize_ch_timestamp(value) for string input. Returns the
-// ClickHouse DateTime64-compatible string and a parse-success flag. String parsing never
-// fails outright (it falls back to the raw value with T→space, matching Python).
-func normalizeChTimestamp(raw string) (string, bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return normalizeChTimestampDt(nowUTC()), true
-	}
-	dt, ok := parseISOTime(strings.ReplaceAll(raw, "Z", "+00:00"))
-	if !ok {
-		// Last resort: preserve value (T→space) and hope ClickHouse accepts it.
-		return strings.ReplaceAll(raw, "T", " "), true
-	}
-	return normalizeChTimestampDt(dt.UTC()), true
-}
-
-// normalizeChTimestampDt formats a time as Python strftime("%Y-%m-%d %H:%M:%S.%f")
-// (microsecond precision, 6 digits).
-func normalizeChTimestampDt(dt time.Time) string {
-	return dt.UTC().Format("2006-01-02 15:04:05.000000")
-}
-
 // parseISOTime mirrors datetime.fromisoformat. Returns the parsed time (offset-aware values
 // retain their offset; naive values are treated as the local zero offset, fine for the
 // strictly-later comparison) and ok.
@@ -214,26 +123,6 @@ func parseISOTime(raw string) (time.Time, bool) {
 		}
 	}
 	return time.Time{}, false
-}
-
-// timeWindowConditions mirrors _time_window_conditions(column, from_ts, to_ts).
-func timeWindowConditions(column, fromTs, toTs string) (conds []string, params []any) {
-	if fromTs != "" {
-		conds = append(conds, column+" >= parseDateTime64BestEffort(?, 9)")
-		params = append(params, fromTs)
-	}
-	if toTs != "" {
-		conds = append(conds, column+" < parseDateTime64BestEffort(?, 9)")
-		params = append(params, toTs)
-	}
-	return conds, params
-}
-
-// appendTimeWindowFilter mirrors _append_time_window_filter.
-func appendTimeWindowFilter(conds *[]string, params *[]any, column, fromTs, toTs string) {
-	c, p := timeWindowConditions(column, fromTs, toTs)
-	*conds = append(*conds, c...)
-	*params = append(*params, p...)
 }
 
 // whereClauseSQL mirrors _where_clause(conditions).
@@ -301,73 +190,10 @@ func errorIDFor(ts, service, errType, message, traceID, spanID string) string {
 // ---------------------------------------------------------------------------
 // RE2 regex-filter helpers (port of the _*_regex_filter_* family).
 // chDB's match() uses RE2; Go's regexp is also RE2, so validation matches.
+// The pure-parse helpers (splitRegexFilterExpressionTerms / parseRegexFilterExpression /
+// appendRegexExpressionClauses) live once in query_filters.go; only the DB-probing methods
+// (which the page handlers call as s.prepareRE2FilterPatterns) are kept here.
 // ---------------------------------------------------------------------------
-
-// splitRegexFilterExpressionTerms mirrors _split_regex_filter_expression_terms.
-func splitRegexFilterExpressionTerms(expression string) []string {
-	var parts []string
-	var buf []byte
-	n := len(expression)
-	i := 0
-	for i < n {
-		if i+1 < n && expression[i] == '&' && expression[i+1] == '&' {
-			backslashes := 0
-			j := i - 1
-			for j >= 0 && expression[j] == '\\' {
-				backslashes++
-				j--
-			}
-			if backslashes%2 == 0 {
-				parts = append(parts, strings.TrimSpace(string(buf)))
-				buf = buf[:0]
-				i += 2
-				continue
-			}
-		}
-		buf = append(buf, expression[i])
-		i++
-	}
-	parts = append(parts, strings.TrimSpace(string(buf)))
-	return parts
-}
-
-// parseRegexFilterExpression mirrors _parse_regex_filter_expression.
-func parseRegexFilterExpression(raw string) (include, exclude []string, errMsg string) {
-	expression := strings.TrimSpace(raw)
-	if expression == "" {
-		return nil, nil, ""
-	}
-	parts := splitRegexFilterExpressionTerms(expression)
-	if len(parts) == 0 {
-		return nil, nil, "Regex error: invalid expression around '&&'"
-	}
-	for _, p := range parts {
-		if p == "" {
-			return nil, nil, "Regex error: invalid expression around '&&'"
-		}
-	}
-	for _, part := range parts {
-		negate := strings.HasPrefix(part, "!")
-		token := part
-		if negate {
-			token = strings.TrimSpace(part[1:])
-		}
-		token = strings.ReplaceAll(token, `\&&`, "&&") // _unescape_regex_filter_term
-		if token == "" {
-			return nil, nil, "Regex error: expected a pattern after '!'"
-		}
-		// re.compile(token, re.IGNORECASE) validity check.
-		if _, err := regexp.Compile("(?i)" + token); err != nil {
-			return nil, nil, "Regex error: " + err.Error()
-		}
-		if negate {
-			exclude = append(exclude, token)
-		} else {
-			include = append(include, token)
-		}
-	}
-	return include, exclude, ""
-}
 
 // validateRE2Pattern mirrors _validate_re2_pattern: probe `SELECT match(”, ?)` against chDB.
 // Returns "" when valid, else a "Regex error: ..." message.
@@ -401,32 +227,10 @@ func (s *server) prepareRE2FilterPatterns(raw string) (include, exclude []string
 	return include, exclude, ""
 }
 
-// appendRegexExpressionClauses mirrors _append_regex_expression_clauses.
-func appendRegexExpressionClauses(conds *[]string, params *[]any, column string, include, exclude []string) {
-	for _, pattern := range include {
-		*conds = append(*conds, "match("+column+", ?)")
-		*params = append(*params, pattern)
-	}
-	for _, pattern := range exclude {
-		*conds = append(*conds, "NOT match("+column+", ?)")
-		*params = append(*params, pattern)
-	}
-}
-
 // ---------------------------------------------------------------------------
-// User SQL WHERE validation + token substitution (logs SQL-search path).
+// User SQL WHERE token substitution (logs SQL-search path). The unsafe-keyword guard
+// (validateUserSQLWhere + unsafeWherePatterns) lives once in ai_view.go.
 // ---------------------------------------------------------------------------
-
-var unsafeWherePatterns = regexp.MustCompile(`(?i)\b(insert|update|delete|drop|truncate|alter|create|replace|rename|attach|detach|grant|revoke|system\s+stop|system\s+start|system\s+reload|kill|optimize|exchange)\b`)
-
-// validateUserSQLWhere mirrors _validate_user_sql_where: returns an error message when the
-// fragment contains a disallowed keyword, else "".
-func validateUserSQLWhere(sqlWhere string) string {
-	if unsafeWherePatterns.MatchString(sqlWhere) {
-		return "SQL filter contains a disallowed keyword. Only comparison and logical expressions are permitted in filter fields."
-	}
-	return ""
-}
 
 var (
 	reWordLevel   = regexp.MustCompile(`(?i)\blevel\b`)

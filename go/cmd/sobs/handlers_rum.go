@@ -111,19 +111,19 @@ func (s *server) handleViewRum(w http.ResponseWriter, r *http.Request) {
 
 	var sortBy, sortCol, sortDir string
 	if viewMode == "sessions" {
-		sortBy, sortCol, sortDir = parseSort(r, rumSessionSortOptions, "severity")
+		sortBy, sortCol, sortDir = parseSortOptions(r, rumSessionSortOptions, "severity")
 	} else {
-		sortBy, sortCol, sortDir = parseSort(r, rumEventSortOptions, "Timestamp")
+		sortBy, sortCol, sortDir = parseSortOptions(r, rumEventSortOptions, "Timestamp")
 	}
 	orderClause := "ORDER BY " + sortCol + " " + orderDir(sortDir)
-	fromTS, toTS, timeError := parseTimeWindowArgs(r)
+	fromTS, toTS, timeError := parseRumTimeWindowArgs(r)
 
 	qStr := strings.TrimSpace(q.Get("q"))
 	qError := ""
 	var rf regexFilter
 	if qStr != "" {
 		var rErr string
-		rf, rErr = s.prepareRE2FilterPatterns(qStr)
+		rf, rErr = s.prepareRumRE2FilterPatterns(qStr)
 		if rErr != "" {
 			qError = rErr
 		}
@@ -143,7 +143,7 @@ func (s *server) handleViewRum(w http.ResponseWriter, r *http.Request) {
 	conditions = append(conditions, tConds...)
 	params = append(params, tParams...)
 	if qStr != "" && qError == "" {
-		conditions, params = appendRegexExpressionClauses(conditions, params, "Body", rf)
+		conditions, params = appendRumRegexExpressionClauses(conditions, params, "Body", rf)
 	}
 	where := whereClause(conditions)
 

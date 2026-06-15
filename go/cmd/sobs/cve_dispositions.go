@@ -122,12 +122,3 @@ func sortedStringSet(set map[string]struct{}) []any {
 	}
 	return out
 }
-
-// toAnySlice copies a string slice into []any for template rendering.
-func toAnySlice(values []string) []any {
-	out := make([]any, len(values))
-	for i, v := range values {
-		out[i] = v
-	}
-	return out
-}
