@@ -15,6 +15,7 @@ Source of truth: migration/manifest/routes.generated.json (the live Werkzeug URL
 by extract_routes_runtime.py). Regenerate after any route change:
 
     python3 migration/tools/gen_route_methods.py
+    gofmt -w go/cmd/sobs/route_allow_gen.go   # this emits single-space output; gofmt aligns it
 """
 
 from __future__ import annotations
@@ -59,7 +60,7 @@ def render(allow: dict[str, str]) -> str:
         "var rawRouteAllow = map[string]string{",
     ]
     for path in sorted(allow):
-        lines.append(f'\t{go_quote(path)}: {go_quote(allow[path])},')
+        lines.append(f"\t{go_quote(path)}: {go_quote(allow[path])},")
     lines.append("}")
     lines.append("")
     return "\n".join(lines)
