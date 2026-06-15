@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"log"
 	"os"
 	"strconv"
 	"time"
@@ -102,11 +103,16 @@ func runWriteBatch(batch []*writeTask) {
 	}
 }
 
+// envInt parses a bare integer env var, mirroring Python's int(os.environ.get(name, default)):
+// unset falls back to def, but a SET-but-malformed value is fatal at startup (Python raises
+// ValueError and the process never boots). Every caller maps to a Python bare-int() var.
 func envInt(name string, def int) int {
 	if v := os.Getenv(name); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			log.Fatalf("%s: invalid literal for int() with base 10: %q", name, v)
 		}
+		return n
 	}
 	return def
 }

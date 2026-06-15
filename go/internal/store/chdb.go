@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -87,11 +88,16 @@ func chdbConnectTarget(path string) (string, error) {
 	return path + "?" + params, nil
 }
 
+// envIntStore parses a bare integer env var, mirroring Python's int(os.environ.get(name, default))
+// for the CHDB_* tuning vars: unset falls back to def, but a SET-but-malformed value is fatal at
+// startup (Python raises ValueError at import and the process never boots).
 func envIntStore(name string, def int) int {
 	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			log.Fatalf("%s: invalid literal for int() with base 10: %q", name, v)
 		}
+		return n
 	}
 	return def
 }
