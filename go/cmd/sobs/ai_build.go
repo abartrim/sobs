@@ -59,7 +59,7 @@ func (s *server) handleApiDashboardsSpecAiBuild(w http.ResponseWriter, r *http.R
 	// Optional named datasets for complex multi-dataset charts.
 	namedQueryResults := []any{}
 	if len(columns) > 0 {
-		namedRaw := s.generateNamedQueries(endpoint, sql)
+		namedRaw := s.generateNamedQueries(endpoint, question, sql)
 		namedQueryResults = s.executeNamedQueries(namedRaw, 1000)
 		for _, nqv := range namedQueryResults {
 			nq, ok := nqv.(*jsonenc.Object)
@@ -77,7 +77,7 @@ func (s *server) handleApiDashboardsSpecAiBuild(w http.ResponseWriter, r *http.R
 	chartSpecJSON, chartError := "", ""
 	customMappingJSON := "{}"
 	if len(columns) > 0 {
-		chartSpecJSON, chartError = s.generateChartSpec(endpoint)
+		chartSpecJSON, chartError = s.generateChartSpec(endpoint, question, columns, rows, namedQueryResults)
 		if chartSpecJSON != "" {
 			customMappingJSON = "{}"
 		} else {
@@ -131,8 +131,24 @@ func (s *server) validateAndExecuteVannaSQL(sql string) (string, []any, []any, s
 
 // generateNamedQueries mirrors _vanna_generate_named_queries: parse the LLM reply as
 // {"datasets":[{name,sql,purpose}]}. A non-JSON reply yields no named queries.
-func (s *server) generateNamedQueries(endpoint, baseSQL string) []any {
-	raw, _, err := s.callLLMEndpoint(endpoint)
+func (s *server) generateNamedQueries(endpoint, question, baseSQL string) []any {
+	userMsg := "Question: " + question + "\n\n" +
+		"Preferred chart type: \nChart instruction: \n\n" +
+		"Primary SQL:\n" + baseSQL + "\n\n" +
+		"Schema context:\n" + s.getSchemaContext() + "\n\n" +
+		"If one dataset is sufficient, return an empty datasets array. " +
+		"For network/flow charts (graph/sankey/chord), prefer separate nodes and links datasets."
+	messages := []any{
+		jsonenc.NewObject().Set("role", "system").Set("content", namedQueriesSystemPrompt),
+		jsonenc.NewObject().Set("role", "user").Set("content", userMsg),
+	}
+	raw, _, err := s.callLLMChat(llmRequest{
+		endpoint:      endpoint,
+		model:         strings.TrimSpace(s.loadAISetting("ai.model", "")),
+		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
+		thinkingLevel: strings.TrimSpace(s.loadAISetting("ai.thinking_level", "off")),
+		messages:      messages,
+	})
 	if err != nil || raw == "" {
 		return []any{}
 	}
@@ -183,8 +199,48 @@ func (s *server) generateNamedQueries(endpoint, baseSQL string) []any {
 
 // generateChartSpec mirrors _vanna_generate_chart_spec: ask the LLM for an ECharts option JSON, with
 // a local + LLM repair pass. Returns (option_json, error); a non-JSON reply yields ("", parse error).
-func (s *server) generateChartSpec(endpoint string) (string, string) {
-	raw, _, err := s.callLLMEndpoint(endpoint)
+func (s *server) generateChartSpec(endpoint, question string, columns, sampleRows, namedDatasets []any) (string, string) {
+	rows := sampleRows
+	if len(rows) > 20 {
+		rows = rows[:20]
+	}
+	compact := jsonenc.Options{SortKeys: false, EnsureASCII: false, ItemSep: ",", KeySep: ":"}
+	sampleStr := string(jsonenc.Encode(jsonenc.NewObject().Set("columns", columns).Set("rows", rows), compact))
+	namedStr := ""
+	if len(namedDatasets) > 0 {
+		condensed := []any{}
+		for _, dsv := range namedDatasets {
+			ds, ok := dsv.(*jsonenc.Object)
+			if !ok {
+				continue
+			}
+			dr := objGetArr(ds, "rows")
+			if len(dr) > 20 {
+				dr = dr[:20]
+			}
+			condensed = append(condensed, jsonenc.NewObject().
+				Set("name", objGetStr(ds, "name")).Set("purpose", objGetStr(ds, "purpose")).
+				Set("columns", objGetOr(ds, "columns", []any{})).Set("rows", dr))
+		}
+		if len(condensed) > 0 {
+			namedStr = "\n\nNamed datasets (use when multi-dataset chart structures are needed):\n" +
+				string(jsonenc.Encode(condensed, compact))
+		}
+	}
+	userMsg := "Original question: " + question + "\n\n" +
+		"Result set (columns + up to 20 sample rows):\n" + sampleStr + "\n\n" +
+		namedStr + "Produce an ECharts option JSON object for this data."
+	chatReq := llmRequest{
+		endpoint:      endpoint,
+		model:         strings.TrimSpace(s.loadAISetting("ai.model", "")),
+		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
+		thinkingLevel: strings.TrimSpace(s.loadAISetting("ai.thinking_level", "off")),
+		messages: []any{
+			jsonenc.NewObject().Set("role", "system").Set("content", chartSystemPrompt),
+			jsonenc.NewObject().Set("role", "user").Set("content", userMsg),
+		},
+	}
+	raw, _, err := s.callLLMChat(chatReq)
 	if err != nil || strings.TrimSpace(raw) == "" {
 		return "", "LLM did not return a chart spec."
 	}
@@ -196,7 +252,12 @@ func (s *server) generateChartSpec(endpoint string) (string, string) {
 		return string(jsonenc.Encode(parsed, dumpsDefault)), ""
 	}
 	parseErr := chartSpecParseError(raw)
-	repaired, _, rerr := s.callLLMEndpoint(endpoint)
+	repairReq := chatReq
+	repairReq.messages = []any{
+		jsonenc.NewObject().Set("role", "system").Set("content", "You repair malformed JSON. Return ONLY corrected, valid JSON — no markdown, no commentary."),
+		jsonenc.NewObject().Set("role", "user").Set("content", "The following should be a JSON ECharts option but failed to parse ("+parseErr+"). Return ONLY the corrected JSON:\n"+raw),
+	}
+	repaired, _, rerr := s.callLLMChat(repairReq)
 	if rerr != nil || strings.TrimSpace(repaired) == "" {
 		return "", "Chart spec JSON parse error: " + parseErr + ". LLM JSON repair returned empty content."
 	}

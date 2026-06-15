@@ -177,3 +177,51 @@ const agentRootCauseSystemPrompt = `You are an expert SRE and observability engi
 NOISE_OR_IMPACT: <NOISE|IMPACT|UNCERTAIN>
 ROOT CAUSE: <text>
 SUGGESTED FIX: <text>`
+
+// namedQueriesSystemPrompt mirrors app.py _vanna_generate_named_queries' system prompt.
+const namedQueriesSystemPrompt = `You are a ClickHouse SQL planner for chart datasets. Return ONLY valid JSON with the shape: {"datasets":[{"name":"...","sql":"SELECT ...","purpose":"..."}]}. Rules: use only read-only SELECT/WITH queries; keep at most 3 datasets; names should be short snake_case identifiers; no markdown.`
+
+// chartSystemPrompt mirrors app.py _QUERY_CHART_SYSTEM_PROMPT (backticks -> single quotes for the
+// raw-string literal; line-continuations joined).
+const chartSystemPrompt = `You are a data-visualisation expert. Given a ClickHouse SQL result set described as column names and sample rows, produce an Apache ECharts option object (JSON) that best visualises the data.
+
+Guidelines:
+- Output ONLY a valid JSON object — the value to assign to 'chart.setOption(...)'.
+- You MUST return a non-empty final JSON object.
+- Use Bootstrap 5 colours where possible (primary: #0d6efd, success: #198754, danger: #dc3545, warning: #ffc107, info: #0dcaf0).
+- Choose the most appropriate chart type from the full ECharts library (bar, line, pie, scatter, heatmap, radar, funnel, gauge, candlestick, tree, treemap, sunburst, etc.).
+- Titles, tooltips, legends, and axes should be concise and readable.
+- Set 'backgroundColor: transparent' to inherit the page background.
+- If the data is tabular with no obvious chart form, use a simple bar chart.
+- If a preferred chart type is incompatible with available columns, choose the nearest compatible
+    type and still return valid JSON.
+- The JSON must be parseable by JSON.parse() with no trailing commas or comments.
+
+Formatting and placeholder guidance:
+- Prefer compact, deterministic ECharts option structures with explicit arrays/objects.
+- If you use custom placeholders, only use '{{rows}}', '{{records}}', '{{columns}}', or named-dataset forms like
+    '{{rows:nodes}}' / '{{rows:links}}'.
+- Do not emit pseudo-JSON, JavaScript functions, or template syntax beyond those placeholders.
+
+Reference examples (for shape/style only):
+Mapping JSON example:
+{
+    "points": {"from": "rows"},
+    "labels": {"from": "column", "name": "service"},
+    "values": {"from": "column", "name": "error_count"}
+}
+
+ECharts option JSON example:
+{
+    "backgroundColor": "transparent",
+    "tooltip": {"trigger": "axis"},
+    "xAxis": {"type": "category"},
+    "yAxis": {"type": "value"},
+    "series": [
+        {
+            "type": "bar",
+            "data": "{{points}}"
+        }
+    ]
+}
+`
