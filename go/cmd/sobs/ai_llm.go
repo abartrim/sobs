@@ -199,9 +199,29 @@ func (s *server) checkGuardModel(userInput string) (bool, string, llmStats) {
 	}
 }
 
-// generateSQLViaLLM mirrors _vanna_generate_sql: the LLM-generated SQL (fences stripped).
-func (s *server) generateSQLViaLLM(endpoint string) (string, string, llmStats) {
-	raw, st, err := s.callLLMEndpoint(endpoint)
+// generateSQLViaLLM mirrors _vanna_generate_sql: build the NL->SQL system+user messages (system
+// prompt with the live schema context, user question + allowlist hint), call the LLM, and strip
+// any code fences. Under parity the mock ignores the body so the canned SQL is unchanged.
+func (s *server) generateSQLViaLLM(endpoint, question string) (string, string, llmStats) {
+	model := strings.TrimSpace(s.loadAISetting("ai.model", ""))
+	systemPrompt := strings.Replace(querySQLSystemPrompt, "{schema}", s.getSchemaContext(), 1)
+	hintParts := make([]string, 0, len(queryAllowedTables))
+	for _, t := range queryAllowedTables {
+		hintParts = append(hintParts, "- "+toStr(t))
+	}
+	userContent := question + "\n\n" +
+		"Allowed queryable tables/views (must stay within this list):\n" + strings.Join(hintParts, "\n")
+	messages := []any{
+		jsonenc.NewObject().Set("role", "system").Set("content", systemPrompt),
+		jsonenc.NewObject().Set("role", "user").Set("content", userContent),
+	}
+	raw, st, err := s.callLLMChat(llmRequest{
+		endpoint:      endpoint,
+		model:         model,
+		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
+		thinkingLevel: strings.TrimSpace(s.loadAISetting("ai.thinking_level", "off")),
+		messages:      messages,
+	})
 	if err != nil || raw == "" {
 		return "", "LLM did not return a response. Check AI settings.", st
 	}

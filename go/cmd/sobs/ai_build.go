@@ -36,7 +36,7 @@ func (s *server) handleApiDashboardsSpecAiBuild(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	sql, sqlErr, _ := s.generateSQLViaLLM(endpoint)
+	sql, sqlErr, _ := s.generateSQLViaLLM(endpoint, question)
 	if sqlErr != "" {
 		writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().
 			Set("ok", false).Set("error", "SQL generation failed: "+sqlErr))

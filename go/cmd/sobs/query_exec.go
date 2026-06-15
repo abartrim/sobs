@@ -457,7 +457,7 @@ func (s *server) handleApiQueryAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sql, sqlErr, sqlStats := s.generateSQLViaLLM(endpoint)
+	sql, sqlErr, sqlStats := s.generateSQLViaLLM(endpoint, question)
 	emitSQLBody := sql
 	if sqlErr != "" {
 		emitSQLBody = sqlErr
