@@ -153,7 +153,22 @@ func (s *server) runAgentFlow(rule *agentRule, settings map[string]string, tctx 
 	// 2. LLM root-cause analysis.
 	analysis, suggestion := "", ""
 	if rule.hasAction("analyze") && endpointURL != "" && model != "" {
-		reply, _, err := s.callLLMEndpoint(endpointURL)
+		systemPrompt := strings.TrimSpace(settings["ai.system_prompt"])
+		if systemPrompt == "" {
+			systemPrompt = agentRootCauseSystemPrompt
+		}
+		messages := []any{
+			jsonenc.NewObject().Set("role", "system").Set("content", systemPrompt),
+			jsonenc.NewObject().Set("role", "user").Set("content", contextSummary),
+		}
+		reply, _, err := s.callLLMChat(llmRequest{
+			endpoint:      endpointURL,
+			model:         model,
+			apiKey:        strings.TrimSpace(settings["ai.api_key"]),
+			thinkingLevel: strings.TrimSpace(settings["ai.thinking_level"]),
+			maxTokens:     512,
+			messages:      messages,
+		})
 		if err != nil {
 			return nil, err
 		}
