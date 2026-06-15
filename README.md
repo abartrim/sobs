@@ -108,6 +108,16 @@ cd go && go build -o sobs ./cmd/sobs && SOBS_DATA_DIR=../data ./sobs
 > Python/Quart app (`app.py`) is retained as the frozen **parity oracle** the Go port is byte-diffed
 > against in CI — it is no longer the published runtime. See [`go/README.md`](go/README.md) and the
 > [migration notes](migration/README.md).
+>
+> **Runtime feature status.** Beyond byte-parity, the Go server honors the full runtime config
+> surface: UI/ingest auth, settings at-rest encryption, the async write-queue + backpressure,
+> self-telemetry, chDB disk encryption + memory tuning, RUM client tokens, JS source-map remapping,
+> the app-registry env seed, the Query row cap, and notification dispatch (webhook/Slack/email/
+> browser-push). Outbound HTTP uses a real client at runtime (the parity mock only when
+> `SOBS_UPSTREAM_FIXTURES` is set). **Known gap:** the existing AI/LLM, GitHub-write, and OSV
+> integrations reach the network via that client but do not yet *construct* their request bodies
+> (the parity migration kept those bodyless because the mock keys only on the URL) — building those
+> request payloads is the remaining work to make those specific integrations fully functional.
 
 Open `http://localhost:44317` in your browser.
 
