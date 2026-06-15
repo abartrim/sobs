@@ -401,7 +401,7 @@ func (s *server) handleApiOnboardingInspectRepo(w http.ResponseWriter, r *http.R
 			Set("error", "No GitHub token configured for this repository"))
 		return
 	}
-	result := s.inspectRepoForOnboarding(owner, repo)
+	result := s.inspectRepoForOnboarding(githubToken, owner, repo)
 	out := jsonenc.NewObject().Set("ok", true).Set("owner", owner).Set("repo", repo)
 	for _, k := range result.Keys() {
 		v, _ := result.Get(k)

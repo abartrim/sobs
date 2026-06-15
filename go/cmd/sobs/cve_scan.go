@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -126,7 +127,7 @@ func (s *server) fetchReleaseDepsFromGithub() (attempted, inserted, maxReleases 
 			inserted += len(rows)
 			continue
 		}
-		if rows := s.githubContentsLockfileRows(owner, repo, releaseID, releaseVersion); len(rows) > 0 {
+		if rows := s.githubContentsLockfileRows(token, owner, repo, releaseID, releaseVersion); len(rows) > 0 {
 			insertedRows = append(insertedRows, rows...)
 			existing[releaseID] = true
 			inserted += len(rows)
@@ -153,11 +154,14 @@ func (s *server) githubActionsDependencyRows(commitSha string) []map[string]any 
 // githubContentsLockfileRows tries each (ref, lockfile) via the GitHub Contents API, parsing the
 // first lockfile found into a dependencies artifact row (mirrors the contents loop in
 // _fetch_release_deps_from_github). A repo with no lockfile yields no rows (every fetch 404s).
-func (s *server) githubContentsLockfileRows(owner, repo, releaseID, releaseVersion string) []map[string]any {
+func (s *server) githubContentsLockfileRows(token, owner, repo, releaseID, releaseVersion string) []map[string]any {
 	for _, ref := range githubRefCandidates(releaseVersion) {
 		for _, cand := range cveLockfileCandidates {
-			url := "https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + cand.path
-			resp, err := s.upstreamGet("GET", url)
+			// Mirror _fetch_release_deps_from_github: Contents API per (ref, lockfile) with the ref
+			// as a query param + auth headers. The corpus has no lockfile fixture (both sides 404).
+			reqURL := "https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + cand.path +
+				"?ref=" + url.QueryEscape(ref)
+			resp, err := s.upstreamRequest("GET", reqURL, nil, githubAPIHeaders(token, false, nil))
 			if err != nil || resp.Status == 404 {
 				continue
 			}
@@ -549,7 +553,13 @@ func (s *server) runCveOSVScan(scanTS string, libraries []cveLib) (int, int) {
 		if lib.pkg == "" || lib.ecosystem == "" {
 			continue
 		}
-		resp, err := s.upstreamGet("POST", "https://api.osv.dev/v1/query")
+		// Mirror the OSV query body: {package:{name,ecosystem}, version}. OSV is public, so no
+		// auth headers. The URL is identical for every library, so one canned fixture serves all.
+		osvBody := jsonenc.NewObject().
+			Set("package", jsonenc.NewObject().Set("name", lib.pkg).Set("ecosystem", lib.ecosystem)).
+			Set("version", lib.version)
+		resp, err := s.upstreamRequest("POST", "https://api.osv.dev/v1/query",
+			jsonenc.Encode(osvBody, dumpsDefault), map[string]string{"Content-Type": "application/json"})
 		if err != nil || resp.Status != 200 {
 			continue
 		}

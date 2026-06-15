@@ -71,11 +71,6 @@ func (s *server) upstreamRequest(method, url string, body []byte, headers map[st
 	return out, nil
 }
 
-// upstreamGet is the no-body wrapper kept for the many existing call sites.
-func (s *server) upstreamGet(method, url string) (upstreamResponse, error) {
-	return s.upstreamRequest(method, url, nil, nil)
-}
-
 // upstreamFixture serves the canned parity response keyed by METHOD+url. A missing fixture
 // resolves to a 404.
 func (s *server) upstreamFixture(dir, method, url string) (upstreamResponse, error) {

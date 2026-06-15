@@ -35,8 +35,8 @@ func githubContentsURL(owner, repo, path string) string {
 }
 
 // githubListDirectory mirrors app.py _github_list_directory.
-func (s *server) githubListDirectory(owner, repo, path string) ([]any, string) {
-	resp, err := s.upstreamGet("GET", githubContentsURL(owner, repo, path))
+func (s *server) githubListDirectory(token, owner, repo, path string) ([]any, string) {
+	resp, err := s.upstreamRequest("GET", githubContentsURL(owner, repo, path), nil, githubAPIHeaders(token, false, nil))
 	if err != nil {
 		return []any{}, "GitHub API request failed for " + path + ": " + err.Error()
 	}
@@ -69,8 +69,8 @@ func decodeGithubContents(payload *jsonenc.Object) []byte {
 }
 
 // githubFileText mirrors app.py _github_file_text.
-func (s *server) githubFileText(owner, repo, path string) (string, string) {
-	resp, err := s.upstreamGet("GET", githubContentsURL(owner, repo, path))
+func (s *server) githubFileText(token, owner, repo, path string) (string, string) {
+	resp, err := s.upstreamRequest("GET", githubContentsURL(owner, repo, path), nil, githubAPIHeaders(token, false, nil))
 	if err != nil {
 		return "", "GitHub API request failed for " + path + ": " + err.Error()
 	}
@@ -86,12 +86,19 @@ func (s *server) githubFileText(owner, repo, path string) (string, string) {
 
 // githubRepoSupportsCopilot mirrors app.py _github_repo_supports_copilot_assignment: a GraphQL
 // probe of suggestedActors for the copilot SWE agent.
-func (s *server) githubRepoSupportsCopilot(ownerRepo string) bool {
+func (s *server) githubRepoSupportsCopilot(token, ownerRepo string) bool {
 	owner, repo := parseGithubRepoOwnerName(ownerRepo)
 	if owner == "" || repo == "" {
 		return false
 	}
-	resp, err := s.upstreamGet("POST", "https://api.github.com/graphql")
+	// Mirror the GraphQL POST: the suggestedActors query + {owner,name} variables, with the
+	// Copilot feature-preview flags merged into the auth headers.
+	payload := jsonenc.NewObject().
+		Set("query", githubCopilotSupportQuery).
+		Set("variables", jsonenc.NewObject().Set("owner", owner).Set("name", repo))
+	headers := githubAPIHeaders(token, true, map[string]string{"GraphQL-Features": githubCopilotGraphqlFeatures})
+	resp, err := s.upstreamRequest("POST", "https://api.github.com/graphql",
+		jsonenc.Encode(payload, dumpsDefault), headers)
 	if err != nil || resp.Status >= 400 {
 		return false
 	}
@@ -134,14 +141,14 @@ func graphqlSuggestedActorNodes(obj *jsonenc.Object) []any {
 func has404(msg string) bool { return strings.Contains(" "+msg+" ", " 404 ") }
 
 // inspectRepoForOnboarding mirrors app.py _inspect_repo_for_onboarding.
-func (s *server) inspectRepoForOnboarding(owner, repo string) *jsonenc.Object {
+func (s *server) inspectRepoForOnboarding(token, owner, repo string) *jsonenc.Object {
 	mk := func(hasActions, ci, otel, copilot bool, files []any, errMsg string) *jsonenc.Object {
 		return jsonenc.NewObject().
 			Set("has_github_actions", hasActions).Set("sobs_ci_found", ci).
 			Set("sobs_otel_found", otel).Set("copilot_available", copilot).
 			Set("workflow_files", files).Set("error", errMsg)
 	}
-	entries, wfErr := s.githubListDirectory(owner, repo, ".github/workflows")
+	entries, wfErr := s.githubListDirectory(token, owner, repo, ".github/workflows")
 	if wfErr != "" && !has404(wfErr) {
 		return mk(false, false, false, false, []any{}, wfErr)
 	}
@@ -164,7 +171,7 @@ func (s *server) inspectRepoForOnboarding(owner, repo string) *jsonenc.Object {
 	}
 	for _, fnAny := range capped {
 		fn, _ := fnAny.(string)
-		content, contentErr := s.githubFileText(owner, repo, ".github/workflows/"+fn)
+		content, contentErr := s.githubFileText(token, owner, repo, ".github/workflows/"+fn)
 		if contentErr != "" && inspectError == "" {
 			inspectError = contentErr
 			continue
@@ -182,7 +189,7 @@ func (s *server) inspectRepoForOnboarding(owner, repo string) *jsonenc.Object {
 	}
 	if !sobsOtelFound {
 		for _, cp := range []string{"requirements.txt", "package.json", "go.mod", "pom.xml", "build.gradle"} {
-			content, contentErr := s.githubFileText(owner, repo, cp)
+			content, contentErr := s.githubFileText(token, owner, repo, cp)
 			if contentErr != "" && !has404(contentErr) && inspectError == "" {
 				inspectError = contentErr
 			}
@@ -192,6 +199,6 @@ func (s *server) inspectRepoForOnboarding(owner, repo string) *jsonenc.Object {
 			}
 		}
 	}
-	copilotAvailable := s.githubRepoSupportsCopilot(owner + "/" + repo)
+	copilotAvailable := s.githubRepoSupportsCopilot(token, owner+"/"+repo)
 	return mk(hasGithubActions, sobsCIFound, sobsOtelFound, copilotAvailable, workflowFiles, inspectError)
 }

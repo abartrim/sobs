@@ -160,7 +160,14 @@ func (s *server) handleApiOnboardingImportRepo(w http.ResponseWriter, r *http.Re
 		s.errorJSON(w, http.StatusBadRequest, "Enter a valid GitHub owner and repository name")
 		return
 	}
-	resp, err := s.upstreamGet("GET", "https://api.github.com/repos/"+owner+"/"+repo)
+	// Mirror api_onboarding_import_repo: token from the body override or ai.github_token; auth
+	// headers when present, public headers otherwise (the canned lookup ignores them under parity).
+	githubToken := strings.TrimSpace(bstr(m, "github_token"))
+	if githubToken == "" {
+		githubToken = strings.TrimSpace(s.loadAISetting("ai.github_token", ""))
+	}
+	resp, err := s.upstreamRequest("GET", "https://api.github.com/repos/"+owner+"/"+repo,
+		nil, githubRequestHeaders(githubToken, false))
 	if err != nil {
 		s.writeMaskedJSON(w, http.StatusBadGateway,
 			jsonenc.NewObject().Set("ok", false).Set("error", "GitHub lookup failed: "+err.Error()))
@@ -233,7 +240,7 @@ func (s *server) handleApiOnboardingListRepos(w http.ResponseWriter, r *http.Req
 	var payload any
 	responseStatus := 0
 	for _, url := range endpoints {
-		resp, err := s.upstreamGet("GET", url)
+		resp, err := s.upstreamRequest("GET", url, nil, githubRequestHeaders(githubToken, false))
 		if err != nil {
 			s.writeMaskedJSON(w, http.StatusBadGateway,
 				jsonenc.NewObject().Set("ok", false).Set("error", "GitHub lookup failed: "+err.Error()))

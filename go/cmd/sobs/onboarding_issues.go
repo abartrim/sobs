@@ -171,7 +171,18 @@ func (s *server) createGithubIssueRecord(token, githubRepo, title, body string, 
 	if owner == "" || repo == "" {
 		return map[string]any{}
 	}
-	resp, err := s.upstreamGet("POST", "https://api.github.com/repos/"+owner+"/"+repo+"/issues")
+	// Mirror _create_github_issue_record: mask the title/body before they leave for GitHub
+	// (mask_output_enabled defaults true) and default the labels when the caller supplies none.
+	issueLabels := labels
+	if len(issueLabels) == 0 {
+		issueLabels = []string{"sobs-agent", "automated"}
+	}
+	payload := jsonenc.NewObject().
+		Set("title", s.maskStringForOutput(title)).
+		Set("body", s.maskStringForOutput(body)).
+		Set("labels", labelsToAny(issueLabels))
+	resp, err := s.upstreamRequest("POST", "https://api.github.com/repos/"+owner+"/"+repo+"/issues",
+		jsonenc.Encode(payload, dumpsDefault), githubAPIHeaders(token, true, nil))
 	if err != nil || resp.Status >= 300 {
 		detail := "request failed"
 		if o, ok := resp.Body.(*jsonenc.Object); ok {
@@ -209,7 +220,12 @@ func (s *server) fetchOpenGithubIssues(token, githubRepo string) []map[string]an
 	if owner == "" || repo == "" {
 		return nil
 	}
-	resp, err := s.upstreamGet("GET", "https://api.github.com/repos/"+owner+"/"+repo+"/issues")
+	// Mirror _fetch_open_github_issues: GET open issues, capped per_page, with auth headers. The
+	// param'd URL matches Python's httpx request, so the parity corpus (which has no fixture for
+	// this dedupe lookup — both sides 404 → empty) is unaffected.
+	url := "https://api.github.com/repos/" + owner + "/" + repo +
+		"/issues?state=open&per_page=" + itoaInt(githubIssueDedupeCandidateMax)
+	resp, err := s.upstreamRequest("GET", url, nil, githubAPIHeaders(token, false, nil))
 	if err != nil || resp.Status != 200 {
 		return nil
 	}
@@ -245,8 +261,15 @@ func (s *server) assignIssueToCopilot(token, githubRepo string, issueNumber int)
 	if owner == "" || repo == "" {
 		return "failed", "invalid repository", 0
 	}
-	resp, err := s.upstreamGet("POST",
-		"https://api.github.com/repos/"+owner+"/"+repo+"/issues/"+itoaInt(issueNumber)+"/assignees")
+	// Mirror _assign_issue_to_copilot's request: assign the Copilot SWE agent with the
+	// agent-assignment target. (The full Python path also gates on a copilot-support probe and
+	// threads base_branch/custom_instructions; this remains the high-level assignment.)
+	payload := jsonenc.NewObject().
+		Set("assignees", []any{githubCopilotAssignee}).
+		Set("agent_assignment", jsonenc.NewObject().Set("target_repo", owner+"/"+repo))
+	resp, err := s.upstreamRequest("POST",
+		"https://api.github.com/repos/"+owner+"/"+repo+"/issues/"+itoaInt(issueNumber)+"/assignees",
+		jsonenc.Encode(payload, dumpsDefault), githubAPIHeaders(token, true, nil))
 	if err != nil || resp.Status >= 300 {
 		return "failed", "assignment request failed", 0
 	}

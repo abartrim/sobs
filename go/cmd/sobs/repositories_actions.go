@@ -226,7 +226,7 @@ func (s *server) validateGithubToken(token string) (string, string) {
 	if strings.TrimSpace(token) == "" {
 		return "missing", "No token configured"
 	}
-	resp, err := s.upstreamGet("GET", "https://api.github.com/rate_limit")
+	resp, err := s.upstreamRequest("GET", "https://api.github.com/rate_limit", nil, githubAPIHeaders(token, false, nil))
 	if err != nil {
 		return "error", "Validation request failed: " + err.Error()
 	}
