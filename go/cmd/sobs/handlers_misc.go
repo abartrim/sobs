@@ -676,13 +676,10 @@ func mapToDict(v any) any {
 	}
 }
 
-// jsonDumpsIndent2 mirrors json.dumps(obj, ensure_ascii=False, indent=2).
+// jsonDumpsIndent2 mirrors json.dumps(obj, ensure_ascii=False, indent=2). Python does NOT
+// HTML-escape <>& (so embedded SQL/attrs stay literal); delegate to the non-escaping form.
 func jsonDumpsIndent2(v any) (string, error) {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
+	return jsonDumpsIndent2NoEsc(v)
 }
 
 // jsonDumpsIndent2NoEsc mirrors json.dumps(obj, ensure_ascii=False, indent=2) WITHOUT Go's

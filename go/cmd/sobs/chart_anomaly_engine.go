@@ -5,21 +5,31 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sobs/sobs/internal/jsonenc"
 )
 
 // pyFloatRepr mirrors Python's repr/str of a float (integral floats keep ".0").
 func pyFloatRepr(f float64) string {
-	s := strconv.FormatFloat(f, 'g', -1, 64)
-	if !strings.ContainsAny(s, ".eEnN") {
-		s += ".0"
+	switch {
+	case math.IsNaN(f):
+		return "nan"
+	case math.IsInf(f, 1):
+		return "inf"
+	case math.IsInf(f, -1):
+		return "-inf"
 	}
-	return s
+	return jsonenc.PyFloatRepr(f)
 }
 
-// roundHalfEven mirrors Python round(x, n) (banker's rounding).
+// roundHalfEven mirrors Python round(x, n) (banker's rounding). Python rounds the true
+// decimal value of the double half-to-even; Go's strconv 'f' format does exactly that, so
+// format-to-n-places then re-parse reproduces round(x, n) bit-for-bit. (A pre-multiply
+// like RoundToEven(f*10^n)/10^n introduces its own FP error and diverges, e.g.
+// round(2.675, 2): Python 2.67, multiply-approach 2.68.) places is always >= 0 here.
 func roundHalfEven(f float64, places int) float64 {
-	mult := math.Pow(10, float64(places))
-	return math.RoundToEven(f*mult) / mult
+	r, _ := strconv.ParseFloat(strconv.FormatFloat(f, 'f', places, 64), 64)
+	return r
 }
 
 // Anomaly rule-evaluation engine — a port of app.py's _rule_matches_series /

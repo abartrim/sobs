@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
 	"regexp"
@@ -49,9 +48,9 @@ func (s *server) handleMcpKeyByID(w http.ResponseWriter, r *http.Request) {
 	}
 	saved := "[]"
 	if len(newKeys) > 0 {
-		if b, err := json.Marshal(newKeys); err == nil {
-			saved = string(b)
-		}
+		// _save_mcp_api_keys: json.dumps(keys, ensure_ascii=False) -> ", " separators,
+		// insertion order preserved (newKeys are ordered *Object descriptors).
+		saved = string(jsonenc.Encode(newKeys, jsonDumpsDefault))
 	}
 	_ = s.setAppSetting("mcp.api_keys", saved)
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))

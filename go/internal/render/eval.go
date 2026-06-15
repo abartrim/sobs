@@ -991,11 +991,7 @@ func formatPyFloat(f float64) string {
 	case math.IsNaN(f):
 		return "nan"
 	}
-	s := strconv.FormatFloat(f, 'g', -1, 64)
-	if !strings.ContainsAny(s, ".eE") {
-		s += ".0"
-	}
-	return s
+	return jsonenc.PyFloatRepr(f)
 }
 
 // tojson reproduces Jinja's tojson: json.dumps(sort_keys, default separators) then

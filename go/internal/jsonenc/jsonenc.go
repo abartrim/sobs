@@ -177,14 +177,64 @@ func (e *encoder) encodeFloat(f float64) {
 		e.b.WriteString("NaN")
 		return
 	}
-	// NOTE: Python's json renders floats via repr() (shortest round-trip). Go's 'g'/-1
-	// is also shortest round-trip but exponent formatting can differ at extremes —
-	// refine against goldens if a float-bearing route diverges.
-	s := strconv.FormatFloat(f, 'g', -1, 64)
-	if !strings.ContainsAny(s, ".eE") {
-		s += ".0" // Python renders whole floats with a trailing .0
+	e.b.WriteString(PyFloatRepr(f))
+}
+
+// PyFloatRepr formats a finite float64 exactly like CPython's repr(float) /
+// json.dumps(float) / str(float). Go's strconv 'g' format is also shortest-round-trip
+// but switches to scientific notation on a DIFFERENT threshold than CPython (e.g.
+// 1000000.0 -> Go "1e+06" vs Python "1000000.0"). CPython uses fixed notation when the
+// decimal point position decpt satisfies -4 < decpt <= 16, else scientific; whole values
+// render with a trailing ".0". This reproduces that rule from the shortest-significant
+// digits. Callers handle non-finite (json: Infinity/NaN; str: inf/nan) separately.
+func PyFloatRepr(f float64) string {
+	if f == 0 {
+		if math.Signbit(f) {
+			return "-0.0"
+		}
+		return "0.0"
 	}
-	e.b.WriteString(s)
+	// Shortest round-trip scientific form: "-d.ddde±XX" or "-de±XX".
+	s := strconv.FormatFloat(f, 'e', -1, 64)
+	neg := false
+	if s[0] == '-' {
+		neg = true
+		s = s[1:]
+	}
+	ePos := strings.IndexByte(s, 'e')
+	digits := strings.Replace(s[:ePos], ".", "", 1) // significant digits, no point
+	exp10, _ := strconv.Atoi(s[ePos+1:])
+	decpt := exp10 + 1 // digits to the left of the decimal point
+	var out string
+	switch {
+	case decpt <= -4 || decpt > 16:
+		// Scientific, Python style: first digit, optional ".rest", e, sign, >=2-digit exp.
+		m := digits[:1]
+		if len(digits) > 1 {
+			m += "." + digits[1:]
+		}
+		ex := decpt - 1
+		es := "+"
+		if ex < 0 {
+			es = "-"
+			ex = -ex
+		}
+		exs := strconv.Itoa(ex)
+		if len(exs) < 2 {
+			exs = "0" + exs
+		}
+		out = m + "e" + es + exs
+	case decpt <= 0:
+		out = "0." + strings.Repeat("0", -decpt) + digits
+	case decpt >= len(digits):
+		out = digits + strings.Repeat("0", decpt-len(digits)) + ".0"
+	default:
+		out = digits[:decpt] + "." + digits[decpt:]
+	}
+	if neg {
+		return "-" + out
+	}
+	return out
 }
 
 // encodeString matches json.dumps string escaping. With EnsureASCII, non-ASCII runes

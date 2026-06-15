@@ -1,11 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/sobs/sobs/internal/jsonenc"
 )
 
 // defaultSensitiveKeys mirrors masking.DEFAULT_SENSITIVE_KEYS.
@@ -78,7 +79,8 @@ func (s *server) saveMaskingCustomKeys(keys []string) {
 		_ = s.setAppSetting("masking.custom_keys", "")
 		return
 	}
-	b, _ := json.Marshal(norm)
+	// _save_json_string_list_setting: json.dumps(values, ensure_ascii=False) -> ", " separators.
+	b := jsonenc.Encode(strsToAny(norm), jsonDumpsDefault)
 	_ = s.setAppSetting("masking.custom_keys", string(b))
 }
 
@@ -119,7 +121,7 @@ func (s *server) saveMaskingCustomPatterns(patterns []string) {
 		_ = s.setAppSetting("masking.custom_patterns", "")
 		return
 	}
-	b, _ := json.Marshal(out)
+	b := jsonenc.Encode(strsToAny(out), jsonDumpsDefault)
 	_ = s.setAppSetting("masking.custom_patterns", string(b))
 }
 

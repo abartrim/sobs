@@ -119,11 +119,9 @@ func (s *server) maskStringForOutput(value any) string {
 	str, isStr := value.(string)
 	if !isStr {
 		mv := maskPayloadJSON(value, s.activeSensitiveKeys(), s.activeMaskPatterns(), true)
-		if b, err := json.Marshal(mv); err == nil {
-			str = string(b)
-		} else {
-			str = pyStrAny(mv)
-		}
+		// _mask_string: json.dumps(value, ensure_ascii=False, default=str) — default ", "
+		// separators, raw non-ASCII, no HTML escaping (mv is jsonenc-native after masking).
+		str = string(jsonenc.Encode(mv, jsonDumpsDefault))
 	}
 	for _, re := range s.activeMaskPatterns() {
 		str = re.ReplaceAllString(str, maskMASK)

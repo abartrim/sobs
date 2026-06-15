@@ -3,10 +3,13 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sobs/sobs/internal/jsonenc"
 )
 
 // boolToInt returns 1 for true, 0 for false (as a float64 so cInt/cBool — which read
@@ -67,10 +70,15 @@ func toStr(v any) string {
 		}
 		return "False"
 	case float64:
-		if t == float64(int64(t)) {
-			return strconv.FormatInt(int64(t), 10)
+		switch {
+		case math.IsNaN(t):
+			return "nan"
+		case math.IsInf(t, 1):
+			return "inf"
+		case math.IsInf(t, -1):
+			return "-inf"
 		}
-		return strconv.FormatFloat(t, 'g', -1, 64)
+		return jsonenc.PyFloatRepr(t) // str(5.0) -> "5.0" (keeps trailing .0)
 	}
 	return fmt.Sprintf("%v", v)
 }
