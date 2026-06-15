@@ -121,16 +121,17 @@ func TestDispatchChannelConfigErrors(t *testing.T) {
 		}
 		return o
 	}
-	if got := s.dispatchSlackChannel(jsonenc.NewObject(), "x"); got != "Slack webhook_url is not configured" {
+	payload := jsonenc.NewObject().Set("summary", "x")
+	if got := s.dispatchSlackChannel(jsonenc.NewObject(), payload); got != "Slack webhook_url is not configured" {
 		t.Errorf("slack: %q", got)
 	}
-	if got := s.dispatchEmailChannel(jsonenc.NewObject(), "x"); got != "Email to_addr is not configured" {
+	if got := s.dispatchEmailChannel(jsonenc.NewObject(), payload); got != "Email to_addr is not configured" {
 		t.Errorf("email: %q", got)
 	}
-	if got := s.dispatchBrowserPushChannel(obj(map[string]any{"endpoint": "https://x"}), "x"); got != "browser_push channel is missing endpoint, p256dh, or auth" {
+	if got := s.dispatchBrowserPushChannel(obj(map[string]any{"endpoint": "https://x"}), payload); got != "browser_push channel is missing endpoint, p256dh, or auth" {
 		t.Errorf("push: %q", got)
 	}
-	if got := s.dispatchNotificationChannel("carrier-pigeon", "{}", "x"); got != "Unknown channel type: carrier-pigeon" {
+	if got := s.dispatchNotificationChannel("carrier-pigeon", "{}", payload); got != "Unknown channel type: carrier-pigeon" {
 		t.Errorf("unknown: %q", got)
 	}
 }

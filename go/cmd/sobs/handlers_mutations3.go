@@ -165,7 +165,14 @@ func (s *server) handleChannelSub(w http.ResponseWriter, r *http.Request) {
 	// any error => 500 with the message (the test payload itself is the unobservable POST body).
 	m := rowMaps(res)[0]
 	summary := "[SOBS] Test notification from channel '" + cStr(m, "Name") + "'"
-	if result := s.dispatchNotificationChannel(cStr(m, "ChannelType"), cStr(m, "ConfigJson"), summary); result == "ok" {
+	if notificationChannelMaskOutputEnabled(cStr(m, "ConfigJson")) {
+		summary = s.maskStringForOutput(summary)
+	}
+	testPayload := jsonenc.NewObject().
+		Set("rule_name", "Test").Set("severity", "info").Set("conditions", []any{}).
+		Set("summary", summary).
+		Set("fired_at", nowUTC().Format("2006-01-02T15:04:05.000000-07:00"))
+	if result := s.dispatchNotificationChannel(cStr(m, "ChannelType"), cStr(m, "ConfigJson"), testPayload); result == "ok" {
 		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
 	} else {
 		writeJSON(w, http.StatusInternalServerError, jsonenc.NewObject().Set("ok", false).Set("error", result))

@@ -106,11 +106,33 @@ func (s *server) upstreamFixture(dir, method, url string) (upstreamResponse, err
 	return upstreamResponse{Status: status, Body: body, RawContent: rawContent}, nil
 }
 
-// dispatchNotificationChannel mirrors app.py _dispatch_notification_channel: send to one
-// channel, returning "ok" or an error message. Config decryption is identity on the parity
-// fixture's plaintext config. Under parity only the webhook type is seeded; slack/email/
-// browser_push are not in the corpus, so those branches are never exercised there.
-func (s *server) dispatchNotificationChannel(channelType, configJSON, summary string) string {
+// notificationSensitiveConfigKeys mirrors app.py _NOTIFICATION_SENSITIVE_CONFIG_KEYS: these
+// channel-config values are Fernet-encrypted at rest and decrypted before dispatch.
+var notificationSensitiveConfigKeys = map[string]bool{
+	"smtp_password": true, "auth_token": true, "api_key": true,
+	"webhook_url": true, "url": true, "auth": true,
+}
+
+// decryptNotificationConfig mirrors _decrypt_notification_config: decrypt the sensitive string
+// values. decryptSecretValue is pass-through for non-`enc:v1:` (plaintext) values, so this is
+// identity on the parity fixture's plaintext config.
+func (s *server) decryptNotificationConfig(config *jsonenc.Object) *jsonenc.Object {
+	out := jsonenc.NewObject()
+	for _, k := range config.Keys() {
+		v, _ := config.Get(k)
+		if sv, ok := v.(string); ok && notificationSensitiveConfigKeys[k] {
+			out.Set(k, s.decryptSecretValue(sv))
+		} else {
+			out.Set(k, v)
+		}
+	}
+	return out
+}
+
+// dispatchNotificationChannel mirrors app.py _dispatch_notification_channel: decrypt the config
+// then send the full payload to one channel, returning "ok" or an error message. Under parity
+// only the webhook type is seeded; slack/email/browser_push are not in the corpus.
+func (s *server) dispatchNotificationChannel(channelType, configJSON string, payload *jsonenc.Object) string {
 	var config *jsonenc.Object
 	if parsed, err := parseJSONValue([]byte(strOrBrace(configJSON))); err == nil {
 		config, _ = parsed.(*jsonenc.Object)
@@ -118,33 +140,56 @@ func (s *server) dispatchNotificationChannel(channelType, configJSON, summary st
 	if config == nil {
 		config = jsonenc.NewObject()
 	}
+	config = s.decryptNotificationConfig(config)
 	switch channelType {
 	case "webhook":
-		return s.dispatchWebhookChannel(config, summary)
+		return s.dispatchWebhookChannel(config, payload)
 	case "slack":
-		return s.dispatchSlackChannel(config, summary)
+		return s.dispatchSlackChannel(config, payload)
 	case "email":
-		return s.dispatchEmailChannel(config, summary)
+		return s.dispatchEmailChannel(config, payload)
 	case "browser_push":
-		return s.dispatchBrowserPushChannel(config, summary)
+		return s.dispatchBrowserPushChannel(config, payload)
 	default:
 		return "Unknown channel type: " + channelType
 	}
 }
 
+// webhookDumpsOpts mirrors json.dumps(payload) defaults: ", "/": " separators, ensure_ascii=True,
+// insertion order.
+var webhookDumpsOpts = jsonenc.Options{SortKeys: false, EnsureASCII: true, ItemSep: ", ", KeySep: ": "}
+
 // dispatchWebhookChannel mirrors app.py _dispatch_webhook_channel: POST (or configured method)
-// to config["url"] with the notification payload; HTTP >= 400 (or a missing url) is an error.
-func (s *server) dispatchWebhookChannel(config *jsonenc.Object, summary string) string {
-	url := objStrOr(config, "url")
+// to config["url"] with the full notification payload (or a body_template with {{summary}}
+// substituted), merging config["headers"]; HTTP >= 400 (or a missing url) is an error.
+func (s *server) dispatchWebhookChannel(config *jsonenc.Object, payload *jsonenc.Object) string {
+	url := strings.TrimSpace(objStrOr(config, "url"))
 	if url == "" {
 		return "Webhook URL is not configured"
 	}
 	method := "POST"
-	if mv := objStrOr(config, "method"); mv != "" {
+	if mv := strings.TrimSpace(objStrOr(config, "method")); mv != "" {
 		method = strings.ToUpper(mv)
 	}
-	body, _ := json.Marshal(map[string]any{"summary": summary})
-	resp, err := s.upstreamRequest(method, url, body, map[string]string{"Content-Type": "application/json"})
+	headers := map[string]string{}
+	if hv, ok := config.Get("headers"); ok {
+		if hobj := asJSONObject(hv); hobj != nil {
+			for _, k := range hobj.Keys() {
+				vv, _ := hobj.Get(k)
+				headers[k] = pyStrAny(vv)
+			}
+		}
+	}
+	if _, ok := headers["Content-Type"]; !ok {
+		headers["Content-Type"] = "application/json"
+	}
+	var body []byte
+	if bt := strings.TrimSpace(objStrOr(config, "body_template")); bt != "" {
+		body = []byte(strings.ReplaceAll(bt, "{{summary}}", objStrOr(payload, "summary")))
+	} else {
+		body = jsonenc.Encode(payload, webhookDumpsOpts)
+	}
+	resp, err := s.upstreamRequest(method, url, body, headers)
 	if err != nil {
 		return err.Error()
 	}
@@ -152,6 +197,21 @@ func (s *server) dispatchWebhookChannel(config *jsonenc.Object, summary string) 
 		return fmt.Sprintf("Webhook returned HTTP %d", resp.Status)
 	}
 	return "ok"
+}
+
+// asJSONObject coerces a config value (a *jsonenc.Object, or a JSON string) into an Object.
+func asJSONObject(v any) *jsonenc.Object {
+	switch x := v.(type) {
+	case *jsonenc.Object:
+		return x
+	case string:
+		if parsed, err := parseJSONValue([]byte(x)); err == nil {
+			if o, ok := parsed.(*jsonenc.Object); ok {
+				return o
+			}
+		}
+	}
+	return nil
 }
 
 // strOrBrace returns "{}" for an empty config string (mirrors `str(ConfigJson) or "{}"`).

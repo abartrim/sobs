@@ -9,6 +9,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
@@ -40,16 +41,23 @@ func objStrDef(o *jsonenc.Object, key, def string) string {
 	return def
 }
 
+// payloadSummary mirrors payload.get("summary", default): the value if the key is present
+// (even empty), otherwise def.
+func payloadSummary(payload *jsonenc.Object, def string) string {
+	if v, ok := payload.Get("summary"); ok {
+		return pyStrAny(v)
+	}
+	return def
+}
+
 // dispatchSlackChannel POSTs {"text": summary} to the Slack incoming-webhook URL.
-func (s *server) dispatchSlackChannel(config *jsonenc.Object, summary string) string {
+func (s *server) dispatchSlackChannel(config *jsonenc.Object, payload *jsonenc.Object) string {
 	webhookURL := objStrOr(config, "webhook_url")
 	if webhookURL == "" {
 		return "Slack webhook_url is not configured"
 	}
-	if summary == "" {
-		summary = "SOBS notification triggered"
-	}
-	body, _ := json.Marshal(map[string]any{"text": summary})
+	summary := payloadSummary(payload, "SOBS notification triggered")
+	body := jsonenc.Encode(jsonenc.NewObject().Set("text", summary), dumpsDefault)
 	resp, err := s.upstreamRequest("POST", webhookURL, body, map[string]string{"Content-Type": "application/json"})
 	if err != nil {
 		return err.Error()
@@ -60,8 +68,20 @@ func (s *server) dispatchSlackChannel(config *jsonenc.Object, summary string) st
 	return "ok"
 }
 
-// dispatchEmailChannel sends the notification via SMTP (STARTTLS when the server supports it).
-func (s *server) dispatchEmailChannel(config *jsonenc.Object, summary string) string {
+// emailUseTLS mirrors str(config.get("use_tls","1")).strip() in {"1","true","yes"} — STARTTLS is
+// required (not opportunistic) when set; default-on only when the key is absent.
+func emailUseTLS(config *jsonenc.Object) bool {
+	raw := "1"
+	if v, ok := config.Get("use_tls"); ok {
+		raw = strings.TrimSpace(pyStrAny(v))
+	}
+	return raw == "1" || raw == "true" || raw == "yes"
+}
+
+// dispatchEmailChannel sends the notification via SMTP. Mirrors _dispatch_email_channel: the
+// body is json.dumps(payload, indent=2) and STARTTLS is REQUIRED when use_tls is set (fails if
+// the server doesn't offer it), matching Python's explicit server.starttls().
+func (s *server) dispatchEmailChannel(config *jsonenc.Object, payload *jsonenc.Object) string {
 	host := objStrDef(config, "smtp_host", "localhost")
 	port := objStrDef(config, "smtp_port", "587")
 	user := objStrOr(config, "smtp_user")
@@ -71,29 +91,61 @@ func (s *server) dispatchEmailChannel(config *jsonenc.Object, summary string) st
 	if toAddr == "" {
 		return "Email to_addr is not configured"
 	}
-	subject := summary
-	if subject == "" {
-		subject = "SOBS Notification"
-	}
+	subject := payloadSummary(payload, "SOBS Notification")
 	if len(subject) > 200 {
 		subject = subject[:200]
 	}
-	bodyText, _ := json.MarshalIndent(map[string]any{"summary": summary}, "", "  ")
+	// json.dumps(payload, indent=2): MarshalIndent re-indents Object.MarshalJSON (ensure_ascii,
+	// insertion order, no HTML escape).
+	bodyText, _ := json.MarshalIndent(payload, "", "  ")
 	msg := "Subject: " + subject + "\r\nFrom: " + fromAddr + "\r\nTo: " + toAddr +
 		"\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n" + string(bodyText)
+	return sendSMTPMessage(host+":"+port, host, emailUseTLS(config), user, password, fromAddr, toAddr, []byte(msg))
+}
 
-	var auth smtp.Auth
-	if user != "" && password != "" {
-		auth = smtp.PlainAuth("", user, password, host)
-	}
-	if err := smtp.SendMail(host+":"+port, auth, fromAddr, []string{toAddr}, []byte(msg)); err != nil {
+// sendSMTPMessage performs the SMTP exchange, requiring STARTTLS when useTLS is set.
+func sendSMTPMessage(addr, host string, useTLS bool, user, password, from, to string, msg []byte) string {
+	c, err := smtp.Dial(addr)
+	if err != nil {
 		return err.Error()
 	}
+	defer c.Close()
+	if err := c.Hello("localhost"); err != nil {
+		return err.Error()
+	}
+	if useTLS {
+		if err := c.StartTLS(&tls.Config{ServerName: host}); err != nil {
+			return err.Error()
+		}
+	}
+	if user != "" && password != "" {
+		if err := c.Auth(smtp.PlainAuth("", user, password, host)); err != nil {
+			return err.Error()
+		}
+	}
+	if err := c.Mail(from); err != nil {
+		return err.Error()
+	}
+	if err := c.Rcpt(to); err != nil {
+		return err.Error()
+	}
+	w, err := c.Data()
+	if err != nil {
+		return err.Error()
+	}
+	if _, err := w.Write(msg); err != nil {
+		return err.Error()
+	}
+	if err := w.Close(); err != nil {
+		return err.Error()
+	}
+	_ = c.Quit()
 	return "ok"
 }
 
 // dispatchBrowserPushChannel sends a Web Push (VAPID) notification (RFC 8291/8188).
-func (s *server) dispatchBrowserPushChannel(config *jsonenc.Object, summary string) string {
+func (s *server) dispatchBrowserPushChannel(config *jsonenc.Object, payload *jsonenc.Object) string {
+	summary := payloadSummary(payload, "")
 	endpoint := objStrOr(config, "endpoint")
 	p256dh := objStrOr(config, "p256dh")
 	auth := objStrOr(config, "auth")
