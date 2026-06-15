@@ -111,8 +111,9 @@ func (s *server) handleApiCveFindings(w http.ResponseWriter, r *http.Request) {
 		jsonenc.NewObject().Set("ok", true).Set("findings", findings).Set("last_scan", lastScan))
 }
 
-// GET /api/web-traffic/geo — app.py api_web_traffic_geo (app.py:17711). Aggregates RUM IPs
-// (none carry client.ip on the fixture) into country counts via local geoip.
+// GET /api/web-traffic/geo — app.py api_web_traffic_geo (app.py:17711). Aggregates RUM client.ip
+// values into per-country counts via the embedded geoip2fast country DB (see geoip.go). The base
+// fixture carries no client.ip rows, so country_counts/ip_details are empty here and in Python.
 func (s *server) handleApiWebTrafficGeo(w http.ResponseWriter, r *http.Request) {
 	res, err := s.db.Execute(
 		"SELECT LogAttributes['client.ip'] AS ip, COUNT(*) AS cnt " +
@@ -127,30 +128,44 @@ func (s *server) handleApiWebTrafficGeo(w http.ResponseWriter, r *http.Request) 
 		cnt int
 	}
 	var ips []ipc
-	countryTotals := map[string]int{}
 	for _, m := range rowMaps(res) {
-		ip := cStr(m, "ip")
-		cnt := cInt(m, "cnt")
-		ips = append(ips, ipc{ip, cnt})
-		// geoip2fast lookup not ported (no client.ip rows on the fixture) -> "Unknown".
-		countryTotals["Unknown"] += cnt
+		ips = append(ips, ipc{cStr(m, "ip"), cInt(m, "cnt")})
 	}
-	ipDetails := []any{}
+	// Resolve every public IP via the embedded geoip2fast country DB; private/
+	// loopback/link-local IPs are labeled "Private/Local". Ports app.py
+	// _geo_lookup_batch + the api_web_traffic_geo aggregation (app.py:17733).
+	ipKeys := make([]string, len(ips))
 	for i, x := range ips {
-		if i >= 100 {
-			break
-		}
-		ipDetails = append(ipDetails, jsonenc.NewObject().
-			Set("ip", x.ip).Set("count", x.cnt).Set("country", "Unknown").Set("country_code", ""))
+		ipKeys[i] = x.ip
 	}
+	geoData := geoLookupBatch(ipKeys, geoEnabled)
 	type cc struct {
 		name string
 		val  int
 	}
-	var counts []cc
-	for k, v := range countryTotals {
-		counts = append(counts, cc{k, v})
+	var counts []cc                // country order = first-seen, mirroring Python's dict
+	countryPos := map[string]int{} // country name → index into counts
+	ipDetails := []any{}
+	for i, x := range ips {
+		g := geoData[x.ip]
+		country := g.country
+		if country == "" {
+			country = "Unknown"
+		}
+		if pos, ok := countryPos[country]; ok {
+			counts[pos].val += x.cnt
+		} else {
+			countryPos[country] = len(counts)
+			counts = append(counts, cc{country, x.cnt})
+		}
+		if i < 100 {
+			ipDetails = append(ipDetails, jsonenc.NewObject().
+				Set("ip", x.ip).Set("count", x.cnt).
+				Set("country", country).Set("country_code", g.countryCode))
+		}
 	}
+	// Python: sorted(key=lambda x: -value) — a STABLE descending sort that keeps
+	// equal-value countries in first-seen order. sort.SliceStable preserves that.
 	sort.SliceStable(counts, func(i, j int) bool { return counts[i].val > counts[j].val })
 	countryCounts := []any{}
 	for _, c := range counts {
