@@ -40,8 +40,14 @@ func TestRumClientTokenRoundTrip(t *testing.T) {
 	if claims["origin"] != "https://shop.example.com" || claims["app"] != "shop" {
 		t.Errorf("claims = %v", claims)
 	}
-	// Tampered signature must fail.
-	if _, e := s.rumClientTokenDecode(token[:len(token)-1] + "0"); e == "" {
+	// Tampered signature must fail. Flip the final hex digit to a guaranteed-different value —
+	// the signature is lowercase hex, so a fixed "0" would be a no-op (and thus a false pass)
+	// whenever the real last digit is already '0'.
+	repl := byte('0')
+	if token[len(token)-1] == '0' {
+		repl = '1'
+	}
+	if _, e := s.rumClientTokenDecode(token[:len(token)-1] + string(repl)); e == "" {
 		t.Error("tampered token should fail to decode")
 	}
 }
