@@ -1,16 +1,56 @@
 package main
 
 import (
+	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/sobs/sobs/internal/jsonenc"
 )
 
-// queryAllowedTableSet is the membership view of queryAllowedTables (declared in
-// handlers_pages.go as the sorted name list, mirroring sorted(_QUERY_ALLOWED_TABLES)) for
-// O(1) allowlist checks. The SOBS_QUERY_ALLOWED_TABLES env extension is empty in parity.
+// safeQueryTableIdent mirrors app.py's identifier guard for env-supplied table names.
+var safeQueryTableIdent = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+// queryAllowedTables mirrors sorted(_QUERY_ALLOWED_TABLES) — the builtin allowlist merged with the
+// comma-separated SOBS_QUERY_ALLOWED_TABLES env extension (each entry trimmed, safe-ident-checked on
+// its original case, then lowercased), de-duplicated and re-sorted. Ports _build_query_allowed_tables
+// (app.py). The env is empty under parity, so this equals queryAllowedTablesBuiltin there.
+var queryAllowedTables = buildQueryAllowedTables()
+
+func buildQueryAllowedTables() []any {
+	set := map[string]bool{}
+	names := make([]string, 0, len(queryAllowedTablesBuiltin))
+	add := func(n string) {
+		if n == "" || set[n] {
+			return
+		}
+		set[n] = true
+		names = append(names, n)
+	}
+	for _, t := range queryAllowedTablesBuiltin {
+		if s, ok := t.(string); ok {
+			add(s)
+		}
+	}
+	if extra := strings.TrimSpace(os.Getenv("SOBS_QUERY_ALLOWED_TABLES")); extra != "" {
+		for _, part := range strings.Split(extra, ",") {
+			p := strings.TrimSpace(part)
+			if p != "" && safeQueryTableIdent.MatchString(p) {
+				add(strings.ToLower(p))
+			}
+		}
+	}
+	sort.Strings(names)
+	out := make([]any, len(names))
+	for i, n := range names {
+		out[i] = n
+	}
+	return out
+}
+
+// queryAllowedTableSet is the membership view of queryAllowedTables for O(1) allowlist checks.
 var queryAllowedTableSet = func() map[string]bool {
 	m := make(map[string]bool, len(queryAllowedTables))
 	for _, t := range queryAllowedTables {

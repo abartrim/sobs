@@ -460,8 +460,10 @@ func (s *server) handleListReportsPage(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, "reports.html", "list_reports", map[string]any{"reports": reports})
 }
 
-// queryAllowedTables mirrors sorted(_QUERY_ALLOWED_TABLES) (app.py).
-var queryAllowedTables = []any{
+// queryAllowedTablesBuiltin mirrors _QUERY_ALLOWED_TABLES_BUILTIN (app.py), pre-sorted. The
+// exported queryAllowedTables (query_introspect.go) merges this with the SOBS_QUERY_ALLOWED_TABLES
+// env extension and re-sorts.
+var queryAllowedTablesBuiltin = []any{
 	"hyperdx_sessions", "otel_logs", "otel_metrics_1m_agg", "otel_metrics_gauge",
 	"otel_metrics_gauge_pinned", "otel_metrics_histogram", "otel_metrics_histogram_pinned",
 	"otel_metrics_sum", "otel_metrics_sum_pinned", "otel_traces", "sobs_anomaly_rules",
