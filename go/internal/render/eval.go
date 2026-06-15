@@ -125,17 +125,17 @@ func (e *Engine) evalCompare(s string, ctx *scope) (any, error) {
 			return e.compareOrd(l, r, ctx, strings.TrimSpace(op))
 		}
 	}
-	return e.evalFiltered(s, ctx)
+	return e.evalAddSub(s, ctx)
 }
 
 // compareOrd evaluates a numeric ordering comparison (>, <, >=, <=); each side runs through
 // the full filter pipeline first so `x|length > 1` parses as `(x|length) > 1`.
 func (e *Engine) compareOrd(l, r string, ctx *scope, op string) (any, error) {
-	lv, err := e.evalFiltered(strings.TrimSpace(l), ctx)
+	lv, err := e.evalAddSub(strings.TrimSpace(l), ctx)
 	if err != nil {
 		return nil, err
 	}
-	rv, err := e.evalFiltered(strings.TrimSpace(r), ctx)
+	rv, err := e.evalAddSub(strings.TrimSpace(r), ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +158,7 @@ func (e *Engine) compareOrd(l, r string, ctx *scope, op string) (any, error) {
 
 // isTest implements Jinja `x is TEST` / `x is not TEST` for the tests templates use.
 func (e *Engine) isTest(l, test string, ctx *scope, negate bool) (any, error) {
-	lv, err := e.evalFiltered(strings.TrimSpace(l), ctx)
+	lv, err := e.evalAddSub(strings.TrimSpace(l), ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +171,13 @@ func (e *Engine) isTest(l, test string, ctx *scope, negate bool) (any, error) {
 	case "string":
 		_, result = lv.(string)
 	case "mapping":
-		_, result = lv.(map[string]any)
+		// Dict-like: both a plain map and the order-preserving Object count (handlers pass
+		// *jsonenc.Object for object-shaped data).
+		if _, ok := lv.(map[string]any); ok {
+			result = true
+		} else if _, ok := lv.(*jsonenc.Object); ok {
+			result = true
+		}
 	case "iterable", "sequence":
 		_, isList := lv.([]any)
 		_, isStr := lv.(string)
@@ -183,11 +189,11 @@ func (e *Engine) isTest(l, test string, ctx *scope, negate bool) (any, error) {
 }
 
 func (e *Engine) membership(l, r string, ctx *scope, negate bool) (any, error) {
-	lv, err := e.evalFiltered(strings.TrimSpace(l), ctx)
+	lv, err := e.evalAddSub(strings.TrimSpace(l), ctx)
 	if err != nil {
 		return nil, err
 	}
-	rv, err := e.evalFiltered(strings.TrimSpace(r), ctx)
+	rv, err := e.evalAddSub(strings.TrimSpace(r), ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -202,22 +208,24 @@ func (e *Engine) membership(l, r string, ctx *scope, negate bool) (any, error) {
 }
 
 func (e *Engine) compareEq(l, r string, ctx *scope, want bool) (any, error) {
-	lv, err := e.evalFiltered(strings.TrimSpace(l), ctx)
+	lv, err := e.evalAddSub(strings.TrimSpace(l), ctx)
 	if err != nil {
 		return nil, err
 	}
-	rv, err := e.evalFiltered(strings.TrimSpace(r), ctx)
+	rv, err := e.evalAddSub(strings.TrimSpace(r), ctx)
 	if err != nil {
 		return nil, err
 	}
 	return equalValues(lv, rv) == want, nil
 }
 
-// evalFiltered handles an atom (with + concatenation/addition) followed by | filters.
+// evalFiltered applies | filters to an atom. Filters bind tighter than arithmetic (Jinja:
+// `a + b | f` is `a + (b|f)`), so this is the level just above evalAtom — its operand is a
+// single atom, not an arithmetic expression.
 func (e *Engine) evalFiltered(expr string, ctx *scope) (any, error) {
 	expr = strings.TrimSpace(expr)
 	parts := splitTop(expr, '|')
-	val, err := e.evalAddSub(strings.TrimSpace(parts[0]), ctx)
+	val, err := e.evalAtom(strings.TrimSpace(parts[0]), ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -230,25 +238,50 @@ func (e *Engine) evalFiltered(expr string, ctx *scope) (any, error) {
 	return val, nil
 }
 
-// evalAddSub handles top-level `+` (list concat / numeric add / string concat). Only `+`
-// is supported (the only binary arithmetic the templates use at expression level).
+// evalAddSub handles top-level binary `+` and `-` (numeric add/sub, list concat, string
+// concat). Per Jinja precedence the operand of +/- is a concat-expression: +/- bind looser
+// than ~, which binds looser than * // %, which bind looser than | filters.
 func (e *Engine) evalAddSub(s string, ctx *scope) (any, error) {
-	parts := splitTop(s, '+')
-	if len(parts) == 1 {
-		return e.evalMulDiv(strings.TrimSpace(s), ctx)
+	s = strings.TrimSpace(s)
+	terms, ops := splitAddSub(s)
+	if len(ops) == 0 {
+		return e.evalConcat(s, ctx)
 	}
-	acc, err := e.evalMulDiv(strings.TrimSpace(parts[0]), ctx)
+	acc, err := e.evalConcat(strings.TrimSpace(terms[0]), ctx)
 	if err != nil {
 		return nil, err
 	}
-	for _, p := range parts[1:] {
-		rv, err := e.evalMulDiv(strings.TrimSpace(p), ctx)
+	for i, op := range ops {
+		rv, err := e.evalConcat(strings.TrimSpace(terms[i+1]), ctx)
 		if err != nil {
 			return nil, err
 		}
-		acc = addValues(acc, rv)
+		if op == '-' {
+			acc = subValues(acc, rv)
+		} else {
+			acc = addValues(acc, rv)
+		}
 	}
 	return acc, nil
+}
+
+// evalConcat handles Jinja's `~` string-concatenation operator. Each operand is stringified
+// with Python str() (so 'g' ~ id ~ 'i' ~ loop.index -> "g7i1"). Operands are * // %
+// expressions (tighter than ~).
+func (e *Engine) evalConcat(s string, ctx *scope) (any, error) {
+	parts := splitTop(s, '~')
+	if len(parts) == 1 {
+		return e.evalMulDiv(strings.TrimSpace(s), ctx)
+	}
+	var b strings.Builder
+	for _, p := range parts {
+		v, err := e.evalMulDiv(strings.TrimSpace(p), ctx)
+		if err != nil {
+			return nil, err
+		}
+		b.WriteString(pyStr(v))
+	}
+	return b.String(), nil
 }
 
 // evalMulDiv handles // (floor div), * and % (the integer arithmetic templates use).
@@ -287,7 +320,7 @@ func (e *Engine) evalMulDiv(s string, ctx *scope) (any, error) {
 		}
 		return toIntVal(lv) % b, nil
 	}
-	return e.evalAtom(s, ctx)
+	return e.evalFiltered(s, ctx)
 }
 
 // matchOpenParen returns the index of the '(' matching the trailing ')' of s, or -1.
@@ -408,6 +441,73 @@ func addValues(a, b any) any {
 		}
 	}
 	return toString(a) + toString(b)
+}
+
+// subValues implements numeric `-` (int stays int, otherwise float). Templates only
+// subtract numbers (e.g. offset - limit).
+func subValues(a, b any) any {
+	if ai, ok := a.(int); ok {
+		if bi, ok := b.(int); ok {
+			return ai - bi
+		}
+	}
+	if af, ok := numFloat(a); ok {
+		if bf, ok := numFloat(b); ok {
+			return af - bf
+		}
+	}
+	return 0
+}
+
+// splitAddSub splits s on top-level binary `+`/`-` (skipping quotes, brackets, and unary
+// signs). Returns the terms and the operator bytes between them.
+func splitAddSub(s string) ([]string, []byte) {
+	var terms []string
+	var ops []byte
+	depth := 0
+	var quote byte
+	start := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+			continue
+		case '(', '[', '{':
+			depth++
+			continue
+		case ')', ']', '}':
+			depth--
+			continue
+		}
+		if depth != 0 || (c != '+' && c != '-') {
+			continue
+		}
+		// Binary only if the previous non-space char ends a value (not the term start and
+		// not another operator) — otherwise this +/- is a unary sign.
+		j := i - 1
+		for j >= start && s[j] == ' ' {
+			j--
+		}
+		if j < start {
+			continue
+		}
+		switch s[j] {
+		case '+', '-', '*', '/', '%', '~', '(', '[', '{', ',', '<', '>', '=', '!', '|':
+			continue
+		}
+		terms = append(terms, s[start:i])
+		ops = append(ops, c)
+		start = i + 1
+	}
+	terms = append(terms, s[start:])
+	return terms, ops
 }
 
 func numFloat(v any) (float64, bool) {
@@ -843,9 +943,18 @@ func (e *Engine) applyFilter(f string, val any, ctx *scope) (any, error) {
 	case "tojson":
 		// Jinja tojson: compact JSON + HTML-safe escaping, marked safe.
 		return safeString{tojson(val)}, nil
-	case "default":
-		if isFalsey(val) && argstr != "" {
-			d, err := e.evalExpr(argstr, ctx)
+	case "default", "d":
+		// Jinja default(d, boolean=False): substitute only when the value is undefined
+		// (nil), unless the boolean flag is set, in which case substitute on any falsy value.
+		args := splitTop(argstr, ',')
+		useBool := false
+		if len(args) >= 2 {
+			if bv, err := e.evalExpr(strings.TrimSpace(args[1]), ctx); err == nil {
+				useBool = !isFalsey(bv)
+			}
+		}
+		if (val == nil || (useBool && isFalsey(val))) && strings.TrimSpace(argstr) != "" {
+			d, err := e.evalExpr(strings.TrimSpace(args[0]), ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -855,13 +964,74 @@ func (e *Engine) applyFilter(f string, val any, ctx *scope) (any, error) {
 	case "length", "count":
 		return lengthOf(val), nil
 	case "truncate":
-		length := 255
+		length, killwords, end := 255, false, "..."
 		if argstr != "" {
-			if d, err := e.evalExpr(splitTop(argstr, ',')[0], ctx); err == nil {
+			a := splitTop(argstr, ',')
+			if d, err := e.evalExpr(strings.TrimSpace(a[0]), ctx); err == nil {
 				length = toIntVal(d)
 			}
+			if len(a) >= 2 {
+				if d, err := e.evalExpr(strings.TrimSpace(a[1]), ctx); err == nil {
+					killwords = !isFalsey(d)
+				}
+			}
+			if len(a) >= 3 {
+				if d, err := e.evalExpr(strings.TrimSpace(a[2]), ctx); err == nil {
+					end = toString(d)
+				}
+			}
 		}
-		return jinjaTruncate(toString(val), length), nil
+		return jinjaTruncate(toString(val), length, killwords, end), nil
+	case "format":
+		// Jinja `| format`: Python %-formatting — soft_str(value) % args.
+		args, _ := e.evalSeq(splitTop(argstr, ','), ctx)
+		al, _ := args.([]any)
+		return pyPercentFormat(toString(val), al), nil
+	case "round":
+		precision, method := 0, "common"
+		if argstr != "" {
+			a := splitTop(argstr, ',')
+			if d, err := e.evalExpr(strings.TrimSpace(a[0]), ctx); err == nil {
+				precision = toIntVal(d)
+			}
+			if len(a) >= 2 {
+				if d, err := e.evalExpr(strings.TrimSpace(a[1]), ctx); err == nil {
+					method = strings.Trim(toString(d), "'\"")
+				}
+			}
+		}
+		f, _ := numFloat(val)
+		return jinjaRound(f, precision, method), nil
+	case "int":
+		def := 0
+		if argstr != "" {
+			if d, err := e.evalExpr(strings.TrimSpace(splitTop(argstr, ',')[0]), ctx); err == nil {
+				def = toIntVal(d)
+			}
+		}
+		return jinjaInt(val, def), nil
+	case "float":
+		def := 0.0
+		if argstr != "" {
+			if d, err := e.evalExpr(strings.TrimSpace(splitTop(argstr, ',')[0]), ctx); err == nil {
+				if f, ok := numFloat(d); ok {
+					def = f
+				}
+			}
+		}
+		return jinjaFloat(val, def), nil
+	case "min", "max":
+		items := toList(val)
+		if len(items) == 0 {
+			return nil, nil
+		}
+		best := items[0]
+		for _, it := range items[1:] {
+			if (name == "max" && jinjaLess(best, it)) || (name == "min" && jinjaLess(it, best)) {
+				best = it
+			}
+		}
+		return best, nil
 	case "lower":
 		return strings.ToLower(toString(val)), nil
 	case "upper":
@@ -875,7 +1045,7 @@ func (e *Engine) applyFilter(f string, val any, ctx *scope) (any, error) {
 		}
 		return strings.ToUpper(s[:1]) + s[1:], nil
 	case "title":
-		return strings.Title(strings.ToLower(toString(val))), nil //nolint:staticcheck
+		return jinjaTitle(toString(val)), nil
 	case "replace":
 		args, _ := e.evalSeq(splitTop(argstr, ','), ctx)
 		al, _ := args.([]any)
@@ -910,15 +1080,40 @@ func (e *Engine) applyFilter(f string, val any, ctx *scope) (any, error) {
 		return "", nil
 	case "list":
 		return toList(val), nil
-	case "selectattr":
-		// selectattr('attr') keeps list items whose attr is truthy.
-		attr := ""
-		if a, err := e.evalExpr(argstr, ctx); err == nil {
-			attr = toString(a)
+	case "selectattr", "rejectattr":
+		// selectattr('attr') keeps items whose attr is truthy; selectattr('attr','equalto',v)
+		// keeps items whose attr == v. rejectattr is the inverse.
+		args := splitTop(argstr, ',')
+		attrName := ""
+		if len(args) >= 1 {
+			if a, err := e.evalExpr(strings.TrimSpace(args[0]), ctx); err == nil {
+				attrName = toString(a)
+			}
 		}
+		testName := ""
+		var cmpVal any
+		if len(args) >= 3 {
+			if a, err := e.evalExpr(strings.TrimSpace(args[1]), ctx); err == nil {
+				testName = toString(a)
+			}
+			if a, err := e.evalExpr(strings.TrimSpace(args[2]), ctx); err == nil {
+				cmpVal = a
+			}
+		}
+		reject := name == "rejectattr"
 		out := []any{}
 		for _, item := range toList(val) {
-			if m, ok := item.(map[string]any); ok && !isFalsey(m[attr]) {
+			av := attrValue(item, attrName)
+			var keep bool
+			switch testName {
+			case "equalto", "eq", "==":
+				keep = equalValues(av, cmpVal)
+			case "ne", "!=":
+				keep = !equalValues(av, cmpVal)
+			default:
+				keep = !isFalsey(av)
+			}
+			if keep != reject {
 				out = append(out, item)
 			}
 		}
@@ -936,9 +1131,12 @@ func (e *Engine) applyFilter(f string, val any, ctx *scope) (any, error) {
 		}
 		return urlQueryEscape(toString(val)), nil
 	case "mask":
-		// app.py _mask_value_for_output: redacts sensitive keys/patterns. The fixture data
-		// carries no sensitive content, so masking is identity here. (Full redaction lands
-		// when sensitive fixtures are tested.) Identity preserves objects for | tojson.
+		// app.py _mask_value_for_output: redact sensitive keys/patterns via the per-request
+		// DLP rules (installed by SetMaskFunc). Identity when unset, preserving objects for
+		// | tojson. The fixture data carries no sensitive content, so corpus output is unchanged.
+		if e.maskFunc != nil {
+			return e.maskFunc(val), nil
+		}
 		return val, nil
 	default:
 		return nil, fmt.Errorf("unsupported filter %q", name)
@@ -1304,22 +1502,204 @@ func commaInt(n int64) string {
 // jinjaTruncate mirrors Jinja's |truncate(length) with its defaults (end="...", leeway=5,
 // killwords=False): short strings (<= length+leeway) pass through; otherwise cut to
 // length-len(end), break at the last space, and append the ellipsis.
-func jinjaTruncate(s string, length int) string {
-	const end = "..."
+func jinjaTruncate(s string, length int, killwords bool, end string) string {
 	const leeway = 5
 	r := []rune(s)
 	if len(r) <= length+leeway {
 		return s
 	}
-	cut := length - len(end)
+	cut := length - len([]rune(end))
 	if cut < 0 {
 		cut = 0
+	}
+	if cut > len(r) {
+		cut = len(r)
+	}
+	if killwords {
+		return string(r[:cut]) + end
 	}
 	truncated := string(r[:cut])
 	if idx := strings.LastIndex(truncated, " "); idx >= 0 {
 		truncated = truncated[:idx]
 	}
 	return truncated + end
+}
+
+// jinjaTitle reproduces Jinja's do_title: uppercase the first letter of each word (words are
+// delimited by runs of [-\s({[<]), lower-casing the rest. Differs from Go strings.Title /
+// Python str.title (which also uppercase after digits and apostrophes): do_title("it's a
+// test") == "It's A Test", do_title("abc123def") == "Abc123def".
+func jinjaTitle(s string) string {
+	var b strings.Builder
+	atStart := true
+	for _, r := range s {
+		switch r {
+		case '-', '(', '{', '[', '<', ' ', '\t', '\n', '\r', '\f', '\v':
+			b.WriteRune(r)
+			atStart = true
+			continue
+		}
+		if atStart {
+			b.WriteString(strings.ToUpper(string(r)))
+			atStart = false
+		} else {
+			b.WriteString(strings.ToLower(string(r)))
+		}
+	}
+	return b.String()
+}
+
+// jinjaInt mirrors Jinja's do_int / Python int(value, default): truncates floats toward
+// zero, parses strings (falling back to float then default).
+func jinjaInt(v any, def int) int {
+	switch x := v.(type) {
+	case int:
+		return x
+	case float64:
+		return int(x)
+	case bool:
+		if x {
+			return 1
+		}
+		return 0
+	case string:
+		s := strings.TrimSpace(x)
+		if n, err := strconv.Atoi(s); err == nil {
+			return n
+		}
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			return int(f)
+		}
+	}
+	return def
+}
+
+// jinjaFloat mirrors Jinja's do_float / Python float(value, default).
+func jinjaFloat(v any, def float64) float64 {
+	switch x := v.(type) {
+	case int:
+		return float64(x)
+	case float64:
+		return x
+	case bool:
+		if x {
+			return 1
+		}
+		return 0
+	case string:
+		if f, err := strconv.ParseFloat(strings.TrimSpace(x), 64); err == nil {
+			return f
+		}
+	}
+	return def
+}
+
+// jinjaRound mirrors Jinja's do_round(value, precision, method). "common" uses Python
+// round() (half-to-even on the true double); "ceil"/"floor" scale-then-round.
+func jinjaRound(f float64, precision int, method string) float64 {
+	switch method {
+	case "ceil":
+		p := math.Pow(10, float64(precision))
+		return math.Ceil(f*p) / p
+	case "floor":
+		p := math.Pow(10, float64(precision))
+		return math.Floor(f*p) / p
+	default:
+		if precision < 0 {
+			p := math.Pow(10, float64(-precision))
+			r, _ := strconv.ParseFloat(strconv.FormatFloat(f/p, 'f', 0, 64), 64)
+			return r * p
+		}
+		r, _ := strconv.ParseFloat(strconv.FormatFloat(f, 'f', precision, 64), 64)
+		return r
+	}
+}
+
+// jinjaLess compares two values for | min / | max: numerically when both are numbers,
+// otherwise as case-insensitive strings (Jinja's default).
+func jinjaLess(a, b any) bool {
+	if af, ok := numFloat(a); ok {
+		if bf, ok := numFloat(b); ok {
+			return af < bf
+		}
+	}
+	return strings.ToLower(toString(a)) < strings.ToLower(toString(b))
+}
+
+// attrValue reads item[attr] (dotted) for map / *Object items — used by selectattr.
+func attrValue(item any, attr string) any {
+	cur := item
+	for _, part := range strings.Split(attr, ".") {
+		switch m := cur.(type) {
+		case map[string]any:
+			cur = m[part]
+		case *jsonenc.Object:
+			v, _ := m.Get(part)
+			cur = v
+		default:
+			return nil
+		}
+	}
+	return cur
+}
+
+// pyPercentFormat implements Python's % string formatting for the conversion specs the
+// templates use (%.1f, %d, %s, %%): soft_str(value) % args.
+func pyPercentFormat(format string, args []any) string {
+	var b strings.Builder
+	ai := 0
+	for i := 0; i < len(format); i++ {
+		c := format[i]
+		if c != '%' {
+			b.WriteByte(c)
+			continue
+		}
+		j := i + 1
+		if j < len(format) && format[j] == '%' {
+			b.WriteByte('%')
+			i = j
+			continue
+		}
+		flagsStart := j
+		for j < len(format) && strings.IndexByte("-+ #0", format[j]) >= 0 {
+			j++
+		}
+		for j < len(format) && format[j] >= '0' && format[j] <= '9' {
+			j++
+		}
+		if j < len(format) && format[j] == '.' {
+			j++
+			for j < len(format) && format[j] >= '0' && format[j] <= '9' {
+				j++
+			}
+		}
+		if j >= len(format) {
+			b.WriteByte('%')
+			break
+		}
+		verb := format[j]
+		mid := format[flagsStart:j]
+		var arg any
+		if ai < len(args) {
+			arg = args[ai]
+			ai++
+		}
+		switch verb {
+		case 'd', 'i':
+			b.WriteString(fmt.Sprintf("%"+mid+"d", toIntVal(arg)))
+		case 'x', 'X', 'o':
+			b.WriteString(fmt.Sprintf("%"+mid+string(verb), toIntVal(arg)))
+		case 'f', 'F', 'e', 'E', 'g', 'G':
+			fv, _ := numFloat(arg)
+			b.WriteString(fmt.Sprintf("%"+mid+string(verb), fv))
+		case 's', 'r':
+			b.WriteString(fmt.Sprintf("%"+mid+"s", pyStr(arg)))
+		default:
+			b.WriteString("%" + mid + string(verb))
+		}
+		i = j
+	}
+	return b.String()
 }
 
 // sliceBound evaluates an optional slice bound expression; ok=false when omitted (e.g. [:10]).

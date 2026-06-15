@@ -41,6 +41,9 @@ func (s *server) newEngine() *render.Engine { return s.newEngineFlash(nil) }
 // than redirect), e.g. the auto-rule preview pages.
 func (s *server) newEngineFlash(flashes []any) *render.Engine {
 	e := render.New(s.cfg.TemplateDir)
+	// Custom `mask` filter (app.py _mask_value_for_output): redacts sensitive keys/patterns
+	// per the active DLP rules. Depends on per-request settings, so install it here.
+	e.SetMaskFunc(s.maskValueForOutput)
 	e.AddFunc("url_for", func(pos []any, kw map[string]any) (any, error) {
 		return s.urlFor(pos, kw, e.KWOrder())
 	})

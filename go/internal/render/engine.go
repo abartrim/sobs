@@ -21,7 +21,13 @@ type Engine struct {
 	macros   map[string]*macroDef // active macro registry (per Render)
 	activeRC *renderCtx           // active render context (for macro-body rendering)
 	kwOrder  []string             // keyword-arg order of the in-flight callFunc (for url_for)
+	maskFunc func(any) any        // the `mask` filter (_mask_value_for_output); identity if nil
 }
+
+// SetMaskFunc installs the implementation of the custom `mask` template filter
+// (app.py _mask_value_for_output). It depends on per-request DLP rules, so cmd/sobs sets it
+// on the per-render engine. When nil, the `mask` filter is identity.
+func (e *Engine) SetMaskFunc(f func(any) any) { e.maskFunc = f }
 
 // KWOrder returns the keyword-arg order of the function call currently being dispatched —
 // used by url_for to emit leftover kwargs as query params in insertion order (Quart).
