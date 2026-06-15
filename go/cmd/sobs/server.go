@@ -72,6 +72,9 @@ func newServer(cfg config) *server {
 	// Background DB writer (app.py _ensure_write_worker). The writer's ops use s.db, so start it
 	// only after the store is opened. Under parity, ingest writes are awaited (commit-before-ack).
 	s.wq = newWriteQueue()
+	// Periodic background workers (app.py before_serving asyncio tasks). Real-runtime only — see
+	// background_tasks.go. Currently: the raw-metrics window-copy worker.
+	s.startBackgroundWorkers()
 	s.routes()
 	return s
 }
