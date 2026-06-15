@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -476,7 +475,9 @@ func (s *server) handleNotifChannelsCreate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	ff := func(k string) string { return strings.TrimSpace(r.PostFormValue(k)) }
-	config := map[string]any{}
+	// config is an ordered Object so the stored JSON preserves Python's dict insertion order
+	// (json.dumps(sort_keys=False)); a Go map would sort the keys.
+	config := jsonenc.NewObject()
 	switch channelType {
 	case "webhook":
 		method := strings.ToUpper(ff("webhook_method"))
@@ -487,43 +488,45 @@ func (s *server) handleNotifChannelsCreate(w http.ResponseWriter, r *http.Reques
 		if headers == "" {
 			headers = "{}"
 		}
-		config["url"], config["method"], config["headers"], config["body_template"] = ff("webhook_url"), method, headers, ff("webhook_body_template")
-		if config["url"] == "" {
+		config.Set("url", ff("webhook_url")).Set("method", method).Set("headers", headers).Set("body_template", ff("webhook_body_template"))
+		if u, _ := config.Get("url"); u == "" {
 			flashRedirect(w, "warning", "Webhook URL is required", loc)
 			return
 		}
 	case "slack":
-		config["webhook_url"] = ff("slack_webhook_url")
-		if config["webhook_url"] == "" {
+		config.Set("webhook_url", ff("slack_webhook_url"))
+		if u, _ := config.Get("webhook_url"); u == "" {
 			flashRedirect(w, "warning", "Slack webhook URL is required", loc)
 			return
 		}
 	case "email":
-		config["smtp_host"] = orDefault(ff("smtp_host"), "localhost")
-		config["smtp_port"] = orDefault(ff("smtp_port"), "587")
-		config["smtp_user"], config["smtp_password"] = ff("smtp_user"), ff("smtp_password")
-		config["from_addr"] = orDefault(ff("from_addr"), "sobs@localhost")
-		config["to_addr"] = ff("to_addr")
-		config["use_tls"] = orDefault(ff("use_tls"), "1")
-		if config["to_addr"] == "" {
+		config.Set("smtp_host", orDefault(ff("smtp_host"), "localhost"))
+		config.Set("smtp_port", orDefault(ff("smtp_port"), "587"))
+		config.Set("smtp_user", ff("smtp_user")).Set("smtp_password", ff("smtp_password"))
+		config.Set("from_addr", orDefault(ff("from_addr"), "sobs@localhost"))
+		config.Set("to_addr", ff("to_addr"))
+		config.Set("use_tls", orDefault(ff("use_tls"), "1"))
+		if a, _ := config.Get("to_addr"); a == "" {
 			flashRedirect(w, "warning", "Email recipient (to_addr) is required", loc)
 			return
 		}
 	case "browser_push":
-		config["endpoint"], config["p256dh"], config["auth"] = ff("push_endpoint"), ff("push_p256dh"), ff("push_auth")
-		if config["endpoint"] == "" {
+		config.Set("endpoint", ff("push_endpoint")).Set("p256dh", ff("push_p256dh")).Set("auth", ff("push_auth"))
+		if e, _ := config.Get("endpoint"); e == "" {
 			flashRedirect(w, "warning", "Push endpoint is required", loc)
 			return
 		}
 	}
-	config["mask_output_enabled"] = "0"
+	config.Set("mask_output_enabled", "0")
 	if maskEnabled {
-		config["mask_output_enabled"] = "1"
+		config.Set("mask_output_enabled", "1")
 	}
-	cfgJSON, _ := json.Marshal(config)
+	// Encrypt sensitive config values at rest (no-op when SOBS_SETTINGS_ENCRYPTION_KEY is unset, as
+	// in the parity corpus, so the stored bytes stay plaintext), then json.dumps(ensure_ascii=False).
+	storedConfig := s.encryptNotificationConfig(config)
 	row := map[string]any{
 		"Id": newUUIDHex(), "Name": name, "ChannelType": channelType,
-		"ConfigJson": string(cfgJSON), "Enabled": 1, "IsDeleted": 0, "Version": fixedVersionMillis(),
+		"ConfigJson": string(jsonenc.Encode(storedConfig, dumpsDefault)), "Enabled": 1, "IsDeleted": 0, "Version": fixedVersionMillis(),
 	}
 	if _, err := s.insertRowsNormalized("sobs_notification_channels", []map[string]any{row}); err != nil {
 		s.dbError(w, err)
@@ -582,7 +585,8 @@ func (s *server) handleNotifRulesCreate(w http.ResponseWriter, r *http.Request) 
 			chIDs = append(chIDs, c)
 		}
 	}
-	condJSON, _ := json.Marshal(conditions)
+	// json.dumps(conditions, ensure_ascii=False): default (spaced) separators, insertion order.
+	condJSON := jsonenc.Encode(conditions, dumpsDefault)
 	row := map[string]any{
 		"Id": newUUIDHex(), "Name": name, "Enabled": 1, "LogicOperator": logicOp,
 		"ConditionsJson": string(condJSON), "ChannelIds": strings.Join(chIDs, ","),
@@ -747,21 +751,22 @@ func (s *server) buildNotificationConditions(w http.ResponseWriter, r *http.Requ
 					return nil, false
 				}
 			}
-			conditions = append(conditions, map[string]any{
-				"type": "tag", "record_type": recordType, "tag_key": tagKey,
-				"tag_match_operator": tagOp, "tag_value": tagValue,
-				"comparator": comparator, "threshold": threshold, "window_minutes": window,
-			})
+			// Ordered Object so the stored ConditionsJson preserves Python's dict insertion
+			// order (json.dumps(sort_keys=False)); threshold is a float64 so it renders "0.0"
+			// (Python float), not "0" (a Go map + encoding/json would do both wrong).
+			conditions = append(conditions, jsonenc.NewObject().
+				Set("type", "tag").Set("record_type", recordType).Set("tag_key", tagKey).
+				Set("tag_match_operator", tagOp).Set("tag_value", tagValue).
+				Set("comparator", comparator).Set("threshold", threshold).Set("window_minutes", window))
 			continue
 		}
 		source, signal, service := at(sources, i), at(signals, i), at(services, i)
 		if source == "" || signal == "" {
 			continue
 		}
-		conditions = append(conditions, map[string]any{
-			"type": "signal", "source": source, "signal": signal, "service": service,
-			"comparator": comparator, "threshold": threshold, "window_minutes": window,
-		})
+		conditions = append(conditions, jsonenc.NewObject().
+			Set("type", "signal").Set("source", source).Set("signal", signal).Set("service", service).
+			Set("comparator", comparator).Set("threshold", threshold).Set("window_minutes", window))
 	}
 	return conditions, true
 }

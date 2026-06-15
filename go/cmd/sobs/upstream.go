@@ -113,6 +113,25 @@ var notificationSensitiveConfigKeys = map[string]bool{
 	"webhook_url": true, "url": true, "auth": true,
 }
 
+// encryptNotificationConfig mirrors app.py _encrypt_notification_config: Fernet-encrypt the
+// sensitive string values (smtp_password/auth_token/api_key/webhook_url/url/auth) before
+// persistence, leaving every other key (and every non-string value) untouched while preserving
+// insertion order. encryptSecretValue is a strict no-op when SOBS_SETTINGS_ENCRYPTION_KEY is unset
+// (the parity corpus), so this stores PLAINTEXT byte-identical to Python's
+// _encrypt_notification_config over an empty-secret deployment.
+func (s *server) encryptNotificationConfig(config *jsonenc.Object) *jsonenc.Object {
+	out := jsonenc.NewObject()
+	for _, k := range config.Keys() {
+		v, _ := config.Get(k)
+		if sv, ok := v.(string); ok && notificationSensitiveConfigKeys[k] {
+			out.Set(k, s.encryptSecretValue(sv))
+		} else {
+			out.Set(k, v)
+		}
+	}
+	return out
+}
+
 // decryptNotificationConfig mirrors _decrypt_notification_config: decrypt the sensitive string
 // values. decryptSecretValue is pass-through for non-`enc:v1:` (plaintext) values, so this is
 // identity on the parity fixture's plaintext config.
