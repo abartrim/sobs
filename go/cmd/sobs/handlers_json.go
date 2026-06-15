@@ -20,7 +20,7 @@ func (s *server) errorJSON(w http.ResponseWriter, status int, msg string) {
 // GET /api/query/schema — app.py api_query_schema(): query-page guard, then the schema-context
 // string used for LLM prompts.
 func (s *server) handleApiQuerySchema(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.QueryPageEnabled {
+	if !s.queryPageEnabled() {
 		s.errorJSON(w, http.StatusNotFound, "Query page is unavailable.")
 		return
 	}
@@ -31,7 +31,7 @@ func (s *server) handleApiQuerySchema(w http.ResponseWriter, r *http.Request) {
 // GET /api/table-explorer/tables — app.py api_table_explorer_tables(): query-page guard, then
 // metadata for every allowlisted table that exists (name, column_count, columns).
 func (s *server) handleApiTableExplorerTables(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.QueryPageEnabled {
+	if !s.queryPageEnabled() {
 		s.errorJSON(w, http.StatusNotFound, "Table Explorer is unavailable.")
 		return
 	}

@@ -50,7 +50,7 @@ func k8sQInt(r *http.Request, name string, def, lo, hi int) int {
 // no k8s metrics, the otel queries return empty rows (and avg() over 0 rows yields NaN), so the
 // status is the structured empty result with a "no data found" message.
 func (s *server) handleApiKubernetesStatus(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.KubernetesEnabled {
+	if !s.kubernetesEnabled() {
 		s.errorJSON(w, http.StatusNotFound, "Kubernetes health view is disabled.")
 		return
 	}

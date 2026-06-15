@@ -49,29 +49,30 @@ type config struct {
 	StaticDir   string
 	TemplateDir string
 
-	SecretKey           string
-	EncryptionSecret    string
-	BuildVersion        string
-	BasePath            string
-	QueryPageEnabled    bool
-	KubernetesEnabled   bool
+	SecretKey        string
+	EncryptionSecret string
+	BuildVersion     string
+	BasePath         string
+	// query_enabled / kubernetes_enabled are NOT cached here: app.py derives them per request
+	// from DB settings (ai.endpoint_url+ai.model / kubernetes.enabled), so see
+	// server.queryPageEnabled() / kubernetesEnabled() — enabling them via the Settings UI must
+	// take effect without a restart.
 	FirstRunTourEnabled bool
 }
 
 func loadConfig() config {
 	return config{
-		Parity:              os.Getenv("SOBS_PARITY") == "1",
-		DataDir:             envOr("SOBS_DATA_DIR", "./data"),
-		Port:                envOr("SOBS_PORT", envOr("PORT", "44317")),
-		StaticDir:           envOr("SOBS_STATIC_DIR", "static"),
-		TemplateDir:         envOr("SOBS_TEMPLATE_DIR", "templates"),
-		SecretKey:           envOr("SOBS_SECRET_KEY", "sobs-dev-secret-key"),
-		EncryptionSecret:    readEnvOrFile("SOBS_SETTINGS_ENCRYPTION_KEY", "SOBS_SETTINGS_ENCRYPTION_KEY_FILE"),
-		BuildVersion:        envOr("SOBS_BUILD_VERSION", "dev"),
-		BasePath:            os.Getenv("SOBS_BASE_PATH"),
-		QueryPageEnabled:    os.Getenv("SOBS_QUERY_PAGE_ENABLED") == "1",
-		KubernetesEnabled:   os.Getenv("SOBS_KUBERNETES_ENABLED") == "1",
-		FirstRunTourEnabled: os.Getenv("SOBS_ENABLE_FIRST_RUN_TOUR") == "1",
+		Parity:           os.Getenv("SOBS_PARITY") == "1",
+		DataDir:          envOr("SOBS_DATA_DIR", "./data"),
+		Port:             envOr("SOBS_PORT", envOr("PORT", "44317")),
+		StaticDir:        envOr("SOBS_STATIC_DIR", "static"),
+		TemplateDir:      envOr("SOBS_TEMPLATE_DIR", "templates"),
+		SecretKey:        envOr("SOBS_SECRET_KEY", "sobs-dev-secret-key"),
+		EncryptionSecret: readEnvOrFile("SOBS_SETTINGS_ENCRYPTION_KEY", "SOBS_SETTINGS_ENCRYPTION_KEY_FILE"),
+		BuildVersion:     envOr("SOBS_BUILD_VERSION", "dev"),
+		BasePath:         os.Getenv("SOBS_BASE_PATH"),
+		// app.py: _env_flag("SOBS_ENABLE_FIRST_RUN_TOUR", True) — default ON, {1,true,yes,on}.
+		FirstRunTourEnabled: envFlag("SOBS_ENABLE_FIRST_RUN_TOUR", true),
 	}
 }
 
@@ -83,13 +84,13 @@ func envOr(k, def string) string {
 }
 
 // resolveBindAddr mirrors app.py's __main__ bind resolution: HYPERCORN_BIND / GUNICORN_BIND
-// override the full host:port; otherwise SOBS_HOST (default loopback for safe direct runs — the
-// container/compose set SOBS_HOST=0.0.0.0) plus the resolved port.
+// override the full host:port; otherwise SOBS_HOST (default 0.0.0.0, matching app.py's
+// f"0.0.0.0:{port}" default — bind all interfaces) plus the resolved port.
 func resolveBindAddr(port string) string {
 	if b := strings.TrimSpace(envOr("HYPERCORN_BIND", os.Getenv("GUNICORN_BIND"))); b != "" {
 		return b
 	}
-	return envOr("SOBS_HOST", "127.0.0.1") + ":" + port
+	return envOr("SOBS_HOST", "0.0.0.0") + ":" + port
 }
 
 // runHealthcheck probes the local /health endpoint; returns 0 if it answers 200, else 1.

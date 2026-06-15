@@ -19,8 +19,11 @@ type sseBroker struct {
 
 func newSSEBroker() *sseBroker { return &sseBroker{subs: map[chan string]struct{}{}} }
 
+// sseQueueMaxsize mirrors app.py _SSE_QUEUE_MAXSIZE = int(os.environ.get("SOBS_SSE_QUEUE_MAX", 200)).
+var sseQueueMaxsize = envInt("SOBS_SSE_QUEUE_MAX", 200)
+
 func (b *sseBroker) subscribe() chan string {
-	ch := make(chan string, 200) // _SSE_QUEUE_MAXSIZE
+	ch := make(chan string, sseQueueMaxsize)
 	b.mu.Lock()
 	b.subs[ch] = struct{}{}
 	b.mu.Unlock()

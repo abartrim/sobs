@@ -357,7 +357,9 @@ func semanticMemoryMatches(memories []chatMemory, queryText string, maxResults i
 		if score < aiMemorySemanticMinScore {
 			continue
 		}
-		scored = append(scored, memoryMatch{id: item.id, text: item.text, score: score, sourceTurnID: item.sourceTurnID})
+		// _semantic_memory_matches stores round(score, 4) and sorts on that rounded value, so two
+		// scores differing only past 4 decimals keep stable (DB) order.
+		scored = append(scored, memoryMatch{id: item.id, text: item.text, score: roundHalfEven(score, 4), sourceTurnID: item.sourceTurnID})
 	}
 	sort.SliceStable(scored, func(i, j int) bool { return scored[i].score > scored[j].score })
 	if len(scored) > maxResults {

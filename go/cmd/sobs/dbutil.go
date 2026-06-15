@@ -249,19 +249,34 @@ func (s *server) appSetting(key string) (string, bool) {
 	return v, v != ""
 }
 
-// appSettingBool mirrors the `(_get_app_setting(key) or "<default>").lower() in
-// ("1","true","yes")` idiom: when the setting is absent, def is the fallback truthiness.
+// appSettingBool mirrors _is_truthy_setting(value, default): when the setting is absent, def
+// is the fallback; otherwise the value is truthy for {1,true,yes,on}. (app.py accepts "on" —
+// the read path must match the write path's truthiness or DLP could silently disable.)
 func (s *server) appSettingBool(key string, def bool) bool {
 	v, ok := s.appSetting(key)
 	if !ok {
 		return def
 	}
 	switch strings.ToLower(v) {
-	case "1", "true", "yes":
+	case "1", "true", "yes", "on":
 		return true
 	default:
 		return false
 	}
+}
+
+// queryPageEnabled mirrors app.py _query_page_enabled: the Query page is available when an AI
+// endpoint and model are configured (DB settings, honoring env/file overrides). Evaluated per
+// request — configuring AI via the Settings UI takes effect without a restart.
+func (s *server) queryPageEnabled() bool {
+	return s.loadAISetting("ai.endpoint_url", "") != "" && s.loadAISetting("ai.model", "") != ""
+}
+
+// kubernetesEnabled mirrors app.py _kubernetes_enabled: on when the kubernetes.enabled app
+// setting == "1" (DB-driven, per request).
+func (s *server) kubernetesEnabled() bool {
+	v, _ := s.appSetting("kubernetes.enabled")
+	return v == "1"
 }
 
 // parseReportFiltersNative decodes a stored FiltersJson into a NATIVE Go value (maps,

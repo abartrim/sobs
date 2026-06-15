@@ -36,6 +36,37 @@ func htmlEscapeMarkup(s string) string {
 	return s
 }
 
+// Session-cookie config (app.py SESSION_COOKIE_NAME / SESSION_COOKIE_SAMESITE /
+// SESSION_COOKIE_SECURE), read once at startup. Defaults match Quart's (sobs_session, Lax, and
+// Secure only behind TLS) so the parity corpus — which sets none of these — is byte-unchanged.
+var (
+	sessionCookieName      = envOr("SOBS_SESSION_COOKIE_NAME", "sobs_session")
+	sessionCookieSameSite  = normalizeSameSite(envOr("SOBS_SESSION_COOKIE_SAMESITE", "Lax"))
+	sessionCookieBehindTLS = envFlag("SOBS_BEHIND_TLS", false)
+)
+
+// normalizeSameSite mirrors app.py: lower-case, restrict to {lax,strict,none} (default lax),
+// then capitalize to Lax/Strict/None.
+func normalizeSameSite(raw string) string {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	switch v {
+	case "lax", "strict", "none":
+	default:
+		v = "lax"
+	}
+	return strings.ToUpper(v[:1]) + v[1:]
+}
+
+// sessionCookieAttrs returns the trailing cookie attributes: HttpOnly, Path, the configured
+// SameSite, and Secure when behind TLS. The default is "; HttpOnly; Path=/; SameSite=Lax".
+func sessionCookieAttrs() string {
+	a := "; HttpOnly; Path=/; SameSite=" + sessionCookieSameSite
+	if sessionCookieBehindTLS {
+		a += "; Secure"
+	}
+	return a
+}
+
 // flashSessionCookie builds the sobs_session cookie carrying a single flash message. The
 // parity normalizer keeps only the unsigned base64 payload segment (dropping the HMAC
 // timestamp+signature), so a placeholder ".0.0" suffix is sufficient and the payload — the
@@ -50,7 +81,7 @@ func flashSessionCookie(category, message string) string {
 	// session dict, so the compress/no-compress decision is irrelevant — and CPython's zlib is
 	// a few bytes smaller than Go's at the threshold, so replicating its decision is unreliable.
 	payload := base64.RawURLEncoding.EncodeToString(js)
-	return "sobs_session=" + payload + ".0.0; HttpOnly; Path=/; SameSite=Lax"
+	return sessionCookieName + "=" + payload + ".0.0" + sessionCookieAttrs()
 }
 
 // plainRedirect reproduces a bare `return redirect(location)` (no flash): a 302 with
@@ -100,7 +131,7 @@ func flashRedirectWithCiKey(w http.ResponseWriter, category, message, location, 
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	h.Set("Location", location)
-	h.Set("Set-Cookie", "sobs_session="+payload+".0.0; HttpOnly; Path=/; SameSite=Lax")
+	h.Set("Set-Cookie", sessionCookieName+"="+payload+".0.0"+sessionCookieAttrs())
 	h.Set("Vary", "Cookie")
 	h.Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusFound)

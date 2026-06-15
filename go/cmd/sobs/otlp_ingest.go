@@ -108,11 +108,9 @@ func otlpStringifyAttrs(values map[string]any) map[string]any {
 	return out
 }
 
-// nsToISO mirrors _ns_to_iso.
+// nsToISO mirrors _ns_to_iso: convert the OTLP nanosecond timestamp to a millisecond ISO-8601
+// string. ns == 0 yields the epoch (datetime.fromtimestamp(0)), matching Python — NOT now().
 func nsToISO(ns int64) string {
-	if ns <= 0 {
-		return nowISO()
-	}
 	return time.Unix(0, ns).UTC().Format("2006-01-02T15:04:05.000-07:00")
 }
 

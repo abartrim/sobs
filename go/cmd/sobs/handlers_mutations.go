@@ -48,7 +48,7 @@ func (s *server) handleValidateRegex(w http.ResponseWriter, r *http.Request) {
 // POST /api/query/refine-chart — app.py api_query_refine_chart: refine an ECharts spec via one
 // LLM call (canned in parity). trace_id/turn_id are uuids (masked).
 func (s *server) handleApiQueryRefineChart(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.QueryPageEnabled {
+	if !s.queryPageEnabled() {
 		s.writeMaskedJSON(w, http.StatusNotFound,
 			jsonenc.NewObject().Set("ok", false).Set("error", "Query page is unavailable."))
 		return

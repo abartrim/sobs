@@ -633,9 +633,12 @@ func osvSeverity(v *jsonenc.Object) string {
 	return ""
 }
 
+// truncate mirrors Python's s[:n] — character (rune) based, so multibyte OSV summaries are not
+// split mid-codepoint.
 func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[:n])
 	}
 	return s
 }

@@ -366,7 +366,7 @@ func (s *server) renderPageFlash(w http.ResponseWriter, templateName, endpoint, 
 	eng := s.newEngineFlash([]any{[]any{flashCategory, flashMessage}})
 	// Consuming the flash empties the session, so Quart clears the session cookie and marks
 	// the response Vary: Cookie (it read the request session).
-	w.Header().Set("Set-Cookie", "sobs_session=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; Path=/; SameSite=Lax")
+	w.Header().Set("Set-Cookie", sessionCookieName+"=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0"+sessionCookieAttrs())
 	w.Header().Set("Vary", "Cookie")
 	s.renderInto(w, eng, templateName, ctx)
 }
@@ -386,7 +386,7 @@ func (s *server) renderInto(w http.ResponseWriter, eng *render.Engine, templateN
 
 // GET /query — app.py view_query: 404 string when the query page is disabled (fixture).
 func (s *server) handleViewQuery(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.QueryPageEnabled {
+	if !s.queryPageEnabled() {
 		textStatus(w, http.StatusNotFound, "Query page is unavailable until AI and guard settings are configured.")
 		return
 	}
@@ -395,7 +395,7 @@ func (s *server) handleViewQuery(w http.ResponseWriter, r *http.Request) {
 
 // GET /table-explorer — app.py view_table_explorer: 404 string when disabled (fixture).
 func (s *server) handleViewTableExplorer(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.QueryPageEnabled {
+	if !s.queryPageEnabled() {
 		textStatus(w, http.StatusNotFound, "Table Explorer is unavailable until AI and guard settings are configured.")
 		return
 	}
@@ -1473,7 +1473,7 @@ func (s *server) handleViewMaskingSettings(w http.ResponseWriter, r *http.Reques
 
 // GET /kubernetes — app.py view_kubernetes: 404 string when k8s is disabled (fixture).
 func (s *server) handleViewKubernetes(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.KubernetesEnabled {
+	if !s.kubernetesEnabled() {
 		textStatus(w, http.StatusNotFound, "Kubernetes health view is disabled. Enable it in Settings → Kubernetes.")
 		return
 	}

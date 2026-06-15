@@ -130,7 +130,7 @@ func (s *server) handleApiRawSpan(w http.ResponseWriter, r *http.Request) {
 // GET /api/table-explorer/table/<name> — app.py api_table_explorer_table: query-page guard,
 // allowlist guard (403), then {columns, ddl, sample} for the single table.
 func (s *server) handleApiTableExplorerTable(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.QueryPageEnabled {
+	if !s.queryPageEnabled() {
 		writeJSON(w, http.StatusNotFound,
 			jsonenc.NewObject().Set("ok", false).Set("error", "Table Explorer is unavailable."))
 		return

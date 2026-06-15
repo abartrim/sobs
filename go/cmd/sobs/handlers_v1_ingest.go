@@ -111,6 +111,10 @@ func formatPyNumber(f float64) string {
 // empty model/service, zero tokens). Returns {"ok": true}. Ordered manifest-last so the new
 // row never perturbs an earlier-compared route that scans otel_traces.
 func (s *server) handleV1Ai(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost { // app.py methods=["POST"] — never write on a non-POST request
+		http.NotFound(w, r)
+		return
+	}
 	m := bodyMap(r)
 	ts := mstr(m, "timestamp")
 	if ts == "" {
@@ -211,6 +215,10 @@ func stringifyAttrMap(v any) map[string]any {
 // POST /v1/errors — app.py ingest_errors: build an ERROR otel_logs row from the body and
 // insert it. An empty body yields exception.type "Error", empty message. Returns {"ok": true}.
 func (s *server) handleV1Errors(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost { // app.py methods=["POST"] — never write on a non-POST request
+		http.NotFound(w, r)
+		return
+	}
 	m := bodyMap(r)
 	ts := mstr(m, "timestamp")
 	if ts == "" {

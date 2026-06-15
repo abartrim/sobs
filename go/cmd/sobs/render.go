@@ -156,8 +156,8 @@ func replaceParam(rule, name, value string) string {
 // templates reference. `endpoint` is the Quart endpoint name for the active route.
 func (s *server) baseContext(endpoint string) map[string]any {
 	return map[string]any{
-		"query_enabled":      s.cfg.QueryPageEnabled,
-		"kubernetes_enabled": s.cfg.KubernetesEnabled,
+		"query_enabled":      s.queryPageEnabled(),
+		"kubernetes_enabled": s.kubernetesEnabled(),
 		// not _is_output_masking_enabled() — masking.output_enabled defaults on, so False.
 		"raise_issue_mask_toggle_effective": !s.appSettingBool("masking.output_enabled", true),
 		"mobile_breakpoint_max":             mobileBreakpointMax,

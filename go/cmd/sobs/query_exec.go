@@ -354,7 +354,7 @@ func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
 		s.errorJSON(w, http.StatusBadRequest, "sql is required")
 		return
 	}
-	if !s.cfg.QueryPageEnabled {
+	if !s.queryPageEnabled() {
 		s.writeMaskedJSON(w, http.StatusNotFound,
 			jsonenc.NewObject().Set("ok", false).Set("error", "Query page is unavailable."))
 		return
@@ -434,7 +434,7 @@ func (s *server) handleApiQueryAsk(w http.ResponseWriter, r *http.Request) {
 		s.errorJSON(w, http.StatusBadRequest, "question is required")
 		return
 	}
-	if !s.cfg.QueryPageEnabled {
+	if !s.queryPageEnabled() {
 		s.writeMaskedJSON(w, http.StatusNotFound,
 			jsonenc.NewObject().Set("ok", false).Set("error", "Query page is unavailable."))
 		return

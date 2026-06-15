@@ -33,7 +33,26 @@ func Open(dataDir string) (DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("chdb open %s: %w", path, err)
 	}
+	applySessionSettings(sess)
 	return &chdbStore{sess: sess}, nil
+}
+
+// applySessionSettings mirrors app.py ChDbConnection.__init__: cap query parallelism (max_threads,
+// default 1 for the embedded single-process server) and enable spill-to-disk for large GROUP BY /
+// ORDER BY so big queries don't OOM the container. These bound resource use and never change query
+// results (the corpus uses stable ORDER BY), so parity is unaffected. Best-effort: if a SET fails,
+// chdb keeps its defaults (the prior behavior) rather than failing startup.
+func applySessionSettings(sess *chdb.Session) {
+	maxThreads := envIntStore("SOBS_CHDB_MAX_THREADS", 1)
+	spillGroupBy := envIntStore("SOBS_CHDB_SPILL_GROUP_BY_MB", 32) * 1024 * 1024
+	spillSort := envIntStore("SOBS_CHDB_SPILL_SORT_MB", 32) * 1024 * 1024
+	for _, stmt := range []string{
+		fmt.Sprintf("SET max_threads = %d", maxThreads),
+		fmt.Sprintf("SET max_bytes_before_external_group_by = %d", spillGroupBy),
+		fmt.Sprintf("SET max_bytes_before_external_sort = %d", spillSort),
+	} {
+		_, _ = sess.Query(stmt, "")
+	}
 }
 
 // chdbConnectTarget mirrors the config-file branch of app.py _build_chdb_connect_target: when
@@ -162,9 +181,28 @@ func (s *chdbStore) Execute(query string, params ...any) (*Result, error) {
 // (Go's json HTML-escapes by default). Key order is irrelevant — JSONEachRow maps by
 // column name. Callers must pre-normalize DateTime columns to ClickHouse strings, exactly
 // as the Python helper does before insert.
+// writableTables mirrors app.py _WRITABLE_TABLES: the only tables the app inserts into. Writing
+// any other table is rejected (defense-in-depth, matching the Python helper's ValueError).
+var writableTables = map[string]bool{
+	"otel_logs": true, "otel_traces": true, "otel_metrics_gauge": true,
+	"otel_metrics_sum": true, "otel_metrics_histogram": true, "otel_metrics_gauge_pinned": true,
+	"otel_metrics_sum_pinned": true, "otel_metrics_histogram_pinned": true, "hyperdx_sessions": true,
+	"sobs_ai_memories": true, "sobs_ai_settings": true, "sobs_agent_rules": true,
+	"sobs_agent_runs": true, "sobs_anomaly_rules": true, "sobs_app_releases": true,
+	"sobs_app_settings": true, "sobs_apps": true, "sobs_chart_configs": true,
+	"sobs_cve_dispositions": true, "sobs_cve_findings": true, "sobs_dashboards": true,
+	"sobs_github_work_items": true, "sobs_log_attr_keys": true, "sobs_notification_channels": true,
+	"sobs_notification_log": true, "sobs_notification_rules": true, "sobs_raw_window_copy_state": true,
+	"sobs_raw_windows": true, "sobs_record_tags": true, "sobs_release_artifacts": true,
+	"sobs_reports": true, "sobs_tag_rules": true,
+}
+
 func (s *chdbStore) InsertJSONEachRow(table string, rows []map[string]any) (int, error) {
 	if len(rows) == 0 {
 		return 0, nil
+	}
+	if !writableTables[table] {
+		return 0, fmt.Errorf("attempt to write to unregistered table %q", table)
 	}
 	var b strings.Builder
 	b.WriteString("INSERT INTO ")
