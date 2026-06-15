@@ -61,6 +61,11 @@ func newServer(cfg config) *server {
 	// Self-initialize the schema on a fresh store ("make if not found"); a strict no-op when the
 	// store already has it (the seeded parity fixture), so parity is unaffected.
 	s.ensureSchema()
+	// Apply raw-metrics retention TTLs (app.py _ensure_raw_metrics_retention, called from the
+	// post-schema init path _ensure_post_schema_state). Gated to NOT run under parity so the
+	// frozen 2024 fixture rows are never dropped by a materializing ALTER; in real runtime it
+	// applies the same baseline/pinned TTLs as Python.
+	s.applyRawMetricsRetention()
 	// Seed the app/release/artifact registry from SOBS_APP_REGISTRY_SEED_JSON (no-op when unset).
 	s.seedAppRegistry()
 	// Background DB writer (app.py _ensure_write_worker). The writer's ops use s.db, so start it
