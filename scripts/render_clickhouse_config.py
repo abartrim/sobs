@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Render a ClickHouse config.xml for embedded chDB encrypted-disk startup."""
+"""Render a ClickHouse config.xml for embedded chDB encrypted-disk startup.
+
+Used by the Python oracle image's entrypoint. The published Go image ports this to
+go/cmd/sobs/chdb_encryption.go (renderClickhouseConfig), so it needs no Python at runtime.
+"""
 
 from __future__ import annotations
 

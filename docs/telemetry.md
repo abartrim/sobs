@@ -6,6 +6,12 @@ dashboard queries.
 
 Telemetry is **disabled by default**. No external collector is required.
 
+> **Runtime.** The published **Go** server implements this in `go/cmd/sobs/telemetry.go` using only
+> the standard library: the `console` exporter writes to stderr and the `otlp` exporter POSTs
+> OTLP/HTTP-JSON to `SOBS_TELEMETRY_OTLP_ENDPOINT`. No OpenTelemetry SDK is needed. The optional
+> `requirements-telemetry.txt` (OTel SDK) applies only to the Python oracle. Every `SOBS_TELEMETRY_*`
+> variable below is honored by both runtimes; both are a strict no-op when disabled.
+
 ---
 
 ## Configuration

@@ -14,7 +14,9 @@ DURATION_SEC=300
 INTERVAL_SEC=1
 WAIT_SEC=120
 PID=""
-PROCESS_REGEX="(^|[[:space:]])(([^[:space:]]*/)?app\.py)([[:space:]]|$)"
+# Match the Go server binary (the published runtime, e.g. ./sobs, /app/sobs, go/tmp/sobs) or the
+# Python oracle (app.py). Override with --regex.
+PROCESS_REGEX="(^|[[:space:]])(([^[:space:]]*/)?(sobs|app\.py))([[:space:]]|$)"
 OUT_DIR="data/profiles"
 
 while [[ $# -gt 0 ]]; do

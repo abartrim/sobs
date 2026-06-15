@@ -17,7 +17,7 @@ SOBS is actively used and under continued development. Beta APIs and UI behavior
 
 ## Features
 
-- **Single service** – Python + embedded chDB; 768 MB - 1 GB RAM when supporting millions of rows of data
+- **Single service** – Go + embedded chDB; 768 MB - 1 GB RAM when supporting millions of rows of data
 - **Compressed storage** – MergeTree schema uses ZSTD with selective Delta/T64 codecs
 - **OpenTelemetry** – accepts OTLP (JSON and protobuf) for logs, traces, metrics
 - **RUM** – client-side JS snippet with Web Vitals (LCP, CLS, INP, TTFB, FCP)
@@ -94,18 +94,20 @@ Highlights:
 ## Quick Start
 
 ```bash
-# Docker
+# Docker — the published image is the Go server
 docker run -p 44317:4317 -v sobs_data:/data ghcr.io/abartrim/sobs:latest
 
-# docker-compose
-docker-compose up -d
+# docker-compose (Go server + an example-traffic sidecar)
+docker compose up -d
 
-# Python (dev)
-pip install -r requirements.txt
-python app.py
+# Go (dev) — build and run the server directly
+cd go && go build -o sobs ./cmd/sobs && SOBS_DATA_DIR=../data ./sobs
 ```
 
-Note: `python app.py` runs Hypercorn with a Quart ASGI app in single-process mode.
+> **Architecture note.** SOBS now ships as a **Go** server (`ghcr.io/abartrim/sobs`). The original
+> Python/Quart app (`app.py`) is retained as the frozen **parity oracle** the Go port is byte-diffed
+> against in CI — it is no longer the published runtime. See [`go/README.md`](go/README.md) and the
+> [migration notes](migration/README.md).
 
 Open `http://localhost:44317` in your browser.
 
@@ -126,23 +128,21 @@ The version shown in the sidebar footer of the UI reflects `SOBS_BUILD_VERSION`,
 | Resource | Minimum | Notes |
 |----------|---------|-------|
 | **RAM**  | 768 MB - 1 GB | Realistic working set when processing millions of rows of telemetry data; chDB uses memory for query fan-out and caching |
-| **CPU**  | 1 vCPU  | Single-process Hypercorn + embedded chDB; more CPUs improve query throughput |
+| **CPU**  | 1 vCPU  | Single-process Go server + embedded chDB; more CPUs improve query throughput |
 | **Disk** | 1 GB+   | Data directory for embedded chDB state; grows with ingested volume |
 
 > **Note:** Earlier documentation stated a ~256 MB RAM target. In practice, with millions of rows of logs, traces, and metrics, the realistic working set is **768 MB - 1 GB**. Plan your deployment accordingly and use the chDB memory-optimization settings for constrained environments (see [PR #136](https://github.com/abartrim/sobs/pull/136) and the Kubernetes section below).
 
 
 
-- Local and production process manager:
-  - `python app.py` starts Hypercorn.
-  - With embedded chDB, keep a single process by default.
-  - Equivalent explicit command:
+- Process model:
+  - The Go server runs as a single process with the embedded chDB session — run the binary
+    directly (`./sobs`) or via the container; no external process manager is required.
+  - Bind/port honor `SOBS_PORT` (default `44317`), `SOBS_HOST`, and the `HYPERCORN_BIND` /
+    `GUNICORN_BIND` overrides (kept for drop-in compatibility with the former Python deployment).
 
-```bash
-hypercorn --workers 1 --bind 0.0.0.0:${PORT:-44317} app:app
-```
-
-Why: embedded chDB is process-sensitive. Multiple process workers can trigger DB lock/stall behavior in embedded mode.
+Why a single process: embedded chDB is process-sensitive — it must be opened by one process, so
+SOBS serializes all DB access through one server and one background writer goroutine.
 
 ## Sending Data
 
@@ -345,11 +345,12 @@ Optional browser RUM auth endpoint:
 | `/health`      | GET    | Liveness check                     |
 | `/health/db`   | GET    | DB readiness check (touches chDB) |
 
-Ingest writes are queued and flushed by a single background DB writer thread.
+Ingest writes are queued and flushed by a single background DB writer goroutine.
 
 - Default runtime behavior: ingest endpoints acknowledge once the write is queued.
-- Test behavior (`app.config["TESTING"] = True`): writes wait for batch completion so tests assert committed state deterministically.
-- If the queue is saturated, ingest returns `503` so clients can retry/backoff.
+- Parity/deterministic behavior (`SOBS_PARITY=1`): writes wait for batch completion so the
+  byte-for-byte parity corpus is deterministic (the Python oracle does the same under `TESTING`).
+- If the queue is saturated (`SOBS_WRITE_QUEUE_MAX`), ingest returns `503` so clients can retry/backoff.
 
 This model favors client latency under burst traffic. It does not guarantee synchronous commit-per-request in normal runtime.
 
@@ -536,7 +537,7 @@ The Work Items page is intended to make these decisions visible so operators can
 | `SOBS_BASIC_AUTH_PASSWORD`  | _(empty)_      | Optional Basic Auth password for the Web UI      |
 | `SOBS_EXTERNAL_AUTH_URL`    | _(empty)_      | Optional external Bearer validator for the Web UI |
 | `SOBS_BASE_PATH`            | _(empty)_      | Optional URL prefix (for example `/sobs`) for UI/API routing and generated links |
-| `SOBS_SECRET_KEY`           | `sobs-dev-secret-key` | Secret key used by Quart session handling (set explicitly in production) |
+| `SOBS_SECRET_KEY`           | `sobs-dev-secret-key` | Secret key for session/CSRF handling and MCP key fingerprint salting (set explicitly in production) |
 | `SOBS_SESSION_COOKIE_NAME`  | `sobs_session` | Session cookie name for SOBS UI sessions (prevents collisions with management services using `session`) |
 | `SOBS_BEHIND_TLS`           | `0`            | Enable TLS-aware hardening (secure cookies + HSTS) when running behind HTTPS termination |
 | `SOBS_SESSION_COOKIE_SAMESITE` | `Lax`       | Session cookie SameSite policy (`Lax`, `Strict`, `None`) |
@@ -574,8 +575,7 @@ The Work Items page is intended to make these decisions visible so operators can
 | `SOBS_CLICKHOUSE_CONFIG_FILE` | _(empty)_    | Absolute mounted ClickHouse `config.xml` passed to embedded chDB as `config-file` startup arg |
 | `SOBS_CHDB_EXPECT_DISK`     | _(empty)_       | Optional startup assertion: required disk name in `system.disks` |
 | `SOBS_CHDB_EXPECT_STORAGE_POLICY` | _(empty)_ | Optional startup assertion: required policy name in `system.storage_policies` |
-| `HYPERCORN_WORKERS`         | `1`            | Hypercorn worker process count (forced to 1 for embedded chDB safety) |
-| `HYPERCORN_BIND`            | `0.0.0.0:$PORT` | Hypercorn bind address override |
+| `HYPERCORN_BIND` / `GUNICORN_BIND` | _(empty)_ | Full `host:port` bind override (drop-in compatibility with the former Python deployment); when unset the bind is `SOBS_HOST`:`SOBS_PORT`. The Go server is always single-process, so a former `HYPERCORN_WORKERS` is ignored. |
 
 When `SOBS_CHDB_ENCRYPTION_KEY` is set in the container image runtime:
 
@@ -970,6 +970,11 @@ Or as a **sidecar** – see `k8s/sidecar.yaml` for instructions.
 
 For most users, the easiest manual AI setup is local Ollama.
 
+> The `start_ollama_ai_test.sh` / `start_spark_ai_test.sh` helpers export the `SOBS_AI_*` env vars
+> and then run a command you pass after `--` (default `python app.py`, the oracle). The Go server
+> honors the same `SOBS_AI_*` variables, so you can point them at the Go binary instead, e.g.
+> `./scripts/start_ollama_ai_test.sh -- ./go/sobs`.
+
 1. Start Ollama (separate terminal):
 
 ```bash
@@ -1050,14 +1055,21 @@ The script starts local port-forwards for LLM, embeddings, and DLP, exports `SOB
 
 ## Running Tests
 
+The Go server has its own unit tests, and the byte-for-byte **parity** harness diffs the Go
+responses against the frozen Python oracle:
+
 ```bash
-pip install -r requirements.txt -r requirements-integration.txt
-pytest tests/
+# Go unit tests (chdb-backed tests need the pinned libchdb via CHDB_LIB_PATH; see go/CHDB_PIN.md)
+cd go && go test ./...
+
+# Parity: capture goldens from the Python oracle, replay against the Go server, byte-diff
+python migration/tools/run_parity_ci.py
 ```
 
-Run unit tests with a coverage report (terminal + XML):
+The Python oracle keeps its own test suite (it is the source of truth for parity):
 
 ```bash
+pip install -r requirements.txt -r requirements-integration.txt
 pytest tests --ignore=tests/test_integration.py \
     --cov=app --cov=masking --cov=mcp \
     --cov-report=term-missing \
@@ -1070,7 +1082,7 @@ coverage workflows and the `diff-cover` changed-lines gate.
 ## Running Benchmarks
 
 ```bash
-# Start SOBS first (for example: python app.py)
+# Start SOBS first (e.g. `cd go && go build -o sobs ./cmd/sobs && ./sobs`, or `docker compose up`)
 ./scripts/benchmark.sh
 
 # Or target a custom endpoint
@@ -1097,9 +1109,11 @@ Parameters:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for local development setup and quality checks.
 
-## Git Pre-Commit Hook (Python)
+## Git Pre-Commit Hook (Python oracle + templates)
 
 This repository includes a version-controlled Git pre-commit hook at `.githooks/pre-commit`.
+It covers the Python parity oracle (`app.py` etc.) and the shared Jinja templates. Go changes are
+gated separately by `gofmt`, `go vet`, and `go test` (run in CI; see [`go/README.md`](go/README.md)).
 
 It runs on staged Python files and performs:
 
@@ -1120,8 +1134,10 @@ If formatting changes are applied, the hook re-stages those Python files before 
 ## Output Masking (PII / Secret Redaction)
 
 SOBS redacts PII and secrets from web UI output, outbound notification
-messages, and GitHub issue bodies using `masking.py` - a shared rule-based masking layer
-backed by the [`loggingredactor`](https://pypi.org/project/loggingredactor/) library.
+messages, and GitHub issue bodies using a shared rule-based masking layer. In the Go server
+this lives in `go/cmd/sobs/masking.go`; the frozen Python oracle's `masking.py` (backed by
+[`loggingredactor`](https://pypi.org/project/loggingredactor/)) is the parity reference it is
+byte-diffed against. The rule descriptions below apply to both.
 
 ### What is masked
 

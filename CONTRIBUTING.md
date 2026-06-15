@@ -10,13 +10,45 @@
 
 ## Local Setup
 
-Use a virtual environment and install development dependencies:
+SOBS ships as a **Go** server; the Python app is the frozen **parity oracle** the Go port is
+byte-diffed against. Most development happens in `go/` plus the shared `templates/` and `static/`.
+
+### Go server (primary)
+
+```bash
+cd go
+go build ./...     # build everything
+go vet ./...       # vet
+gofmt -l .         # formatting gate (must print nothing)
+go test ./...      # unit tests (chdb-backed tests need CHDB_LIB_PATH -> pinned libchdb, go/CHDB_PIN.md)
+
+# Run locally on :44317
+go build -o sobs ./cmd/sobs && SOBS_DATA_DIR=../data ./sobs
+```
+
+Live-reload dev loop — rebuilds and restarts the Go server on every save, with an example-traffic
+sidecar so the UI populates:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+```
+
+### Python oracle (parity reference)
+
+Set this up only when working on the oracle (`app.py`) or the parity harness under `migration/`:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt -r requirements-integration.txt
 pip install black isort flake8 mypy djlint
+```
+
+### Parity check
+
+```bash
+# Capture goldens from the Python oracle, replay against the Go server, byte-diff every route.
+python migration/tools/run_parity_ci.py
 ```
 
 ## Coverage
@@ -131,7 +163,10 @@ Releases are driven by a Git tag pushed to GitHub. CI picks up any tag matching 
    gh release create v1.2.3 --title "v1.2.3" --notes "Release notes here"
    ```
 
-4. **CI publishes the image automatically.** The `docker` job in `.github/workflows/ci.yml` detects `refs/tags/v*`, passes `SOBS_BUILD_VERSION=v1.2.3` as a Docker build arg, and pushes to GHCR with both the version tag and a new `latest`:
+4. **CI publishes the Go image automatically.** The `docker` job in `.github/workflows/ci.yml`
+   detects `refs/tags/v*`, builds `Dockerfile.go` (gated on the `parity` + `docker-go-smoke` jobs, so
+   a release only ships a parity-verified Go build), passes `SOBS_BUILD_VERSION=v1.2.3` as a build
+   arg, and pushes the multi-arch image to GHCR with both the version tag and a new `latest`:
 
    - `ghcr.io/abartrim/sobs:v1.2.3`
    - `ghcr.io/abartrim/sobs:latest`

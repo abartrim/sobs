@@ -1,5 +1,10 @@
 # Authentication Setup
 
+> **Runtime.** These auth modes are implemented in the published **Go** server
+> (`go/cmd/sobs/auth.go`) and the frozen Python oracle alike — the Go port mirrors
+> `require_basic_auth` / `require_api_key` and the same-origin CSRF check, and is a strict no-op
+> when unconfigured. Every environment variable below applies to both.
+
 SOBS supports two independent auth areas:
 
 - Ingest API auth for `/v1/*` via `SOBS_API_KEY`

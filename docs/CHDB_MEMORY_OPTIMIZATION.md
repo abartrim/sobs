@@ -1,5 +1,11 @@
 # chDB Memory Optimization for Low-Memory Kubernetes Deployments
 
+> **Runtime.** Both the published **Go** server and the Python oracle apply these settings. The Go
+> store opens chdb with the same low-memory connect-target params (`SOBS_CHDB_MAX_SERVER_MB`,
+> `SOBS_CHDB_MARK_CACHE_MB`, `SOBS_CHDB_UNCOMPRESSED_CACHE_MB`, reduced background pools), and the
+> ingest write-queue (`SOBS_WRITE_QUEUE_MAX` / `_BATCH_MAX` / `_BATCH_WAIT_MS`) is ported in
+> `go/cmd/sobs/writequeue.go`. The env vars below apply to both runtimes.
+
 ## Background
 
 Sobs embeds chDB (ClickHouse in-process) as its storage engine. ClickHouse defaults are tuned
