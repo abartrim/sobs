@@ -23,11 +23,47 @@ func chatCompletionsURL(endpoint string) string {
 // 0 in parity (frozen monotonic clock).
 type llmStats struct{ prompt, completion, thinking int }
 
-// callLLMEndpoint mirrors app.py _call_llm_endpoint: POST the OpenAI-compatible endpoint and
-// return choices[0].message.content + usage stats. Under parity the response is the canned
-// upstream fixture (keyed by the URL — each AI route's profile uses a distinct endpoint path).
-func (s *server) callLLMEndpoint(endpoint string) (string, llmStats, error) {
-	resp, err := s.upstreamGet("POST", chatCompletionsURL(endpoint))
+// llmRequest is the input to callLLMChat: the OpenAI-compatible /chat/completions request fields
+// app.py _call_llm_endpoint sends. messages elements are *jsonenc.Object {role, content}.
+type llmRequest struct {
+	endpoint, model, apiKey, thinkingLevel string
+	messages                               []any
+	maxTokens                              int
+}
+
+// llmRequestBody builds the JSON request body (app.py _call_llm_endpoint payload +
+// _llm_reasoning_payload). Built with jsonenc so nested *jsonenc.Object messages serialize.
+func llmRequestBody(req llmRequest) []byte {
+	maxTokens := req.maxTokens
+	if maxTokens <= 0 {
+		maxTokens = 1024
+	}
+	payload := jsonenc.NewObject().
+		Set("model", req.model).
+		Set("messages", req.messages).
+		Set("max_tokens", maxTokens)
+	// _llm_reasoning_payload: include both common reasoning keys when thinking is on + supported.
+	if level := normalizeThinkingLevel(req.thinkingLevel); level != "off" && modelSupportsThinking(req.model) {
+		payload.Set("reasoning", jsonenc.NewObject().Set("effort", level)).Set("reasoning_effort", level)
+	}
+	return jsonenc.Encode(payload, dumpsDefault)
+}
+
+// llmRequestHeaders mirrors app.py _llm_request_headers.
+func llmRequestHeaders(apiKey string) map[string]string {
+	auth := "Bearer no-key"
+	if apiKey != "" {
+		auth = "Bearer " + apiKey
+	}
+	return map[string]string{"Content-Type": "application/json", "Authorization": auth}
+}
+
+// callLLMChat is the full app.py _call_llm_endpoint: POST {model, messages, max_tokens, reasoning}
+// with the Authorization header and parse choices[0].message.content + usage. Under parity the
+// request goes to the URL-keyed mock, which ignores the body, so the canned response — and the
+// corpus — is unchanged; at runtime it is a real chat completion.
+func (s *server) callLLMChat(req llmRequest) (string, llmStats, error) {
+	resp, err := s.upstreamRequest("POST", chatCompletionsURL(req.endpoint), llmRequestBody(req), llmRequestHeaders(req.apiKey))
 	if err != nil {
 		return "", llmStats{}, err
 	}
@@ -61,6 +97,19 @@ func (s *server) callLLMEndpoint(endpoint string) (string, llmStats, error) {
 		}
 	}
 	return content, st, nil
+}
+
+// callLLMEndpoint is the no-messages wrapper kept for call sites whose prompt construction is not
+// yet ported: it builds a default request from the main ai.* settings (empty messages). Parity is
+// unaffected (the mock ignores the body); at runtime these sites send an under-specified request
+// until their messages are threaded through callLLMChat.
+func (s *server) callLLMEndpoint(endpoint string) (string, llmStats, error) {
+	return s.callLLMChat(llmRequest{
+		endpoint:      endpoint,
+		model:         strings.TrimSpace(s.loadAISetting("ai.model", "")),
+		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
+		thinkingLevel: strings.TrimSpace(s.loadAISetting("ai.thinking_level", "off")),
+	})
 }
 
 // jnInt reads an int from a parsed-JSON object (json.Number-aware).
@@ -131,7 +180,14 @@ func (s *server) checkGuardModel(userInput string) (bool, string, llmStats) {
 	if guardURL == "" || guardModel == "" {
 		return false, "guard_not_configured", llmStats{}
 	}
-	reply, st, err := s.callLLMEndpoint(guardURL)
+	_, messages := buildLlamaGuardPrompt(userInput, "")
+	reply, st, err := s.callLLMChat(llmRequest{
+		endpoint:      guardURL,
+		model:         guardModel,
+		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
+		thinkingLevel: strings.TrimSpace(s.loadAISetting("ai.guard_thinking_level", "off")),
+		messages:      messages,
+	})
 	if err != nil {
 		return false, "guard_error", st
 	}
