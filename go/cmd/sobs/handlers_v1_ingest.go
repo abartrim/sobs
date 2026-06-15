@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -49,13 +50,18 @@ func (s *server) v1IngestOTLP(w http.ResponseWriter, r *http.Request, resKey, sc
 		return
 	}
 	var count int
+	var err error
 	switch recKey {
 	case "logRecords":
-		count = s.ingestOTLPLogs(m)
+		count, err = s.ingestOTLPLogs(m)
 	case "spans":
-		count = s.ingestOTLPTraces(m)
+		count, err = s.ingestOTLPTraces(m)
 	case "metrics":
-		count = s.ingestOTLPMetrics(m)
+		count, err = s.ingestOTLPMetrics(m)
+	}
+	if errors.Is(err, errWriteQueueFull) {
+		writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().Set("error", "write queue is full"))
+		return
 	}
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", count))
 }
@@ -144,8 +150,15 @@ func (s *server) handleV1Ai(w http.ResponseWriter, r *http.Request) {
 		"Events": map[string]any{"Timestamp": []any{}, "Name": []any{}, "Attributes": []any{}},
 		"Links":  map[string]any{"TraceId": []any{}, "SpanId": []any{}, "TraceState": []any{}, "Attributes": []any{}},
 	}
-	if _, err := s.db.InsertJSONEachRow("otel_traces", []map[string]any{row}); err != nil {
-		s.errorJSON(w, http.StatusInternalServerError, "ai ingest write failed")
+	if err := s.enqueueWrite(func() error {
+		_, e := s.db.InsertJSONEachRow("otel_traces", []map[string]any{row})
+		return e
+	}); err != nil {
+		if errors.Is(err, errWriteQueueFull) {
+			writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().Set("error", "write queue is full"))
+		} else {
+			s.errorJSON(w, http.StatusInternalServerError, "ai ingest write failed")
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
@@ -212,8 +225,15 @@ func (s *server) handleV1Errors(w http.ResponseWriter, r *http.Request) {
 		"ScopeSchemaUrl": "", "ScopeName": "", "ScopeVersion": "", "ScopeAttributes": map[string]any{},
 		"LogAttributes": attrs, "EventName": "exception",
 	}
-	if _, err := s.db.InsertJSONEachRow("otel_logs", []map[string]any{row}); err != nil {
-		s.errorJSON(w, http.StatusInternalServerError, "error ingest write failed")
+	if err := s.enqueueWrite(func() error {
+		_, e := s.db.InsertJSONEachRow("otel_logs", []map[string]any{row})
+		return e
+	}); err != nil {
+		if errors.Is(err, errWriteQueueFull) {
+			writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().Set("error", "write queue is full"))
+		} else {
+			s.errorJSON(w, http.StatusInternalServerError, "error ingest write failed")
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
@@ -313,13 +333,23 @@ func (s *server) handleV1Rum(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(sessionRows) > 0 {
-		if _, err := s.db.InsertJSONEachRow("hyperdx_sessions", sessionRows); err != nil {
-			s.errorJSON(w, http.StatusInternalServerError, "rum ingest write failed")
+		if err := s.enqueueWrite(func() error {
+			_, e := s.db.InsertJSONEachRow("hyperdx_sessions", sessionRows)
+			return e
+		}); err != nil {
+			if errors.Is(err, errWriteQueueFull) {
+				writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().Set("error", "write queue is full"))
+			} else {
+				s.errorJSON(w, http.StatusInternalServerError, "rum ingest write failed")
+			}
 			return
 		}
 	}
 	if len(errorRows) > 0 {
-		_, _ = s.db.InsertJSONEachRow("otel_logs", errorRows)
+		_ = s.enqueueWrite(func() error {
+			_, e := s.db.InsertJSONEachRow("otel_logs", errorRows)
+			return e
+		})
 	}
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", len(sessionRows)))
 }

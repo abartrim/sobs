@@ -23,6 +23,7 @@ type server struct {
 	db   store.DB
 	sse  *sseBroker
 	auth authConfig
+	wq   *writeQueue
 }
 
 func newServer(cfg config) *server {
@@ -57,8 +58,19 @@ func newServer(cfg config) *server {
 	// Self-initialize the schema on a fresh store ("make if not found"); a strict no-op when the
 	// store already has it (the seeded parity fixture), so parity is unaffected.
 	s.ensureSchema()
+	// Background DB writer (app.py _ensure_write_worker). The writer's ops use s.db, so start it
+	// only after the store is opened. Under parity, ingest writes are awaited (commit-before-ack).
+	s.wq = newWriteQueue()
 	s.routes()
 	return s
+}
+
+// enqueueWrite routes an ingest write through the background DB writer (app.py _queue_write). The
+// wait flag mirrors Python's `wait = app.config["TESTING"]`: under the parity harness writes are
+// awaited so the response is deterministic and commit-before-ack (parity unchanged); in normal
+// runtime the write is acked once queued. Returns errWriteQueueFull when the queue is saturated.
+func (s *server) enqueueWrite(op func() error) error {
+	return s.wq.enqueue(op, s.cfg.Parity)
 }
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

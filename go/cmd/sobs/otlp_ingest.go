@@ -174,7 +174,7 @@ func traceStatusCode(status string) string {
 
 // ---- per-schema ingest ----------------------------------------------------------------
 
-func (s *server) ingestOTLPLogs(body map[string]any) int {
+func (s *server) ingestOTLPLogs(body map[string]any) (int, error) {
 	rows := []map[string]any{}
 	resList, _ := body["resourceLogs"].([]any)
 	for _, r := range resList {
@@ -208,12 +208,14 @@ func (s *server) ingestOTLPLogs(body map[string]any) int {
 		}
 	}
 	if len(rows) > 0 {
-		_, _ = s.insertRowsNormalized("otel_logs", rows)
+		if err := s.enqueueWrite(func() error { _, e := s.insertRowsNormalized("otel_logs", rows); return e }); err != nil {
+			return len(rows), err
+		}
 	}
-	return len(rows)
+	return len(rows), nil
 }
 
-func (s *server) ingestOTLPTraces(body map[string]any) int {
+func (s *server) ingestOTLPTraces(body map[string]any) (int, error) {
 	rows := []map[string]any{}
 	resList, _ := body["resourceSpans"].([]any)
 	for _, r := range resList {
@@ -258,12 +260,14 @@ func (s *server) ingestOTLPTraces(body map[string]any) int {
 		}
 	}
 	if len(rows) > 0 {
-		_, _ = s.insertRowsNormalized("otel_traces", rows)
+		if err := s.enqueueWrite(func() error { _, e := s.insertRowsNormalized("otel_traces", rows); return e }); err != nil {
+			return len(rows), err
+		}
 	}
-	return len(rows)
+	return len(rows), nil
 }
 
-func (s *server) ingestOTLPMetrics(body map[string]any) int {
+func (s *server) ingestOTLPMetrics(body map[string]any) (int, error) {
 	gauge, sum, hist := []map[string]any{}, []map[string]any{}, []map[string]any{}
 	resList, _ := body["resourceMetrics"].([]any)
 	for _, r := range resList {
@@ -320,16 +324,32 @@ func (s *server) ingestOTLPMetrics(body map[string]any) int {
 			}
 		}
 	}
-	if len(gauge) > 0 {
-		_, _ = s.insertRowsNormalized("otel_metrics_gauge", gauge)
+	total := len(gauge) + len(sum) + len(hist)
+	if total > 0 {
+		// One queued op for all three metric tables, mirroring app.py's single _insert_metric_events.
+		err := s.enqueueWrite(func() error {
+			if len(gauge) > 0 {
+				if _, e := s.insertRowsNormalized("otel_metrics_gauge", gauge); e != nil {
+					return e
+				}
+			}
+			if len(sum) > 0 {
+				if _, e := s.insertRowsNormalized("otel_metrics_sum", sum); e != nil {
+					return e
+				}
+			}
+			if len(hist) > 0 {
+				if _, e := s.insertRowsNormalized("otel_metrics_histogram", hist); e != nil {
+					return e
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return total, err
+		}
 	}
-	if len(sum) > 0 {
-		_, _ = s.insertRowsNormalized("otel_metrics_sum", sum)
-	}
-	if len(hist) > 0 {
-		_, _ = s.insertRowsNormalized("otel_metrics_histogram", hist)
-	}
-	return len(gauge) + len(sum) + len(hist)
+	return total, nil
 }
 
 // ---- small shared helpers -------------------------------------------------------------
