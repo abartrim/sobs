@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -23,11 +24,52 @@ type chdbStore struct {
 // Python app uses, enabling the shared-storage hard cutover.
 func Open(dataDir string) (DB, error) {
 	path := filepath.Join(dataDir, "sobs.chdb")
-	sess, err := chdb.NewSession(path)
+	target, err := chdbConnectTarget(path)
+	if err != nil {
+		return nil, err
+	}
+	sess, err := chdb.NewSession(target)
 	if err != nil {
 		return nil, fmt.Errorf("chdb open %s: %w", path, err)
 	}
 	return &chdbStore{sess: sess}, nil
+}
+
+// chdbConnectTarget mirrors the config-file branch of app.py _build_chdb_connect_target: when
+// SOBS_CLICKHOUSE_CONFIG_FILE points at a mounted ClickHouse config.xml (the encrypted-disk
+// setup), pass it to chdb as a startup arg through the connection-string query params (chdb-go's
+// connStr accepts the `path?key=value` form). Unset — the default, including the parity harness —
+// yields the plain session path, byte-for-byte unchanged.
+func chdbConnectTarget(path string) (string, error) {
+	configFile := strings.TrimSpace(os.Getenv("SOBS_CLICKHOUSE_CONFIG_FILE"))
+	if configFile == "" {
+		return path, nil
+	}
+	if !filepath.IsAbs(configFile) {
+		return "", fmt.Errorf("SOBS_CLICKHOUSE_CONFIG_FILE must be an absolute path to a mounted ClickHouse config.xml")
+	}
+	return path + "?config-file=" + quotePathSafeSlash(configFile), nil
+}
+
+// quotePathSafeSlash mirrors Python urllib.parse.quote(value, safe="/"): keep unreserved chars
+// (A-Za-z0-9 and -._~) plus '/', percent-encode the rest with uppercase hex.
+func quotePathSafeSlash(s string) string {
+	const hex = "0123456789ABCDEF"
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '/' ||
+			(c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+			c == '_' || c == '.' || c == '-' || c == '~':
+			b.WriteByte(c)
+		default:
+			b.WriteByte('%')
+			b.WriteByte(hex[c>>4])
+			b.WriteByte(hex[c&0x0f])
+		}
+	}
+	return b.String()
 }
 
 // Close persists and closes the session. NOTE: Close, never Cleanup — Cleanup does

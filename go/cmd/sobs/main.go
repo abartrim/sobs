@@ -23,6 +23,12 @@ func main() {
 		os.Exit(runHealthcheck())
 	}
 
+	// chdb disk-encryption entrypoint (no-op unless SOBS_CHDB_ENCRYPTION_KEY is set): render the
+	// ClickHouse config and point the store at it, replacing the Python image's shell entrypoint.
+	if err := setupChdbEncryption(); err != nil {
+		log.Fatalf("chdb encryption setup: %v", err)
+	}
+
 	cfg := loadConfig()
 	srv := newServer(cfg)
 

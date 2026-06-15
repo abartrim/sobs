@@ -49,6 +49,11 @@ func newServer(cfg config) *server {
 			log.Fatalf("chdb open failed in parity mode: %v", lastErr)
 		}
 	}
+	// When SOBS_CHDB_ENCRYPTION_KEY configured an encrypted disk/policy, assert chdb actually
+	// applied it (no-op otherwise). A misapplied config-file would silently fall back to plain disk.
+	if err := s.validateChdbStartup(); err != nil {
+		log.Fatalf("%v", err)
+	}
 	// Self-initialize the schema on a fresh store ("make if not found"); a strict no-op when the
 	// store already has it (the seeded parity fixture), so parity is unaffected.
 	s.ensureSchema()
