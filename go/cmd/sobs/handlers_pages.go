@@ -956,11 +956,17 @@ func (s *server) handleViewEnrichmentCve(w http.ResponseWriter, r *http.Request)
 
 // GET /work-items — app.py view_work_items: list sobs_github_work_items (FINAL) with the
 // service/rule_name/action_type/status/time-window filters, the total count, and the DISTINCT
-// service/rule facet lists. The GitHub backfill is fire-and-forget in Python (does not affect the
-// render) and is owned elsewhere, so it is not invoked here. On the empty fixture every query
-// returns nothing, reproducing the golden empty render; the DB error path also renders empties,
-// matching Python's try/except. The page-/filter-result caches are render-invisible and omitted.
+// service/rule facet lists. app.py launches the GitHub work-item-links backfill fire-and-forget
+// (asyncio.create_task) so it never blocks the render; the Go port launches it as a detached
+// goroutine, gated off under parity (and itself token-gated → an immediate no-op on the base
+// fixture, which has no ai.github_token). On the empty fixture every query returns nothing,
+// reproducing the golden empty render; the DB error path also renders empties, matching Python's
+// try/except. The page-/filter-result caches are render-invisible and omitted.
 func (s *server) handleViewWorkItemsPage(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.Parity && s.db != nil {
+		go s.maybeBackfillGithubWorkItemLinks() // _maybe_backfill_github_work_item_links (work_item_backfill.go)
+	}
+
 	q := r.URL.Query()
 	serviceFilter := strings.TrimSpace(q.Get("service"))
 	ruleFilter := strings.TrimSpace(q.Get("rule_name"))

@@ -473,13 +473,23 @@ func (s *server) cveInventoryCount() int {
 // POST /api/enrichment/cve/scan — app.py _run_cve_scan. CVE enrichment is enabled by default;
 // with no ai.github_token the GitHub backfill is a no-op (0/0/cap) and persists its bookkeeping
 // settings, and an empty library inventory short-circuits to the zero summary. Manifest-last.
+// The scan body lives in runCveScan so the periodic CVE-scanner loop (background_tasks.go, real
+// runtime only) can reuse it byte-for-byte.
 func (s *server) handleApiEnrichmentCveScan(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.runCveScan())
+}
+
+// runCveScan is a port of app.py _run_cve_scan: backfill release-dependency lockfiles from GitHub
+// (a no-op without ai.github_token, just persisting 0/0/cap bookkeeping), build the library
+// inventory, query OSV.dev per library, persist findings + the scan timestamp, and return the
+// summary object. Shared by the POST handler and the periodic CVE-scanner loop so both build the
+// identical jsonify(...) body.
+func (s *server) runCveScan() *jsonenc.Object {
 	if v, ok := s.appSetting("enrichment.cve_enabled"); ok {
 		switch strings.ToLower(strings.TrimSpace(v)) {
 		case "1", "true", "yes":
 		default:
-			writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", false).Set("reason", "disabled"))
-			return
+			return jsonenc.NewObject().Set("ok", false).Set("reason", "disabled")
 		}
 	}
 	attempted, inserted, maxRel := s.fetchReleaseDepsFromGithub()
@@ -489,25 +499,24 @@ func (s *server) handleApiEnrichmentCveScan(w http.ResponseWriter, r *http.Reque
 	libraries := s.collectLibraryInventory()
 	if len(libraries) == 0 {
 		_ = s.setAppSetting("enrichment.cve_last_scan", nowISO())
-		writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		return jsonenc.NewObject().
 			Set("github_backfill_attempted", attempted).
 			Set("github_backfill_inserted", inserted).
 			Set("github_backfill_max_releases", maxRel).
 			Set("libraries_found", 0).
 			Set("ok", true).
-			Set("vulns_found", 0))
-		return
+			Set("vulns_found", 0)
 	}
 	scanTS := nowISO()
 	librariesFound, vulnsFound := s.runCveOSVScan(scanTS, libraries)
-	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+	return jsonenc.NewObject().
 		Set("github_backfill_attempted", attempted).
 		Set("github_backfill_inserted", inserted).
 		Set("github_backfill_max_releases", maxRel).
 		Set("libraries_found", librariesFound).
 		Set("ok", true).
 		Set("scanned_at", scanTS).
-		Set("vulns_found", vulnsFound))
+		Set("vulns_found", vulnsFound)
 }
 
 // POST /api/notifications/rules/auto-generate — app.py auto_generate_notification_rules in

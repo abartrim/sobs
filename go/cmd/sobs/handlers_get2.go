@@ -140,85 +140,19 @@ func (s *server) wizardError(w http.ResponseWriter, msg string) {
 	writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().Set("ok", false).Set("error", msg))
 }
 
-// GET /api/enrichment/github/repo-health — app.py _collect_github_repo_health_summary: the
-// version-scoped GitHub repo-health counts. Builds one repo target per enabled app that has a
-// parseable GitHub RepoUrl AND at least one release version. The per-repo issue scan needs a
-// configured GitHub token (absent in the fixture), so scanned_repos/repos stay empty here; the
-// live HTTP scan is ported in cluster 8.
+// GET /api/enrichment/github/repo-health — app.py api_enrichment_github_repo_health: returns the
+// version-scoped GitHub repo-health summary, 500 on the (ok:false) error branch. The summary build
+// (and live per-repo issue scan) lives in collectGithubRepoHealthSummary (enrichment_loops.go) so
+// the periodic repo-health loop can reuse it. Without a configured GitHub token (the base fixture)
+// the per-repo scan is skipped, so scanned_repos/repos stay empty and the zero summary is returned
+// byte-for-byte as before.
 func (s *server) handleApiEnrichmentGithubRepoHealth(w http.ResponseWriter, r *http.Request) {
-	defaultToken := strings.TrimSpace(s.loadAISetting("ai.github_token", ""))
-
-	appRes, err := s.db.Execute("SELECT Id, Name, Slug, RepoUrl FROM sobs_apps FINAL " +
-		"WHERE IsDeleted=0 AND Enabled=1 AND RepoUrl != '' ORDER BY Name ASC")
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, jsonenc.NewObject().Set("ok", false).Set("error", err.Error()))
+	summary := s.collectGithubRepoHealthSummary()
+	if ok, _ := summary.Get("ok"); ok != true {
+		writeJSON(w, http.StatusInternalServerError, summary)
 		return
 	}
-	relRes, err := s.db.Execute("SELECT AppId, ReleaseVersion FROM sobs_app_releases FINAL " +
-		"WHERE IsDeleted=0 ORDER BY ReleasedAt DESC LIMIT 4000")
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, jsonenc.NewObject().Set("ok", false).Set("error", err.Error()))
-		return
-	}
-
-	// versions_by_app: first 5 distinct ReleaseVersion per app, in ReleasedAt-DESC order.
-	versionsByApp := map[string][]string{}
-	for _, m := range rowMaps(relRes) {
-		appID := cStr(m, "AppId")
-		relVer := strings.TrimSpace(cStr(m, "ReleaseVersion"))
-		if appID == "" || relVer == "" {
-			continue
-		}
-		vs := versionsByApp[appID]
-		if len(vs) < 5 && !containsStr(vs, relVer) {
-			versionsByApp[appID] = append(vs, relVer)
-		}
-	}
-
-	type repoTarget struct {
-		appName, owner, repo string
-		versions             []string
-	}
-	var targets []repoTarget
-	for _, m := range rowMaps(appRes) {
-		appID := cStr(m, "Id")
-		appName := cStr(m, "Name")
-		if appName == "" {
-			appName = cStr(m, "Slug")
-		}
-		owner, repo := parseGithubRepoOwnerName(cStr(m, "RepoUrl"))
-		versions := versionsByApp[appID]
-		if owner == "" || repo == "" || len(versions) == 0 {
-			continue
-		}
-		targets = append(targets, repoTarget{appName: appName, owner: owner, repo: repo, versions: versions})
-	}
-	const maxRepos = 25 // _GITHUB_REPO_HEALTH_MAX_REPOS
-	if len(targets) > maxRepos {
-		targets = targets[:maxRepos]
-	}
-
-	scannedRepos := 0
-	repos := []any{}
-	for _, t := range targets {
-		token := s.repoScopedGithubToken(t.owner, t.repo)
-		if token == "" {
-			token = defaultToken
-		}
-		if token == "" {
-			continue // no token -> skip the live scan (parity fixture path)
-		}
-		// configured-token live GitHub issue scan: cluster 8.
-	}
-
-	writeJSON(w, http.StatusOK, jsonenc.NewObject().
-		Set("ok", true).
-		Set("scanned_repos", scannedRepos).
-		Set("total_repos_considered", len(targets)).
-		Set("open_issues", 0).Set("open_prs", 0).Set("security_items", 0).
-		Set("version_scoped", true).
-		Set("last_synced_at", nowISO()).
-		Set("repos", repos))
+	writeJSON(w, http.StatusOK, summary)
 }
 
 // GET /api/reports/export — app.py api_export_reports: a downloadable JSON file (indent=2,

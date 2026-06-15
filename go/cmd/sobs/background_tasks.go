@@ -28,6 +28,8 @@ func (s *server) startBackgroundWorkers() {
 		return
 	}
 	go s.rawWindowCopyLoop()
+	go s.cveScannerLoop()       // _cve_scanner_loop (enrichment_loops.go)
+	go s.githubRepoHealthLoop() // _github_repo_health_loop (enrichment_loops.go)
 }
 
 // rawWindowCopyLoop is a port of app.py _raw_window_copy_loop: run the window-copy worker, then
