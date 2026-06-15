@@ -220,7 +220,7 @@ func (s *server) handleV1Errors(w http.ResponseWriter, r *http.Request) {
 	attrs["exception.type"] = mstrDef(m, "type", "Error")
 	attrs["exception.message"] = mstr(m, "message")
 	if v := mstr(m, "stack"); v != "" {
-		attrs["exception.stacktrace"] = v // JS source-map demangling is a follow-up
+		attrs["exception.stacktrace"] = s.srcMap.demangleStack(v) // identity unless SOBS_SOURCE_MAP_ENABLE
 	}
 	row := map[string]any{
 		"Timestamp": ts, "TraceId": mstr(m, "trace_id"), "SpanId": mstr(m, "span_id"),
@@ -304,6 +304,14 @@ func (s *server) handleV1Rum(w http.ResponseWriter, r *http.Request) {
 		e, ok := ev.(map[string]any)
 		if !ok {
 			continue
+		}
+		// JS source-map demangling (no-op unless SOBS_SOURCE_MAP_ENABLE); mutates e before the
+		// event body is serialized, mirroring app.py ingest_rum.
+		if s.srcMap != nil && s.srcMap.enable {
+			if st := toStr(e["stack"]); st != "" {
+				e["stack"] = s.srcMap.demangleStack(st)
+			}
+			s.srcMap.remapRumConsoleStacks(e)
 		}
 		eventType := mstrDef(e, "type", "unknown")
 		isErr := eventType == "error" || eventType == "unhandledrejection"
