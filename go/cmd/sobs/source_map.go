@@ -206,11 +206,36 @@ func parseSourceMap(data []byte) *parsedSourceMap {
 	}
 }
 
+// lookup mirrors sourcemap.objects.SourceMapIndex.lookup(line, column) from the `sourcemap` PyPI
+// package (mattrobenolt/python-sourcemap, sourcemap/objects.py). The lib's algorithm verbatim:
+//
+//	try: return self.index[(line, column)]          # exact (line, col) match
+//	except KeyError: pass
+//	line_index = self.line_index[line]              # IndexError if line out of range
+//	i = bisect_right(line_index, column)
+//	if not i: raise IndexError                       # column precedes ALL tokens on the line
+//	column = line_index[i - 1]                       # nearest token at-or-before column
+//	return self.index[(line, column)]
+//
+// app.py wraps `index.lookup(...)` in `try/except Exception: return None`, so a raised IndexError
+// (out-of-range line, OR column before the first token on the line) maps to a failed lookup. There
+// is NO cross-line fallback: the search is confined to the requested generated line. When `column`
+// is past every token on the line, bisect_right returns len(line_index) and `i-1` selects the LAST
+// token on that line (handled by the best-so-far loop below). The decoder (sourcemap/decoder.py)
+// builds a Token for EVERY segment, including 1-value segments that carry no source mapping: those
+// get Token(src=empty-string default, name=None). app.py computes src = str(getattr(token,"src","") or "")
+// -> "" and STILL returns a non-None tuple, i.e. a source-less token is a SUCCESSFUL lookup whose
+// empty src makes _maybe_demangle_js_stack fall back to the raw "{url}:{line}:{col}" target. Hence a
+// source-less hit returns ok=true with an empty src/name rather than failing.
 func (p *parsedSourceMap) lookup(line, col int) (string, int, int, string, bool) {
 	if line < 0 || line >= len(p.lines) {
+		// self.line_index[line] -> IndexError -> caller's except -> None.
 		return "", 0, 0, "", false
 	}
 	segs := p.lines[line]
+	// bisect_right(line_index, col) then take i-1: the last segment with genCol <= col. Segments
+	// are appended in decode order, so ties on genCol resolve to the last-stored segment, matching
+	// the Python dict `index[(line, col)] = token` (last write wins) combined with bisect.
 	best := -1
 	for i, s := range segs {
 		if s.genCol <= col {
@@ -220,11 +245,15 @@ func (p *parsedSourceMap) lookup(line, col int) (string, int, int, string, bool)
 		}
 	}
 	if best < 0 {
+		// bisect_right == 0 -> `if not i: raise IndexError` -> caller's except -> None.
 		return "", 0, 0, "", false
 	}
 	s := segs[best]
 	if s.srcIdx < 0 {
-		return "", 0, 0, "", false
+		// 1-value segment: Token(src='' default, name=None). app.py yields src="", name="" and
+		// returns a successful (non-None) lookup. The decoder's accumulated src_line/src_col are
+		// irrelevant once src is empty (target falls back to "{url}:{line}:{col}"), so return zeros.
+		return "", 0, 0, "", true
 	}
 	src := ""
 	if s.srcIdx < len(p.sources) {
