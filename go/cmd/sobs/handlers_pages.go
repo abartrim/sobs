@@ -855,20 +855,498 @@ func (s *server) handleViewWorkItemsPage(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// GET /ai — app.py view_ai. Empty AI traces on the fixture.
+// GET /ai — app.py view_ai. Faithful 1:1 port: the otel_traces gen_ai query (filters, flat-vs-
+// trace view mode, sort/limit/offset, free-text SQL filter), token/call/error totals, the
+// per-trace grouping + turn cards, and the filter-facet metadata. On the EMPTY fixture every
+// query returns nothing, so the template-var dict reduces to the same values the prior stub
+// passed (preserving byte-parity); populated AI traces now render real data.
 func (s *server) handleViewAi(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	selectedServices := stripNonEmpty(q["service"])
+	selectedModels := stripNonEmpty(q["model"])
+	selectedOperations := stripNonEmpty(q["operation"])
+	selectedSpanNames := stripNonEmpty(q["span_name"])
+	selectedRowTypes := []string{}
+	for _, rt := range q["row_type"] {
+		rt = strings.ToLower(strings.TrimSpace(rt))
+		if rt == "llm" || rt == "system" {
+			selectedRowTypes = append(selectedRowTypes, rt)
+		}
+	}
+
+	service := firstOr(selectedServices)
+	model := firstOr(selectedModels)
+	operationFilter := firstOr(selectedOperations)
+	spanName := firstOr(selectedSpanNames)
+	rowType := firstOr(selectedRowTypes)
+	sqlWhere := strings.TrimSpace(q.Get("sql"))
+	fromTS, toTS, timeError := parseTimeWindowArgs(q.Get("from_ts"), q.Get("to_ts"), q.Get("window_s"))
+	viewMode := strings.ToLower(strings.TrimSpace(q.Get("view")))
+	if viewMode != "flat" && viewMode != "trace" {
+		viewMode = "flat"
+	}
+	limit := parseLimit(q.Get("limit"), 50)
+	offset := parseOffset(q.Get("offset"))
+	sortBy, sortCol, sortDir := parseSort(q.Get("sort_by"), q.Get("sort_dir"),
+		map[string]string{"Timestamp": "Timestamp", "Duration": "Duration", "ServiceName": "ServiceName"},
+		"Timestamp")
+	orderDir := "DESC"
+	if sortDir == "asc" {
+		orderDir = "ASC"
+	}
+	orderClause := "ORDER BY " + sortCol + " " + orderDir
+
+	conditions := []string{}
+	params := []any{}
+	errorMsg := timeError
+	baseAICondition := aiSpanCondition
+	timeConditions, timeParams := timeWindowConditions("Timestamp", fromTS, toTS)
+	where := "WHERE " + baseAICondition
+	if sqlWhere != "" && errorMsg == "" {
+		safeSQL, sqlErr := normalizeAiSQLWhere(sqlWhere)
+		if sqlErr != "" {
+			errorMsg = "SQL error: " + sqlErr
+			where = "WHERE " + baseAICondition
+		} else {
+			sqlConditions := []string{"(" + safeSQL + ")", baseAICondition}
+			sqlConditions = append(sqlConditions, timeConditions...)
+			where = "WHERE " + strings.Join(sqlConditions, " AND ")
+			params = append([]any{}, timeParams...)
+		}
+	} else if errorMsg == "" {
+		if len(selectedServices) > 0 {
+			conditions = append(conditions, "ServiceName IN ("+placeholders(len(selectedServices))+")")
+			params = append(params, toAnySlice(selectedServices)...)
+		}
+		if len(selectedModels) > 0 {
+			conditions = append(conditions, "SpanAttributes['gen_ai.request.model'] IN ("+placeholders(len(selectedModels))+")")
+			params = append(params, toAnySlice(selectedModels)...)
+		}
+		if len(selectedOperations) > 0 {
+			operationConditions := []string{}
+			for _, selectedOperation := range selectedOperations {
+				if strings.ToLower(selectedOperation) == "chat" {
+					operationConditions = append(operationConditions,
+						"(SpanAttributes['gen_ai.operation.name']=? OR SpanAttributes['gen_ai.operation.name']='')")
+					params = append(params, "chat")
+				} else {
+					operationConditions = append(operationConditions, "SpanAttributes['gen_ai.operation.name']=?")
+					params = append(params, selectedOperation)
+				}
+			}
+			if len(operationConditions) > 0 {
+				conditions = append(conditions, "("+strings.Join(operationConditions, " OR ")+")")
+			}
+		}
+		if len(selectedSpanNames) > 0 {
+			conditions = append(conditions, "SpanName IN ("+placeholders(len(selectedSpanNames))+")")
+			params = append(params, toAnySlice(selectedSpanNames)...)
+		}
+
+		rowTypeSet := map[string]bool{}
+		for _, rt := range selectedRowTypes {
+			rowTypeSet[rt] = true
+		}
+		if len(rowTypeSet) == 1 && rowTypeSet["llm"] {
+			conditions = append(conditions, "SpanAttributes['gen_ai.request.model'] != ''")
+		} else if len(rowTypeSet) == 1 && rowTypeSet["system"] {
+			conditions = append(conditions, "SpanAttributes['gen_ai.request.model'] = ''")
+		}
+		conditions = append(conditions, baseAICondition)
+		conditions = append(conditions, timeConditions...)
+		params = append(params, timeParams...)
+		where = whereClause(conditions)
+	}
+
+	traceIDs := []string{}
+	total := 0
+	var rows []map[string]any
+	if errorMsg == "" {
+		var qErr error
+		if viewMode == "trace" {
+			traceConditions := append([]string{}, conditions...)
+			var traceWhere string
+			if sqlWhere != "" {
+				traceWhere = where + " AND TraceId != ''"
+			} else {
+				traceConditions = append(traceConditions, "TraceId != ''")
+				traceWhere = "WHERE " + strings.Join(traceConditions, " AND ")
+			}
+			if res, err := s.db.Execute("SELECT uniq(TraceId) AS c FROM otel_traces "+traceWhere, params...); err != nil {
+				qErr = err
+			} else if len(res.Rows) > 0 {
+				total = cInt(rowMaps(res)[0], res.Columns[0])
+			}
+			if qErr == nil {
+				traceRes, err := s.db.Execute(
+					"SELECT TraceId, MAX(Timestamp) AS LastTs FROM otel_traces "+
+						traceWhere+" GROUP BY TraceId "+
+						"ORDER BY LastTs "+orderDir+" LIMIT ? OFFSET ?",
+					append(append([]any{}, params...), limit, offset)...)
+				if err != nil {
+					qErr = err
+				} else {
+					for _, m := range rowMaps(traceRes) {
+						if tid := cStr(m, "TraceId"); tid != "" {
+							traceIDs = append(traceIDs, tid)
+						}
+					}
+					if len(traceIDs) > 0 {
+						detailWhere := traceWhere + " AND TraceId IN (" + placeholders(len(traceIDs)) + ")"
+						detailRes, derr := s.db.Execute(
+							"SELECT Timestamp, ServiceName, TraceId, SpanName, Duration, SpanAttributes "+
+								"FROM otel_traces "+detailWhere+" ORDER BY Timestamp ASC",
+							append(append([]any{}, params...), toAnySlice(traceIDs)...)...)
+						if derr != nil {
+							qErr = derr
+						} else {
+							rows = rowMaps(detailRes)
+						}
+					}
+				}
+			}
+		} else {
+			if res, err := s.db.Execute("SELECT COUNT(*) AS c FROM otel_traces "+where, params...); err != nil {
+				qErr = err
+			} else if len(res.Rows) > 0 {
+				total = cInt(rowMaps(res)[0], res.Columns[0])
+			}
+			if qErr == nil {
+				res, err := s.db.Execute(
+					"SELECT Timestamp, ServiceName, TraceId, SpanName, Duration, SpanAttributes "+
+						"FROM otel_traces "+where+" "+orderClause+" LIMIT ? OFFSET ?",
+					append(append([]any{}, params...), limit, offset)...)
+				if err != nil {
+					qErr = err
+				} else {
+					rows = rowMaps(res)
+				}
+			}
+		}
+		if qErr != nil {
+			errorMsg = "SQL error: " + publicDashboardQueryError(qErr)
+			total = 0
+			rows = nil
+			traceIDs = []string{}
+		}
+	}
+
+	aiItems := []any{}
+	itemsTyped := []*aiItem{}
+	for _, r := range rows {
+		attrs := attrMap(cStr(r, "SpanAttributes"))
+		ts := cStr(r, "Timestamp")
+		provider := firstNonEmptyStr(attrs["gen_ai.provider.name"], attrs["gen_ai.system"])
+		reqModel := attrStr(attrs, "gen_ai.request.model")
+		operation := attrStrDef(attrs, "gen_ai.operation.name", "chat")
+		inputMessagesRaw := attrStr(attrs, "gen_ai.input.messages")
+		outputMessagesRaw := attrStr(attrs, "gen_ai.output.messages")
+		systemInstructionsRaw := attrStr(attrs, "gen_ai.system_instructions")
+		prompt := extractMessagesText(inputMessagesRaw)
+		if prompt == "" {
+			prompt = attrStr(attrs, "sobs.gen_ai.prompt")
+		}
+		response := extractMessagesText(outputMessagesRaw)
+		if response == "" {
+			response = attrStr(attrs, "sobs.gen_ai.response")
+		}
+		tokensIn := safeAttrInt(attrs, "gen_ai.usage.input_tokens")
+		tokensOut := safeAttrInt(attrs, "gen_ai.usage.output_tokens")
+		errType := attrStr(attrs, "error.type")
+		msg := attrStr(attrs, "exception.message")
+		durationMS := safeDurationMS(r["Duration"])
+		var tokensPerSec any = 0
+		if durationMS > 0 && tokensOut > 0 {
+			tokensPerSec = roundHalfEven(float64(tokensOut)/(durationMS/1000), 1)
+		}
+		finishReason := attrStr(attrs, "gen_ai.response.finish_reason")
+		itemSpanName := cStr(r, "SpanName")
+		temperature := attrStr(attrs, "gen_ai.request.temperature")
+		maxTokens := attrStr(attrs, "gen_ai.request.max_tokens")
+		thinkingTokens := safeAttrInt(attrs, "gen_ai.usage.thinking_tokens")
+		eventName := attrStr(attrs, "sobs.ai.event")
+		if eventName == "" && strings.HasPrefix(itemSpanName, "ai.") {
+			eventName = itemSpanName[3:]
+		}
+		parsedInput, _ := parseGenaiMessagesJSON(inputMessagesRaw)
+		parsedOutput, _ := parseGenaiMessagesJSON(outputMessagesRaw)
+		inputMessages := normalizeGenaiMessagesForDisplay(parsedInput)
+		outputMessages := normalizeGenaiMessagesForDisplay(parsedOutput)
+		inputMessages, dedupedSystemCount := dedupeSystemInputMessages(inputMessages, systemInstructionsRaw)
+		serviceName := cStr(r, "ServiceName")
+		traceID := cStr(r, "TraceId")
+		rowID := errorID(ts, serviceName, provider, reqModel+errType+msg, traceID, "")
+		isLLMCall := reqModel != "" && (tokensIn > 0 || tokensOut > 0 || response != "" ||
+			len(inputMessages) > 0 || len(outputMessages) > 0 || strings.TrimSpace(systemInstructionsRaw) != "")
+		turnID := attrStr(attrs, "gen_ai.turn_id")
+		if turnID == "" {
+			turnID = attrStr(attrs, "gen_ai.response.id")
+		}
+		chatID := attrStr(attrs, "gen_ai.chat_id")
+		inputQuestion := attrStr(attrs, "gen_ai.input.question")
+		turnSummaryReq := attrStr(attrs, "gen_ai.turn.summary.request")
+		turnSummaryAct := attrStr(attrs, "gen_ai.turn.summary.action")
+		turnSummaryRes := attrStr(attrs, "gen_ai.turn.summary.result")
+		var guardAllowed any = ""
+		if v, ok := attrs["gen_ai.guard.allowed"]; ok {
+			guardAllowed = v
+		}
+		guardReason := attrStr(attrs, "gen_ai.guard.reason")
+		toolName := attrStr(attrs, "gen_ai.tool.name")
+		toolStatus := attrStr(attrs, "sobs.ai.action.status")
+		toolSummary := attrStr(attrs, "sobs.ai.tool.summary")
+		toolAction := attrStr(attrs, "sobs.ai.tool.action")
+		toolActionID := attrStr(attrs, "sobs.ai.action_id")
+
+		obj := jsonenc.NewObject().
+			Set("id", rowID).
+			Set("ts", ts).
+			Set("service", serviceName).
+			Set("provider", provider).
+			Set("model", reqModel).
+			Set("operation", operation).
+			Set("span_name", itemSpanName).
+			Set("is_llm_call", isLLMCall).
+			Set("prompt", prompt).
+			Set("response", response).
+			Set("input_messages", inputMessages).
+			Set("output_messages", outputMessages).
+			Set("input_messages_json", inputMessagesRaw).
+			Set("output_messages_json", outputMessagesRaw).
+			Set("system_instructions", systemInstructionsRaw).
+			Set("system_message_deduped_count", dedupedSystemCount).
+			Set("tokens_in", tokensIn).
+			Set("tokens_out", tokensOut).
+			Set("thinking_tokens", thinkingTokens).
+			Set("duration_ms", durationMS).
+			Set("tokens_per_sec", tokensPerSec).
+			Set("trace_id", traceID).
+			Set("chat_id", chatID).
+			Set("turn_id", turnID).
+			Set("event_name", eventName).
+			Set("input_question", inputQuestion).
+			Set("turn_summary_request", turnSummaryReq).
+			Set("turn_summary_action", turnSummaryAct).
+			Set("turn_summary_result", turnSummaryRes).
+			Set("guard_allowed", guardAllowed).
+			Set("guard_reason", guardReason).
+			Set("tool_name", toolName).
+			Set("tool_status", toolStatus).
+			Set("tool_summary", toolSummary).
+			Set("tool_action", toolAction).
+			Set("tool_action_id", toolActionID).
+			Set("error_type", errType).
+			Set("error_message", msg).
+			Set("finish_reason", finishReason).
+			Set("temperature", temperature).
+			Set("max_tokens", maxTokens)
+		aiItems = append(aiItems, obj)
+		itemsTyped = append(itemsTyped, &aiItem{
+			obj: obj, ts: ts, service: serviceName, model: reqModel, provider: provider,
+			operation: operation, chatID: chatID, turnID: turnID, traceID: traceID,
+			eventName: eventName, tokensIn: tokensIn, tokensOut: tokensOut,
+			thinkingTokens: thinkingTokens, durationMS: durationMS, inputQuestion: inputQuestion,
+			prompt: prompt, response: response, inputMessages: inputMessages, outputMessages: outputMessages,
+			turnSummaryReq: turnSummaryReq, turnSummaryAct: turnSummaryAct, turnSummaryRes: turnSummaryRes,
+			guardAllowed: guardAllowed, guardReason: guardReason, errorType: errType, errorMessage: msg,
+			toolName: toolName, toolStatus: toolStatus, toolSummary: toolSummary,
+			toolAction: toolAction, toolActionID: toolActionID,
+		})
+	}
+
+	traceGroups := []any{}
+	if viewMode == "trace" {
+		type traceGroup struct {
+			obj        *jsonenc.Object
+			spans      []*aiItem
+			calls      int
+			tokensIn   int
+			tokensOut  int
+			errors     int
+			services   map[string]bool
+			models     map[string]bool
+			operations map[string]bool
+			firstTS    string
+			lastTS     string
+		}
+		byTrace := map[string]*traceGroup{}
+		for _, tid := range traceIDs {
+			byTrace[tid] = &traceGroup{
+				obj:        jsonenc.NewObject().Set("id", errorID("", "", "trace", tid, tid, "")).Set("trace_id", tid),
+				services:   map[string]bool{},
+				models:     map[string]bool{},
+				operations: map[string]bool{},
+			}
+		}
+		for _, item := range itemsTyped {
+			tid := item.traceID
+			grp, ok := byTrace[tid]
+			if tid == "" || !ok {
+				continue
+			}
+			grp.spans = append(grp.spans, item)
+			grp.calls++
+			grp.tokensIn += item.tokensIn
+			grp.tokensOut += item.tokensOut
+			if item.errorType != "" {
+				grp.errors++
+			}
+			if item.service != "" {
+				grp.services[item.service] = true
+			}
+			if item.model != "" {
+				grp.models[item.model] = true
+			}
+			if item.operation != "" {
+				grp.operations[item.operation] = true
+			}
+			ts := item.ts
+			if ts != "" {
+				if grp.firstTS == "" || ts < grp.firstTS {
+					grp.firstTS = ts
+				}
+				if grp.lastTS == "" || ts > grp.lastTS {
+					grp.lastTS = ts
+				}
+			}
+		}
+		for _, tid := range traceIDs {
+			grp := byTrace[tid]
+			if len(grp.spans) == 0 {
+				continue
+			}
+			spansList := []any{}
+			for _, sp := range grp.spans {
+				spansList = append(spansList, sp.obj)
+			}
+			grp.obj.
+				Set("spans", spansList).
+				Set("calls", grp.calls).
+				Set("tokens_in", grp.tokensIn).
+				Set("tokens_out", grp.tokensOut).
+				Set("errors", grp.errors).
+				Set("services", sortedAnySlice(grp.services)).
+				Set("models", sortedAnySlice(grp.models)).
+				Set("operations", sortedAnySlice(grp.operations)).
+				Set("first_ts", grp.firstTS).
+				Set("last_ts", grp.lastTS).
+				Set("turn_cards", buildAiTraceTurnCards(grp.spans))
+			traceGroups = append(traceGroups, grp.obj)
+		}
+	}
+
+	metadata := s.getAiFilterMetadata(fromTS, toTS)
+	metadataErrors := metadata.errors
+
+	totalTokensIn := 0
+	totalTokensOut := 0
+	totalCalls := 0
+	totalErrors := 0
+	totalsWhere := where
+	totalsParams := append([]any{}, params...)
+	if totalsWhere == "" {
+		totalsWhere = "WHERE " + aiSpanCondition
+		totalsParams = []any{}
+	}
+	if totalsRes, err := s.db.Execute(
+		"SELECT "+
+			"SUM(toUInt64OrZero(SpanAttributes['gen_ai.usage.input_tokens'])) ti, "+
+			"SUM(toUInt64OrZero(SpanAttributes['gen_ai.usage.output_tokens'])) to_, "+
+			"COUNT(*) cnt, "+
+			"countIf(SpanAttributes['error.type'] != '') errors "+
+			"FROM otel_traces "+totalsWhere,
+		totalsParams...); err != nil {
+		metadataErrors = append(metadataErrors, "totals="+publicDashboardQueryError(err))
+	} else if len(totalsRes.Rows) > 0 {
+		tr := rowMaps(totalsRes)[0]
+		totalTokensIn = cInt(tr, "ti")
+		totalTokensOut = cInt(tr, "to_")
+		totalCalls = cInt(tr, "cnt")
+		totalErrors = cInt(tr, "errors")
+	}
+
+	if len(metadataErrors) > 0 {
+		shown := metadataErrors
+		if len(shown) > 3 {
+			shown = shown[:3]
+		}
+		metadataErrorText := "Some AI metadata failed to load: " + strings.Join(shown, "; ")
+		if errorMsg != "" {
+			errorMsg = errorMsg + "; " + metadataErrorText
+		} else {
+			errorMsg = metadataErrorText
+		}
+	}
+
 	s.renderPage(w, "ai.html", "view_ai", map[string]any{
-		"ai_items": []any{}, "total": 0, "limit": 50, "offset": 0,
-		"service": "", "selected_services": []any{}, "model": "", "selected_models": []any{},
-		"operation": "", "selected_operations": []any{}, "span_name": "", "selected_span_names": []any{},
-		"row_type": "", "selected_row_types": []any{}, "sql_where": "", "view_mode": "flat",
-		"services": []any{}, "models": []any{}, "operations": []any{}, "span_names": []any{},
-		"trace_groups":    []any{},
-		"total_tokens_in": 0, "total_tokens_out": 0, "total_calls": 0, "total_errors": 0,
-		"error_msg": "", "sort_by": "Timestamp", "sort_dir": "desc", "from_ts": "", "to_ts": "",
+		"ai_items": aiItems, "total": total, "limit": limit, "offset": offset,
+		"service": service, "selected_services": toAnySlice(selectedServices),
+		"model": model, "selected_models": toAnySlice(selectedModels),
+		"operation": operationFilter, "selected_operations": toAnySlice(selectedOperations),
+		"span_name": spanName, "selected_span_names": toAnySlice(selectedSpanNames),
+		"row_type": rowType, "selected_row_types": toAnySlice(selectedRowTypes),
+		"sql_where": sqlWhere, "view_mode": viewMode,
+		"services": metadata.services, "models": metadata.models,
+		"operations": metadata.operations, "span_names": metadata.spanNames,
+		"trace_groups":    traceGroups,
+		"total_tokens_in": totalTokensIn, "total_tokens_out": totalTokensOut,
+		"total_calls": totalCalls, "total_errors": totalErrors,
+		"error_msg": errorMsg, "sort_by": sortBy, "sort_dir": sortDir,
+		"from_ts": fromTS, "to_ts": toTS,
 		"ai_pricing_json":         mustParseJSON(savedAiPricingJSON),
 		"ai_pricing_sources_json": mustParseJSON(aiPricingSourcesJSON),
 	})
+}
+
+// stripNonEmpty mirrors [v.strip() for v in values if v.strip()] over a getlist().
+func stripNonEmpty(values []string) []string {
+	out := []string{}
+	for _, v := range values {
+		if t := strings.TrimSpace(v); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// firstOr returns values[0] or "" (the `x[0] if x else ""` idiom).
+func firstOr(values []string) string {
+	if len(values) > 0 {
+		return values[0]
+	}
+	return ""
+}
+
+// placeholders builds "?,?,?" with n placeholders.
+func placeholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.Repeat("?,", n-1) + "?"
+}
+
+// toAnySlice converts []string to []any (for SQL params / template lists of strings).
+func toAnySlice(values []string) []any {
+	out := make([]any, len(values))
+	for i, v := range values {
+		out[i] = v
+	}
+	return out
+}
+
+// sortedAnySlice returns the keys of set sorted ascending (mirrors sorted(python_set)).
+func sortedAnySlice(set map[string]bool) []any {
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]any, len(keys))
+	for i, k := range keys {
+		out[i] = k
+	}
+	return out
 }
 
 // mustParseJSON parses an embedded JSON asset (order-preserving), returning an empty
