@@ -379,6 +379,11 @@ func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
 	rowCount := 0
 	if execErr == nil {
 		columns, rows = serializeQueryResult(res)
+		// Hard row cap (app.py _vanna_run_query): truncate to SOBS_QUERY_MAX_ROWS (default 1000)
+		// after execution, regardless of what the LLM generated.
+		if cap := envInt("SOBS_QUERY_MAX_ROWS", 1000); cap >= 0 && len(rows) > cap {
+			rows = rows[:cap]
+		}
 		rowCount = len(rows)
 		fieldTypes = inferQueryFieldTypes(columns, rows)
 	} else {

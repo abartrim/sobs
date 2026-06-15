@@ -60,6 +60,8 @@ func newServer(cfg config) *server {
 	// Self-initialize the schema on a fresh store ("make if not found"); a strict no-op when the
 	// store already has it (the seeded parity fixture), so parity is unaffected.
 	s.ensureSchema()
+	// Seed the app/release/artifact registry from SOBS_APP_REGISTRY_SEED_JSON (no-op when unset).
+	s.seedAppRegistry()
 	// Background DB writer (app.py _ensure_write_worker). The writer's ops use s.db, so start it
 	// only after the store is opened. Under parity, ingest writes are awaited (commit-before-ack).
 	s.wq = newWriteQueue()
