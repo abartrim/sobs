@@ -13,9 +13,16 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 func main() {
+	// `sobs healthcheck` is a self-contained probe for container HEALTHCHECK directives (the slim
+	// runtime image ships no curl/python): GET /health on the loopback and exit 0/non-0.
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(runHealthcheck())
+	}
+
 	cfg := loadConfig()
 	srv := newServer(cfg)
 
@@ -68,4 +75,20 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// runHealthcheck probes the local /health endpoint; returns 0 if it answers 200, else 1.
+func runHealthcheck() int {
+	client := http.Client{Timeout: 4 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:" + envOr("SOBS_PORT", "8799") + "/health")
+	if err != nil {
+		log.Printf("healthcheck: %v", err)
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		return 0
+	}
+	log.Printf("healthcheck: status %d", resp.StatusCode)
+	return 1
 }

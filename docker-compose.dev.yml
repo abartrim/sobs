@@ -1,0 +1,29 @@
+# Hot-reload dev override. Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Swaps the built Go image for the air container that rebuilds ./cmd/sobs and restarts on every Go
+# source save, with the repo bind-mounted. The loadgen sidecar (from the base file) keeps driving
+# example traffic, so you edit Go and watch the change live with data flowing.
+
+services:
+  sobs:
+    build:
+      context: .
+      dockerfile: Dockerfile.go.dev
+    image: sobs-go-dev:latest
+    user: "0:0" # air writes ./go/tmp in the bind-mounted (host-owned) source
+    volumes:
+      - ./go:/src/go
+      - ./templates:/src/templates:ro
+      - ./static:/src/static:ro
+      - sobs_data:/data
+      - go_build_cache:/root/.cache/go-build
+    healthcheck:
+      test: ["CMD", "/src/go/tmp/sobs", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 90s # the first in-container `go build` is slower than a prebuilt image
+
+volumes:
+  go_build_cache:

@@ -1,0 +1,24 @@
+# air (github.com/air-verse/air) live-reload config for the Go dev container. Run from /src/go;
+# rebuilds ./cmd/sobs and restarts on any .go / .sql change (schema.sql is embedded).
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/sobs ./cmd/sobs"
+  bin = "./tmp/sobs"
+  include_ext = ["go", "sql"]
+  exclude_dir = ["tmp"]
+  exclude_regex = ["_test\\.go"]
+  stop_on_error = true
+  delay = 400
+  # Poll the filesystem instead of relying on inotify: bind-mount file events don't propagate from
+  # a macOS/Windows host into the Linux container, so polling is what makes reload-on-save work
+  # cross-platform (a small CPU cost; native Linux hosts could drop this).
+  poll = true
+  poll_interval = 500
+
+[misc]
+  clean_on_exit = true
+
+[log]
+  time = true
