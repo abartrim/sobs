@@ -63,6 +63,69 @@ func TestTelemetryDisabledIsNoOp(t *testing.T) {
 	nilTel.span("x", nil)() // must not panic
 }
 
+func TestBuildMetricPayloadHistogram(t *testing.T) {
+	// ingest.batch.size must be emitted as an OTLP histogram (matching Python's
+	// meter.create_histogram in telemetry/metrics.py), not a gauge or sum.
+	tel := &telemetry{serviceName: "sobs", environment: "local"}
+	point := map[string]any{
+		"name":         "sobs.ingest.batch.size",
+		"kind":         "histogram",
+		"value":        7.0,
+		"attributes":   otlpJSONAttrs(map[string]any{"event.type": "log"}),
+		"timeUnixNano": "1",
+	}
+	payload := tel.buildMetricPayload([]map[string]any{point})
+	rm := payload["resourceMetrics"].([]map[string]any)
+	sm := rm[0]["scopeMetrics"].([]map[string]any)
+	metrics := sm[0]["metrics"].([]map[string]any)
+	if len(metrics) != 1 {
+		t.Fatalf("want 1 metric, got %d", len(metrics))
+	}
+	m := metrics[0]
+	if m["name"] != "sobs.ingest.batch.size" {
+		t.Errorf("name = %v", m["name"])
+	}
+	if _, ok := m["gauge"]; ok {
+		t.Error("must not be a gauge")
+	}
+	if _, ok := m["sum"]; ok {
+		t.Error("must not be a sum")
+	}
+	h, ok := m["histogram"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected histogram, got %v", m)
+	}
+	if h["aggregationTemporality"] != 2 {
+		t.Errorf("aggregationTemporality = %v, want 2 (cumulative)", h["aggregationTemporality"])
+	}
+	dps := h["dataPoints"].([]map[string]any)
+	if len(dps) != 1 {
+		t.Fatalf("want 1 data point, got %d", len(dps))
+	}
+	dp := dps[0]
+	if dp["count"] != "1" {
+		t.Errorf("count = %v, want \"1\"", dp["count"])
+	}
+	if dp["sum"] != 7.0 || dp["min"] != 7.0 || dp["max"] != 7.0 {
+		t.Errorf("sum/min/max = %v/%v/%v, want 7", dp["sum"], dp["min"], dp["max"])
+	}
+}
+
+func TestRecordIngestBatchSizeEmitsHistogram(t *testing.T) {
+	// End-to-end through emitMetric: an active otlp telemetry buffers a histogram-kind point.
+	tel := &telemetry{enabled: true, exporter: "otlp", otlpEndpoint: "http://localhost:1"}
+	tel.recordIngestBatchSize(3, "trace")
+	if len(tel.points) != 1 {
+		t.Fatalf("want 1 buffered point, got %d", len(tel.points))
+	}
+	if tel.points[0]["kind"] != "histogram" {
+		t.Errorf("kind = %v, want histogram", tel.points[0]["kind"])
+	}
+	if tel.points[0]["name"] != "sobs.ingest.batch.size" {
+		t.Errorf("name = %v", tel.points[0]["name"])
+	}
+}
+
 func TestOTLPJSONAttrs(t *testing.T) {
 	attrs := otlpJSONAttrs(map[string]any{"k": "v"})
 	if len(attrs) != 1 || attrs[0]["key"] != "k" {

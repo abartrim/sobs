@@ -115,7 +115,11 @@ func (t *telemetry) recordIngestBatchSize(size int, eventType string) {
 	if !t.active() {
 		return
 	}
-	t.emitMetric("sobs.ingest.batch.size", "gauge", float64(size), map[string]any{"event.type": eventType})
+	// Python (telemetry/metrics.py:record_ingest_batch_size) records this on a Histogram
+	// instrument: meter.create_histogram("sobs.ingest.batch.size", unit="1", description="Ingest
+	// batch size").record(size, {"event.type": event_type}). Emit it as a histogram here (not a
+	// gauge) so a single observation ships as an OTLP histogram data point, matching the SDK.
+	t.emitMetric("sobs.ingest.batch.size", "histogram", float64(size), map[string]any{"event.type": eventType})
 }
 
 // ---- emit / export --------------------------------------------------------------------
@@ -195,15 +199,39 @@ func (t *telemetry) buildTracePayload(spans []map[string]any) map[string]any {
 func (t *telemetry) buildMetricPayload(points []map[string]any) map[string]any {
 	metrics := make([]map[string]any, 0, len(points))
 	for _, p := range points {
-		dp := map[string]any{
-			"asDouble":     p["value"],
-			"timeUnixNano": p["timeUnixNano"],
-			"attributes":   p["attributes"],
-		}
 		m := map[string]any{"name": p["name"]}
-		if p["kind"] == "sum" {
+		switch p["kind"] {
+		case "sum":
+			dp := map[string]any{
+				"asDouble":     p["value"],
+				"timeUnixNano": p["timeUnixNano"],
+				"attributes":   p["attributes"],
+			}
 			m["sum"] = map[string]any{"dataPoints": []map[string]any{dp}, "aggregationTemporality": 2, "isMonotonic": true}
-		} else {
+		case "histogram":
+			// A single .record(value) observation, shaped as an OTLP histogram data point: count=1,
+			// sum/min/max = the value, with one implicit (+Inf) bucket (empty explicitBounds). This
+			// mirrors what the OpenTelemetry SDK emits for a histogram with a single measurement and
+			// is parseable by our own OTLP ingest path (otlp_ingest.go reads count/sum/bucketCounts/
+			// explicitBounds). Histograms use cumulative aggregation temporality (2).
+			v, _ := p["value"].(float64)
+			dp := map[string]any{
+				"count":          "1",
+				"sum":            v,
+				"min":            v,
+				"max":            v,
+				"bucketCounts":   []string{"1"},
+				"explicitBounds": []float64{},
+				"timeUnixNano":   p["timeUnixNano"],
+				"attributes":     p["attributes"],
+			}
+			m["histogram"] = map[string]any{"dataPoints": []map[string]any{dp}, "aggregationTemporality": 2}
+		default:
+			dp := map[string]any{
+				"asDouble":     p["value"],
+				"timeUnixNano": p["timeUnixNano"],
+				"attributes":   p["attributes"],
+			}
 			m["gauge"] = map[string]any{"dataPoints": []map[string]any{dp}}
 		}
 		metrics = append(metrics, m)
