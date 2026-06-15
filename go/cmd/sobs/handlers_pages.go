@@ -848,13 +848,124 @@ func (s *server) handleViewEnrichmentCve(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// GET /work-items — app.py view_work_items. Empty work items on the fixture.
+// GET /work-items — app.py view_work_items: list sobs_github_work_items (FINAL) with the
+// service/rule_name/action_type/status/time-window filters, the total count, and the DISTINCT
+// service/rule facet lists. The GitHub backfill is fire-and-forget in Python (does not affect the
+// render) and is owned elsewhere, so it is not invoked here. On the empty fixture every query
+// returns nothing, reproducing the golden empty render; the DB error path also renders empties,
+// matching Python's try/except. The page-/filter-result caches are render-invisible and omitted.
 func (s *server) handleViewWorkItemsPage(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	serviceFilter := strings.TrimSpace(q.Get("service"))
+	ruleFilter := strings.TrimSpace(q.Get("rule_name"))
+	actionTypeFilter := strings.TrimSpace(q.Get("action_type"))
+	statusFilter := strings.TrimSpace(q.Get("status"))
+	fromTs, toTs, timeError := workItemsTimeWindow(r)
+
+	conds := []string{"IsDeleted = 0"}
+	var params []any
+	if serviceFilter != "" {
+		conds = append(conds, "ServiceName = ?")
+		params = append(params, serviceFilter)
+	}
+	if ruleFilter != "" {
+		conds = append(conds, "AgentRuleName = ?")
+		params = append(params, ruleFilter)
+	}
+	if actionTypeFilter != "" {
+		conds = append(conds, "AgentAction = ?")
+		params = append(params, actionTypeFilter)
+	}
+	if statusFilter != "" {
+		conds = append(conds, "IssueState = ?")
+		params = append(params, statusFilter)
+	}
+	if fromTs != "" {
+		conds = append(conds, "CreatedAt >= ?")
+		params = append(params, fromTs)
+	}
+	if toTs != "" {
+		conds = append(conds, "CreatedAt <= ?")
+		params = append(params, toTs)
+	}
+	whereClause := "WHERE " + strings.Join(conds, " AND ")
+	limit := queryIntClamp(r, "limit", 100, 1, 5000)
+	offset := queryOffset(r)
+
+	items := []any{}
+	totalItems := 0
+	services := []any{}
+	rules := []any{}
+
+	if countRes, err := s.db.Execute(
+		"SELECT count() AS c FROM sobs_github_work_items FINAL "+whereClause, params...); err == nil {
+		if len(countRes.Rows) > 0 {
+			totalItems = cInt(rowMaps(countRes)[0], "c")
+		}
+		if rowsRes, err := s.db.Execute(
+			"SELECT * FROM sobs_github_work_items FINAL "+whereClause+
+				" ORDER BY CreatedAt DESC LIMIT "+strconv.Itoa(limit)+" OFFSET "+strconv.Itoa(offset),
+			params...); err == nil {
+			for _, m := range rowMaps(rowsRes) {
+				items = append(items, serializeGithubWorkItemRow(m))
+			}
+			services = s.distinctStrings(
+				"SELECT DISTINCT ServiceName FROM sobs_github_work_items FINAL " +
+					"WHERE IsDeleted=0 ORDER BY ServiceName")
+			services = sortedNonEmptyFacet(services)
+			rules = s.distinctStrings(
+				"SELECT DISTINCT AgentRuleName FROM sobs_github_work_items FINAL " +
+					"WHERE IsDeleted=0 ORDER BY AgentRuleName")
+			rules = sortedNonEmptyFacet(rules)
+		} else {
+			items = []any{}
+		}
+	}
+
 	s.renderPage(w, "work_items.html", "view_work_items", map[string]any{
-		"items": []any{}, "total_items": 0, "services": []any{}, "rules": []any{},
-		"service_filter": "", "rule_filter": "", "action_type_filter": "", "status_filter": "",
-		"from_ts": "", "to_ts": "", "time_error": "",
+		"items": items, "total_items": totalItems, "services": services, "rules": rules,
+		"service_filter": serviceFilter, "rule_filter": ruleFilter,
+		"action_type_filter": actionTypeFilter, "status_filter": statusFilter,
+		"from_ts": fromTs, "to_ts": toTs, "time_error": timeError,
 	})
+}
+
+// queryOffset mirrors app.py _parse_offset: max(0, int(request.args.get("offset", 0))) with the
+// try/except fallback to 0 on a bad value.
+func queryOffset(r *http.Request) int {
+	raw := strings.TrimSpace(r.URL.Query().Get("offset"))
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
+
+// sortedNonEmptyFacet mirrors Python `sorted({str(r[col]) for r in rows if r[col]})`: drop falsy
+// (empty) values, de-duplicate, and sort the facet list.
+func sortedNonEmptyFacet(values []any) []any {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		s, _ := v.(string)
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	res := make([]any, len(out))
+	for i, s := range out {
+		res[i] = s
+	}
+	return res
 }
 
 // GET /ai — app.py view_ai. Faithful 1:1 port: the otel_traces gen_ai query (filters, flat-vs-

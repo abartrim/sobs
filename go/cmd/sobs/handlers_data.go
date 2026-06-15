@@ -165,22 +165,29 @@ func (s *server) handleApiEnrichmentLibraries(w http.ResponseWriter, r *http.Req
 		Set("ok", true).Set("libraries", []any{}).Set("scanned_at", scanned))
 }
 
-// GET /api/work-items — app.py api_get_work_items: github work items (empty on fixture).
-// The async GitHub backfill is fire-and-forget (does not affect the response) and is skipped.
+// GET /api/work-items — app.py api_get_work_items: serialize sobs_github_work_items (FINAL),
+// filtered by the optional anomaly_rule_id/service/rule_id/signal_source/signal_name query args
+// and ordered by CreatedAt DESC. The async GitHub backfill is fire-and-forget (does not affect
+// the response) and is owned elsewhere, so it is skipped. Empty fixture -> {"ok": true, "items":
+// []}, matching the golden. The filter args are applied in app.py's source order so the SQL is
+// byte-identical (the WHERE clause is opaque to the empty-result render but kept faithful).
 func (s *server) handleApiWorkItems(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	conds := []string{"IsDeleted = 0"}
 	var params []any
-	for arg, col := range map[string]string{
-		"anomaly_rule_id": "AnomalyRuleId", "service": "ServiceName", "rule_id": "AgentRuleId",
-		"signal_source": "SignalSource", "signal_name": "SignalName",
+	for _, f := range []struct{ arg, col string }{
+		{"anomaly_rule_id", "AnomalyRuleId"},
+		{"service", "ServiceName"},
+		{"rule_id", "AgentRuleId"},
+		{"signal_source", "SignalSource"},
+		{"signal_name", "SignalName"},
 	} {
-		if v := strings.TrimSpace(q.Get(arg)); v != "" {
-			conds = append(conds, col+" = ?")
+		if v := strings.TrimSpace(q.Get(f.arg)); v != "" {
+			conds = append(conds, f.col+" = ?")
 			params = append(params, v)
 		}
 	}
-	limit := queryIntClamp(r, "limit", 100, 1, 1000)
+	limit := queryIntClamp(r, "limit", 100, 1, 5000) // _parse_limit(100): max(1, min(int, 5000)).
 	res, err := s.db.Execute("SELECT * FROM sobs_github_work_items FINAL WHERE "+strings.Join(conds, " AND ")+
 		" ORDER BY CreatedAt DESC LIMIT "+strconv.Itoa(limit), params...)
 	if err != nil {
@@ -188,7 +195,9 @@ func (s *server) handleApiWorkItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := []any{}
-	_ = rowMaps(res) // rows are empty on the fixture; serialization lands with seeded work items
+	for _, m := range rowMaps(res) {
+		items = append(items, serializeGithubWorkItemRow(m))
+	}
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("items", items))
 }
 
