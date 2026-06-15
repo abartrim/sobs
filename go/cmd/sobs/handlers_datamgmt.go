@@ -3,9 +3,75 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/sobs/sobs/internal/jsonenc"
 )
+
+// dmTTLTables mirrors app.py _DM_TTL_TABLES: (table, timestamp column, setting key) for the
+// day-based TTL targets (logs/traces/sessions all key off a plain DateTime column).
+var dmTTLTables = []struct{ table, tsCol, settingKey string }{
+	{"otel_logs", "Timestamp", "data_management.ttl_logs_days"},
+	{"otel_traces", "Timestamp", "data_management.ttl_traces_days"},
+	{"hyperdx_sessions", "Timestamp", "data_management.ttl_sessions_days"},
+}
+
+// dmMetricTables mirrors app.py _DM_METRIC_TABLES: metric tables store a millisecond epoch
+// (TimeUnixMs) so the TTL converts it to a DateTime before adding the hour interval.
+var dmMetricTables = []struct{ table, tsCol string }{
+	{"otel_metrics_gauge", "TimeUnixMs"},
+	{"otel_metrics_sum", "TimeUnixMs"},
+	{"otel_metrics_histogram", "TimeUnixMs"},
+}
+
+// applyDMTTL mirrors app.py _apply_dm_ttl: run ALTER TABLE … MODIFY TTL for each configured
+// retention field and return the accumulated per-table error strings (empty == success). A
+// non-positive integer is rejected with the same message Python builds; a SQL execution
+// failure is surfaced as "<table>: <err>" (the broad-except branch, never parity-tested).
+func (s *server) applyDMTTL(settings map[string]string) []string {
+	var errs []string
+	for _, t := range dmTTLTables {
+		rawDays := strings.TrimSpace(settings[t.settingKey])
+		if rawDays == "" {
+			continue
+		}
+		days, err := strconv.Atoi(rawDays)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", t.table, err))
+			continue
+		}
+		if days <= 0 {
+			errs = append(errs, fmt.Sprintf("%s: TTL days must be a positive integer", t.table))
+			continue
+		}
+		stmt := fmt.Sprintf("ALTER TABLE %s MODIFY TTL %s + INTERVAL %d DAY", t.table, t.tsCol, days)
+		if _, err := s.db.Execute(stmt); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", t.table, err))
+		}
+	}
+
+	rawHours := strings.TrimSpace(settings["data_management.ttl_metrics_hours"])
+	if rawHours != "" {
+		// Python folds a non-numeric value and a non-positive value into the SAME message
+		// (int() raises -> except, or hours <= 0 -> append), so the metric branch never emits
+		// the per-table "invalid literal" text the day branch does.
+		hours, err := strconv.Atoi(rawHours)
+		if err != nil || hours <= 0 {
+			errs = append(errs, "metrics: TTL hours must be a positive integer")
+		} else {
+			for _, t := range dmMetricTables {
+				stmt := fmt.Sprintf(
+					"ALTER TABLE %s MODIFY TTL toDateTime(intDiv(%s, 1000)) + INTERVAL %d HOUR",
+					t.table, t.tsCol, hours)
+				if _, err := s.db.Execute(stmt); err != nil {
+					errs = append(errs, fmt.Sprintf("%s: %v", t.table, err))
+				}
+			}
+		}
+	}
+	return errs
+}
 
 // dmSettingKeys mirrors app.py _DM_SETTING_KEYS.
 var dmSettingKeys = []string{

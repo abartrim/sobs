@@ -329,7 +329,7 @@ def _read_golden(route_id: str) -> dict | None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--only")
+    ap.add_argument("--only", help="comma-separated route id(s) to check; default = all manifest routes")
     ap.add_argument("--bisect-body", action="store_true")
     ap.add_argument("--update-ledger", action="store_true")
     ap.add_argument("--max-diffs", type=int, default=10)
@@ -355,11 +355,13 @@ def main() -> int:
     # Group the replayable routes by profile. Each profile is a distinct gate state (e.g. the
     # query page enabled) that the Go server reads once at boot, so each profile needs its own
     # server process against its own fresh fixture copy. "base" runs first; others sorted.
+    only_ids = {x.strip() for x in args.only.split(",") if x.strip()} if args.only else None
+
     def _wanted(route: dict) -> bool:
         rid = route["id"]
         if rid in excluded:
             return False
-        if args.only and rid != args.only:
+        if only_ids is not None and rid not in only_ids:
             return False
         return True
 

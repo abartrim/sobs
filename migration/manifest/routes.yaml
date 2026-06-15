@@ -2831,6 +2831,55 @@ routes:
   - <td class="fw-semibold">[0-9][0-9.]* [A-Z]*B</td>
   - "[0-9]+\\.[0-9]+\xD7|[0-9]+\xD7"
   - <span class="text-(?:warning|success)">\s*[0-9]+
+# dmttl profile: data-management save with apply_ttl=1 (app.py save_dm_settings -> _apply_dm_ttl).
+# Parity-invisible on the base empty POST, so a dedicated profile exercises the TTL branch. The
+# OTel tables exist in the base fixture, so the day-based ALTER … MODIFY TTL runs for real; the
+# profile is isolated (its own fixture copy) so the schema mutations never ripple into base otel
+# readers. These three entries run IN ORDER on one server. NOTE: ttl_metrics_hours' ALTER builds
+# intDiv(TimeUnixMs, …) but TimeUnixMs is a DateTime column, so chDB rejects it (ILLEGAL_TYPE) — a
+# genuine app.py bug. The port mirrors it, but the exception text is not byte-stable, so the
+# success case omits metrics (day ALTERs only) and the error cases keep metrics non-positive so
+# its message comes from validation, never from executing the broken ALTER.
+- id: post__settings_data_management__apply_ttl_ok
+  path: /settings/data-management
+  methods:
+  - POST
+  profile: dmttl
+  request:
+    method: POST
+    form:
+      apply_ttl: "1"
+      ttl_logs_days: "30"
+      ttl_traces_days: "14"
+      ttl_sessions_days: "7"
+# Two validation errors (logs day + metrics hour both non-positive): exercises both the per-table
+# day message and the metrics message, joined with "; ". Neither runs an ALTER (validation first).
+- id: post__settings_data_management__apply_ttl_invalid
+  path: /settings/data-management
+  methods:
+  - POST
+  profile: dmttl
+  request:
+    method: POST
+    form:
+      apply_ttl: "1"
+      ttl_logs_days: "0"
+      ttl_metrics_hours: "-1"
+# Four validation errors (all three day tables + metrics): exercises the errors[:3] truncation —
+# the metrics error is dropped from the warning message.
+- id: post__settings_data_management__apply_ttl_truncate
+  path: /settings/data-management
+  methods:
+  - POST
+  profile: dmttl
+  request:
+    method: POST
+    form:
+      apply_ttl: "1"
+      ttl_logs_days: "0"
+      ttl_traces_days: "0"
+      ttl_sessions_days: "0"
+      ttl_metrics_hours: "0"
 - id: post__settings_enrichment
   path: /settings/enrichment
   methods:

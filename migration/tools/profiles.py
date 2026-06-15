@@ -225,6 +225,10 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # dmttl: data-management save with apply_ttl=1. No env / no seed — the OTel tables already
+    # exist in the base fixture, so the day-based ALTER … MODIFY TTL runs for real; isolated so
+    # those schema mutations (and TTL materialization) never ripple into base otel readers.
+    "dmttl": {},
     # ask: query/ask — guard + main endpoints on DISTINCT mock paths (two canned responses).
     "ask": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/ask/v1",

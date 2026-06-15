@@ -827,11 +827,12 @@ func isTruthySetting(v string) bool {
 }
 
 // POST /settings/data-management — app.py save_dm_settings: write the data_management.* config
-// from the form (_dm_settings_from_form), in that exact key order, then a plain query-param
-// redirect. Per key: a clear_* flag tombstones the secret; a sensitive key left blank is
-// preserved (skipped); a non-empty value is written (sensitive ones Fernet-encrypted via
-// _set_dm_setting); an empty value tombstones (_del_app_setting). apply_ttl is off for the parity
-// request, so no ALTER TABLE runs; GET (the db-stats page) is the follow-up.
+// from the form (_dm_settings_from_form), in that exact key order. Per key: a clear_* flag
+// tombstones the secret; a sensitive key left blank is preserved (skipped); a non-empty value is
+// written (sensitive ones Fernet-encrypted via _set_dm_setting); an empty value tombstones
+// (_del_app_setting). When apply_ttl=1 is submitted, each configured retention is pushed to
+// ClickHouse via ALTER TABLE … MODIFY TTL; on any error it redirects with the "Settings saved but
+// TTL errors:" warning (otherwise a plain query-param redirect). GET is the db-stats page.
 func (s *server) handleSettingsDataManagement(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.handleDataManagementGet(w, r)
@@ -880,6 +881,24 @@ func (s *server) handleSettingsDataManagement(w http.ResponseWriter, r *http.Req
 			_ = s.setDMSetting(kv.key, kv.val)
 		default:
 			_ = s.delAppSetting(kv.key)
+		}
+	}
+	// Apply TTL immediately if the form requested it (app.py save_dm_settings: the apply_ttl=1
+	// branch runs _apply_dm_ttl on new_settings; on any error it redirects with a warning).
+	if r.PostFormValue("apply_ttl") == "1" {
+		ttlSettings := map[string]string{
+			"data_management.ttl_logs_days":     txt("ttl_logs_days"),
+			"data_management.ttl_traces_days":   txt("ttl_traces_days"),
+			"data_management.ttl_sessions_days": txt("ttl_sessions_days"),
+			"data_management.ttl_metrics_hours": txt("ttl_metrics_hours"),
+		}
+		if errs := s.applyDMTTL(ttlSettings); len(errs) > 0 {
+			if len(errs) > 3 {
+				errs = errs[:3]
+			}
+			msg := "Settings saved but TTL errors: " + strings.Join(errs, "; ")
+			plainRedirect(w, "/settings/data-management?msg="+msg+"&msg_type=warning")
+			return
 		}
 	}
 	plainRedirect(w, "/settings/data-management?msg=Settings+saved&msg_type=success")
