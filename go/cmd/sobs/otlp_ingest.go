@@ -206,7 +206,20 @@ func (s *server) ingestOTLPLogs(body map[string]any) (int, error) {
 		}
 	}
 	if len(rows) > 0 {
-		if err := s.enqueueWrite(func() error { _, e := s.insertRowsNormalized("otel_logs", rows); return e }); err != nil {
+		if err := s.enqueueWrite(func() error {
+			if _, e := s.insertRowsNormalized("otel_logs", rows); e != nil {
+				return e
+			}
+			// Side-effects mirroring app.py _insert_log_events: track discovered attr keys per
+			// record_type and apply active tag rules to the inserted rows.
+			s.rememberLogAttrKeys(extractLogAttrMaps(rows))
+			s.rememberAttrKeys(extractAttrMaps(rows, "ResourceAttributes"), "resource")
+			s.rememberAttrKeys(extractAttrMaps(rows, "ScopeAttributes"), "scope")
+			if rules := s.loadTagRulesCtx(); len(rules) > 0 {
+				s.applyTagRules("log", rows, rules)
+			}
+			return nil
+		}); err != nil {
 			return len(rows), err
 		}
 	}
@@ -215,6 +228,7 @@ func (s *server) ingestOTLPLogs(body map[string]any) (int, error) {
 
 func (s *server) ingestOTLPTraces(body map[string]any) (int, error) {
 	rows := []map[string]any{}
+	errorRows := []map[string]any{}
 	resList, _ := body["resourceSpans"].([]any)
 	for _, r := range resList {
 		ro, _ := r.(map[string]any)
@@ -245,24 +259,89 @@ func (s *server) ingestOTLPTraces(body map[string]any) (int, error) {
 				}
 				spanAttrs := otlpKVList(asList(m["attributes"]))
 				merged := mergeAttrs(resAttrs, scopeAttrs, spanAttrs)
+				ts := nsToISO(startNs)
+				spanName := toStr(m["name"])
 				rows = append(rows, map[string]any{
-					"Timestamp": nsToISO(startNs), "TraceId": "", "SpanId": "", "ParentSpanId": "",
-					"TraceState": "", "SpanName": toStr(m["name"]),
+					"Timestamp": ts, "TraceId": "", "SpanId": "", "ParentSpanId": "",
+					"TraceState": "", "SpanName": spanName,
 					"SpanKind": orDefault(toStr(spanAttrs["span.kind"]), "INTERNAL"), "ServiceName": service,
 					"ResourceAttributes": otlpStringifyAttrs(resAttrs), "ScopeName": "", "ScopeVersion": "",
 					"SpanAttributes": otlpStringifyAttrs(merged),
 					"Duration":       maxInt64(0, int64(durationMs*1_000_000)),
 					"StatusCode":     traceStatusCode(status), "StatusMessage": toStr(spanAttrs["status.message"]),
 				})
+				// ERROR-status spans become synthetic otel_logs exception rows, mirroring
+				// app.py _proto_traces_to_events -> _insert_error_events.
+				if strings.Contains(strings.ToUpper(status), "ERROR") {
+					errType := spanAttrStr(spanAttrs, "exception.type", "SpanError")
+					// message = span_attrs.get("exception.message", span_attrs.get("error.message", span.name))
+					var message string
+					if v, ok := spanAttrs["exception.message"]; ok {
+						message = toStr(v)
+					} else {
+						message = spanAttrStr(spanAttrs, "error.message", spanName)
+					}
+					stack := spanAttrStr(spanAttrs, "exception.stacktrace", "")
+					errAttrs := otlpStringifyAttrs(merged)
+					errAttrs["exception.type"] = errType
+					errAttrs["exception.message"] = message
+					if stack != "" {
+						errAttrs["exception.stacktrace"] = stack
+					}
+					errorRows = append(errorRows, map[string]any{
+						"Timestamp": ts, "TraceId": "", "SpanId": "", "TraceFlags": 0,
+						"SeverityText": "ERROR", "SeverityNumber": severityNumber("ERROR"),
+						"ServiceName": service, "Body": message, "ResourceSchemaUrl": "",
+						"ResourceAttributes": map[string]any{}, "ScopeSchemaUrl": "",
+						"ScopeName": "", "ScopeVersion": "", "ScopeAttributes": map[string]any{},
+						"LogAttributes": errAttrs, "EventName": "exception",
+					})
+				}
 			}
 		}
 	}
 	if len(rows) > 0 {
-		if err := s.enqueueWrite(func() error { _, e := s.insertRowsNormalized("otel_traces", rows); return e }); err != nil {
+		if err := s.enqueueWrite(func() error {
+			if _, e := s.insertRowsNormalized("otel_traces", rows); e != nil {
+				return e
+			}
+			// Side-effects mirroring app.py _insert_span_events.
+			s.rememberAttrKeys(extractAttrMaps(rows, "SpanAttributes"), "span")
+			s.rememberAttrKeys(extractAttrMaps(rows, "ResourceAttributes"), "resource")
+			if rules := s.loadTagRulesCtx(); len(rules) > 0 {
+				s.applyTagRules("trace", rows, rules)
+			}
+			return nil
+		}); err != nil {
 			return len(rows), err
 		}
 	}
+	// The synthetic exception rows are written via their own queued op, mirroring app.py
+	// ingest_traces' separate _insert_error_events call (which also tracks attr keys + tags).
+	if len(errorRows) > 0 {
+		_ = s.enqueueWrite(func() error {
+			if _, e := s.insertRowsNormalized("otel_logs", errorRows); e != nil {
+				return e
+			}
+			s.rememberLogAttrKeys(extractLogAttrMaps(errorRows))
+			if rules := s.loadTagRulesCtx(); len(rules) > 0 {
+				s.applyTagRules("error", errorRows, rules)
+			}
+			return nil
+		})
+	}
 	return len(rows), nil
+}
+
+// spanAttrStr mirrors str(span_attrs.get(key, default)) for the exception-derivation logic:
+// stringify the span attribute via the same Python str() semantics (toStr), defaulting if absent.
+// Note the span attrs here are the *parsed* AnyValue map (otlpKVList), matching app.py which reads
+// span_attrs (the per-span dict) — NOT the already-stringified Map column.
+func spanAttrStr(attrs map[string]any, key, def string) string {
+	if v, ok := attrs[key]; ok && v != nil {
+		return toStr(v)
+	}
+	return def
 }
 
 func (s *server) ingestOTLPMetrics(body map[string]any) (int, error) {

@@ -96,6 +96,9 @@ func (s *server) emitAiHelperLogEvent(eventName, chatID, turnID, page, model, gu
 	}
 	_, _ = s.insertRowsNormalized("otel_logs", []map[string]any{logRow})
 	_, _ = s.insertRowsNormalized("otel_traces", []map[string]any{traceRow})
+	// Side-effect mirroring app.py _emit_ai_helper_log_event: track the discovered log attr keys.
+	// (Unlike the other inserters, the AI emitter does NOT apply tag rules.)
+	s.rememberLogAttrKeys(extractLogAttrMaps([]map[string]any{logRow}))
 }
 
 // POST /api/ai/helper/feedback — app.py ai_helper_feedback: record a user feedback note as a

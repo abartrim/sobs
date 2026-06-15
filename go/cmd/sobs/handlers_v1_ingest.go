@@ -239,8 +239,16 @@ func (s *server) handleV1Errors(w http.ResponseWriter, r *http.Request) {
 		"LogAttributes": attrs, "EventName": "exception",
 	}
 	if err := s.enqueueWrite(func() error {
-		_, e := s.db.InsertJSONEachRow("otel_logs", []map[string]any{row})
-		return e
+		if _, e := s.db.InsertJSONEachRow("otel_logs", []map[string]any{row}); e != nil {
+			return e
+		}
+		// Side-effects mirroring app.py ingest_error's _op: track discovered log attr keys and
+		// apply active tag rules (record_type "error") to the inserted row.
+		s.rememberLogAttrKeys(extractLogAttrMaps([]map[string]any{row}))
+		if rules := s.loadTagRulesCtx(); len(rules) > 0 {
+			s.applyTagRules("error", []map[string]any{row}, rules)
+		}
+		return nil
 	}); err != nil {
 		if errors.Is(err, errWriteQueueFull) {
 			writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().Set("error", "write queue is full"))
@@ -361,8 +369,15 @@ func (s *server) handleV1Rum(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(sessionRows) > 0 {
 		if err := s.enqueueWrite(func() error {
-			_, e := s.db.InsertJSONEachRow("hyperdx_sessions", sessionRows)
-			return e
+			if _, e := s.db.InsertJSONEachRow("hyperdx_sessions", sessionRows); e != nil {
+				return e
+			}
+			// app.py ingest_rum applies the active tag rules to the session rows (record_type
+			// "rum", which uses the log record id).
+			if rules := s.loadTagRulesCtx(); len(rules) > 0 {
+				s.applyTagRules("rum", sessionRows, rules)
+			}
+			return nil
 		}); err != nil {
 			if errors.Is(err, errWriteQueueFull) {
 				writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().Set("error", "write queue is full"))
@@ -374,8 +389,16 @@ func (s *server) handleV1Rum(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(errorRows) > 0 {
 		_ = s.enqueueWrite(func() error {
-			_, e := s.db.InsertJSONEachRow("otel_logs", errorRows)
-			return e
+			if _, e := s.db.InsertJSONEachRow("otel_logs", errorRows); e != nil {
+				return e
+			}
+			// app.py ingest_rum tracks the error rows' log attr keys and applies tag rules with
+			// record_type "error" (only the otel_logs error rows, not the session rows).
+			s.rememberLogAttrKeys(extractLogAttrMaps(errorRows))
+			if rules := s.loadTagRulesCtx(); len(rules) > 0 {
+				s.applyTagRules("error", errorRows, rules)
+			}
+			return nil
 		})
 	}
 	s.tel.recordIngestEvents(len(sessionRows), "rum")
