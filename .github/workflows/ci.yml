@@ -151,6 +151,47 @@ jobs:
           CHDB_LIB_PATH: ${{ github.workspace }}/.libchdb/libchdb.so
         run: python migration/tools/run_parity_ci.py
 
+  docker-go-smoke:
+    name: Go Image Build & Smoke
+    runs-on: ubuntu-latest
+    needs: go-build-test
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build the stripped-down Go image
+        run: docker build -f Dockerfile.go -t sobs-go:ci .
+
+      - name: Start the container (empty /data — must self-seed its schema)
+        run: docker run -d --name sobs-go -p 4317:4317 sobs-go:ci
+
+      - name: Smoke-test the running image
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:4317/health >/dev/null 2>&1 && break
+            sleep 2
+          done
+          assert_200() {
+            code="$(curl -s -o /dev/null -w '%{http_code}' "$1")"
+            echo "  $1 -> $code"
+            test "$code" = "200"
+          }
+          # /health/db runs SELECT 1 -> proves the binary runs, libchdb dlopens, chdb opens.
+          assert_200 http://127.0.0.1:4317/health
+          assert_200 http://127.0.0.1:4317/health/db
+          # /api/reports queries a real table -> proves the schema self-initialized (ensureSchema).
+          body="$(curl -fsS http://127.0.0.1:4317/api/reports)"
+          echo "  /api/reports -> $body"
+          test "$body" = "[]"
+          # / renders a Jinja page -> proves templates/ + static/ are bundled and the engine works.
+          assert_200 http://127.0.0.1:4317/
+
+      - name: Container logs
+        if: always()
+        run: docker logs sobs-go || true
+
   rum-build:
     name: RUM JS Build & Type Check
     runs-on: ubuntu-latest

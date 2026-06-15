@@ -19,7 +19,9 @@ func main() {
 	cfg := loadConfig()
 	srv := newServer(cfg)
 
-	addr := "127.0.0.1:" + cfg.Port
+	// Bind host defaults to loopback (what the parity harness connects to); a container sets
+	// SOBS_HOST=0.0.0.0 so the server is reachable through the published port.
+	addr := envOr("SOBS_HOST", "127.0.0.1") + ":" + cfg.Port
 	log.Printf("sobs (go) listening on %s  parity=%v dataDir=%s", addr, cfg.Parity, cfg.DataDir)
 	if err := http.ListenAndServe(addr, srv); err != nil {
 		log.Fatal(err)

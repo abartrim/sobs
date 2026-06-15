@@ -48,6 +48,9 @@ func newServer(cfg config) *server {
 			log.Fatalf("chdb open failed in parity mode: %v", lastErr)
 		}
 	}
+	// Self-initialize the schema on a fresh store ("make if not found"); a strict no-op when the
+	// store already has it (the seeded parity fixture), so parity is unaffected.
+	s.ensureSchema()
 	s.routes()
 	return s
 }
