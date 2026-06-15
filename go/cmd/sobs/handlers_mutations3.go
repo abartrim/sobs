@@ -165,7 +165,8 @@ func (s *server) handleChannelSub(w http.ResponseWriter, r *http.Request) {
 	// app.py test_notification_channel: dispatch a test payload through the channel; "ok" => 200,
 	// any error => 500 with the message (the test payload itself is the unobservable POST body).
 	m := rowMaps(res)[0]
-	if result := s.dispatchNotificationChannel(cStr(m, "ChannelType"), cStr(m, "ConfigJson")); result == "ok" {
+	summary := "[SOBS] Test notification from channel '" + cStr(m, "Name") + "'"
+	if result := s.dispatchNotificationChannel(cStr(m, "ChannelType"), cStr(m, "ConfigJson"), summary); result == "ok" {
 		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
 	} else {
 		writeJSON(w, http.StatusInternalServerError, jsonenc.NewObject().Set("ok", false).Set("error", result))
