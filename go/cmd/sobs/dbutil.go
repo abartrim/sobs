@@ -320,6 +320,16 @@ func (s *server) countRows(query string) int {
 	return cInt(rowMaps(res)[0], "c")
 }
 
+// countRowsParams is countRows with positional `?` params — for parameterized count queries
+// (e.g. the filtered /rum session/event totals). Reads the single `c`-aliased column.
+func (s *server) countRowsParams(query string, params ...any) int {
+	res, err := s.db.Execute(query, params...)
+	if err != nil || len(res.Rows) == 0 {
+		return 0
+	}
+	return cInt(rowMaps(res)[0], "c")
+}
+
 // dbError reproduces the generic 500 JSON some handlers return on a query exception
 // ({"ok": false, "error": "..."}). Most parity routes never hit this on the fixture DB.
 func (s *server) dbError(w http.ResponseWriter, err error) {
