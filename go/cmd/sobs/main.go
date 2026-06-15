@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -32,9 +33,7 @@ func main() {
 	cfg := loadConfig()
 	srv := newServer(cfg)
 
-	// Bind host defaults to loopback (what the parity harness connects to); a container sets
-	// SOBS_HOST=0.0.0.0 so the server is reachable through the published port.
-	addr := envOr("SOBS_HOST", "127.0.0.1") + ":" + cfg.Port
+	addr := resolveBindAddr(cfg.Port)
 	log.Printf("sobs (go) listening on %s  parity=%v dataDir=%s", addr, cfg.Parity, cfg.DataDir)
 	if err := http.ListenAndServe(addr, srv); err != nil {
 		log.Fatal(err)
@@ -63,7 +62,7 @@ func loadConfig() config {
 	return config{
 		Parity:              os.Getenv("SOBS_PARITY") == "1",
 		DataDir:             envOr("SOBS_DATA_DIR", "./data"),
-		Port:                envOr("SOBS_PORT", "8799"),
+		Port:                envOr("SOBS_PORT", envOr("PORT", "44317")),
 		StaticDir:           envOr("SOBS_STATIC_DIR", "static"),
 		TemplateDir:         envOr("SOBS_TEMPLATE_DIR", "templates"),
 		SecretKey:           envOr("SOBS_SECRET_KEY", "sobs-dev-secret-key"),
@@ -83,10 +82,20 @@ func envOr(k, def string) string {
 	return def
 }
 
+// resolveBindAddr mirrors app.py's __main__ bind resolution: HYPERCORN_BIND / GUNICORN_BIND
+// override the full host:port; otherwise SOBS_HOST (default loopback for safe direct runs — the
+// container/compose set SOBS_HOST=0.0.0.0) plus the resolved port.
+func resolveBindAddr(port string) string {
+	if b := strings.TrimSpace(envOr("HYPERCORN_BIND", os.Getenv("GUNICORN_BIND"))); b != "" {
+		return b
+	}
+	return envOr("SOBS_HOST", "127.0.0.1") + ":" + port
+}
+
 // runHealthcheck probes the local /health endpoint; returns 0 if it answers 200, else 1.
 func runHealthcheck() int {
 	client := http.Client{Timeout: 4 * time.Second}
-	resp, err := client.Get("http://127.0.0.1:" + envOr("SOBS_PORT", "8799") + "/health")
+	resp, err := client.Get("http://127.0.0.1:" + envOr("SOBS_PORT", envOr("PORT", "44317")) + "/health")
 	if err != nil {
 		log.Printf("healthcheck: %v", err)
 		return 1
