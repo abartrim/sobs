@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	chdb "github.com/chdb-io/chdb-go/chdb"
@@ -42,13 +43,38 @@ func Open(dataDir string) (DB, error) {
 // yields the plain session path, byte-for-byte unchanged.
 func chdbConnectTarget(path string) (string, error) {
 	configFile := strings.TrimSpace(os.Getenv("SOBS_CLICKHOUSE_CONFIG_FILE"))
-	if configFile == "" {
-		return path, nil
+	if configFile != "" {
+		if !filepath.IsAbs(configFile) {
+			return "", fmt.Errorf("SOBS_CLICKHOUSE_CONFIG_FILE must be an absolute path to a mounted ClickHouse config.xml")
+		}
+		return path + "?config-file=" + quotePathSafeSlash(configFile), nil
 	}
-	if !filepath.IsAbs(configFile) {
-		return "", fmt.Errorf("SOBS_CLICKHOUSE_CONFIG_FILE must be an absolute path to a mounted ClickHouse config.xml")
+
+	// Low-memory defaults for embedded single-process chdb (app.py _build_chdb_connect_target's
+	// else-branch); override via env for larger deployments. These are resource caps / threadpool
+	// sizes — they bound RSS, never change query results, so the parity corpus is unaffected. The
+	// Python oracle captures the corpus under these same defaults.
+	maxServerMB := envIntStore("SOBS_CHDB_MAX_SERVER_MB", 768)
+	markCacheMB := envIntStore("SOBS_CHDB_MARK_CACHE_MB", 64)
+	uncompressedCacheMB := envIntStore("SOBS_CHDB_UNCOMPRESSED_CACHE_MB", 64)
+	params := strings.Join([]string{
+		"max_server_memory_usage=" + strconv.Itoa(maxServerMB*1024*1024),
+		"mark_cache_size=" + strconv.Itoa(markCacheMB*1024*1024),
+		"uncompressed_cache_size=" + strconv.Itoa(uncompressedCacheMB*1024*1024),
+		"background_pool_size=2",
+		"background_schedule_pool_size=16",
+		"background_io_pool_size=2",
+	}, "&")
+	return path + "?" + params, nil
+}
+
+func envIntStore(name string, def int) int {
+	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
 	}
-	return path + "?config-file=" + quotePathSafeSlash(configFile), nil
+	return def
 }
 
 // quotePathSafeSlash mirrors Python urllib.parse.quote(value, safe="/"): keep unreserved chars

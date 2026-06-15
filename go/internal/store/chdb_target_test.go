@@ -2,11 +2,28 @@ package store
 
 import "testing"
 
-func TestChdbConnectTargetPlain(t *testing.T) {
+func TestChdbConnectTargetDefaults(t *testing.T) {
 	t.Setenv("SOBS_CLICKHOUSE_CONFIG_FILE", "")
+	t.Setenv("SOBS_CHDB_MAX_SERVER_MB", "")
+	t.Setenv("SOBS_CHDB_MARK_CACHE_MB", "")
+	t.Setenv("SOBS_CHDB_UNCOMPRESSED_CACHE_MB", "")
 	got, err := chdbConnectTarget("/data/sobs.chdb")
-	if err != nil || got != "/data/sobs.chdb" {
-		t.Errorf("unset: got %q err %v, want plain path", got, err)
+	want := "/data/sobs.chdb?max_server_memory_usage=805306368&mark_cache_size=67108864" +
+		"&uncompressed_cache_size=67108864&background_pool_size=2" +
+		"&background_schedule_pool_size=16&background_io_pool_size=2"
+	if err != nil || got != want {
+		t.Errorf("defaults:\n got %q\nwant %q\nerr %v", got, want, err)
+	}
+}
+
+func TestChdbConnectTargetMemOverride(t *testing.T) {
+	t.Setenv("SOBS_CLICKHOUSE_CONFIG_FILE", "")
+	t.Setenv("SOBS_CHDB_MAX_SERVER_MB", "0") // 0 == unlimited (integration CI disables the cap)
+	got, _ := chdbConnectTarget("/data/sobs.chdb")
+	if got != "/data/sobs.chdb?max_server_memory_usage=0&mark_cache_size=67108864"+
+		"&uncompressed_cache_size=67108864&background_pool_size=2"+
+		"&background_schedule_pool_size=16&background_io_pool_size=2" {
+		t.Errorf("override not applied: %q", got)
 	}
 }
 
