@@ -13,8 +13,10 @@ WORKDIR /src
 COPY go/go.mod go/go.sum ./go/
 RUN cd go && go mod download
 COPY go/ ./go/
-# purego dlopen()s libchdb at runtime, so the binary itself needs no cgo / native lib.
-RUN cd go && CGO_ENABLED=0 go build -trimpath -o /out/sobs ./cmd/sobs
+# Dynamically linked (CGO_ENABLED=1): purego's dlopen of libchdb needs libc's dynamic linker, which
+# a fully static (CGO_ENABLED=0) binary lacks on linux/amd64 — there the server hangs at chdb open.
+# The runtime image is glibc-based (debian-slim), so the dynamic binary loads fine.
+RUN cd go && CGO_ENABLED=1 go build -trimpath -o /out/sobs ./cmd/sobs
 
 # Pinned chdb-core v26.5.0 — the native build Python chdb 4.1.9 ships (see go/CHDB_PIN.md). The Go
 # store must read/write the same on-disk ClickHouse format, so this version is frozen, never latest.
