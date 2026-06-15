@@ -149,8 +149,10 @@ func (s *server) handleV1IngestGet(w http.ResponseWriter, r *http.Request) {
 		case "/v1/traces":
 			s.v1IngestOTLP(w, r, "resourceSpans", "scopeSpans", "spans")
 		case "/v1/rum/assets":
-			// ingest_rum_asset: 503 when the asset-upload signing key is unconfigured (fixture).
-			s.v1err(w, http.StatusServiceUnavailable, "Asset upload signing key is not configured")
+			// ingest_rum_asset. Real upload path is gated on SOBS_RUM_ASSET_SIGNING_KEY being set;
+			// when unset (the corpus fixture) it short-circuits to the same 503
+			// "Asset upload signing key is not configured" byte-for-byte.
+			s.handleRumAssetUpload(w, r)
 		default:
 			// Unreachable: this handler is registered only for the four paths above.
 			http.NotFound(w, r)
