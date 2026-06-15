@@ -149,7 +149,11 @@ func githubVersionTokens(version string) map[string]bool {
 func (s *server) loadAISetting(key, def string) string {
 	res, err := s.db.Execute("SELECT Value FROM sobs_ai_settings FINAL WHERE Key=? AND IsDeleted=0 LIMIT 1", key)
 	if err == nil && len(res.Rows) > 0 {
-		if v := strings.TrimSpace(cStr(rowMaps(res)[0], "Value")); v != "" {
+		raw := cStr(rowMaps(res)[0], "Value")
+		if isSensitiveAISettingKey(key) {
+			raw = s.decryptSecretValue(raw)
+		}
+		if v := strings.TrimSpace(raw); v != "" {
 			return v
 		}
 	}
@@ -164,8 +168,12 @@ func (s *server) loadAISetting(key, def string) string {
 // saveAISetting mirrors app.py _save_ai_setting (writes sobs_ai_settings). At-rest encryption of
 // sensitive keys is omitted — a hard-cutover Go app reads back via loadAISetting self-consistently.
 func (s *server) saveAISetting(key, value string) {
+	stored := value
+	if isSensitiveAISettingKey(key) {
+		stored = s.encryptSecretValue(value)
+	}
 	_, _ = s.db.InsertJSONEachRow("sobs_ai_settings",
-		[]map[string]any{{"Key": key, "Value": value, "IsDeleted": 0, "Version": fixedVersionMillis()}})
+		[]map[string]any{{"Key": key, "Value": stored, "IsDeleted": 0, "Version": fixedVersionMillis()}})
 }
 
 // repoScopedGithubToken mirrors app.py _load_repo_scoped_github_token.

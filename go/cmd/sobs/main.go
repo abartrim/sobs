@@ -66,7 +66,7 @@ func loadConfig() config {
 		StaticDir:           envOr("SOBS_STATIC_DIR", "static"),
 		TemplateDir:         envOr("SOBS_TEMPLATE_DIR", "templates"),
 		SecretKey:           envOr("SOBS_SECRET_KEY", "sobs-dev-secret-key"),
-		EncryptionSecret:    os.Getenv("SOBS_SETTINGS_ENCRYPTION_SECRET"),
+		EncryptionSecret:    readEnvOrFile("SOBS_SETTINGS_ENCRYPTION_KEY", "SOBS_SETTINGS_ENCRYPTION_KEY_FILE"),
 		BuildVersion:        envOr("SOBS_BUILD_VERSION", "dev"),
 		BasePath:            os.Getenv("SOBS_BASE_PATH"),
 		QueryPageEnabled:    os.Getenv("SOBS_QUERY_PAGE_ENABLED") == "1",
