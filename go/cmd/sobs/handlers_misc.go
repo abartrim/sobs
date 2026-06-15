@@ -497,8 +497,28 @@ func (s *server) handleApiDashboardsSpecTemplates(w http.ResponseWriter, r *http
 // initialize/ping/notifications/* require a valid X-MCP-API-Key. The fixture has no keys, so
 // an unauthenticated call (the empty-body parity request) gets the -32002 error.
 func (s *server) handleMcpEndpointPost(w http.ResponseWriter, r *http.Request) {
+	// Rate limiting (mcp.py: 60 requests / 60s per client IP).
+	if !mcpCheckRateLimit(mcpClientIP(r)) {
+		writeJSON(w, http.StatusTooManyRequests, jsonenc.NewObject().Set("jsonrpc", "2.0").Set("id", nil).
+			Set("error", jsonenc.NewObject().Set("code", -32000).Set("message", "Rate limit exceeded. Try again later.")))
+		return
+	}
+	// MCP must be enabled (default on).
+	if !s.mcpEnabled() {
+		writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().Set("jsonrpc", "2.0").Set("id", nil).
+			Set("error", jsonenc.NewObject().Set("code", -32001).Set("message", "MCP server is disabled.")))
+		return
+	}
+	// Parse the JSON-RPC body. Quart get_json(force=True, silent=False) raises on invalid or
+	// empty JSON -> 400 parse error.
 	raw, _ := io.ReadAll(r.Body)
-	body := asObject(func() any { v, _ := parseJSONValue(raw); return v }())
+	parsed, perr := parseJSONValue(raw)
+	if perr != nil {
+		writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().Set("jsonrpc", "2.0").Set("id", nil).
+			Set("error", jsonenc.NewObject().Set("code", -32700).Set("message", "Parse error")))
+		return
+	}
+	body := asObject(parsed)
 	reqID, _ := body.Get("id")
 	methodV, _ := body.Get("method")
 	method, _ := methodV.(string)
@@ -589,12 +609,9 @@ func (s *server) handleMcpEndpointGet(w http.ResponseWriter, r *http.Request) {
 		s.handleMcpEndpointPost(w, r)
 		return
 	}
-	enabled := true
-	if v, ok := s.appSetting("mcp.enabled"); ok {
-		enabled = v == "1"
-	}
-	if !enabled {
-		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("jsonrpc", "2.0").Set("id", nil).
+	if !s.mcpEnabled() {
+		// mcp.py mcp_endpoint_get returns the disabled descriptor with HTTP 503.
+		writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().Set("jsonrpc", "2.0").Set("id", nil).
 			Set("error", jsonenc.NewObject().Set("code", -32001).Set("message", "MCP server is disabled.")))
 		return
 	}
