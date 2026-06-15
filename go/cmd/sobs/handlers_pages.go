@@ -1199,28 +1199,277 @@ func (s *server) handleViewLogs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /metrics — app.py view_metrics. Empty derived signals on the fixture.
+// metricsSortColumns mirrors view_metrics' _parse_sort allow-map.
+var metricsSortColumns = map[string]string{
+	"last_time": "last_time", "service": "service", "source": "source", "signal": "signal",
+	"last_value": "last_value", "last_anomaly_score": "last_anomaly_score",
+	"last_anomaly_state": "last_anomaly_state", "last_sample_count": "last_sample_count",
+	"point_count": "point_count",
+}
+
+// GET /metrics — app.py view_metrics. Groups v_derived_signals_anomaly by
+// (service, source, signal, attr_fp) with the argMax-by-time latest values, filtered by
+// service[]/signal[]/source[]/attr_fp/q (regex)/time-window-or-hours, sorted/paged. On the
+// empty fixture the GROUP BY yields 0 rows and the same vars as the prior stub (rows=[],
+// total=0, error_msg="", hours=24, sort_by=last_time/desc).
 func (s *server) handleViewMetrics(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	selectedServices := queryListNonEmpty(r, "service")
+	selectedSignals := queryListNonEmpty(r, "signal")
+	selectedSources := queryListNonEmpty(r, "source")
+	service := firstOrEmpty(selectedServices)
+	signal := firstOrEmpty(selectedSignals)
+	source := firstOrEmpty(selectedSources)
+	attrFp := strings.TrimSpace(q.Get("attr_fp"))
+	qParam := strings.TrimSpace(q.Get("q"))
+	fromTS, toTS, timeError := parseTimeWindowArgs(r)
+	limit := parseLimit(r, 100)
+	offset := parseOffset(r)
+	sortBy, sortCol, sortDir := parseSort(r, metricsSortColumns, "last_time")
+	orderClause := orderClauseFor(sortCol, sortDir)
+
+	// hours = max(1, min(168, int(hours or 24))), default 24 on a bad value.
+	hours := 24
+	if raw := strings.TrimSpace(q.Get("hours")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			hours = n
+		}
+	}
+	if hours > 168 {
+		hours = 168
+	}
+	if hours < 1 {
+		hours = 1
+	}
+
+	var whereParts []string
+	var params []any
+	if len(selectedServices) > 0 {
+		whereParts = append(whereParts, "ServiceName IN ("+placeholders(len(selectedServices))+")")
+		params = appendStrs(params, selectedServices)
+	}
+	if len(selectedSignals) > 0 {
+		whereParts = append(whereParts, "SignalName IN ("+placeholders(len(selectedSignals))+")")
+		params = appendStrs(params, selectedSignals)
+	}
+	if len(selectedSources) > 0 {
+		whereParts = append(whereParts, "SignalSource IN ("+placeholders(len(selectedSources))+")")
+		params = appendStrs(params, selectedSources)
+	}
+	if attrFp != "" {
+		whereParts = append(whereParts, "AttrFingerprint = ?")
+		params = append(params, attrFp)
+	}
+	if timeError == "" {
+		appendTimeWindowFilter(&whereParts, &params, "time", fromTS, toTS)
+	}
+
+	hourClause := ""
+	if fromTS == "" && toTS == "" {
+		hourClause = "time >= now() - INTERVAL ? HOUR"
+	}
+
+	rows := []any{}
+	annRows := []map[string]any{}
+	total := 0
+	errorMsg := timeError
+	if qParam != "" && errorMsg == "" {
+		include, exclude, regexErr := s.prepareRe2FilterPatterns(qParam)
+		if regexErr != "" {
+			errorMsg = regexErr
+		} else {
+			appendRegexExpressionClauses(&whereParts, &params, "SignalName", include, exclude)
+		}
+	}
+
+	if hourClause != "" {
+		params = append(params, hours)
+	}
+
+	wc := ""
+	if len(whereParts) > 0 {
+		wc = " " + whereClause(whereParts)
+	}
+	if hourClause != "" {
+		if wc != "" {
+			wc = wc + " AND " + hourClause
+		} else {
+			wc = " WHERE " + hourClause
+		}
+	}
+
+	if errorMsg == "" {
+		groupedSQL := "SELECT" +
+			"  ServiceName AS service," +
+			"  SignalSource AS source," +
+			"  SignalName AS signal," +
+			"  AttrFingerprint AS attr_fp," +
+			"  max(time) AS last_time," +
+			"  argMax(value, time) AS last_value," +
+			"  argMax(anomaly_score, time) AS last_anomaly_score," +
+			"  argMax(anomaly_state, time) AS last_anomaly_state," +
+			"  argMax(SampleCount, time) AS last_sample_count," +
+			"  count() AS point_count" +
+			" FROM v_derived_signals_anomaly" +
+			wc +
+			" GROUP BY ServiceName, SignalSource, SignalName, AttrFingerprint"
+
+		if res, err := s.db.Execute("SELECT COUNT(*) AS c FROM ("+groupedSQL+")", params...); err != nil {
+			errorMsg = publicDashboardQueryError(err)
+		} else {
+			if len(res.Rows) > 0 {
+				total = cInt(rowMaps(res)[0], "c")
+			}
+			fetched, ferr := s.db.Execute("SELECT * FROM ("+groupedSQL+") "+orderClause+" LIMIT ? OFFSET ?",
+				append(append([]any{}, params...), limit, offset)...)
+			if ferr != nil {
+				errorMsg = publicDashboardQueryError(ferr)
+			} else {
+				for _, m := range rowMaps(fetched) {
+					row := map[string]any{
+						"service":            cStr(m, "service"),
+						"source":             cStr(m, "source"),
+						"signal":             cStr(m, "signal"),
+						"attr_fp":            cStr(m, "attr_fp"),
+						"last_time":          cStr(m, "last_time"),
+						"last_value":         m["last_value"],
+						"last_anomaly_score": m["last_anomaly_score"],
+						"last_anomaly_state": cStr(m, "last_anomaly_state"),
+						"last_sample_count":  m["last_sample_count"],
+						"point_count":        m["point_count"],
+						"rule_name":          "",
+					}
+					annRows = append(annRows, row)
+				}
+			}
+		}
+	}
+
+	s.annotateRowsWithRules(annRows, s.loadAnomalyRulesCtxAny(),
+		"source", "signal", "service", "attr_fp", "last_value", "last_sample_count", "last_time")
+	for _, row := range annRows {
+		rows = append(rows, row)
+	}
+
 	services, signals, sources := s.listDerivedSignalDimensions()
 	s.renderPage(w, "metrics.html", "view_metrics", map[string]any{
-		"rows": []any{}, "total": 0, "limit": 100, "offset": 0,
-		"service": "", "selected_services": []any{}, "signal": "", "selected_signals": []any{},
-		"source": "", "selected_sources": []any{}, "attr_fp": "", "q": "",
-		"from_ts": "", "to_ts": "", "hours": 24, "error_msg": "",
+		"rows": rows, "total": total, "limit": limit, "offset": offset,
+		"service": service, "selected_services": strsToAny(selectedServices),
+		"signal": signal, "selected_signals": strsToAny(selectedSignals),
+		"source": source, "selected_sources": strsToAny(selectedSources),
+		"attr_fp": attrFp, "q": qParam,
+		"from_ts": fromTS, "to_ts": toTS, "hours": hours, "error_msg": errorMsg,
 		"services": services, "signals": signals, "sources": sources,
-		"sort_by": "last_time", "sort_dir": "desc",
+		"sort_by": sortBy, "sort_dir": sortDir,
 	})
 }
 
-// GET /traces — app.py view_traces. Empty otel_traces on the fixture.
+// tracesSortColumns mirrors view_traces' _parse_sort allow-map.
+var tracesSortColumns = map[string]string{
+	"Timestamp": "Timestamp", "SpanName": "SpanName", "ServiceName": "ServiceName", "Duration": "Duration",
+}
+
+// GET /traces — app.py view_traces. Queries otel_traces filtered by
+// service[]/trace_id/time-window/q (regex on SpanName), sorted/paged, building the span list +
+// total. When trace_id is given the main list is empty and the (template-rendered) trace_detail
+// waterfall takes over; on the empty fixture trace_id is absent, so the render matches the prior
+// stub (spans=[], total=0, services=[], trace_detail=nil, work_item_links={}).
 func (s *server) handleViewTraces(w http.ResponseWriter, r *http.Request) {
-	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM otel_traces WHERE ServiceName != '' ORDER BY ServiceName")
+	q := r.URL.Query()
+	selectedServices := queryListNonEmpty(r, "service")
+	service := firstOrEmpty(selectedServices)
+	traceID := strings.TrimSpace(q.Get("trace_id"))
+	fromTS, toTS, timeError := parseTimeWindowArgs(r)
+	limit := parseLimit(r, 100)
+	offset := parseOffset(r)
+	sortBy, sortCol, sortDir := parseSort(r, tracesSortColumns, "Timestamp")
+	orderClause := orderClauseFor(sortCol, sortDir)
+
+	var conditions []string
+	var params []any
+	qParam := strings.TrimSpace(q.Get("q"))
+	qError := ""
+	var includePatterns, excludePatterns []string
+	if qParam != "" {
+		inc, exc, regexErr := s.prepareRe2FilterPatterns(qParam)
+		if regexErr != "" {
+			qError = regexErr
+		} else {
+			includePatterns, excludePatterns = inc, exc
+		}
+	}
+	if len(selectedServices) > 0 {
+		conditions = append(conditions, "ServiceName IN ("+placeholders(len(selectedServices))+")")
+		params = appendStrs(params, selectedServices)
+	}
+	if traceID != "" {
+		conditions = append(conditions, "TraceId=?")
+		params = append(params, traceID)
+	}
+	appendTimeWindowFilter(&conditions, &params, "Timestamp", fromTS, toTS)
+	if qParam != "" && qError == "" {
+		appendRegexExpressionClauses(&conditions, &params, "SpanName", includePatterns, excludePatterns)
+	}
+	where := whereClause(conditions)
+
+	total := 0
+	spans := []any{}
+	if traceID != "" && timeError == "" {
+		// Detail view takes over: the flat span list is empty here.
+		total = 0
+	} else {
+		if where == "" {
+			total = s.activePartRows("otel_traces")
+		} else {
+			if res, err := s.db.Execute("SELECT COUNT(*) AS c FROM otel_traces "+where, params...); err == nil && len(res.Rows) > 0 {
+				total = cInt(rowMaps(res)[0], "c")
+			}
+		}
+		res, err := s.db.Execute(
+			"SELECT Timestamp, TraceId, SpanId, ParentSpanId, "+
+				"SpanName, ServiceName, Duration, StatusCode, SpanAttributes "+
+				"FROM otel_traces "+where+" "+orderClause+" LIMIT ? OFFSET ?",
+			append(append([]any{}, params...), limit, offset)...)
+		if err == nil {
+			for _, m := range rowMaps(res) {
+				attrs := mapToDict(m["SpanAttributes"])
+				spans = append(spans, map[string]any{
+					"ts":             cStr(m, "Timestamp"),
+					"trace_id":       m["TraceId"],
+					"span_id":        m["SpanId"],
+					"parent_span_id": m["ParentSpanId"],
+					"name":           m["SpanName"],
+					"service":        m["ServiceName"],
+					"duration_ms":    roundHalfEven(cFloat(m, "Duration")/1_000_000, 2),
+					"status":         m["StatusCode"],
+					"http_method":    attrGet(attrs, "http.method", "http.request.method"),
+					"http_url":       attrGet(attrs, "http.url", "url.full"),
+					"http_status":    attrGet(attrs, "http.status_code", "http.response.status_code"),
+				})
+			}
+		}
+	}
+
+	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM otel_traces WHERE ServiceName!='' ORDER BY ServiceName")
+
+	// The enriched trace_detail waterfall (span tree, timeline/window/metric overlays, related
+	// errors, work-item links) only builds when trace_id is given AND that trace has spans. The
+	// fixture has no traces, so it stays nil and work_item_links stays empty — matching the prior
+	// stub. The populated waterfall port is tracked separately (see follow-up).
+	var traceDetail any = nil
+	workItemLinks := map[string]any{}
+
+	errorMsg := qError
+	if errorMsg == "" {
+		errorMsg = timeError
+	}
+
 	s.renderPage(w, "traces.html", "view_traces", map[string]any{
-		"spans": []any{}, "total": 0, "limit": 100, "offset": 0,
-		"service": "", "selected_services": []any{}, "trace_id": "",
-		"from_ts": "", "to_ts": "", "error_msg": "", "q": "", "services": services,
-		"sort_by": "Timestamp", "sort_dir": "desc", "trace_detail": nil,
-		"work_item_links": map[string]any{},
+		"spans": spans, "total": total, "limit": limit, "offset": offset,
+		"service": service, "selected_services": strsToAny(selectedServices), "trace_id": traceID,
+		"from_ts": fromTS, "to_ts": toTS, "error_msg": errorMsg, "q": qParam, "services": services,
+		"sort_by": sortBy, "sort_dir": sortDir, "trace_detail": traceDetail,
+		"work_item_links": workItemLinks,
 	})
 }
 
