@@ -24,10 +24,11 @@ type server struct {
 	sse  *sseBroker
 	auth authConfig
 	wq   *writeQueue
+	tel  *telemetry
 }
 
 func newServer(cfg config) *server {
-	s := &server{cfg: cfg, mux: http.NewServeMux(), sse: newSSEBroker(), auth: loadAuthConfig()}
+	s := &server{cfg: cfg, mux: http.NewServeMux(), sse: newSSEBroker(), auth: loadAuthConfig(), tel: loadTelemetry()}
 	// Open the shared chdb session, retrying the intermittent embedded-server "recursive_mutex
 	// lock failed" boot error (a chdb-go contention bug seen under many sequential per-profile
 	// boots). A server that lists but can't open chdb would hang every data route, so in parity

@@ -37,6 +37,8 @@ func otlpRecordCount(body []byte, resKey, scopeKey, recKey string) (int, bool) {
 // zero count and no insert (the deterministic empty-body path). A non-empty batch — the real
 // ingest+insert — is a follow-up.
 func (s *server) v1IngestOTLP(w http.ResponseWriter, r *http.Request, resKey, scopeKey, recKey string) {
+	eventType := map[string]string{"logRecords": "log", "spans": "trace", "metrics": "metric"}[recKey]
+	defer s.tel.span("sobs.ingest.request", map[string]any{"route": r.URL.Path, "event.type": eventType})()
 	body, _ := io.ReadAll(r.Body)
 	if n, ok := otlpRecordCount(body, resKey, scopeKey, recKey); ok && n == 0 {
 		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", 0))
@@ -63,6 +65,9 @@ func (s *server) v1IngestOTLP(w http.ResponseWriter, r *http.Request, resKey, sc
 		writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().Set("error", "write queue is full"))
 		return
 	}
+	// Self-telemetry (no-op unless SOBS_TELEMETRY_ENABLED) — mirrors app.py's per-ingest records.
+	s.tel.recordIngestEvents(count, eventType)
+	s.tel.recordIngestBatchSize(count, eventType)
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", count))
 }
 
@@ -236,6 +241,7 @@ func (s *server) handleV1Errors(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	s.tel.recordIngestEvents(1, "error")
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
 }
 
@@ -351,6 +357,7 @@ func (s *server) handleV1Rum(w http.ResponseWriter, r *http.Request) {
 			return e
 		})
 	}
+	s.tel.recordIngestEvents(len(sessionRows), "rum")
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", len(sessionRows)))
 }
 
