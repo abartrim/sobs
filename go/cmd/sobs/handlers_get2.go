@@ -416,6 +416,9 @@ var rumAssetIDRe = regexp.MustCompile(`^[a-f0-9]{32}$`)
 // 32-char lowercase hex string.
 func (s *server) handleV1RumAssetByID(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
+		if paramMethodGuard(w, r) {
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}

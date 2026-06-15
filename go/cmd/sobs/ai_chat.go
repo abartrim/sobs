@@ -147,6 +147,9 @@ func truthyStr(s string) bool {
 // for a chat, serialized as user/assistant messages interleaved with tool actions.
 func (s *server) handleApiAiHelperChatDetail(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
+		if paramMethodGuard(w, r) {
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}

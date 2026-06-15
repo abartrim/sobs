@@ -152,6 +152,11 @@ func (s *server) findReleaseByID(relID string) (map[string]any, bool) {
 // GET /v1/apps/<app_id> (+ PATCH update, + /releases GET list & POST register) — app.py
 // get_app_registry_entry / update_app_registry_entry / list_app_releases / create_app_release.
 func (s *server) handleV1AppByID(w http.ResponseWriter, r *http.Request) {
+	// /v1/apps/<id> allows GET+PATCH; /v1/apps/<id>/releases allows GET+POST — the allowed set
+	// is per-template, so guard up front to get each path's own 405/Allow on a wrong method.
+	if paramMethodGuard(w, r) {
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodPatch && r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
@@ -287,6 +292,11 @@ func (s *server) patchMetadata(payload, current map[string]any) string {
 // GET /v1/releases/<release_id> (+ /artifacts GET list & POST meta) — app.py get_release /
 // list_release_artifacts / create_release_artifact_meta.
 func (s *server) handleV1ReleaseByID(w http.ResponseWriter, r *http.Request) {
+	// <id> and <id>/artifacts allow GET; <id>/artifacts/meta allows POST — per-template method
+	// sets, so guard up front for each path's own 405/Allow on a wrong method.
+	if paramMethodGuard(w, r) {
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return

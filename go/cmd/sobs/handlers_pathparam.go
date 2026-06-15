@@ -13,6 +13,11 @@ import (
 
 // GET /api/tags/<record_type>/<record_id> — app.py api_get_tags -> _get_record_tags.
 func (s *server) handleApiGetTags(w http.ResponseWriter, r *http.Request) {
+	// Two templates share this sub-router (/<rt>/<rid> GET+POST, /<rt>/<rid>/<tag_key> DELETE);
+	// guard up front so a wrong method on either concrete shape gets the matching template's 405.
+	if paramMethodGuard(w, r) {
+		return
+	}
 	rest := strings.TrimPrefix(r.URL.Path, "/api/tags/")
 	seg := strings.Split(rest, "/")
 	// DELETE /api/tags/<record_type>/<record_id>/<tag_key> — app.py api_delete_tag (soft-delete
@@ -100,6 +105,9 @@ func (s *server) handleApiGetTags(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/traces/span/<span_id> — app.py api_raw_span. 404 when no span (fixture).
 func (s *server) handleApiRawSpan(w http.ResponseWriter, r *http.Request) {
+	if paramMethodGuard(w, r) {
+		return
+	}
 	spanID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/traces/span/"))
 	if spanID == "" {
 		writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().Set("error", "span_id is required"))
@@ -130,6 +138,9 @@ func (s *server) handleApiRawSpan(w http.ResponseWriter, r *http.Request) {
 // GET /api/table-explorer/table/<name> — app.py api_table_explorer_table: query-page guard,
 // allowlist guard (403), then {columns, ddl, sample} for the single table.
 func (s *server) handleApiTableExplorerTable(w http.ResponseWriter, r *http.Request) {
+	if paramMethodGuard(w, r) {
+		return
+	}
 	if !s.queryPageEnabled() {
 		writeJSON(w, http.StatusNotFound,
 			jsonenc.NewObject().Set("ok", false).Set("error", "Table Explorer is unavailable."))

@@ -7,9 +7,16 @@ emits, for every EXACT (non-parameterized) route, the alphabetically-sorted `All
 Werkzeug produces — declared methods plus auto-HEAD (where GET is allowed) plus the
 always-present OPTIONS. route_guard.go turns that table into a registration-time method guard.
 
-Parameterized routes (`has_params`) are skipped: in Go they are served by prefix sub-routers
-that do their own per-subpath method dispatch, so a single path->methods entry cannot describe
-them. The guard leaves those untouched.
+Parameterized routes (`has_params`) cannot be keyed by a single concrete path, so they get a
+separate table (rawParamRoutes): each path TEMPLATE — UNION-ed across every verb that shares it
+— with the same sorted Allow string. route_guard.go compiles those into a segment matcher; the
+Go prefix sub-routers (which already dispatch per-subpath) consult it so a wrong method on a
+matched param sub-path yields Werkzeug's 405/Allow and OPTIONS yields 200/Allow, exactly like
+the exact-route guard. A concrete path matching no template is left to the sub-router's own 404.
+
+`<path:...>` templates are excluded from the table: the only one (/static/<path:filename>) is
+served by Go's dedicated static handlers, not a guarded sub-router, and a multi-segment wildcard
+would break the simple segment-count matcher. Every other template has fixed-arity segments.
 
 Source of truth: migration/manifest/routes.generated.json (the live Werkzeug URL map captured
 by extract_routes_runtime.py). Regenerate after any route change:
@@ -30,6 +37,14 @@ GEN = REPO / "migration" / "manifest" / "routes.generated.json"
 OUT = REPO / "go" / "cmd" / "sobs" / "route_allow_gen.go"
 
 
+def _allow_str(methods: set[str]) -> str:
+    m = set(methods)
+    if "GET" in m:
+        m.add("HEAD")  # Werkzeug auto-provides HEAD wherever GET is allowed
+    m.add("OPTIONS")  # ...and OPTIONS on every rule (provide_automatic_options)
+    return ", ".join(sorted(m))  # Werkzeug sorts the Allow method set
+
+
 def build() -> dict[str, str]:
     routes = json.loads(GEN.read_text())["routes"]
     by_path: dict[str, set[str]] = collections.defaultdict(set)
@@ -37,17 +52,23 @@ def build() -> dict[str, str]:
         if r.get("has_params"):
             continue  # served by a Go prefix sub-router; not an exact-match guard target
         by_path[r["path"]].update(r["methods"])
-    allow: dict[str, str] = {}
-    for path, methods in by_path.items():
-        m = set(methods)
-        if "GET" in m:
-            m.add("HEAD")  # Werkzeug auto-provides HEAD wherever GET is allowed
-        m.add("OPTIONS")  # ...and OPTIONS on every rule (provide_automatic_options)
-        allow[path] = ", ".join(sorted(m))  # Werkzeug sorts the Allow method set
-    return allow
+    return {path: _allow_str(methods) for path, methods in by_path.items()}
 
 
-def render(allow: dict[str, str]) -> str:
+def build_params() -> dict[str, str]:
+    """Map each parameterized path TEMPLATE to its sorted Allow string (verbs UNION-ed)."""
+    routes = json.loads(GEN.read_text())["routes"]
+    by_tmpl: dict[str, set[str]] = collections.defaultdict(set)
+    for r in routes:
+        if not r.get("has_params"):
+            continue
+        if "<path:" in r["path"]:
+            continue  # multi-segment wildcard; served by Go static handlers, not a sub-router
+        by_tmpl[r["path"]].update(r["methods"])
+    return {tmpl: _allow_str(methods) for tmpl, methods in by_tmpl.items()}
+
+
+def render(allow: dict[str, str], params: dict[str, str]) -> str:
     lines = [
         "package main",
         "",
@@ -63,6 +84,17 @@ def render(allow: dict[str, str]) -> str:
         lines.append(f"\t{go_quote(path)}: {go_quote(allow[path])},")
     lines.append("}")
     lines.append("")
+    lines += [
+        "// rawParamRoutes maps each parameterized Werkzeug path TEMPLATE (segments with",
+        "// <name> / <conv:name> placeholders) to the same sorted Allow string, UNION-ed across",
+        "// every verb that shares the template. route_guard.go compiles these into a segment",
+        "// matcher the Go prefix sub-routers consult for their per-subpath 405/OPTIONS handling.",
+        "var rawParamRoutes = map[string]string{",
+    ]
+    for tmpl in sorted(params):
+        lines.append(f"\t{go_quote(tmpl)}: {go_quote(params[tmpl])},")
+    lines.append("}")
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -72,8 +104,9 @@ def go_quote(s: str) -> str:
 
 def main() -> None:
     allow = build()
-    OUT.write_text(render(allow))
-    print(f"wrote {OUT.relative_to(REPO)} with {len(allow)} exact routes")
+    params = build_params()
+    OUT.write_text(render(allow, params))
+    print(f"wrote {OUT.relative_to(REPO)} with {len(allow)} exact routes " f"and {len(params)} param templates")
 
 
 if __name__ == "__main__":

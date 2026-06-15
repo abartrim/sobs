@@ -160,6 +160,9 @@ func (s *server) handleReportsFormSub(w http.ResponseWriter, r *http.Request) {
 		flashRedirect(w, "success", fmt.Sprintf("Report '%s' deleted", cStr(m, "Name")), "/reports")
 		return
 	}
+	if paramMethodGuard(w, r) {
+		return
+	}
 	http.NotFound(w, r)
 }
 
@@ -195,6 +198,9 @@ func deleteFormID(w http.ResponseWriter, r *http.Request, prefix string) (string
 	rest := strings.TrimPrefix(r.URL.Path, prefix)
 	id, ok := strings.CutSuffix(rest, "/delete")
 	if !ok || r.Method != http.MethodPost {
+		if paramMethodGuard(w, r) {
+			return "", false
+		}
 		http.NotFound(w, r)
 		return "", false
 	}
@@ -288,6 +294,9 @@ func splitIDAction(rest string) (id, action string) {
 // the action mutates and flashes. (The /api/.../test action is a separate route.)
 func (s *server) handleNotifChannelsSub(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		if paramMethodGuard(w, r) {
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -342,6 +351,9 @@ func (s *server) toggleNotifChannel(w http.ResponseWriter, id string) {
 // handleNotifRulesSub dispatches POST /settings/notifications/rules/<id>/{toggle,delete}.
 func (s *server) handleNotifRulesSub(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		if paramMethodGuard(w, r) {
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -403,6 +415,10 @@ func (s *server) toggleNotifRule(w http.ResponseWriter, id string) {
 // action is not an app route — it flashes when no GitHub token is configured.
 func (s *server) handleSettingsRepositoriesSub(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		// github-token/validate is a STATIC POST route; the rest are <app_id> param templates.
+		if exactMethodGuard(w, r, r.URL.Path) || paramMethodGuard(w, r) {
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -867,6 +883,11 @@ func (s *server) handleMaskingSqlOutputSave(w http.ResponseWriter, r *http.Reque
 // /dashboards/<id>/... POST form routes (delete / create-chart / chart-delete): all begin
 // with a dashboard lookup, so a missing dashboard flashes "Dashboard not found".
 func (s *server) handleDashboardsFormSub(w http.ResponseWriter, r *http.Request) {
+	// This subtree carries several /dashboards/<id>/... param templates (GET view, POST
+	// delete/charts/clone/edit/charts-<cid>-delete); guard wrong methods on any of them first.
+	if paramMethodGuard(w, r) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return

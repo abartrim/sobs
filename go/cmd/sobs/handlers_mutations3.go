@@ -18,6 +18,9 @@ import (
 // (a JSON list) and 404s when no descriptor has the given id. The fixture has no keys.
 func (s *server) handleMcpKeyByID(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
+		if paramMethodGuard(w, r) {
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -75,7 +78,12 @@ func (s *server) handleReportsSub(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/reports/")
 	if rest == "import" {
 		// app.py api_import_reports: an empty/invalid body fails the export-file schema check.
+		// /api/reports/import is a STATIC route (Werkzeug prefers it over the <report_id> rule),
+		// so a wrong method yields the import route's own Allow, not the param route's.
 		if r.Method != http.MethodPost {
+			if exactMethodGuard(w, r, "/api/reports/import") {
+				return
+			}
 			http.NotFound(w, r)
 			return
 		}
@@ -102,6 +110,9 @@ func (s *server) handleReportsSub(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("deleted", true))
 		return
 	}
+	if paramMethodGuard(w, r) {
+		return
+	}
 	http.NotFound(w, r)
 }
 
@@ -110,6 +121,9 @@ func (s *server) handleAgentRunSub(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/agent/runs/")
 	runID, ok := strings.CutSuffix(rest, "/dismiss")
 	if !ok || r.Method != http.MethodPost {
+		if paramMethodGuard(w, r) {
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -148,6 +162,9 @@ func (s *server) handleChannelSub(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/notifications/channels/")
 	chID, ok := strings.CutSuffix(rest, "/test")
 	if !ok || r.Method != http.MethodPost {
+		if paramMethodGuard(w, r) {
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -187,6 +204,9 @@ func (s *server) handleCveDispositionSub(w http.ResponseWriter, r *http.Request)
 	rest := strings.TrimPrefix(r.URL.Path, "/api/enrichment/cve/findings/")
 	osvID, ok := strings.CutSuffix(rest, "/disposition")
 	if !ok || r.Method != http.MethodPost {
+		if paramMethodGuard(w, r) {
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -250,6 +270,9 @@ func (s *server) handleDashboardSub(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.exportChart(w, seg[0], seg[2])
+		return
+	}
+	if paramMethodGuard(w, r) {
 		return
 	}
 	http.NotFound(w, r)
@@ -358,6 +381,9 @@ func (s *server) handleErrorSub(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/errors/")
 	if _, ok := strings.CutSuffix(rest, "/resolve"); ok && r.Method == http.MethodPost {
 		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
+		return
+	}
+	if paramMethodGuard(w, r) {
 		return
 	}
 	http.NotFound(w, r)
