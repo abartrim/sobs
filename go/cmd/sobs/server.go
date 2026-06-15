@@ -18,17 +18,18 @@ import (
 // this middleware byte-exact is a Phase-1/2 prerequisite: every response carries these
 // headers, in this order, so parity_check.py compares them on every route.
 type server struct {
-	cfg  config
-	mux  *http.ServeMux
-	db   store.DB
-	sse  *sseBroker
-	auth authConfig
-	wq   *writeQueue
-	tel  *telemetry
+	cfg       config
+	mux       *http.ServeMux
+	db        store.DB
+	sse       *sseBroker
+	auth      authConfig
+	wq        *writeQueue
+	tel       *telemetry
+	rumClient rumClientConfig
 }
 
 func newServer(cfg config) *server {
-	s := &server{cfg: cfg, mux: http.NewServeMux(), sse: newSSEBroker(), auth: loadAuthConfig(), tel: loadTelemetry()}
+	s := &server{cfg: cfg, mux: http.NewServeMux(), sse: newSSEBroker(), auth: loadAuthConfig(), tel: loadTelemetry(), rumClient: loadRumClientConfig()}
 	// Open the shared chdb session, retrying the intermittent embedded-server "recursive_mutex
 	// lock failed" boot error (a chdb-go contention bug seen under many sequential per-profile
 	// boots). A server that lists but can't open chdb would hang every data route, so in parity

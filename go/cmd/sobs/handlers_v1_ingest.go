@@ -284,6 +284,11 @@ func (s *server) handleV1Rum(w http.ResponseWriter, r *http.Request) {
 	default: // null/absent -> {} -> [{}]
 		events = []any{map[string]any{}}
 	}
+	// Optional origin-bound RUM client auth (no-op unless SOBS_RUM_CLIENT_AUTH_MODE is configured).
+	if ok, status, msg := s.verifyRumClientAuth(events, r); !ok {
+		writeJSON(w, status, jsonenc.NewObject().Set("error", msg))
+		return
+	}
 	clientIP := r.RemoteAddr
 	if i := strings.LastIndexByte(clientIP, ':'); i >= 0 {
 		clientIP = clientIP[:i]
@@ -361,13 +366,51 @@ func (s *server) handleV1Rum(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", len(sessionRows)))
 }
 
-// POST /v1/rum/client-token — app.py issue_rum_client_token: RUM client auth is disabled on
-// the fixture (RUM_CLIENT_AUTH_MODE unset), so it reports the disabled state.
+// POST /v1/rum/client-token — app.py issue_rum_client_token: when RUM_CLIENT_AUTH_MODE is unset
+// (the fixture default) it reports the disabled state; when configured it mints an origin-bound,
+// HMAC-signed, TTL'd client token.
 func (s *server) handleV1RumClientToken(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
+	mode := s.rumClient.mode
+	switch mode {
+	case "", "none", "off", "disabled":
+		writeJSON(w, http.StatusOK, jsonenc.NewObject().
+			Set("enabled", false).Set("error", "RUM client auth is disabled").Set("token", ""))
+		return
+	case "origin", "origin-session":
+	default:
+		writeJSON(w, http.StatusInternalServerError, jsonenc.NewObject().Set("error", "Invalid SOBS_RUM_CLIENT_AUTH_MODE"))
+		return
+	}
+	if s.rumClient.signingKey == "" {
+		writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().Set("error", "RUM client signing key is not configured"))
+		return
+	}
+
+	m := bodyMap(r)
+	appName := strings.TrimSpace(orDefault(toStr(m["appName"]), toStr(m["app"])))
+	origin := normalizeOrigin(toStr(m["origin"]))
+	if origin == "" {
+		origin = requestOrigin(r)
+	}
+	if origin == "" {
+		writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().Set("error", "origin is required"))
+		return
+	}
+	ttlSec := s.rumClient.ttlSec
+	if v, ok := m["ttlSec"]; ok {
+		if f, isNum := v.(float64); isNum {
+			ttlSec = int(f)
+		}
+	}
+	ttlSec = clampInt(ttlSec, 30, 24*60*60)
+
+	now := nowUTC().Unix()
+	claims := rumClaims{Iss: "sobs-rum", App: appName, Origin: origin, Iat: now, Exp: now + int64(ttlSec), Jti: rumJTI()}
+	token := s.rumClientTokenEncode(claims)
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().
-		Set("enabled", false).Set("error", "RUM client auth is disabled").Set("token", ""))
+		Set("enabled", true).Set("token", token).Set("expiresAt", claims.Exp).Set("origin", origin).Set("app", appName))
 }
