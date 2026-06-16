@@ -56,6 +56,27 @@ func (c *attrKeyCache) prime(s *server) {
 	c.loaded = true
 }
 
+// allKeysUnion mirrors the union in _tag_rule_attribute_key_suggestions (app.py:12591-12594):
+// prime the cache once, then collect the distinct attr keys across every record type. Order is
+// unspecified (the caller re-sorts), so a plain set-union over the per-type caches is faithful.
+func (c *attrKeyCache) allKeysUnion(s *server) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.prime(s)
+	seen := map[string]struct{}{}
+	out := []string{}
+	for _, rt := range attrKeyRecordTypes {
+		for k := range c.byType[rt] {
+			if _, ok := seen[k]; ok {
+				continue
+			}
+			seen[k] = struct{}{}
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
 // rememberAttrKeys mirrors app.py _remember_attr_keys: discover the new keys across the given attr
 // maps for record_type, persist them to sobs_log_attr_keys, and update the in-memory cache. Called
 // from inside the ingest write op (the insert is via insertRowsNormalized, like Python).

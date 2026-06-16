@@ -330,6 +330,7 @@ def _read_golden(route_id: str) -> dict | None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", help="comma-separated route id(s) to check; default = all manifest routes")
+    ap.add_argument("--profile", help="restrict the replay to a single profile (default: all profiles)")
     ap.add_argument("--bisect-body", action="store_true")
     ap.add_argument("--update-ledger", action="store_true")
     ap.add_argument("--max-diffs", type=int, default=10)
@@ -362,6 +363,8 @@ def main() -> int:
         if rid in excluded:
             return False
         if only_ids is not None and rid not in only_ids:
+            return False
+        if args.profile and PROF.route_profile(route) != args.profile:
             return False
         return True
 
@@ -415,7 +418,9 @@ def main() -> int:
             time.sleep(1.0)
 
     _write_results(results, routes, excluded)
-    if args.update_ledger or not args.only:
+    # Only rewrite the ledger on a full run (no scope flags) or when explicitly asked; a scoped
+    # --only/--profile run would otherwise mark every non-replayed route MISSING in LEDGER.md.
+    if args.update_ledger or (not args.only and not args.profile):
         _write_ledger(results, routes, excluded)
 
     print(

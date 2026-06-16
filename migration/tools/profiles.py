@@ -136,6 +136,12 @@ PROFILES: dict[str, dict[str, str]] = {
     # metricsauto: a constant recent log_volume series so auto_metrics_rules' threshold scan
     # generates fixed candidates (exact quantiles of a constant). No env overlay — just the seed.
     "metricsauto": {},
+    # tagsuggest: seeded otel_logs/otel_traces/hyperdx_sessions + sobs_record_tags + sobs_log_attr_keys
+    # so /api/settings/tags/condition-suggestions returns non-empty ranked suggestions for every
+    # scope/target/field branch. No env overlay — just the (isolated) seed. All seed rows use the
+    # fixed determinism-window timestamp and the builders' ORDER BY ... , <value> tiebreaks make the
+    # ranked output fully deterministic.
+    "tagsuggest": {},
     # onboard: a seeded app+token so onboarding create-issues runs its realtime path (rotate CI key)
     # and its github-issue path (open-issue search 404s -> empty -> create via the canned POST).
     "onboard": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
@@ -261,6 +267,7 @@ SEEDED_PROFILES = {
     "cveosv",
     "tagauto",
     "metricsauto",
+    "tagsuggest",
     "cvebackfill",
     "onboard",
     "issuesraise",

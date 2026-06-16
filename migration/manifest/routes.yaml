@@ -579,6 +579,144 @@ routes:
   - GET
   request:
     method: GET
+# tagsuggest profile: seeded otel_logs/otel_traces/hyperdx_sessions + sobs_record_tags +
+# sobs_log_attr_keys (seed_tagsuggest). The base route above hits the empty-fixture [] branch;
+# these exercise every non-empty scope/target/field branch of api_tag_rule_condition_suggestions
+# (handlers_misc.go handleApiTagRuleConditionSuggestions -> tag_condition_suggestions.go builders).
+# Each result is ranked count() DESC then by the grouped value, so the ordering is deterministic.
+# --- scope=tag_rule, target=attr_key (attr-key cache union over log/span/resource/scope) ---
+- id: get__api_tagsug_attrkey_all
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: tag_rule, target: attr_key}
+- id: get__api_tagsug_attrkey_http
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: tag_rule, target: attr_key, q: http}
+# --- scope=tag_rule, target=value (per-field distinct-value lookups) ---
+- id: get__api_tagsug_value_service_name
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: tag_rule, field: service_name}
+- id: get__api_tagsug_value_service_name_q
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: tag_rule, field: service_name, q: api}
+- id: get__api_tagsug_value_severity
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: tag_rule, field: severity}
+- id: get__api_tagsug_value_span_name
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: tag_rule, field: span_name}
+- id: get__api_tagsug_value_event_type
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: tag_rule, field: event_type}
+- id: get__api_tagsug_value_body_q
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: tag_rule, field: body, q: payment}
+- id: get__api_tagsug_value_attribute
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: tag_rule, field: attribute, attr_key: http.method}
+# attribute with no attr_key -> the empty-key guard returns [] (still a non-base branch).
+- id: get__api_tagsug_value_attribute_nokey
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: tag_rule, field: attribute}
+# --- scope=notification, target=service (v_derived_signals_1m service names) ---
+- id: get__api_tagsug_service
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: notification, target: service}
+- id: get__api_tagsug_service_source
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: notification, target: service, source: traces}
+# --- scope=notification, target=tag_key / tag_value (sobs_record_tags) ---
+- id: get__api_tagsug_tag_key
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: notification, target: tag_key}
+- id: get__api_tagsug_tag_key_rt
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: notification, target: tag_key, record_type: log}
+- id: get__api_tagsug_tag_value
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: notification, target: tag_value, tag_key: env}
+- id: get__api_tagsug_tag_value_rt
+  path: /api/settings/tags/condition-suggestions
+  profile: tagsuggest
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {scope: notification, target: tag_value, tag_key: env, record_type: trace}
 - id: get__api_work_items
   path: /api/work-items
   methods:

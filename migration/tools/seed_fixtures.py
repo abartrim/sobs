@@ -510,6 +510,92 @@ def seed_metricsauto(db) -> None:
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
 
 
+def seed_tagsuggest(db) -> None:
+    # Seed every table the tag-rule condition-suggestion builders read so each scope/target/field
+    # branch of /api/settings/tags/condition-suggestions returns a non-empty, ranked result. The
+    # base fixture has NO otel_logs/otel_traces/sobs_record_tags/sobs_log_attr_keys rows and its
+    # hyperdx_sessions rows carry EventName='' (so they neither feed event_type nor v_derived
+    # rum_vitals), so this profile's rows are the only data the builders see. Every row uses the
+    # fixed determinism-window timestamp (_TS); the builders apply no time filter, and their
+    # ORDER BY count() DESC, <grouped value> gives a total order (the tiebreak column is the
+    # grouped value, hence distinct per group), so capture and replay are byte-identical.
+    _insert(
+        db,
+        "otel_logs",
+        [
+            {"Timestamp": _TS, "ServiceName": "checkout-api", "SeverityText": "ERROR",
+             "Body": "payment declined", "EventName": "exception",
+             "LogAttributes": {"http.method": "POST", "http.route": "/checkout"}},
+            {"Timestamp": _TS, "ServiceName": "checkout-api", "SeverityText": "ERROR",
+             "Body": "payment declined", "EventName": "exception",
+             "LogAttributes": {"http.method": "POST", "http.route": "/checkout"}},
+            {"Timestamp": _TS, "ServiceName": "checkout-api", "SeverityText": "INFO",
+             "Body": "request handled", "EventName": "request",
+             "LogAttributes": {"http.method": "GET", "http.route": "/health"}},
+            {"Timestamp": _TS, "ServiceName": "payments-api", "SeverityText": "WARN",
+             "Body": "retry scheduled", "EventName": "request",
+             "LogAttributes": {"http.method": "PUT", "http.route": "/pay"}},
+        ],
+    )
+    _insert(
+        db,
+        "otel_traces",
+        [
+            {"Timestamp": _TS, "ServiceName": "checkout-api", "SpanName": "POST /checkout",
+             "SpanAttributes": {"http.method": "POST", "rpc.service": "CheckoutService"}},
+            {"Timestamp": _TS, "ServiceName": "frontend-web", "SpanName": "GET /home",
+             "SpanAttributes": {"http.method": "GET"}},
+            {"Timestamp": _TS, "ServiceName": "frontend-web", "SpanName": "GET /home",
+             "SpanAttributes": {"http.method": "GET"}},
+        ],
+    )
+    # A hyperdx_sessions row with a real EventName so the event_type union has a session source if
+    # ever filtered for it (kept distinct from base 'web'/EventName='' rows).
+    _insert(
+        db,
+        "hyperdx_sessions",
+        [
+            {"Timestamp": _TS, "ServiceName": "frontend-web", "EventName": "page_view", "Body": ""},
+        ],
+    )
+    # sobs_record_tags is ReplacingMergeTree ORDER BY (RecordType, RecordId, TagKey): each row needs
+    # a distinct RecordId so FINAL keeps all of them (two values under one TagKey must not collapse).
+    _insert(
+        db,
+        "sobs_record_tags",
+        [
+            {"RecordType": "log", "RecordId": "rec-tagsuggest-1", "TagKey": "env",
+             "TagValue": "production", "IsDeleted": 0, "Version": 1704164644000},
+            {"RecordType": "log", "RecordId": "rec-tagsuggest-2", "TagKey": "env",
+             "TagValue": "staging", "IsDeleted": 0, "Version": 1704164644000},
+            {"RecordType": "log", "RecordId": "rec-tagsuggest-3", "TagKey": "team",
+             "TagValue": "checkout", "IsDeleted": 0, "Version": 1704164644000},
+            {"RecordType": "trace", "RecordId": "rec-tagsuggest-4", "TagKey": "env",
+             "TagValue": "production", "IsDeleted": 0, "Version": 1704164644000},
+        ],
+    )
+    # sobs_log_attr_keys feeds _tag_rule_attribute_key_suggestions (the cache primes from this
+    # table). Keys span the four record types the union covers (log/span/resource/scope).
+    _insert(
+        db,
+        "sobs_log_attr_keys",
+        [
+            {"RecordType": "log", "AttrKey": "http.method", "IsDeleted": 0, "Version": 1704164644000},
+            {"RecordType": "log", "AttrKey": "http.route", "IsDeleted": 0, "Version": 1704164644001},
+            {"RecordType": "log", "AttrKey": "db.system", "IsDeleted": 0, "Version": 1704164644002},
+            {"RecordType": "span", "AttrKey": "http.method", "IsDeleted": 0, "Version": 1704164644003},
+            {"RecordType": "span", "AttrKey": "rpc.service", "IsDeleted": 0, "Version": 1704164644004},
+            {"RecordType": "resource", "AttrKey": "service.version", "IsDeleted": 0, "Version": 1704164644005},
+            {"RecordType": "scope", "AttrKey": "otel.scope.name", "IsDeleted": 0, "Version": 1704164644006},
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+    db.execute("OPTIMIZE TABLE otel_traces FINAL")
+    db.execute("OPTIMIZE TABLE hyperdx_sessions FINAL")
+    db.execute("OPTIMIZE TABLE sobs_record_tags FINAL")
+    db.execute("OPTIMIZE TABLE sobs_log_attr_keys FINAL")
+
+
 def seed_issues_raise(db) -> None:
     # A global github repo + token so raise_issue_from_user_observation's agent flow resolves a
     # github target and creates an issue (via the canned POST). The AI endpoints come from the
@@ -1047,6 +1133,7 @@ PROFILE_SEEDS = {
     "cveosv": seed_cve_osv,  # telemetry.sdk row -> non-empty inventory -> OSV scan finds a vuln
     "tagauto": seed_tagauto,  # 30 recent prod-service logs -> auto_tag_rules in-window candidate
     "metricsauto": seed_metricsauto,  # constant log_volume series -> auto_metrics_rules candidates
+    "tagsuggest": seed_tagsuggest,  # otel/tags/attr-key rows -> condition-suggestions non-empty branches
     "cvebackfill": seed_repo_app,  # app+release+github token -> cve github backfill attempts a release
     "onboard": seed_repo_app,  # app+token -> onboarding create-issues realtime + github-issue paths
     "issuesraise": seed_issues_raise,  # global github repo+token -> issues/raise agent flow creates an issue

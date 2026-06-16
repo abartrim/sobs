@@ -344,25 +344,64 @@ func (s *server) handleApiLogsFieldHints(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, obj)
 }
 
-// GET /api/settings/tags/condition-suggestions — app.py api_tag_rule_condition_suggestions.
-// Suggestions come from queries over empty fixture tables -> always [] here; the request
-// args (scope/field/operator/target) are echoed back.
+// GET /api/settings/tags/condition-suggestions — app.py api_tag_rule_condition_suggestions
+// (app.py:23305). Dispatches by scope/target to one of five ranked positionCaseInsensitive
+// lookups (see tag_condition_suggestions.go); the request args (scope/field/operator/target)
+// are echoed back. Empty on the base fixture; exercised by the seeded `tagsuggest` profile.
 func (s *server) handleApiTagRuleConditionSuggestions(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	get := func(k, def string) string {
+	// lowerArg mirrors `(request.args.get(k) or def).strip().lower()`; trimArg mirrors the
+	// args that app.py only strips (q/attr_key/signal/tag_key are case-preserving).
+	lowerArg := func(k, def string) string {
 		v := strings.ToLower(strings.TrimSpace(q.Get(k)))
 		if v == "" {
 			return def
 		}
 		return v
 	}
+	trimArg := func(k string) string { return strings.TrimSpace(q.Get(k)) }
+
+	scope := lowerArg("scope", "tag_rule")
+	field := lowerArg("field", "")
+	operator := lowerArg("operator", "eq")
+	queryText := trimArg("q")
+	attrKey := trimArg("attr_key")
+	source := lowerArg("source", "")
+	signal := trimArg("signal")
+	recordType := lowerArg("record_type", "all")
+	tagKey := trimArg("tag_key")
+	target := lowerArg("target", "value")
+	limit := queryIntClamp(r, "limit", 8, 3, 20)
+
+	var suggestions []any
+	if scope == "tag_rule" {
+		if target == "attr_key" {
+			suggestions = s.tagRuleAttributeKeySuggestions(queryText, limit)
+		} else {
+			suggestions = s.tagRuleValueSuggestions(field, operator, queryText, attrKey, limit)
+		}
+	} else {
+		switch target {
+		case "service":
+			suggestions = s.notificationConditionServiceSuggestions(queryText, limit, source, signal)
+		case "tag_key":
+			suggestions = s.recordTagKeySuggestions(queryText, limit, recordType)
+		case "tag_value":
+			suggestions = s.recordTagValueSuggestions(tagKey, queryText, limit, recordType)
+		default:
+			suggestions = []any{}
+		}
+	}
+	if suggestions == nil {
+		suggestions = []any{}
+	}
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().
 		Set("ok", true).
-		Set("scope", get("scope", "tag_rule")).
-		Set("field", get("field", "")).
-		Set("operator", get("operator", "eq")).
-		Set("target", get("target", "value")).
-		Set("suggestions", []any{}))
+		Set("scope", scope).
+		Set("field", field).
+		Set("operator", operator).
+		Set("target", target).
+		Set("suggestions", suggestions))
 }
 
 // GET /api/ai/conversation — app.py get_ai_conversation: requires ts+service (400 HTML
