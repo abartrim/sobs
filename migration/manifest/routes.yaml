@@ -1436,6 +1436,21 @@ routes:
   request:
     method: POST
     json: {}
+# notifagent profile: AI configured (agent mock) + a seeded tag rule, recent auto tags, and an
+# analyze-only agent rule. check_notifications' automatic agent branch collects the tag event,
+# matches the agent rule, and runs the full agent flow (guard -> analyze -> completed run), returned
+# under agent_runs. run_id is a fresh uuid (masked); the agent result + rule_id are byte-compared.
+- id: post__api_notifications_check__agent
+  path: /api/notifications/check
+  methods:
+  - POST
+  profile: notifagent
+  request:
+    method: POST
+    json: {}
+  mask:
+  - '"run_id": ?"[^"]*"'
+  mask_reason: run_id is a server-generated uuid4; the agent flow result (status/guard_decision/analysis/suggestion) and rule_id are byte-compared.
 - id: post__api_mcp_enabled
   path: /api/mcp/enabled
   methods:

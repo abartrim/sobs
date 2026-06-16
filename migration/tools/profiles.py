@@ -167,6 +167,18 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # notifagent: check_notifications' AUTOMATIC agent branch. AI configured (same agent + guard mock
+    # paths as agenttrigger) + a seeded tag rule, recent auto tags, and an analyze-only agent rule
+    # whose tag-rule trigger fires from those tags. POST /api/notifications/check then runs the agent
+    # flow (guard -> analyze -> completed run) and returns it under agent_runs. No notification rules
+    # seeded, so the rule loop stays empty and the (masked) run_id uuid sequence matches.
+    "notifagent": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # issuesraise: raise_issue_from_user_observation runs the agent flow with a github_issue +
     # dlp_check action. AI endpoints = the agent mock (guard + analyze canned); a seeded global
     # github repo+token + the canned POST /issues let the flow create a fresh issue (search 404s
@@ -271,6 +283,7 @@ SEEDED_PROFILES = {
     "notifgen",
     "agenttrigger",
     "issuereuse",
+    "notifagent",
     "dmbackup",
     "k8s",
     "repoapp",

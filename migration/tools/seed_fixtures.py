@@ -720,6 +720,71 @@ def seed_issues_reuse(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_github_work_items FINAL")
 
 
+def seed_notif_agent(db) -> None:
+    # Exercise the AUTOMATIC agent-rule trigger branch of check_notifications (the path that the
+    # base/notifcheck profiles never reach because AI is off there). Three isolated seeds:
+    #   1. A tag rule whose (tag_key, tag_value) = ("env", "production").
+    #   2. Recent auto-applied record tags matching it, so _collect_tag_rule_agent_events emits a
+    #      "warning" event keyed by the tag rule's id. The tags are versioned at the real wall-clock
+    #      now (NOT the frozen 2024 epoch) so they land inside the 5-minute lookback window for BOTH
+    #      the Python capture and the Go replay (each re-seeds immediately before it runs); the count
+    #      itself only feeds the (un-captured) trigger context, so the seeded value is irrelevant to
+    #      the golden.
+    #   3. An enabled, analyze-only agent rule with trigger_type=tag_rule pointing at that tag rule.
+    # With AI configured (profile env -> agent + guard mock endpoints) the branch runs the full agent
+    # flow (guard -> analyze LLM -> completed run) and returns it under agent_runs. No notification
+    # rules are seeded, so the rule-evaluation loop fires nothing and consumes no uuid before the
+    # agent run_id — keeping the (masked) uuid sequence identical to the manual agenttrigger path.
+    _insert(
+        db,
+        "sobs_tag_rules",
+        [
+            {
+                "Id": "ab000000000000000000000000000001",
+                "Name": "Prod Env Tag",
+                "RecordTypes": "",
+                "MatchField": "",
+                "MatchOperator": "",
+                "MatchValue": "",
+                "MatchAttrKey": "",
+                "TagKey": "env",
+                "TagValue": "production",
+                "ConditionsJson": "",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    # Recent auto tags (real now() so they're inside the 5-min Version window); count is uncaptured.
+    db.execute(
+        "INSERT INTO sobs_record_tags (RecordType, RecordId, TagKey, TagValue, IsAuto, IsDeleted, Version) "
+        "SELECT 'log', concat('rec-', toString(number)), 'env', 'production', 1, 0, toUnixTimestamp64Milli(now64(3)) "
+        "FROM numbers(7)"
+    )
+    _insert(
+        db,
+        "sobs_agent_rules",
+        [
+            {
+                "Id": "e2000000000000000000000000000001",
+                "Name": "Parity Tag Agent Rule",
+                "Description": "Analyze-only agent rule auto-triggered by a tag-rule event.",
+                "TriggerType": "tag_rule",
+                "TriggerRefId": "ab000000000000000000000000000001",
+                "TriggerState": "any",
+                "Actions": "analyze",
+                "RateLimitMinutes": 60,
+                "IsEnabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_tag_rules FINAL")
+    db.execute("OPTIMIZE TABLE sobs_record_tags FINAL")
+    db.execute("OPTIMIZE TABLE sobs_agent_rules FINAL")
+
+
 def seed_notif(db) -> None:
     # Two channels + two rules, each on its OWN id so toggle/delete don't collide on the
     # ReplacingMergeTree version (both actions re-insert at Version 1704164645000). Seed Version
@@ -1173,6 +1238,7 @@ PROFILE_SEEDS = {
     "notifgen": seed_notif,  # channels+rules; auto-generate create inserts new rules (isolated)
     "agenttrigger": seed_agent_rule,  # analyze-only rule; trigger_agent_run runs the agent flow
     "dmprune": seed_dm_prune,  # retention-eligible rows -> prune's DELETE window runs on real data
+    "notifagent": seed_notif_agent,  # tag rule + recent auto tags + agent rule; check_notifications auto-triggers the agent flow
     "dmbackup": seed_dm_backup,
     "k8s": seed_k8s,  # backup_enabled=1; backup/run + restore reach their enabled branch
     "repoapp": seed_repo_app,  # registered app + release + github token; repositories-sub actions

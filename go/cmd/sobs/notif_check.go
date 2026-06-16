@@ -402,8 +402,9 @@ func (s *server) checkNotificationRule(rule notifRule, channelsByID map[string]n
 }
 
 // POST /api/notifications/check — app.py check_notifications: evaluate every notification rule and
-// fire any that match. (The agent-rule trigger branch only runs when AI is configured — off on the
-// fixture — so agent_runs stays empty.)
+// fire any that match, then evaluate automatic agent-rule triggers from anomaly/tag events. The
+// agent branch (evaluateAgentRuleTriggers) only does work when AI is configured — off on the fixture
+// — so agent_runs is empty there, identical to the oracle.
 func (s *server) handleApiNotificationsCheck(w http.ResponseWriter, r *http.Request) {
 	channelsByID := s.loadNotificationChannelsByID()
 	results := []any{}
@@ -415,7 +416,8 @@ func (s *server) handleApiNotificationsCheck(w http.ResponseWriter, r *http.Requ
 			fired++
 		}
 	}
+	agentRuns := s.evaluateAgentRuleTriggers()
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().
 		Set("ok", true).Set("evaluated", len(results)).Set("fired", fired).
-		Set("results", results).Set("agent_runs", []any{}))
+		Set("results", results).Set("agent_runs", agentRuns))
 }
