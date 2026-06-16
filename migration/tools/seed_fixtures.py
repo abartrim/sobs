@@ -362,6 +362,29 @@ def seed_k8s(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_app_settings FINAL")
 
 
+# Far older than now() - INTERVAL <any period>: chDB evaluates now() against the REAL wall clock
+# (not the frozen 2024 epoch), so a fixed 2020 timestamp is retention-eligible for any prune window
+# the route is exercised with — every seeded row is deleted on BOTH the Python capture and the Go
+# replay, so the prune's clean success message is byte-identical regardless of when the harness runs.
+_DM_PRUNE_OLD_TS = "2020-01-01 00:00:00.000000"
+
+
+def seed_dm_prune(db) -> None:
+    # Retention-eligible rows in every _DM_TTL_TABLES / _DM_METRIC_TABLES table so POST
+    # /api/data-management/prune (custom period) runs its real ALTER … DELETE WHERE … window +
+    # OPTIMIZE … FINAL pass against POPULATED tables — the gap the prune port closes (the empty
+    # base fixture deletes nothing, making the DELETE branch parity-invisible). The metric tables'
+    # TimeUnixMs (DateTime) derives from the inserted TimeUnix via its column DEFAULT, so the
+    # _get_dm_column_type probe sees "datetime" and the plain (non-ms) DELETE primary applies.
+    for table in ("otel_logs", "hyperdx_sessions"):
+        _insert(db, table, [{"Timestamp": _DM_PRUNE_OLD_TS, "ServiceName": "dmprune-old", "Body": "old"} for _ in range(5)])
+    _insert(db, "otel_traces", [{"Timestamp": _DM_PRUNE_OLD_TS, "ServiceName": "dmprune-old", "SpanName": "old"} for _ in range(5)])
+    for table in ("otel_metrics_gauge", "otel_metrics_sum", "otel_metrics_histogram"):
+        _insert(db, table, [{"TimeUnix": _DM_PRUNE_OLD_TS, "ServiceName": "dmprune-old", "MetricName": "old"} for _ in range(5)])
+    for table in ("otel_logs", "otel_traces", "hyperdx_sessions", "otel_metrics_gauge", "otel_metrics_sum", "otel_metrics_histogram"):
+        db.execute(f"OPTIMIZE TABLE {table} FINAL")
+
+
 def seed_dm_backup(db) -> None:
     # Enable the data-management backup feature so backup/run + restore reach their real work.
     # No S3 bucket is configured, so both short-circuit to a deterministic message (the actual
@@ -1017,6 +1040,7 @@ PROFILE_SEEDS = {
     "notifcheck": seed_notif,  # same rows; isolated so check doesn't see toggle/delete mutations
     "notifgen": seed_notif,  # channels+rules; auto-generate create inserts new rules (isolated)
     "agenttrigger": seed_agent_rule,  # analyze-only rule; trigger_agent_run runs the agent flow
+    "dmprune": seed_dm_prune,  # retention-eligible rows -> prune's DELETE window runs on real data
     "dmbackup": seed_dm_backup,
     "k8s": seed_k8s,  # backup_enabled=1; backup/run + restore reach their enabled branch
     "repoapp": seed_repo_app,  # registered app + release + github token; repositories-sub actions

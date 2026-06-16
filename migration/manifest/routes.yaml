@@ -1300,6 +1300,19 @@ routes:
   request:
     method: POST
     json: {}
+# Seeded prune: the dmprune profile pre-loads retention-eligible rows into every managed table, so
+# the custom-period branch runs its real ALTER … DELETE + OPTIMIZE … FINAL pass on populated data
+# and the custom-period success message is diffed byte-for-byte against the frozen Python oracle.
+- id: post__api_data_management_prune__seeded
+  path: /api/data-management/prune
+  methods:
+  - POST
+  profile: dmprune
+  request:
+    method: POST
+    json:
+      prune_period_value: 30
+      prune_period_unit: days
 - id: post__api_reports
   path: /api/reports
   methods:

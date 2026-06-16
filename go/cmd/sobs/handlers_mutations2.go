@@ -432,13 +432,7 @@ func (s *server) handleApiSettingsMaskingPreview(w http.ResponseWriter, r *http.
 	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("masked", masked))
 }
 
-// POST /api/data-management/prune — app.py prunes the retention-eligible tables; on the
-// fixture (all rows within the frozen retention window) nothing is deleted and it reports the
-// fixed six-table summary.
-func (s *server) handleApiDataManagementPrune(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, jsonenc.NewObject().
-		Set("message", "Prune completed successfully (6 tables processed)").Set("ok", true))
-}
+// handleApiDataManagementPrune is defined in dm_prune.go.
 
 // handleApiNotificationsCheck is defined in notif_check.go.
 

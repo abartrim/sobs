@@ -104,6 +104,11 @@ PROFILES: dict[str, dict[str, str]] = {
     # notifgen: seeded channels+rules so auto-generate *create* runs its insert branch (derives a
     # notification rule per uncovered anomaly rule); isolated so the new rows don't ripple.
     "notifgen": {},
+    # dmprune: retention-eligible (old) rows seeded into every data-management-managed table so
+    # POST /api/data-management/prune with a custom period runs its real ALTER … DELETE window +
+    # OPTIMIZE … FINAL pass against POPULATED tables (the empty base fixture deletes nothing). No
+    # env overlay — just the (isolated) seed; the DELETE must never ripple into base readers.
+    "dmprune": {},
     # dmbackup: data_management.backup_enabled=1 so backup/run + restore reach their enabled branch
     # (no S3 configured -> deterministic "S3 bucket is not configured" / "backup_name is required").
     "dmbackup": {},
@@ -244,6 +249,7 @@ PROFILES: dict[str, dict[str, str]] = {
 # `seed_fixtures.py --only-profile <name>`). Isolated to the profile — never seeded into base.
 SEEDED_PROFILES = {
     "agentrun",
+    "dmprune",
     "notif",
     "notifcheck",
     "notifgen",
