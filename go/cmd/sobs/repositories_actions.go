@@ -1,10 +1,10 @@
 package main
 
 import (
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -15,7 +15,7 @@ const (
 	ciPushDefaultTTLDays = 30
 	ciPushMinTTLDays     = 1
 	ciPushMaxTTLDays     = 365
-	ciPushHashPrefix     = "sha256:v1:" // self-consistent (Go-only after cutover); never in a response
+	ciPushHashPrefix     = "scrypt:v1:" // matches app.py _CI_PUSH_HASH_PREFIX (keyed scrypt fingerprint)
 )
 
 // normalizeTTLDays mirrors _normalize_ttl_days.
@@ -38,16 +38,31 @@ func generateCiPushAPIKey() string {
 	return "sobs_ci_" + base64.RawURLEncoding.EncodeToString(randBytes(24))
 }
 
-// hashAPIKey returns a self-consistent keyed fingerprint. app.py uses scrypt; that hash is stored
-// in ai-settings and NEVER returned, so a stdlib sha256 keyed by SECRET_KEY is parity-equivalent
-// and keeps the dependency surface to stdlib (no scrypt).
+// ciPushHashSalt mirrors app.py _ci_push_hash_key: a per-installation 32-byte salt derived from
+// SOBS_SECRET_KEY via personalized BLAKE2b (person="sobs-ci-hash-v1"). The secret defaults to
+// "sobs-dev-secret-key" only when the env var is ABSENT — matching os.environ.get's default, which
+// honors an explicitly-empty value rather than substituting it (so LookupEnv, not aiActionTokenSecret
+// which trims+defaults on empty).
+func ciPushHashSalt() []byte {
+	secret, ok := os.LookupEnv("SOBS_SECRET_KEY")
+	if !ok {
+		secret = "sobs-dev-secret-key"
+	}
+	return blake2bPersonalSum([]byte(secret), []byte("sobs-ci-hash-v1"), 32)
+}
+
+// hashAPIKey mirrors app.py _hash_api_key: a keyed, memory-hard fingerprint for CI push API keys —
+// scrypt(key, salt=ciPushHashSalt, n=1024, r=8, p=1, dklen=32) as hex, prefixed "scrypt:v1:". It is
+// byte-exact with Python (reusing mcp_scrypt.go's RFC 7914 scrypt core), so a per-app key rotated
+// under either runtime validates under the other. The hash is stored in ai-settings and never
+// returned in a response.
 func hashAPIKey(value string) string {
 	raw := strings.TrimSpace(value)
 	if raw == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(aiActionTokenSecret() + ":" + raw))
-	return ciPushHashPrefix + hex.EncodeToString(sum[:])
+	digest := scryptKey([]byte(raw), ciPushHashSalt(), 1024, 8, 1, 32)
+	return ciPushHashPrefix + hex.EncodeToString(digest)
 }
 
 // ciPushExpiryISOFromDays mirrors _ci_push_expiry_iso_from_days (now + ttl, clamped to 23:59:59).

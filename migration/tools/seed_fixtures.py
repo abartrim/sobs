@@ -627,6 +627,75 @@ def seed_mcp_auth(db) -> None:
     _app._set_app_setting(db, "mcp.api_keys", _json.dumps([descriptor], ensure_ascii=False))
 
 
+CI_AUTH_APP_ID = "c1c1000000000000000000000000ab01"
+CI_AUTH_REL_ID = "c1c1000000000000000000000000cd02"
+
+
+def seed_ci_key(db) -> None:
+    # A registered app + release carrying a MANAGED per-app CI-push key, so the managed-key path of
+    # require_api_key can be exercised with the static SOBS_API_KEY unset. The stored hash is the
+    # app's OWN _hash_api_key("ci-parity-token") (keyed scrypt over a SOBS_SECRET_KEY-derived blake2b
+    # salt) — i.e. byte-identical to what a Settings->Repositories key rotation writes, and to what
+    # the Go server recomputes when validating the header. The hash key is NOT a sensitive setting
+    # (so it is stored/read as plaintext on both sides); expires_at is far-future under the frozen
+    # 2024 parity clock, so the key is unexpired. The CI-push settings never appear in the /v1 app or
+    # release JSON, so only the auth DECISION (200 vs 401) depends on them — the response bytes are
+    # the ordinary registry serialization, captured from the frozen Python oracle.
+    import app as _app
+
+    key_hash = _app._hash_api_key("ci-parity-token")
+    _insert(
+        db,
+        "sobs_apps",
+        [
+            {
+                "Id": CI_AUTH_APP_ID,
+                "Name": "CI Managed Service",
+                "Slug": "ci-managed-service",
+                "OwnerTeam": "platform",
+                "RepoUrl": "https://github.com/acme/ci-managed",
+                "DefaultEnvironment": "prod",
+                "Enabled": 1,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+                "CreatedAt": _TS,
+                "UpdatedAt": _TS,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_app_releases",
+        [
+            {
+                "Id": CI_AUTH_REL_ID,
+                "AppId": CI_AUTH_APP_ID,
+                "ReleaseVersion": "2.0.0",
+                "CommitSha": "",
+                "BuildId": "",
+                "Environment": "prod",
+                "ReleasedAt": _TS,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [
+            {"Key": _app._ci_push_setting_key(CI_AUTH_APP_ID, "hash"), "Value": key_hash, "IsDeleted": 0, "Version": 1704164644000},
+            {"Key": _app._ci_push_setting_key(CI_AUTH_APP_ID, "expires_at"), "Value": "2030-01-01T23:59:59+00:00", "IsDeleted": 0, "Version": 1704164644000},
+            {"Key": _app._ci_push_setting_key(CI_AUTH_APP_ID, "realtime_enabled"), "Value": "true", "IsDeleted": 0, "Version": 1704164644000},
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_apps FINAL")
+    db.execute("OPTIMIZE TABLE sobs_app_releases FINAL")
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+
+
 def seed_aichat(db) -> None:
     # One AI-helper chat turn (otel_logs turn.complete) so /api/ai/helper/chats/<id> reconstructs
     # a user+assistant exchange. LogAttributes is a Map(String,String); output.messages is the
@@ -694,6 +763,7 @@ PROFILE_SEEDS = {
     "mcpkey": seed_mcp_key,
     "mcpauth": seed_mcp_auth,  # api key whose hash auths tools/list + tools/call
     "aichat": seed_aichat,
+    "ciauth": seed_ci_key,  # registered app + managed per-app CI-push key; managed-key require_api_key path
 }
 
 

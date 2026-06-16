@@ -23,9 +23,13 @@ import (
 // server behaves byte-for-byte as before — this middleware only changes behaviour once an
 // operator sets the documented env vars.
 //
-// Not yet ported: the managed per-app CI-push key path inside require_api_key (DB-backed
-// per-app keys). It is inert unless an operator configures a per-app key in Settings ->
-// Repositories, and it does not affect parity or the documented SOBS_API_KEY behaviour.
+// require_api_key has a SECOND acceptance path beyond the static SOBS_API_KEY: a managed,
+// DB-backed per-app CI-push key (Settings -> Repositories -> "rotate CI ingest key"). It is
+// resolved from the route's app_id/release_id and validated against the per-app scrypt hash +
+// expiry; see enforceAPIKey / resolveManagedCITargetAppID / isValidCiPushAPIKey below. It is
+// inert (configured==false) until an operator rotates a per-app key, so it does not affect the
+// unconfigured parity corpus — but once a key IS configured it gates that app's /v1 routes even
+// when the static SOBS_API_KEY is unset, closing the open-POST hole.
 
 // authConfig mirrors the app.py module-level auth globals (read once at process start).
 type authConfig struct {
@@ -138,18 +142,108 @@ func (s *server) enforceAuth(w http.ResponseWriter, r *http.Request) bool {
 	}
 }
 
-// enforceAPIKey mirrors require_api_key's static-key path: when SOBS_API_KEY is set, the
-// X-API-Key header must match it, else 401 jsonify({"error":"Unauthorized"}).
+// enforceAPIKey mirrors require_api_key. There are two acceptance paths, exactly as in Python:
+//
+//   - static_ok:  SOBS_API_KEY is set AND X-API-Key equals it.
+//   - managed_ok: the route targets an app (resolved from app_id/release_id) that has a managed
+//     per-app CI-push key configured, AND X-API-Key validates against its scrypt hash + expiry.
+//
+// The decision: when SOBS_API_KEY is set, 401 unless static_ok OR managed_ok; when it is unset,
+// 401 only if the target app HAS a managed key configured and it does not validate. Open otherwise
+// — preserving the unconfigured-server parity behaviour while closing the per-app open-POST hole.
 func (s *server) enforceAPIKey(w http.ResponseWriter, r *http.Request) bool {
-	if s.auth.apiKey == "" {
-		return false // no static key configured -> open (managed per-app keys not yet ported)
-	}
 	key := strings.TrimSpace(r.Header.Get("X-API-Key"))
-	if subtle.ConstantTimeCompare([]byte(key), []byte(s.auth.apiKey)) == 1 {
+	staticKey := s.auth.apiKey
+	staticOK := staticKey != "" && subtle.ConstantTimeCompare([]byte(key), []byte(staticKey)) == 1
+
+	// Managed per-app key. app.py wraps this lookup in try/except so any DB failure leaves both
+	// flags false (the request falls back to the static-key decision); a nil db is the unit-test
+	// equivalent of that "lookup unavailable" state.
+	managedConfigured := false
+	managedOK := false
+	if s.db != nil {
+		if targetAppID := s.resolveManagedCITargetAppID(r.URL.Path); targetAppID != "" {
+			if configured, _ := s.ciPushStatus(targetAppID)["configured"].(bool); configured {
+				managedConfigured = true
+				managedOK = s.isValidCiPushAPIKey(targetAppID, key)
+			}
+		}
+	}
+
+	if staticKey != "" {
+		if !staticOK && !managedOK {
+			writeJSON(w, http.StatusUnauthorized, jsonenc.NewObject().Set("error", "Unauthorized"))
+			return true
+		}
+	} else if managedConfigured && !managedOK {
+		writeJSON(w, http.StatusUnauthorized, jsonenc.NewObject().Set("error", "Unauthorized"))
+		return true
+	}
+	return false
+}
+
+// resolveManagedCITargetAppID mirrors app.py _resolve_managed_ci_target_app_id over the route
+// params require_api_key sees. Only /v1/apps/<app_id>[/releases] and
+// /v1/releases/<release_id>[/artifacts[/meta]] expose an app_id/release_id; every other api-key
+// route (ingest, /api/tags/<...>, the /v1/apps collection) resolves to "" and is never gated by a
+// managed key — exactly as in Python, whose handlers take no app_id/release_id kwarg there. The
+// segment is extracted the same way handlers_v1.go does, so the gate resolves the SAME app the
+// handler will operate on.
+func (s *server) resolveManagedCITargetAppID(path string) string {
+	if rest, ok := strings.CutPrefix(path, "/v1/apps/"); ok {
+		appID := rest
+		if a, ok := strings.CutSuffix(rest, "/releases"); ok {
+			appID = a
+		}
+		appID = strings.TrimSpace(appID)
+		if appID == "" || strings.Contains(appID, "/") {
+			return "" // not a single-segment <app_id> (Flask would not route it to require_api_key)
+		}
+		return appID
+	}
+	if rest, ok := strings.CutPrefix(path, "/v1/releases/"); ok {
+		relID := rest
+		if r, ok := strings.CutSuffix(rest, "/artifacts/meta"); ok {
+			relID = r
+		} else if r, ok := strings.CutSuffix(rest, "/artifacts"); ok {
+			relID = r
+		}
+		relID = strings.TrimSpace(relID)
+		if relID == "" || strings.Contains(relID, "/") {
+			return ""
+		}
+		release, found := s.findReleaseByID(relID)
+		if !found {
+			return "" // _find_release_by_id miss -> "" (no managed gating; handler returns 404)
+		}
+		return strings.TrimSpace(cStr(release, "AppId"))
+	}
+	return ""
+}
+
+// isValidCiPushAPIKey mirrors app.py _is_valid_ci_push_api_key: a non-empty candidate, a configured
+// per-app hash that is unexpired and scrypt-prefixed, and a constant-time match of the candidate's
+// scrypt fingerprint against the stored hash.
+func (s *server) isValidCiPushAPIKey(appID, providedKey string) bool {
+	candidate := strings.TrimSpace(providedKey)
+	if candidate == "" {
 		return false
 	}
-	writeJSON(w, http.StatusUnauthorized, jsonenc.NewObject().Set("error", "Unauthorized"))
-	return true
+	meta := s.ciPushStatus(appID)
+	keyHash, _ := meta["hash"].(string)
+	if keyHash == "" {
+		return false
+	}
+	if expiry, ok := meta["expiry"].(map[string]any); ok {
+		if state, _ := expiry["state"].(string); strings.ToLower(state) == "expired" {
+			return false
+		}
+	}
+	if !strings.HasPrefix(keyHash, ciPushHashPrefix) {
+		return false
+	}
+	candidateHash := hashAPIKey(candidate)
+	return subtle.ConstantTimeCompare([]byte(candidateHash), []byte(keyHash)) == 1
 }
 
 // enforceUIAuth mirrors require_basic_auth: invalid-config 500, optional same-origin CSRF check

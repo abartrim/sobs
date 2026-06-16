@@ -168,6 +168,12 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # ciauth: a seeded registered app + release carrying a MANAGED per-app CI-push key (the scrypt
+    # hash of "ci-parity-token", stored exactly as a Settings->Repositories key rotation would). The
+    # static SOBS_API_KEY stays unset, so this profile exercises the managed-key path of
+    # require_api_key: the right X-API-Key is accepted (200), and a missing/wrong key is rejected
+    # (401 Unauthorized). No env overlay — just the (isolated) seed.
+    "ciauth": {},
     # ask: query/ask — guard + main endpoints on DISTINCT mock paths (two canned responses).
     "ask": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/ask/v1",
@@ -200,6 +206,7 @@ SEEDED_PROFILES = {
     "mcpkey",
     "mcpauth",
     "aichat",
+    "ciauth",
 }
 
 

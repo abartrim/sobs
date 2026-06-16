@@ -2196,6 +2196,53 @@ routes:
       params:
         name: get_anomaly_rules
         arguments: {}
+# ciauth profile: a seeded registered app + release carrying a MANAGED per-app CI-push key (scrypt
+# hash of "ci-parity-token"), with the static SOBS_API_KEY unset. These entries prove the
+# managed-key path of require_api_key — the security hole the static-only port left open:
+#   - the right X-API-Key returns the ordinary registry JSON (200), and
+#   - a missing or wrong X-API-Key is rejected (401 {"error":"Unauthorized"}),
+# for BOTH the app_id route (/v1/apps/<id>) and the release_id->AppId route (/v1/releases/<id>).
+- id: get__v1_apps_byid__ciauth
+  path: /v1/apps/c1c1000000000000000000000000ab01
+  methods:
+  - GET
+  profile: ciauth
+  request:
+    method: GET
+    headers:
+      X-API-Key: ci-parity-token
+- id: get__v1_apps_byid__ciauth_missing_key
+  path: /v1/apps/c1c1000000000000000000000000ab01
+  methods:
+  - GET
+  profile: ciauth
+  request:
+    method: GET
+- id: get__v1_apps_byid__ciauth_wrong_key
+  path: /v1/apps/c1c1000000000000000000000000ab01
+  methods:
+  - GET
+  profile: ciauth
+  request:
+    method: GET
+    headers:
+      X-API-Key: not-the-ci-key
+- id: get__v1_releases_byid__ciauth
+  path: /v1/releases/c1c1000000000000000000000000cd02
+  methods:
+  - GET
+  profile: ciauth
+  request:
+    method: GET
+    headers:
+      X-API-Key: ci-parity-token
+- id: get__v1_releases_byid__ciauth_missing_key
+  path: /v1/releases/c1c1000000000000000000000000cd02
+  methods:
+  - GET
+  profile: ciauth
+  request:
+    method: GET
 - id: post__settings_masking_keys_delete
   path: /settings/masking/keys/delete
   methods:
