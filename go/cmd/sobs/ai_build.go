@@ -117,10 +117,15 @@ func (s *server) handleApiDashboardsSpecAiBuild(w http.ResponseWriter, r *http.R
 		Set("named_query_results", namedQueryResults).Set("chart_error", chartError))
 }
 
-// validateAndExecuteVannaSQL mirrors _vanna_validate_and_execute_with_repair for a valid SQL: execute
-// and return columns/rows. (The EXPLAIN-fail -> AI repair retry loop is a follow-up; the parity
-// canned SQL is valid, so retry_count stays 0.)
+// validateAndExecuteVannaSQL mirrors _vanna_validate_and_execute_with_repair for a valid SQL:
+// validate read-only/allowlist (app.py _vanna_run_query -> validate_sql), then execute and return
+// columns/rows. A blocked statement yields the "SQL validation error: …" error the route surfaces
+// as a 422. (The EXPLAIN-fail -> AI repair retry loop is a follow-up; the parity canned SQL is
+// valid, so retry_count stays 0.)
 func (s *server) validateAndExecuteVannaSQL(sql string) (string, []any, []any, string, int) {
+	if vErr := validateSQL(sql); vErr != "" {
+		return sql, nil, nil, "SQL validation error: " + vErr, 0
+	}
 	res, err := s.db.Execute(sql)
 	if err != nil {
 		return sql, nil, nil, publicDashboardQueryError(err), 0

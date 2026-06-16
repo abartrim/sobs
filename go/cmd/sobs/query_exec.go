@@ -344,6 +344,12 @@ func zeroQueryLLMStats() *jsonenc.Object {
 		Set("named_query_generation", stage()).Set("chart_generation", stage())
 }
 
+// queryExplainFailedLLMStats mirrors _summarize_query_llm_stats() called with NO stages on the
+// api_query_run explain-failed branch: only the zeroed "totals" key (no per-stage entries).
+func queryExplainFailedLLMStats() *jsonenc.Object {
+	return jsonenc.NewObject().Set("totals", queryStageStats(llmStats{}))
+}
+
 // handleApiQueryRun — app.py api_query_run (no-chart path): execute a user SQL statement and
 // return the results + telemetry trace ids. (The do_chart branch needs the LLM mock — follow-up.)
 func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
@@ -373,6 +379,22 @@ func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.emitAiHelperLogEvent("query.turn.start", traceID, turnID, "/query", model, guardModel, "off",
 		startBody, "INFO", map[string]string{"gen_ai.input.question": startQ})
+
+	// Pre-flight read-only / table-allowlist validation (app.py _vanna_explain_sql -> validate_sql).
+	// A blocked statement is rejected with the explain-failed payload (422) before any execution —
+	// this is the C5 security gate that restricts user-submitted SQL to the approved table set.
+	if vErr := validateSQL(sql); vErr != "" {
+		explainErr := "SQL validation error: " + vErr
+		s.emitAiHelperLogEvent("query.sql.explain_failed", traceID, turnID, "/query", model, guardModel, "off",
+			explainErr, "WARN", map[string]string{
+				"gen_ai.operation.name": "query_sql_explain", "sobs.query.exec.error": explainErr,
+			})
+		writeJSON(w, http.StatusUnprocessableEntity, jsonenc.NewObject().
+			Set("ok", false).Set("error", explainErr).Set("trace_id", traceID).Set("turn_id", turnID).
+			Set("sql", sql).Set("columns", []any{}).Set("rows", []any{}).
+			Set("llm_stats", queryExplainFailedLLMStats()))
+		return
+	}
 
 	res, execErr := s.db.Execute(sql)
 	var columns, rows, fieldTypes []any
@@ -425,6 +447,15 @@ func severityFor(err error) string {
 	return "INFO"
 }
 
+// severityForStr mirrors app.py's "INFO" if not <error_string> else "ERROR" — the ask/vanna paths
+// key severity on the error STRING (which now includes validation errors), not an error object.
+func severityForStr(errStr string) string {
+	if errStr != "" {
+		return "ERROR"
+	}
+	return "INFO"
+}
+
 // handleApiQueryAsk — app.py api_query_ask (no-chart path): guard the question, generate SQL via
 // the LLM (canned), execute it, and return the results + llm_stats.
 func (s *server) handleApiQueryAsk(w http.ResponseWriter, r *http.Request) {
@@ -472,28 +503,32 @@ func (s *server) handleApiQueryAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, execErr := s.db.Execute(sql)
+	// Validate read-only / table-allowlist BEFORE executing LLM-generated SQL (app.py
+	// _vanna_validate_and_execute_with_repair -> _vanna_run_query -> validate_sql). The canned
+	// parity SQL is valid, so this is a no-op there; at runtime it gates the NL→SQL output.
 	columns, rows, fieldTypes := []any{}, []any{}, []any{}
 	execErrStr := ""
-	if execErr != nil {
+	if vErr := validateSQL(sql); vErr != "" {
+		execErrStr = "SQL validation error: " + vErr
+	} else if res, execErr := s.db.Execute(sql); execErr != nil {
 		execErrStr = publicDashboardQueryError(execErr)
 	} else {
 		columns, rows = serializeQueryResult(res)
 		fieldTypes = inferQueryFieldTypes(columns, rows)
 	}
 	s.emitAiHelperLogEvent("query.sql.executed", traceID, turnID, "/query", model, guardModel, "off",
-		sql, severityFor(execErr), map[string]string{
+		sql, severityForStr(execErrStr), map[string]string{
 			"gen_ai.operation.name": "query_sql_execute", "sobs.query.exec.attempt": "1",
 			"sobs.query.exec.error": execErrStr, "sobs.gen_ai.response": sql,
 		})
 	datasets := []any{}
-	if execErr == nil {
+	if execErrStr == "" {
 		datasets = append(datasets, jsonenc.NewObject().
 			Set("name", "main").Set("purpose", "primary dataset").Set("sql", sql).
 			Set("columns", columns).Set("field_types", fieldTypes).Set("rows", rows).Set("error", ""))
 	}
 	s.emitAiHelperLogEvent("query.turn.complete", traceID, turnID, "/query", model, guardModel, "off",
-		"Query turn completed", severityFor(execErr), map[string]string{
+		"Query turn completed", severityForStr(execErrStr), map[string]string{
 			"gen_ai.input.question": question, "gen_ai.operation.name": "query",
 		})
 

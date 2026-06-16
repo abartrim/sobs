@@ -812,6 +812,31 @@ routes:
     method: POST
     json:
       sql: SELECT 1 AS one
+# Security gate (FUNCTION_PARITY_AUDIT C5): user-submitted SQL over a non-allowlisted table is
+# rejected read-only (422, "SQL validation error: Access to table … is not permitted"). This case
+# has NO close-match suggestions ('users' is far from every allowlisted name), so the error omits
+# the "Closest allowed names:" clause — exercising the no-suggestion branch.
+- id: post__api_query_run__blocked_table
+  path: /api/query/run
+  methods:
+  - POST
+  profile: queryrun
+  request:
+    method: POST
+    json:
+      sql: SELECT * FROM users
+# Same gate, but the blocked table ('otel_logz') is a near-miss of allowlisted names, so the error
+# carries difflib suggestions ("Closest allowed names: otel_logs, otel_traces,
+# otel_metrics_histogram.") — pinning the _suggest_allowed_table_names / difflib port byte-for-byte.
+- id: post__api_query_run__blocked_table_suggest
+  path: /api/query/run
+  methods:
+  - POST
+  profile: queryrun
+  request:
+    method: POST
+    json:
+      sql: SELECT count() FROM otel_logz
 - id: post__api_query_refine_chart
   path: /api/query/refine-chart
   methods:
