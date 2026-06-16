@@ -1280,6 +1280,26 @@ routes:
       page: /logs
       chat_id: chat-parity-0001
       turn_id: turn-parity-0001
+# Memory WRITE path under the aihelpermem profile: the canned SSE answer carries an
+# <assistant_meta> memory_candidate, so the turn runs the consolidation + _upsert_ai_memory write
+# and returns a populated saved_memory_ids. The new memory id is a fresh uuid (frozen-counter
+# Python vs random Go) → masked; the rest of the turn (answer/summary/model_stats/guard_stats/
+# tool_proposals) is byte-compared identically on both sides.
+- id: post__api_ai_helper_memory
+  path: /api/ai/helper
+  profile: aihelpermem
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: Remember that I prefer error logs grouped by service.
+      page: /logs
+      chat_id: chat-parity-mem01
+      turn_id: turn-parity-mem01
+  mask:
+  - '"saved_memory_ids": ?\["[0-9a-fA-F-]{36}"\]'
+  mask_reason: saved_memory_ids holds exactly one freshly minted memory uuid (frozen-counter Python vs random Go). The mask requires a uuid to be present, so a Go-side empty array would NOT match and the turn would diff RED — i.e. GREEN proves both sides actually wrote a memory. The rest of the turn is byte-compared.
 - id: post__api_ai_helper_actions_execute
   path: /api/ai/helper/actions/execute
   methods:

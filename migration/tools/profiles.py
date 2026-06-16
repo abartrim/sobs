@@ -185,6 +185,20 @@ PROFILES: dict[str, dict[str, str]] = {
     # require_api_key: the right X-API-Key is accepted (200), and a missing/wrong key is rejected
     # (401 Unauthorized). No env overlay — just the (isolated) seed.
     "ciauth": {},
+    # aihelpermem: like `aihelper`, but the canned answer carries an <assistant_meta> block with a
+    # memory_candidate, so the route exercises the memory-consolidation WRITE path (load related →
+    # consolidate → soft-delete drops → _upsert_ai_memory). With a fresh fixture the chat has no
+    # prior memories, so consolidation finds nothing related; the consolidation LLM call collides
+    # with the main endpoint's SSE fixture (not valid JSON), so both sides take the keep_new
+    # fallback and persist the candidate verbatim. saved_memory_ids carries a fresh memory uuid
+    # (frozen-counter Python vs random Go) → masked in the manifest; everything else is byte-equal.
+    "aihelpermem": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aihelpermem/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aihelpermem-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # ask: query/ask — guard + main endpoints on DISTINCT mock paths (two canned responses).
     "ask": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/ask/v1",

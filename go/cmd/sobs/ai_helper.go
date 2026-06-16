@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/sobs/sobs/internal/jsonenc"
@@ -598,6 +599,7 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 	var answerParts []string
 	var proposedTools []any
 	var modelStats *jsonenc.Object
+	var lastStats llmStats
 	const maxToolRounds = 3
 	var contextData map[string]any
 	if cv, ok := payload["context"].(map[string]any); ok {
@@ -625,6 +627,7 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 		if content != "" {
 			answerParts = append(answerParts, content)
 		}
+		lastStats = stats
 		modelStats = queryStageStats(stats)
 		for _, tc := range toolCalls {
 			if tc.name != "propose_ui_action" {
@@ -660,14 +663,35 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 	}
 	summary := deriveTurnSummary(question, finalAnswer, "", metaSummary)
 
+	// memory_candidates drive the consolidation pass: per candidate, find the strongly-related
+	// existing memories (min_score = consolidation threshold), ask the LLM to merge/keep/ignore,
+	// soft-delete the dropped ids, and persist the (possibly merged) memory. Mirrors app.py
+	// ai_helper 28296-28339.
 	savedMemoryIDs := []any{}
-	// memory_candidates drive the consolidation pass (a second LLM call per candidate); with none
-	// proposed there is nothing to persist and saved_memory_ids stays empty.
-	_ = extractMemoryCandidates(meta)
+	for _, candidate := range extractMemoryCandidates(meta) {
+		related := semanticMemoryMatches(s.loadChatMemories(chatID), candidate, 4, aiMemoryConsolidationScore)
+		consolidation := s.consolidateMemoryCandidates(candidate, related)
+		if consolidation.action == "ignore" {
+			continue
+		}
+		mergedText := consolidation.memory
+		if mergedText == "" {
+			mergedText = candidate
+		}
+		mergedText = coerceSummaryValue(mergedText, 280)
+		for _, dropID := range consolidation.dropIDs {
+			s.upsertAIMemory(dropID, chatID, "", turnID, true)
+		}
+		newID := newUUIDv4()
+		s.upsertAIMemory(newID, chatID, mergedText, turnID, false)
+		savedMemoryIDs = append(savedMemoryIDs, newID)
+	}
 
 	if proposedTools == nil {
 		proposedTools = []any{}
 	}
+	s.emitAiHelperTurnComplete(chatID, turnID, page, model, thinkingLevel, question, finalAnswer, lastStats, summary, savedMemoryIDs)
+
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().
 		Set("ok", true).
 		Set("answer", finalAnswer).
@@ -681,4 +705,45 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 		Set("turn_summary", summary).
 		Set("saved_memory_ids", savedMemoryIDs).
 		Set("tool_proposals", proposedTools))
+}
+
+// emitAiHelperTurnComplete mirrors app.py ai_helper's tail telemetry (28341-28378): the turn.complete
+// event (carrying the usage counts, the assistant output message, the turn summary, and
+// gen_ai.memory.saved_ids) plus the turn.summary event that the chat-continuity / prior-summary
+// readers consume. Best-effort (the underlying emit swallows insert errors); it runs after the
+// response is assembled, so it never changes the route's response bytes.
+func (s *server) emitAiHelperTurnComplete(chatID, turnID, page, model, thinkingLevel, question, finalAnswer string, stats llmStats, summary *jsonenc.Object, savedMemoryIDs []any) {
+	guardModel := strings.TrimSpace(s.loadAISetting("ai.guard_model", ""))
+	sumStr := func(key string) string {
+		if summary != nil {
+			if v, ok := summary.Get(key); ok {
+				if s, ok := v.(string); ok {
+					return s
+				}
+			}
+		}
+		return ""
+	}
+	outputMessages := []any{jsonenc.NewObject().Set("role", "assistant").Set("content", finalAnswer)}
+	completeAttrs := map[string]string{
+		"gen_ai.response.id":           turnID,
+		"gen_ai.input.question":        question,
+		"gen_ai.usage.input_tokens":    strconv.Itoa(stats.prompt),
+		"gen_ai.usage.output_tokens":   strconv.Itoa(stats.completion),
+		"gen_ai.usage.thinking_tokens": strconv.Itoa(stats.thinking),
+		"gen_ai.response.latency_ms":   "0",
+		"gen_ai.output.messages":       string(jsonenc.Encode(outputMessages, dumpsDefault)),
+		"gen_ai.turn.summary.request":  sumStr("request"),
+		"gen_ai.turn.summary.action":   sumStr("action"),
+		"gen_ai.turn.summary.result":   sumStr("result"),
+		"gen_ai.memory.saved_ids":      string(jsonenc.Encode(savedMemoryIDs, dumpsDefault)),
+	}
+	s.emitAiHelperLogEvent("turn.complete", chatID, turnID, page, model, guardModel, thinkingLevel,
+		"AI helper turn completed", "INFO", completeAttrs)
+	s.emitAiHelperLogEvent("turn.summary", chatID, turnID, page, model, guardModel, thinkingLevel,
+		"AI helper turn summary", "INFO", map[string]string{
+			"gen_ai.turn.summary.request": sumStr("request"),
+			"gen_ai.turn.summary.action":  sumStr("action"),
+			"gen_ai.turn.summary.result":  sumStr("result"),
+		})
 }

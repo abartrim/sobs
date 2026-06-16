@@ -20,8 +20,9 @@ import (
 // the URL), so enriching it is parity-safe by construction; the DB loaders are read-only and
 // best-effort (errors → empty), so they cannot change the route's response bytes.
 
-const aiMemoryDimensions = 128        // _AI_MEMORY_DIMENSIONS
-const aiMemorySemanticMinScore = 0.26 // _AI_MEMORY_SEMANTIC_MIN_SCORE
+const aiMemoryDimensions = 128          // _AI_MEMORY_DIMENSIONS
+const aiMemorySemanticMinScore = 0.26   // _AI_MEMORY_SEMANTIC_MIN_SCORE
+const aiMemoryConsolidationScore = 0.72 // _AI_MEMORY_CONSOLIDATION_SCORE
 var embeddingTokenRE = regexp.MustCompile(`[a-z0-9_./:-]+`)
 
 // tokenizeForEmbedding mirrors app.py _tokenize_for_embedding.
@@ -101,6 +102,17 @@ func embeddingFromJSON(raw string) []float64 {
 		}
 	}
 	return out
+}
+
+// embeddingToJSON mirrors app.py _embedding_to_json: json.dumps(vector, separators=(",", ":"),
+// ensure_ascii=False). jsonenc.PyFloatRepr reproduces CPython's float repr (e.g. 0.0 -> "0.0",
+// 1.0 -> "1.0") so the stored EmbeddingJson is byte-identical to the Python writer.
+func embeddingToJSON(vec []float64) string {
+	arr := make([]any, len(vec))
+	for i, v := range vec {
+		arr[i] = v
+	}
+	return string(jsonenc.Encode(arr, jsonenc.Options{SortKeys: false, EnsureASCII: false, ItemSep: ",", KeySep: ":"}))
 }
 
 // modelSupportsTools mirrors app.py _model_supports_tools.
@@ -344,8 +356,10 @@ func (s *server) loadChatMemories(chatID string) []chatMemory {
 	return out
 }
 
-// semanticMemoryMatches mirrors app.py _semantic_memory_matches.
-func semanticMemoryMatches(memories []chatMemory, queryText string, maxResults int) []memoryMatch {
+// semanticMemoryMatches mirrors app.py _semantic_memory_matches: rank stored memories by cosine
+// similarity to queryText, keeping those at/above minScore (context-building uses the default
+// _AI_MEMORY_SEMANTIC_MIN_SCORE; the consolidation pass uses the stricter _AI_MEMORY_CONSOLIDATION_SCORE).
+func semanticMemoryMatches(memories []chatMemory, queryText string, maxResults int, minScore float64) []memoryMatch {
 	queryEmb := textEmbedding(queryText)
 	var scored []memoryMatch
 	for _, item := range memories {
@@ -354,7 +368,7 @@ func semanticMemoryMatches(memories []chatMemory, queryText string, maxResults i
 			emb = textEmbedding(item.text)
 		}
 		score := cosineSimilarity(queryEmb, emb)
-		if score < aiMemorySemanticMinScore {
+		if score < minScore {
 			continue
 		}
 		// _semantic_memory_matches stores round(score, 4) and sorts on that rounded value, so two
@@ -366,6 +380,111 @@ func semanticMemoryMatches(memories []chatMemory, queryText string, maxResults i
 		scored = scored[:maxResults]
 	}
 	return scored
+}
+
+// upsertAIMemory mirrors app.py _upsert_ai_memory: write one sobs_ai_memories ReplacingMergeTree
+// row (a soft-delete tombstone when isDeleted, else the live memory). The embedding is recomputed
+// from the (non-empty) text via embeddingToJSON(textEmbedding(...)); Version is the wall-clock
+// millis (frozen under parity). Best-effort insert — errors are swallowed, exactly as the Python
+// helper relies on _insert_rows_json_each_row not raising on the write path.
+func (s *server) upsertAIMemory(memoryID, chatID, memoryText, sourceTurnID string, isDeleted bool) {
+	embeddingJSON := ""
+	if memoryText != "" {
+		embeddingJSON = embeddingToJSON(textEmbedding(memoryText))
+	}
+	del := 0
+	if isDeleted {
+		del = 1
+	}
+	row := map[string]any{
+		"Id":            memoryID,
+		"ChatId":        chatID,
+		"MemoryText":    memoryText,
+		"EmbeddingJson": embeddingJSON,
+		"SourceTurnId":  sourceTurnID,
+		"IsDeleted":     del,
+		"Version":       fixedVersionMillis(),
+		"UpdatedAt":     nowISO(),
+	}
+	_, _ = s.insertRowsNormalized("sobs_ai_memories", []map[string]any{row})
+}
+
+// memoryConsolidation is the decision consolidateMemoryCandidates returns (mirrors the dict app.py
+// _consolidate_memory_candidates produces): the action (merge|keep_new|ignore), the memory text to
+// persist when the action is not ignore, and the ids of existing memories to soft-delete.
+type memoryConsolidation struct {
+	action  string
+	memory  string
+	dropIDs []string
+}
+
+// consolidateMemoryCandidates mirrors app.py _consolidate_memory_candidates: ask the main LLM to
+// reconcile a new memory against the semantically-related existing ones and return a
+// merge/keep_new/ignore decision plus the (possibly merged) text and the ids to drop. With no
+// endpoint/model configured — or an empty / non-object reply — it falls back to keeping the new
+// memory verbatim. (Under parity the main endpoint serves the SSE stream, which is not valid JSON,
+// so callLLMChat yields an empty reply and both sides take this keep_new fallback identically.)
+func (s *server) consolidateMemoryCandidates(newMemory string, related []memoryMatch) memoryConsolidation {
+	endpoint := strings.TrimSpace(s.loadAISetting("ai.endpoint_url", ""))
+	model := strings.TrimSpace(s.loadAISetting("ai.model", ""))
+	apiKey := strings.TrimSpace(s.loadAISetting("ai.api_key", ""))
+	if endpoint == "" || model == "" {
+		return memoryConsolidation{action: "keep_new", memory: newMemory}
+	}
+	relatedPayload := make([]any, 0, len(related))
+	for _, item := range related {
+		relatedPayload = append(relatedPayload, jsonenc.NewObject().
+			Set("id", item.id).Set("text", item.text).Set("score", item.score))
+	}
+	userContent := string(jsonenc.Encode(jsonenc.NewObject().
+		Set("new_memory", newMemory).Set("related", relatedPayload), dumpsDefault))
+	messages := []any{
+		jsonenc.NewObject().Set("role", "system").Set("content",
+			"You reconcile short AI memories. Return ONLY strict JSON with keys: "+
+				"action (merge|keep_new|ignore), memory (string), drop_ids (array of ids). "+
+				"Merge overlapping/conflicting memories into one concise, current fact. "+
+				"If new memory is noise/duplicate, use ignore."),
+		jsonenc.NewObject().Set("role", "user").Set("content", userContent),
+	}
+	reply, _, err := s.callLLMChat(llmRequest{
+		endpoint: endpoint, model: model, apiKey: apiKey,
+		thinkingLevel: "off", maxTokens: 220, messages: messages,
+	})
+	if err != nil || strings.TrimSpace(reply) == "" {
+		return memoryConsolidation{action: "keep_new", memory: newMemory}
+	}
+	parsed, perr := parseJSONValue([]byte(reply))
+	obj, ok := parsed.(*jsonenc.Object)
+	if perr != nil || !ok {
+		return memoryConsolidation{action: "keep_new", memory: newMemory}
+	}
+	action := "keep_new"
+	if raw, present := obj.Get("action"); present && isTruthyVal(raw, true) {
+		action = strings.ToLower(strings.TrimSpace(pyStrAny(raw)))
+	}
+	if action != "merge" && action != "keep_new" && action != "ignore" {
+		action = "keep_new"
+	}
+	memText := newMemory
+	if raw, present := obj.Get("memory"); present && isTruthyVal(raw, true) {
+		memText = pyStrAny(raw)
+	}
+	memText = coerceSummaryValue(memText, 280)
+	var dropIDs []string
+	if raw, present := obj.Get("drop_ids"); present {
+		if arr, ok := raw.([]any); ok {
+			for _, it := range arr {
+				id := ""
+				if isTruthyVal(it, true) {
+					id = pyStrAny(it)
+				}
+				if id = strings.TrimSpace(id); id != "" {
+					dropIDs = append(dropIDs, id)
+				}
+			}
+		}
+	}
+	return memoryConsolidation{action: action, memory: memText, dropIDs: dropIDs}
 }
 
 // loadRecentChatTurns mirrors app.py _load_recent_chat_turns (most-recent turn summaries).
@@ -462,7 +581,7 @@ func (s *server) buildAIHelperContext(question, page, chatID, model string, cont
 	actionManifestJSON := manifestJSON(s.helperActionManifestForPage(page))
 	dashboardManifestJSON := manifestJSON(s.helperActionManifestForPage("/dashboards"))
 
-	relevant := semanticMemoryMatches(s.loadChatMemories(chatID), question, 5)
+	relevant := semanticMemoryMatches(s.loadChatMemories(chatID), question, 5, aiMemorySemanticMinScore)
 	recentTurns := s.loadRecentChatTurns(chatID, 8)
 	recentHistory := s.loadRecentTurnSummaries(chatID, question, 4)
 
