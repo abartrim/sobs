@@ -853,6 +853,96 @@ def seed_aichat(db) -> None:
     db.execute("OPTIMIZE TABLE otel_traces FINAL")
 
 
+# Trace-detail waterfall fixture: a small multi-span trace (two roots — a request tree plus an
+# async sibling that starts after the request finishes, creating a coverage gap) so view_traces'
+# trace_id branch exercises every helper (span tree, interval merge, active/coverage, timeline
+# active+gap segments) and the per-span offset/width math. Spans land at 2023-06-01 — far outside
+# the frozen now()-48h anomaly window — so the per-service anomaly lookup is deterministically
+# empty; no metrics / raw windows are seeded, so the metric-context + window-overlay blocks take
+# their empty paths. A few non-error logs drive log_counts; one log lands in the gap so the
+# "potential instrumentation gap" flag fires. Status codes / http statuses / durations are chosen
+# to span the template's success / unset / error / outlier branches.
+_TRACE_DETAIL_TRACE_ID = "aaaa1111bbbb2222cccc3333dddd4444"
+
+
+def seed_trace_detail(db) -> None:
+    tid = _TRACE_DETAIL_TRACE_ID
+
+    def span(ts_frac, span_id, parent, service, name, dur_ms, status, attrs):
+        return {
+            "Timestamp": f"2023-06-01 12:00:00.{ts_frac}",
+            "TraceId": tid,
+            "SpanId": span_id,
+            "ParentSpanId": parent,
+            "SpanName": name,
+            "ServiceName": service,
+            "Duration": int(dur_ms * 1_000_000),  # ns
+            "StatusCode": status,
+            "SpanAttributes": attrs,
+        }
+
+    _insert(
+        db,
+        "otel_traces",
+        [
+            # root request span [0, 80ms]; carries http + k8s attrs (drives the metric-context
+            # dimension collection, which still resolves to "no match" with no metrics seeded).
+            span(
+                "000000", "aaaa000000000001", "", "checkout", "GET /checkout", 80, "STATUS_CODE_OK",
+                {
+                    "http.method": "GET",
+                    "http.url": "/checkout",
+                    "http.status_code": "200",
+                    "k8s.namespace.name": "shop",
+                    "k8s.pod.name": "checkout-7d",
+                    "k8s.node.name": "node-a",
+                    "k8s.deployment.name": "checkout",
+                },
+            ),
+            # child of root [10, 40ms]; UNSET status -> secondary badge branch.
+            span("010000", "aaaa000000000002", "aaaa000000000001", "checkout", "validate-cart", 30, "UNSET", {}),
+            # child of root [50, 170ms]; ERROR status + http 500 -> error styling branch.
+            span(
+                "050000", "aaaa000000000003", "aaaa000000000001", "checkout-db", "SELECT items", 120,
+                "STATUS_CODE_ERROR", {"http.status_code": "500"},
+            ),
+            # grandchild (child of validate-cart) [15, 20ms]; tiny span -> 0.5% min width branch.
+            span("015000", "aaaa000000000004", "aaaa000000000002", "checkout", "cache-get", 5, "STATUS_CODE_OK", {}),
+            # second root [400, 1500ms]; >=1s, not error -> outlier badge branch; starts after the
+            # request tree ends (170ms) -> coverage gap [170, 400ms].
+            span(
+                "400000", "aaaa000000000005", "", "checkout", "async-flush", 1100, "STATUS_CODE_OK",
+                {"http.status_code": "404"},
+            ),
+        ],
+    )
+
+    # Non-error logs: two on validate-cart, one on the db span (-> log_counts), and one in the
+    # coverage gap with no span id (-> activity that flips the gap to "potential"). Default
+    # SeverityNumber/SeverityText/EventName keep these out of ERROR_SOURCES_SQL.
+    def logrow(ts_frac, span_id, service, body):
+        return {
+            "Timestamp": f"2023-06-01 12:00:00.{ts_frac}",
+            "TraceId": tid,
+            "SpanId": span_id,
+            "ServiceName": service,
+            "Body": body,
+        }
+
+    _insert(
+        db,
+        "otel_logs",
+        [
+            logrow("010000", "aaaa000000000002", "checkout", "cart validated"),
+            logrow("012000", "aaaa000000000002", "checkout", "cart items=3"),
+            logrow("055000", "aaaa000000000003", "checkout-db", "query ok"),
+            logrow("250000", "", "checkout", "async scheduled"),
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_traces FINAL")
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+
 PROFILE_SEEDS = {
     "agentrun": seed_agent_run,
     "notif": seed_notif,
@@ -874,6 +964,7 @@ PROFILE_SEEDS = {
     "mcpauth": seed_mcp_auth,  # api key whose hash auths tools/list + tools/call
     "aichat": seed_aichat,
     "ciauth": seed_ci_key,  # registered app + managed per-app CI-push key; managed-key require_api_key path
+    "tracedetail": seed_trace_detail,  # multi-span trace + logs -> populated trace_detail waterfall
 }
 
 

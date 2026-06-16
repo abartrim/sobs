@@ -605,6 +605,33 @@ routes:
   - GET
   request:
     method: GET
+# tracedetail profile: a seeded multi-span trace (otel_traces + a few non-error otel_logs). With
+# trace_id set, view_traces builds the populated trace_detail waterfall — span tree, active/gap
+# timeline, coverage, per-span offset/width, log counts. anomaly/metrics/raw-windows take their
+# empty paths (trace at 2023-06-01, no metrics seeded), so the render is deterministic.
+- id: get__traces__tracedetail
+  path: /traces
+  methods:
+  - GET
+  profile: tracedetail
+  request:
+    method: GET
+    query:
+      trace_id: aaaa1111bbbb2222cccc3333dddd4444
+# Same trace, paged: trace_span_limit=2 & trace_span_offset=2 forces the span-tree slice to pull
+# in ancestor context rows and renders the prev/next pagination — exercising
+# _slice_span_tree_with_ancestors' ancestor-expansion branch.
+- id: get__traces__tracedetail_paged
+  path: /traces
+  methods:
+  - GET
+  profile: tracedetail
+  request:
+    method: GET
+    query:
+      trace_id: aaaa1111bbbb2222cccc3333dddd4444
+      trace_span_limit: 2
+      trace_span_offset: 2
 - id: get__metrics
   path: /metrics
   methods:

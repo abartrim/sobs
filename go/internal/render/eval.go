@@ -198,10 +198,18 @@ func (e *Engine) membership(l, r string, ctx *scope, negate bool) (any, error) {
 		return nil, err
 	}
 	found := false
-	for _, item := range toList(rv) {
-		if equalValues(lv, item) {
-			found = true
-			break
+	switch rs := rv.(type) {
+	case string:
+		// Python `x in str` is substring containment, not element membership.
+		found = strings.Contains(rs, toString(lv))
+	case safeString:
+		found = strings.Contains(rs.s, toString(lv))
+	default:
+		for _, item := range toList(rv) {
+			if equalValues(lv, item) {
+				found = true
+				break
+			}
 		}
 	}
 	return found != negate, nil
@@ -309,7 +317,7 @@ func (e *Engine) evalMulDiv(s string, ctx *scope) (any, error) {
 	if l, r, ok := splitTopOp(s, " * "); ok {
 		lv, _ := e.evalMulDiv(l, ctx)
 		rv, _ := e.evalMulDiv(r, ctx)
-		return toIntVal(lv) * toIntVal(rv), nil
+		return mulValues(lv, rv), nil
 	}
 	if l, r, ok := splitTopOp(s, " % "); ok {
 		lv, _ := e.evalMulDiv(l, ctx)
@@ -457,6 +465,23 @@ func subValues(a, b any) any {
 		}
 	}
 	return 0
+}
+
+// mulValues mirrors Python `*` numeric semantics: int*int stays int, but a float operand
+// yields a float (e.g. total_ms * 0.25). Mirrors addValues/subValues; the non-numeric fallback
+// keeps the prior integer-coercion behavior.
+func mulValues(a, b any) any {
+	if ai, ok := a.(int); ok {
+		if bi, ok := b.(int); ok {
+			return ai * bi
+		}
+	}
+	if af, ok := numFloat(a); ok {
+		if bf, ok := numFloat(b); ok {
+			return af * bf
+		}
+	}
+	return toIntVal(a) * toIntVal(b)
 }
 
 // splitAddSub splits s on top-level binary `+`/`-` (skipping quotes, brackets, and unary

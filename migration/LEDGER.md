@@ -318,6 +318,8 @@ NOT tested. Migration is complete only when RED, MISSING_GOLDEN and UNCOVERED ar
 | 🟢 GREEN | `get__table_explorer_help` | `/table-explorer/help` | GET |  |
 | 🟢 GREEN | `get__tail` | `/tail` | GET |  |
 | 🟢 GREEN | `get__traces` | `/traces` | GET |  |
+| 🟢 GREEN | `get__traces__tracedetail` | `/traces` | GET |  |
+| 🟢 GREEN | `get__traces__tracedetail_paged` | `/traces` | GET |  |
 | 🟢 GREEN | `get__traces_help` | `/traces/help` | GET |  |
 | 🟢 GREEN | `post__v1_ai` | `/v1/ai` | POST |  |
 | 🟢 GREEN | `post__v1_ai_cors` | `/v1/ai` | POST |  |

@@ -79,6 +79,12 @@ PROFILES: dict[str, dict[str, str]] = {
     # aichat: a seeded gen_ai chat turn (otel_logs) so the chat-detail reader serializes it. The
     # otel_logs row is isolated to this profile so base telemetry readers stay empty.
     "aichat": {},
+    # tracedetail: a small multi-span trace (+ a few non-error logs) seeded into otel_traces /
+    # otel_logs so /traces?trace_id=… builds the populated trace_detail waterfall (span tree,
+    # active/gap timeline, log counts). No env overlay — just the (isolated) seed. The spans sit at
+    # 2023-06-01 (outside the frozen 48h anomaly window) and no metrics/raw-windows are seeded, so
+    # the anomaly / metric-context / window-overlay blocks take their deterministic empty paths.
+    "tracedetail": {},
     # feedback: a no-env isolation profile — ai_helper_feedback's telemetry INSERT (otel_logs +
     # otel_traces) runs in its own fixture copy so it doesn't ripple into base telemetry readers.
     "feedback": {},
@@ -247,6 +253,7 @@ SEEDED_PROFILES = {
     "mcpauth",
     "aichat",
     "ciauth",
+    "tracedetail",
 }
 
 

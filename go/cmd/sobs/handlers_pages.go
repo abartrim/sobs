@@ -2546,11 +2546,23 @@ func (s *server) handleViewTraces(w http.ResponseWriter, r *http.Request) {
 	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM otel_traces WHERE ServiceName!='' ORDER BY ServiceName")
 
 	// The enriched trace_detail waterfall (span tree, timeline/window/metric overlays, related
-	// errors, work-item links) only builds when trace_id is given AND that trace has spans. The
-	// fixture has no traces, so it stays nil and work_item_links stays empty — matching the prior
-	// stub. The populated waterfall port is tracked separately (see follow-up).
+	// errors, work-item links) only builds when trace_id is given AND that trace has spans. On the
+	// empty fixture there are no traces, so it stays nil and work_item_links stays empty; with a
+	// populated trace it mirrors app.py view_traces' trace_id branch (see buildTraceDetail).
 	var traceDetail any = nil
 	workItemLinks := map[string]any{}
+	if traceID != "" && timeError == "" {
+		traceSpanLimit := coercePositiveInt(q.Get("trace_span_limit"), q.Has("trace_span_limit"),
+			traceDetailDefaultLimit, 1, traceDetailMaxLimit)
+		traceSpanOffset := coercePositiveInt(q.Get("trace_span_offset"), q.Has("trace_span_offset"),
+			0, 0, traceDetailHardCap)
+		td, tdTotal, wil := s.buildTraceDetail(traceID, traceSpanLimit, traceSpanOffset)
+		if td != nil {
+			traceDetail = td
+			workItemLinks = wil
+			total = tdTotal
+		}
+	}
 
 	errorMsg := qError
 	if errorMsg == "" {
