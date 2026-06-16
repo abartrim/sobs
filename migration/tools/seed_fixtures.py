@@ -943,6 +943,74 @@ def seed_trace_detail(db) -> None:
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
 
 
+def seed_dashview(db) -> None:
+    # One dashboard + two charts with FIXED ids so GET /dashboards/<id> (view_custom_dashboard)
+    # renders its view branch against real data. The base example seeder also creates an example
+    # dashboard, but its id is determinism-derived; this profile pins a known id for the manifest
+    # path. Each chart's OptionsJson is built EXACTLY as _seed_chart_if_missing does
+    # (json.dumps({"chart_spec": _build_raw_chart_spec(chart_type, query)}, ensure_ascii=False)), so
+    # _get_charts' normalize-from-stored-spec path is exercised identically on both sides. Two
+    # distinct template types (builder + raw) cover the common rebuild path. Version is fixed so the
+    # ReplacingMergeTree FINAL read is deterministic.
+    import json as _json
+
+    import app as _app
+
+    dash_id = "d0000000-0000-4000-8000-00000000d001"
+    _insert(
+        db,
+        "sobs_dashboards",
+        [
+            {
+                "Id": dash_id,
+                "Name": "Parity View Dashboard",
+                "Description": "Seeded dashboard for the dashboard-view parity route.",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    charts = [
+        (
+            "d0000000-0000-4000-8000-00000000c001",
+            "Trace volume overlay",
+            "derived_signal_overlay",
+            "SELECT time, value FROM v_derived_signals_anomaly WHERE service = 'web' ORDER BY time",
+            0,
+        ),
+        (
+            "d0000000-0000-4000-8000-00000000c002",
+            "Latency percentiles",
+            "time_series_percentiles",
+            "SELECT time, value, p95, p99 FROM otel_traces ORDER BY time",
+            1,
+        ),
+    ]
+    _insert(
+        db,
+        "sobs_chart_configs",
+        [
+            {
+                "Id": cid,
+                "DashboardId": dash_id,
+                "Title": title,
+                "ChartType": ctype,
+                "Query": query,
+                "OptionsJson": _json.dumps(
+                    {"chart_spec": _app._build_raw_chart_spec(ctype, query)},
+                    ensure_ascii=False,
+                ),
+                "Position": pos,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+            for cid, title, ctype, query, pos in charts
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_dashboards FINAL")
+    db.execute("OPTIMIZE TABLE sobs_chart_configs FINAL")
+
+
 PROFILE_SEEDS = {
     "agentrun": seed_agent_run,
     "notif": seed_notif,
@@ -965,6 +1033,7 @@ PROFILE_SEEDS = {
     "aichat": seed_aichat,
     "ciauth": seed_ci_key,  # registered app + managed per-app CI-push key; managed-key require_api_key path
     "tracedetail": seed_trace_detail,  # multi-span trace + logs -> populated trace_detail waterfall
+    "dashview": seed_dashview,  # dashboard + charts -> GET /dashboards/<id> view branch
 }
 
 

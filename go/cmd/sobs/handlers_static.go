@@ -34,6 +34,13 @@ var signalLabelsJSON []byte
 //go:embed assets/chart_spec_templates.json
 var chartSpecTemplatesJSON []byte
 
+// dashboardViewTemplatesJSON is the chart-template catalog in the shape app.py
+// view_custom_dashboard builds (CHART_TEMPLATES sorted by id, each with id/name/description/
+// icon/query_shape/sample_sql/drilldown/default_spec) — embedded into the dashboard view page.
+//
+//go:embed assets/dashboard_view_templates.json
+var dashboardViewTemplatesJSON []byte
+
 // field-hints static config (operators/keywords/functions/snippets/fields) — the
 // query-derived parts (attr_keys/tag_keys/tag_values) are computed in the handler.
 //

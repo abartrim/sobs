@@ -436,6 +436,16 @@ routes:
   - GET
   request:
     method: GET
+# dashview profile: a seeded dashboard (d0…d001) + two charts (d0…c001/c002) so GET
+# /dashboards/<id> renders its view branch (view_custom_dashboard) against real data. The base
+# corpus's example dashboard has a determinism-derived id, so this profile pins a known id.
+- id: get__dashboards__id__seeded
+  path: /dashboards/d0000000-0000-4000-8000-00000000d001
+  methods:
+  - GET
+  profile: dashview
+  request:
+    method: GET
 - id: get__settings_kubernetes
   path: /settings/kubernetes
   methods:

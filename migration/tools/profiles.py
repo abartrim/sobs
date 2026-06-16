@@ -85,6 +85,12 @@ PROFILES: dict[str, dict[str, str]] = {
     # 2023-06-01 (outside the frozen 48h anomaly window) and no metrics/raw-windows are seeded, so
     # the anomaly / metric-context / window-overlay blocks take their deterministic empty paths.
     "tracedetail": {},
+    # dashview: a seeded dashboard (fixed id) + two charts so GET /dashboards/<id>
+    # (view_custom_dashboard) renders its view branch against real data. No env overlay — just the
+    # isolated seed. The base example seeder also creates a dashboard, but with a determinism-derived
+    # id; this profile pins a known id for the manifest path. Isolated so the rows never ripple into
+    # base dashboard readers.
+    "dashview": {},
     # feedback: a no-env isolation profile — ai_helper_feedback's telemetry INSERT (otel_logs +
     # otel_traces) runs in its own fixture copy so it doesn't ripple into base telemetry readers.
     "feedback": {},
@@ -254,6 +260,7 @@ SEEDED_PROFILES = {
     "aichat",
     "ciauth",
     "tracedetail",
+    "dashview",
 }
 
 

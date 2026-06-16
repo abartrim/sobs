@@ -936,10 +936,6 @@ func (s *server) handleDashboardsFormSub(w http.ResponseWriter, r *http.Request)
 	if paramMethodGuard(w, r) {
 		return
 	}
-	if r.Method != http.MethodPost {
-		http.NotFound(w, r)
-		return
-	}
 	rest := strings.TrimPrefix(r.URL.Path, "/dashboards/")
 	parts := strings.Split(rest, "/")
 	dashID := parts[0]
@@ -954,6 +950,8 @@ func (s *server) handleDashboardsFormSub(w http.ResponseWriter, r *http.Request)
 	}
 	dash := rowMaps(res)[0]
 	switch {
+	case r.Method == http.MethodGet && rest == dashID:
+		s.viewCustomDashboard(w, dash)
 	case rest == dashID+"/delete":
 		s.deleteDashboard(w, dashID, cStr(dash, "Name"), cStr(dash, "Description"))
 	case rest == dashID+"/charts":
@@ -963,6 +961,61 @@ func (s *server) handleDashboardsFormSub(w http.ResponseWriter, r *http.Request)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// viewCustomDashboard mirrors app.py view_custom_dashboard: render custom_dashboard_view.html
+// with the dashboard, its charts (each carrying a rebuilt chart_spec), and the static chart-
+// template catalog (CHART_TEMPLATES sorted by id + _default_chart_spec, embedded as an asset).
+func (s *server) viewCustomDashboard(w http.ResponseWriter, dash map[string]any) {
+	dashID := cStr(dash, "Id")
+	dashboard := map[string]any{
+		"id":          dashID,
+		"name":        cStr(dash, "Name"),
+		"description": cStr(dash, "Description"),
+	}
+	charts, err := s.getCharts(dashID)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	templates, err := parseJSONValue(dashboardViewTemplatesJSON)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	s.renderPage(w, "custom_dashboard_view.html", "view_custom_dashboard", map[string]any{
+		"dashboard": dashboard,
+		"charts":    charts,
+		"templates": templates,
+	})
+}
+
+// getCharts mirrors app.py _get_charts: load a dashboard's non-deleted charts ordered by
+// Position,Id; rebuild each chart_spec via buildRawChartSpec and re-wrap OptionsJson as
+// json.dumps({"chart_spec": ...}, ensure_ascii=False).
+func (s *server) getCharts(dashID string) ([]any, error) {
+	res, err := s.db.Execute("SELECT Id, Title, ChartType, Query, OptionsJson, Position "+
+		"FROM sobs_chart_configs FINAL WHERE IsDeleted = 0 AND DashboardId = ? "+
+		"ORDER BY Position, Id", dashID)
+	if err != nil {
+		return nil, err
+	}
+	charts := []any{}
+	for _, c := range rowMaps(res) {
+		chartType := cStr(c, "ChartType")
+		query := cStr(c, "Query")
+		chartSpec := buildRawChartSpec(chartType, query, cStr(c, "OptionsJson"))
+		optionsJSON := string(jsonenc.Encode(jsonenc.NewObject().Set("chart_spec", chartSpec), jsonDumpsDefault))
+		charts = append(charts, jsonenc.NewObject().
+			Set("id", cStr(c, "Id")).
+			Set("title", cStr(c, "Title")).
+			Set("chart_type", chartType).
+			Set("query", query).
+			Set("options_json", optionsJSON).
+			Set("position", cInt(c, "Position")).
+			Set("chart_spec", chartSpec))
+	}
+	return charts, nil
 }
 
 // deleteDashboard mirrors app.py delete_dashboard: soft-delete the dashboard and all its charts,
