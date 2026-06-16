@@ -179,11 +179,12 @@ func (s *server) runAgentFlow(rule *agentRule, settings map[string]string, tctx 
 
 	// 3. Optional DLP check + GitHub issue creation. The issue branch runs only with a github
 	// action AND a resolved repo+token. When a dlp_check action AND ai.dlp_endpoint_url are both
-	// present, the outgoing issue text is screened first: a flagged verdict completes the run
+	// present (C7), the outgoing issue text is screened first: a flagged verdict completes the run
 	// WITHOUT creating an issue; a clean (or fail-open "dlp_unavailable") verdict lets creation
-	// proceed and leaves dlp_result "skipped" -> "clean". The dedup/reuse + copilot-assignment
-	// sub-branches are a follow-up (the parity fixture has no prior work items or open issues, so
-	// every issue is a fresh new_issue).
+	// proceed and leaves dlp_result "skipped" -> "clean". When creation proceeds,
+	// chooseGithubIssueOutcome (H9) handles the full dedup/reuse + Copilot-assignment logic (the
+	// parity fixture has no prior work items or open issues, so every issue is still a fresh
+	// new_issue).
 	dlpResult := "skipped"
 	githubIssueURL := ""
 	issueOutcome := map[string]any{}
@@ -211,9 +212,13 @@ func (s *server) runAgentFlow(rule *agentRule, settings map[string]string, tctx 
 					Set("suggestion", suggestion), nil
 			}
 		}
-		issueTitle := buildAgentIssueTitle(rule)
-		issueBody := "## SOBS Automated Agent Report\n\n" + analysis + "\n\n" + suggestion + "\n"
-		issueOutcome = s.chooseGithubIssueOutcome(githubRepo, githubToken, wantsCopilot, issueTitle, issueBody)
+		triggerFields := extractAgentTriggerFields(tctx)
+		issueTitle := buildAgentIssueTitle(rule, triggerFields)
+		issueBody := buildAgentIssueBody(rule, tctx, triggerFields, contextSummary, analysis, suggestion)
+		allowNewIssue := s.countGithubIssuesLastHour() <
+			parseBoundedIntSetting(settings, "ai.agent_max_issues_per_hour", agentMaxIssuesDefault, 1, 20)
+		issueOutcome = s.chooseGithubIssueOutcome(settings, tctx, githubRepo, githubToken, wantsCopilot,
+			analysis, suggestion, issueTitle, issueBody, allowNewIssue)
 		githubIssueURL = toStr(issueOutcome["issue_url"])
 		if githubIssueURL != "" || len(issueOutcome) > 0 {
 			s.persistOnboardingWorkItem(githubRepo, githubIssueURL, mapInt(issueOutcome, "canonical_issue_number"),
@@ -280,46 +285,69 @@ func (s *server) checkDLPEndpoint(dlpURL, text, apiKey string) (bool, string) {
 }
 
 // buildAgentIssueTitle mirrors _build_agent_issue_title (the title is sent to GitHub, never returned).
-func buildAgentIssueTitle(rule *agentRule) string {
-	focus := rule.name
+func buildAgentIssueTitle(rule *agentRule, tf triggerFields) string {
+	anomalyState := strings.TrimSpace(tf.anomalyState)
+	if anomalyState == "" {
+		anomalyState = "detected"
+	}
+	focus := strings.TrimSpace(tf.serviceName)
 	if focus == "" {
-		focus = "Agent Rule"
-	}
-	return "[SOBS Agent] " + focus + " — detected anomaly"
-}
-
-// chooseGithubIssueOutcome mirrors the NEW-issue path of _choose_github_issue_outcome: with no prior
-// work items and no matching open issue, create a fresh issue. (The dedup/reuse + copilot branches
-// are a follow-up.)
-func (s *server) chooseGithubIssueOutcome(githubRepo, githubToken string, wantsCopilot bool, issueTitle, issueBody string) map[string]any {
-	allowNewIssue := s.countGithubIssuesLastHour() < agentMaxIssuesDefault
-	created := map[string]any{}
-	if allowNewIssue {
-		created = s.createGithubIssueRecord(githubToken, githubRepo, issueTitle, issueBody, []string{"sobs-agent", "automated"})
-	}
-	dedupDecision := "create_failed"
-	assignmentReason := ""
-	if toStr(created["issue_url"]) != "" {
-		dedupDecision = "new_issue"
-	} else if !allowNewIssue {
-		dedupDecision = "suppressed_rate_limit"
-		assignmentReason = "GitHub issue creation suppressed by hourly limit"
-	}
-	copilotStatus := "not_requested"
-	if wantsCopilot && dedupDecision != "new_issue" {
-		copilotStatus = "blocked"
-		if dedupDecision == "create_failed" {
-			assignmentReason = "issue not created"
+		focus = rule.name
+		if focus == "" {
+			focus = "Agent Rule"
 		}
 	}
-	return map[string]any{
-		"issue_url": toStr(created["issue_url"]), "issue_title": toStr(created["issue_title"]),
-		"issue_state": orDefault(toStr(created["issue_state"]), "open"), "dedup_decision": dedupDecision,
-		"canonical_issue_url": toStr(created["issue_url"]), "canonical_issue_number": mapInt(created, "issue_number"),
-		"occurrence_count": 1, "copilot_assignment_status": copilotStatus,
-		"copilot_assignment_reason": assignmentReason, "copilot_assignment_requested_at": 0,
-		"created_new_issue": toStr(created["issue_url"]) != "", "issue_error": toStr(created["error"]),
+	signalSource := strings.TrimSpace(tf.signalSource)
+	signalName := strings.TrimSpace(tf.signalName)
+	if signalSource != "" && signalName != "" {
+		return "[SOBS Agent] " + focus + " — " + signalSource + "/" + signalName + " " + anomalyState + " anomaly"
 	}
+	return "[SOBS Agent] " + focus + " — " + anomalyState + " state detected"
+}
+
+// buildAgentIssueBody mirrors the markdown body assembled in _run_agent_flow (sent to GitHub, never
+// returned). Mask state is the global masking.output_enabled setting (applied in createGithubIssueRecord).
+func buildAgentIssueBody(rule *agentRule, tctx *jsonenc.Object, tf triggerFields, contextSummary, analysis, suggestion string) string {
+	additionalContext := strings.TrimSpace(extractTriggerAdditionalContext(tctx))
+	additionalSection := ""
+	if additionalContext != "" {
+		additionalSection = "\n### Additional Context\n" + additionalContext + "\n"
+	}
+	ruleName := rule.name
+	if ruleName == "" {
+		ruleName = "Agent Rule"
+	}
+	return "## SOBS Automated Agent Report\n\n" +
+		"**Rule:** " + ruleName + "  \n" +
+		"**Trigger state:** " + objGetStr(tctx, "trigger_state") + "  \n" +
+		"**Service:** " + tf.serviceName + "  \n" +
+		"**Signal:** " + tf.signalSource + "/" + tf.signalName + "  \n\n" +
+		"### Telemetry Context\n```\n" + contextSummary + "\n```\n\n" +
+		"### Root Cause Analysis\n" + analysis + "\n\n" +
+		"### Suggested Fix\n" + suggestion + "\n" +
+		additionalSection + "\n" +
+		"---\n*Generated automatically by [SOBS](https://github.com/abartrim/sobs). " +
+		"Please review before acting.*"
+}
+
+// extractTriggerAdditionalContext reads extra.additional_context from a trigger context whose `extra`
+// is either a nested object (user-observation flow) or a JSON string (manual flow).
+func extractTriggerAdditionalContext(tctx *jsonenc.Object) string {
+	v, ok := tctx.Get("extra")
+	if !ok {
+		return ""
+	}
+	switch x := v.(type) {
+	case *jsonenc.Object:
+		return objGetStr(x, "additional_context")
+	case string:
+		if parsed, err := parseJSONValue([]byte(x)); err == nil {
+			if o, ok := parsed.(*jsonenc.Object); ok {
+				return objGetStr(o, "additional_context")
+			}
+		}
+	}
+	return ""
 }
 
 const agentMaxIssuesDefault = 5
@@ -376,6 +404,96 @@ func (s *server) handleTriggerAgentRun(w http.ResponseWriter, r *http.Request) {
 		Set("ok", true).Set("run_id", outcome.runID).Set("result", outcome.result))
 }
 
+// buildUserIssueTriggerContext mirrors app.py _build_user_issue_trigger_context: derive the signal
+// fields + extra context from the raise-issue payload. The derived service/signal/state feed the
+// dedup key and issue title, so they must match Python exactly.
+func buildUserIssueTriggerContext(sourcePage string, body map[string]any) *jsonenc.Object {
+	source := strings.ToLower(strings.TrimSpace(sourcePage))
+	if source != "errors" && source != "traces" && source != "incident" {
+		source = "errors"
+	}
+	service := strings.TrimSpace(bstr(body, "service"))
+	traceID := strings.TrimSpace(bstr(body, "trace_id"))
+	spanID := strings.TrimSpace(bstr(body, "span_id"))
+	errorID := strings.TrimSpace(bstr(body, "error_id"))
+	errType := strings.TrimSpace(bstr(body, "err_type"))
+	spanName := strings.TrimSpace(bstr(body, "span_name"))
+	status := strings.TrimSpace(bstr(body, "status"))
+	message := strings.TrimSpace(bstr(body, "message"))
+	stack := strings.TrimSpace(bstr(body, "stack"))
+
+	var signalSource, signalName, anomalyState, triggerRefID string
+	var signalValue float64
+	switch source {
+	case "traces":
+		signalSource = "traces"
+		signalName = orFirstNonEmpty(spanName, "trace_span")
+		if strings.Contains(strings.ToUpper(status), "ERROR") {
+			anomalyState = "critical"
+		} else {
+			anomalyState = "warning"
+		}
+		signalValue = parseFloatDefault(bstr(body, "duration_ms"), 0.0)
+		triggerRefID = orFirstNonEmpty(traceID, spanID)
+	case "incident":
+		signalSource = "incident"
+		signalName = orFirstNonEmpty(errType, orFirstNonEmpty(spanName, "incident_packet"))
+		if errorID != "" || strings.Contains(strings.ToUpper(status), "ERROR") {
+			anomalyState = "critical"
+		} else {
+			anomalyState = "warning"
+		}
+		signalValue = parseFloatDefault(bstr(body, "duration_ms"), 1.0)
+		triggerRefID = orFirstNonEmpty(errorID, orFirstNonEmpty(traceID, spanID))
+	default: // errors
+		signalSource = "errors"
+		signalName = orFirstNonEmpty(errType, "exception")
+		anomalyState = "critical"
+		signalValue = 1.0
+		triggerRefID = errorID
+	}
+
+	extra := jsonenc.NewObject().
+		Set("initiated_by", "user").
+		Set("source_page", source).
+		Set("source", signalSource).
+		Set("signal", signalName).
+		Set("state", anomalyState).
+		Set("value", signalValue).
+		Set("service", service).
+		Set("trace_id", traceID).
+		Set("span_id", spanID).
+		Set("error_id", errorID).
+		Set("err_type", errType).
+		Set("message", truncRunes(message, 1200)).
+		Set("stack", truncRunes(stack, 3000)).
+		Set("url", strings.TrimSpace(bstr(body, "url"))).
+		Set("timestamp", strings.TrimSpace(bstr(body, "timestamp"))).
+		Set("additional_context", truncRunes(strings.TrimSpace(bstr(body, "additional_context")), 2000))
+
+	return jsonenc.NewObject().
+		Set("rule_name", "User Raised Issue ("+source+")").
+		Set("trigger_state", anomalyState).
+		Set("trigger_type", "manual").
+		Set("trigger_ref_id", triggerRefID).
+		Set("service", service).
+		Set("extra", extra)
+}
+
+// parseFloatDefault mirrors `float(value or default)` for the (parity-invisible) duration_ms field;
+// a blank/unparseable value yields the default. JSON-number payloads reach bstr as text under the
+// parity harness; the trace/incident branches are untested in the corpus.
+func parseFloatDefault(raw string, def float64) float64 {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return def
+	}
+	if f, err := strconv.ParseFloat(raw, 64); err == nil {
+		return f
+	}
+	return def
+}
+
 // handleApiIssuesRaise mirrors app.py raise_issue_from_user_observation: gate on AI config, then run
 // the agent flow (analyze + github_issue + dlp_check) for a synthetic user-observation rule.
 func (s *server) handleApiIssuesRaise(w http.ResponseWriter, r *http.Request) {
@@ -395,10 +513,12 @@ func (s *server) handleApiIssuesRaise(w http.ResponseWriter, r *http.Request) {
 			Set("ok", false).Set("error", "AI endpoint not configured. Visit Settings -> AI Configuration."))
 		return
 	}
-	tctx := jsonenc.NewObject().
-		Set("rule_name", "User Raised Issue ("+sourcePage+")").Set("trigger_state", "user").
-		Set("trigger_type", "user_observation").Set("trigger_ref_id", "").
-		Set("extra", jsonenc.NewObject().Set("source_page", sourcePage).Set("mask_output", bodyBool(body, "mask_output", true)))
+	tctx := buildUserIssueTriggerContext(sourcePage, body)
+	if ev, ok := tctx.Get("extra"); ok {
+		if eo, ok := ev.(*jsonenc.Object); ok {
+			eo.Set("mask_output", bodyBool(body, "mask_output", true))
+		}
+	}
 	githubRepo, githubToken := s.resolveAgentGithubTarget(settings, tctx)
 	if githubRepo == "" || githubToken == "" {
 		writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().Set("ok", false).

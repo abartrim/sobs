@@ -158,6 +158,20 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # issuereuse: same agent mock + github mock as issuesraise, but the fixture is seeded with a
+    # prior work item AND the github mock returns a matching OPEN issue, so the agent flow's dedup
+    # subsystem reuses the existing issue (dedup-key fallback -> "same") instead of creating a new
+    # one. A second seeded work item sits at the active-Copilot limit so the reuse-path Copilot
+    # assignment is deterministically blocked (no assign HTTP call). Uses a DISTINCT repo
+    # (acme/reuse-demo) so its open-issues fixture never ripples into issuesraise (acme/widget, whose
+    # open-issues lookup must keep 404-ing so it still creates a fresh issue).
+    "issuereuse": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # aibuild: dashboards/spec/ai-build — the vanna pipeline (generate SQL -> execute -> named
     # queries -> chart option). No guard check; one canned /chat/completions ("SELECT 1 AS x") is
     # reused for every stage (URL-keyed), so the named-query/chart stages fail to parse identically
@@ -218,6 +232,7 @@ SEEDED_PROFILES = {
     "notifcheck",
     "notifgen",
     "agenttrigger",
+    "issuereuse",
     "dmbackup",
     "k8s",
     "repoapp",

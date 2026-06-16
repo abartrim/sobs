@@ -1230,6 +1230,25 @@ routes:
   mask:
   - '"run_id": ?"[^"]*"'
   mask_reason: run_id is a server-generated uuid4; issue_url/dedup_decision/status/copilot fields are byte-compared.
+# issuereuse profile: a prior work item (#41) + the github mock returning #41 as an OPEN issue make
+# the agent flow's dedup subsystem REUSE the existing issue (dedup-key fallback -> "same") instead of
+# creating a new one. assign_copilot=true exercises the reuse-path Copilot rate limiters, which the
+# seeded active assignment deterministically blocks. err_type/source_page fix the recomputed dedup key.
+- id: post__api_issues_raise__reuse
+  path: /api/issues/raise
+  methods:
+  - POST
+  profile: issuereuse
+  request:
+    method: POST
+    json:
+      source_page: errors
+      err_type: TimeoutError
+      error_id: err-001
+      assign_copilot: true
+  mask:
+  - '"run_id": ?"[^"]*"'
+  mask_reason: run_id is a server-generated uuid4; issue_url/dedup_decision/copilot_assignment_status/reason/status are byte-compared.
 - id: post__api_reports_import
   path: /api/reports/import
   methods:

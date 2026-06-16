@@ -246,10 +246,34 @@ func (s *server) fetchOpenGithubIssues(token, githubRepo string) []map[string]an
 		if v, ok := o.Get("number"); ok {
 			num = jnToInt(v)
 		}
+		// issue_body + assignees mirror _fetch_open_github_issues — needed by the dedup/reuse path
+		// (the onboarding caller ignores them). assignees is the list of login strings.
 		out = append(out, map[string]any{
 			"issue_number": num, "issue_url": objGetStr(o, "html_url"),
-			"issue_title": objGetStr(o, "title"), "issue_state": orDefault(objGetStr(o, "state"), "open"),
+			"issue_title": objGetStr(o, "title"), "issue_body": objGetStr(o, "body"),
+			"issue_state": orDefault(objGetStr(o, "state"), "open"),
+			"assignees":   extractIssueAssigneeLogins(o),
 		})
+	}
+	return out
+}
+
+// extractIssueAssigneeLogins mirrors `[str(a.get("login") or "") for a in (item.get("assignees") or [])
+// if isinstance(a, dict)]` — the login of every assignee object (empty string when absent).
+func extractIssueAssigneeLogins(o *jsonenc.Object) []string {
+	v, ok := o.Get("assignees")
+	if !ok {
+		return nil
+	}
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := []string{}
+	for _, e := range arr {
+		if eo, ok := e.(*jsonenc.Object); ok {
+			out = append(out, objGetStr(eo, "login"))
+		}
 	}
 	return out
 }

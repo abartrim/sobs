@@ -502,6 +502,115 @@ def seed_issues_raise(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
 
 
+def seed_issues_reuse(db) -> None:
+    # A global github repo + token (a DISTINCT repo from issuesraise so the seeded open-issue
+    # fixture never ripples there) plus two prior work items, so raise_issue_from_user_observation's
+    # agent flow exercises the dedup/reuse path:
+    #   * W1 is a prior issue (#41) whose DedupKey equals the key the flow recomputes from the
+    #     request (repo=acme/reuse-demo, source=errors, err_type=TimeoutError, state=critical, no
+    #     service). The github mock returns #41 as an OPEN issue, so it becomes a dedup candidate and
+    #     the local fallback classifies the proposed incident "same" -> reuse #41 (dedup_decision
+    #     "reused_existing", occurrence_count 2). The AI mock returns the analyze root-cause text
+    #     (no JSON), so the LLM dedupe classifier falls back deterministically.
+    #   * W2 sits at CopilotAssignmentStatus="active" (a DIFFERENT issue #99 not returned as open,
+    #     so it is not itself a candidate) so _count_active_copilot_assignments >= the default limit
+    #     of 1, deterministically blocking the reuse-path Copilot assignment WITHOUT an assign HTTP
+    #     call. Both copilot rate-limiters run (hourly count 0; active count >= 1).
+    # RequestedAt=0 on both keeps the (clock-derived) hourly counter at 0.
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [
+            {"Key": "ai.github_repo", "Value": "acme/reuse-demo", "IsDeleted": 0, "Version": 1704164644000},
+            {"Key": "ai.github_token", "Value": "ghp_parity_token", "IsDeleted": 0, "Version": 1704164644000},
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+    _insert(
+        db,
+        "sobs_github_work_items",
+        [
+            {
+                "Id": "c1000000000000000000000000000001",
+                # Distinct (CreatedAt, AgentRunId) per row: the table sorts on (CreatedAt, AgentRunId),
+                # so two rows sharing that key would collapse under ReplacingMergeTree FINAL.
+                "CreatedAt": "2024-01-02 03:05:01.000000",
+                "CompletedAt": "2024-01-02 03:05:01.000000",
+                "AgentRunId": "ar000000000000000000000000000001",
+                "AgentRuleId": "",
+                "AgentRuleName": "User Raised Issue (errors)",
+                "AgentAction": "github_issue",
+                "ServiceName": "",
+                "AnomalyRuleId": "",
+                "AnomalyState": "critical",
+                "SignalSource": "errors",
+                "SignalName": "TimeoutError",
+                "SignalValue": 1.0,
+                "GithubRepo": "acme/reuse-demo",
+                "DedupKey": "acme reuse demo||errors|timeouterror|critical",
+                "DedupDecision": "new_issue",
+                "DedupConfidence": 1.0,
+                "IssueNumber": 41,
+                "IssueUrl": "https://github.com/acme/reuse-demo/issues/41",
+                "CanonicalIssueNumber": 41,
+                "CanonicalIssueUrl": "https://github.com/acme/reuse-demo/issues/41",
+                "RelatedIssueUrls": "[]",
+                "OccurrenceCount": 1,
+                "IssueState": "open",
+                "IssueTitle": "Checkout latency: TimeoutError spike",
+                "AnalysisSummary": "Prior root-cause analysis.",
+                "SuggestionSummary": "Prior suggested fix.",
+                "CopilotAssignmentRequestedAt": 0,
+                "CopilotAssignmentStatus": "not_requested",
+                "CopilotAssignmentReason": "",
+                "PrLinked": 0,
+                "PrNumber": 0,
+                "PrUrl": "",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "Id": "c1000000000000000000000000000002",
+                "CreatedAt": "2024-01-02 03:05:02.000000",
+                "CompletedAt": "2024-01-02 03:05:02.000000",
+                "AgentRunId": "ar000000000000000000000000000002",
+                "AgentRuleId": "",
+                "AgentRuleName": "User Raised Issue (errors)",
+                "AgentAction": "github_issue_copilot",
+                "ServiceName": "",
+                "AnomalyRuleId": "",
+                "AnomalyState": "warning",
+                "SignalSource": "errors",
+                "SignalName": "OtherError",
+                "SignalValue": 1.0,
+                "GithubRepo": "acme/reuse-demo",
+                "DedupKey": "acme reuse demo||errors|othererror|warning",
+                "DedupDecision": "new_issue",
+                "DedupConfidence": 1.0,
+                "IssueNumber": 99,
+                "IssueUrl": "https://github.com/acme/reuse-demo/issues/99",
+                "CanonicalIssueNumber": 99,
+                "CanonicalIssueUrl": "https://github.com/acme/reuse-demo/issues/99",
+                "RelatedIssueUrls": "[]",
+                "OccurrenceCount": 1,
+                "IssueState": "open",
+                "IssueTitle": "Unrelated active Copilot work item",
+                "AnalysisSummary": "",
+                "SuggestionSummary": "",
+                "CopilotAssignmentRequestedAt": 0,
+                "CopilotAssignmentStatus": "active",
+                "CopilotAssignmentReason": "Copilot is assigned on the issue",
+                "PrLinked": 0,
+                "PrNumber": 0,
+                "PrUrl": "",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_github_work_items FINAL")
+
+
 def seed_notif(db) -> None:
     # Two channels + two rules, each on its OWN id so toggle/delete don't collide on the
     # ReplacingMergeTree version (both actions re-insert at Version 1704164645000). Seed Version
@@ -759,6 +868,7 @@ PROFILE_SEEDS = {
     "cvebackfill": seed_repo_app,  # app+release+github token -> cve github backfill attempts a release
     "onboard": seed_repo_app,  # app+token -> onboarding create-issues realtime + github-issue paths
     "issuesraise": seed_issues_raise,  # global github repo+token -> issues/raise agent flow creates an issue
+    "issuereuse": seed_issues_reuse,  # prior work item + matching open issue -> issues/raise reuses it (dedup)
     "githubtoken": seed_github_token,
     "mcpkey": seed_mcp_key,
     "mcpauth": seed_mcp_auth,  # api key whose hash auths tools/list + tools/call
