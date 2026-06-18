@@ -89,7 +89,7 @@ func TestTailBroadcastLogs(t *testing.T) {
 	defer s.sse.unsubscribe(ch)
 
 	body := map[string]any{"resourceLogs": []any{map[string]any{
-		"resource":  map[string]any{"attributes": []any{otlpAttr("service.name", "checkout")}},
+		"resource": map[string]any{"attributes": []any{otlpAttr("service.name", "checkout")}},
 		"scopeLogs": []any{map[string]any{"logRecords": []any{map[string]any{
 			"timeUnixNano": "1700000000000000000",
 			"severityText": "warn",
@@ -127,7 +127,7 @@ func TestTailBroadcastTracesSpanAndAI(t *testing.T) {
 	defer s.sse.unsubscribe(ch)
 
 	body := map[string]any{"resourceSpans": []any{map[string]any{
-		"resource":   map[string]any{"attributes": []any{otlpAttr("service.name", "agent")}},
+		"resource": map[string]any{"attributes": []any{otlpAttr("service.name", "agent")}},
 		"scopeSpans": []any{map[string]any{"spans": []any{map[string]any{
 			"name":              "chat gpt-4o",
 			"startTimeUnixNano": "1700000000000000000",
