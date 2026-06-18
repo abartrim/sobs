@@ -377,11 +377,28 @@ def seed_dm_prune(db) -> None:
     # TimeUnixMs (DateTime) derives from the inserted TimeUnix via its column DEFAULT, so the
     # _get_dm_column_type probe sees "datetime" and the plain (non-ms) DELETE primary applies.
     for table in ("otel_logs", "hyperdx_sessions"):
-        _insert(db, table, [{"Timestamp": _DM_PRUNE_OLD_TS, "ServiceName": "dmprune-old", "Body": "old"} for _ in range(5)])
-    _insert(db, "otel_traces", [{"Timestamp": _DM_PRUNE_OLD_TS, "ServiceName": "dmprune-old", "SpanName": "old"} for _ in range(5)])
+        _insert(
+            db, table, [{"Timestamp": _DM_PRUNE_OLD_TS, "ServiceName": "dmprune-old", "Body": "old"} for _ in range(5)]
+        )
+    _insert(
+        db,
+        "otel_traces",
+        [{"Timestamp": _DM_PRUNE_OLD_TS, "ServiceName": "dmprune-old", "SpanName": "old"} for _ in range(5)],
+    )
     for table in ("otel_metrics_gauge", "otel_metrics_sum", "otel_metrics_histogram"):
-        _insert(db, table, [{"TimeUnix": _DM_PRUNE_OLD_TS, "ServiceName": "dmprune-old", "MetricName": "old"} for _ in range(5)])
-    for table in ("otel_logs", "otel_traces", "hyperdx_sessions", "otel_metrics_gauge", "otel_metrics_sum", "otel_metrics_histogram"):
+        _insert(
+            db,
+            table,
+            [{"TimeUnix": _DM_PRUNE_OLD_TS, "ServiceName": "dmprune-old", "MetricName": "old"} for _ in range(5)],
+        )
+    for table in (
+        "otel_logs",
+        "otel_traces",
+        "hyperdx_sessions",
+        "otel_metrics_gauge",
+        "otel_metrics_sum",
+        "otel_metrics_histogram",
+    ):
         db.execute(f"OPTIMIZE TABLE {table} FINAL")
 
 
@@ -523,30 +540,62 @@ def seed_tagsuggest(db) -> None:
         db,
         "otel_logs",
         [
-            {"Timestamp": _TS, "ServiceName": "checkout-api", "SeverityText": "ERROR",
-             "Body": "payment declined", "EventName": "exception",
-             "LogAttributes": {"http.method": "POST", "http.route": "/checkout"}},
-            {"Timestamp": _TS, "ServiceName": "checkout-api", "SeverityText": "ERROR",
-             "Body": "payment declined", "EventName": "exception",
-             "LogAttributes": {"http.method": "POST", "http.route": "/checkout"}},
-            {"Timestamp": _TS, "ServiceName": "checkout-api", "SeverityText": "INFO",
-             "Body": "request handled", "EventName": "request",
-             "LogAttributes": {"http.method": "GET", "http.route": "/health"}},
-            {"Timestamp": _TS, "ServiceName": "payments-api", "SeverityText": "WARN",
-             "Body": "retry scheduled", "EventName": "request",
-             "LogAttributes": {"http.method": "PUT", "http.route": "/pay"}},
+            {
+                "Timestamp": _TS,
+                "ServiceName": "checkout-api",
+                "SeverityText": "ERROR",
+                "Body": "payment declined",
+                "EventName": "exception",
+                "LogAttributes": {"http.method": "POST", "http.route": "/checkout"},
+            },
+            {
+                "Timestamp": _TS,
+                "ServiceName": "checkout-api",
+                "SeverityText": "ERROR",
+                "Body": "payment declined",
+                "EventName": "exception",
+                "LogAttributes": {"http.method": "POST", "http.route": "/checkout"},
+            },
+            {
+                "Timestamp": _TS,
+                "ServiceName": "checkout-api",
+                "SeverityText": "INFO",
+                "Body": "request handled",
+                "EventName": "request",
+                "LogAttributes": {"http.method": "GET", "http.route": "/health"},
+            },
+            {
+                "Timestamp": _TS,
+                "ServiceName": "payments-api",
+                "SeverityText": "WARN",
+                "Body": "retry scheduled",
+                "EventName": "request",
+                "LogAttributes": {"http.method": "PUT", "http.route": "/pay"},
+            },
         ],
     )
     _insert(
         db,
         "otel_traces",
         [
-            {"Timestamp": _TS, "ServiceName": "checkout-api", "SpanName": "POST /checkout",
-             "SpanAttributes": {"http.method": "POST", "rpc.service": "CheckoutService"}},
-            {"Timestamp": _TS, "ServiceName": "frontend-web", "SpanName": "GET /home",
-             "SpanAttributes": {"http.method": "GET"}},
-            {"Timestamp": _TS, "ServiceName": "frontend-web", "SpanName": "GET /home",
-             "SpanAttributes": {"http.method": "GET"}},
+            {
+                "Timestamp": _TS,
+                "ServiceName": "checkout-api",
+                "SpanName": "POST /checkout",
+                "SpanAttributes": {"http.method": "POST", "rpc.service": "CheckoutService"},
+            },
+            {
+                "Timestamp": _TS,
+                "ServiceName": "frontend-web",
+                "SpanName": "GET /home",
+                "SpanAttributes": {"http.method": "GET"},
+            },
+            {
+                "Timestamp": _TS,
+                "ServiceName": "frontend-web",
+                "SpanName": "GET /home",
+                "SpanAttributes": {"http.method": "GET"},
+            },
         ],
     )
     # A hyperdx_sessions row with a real EventName so the event_type union has a session source if
@@ -564,14 +613,38 @@ def seed_tagsuggest(db) -> None:
         db,
         "sobs_record_tags",
         [
-            {"RecordType": "log", "RecordId": "rec-tagsuggest-1", "TagKey": "env",
-             "TagValue": "production", "IsDeleted": 0, "Version": 1704164644000},
-            {"RecordType": "log", "RecordId": "rec-tagsuggest-2", "TagKey": "env",
-             "TagValue": "staging", "IsDeleted": 0, "Version": 1704164644000},
-            {"RecordType": "log", "RecordId": "rec-tagsuggest-3", "TagKey": "team",
-             "TagValue": "checkout", "IsDeleted": 0, "Version": 1704164644000},
-            {"RecordType": "trace", "RecordId": "rec-tagsuggest-4", "TagKey": "env",
-             "TagValue": "production", "IsDeleted": 0, "Version": 1704164644000},
+            {
+                "RecordType": "log",
+                "RecordId": "rec-tagsuggest-1",
+                "TagKey": "env",
+                "TagValue": "production",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "RecordType": "log",
+                "RecordId": "rec-tagsuggest-2",
+                "TagKey": "env",
+                "TagValue": "staging",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "RecordType": "log",
+                "RecordId": "rec-tagsuggest-3",
+                "TagKey": "team",
+                "TagValue": "checkout",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "RecordType": "trace",
+                "RecordId": "rec-tagsuggest-4",
+                "TagKey": "env",
+                "TagValue": "production",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
         ],
     )
     # sobs_log_attr_keys feeds _tag_rule_attribute_key_suggestions (the cache primes from this
@@ -969,9 +1042,24 @@ def seed_ci_key(db) -> None:
         db,
         "sobs_ai_settings",
         [
-            {"Key": _app._ci_push_setting_key(CI_AUTH_APP_ID, "hash"), "Value": key_hash, "IsDeleted": 0, "Version": 1704164644000},
-            {"Key": _app._ci_push_setting_key(CI_AUTH_APP_ID, "expires_at"), "Value": "2030-01-01T23:59:59+00:00", "IsDeleted": 0, "Version": 1704164644000},
-            {"Key": _app._ci_push_setting_key(CI_AUTH_APP_ID, "realtime_enabled"), "Value": "true", "IsDeleted": 0, "Version": 1704164644000},
+            {
+                "Key": _app._ci_push_setting_key(CI_AUTH_APP_ID, "hash"),
+                "Value": key_hash,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "Key": _app._ci_push_setting_key(CI_AUTH_APP_ID, "expires_at"),
+                "Value": "2030-01-01T23:59:59+00:00",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "Key": _app._ci_push_setting_key(CI_AUTH_APP_ID, "realtime_enabled"),
+                "Value": "true",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
         ],
     )
     db.execute("OPTIMIZE TABLE sobs_apps FINAL")
@@ -1062,7 +1150,13 @@ def seed_trace_detail(db) -> None:
             # root request span [0, 80ms]; carries http + k8s attrs (drives the metric-context
             # dimension collection, which still resolves to "no match" with no metrics seeded).
             span(
-                "000000", "aaaa000000000001", "", "checkout", "GET /checkout", 80, "STATUS_CODE_OK",
+                "000000",
+                "aaaa000000000001",
+                "",
+                "checkout",
+                "GET /checkout",
+                80,
+                "STATUS_CODE_OK",
                 {
                     "http.method": "GET",
                     "http.url": "/checkout",
@@ -1077,15 +1171,27 @@ def seed_trace_detail(db) -> None:
             span("010000", "aaaa000000000002", "aaaa000000000001", "checkout", "validate-cart", 30, "UNSET", {}),
             # child of root [50, 170ms]; ERROR status + http 500 -> error styling branch.
             span(
-                "050000", "aaaa000000000003", "aaaa000000000001", "checkout-db", "SELECT items", 120,
-                "STATUS_CODE_ERROR", {"http.status_code": "500"},
+                "050000",
+                "aaaa000000000003",
+                "aaaa000000000001",
+                "checkout-db",
+                "SELECT items",
+                120,
+                "STATUS_CODE_ERROR",
+                {"http.status_code": "500"},
             ),
             # grandchild (child of validate-cart) [15, 20ms]; tiny span -> 0.5% min width branch.
             span("015000", "aaaa000000000004", "aaaa000000000002", "checkout", "cache-get", 5, "STATUS_CODE_OK", {}),
             # second root [400, 1500ms]; >=1s, not error -> outlier badge branch; starts after the
             # request tree ends (170ms) -> coverage gap [170, 400ms].
             span(
-                "400000", "aaaa000000000005", "", "checkout", "async-flush", 1100, "STATUS_CODE_OK",
+                "400000",
+                "aaaa000000000005",
+                "",
+                "checkout",
+                "async-flush",
+                1100,
+                "STATUS_CODE_OK",
                 {"http.status_code": "404"},
             ),
         ],
@@ -1238,7 +1344,7 @@ PROFILE_SEEDS = {
     "notifgen": seed_notif,  # channels+rules; auto-generate create inserts new rules (isolated)
     "agenttrigger": seed_agent_rule,  # analyze-only rule; trigger_agent_run runs the agent flow
     "dmprune": seed_dm_prune,  # retention-eligible rows -> prune's DELETE window runs on real data
-    "notifagent": seed_notif_agent,  # tag rule + recent auto tags + agent rule; check_notifications auto-triggers the agent flow
+    "notifagent": seed_notif_agent,  # tag rule + auto tags + agent rule -> check_notifications auto-triggers the flow
     "dmbackup": seed_dm_backup,
     "k8s": seed_k8s,  # backup_enabled=1; backup/run + restore reach their enabled branch
     "repoapp": seed_repo_app,  # registered app + release + github token; repositories-sub actions

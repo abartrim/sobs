@@ -153,7 +153,9 @@ def main() -> int:
 
     print("# Paste these body_b64 values into migration/manifest/routes.yaml.")
     print(f"#   gzip logs    -> {len(gz_logs)} compressed bytes  (decodes to {len(logs_json)} bytes, accepted: 1)")
-    print(f"#   deflate metrics -> {len(df_metrics)} compressed bytes (decodes to {len(metrics_json)} bytes, accepted: 1)")
+    print(
+        f"#   deflate metrics -> {len(df_metrics)} compressed bytes (decodes to {len(metrics_json)} bytes, accepted: 1)"
+    )
     print(f"#   invalid gzip -> {len(INVALID_GZIP_BODY)} bytes (rejected, 400)\n")
     print(f"post__v1_logs__ingest_gzip   body_b64: {_b64(gz_logs)}")
     print(f"post__v1_metrics__ingest_deflate body_b64: {_b64(df_metrics)}")
