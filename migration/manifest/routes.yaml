@@ -1885,6 +1885,49 @@ routes:
     headers:
       Content-Type: application/x-protobuf
     body_b64: 'CksKFwoVCgxzZXJ2aWNlLm5hbWUSBQoDYXBpEjASLgoJY3B1LnVzYWdlKiEKHxkAMgEwt2imFzoLCgRjb3JlEgMKATAhAAAAAAAA4D8='
+# OTLP Content-Encoding decompression: the OTel Collector's otlphttp exporter gzips by default, so
+# the server must inflate gzip/deflate request bodies before parsing (app.py _decompress_request_body
+# / Go decompressRequestBody). These compressed bodies decode to the same OTLP-JSON as the
+# post__v1_*__ingest entries above (response {"accepted": 1}); regenerate the deterministic body_b64
+# with migration/tools/gen_otlp_gzip_fixtures.py. body_b64 omits an auto Content-Type, so it is set
+# explicitly alongside Content-Encoding.
+- id: post__v1_logs__ingest_gzip
+  path: /v1/logs
+  methods:
+  - POST
+  profile: otlpingest
+  request:
+    method: POST
+    headers:
+      Content-Type: application/json
+      Content-Encoding: gzip
+    body_b64: H4sIAAAAAAAC/4VPwQ6CMAz9FdKzIZAgJt69GU0W9WI8jFHJIqy4DQIh/LuboPGgsb30ta99fQNoNNRogVsqDKyD8/DuODQAt1bLrLE4D2/YuwIM6lYKDBWvEBYBtLxspgXj+Ko4zRh4LWEcL6PjGEH1h0xJBUNBOp+xlRUelex2XJHfjFdREqdJmiyjV3glgy1qafsDdtbTNoztmR9klPffPsiIKvD6P6y4e8r+N6Lx3qCx4ZXLEvOnpykfunzzk0MBAAA=
+- id: post__v1_metrics__ingest_deflate
+  path: /v1/metrics
+  methods:
+  - POST
+  profile: otlpingest
+  request:
+    method: POST
+    headers:
+      Content-Type: application/json
+      Content-Encoding: deflate
+    body_b64: eNp9j80KwjAQhF9F9iwlhbaCZ6+KF71ID9u4hGCblPwUpeTdTdoqCmIOIbM784UZwZDV3nDakzOSW9iuLuN7GNUI6OKm8Y6W5Y0e8QGWzCA5ZQo7gvUKBmz9HLDRr8R50YC9hBDqED2W6/77p+5TTKiY4L3PvEUxcQV6MXOv6PCopXKL3cmOTkreD6h0iuUbVuRVURUle50EQLvTvmkTg2VlGvwuxLX5X4RNNer5qsMT3CdmXg==
+# Sender claims gzip but the body is plain JSON (no gzip magic): app.py's decompressor raises and
+# the JSON path returns 400 {"error": "failed to read request body"}; the Go port must match. The
+# 32 MiB decompression-bomb cap (reject-oversize) is verified by the Go unit test
+# TestDecompressRequestBodyCapBoundary, avoiding a multi-MiB blob in the manifest. No insert (the
+# body is rejected before parsing), so this stays in the base profile.
+- id: post__v1_logs__gzip_invalid
+  path: /v1/logs
+  methods:
+  - POST
+  request:
+    method: POST
+    headers:
+      Content-Type: application/json
+      Content-Encoding: gzip
+    body_b64: eyJyZXNvdXJjZUxvZ3MiOltdfQ==
 - id: post__v1_rum_assets
   path: /v1/rum/assets
   methods:

@@ -39,7 +39,16 @@ func otlpRecordCount(body []byte, resKey, scopeKey, recKey string) (int, bool) {
 func (s *server) v1IngestOTLP(w http.ResponseWriter, r *http.Request, resKey, scopeKey, recKey string) {
 	eventType := map[string]string{"logRecords": "log", "spans": "trace", "metrics": "metric"}[recKey]
 	defer s.tel.span("sobs.ingest.request", map[string]any{"route": r.URL.Path, "event.type": eventType})()
-	body, _ := io.ReadAll(r.Body)
+	raw, _ := io.ReadAll(r.Body)
+	// Inflate Content-Encoding: gzip/deflate before parsing (the OTel Collector's otlphttp
+	// exporter compresses by default). A decompression failure — including the 32 MiB
+	// decompression-bomb cap — mirrors app.py's JSON-path error: 400 "failed to read request
+	// body". (The protobuf path's distinct "failed to parse protobuf body" message is C3's.)
+	body, err := decompressRequestBody(raw, r.Header.Get("Content-Encoding"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().Set("error", "failed to read request body"))
+		return
+	}
 	var m map[string]any
 	if isOTLPProtobuf(r) {
 		// OTLP-protobuf wire format — the OTel Collector otlphttp exporter default and what most
@@ -65,7 +74,6 @@ func (s *server) v1IngestOTLP(w http.ResponseWriter, r *http.Request, resKey, sc
 		}
 	}
 	var count int
-	var err error
 	switch recKey {
 	case "logRecords":
 		count, err = s.ingestOTLPLogs(m)
