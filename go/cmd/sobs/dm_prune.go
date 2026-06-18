@@ -35,17 +35,17 @@ var dmPrunePeriodUnits = map[string]string{
 	"days":  "DAY",
 }
 
-// dmTTLTables are the (table, timestamp column) pairs whose Timestamp is a DateTime64
+// dmPruneTTLTables are the (table, timestamp column) pairs whose Timestamp is a DateTime64
 // (app.py `_DM_TTL_TABLES`; the setting-key third element is unused by prune).
-var dmTTLTables = []struct{ table, tsCol string }{
+var dmPruneTTLTables = []struct{ table, tsCol string }{
 	{"otel_logs", "Timestamp"},
 	{"otel_traces", "Timestamp"},
 	{"hyperdx_sessions", "Timestamp"},
 }
 
-// dmMetricTables are the (table, timestamp column) pairs whose TimeUnixMs is a DateTime
+// dmPruneMetricTables are the (table, timestamp column) pairs whose TimeUnixMs is a DateTime
 // (app.py `_DM_METRIC_TABLES`), handled with the ms/DateTime detection below.
-var dmMetricTables = []struct{ table, tsCol string }{
+var dmPruneMetricTables = []struct{ table, tsCol string }{
 	{"otel_metrics_gauge", "TimeUnixMs"},
 	{"otel_metrics_sum", "TimeUnixMs"},
 	{"otel_metrics_histogram", "TimeUnixMs"},
@@ -54,11 +54,11 @@ var dmMetricTables = []struct{ table, tsCol string }{
 // dmAllPruneTables is `[t for t,*_ in _DM_TTL_TABLES] + [t for t,_ in _DM_METRIC_TABLES]` — the
 // OPTIMIZE-pass order and the `{len}` count in the success message (always 6).
 func dmAllPruneTables() []string {
-	out := make([]string, 0, len(dmTTLTables)+len(dmMetricTables))
-	for _, t := range dmTTLTables {
+	out := make([]string, 0, len(dmPruneTTLTables)+len(dmPruneMetricTables))
+	for _, t := range dmPruneTTLTables {
 		out = append(out, t.table)
 	}
-	for _, t := range dmMetricTables {
+	for _, t := range dmPruneMetricTables {
 		out = append(out, t.table)
 	}
 	return out
@@ -205,14 +205,14 @@ func (s *server) runDmPrune(period dmPrunePeriod) (bool, string) {
 
 	if period.present {
 		unitSQL := dmPrunePeriodUnits[period.unit]
-		for _, t := range dmTTLTables {
+		for _, t := range dmPruneTTLTables {
 			stmt := fmt.Sprintf("ALTER TABLE %s DELETE WHERE %s < now() - INTERVAL %d %s",
 				t.table, t.tsCol, period.value, unitSQL)
 			if _, err := s.db.Execute(stmt); err != nil {
 				errs = append(errs, fmt.Sprintf("%s: %v", t.table, err))
 			}
 		}
-		for _, t := range dmMetricTables {
+		for _, t := range dmPruneMetricTables {
 			detected, ok := s.dmColumnType(t.table, t.tsCol)
 			useMsExpr := !ok || !strings.Contains(detected, "datetime")
 
