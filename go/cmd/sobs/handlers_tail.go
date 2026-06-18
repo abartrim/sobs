@@ -49,8 +49,12 @@ func (b *sseBroker) broadcast(eventJSON string) {
 	}
 }
 
-// sseBroadcast builds the tail event payload (source/ts/service/...) and publishes it.
+// sseBroadcast builds the tail event payload (source/ts/service/...) and publishes it. A nil broker
+// (servers constructed without the /tail hub, e.g. in unit tests) is a no-op.
 func (s *server) sseBroadcast(fields *jsonenc.Object) {
+	if s.sse == nil {
+		return
+	}
 	s.sse.broadcast(string(jsonenc.Encode(fields, jsonenc.Options{SortKeys: false, EnsureASCII: false, ItemSep: ", ", KeySep: ": "})))
 }
 

@@ -402,6 +402,9 @@ func (s *server) streamLLMEndpoint(req llmRequest) (string, []aiToolCall, llmSta
 			st.thinking = jnInt(usage, "reasoning_tokens")
 		}
 	}
+	// app.py _stream_llm_endpoint emits the internal gen_ai span — and its /tail _sse_broadcast —
+	// after the stream completes (app.py:4869), unconditionally on the success path.
+	s.broadcastInternalGenAISpan(req.endpoint, req.model, st, "")
 	return strings.Join(outputParts, ""), completed, st
 }
 

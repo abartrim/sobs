@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sobs/sobs/internal/jsonenc"
 )
 
 // jsonDumpsNoEscBytes mirrors json.dumps(value, ensure_ascii=False) (compact, no HTML escaping) for
@@ -222,6 +224,18 @@ func (s *server) ingestOTLPLogs(body map[string]any) (int, error) {
 		}); err != nil {
 			return len(rows), err
 		}
+		// app.py ingest_logs: after the write succeeds, _sse_broadcast one event per log to the
+		// live /tail subscribers (app.py:9681). Fields mirror the LogEvent payload exactly
+		// (source/ts/level/service/body/trace_id, in that order).
+		for _, row := range rows {
+			s.sseBroadcast(jsonenc.NewObject().
+				Set("source", "logs").
+				Set("ts", row["Timestamp"]).
+				Set("level", row["SeverityText"]).
+				Set("service", row["ServiceName"]).
+				Set("body", row["Body"]).
+				Set("trace_id", row["TraceId"]))
+		}
 	}
 	return len(rows), nil
 }
@@ -229,6 +243,10 @@ func (s *server) ingestOTLPLogs(body map[string]any) (int, error) {
 func (s *server) ingestOTLPTraces(body map[string]any) (int, error) {
 	rows := []map[string]any{}
 	errorRows := []map[string]any{}
+	// tailEvents accumulates the /tail SSE payloads (one "traces" event per span, plus a "ai"
+	// event for GenAI spans) so they can be broadcast after the write succeeds, mirroring the
+	// broadcast loop in app.py ingest_traces (app.py:9855/9871).
+	var tailEvents []*jsonenc.Object
 	resList, _ := body["resourceSpans"].([]any)
 	for _, r := range resList {
 		ro, _ := r.(map[string]any)
@@ -270,6 +288,31 @@ func (s *server) ingestOTLPTraces(body map[string]any) (int, error) {
 					"Duration":       maxInt64(0, int64(durationMs*1_000_000)),
 					"StatusCode":     traceStatusCode(status), "StatusMessage": toStr(spanAttrs["status.message"]),
 				})
+				// app.py renders duration_ms as an int 0 when end<=start (the `else 0` branch) and a
+				// float otherwise; mirror that so the /tail payload matches.
+				var durVal any = durationMs
+				if durationMs == 0 {
+					durVal = 0
+				}
+				tailEvents = append(tailEvents, jsonenc.NewObject().
+					Set("source", "traces").Set("ts", ts).Set("trace_id", "").Set("span_id", "").
+					Set("name", spanName).Set("service", service).
+					Set("duration_ms", durVal).Set("status", status))
+				// app.py also broadcasts an "ai" event when the span carries GenAI attributes
+				// (provider = gen_ai.provider.name or gen_ai.system); attrs are the merged map.
+				provider := toStr(merged["gen_ai.provider.name"])
+				if provider == "" {
+					provider = toStr(merged["gen_ai.system"])
+				}
+				operationName := toStr(merged["gen_ai.operation.name"])
+				if provider != "" || operationName != "" {
+					tailEvents = append(tailEvents, jsonenc.NewObject().
+						Set("source", "ai").Set("ts", ts).Set("trace_id", "").Set("span_id", "").
+						Set("service", service).Set("provider", provider).
+						Set("model", toStr(merged["gen_ai.request.model"])).
+						Set("operation", operationName).
+						Set("duration_ms", durVal).Set("status", status))
+				}
 				// ERROR-status spans become synthetic otel_logs exception rows, mirroring
 				// app.py _proto_traces_to_events -> _insert_error_events.
 				if strings.Contains(strings.ToUpper(status), "ERROR") {
@@ -329,6 +372,12 @@ func (s *server) ingestOTLPTraces(body map[string]any) (int, error) {
 			}
 			return nil
 		})
+	}
+	// app.py ingest_traces broadcasts the per-span (and GenAI-derived "ai") events to live /tail
+	// subscribers after the write. A failed span write returns above, so reaching here means the
+	// span rows were durably queued.
+	for _, ev := range tailEvents {
+		s.sseBroadcast(ev)
 	}
 	return len(rows), nil
 }

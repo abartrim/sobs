@@ -3,11 +3,61 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 
 	"github.com/sobs/sobs/internal/jsonenc"
 )
+
+// inferGenAIProvider mirrors app.py _infer_genai_provider: classify the provider from the endpoint
+// host. An empty/relative host (no netloc) yields "openai-compatible", matching urllib.parse.
+func inferGenAIProvider(endpointURL string) string {
+	host := ""
+	if u, err := url.Parse(strings.TrimSpace(endpointURL)); err == nil {
+		host = strings.ToLower(u.Host)
+	}
+	if host == "" {
+		return "openai-compatible"
+	}
+	switch {
+	case strings.Contains(host, "openai"):
+		return "openai"
+	case strings.Contains(host, "anthropic"):
+		return "anthropic"
+	case strings.Contains(host, "groq"):
+		return "groq"
+	case strings.Contains(host, "google"), strings.Contains(host, "gemini"):
+		return "google"
+	case strings.Contains(host, "mistral"):
+		return "mistral"
+	case strings.Contains(host, "deepseek"):
+		return "deepseek"
+	case strings.Contains(host, "ollama"):
+		return "ollama"
+	default:
+		return "openai-compatible"
+	}
+}
+
+// broadcastInternalGenAISpan publishes the internal AI-helper gen_ai span to live /tail subscribers,
+// mirroring the _sse_broadcast call inside app.py _emit_internal_genai_span (app.py:3599). app.py
+// also writes an otel_traces row there; that span write is the separate bodyless-LLM gap, so this
+// wires only the /tail broadcast (the H3 fix). elapsed_ms is always 0 in the Go port (frozen clock),
+// so duration_ms is the int 0 that round(elapsed_ms, 1) yields for an int input.
+func (s *server) broadcastInternalGenAISpan(endpoint, model string, st llmStats, errorType string) {
+	s.sseBroadcast(jsonenc.NewObject().
+		Set("source", "ai").
+		Set("ts", nowISO()).
+		Set("service", aiHelperServiceName).
+		Set("provider", inferGenAIProvider(endpoint)).
+		Set("model", model).
+		Set("operation", "chat").
+		Set("duration_ms", 0).
+		Set("tokens_in", st.prompt).
+		Set("tokens_out", st.completion).
+		Set("error_type", errorType))
+}
 
 // chatCompletionsURL mirrors app.py's endpoint normalization: endpoint_url.rstrip("/") with
 // "/chat/completions" appended unless already present.
@@ -104,6 +154,12 @@ func (s *server) callLLMChat(req llmRequest) (string, llmStats, error) {
 			st.completion = jnInt(usage, "completion_tokens")
 			st.thinking = jnInt(usage, "thinking_tokens")
 		}
+	}
+	// app.py _call_llm_endpoint emits the internal gen_ai span — and its /tail _sse_broadcast — once
+	// a non-empty reply arrives (app.py:4662). Go's callLLMChat does not implement the empty-content
+	// retry sub-paths, so mirror the dominant success branch only.
+	if strings.TrimSpace(content) != "" {
+		s.broadcastInternalGenAISpan(req.endpoint, req.model, st, "")
 	}
 	return content, st, nil
 }

@@ -202,6 +202,19 @@ func (s *server) handleV1Ai(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	// app.py ingest_ai: after the write, _sse_broadcast the gen_ai event to live /tail subscribers
+	// (app.py:10228). tokens use the raw int payload values (not the stringified span attrs) and
+	// duration is rounded to 1 decimal; field order mirrors app.py exactly.
+	s.sseBroadcast(jsonenc.NewObject().
+		Set("source", "ai").
+		Set("ts", ts).
+		Set("service", service).
+		Set("provider", provider).
+		Set("model", model).
+		Set("operation", operation).
+		Set("duration_ms", roundHalfEven(durationMs, 1)).
+		Set("tokens_in", mint(m, "tokens_in")).
+		Set("tokens_out", mint(m, "tokens_out")))
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
 }
 
