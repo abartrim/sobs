@@ -240,6 +240,16 @@ PROFILES: dict[str, dict[str, str]] = {
     # exist in the base fixture, so the day-based ALTER … MODIFY TTL runs for real; isolated so
     # those schema mutations (and TTL materialization) never ripple into base otel readers.
     "dmttl": {},
+    # regex{logs,traces,rum,errors,metrics}: validate-regex sample-probe profiles. Each seeds ONE
+    # in-window row (now()-1h, real wall-clock — like tagauto) whose sample column holds a FIXED
+    # token, so a matching pattern returns that exact, timestamp-independent string. No env overlay;
+    # isolated so the seeded telemetry never ripples into base readers. regexmetrics reuses the
+    # metricsauto constant-series seed so v_derived_signals_anomaly yields a stable 'log_volume'.
+    "regexlogs": {},
+    "regextraces": {},
+    "regexrum": {},
+    "regexerrors": {},
+    "regexmetrics": {},
     # ask: query/ask — guard + main endpoints on DISTINCT mock paths (two canned responses).
     "ask": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/ask/v1",
@@ -278,6 +288,11 @@ SEEDED_PROFILES = {
     "ciauth",
     "tracedetail",
     "dashview",
+    "regexlogs",
+    "regextraces",
+    "regexrum",
+    "regexerrors",
+    "regexmetrics",
 }
 
 

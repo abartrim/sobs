@@ -899,6 +899,65 @@ routes:
   request:
     method: POST
     json: {}
+# validate-regex sample-probe coverage (FUNCTION_PARITY_AUDIT finding H7). The empty-body entries
+# above only hit the no-pattern guard; these send a REAL pattern so the expression validation AND
+# the best-effort sample probe run. Each *_sample entry runs under an isolated profile that seeds
+# ONE in-window row (now()-1h, real wall-clock) whose sample column holds a FIXED token, so the
+# probe deterministically returns that exact, timestamp-independent string. The *_invalid entry
+# hits the structural-error branch (parser-level, no DB) whose message is regex-engine-independent.
+- id: post__api_logs_validate_regex__sample
+  path: /api/logs/validate-regex
+  profile: regexlogs
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "sobs-regex-probe-logs"
+- id: post__api_logs_validate_regex__invalid
+  path: /api/logs/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "foo &&"
+- id: post__api_traces_validate_regex__sample
+  path: /api/traces/validate-regex
+  profile: regextraces
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "sobs-regex-probe-traces"
+- id: post__api_rum_validate_regex__sample
+  path: /api/rum/validate-regex
+  profile: regexrum
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "sobs-regex-probe-rum"
+- id: post__api_errors_validate_regex__sample
+  path: /api/errors/validate-regex
+  profile: regexerrors
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "sobs-regex-probe-errors"
+- id: post__api_metrics_validate_regex__sample
+  path: /api/metrics/validate-regex
+  profile: regexmetrics
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "^log_volume$"
 - id: post__api_logs_validate_filter
   path: /api/logs/validate-filter
   methods:

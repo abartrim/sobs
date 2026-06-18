@@ -1120,6 +1120,52 @@ def seed_dashview(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_chart_configs FINAL")
 
 
+# validate-regex sample-probe seeds. Each inserts ONE row at now()-1h (real wall-clock, like
+# seed_tagauto — NOT the frozen 2024 epoch) so it lands inside the route's now()-24h candidate
+# window at both capture and replay time, while the base fixture's frozen-epoch rows stay out of
+# window. The sample column carries a FIXED token, so the validate-regex success branch returns
+# that exact string regardless of the (varying) seed/read wall-clock — byte-identical goldens.
+# Isolated per profile so the seeded telemetry never ripples into base readers.
+
+
+def seed_regex_logs(db) -> None:
+    # /api/logs/validate-regex reads otel_logs.Body. One in-window row -> the sole candidate, so a
+    # pattern matching its Body deterministically returns that Body.
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, Body) "
+        "SELECT now() - INTERVAL 1 HOUR, 'regex-probe-svc', 'sobs-regex-probe-logs-hit' FROM numbers(1)"
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+
+def seed_regex_traces(db) -> None:
+    # /api/traces/validate-regex reads otel_traces.SpanName.
+    db.execute(
+        "INSERT INTO otel_traces (Timestamp, ServiceName, SpanName) "
+        "SELECT now() - INTERVAL 1 HOUR, 'regex-probe-svc', 'sobs-regex-probe-traces-hit' FROM numbers(1)"
+    )
+    db.execute("OPTIMIZE TABLE otel_traces FINAL")
+
+
+def seed_regex_rum(db) -> None:
+    # /api/rum/validate-regex reads hyperdx_sessions.Body.
+    db.execute(
+        "INSERT INTO hyperdx_sessions (Timestamp, ServiceName, Body) "
+        "SELECT now() - INTERVAL 1 HOUR, 'regex-probe-svc', 'sobs-regex-probe-rum-hit' FROM numbers(1)"
+    )
+    db.execute("OPTIMIZE TABLE hyperdx_sessions FINAL")
+
+
+def seed_regex_errors(db) -> None:
+    # /api/errors/validate-regex reads Body from ERROR_SOURCES_SQL (otel_logs ∪ hyperdx_sessions
+    # filtered to error rows). SeverityText='ERROR' makes the row qualify as an error source.
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, SeverityText, Body) "
+        "SELECT now() - INTERVAL 1 HOUR, 'regex-probe-svc', 'ERROR', 'sobs-regex-probe-errors-hit' FROM numbers(1)"
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+
 PROFILE_SEEDS = {
     "agentrun": seed_agent_run,
     "notif": seed_notif,
@@ -1145,6 +1191,11 @@ PROFILE_SEEDS = {
     "ciauth": seed_ci_key,  # registered app + managed per-app CI-push key; managed-key require_api_key path
     "tracedetail": seed_trace_detail,  # multi-span trace + logs -> populated trace_detail waterfall
     "dashview": seed_dashview,  # dashboard + charts -> GET /dashboards/<id> view branch
+    "regexlogs": seed_regex_logs,  # validate-regex sample probe: otel_logs.Body
+    "regextraces": seed_regex_traces,  # validate-regex sample probe: otel_traces.SpanName
+    "regexrum": seed_regex_rum,  # validate-regex sample probe: hyperdx_sessions.Body
+    "regexerrors": seed_regex_errors,  # validate-regex sample probe: ERROR_SOURCES_SQL Body
+    "regexmetrics": seed_metricsauto,  # constant log_volume series -> v_derived_signals_anomaly probe
 }
 
 
