@@ -133,6 +133,8 @@ func (s *server) runAgentFlow(rule *agentRule, settings map[string]string, tctx 
 
 	endpointURL := strings.TrimSpace(settings["ai.endpoint_url"])
 	model := strings.TrimSpace(settings["ai.model"])
+	apiKey := strings.TrimSpace(settings["ai.api_key"])
+	dlpURL := strings.TrimSpace(settings["ai.dlp_endpoint_url"])
 	githubRepo, githubToken := s.resolveAgentGithubTarget(settings, tctx)
 
 	contextSummary := s.buildAgentContextSummary(tctx)
@@ -164,7 +166,7 @@ func (s *server) runAgentFlow(rule *agentRule, settings map[string]string, tctx 
 		reply, _, err := s.callLLMChat(llmRequest{
 			endpoint:      endpointURL,
 			model:         model,
-			apiKey:        strings.TrimSpace(settings["ai.api_key"]),
+			apiKey:        apiKey,
 			thinkingLevel: strings.TrimSpace(settings["ai.thinking_level"]),
 			maxTokens:     512,
 			messages:      messages,
@@ -175,16 +177,40 @@ func (s *server) runAgentFlow(rule *agentRule, settings map[string]string, tctx 
 		analysis, suggestion = parseAgentAnalysis(reply)
 	}
 
-	// 3. DLP + GitHub issue creation. The DLP sub-check needs ai.dlp_endpoint_url (unset here, so
-	// dlp_result stays "skipped"); the issue branch runs only with a github action AND a resolved
-	// repo+token. The dedup/reuse + copilot-assignment sub-branches are a follow-up (the parity
-	// fixture has no prior work items or open issues, so every issue is a fresh new_issue).
+	// 3. Optional DLP check + GitHub issue creation. The issue branch runs only with a github
+	// action AND a resolved repo+token. When a dlp_check action AND ai.dlp_endpoint_url are both
+	// present, the outgoing issue text is screened first: a flagged verdict completes the run
+	// WITHOUT creating an issue; a clean (or fail-open "dlp_unavailable") verdict lets creation
+	// proceed and leaves dlp_result "skipped" -> "clean". The dedup/reuse + copilot-assignment
+	// sub-branches are a follow-up (the parity fixture has no prior work items or open issues, so
+	// every issue is a fresh new_issue).
 	dlpResult := "skipped"
 	githubIssueURL := ""
 	issueOutcome := map[string]any{}
 	wantsIssue := rule.hasAction("github_issue") || rule.hasAction("github_issue_copilot")
 	wantsCopilot := rule.hasAction("github_issue_copilot")
 	if wantsIssue && githubToken != "" && githubRepo != "" {
+		issueText := contextSummary + "\n\nAnalysis: " + analysis + "\n\nSuggestion: " + suggestion
+		if rule.hasAction("dlp_check") && dlpURL != "" {
+			dlpClean, dlpDetail := s.checkDLPEndpoint(dlpURL, issueText, apiKey)
+			if dlpClean {
+				dlpResult = "clean"
+			} else {
+				dlpResult = "flagged: " + dlpDetail
+			}
+			if !dlpClean {
+				updateRun(map[string]any{
+					"Status": "completed", "GuardDecision": guardDecision, "DlpResult": dlpResult,
+					"Analysis": analysis, "Suggestion": suggestion,
+					"CompletedAt": normalizeCHTimestampNow(),
+				})
+				return jsonenc.NewObject().
+					Set("status", "completed").
+					Set("dlp_result", dlpResult).
+					Set("analysis", analysis).
+					Set("suggestion", suggestion), nil
+			}
+		}
 		issueTitle := buildAgentIssueTitle(rule)
 		issueBody := "## SOBS Automated Agent Report\n\n" + analysis + "\n\n" + suggestion + "\n"
 		issueOutcome = s.chooseGithubIssueOutcome(githubRepo, githubToken, wantsCopilot, issueTitle, issueBody)
@@ -214,6 +240,43 @@ func (s *server) runAgentFlow(rule *agentRule, settings map[string]string, tctx 
 		Set("issue_error", toStr(issueOutcome["issue_error"])).
 		Set("copilot_assignment_status", toStr(issueOutcome["copilot_assignment_status"])).
 		Set("copilot_assignment_reason", toStr(issueOutcome["copilot_assignment_reason"])), nil
+}
+
+// checkDLPEndpoint mirrors app.py _check_dlp_endpoint: POST {"text": text} to an optional DLP
+// endpoint and parse a flagged / pii_detected / blocked verdict. Returns (clean, detail). An empty
+// dlpURL is (true, "skipped"). Any failure — network error, HTTP >= 400 (resp.raise_for_status),
+// or a non-object JSON body (resp.json().get raising) — fails OPEN as (true, "dlp_unavailable"), so
+// a broken/unreachable DLP service never blocks issue creation, byte-identical to Python. The
+// upstream client is shared with the GitHub/OSV/LLM calls (parity-mocked, URL-keyed).
+func (s *server) checkDLPEndpoint(dlpURL, text, apiKey string) (bool, string) {
+	if dlpURL == "" {
+		return true, "skipped"
+	}
+	headers := map[string]string{"Content-Type": "application/json"}
+	if apiKey != "" {
+		headers["Authorization"] = "Bearer " + apiKey
+	}
+	reqBody := jsonenc.Encode(jsonenc.NewObject().Set("text", text), dumpsDefault)
+	resp, err := s.upstreamRequest("POST", dlpURL, reqBody, headers)
+	if err != nil || resp.Status >= 400 {
+		return true, "dlp_unavailable"
+	}
+	body, ok := resp.Body.(*jsonenc.Object)
+	if !ok {
+		return true, "dlp_unavailable"
+	}
+	flagged := objTruthy(body, "flagged") || objTruthy(body, "pii_detected") || objTruthy(body, "blocked")
+	// detail = str(body.get("detail") or body.get("reason") or ("flagged" if flagged else "clean"))
+	detail := "clean"
+	if flagged {
+		detail = "flagged"
+	}
+	if dv, present := body.Get("detail"); isTruthyVal(dv, present) {
+		detail = pyStr(dv, present)
+	} else if rv, present := body.Get("reason"); isTruthyVal(rv, present) {
+		detail = pyStr(rv, present)
+	}
+	return !flagged, detail
 }
 
 // buildAgentIssueTitle mirrors _build_agent_issue_title (the title is sent to GitHub, never returned).
@@ -283,10 +346,12 @@ func (s *server) handleTriggerAgentRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	settings := map[string]string{
-		"ai.endpoint_url": s.loadAISetting("ai.endpoint_url", ""),
-		"ai.model":        s.loadAISetting("ai.model", ""),
-		"ai.github_repo":  s.loadAISetting("ai.github_repo", ""),
-		"ai.github_token": s.loadAISetting("ai.github_token", ""),
+		"ai.endpoint_url":     s.loadAISetting("ai.endpoint_url", ""),
+		"ai.model":            s.loadAISetting("ai.model", ""),
+		"ai.api_key":          s.loadAISetting("ai.api_key", ""),
+		"ai.dlp_endpoint_url": s.loadAISetting("ai.dlp_endpoint_url", ""),
+		"ai.github_repo":      s.loadAISetting("ai.github_repo", ""),
+		"ai.github_token":     s.loadAISetting("ai.github_token", ""),
 	}
 	if settings["ai.endpoint_url"] == "" || settings["ai.model"] == "" {
 		s.errorJSON(w, http.StatusServiceUnavailable, "AI endpoint not configured. Visit Settings → AI Configuration.")
@@ -318,10 +383,12 @@ func (s *server) handleApiIssuesRaise(w http.ResponseWriter, r *http.Request) {
 	sourcePage := strings.ToLower(strings.TrimSpace(orDefault(bstr(body, "source_page"), "errors")))
 	assignCopilot := bodyBool(body, "assign_copilot", false)
 	settings := map[string]string{
-		"ai.endpoint_url": s.loadAISetting("ai.endpoint_url", ""),
-		"ai.model":        s.loadAISetting("ai.model", ""),
-		"ai.github_repo":  s.loadAISetting("ai.github_repo", ""),
-		"ai.github_token": s.loadAISetting("ai.github_token", ""),
+		"ai.endpoint_url":     s.loadAISetting("ai.endpoint_url", ""),
+		"ai.model":            s.loadAISetting("ai.model", ""),
+		"ai.api_key":          s.loadAISetting("ai.api_key", ""),
+		"ai.dlp_endpoint_url": s.loadAISetting("ai.dlp_endpoint_url", ""),
+		"ai.github_repo":      s.loadAISetting("ai.github_repo", ""),
+		"ai.github_token":     s.loadAISetting("ai.github_token", ""),
 	}
 	if strings.TrimSpace(settings["ai.endpoint_url"]) == "" || strings.TrimSpace(settings["ai.model"]) == "" {
 		writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().

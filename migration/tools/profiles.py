@@ -137,12 +137,16 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
-    # issuesraise: raise_issue_from_user_observation runs the agent flow with a github_issue action.
-    # AI endpoints = the agent mock (guard + analyze canned); a seeded global github repo+token +
-    # the canned POST /issues let the flow create a fresh issue (search 404s -> new_issue).
+    # issuesraise: raise_issue_from_user_observation runs the agent flow with a github_issue +
+    # dlp_check action. AI endpoints = the agent mock (guard + analyze canned); a seeded global
+    # github repo+token + the canned POST /issues let the flow create a fresh issue (search 404s
+    # -> new_issue). SOBS_AI_DLP_ENDPOINT_URL points at a canned DLP responder (a CLEAN verdict)
+    # so the dlp_check sub-branch runs on both sides and screens the issue text before creation
+    # without altering the route bytes (the issue is still created; dlp_result lives in the run row).
     "issuesraise": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
         "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+        "SOBS_AI_DLP_ENDPOINT_URL": "http://sobs-ai.mock/dlp/v1",
         "SOBS_AI_MODEL": "sobs-parity-model",
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
