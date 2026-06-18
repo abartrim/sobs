@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/sobs/sobs/internal/jsonenc"
@@ -70,22 +71,32 @@ func jnToInt(v any) int {
 	return 0
 }
 
-// actionMetaForID mirrors app.py _action_meta_for_id: the action descriptor from the manifest
-// catalog (the embedded /logs action set on the fixture).
-func actionMetaForID(actionID string) *jsonenc.Object {
-	parsed, err := parseJSONValue(aiHelperActionsManifestJSON)
-	if err != nil {
+// actionMetaForPage mirrors app.py _action_meta_for_page: the descriptor for action_id from the
+// given page's action manifest, or nil when the page does not declare it.
+func (s *server) actionMetaForPage(page, actionID string) *jsonenc.Object {
+	for _, a := range s.helperActionManifestForPage(page) {
+		if objStrOr(a, "action_id") == actionID {
+			return a
+		}
+	}
+	return nil
+}
+
+// actionMetaForID mirrors app.py _action_meta_for_id: the first matching descriptor scanning every
+// declared page template in sorted page order (the all-pages fallback).
+func (s *server) actionMetaForID(actionID string) *jsonenc.Object {
+	wanted := strings.TrimSpace(actionID)
+	if wanted == "" {
 		return nil
 	}
-	obj, ok := parsed.(*jsonenc.Object)
-	if !ok {
-		return nil
+	pages := make([]string, 0, len(aiActionPageTemplates))
+	for p := range aiActionPageTemplates {
+		pages = append(pages, p)
 	}
-	av, _ := obj.Get("actions")
-	actions, _ := av.([]any)
-	for _, a := range actions {
-		if ao, ok := a.(*jsonenc.Object); ok && objStrOr(ao, "action_id") == actionID {
-			return ao
+	sort.Strings(pages)
+	for _, p := range pages {
+		if meta := s.actionMetaForPage(p, wanted); meta != nil {
+			return meta
 		}
 	}
 	return nil
@@ -174,7 +185,12 @@ func (s *server) handleApiAiHelperExecute(w http.ResponseWriter, r *http.Request
 	actionPayload, _ := objSub(decoded, "action")
 	chatID := objStrOr(decoded, "chat_id")
 	turnID := objStrOr(decoded, "turn_id")
-	meta := actionMetaForID(actionID)
+	// Mirror app.py ai_helper_execute_action: page-scoped descriptor first, then the all-pages
+	// fallback (so cross-page proposals still resolve).
+	meta := s.actionMetaForPage(targetPage, actionID)
+	if meta == nil {
+		meta = s.actionMetaForID(actionID)
+	}
 	if meta == nil {
 		s.writeMaskedJSON(w, http.StatusBadRequest,
 			jsonenc.NewObject().Set("ok", false).Set("error", "Action is not allowed for this page"))
@@ -207,6 +223,7 @@ func (s *server) handleApiAiHelperExecute(w http.ResponseWriter, r *http.Request
 	s.emitAiHelperLogEvent("tool.executed", chatID, turnID, targetPage, "", "", "off",
 		"Executed action: "+actionID, "INFO", map[string]string{
 			"gen_ai.tool.name": "propose_ui_action", "sobs.ai.action_id": actionID,
+			"sobs.ai.tool.action":   string(jsonenc.Encode(clientAction, aiHelperJSONDumpOpts)),
 			"sobs.ai.action.status": "executed",
 		})
 	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().

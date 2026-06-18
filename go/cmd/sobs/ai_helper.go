@@ -193,9 +193,10 @@ func extractMemoryCandidates(meta *jsonenc.Object) []string {
 
 // suggestChartDashboardPivotTool mirrors app.py _suggest_chart_dashboard_pivot_tool's gate: it
 // returns nil unless the question contains a chart keyword and an ai/trace/response signal and the
-// page is not /dashboards. (The non-nil branch builds a dashboards.modal.new.open UI-action
-// proposal; UI-action proposals are applied by the separate /actions/execute route.)
-func suggestChartDashboardPivotTool(question, currentPage string) *jsonenc.Object {
+// page is not /dashboards. When warranted it routes the canonical dashboards.modal.new.open action
+// through normalizeGenericUIActionToolCall, exactly like the Python helper (the resulting proposal
+// is applied by the separate /actions/execute route).
+func (s *server) suggestChartDashboardPivotTool(question, currentPage string) *jsonenc.Object {
 	lower := strings.ToLower(strings.TrimSpace(question))
 	if lower == "" {
 		return nil
@@ -216,14 +217,14 @@ func suggestChartDashboardPivotTool(question, currentPage string) *jsonenc.Objec
 	if !strings.Contains(lower, "ai") && !strings.Contains(lower, "trace") && !strings.Contains(lower, "response") {
 		return nil
 	}
-	// A chart/dashboard pivot is warranted; surface a minimal proposal carrying the canonical
-	// dashboards open-modal action so the client can pivot.
-	return jsonenc.NewObject().
-		Set("tool", "propose_ui_action").
-		Set("action_id", "dashboards.modal.new.open").
-		Set("summary", "Open the new dashboard modal to create the requested chart").
-		Set("requires_confirmation", true).
-		Set("action", jsonenc.NewObject().Set("action_id", "dashboards.modal.new.open").Set("target_page", "/dashboards"))
+	return s.normalizeGenericUIActionToolCall(
+		jsonenc.NewObject().
+			Set("action_id", "dashboards.modal.new.open").
+			Set("target_page", "/dashboards").
+			Set("arguments", jsonenc.NewObject()).
+			Set("notes", "Open the new dashboard modal to create the requested chart"),
+		currentPage,
+	)
 }
 
 // buildLlamaGuardPrompt mirrors app.py _build_llama_guard_prompt: (system_instructions, messages).
@@ -633,13 +634,21 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 			if tc.name != "propose_ui_action" {
 				continue
 			}
-			proposal := jsonenc.NewObject().Set("tool", tc.name).Set("action", tc.args).
-				Set("requires_confirmation", true)
-			proposedTools = append(proposedTools, proposal)
-			roundFeedback = append(roundFeedback, proposal)
+			// Mirror app.py ai_helper: normalize the raw tool args against the page action
+			// manifest (manifest validation, cross-page confirmation, apply_form_filters /
+			// apply_sql_filter handling, template-default merge, sanitization), then mint a
+			// signed action_token for supported proposals so /actions/execute can apply them.
+			normalized := s.normalizeGenericUIActionToolCall(tc.args, page)
+			if normalized == nil {
+				continue
+			}
+			attachAiActionToken(normalized, page, chatID, turnID)
+			proposedTools = append(proposedTools, normalized)
+			roundFeedback = append(roundFeedback, normalized)
 		}
 		if len(roundFeedback) == 0 {
-			if fallback := suggestChartDashboardPivotTool(question, page); fallback != nil {
+			if fallback := s.suggestChartDashboardPivotTool(question, page); fallback != nil {
+				attachAiActionToken(fallback, page, chatID, turnID)
 				proposedTools = append(proposedTools, fallback)
 				roundFeedback = append(roundFeedback, fallback)
 			}
