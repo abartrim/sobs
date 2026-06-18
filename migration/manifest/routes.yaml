@@ -1848,6 +1848,43 @@ routes:
                 - key: core
                   value:
                     stringValue: '0'
+# otlpingest (PROTOBUF wire format): the SAME logical batches as the three JSON entries above, but
+# sent as Content-Type: application/x-protobuf — the OTel Collector otlphttp exporter default and
+# what most OTEL SDKs emit. These guard the C3 data-loss gap: before protobuf ingest was wired, the
+# default OTLP wire format was silently accepted-and-dropped (zero rows, response falsely said
+# accepted:0). The Python oracle (_parse_otlp_request) and Go (otlpProtoToMap) decode the IDENTICAL
+# body_b64 bytes and must both return {"accepted": 1}. Regenerate the bytes with:
+#   go test ./cmd/sobs -run TestGenerateOTLPProtoFixtures -v
+- id: post__v1_logs__ingest_proto
+  path: /v1/logs
+  methods:
+  - POST
+  profile: otlpingest
+  request:
+    method: POST
+    headers:
+      Content-Type: application/x-protobuf
+    body_b64: 'ClUKFwoVCgxzZXJ2aWNlLm5hbWUSBQoDYXBpEjoSOAkAMgEwt2imFxoFRVJST1IqBgoEYm9vbTIeCgpldmVudC5uYW1lEhAKDnJlcXVlc3QuZmFpbGVk'
+- id: post__v1_traces__ingest_proto
+  path: /v1/traces
+  methods:
+  - POST
+  profile: otlpingest
+  request:
+    method: POST
+    headers:
+      Content-Type: application/x-protobuf
+    body_b64: 'ClAKFwoVCgxzZXJ2aWNlLm5hbWUSBQoDYXBpEjUSMyoFR0VUIC85ADIBMLdophdBAPyba7dophdKFAoLaHR0cC5tZXRob2QSBQoDR0VUegIYAQ=='
+- id: post__v1_metrics__ingest_proto
+  path: /v1/metrics
+  methods:
+  - POST
+  profile: otlpingest
+  request:
+    method: POST
+    headers:
+      Content-Type: application/x-protobuf
+    body_b64: 'CksKFwoVCgxzZXJ2aWNlLm5hbWUSBQoDYXBpEjASLgoJY3B1LnVzYWdlKiEKHxkAMgEwt2imFzoLCgRjb3JlEgMKATAhAAAAAAAA4D8='
 - id: post__v1_rum_assets
   path: /v1/rum/assets
   methods:

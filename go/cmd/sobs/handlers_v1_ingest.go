@@ -40,16 +40,29 @@ func (s *server) v1IngestOTLP(w http.ResponseWriter, r *http.Request, resKey, sc
 	eventType := map[string]string{"logRecords": "log", "spans": "trace", "metrics": "metric"}[recKey]
 	defer s.tel.span("sobs.ingest.request", map[string]any{"route": r.URL.Path, "event.type": eventType})()
 	body, _ := io.ReadAll(r.Body)
-	if n, ok := otlpRecordCount(body, resKey, scopeKey, recKey); ok && n == 0 {
-		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", 0))
-		return
-	}
 	var m map[string]any
-	if json.Unmarshal(body, &m) != nil {
-		// Non-JSON (OTLP-protobuf) bodies are not exercised under parity (which always sends JSON);
-		// treat as an empty accepted batch rather than erroring.
-		writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", 0))
-		return
+	if isOTLPProtobuf(r) {
+		// OTLP-protobuf wire format — the OTel Collector otlphttp exporter default and what most
+		// SDKs send. Deserialize the proto and re-render as OTLP-JSON so it feeds the SAME row
+		// builders the JSON branch uses. app.py's _parse_otlp_request branches on this same
+		// Content-Type and converges both wire formats on one _proto_*_to_events path.
+		parsed, perr := otlpProtoToMap(body, recKey)
+		if perr != nil {
+			writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().Set("error", "failed to parse protobuf body"))
+			return
+		}
+		m = parsed
+	} else {
+		if n, ok := otlpRecordCount(body, resKey, scopeKey, recKey); ok && n == 0 {
+			writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", 0))
+			return
+		}
+		if json.Unmarshal(body, &m) != nil {
+			// Malformed/non-object JSON that isn't protobuf: preserve the prior lenient behavior
+			// (the parity corpus never sends an invalid JSON body here).
+			writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", 0))
+			return
+		}
 	}
 	var count int
 	var err error
@@ -69,6 +82,17 @@ func (s *server) v1IngestOTLP(w http.ResponseWriter, r *http.Request, resKey, sc
 	s.tel.recordIngestEvents(count, eventType)
 	s.tel.recordIngestBatchSize(count, eventType)
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", count))
+}
+
+// isOTLPProtobuf reports whether the request carries an OTLP-protobuf body, mirroring app.py's
+// `request.mimetype == "application/x-protobuf"` (Quart's mimetype is the Content-Type with any
+// `; charset=…`/boundary parameters stripped, lowercased).
+func isOTLPProtobuf(r *http.Request) bool {
+	ct := r.Header.Get("Content-Type")
+	if i := strings.IndexByte(ct, ';'); i >= 0 {
+		ct = ct[:i]
+	}
+	return strings.ToLower(strings.TrimSpace(ct)) == "application/x-protobuf"
 }
 
 // mstr returns m[key] as a string ("" when absent), mirroring str(payload.get(key, "")).

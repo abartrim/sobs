@@ -141,11 +141,17 @@ the License.
 
 -------------------------------------------------------------------------------
 
-1.4 OpenTelemetry Proto (Python)
----------------------------------
-Version: >=1.40.0
+1.4 OpenTelemetry Proto (Python, and Go generated types)
+---------------------------------------------------------
+Version: >=1.40.0 (Python); go.opentelemetry.io/proto/otlp v1.10.0 (Go)
 License: Apache-2.0
 Homepage: https://github.com/open-telemetry/opentelemetry-python/tree/main/opentelemetry-proto
+Go homepage: https://github.com/open-telemetry/opentelemetry-proto-go
+
+The Go implementation vendors the generated OTLP message `.pb.go` types (logs/traces/metrics
+service requests + common/resource/logs/trace/metrics) under
+`go/internal/otlp/genpb/` (Apache-2.0; provenance and the LICENSE file are in that directory).
+Only the import paths were rewritten; the gRPC service stubs are not included.
 
 Copyright (c) OpenTelemetry Authors <cncf-opentelemetry-contributors@lists.cncf.io>
 
