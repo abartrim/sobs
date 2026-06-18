@@ -211,7 +211,7 @@ func (s *server) runDmBackup(backupType string) (bool, string) {
 		return false, "S3 bucket is not configured"
 	}
 	if v, _ := s.appSetting("data_management.s3_encrypt_backup"); strings.TrimSpace(v) == "1" {
-		if pw, _ := s.appSetting("data_management.backup_encryption_password"); strings.TrimSpace(pw) == "" {
+		if pw := s.dmSettingValue("data_management.backup_encryption_password"); strings.TrimSpace(pw) == "" {
 			return false, "Backup encryption is enabled but no encryption password is configured"
 		}
 	}
@@ -246,7 +246,7 @@ func (s *server) buildS3BackupDest(backupName string) string {
 	prefix := strings.Trim(strings.TrimSpace(s.appSettingOr("data_management.s3_path_prefix")), "/")
 	region := strings.TrimSpace(s.appSettingOr("data_management.s3_region"))
 	accessKey := strings.TrimSpace(s.appSettingOr("data_management.s3_access_key_id"))
-	secretKey := strings.TrimSpace(s.appSettingOr("data_management.s3_secret_access_key"))
+	secretKey := strings.TrimSpace(s.dmSettingValue("data_management.s3_secret_access_key"))
 
 	path := bucket + "/" + backupName
 	if prefix != "" {

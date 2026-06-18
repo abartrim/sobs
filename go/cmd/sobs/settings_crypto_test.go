@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 )
 
@@ -100,5 +101,52 @@ func TestIsSensitiveAISettingKey(t *testing.T) {
 		if isSensitiveAISettingKey(k) {
 			t.Errorf("%q should not be sensitive", k)
 		}
+	}
+}
+
+func TestIsSensitiveDMSettingKey(t *testing.T) {
+	// Mirrors app.py _DM_SENSITIVE_SETTING_KEYS — exactly these two keys, exact-match (not prefix).
+	for _, k := range []string{"data_management.s3_secret_access_key", "data_management.backup_encryption_password"} {
+		if !isSensitiveDMSettingKey(k) {
+			t.Errorf("%q should be a sensitive DM key", k)
+		}
+	}
+	for _, k := range []string{
+		"data_management.s3_access_key_id", "data_management.s3_bucket", "data_management.backup_enabled",
+		"s3_secret_access_key", "data_management.s3_secret_access_key.extra",
+	} {
+		if isSensitiveDMSettingKey(k) {
+			t.Errorf("%q should not be a sensitive DM key", k)
+		}
+	}
+}
+
+// TestDMSecretAtRestRoundTrip proves the two data-management secrets and the VAPID key encrypt at
+// rest (enc:v1: prefix, never plaintext) when SOBS_SETTINGS_ENCRYPTION_KEY is set, and decrypt
+// back to the original — the encode/decode the set/get accessors apply around the DB.
+func TestDMSecretAtRestRoundTrip(t *testing.T) {
+	s := newAuthServer(authConfig{})
+	s.cfg.EncryptionSecret = "deployment-settings-key"
+	for _, key := range []string{
+		"data_management.s3_secret_access_key",
+		"data_management.backup_encryption_password",
+		vapidPrivateKeySetting,
+	} {
+		plaintext := "secret-for-" + key
+		stored := s.encryptSecretValue(plaintext)
+		if stored == plaintext || !strings.HasPrefix(stored, settingsEncPrefix) {
+			t.Fatalf("%s: expected enc:v1: ciphertext at rest, got %q", key, stored)
+		}
+		if got := s.decryptSecretValue(stored); got != plaintext {
+			t.Errorf("%s: decrypt = %q, want %q", key, got, plaintext)
+		}
+	}
+
+	// Without a key configured, storage is plaintext (the parity invariant) and "present" is still
+	// derivable from the raw stored value being non-empty.
+	plain := newAuthServer(authConfig{})
+	plain.cfg.EncryptionSecret = ""
+	if got := plain.encryptSecretValue("AKIASECRET"); got != "AKIASECRET" {
+		t.Errorf("unconfigured key must store plaintext, got %q", got)
 	}
 }

@@ -2728,6 +2728,33 @@ routes:
   - POST
   request:
     method: POST
+# dmsecret profile: SOBS_SETTINGS_ENCRYPTION_KEY set. The POST stores both DM secrets (Fernet-
+# encrypted at rest); the response is the deterministic "Settings saved" redirect. Runs BEFORE the
+# GET below so the GET (same per-profile server) reloads the just-saved secrets.
+- id: post__settings_data_management__encrypted_secrets
+  path: /settings/data-management
+  methods:
+  - POST
+  profile: dmsecret
+  request:
+    method: POST
+    form:
+      s3_secret_access_key: wJalrXUtnFEMIKEXAMPLEKEY1234567890ab
+      backup_encryption_password: backup-encryption-pass-9000
+# Reload after the save: dm_secret_present is computed from the raw (encrypted) stored value, so
+# both secrets render "currently stored" while their values stay masked to "". db-stats card masked
+# (same reason as get__settings_data_management — non-deterministic system.parts merge state).
+- id: get__settings_data_management__secrets_present
+  path: /settings/data-management
+  methods:
+  - GET
+  profile: dmsecret
+  mask:
+  - <table class="table table-sm table-hover mb-0 dm-stats-table">[\s\S]*?</table>
+  - Total rows \(active parts\)</td>\s*<td class="fw-semibold">\s*[0-9,]+
+  - <td class="fw-semibold">[0-9][0-9.]* [A-Z]*B</td>
+  - "[0-9]+\\.[0-9]+\xD7|[0-9]+\xD7"
+  - <span class="text-(?:warning|success)">\s*[0-9]+
 - id: post__settings_enrichment
   path: /settings/enrichment
   methods:

@@ -12,13 +12,42 @@ import (
 	"github.com/sobs/sobs/internal/jsonenc"
 )
 
-// setAppSetting upserts a value in sobs_app_settings, mirroring app.py _set_app_setting
-// (a versioned ReplacingMergeTree keyed by Key; UpdatedAt drives the "latest wins" merge).
-func (s *server) setAppSetting(key, value string) error {
+// writeAppSetting upserts an already-encoded (stored-form) value into sobs_app_settings — the
+// shared write path for _set_app_setting/_del_app_setting/_set_dm_setting. UpdatedAt drives the
+// ReplacingMergeTree "latest wins" merge; it never appears in any response, so the wall-clock
+// microsecond stamp is byte-invisible (Python's _set_dm_setting uses int ms — same instant).
+func (s *server) writeAppSetting(key, stored string) error {
 	ts := time.Now().UTC().Format("2006-01-02 15:04:05.000000")
 	_, err := s.db.InsertJSONEachRow("sobs_app_settings",
-		[]map[string]any{{"Key": key, "Value": value, "UpdatedAt": ts}})
+		[]map[string]any{{"Key": key, "Value": stored, "UpdatedAt": ts}})
 	return err
+}
+
+// setAppSetting mirrors app.py _set_app_setting: the WebPush VAPID private key is Fernet-encrypted
+// at rest when SOBS_SETTINGS_ENCRYPTION_KEY is configured (a strict no-op otherwise); all other
+// keys store verbatim.
+func (s *server) setAppSetting(key, value string) error {
+	stored := value
+	if key == vapidPrivateKeySetting {
+		stored = s.encryptSecretValue(value)
+	}
+	return s.writeAppSetting(key, stored)
+}
+
+// delAppSetting mirrors app.py _del_app_setting: tombstone a setting by writing an empty value
+// (the latest-wins empty row shadows any prior value under FINAL).
+func (s *server) delAppSetting(key string) error {
+	return s.writeAppSetting(key, "")
+}
+
+// setDMSetting mirrors app.py _set_dm_setting: Fernet-encrypt the two data-management secrets
+// (s3_secret_access_key, backup_encryption_password) at rest; store every other DM key verbatim.
+func (s *server) setDMSetting(key, value string) error {
+	stored := value
+	if isSensitiveDMSettingKey(key) {
+		stored = s.encryptSecretValue(value)
+	}
+	return s.writeAppSetting(key, stored)
 }
 
 // flaskSessionOpts serializes the session dict the way Flask/Quart's TaggedJSONSerializer
@@ -797,10 +826,12 @@ func isTruthySetting(v string) bool {
 	return false
 }
 
-// POST /settings/data-management — app.py save_dm_settings: write the data_management.*
-// config from the form (_dm_settings_from_form), preserving the two sensitive secrets when
-// their fields are blank, then a plain query-param redirect. GET (the db-stats page) is a
-// follow-up. apply_ttl is off for the empty parity request, so no ALTER TABLE runs.
+// POST /settings/data-management — app.py save_dm_settings: write the data_management.* config
+// from the form (_dm_settings_from_form), in that exact key order, then a plain query-param
+// redirect. Per key: a clear_* flag tombstones the secret; a sensitive key left blank is
+// preserved (skipped); a non-empty value is written (sensitive ones Fernet-encrypted via
+// _set_dm_setting); an empty value tombstones (_del_app_setting). apply_ttl is off for the parity
+// request, so no ALTER TABLE runs; GET (the db-stats page) is the follow-up.
 func (s *server) handleSettingsDataManagement(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.handleDataManagementGet(w, r)
@@ -814,25 +845,42 @@ func (s *server) handleSettingsDataManagement(w http.ResponseWriter, r *http.Req
 		}
 		return "0"
 	}
-	_ = s.setAppSetting("data_management.backup_enabled", chk("backup_enabled"))
-	_ = s.setAppSetting("data_management.s3_bucket", txt("s3_bucket"))
-	_ = s.setAppSetting("data_management.s3_access_key_id", txt("s3_access_key_id"))
-	_ = s.setAppSetting("data_management.s3_region", txt("s3_region"))
-	_ = s.setAppSetting("data_management.s3_path_prefix", txt("s3_path_prefix"))
-	_ = s.setAppSetting("data_management.s3_encrypt_backup", chk("s3_encrypt_backup"))
-	_ = s.setAppSetting("data_management.backup_schedule_full", txt("backup_schedule_full"))
-	_ = s.setAppSetting("data_management.backup_schedule_incremental", txt("backup_schedule_incremental"))
-	_ = s.setAppSetting("data_management.ttl_logs_days", txt("ttl_logs_days"))
-	_ = s.setAppSetting("data_management.ttl_traces_days", txt("ttl_traces_days"))
-	_ = s.setAppSetting("data_management.ttl_metrics_hours", txt("ttl_metrics_hours"))
-	_ = s.setAppSetting("data_management.ttl_sessions_days", txt("ttl_sessions_days"))
-	_ = s.setAppSetting("data_management.ttl_backup_coupling_enabled", chk("ttl_backup_coupling_enabled"))
-	// Sensitive secrets are preserved (not overwritten) when the form leaves them blank.
-	if v := txt("s3_secret_access_key"); v != "" {
-		_ = s.setAppSetting("data_management.s3_secret_access_key", v)
+	// _dm_settings_from_form — order matters (Python iterates the dict in insertion order).
+	newSettings := []struct{ key, val string }{
+		{"data_management.backup_enabled", chk("backup_enabled")},
+		{"data_management.s3_bucket", txt("s3_bucket")},
+		{"data_management.s3_access_key_id", txt("s3_access_key_id")},
+		{"data_management.s3_secret_access_key", txt("s3_secret_access_key")},
+		{"data_management.s3_region", txt("s3_region")},
+		{"data_management.s3_path_prefix", txt("s3_path_prefix")},
+		{"data_management.s3_encrypt_backup", chk("s3_encrypt_backup")},
+		{"data_management.backup_encryption_password", txt("backup_encryption_password")},
+		{"data_management.backup_schedule_full", txt("backup_schedule_full")},
+		{"data_management.backup_schedule_incremental", txt("backup_schedule_incremental")},
+		{"data_management.ttl_logs_days", txt("ttl_logs_days")},
+		{"data_management.ttl_traces_days", txt("ttl_traces_days")},
+		{"data_management.ttl_metrics_hours", txt("ttl_metrics_hours")},
+		{"data_management.ttl_sessions_days", txt("ttl_sessions_days")},
+		{"data_management.ttl_backup_coupling_enabled", chk("ttl_backup_coupling_enabled")},
 	}
-	if v := txt("backup_encryption_password"); v != "" {
-		_ = s.setAppSetting("data_management.backup_encryption_password", v)
+	clearSensitive := map[string]bool{}
+	if r.PostFormValue("clear_s3_secret_access_key") == "1" {
+		clearSensitive["data_management.s3_secret_access_key"] = true
+	}
+	if r.PostFormValue("clear_backup_encryption_password") == "1" {
+		clearSensitive["data_management.backup_encryption_password"] = true
+	}
+	for _, kv := range newSettings {
+		switch {
+		case clearSensitive[kv.key]:
+			_ = s.delAppSetting(kv.key)
+		case isSensitiveDMSettingKey(kv.key) && kv.val == "":
+			// Preserve existing sensitive values when the form field is intentionally left blank.
+		case kv.val != "":
+			_ = s.setDMSetting(kv.key, kv.val)
+		default:
+			_ = s.delAppSetting(kv.key)
+		}
 	}
 	plainRedirect(w, "/settings/data-management?msg=Settings+saved&msg_type=success")
 }

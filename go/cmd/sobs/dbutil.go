@@ -239,14 +239,38 @@ func queryIntClamp(r *http.Request, key string, def, lo, hi int) int {
 }
 
 // appSetting mirrors _get_app_setting: SELECT Value FROM sobs_app_settings FINAL WHERE
-// Key=? — returns the trimmed value and whether it is present+non-empty.
+// Key=? — returns the trimmed value and whether it is present+non-empty. The VAPID private key is
+// the one key stored encrypted at rest, so it is Fernet-decrypted here (a bad token / missing key
+// resolves to "", exactly as Python's _decrypt_secret_value does).
 func (s *server) appSetting(key string) (string, bool) {
+	v := s.appSettingRaw(key)
+	if key == vapidPrivateKeySetting {
+		v = s.decryptSecretValue(v)
+	}
+	return v, v != ""
+}
+
+// appSettingRaw mirrors _get_app_setting_raw: the trimmed stored value with NO decryption — used
+// to detect whether an (encrypted-at-rest) secret is present without exposing its plaintext.
+func (s *server) appSettingRaw(key string) string {
 	res, err := s.db.Execute("SELECT Value FROM sobs_app_settings FINAL WHERE Key = ? LIMIT 1", key)
 	if err != nil || len(res.Rows) == 0 {
-		return "", false
+		return ""
 	}
-	v := strings.TrimSpace(cStr(rowMaps(res)[0], "Value"))
-	return v, v != ""
+	return strings.TrimSpace(cStr(rowMaps(res)[0], "Value"))
+}
+
+// dmSettingValue reads a data-management setting and decrypts it when it is one of the sensitive
+// secrets — the include_sensitive_values=True path of app.py _load_dm_settings that the backup /
+// restore consumers run on. Without this, the secrets encrypted at rest by setDMSetting would be
+// fed verbatim (as enc:v1: ciphertext) into the S3 BACKUP statement. Non-sensitive keys pass
+// through unchanged; a no-op when SOBS_SETTINGS_ENCRYPTION_KEY is unset (the parity invariant).
+func (s *server) dmSettingValue(key string) string {
+	raw := s.appSettingRaw(key)
+	if isSensitiveDMSettingKey(key) {
+		return s.decryptSecretValue(raw)
+	}
+	return raw
 }
 
 // appSettingBool mirrors _is_truthy_setting(value, default): when the setting is absent, def

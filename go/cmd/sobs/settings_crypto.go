@@ -49,6 +49,22 @@ func isSensitiveAISettingKey(key string) bool {
 	return k == "ai.api_key" || k == "ai.github_token" || strings.HasPrefix(k, "ai.github_token.repo.")
 }
 
+// vapidPrivateKeySetting mirrors app.py _VAPID_PRIVATE_KEY_SETTING — the one app-setting key that
+// _set_app_setting/_get_app_setting Fernet-encrypt/decrypt at rest (the WebPush EC private key).
+const vapidPrivateKeySetting = "vapid_private_key"
+
+// dmSensitiveSettingKeys mirrors app.py _DM_SENSITIVE_SETTING_KEYS: the data-management secrets
+// that _set_dm_setting Fernet-encrypts before persistence and _load_dm_settings decrypts on read.
+var dmSensitiveSettingKeys = map[string]bool{
+	"data_management.s3_secret_access_key":       true,
+	"data_management.backup_encryption_password": true,
+}
+
+// isSensitiveDMSettingKey mirrors app.py _is_sensitive_dm_setting_key.
+func isSensitiveDMSettingKey(key string) bool {
+	return dmSensitiveSettingKeys[key]
+}
+
 // encryptSecretValue mirrors app.py _encrypt_secret_value: no-op when value or secret is empty, or
 // when already prefixed; otherwise Fernet-encrypt and prefix. On any failure it returns the value
 // unchanged (matching Python's except-path).

@@ -1,0 +1,27 @@
+# Local parity harness image — runs migration/tools/run_parity_ci.py (capture from the frozen
+# Python oracle, then byte-diff the Go replay) on native arm64 Linux, mirroring the CI `parity`
+# job. The host's arm64 libchdb (chdb-core v26.5.0, matching Python chdb 4.1.9) is mounted at
+# runtime via CHDB_LIB_PATH; only the Go side reads it (Python uses its own bundled lib).
+#
+# Build:  docker build -f migration/tools/Dockerfile.parity -t sobs-parity .
+# Run:    docker run --rm \
+#           -v "$PWD":/work \
+#           -v /ABS/PATH/.libchdb:/libchdb \
+#           -e CHDB_LIB_PATH=/libchdb/libchdb.so \
+#           -w /work sobs-parity python3 migration/tools/run_parity_ci.py
+FROM golang:1.23-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python deps in a venv (bookworm is PEP-668 externally-managed). chdb pinned to 4.1.9 so the
+# bundled native lib matches the mounted libchdb v26.5.0 (the on-disk store must be compatible).
+ENV PATH=/venv/bin:$PATH
+RUN python3 -m venv /venv && /venv/bin/pip install --no-cache-dir --upgrade pip
+COPY requirements.txt /tmp/requirements.txt
+RUN /venv/bin/pip install --no-cache-dir chdb==4.1.9 -r /tmp/requirements.txt pyyaml
+
+# Pre-warm the Go module cache so the runtime `go build` needs no network.
+COPY go/go.mod go/go.sum /tmp/go/
+RUN cd /tmp/go && go mod download

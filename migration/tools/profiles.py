@@ -95,6 +95,13 @@ PROFILES: dict[str, dict[str, str]] = {
     # dmbackup: data_management.backup_enabled=1 so backup/run + restore reach their enabled branch
     # (no S3 configured -> deterministic "S3 bucket is not configured" / "backup_name is required").
     "dmbackup": {},
+    # dmsecret: SOBS_SETTINGS_ENCRYPTION_KEY set so the data-management secret-save path runs its
+    # at-rest-encryption branch. Its POST stores s3_secret_access_key + backup_encryption_password
+    # (Fernet-encrypted at rest), then a follow-up GET renders dm_secret_present=true with the
+    # secret values masked to "". Both responses are deterministic — the random Fernet IV lives
+    # only at rest and never surfaces, so this is byte-comparable while exercising the C6 fix.
+    # Pure env overlay (no seed): the POST creates the rows the GET reads, in manifest order.
+    "dmsecret": {"SOBS_SETTINGS_ENCRYPTION_KEY": "sobs-parity-dm-secret-key"},
     # k8s: Go boot flag on; Python reads the seeded kubernetes.enabled=1. No k8s metrics -> empty status.
     "k8s": {"SOBS_KUBERNETES_ENABLED": "1"},
     # repoapp: a seeded registered app + release + github token so /settings/repositories/<id>/...

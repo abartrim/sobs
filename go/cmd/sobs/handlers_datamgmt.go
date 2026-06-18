@@ -92,10 +92,22 @@ func round2(f float64) float64 {
 // GET /settings/data-management — app.py view_dm_settings: render the DB-stats + DM-settings
 // page. The system.parts byte sizes / ratios are masked in parity; everything else is compared.
 func (s *server) handleDataManagementGet(w http.ResponseWriter, r *http.Request) {
+	// _load_dm_settings(include_sensitive_values=False): the two sensitive secrets are never
+	// surfaced to the page (masked to ""); every other key renders its raw stored value.
 	dm := map[string]any{}
 	for _, k := range dmSettingKeys {
-		v, _ := s.appSetting(k)
-		dm[k] = v
+		raw := s.appSettingRaw(k)
+		if raw != "" && !isSensitiveDMSettingKey(k) {
+			dm[k] = raw
+		} else {
+			dm[k] = ""
+		}
+	}
+	// dm_secret_present is derived from the RAW (possibly encrypted) stored value, so the
+	// "a secret is currently stored" affordance shows without exposing the plaintext.
+	dmSecretPresent := map[string]any{
+		"s3_secret_access_key":       s.appSettingRaw("data_management.s3_secret_access_key") != "",
+		"backup_encryption_password": s.appSettingRaw("data_management.backup_encryption_password") != "",
 	}
 	q := r.URL.Query()
 	flashType := q.Get("msg_type")
@@ -103,11 +115,9 @@ func (s *server) handleDataManagementGet(w http.ResponseWriter, r *http.Request)
 		flashType = "success"
 	}
 	s.renderPage(w, "settings_data_management.html", "view_dm_settings", map[string]any{
-		"dm_settings": dm,
-		"dm_secret_present": map[string]any{
-			"s3_secret_access_key": false, "backup_encryption_password": false,
-		},
-		"flash_msg": q.Get("msg"), "flash_type": flashType,
+		"dm_settings":       dm,
+		"dm_secret_present": dmSecretPresent,
+		"flash_msg":         q.Get("msg"), "flash_type": flashType,
 		"db_stats": s.buildDBStats(),
 	})
 }
