@@ -1319,6 +1319,22 @@ routes:
     query:
       trace_id: aaaa1111bbbb2222cccc3333dddd4444
       window_minutes: not-a-number
+# view_incident NO-MATCH reference branches: error_id + rum_session both supplied but matching
+# nothing. Covers the rum_session lookup block incl. the rum_ts <= predicate append (app.py
+# 15891-15898), the `elif error_id` work-item ref append (16101), and the rum_session ref append
+# (16105). primary_error/primary_trace/primary_rum all stay None -> service "" -> the related
+# errors/logs/RUM sections run against base data with no service/window filter (deterministic on the
+# fixed base fixture). The MATCH paths (primary_rum set, anomaly row) remain deferred.
+- id: get__incident__refs_nomatch
+  path: /incident
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      error_id: deadbeefdeadbeefdeadbeefdeadbeef
+      rum_session: sess-nomatch
+      rum_ts: "2024-01-02 03:00:00"
 - id: get__work_items
   path: /work-items
   methods:
