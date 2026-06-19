@@ -1,15 +1,15 @@
 # Uncovered-line structural classification (DoD-3)
 
-app.py statements: **14884** · covered **9900** (66.51%) · uncovered **4984**
+app.py statements: **14884** · covered **9903** (66.53%) · uncovered **4981**
 
 Heuristic, conservative (unsure → COVERABLE). Deferred buckets are a *lower bound* on the structural ceiling; COVERABLE is an *upper bound* on remaining corpus work.
 
 | reason | lines | % of uncovered | note |
 |---|---:|---:|---|
-| DEFENSIVE_EXCEPT | 411 | 8.2% | except-body pass/log/continue — needs fault injection |
+| DEFENSIVE_EXCEPT | 411 | 8.3% | except-body pass/log/continue — needs fault injection |
 | NOW_WINDOW | 7 | 0.1% | chdb now() wall-clock — needs now()-anchored seed or unverifiable |
 | LIBRARY_ERR_TEXT | 47 | 0.9% | message embeds a Python library exception string (re/json/chdb) — differs Go-vs-Py (F2) |
-| COVERABLE | 4519 | 90.7% | a byte-parity route can reach it (schedulable) |
+| COVERABLE | 4516 | 90.7% | a byte-parity route can reach it (schedulable) |
 
 **Structurally-deferred (lower bound): 465 lines (9.3% of uncovered).**
 **Deterministically-reachable coverage ceiling (covered + COVERABLE): ~96.9%** of app.py statements — the realistic DoD-3 target for the corpus (the rest is classified as deferred above, not coverable by deterministic byte-parity).
