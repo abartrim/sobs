@@ -119,7 +119,17 @@ agent roster + CI are built and committed on `go-main`):
     rule/channel, repos, onboarding, add-to-dashboard, cve-disposition, subscribe.
   - *Seeded populated-data mode:* `api_raw_span` found-branch (949B real span detail) via the
     existing `tracedetail` seed.
-  - Coverage **57.81% → 58.32%** (+76 lines from the first ~8 routes), floor ratcheted to **58.0**.
+  - *Big-view populated mode:* `logsview` profile (seeded otel_logs + record tags) byte-tests the
+    whole `view_logs` populated render (rows/snapshot/tags, every filter, raw-SQL incl. `has_tag()`,
+    regex `q`); plus the `view_traces` LIST path (service/regex filters) reusing `tracedetail`.
+  - Coverage **57.81% → 59.14%** (covered 8,803 / 14,884; uncovered 6,081), floor ratcheted to
+    **59.0**. Full Docker parity GREEN **431/0** throughout.
+- **Populated-render fixes (found by the logsview/traces batch, all latent in the empty corpus):**
+  five genuine Go render-layer bugs fixed — float-rendered COUNT()s, over-aggressive `url_for`
+  query encoding (matched to Werkzeug 3.1.8's exact safe set via an oracle probe), `request.args`
+  hardcoded empty, ordinal string `>=` always false, and a missing Jinja `|string` filter. These
+  are shared primitives, so they de-risk every later populated page. See
+  `migration/POPULATED_RENDER_FINDINGS.md`.
 - **Empirical finding:** error-path routes plateau coverage fast (their branches are 1–2 lines, often
   already executed) — they keep *verification* value but the headline % needs the **seeded
   populated-data handlers** (view_incident/view_ai/view_errors/…), which dominate the remaining gap
@@ -131,6 +141,8 @@ function-level difftests for the 21 lifecycle fns; classify the 13 module/dead l
 sequential, Docker-capture-bound grind (~1 profile per route-cluster) — the machinery makes it
 systematic and the ratchet guarantees monotonic progress. Drive via the agent roster, parity-gated.
 
-- **Next:** work the `route` bucket of `coverage_backlog.md` top-down (view_incident 178,
-  view_ai 118, view_errors 108, api_import_reports 73, view_logs 71, …) — one seeded/feature-on
-  profile per cluster, parity-GREEN, ratchet the floor. Drain `FUZZ_FINDINGS.md` (F2/F3) as found.
+- **Next:** continue the `route` bucket of `coverage_backlog.md` top-down — `view_incident` (178),
+  `view_ai` (118), `view_errors` (108), `api_import_reports` (73), `view_rum` (39), … — one
+  seeded/feature-on profile per cluster, parity-GREEN, ratchet the floor. `view_logs` (was 71) is
+  DONE. The render primitives the logsview batch fixed (counts, url_for, request.args, ordinal
+  string compare, `|string`) should make these go much smoother. Drain `FUZZ_FINDINGS.md` (F2/F3).
