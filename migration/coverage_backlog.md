@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **66%** · **5019** uncovered statements.
+Oracle coverage **66%** · **5014** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 119 | 717 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 429 | 4033 | usually covered when a calling route's fixture is added; else difftest |
+| route | 119 | 713 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 429 | 4032 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -18,8 +18,8 @@ Oracle coverage **66%** · **5019** uncovered statements.
 | `ai_helper` | 27607–28395 | 58 | `POST /api/ai/helper` |
 | `view_incident` | 15785–16144 | 27 | `GET /incident` |
 | `auto_metrics_rules_dashboard` | 13848–13960 | 26 | `POST /metrics/rules/dashboard/auto` |
-| `view_rum` | 17309–17657 | 26 | `GET /rum` |
-| `view_traces` | 15312–15678 | 22 | `GET /traces` |
+| `view_rum` | 17309–17657 | 25 | `GET /rum` |
+| `view_traces` | 15312–15678 | 21 | `GET /traces` |
 | `api_onboarding_create_issues` | 33738–33930 | 18 | `POST /api/onboarding/create-issues` |
 | `api_query_run` | 30511–30765 | 17 | `POST /api/query/run` |
 | `auto_tag_rules` | 23353–23460 | 16 | `POST /settings/tags/auto` |
@@ -48,13 +48,13 @@ Oracle coverage **66%** · **5019** uncovered statements.
 | `api_onboarding_create_repo` | 33464–33533 | 7 | `POST /api/onboarding/create-repo` |
 | `ingest_traces` | 9834–9888 | 6 | `POST /v1/traces` |
 | `ingest_errors` | 10249–10295 | 6 | `POST /v1/errors` |
-| `view_metrics` | 13430–13595 | 6 | `GET /metrics` |
 | `get_ai_span_attributes` | 19003–19040 | 6 | `GET /api/ai/span-attributes` |
 | `export_ai_training` | 19123–19226 | 6 | `GET /api/ai/export` |
 | `render_chart` | 22036–22068 | 6 | `POST /api/dashboards/render` |
 | `create_tag_rule` | 23465–23584 | 6 | `POST /settings/tags` |
 | `create_agent_rule` | 27194–27242 | 6 | `POST /settings/agents` |
 | `ai_helper_execute_action` | 28400–28468 | 6 | `POST /api/ai/helper/actions/execute` |
+| `api_onboarding_inspect_repo` | 33683–33733 | 6 | `GET /api/onboarding/inspect-repo` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 

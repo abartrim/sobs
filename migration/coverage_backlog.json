@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 5019,
+  "total_uncovered": 5014,
   "summary_pct": "66",
   "by_bucket": {
     "helper": {
       "functions": 429,
-      "uncovered": 4033
+      "uncovered": 4032
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 119,
-      "uncovered": 717
+      "uncovered": 713
     },
     "module": {
       "functions": 0,
@@ -818,31 +818,6 @@
       ]
     },
     {
-      "function": "view_rum",
-      "bucket": "route",
-      "start": 17309,
-      "end": 17657,
-      "uncovered": 26,
-      "span": 349,
-      "route": {
-        "path": "/rum",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        17343,
-        17451,
-        17488,
-        17489,
-        17490,
-        17491,
-        17492,
-        17505
-      ]
-    },
-    {
       "function": "_dispatch_email_channel",
       "bucket": "lifecycle",
       "start": 24858,
@@ -935,6 +910,31 @@
         12189,
         12190,
         12191
+      ]
+    },
+    {
+      "function": "view_rum",
+      "bucket": "route",
+      "start": 17309,
+      "end": 17657,
+      "uncovered": 25,
+      "span": 349,
+      "route": {
+        "path": "/rum",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        17451,
+        17488,
+        17489,
+        17490,
+        17491,
+        17492,
+        17505,
+        17506
       ]
     },
     {
@@ -1128,31 +1128,6 @@
       ]
     },
     {
-      "function": "view_traces",
-      "bucket": "route",
-      "start": 15312,
-      "end": 15678,
-      "uncovered": 22,
-      "span": 367,
-      "route": {
-        "path": "/traces",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        15348,
-        15479,
-        15480,
-        15482,
-        15483,
-        15484,
-        15485,
-        15486
-      ]
-    },
-    {
       "function": "_parse_requirements_dependencies",
       "bucket": "helper",
       "start": 16333,
@@ -1302,6 +1277,31 @@
         7492,
         7493,
         7494
+      ]
+    },
+    {
+      "function": "view_traces",
+      "bucket": "route",
+      "start": 15312,
+      "end": 15678,
+      "uncovered": 21,
+      "span": 367,
+      "route": {
+        "path": "/traces",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        15479,
+        15480,
+        15482,
+        15483,
+        15484,
+        15485,
+        15486,
+        15487
       ]
     },
     {
@@ -3770,24 +3770,6 @@
       ]
     },
     {
-      "function": "_remember_attr_keys",
-      "bucket": "helper",
-      "start": 2198,
-      "end": 2237,
-      "uncovered": 7,
-      "span": 40,
-      "route": null,
-      "missing_sample": [
-        2206,
-        2211,
-        2215,
-        2217,
-        2221,
-        2236,
-        2237
-      ]
-    },
-    {
       "function": "_chat_label_from_first_turn",
       "bucket": "helper",
       "start": 3739,
@@ -4260,6 +4242,23 @@
       ]
     },
     {
+      "function": "_remember_attr_keys",
+      "bucket": "helper",
+      "start": 2198,
+      "end": 2237,
+      "uncovered": 6,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        2206,
+        2211,
+        2217,
+        2221,
+        2236,
+        2237
+      ]
+    },
+    {
       "function": "_load_ai_pricing_with_sources",
       "bucket": "helper",
       "start": 2849,
@@ -4626,29 +4625,6 @@
         11122,
         11123,
         11124
-      ]
-    },
-    {
-      "function": "view_metrics",
-      "bucket": "route",
-      "start": 13430,
-      "end": 13595,
-      "uncovered": 6,
-      "span": 166,
-      "route": {
-        "path": "/metrics",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        13479,
-        13480,
-        13497,
-        13554,
-        13555,
-        13556
       ]
     },
     {
@@ -5292,25 +5268,25 @@
       ]
     },
     {
-      "function": "view_errors",
+      "function": "view_metrics",
       "bucket": "route",
-      "start": 14210,
-      "end": 14583,
+      "start": 13430,
+      "end": 13595,
       "uncovered": 5,
-      "span": 374,
+      "span": 166,
       "route": {
-        "path": "/errors",
+        "path": "/metrics",
         "methods": [
           "GET"
         ],
         "decorator": "route"
       },
       "missing_sample": [
-        14292,
-        14410,
-        14445,
-        14500,
-        14525
+        13479,
+        13480,
+        13554,
+        13555,
+        13556
       ]
     },
     {
@@ -5860,6 +5836,27 @@
         13676,
         13678,
         13679
+      ]
+    },
+    {
+      "function": "view_errors",
+      "bucket": "route",
+      "start": 14210,
+      "end": 14583,
+      "uncovered": 4,
+      "span": 374,
+      "route": {
+        "path": "/errors",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        14410,
+        14445,
+        14500,
+        14525
       ]
     },
     {
