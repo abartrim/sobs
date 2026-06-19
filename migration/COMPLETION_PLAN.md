@@ -125,8 +125,12 @@ agent roster + CI are built and committed on `go-main`):
   - Plus `view_rum` filter/mode branches (4 base routes: `?view=`, `?type=`, `?q=`,
     `?error_source=`) reusing the base hyperdx_sessions seed; its vitals/error-trend
     derived-signal lines (need the `v_derived_signals_*` views) are deferred.
-  - Coverage **57.81% → 59.23%** (covered 8,816 / 14,884; uncovered 6,068), floor ratcheted to
-    **59.2**. Full Docker parity GREEN **431/0** (logsview/traces); rum routes scoped GREEN **4/0**.
+  - Plus `view_errors` (8 routes, `errorsview` profile: error events in 3 groups + a resolution) —
+    the non-grouped narrow+hydrate path, the grouped aggregate path, and resolved=0/1/all + filters.
+  - Coverage **57.81% → 60.27%** (covered 8,970 / 14,884; uncovered 5,914), floor ratcheted to
+    **60.2**. Full Docker parity GREEN **443/0**.
+- **A 6th render fix (R6, found by errorsview):** `url_for` rendered `None` query params as
+  `grouped=%3Cnil%3E`; Werkzeug omits None-valued params → `urlFor` now skips nil kwargs.
 - **Populated-render fixes (found by the logsview/traces batch, all latent in the empty corpus):**
   five genuine Go render-layer bugs fixed — float-rendered COUNT()s, over-aggressive `url_for`
   query encoding (matched to Werkzeug 3.1.8's exact safe set via an oracle probe), `request.args`
@@ -145,7 +149,8 @@ sequential, Docker-capture-bound grind (~1 profile per route-cluster) — the ma
 systematic and the ratchet guarantees monotonic progress. Drive via the agent roster, parity-gated.
 
 - **Next:** continue the `route` bucket of `coverage_backlog.md` top-down — `view_incident` (178),
-  `view_ai` (118), `view_errors` (108), `api_import_reports` (73), `view_rum` (39), … — one
-  seeded/feature-on profile per cluster, parity-GREEN, ratchet the floor. `view_logs` (was 71) is
-  DONE. The render primitives the logsview batch fixed (counts, url_for, request.args, ordinal
-  string compare, `|string`) should make these go much smoother. Drain `FUZZ_FINDINGS.md` (F2/F3).
+  `view_ai` (118), `api_import_reports` (73), … — one seeded/feature-on profile per cluster,
+  parity-GREEN, ratchet the floor. DONE: `view_logs`, `view_traces` list, `view_rum` (filters;
+  vitals derived-signal lines deferred), `view_errors`. The render primitives fixed so far (counts,
+  url_for encoding + None-omission, request.args, ordinal string compare, `|string`) make these go
+  much smoother. Drain `FUZZ_FINDINGS.md` (F2/F3).

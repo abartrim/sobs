@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **59%** · **6068** uncovered statements.
+Oracle coverage **60%** · **5914** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 1538 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 444 | 4261 | usually covered when a calling route's fixture is added; else difftest |
+| route | 123 | 1435 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 440 | 4210 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -17,7 +17,6 @@ Oracle coverage **59%** · **6068** uncovered statements.
 |---|---|---:|---|
 | `view_incident` | 15785–16144 | 178 | `GET /incident` |
 | `view_ai` | 18631–18998 | 118 | `GET /ai` |
-| `view_errors` | 14210–14583 | 108 | `GET /errors` |
 | `api_import_reports` | 22857–23017 | 73 | `POST /api/reports/import` |
 | `ai_helper` | 27607–28395 | 58 | `POST /api/ai/helper` |
 | `create_notification_rule` | 25918–26089 | 39 | `POST /settings/notifications/rules` |
@@ -55,6 +54,7 @@ Oracle coverage **59%** · **6068** uncovered statements.
 | `api_ai_validate_filter` | 24407–24454 | 13 | `POST /api/ai/validate-filter` |
 | `ai_helper_chats` | 27448–27502 | 13 | `GET /api/ai/helper/chats` |
 | `rum_asset_download` | 9761–9786 | 12 | `GET /v1/rum/assets/<asset_id>` |
+| `api_metrics_validate_regex` | 24115–24167 | 11 | `POST /api/metrics/validate-regex` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
@@ -82,7 +82,7 @@ Oracle coverage **59%** · **6068** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (444 functions)
+## helper — top by uncovered lines (440 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
@@ -121,8 +121,8 @@ Oracle coverage **59%** · **6068** uncovered statements.
 | `_resolve_custom_binding_expr` | 21086–21119 | 28 |  |
 | `_parse_gemfile_lock_dependencies` | 16426–16453 | 27 |  |
 | `_encrypt_push_payload` | 24990–25055 | 27 |  |
-| `_maybe_demangle_js_stack` | 8030–8061 | 26 |  |
 | `_normalize_genai_messages_for_display` | 8403–8440 | 26 |  |
 | `_match_single_condition` | 12551–12588 | 26 |  |
 | `_build_trace_window_overlay_segments` | 14787–14842 | 26 |  |
 | `_collect_library_inventory` | 16876–17071 | 26 |  |
+| `_load_chat_tool_history` | 4016–4075 | 25 |  |
