@@ -542,6 +542,29 @@ routes:
   - GET
   request:
     method: GET
+# ai_helper_chats param-parse branches (limit/offset except, page filter). Base has no turn.summary
+# rows -> empty chat list; the parse branches run before the query so they're covered regardless.
+- id: get__api_ai_helper_chats__limit_err
+  path: /api/ai/helper/chats
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {limit: notanumber}
+- id: get__api_ai_helper_chats__offset_err
+  path: /api/ai/helper/chats
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {offset: notanumber}
+- id: get__api_ai_helper_chats__page
+  path: /api/ai/helper/chats
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {page: some-page}
 - id: get__api_ai_conversation
   path: /api/ai/conversation
   methods:
@@ -3466,6 +3489,32 @@ routes:
   profile: aichat
   request:
     method: GET
+# export_ai_training variants over the aichat gen_ai span (fixed _TS -> deterministic, no mask):
+# json format, service/model/operation filters, and the limit-parse except.
+- id: get__api_ai_export__aichat_json
+  path: /api/ai/export
+  methods:
+  - GET
+  profile: aichat
+  request:
+    method: GET
+    query: {format: json}
+- id: get__api_ai_export__aichat_filters
+  path: /api/ai/export
+  methods:
+  - GET
+  profile: aichat
+  request:
+    method: GET
+    query: {service: sobs-ai-helper, model: gpt-4, operation: chat}
+- id: get__api_ai_export__aichat_limit_err
+  path: /api/ai/export
+  methods:
+  - GET
+  profile: aichat
+  request:
+    method: GET
+    query: {limit: notanumber}
 - id: get__api_setup_wizard_steps
   path: /api/setup-wizard/steps
   methods:
