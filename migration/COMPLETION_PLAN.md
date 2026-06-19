@@ -132,8 +132,12 @@ agent roster + CI are built and committed on `go-main`):
     rum_session match paths deferred (need computed ids).
   - Plus `view_ai` (9 routes, `aiview` profile: otel_traces AI spans): ai_items build, flat + trace
     view modes, totals, and the service/model/operation/span_name/row_type/sql filters.
-  - Coverage **57.81% → 62.12%** (covered 9,246 / 14,884; uncovered 5,638), floor ratcheted to
-    **62.0**. Full Docker parity GREEN **454/0**.
+  - Plus the POST cluster (zero new Go bugs — POST-JSON/form handlers have little latent surface):
+    `api_import_reports` (8 routes, `reportsimport` profile — envelope/item validation +
+    skip/replace/rename/insert), and `create_metrics_rule` + `create_tag_rule` (12 routes,
+    `rulecreate` profile — validation branches + success inserts, isolated, flash+redirect).
+  - Coverage **57.81% → 62.66%** (covered 9,327 / 14,884; uncovered 5,557), floor ratcheted to
+    **62.6**. Full Docker parity GREEN **474/0**.
 - **Nine render/handler fixes (R1–R9) found by these batches** — all latent in the empty corpus,
   all now matching the Python/Werkzeug/Jinja2 oracle (see `migration/POPULATED_RENDER_FINDINGS.md`):
   float-rendered counts, `url_for` over-encoding, `url_for` None-param omission, hardcoded-empty
