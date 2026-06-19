@@ -3621,6 +3621,7 @@ func (s *server) handleViewAiSettings(w http.ResponseWriter, r *http.Request) {
 		// app.py save_ai_settings: write each ai.* key from its prefix-stripped form field
 		// (empty form -> ""), then flash success. Pricing/token-bookkeeping keys are skipped.
 		_ = r.ParseForm()
+		previousToken := strings.TrimSpace(s.loadAISetting("ai.github_token", ""))
 		var aiKeys []string
 		_ = json.Unmarshal(aiSettingKeysJSON, &aiKeys)
 		for _, k := range aiKeys {
@@ -3629,6 +3630,71 @@ func (s *server) handleViewAiSettings(w http.ResponseWriter, r *http.Request) {
 			}
 			_ = s.setAppSetting(k, strings.TrimSpace(r.PostFormValue(strings.TrimPrefix(k, "ai."))))
 		}
+
+		// model_pricing: validate JSON object, normalize entries (app.py save_ai_settings). Invalid
+		// JSON -> 400 {"error": ...}. The saved value is DB-only (not in the response).
+		rawPricing := strings.TrimSpace(r.PostFormValue("model_pricing"))
+		clean := jsonenc.NewObject()
+		if rawPricing != "" {
+			parsed, perr := parseJSONValue([]byte(rawPricing))
+			obj, ok := parsed.(*jsonenc.Object)
+			if perr != nil || !ok {
+				errorOnly(w, http.StatusBadRequest, "Invalid model_pricing JSON")
+				return
+			}
+			for _, mk := range obj.Keys() {
+				prices, _ := obj.Get(mk)
+				nk := normalizeAiModelName(mk)
+				if entry := coerceAiPricingEntry(prices); nk != "" && entry != nil {
+					clean.Set(nk, entry)
+				}
+			}
+			_ = s.setAppSetting("ai.model_pricing", jsonDumpsNoEsc(clean))
+		} else {
+			_ = s.setAppSetting("ai.model_pricing", "")
+		}
+
+		// model_pricing_confirmed: validate JSON array; keep only models present in clean.
+		rawConfirmed := strings.TrimSpace(r.PostFormValue("model_pricing_confirmed"))
+		if rawConfirmed != "" {
+			parsed, perr := parseJSONValue([]byte(rawConfirmed))
+			arr, ok := parsed.([]any)
+			if perr != nil || !ok {
+				errorOnly(w, http.StatusBadRequest, "Invalid model_pricing_confirmed JSON")
+				return
+			}
+			seen := map[string]bool{}
+			confirmed := []any{}
+			for _, mkAny := range arr {
+				nk := normalizeAiModelName(mkAny)
+				if nk == "" || seen[nk] {
+					continue
+				}
+				if _, in := clean.Get(nk); !in {
+					continue
+				}
+				seen[nk] = true
+				confirmed = append(confirmed, nk)
+			}
+			_ = s.setAppSetting("ai.model_pricing_confirmed", jsonDumpsNoEsc(confirmed))
+		} else {
+			_ = s.setAppSetting("ai.model_pricing_confirmed", "")
+		}
+
+		// github_token expiry + validation-status reset on change.
+		githubToken := strings.TrimSpace(r.PostFormValue("github_token"))
+		if githubToken != "" {
+			_ = s.setAppSetting("ai.github_token_expires_at",
+				normalizeGithubTokenExpiry(strings.TrimSpace(r.PostFormValue("github_token_expires_at"))))
+		} else {
+			_ = s.setAppSetting("ai.github_token_expires_at", "")
+		}
+		if githubToken != previousToken {
+			_ = s.setAppSetting("ai.github_token_last_validated_at", "")
+			_ = s.setAppSetting("ai.github_token_last_validation_status", "")
+			_ = s.setAppSetting("ai.github_token_last_validation_message", "")
+		}
+
 		flashRedirect(w, "success", "AI settings saved", "/settings/ai")
 		return
 	}

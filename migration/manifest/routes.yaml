@@ -4105,6 +4105,37 @@ routes:
   - POST
   request:
     method: POST
+# save_ai_settings JSON-validation + success branches (aisettings profile, isolated writes). Response
+# is flash+redirect or 400 JSON -> deterministic (encrypted DB writes never appear in the response).
+- id: post__settings_ai__as_err_pricing
+  path: /settings/ai
+  methods:
+  - POST
+  profile: aisettings
+  request:
+    method: POST
+    form: {endpoint_url: 'http://ai.local/v1', model: gpt-4, model_pricing: not-json}
+- id: post__settings_ai__as_err_confirmed
+  path: /settings/ai
+  methods:
+  - POST
+  profile: aisettings
+  request:
+    method: POST
+    form: {endpoint_url: 'http://ai.local/v1', model: gpt-4, model_pricing_confirmed: not-json}
+- id: post__settings_ai__as_success
+  path: /settings/ai
+  methods:
+  - POST
+  profile: aisettings
+  request:
+    method: POST
+    form:
+      endpoint_url: 'http://ai.local/v1'
+      model: gpt-4
+      model_pricing: '{"gpt-4": {"in": 1.0, "out": 2.0}}'
+      model_pricing_confirmed: '["gpt-4"]'
+      github_token: ghp_paritytesttoken
 - id: post__settings_kubernetes
   path: /settings/kubernetes
   methods:
