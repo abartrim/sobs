@@ -1,14 +1,14 @@
 {
-  "total_uncovered": 5914,
-  "summary_pct": "60",
+  "total_uncovered": 5798,
+  "summary_pct": "61",
   "by_bucket": {
     "route": {
       "functions": 123,
-      "uncovered": 1435
+      "uncovered": 1322
     },
     "helper": {
-      "functions": 440,
-      "uncovered": 4210
+      "functions": 438,
+      "uncovered": 4207
     },
     "lifecycle": {
       "functions": 21,
@@ -20,31 +20,6 @@
     }
   },
   "functions": [
-    {
-      "function": "view_incident",
-      "bucket": "route",
-      "start": 15785,
-      "end": 16144,
-      "uncovered": 178,
-      "span": 360,
-      "route": {
-        "path": "/incident",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        15797,
-        15798,
-        15837,
-        15838,
-        15839,
-        15840,
-        15841,
-        15845
-      ]
-    },
     {
       "function": "view_ai",
       "bucket": "route",
@@ -207,6 +182,31 @@
         2515,
         2517,
         2518
+      ]
+    },
+    {
+      "function": "view_incident",
+      "bucket": "route",
+      "start": 15785,
+      "end": 16144,
+      "uncovered": 65,
+      "span": 360,
+      "route": {
+        "path": "/incident",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        15839,
+        15840,
+        15841,
+        15845,
+        15846,
+        15847,
+        15848,
+        15849
       ]
     },
     {
@@ -8036,19 +8036,6 @@
       ]
     },
     {
-      "function": "_normalize_ch_timestamp",
-      "bucket": "helper",
-      "start": 8794,
-      "end": 8810,
-      "uncovered": 2,
-      "span": 17,
-      "route": null,
-      "missing_sample": [
-        8797,
-        8801
-      ]
-    },
-    {
       "function": "_op",
       "bucket": "helper",
       "start": 10212,
@@ -9249,6 +9236,18 @@
       ]
     },
     {
+      "function": "_normalize_ch_timestamp",
+      "bucket": "helper",
+      "start": 8794,
+      "end": 8810,
+      "uncovered": 1,
+      "span": 17,
+      "route": null,
+      "missing_sample": [
+        8801
+      ]
+    },
+    {
       "function": "_safe_json_loads",
       "bucket": "helper",
       "start": 8838,
@@ -9528,30 +9527,6 @@
       "route": null,
       "missing_sample": [
         14694
-      ]
-    },
-    {
-      "function": "_uniq",
-      "bucket": "helper",
-      "start": 14982,
-      "end": 14992,
-      "uncovered": 1,
-      "span": 11,
-      "route": null,
-      "missing_sample": [
-        14984
-      ]
-    },
-    {
-      "function": "_attr_clause",
-      "bucket": "helper",
-      "start": 15008,
-      "end": 15017,
-      "uncovered": 1,
-      "span": 10,
-      "route": null,
-      "missing_sample": [
-        15010
       ]
     },
     {

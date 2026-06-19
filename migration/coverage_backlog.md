@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **60%** · **5914** uncovered statements.
+Oracle coverage **61%** · **5798** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 1435 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 440 | 4210 | usually covered when a calling route's fixture is added; else difftest |
+| route | 123 | 1322 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 438 | 4207 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -15,9 +15,9 @@ Oracle coverage **60%** · **5914** uncovered statements.
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
-| `view_incident` | 15785–16144 | 178 | `GET /incident` |
 | `view_ai` | 18631–18998 | 118 | `GET /ai` |
 | `api_import_reports` | 22857–23017 | 73 | `POST /api/reports/import` |
+| `view_incident` | 15785–16144 | 65 | `GET /incident` |
 | `ai_helper` | 27607–28395 | 58 | `POST /api/ai/helper` |
 | `create_notification_rule` | 25918–26089 | 39 | `POST /settings/notifications/rules` |
 | `ingest_rum` | 10010–10149 | 33 | `POST /v1/rum` |
@@ -82,7 +82,7 @@ Oracle coverage **60%** · **5914** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (440 functions)
+## helper — top by uncovered lines (438 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|

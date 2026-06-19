@@ -127,10 +127,17 @@ agent roster + CI are built and committed on `go-main`):
     derived-signal lines (need the `v_derived_signals_*` views) are deferred.
   - Plus `view_errors` (8 routes, `errorsview` profile: error events in 3 groups + a resolution) —
     the non-grouped narrow+hydrate path, the grouped aggregate path, and resolved=0/1/all + filters.
-  - Coverage **57.81% → 60.27%** (covered 8,970 / 14,884; uncovered 5,914), floor ratcheted to
-    **60.2**. Full Docker parity GREEN **443/0**.
-- **A 6th render fix (R6, found by errorsview):** `url_for` rendered `None` query params as
-  `grouped=%3Cnil%3E`; Werkzeug omits None-valued params → `urlFor` now skips nil kwargs.
+  - Plus `view_incident` trace path (2 routes, `?trace_id=<tracedetail trace>`): primary-trace
+    resolution + related errors/logs/spans/rum/windows/metrics/anomaly gathering. error_id /
+    rum_session match paths deferred (need computed ids).
+  - Coverage **57.81% → 61.05%** (covered 9,086 / 14,884; uncovered 5,798), floor ratcheted to
+    **61.0**. Full Docker parity GREEN **445/0**.
+- **Seven render-layer fixes (R1–R7) found by these batches** — all latent in the empty corpus,
+  all now matching the Python/Werkzeug/Jinja2 oracle (see `migration/POPULATED_RENDER_FINDINGS.md`):
+  float-rendered counts, `url_for` over-encoding, `url_for` None-param omission, hardcoded-empty
+  `request.args`, ordinal string `>=`, missing `|string` filter, and `normalizeCHTimestamp(time.Time)`.
+  These are shared primitives, so each later populated page surfaces fewer bugs (logsview hit 5,
+  errorsview 1, incident 1).
 - **Populated-render fixes (found by the logsview/traces batch, all latent in the empty corpus):**
   five genuine Go render-layer bugs fixed — float-rendered COUNT()s, over-aggressive `url_for`
   query encoding (matched to Werkzeug 3.1.8's exact safe set via an oracle probe), `request.args`
