@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 4774,
+  "total_uncovered": 4758,
   "summary_pct": "68",
   "by_bucket": {
     "helper": {
       "functions": 420,
-      "uncovered": 3948
+      "uncovered": 3934
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 116,
-      "uncovered": 557
+      "uncovered": 555
     },
     "module": {
       "functions": 0,
@@ -1290,25 +1290,6 @@
         10590,
         10591,
         10592
-      ]
-    },
-    {
-      "function": "_evaluate_seasonal_rule",
-      "bucket": "helper",
-      "start": 13020,
-      "end": 13089,
-      "uncovered": 20,
-      "span": 70,
-      "route": null,
-      "missing_sample": [
-        13036,
-        13037,
-        13040,
-        13041,
-        13050,
-        13051,
-        13052,
-        13055
       ]
     },
     {
@@ -3469,24 +3450,6 @@
       ]
     },
     {
-      "function": "_remember_attr_keys",
-      "bucket": "helper",
-      "start": 2198,
-      "end": 2237,
-      "uncovered": 7,
-      "span": 40,
-      "route": null,
-      "missing_sample": [
-        2206,
-        2211,
-        2215,
-        2217,
-        2221,
-        2236,
-        2237
-      ]
-    },
-    {
       "function": "_chat_label_from_first_turn",
       "bucket": "helper",
       "start": 3739,
@@ -3658,6 +3621,24 @@
         11406,
         11439,
         11440
+      ]
+    },
+    {
+      "function": "_evaluate_seasonal_rule",
+      "bucket": "helper",
+      "start": 13020,
+      "end": 13089,
+      "uncovered": 7,
+      "span": 70,
+      "route": null,
+      "missing_sample": [
+        13036,
+        13037,
+        13040,
+        13041,
+        13058,
+        13068,
+        13069
       ]
     },
     {
@@ -3962,6 +3943,23 @@
         1991,
         1992,
         1993
+      ]
+    },
+    {
+      "function": "_remember_attr_keys",
+      "bucket": "helper",
+      "start": 2198,
+      "end": 2237,
+      "uncovered": 6,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        2206,
+        2211,
+        2217,
+        2221,
+        2236,
+        2237
       ]
     },
     {
@@ -4873,28 +4871,6 @@
         12885,
         12886,
         12887
-      ]
-    },
-    {
-      "function": "view_metrics",
-      "bucket": "route",
-      "start": 13430,
-      "end": 13595,
-      "uncovered": 5,
-      "span": 166,
-      "route": {
-        "path": "/metrics",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        13479,
-        13480,
-        13554,
-        13555,
-        13556
       ]
     },
     {
@@ -6151,6 +6127,26 @@
         12323,
         12327,
         12338
+      ]
+    },
+    {
+      "function": "view_metrics",
+      "bucket": "route",
+      "start": 13430,
+      "end": 13595,
+      "uncovered": 3,
+      "span": 166,
+      "route": {
+        "path": "/metrics",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        13554,
+        13555,
+        13556
       ]
     },
     {

@@ -206,3 +206,60 @@ log-and-continue (need fault injection), `now()`-window branches, F2-class libra
 So "≥99% covered" is unreachable by corpus alone; the realistic DoD-3 is **max coverage of the
 deterministically-testable surface + every residual line classified.** Driving D1–D3 via the
 isolated-worktree Coder roster (§Multi-agent process) is the highest-leverage next step.
+
+### Update 2026-06-19 (c) — coverage 65.9% → 67.9%, floor → 67.7, 14 milestone PRs merged (#308-#320)
+
+Executed the §Multi-agent process at scale: a sequential delegate→cherry-pick→**parity-barrier**→PR→
+merge loop, one isolated-worktree Coder per milestone, integrating at the gate. **D1/D2/D3 RESOLVED**
+— they were artifacts of a seeding-methodology bug (capturing a seeded-profile golden against an
+EMPTY table because `seed_fixtures.py --only-profile X` was omitted before `capture_routes.py`); with
+the correct scoped flow they are GREEN (view_ai filters, view_logs analyze) or precisely deferred
+(D2 chdb ts-equality → the `get_ai_span_attributes` raw_attrs key-order bug, fixed as **R14**).
+
+DoD-3 progress (the only open DoD item; 1/2/4/5/6 already met — see below):
+- **Coverage 65.9% → 67.93%** (10,110/14,884), floor ratcheted 65.9 → **67.7**.
+- **Genuine Go port bugs found by the byte-parity gate and FIXED** (DoD-3 "scheduled→done", and direct
+  evidence that byte-parity GREEN ≠ functionally complete): **R13** (RUM attrs dropped via `cStr` on a
+  chdb Map), **R14** (`get_ai_span_attributes`/`api_raw_span` raw_attrs JSON key-order — encoding/json
+  sorts vs chdb insertion order; fixed via mapKeys/mapValues + order-preserving jsonenc), **R15**
+  (`rum_asset_download` headers diverged from Quart `send_from_directory`), **R16** (`edit_chart`/
+  `clone_chart` were ENTIRELY UNIMPLEMENTED in Go — fell through to http.NotFound for existing
+  dashboards; only the 404 path passed parity), **R17** (`view_logs` COUNT query `AS c` alias leaked
+  into the chdb error body), **R19** (`signal_health` rules never fired — `iStr` did `Atoi("10.0")` on
+  a chdb-go float64-decoded UInt aggregate; same class as R10). **R18** documented (an oracle
+  cache-aliasing bug Go does NOT replicate → Go more correct; isolated via capture-profile).
+- **now()-anchored class CRACKED** (the previously-"hard" derived-signals/recent-activity panels):
+  constant signals at now()-relative fixed offsets + time-string masks (profiles `rumvitals`,
+  `summaryrich`, `metricsrich`) → view_rum vitals/error-trend, summary dashboard (~50 net lines incl.
+  the full threshold/seasonal rule-eval chain), view_metrics seasonal hour/day bucket-match.
+- **mock-upstream harness mapped + exploited** (URL-keyed `sha256("METHOD url")[:32]` fixtures under
+  `migration/fixtures/upstream/`, env `SOBS_UPSTREAM_FIXTURES`, mirrored Py httpx-MockTransport / Go
+  `upstreamRequest`, body-ignored): covered onboarding list-repos/inspect-repo/create-repo/import-repo.
+
+**★ Empirical refinement of the DoD-3 ceiling (important — supersedes the heuristic ~96.9%):** probing
+handlers line-by-line shows the classifier's COVERABLE bucket is OPTIMISTIC. Per-handler dead-rate
+varies wildly and is only knowable by probing: view_logs 12/15 residual lines were dead/unsafe,
+check_notifications 9/16, view_metrics ~3/35, but import_reports only 1/13. The genuinely-uncoverable
+classes (must be *classified*, not covered, per DoD-3): defensive `except:pass`/log-only (need fault
+injection), `now()`-window branches with no maskable surface, **DEAD-under-chdb** (chdb returns
+strings/UInts where code checks `isinstance(datetime)` or a branch is shadowed by a prior always-true
+guard — e.g. `_safe_duration_ms` on a UInt64, tz-aware `astimezone` arms), raw-`{exc}`/F2 library
+text, LLM-body-dependent (the URL-keyed mock ignores the body so multi-call SQL→named→chart loops
+aren't reproducible), and uuid-in-response (R12). **So the realistic DoD-3 target is unchanged in
+spirit but lower in number than 96.9%: cover every genuinely-reachable-deterministic line + classify
+the rest with proof.** Each per-handler batch now yields a handful of real lines + a proven dead/
+deferred list; the drive is irreducibly multi-session.
+
+**Coverage-gate integrity fix (this session):** `coverage_capture.py` has ~12-line run-to-run JITTER
+from intermittent chdb query errors under the many-profile run's contention (a transiently-erroring
+route takes its except-branch, dropping success-render lines). Ratcheting to single-sample PEAKS left
+an unmeetable floor (a broken CI gate); corrected to a **conservative floor = stable-min − ~2-3×
+jitter margin**, take 2-3 samples before ratcheting. This keeps DoD #3's gate reliable as coverage
+climbs.
+
+**DoD status:** #1 stubs=0 ✅ · #2 parity GREEN **613/0** ✅ · #3 coverage **67.9%** + every probed
+residual classified (ongoing — the open item) · #4 fuzz (F1 fixed; F2/F3 logged) · #5 mutation
+(harness ready; high-value once coverage higher) · #6 CI namespaced ✅. The remaining work is #3's
+long tail: continue per-handler corpus expansion (next: the auto-tag/auto-dashboard candidate-gen
+helpers at 12062-12388 ~90 lines; view_rum/view_incident/onboarding-write residuals) until every
+reachable line is covered and every residual is classified-with-proof.

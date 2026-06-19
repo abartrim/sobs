@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **68%** · **4774** uncovered statements.
+Oracle coverage **68%** · **4758** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 116 | 557 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 420 | 3948 | usually covered when a calling route's fixture is added; else difftest |
+| route | 116 | 555 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 420 | 3934 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -46,7 +46,6 @@ Oracle coverage **68%** · **4774** uncovered statements.
 | `ingest_logs` | 9665–9694 | 5 | `POST /v1/logs` |
 | `issue_rum_client_token` | 9791–9826 | 5 | `POST /v1/rum/client-token` |
 | `ingest_ai` | 10157–10241 | 5 | `POST /v1/ai` |
-| `view_metrics` | 13430–13595 | 5 | `GET /metrics` |
 | `api_web_traffic_geo` | 17711–17760 | 5 | `GET /api/web-traffic/geo` |
 | `view_work_items` | 18361–18488 | 5 | `GET /work-items` |
 | `import_chart` | 22467–22532 | 5 | `POST /api/dashboards/<dashboard_id>/charts/import` |
@@ -55,6 +54,7 @@ Oracle coverage **68%** · **4774** uncovered statements.
 | `api_dm_prune` | 32298–32321 | 5 | `POST /api/data-management/prune` |
 | `rum_asset_download` | 9761–9786 | 4 | `GET /v1/rum/assets/<asset_id>` |
 | `create_metrics_rule` | 13626–13716 | 4 | `POST /metrics/rules` |
+| `view_errors` | 14210–14583 | 4 | `GET /errors` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
