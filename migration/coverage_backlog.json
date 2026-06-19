@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 5104,
+  "total_uncovered": 5083,
   "summary_pct": "66",
   "by_bucket": {
     "helper": {
-      "functions": 430,
-      "uncovered": 4080
+      "functions": 429,
+      "uncovered": 4076
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 119,
-      "uncovered": 755
+      "uncovered": 738
     },
     "module": {
       "functions": 0,
@@ -388,31 +388,6 @@
       ]
     },
     {
-      "function": "view_incident",
-      "bucket": "route",
-      "start": 15785,
-      "end": 16144,
-      "uncovered": 39,
-      "span": 360,
-      "route": {
-        "path": "/incident",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        15852,
-        15853,
-        15885,
-        15886,
-        15891,
-        15892,
-        15893,
-        15894
-      ]
-    },
-    {
       "function": "_collect_github_repo_health_summary",
       "bucket": "helper",
       "start": 17944,
@@ -714,6 +689,31 @@
         21094,
         21095,
         21096
+      ]
+    },
+    {
+      "function": "view_incident",
+      "bucket": "route",
+      "start": 15785,
+      "end": 16144,
+      "uncovered": 27,
+      "span": 360,
+      "route": {
+        "path": "/incident",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        15852,
+        15853,
+        15885,
+        15886,
+        15905,
+        15906,
+        15907,
+        15919
       ]
     },
     {
@@ -1400,31 +1400,6 @@
       ]
     },
     {
-      "function": "view_logs",
-      "bucket": "route",
-      "start": 11239,
-      "end": 11512,
-      "uncovered": 20,
-      "span": 274,
-      "route": {
-        "path": "/logs",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        11282,
-        11321,
-        11322,
-        11343,
-        11344,
-        11379,
-        11383,
-        11390
-      ]
-    },
-    {
       "function": "_vanna_generate_chart_spec",
       "bucket": "helper",
       "start": 29788,
@@ -1662,6 +1637,31 @@
         9988,
         9989,
         9992
+      ]
+    },
+    {
+      "function": "view_logs",
+      "bucket": "route",
+      "start": 11239,
+      "end": 11512,
+      "uncovered": 17,
+      "span": 274,
+      "route": {
+        "path": "/logs",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        11343,
+        11344,
+        11379,
+        11383,
+        11390,
+        11397,
+        11402,
+        11403
       ]
     },
     {
@@ -3130,31 +3130,6 @@
       ]
     },
     {
-      "function": "ingest_metrics",
-      "bucket": "route",
-      "start": 9896,
-      "end": 9918,
-      "uncovered": 9,
-      "span": 23,
-      "route": {
-        "path": "/v1/metrics",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        9900,
-        9904,
-        9905,
-        9906,
-        9910,
-        9911,
-        9912,
-        9913
-      ]
-    },
-    {
       "function": "_extract_trace_fields",
       "bucket": "helper",
       "start": 9927,
@@ -3522,22 +3497,28 @@
       ]
     },
     {
-      "function": "_parse_otlp_request",
-      "bucket": "helper",
-      "start": 9602,
-      "end": 9649,
+      "function": "ingest_metrics",
+      "bucket": "route",
+      "start": 9896,
+      "end": 9918,
       "uncovered": 8,
-      "span": 48,
-      "route": null,
+      "span": 23,
+      "route": {
+        "path": "/v1/metrics",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
       "missing_sample": [
-        9626,
-        9627,
-        9628,
-        9642,
-        9643,
-        9646,
-        9647,
-        9648
+        9904,
+        9905,
+        9906,
+        9910,
+        9911,
+        9912,
+        9913,
+        9914
       ]
     },
     {
@@ -3927,24 +3908,6 @@
       ]
     },
     {
-      "function": "_remember_attr_keys",
-      "bucket": "helper",
-      "start": 2198,
-      "end": 2237,
-      "uncovered": 7,
-      "span": 40,
-      "route": null,
-      "missing_sample": [
-        2206,
-        2211,
-        2215,
-        2217,
-        2221,
-        2236,
-        2237
-      ]
-    },
-    {
       "function": "_chat_label_from_first_turn",
       "bucket": "helper",
       "start": 3739,
@@ -4068,30 +4031,6 @@
         8435,
         8436,
         8438
-      ]
-    },
-    {
-      "function": "ingest_traces",
-      "bucket": "route",
-      "start": 9834,
-      "end": 9888,
-      "uncovered": 7,
-      "span": 55,
-      "route": {
-        "path": "/v1/traces",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        9838,
-        9849,
-        9850,
-        9851,
-        9852,
-        9853,
-        9871
       ]
     },
     {
@@ -4441,6 +4380,23 @@
       ]
     },
     {
+      "function": "_remember_attr_keys",
+      "bucket": "helper",
+      "start": 2198,
+      "end": 2237,
+      "uncovered": 6,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        2206,
+        2211,
+        2217,
+        2221,
+        2236,
+        2237
+      ]
+    },
+    {
       "function": "_load_ai_pricing_with_sources",
       "bucket": "helper",
       "start": 2849,
@@ -4693,6 +4649,46 @@
         8690,
         8691,
         8692
+      ]
+    },
+    {
+      "function": "_parse_otlp_request",
+      "bucket": "helper",
+      "start": 9602,
+      "end": 9649,
+      "uncovered": 6,
+      "span": 48,
+      "route": null,
+      "missing_sample": [
+        9626,
+        9627,
+        9628,
+        9646,
+        9647,
+        9648
+      ]
+    },
+    {
+      "function": "ingest_traces",
+      "bucket": "route",
+      "start": 9834,
+      "end": 9888,
+      "uncovered": 6,
+      "span": 55,
+      "route": {
+        "path": "/v1/traces",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        9849,
+        9850,
+        9851,
+        9852,
+        9853,
+        9871
       ]
     },
     {
@@ -9088,18 +9084,6 @@
       "route": null,
       "missing_sample": [
         11206
-      ]
-    },
-    {
-      "function": "_validate_user_sql_where",
-      "bucket": "helper",
-      "start": 11613,
-      "end": 11642,
-      "uncovered": 1,
-      "span": 30,
-      "route": null,
-      "missing_sample": [
-        11639
       ]
     },
     {

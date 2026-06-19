@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **66%** · **5104** uncovered statements.
+Oracle coverage **66%** · **5083** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 119 | 755 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 430 | 4080 | usually covered when a calling route's fixture is added; else difftest |
+| route | 119 | 738 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 429 | 4076 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -16,13 +16,13 @@ Oracle coverage **66%** · **5104** uncovered statements.
 | function | lines | uncovered | route |
 |---|---|---:|---|
 | `ai_helper` | 27607–28395 | 58 | `POST /api/ai/helper` |
-| `view_incident` | 15785–16144 | 39 | `GET /incident` |
+| `view_incident` | 15785–16144 | 27 | `GET /incident` |
 | `auto_metrics_rules_dashboard` | 13848–13960 | 26 | `POST /metrics/rules/dashboard/auto` |
 | `view_rum` | 17309–17657 | 26 | `GET /rum` |
 | `view_traces` | 15312–15678 | 22 | `GET /traces` |
-| `view_logs` | 11239–11512 | 20 | `GET /logs` |
 | `view_ai` | 18631–18998 | 18 | `GET /ai` |
 | `api_onboarding_create_issues` | 33738–33930 | 18 | `POST /api/onboarding/create-issues` |
+| `view_logs` | 11239–11512 | 17 | `GET /logs` |
 | `api_query_run` | 30511–30765 | 17 | `POST /api/query/run` |
 | `auto_tag_rules` | 23353–23460 | 16 | `POST /settings/tags/auto` |
 | `check_notifications` | 26341–26447 | 16 | `POST /api/notifications/check` |
@@ -36,14 +36,13 @@ Oracle coverage **66%** · **5104** uncovered statements.
 | `api_query_ask` | 30203–30506 | 11 | `POST /api/query/ask` |
 | `create_tag_rule` | 23465–23584 | 10 | `POST /settings/tags` |
 | `api_onboarding_list_repos` | 33603–33678 | 10 | `POST /api/onboarding/list-repos` |
-| `ingest_metrics` | 9896–9918 | 9 | `POST /v1/metrics` |
 | `render_chart_spec_api` | 21986–22031 | 9 | `POST /api/dashboards/spec/render` |
+| `ingest_metrics` | 9896–9918 | 8 | `POST /v1/metrics` |
 | `get_ai_span_attributes` | 19003–19040 | 8 | `GET /api/ai/span-attributes` |
 | `export_ai_training` | 19123–19226 | 8 | `GET /api/ai/export` |
 | `api_query_add_to_dashboard` | 21331–21407 | 8 | `POST /api/query/add-to-dashboard` |
 | `api_ai_field_hints` | 24229–24402 | 8 | `GET /api/ai/field-hints` |
 | `api_onboarding_import_repo` | 33538–33598 | 8 | `POST /api/onboarding/import-repo` |
-| `ingest_traces` | 9834–9888 | 7 | `POST /v1/traces` |
 | `ingest_rum` | 10010–10149 | 7 | `POST /v1/rum` |
 | `api_raw_span` | 15695–15764 | 7 | `GET /api/traces/span/<span_id>` |
 | `ai_build_chart_spec` | 22263–22431 | 7 | `POST /api/dashboards/spec/ai-build` |
@@ -51,6 +50,7 @@ Oracle coverage **66%** · **5104** uncovered statements.
 | `ai_helper_chats` | 27448–27502 | 7 | `GET /api/ai/helper/chats` |
 | `raise_issue_from_user_observation` | 28547–28654 | 7 | `POST /api/issues/raise` |
 | `api_onboarding_create_repo` | 33464–33533 | 7 | `POST /api/onboarding/create-repo` |
+| `ingest_traces` | 9834–9888 | 6 | `POST /v1/traces` |
 | `ingest_errors` | 10249–10295 | 6 | `POST /v1/errors` |
 | `view_metrics` | 13430–13595 | 6 | `GET /metrics` |
 | `render_chart` | 22036–22068 | 6 | `POST /api/dashboards/render` |
@@ -82,7 +82,7 @@ Oracle coverage **66%** · **5104** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (430 functions)
+## helper — top by uncovered lines (429 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
