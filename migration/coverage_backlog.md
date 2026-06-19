@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **61%** · **5798** uncovered statements.
+Oracle coverage **62%** · **5638** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 1322 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 438 | 4207 | usually covered when a calling route's fixture is added; else difftest |
+| route | 123 | 1222 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 437 | 4147 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -15,7 +15,6 @@ Oracle coverage **61%** · **5798** uncovered statements.
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
-| `view_ai` | 18631–18998 | 118 | `GET /ai` |
 | `api_import_reports` | 22857–23017 | 73 | `POST /api/reports/import` |
 | `view_incident` | 15785–16144 | 65 | `GET /incident` |
 | `ai_helper` | 27607–28395 | 58 | `POST /api/ai/helper` |
@@ -37,6 +36,7 @@ Oracle coverage **61%** · **5798** uncovered statements.
 | `metrics_anomaly` | 22540–22628 | 19 | `GET /api/metrics/anomaly` |
 | `create_metrics_rule` | 13626–13716 | 18 | `POST /metrics/rules` |
 | `view_enrichment_cve` | 18104–18215 | 18 | `GET /enrichment/cve` |
+| `view_ai` | 18631–18998 | 18 | `GET /ai` |
 | `view_metrics_anomaly` | 14010–14172 | 17 | `GET /metrics/anomaly` |
 | `api_query_run` | 30511–30765 | 17 | `POST /api/query/run` |
 | `summary` | 10841–10971 | 16 | `GET /` |
@@ -82,7 +82,7 @@ Oracle coverage **61%** · **5798** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (438 functions)
+## helper — top by uncovered lines (437 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
@@ -90,7 +90,7 @@ Oracle coverage **61%** · **5798** uncovered statements.
 | `_fetch_k8s_from_otel` | 31071–31697 | 92 |  |
 | `_backfill_github_work_item_links` | 6030–6189 | 82 |  |
 | `_github_actions_dependency_rows` | 16479–16629 | 71 |  |
-| `_build_ai_trace_turn_cards` | 8506–8644 | 69 |  |
+| `_build_ai_trace_turn_cards` | 8506–8644 | 61 |  |
 | `_normalize_generic_ui_action_tool_call` | 4399–4529 | 56 |  |
 | `_seed_app_release_registry_from_env` | 8935–9063 | 54 |  |
 | `_build_seasonal_metric_rule_candidates` | 11845–12019 | 52 |  |
@@ -121,8 +121,8 @@ Oracle coverage **61%** · **5798** uncovered statements.
 | `_resolve_custom_binding_expr` | 21086–21119 | 28 |  |
 | `_parse_gemfile_lock_dependencies` | 16426–16453 | 27 |  |
 | `_encrypt_push_payload` | 24990–25055 | 27 |  |
-| `_normalize_genai_messages_for_display` | 8403–8440 | 26 |  |
 | `_match_single_condition` | 12551–12588 | 26 |  |
 | `_build_trace_window_overlay_segments` | 14787–14842 | 26 |  |
 | `_collect_library_inventory` | 16876–17071 | 26 |  |
 | `_load_chat_tool_history` | 4016–4075 | 25 |  |
+| `_build_auto_tag_rule_candidates` | 12062–12308 | 25 |  |

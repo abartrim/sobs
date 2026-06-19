@@ -130,14 +130,16 @@ agent roster + CI are built and committed on `go-main`):
   - Plus `view_incident` trace path (2 routes, `?trace_id=<tracedetail trace>`): primary-trace
     resolution + related errors/logs/spans/rum/windows/metrics/anomaly gathering. error_id /
     rum_session match paths deferred (need computed ids).
-  - Coverage **57.81% → 61.05%** (covered 9,086 / 14,884; uncovered 5,798), floor ratcheted to
-    **61.0**. Full Docker parity GREEN **445/0**.
-- **Seven render-layer fixes (R1–R7) found by these batches** — all latent in the empty corpus,
+  - Plus `view_ai` (9 routes, `aiview` profile: otel_traces AI spans): ai_items build, flat + trace
+    view modes, totals, and the service/model/operation/span_name/row_type/sql filters.
+  - Coverage **57.81% → 62.12%** (covered 9,246 / 14,884; uncovered 5,638), floor ratcheted to
+    **62.0**. Full Docker parity GREEN **454/0**.
+- **Nine render/handler fixes (R1–R9) found by these batches** — all latent in the empty corpus,
   all now matching the Python/Werkzeug/Jinja2 oracle (see `migration/POPULATED_RENDER_FINDINGS.md`):
   float-rendered counts, `url_for` over-encoding, `url_for` None-param omission, hardcoded-empty
-  `request.args`, ordinal string `>=`, missing `|string` filter, and `normalizeCHTimestamp(time.Time)`.
-  These are shared primitives, so each later populated page surfaces fewer bugs (logsview hit 5,
-  errorsview 1, incident 1).
+  `request.args`, ordinal string `>=`, missing `|string` filter, `normalizeCHTimestamp(time.Time)`,
+  `view_ai` SpanAttributes read (cStr'd map), and `view_ai` static-vs-dynamic pricing. Shared
+  primitives, so per-batch new-bug count fell 5 → 0 → 1 → 1 → 2.
 - **Populated-render fixes (found by the logsview/traces batch, all latent in the empty corpus):**
   five genuine Go render-layer bugs fixed — float-rendered COUNT()s, over-aggressive `url_for`
   query encoding (matched to Werkzeug 3.1.8's exact safe set via an oracle probe), `request.args`
@@ -155,9 +157,9 @@ function-level difftests for the 21 lifecycle fns; classify the 13 module/dead l
 sequential, Docker-capture-bound grind (~1 profile per route-cluster) — the machinery makes it
 systematic and the ratchet guarantees monotonic progress. Drive via the agent roster, parity-gated.
 
-- **Next:** continue the `route` bucket of `coverage_backlog.md` top-down — `view_incident` (178),
-  `view_ai` (118), `api_import_reports` (73), … — one seeded/feature-on profile per cluster,
-  parity-GREEN, ratchet the floor. DONE: `view_logs`, `view_traces` list, `view_rum` (filters;
-  vitals derived-signal lines deferred), `view_errors`. The render primitives fixed so far (counts,
-  url_for encoding + None-omission, request.args, ordinal string compare, `|string`) make these go
-  much smoother. Drain `FUZZ_FINDINGS.md` (F2/F3).
+- **Next:** continue the `route` bucket of `coverage_backlog.md` top-down — `api_import_reports`
+  (73), `view_metrics`/`view_metrics_anomaly`, the AI POST handlers, … — one seeded/feature-on
+  profile per cluster, parity-GREEN, ratchet the floor. DONE: `view_logs`, `view_traces` list,
+  `view_rum` (filters; vitals derived-signal lines deferred), `view_errors`, `view_incident` (trace
+  path; error_id/rum_session match deferred), `view_ai`. The nine render/handler primitives fixed so
+  far make these go much smoother. Drain `FUZZ_FINDINGS.md` (F2/F3).
