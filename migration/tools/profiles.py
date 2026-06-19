@@ -35,6 +35,11 @@ _UPSTREAM_DIR = str(Path(__file__).resolve().parents[2] / "migration" / "fixture
 # name -> {ENV_VAR: value}. "base" is the empty overlay (current corpus behavior, unchanged).
 PROFILES: dict[str, dict[str, str]] = {
     "base": {},
+    # validateerr: no env/seed — POST an invalid SQL filter so the validate-filter ERROR branch
+    # (publicDashboardQueryError on the chdb probe exception) is byte-tested. A pure syntax error
+    # ("1 1") errors at parse time, so it's column/table-agnostic (stable on logs AND ai). Locks in
+    # differential-fuzz finding F1 as a permanent regression test.
+    "validateerr": {},
     "ai": {
         # Python derives _query_page_enabled() from these (via _AI_ENV_OVERRIDES); Go reads
         # them through aiEnvOverrides AND gates the query page on SOBS_QUERY_PAGE_ENABLED.

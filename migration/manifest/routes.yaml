@@ -972,6 +972,22 @@ routes:
   request:
     method: POST
     json: {}
+- id: post__api_logs_validate_filter_err
+  path: /api/logs/validate-filter
+  methods:
+  - POST
+  profile: validateerr
+  request:
+    method: POST
+    json: {"sql": "1 1"}
+- id: post__api_ai_validate_filter_err
+  path: /api/ai/validate-filter
+  methods:
+  - POST
+  profile: validateerr
+  request:
+    method: POST
+    json: {"sql": "1 1"}
 - id: post__api_data_management_backup_run
   path: /api/data-management/backup/run
   methods:
