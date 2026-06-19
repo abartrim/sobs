@@ -3627,6 +3627,24 @@ routes:
       Content-Type: application/json
       Content-Encoding: gzip
     body_b64: eyJyZXNvdXJjZUxvZ3MiOltdfQ==
+# OTLP JSON parse-error per-route branches: a top-level JSON array (not an object) makes
+# _parse_otlp_request return ({"error":"failed to parse json body"}, 400), so each route's
+# `if err: return err` runs (ingest_traces app.py 9838, ingest_metrics 9900). Deterministic 400,
+# no body persisted, no seed.
+- id: post__v1_traces__json_array
+  path: /v1/traces
+  methods:
+  - POST
+  request:
+    method: POST
+    json: []
+- id: post__v1_metrics__json_array
+  path: /v1/metrics
+  methods:
+  - POST
+  request:
+    method: POST
+    json: []
 - id: post__v1_rum_assets
   path: /v1/rum/assets
   methods:
