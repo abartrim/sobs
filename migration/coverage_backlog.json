@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 5131,
+  "total_uncovered": 5112,
   "summary_pct": "66",
   "by_bucket": {
     "helper": {
       "functions": 430,
-      "uncovered": 4084
+      "uncovered": 4080
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 119,
-      "uncovered": 778
+      "uncovered": 763
     },
     "module": {
       "functions": 0,
@@ -2637,31 +2637,6 @@
       ]
     },
     {
-      "function": "create_settings_repository",
-      "bucket": "route",
-      "start": 26889,
-      "end": 26951,
-      "uncovered": 11,
-      "span": 63,
-      "route": {
-        "path": "/settings/repositories",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        26915,
-        26916,
-        26936,
-        26937,
-        26938,
-        26939,
-        26940,
-        26943
-      ]
-    },
-    {
       "function": "api_query_ask",
       "bucket": "route",
       "start": 30203,
@@ -3661,31 +3636,6 @@
       ]
     },
     {
-      "function": "view_enrichment_cve",
-      "bucket": "route",
-      "start": 18104,
-      "end": 18215,
-      "uncovered": 8,
-      "span": 112,
-      "route": {
-        "path": "/enrichment/cve",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        18112,
-        18113,
-        18116,
-        18117,
-        18120,
-        18121,
-        18195,
-        18196
-      ]
-    },
-    {
       "function": "get_ai_span_attributes",
       "bucket": "route",
       "start": 19003,
@@ -4505,23 +4455,6 @@
         2865,
         2866,
         2867
-      ]
-    },
-    {
-      "function": "_normalize_github_token_expiry_input",
-      "bucket": "helper",
-      "start": 3137,
-      "end": 3147,
-      "uncovered": 6,
-      "span": 11,
-      "route": null,
-      "missing_sample": [
-        3142,
-        3143,
-        3144,
-        3145,
-        3146,
-        3147
       ]
     },
     {
@@ -5724,6 +5657,21 @@
       ]
     },
     {
+      "function": "_normalize_github_token_expiry_input",
+      "bucket": "helper",
+      "start": 3137,
+      "end": 3147,
+      "uncovered": 4,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        3144,
+        3145,
+        3146,
+        3147
+      ]
+    },
+    {
       "function": "_encode_ai_action_token",
       "bucket": "helper",
       "start": 4288,
@@ -6373,20 +6321,6 @@
         2769,
         2772,
         2773
-      ]
-    },
-    {
-      "function": "_save_repo_scoped_github_token",
-      "bucket": "helper",
-      "start": 2907,
-      "end": 2910,
-      "uncovered": 3,
-      "span": 4,
-      "route": null,
-      "missing_sample": [
-        2908,
-        2909,
-        2910
       ]
     },
     {
@@ -7927,6 +7861,25 @@
       ]
     },
     {
+      "function": "view_enrichment_cve",
+      "bucket": "route",
+      "start": 18104,
+      "end": 18215,
+      "uncovered": 2,
+      "span": 112,
+      "route": {
+        "path": "/enrichment/cve",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        18195,
+        18196
+      ]
+    },
+    {
       "function": "api_cve_scan",
       "bucket": "route",
       "start": 18342,
@@ -8254,6 +8207,25 @@
       ]
     },
     {
+      "function": "create_settings_repository",
+      "bucket": "route",
+      "start": 26889,
+      "end": 26951,
+      "uncovered": 2,
+      "span": 63,
+      "route": {
+        "path": "/settings/repositories",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        26915,
+        26916
+      ]
+    },
+    {
       "function": "rotate_settings_repository_ci_ingest_key",
       "bucket": "route",
       "start": 26994,
@@ -8546,6 +8518,18 @@
       "route": null,
       "missing_sample": [
         2903
+      ]
+    },
+    {
+      "function": "_save_repo_scoped_github_token",
+      "bucket": "helper",
+      "start": 2907,
+      "end": 2910,
+      "uncovered": 1,
+      "span": 4,
+      "route": null,
+      "missing_sample": [
+        2909
       ]
     },
     {
