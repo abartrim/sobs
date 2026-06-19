@@ -336,6 +336,37 @@ routes:
   - GET
   request:
     method: GET
+# chart_spec_options_api per-source-view branches (deterministic): unsupported -> 400; otel_logs/
+# otel_traces/sobs_error_resolutions return static signal lists + DISTINCT services; the metrics
+# views return DISTINCT services/metrics. DISTINCT...ORDER BY v over the fixed base tables is stable.
+- id: get__api_dashboards_spec_options__cso_unsupported
+  path: /api/dashboards/spec/options
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {source_view: bogus_table}
+- id: get__api_dashboards_spec_options__cso_logs
+  path: /api/dashboards/spec/options
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {source_view: otel_logs}
+- id: get__api_dashboards_spec_options__cso_error_res
+  path: /api/dashboards/spec/options
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {source_view: sobs_error_resolutions}
+- id: get__api_dashboards_spec_options__cso_metrics
+  path: /api/dashboards/spec/options
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {source_view: otel_metrics_gauge}
 - id: get__api_mcp_keys
   path: /api/mcp/keys
   methods:
