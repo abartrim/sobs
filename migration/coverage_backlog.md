@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **66%** · **5083** uncovered statements.
+Oracle coverage **66%** · **5074** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 119 | 738 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 429 | 4076 | usually covered when a calling route's fixture is added; else difftest |
+| route | 119 | 728 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 429 | 4077 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -34,13 +34,10 @@ Oracle coverage **66%** · **5083** uncovered statements.
 | `rum_asset_download` | 9761–9786 | 12 | `GET /v1/rum/assets/<asset_id>` |
 | `api_import_reports` | 22857–23017 | 11 | `POST /api/reports/import` |
 | `api_query_ask` | 30203–30506 | 11 | `POST /api/query/ask` |
-| `create_tag_rule` | 23465–23584 | 10 | `POST /settings/tags` |
 | `api_onboarding_list_repos` | 33603–33678 | 10 | `POST /api/onboarding/list-repos` |
 | `render_chart_spec_api` | 21986–22031 | 9 | `POST /api/dashboards/spec/render` |
 | `ingest_metrics` | 9896–9918 | 8 | `POST /v1/metrics` |
-| `get_ai_span_attributes` | 19003–19040 | 8 | `GET /api/ai/span-attributes` |
 | `export_ai_training` | 19123–19226 | 8 | `GET /api/ai/export` |
-| `api_query_add_to_dashboard` | 21331–21407 | 8 | `POST /api/query/add-to-dashboard` |
 | `api_ai_field_hints` | 24229–24402 | 8 | `GET /api/ai/field-hints` |
 | `api_onboarding_import_repo` | 33538–33598 | 8 | `POST /api/onboarding/import-repo` |
 | `ingest_rum` | 10010–10149 | 7 | `POST /v1/rum` |
@@ -53,8 +50,11 @@ Oracle coverage **66%** · **5083** uncovered statements.
 | `ingest_traces` | 9834–9888 | 6 | `POST /v1/traces` |
 | `ingest_errors` | 10249–10295 | 6 | `POST /v1/errors` |
 | `view_metrics` | 13430–13595 | 6 | `GET /metrics` |
+| `get_ai_span_attributes` | 19003–19040 | 6 | `GET /api/ai/span-attributes` |
 | `render_chart` | 22036–22068 | 6 | `POST /api/dashboards/render` |
+| `create_tag_rule` | 23465–23584 | 6 | `POST /settings/tags` |
 | `create_agent_rule` | 27194–27242 | 6 | `POST /settings/agents` |
+| `ai_helper_execute_action` | 28400–28468 | 6 | `POST /api/ai/helper/actions/execute` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
