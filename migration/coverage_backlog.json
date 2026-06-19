@@ -1,14 +1,14 @@
 {
-  "total_uncovered": 6204,
-  "summary_pct": "58",
+  "total_uncovered": 6160,
+  "summary_pct": "59",
   "by_bucket": {
     "route": {
       "functions": 123,
-      "uncovered": 1656
+      "uncovered": 1611
     },
     "helper": {
       "functions": 447,
-      "uncovered": 4279
+      "uncovered": 4280
     },
     "lifecycle": {
       "functions": 21,
@@ -494,31 +494,6 @@
       ]
     },
     {
-      "function": "create_notification_rule",
-      "bucket": "route",
-      "start": 25918,
-      "end": 26089,
-      "uncovered": 41,
-      "span": 172,
-      "route": {
-        "path": "/settings/notifications/rules",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        25927,
-        25928,
-        25948,
-        25949,
-        25951,
-        25952,
-        25971,
-        25972
-      ]
-    },
-    {
       "function": "_verify_rum_client_auth",
       "bucket": "helper",
       "start": 7827,
@@ -598,6 +573,31 @@
         24908,
         24909,
         24910
+      ]
+    },
+    {
+      "function": "create_notification_rule",
+      "bucket": "route",
+      "start": 25918,
+      "end": 26089,
+      "uncovered": 39,
+      "span": 172,
+      "route": {
+        "path": "/settings/notifications/rules",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        25927,
+        25928,
+        25948,
+        25949,
+        25951,
+        25952,
+        25971,
+        25972
       ]
     },
     {
@@ -866,31 +866,6 @@
       ]
     },
     {
-      "function": "get_ai_conversation",
-      "bucket": "route",
-      "start": 19048,
-      "end": 19115,
-      "uncovered": 31,
-      "span": 68,
-      "route": {
-        "path": "/api/ai/conversation",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        19061,
-        19062,
-        19063,
-        19064,
-        19065,
-        19066,
-        19067,
-        19068
-      ]
-    },
-    {
       "function": "_update_github_issue_record",
       "bucket": "helper",
       "start": 32994,
@@ -1021,31 +996,6 @@
         25001,
         25002,
         25005
-      ]
-    },
-    {
-      "function": "create_notification_channel",
-      "bucket": "route",
-      "start": 25742,
-      "end": 25813,
-      "uncovered": 27,
-      "span": 72,
-      "route": {
-        "path": "/settings/notifications/channels",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        25756,
-        25757,
-        25767,
-        25768,
-        25769,
-        25770,
-        25771,
-        25772
       ]
     },
     {
@@ -1681,6 +1631,31 @@
       ]
     },
     {
+      "function": "get_ai_conversation",
+      "bucket": "route",
+      "start": 19048,
+      "end": 19115,
+      "uncovered": 21,
+      "span": 68,
+      "route": {
+        "path": "/api/ai/conversation",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        19067,
+        19068,
+        19079,
+        19080,
+        19081,
+        19082,
+        19083,
+        19084
+      ]
+    },
+    {
       "function": "_vanna_execute_named_queries",
       "bucket": "helper",
       "start": 22156,
@@ -2027,31 +2002,6 @@
       ]
     },
     {
-      "function": "get_ai_span_attributes",
-      "bucket": "route",
-      "start": 19003,
-      "end": 19040,
-      "uncovered": 18,
-      "span": 38,
-      "route": {
-        "path": "/api/ai/span-attributes",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        19013,
-        19018,
-        19019,
-        19020,
-        19021,
-        19022,
-        19023,
-        19024
-      ]
-    },
-    {
       "function": "_build_user_issue_trigger_context",
       "bucket": "helper",
       "start": 28476,
@@ -2169,31 +2119,6 @@
         14035,
         14037,
         14038
-      ]
-    },
-    {
-      "function": "api_raw_span",
-      "bucket": "route",
-      "start": 15695,
-      "end": 15764,
-      "uncovered": 17,
-      "span": 70,
-      "route": {
-        "path": "/api/traces/span/<span_id>",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        15699,
-        15715,
-        15716,
-        15724,
-        15725,
-        15727,
-        15746,
-        15747
       ]
     },
     {
@@ -2604,6 +2529,31 @@
         21707,
         21708,
         21709
+      ]
+    },
+    {
+      "function": "create_notification_channel",
+      "bucket": "route",
+      "start": 25742,
+      "end": 25813,
+      "uncovered": 15,
+      "span": 72,
+      "route": {
+        "path": "/settings/notifications/channels",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        25756,
+        25757,
+        25767,
+        25768,
+        25770,
+        25771,
+        25772,
+        25773
       ]
     },
     {
@@ -4071,31 +4021,6 @@
       ]
     },
     {
-      "function": "api_query_add_to_dashboard",
-      "bucket": "route",
-      "start": 21331,
-      "end": 21407,
-      "uncovered": 9,
-      "span": 77,
-      "route": {
-        "path": "/api/query/add-to-dashboard",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        21343,
-        21345,
-        21350,
-        21353,
-        21357,
-        21358,
-        21360,
-        21372
-      ]
-    },
-    {
       "function": "chart_spec_options_api",
       "bucket": "route",
       "start": 21816,
@@ -4545,6 +4470,31 @@
       ]
     },
     {
+      "function": "get_ai_span_attributes",
+      "bucket": "route",
+      "start": 19003,
+      "end": 19040,
+      "uncovered": 8,
+      "span": 38,
+      "route": {
+        "path": "/api/ai/span-attributes",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        19023,
+        19024,
+        19035,
+        19036,
+        19037,
+        19038,
+        19039,
+        19040
+      ]
+    },
+    {
       "function": "_normalize_chart_spec",
       "bucket": "helper",
       "start": 19847,
@@ -4599,6 +4549,31 @@
         21194,
         21195,
         21196
+      ]
+    },
+    {
+      "function": "api_query_add_to_dashboard",
+      "bucket": "route",
+      "start": 21331,
+      "end": 21407,
+      "uncovered": 8,
+      "span": 77,
+      "route": {
+        "path": "/api/query/add-to-dashboard",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        21345,
+        21350,
+        21353,
+        21357,
+        21358,
+        21360,
+        21372,
+        21373
       ]
     },
     {
@@ -4786,6 +4761,24 @@
       ]
     },
     {
+      "function": "_remember_attr_keys",
+      "bucket": "helper",
+      "start": 2198,
+      "end": 2237,
+      "uncovered": 7,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        2206,
+        2211,
+        2215,
+        2217,
+        2221,
+        2236,
+        2237
+      ]
+    },
+    {
       "function": "_chat_label_from_first_turn",
       "bucket": "helper",
       "start": 3739,
@@ -4969,6 +4962,30 @@
         10720,
         10721,
         10722
+      ]
+    },
+    {
+      "function": "api_raw_span",
+      "bucket": "route",
+      "start": 15695,
+      "end": 15764,
+      "uncovered": 7,
+      "span": 70,
+      "route": {
+        "path": "/api/traces/span/<span_id>",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        15699,
+        15750,
+        15752,
+        15753,
+        15757,
+        15761,
+        15762
       ]
     },
     {
@@ -5303,23 +5320,6 @@
         1991,
         1992,
         1993
-      ]
-    },
-    {
-      "function": "_remember_attr_keys",
-      "bucket": "helper",
-      "start": 2198,
-      "end": 2237,
-      "uncovered": 6,
-      "span": 40,
-      "route": null,
-      "missing_sample": [
-        2206,
-        2211,
-        2217,
-        2221,
-        2236,
-        2237
       ]
     },
     {

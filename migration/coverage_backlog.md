@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **58%** · **6204** uncovered statements.
+Oracle coverage **59%** · **6160** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 1656 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 447 | 4279 | usually covered when a calling route's fixture is added; else difftest |
+| route | 123 | 1611 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 447 | 4280 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -21,17 +21,16 @@ Oracle coverage **58%** · **6204** uncovered statements.
 | `api_import_reports` | 22857–23017 | 73 | `POST /api/reports/import` |
 | `view_logs` | 11239–11512 | 71 | `GET /logs` |
 | `ai_helper` | 27607–28395 | 58 | `POST /api/ai/helper` |
-| `create_notification_rule` | 25918–26089 | 41 | `POST /settings/notifications/rules` |
 | `view_rum` | 17309–17657 | 39 | `GET /rum` |
+| `create_notification_rule` | 25918–26089 | 39 | `POST /settings/notifications/rules` |
 | `ingest_rum` | 10010–10149 | 33 | `POST /v1/rum` |
 | `save_ai_settings` | 26677–26751 | 32 | `POST /settings/ai` |
 | `view_traces` | 15312–15678 | 31 | `GET /traces` |
-| `get_ai_conversation` | 19048–19115 | 31 | `GET /api/ai/conversation` |
-| `create_notification_channel` | 25742–25813 | 27 | `POST /settings/notifications/channels` |
 | `auto_metrics_rules_dashboard` | 13848–13960 | 26 | `POST /metrics/rules/dashboard/auto` |
 | `api_onboarding_create_issues` | 33738–33930 | 25 | `POST /api/onboarding/create-issues` |
 | `create_tag_rule` | 23465–23584 | 22 | `POST /settings/tags` |
 | `view_metrics` | 13430–13595 | 21 | `GET /metrics` |
+| `get_ai_conversation` | 19048–19115 | 21 | `GET /api/ai/conversation` |
 | `issue_rum_client_token` | 9791–9826 | 20 | `POST /v1/rum/client-token` |
 | `view_work_items` | 18361–18488 | 20 | `GET /work-items` |
 | `export_ai_training` | 19123–19226 | 20 | `GET /api/ai/export` |
@@ -39,14 +38,13 @@ Oracle coverage **58%** · **6204** uncovered statements.
 | `metrics_anomaly` | 22540–22628 | 19 | `GET /api/metrics/anomaly` |
 | `create_metrics_rule` | 13626–13716 | 18 | `POST /metrics/rules` |
 | `view_enrichment_cve` | 18104–18215 | 18 | `GET /enrichment/cve` |
-| `get_ai_span_attributes` | 19003–19040 | 18 | `GET /api/ai/span-attributes` |
 | `view_metrics_anomaly` | 14010–14172 | 17 | `GET /metrics/anomaly` |
-| `api_raw_span` | 15695–15764 | 17 | `GET /api/traces/span/<span_id>` |
 | `api_query_run` | 30511–30765 | 17 | `POST /api/query/run` |
 | `summary` | 10841–10971 | 16 | `GET /` |
 | `auto_tag_rules` | 23353–23460 | 16 | `POST /settings/tags/auto` |
 | `check_notifications` | 26341–26447 | 16 | `POST /api/notifications/check` |
 | `clone_chart` | 21694–21733 | 15 | `POST /dashboards/<dashboard_id>/charts/<chart_id>/clone` |
+| `create_notification_channel` | 25742–25813 | 15 | `POST /settings/notifications/channels` |
 | `view_settings_repositories` | 26805–26884 | 15 | `GET /settings/repositories` |
 | `ingest_rum_asset` | 9699–9756 | 14 | `POST /v1/rum/assets` |
 | `ingest_ai` | 10157–10241 | 14 | `POST /v1/ai` |
@@ -55,6 +53,8 @@ Oracle coverage **58%** · **6204** uncovered statements.
 | `api_get_work_items` | 18493–18541 | 13 | `GET /api/work-items` |
 | `api_logs_validate_filter` | 23784–23855 | 13 | `POST /api/logs/validate-filter` |
 | `api_ai_validate_filter` | 24407–24454 | 13 | `POST /api/ai/validate-filter` |
+| `ai_helper_chats` | 27448–27502 | 13 | `GET /api/ai/helper/chats` |
+| `rum_asset_download` | 9761–9786 | 12 | `GET /v1/rum/assets/<asset_id>` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
