@@ -223,3 +223,4 @@ migration/coverage_app.json
 .coverage
 .coverage.*
 migration/structural_report.md
+migration/fixtures/fuzz_go_data/
