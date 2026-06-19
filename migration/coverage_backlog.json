@@ -1,5 +1,5 @@
 {
-  "total_uncovered": 5458,
+  "total_uncovered": 5440,
   "summary_pct": "63",
   "by_bucket": {
     "helper": {
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 123,
-      "uncovered": 1045
+      "uncovered": 1027
     },
     "module": {
       "functions": 0,
@@ -1594,31 +1594,6 @@
       ]
     },
     {
-      "function": "export_ai_training",
-      "bucket": "route",
-      "start": 19123,
-      "end": 19226,
-      "uncovered": 20,
-      "span": 104,
-      "route": {
-        "path": "/api/ai/export",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        19133,
-        19134,
-        19141,
-        19142,
-        19144,
-        19145,
-        19147,
-        19148
-      ]
-    },
-    {
       "function": "_vanna_generate_chart_spec",
       "bucket": "helper",
       "start": 29788,
@@ -2693,31 +2668,6 @@
         24430,
         24431,
         24432
-      ]
-    },
-    {
-      "function": "ai_helper_chats",
-      "bucket": "route",
-      "start": 27448,
-      "end": 27502,
-      "uncovered": 13,
-      "span": 55,
-      "route": {
-        "path": "/api/ai/helper/chats",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        27454,
-        27455,
-        27458,
-        27459,
-        27464,
-        27465,
-        27483,
-        27484
       ]
     },
     {
@@ -4193,6 +4143,31 @@
       ]
     },
     {
+      "function": "export_ai_training",
+      "bucket": "route",
+      "start": 19123,
+      "end": 19226,
+      "uncovered": 8,
+      "span": 104,
+      "route": {
+        "path": "/api/ai/export",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        19153,
+        19154,
+        19185,
+        19186,
+        19187,
+        19193,
+        19194,
+        19195
+      ]
+    },
+    {
       "function": "_normalize_chart_spec",
       "bucket": "helper",
       "start": 19847,
@@ -4870,6 +4845,30 @@
         24848,
         24854,
         24855
+      ]
+    },
+    {
+      "function": "ai_helper_chats",
+      "bucket": "route",
+      "start": 27448,
+      "end": 27502,
+      "uncovered": 7,
+      "span": 55,
+      "route": {
+        "path": "/api/ai/helper/chats",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        27483,
+        27484,
+        27485,
+        27486,
+        27487,
+        27488,
+        27489
       ]
     },
     {

@@ -1,12 +1,12 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **63%** · **5458** uncovered statements.
+Oracle coverage **63%** · **5440** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 1045 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| route | 123 | 1027 | needs a fixture/profile (corpus expansion; byte-verifiable) |
 | helper | 436 | 4144 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
@@ -27,7 +27,6 @@ Oracle coverage **63%** · **5458** uncovered statements.
 | `issue_rum_client_token` | 9791–9826 | 20 | `POST /v1/rum/client-token` |
 | `view_logs` | 11239–11512 | 20 | `GET /logs` |
 | `view_work_items` | 18361–18488 | 20 | `GET /work-items` |
-| `export_ai_training` | 19123–19226 | 20 | `GET /api/ai/export` |
 | `auto_metrics_rules` | 13721–13843 | 19 | `POST /metrics/rules/auto` |
 | `api_import_reports` | 22857–23017 | 19 | `POST /api/reports/import` |
 | `view_enrichment_cve` | 18104–18215 | 18 | `GET /enrichment/cve` |
@@ -46,7 +45,6 @@ Oracle coverage **63%** · **5458** uncovered statements.
 | `api_get_work_items` | 18493–18541 | 13 | `GET /api/work-items` |
 | `api_logs_validate_filter` | 23784–23855 | 13 | `POST /api/logs/validate-filter` |
 | `api_ai_validate_filter` | 24407–24454 | 13 | `POST /api/ai/validate-filter` |
-| `ai_helper_chats` | 27448–27502 | 13 | `GET /api/ai/helper/chats` |
 | `rum_asset_download` | 9761–9786 | 12 | `GET /v1/rum/assets/<asset_id>` |
 | `api_metrics_validate_regex` | 24115–24167 | 11 | `POST /api/metrics/validate-regex` |
 | `create_settings_repository` | 26889–26951 | 11 | `POST /settings/repositories` |
@@ -55,6 +53,8 @@ Oracle coverage **63%** · **5458** uncovered statements.
 | `create_tag_rule` | 23465–23584 | 10 | `POST /settings/tags` |
 | `api_onboarding_list_repos` | 33603–33678 | 10 | `POST /api/onboarding/list-repos` |
 | `ingest_metrics` | 9896–9918 | 9 | `POST /v1/metrics` |
+| `chart_spec_options_api` | 21816–21887 | 9 | `GET /api/dashboards/spec/options` |
+| `render_chart_spec_api` | 21986–22031 | 9 | `POST /api/dashboards/spec/render` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
