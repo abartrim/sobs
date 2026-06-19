@@ -129,6 +129,13 @@ PROFILES: dict[str, dict[str, str]] = {
     # cve-overview counts and view_enrichment_cve findings loop/filters render populated.
     # Read-only (the pages only query) -> shareable, but kept isolated/seeded for clarity.
     "cveview": {},
+    # summaryrich: seed now()-anchored otel_logs (5 ERROR + 5 INFO in one minute bucket for the base
+    # "web" service) + logs-source anomaly rules so the summary dashboard renders POPULATED:
+    # recent_errors (_build_error_item full body), recent_logs, and signal_health (the annotate /
+    # threshold / seasonal rule-evaluation chain). All counts/states/ratios are constant; only the
+    # recent-errors/recent-logs timestamps drift (masked in the route). No env overlay. Isolated:
+    # the now()-anchored rows + extra rules must not perturb other base summary readers.
+    "summaryrich": {},
     # aiingest: no seed, isolated (ingest_ai writes otel_traces). A full JSON payload exercises the
     # input/output/system-instructions/prompt/response/error_type span-attr branches. Response is
     # {"ok": true} only (no uuid/count) -> deterministic; provide timestamp to avoid _now_iso drift.
@@ -484,6 +491,7 @@ SEEDED_PROFILES = {
     "metricscreate",
     "notifrule",
     "cveview",
+    "summaryrich",
     "enrichlibs",
     "rumasset",
 }

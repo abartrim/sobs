@@ -46,7 +46,20 @@ func fStr(v any) (float64, bool) {
 }
 
 // iStr mirrors int(str(v)) — ok=false on failure (e.g. "5.0" -> int() raises).
+//
+// chdb-go decodes integer aggregate columns (e.g. argMax(SampleCount, time) over a UInt64) as a
+// Go float64, whereas chdb-python hands the SAME value back as a Python int. So where Python
+// evaluates int(str(10)) == 10, the naive Go path would evaluate int(str(10.0)) -> Atoi("10.0")
+// -> error and silently drop the value. To match Python's effective behavior on this data we treat
+// an INTEGRAL float64 as the int Python received (a fractional float still fails, mirroring
+// int(str(10.5)) raising).
 func iStr(v any) (int, bool) {
+	if f, ok := v.(float64); ok {
+		if f == math.Trunc(f) && !math.IsInf(f, 0) && !math.IsNaN(f) {
+			return int(f), true
+		}
+		return 0, false
+	}
 	s := strings.TrimSpace(pyStrAny(v))
 	n, err := strconv.Atoi(s)
 	return n, err == nil

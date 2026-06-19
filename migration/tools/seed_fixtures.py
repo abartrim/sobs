@@ -584,6 +584,174 @@ def seed_rumvitals(db) -> None:
     db.execute("OPTIMIZE TABLE hyperdx_sessions FINAL")
 
 
+def seed_summaryrich(db) -> None:
+    # Populate the summary dashboard (GET /, def summary) so its data-driven panels and helper
+    # chains run their POPULATED branches instead of the all-empty base render:
+    #   * recent_errors  -> _build_error_item full body (app.py 10652-10694, 10855-10856)
+    #   * recent_logs    -> the recent-logs append (10905)
+    #   * signal_health  -> _get_signal_health_by_service POPULATED path (12892-12925) +
+    #                       _annotate_rows_with_rules / _build_series_rule_lookups /
+    #                       _combine_rule_states + the threshold/seasonal rule evaluators
+    #                       (12939-13017, 13033-13088) via seeded logs-source anomaly rules.
+    #
+    # Everything is laid out at FIXED offsets from now() with CONSTANT values so every derived
+    # quantity (counts, ratios, rule states, signal_count) is timestamp-independent; only the
+    # now()-derived recent-errors/recent-logs TIMESTAMPS drift between capture and replay and are
+    # masked in the route.
+    #
+    # SINGLE service "web" on PURPOSE (mirrors seed_metricsauto): stats.services is a DISTINCT-over
+    # -UNION whose row order is racy once >1 service exists, and the base fixture already carries
+    # exactly the "web" service, so reusing it keeps the Services panel a singular, ordered badge.
+    #
+    # ALL 10 log rows land in ONE minute bucket (toStartOfMinute(now() - INTERVAL 5 MINUTE)) at
+    # distinct WHOLE-SECOND offsets 0..9. The single bucket means v_derived_signals_1m yields one
+    # row per series, so argMax(value,time) in signal_health is just that bucket's value:
+    #     log_volume = 10, error_volume = 5, error_ratio = 0.5  (all exact, integer/half).
+    # Distinct second-level timestamps give recent_errors (ORDER BY Timestamp DESC LIMIT 5) and
+    # recent_logs (LIMIT 10) a TOTAL order, so neither LIMIT slice is row-order ambiguous. The
+    # now()-5min anchor keeps every row well inside both the 48h recent-errors window and the 24h
+    # signal-health window with a wide margin against capture/replay drift.
+    #
+    # 5 of the 10 rows are SeverityText='ERROR' carrying exception.* LogAttributes so they feed
+    # ERROR_SOURCES_SQL (the unresolved-errors source) AND drive _build_error_item's attribute
+    # extraction (exception.type/message/stacktrace etc.). No resolution is seeded, so all 5 stay
+    # unresolved and appear in recent_errors. Distinct Body per row keeps messages stable.
+    _BASE = "toStartOfMinute(now() - INTERVAL 5 MINUTE)"
+    for sec in range(5):  # 5 ERROR rows -> recent_errors + error_volume series
+        db.execute(
+            "INSERT INTO otel_logs (Timestamp, ServiceName, SeverityText, SeverityNumber, Body, LogAttributes) "
+            f"SELECT {_BASE} + INTERVAL ? SECOND, 'web', 'ERROR', 17, ?, "
+            "map('exception.type', 'ValueError', 'exception.message', ?, "
+            "'exception.stacktrace', 'Traceback (most recent call last):\\n  File app.py') "
+            "FROM numbers(1)",
+            [sec, f"boom #{sec}: invalid input", f"invalid input {sec}"],
+        )
+    for sec in range(5, 10):  # 5 INFO rows -> recent_logs filler (distinct timestamps/bodies)
+        db.execute(
+            "INSERT INTO otel_logs (Timestamp, ServiceName, SeverityText, SeverityNumber, Body) "
+            f"SELECT {_BASE} + INTERVAL ? SECOND, 'web', 'INFO', 9, ? "
+            "FROM numbers(1)",
+            [sec, f"request handled {sec}"],
+        )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+    # Logs-source anomaly rules so signal_health's _annotate_rows_with_rules has matching rules.
+    # ServiceName 'web' + empty AttrFingerprint -> _rule_matches_series matches every series of that
+    # service (rule_attr_fp == '' short-circuits the fp check). Constant values -> deterministic
+    # rule states. The set deliberately exercises every threshold/seasonal evaluator branch:
+    #   gt-critical  (log_volume 10 >= crit 8)            -> outlier
+    #   gt-warning   (error_volume 5 in [warn 3, crit 8)) -> warning
+    #   lt-critical  (error_ratio 0.5 <= crit 0.6)        -> outlier
+    #   lt-warning   (error_ratio 0.5 in (crit 0.3, warn 0.55]) -> warning
+    #   normal       (log_volume 10 < warn 50)            -> state stays normal (early return)
+    #   min-skip     (SampleCount 10 < min_sample_count 999) -> early return
+    #   seasonal     (RuleType=seasonal; signal_health passes no time_key so the bucket-match path
+    #                 is skipped and it falls back to the global thresholds)
+    # Fixed Ids + fixed Version keep the rows byte-stable. summary renders only worst_state/service/
+    # signal_count, so rule_id/rule_reason never reach the page.
+    # Each tuple: Id, Name, RuleType, SignalName, Comparator, Warn, Crit, MinSampleCount,
+    # SeasonalBucketsJson, ServiceName, AttrFingerprint. The last two default to the matching
+    # ("web", "") for the firing rules and carry a deliberate mismatch on the two _rule_matches_series
+    # negative-branch probes.
+    _rules = [
+        ("sumr-rule-1", "z sumrich log_volume crit", "threshold", "log_volume", "gt", 3.0, 8.0, 1, "", "web", ""),
+        ("sumr-rule-2", "z sumrich error_volume warn", "threshold", "error_volume", "gt", 3.0, 8.0, 1, "", "web", ""),
+        ("sumr-rule-3", "z sumrich error_ratio crit", "threshold", "error_ratio", "lt", 0.9, 0.6, 1, "", "web", ""),
+        ("sumr-rule-4", "z sumrich error_ratio warn", "threshold", "error_ratio", "lt", 0.55, 0.3, 1, "", "web", ""),
+        ("sumr-rule-5", "z sumrich log_volume normal", "threshold", "log_volume", "gt", 50.0, 99.0, 1, "", "web", ""),
+        ("sumr-rule-6", "z sumrich log_volume minskip", "threshold", "log_volume", "gt", 1.0, 2.0, 999, "", "web", ""),
+        (
+            "sumr-rule-7",
+            "z sumrich log_volume seasonal",
+            "seasonal",
+            "log_volume",
+            "gt",
+            3.0,
+            8.0,
+            1,
+            '{"strategy":"hour_of_day","buckets":{"0":{"warning":3,"critical":8}}}',
+            "web",
+            "",
+        ),
+        # seasonal rule whose value (log_volume=10) does NOT cross the thresholds -> the inner
+        # _evaluate_threshold_condition returns None -> the seasonal "if not evaluation: return None"
+        # branch (app.py 13082-13083) runs.
+        (
+            "sumr-rule-8",
+            "z sumrich log_volume seasonal normal",
+            "seasonal",
+            "log_volume",
+            "gt",
+            50.0,
+            99.0,
+            1,
+            "",
+            "web",
+            "",
+        ),
+        # seasonal rule with MALFORMED SeasonalBucketsJson -> the json.JSONDecodeError except path
+        # (app.py 13070-13071) runs before falling back to the global thresholds.
+        (
+            "sumr-rule-9",
+            "z sumrich log_volume seasonal badjson",
+            "seasonal",
+            "log_volume",
+            "gt",
+            3.0,
+            8.0,
+            1,
+            "{not json",
+            "web",
+            "",
+        ),
+        # _rule_matches_series negative branches (same source+signal so the first two checks pass):
+        #   wrong ServiceName -> the rule_service mismatch return (app.py 12944-12945)
+        ("sumr-rule-10", "z sumrich svc mismatch", "threshold", "log_volume", "gt", 3.0, 8.0, 1, "", "other-svc", ""),
+        #   matching ServiceName but non-empty mismatching AttrFingerprint -> the rule_attr_fp
+        #   mismatch return (app.py 12947-12948)
+        (
+            "sumr-rule-11",
+            "z sumrich fp mismatch",
+            "threshold",
+            "log_volume",
+            "gt",
+            3.0,
+            8.0,
+            1,
+            "",
+            "web",
+            "deadbeefdeadbeef",
+        ),
+    ]
+    rows = []
+    for rid, name, rtype, signal, cmp_, warn, crit, minc, seasonal, svc, fp in _rules:
+        rows.append(
+            {
+                "Id": rid,
+                "Name": name,
+                "RuleType": rtype,
+                "SignalSource": "logs",
+                "SignalName": signal,
+                "ServiceName": svc,
+                "AttrFingerprint": fp,
+                "Comparator": cmp_,
+                "WarningThreshold": warn,
+                "CriticalThreshold": crit,
+                "SecondarySignalSource": "",
+                "SecondarySignalName": "",
+                "SecondaryComparator": "gt",
+                "SecondaryWarningThreshold": 0.0,
+                "SecondaryCriticalThreshold": 0.0,
+                "MinSampleCount": minc,
+                "SeasonalBucketsJson": seasonal,
+                "IsDeleted": 0,
+                "Version": 1,
+            }
+        )
+    _insert(db, "sobs_anomaly_rules", rows)
+    db.execute("OPTIMIZE TABLE sobs_anomaly_rules FINAL")
+
+
 def seed_tagsuggest(db) -> None:
     # Seed every table the tag-rule condition-suggestion builders read so each scope/target/field
     # branch of /api/settings/tags/condition-suggestions returns a non-empty, ranked result. The
@@ -2268,6 +2436,7 @@ PROFILE_SEEDS = {
     "cveosv": seed_cve_osv,  # telemetry.sdk row -> non-empty inventory -> OSV scan finds a vuln
     "tagauto": seed_tagauto,  # 30 recent prod-service logs -> auto_tag_rules in-window candidate
     "cveview": seed_cveview,  # CVE findings (1/severity) -> summary cve-overview + view_enrichment_cve
+    "summaryrich": seed_summaryrich,  # now()-anchored logs + logs-source anomaly rules -> populated summary panels
     "metricsauto": seed_metricsauto,  # constant log_volume series -> auto_metrics_rules candidates
     "rumvitals": seed_rumvitals,  # now()-relative web-vital + error rows -> view_rum vitals + error-trend
     "tagsuggest": seed_tagsuggest,  # otel/tags/attr-key rows -> condition-suggestions non-empty branches
