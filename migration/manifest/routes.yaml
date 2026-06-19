@@ -3731,6 +3731,33 @@ routes:
   - POST
   request:
     method: POST
+# auto_metrics_rules hours/min_points parse-excepts (preview) + the action=create path (inserts
+# sobs_anomaly_rules from the timestamp-independent threshold candidates -> flash counts + redirect).
+# metricscreate profile (same constant-series seed, isolated). create runs LAST (mutates + uuid).
+- id: post__metrics_rules_auto__mc_hours_err
+  path: /metrics/rules/auto
+  profile: metricscreate
+  methods:
+  - POST
+  request:
+    method: POST
+    form: {hours: notanumber}
+- id: post__metrics_rules_auto__mc_min_points_err
+  path: /metrics/rules/auto
+  profile: metricscreate
+  methods:
+  - POST
+  request:
+    method: POST
+    form: {min_points: notanumber}
+- id: post__metrics_rules_auto__mc_create
+  path: /metrics/rules/auto
+  profile: metricscreate
+  methods:
+  - POST
+  request:
+    method: POST
+    form: {action: create}
 - id: post__metrics_rules_dashboard_auto
   path: /metrics/rules/dashboard/auto
   methods:

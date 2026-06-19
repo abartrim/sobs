@@ -78,6 +78,12 @@ PROFILES: dict[str, dict[str, str]] = {
     # error-event indexing branch (page/artifact/replay attrs) and the list-payload + non-dict-event
     # branches. Response is {accepted: count} only (no uuid/timestamp) -> deterministic.
     "rumingest": {},
+    # metricscreate: same seed as metricsauto (constant log_volume series) but ISOLATED so the
+    # auto_metrics_rules action=create path (inserts sobs_anomaly_rules) doesn't perturb the
+    # metricsauto view/preview routes. The threshold candidates are timestamp-independent (constant
+    # series) so the created-count flash is deterministic; seasonal mode is skipped (wall-clock
+    # hour-of-day buckets drift).
+    "metricscreate": {},
     "ai": {
         # Python derives _query_page_enabled() from these (via _AI_ENV_OVERRIDES); Go reads
         # them through aiEnvOverrides AND gates the query page on SOBS_QUERY_PAGE_ENABLED.
@@ -352,6 +358,7 @@ SEEDED_PROFILES = {
     "regexrum",
     "regexerrors",
     "regexmetrics",
+    "metricscreate",
 }
 
 

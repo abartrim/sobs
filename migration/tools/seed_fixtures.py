@@ -1577,6 +1577,7 @@ PROFILE_SEEDS = {
     "regexrum": seed_regex_rum,  # validate-regex sample probe: hyperdx_sessions.Body
     "regexerrors": seed_regex_errors,  # validate-regex sample probe: ERROR_SOURCES_SQL Body
     "regexmetrics": seed_metricsauto,  # constant log_volume series -> v_derived_signals_anomaly probe
+    "metricscreate": seed_metricsauto,  # same constant series; isolated for auto_metrics_rules create
 }
 
 
