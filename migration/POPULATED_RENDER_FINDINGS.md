@@ -14,6 +14,7 @@ Python/Quart/Werkzeug/Jinja2 oracle — it can never regress empty-corpus parity
 | R4 | HTTP status badge wrong: `404` got `bg-success` not `bg-warning` (`span.http_status\|string >= '400'`) | `compareOrd` only compared numbers; any non-numeric operand returned `false` | lexicographic string fallback in `compareOrd` (`eval.go`) |
 | R5 | `view_traces` list path 500'd: `unsupported filter "string"` | Jinja `\|string` (soft_str) filter not implemented | added `case "string": return pyStr(val)` (`eval.go`) |
 | R6 | `url_for(... grouped=_g ...)` rendered `grouped=%3Cnil%3E` vs Python omitting it (where `{% set _g = '1' if grouped_mode else none %}`) | Go `urlFor` rendered `fmt.Sprintf("%v", nil)` = `<nil>`; Werkzeug omits None-valued query params (empty string is kept as `k=`) | skip `kw[k] == nil` in `urlFor` (`render.go`) — found by the `errorsview` batch |
+| R7 | incident window `from_ts`/`to_ts` rendered `2023-06-01 11:45:00 +0000 UTC` vs Python `2023-06-01 11:45:00.000000` | `normalizeCHTimestamp(v any)` was called with a `time.Time` (`dt.Add(-half)`); `toStr(time.Time)` yields Go's `String()` which no layout parses → fell through to the raw value. Python `_normalize_ch_timestamp` handles `datetime` directly | add a `time.Time` branch → `t.UTC().Format("2006-01-02 15:04:05.000000")` (`mutation_helpers.go`) — found by the `view_incident` batch |
 
 **Werkzeug query-encoding reference** (probed from the frozen oracle, WZ 3.1.8): input
 `a b!"#$%&'()*+,-./:;<=>?@[\]^_`+"`"+`{|}~` → `a+b!%22%23$%25%26'()*%2B,-./:;%3C%3D%3E?@%5B%5C%5D%5E_%60%7B%7C%7D~`.

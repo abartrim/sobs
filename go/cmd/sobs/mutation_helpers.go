@@ -178,6 +178,11 @@ var chDateTimeKeys = map[string]bool{
 // normalizeCHTimestamp mirrors app.py _normalize_ch_timestamp: any common timestamp form ->
 // a ClickHouse DateTime64-compatible "2006-01-02 15:04:05.000000" (UTC).
 func normalizeCHTimestamp(v any) string {
+	// Mirror Python _normalize_ch_timestamp's isinstance(value, datetime) branch: a time.Time
+	// formats directly (toStr would yield Go's "... +0000 UTC" String(), which no layout parses).
+	if t, ok := v.(time.Time); ok {
+		return t.UTC().Format("2006-01-02 15:04:05.000000")
+	}
 	raw := strings.TrimSpace(toStr(v))
 	if raw == "" {
 		return nowUTC().Format("2006-01-02 15:04:05.000000")

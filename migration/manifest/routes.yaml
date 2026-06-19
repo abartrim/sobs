@@ -1045,6 +1045,31 @@ routes:
   - GET
   request:
     method: GET
+# view_incident with a trace_id reference (reusing the tracedetail seed): resolves primary_trace,
+# expands a ±15min window around the trace start, and gathers related errors/logs/spans/rum +
+# raw-windows/metrics/anomaly (all empty/deterministic at the 2023 seed time). Drives the large
+# trace-primary + related-gathering portion of the handler. badwindow variant adds an invalid
+# window_minutes to hit the int() except. error_id/rum_session match paths are deferred (need
+# computed ids).
+- id: get__incident__trace
+  path: /incident
+  methods:
+  - GET
+  profile: tracedetail
+  request:
+    method: GET
+    query:
+      trace_id: aaaa1111bbbb2222cccc3333dddd4444
+- id: get__incident__trace_badwindow
+  path: /incident
+  methods:
+  - GET
+  profile: tracedetail
+  request:
+    method: GET
+    query:
+      trace_id: aaaa1111bbbb2222cccc3333dddd4444
+      window_minutes: not-a-number
 - id: get__work_items
   path: /work-items
   methods:
