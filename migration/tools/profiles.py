@@ -51,6 +51,13 @@ PROFILES: dict[str, dict[str, str]] = {
     # batch-tag join. Deterministic: fixed seed timestamps + frozen now() make the stats-age block
     # stable; distinct timestamps make ORDER BY Timestamp DESC stable.
     "logsview": {},
+    # logsrich: separate otel_logs seed (2 rows, distinct fixed timestamps) for view_logs' raw-SQL
+    # query-execution ERROR branch (app.py 11402-11404). A route passes sql=<col that passes
+    # _validate_user_sql_where but does not exist> -> chdb UNKNOWN_IDENTIFIER on the COUNT query ->
+    # except -> error_msg = "SQL error: " + _public_dashboard_query_error(exc). Sanitized message is
+    # byte-identical on both sides (same libchdb + same SQL); no now()/uuid content. Kept separate
+    # from logsview so its 12 goldens don't shift.
+    "logsrich": {},
     # errorsview: seed otel_logs error events (3 groups, counts 3/2/1, one TraceId each) +
     # one sobs_error_resolutions row so view_errors renders its POPULATED branches — the
     # non-grouped narrow+hydrate path, the grouped aggregate path, and the resolved=0/1/all
@@ -426,6 +433,7 @@ SEEDED_PROFILES = {
     "tracedetailerr",
     "incidentmatch",
     "logsview",
+    "logsrich",
     "errorsview",
     "aiview",
     "dashview",

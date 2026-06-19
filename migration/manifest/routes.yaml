@@ -1328,6 +1328,20 @@ routes:
     method: GET
     query:
       analyze: "1"
+# view_logs raw-SQL query-EXECUTION error branch (app.py 11402, 11403, 11404). The sql fragment
+# passes _validate_user_sql_where (no write/DDL keyword) but references a column that does not exist,
+# so chdb raises UNKNOWN_IDENTIFIER on the COUNT query inside the try -> the except sets error_msg =
+# "SQL error: " + _public_dashboard_query_error(exc). Sanitized first-line message is byte-identical
+# on both sides (same libchdb + same SQL); no now()/uuid/elapsed content -> deterministic, no mask.
+- id: get__logs__logsrich_sql_exec_error
+  path: /logs
+  methods:
+  - GET
+  profile: logsrich
+  request:
+    method: GET
+    query:
+      sql: nonexistent_col=1
 - id: get__metrics
   path: /metrics
   methods:
