@@ -1,5 +1,5 @@
 {
-  "total_uncovered": 5424,
+  "total_uncovered": 5408,
   "summary_pct": "64",
   "by_bucket": {
     "helper": {
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 123,
-      "uncovered": 1011
+      "uncovered": 995
     },
     "module": {
       "functions": 0,
@@ -448,31 +448,6 @@
         24908,
         24909,
         24910
-      ]
-    },
-    {
-      "function": "create_notification_rule",
-      "bucket": "route",
-      "start": 25918,
-      "end": 26089,
-      "uncovered": 39,
-      "span": 172,
-      "route": {
-        "path": "/settings/notifications/rules",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        25927,
-        25928,
-        25948,
-        25949,
-        25951,
-        25952,
-        25971,
-        25972
       ]
     },
     {
@@ -1181,6 +1156,31 @@
         25088,
         25090,
         25091
+      ]
+    },
+    {
+      "function": "create_notification_rule",
+      "bucket": "route",
+      "start": 25918,
+      "end": 26089,
+      "uncovered": 23,
+      "span": 172,
+      "route": {
+        "path": "/settings/notifications/rules",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        25927,
+        25928,
+        25977,
+        25978,
+        25981,
+        25982,
+        25985,
+        25992
       ]
     },
     {

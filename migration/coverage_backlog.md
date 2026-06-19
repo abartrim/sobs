@@ -1,12 +1,12 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **64%** · **5424** uncovered statements.
+Oracle coverage **64%** · **5408** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 1011 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| route | 123 | 995 | needs a fixture/profile (corpus expansion; byte-verifiable) |
 | helper | 436 | 4144 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
@@ -17,11 +17,11 @@ Oracle coverage **64%** · **5424** uncovered statements.
 |---|---|---:|---|
 | `ai_helper` | 27607–28395 | 58 | `POST /api/ai/helper` |
 | `view_incident` | 15785–16144 | 39 | `GET /incident` |
-| `create_notification_rule` | 25918–26089 | 39 | `POST /settings/notifications/rules` |
 | `save_ai_settings` | 26677–26751 | 32 | `POST /settings/ai` |
 | `auto_metrics_rules_dashboard` | 13848–13960 | 26 | `POST /metrics/rules/dashboard/auto` |
 | `view_rum` | 17309–17657 | 26 | `GET /rum` |
 | `api_onboarding_create_issues` | 33738–33930 | 25 | `POST /api/onboarding/create-issues` |
+| `create_notification_rule` | 25918–26089 | 23 | `POST /settings/notifications/rules` |
 | `view_traces` | 15312–15678 | 22 | `GET /traces` |
 | `get_ai_conversation` | 19048–19115 | 21 | `GET /api/ai/conversation` |
 | `issue_rum_client_token` | 9791–9826 | 20 | `POST /v1/rum/client-token` |
