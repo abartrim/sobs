@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **65%** · **5149** uncovered statements.
+Oracle coverage **66%** · **5131** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 119 | 792 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 430 | 4088 | usually covered when a calling route's fixture is added; else difftest |
+| route | 119 | 778 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 430 | 4084 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -43,18 +43,18 @@ Oracle coverage **65%** · **5149** uncovered statements.
 | `get_ai_span_attributes` | 19003–19040 | 8 | `GET /api/ai/span-attributes` |
 | `export_ai_training` | 19123–19226 | 8 | `GET /api/ai/export` |
 | `api_query_add_to_dashboard` | 21331–21407 | 8 | `POST /api/query/add-to-dashboard` |
-| `api_logs_validate_regex` | 23954–24004 | 8 | `POST /api/logs/validate-regex` |
 | `api_ai_field_hints` | 24229–24402 | 8 | `GET /api/ai/field-hints` |
 | `api_onboarding_import_repo` | 33538–33598 | 8 | `POST /api/onboarding/import-repo` |
 | `ingest_traces` | 9834–9888 | 7 | `POST /v1/traces` |
 | `ingest_rum` | 10010–10149 | 7 | `POST /v1/rum` |
 | `api_raw_span` | 15695–15764 | 7 | `GET /api/traces/span/<span_id>` |
 | `ai_build_chart_spec` | 22263–22431 | 7 | `POST /api/dashboards/spec/ai-build` |
-| `api_traces_validate_regex` | 24062–24106 | 7 | `POST /api/traces/validate-regex` |
-| `api_rum_validate_regex` | 24176–24220 | 7 | `POST /api/rum/validate-regex` |
 | `create_notification_rule` | 25918–26089 | 7 | `POST /settings/notifications/rules` |
 | `ai_helper_chats` | 27448–27502 | 7 | `GET /api/ai/helper/chats` |
 | `raise_issue_from_user_observation` | 28547–28654 | 7 | `POST /api/issues/raise` |
+| `api_onboarding_create_repo` | 33464–33533 | 7 | `POST /api/onboarding/create-repo` |
+| `ingest_errors` | 10249–10295 | 6 | `POST /v1/errors` |
+| `view_metrics` | 13430–13595 | 6 | `GET /metrics` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
