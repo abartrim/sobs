@@ -1011,6 +1011,10 @@ func (s *server) handleDashboardsFormSub(w http.ResponseWriter, r *http.Request)
 		s.addChart(w, r, dashID)
 	case len(parts) == 4 && parts[1] == "charts" && parts[3] == "delete":
 		s.removeChart(w, parts[2], dashID)
+	case len(parts) == 4 && parts[1] == "charts" && parts[3] == "edit":
+		s.editChart(w, r, dashID, parts[2])
+	case len(parts) == 4 && parts[1] == "charts" && parts[3] == "clone":
+		s.cloneChart(w, r, dashID, parts[2])
 	default:
 		http.NotFound(w, r)
 	}
@@ -1173,6 +1177,122 @@ func (s *server) removeChart(w http.ResponseWriter, chartID, dashID string) {
 		"ChartType": chartObjStr(c, "chart_type"), "Query": chartObjStr(c, "query"),
 		"OptionsJson": chartObjStr(c, "options_json"), "Position": chartObjInt(c, "position"),
 		"IsDeleted": 1, "Version": fixedVersionMillis(),
+	}
+	if _, err := s.insertRowsNormalized("sobs_chart_configs", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	plainRedirect(w, loc)
+}
+
+// parseChartFormSubmission mirrors app.py _parse_chart_form_submission: validate title +
+// chart_spec_json, parse+compile the spec, and return (title, templateID, query, optionsJSON).
+// On any failure it returns a non-empty errMsg matching the Python ValueError text.
+func (s *server) parseChartFormSubmission(r *http.Request) (title, templateID, query, optionsJSON, errMsg string) {
+	title = strings.TrimSpace(r.PostFormValue("title"))
+	chartSpecJSON := strings.TrimSpace(r.PostFormValue("chart_spec_json"))
+	if title == "" {
+		return "", "", "", "", "Chart title is required"
+	}
+	if chartSpecJSON == "" {
+		return "", "", "", "", "Chart spec is required"
+	}
+	specRaw, perr := parseJSONValue([]byte(chartSpecJSON))
+	if perr != nil {
+		return "", "", "", "", "Chart spec error: " + perr.Error()
+	}
+	tid, q, normSpec, cErr := s.compileChartSpec(specRaw)
+	if cErr != "" {
+		return "", "", "", "", "Chart spec error: " + cErr
+	}
+	optionsJSON = string(jsonenc.Encode(jsonenc.NewObject().Set("chart_spec", normSpec), jsonDumpsDefault))
+	return title, tid, q, optionsJSON, ""
+}
+
+// editChart mirrors app.py edit_chart: look up the chart within the dashboard (404-flash when
+// absent), parse the form (warning-flash on ValueError), then re-INSERT the chart row at its
+// EXISTING position/id and plain-redirect to the dashboard. The version is a wall-clock millis
+// value that is only stored, never emitted — so the redirect body is byte-stable.
+func (s *server) editChart(w http.ResponseWriter, r *http.Request, dashID, chartID string) {
+	loc := "/dashboards/" + dashID
+	charts, err := s.getCharts(dashID)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	var chart *jsonenc.Object
+	for _, ch := range charts {
+		co := ch.(*jsonenc.Object)
+		if chartObjStr(co, "id") == chartID {
+			chart = co
+			break
+		}
+	}
+	if chart == nil {
+		flashRedirect(w, "warning", "Chart not found", loc)
+		return
+	}
+	_ = r.ParseForm()
+	title, templateID, query, optionsJSON, errMsg := s.parseChartFormSubmission(r)
+	if errMsg != "" {
+		flashRedirect(w, "warning", errMsg, loc)
+		return
+	}
+	row := map[string]any{
+		"Id": chartID, "DashboardId": dashID, "Title": title, "ChartType": templateID,
+		"Query": query, "OptionsJson": optionsJSON, "Position": chartObjInt(chart, "position"),
+		"IsDeleted": 0, "Version": fixedVersionMillis(),
+	}
+	if _, err := s.insertRowsNormalized("sobs_chart_configs", []map[string]any{row}); err != nil {
+		s.dbError(w, err)
+		return
+	}
+	plainRedirect(w, loc)
+}
+
+// cloneChart mirrors app.py clone_chart: look up the source chart within the dashboard
+// (404-flash when absent), parse the form (warning-flash on ValueError), then INSERT a NEW
+// chart (fresh uuid id, next position) and plain-redirect to the dashboard. The new uuid is
+// only stored, never emitted (the redirect targets the existing dashboard_id) — so the redirect
+// body is byte-stable.
+func (s *server) cloneChart(w http.ResponseWriter, r *http.Request, dashID, chartID string) {
+	loc := "/dashboards/" + dashID
+	charts, err := s.getCharts(dashID)
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	var source *jsonenc.Object
+	for _, ch := range charts {
+		co := ch.(*jsonenc.Object)
+		if chartObjStr(co, "id") == chartID {
+			source = co
+			break
+		}
+	}
+	if source == nil {
+		flashRedirect(w, "warning", "Chart not found", loc)
+		return
+	}
+	_ = r.ParseForm()
+	title, templateID, query, optionsJSON, errMsg := s.parseChartFormSubmission(r)
+	if errMsg != "" {
+		flashRedirect(w, "warning", errMsg, loc)
+		return
+	}
+	// app.py: position = max(c["position"] for c in charts, default=-1) + 1.
+	position := -1
+	for _, ch := range charts {
+		co := ch.(*jsonenc.Object)
+		if p := chartObjInt(co, "position"); p > position {
+			position = p
+		}
+	}
+	position++
+	row := map[string]any{
+		"Id": newUUIDv4(), "DashboardId": dashID, "Title": title, "ChartType": templateID,
+		"Query": query, "OptionsJson": optionsJSON, "Position": position,
+		"IsDeleted": 0, "Version": fixedVersionMillis(),
 	}
 	if _, err := s.insertRowsNormalized("sobs_chart_configs", []map[string]any{row}); err != nil {
 		s.dbError(w, err)

@@ -485,6 +485,70 @@ routes:
   profile: dashview
   request:
     method: GET
+# chartedit profile: a seeded dashboard (d0…d001) + one chart (c0…c001) so the chart-MUTATION
+# form routes reach their real branches. All four redirect to view_custom_dashboard with the
+# EXISTING dashboard id, so every response body is byte-stable (no uuid/now() leaks — clone's
+# fresh chart uuid only hits the DB). Isolated profile -> mutations never ripple into base readers.
+# edit_chart SUCCESS: valid edit to the seeded chart -> re-INSERT at the existing id/position +
+# plain-redirect to the dashboard (app.py 21677-21689).
+- id: post__dashboards_chart_edit_ok
+  path: /dashboards/d0000000-0000-4000-8000-00000000d001/charts/c0000000-0000-4000-8000-00000000c001/edit
+  methods:
+  - POST
+  profile: chartedit
+  request:
+    method: POST
+    form:
+      title: Edited chart
+      chart_spec_json: '{"template_id":"anomaly_overlay","sql":{"mode":"raw","override_sql":"SELECT 1 AS time, 3 AS value"}}'
+# edit_chart chart-not-found: dashboard exists but chart_id is absent -> "Chart not found"
+# warning flash + redirect to the dashboard (app.py 21659-21661).
+- id: post__dashboards_chart_edit_chart_missing
+  path: /dashboards/d0000000-0000-4000-8000-00000000d001/charts/cffffff0-0000-4000-8000-00000000cfff/edit
+  methods:
+  - POST
+  profile: chartedit
+  request:
+    method: POST
+    form:
+      title: Whatever
+      chart_spec_json: '{"template_id":"anomaly_overlay","sql":{"mode":"raw","override_sql":"SELECT 1 AS time, 2 AS value"}}'
+# edit_chart validation error: chart found but the form omits title -> ValueError("Chart title is
+# required") -> warning flash + redirect (app.py 21664-21667, _parse_chart_form_submission).
+- id: post__dashboards_chart_edit_invalid
+  path: /dashboards/d0000000-0000-4000-8000-00000000d001/charts/c0000000-0000-4000-8000-00000000c001/edit
+  methods:
+  - POST
+  profile: chartedit
+  request:
+    method: POST
+    form:
+      chart_spec_json: '{"template_id":"anomaly_overlay","sql":{"mode":"raw","override_sql":"SELECT 1 AS time, 2 AS value"}}'
+# clone_chart SUCCESS: valid clone of the seeded chart -> INSERT a new chart (fresh uuid only in
+# DB) + plain-redirect to the EXISTING dashboard id, so the body is byte-stable (app.py
+# 21719-21733). NOT R12-deferred: the new uuid never reaches the response.
+- id: post__dashboards_chart_clone_ok
+  path: /dashboards/d0000000-0000-4000-8000-00000000d001/charts/c0000000-0000-4000-8000-00000000c001/clone
+  methods:
+  - POST
+  profile: chartedit
+  request:
+    method: POST
+    form:
+      title: Cloned chart
+      chart_spec_json: '{"template_id":"anomaly_overlay","sql":{"mode":"raw","override_sql":"SELECT 1 AS time, 2 AS value"}}'
+# clone_chart chart-not-found: dashboard exists but chart_id absent -> "Chart not found" warning
+# flash + redirect (app.py 21702-21704); no uuid emitted.
+- id: post__dashboards_chart_clone_chart_missing
+  path: /dashboards/d0000000-0000-4000-8000-00000000d001/charts/cffffff0-0000-4000-8000-00000000cfff/clone
+  methods:
+  - POST
+  profile: chartedit
+  request:
+    method: POST
+    form:
+      title: Whatever
+      chart_spec_json: '{"template_id":"anomaly_overlay","sql":{"mode":"raw","override_sql":"SELECT 1 AS time, 2 AS value"}}'
 - id: get__settings_kubernetes
   path: /settings/kubernetes
   methods:
