@@ -141,8 +141,12 @@ agent roster + CI are built and committed on `go-main`):
     `signal=log_volume` → one signal group (no `ORDER BY` tie) and (b) masking the wall-clock bucket
     time with `[0-9-]+[ +][0-9:]+` (the `[ +]` catches the url-encoded `from_ts=r.time`); the drift
     only shows in the full suite (its phases are minutes apart). R10 found here too.
-  - Coverage **57.81% → 62.86%** (covered 9,356 / 14,884; uncovered 5,528), floor ratcheted to
-    **62.8**. Full Docker parity GREEN **485/0**.
+  - Plus six more POST/handler batches (all ZERO new bugs): `metrics_anomaly` API, `ingest_rum`,
+    `export_ai_training`/`ai_helper_chats`, `view_incident` error_id-match, `auto_metrics_rules`
+    create, `create_notification_rule`. Pattern: isolated profile + err-first/success-last route
+    order (uuid lockstep) + flash-redirect/count responses (deterministic).
+  - Coverage **57.81% → 63.67%** (covered 9,476 / 14,884; uncovered 5,408), floor ratcheted to
+    **63.6**. Full Docker parity GREEN **505/0** (~95 routes added this session).
 - **Ten render/handler fixes (R1–R10) found by these batches** — all latent in the empty corpus,
   all now matching the Python/Werkzeug/Jinja2 oracle (see `migration/POPULATED_RENDER_FINDINGS.md`):
   float-rendered counts, `url_for` over-encoding, `url_for` None-param omission, hardcoded-empty
