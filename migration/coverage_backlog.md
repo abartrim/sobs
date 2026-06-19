@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **67%** · **4863** uncovered statements.
+Oracle coverage **67%** · **4859** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 117 | 603 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 426 | 3991 | usually covered when a calling route's fixture is added; else difftest |
+| route | 117 | 588 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 425 | 4002 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -20,20 +20,20 @@ Oracle coverage **67%** · **4863** uncovered statements.
 | `view_incident` | 15785–16144 | 22 | `GET /incident` |
 | `api_onboarding_create_issues` | 33738–33930 | 18 | `POST /api/onboarding/create-issues` |
 | `auto_tag_rules` | 23353–23460 | 16 | `POST /settings/tags/auto` |
-| `check_notifications` | 26341–26447 | 16 | `POST /api/notifications/check` |
 | `api_query_run` | 30511–30765 | 16 | `POST /api/query/run` |
-| `view_logs` | 11239–11512 | 15 | `GET /logs` |
 | `ingest_rum_asset` | 9699–9756 | 14 | `POST /v1/rum/assets` |
 | `view_traces` | 15312–15678 | 14 | `GET /traces` |
 | `view_ai` | 18631–18998 | 11 | `GET /ai` |
 | `api_import_reports` | 22857–23017 | 11 | `POST /api/reports/import` |
 | `api_query_ask` | 30203–30506 | 10 | `POST /api/query/ask` |
 | `view_rum` | 17309–17657 | 9 | `GET /rum` |
+| `check_notifications` | 26341–26447 | 9 | `POST /api/notifications/check` |
 | `ingest_metrics` | 9896–9918 | 8 | `POST /v1/metrics` |
 | `api_ai_field_hints` | 24229–24402 | 8 | `GET /api/ai/field-hints` |
 | `api_onboarding_import_repo` | 33538–33598 | 8 | `POST /api/onboarding/import-repo` |
 | `api_onboarding_list_repos` | 33603–33678 | 8 | `POST /api/onboarding/list-repos` |
 | `ingest_rum` | 10010–10149 | 7 | `POST /v1/rum` |
+| `view_logs` | 11239–11512 | 7 | `GET /logs` |
 | `api_raw_span` | 15695–15764 | 7 | `GET /api/traces/span/<span_id>` |
 | `ai_build_chart_spec` | 22263–22431 | 7 | `POST /api/dashboards/spec/ai-build` |
 | `create_notification_rule` | 25918–26089 | 7 | `POST /settings/notifications/rules` |
@@ -82,7 +82,7 @@ Oracle coverage **67%** · **4863** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (426 functions)
+## helper — top by uncovered lines (425 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
@@ -119,10 +119,10 @@ Oracle coverage **67%** · **4863** uncovered statements.
 | `_resolve_custom_binding_expr` | 21086–21119 | 28 |  |
 | `_parse_gemfile_lock_dependencies` | 16426–16453 | 27 |  |
 | `_encrypt_push_payload` | 24990–25055 | 27 |  |
+| `_match_single_condition` | 12551–12588 | 26 |  |
 | `_build_trace_window_overlay_segments` | 14787–14842 | 26 |  |
 | `_load_chat_tool_history` | 4016–4075 | 25 |  |
 | `_coerce_reasoning_text` | 8304–8331 | 25 |  |
 | `_build_auto_tag_rule_candidates` | 12062–12308 | 25 |  |
 | `_build_agent_context_summary` | 6609–6703 | 24 |  |
 | `_to_summary` | 10606–10632 | 24 |  |
-| `_compute_health_chips` | 14929–14956 | 24 |  |
