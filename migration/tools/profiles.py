@@ -101,6 +101,10 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_RUM_CLIENT_AUTH_MODE": "origin",
         "SOBS_RUM_CLIENT_SIGNING_KEY": "parity-rum-signing-key",
     },
+    # cveview: seed sobs_cve_findings (1 per severity, distinct Published) so the summary
+    # cve-overview counts and view_enrichment_cve findings loop/filters render populated.
+    # Read-only (the pages only query) -> shareable, but kept isolated/seeded for clarity.
+    "cveview": {},
     # dashauto: no seed, isolated (auto_metrics_rules_dashboard create inserts a dashboard + charts).
     # Candidates come from the base example anomaly rules (no extra seed). create's redirect Location
     # embeds the new dashboard_id (frozen uuid -> deterministic as the first uuid consumer); preview
@@ -382,6 +386,7 @@ SEEDED_PROFILES = {
     "regexmetrics",
     "metricscreate",
     "notifrule",
+    "cveview",
 }
 
 

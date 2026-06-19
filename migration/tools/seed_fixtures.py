@@ -1543,6 +1543,68 @@ def seed_regex_errors(db) -> None:
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
 
 
+def seed_cveview(db) -> None:
+    # CVE findings, one per severity with DISTINCT Published (tie-free ORDER BY Published DESC) so the
+    # summary cve-overview counts and view_enrichment_cve findings loop/filters render populated. No
+    # inventory or dispositions seeded -> _effective_cve_disposition resolves "open" for all, which is
+    # kept under the default show_all=off. Fixed Published/ScannedAt -> deterministic (no wall-clock).
+    _insert(
+        db,
+        "sobs_cve_findings",
+        [
+            {
+                "Package": "requests",
+                "Ecosystem": "PyPI",
+                "Version": "2.0.0",
+                "ServiceName": "api",
+                "OsvId": "GHSA-aaaa-0001",
+                "CveIds": "CVE-2024-0001",
+                "Summary": "Critical RCE in requests",
+                "Severity": "CRITICAL",
+                "Published": "2024-01-04 00:00:00",
+                "ScannedAt": _TS,
+            },
+            {
+                "Package": "flask",
+                "Ecosystem": "PyPI",
+                "Version": "1.0.0",
+                "ServiceName": "api",
+                "OsvId": "GHSA-aaaa-0002",
+                "CveIds": "CVE-2024-0002",
+                "Summary": "High severity flask issue",
+                "Severity": "HIGH",
+                "Published": "2024-01-03 00:00:00",
+                "ScannedAt": _TS,
+            },
+            {
+                "Package": "lodash",
+                "Ecosystem": "npm",
+                "Version": "4.0.0",
+                "ServiceName": "web",
+                "OsvId": "GHSA-aaaa-0003",
+                "CveIds": "CVE-2024-0003",
+                "Summary": "Medium prototype pollution",
+                "Severity": "MEDIUM",
+                "Published": "2024-01-02 00:00:00",
+                "ScannedAt": _TS,
+            },
+            {
+                "Package": "axios",
+                "Ecosystem": "npm",
+                "Version": "0.1.0",
+                "ServiceName": "web",
+                "OsvId": "GHSA-aaaa-0004",
+                "CveIds": "CVE-2024-0004",
+                "Summary": "Low severity axios advisory",
+                "Severity": "LOW",
+                "Published": "2024-01-01 00:00:00",
+                "ScannedAt": _TS,
+            },
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_cve_findings FINAL")
+
+
 PROFILE_SEEDS = {
     "agentrun": seed_agent_run,
     "notif": seed_notif,
@@ -1556,6 +1618,7 @@ PROFILE_SEEDS = {
     "repoapp": seed_repo_app,  # registered app + release + github token; repositories-sub actions
     "cveosv": seed_cve_osv,  # telemetry.sdk row -> non-empty inventory -> OSV scan finds a vuln
     "tagauto": seed_tagauto,  # 30 recent prod-service logs -> auto_tag_rules in-window candidate
+    "cveview": seed_cveview,  # CVE findings (1/severity) -> summary cve-overview + view_enrichment_cve
     "metricsauto": seed_metricsauto,  # constant log_volume series -> auto_metrics_rules candidates
     "tagsuggest": seed_tagsuggest,  # otel/tags/attr-key rows -> condition-suggestions non-empty branches
     "cvebackfill": seed_repo_app,  # app+release+github token -> cve github backfill attempts a release

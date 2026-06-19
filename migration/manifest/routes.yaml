@@ -846,6 +846,14 @@ routes:
   - GET
   request:
     method: GET
+# summary cve-overview block (counts by severity from sobs_cve_findings) under the cveview seed.
+- id: get__root__cveview
+  path: /
+  methods:
+  - GET
+  profile: cveview
+  request:
+    method: GET
 - id: get__errors
   path: /errors
   methods:
@@ -1301,6 +1309,39 @@ routes:
   - GET
   request:
     method: GET
+# view_enrichment_cve populated findings loop (cveview seed) + the severity/ecosystem/package filter
+# blocks. Distinct Published -> tie-free ORDER BY; all dispositions "open" (kept under show_all=off).
+- id: get__enrichment_cve__cveview
+  path: /enrichment/cve
+  methods:
+  - GET
+  profile: cveview
+  request:
+    method: GET
+- id: get__enrichment_cve__cveview_sev
+  path: /enrichment/cve
+  methods:
+  - GET
+  profile: cveview
+  request:
+    method: GET
+    query: {severity: CRITICAL}
+- id: get__enrichment_cve__cveview_eco
+  path: /enrichment/cve
+  methods:
+  - GET
+  profile: cveview
+  request:
+    method: GET
+    query: {ecosystem: npm}
+- id: get__enrichment_cve__cveview_pkg
+  path: /enrichment/cve
+  methods:
+  - GET
+  profile: cveview
+  request:
+    method: GET
+    query: {package: lodash}
 - id: get__settings_repositories
   path: /settings/repositories
   methods:
