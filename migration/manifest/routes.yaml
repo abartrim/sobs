@@ -1148,6 +1148,31 @@ routes:
     query:
       from_ts: '2023-06-02T00:00:00'
       to_ts: '2023-06-01T00:00:00'
+# view_logs invalid-regex q -> _prepare_re2_filter_patterns returns regex_error -> error_msg set
+# (app.py 11282); the query block is then skipped. Deterministic regex-engine-independent message
+# (same as the validate-regex __invalid routes).
+- id: get__logs__q_invalid
+  path: /logs
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      q: "foo &&"
+# view_logs disallowed raw-SQL where -> _validate_user_sql_where raises ValueError -> the sql_where
+# try/except sets error_msg "SQL error: ..." (app.py 11321-11322). The disallowed-keyword message is
+# a fixed string in both oracle and Go.
+- id: get__logs__sql_disallowed
+  path: /logs
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      sql: "ServiceName='x' OR DROP"
+# NOTE: view_logs analyze=1 (run_advanced_analysis, app.py 11379/11383) is DEFERRED — scoped parity
+# RED: Go's _compute_advanced_log_analysis render diverges from the oracle (body 250702 vs 219012 on
+# the logsview seed). Needs a Go port fix before it can be added.
 - id: get__metrics
   path: /metrics
   methods:
