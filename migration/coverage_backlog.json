@@ -1,18 +1,18 @@
 {
-  "total_uncovered": 5159,
+  "total_uncovered": 5149,
   "summary_pct": "65",
   "by_bucket": {
     "helper": {
       "functions": 430,
-      "uncovered": 4089
+      "uncovered": 4088
     },
     "lifecycle": {
       "functions": 21,
       "uncovered": 256
     },
     "route": {
-      "functions": 120,
-      "uncovered": 801
+      "functions": 119,
+      "uncovered": 792
     },
     "module": {
       "functions": 0,
@@ -3256,31 +3256,6 @@
       ]
     },
     {
-      "function": "chart_spec_options_api",
-      "bucket": "route",
-      "start": 21816,
-      "end": 21887,
-      "uncovered": 9,
-      "span": 72,
-      "route": {
-        "path": "/api/dashboards/spec/options",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        21832,
-        21865,
-        21866,
-        21869,
-        21870,
-        21871,
-        21872,
-        21873
-      ]
-    },
-    {
       "function": "render_chart_spec_api",
       "bucket": "route",
       "start": 21986,
@@ -4046,24 +4021,6 @@
       ]
     },
     {
-      "function": "_remember_attr_keys",
-      "bucket": "helper",
-      "start": 2198,
-      "end": 2237,
-      "uncovered": 7,
-      "span": 40,
-      "route": null,
-      "missing_sample": [
-        2206,
-        2211,
-        2215,
-        2217,
-        2221,
-        2236,
-        2237
-      ]
-    },
-    {
       "function": "_chat_label_from_first_turn",
       "bucket": "helper",
       "start": 3739,
@@ -4605,6 +4562,23 @@
         1991,
         1992,
         1993
+      ]
+    },
+    {
+      "function": "_remember_attr_keys",
+      "bucket": "helper",
+      "start": 2198,
+      "end": 2237,
+      "uncovered": 6,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        2206,
+        2211,
+        2217,
+        2221,
+        2236,
+        2237
       ]
     },
     {

@@ -1,17 +1,17 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **65%** · **5159** uncovered statements.
+Oracle coverage **65%** · **5149** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 120 | 801 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 430 | 4089 | usually covered when a calling route's fixture is added; else difftest |
+| route | 119 | 792 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 430 | 4088 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
-## route — top by uncovered lines (120 functions)
+## route — top by uncovered lines (119 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
@@ -38,7 +38,6 @@ Oracle coverage **65%** · **5159** uncovered statements.
 | `create_tag_rule` | 23465–23584 | 10 | `POST /settings/tags` |
 | `api_onboarding_list_repos` | 33603–33678 | 10 | `POST /api/onboarding/list-repos` |
 | `ingest_metrics` | 9896–9918 | 9 | `POST /v1/metrics` |
-| `chart_spec_options_api` | 21816–21887 | 9 | `GET /api/dashboards/spec/options` |
 | `render_chart_spec_api` | 21986–22031 | 9 | `POST /api/dashboards/spec/render` |
 | `view_enrichment_cve` | 18104–18215 | 8 | `GET /enrichment/cve` |
 | `get_ai_span_attributes` | 19003–19040 | 8 | `GET /api/ai/span-attributes` |
@@ -55,6 +54,7 @@ Oracle coverage **65%** · **5159** uncovered statements.
 | `api_rum_validate_regex` | 24176–24220 | 7 | `POST /api/rum/validate-regex` |
 | `create_notification_rule` | 25918–26089 | 7 | `POST /settings/notifications/rules` |
 | `ai_helper_chats` | 27448–27502 | 7 | `GET /api/ai/helper/chats` |
+| `raise_issue_from_user_observation` | 28547–28654 | 7 | `POST /api/issues/raise` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
