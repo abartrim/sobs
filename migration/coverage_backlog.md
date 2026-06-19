@@ -1,17 +1,17 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **65%** · **5174** uncovered statements.
+Oracle coverage **65%** · **5159** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 121 | 816 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| route | 120 | 801 | needs a fixture/profile (corpus expansion; byte-verifiable) |
 | helper | 430 | 4089 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
-## route — top by uncovered lines (121 functions)
+## route — top by uncovered lines (120 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
@@ -28,7 +28,6 @@ Oracle coverage **65%** · **5174** uncovered statements.
 | `auto_tag_rules` | 23353–23460 | 16 | `POST /settings/tags/auto` |
 | `check_notifications` | 26341–26447 | 16 | `POST /api/notifications/check` |
 | `clone_chart` | 21694–21733 | 15 | `POST /dashboards/<dashboard_id>/charts/<chart_id>/clone` |
-| `create_notification_channel` | 25742–25813 | 15 | `POST /settings/notifications/channels` |
 | `view_settings_repositories` | 26805–26884 | 15 | `GET /settings/repositories` |
 | `ingest_rum_asset` | 9699–9756 | 14 | `POST /v1/rum/assets` |
 | `api_enrichment_libraries` | 17882–17941 | 14 | `GET /api/enrichment/libraries` |
@@ -55,6 +54,7 @@ Oracle coverage **65%** · **5174** uncovered statements.
 | `api_traces_validate_regex` | 24062–24106 | 7 | `POST /api/traces/validate-regex` |
 | `api_rum_validate_regex` | 24176–24220 | 7 | `POST /api/rum/validate-regex` |
 | `create_notification_rule` | 25918–26089 | 7 | `POST /settings/notifications/rules` |
+| `ai_helper_chats` | 27448–27502 | 7 | `GET /api/ai/helper/chats` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 

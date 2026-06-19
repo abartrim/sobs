@@ -1,5 +1,5 @@
 {
-  "total_uncovered": 5174,
+  "total_uncovered": 5159,
   "summary_pct": "65",
   "by_bucket": {
     "helper": {
@@ -11,8 +11,8 @@
       "uncovered": 256
     },
     "route": {
-      "functions": 121,
-      "uncovered": 816
+      "functions": 120,
+      "uncovered": 801
     },
     "module": {
       "functions": 0,
@@ -2034,31 +2034,6 @@
         21707,
         21708,
         21709
-      ]
-    },
-    {
-      "function": "create_notification_channel",
-      "bucket": "route",
-      "start": 25742,
-      "end": 25813,
-      "uncovered": 15,
-      "span": 72,
-      "route": {
-        "path": "/settings/notifications/channels",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        25756,
-        25757,
-        25767,
-        25768,
-        25770,
-        25771,
-        25772,
-        25773
       ]
     },
     {
