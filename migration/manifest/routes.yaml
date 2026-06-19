@@ -1749,6 +1749,69 @@ routes:
   request:
     method: POST
     form: {name: r}
+# create_notification_rule branches formerr misses (invalid logic/severity/condition-type) + the
+# SUCCESS inserts (signal + tag conditions, channel validated against the notif seed). notifrule
+# profile (seed_notif provides channel c1...001; isolated so the insert doesn't perturb notif).
+# err routes (no mutation) first, success routes (uuid + insert) last. tag-regex-error deferred (F2).
+- id: post__notif_rule__nr_err_logic
+  path: /settings/notifications/rules
+  methods:
+  - POST
+  profile: notifrule
+  request:
+    method: POST
+    form: {name: r, logic_operator: bogus}
+- id: post__notif_rule__nr_err_severity
+  path: /settings/notifications/rules
+  methods:
+  - POST
+  profile: notifrule
+  request:
+    method: POST
+    form: {name: r, severity: bogus}
+- id: post__notif_rule__nr_err_condtype
+  path: /settings/notifications/rules
+  methods:
+  - POST
+  profile: notifrule
+  request:
+    method: POST
+    form: {name: r, cond_type: bogus, cond_source: logs, cond_signal: log_volume}
+- id: post__notif_rule__nr_success_signal
+  path: /settings/notifications/rules
+  methods:
+  - POST
+  profile: notifrule
+  request:
+    method: POST
+    form:
+      name: NR Signal Rule
+      severity: warning
+      logic_operator: any
+      cond_source: logs
+      cond_signal: log_volume
+      cond_service: web
+      cond_comparator: gt
+      cond_threshold: "5"
+      cond_window_minutes: "5"
+      channel_ids: c1000000000000000000000000000001
+- id: post__notif_rule__nr_success_tag
+  path: /settings/notifications/rules
+  methods:
+  - POST
+  profile: notifrule
+  request:
+    method: POST
+    form:
+      name: NR Tag Rule
+      severity: critical
+      logic_operator: all
+      cond_type: tag
+      cond_tag_key: env
+      cond_tag_value: prod
+      cond_tag_match_operator: eq
+      cond_record_type: log
+      channel_ids: c1000000000000000000000000000001
 - id: post__notif_channel_err_email
   path: /settings/notifications/channels
   methods:

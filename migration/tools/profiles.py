@@ -84,6 +84,10 @@ PROFILES: dict[str, dict[str, str]] = {
     # series) so the created-count flash is deterministic; seasonal mode is skipped (wall-clock
     # hour-of-day buckets drift).
     "metricscreate": {},
+    # notifrule: seed_notif (channels+rules) but ISOLATED so create_notification_rule's success
+    # insert doesn't perturb the notif profile's own routes. Provides a valid channel id for the
+    # channel-validation + insert path; response is flash+redirect (deterministic).
+    "notifrule": {},
     "ai": {
         # Python derives _query_page_enabled() from these (via _AI_ENV_OVERRIDES); Go reads
         # them through aiEnvOverrides AND gates the query page on SOBS_QUERY_PAGE_ENABLED.
@@ -359,6 +363,7 @@ SEEDED_PROFILES = {
     "regexerrors",
     "regexmetrics",
     "metricscreate",
+    "notifrule",
 }
 
 
