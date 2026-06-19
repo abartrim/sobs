@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **68%** · **4758** uncovered statements.
+Oracle coverage **68%** · **4718** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
 | route | 116 | 555 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 420 | 3934 | usually covered when a calling route's fixture is added; else difftest |
+| helper | 415 | 3894 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -82,7 +82,7 @@ Oracle coverage **68%** · **4758** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (420 functions)
+## helper — top by uncovered lines (415 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
@@ -122,7 +122,7 @@ Oracle coverage **68%** · **4758** uncovered statements.
 | `_build_trace_window_overlay_segments` | 14787–14842 | 26 |  |
 | `_load_chat_tool_history` | 4016–4075 | 25 |  |
 | `_coerce_reasoning_text` | 8304–8331 | 25 |  |
-| `_build_auto_tag_rule_candidates` | 12062–12308 | 25 |  |
 | `_build_agent_context_summary` | 6609–6703 | 24 |  |
 | `_to_summary` | 10606–10632 | 24 |  |
 | `_compute_health_chips` | 14929–14956 | 24 |  |
+| `_fetch_trace_metric_context` | 14959–15306 | 24 |  |

@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 4758,
+  "total_uncovered": 4718,
   "summary_pct": "68",
   "by_bucket": {
     "helper": {
-      "functions": 420,
-      "uncovered": 3934
+      "functions": 415,
+      "uncovered": 3894
     },
     "lifecycle": {
       "functions": 21,
@@ -828,25 +828,6 @@
         8312,
         8313,
         8314
-      ]
-    },
-    {
-      "function": "_build_auto_tag_rule_candidates",
-      "bucket": "helper",
-      "start": 12062,
-      "end": 12308,
-      "uncovered": 25,
-      "span": 247,
-      "route": null,
-      "missing_sample": [
-        12073,
-        12139,
-        12166,
-        12187,
-        12188,
-        12189,
-        12190,
-        12191
       ]
     },
     {
@@ -3171,25 +3152,6 @@
       ]
     },
     {
-      "function": "_infer_env_from_service",
-      "bucket": "helper",
-      "start": 12036,
-      "end": 12048,
-      "uncovered": 8,
-      "span": 13,
-      "route": null,
-      "missing_sample": [
-        12039,
-        12042,
-        12043,
-        12044,
-        12045,
-        12046,
-        12047,
-        12048
-      ]
-    },
-    {
       "function": "_run_cve_scan",
       "bucket": "lifecycle",
       "start": 17122,
@@ -3447,6 +3409,24 @@
         657,
         661,
         662
+      ]
+    },
+    {
+      "function": "_remember_attr_keys",
+      "bucket": "helper",
+      "start": 2198,
+      "end": 2237,
+      "uncovered": 7,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        2206,
+        2211,
+        2215,
+        2217,
+        2221,
+        2236,
+        2237
       ]
     },
     {
@@ -3943,23 +3923,6 @@
         1991,
         1992,
         1993
-      ]
-    },
-    {
-      "function": "_remember_attr_keys",
-      "bucket": "helper",
-      "start": 2198,
-      "end": 2237,
-      "uncovered": 6,
-      "span": 40,
-      "route": null,
-      "missing_sample": [
-        2206,
-        2211,
-        2217,
-        2221,
-        2236,
-        2237
       ]
     },
     {
@@ -4810,22 +4773,6 @@
       ]
     },
     {
-      "function": "_auto_tag_slug",
-      "bucket": "helper",
-      "start": 12028,
-      "end": 12033,
-      "uncovered": 5,
-      "span": 6,
-      "route": null,
-      "missing_sample": [
-        12029,
-        12030,
-        12031,
-        12032,
-        12033
-      ]
-    },
-    {
       "function": "_apply_tag_rules",
       "bucket": "helper",
       "start": 12777,
@@ -5378,18 +5325,18 @@
       ]
     },
     {
-      "function": "_append_candidate",
+      "function": "_infer_env_from_service",
       "bucket": "helper",
-      "start": 12094,
-      "end": 12134,
+      "start": 12036,
+      "end": 12048,
       "uncovered": 4,
-      "span": 41,
+      "span": 13,
       "route": null,
       "missing_sample": [
-        12108,
-        12109,
-        12120,
-        12121
+        12039,
+        12043,
+        12045,
+        12047
       ]
     },
     {
@@ -6113,20 +6060,6 @@
         11840,
         11841,
         11842
-      ]
-    },
-    {
-      "function": "_build_auto_dashboard_chart_candidates",
-      "bucket": "helper",
-      "start": 12311,
-      "end": 12385,
-      "uncovered": 3,
-      "span": 75,
-      "route": null,
-      "missing_sample": [
-        12323,
-        12327,
-        12338
       ]
     },
     {
@@ -7368,6 +7301,19 @@
       "missing_sample": [
         11232,
         11233
+      ]
+    },
+    {
+      "function": "_append_candidate",
+      "bucket": "helper",
+      "start": 12094,
+      "end": 12134,
+      "uncovered": 2,
+      "span": 41,
+      "route": null,
+      "missing_sample": [
+        12108,
+        12109
       ]
     },
     {
@@ -8844,27 +8790,15 @@
       ]
     },
     {
-      "function": "_default_auto_dashboard_name",
+      "function": "_auto_tag_slug",
       "bucket": "helper",
-      "start": 12022,
-      "end": 12025,
+      "start": 12028,
+      "end": 12033,
       "uncovered": 1,
-      "span": 4,
+      "span": 6,
       "route": null,
       "missing_sample": [
-        12024
-      ]
-    },
-    {
-      "function": "_load_tag_rules",
-      "bucket": "helper",
-      "start": 12468,
-      "end": 12503,
-      "uncovered": 1,
-      "span": 36,
-      "route": null,
-      "missing_sample": [
-        12480
+        12032
       ]
     },
     {
@@ -8889,18 +8823,6 @@
       "route": null,
       "missing_sample": [
         12736
-      ]
-    },
-    {
-      "function": "signal_label",
-      "bucket": "helper",
-      "start": 13386,
-      "end": 13396,
-      "uncovered": 1,
-      "span": 11,
-      "route": null,
-      "missing_sample": [
-        13396
       ]
     },
     {
