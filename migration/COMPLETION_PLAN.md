@@ -136,14 +136,20 @@ agent roster + CI are built and committed on `go-main`):
     `api_import_reports` (8 routes, `reportsimport` profile — envelope/item validation +
     skip/replace/rename/insert), and `create_metrics_rule` + `create_tag_rule` (12 routes,
     `rulecreate` profile — validation branches + success inserts, isolated, flash+redirect).
-  - Coverage **57.81% → 62.66%** (covered 9,327 / 14,884; uncovered 5,557), floor ratcheted to
-    **62.6**. Full Docker parity GREEN **474/0**.
-- **Nine render/handler fixes (R1–R9) found by these batches** — all latent in the empty corpus,
+  - Plus the **derived-signals views** (previously deferred as "hard"): `view_metrics` +
+    `view_metrics_anomaly` (11 routes, `metricsauto` seed). Cracked via (a) pairing filters with
+    `signal=log_volume` → one signal group (no `ORDER BY` tie) and (b) masking the wall-clock bucket
+    time with `[0-9-]+[ +][0-9:]+` (the `[ +]` catches the url-encoded `from_ts=r.time`); the drift
+    only shows in the full suite (its phases are minutes apart). R10 found here too.
+  - Coverage **57.81% → 62.86%** (covered 9,356 / 14,884; uncovered 5,528), floor ratcheted to
+    **62.8**. Full Docker parity GREEN **485/0**.
+- **Ten render/handler fixes (R1–R10) found by these batches** — all latent in the empty corpus,
   all now matching the Python/Werkzeug/Jinja2 oracle (see `migration/POPULATED_RENDER_FINDINGS.md`):
   float-rendered counts, `url_for` over-encoding, `url_for` None-param omission, hardcoded-empty
   `request.args`, ordinal string `>=`, missing `|string` filter, `normalizeCHTimestamp(time.Time)`,
-  `view_ai` SpanAttributes read (cStr'd map), and `view_ai` static-vs-dynamic pricing. Shared
-  primitives, so per-batch new-bug count fell 5 → 0 → 1 → 1 → 2.
+  `view_ai` SpanAttributes read (cStr'd map), `view_ai` static-vs-dynamic pricing, and float-rendered
+  UInt counts in the metrics views (R10). Shared primitives, so per-batch new-bug count fell
+  5 → 0 → 1 → 1 → 2 → 0 → 0 → 0 → 1 → 1.
 - **Populated-render fixes (found by the logsview/traces batch, all latent in the empty corpus):**
   five genuine Go render-layer bugs fixed — float-rendered COUNT()s, over-aggressive `url_for`
   query encoding (matched to Werkzeug 3.1.8's exact safe set via an oracle probe), `request.args`
