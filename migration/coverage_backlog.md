@@ -1,12 +1,12 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **62%** · **5638** uncovered statements.
+Oracle coverage **62%** · **5584** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 1222 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| route | 123 | 1168 | needs a fixture/profile (corpus expansion; byte-verifiable) |
 | helper | 437 | 4147 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
@@ -15,7 +15,6 @@ Oracle coverage **62%** · **5638** uncovered statements.
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
-| `api_import_reports` | 22857–23017 | 73 | `POST /api/reports/import` |
 | `view_incident` | 15785–16144 | 65 | `GET /incident` |
 | `ai_helper` | 27607–28395 | 58 | `POST /api/ai/helper` |
 | `create_notification_rule` | 25918–26089 | 39 | `POST /settings/notifications/rules` |
@@ -34,6 +33,7 @@ Oracle coverage **62%** · **5638** uncovered statements.
 | `export_ai_training` | 19123–19226 | 20 | `GET /api/ai/export` |
 | `auto_metrics_rules` | 13721–13843 | 19 | `POST /metrics/rules/auto` |
 | `metrics_anomaly` | 22540–22628 | 19 | `GET /api/metrics/anomaly` |
+| `api_import_reports` | 22857–23017 | 19 | `POST /api/reports/import` |
 | `create_metrics_rule` | 13626–13716 | 18 | `POST /metrics/rules` |
 | `view_enrichment_cve` | 18104–18215 | 18 | `GET /enrichment/cve` |
 | `view_ai` | 18631–18998 | 18 | `GET /ai` |

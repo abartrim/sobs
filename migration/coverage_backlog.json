@@ -1,18 +1,18 @@
 {
-  "total_uncovered": 5638,
+  "total_uncovered": 5584,
   "summary_pct": "62",
   "by_bucket": {
     "helper": {
       "functions": 437,
       "uncovered": 4147
     },
-    "route": {
-      "functions": 123,
-      "uncovered": 1222
-    },
     "lifecycle": {
       "functions": 21,
       "uncovered": 256
+    },
+    "route": {
+      "functions": 123,
+      "uncovered": 1168
     },
     "module": {
       "functions": 0,
@@ -75,31 +75,6 @@
         6078,
         6079,
         6081
-      ]
-    },
-    {
-      "function": "api_import_reports",
-      "bucket": "route",
-      "start": 22857,
-      "end": 23017,
-      "uncovered": 73,
-      "span": 161,
-      "route": {
-        "path": "/api/reports/import",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        22879,
-        22886,
-        22887,
-        22888,
-        22889,
-        22890,
-        22891,
-        22892
       ]
     },
     {
@@ -1842,6 +1817,31 @@
         22572,
         22573,
         22574
+      ]
+    },
+    {
+      "function": "api_import_reports",
+      "bucket": "route",
+      "start": 22857,
+      "end": 23017,
+      "uncovered": 19,
+      "span": 161,
+      "route": {
+        "path": "/api/reports/import",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        22879,
+        22886,
+        22887,
+        22888,
+        22889,
+        22890,
+        22891,
+        22892
       ]
     },
     {
