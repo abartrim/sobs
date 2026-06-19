@@ -69,6 +69,11 @@ PROFILES: dict[str, dict[str, str]] = {
     # so it's deterministic given a fixed order. Covers api_import_reports' envelope/item validation
     # + skip/replace/rename/insert branches.
     "reportsimport": {},
+    # rulecreate: no seed (isolated copy of base). Exercises create_metrics_rule's threshold-ordering
+    # / secondary-comparator / composite validation branches + the SUCCESS insert path (flash +
+    # redirect, like the formerr routes but reaching the write). Isolated because success mutates
+    # sobs_anomaly_rules; routes ordered so the (uuid-consuming) success inserts run last.
+    "rulecreate": {},
     "ai": {
         # Python derives _query_page_enabled() from these (via _AI_ENV_OVERRIDES); Go reads
         # them through aiEnvOverrides AND gates the query page on SOBS_QUERY_PAGE_ENABLED.

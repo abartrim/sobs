@@ -1345,6 +1345,66 @@ routes:
   request:
     method: POST
     form: {}
+# rulecreate profile: create_metrics_rule branches the formerr cases miss — threshold-ordering,
+# secondary comparator, non-numeric thresholds, composite-missing-secondary — plus the SUCCESS
+# insert path (validation passes -> insert sobs_anomaly_rules -> flash + redirect). Validation
+# routes first (no mutation/uuid), then the two mutating success routes last.
+- id: post__metrics_rules__rc_err_threshold_gt
+  path: /metrics/rules
+  methods:
+  - POST
+  profile: rulecreate
+  request:
+    method: POST
+    form: {name: r, source: logs, signal: log_volume, rule_type: threshold, comparator: gt, warning_threshold: "10", critical_threshold: "5"}
+- id: post__metrics_rules__rc_err_threshold_lt
+  path: /metrics/rules
+  methods:
+  - POST
+  profile: rulecreate
+  request:
+    method: POST
+    form: {name: r, source: logs, signal: log_volume, rule_type: threshold, comparator: lt, warning_threshold: "5", critical_threshold: "10"}
+- id: post__metrics_rules__rc_err_secondary_comparator
+  path: /metrics/rules
+  methods:
+  - POST
+  profile: rulecreate
+  request:
+    method: POST
+    form: {name: r, source: logs, signal: log_volume, secondary_comparator: bogus}
+- id: post__metrics_rules__rc_err_bad_threshold
+  path: /metrics/rules
+  methods:
+  - POST
+  profile: rulecreate
+  request:
+    method: POST
+    form: {name: r, source: logs, signal: log_volume, warning_threshold: notanumber}
+- id: post__metrics_rules__rc_err_composite_missing
+  path: /metrics/rules
+  methods:
+  - POST
+  profile: rulecreate
+  request:
+    method: POST
+    form: {name: c, source: logs, signal: log_volume, rule_type: composite, comparator: gt, warning_threshold: "1", critical_threshold: "2"}
+- id: post__metrics_rules__rc_success_threshold
+  path: /metrics/rules
+  methods:
+  - POST
+  profile: rulecreate
+  request:
+    method: POST
+    form: {name: My Threshold Rule, source: logs, signal: log_volume, rule_type: threshold, comparator: gt, warning_threshold: "5", critical_threshold: "10", min_sample_count: "3"}
+- id: post__metrics_rules__rc_success_composite
+  path: /metrics/rules
+  methods:
+  - POST
+  profile: rulecreate
+  request:
+    method: POST
+    form: {name: My Composite Rule, source: logs, signal: log_volume, rule_type: composite, comparator: gt, warning_threshold: "5", critical_threshold: "10", secondary_source: traces, secondary_signal: trace_volume, secondary_comparator: gt, secondary_warning_threshold: "1", secondary_critical_threshold: "2"}
 - id: post__metrics_rules_err_ruletype
   path: /metrics/rules
   methods:
