@@ -4006,6 +4006,13 @@ routes:
 # repoapp profile: a seeded app f100…01 (+ release + github token). These run IN ORDER on one
 # server (each a real DB mutation); delete is LAST (it tombstones the app). github-token/validate
 # uses the github mock's canned /rate_limit response.
+- id: get__settings_repositories__repoapp
+  path: /settings/repositories
+  methods:
+  - GET
+  profile: repoapp
+  request:
+    method: GET
 - id: post__settings_repositories__id_realtime__seeded
   path: /settings/repositories/f1000000000000000000000000000001/realtime-mode
   methods:
