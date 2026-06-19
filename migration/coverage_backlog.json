@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 4824,
+  "total_uncovered": 4774,
   "summary_pct": "68",
   "by_bucket": {
     "helper": {
-      "functions": 423,
-      "uncovered": 3995
+      "functions": 420,
+      "uncovered": 3948
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 116,
-      "uncovered": 560
+      "uncovered": 557
     },
     "module": {
       "functions": 0,
@@ -404,25 +404,6 @@
         24908,
         24909,
         24910
-      ]
-    },
-    {
-      "function": "_evaluate_seasonal_rule",
-      "bucket": "helper",
-      "start": 13020,
-      "end": 13089,
-      "uncovered": 38,
-      "span": 70,
-      "route": null,
-      "missing_sample": [
-        13033,
-        13034,
-        13035,
-        13036,
-        13037,
-        13038,
-        13039,
-        13040
       ]
     },
     {
@@ -1312,6 +1293,25 @@
       ]
     },
     {
+      "function": "_evaluate_seasonal_rule",
+      "bucket": "helper",
+      "start": 13020,
+      "end": 13089,
+      "uncovered": 20,
+      "span": 70,
+      "route": null,
+      "missing_sample": [
+        13036,
+        13037,
+        13040,
+        13041,
+        13050,
+        13051,
+        13052,
+        13055
+      ]
+    },
+    {
       "function": "_vanna_generate_chart_spec",
       "bucket": "helper",
       "start": 29788,
@@ -1903,44 +1903,6 @@
         9725,
         9726,
         9727
-      ]
-    },
-    {
-      "function": "_get_signal_health_by_service",
-      "bucket": "helper",
-      "start": 12890,
-      "end": 12935,
-      "uncovered": 14,
-      "span": 46,
-      "route": null,
-      "missing_sample": [
-        12901,
-        12902,
-        12905,
-        12906,
-        12907,
-        12917,
-        12918,
-        12919
-      ]
-    },
-    {
-      "function": "_evaluate_threshold_condition",
-      "bucket": "helper",
-      "start": 12952,
-      "end": 12998,
-      "uncovered": 14,
-      "span": 47,
-      "route": null,
-      "missing_sample": [
-        12964,
-        12965,
-        12969,
-        12980,
-        12981,
-        12982,
-        12983,
-        12984
       ]
     },
     {
@@ -4834,28 +4796,6 @@
       ]
     },
     {
-      "function": "summary",
-      "bucket": "route",
-      "start": 10841,
-      "end": 10971,
-      "uncovered": 5,
-      "span": 131,
-      "route": {
-        "path": "/",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        10855,
-        10856,
-        10905,
-        10959,
-        10960
-      ]
-    },
-    {
       "function": "_parse_regex_filter_expression",
       "bucket": "helper",
       "start": 11157,
@@ -7390,6 +7330,25 @@
       ]
     },
     {
+      "function": "summary",
+      "bucket": "route",
+      "start": 10841,
+      "end": 10971,
+      "uncovered": 2,
+      "span": 131,
+      "route": {
+        "path": "/",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        10959,
+        10960
+      ]
+    },
+    {
       "function": "_split_regex_filter_expression_terms",
       "bucket": "helper",
       "start": 11128,
@@ -7429,16 +7388,29 @@
       ]
     },
     {
-      "function": "_rule_matches_series",
+      "function": "_get_signal_health_by_service",
       "bucket": "helper",
-      "start": 12938,
-      "end": 12949,
+      "start": 12890,
+      "end": 12935,
       "uncovered": 2,
-      "span": 12,
+      "span": 46,
       "route": null,
       "missing_sample": [
-        12945,
-        12948
+        12901,
+        12902
+      ]
+    },
+    {
+      "function": "_evaluate_threshold_condition",
+      "bucket": "helper",
+      "start": 12952,
+      "end": 12998,
+      "uncovered": 2,
+      "span": 47,
+      "route": null,
+      "missing_sample": [
+        12964,
+        12965
       ]
     },
     {
@@ -7452,19 +7424,6 @@
       "missing_sample": [
         13139,
         13148
-      ]
-    },
-    {
-      "function": "_annotate_rows_with_rules",
-      "bucket": "helper",
-      "start": 13227,
-      "end": 13308,
-      "uncovered": 2,
-      "span": 82,
-      "route": null,
-      "missing_sample": [
-        13283,
-        13284
       ]
     },
     {
@@ -8934,18 +8893,6 @@
       "route": null,
       "missing_sample": [
         12736
-      ]
-    },
-    {
-      "function": "_evaluate_threshold_rule",
-      "bucket": "helper",
-      "start": 13001,
-      "end": 13017,
-      "uncovered": 1,
-      "span": 17,
-      "route": null,
-      "missing_sample": [
-        13012
       ]
     },
     {

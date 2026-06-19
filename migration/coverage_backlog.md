@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **68%** · **4824** uncovered statements.
+Oracle coverage **68%** · **4774** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 116 | 560 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 423 | 3995 | usually covered when a calling route's fixture is added; else difftest |
+| route | 116 | 557 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 420 | 3948 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -46,7 +46,6 @@ Oracle coverage **68%** · **4824** uncovered statements.
 | `ingest_logs` | 9665–9694 | 5 | `POST /v1/logs` |
 | `issue_rum_client_token` | 9791–9826 | 5 | `POST /v1/rum/client-token` |
 | `ingest_ai` | 10157–10241 | 5 | `POST /v1/ai` |
-| `summary` | 10841–10971 | 5 | `GET /` |
 | `view_metrics` | 13430–13595 | 5 | `GET /metrics` |
 | `api_web_traffic_geo` | 17711–17760 | 5 | `GET /api/web-traffic/geo` |
 | `view_work_items` | 18361–18488 | 5 | `GET /work-items` |
@@ -55,6 +54,7 @@ Oracle coverage **68%** · **4824** uncovered statements.
 | `api_errors_validate_regex` | 24013–24053 | 5 | `POST /api/errors/validate-regex` |
 | `api_dm_prune` | 32298–32321 | 5 | `POST /api/data-management/prune` |
 | `rum_asset_download` | 9761–9786 | 4 | `GET /v1/rum/assets/<asset_id>` |
+| `create_metrics_rule` | 13626–13716 | 4 | `POST /metrics/rules` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
@@ -82,7 +82,7 @@ Oracle coverage **68%** · **4824** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (423 functions)
+## helper — top by uncovered lines (420 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
@@ -103,7 +103,6 @@ Oracle coverage **68%** · **4824** uncovered statements.
 | `_fetch_release_deps_from_github` | 16703–16873 | 41 |  |
 | `_verify_rum_client_auth` | 7827–7878 | 40 |  |
 | `_collect_github_repo_health_summary` | 17944–18083 | 39 |  |
-| `_evaluate_seasonal_rule` | 13020–13089 | 38 |  |
 | `_parse_package_lock_dependencies` | 16358–16399 | 38 |  |
 | `_build_series_sql` | 19964–20181 | 38 |  |
 | `_normalize_notification_condition` | 24626–24679 | 34 |  |
@@ -126,3 +125,4 @@ Oracle coverage **68%** · **4824** uncovered statements.
 | `_build_auto_tag_rule_candidates` | 12062–12308 | 25 |  |
 | `_build_agent_context_summary` | 6609–6703 | 24 |  |
 | `_to_summary` | 10606–10632 | 24 |  |
+| `_compute_health_chips` | 14929–14956 | 24 |  |
