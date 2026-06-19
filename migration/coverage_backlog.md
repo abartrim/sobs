@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **66%** · **4996** uncovered statements.
+Oracle coverage **67%** · **4984** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 119 | 701 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 426 | 4026 | usually covered when a calling route's fixture is added; else difftest |
+| route | 119 | 688 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 426 | 4027 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -25,7 +25,6 @@ Oracle coverage **66%** · **4996** uncovered statements.
 | `check_notifications` | 26341–26447 | 16 | `POST /api/notifications/check` |
 | `view_logs` | 11239–11512 | 15 | `GET /logs` |
 | `clone_chart` | 21694–21733 | 15 | `POST /dashboards/<dashboard_id>/charts/<chart_id>/clone` |
-| `view_settings_repositories` | 26805–26884 | 15 | `GET /settings/repositories` |
 | `ingest_rum_asset` | 9699–9756 | 14 | `POST /v1/rum/assets` |
 | `view_traces` | 15312–15678 | 14 | `GET /traces` |
 | `api_enrichment_libraries` | 17882–17941 | 14 | `GET /api/enrichment/libraries` |
@@ -55,6 +54,7 @@ Oracle coverage **66%** · **4996** uncovered statements.
 | `create_agent_rule` | 27194–27242 | 6 | `POST /settings/agents` |
 | `ai_helper_execute_action` | 28400–28468 | 6 | `POST /api/ai/helper/actions/execute` |
 | `api_onboarding_inspect_repo` | 33683–33733 | 6 | `GET /api/onboarding/inspect-repo` |
+| `ingest_logs` | 9665–9694 | 5 | `POST /v1/logs` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
