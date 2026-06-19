@@ -1849,6 +1849,51 @@ routes:
       cond_tag_match_operator: eq
       cond_record_type: log
       channel_ids: c1000000000000000000000000000001
+# create_notification_rule round 2: cooldown parse-except, tag-condition validation defaults
+# (threshold/window except + comparator/record_type/match_operator fallbacks), and the EDIT path
+# (existing rule d1...001 -> "updated"; fake id -> "not found"). All under notifrule (isolated).
+- id: post__notif_rule__nr_cooldown_err
+  path: /settings/notifications/rules
+  methods:
+  - POST
+  profile: notifrule
+  request:
+    method: POST
+    form: {name: NR Cooldown, cooldown_seconds: notanumber, cond_source: logs, cond_signal: log_volume, channel_ids: c1000000000000000000000000000001}
+- id: post__notif_rule__nr_tag_defaults
+  path: /settings/notifications/rules
+  methods:
+  - POST
+  profile: notifrule
+  request:
+    method: POST
+    form:
+      name: NR Tag Defaults
+      cond_type: tag
+      cond_tag_key: env
+      cond_tag_value: prod
+      cond_comparator: BADOP
+      cond_threshold: notanum
+      cond_window_minutes: notanum
+      cond_record_type: BADTYPE
+      cond_tag_match_operator: BADMATCH
+      channel_ids: c1000000000000000000000000000001
+- id: post__notif_rule__nr_edit
+  path: /settings/notifications/rules
+  methods:
+  - POST
+  profile: notifrule
+  request:
+    method: POST
+    form: {edit_rule_id: d1000000000000000000000000000001, name: NR Edited, cond_source: logs, cond_signal: log_volume, channel_ids: c1000000000000000000000000000001}
+- id: post__notif_rule__nr_edit_notfound
+  path: /settings/notifications/rules
+  methods:
+  - POST
+  profile: notifrule
+  request:
+    method: POST
+    form: {edit_rule_id: deadbeefdeadbeefdeadbeefdeadbeef, name: NR Ghost, cond_source: logs, cond_signal: log_volume, channel_ids: c1000000000000000000000000000001}
 - id: post__notif_channel_err_email
   path: /settings/notifications/channels
   methods:
