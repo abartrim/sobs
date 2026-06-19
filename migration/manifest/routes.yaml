@@ -4103,6 +4103,17 @@ routes:
   request:
     method: GET
     query: {service: sobs-ai-helper, model: gpt-4, operation: chat}
+# export_ai_training non-chat operation predicate (app.py 19153-19154): operation=embed takes the
+# else branch (exact gen_ai.operation.name=?). The aichat seed has no embed span -> empty export
+# (deterministic), but the filter append still runs.
+- id: get__api_ai_export__aichat_op_embed
+  path: /api/ai/export
+  methods:
+  - GET
+  profile: aichat
+  request:
+    method: GET
+    query: {operation: embed}
 - id: get__api_ai_export__aichat_limit_err
   path: /api/ai/export
   methods:
