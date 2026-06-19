@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **65%** · **5279** uncovered statements.
+Oracle coverage **65%** · **5268** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 903 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 433 | 4107 | usually covered when a calling route's fixture is added; else difftest |
+| route | 123 | 900 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 433 | 4099 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -19,8 +19,8 @@ Oracle coverage **65%** · **5279** uncovered statements.
 | `view_incident` | 15785–16144 | 39 | `GET /incident` |
 | `auto_metrics_rules_dashboard` | 13848–13960 | 26 | `POST /metrics/rules/dashboard/auto` |
 | `view_rum` | 17309–17657 | 26 | `GET /rum` |
-| `api_onboarding_create_issues` | 33738–33930 | 25 | `POST /api/onboarding/create-issues` |
 | `view_traces` | 15312–15678 | 22 | `GET /traces` |
+| `api_onboarding_create_issues` | 33738–33930 | 22 | `POST /api/onboarding/create-issues` |
 | `view_logs` | 11239–11512 | 20 | `GET /logs` |
 | `api_import_reports` | 22857–23017 | 19 | `POST /api/reports/import` |
 | `view_enrichment_cve` | 18104–18215 | 18 | `GET /enrichment/cve` |
