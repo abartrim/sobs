@@ -1,5 +1,5 @@
 {
-  "total_uncovered": 5557,
+  "total_uncovered": 5542,
   "summary_pct": "63",
   "by_bucket": {
     "helper": {
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 123,
-      "uncovered": 1142
+      "uncovered": 1127
     },
     "module": {
       "functions": 0,
@@ -1440,31 +1440,6 @@
         8421,
         8422,
         8423
-      ]
-    },
-    {
-      "function": "view_metrics",
-      "bucket": "route",
-      "start": 13430,
-      "end": 13595,
-      "uncovered": 21,
-      "span": 166,
-      "route": {
-        "path": "/metrics",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        13461,
-        13462,
-        13467,
-        13468,
-        13469,
-        13471,
-        13472,
-        13473
       ]
     },
     {
@@ -5410,6 +5385,29 @@
         11122,
         11123,
         11124
+      ]
+    },
+    {
+      "function": "view_metrics",
+      "bucket": "route",
+      "start": 13430,
+      "end": 13595,
+      "uncovered": 6,
+      "span": 166,
+      "route": {
+        "path": "/metrics",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        13479,
+        13480,
+        13497,
+        13554,
+        13555,
+        13556
       ]
     },
     {
