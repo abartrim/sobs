@@ -1633,6 +1633,38 @@ routes:
     json:
       pattern: "volume"
       scope: {service: web, source: logs, signal: log_volume, attr_fp: deadbeef}
+# logs/traces/rum validate-regex scope-filter appends. The scope text filters
+# (service/level/trace_id, service/trace_id, type/error_source) + from_ts/to_ts
+# all run inside the try-block before the probe. On the empty base corpus the
+# probe matches nothing -> sample=None, so the response is deterministic
+# {ok:true, sample:null} regardless of the where-clause built. No seed needed.
+- id: post__api_logs_validate_regex__scoped
+  path: /api/logs/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "probe"
+      scope: {service: web, level: ERROR, trace_id: "0123456789abcdef0123456789abcdef", from_ts: "2024-01-01 00:00:00", to_ts: "2024-01-02 00:00:00"}
+- id: post__api_traces_validate_regex__scoped
+  path: /api/traces/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "probe"
+      scope: {service: web, trace_id: "0123456789abcdef0123456789abcdef", from_ts: "2024-01-01 00:00:00", to_ts: "2024-01-02 00:00:00"}
+- id: post__api_rum_validate_regex__scoped
+  path: /api/rum/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "probe"
+      scope: {type: error, error_source: console, from_ts: "2024-01-01 00:00:00", to_ts: "2024-01-02 00:00:00"}
 - id: post__api_logs_validate_filter
   path: /api/logs/validate-filter
   methods:
