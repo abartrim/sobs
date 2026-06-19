@@ -304,14 +304,20 @@ func (s *server) handleApiDmBackupList(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Web traffic (RUM) aggregations over hyperdx_sessions (app.py:17766+) -----------
-// No time-window query args => empty WHERE (matches _parse_time_window_args returning "").
+// Each handler parses _parse_time_window_args() and injects a `{where}` fragment over the
+// Timestamp column (via _time_window_conditions) before GROUP BY, matching app.py. With no
+// time-window query args the WHERE is empty (the golden-corpus path), so bytes are unchanged.
 
 // GET /api/web-traffic/browsers
 func (s *server) handleApiWebTrafficBrowsers(w http.ResponseWriter, r *http.Request) {
+	fromTS, toTS, _ := parseTimeWindowArgs(r)
+	timeConds, timeParams := timeWindowConditions("Timestamp", fromTS, toTS)
+	where := whereClause(timeConds)
 	res, err := s.db.Execute(
-		"SELECT LogAttributes['browser.context.browserName'] AS browser, " +
-			"LogAttributes['browser.context.browserVersion'] AS version, COUNT(*) AS cnt " +
-			"FROM hyperdx_sessions GROUP BY browser, version ORDER BY cnt DESC LIMIT 50")
+		"SELECT LogAttributes['browser.context.browserName'] AS browser, "+
+			"LogAttributes['browser.context.browserVersion'] AS version, COUNT(*) AS cnt "+
+			"FROM hyperdx_sessions "+where+
+			" GROUP BY browser, version ORDER BY cnt DESC LIMIT 50", timeParams...)
 	if err != nil {
 		s.dbError(w, err)
 		return
@@ -329,10 +335,14 @@ func (s *server) handleApiWebTrafficBrowsers(w http.ResponseWriter, r *http.Requ
 
 // GET /api/web-traffic/os
 func (s *server) handleApiWebTrafficOS(w http.ResponseWriter, r *http.Request) {
+	fromTS, toTS, _ := parseTimeWindowArgs(r)
+	timeConds, timeParams := timeWindowConditions("Timestamp", fromTS, toTS)
+	where := whereClause(timeConds)
 	res, err := s.db.Execute(
-		"SELECT LogAttributes['browser.context.osName'] AS os, " +
-			"LogAttributes['browser.context.osVersion'] AS version, COUNT(*) AS cnt " +
-			"FROM hyperdx_sessions GROUP BY os, version ORDER BY cnt DESC LIMIT 50")
+		"SELECT LogAttributes['browser.context.osName'] AS os, "+
+			"LogAttributes['browser.context.osVersion'] AS version, COUNT(*) AS cnt "+
+			"FROM hyperdx_sessions "+where+
+			" GROUP BY os, version ORDER BY cnt DESC LIMIT 50", timeParams...)
 	if err != nil {
 		s.dbError(w, err)
 		return
@@ -350,9 +360,13 @@ func (s *server) handleApiWebTrafficOS(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/web-traffic/timezones
 func (s *server) handleApiWebTrafficTimezones(w http.ResponseWriter, r *http.Request) {
+	fromTS, toTS, _ := parseTimeWindowArgs(r)
+	timeConds, timeParams := timeWindowConditions("Timestamp", fromTS, toTS)
+	where := whereClause(timeConds)
 	res, err := s.db.Execute(
-		"SELECT LogAttributes['browser.context.timezone'] AS tz, COUNT(*) AS cnt " +
-			"FROM hyperdx_sessions GROUP BY tz HAVING tz != '' ORDER BY cnt DESC LIMIT 50")
+		"SELECT LogAttributes['browser.context.timezone'] AS tz, COUNT(*) AS cnt "+
+			"FROM hyperdx_sessions "+where+
+			" GROUP BY tz HAVING tz != '' ORDER BY cnt DESC LIMIT 50", timeParams...)
 	if err != nil {
 		s.dbError(w, err)
 		return
@@ -366,9 +380,13 @@ func (s *server) handleApiWebTrafficTimezones(w http.ResponseWriter, r *http.Req
 
 // GET /api/web-traffic/languages
 func (s *server) handleApiWebTrafficLanguages(w http.ResponseWriter, r *http.Request) {
+	fromTS, toTS, _ := parseTimeWindowArgs(r)
+	timeConds, timeParams := timeWindowConditions("Timestamp", fromTS, toTS)
+	where := whereClause(timeConds)
 	res, err := s.db.Execute(
-		"SELECT LogAttributes['browser.context.language'] AS lang, COUNT(*) AS cnt " +
-			"FROM hyperdx_sessions GROUP BY lang HAVING lang != '' ORDER BY cnt DESC LIMIT 50")
+		"SELECT LogAttributes['browser.context.language'] AS lang, COUNT(*) AS cnt "+
+			"FROM hyperdx_sessions "+where+
+			" GROUP BY lang HAVING lang != '' ORDER BY cnt DESC LIMIT 50", timeParams...)
 	if err != nil {
 		s.dbError(w, err)
 		return
@@ -382,9 +400,13 @@ func (s *server) handleApiWebTrafficLanguages(w http.ResponseWriter, r *http.Req
 
 // GET /api/web-traffic/devices
 func (s *server) handleApiWebTrafficDevices(w http.ResponseWriter, r *http.Request) {
+	fromTS, toTS, _ := parseTimeWindowArgs(r)
+	timeConds, timeParams := timeWindowConditions("Timestamp", fromTS, toTS)
+	where := whereClause(timeConds)
 	res, err := s.db.Execute(
-		"SELECT LogAttributes['browser.context.deviceClass'] AS device, COUNT(*) AS cnt " +
-			"FROM hyperdx_sessions GROUP BY device HAVING device != '' ORDER BY cnt DESC")
+		"SELECT LogAttributes['browser.context.deviceClass'] AS device, COUNT(*) AS cnt "+
+			"FROM hyperdx_sessions "+where+
+			" GROUP BY device HAVING device != '' ORDER BY cnt DESC", timeParams...)
 	if err != nil {
 		s.dbError(w, err)
 		return

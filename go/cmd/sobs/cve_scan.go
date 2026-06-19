@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"net/url"
 	"regexp"
@@ -121,7 +120,7 @@ func (s *server) fetchReleaseDepsFromGithub() (attempted, inserted, maxReleases 
 			continue
 		}
 		attempted++
-		if rows := s.githubActionsDependencyRows(commitSha); len(rows) > 0 {
+		if rows := s.githubActionsDependencyRows(token, owner, repo, releaseID, releaseVersion, commitSha); len(rows) > 0 {
 			insertedRows = append(insertedRows, rows...)
 			existing[releaseID] = true
 			inserted += len(rows)
@@ -141,15 +140,8 @@ func (s *server) fetchReleaseDepsFromGithub() (attempted, inserted, maxReleases 
 	return attempted, inserted, maxReleases
 }
 
-// githubActionsDependencyRows mirrors _github_actions_dependency_rows. Without a commit identity (and
-// for the parity release, which has none) it returns nil, so the contents-API fallback is used; the
-// full GH-Actions-snapshot artifact path is a follow-up.
-func (s *server) githubActionsDependencyRows(commitSha string) []map[string]any {
-	if strings.TrimSpace(commitSha) == "" {
-		return nil
-	}
-	return nil
-}
+// githubActionsDependencyRows is ported in fix_cve_helpers.go (it mirrors
+// _github_actions_dependency_rows: GH-Actions snapshot artifact download + unzip + pip-freeze parse).
 
 // githubContentsLockfileRows tries each (ref, lockfile) via the GitHub Contents API, parsing the
 // first lockfile found into a dependencies artifact row (mirrors the contents loop in
@@ -186,9 +178,11 @@ func (s *server) githubContentsLockfileRows(token, owner, repo, releaseID, relea
 			return []map[string]any{{
 				"Id": newUUIDv4(), "ReleaseId": releaseID, "ArtifactType": "dependencies-lockfile",
 				"Name": cand.path, "ContentType": cand.contentType, "Size": len(raw),
-				"StorageRef":     "github://" + owner + "/" + repo + "/" + cand.path + "?ref=" + ref,
+				// urllib.parse.quote(ref, safe='') on the persisted StorageRef (app.py:16830).
+				"StorageRef":     "github://" + owner + "/" + repo + "/" + cand.path + "?ref=" + pyQuoteAll(ref),
 				"ChecksumSha256": sum, "Platform": "", "Architecture": "",
-				"MetadataJson": string(jsonenc.Encode(meta, jsonenc.Options{SortKeys: false})),
+				// json.dumps(..., separators=(",", ":")) — compact, ensure_ascii=True (app.py:16844).
+				"MetadataJson": string(jsonenc.Encode(meta, cveCompactDumpsOpts)),
 				"UploadedAt":   normalizeCHTimestampNow(), "IsDeleted": 0, "Version": fixedVersionMillis(),
 			}}
 		}
@@ -224,11 +218,8 @@ func decodeGithubContentsPayload(body *jsonenc.Object) []byte {
 	if content == "" || strings.ToLower(objGetStr(body, "encoding")) != "base64" {
 		return nil
 	}
-	dec, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(content, "\n", ""))
-	if err != nil {
-		return nil
-	}
-	return dec
+	// base64.b64decode(content, validate=False): discard ALL non-alphabet chars (\r, spaces, \n…).
+	return decodeBase64Lenient(content)
 }
 
 // parseLockfileDependencies dispatches to the per-ecosystem lockfile parser.

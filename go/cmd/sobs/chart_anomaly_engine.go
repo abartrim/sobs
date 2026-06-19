@@ -259,19 +259,24 @@ func evaluateSeasonalRule(rule map[string]any, value, sampleCount, timeValue any
 						} else {
 							key = strconv.Itoa(t.Hour())
 						}
-						if bv, has := buckets.Get(key); has {
-							if bobj, ok4 := bv.(interface{ Get(string) (any, bool) }); ok4 {
-								if w, h := bobj.Get("warning"); h {
-									if wf, ok := fStr(w); ok {
-										warningThreshold = wf
-									}
-								}
-								if cc, h := bobj.Get("critical"); h {
-									if cf, ok := fStr(cc); ok {
+						// Python: `bucket = buckets.get(bucket_key)` then `if bucket:` — only a
+						// NON-EMPTY dict triggers the override. An empty {} (or a missing/non-dict
+						// value) is falsy and is skipped, leaving is_seasonal False with no override.
+						bv, has := buckets.Get(key)
+						if has {
+							if bobj, ok4 := bv.(interface{ Get(string) (any, bool) }); ok4 && bucketNonEmpty(bv) {
+								// Mirror float(bucket.get("warning", warning_threshold)) /
+								// float(bucket.get("critical", critical_threshold)): a present but
+								// non-numeric value RAISES (caught by app.py:13068), aborting the
+								// override and leaving is_seasonal False — but any partial mutation
+								// of warning_threshold persists, exactly as Python does sequentially.
+								if wf, ok := seasonalBucketFloat(bobj, "warning", warningThreshold); ok {
+									warningThreshold = wf
+									if cf, ok := seasonalBucketFloat(bobj, "critical", criticalThreshold); ok {
 										criticalThreshold = cf
+										isSeasonal = true
 									}
 								}
-								isSeasonal = true
 							}
 						}
 					}
@@ -289,6 +294,30 @@ func evaluateSeasonalRule(rule map[string]any, value, sampleCount, timeValue any
 		out[k] = v
 	}
 	return out
+}
+
+// bucketNonEmpty mirrors Python's `if bucket:` truthiness for the bucket value: a dict is
+// truthy only when it has at least one entry. We only reach this for values that asserted to
+// the Get-interface (i.e. a *jsonenc.Object); an empty object is falsy and skips the override.
+func bucketNonEmpty(bv any) bool {
+	if l, ok := bv.(interface{ Len() int }); ok {
+		return l.Len() > 0
+	}
+	// No Len() — treat as truthy (matches a non-dict truthy value entering Python's `if bucket:`).
+	return true
+}
+
+// seasonalBucketFloat mirrors float(bucket.get(key, default)). When the key is absent Python
+// passes the existing threshold (already a float) to float(), a no-op → returns (default, true).
+// When present it float()s the value; a non-numeric value raises ValueError in Python (caught at
+// app.py:13068), which we surface as ok=false so the caller aborts the override and leaves
+// is_seasonal False.
+func seasonalBucketFloat(bobj interface{ Get(string) (any, bool) }, key string, def float64) (float64, bool) {
+	v, has := bobj.Get(key)
+	if !has {
+		return def, true
+	}
+	return fStr(v)
 }
 
 func parseSeasonalTime(raw string) (time.Time, bool) {

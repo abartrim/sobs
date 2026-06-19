@@ -64,16 +64,25 @@ func noDataPlaceholder() *jsonenc.Object {
 		Set("yAxis", jsonenc.NewObject().Set("show", false))
 }
 
-// renderChartFromTemplate mirrors app.py _render_chart_from_template. rows are dict rows
-// (column name -> serialized value). Returns (option, errMsg).
+// renderChartFromTemplate mirrors app.py _render_chart_from_template (named_datasets=None). rows
+// are dict rows (column name -> serialized value). Returns (option, errMsg).
 func (s *server) renderChartFromTemplate(templateID string, columns []any, rows []map[string]any, spec *jsonenc.Object) (any, string) {
+	return s.renderChartFromTemplateWithNamed(templateID, columns, rows, spec, nil)
+}
+
+// renderChartFromTemplateWithNamed mirrors app.py _render_chart_from_template WITH named_datasets.
+// namedDatasets maps a named-query name -> a {columns, records, rows} object (matching Python's
+// named_datasets[name] = {"columns": [...], "records": [...], "rows": [...]}). Only custom_echarts
+// consumes them (resolving {{rows:name}}/{{records:name}}/{{columns:name}} bindings); other
+// templates ignore them, exactly as Python does.
+func (s *server) renderChartFromTemplateWithNamed(templateID string, columns []any, rows []map[string]any, spec *jsonenc.Object, namedDatasets map[string]*jsonenc.Object) (any, string) {
 	tmpl, ok := echartsTemplates[templateID]
 	meta, metaOK := chartTemplateMeta[templateID]
 	if !ok || !metaOK {
 		return nil, "Unknown template: " + templateID
 	}
 	if templateID == "custom_echarts" {
-		return renderCustomEcharts(tmpl, columns, rows, spec)
+		return renderCustomEcharts(tmpl, columns, rows, spec, namedDatasets)
 	}
 	if len(rows) == 0 {
 		return noDataPlaceholder(), ""
@@ -95,7 +104,12 @@ func (s *server) renderChartFromTemplate(templateID string, columns []any, rows 
 			return nil, perr
 		}
 	}
-	bindings := extractBindings(templateID, columns, rows, roleIndices)
+	bindings, bErr := extractBindings(templateID, columns, rows, roleIndices)
+	if bErr != nil {
+		// app.py: float() inside _extract_bindings raises, the route catches it and reports
+		// _public_dashboard_query_error(exc). Mirror that public-error shaping here.
+		return nil, publicDashboardQueryError(bErr)
+	}
 	option := deepSubstitute(deepCopyJSON(tmpl.option), bindings)
 	if obj, ok := option.(*jsonenc.Object); ok {
 		attachDrilldownMetadata(templateID, tmpl.drilldown, bindings, obj)
@@ -238,7 +252,7 @@ func numOf(v any) (float64, bool) {
 
 // extractBindings mirrors app.py _extract_bindings (the template-agnostic + heatmap/box/gauge/
 // anomaly-symbol parts). The derived_signal_overlay-specific block is added in a later phase.
-func extractBindings(templateID string, columns []any, rows []map[string]any, roleIndices map[string]int) map[string]any {
+func extractBindings(templateID string, columns []any, rows []map[string]any, roleIndices map[string]int) (map[string]any, error) {
 	bindings := map[string]any{}
 	for role, colIdx := range roleIndices {
 		if colIdx < 0 || colIdx >= len(columns) {
@@ -353,9 +367,11 @@ func extractBindings(templateID string, columns []any, rows []map[string]any, ro
 	}
 
 	if templateID == "derived_signal_overlay" {
-		extractDerivedSignalBindings(templateID, bindings)
+		if err := extractDerivedSignalBindings(templateID, bindings); err != nil {
+			return bindings, err
+		}
 	}
-	return bindings
+	return bindings, nil
 }
 
 func minInt5(a, b, c, d, e int) int {
@@ -513,17 +529,10 @@ func numListAt(bindings map[string]any, key string) []any {
 	return nil
 }
 
-func fAt(list []any, i int) float64 {
-	if i < len(list) {
-		if f, ok := numOf(list[i]); ok {
-			return f
-		}
-	}
-	return 0
-}
-
 // extractDerivedSignalBindings mirrors the derived_signal_overlay block of app.py _extract_bindings.
-func extractDerivedSignalBindings(templateID string, bindings map[string]any) {
+// It returns an error when a value/baseline cell is non-numeric — Python uses float() at these
+// sites, which raises (propagating to the route's try/except -> 400) rather than coercing to 0.
+func extractDerivedSignalBindings(templateID string, bindings map[string]any) error {
 	bindings["value_axis_min"] = "dataMin"
 	bindings["value_axis_max"] = "dataMax"
 	bindings["zoom_start_pct"] = 0
@@ -557,7 +566,7 @@ func extractDerivedSignalBindings(templateID string, bindings map[string]any) {
 	}
 	effStates, _ := effStatesAny.([]any)
 	if timeValues == nil || valueValues == nil || baselineMean == nil || baselineLower == nil || baselineUpper == nil {
-		return
+		return nil
 	}
 
 	stateRank := map[string]int{"normal": 0, "warning": 1, "outlier": 2}
@@ -577,10 +586,23 @@ func extractDerivedSignalBindings(templateID string, bindings map[string]any) {
 		bindings["y_axis_name"] = "Delta %"
 		n := min4(len(valueValues), len(baselineMean), len(baselineLower), len(baselineUpper))
 		for idx := 0; idx < n; idx++ {
-			base := fAt(baselineMean, idx)
-			val := fAt(valueValues, idx)
-			low := fAt(baselineLower, idx)
-			up := fAt(baselineUpper, idx)
+			// Python order: base, val, low, up (each float() can raise).
+			base, err := pyFloatStrict(baselineMean[idx])
+			if err != nil {
+				return err
+			}
+			val, err := pyFloatStrict(valueValues[idx])
+			if err != nil {
+				return err
+			}
+			low, err := pyFloatStrict(baselineLower[idx])
+			if err != nil {
+				return err
+			}
+			up, err := pyFloatStrict(baselineUpper[idx])
+			if err != nil {
+				return err
+			}
 			if math.Abs(base) < 1e-9 {
 				plotValues = append(plotValues, 0)
 				plotBaseline = append(plotBaseline, 0)
@@ -603,19 +625,31 @@ func extractDerivedSignalBindings(templateID string, bindings map[string]any) {
 		}
 	} else {
 		for _, v := range valueValues {
-			f, _ := numOf(v)
+			f, err := pyFloatStrict(v)
+			if err != nil {
+				return err
+			}
 			plotValues = append(plotValues, f)
 		}
 		for _, v := range baselineMean {
-			f, _ := numOf(v)
+			f, err := pyFloatStrict(v)
+			if err != nil {
+				return err
+			}
 			plotBaseline = append(plotBaseline, f)
 		}
 		for _, v := range baselineLower {
-			f, _ := numOf(v)
+			f, err := pyFloatStrict(v)
+			if err != nil {
+				return err
+			}
 			plotLower = append(plotLower, math.Max(0, f))
 		}
 		for _, v := range baselineUpper {
-			f, _ := numOf(v)
+			f, err := pyFloatStrict(v)
+			if err != nil {
+				return err
+			}
 			plotUpper = append(plotUpper, f)
 		}
 	}
@@ -684,11 +718,19 @@ func extractDerivedSignalBindings(templateID string, bindings map[string]any) {
 
 	latestValue := 0.0
 	if len(valueValues) > 0 {
-		latestValue, _ = numOf(valueValues[len(valueValues)-1])
+		var err error
+		latestValue, err = pyFloatStrict(valueValues[len(valueValues)-1])
+		if err != nil {
+			return err
+		}
 	}
 	latestBaseline := 0.0
 	if len(baselineMean) > 0 {
-		latestBaseline, _ = numOf(baselineMean[len(baselineMean)-1])
+		var err error
+		latestBaseline, err = pyFloatStrict(baselineMean[len(baselineMean)-1])
+		if err != nil {
+			return err
+		}
 	}
 	deltaPct := 0.0
 	if math.Abs(latestBaseline) > 1e-9 {
@@ -704,6 +746,7 @@ func extractDerivedSignalBindings(templateID string, bindings map[string]any) {
 	bindings["anomaly_mark_areas"] = markAreas
 	bindings["warning_points"] = warningPoints
 	bindings["outlier_points"] = outlierPoints
+	return nil
 }
 
 func min2(a, b int) int {
@@ -890,9 +933,9 @@ func cloneOrNew(o *jsonenc.Object, key string) *jsonenc.Object {
 
 // ---- custom_echarts render (phase 2) ----
 
-// renderCustomEcharts mirrors app.py _render_custom_echarts (named_datasets is nil here; the
-// spec/render path that supplies them is wired separately).
-func renderCustomEcharts(tmpl echartsTemplate, columns []any, rows []map[string]any, spec *jsonenc.Object) (any, string) {
+// renderCustomEcharts mirrors app.py _render_custom_echarts. namedDatasets (may be nil) exposes
+// each named-query result as {{rows:name}}/{{records:name}}/{{columns:name}} bindings.
+func renderCustomEcharts(tmpl echartsTemplate, columns []any, rows []map[string]any, spec *jsonenc.Object, namedDatasets map[string]*jsonenc.Object) (any, string) {
 	var visual *jsonenc.Object
 	if spec != nil {
 		if vv, _ := spec.Get("visual"); vv != nil {
@@ -954,6 +997,19 @@ func renderCustomEcharts(tmpl echartsTemplate, columns []any, rows []map[string]
 		bindings[bk] = val
 	}
 
+	// Expose named dataset results as {{rows:name}}, {{records:name}}, {{columns:name}} — mirrors
+	// app.py _render_custom_echarts (named_datasets block). Python uses `ds.get(k) or []`, so an
+	// absent/empty value yields [].
+	for _, dsName := range sortedKeys(namedDatasets) {
+		dsData := namedDatasets[dsName]
+		if dsData == nil {
+			continue
+		}
+		bindings["rows:"+dsName] = namedDatasetField(dsData, "rows")
+		bindings["records:"+dsName] = namedDatasetField(dsData, "records")
+		bindings["columns:"+dsName] = namedDatasetField(dsData, "columns")
+	}
+
 	option := deepSubstitute(optionTemplate, bindings)
 	oo, ok := option.(*jsonenc.Object)
 	if !ok {
@@ -970,6 +1026,27 @@ func renderCustomEcharts(tmpl echartsTemplate, columns []any, rows []map[string]
 		oo.Set("_customDrilldown", dd)
 	}
 	return oo, ""
+}
+
+// sortedKeys returns the map keys in sorted order (deterministic iteration; the bindings are
+// keyed-substituted so order does not affect output bytes, but determinism is preferred).
+func sortedKeys(m map[string]*jsonenc.Object) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// namedDatasetField mirrors Python `ds_data.get(key) or []`: returns the stored list if it is a
+// non-empty []any, else an empty []any.
+func namedDatasetField(ds *jsonenc.Object, key string) []any {
+	v, _ := ds.Get(key)
+	if list, ok := v.([]any); ok && len(list) > 0 {
+		return list
+	}
+	return []any{}
 }
 
 func recordsToAny(records []map[string]any) []any {
@@ -1108,11 +1185,37 @@ func normalizeCustomSeriesPointOrder(option *jsonenc.Object) {
 	}
 }
 
+// customSortRank mirrors app.py _to_sort_key (in _normalize_custom_series_point_order):
+//   - datetime  -> (0, value)             [chronological]
+//   - int/float -> (1, float(value))
+//   - str       -> (0, datetime) if ISO-parseable, else (2, text)   [NEVER float-parsed]
+//   - other     -> (3, str(value))
+//
+// A chDateTime cell is a chdb Date/DateTime value (Python's chdb returns a datetime here), so it
+// ranks 0 and sorts by its underlying time — NOT by its http_date string under the rank-3 default.
 func customSortRank(v any) (int, float64, string) {
-	if f, ok := numOf(v); ok {
-		// Numbers rank 1 unless they're ISO datetime strings (handled below).
-		if _, isStr := v.(string); !isStr {
+	if d, ok := v.(chDateTime); ok {
+		for _, layout := range drilldownTimeLayouts {
+			if t, err := time.Parse(layout, d.s); err == nil {
+				return 0, float64(t.UTC().UnixNano()), ""
+			}
+		}
+		// Unparseable timestamp string: fall back to lexicographic (rank 3 / str(value)).
+		return 3, 0, d.s
+	}
+	// Python isinstance(value, (int, float)) is True for bool too. A genuine number (json.Number/
+	// float64/int/bool) ranks 1; a numeric STRING is NOT float-parsed by Python and must not be
+	// here either.
+	switch v.(type) {
+	case json.Number, float64, int, int64, bool:
+		if f, ok := numOf(v); ok {
 			return 1, f, ""
+		}
+		if b, ok := v.(bool); ok {
+			if b {
+				return 1, 1, ""
+			}
+			return 1, 0, ""
 		}
 	}
 	if s, ok := v.(string); ok {
@@ -1122,9 +1225,8 @@ func customSortRank(v any) (int, float64, string) {
 				return 0, float64(t.UTC().UnixNano()), ""
 			}
 		}
-		if f, err := strconv.ParseFloat(txt, 64); err == nil {
-			return 1, f, ""
-		}
+		// NOTE: Python does NOT float-parse a string here — numeric strings sort
+		// lexicographically as rank-2 text ("10" < "2" < "5").
 		return 2, 0, txt
 	}
 	return 3, 0, toStr(v)

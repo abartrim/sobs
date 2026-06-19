@@ -200,15 +200,10 @@ func agentRuleFromCtx(m map[string]any) *agentRule {
 // window, and runs the agent flow. Returns the agent_runs list (empty when AI is unconfigured).
 func (s *server) evaluateAgentRuleTriggers() []any {
 	agentResults := []any{}
-	settings := map[string]string{
-		"ai.endpoint_url":   s.loadAISetting("ai.endpoint_url", ""),
-		"ai.model":          s.loadAISetting("ai.model", ""),
-		"ai.api_key":        s.loadAISetting("ai.api_key", ""),
-		"ai.system_prompt":  s.loadAISetting("ai.system_prompt", ""),
-		"ai.thinking_level": s.loadAISetting("ai.thinking_level", ""),
-		"ai.github_repo":    s.loadAISetting("ai.github_repo", ""),
-		"ai.github_token":   s.loadAISetting("ai.github_token", ""),
-	}
+	// app.py check_notifications uses _load_all_ai_settings(db) — the full settings surface (DLP,
+	// agent max-* limits, copilot base-branch/custom-instructions, system_prompt, thinking_level),
+	// not a fixed subset — so the downstream flow sees every configured knob.
+	settings := s.loadAllAISettings()
 	if settings["ai.endpoint_url"] == "" || settings["ai.model"] == "" {
 		return agentResults
 	}

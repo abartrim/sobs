@@ -20,11 +20,13 @@ import (
 // so both keep their 48h / 14d defaults. More importantly, Go's schema-init runs against an
 // ALREADY-SEEDED fixture whose metric rows are timestamped 2024 — far older than now()-48h.
 // An `ALTER ... MODIFY TTL` that materializes could DROP those fixture rows and turn metric
-// routes RED. The corpus is captured under SOBS_PARITY=1, so applyRawMetricsRetention is GATED
-// on NOT being in parity mode: under parity Go issues NO ALTERs (fixture untouched); in real
-// runtime it issues them exactly as Python does. The TTL never appears in any response body or
-// header (it only governs background part-drops), so emitting it in real runtime is byte-parity
-// -equivalent to Python while skipping it under parity protects the frozen fixture rows.
+// routes RED. The corpus is captured under SOBS_PARITY=1, so the ALTER statements in
+// applyRawMetricsRetention are GATED on NOT being in parity mode: under parity Go issues NO ALTERs
+// (fixture untouched); in real runtime it issues them exactly as Python does. The TTL never appears
+// in any response body or header (it only governs background part-drops), so emitting it in real
+// runtime is byte-parity-equivalent to Python while skipping it under parity protects the frozen
+// fixture rows. NOTE: the env-var VALIDATION itself runs UNCONDITIONALLY (even under parity), to
+// mirror Python's import-time check — see the lifecycle note on applyRawMetricsRetention.
 
 // Defaults match app.py's `_parse_positive_int_env(..., "48", "hours")` / `(..., "14", "days")`.
 const (
@@ -64,13 +66,21 @@ func parsePositiveIntEnv(name, def, unit string) int {
 // `ALTER TABLE <t> MODIFY TTL TimeUnixMs + INTERVAL <hours> HOUR` for the raw metric tables and
 // `... INTERVAL <days> DAY` for the *_pinned tables, each tolerant of failure (Python wraps every
 // statement in try/except that only debug-logs). Called from the same DB-init point Python calls
-// it (post-schema setup). Under parity this is a no-op — see the package-level PARITY SAFETY note.
+// it (post-schema setup).
+//
+// LIFECYCLE PARITY: Python validates the two TTL env vars at MODULE-IMPORT time (app.py:2344-2345),
+// unconditionally — a malformed value crashes the process before it serves, even under SOBS_PARITY.
+// So the validation runs here FIRST, on every boot (parity or not), to reproduce that fail-fast.
+// Only the ALTER statements are gated to NOT run under parity (and when the store failed to open),
+// because a materializing ALTER could DROP the frozen 2024 fixture rows — see the package-level
+// PARITY SAFETY note. Under the golden corpus the env vars are UNSET → defaults validate → no
+// crash, no ALTERs → empty-corpus bytes unchanged.
 func (s *server) applyRawMetricsRetention() {
+	baselineHours := parsePositiveIntEnv("SOBS_RAW_METRICS_TTL_HOURS", rawMetricsBaselineTTLDefaultHours, "hours")
+	pinnedDays := parsePositiveIntEnv("SOBS_PINNED_METRICS_TTL_DAYS", rawMetricsPinnedTTLDefaultDays, "days")
 	if s.db == nil || s.cfg.Parity {
 		return
 	}
-	baselineHours := parsePositiveIntEnv("SOBS_RAW_METRICS_TTL_HOURS", rawMetricsBaselineTTLDefaultHours, "hours")
-	pinnedDays := parsePositiveIntEnv("SOBS_PINNED_METRICS_TTL_DAYS", rawMetricsPinnedTTLDefaultDays, "days")
 
 	statements := make([]string, 0, len(rawMetricTables)+len(pinnedMetricTables))
 	for _, t := range rawMetricTables {

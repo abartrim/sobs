@@ -156,7 +156,10 @@ func buildClientAction(actionType string, payload *jsonenc.Object) *jsonenc.Obje
 			continue
 		}
 		v, _ := payload.Get(k)
-		out.Set(ck, sanitizeActionValue(v, 1))
+		// app.py _build_client_action calls _sanitize_value(value) with the default depth=0;
+		// the guard is `depth > max_depth` (max_depth=3), so depths 0..3 are kept. Starting at
+		// depth 0 (not 1) keeps one extra nesting level, matching Python exactly.
+		out.Set(ck, sanitizeActionValue(v, 0))
 	}
 	return out
 }

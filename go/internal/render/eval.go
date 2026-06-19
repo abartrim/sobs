@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/sobs/sobs/internal/jsonenc"
 )
@@ -314,6 +315,11 @@ func (e *Engine) evalMulDiv(s string, ctx *scope) (any, error) {
 		}
 		return q, nil
 	}
+	if l, r, ok := splitTopOp(s, " / "); ok {
+		lv, _ := e.evalMulDiv(l, ctx)
+		rv, _ := e.evalMulDiv(r, ctx)
+		return divValues(lv, rv), nil
+	}
 	if l, r, ok := splitTopOp(s, " * "); ok {
 		lv, _ := e.evalMulDiv(l, ctx)
 		rv, _ := e.evalMulDiv(r, ctx)
@@ -482,6 +488,19 @@ func mulValues(a, b any) any {
 		}
 	}
 	return toIntVal(a) * toIntVal(b)
+}
+
+// divValues mirrors Python 3 true division `/`: the result is ALWAYS a float (even for
+// int/int, e.g. 4/2 -> 2.0), so it matches Jinja's `/` operator. Division by zero raises
+// in Python; no template divides by zero (only by nonzero constants), so we guard it and
+// return 0.0 to avoid a panic rather than diverge on an unreachable path.
+func divValues(a, b any) any {
+	bf, bok := numFloat(b)
+	af, aok := numFloat(a)
+	if !aok || !bok || bf == 0 {
+		return 0.0
+	}
+	return af / bf
 }
 
 // splitAddSub splits s on top-level binary `+`/`-` (skipping quotes, brackets, and unary
@@ -655,8 +674,19 @@ func (e *Engine) evalAtom(s string, ctx *scope) (any, error) {
 	if strings.Contains(s, ".") && !strings.ContainsAny(s, "('\"") {
 		return ctx.lookupDotted(s), nil
 	}
-	// bare name
-	return ctx.lookup(s), nil
+	// bare name. Inside an active {% call %}, `caller` is bound as a global func (not a scope
+	// var), so `caller is defined` and a bare `{{ caller }}` reference must see it. Resolve it
+	// from e.funcs when scope lookup misses; outside a {% call %} no such func exists, so
+	// `caller is defined` stays False (matching Jinja).
+	if v := ctx.lookup(s); v != nil {
+		return v, nil
+	}
+	if s == "caller" {
+		if fn, ok := e.funcs["caller"]; ok {
+			return fn, nil
+		}
+	}
+	return nil, nil
 }
 
 // evalSeq evaluates a comma-separated list of expressions into a []any (tuple/list).
@@ -1282,7 +1312,8 @@ func isFalsey(v any) bool {
 func lengthOf(v any) int {
 	switch x := v.(type) {
 	case string:
-		return len(x)
+		// Python len() on a str counts code points, not bytes.
+		return utf8.RuneCountInString(x)
 	case []any:
 		return len(x)
 	case map[string]any:

@@ -127,6 +127,15 @@ func (s *server) handleRumMinJS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleRumJSMap(w http.ResponseWriter, r *http.Request) {
+	// app.py rum_js_map: if the .map is absent, return ("", 404) — an EMPTY body, not Werkzeug's
+	// default 404 page. serveRumFile's os.ReadFile-miss falls through to http.NotFound (the
+	// default page), so guard the existence check here to emit the empty-body 404 Python does.
+	if _, err := os.Stat(filepath.Join(s.cfg.StaticDir, "rum.js.map")); err != nil {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Length", "0")
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
 	s.serveRumFile(w, r, "rum.js.map", "application/json", false, nil)
 }
 
@@ -146,7 +155,17 @@ const methodNotAllowed405Body = "<!doctype html>\n<html lang=en>\n<title>405 Met
 
 // v1 ingest endpoints are POST-only; a GET yields Quart's 405. Werkzeug sorts the allowed
 // methods alphabetically, so the Allow header is "OPTIONS, POST" (not "POST, OPTIONS").
+//
+// These four paths (/v1/{logs,traces,metrics}, /v1/rum/assets) are app.py's ingest_preflight
+// routes: they declare methods=["OPTIONS"] explicitly, so OPTIONS is dispatched to the view
+// (not auto-answered by Werkzeug) and the view returns ("", 204). route_guard.go keeps these in
+// explicitOptionsRoutes so OPTIONS reaches this handler; reproduce the 204 here. (CORS headers
+// are layered on by the OTLP after_request hook regardless.)
 func (s *server) handleV1IngestGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method == http.MethodPost {
 		switch r.URL.Path {
 		case "/v1/logs":

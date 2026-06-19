@@ -53,13 +53,11 @@ func modelSupportsThinking(model string) bool {
 	return false
 }
 
-// coerceSummaryValue mirrors app.py _coerce_summary_value.
+// coerceSummaryValue mirrors app.py _coerce_summary_value: a char-count length check + a
+// code-point slice (text[:max_len]), NOT a byte slice — so multibyte UTF-8 is never split.
 func coerceSummaryValue(value string, maxLen int) string {
 	text := strings.TrimSpace(value)
-	if len(text) > maxLen {
-		return text[:maxLen]
-	}
-	return text
+	return runeSlice(text, maxLen)
 }
 
 // buildAITurnLogsURL mirrors app.py _build_ai_turn_logs_url.
@@ -267,10 +265,13 @@ func buildLlamaGuardPrompt(userInput, context string) (string, []any) {
 	return systemMsg, messages
 }
 
-// aiHelperGuardCheck mirrors app.py _check_guard_model for the AI helper: heuristic + guard LLM
-// verdict, returning the rich guard_stats dict (token usage + the guard prompt) that the response
-// surfaces. Only the llama-guard prompt family is built (the configured guard model is not a
-// gpt-oss-safeguard model under parity).
+// aiHelperGuardCheck mirrors app.py _check_guard_model in full: the injection heuristic, the
+// gpt-oss-safeguard vs llama-guard prompt selection, the guard-specific thinking/max_tokens/timeout
+// resolution, the empty-content retry + verdict-hint fallback parse, the verdict + category parsing,
+// the benign-prompt overrides (observability / AI-usage / navigation on the noisy categories, plus
+// the S8 IP-vs-AI-usage override), and the rich block reasons. Returns (allowed, reason,
+// guard_stats) where guard_stats is the dict the response/telemetry surface (carrying token usage +
+// the guard prompt's system_instructions + input_messages, and the error/retry_* keys on failure).
 func (s *server) aiHelperGuardCheck(question, context string) (bool, string, *jsonenc.Object) {
 	if !heuristicGuardCheck(question) {
 		return false, "Blocked by heuristic safety check", jsonenc.NewObject()
@@ -280,26 +281,100 @@ func (s *server) aiHelperGuardCheck(question, context string) (bool, string, *js
 	if guardURL == "" || guardModel == "" {
 		return false, "guard_not_configured", jsonenc.NewObject()
 	}
-	systemMsg, messages := buildLlamaGuardPrompt(question, context)
-	reply, st, err := s.callLLMChat(llmRequest{
+
+	isOss := isGptOssSafeguardModel(guardModel)
+	var systemMsg string
+	var messages []any
+	var retryInstruction string
+	if isOss {
+		systemMsg, messages, retryInstruction = buildOssSafeguardPrompt(question, context)
+	} else {
+		systemMsg, messages, retryInstruction = buildLlamaGuardPromptFull(question, context)
+	}
+	parse := func(text string) (string, string) {
+		if isOss {
+			return parseOssSafeguardReply(text, true)
+		}
+		return parseGuardReplyFull(text, true)
+	}
+
+	guardThinking := resolveGuardThinkingLevel(s.loadAISetting("ai.guard_thinking_level", ""), guardModel)
+	guardMaxTokens := resolveGuardMaxTokens(guardThinking)
+	// guard_timeout_seconds is resolved (parity with _resolve_guard_timeout_seconds) and would be
+	// the httpx request timeout at runtime; the fixture/real http path here applies the shared
+	// client timeout, so it is resolved for fidelity but not threaded into upstreamRequest.
+	_ = resolveGuardTimeoutSeconds(s.loadAISetting("ai.guard_timeout_seconds", ""))
+
+	result := s.guardCallLLM(llmRequest{
 		endpoint:      guardURL,
 		model:         guardModel,
 		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
-		thinkingLevel: strings.TrimSpace(s.loadAISetting("ai.guard_thinking_level", "off")),
+		thinkingLevel: guardThinking,
+		maxTokens:     guardMaxTokens,
 		messages:      messages,
-	})
-	guardStats := queryStageStats(st)
-	guardStats.Set("system_instructions", systemMsg)
-	guardStats.Set("input_messages", messages)
-	if err != nil || reply == "" {
-		return false, "guard_unavailable", guardStats
+	}, retryInstruction)
+
+	guardStats := result.stats
+	if guardStats == nil {
+		guardStats = jsonenc.NewObject()
 	}
-	switch parseGuardReply(reply) {
-	case "SAFE", "ALLOWED":
+	// setdefault(system_instructions / input_messages).
+	if _, ok := guardStats.Get("system_instructions"); !ok {
+		guardStats.Set("system_instructions", systemMsg)
+	}
+	if _, ok := guardStats.Get("input_messages"); !ok {
+		guardStats.Set("input_messages", messages)
+	}
+
+	reply := result.reply
+	if reply == "" {
+		// Re-parse verdict-like reasoning metadata (the guard_stats `error`) before failing closed.
+		fallbackText := ""
+		if ev, ok := guardStats.Get("error"); ok {
+			fallbackText = toStr(ev)
+		}
+		fallbackVerdict, fallbackCategory := parse(fallbackText)
+		if fallbackVerdict != "" {
+			reply = strings.ToLower(fallbackVerdict)
+			if fallbackCategory != "" {
+				reply = reply + "\n" + fallbackCategory
+			}
+		} else {
+			return false, "guard_unavailable", guardStats
+		}
+	}
+
+	verdict, categoryCode := parse(reply)
+	categoryLabel := aiGuardCategoryLabel(categoryCode)
+
+	if verdict == "SAFE" || verdict == "ALLOWED" {
 		return true, "allowed", guardStats
-	default:
+	}
+	if verdict == "UNSAFE" || verdict == "BLOCKED" || strings.HasPrefix(verdict, "BLOCKED") {
+		benignObservability := isBenignObservabilityQuestion(question)
+		benignAIUsage := isBenignAIUsageQuestion(question)
+		benignNavigation := isBenignUINavigationRequest(question)
+		if aiGuardNoisyCategories[categoryCode] && (benignObservability || benignAIUsage) {
+			return true, "allowed", guardStats
+		}
+		if aiGuardNoisyCategories[categoryCode] && benignNavigation {
+			return true, "allowed", guardStats
+		}
+		if categoryCode == "S8" && benignAIUsage {
+			return true, "allowed", guardStats
+		}
+		if categoryCode != "" && categoryLabel != "" {
+			return false, "blocked (" + categoryCode + ": " + categoryLabel + ")", guardStats
+		}
+		if categoryCode != "" {
+			if isOss {
+				return false, "blocked (policy_category=" + categoryCode + ")", guardStats
+			}
+			return false, "blocked (" + categoryCode + ")", guardStats
+		}
 		return false, "blocked", guardStats
 	}
+	return false, "guard_invalid_reply: " + runeSlice(strings.TrimSpace(reply), 120), guardStats
 }
 
 // aiToolCall is a completed streamed tool call.
@@ -404,10 +479,13 @@ func (s *server) streamLLMEndpoint(req llmRequest) (string, []aiToolCall, llmSta
 			st.thinking = jnInt(usage, "reasoning_tokens")
 		}
 	}
-	// app.py _stream_llm_endpoint emits the internal gen_ai span — and its /tail _sse_broadcast —
-	// after the stream completes (app.py:4869), unconditionally on the success path.
-	s.broadcastInternalGenAISpan(req.endpoint, req.model, st, "")
-	return strings.Join(outputParts, ""), completed, st
+	// app.py _stream_llm_endpoint emits the internal gen_ai span — writing the otel_traces CLIENT
+	// row + applying tag rules + the /tail _sse_broadcast — after the stream completes
+	// (app.py:4869), unconditionally on the success path, carrying the joined assistant output.
+	joined := strings.Join(outputParts, "")
+	outputMessages := []any{jsonenc.NewObject().Set("role", "assistant").Set("content", joined)}
+	s.emitInternalGenAISpan(req.endpoint, req.model, req.messages, outputMessages, st, "", "")
+	return joined, completed, st
 }
 
 // extractStreamDelta mirrors app.py _extract_stream_delta.
@@ -571,6 +649,7 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 
 	endpointURL := strings.TrimSpace(s.loadAISetting("ai.endpoint_url", ""))
 	model := strings.TrimSpace(s.loadAISetting("ai.model", ""))
+	guardModel := strings.TrimSpace(s.loadAISetting("ai.guard_model", ""))
 
 	defaultThinking := normalizeThinkingLevel(s.loadAISetting("ai.thinking_level", "off"))
 	requestedThinking := normalizeThinkingLevel(bstr(payload, "thinking_level"))
@@ -582,6 +661,15 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 		thinkingLevel = "off"
 	}
 
+	// turn.start (app.py:27635) — emitted before the endpoint-configured check. The JSON path is
+	// never stream_requested, so gen_ai.request.stream is always False here.
+	s.emitAiHelperLogEvent("turn.start", chatID, turnID, page, model, guardModel, thinkingLevel,
+		"AI helper turn started", "INFO", map[string]string{
+			"gen_ai.request.stream": "False",
+			"gen_ai.input.messages": string(jsonenc.Encode(
+				[]any{jsonenc.NewObject().Set("role", "user").Set("content", question)}, dumpsDefault)),
+		})
+
 	if endpointURL == "" || model == "" {
 		writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().
 			Set("ok", false).Set("error", "AI endpoint not configured. Visit Settings → AI Configuration."))
@@ -589,9 +677,16 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 	}
 
 	allowed, guardReason, guardStats := s.aiHelperGuardCheck(question, page)
+	// guard.result (app.py:27662) — the verdict + the guard usage/prompt telemetry.
+	s.emitAiHelperLogEvent("guard.result", chatID, turnID, page, model, guardModel, thinkingLevel,
+		"Guard verdict: "+guardReason, "INFO", guardTelemetryAttrs(allowed, guardReason, guardStats))
 	if !allowed {
+		errorMessage := "Request blocked by safety guard: " + guardReason
+		// turn.blocked (app.py:27675) — severity WARN.
+		s.emitAiHelperLogEvent("turn.blocked", chatID, turnID, page, model, guardModel, thinkingLevel,
+			errorMessage, "WARN", map[string]string{"gen_ai.guard.reason": guardReason})
 		writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().
-			Set("ok", false).Set("error", "Request blocked by safety guard: "+guardReason))
+			Set("ok", false).Set("error", errorMessage))
 		return
 	}
 
@@ -610,56 +705,109 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 	// persistent memories, chat continuity, prior-turn summaries, page-context user content, and
 	// per-page tools. All of it lands in the LLM request body/tools, which the parity mock ignores.
 	systemPrompt, userContent, helperTools := s.buildAIHelperContext(question, page, chatID, model, contextData)
-	streamReq := llmRequest{
-		endpoint:      endpointURL,
-		model:         model,
-		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
-		thinkingLevel: thinkingLevel,
-		maxTokens:     768,
-		tools:         helperTools,
-		messages: []any{
-			jsonenc.NewObject().Set("role", "system").Set("content", systemPrompt),
-			jsonenc.NewObject().Set("role", "user").Set("content", userContent),
-		},
+	apiKey := strings.TrimSpace(s.loadAISetting("ai.api_key", ""))
+	// loop_messages accumulates across rounds (app.py:28131): each round appends an assistant turn +
+	// a system message carrying the JSON tool-feedback, then re-calls the LLM with the grown context.
+	loopMessages := []any{
+		jsonenc.NewObject().Set("role", "system").Set("content", systemPrompt),
+		jsonenc.NewObject().Set("role", "user").Set("content", userContent),
 	}
 	for loopRound := 0; loopRound <= maxToolRounds; loopRound++ {
-		var roundFeedback []any
+		var roundTextParts []string
+		var roundToolFeedback []*jsonenc.Object
+		streamReq := llmRequest{
+			endpoint:      endpointURL,
+			model:         model,
+			apiKey:        apiKey,
+			thinkingLevel: thinkingLevel,
+			maxTokens:     768,
+			tools:         helperTools,
+			messages:      loopMessages,
+		}
 		content, toolCalls, stats := s.streamLLMEndpoint(streamReq)
 		if content != "" {
+			roundTextParts = append(roundTextParts, content)
 			answerParts = append(answerParts, content)
 		}
 		lastStats = stats
 		modelStats = queryStageStats(stats)
 		for _, tc := range toolCalls {
-			if tc.name != "propose_ui_action" {
-				continue
+			// Mirror app.py ai_helper: only propose_ui_action calls are normalized; the normalized
+			// tool (supported OR unsupported) is emitted as tool.proposed, gets a signed
+			// action_token when supported with a non-empty action payload, is appended to
+			// proposed_tools, and is fed back to the model via the ok/unsupported envelope.
+			var normalized *jsonenc.Object
+			if tc.name == "propose_ui_action" {
+				normalized = s.normalizeGenericUIActionToolCall(tc.args, page)
 			}
-			// Mirror app.py ai_helper: normalize the raw tool args against the page action
-			// manifest (manifest validation, cross-page confirmation, apply_form_filters /
-			// apply_sql_filter handling, template-default merge, sanitization), then mint a
-			// signed action_token for supported proposals so /actions/execute can apply them.
-			normalized := s.normalizeGenericUIActionToolCall(tc.args, page)
 			if normalized == nil {
 				continue
 			}
+			actionID := strings.TrimSpace(objStrOr(normalized, "action_id"))
+			unsupported := objTruthy(normalized, "unsupported")
 			attachAiActionToken(normalized, page, chatID, turnID)
+			s.emitToolProposed(chatID, turnID, page, model, guardModel, thinkingLevel, tc.name, normalized, unsupported)
 			proposedTools = append(proposedTools, normalized)
-			roundFeedback = append(roundFeedback, normalized)
+			roundToolFeedback = append(roundToolFeedback,
+				aiToolFeedbackEnvelope(tc.name, actionID, normalized, unsupported))
 		}
-		if len(roundFeedback) == 0 {
+		if len(roundToolFeedback) == 0 {
 			if fallback := s.suggestChartDashboardPivotTool(question, page); fallback != nil {
+				actionID := strings.TrimSpace(objStrOr(fallback, "action_id"))
+				unsupported := objTruthy(fallback, "unsupported")
 				attachAiActionToken(fallback, page, chatID, turnID)
+				// The fallback uses gen_ai.tool.name "fallback.dashboard_chart_pivot" for the
+				// telemetry event, but "propose_ui_action" in the feedback envelope (app.py:28237/28248).
+				s.emitToolProposed(chatID, turnID, page, model, guardModel, thinkingLevel,
+					"fallback.dashboard_chart_pivot", fallback, unsupported)
 				proposedTools = append(proposedTools, fallback)
-				roundFeedback = append(roundFeedback, fallback)
+				roundToolFeedback = append(roundToolFeedback,
+					aiToolFeedbackEnvelope("propose_ui_action", actionID, fallback, unsupported))
 			}
 		}
-		if len(roundFeedback) == 0 || loopRound >= maxToolRounds {
+
+		// Early-break when any proposal still awaits confirmation (app.py:28257): the browser must
+		// resolve it before the model continues, so the loop stops this round.
+		hasPendingConfirmation := false
+		for _, item := range roundToolFeedback {
+			if objBoolDefaultTrue(item, "requires_confirmation") {
+				hasPendingConfirmation = true
+				break
+			}
+		}
+		if hasPendingConfirmation {
 			break
 		}
+		if len(roundToolFeedback) == 0 || loopRound >= maxToolRounds {
+			break
+		}
+
+		// Grow the conversation for the next round (app.py:28264): the assistant's round text (or a
+		// placeholder) then a system message carrying the JSON tool feedback.
+		assistantRoundText := strings.TrimSpace(strings.Join(roundTextParts, ""))
+		if assistantRoundText != "" {
+			loopMessages = append(loopMessages,
+				jsonenc.NewObject().Set("role", "assistant").Set("content", assistantRoundText))
+		} else {
+			loopMessages = append(loopMessages,
+				jsonenc.NewObject().Set("role", "assistant").Set("content", "Requested tool calls for the current turn."))
+		}
+		feedbackList := make([]any, len(roundToolFeedback))
+		for i, f := range roundToolFeedback {
+			feedbackList[i] = f
+		}
+		toolFeedbackText := string(jsonenc.Encode(feedbackList, dumpsDefault))
+		loopMessages = append(loopMessages,
+			jsonenc.NewObject().Set("role", "system").Set("content",
+				"Tool execution results for this turn (JSON). Use these results to continue reasoning "+
+					"and produce the final answer when ready: "+toolFeedbackText))
 	}
 
 	answer := strings.TrimSpace(strings.Join(answerParts, ""))
 	if answer == "" {
+		// turn.error (app.py:28283) — severity ERROR.
+		s.emitAiHelperLogEvent("turn.error", chatID, turnID, page, model, guardModel, thinkingLevel,
+			"LLM endpoint returned no response", "ERROR", nil)
 		writeJSON(w, http.StatusBadGateway, jsonenc.NewObject().
 			Set("ok", false).Set("error", "LLM endpoint returned no response"))
 		return

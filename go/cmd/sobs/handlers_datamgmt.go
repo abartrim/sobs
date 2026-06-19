@@ -36,9 +36,13 @@ func (s *server) applyDMTTL(settings map[string]string) []string {
 		if rawDays == "" {
 			continue
 		}
-		days, err := strconv.Atoi(rawDays)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", t.table, err))
+		// Python wraps int(raw_days) + the ALTER in one try/except Exception: a non-numeric value
+		// raises ValueError from int() and is appended as "{table}: {exc}", where exc's str is
+		// "invalid literal for int() with base 10: '<raw>'". strconv.Atoi's own error text differs,
+		// so reproduce CPython's int() message exactly.
+		days, ierr := pyParseInt(rawDays)
+		if ierr != "" {
+			errs = append(errs, fmt.Sprintf("%s: %s", t.table, ierr))
 			continue
 		}
 		if days <= 0 {

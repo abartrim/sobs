@@ -25,17 +25,10 @@ func (s *server) handleMcpKeyByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	keyID := strings.TrimPrefix(r.URL.Path, "/api/mcp/keys/")
-	raw, _ := s.appSetting("mcp.api_keys")
-	if raw == "" {
-		raw = "[]"
-	}
-	keys := []any{}
-	if v, err := parseJSONValue([]byte(raw)); err == nil {
-		if list, ok := v.([]any); ok {
-			keys = list
-		}
-	}
-	// mcp.py mcp_api_delete_key: drop the descriptor whose id matches; 404 if none did.
+	keys := s.loadMcpAPIKeys()
+	// mcp.py mcp_api_delete_key: new_keys = [k for k in keys if k.get("id") != key_id]; 404 if
+	// the list is unchanged. loadMcpAPIKeys/saveMcpAPIKeys are the shared keystore round-trip so
+	// create/auth/delete agree on the schema (id/label/key_hash/created_at/expires_at descriptors).
 	newKeys := []any{}
 	for _, it := range keys {
 		if o, ok := it.(*jsonenc.Object); ok {
@@ -49,13 +42,7 @@ func (s *server) handleMcpKeyByID(w http.ResponseWriter, r *http.Request) {
 		s.errorJSON(w, http.StatusNotFound, "Key not found.")
 		return
 	}
-	saved := "[]"
-	if len(newKeys) > 0 {
-		// _save_mcp_api_keys: json.dumps(keys, ensure_ascii=False) -> ", " separators,
-		// insertion order preserved (newKeys are ordered *Object descriptors).
-		saved = string(jsonenc.Encode(newKeys, jsonDumpsDefault))
-	}
-	_ = s.setAppSetting("mcp.api_keys", saved)
+	s.saveMcpAPIKeys(newKeys)
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
 }
 
@@ -77,7 +64,6 @@ func (s *server) handleVapidKeys(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleReportsSub(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/reports/")
 	if rest == "import" {
-		// app.py api_import_reports: an empty/invalid body fails the export-file schema check.
 		// /api/reports/import is a STATIC route (Werkzeug prefers it over the <report_id> rule),
 		// so a wrong method yields the import route's own Allow, not the param route's.
 		if r.Method != http.MethodPost {
@@ -87,7 +73,7 @@ func (s *server) handleReportsSub(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		errorOnly(w, http.StatusBadRequest, "Not a valid SOBS reports export file")
+		s.importReports(w, r)
 		return
 	}
 	// DELETE /api/reports/<report_id> — app.py api_delete_report (soft-delete -> {"deleted":true}).
@@ -114,6 +100,244 @@ func (s *server) handleReportsSub(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.NotFound(w, r)
+}
+
+// Report-import constants mirror app.py: _REPORTS_EXPORT_VERSION / _REPORTS_IMPORT_MAX /
+// _REPORTS_IMPORT_MAX_BYTES (reportPageTypes lives in mutation_helpers.go).
+const (
+	reportsExportVersion  = "1"
+	reportsImportMax      = 500
+	reportsImportMaxBytes = 5 * 1024 * 1024
+)
+
+// importReports mirrors app.py api_import_reports: accept a previously-exported reports payload
+// (JSON body OR multipart "file" upload), validate the envelope, and insert/replace/skip per the
+// on_conflict policy. Returns {imported, skipped, replaced, errors}. On the empty corpus the test
+// posts `{}`, which fails the envelope check -> {"error":"Not a valid SOBS reports export file"} 400.
+func (s *server) importReports(w http.ResponseWriter, r *http.Request) {
+	payloadTooLarge := func() {
+		errorOnly(w, http.StatusRequestEntityTooLarge,
+			"Import payload too large (max "+strconv.Itoa(reportsImportMaxBytes)+" bytes)")
+	}
+	// if (request.content_length or 0) > _REPORTS_IMPORT_MAX_BYTES.
+	if r.ContentLength > reportsImportMaxBytes {
+		payloadTooLarge()
+		return
+	}
+
+	contentType := r.Header.Get("Content-Type")
+	onConflict := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("on_conflict")))
+
+	var bodyObj *jsonenc.Object
+	if strings.Contains(contentType, "multipart/form-data") ||
+		strings.Contains(contentType, "application/x-www-form-urlencoded") {
+		// Parse the multipart form; on_conflict falls back to the form field then "rename".
+		_ = r.ParseMultipartForm(reportsImportMaxBytes)
+		if onConflict == "" {
+			onConflict = strings.ToLower(strings.TrimSpace(orDefault(r.FormValue("on_conflict"), "rename")))
+		}
+		file, _, ferr := r.FormFile("file")
+		if ferr != nil || file == nil {
+			errorOnly(w, http.StatusBadRequest, "No file uploaded")
+			return
+		}
+		defer file.Close()
+		rawBytes, _ := io.ReadAll(io.LimitReader(file, reportsImportMaxBytes+1))
+		if len(rawBytes) > reportsImportMaxBytes {
+			payloadTooLarge()
+			return
+		}
+		parsed, perr := parseJSONValue(rawBytes)
+		if perr != nil {
+			errorOnly(w, http.StatusBadRequest, "Invalid JSON file")
+			return
+		}
+		o, ok := parsed.(*jsonenc.Object)
+		if !ok {
+			// Non-dict JSON (list/scalar) fails the envelope dict check below.
+			errorOnly(w, http.StatusBadRequest, "Not a valid SOBS reports export file")
+			return
+		}
+		bodyObj = o
+	} else {
+		// body = await request.get_json(silent=True); None -> 400.
+		raw, _ := io.ReadAll(r.Body)
+		parsed, perr := parseJSONValue(raw)
+		if perr != nil {
+			errorOnly(w, http.StatusBadRequest, "Invalid or missing JSON body")
+			return
+		}
+		o, ok := parsed.(*jsonenc.Object)
+		if !ok {
+			// get_json returned a non-object (list/scalar/None handled above); not a dict ->
+			// envelope check. A JSON null decodes to nil here -> treat as missing body.
+			if parsed == nil {
+				errorOnly(w, http.StatusBadRequest, "Invalid or missing JSON body")
+				return
+			}
+			errorOnly(w, http.StatusBadRequest, "Not a valid SOBS reports export file")
+			return
+		}
+		bodyObj = o
+		if onConflict == "" {
+			ocVal, ocOK := bodyObj.Get("on_conflict")
+			onConflict = strings.ToLower(strings.TrimSpace(orDefaultVal(ocVal, ocOK, "rename")))
+		}
+	}
+
+	// Envelope: must be a dict with a truthy sobs_reports_export flag.
+	exportFlag, exportOK := bodyObj.Get("sobs_reports_export")
+	if !isTruthyVal(exportFlag, exportOK) {
+		errorOnly(w, http.StatusBadRequest, "Not a valid SOBS reports export file")
+		return
+	}
+	versionVal, versionOK := bodyObj.Get("version")
+	// str(body.get("version", "")) — absent defaults to "" (NOT None); present values str()-coerced.
+	versionStr := ""
+	if versionOK {
+		versionStr = pyStr(versionVal, true)
+	}
+	if versionStr != reportsExportVersion {
+		// f"Unsupported export version: {body.get('version')!r}" — Python repr (None when absent).
+		errorOnly(w, http.StatusBadRequest, "Unsupported export version: "+pyRepr(versionVal, versionOK))
+		return
+	}
+	if onConflict != "rename" && onConflict != "replace" && onConflict != "skip" {
+		errorOnly(w, http.StatusBadRequest, "on_conflict must be one of: rename, replace, skip")
+		return
+	}
+
+	incomingVal, _ := bodyObj.Get("reports")
+	incoming, isList := incomingVal.([]any)
+	if !isList {
+		errorOnly(w, http.StatusBadRequest, "'reports' must be a list")
+		return
+	}
+	if len(incoming) > reportsImportMax {
+		errorOnly(w, http.StatusBadRequest, "Too many reports (max "+strconv.Itoa(reportsImportMax)+")")
+		return
+	}
+
+	// existing_index: (page_type, lower(name)) -> {id, name, description, page_type, filters}.
+	type existingReport struct {
+		id, name, description, pageType, filtersJSON string
+	}
+	existingIndex := map[string]existingReport{}
+	res, err := s.db.Execute("SELECT Id, Name, Description, PageType, FiltersJson " +
+		"FROM sobs_reports FINAL WHERE IsDeleted = 0 ORDER BY PageType, Name")
+	if err != nil {
+		s.dbError(w, err)
+		return
+	}
+	for _, m := range rowMaps(res) {
+		er := existingReport{
+			id: cStr(m, "Id"), name: cStr(m, "Name"), description: cStr(m, "Description"),
+			pageType: cStr(m, "PageType"), filtersJSON: cStr(m, "FiltersJson"),
+		}
+		existingIndex[er.pageType+"\x00"+strings.ToLower(er.name)] = er
+	}
+
+	nImported, nSkipped, nReplaced, nErrors := 0, 0, 0, 0
+	versionBase := fixedVersionMillis()
+
+	for idx, itemAny := range incoming {
+		item, ok := itemAny.(*jsonenc.Object)
+		if !ok {
+			nErrors++
+			continue
+		}
+		nameV, nameOK := item.Get("name")
+		name := strings.TrimSpace(orDefaultVal(nameV, nameOK, ""))
+		descV, descOK := item.Get("description")
+		description := strings.TrimSpace(orDefaultVal(descV, descOK, ""))
+		ptV, ptOK := item.Get("page_type")
+		pageType := strings.TrimSpace(orDefaultVal(ptV, ptOK, ""))
+		// filters = item.get("filters") or {}; must be a dict.
+		filtersV, filtersOK := item.Get("filters")
+		var filters *jsonenc.Object
+		if !isTruthyVal(filtersV, filtersOK) {
+			filters = jsonenc.NewObject()
+		} else if fo, isObj := filtersV.(*jsonenc.Object); isObj {
+			filters = fo
+		} else {
+			nErrors++
+			continue
+		}
+
+		if name == "" {
+			nErrors++
+			continue
+		}
+		if !reportPageTypes[pageType] {
+			nErrors++
+			continue
+		}
+
+		conflictKey := pageType + "\x00" + strings.ToLower(name)
+		conflict, hasConflict := existingIndex[conflictKey]
+		isReplace := false
+
+		if hasConflict {
+			switch onConflict {
+			case "skip":
+				nSkipped++
+				continue
+			case "replace":
+				// Soft-delete the existing report (Version = base + idx*2).
+				delRow := map[string]any{
+					"Id": conflict.id, "Name": conflict.name, "Description": conflict.description,
+					"PageType": conflict.pageType,
+					// json.dumps(conflict["filters"], ensure_ascii=False) where conflict["filters"]
+					// is _parse_report_filters(FiltersJson) — re-serialize the stored filters.
+					"FiltersJson": jsonDumpsNoEsc(parseReportFiltersNative(conflict.filtersJSON)),
+					"IsDeleted":   1, "Version": versionBase + int64(idx)*2,
+				}
+				if _, derr := s.db.InsertJSONEachRow("sobs_reports", []map[string]any{delRow}); derr != nil {
+					s.dbError(w, derr)
+					return
+				}
+				nReplaced++
+				delete(existingIndex, conflictKey)
+				isReplace = true
+			default: // rename — find a unique " (imported)" name
+				candidate := name + " (imported)"
+				suffix := 2
+				for {
+					if _, exists := existingIndex[pageType+"\x00"+strings.ToLower(candidate)]; !exists {
+						break
+					}
+					candidate = name + " (imported " + strconv.Itoa(suffix) + ")"
+					suffix++
+				}
+				name = candidate
+			}
+		}
+
+		newID := newUUIDv4()
+		newRow := map[string]any{
+			"Id": newID, "Name": name, "Description": description, "PageType": pageType,
+			"FiltersJson": jsonDumpsNoEsc(filters), "IsDeleted": 0,
+			"Version": versionBase + int64(idx)*2 + 1,
+		}
+		if _, ierr := s.db.InsertJSONEachRow("sobs_reports", []map[string]any{newRow}); ierr != nil {
+			s.dbError(w, ierr)
+			return
+		}
+		existingIndex[pageType+"\x00"+strings.ToLower(name)] = existingReport{
+			id: newID, name: name, pageType: pageType,
+		}
+		if isReplace {
+			// Replacement inserts are counted as replaced, not imported.
+			continue
+		}
+		nImported++
+	}
+
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("imported", nImported).
+		Set("skipped", nSkipped).
+		Set("replaced", nReplaced).
+		Set("errors", nErrors))
 }
 
 // POST /api/agent/runs/<run_id>/dismiss — 404 when the run does not exist.
@@ -324,7 +548,9 @@ func (s *server) importChart(w http.ResponseWriter, r *http.Request, dashID stri
 	raw, _ := io.ReadAll(r.Body)
 	body := asObject(func() any { v, _ := parseJSONValue(raw); return v }())
 	tv, tvOK := body.Get("sobs_chart_template_version")
-	if !numEquals(tv, tvOK, 1) {
+	// app.py: `if template_version != 1` — Python's `True == 1`, so a JSON `true` value passes
+	// (as does 1 and 1.0); numEquals only covers numbers, so accept bool-true too.
+	if !pythonEquals1(tv, tvOK) {
 		s.errorJSON(w, http.StatusBadRequest,
 			"Invalid or unsupported chart template format (expected sobs_chart_template_version: 1)")
 		return

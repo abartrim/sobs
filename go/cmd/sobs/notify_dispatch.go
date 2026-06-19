@@ -176,9 +176,11 @@ func (s *server) dispatchBrowserPushChannel(config *jsonenc.Object, payload *jso
 		audience = u.Scheme + "://" + u.Host
 	}
 	now := nowUTC().Unix()
-	jwtToken, err := buildVapidJWT(map[string]any{
-		"aud": audience, "exp": now + vapidJWTExpirySeconds, "sub": vapidSubject,
-	}, priv)
+	// Claims order matches Python's dict literal (aud, exp, sub) so the signed bytes encode identically.
+	jwtToken, err := buildVapidJWT(jsonenc.NewObject().
+		Set("aud", audience).
+		Set("exp", now+vapidJWTExpirySeconds).
+		Set("sub", vapidSubject), priv)
 	if err != nil {
 		return err.Error()
 	}
@@ -242,9 +244,12 @@ func (s *server) loadVapidPrivateKey() (*ecdsa.PrivateKey, string, error) {
 }
 
 // buildVapidJWT mirrors app.py _build_vapid_jwt: an ES256 JWT with raw r||s (64-byte) signature.
-func buildVapidJWT(claims map[string]any, priv *ecdsa.PrivateKey) (string, error) {
-	header, _ := json.Marshal(map[string]any{"typ": "JWT", "alg": "ES256"})
-	body, _ := json.Marshal(claims)
+// The header/claims are encoded with json.dumps semantics — insertion order, ", "/": " separators,
+// no HTML escaping (jsonenc dumpsDefault) — so the signed bytes match Python's encoding exactly
+// (header literal {"typ": "JWT", "alg": "ES256"}; claims in aud/exp/sub order).
+func buildVapidJWT(claims *jsonenc.Object, priv *ecdsa.PrivateKey) (string, error) {
+	header := jsonenc.Encode(jsonenc.NewObject().Set("typ", "JWT").Set("alg", "ES256"), dumpsDefault)
+	body := jsonenc.Encode(claims, dumpsDefault)
 	signingInput := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(body)
 	digest := sha256.Sum256([]byte(signingInput))
 	r, sig, err := ecdsa.Sign(rand.Reader, priv, digest[:])

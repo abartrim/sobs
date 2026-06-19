@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sobs/sobs/internal/jsonenc"
 )
@@ -34,34 +36,33 @@ func (s *server) handleApiAiHelperActionsManifest(w http.ResponseWriter, r *http
 	writeRawJSON(w, http.StatusOK, aiHelperActionsManifestJSON)
 }
 
-// GET /api/ai/helper/capabilities — app.py ai_helper_capabilities: the action manifest plus
-// the AI-provider capability flags. With no AI endpoint configured (the fixture) thinking and
-// tool support are both off and model is empty.
+// GET /api/ai/helper/capabilities — app.py ai_helper_capabilities: the page-specific action
+// manifest (_helper_action_manifest_for_page) plus the AI-provider capability flags derived from
+// the configured model name (_model_supports_tools / _model_supports_thinking) and the stored
+// ai.thinking_level setting (normalized). With no model configured (the fixture) both support
+// flags are False, default_thinking_level is "off" and the per-page manifest is parsed from the
+// page's template — unchanged on the empty-corpus path the golden captures.
 func (s *server) handleApiAiHelperCapabilities(w http.ResponseWriter, r *http.Request) {
+	model := strings.TrimSpace(s.loadAISetting("ai.model", ""))
+	thinkingLevel := normalizeThinkingLevel(s.loadAISetting("ai.thinking_level", "off"))
 	page := strings.TrimSpace(r.URL.Query().Get("page"))
 	if page == "" {
 		page = "/logs"
 	}
-	actions := any([]any{})
-	if v, err := parseJSONValue(aiHelperActionsManifestJSON); err == nil {
-		if o, ok := v.(*jsonenc.Object); ok {
-			if a, ok := o.Get("actions"); ok {
-				actions = a
-			}
-		}
+	manifest := s.helperActionManifestForPage(page)
+	actionManifest := make([]any, 0, len(manifest))
+	for _, a := range manifest {
+		actionManifest = append(actionManifest, a)
 	}
-	model, _ := s.appSetting("ai.model")
-	endpoint, _ := s.appSetting("ai.endpoint_url")
-	configured := model != "" && endpoint != ""
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().
-		Set("action_manifest", actions).
-		Set("default_thinking_level", "off").
-		Set("model", model).
 		Set("ok", true).
+		Set("model", model).
+		Set("supports_tools", modelSupportsTools(model)).
+		Set("supports_thinking", modelSupportsThinking(model)).
+		Set("default_thinking_level", thinkingLevel).
+		Set("thinking_levels", []any{"off", "low", "medium", "high"}).
 		Set("page", page).
-		Set("supports_thinking", configured).
-		Set("supports_tools", configured).
-		Set("thinking_levels", []any{"off", "low", "medium", "high"}))
+		Set("action_manifest", actionManifest))
 }
 
 // handleApiAiHelperChatDetail is defined in ai_chat.go (full turn serialization).
@@ -156,7 +157,9 @@ func (s *server) handleApiEnrichmentGithubRepoHealth(w http.ResponseWriter, r *h
 }
 
 // GET /api/reports/export — app.py api_export_reports: a downloadable JSON file (indent=2,
-// INSERTION order) of all saved reports plus an exported_at wall-clock stamp.
+// INSERTION order) of all saved reports plus an exported_at wall-clock stamp. With an optional
+// ?ids= comma-separated list, only matching report UUIDs are exported (filtered in-process from
+// the full _get_reports list, preserving its PageType,Name order — matching app.py).
 func (s *server) handleApiReportsExport(w http.ResponseWriter, r *http.Request) {
 	res, err := s.db.Execute("SELECT Id, Name, Description, PageType, FiltersJson " +
 		"FROM sobs_reports FINAL WHERE IsDeleted = 0 ORDER BY PageType, Name")
@@ -164,10 +167,24 @@ func (s *server) handleApiReportsExport(w http.ResponseWriter, r *http.Request) 
 		s.dbError(w, err)
 		return
 	}
+	// ids filter: {s.strip() for s in raw_ids.split(",") if s.strip()}; empty => all.
+	var wanted map[string]bool
+	if rawIDs := strings.TrimSpace(r.URL.Query().Get("ids")); rawIDs != "" {
+		wanted = map[string]bool{}
+		for _, part := range strings.Split(rawIDs, ",") {
+			if id := strings.TrimSpace(part); id != "" {
+				wanted[id] = true
+			}
+		}
+	}
 	reports := []any{}
 	for _, m := range rowMaps(res) {
+		id := cStr(m, "Id")
+		if wanted != nil && !wanted[id] {
+			continue
+		}
 		reports = append(reports, jsonenc.NewObject().
-			Set("id", cStr(m, "Id")).
+			Set("id", id).
 			Set("name", cStr(m, "Name")).
 			Set("description", cStr(m, "Description")).
 			Set("page_type", cStr(m, "PageType")).
@@ -216,6 +233,11 @@ func (s *server) handleApiAiExport(w http.ResponseWriter, r *http.Request) {
 		}
 		params = append(params, v)
 	}
+	// _parse_time_window_args() + _time_window_conditions("Timestamp", ...) (app.py:19129,19155).
+	fromTS, toTS, _ := parseTimeWindowArgs(r)
+	timeConds, timeParams := timeWindowConditions("Timestamp", fromTS, toTS)
+	conds = append(conds, timeConds...)
+	params = append(params, timeParams...)
 	maxRows := 1000
 	if n, err := strconv.Atoi(strings.TrimSpace(q.Get("limit"))); err == nil {
 		maxRows = n
@@ -230,6 +252,8 @@ func (s *server) handleApiAiExport(w http.ResponseWriter, r *http.Request) {
 		"SpanAttributes['gen_ai.request.model'] AS req_model, " +
 		"SpanAttributes['gen_ai.input.messages'] AS input_messages, " +
 		"SpanAttributes['gen_ai.output.messages'] AS output_messages, " +
+		"SpanAttributes['sobs.gen_ai.prompt'] AS sobs_prompt, " +
+		"SpanAttributes['sobs.gen_ai.response'] AS sobs_response, " +
 		"SpanAttributes['gen_ai.usage.input_tokens'] AS tokens_in, " +
 		"SpanAttributes['gen_ai.usage.output_tokens'] AS tokens_out " +
 		"FROM otel_traces WHERE " + strings.Join(conds, " AND ") + " ORDER BY Timestamp DESC LIMIT ?"
@@ -244,8 +268,21 @@ func (s *server) handleApiAiExport(w http.ResponseWriter, r *http.Request) {
 		if provider == "" {
 			provider = cStr(m, "system")
 		}
+		// prompt/response fallbacks: _extract_messages_text(raw) or attrs[sobs.gen_ai.prompt/response].
+		inputRaw := cStr(m, "input_messages")
+		outputRaw := cStr(m, "output_messages")
+		prompt := extractMessagesText(inputRaw)
+		if prompt == "" {
+			prompt = cStr(m, "sobs_prompt")
+		}
+		response := extractMessagesText(outputRaw)
+		if response == "" {
+			response = cStr(m, "sobs_response")
+		}
 		messages := []any{}
-		appendMsgs := func(raw, fallbackRole string) {
+		// On a genuine JSON-decode failure (not a successful non-list parse) fall back to the
+		// extracted prompt/response text, mirroring app.py's try/except (json.JSONDecodeError).
+		appendMsgs := func(raw, fallbackRole, fallbackText string) {
 			if raw == "" {
 				return
 			}
@@ -253,12 +290,12 @@ func (s *server) handleApiAiExport(w http.ResponseWriter, r *http.Request) {
 				if list, ok := parsed.([]any); ok {
 					messages = append(messages, list...)
 				}
-			} else {
-				messages = append(messages, jsonenc.NewObject().Set("role", fallbackRole).Set("content", raw))
+			} else if fallbackText != "" {
+				messages = append(messages, jsonenc.NewObject().Set("role", fallbackRole).Set("content", fallbackText))
 			}
 		}
-		appendMsgs(cStr(m, "input_messages"), "user")
-		appendMsgs(cStr(m, "output_messages"), "assistant")
+		appendMsgs(inputRaw, "user", prompt)
+		appendMsgs(outputRaw, "assistant", response)
 		records = append(records, jsonenc.NewObject().
 			Set("messages", messages).
 			Set("metadata", jsonenc.NewObject().
@@ -379,7 +416,8 @@ func (s *server) handleV1RumAssetByID(w http.ResponseWriter, r *http.Request) {
 		errorOnly(w, http.StatusInternalServerError, "invalid asset metadata")
 		return
 	}
-	data, err := os.ReadFile(filepath.Join(dir, storageName))
+	filePath := filepath.Join(dir, storageName)
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		errorOnly(w, http.StatusNotFound, "not found")
 		return
@@ -388,8 +426,15 @@ func (s *server) handleV1RumAssetByID(w http.ResponseWriter, r *http.Request) {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
+	// app.py serves via Quart send_from_directory (as_attachment=False), which sets
+	// Last-Modified / ETag / Accept-Ranges / Cache-Control and honors Range requests.
+	// http.ServeContent is Go's send_file equivalent: it reproduces Last-Modified,
+	// Accept-Ranges, conditional (304) + Range (206) handling. Content-Type is set first so
+	// ServeContent uses the stored mimetype rather than sniffing.
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	var modTime time.Time
+	if info, statErr := os.Stat(filePath); statErr == nil {
+		modTime = info.ModTime()
+	}
+	http.ServeContent(w, r, storageName, modTime, bytes.NewReader(data))
 }

@@ -137,6 +137,11 @@ func (s *server) runAgentFlow(rule *agentRule, settings map[string]string, tctx 
 	dlpURL := strings.TrimSpace(settings["ai.dlp_endpoint_url"])
 	githubRepo, githubToken := s.resolveAgentGithubTarget(settings, tctx)
 
+	// mask_output_enabled (default True) is derived from the trigger context's `extra` (a nested
+	// object for the user-observation flow, a JSON string for the manual flow) and threaded into the
+	// issue-creation masking — app.py 6794-6801.
+	maskOutput := extractTriggerMaskOutput(tctx)
+
 	contextSummary := s.buildAgentContextSummary(tctx)
 
 	// 1. Guard model check.
@@ -218,15 +223,32 @@ func (s *server) runAgentFlow(rule *agentRule, settings map[string]string, tctx 
 		allowNewIssue := s.countGithubIssuesLastHour() <
 			parseBoundedIntSetting(settings, "ai.agent_max_issues_per_hour", agentMaxIssuesDefault, 1, 20)
 		issueOutcome = s.chooseGithubIssueOutcome(settings, tctx, githubRepo, githubToken, wantsCopilot,
-			analysis, suggestion, issueTitle, issueBody, allowNewIssue)
+			analysis, suggestion, issueTitle, issueBody, allowNewIssue, maskOutput)
 		githubIssueURL = toStr(issueOutcome["issue_url"])
-		if githubIssueURL != "" || len(issueOutcome) > 0 {
-			s.persistOnboardingWorkItem(githubRepo, githubIssueURL, mapInt(issueOutcome, "canonical_issue_number"),
-				toStr(issueOutcome["issue_title"]), toStr(issueOutcome["issue_state"]),
-				toStr(issueOutcome["dedup_decision"]), "", toStr(issueOutcome["copilot_assignment_status"]),
-				toStr(issueOutcome["copilot_assignment_reason"]), mapInt(issueOutcome, "copilot_assignment_requested_at"),
-				"agent", rule.name)
+	}
+
+	// Persist the GitHub issue decision as a work item (app.py 6939-6965): keyed by run_id, with the
+	// real agent/anomaly/dedup/copilot/PR fields — _persist_github_work_item, not the onboarding one.
+	if wantsIssue && (githubIssueURL != "" || len(issueOutcome) > 0) {
+		agentAction := "github_issue"
+		if wantsCopilot {
+			agentAction = "github_issue_copilot"
 		}
+		canonicalURL := toStr(issueOutcome["canonical_issue_url"])
+		if canonicalURL == "" {
+			canonicalURL = githubIssueURL
+		}
+		s.persistGithubWorkItem(runID, rule, tctx, githubIssueURL, analysis, suggestion, agentAction,
+			toStr(issueOutcome["issue_title"]), toStr(issueOutcome["issue_state"]),
+			toStr(issueOutcome["dedup_key"]), orDefault(toStr(issueOutcome["dedup_decision"]), "new_issue"),
+			toFloatAny(issueOutcome["dedup_confidence"]), canonicalURL,
+			mapInt(issueOutcome, "canonical_issue_number"), anyToStringList(issueOutcome["related_issue_urls"]),
+			firstNonZeroInt(mapInt(issueOutcome, "occurrence_count"), 1),
+			mapInt(issueOutcome, "copilot_assignment_requested_at"),
+			orDefault(toStr(issueOutcome["copilot_assignment_status"]), "not_requested"),
+			toStr(issueOutcome["copilot_assignment_reason"]),
+			mapBool(issueOutcome, "pr_linked"), mapInt(issueOutcome, "pr_number"),
+			toStr(issueOutcome["pr_url"]))
 	}
 
 	updateRun(map[string]any{
@@ -234,6 +256,7 @@ func (s *server) runAgentFlow(rule *agentRule, settings map[string]string, tctx 
 		"Analysis": analysis, "Suggestion": suggestion, "GithubIssueUrl": githubIssueURL,
 		"CompletedAt": normalizeCHTimestampNow(),
 	})
+	emitAgentIssueDecisionSummary(runID, rule, tctx, issueOutcome, githubIssueURL, wantsIssue, wantsCopilot, githubRepo)
 	return jsonenc.NewObject().
 		Set("status", "completed").
 		Set("guard_decision", guardDecision).
@@ -306,7 +329,8 @@ func buildAgentIssueTitle(rule *agentRule, tf triggerFields) string {
 }
 
 // buildAgentIssueBody mirrors the markdown body assembled in _run_agent_flow (sent to GitHub, never
-// returned). Mask state is the global masking.output_enabled setting (applied in createGithubIssueRecord).
+// returned). Masking of the title/body is applied later in createGithubIssueRecord, gated on the
+// trigger-derived mask_output_enabled threaded through chooseGithubIssueOutcome.
 func buildAgentIssueBody(rule *agentRule, tctx *jsonenc.Object, tf triggerFields, contextSummary, analysis, suggestion string) string {
 	additionalContext := strings.TrimSpace(extractTriggerAdditionalContext(tctx))
 	additionalSection := ""
@@ -373,14 +397,9 @@ func (s *server) handleTriggerAgentRun(w http.ResponseWriter, r *http.Request) {
 		s.errorJSON(w, http.StatusNotFound, "agent rule not found")
 		return
 	}
-	settings := map[string]string{
-		"ai.endpoint_url":     s.loadAISetting("ai.endpoint_url", ""),
-		"ai.model":            s.loadAISetting("ai.model", ""),
-		"ai.api_key":          s.loadAISetting("ai.api_key", ""),
-		"ai.dlp_endpoint_url": s.loadAISetting("ai.dlp_endpoint_url", ""),
-		"ai.github_repo":      s.loadAISetting("ai.github_repo", ""),
-		"ai.github_token":     s.loadAISetting("ai.github_token", ""),
-	}
+	// app.py trigger_agent_run uses _load_all_ai_settings(db) — the full settings surface, so the
+	// flow sees system_prompt / thinking_level / dlp / agent max-* / copilot knobs.
+	settings := s.loadAllAISettings()
 	if settings["ai.endpoint_url"] == "" || settings["ai.model"] == "" {
 		s.errorJSON(w, http.StatusServiceUnavailable, "AI endpoint not configured. Visit Settings → AI Configuration.")
 		return
@@ -500,14 +519,8 @@ func (s *server) handleApiIssuesRaise(w http.ResponseWriter, r *http.Request) {
 	body := bodyMap(r)
 	sourcePage := strings.ToLower(strings.TrimSpace(orDefault(bstr(body, "source_page"), "errors")))
 	assignCopilot := bodyBool(body, "assign_copilot", false)
-	settings := map[string]string{
-		"ai.endpoint_url":     s.loadAISetting("ai.endpoint_url", ""),
-		"ai.model":            s.loadAISetting("ai.model", ""),
-		"ai.api_key":          s.loadAISetting("ai.api_key", ""),
-		"ai.dlp_endpoint_url": s.loadAISetting("ai.dlp_endpoint_url", ""),
-		"ai.github_repo":      s.loadAISetting("ai.github_repo", ""),
-		"ai.github_token":     s.loadAISetting("ai.github_token", ""),
-	}
+	// app.py raise_issue_from_user_observation uses _load_all_ai_settings(db) — the full surface.
+	settings := s.loadAllAISettings()
 	if strings.TrimSpace(settings["ai.endpoint_url"]) == "" || strings.TrimSpace(settings["ai.model"]) == "" {
 		writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().
 			Set("ok", false).Set("error", "AI endpoint not configured. Visit Settings -> AI Configuration."))

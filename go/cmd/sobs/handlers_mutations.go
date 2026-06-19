@@ -29,9 +29,15 @@ func (s *server) handleApiQueryRefineChart(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	m := bodyMap(r)
-	currentSpec, _ := m["chart_spec"].(string)
+	// app.py: current_spec = payload.get("chart_spec", "") with a falsy-check — a string passes
+	// through verbatim, a non-empty object/dict passes (serialized to JSON for the refiner), and
+	// "" / missing / an empty object/dict are falsy -> "No chart spec provided.".
+	currentSpec, specTruthy := refineChartSpecString(m["chart_spec"])
 	instruction := strings.TrimSpace(bstr(m, "instruction"))
-	if currentSpec == "" {
+	// _normalize_thinking_level(str(payload.get("thinking_level") or "off")) — read from the body,
+	// NOT the stored ai.thinking_level setting.
+	thinkingLevel := normalizeThinkingLevel(bstrOr(m, "thinking_level", "off"))
+	if !specTruthy {
 		s.writeMaskedJSON(w, http.StatusBadRequest,
 			jsonenc.NewObject().Set("ok", false).Set("error", "No chart spec provided."))
 		return
@@ -50,7 +56,7 @@ func (s *server) handleApiQueryRefineChart(w http.ResponseWriter, r *http.Reques
 		"Chart refinement requested: "+instruction, "INFO", instrAttrs)
 	columns, _ := m["columns"].([]any)
 	rows, _ := m["rows"].([]any)
-	chartSpec, chartErr := s.vannaRefineChartSpec(endpoint, model, currentSpec, instruction, columns, rows)
+	chartSpec, chartErr := s.vannaRefineChartSpecTL(endpoint, model, currentSpec, instruction, columns, rows, thinkingLevel)
 	sev := "INFO"
 	emitBody := chartSpec
 	if chartErr != "" {
@@ -146,7 +152,9 @@ func (s *server) handleApiQueryAddToDashboard(w http.ResponseWriter, r *http.Req
 // is disabled (default), else run the ClickHouse BACKUP/RESTORE. Without a configured S3 bucket
 // both short-circuit to a deterministic message (the actual BACKUP ALL TO S3 needs real S3).
 func (s *server) handleDmBackupGuard(w http.ResponseWriter, r *http.Request) {
-	if !s.appSettingBool("data_management.backup_enabled", false) {
+	// app.py _dm_backup_enabled: (_get_app_setting(...) or "0") == "1" — strictly "1", NOT the
+	// general {1,true,yes,on} truthiness appSettingBool accepts.
+	if !s.dmBackupEnabled() {
 		writeJSON(w, http.StatusForbidden,
 			jsonenc.NewObject().Set("ok", false).Set("message", "Backup feature is disabled"))
 		return
@@ -180,19 +188,44 @@ func (s *server) dmS3Bucket() string {
 }
 
 // runDmBackup mirrors app.py _run_dm_backup: a missing S3 bucket short-circuits; otherwise a
-// ClickHouse BACKUP ALL TO S3(...) is issued (reached only when S3 is configured).
+// ClickHouse BACKUP ALL TO S3(...) is issued (reached only when S3 is configured), with an
+// optional incremental BASE_BACKUP clause and an optional encryption SETTINGS clause.
 func (s *server) runDmBackup(backupType string) (bool, string) {
 	if s.dmS3Bucket() == "" {
 		return false, "S3 bucket is not configured"
 	}
-	if v, _ := s.appSetting("data_management.s3_encrypt_backup"); strings.TrimSpace(v) == "1" {
-		if pw := s.dmSettingValue("data_management.backup_encryption_password"); strings.TrimSpace(pw) == "" {
-			return false, "Backup encryption is enabled but no encryption password is configured"
+	backupName := "sobs-" + backupType + "-" + nowUTC().Format("20060102T150405Z")
+	dest, err := s.buildS3BackupDest(backupName)
+	if err != nil {
+		return false, err.Error()
+	}
+
+	// Incremental: BASE_BACKUP <dest of most recent completed sobs-* backup>.
+	baseSQL := ""
+	if backupType == "incremental" {
+		for _, b := range s.listDmBackups() {
+			if b.status == "BACKUP_COMPLETE" && strings.HasPrefix(b.name, "sobs-") {
+				baseDest, berr := s.buildS3BackupDest(b.name)
+				if berr != nil {
+					return false, berr.Error()
+				}
+				baseSQL = ", BASE_BACKUP " + baseDest
+				break
+			}
 		}
 	}
-	backupName := "sobs-" + backupType + "-" + nowUTC().Format("20060102T150405Z")
-	dest := s.buildS3BackupDest(backupName)
-	if _, err := s.db.Execute("BACKUP ALL TO " + dest); err != nil {
+
+	// Encryption: SETTINGS compression_method='lz4', encryption_password=<quoted>.
+	encryptClause := ""
+	if v, _ := s.appSetting("data_management.s3_encrypt_backup"); strings.TrimSpace(v) == "1" {
+		encPassword := strings.TrimSpace(s.dmSettingValue("data_management.backup_encryption_password"))
+		if encPassword == "" {
+			return false, "Backup encryption is enabled but no encryption password is configured"
+		}
+		encryptClause = " SETTINGS compression_method='lz4', encryption_password=" + sqlQuoteLiteral(encPassword)
+	}
+
+	if _, err := s.db.Execute("BACKUP ALL TO " + dest + baseSQL + encryptClause); err != nil {
 		return false, err.Error()
 	}
 	return true, "Backup '" + backupName + "' started successfully"
@@ -206,22 +239,45 @@ func (s *server) runDmRestore(backupName string) (bool, string) {
 	if s.dmS3Bucket() == "" {
 		return false, "S3 bucket is not configured"
 	}
-	dest := s.buildS3BackupDest(backupName)
+	dest, err := s.buildS3BackupDest(backupName)
+	if err != nil {
+		return false, err.Error()
+	}
 	if _, err := s.db.Execute("RESTORE ALL FROM " + dest); err != nil {
 		return false, err.Error()
 	}
 	return true, "Restore from '" + backupName + "' started successfully"
 }
 
-// buildS3BackupDest mirrors app.py _build_s3_backup_dest (the S3(...) destination clause). The
-// _validate_dm_s3_settings regex guards are a follow-up — they only reject malformed S3 config,
-// an edge unreachable without a configured (and valid) bucket.
-func (s *server) buildS3BackupDest(backupName string) string {
+// buildS3BackupDest mirrors app.py _build_s3_backup_dest (the S3(...) destination clause). It first
+// validates the backup name and every S3 field (the _validate_dm_backup_name + _validate_dm_s3_settings
+// regex guards) and returns an error ("<field> contains unsupported characters") on a violation — the
+// Python ValueError path, surfaced to callers as {ok:false, message:<field> contains ...}.
+func (s *server) buildS3BackupDest(backupName string) (string, error) {
 	bucket := strings.TrimRight(s.dmS3Bucket(), "/")
 	prefix := strings.Trim(strings.TrimSpace(s.appSettingOr("data_management.s3_path_prefix")), "/")
 	region := strings.TrimSpace(s.appSettingOr("data_management.s3_region"))
 	accessKey := strings.TrimSpace(s.appSettingOr("data_management.s3_access_key_id"))
 	secretKey := strings.TrimSpace(s.dmSettingValue("data_management.s3_secret_access_key"))
+
+	if err := validateDmBackupName(backupName); err != nil {
+		return "", err
+	}
+	if err := requireDmSafeValue("s3_bucket", bucket, dmS3EndpointRE); err != nil {
+		return "", err
+	}
+	if err := requireDmSafeValue("s3_path_prefix", prefix, dmS3PrefixRE); err != nil {
+		return "", err
+	}
+	if err := requireDmSafeValue("s3_region", region, dmAWSRegionRE); err != nil {
+		return "", err
+	}
+	if err := requireDmSafeValue("s3_access_key_id", accessKey, dmAWSAccessKeyRE); err != nil {
+		return "", err
+	}
+	if err := requireDmSafeValue("s3_secret_access_key", secretKey, dmAWSSecretKeyRE); err != nil {
+		return "", err
+	}
 
 	path := bucket + "/" + backupName
 	if prefix != "" {
@@ -236,9 +292,9 @@ func (s *server) buildS3BackupDest(backupName string) string {
 		}
 	}
 	if accessKey != "" && secretKey != "" {
-		return "S3(" + sqlQuoteLiteral(endpoint) + ", " + sqlQuoteLiteral(accessKey) + ", " + sqlQuoteLiteral(secretKey) + ")"
+		return "S3(" + sqlQuoteLiteral(endpoint) + ", " + sqlQuoteLiteral(accessKey) + ", " + sqlQuoteLiteral(secretKey) + ")", nil
 	}
-	return "S3(" + sqlQuoteLiteral(endpoint) + ")"
+	return "S3(" + sqlQuoteLiteral(endpoint) + ")", nil
 }
 
 // sqlQuoteLiteral mirrors app.py _sql_quote_literal.
@@ -250,8 +306,85 @@ func (s *server) appSettingOr(key string) string {
 	return v
 }
 
-// POST /api/{logs,ai}/validate-filter — empty filter -> {"issues":[],"normalized":"","ok":true}.
+// POST /api/{logs,ai}/validate-filter — app.py api_logs_validate_filter (app.py:23782) /
+// api_ai_validate_filter (app.py:24405): validate a SQL WHERE fragment and return actionable
+// feedback. The logs-vs-ai variant is distinguished by the request path (the two route
+// registrations are /api/logs/validate-filter and /api/ai/validate-filter). The empty-sql case
+// is preserved byte-for-byte ({"ok":true,"normalized":"","issues":[]}).
 func (s *server) handleValidateFilter(w http.ResponseWriter, r *http.Request) {
+	isAI := strings.Contains(r.URL.Path, "/ai/")
+	sqlWhere := strings.TrimSpace(bstr(bodyMap(r), "sql"))
+	if sqlWhere == "" {
+		writeJSON(w, http.StatusOK, jsonenc.NewObject().
+			Set("ok", true).Set("normalized", "").Set("issues", []any{}))
+		return
+	}
+
+	issues := []any{}
+
+	// Lightweight structural checks (quote balance with '' escape, paren depth) — rune indexing
+	// to mirror Python's codepoint-based string iteration.
+	runes := []rune(sqlWhere)
+	quoteOpen := false
+	parenDepth := 0
+	for i := 0; i < len(runes); i++ {
+		ch := runes[i]
+		if ch == '\'' {
+			if i+1 < len(runes) && runes[i+1] == '\'' {
+				i++
+				continue
+			}
+			quoteOpen = !quoteOpen
+		} else if !quoteOpen {
+			if ch == '(' {
+				parenDepth++
+			} else if ch == ')' {
+				parenDepth--
+				if parenDepth < 0 {
+					issues = append(issues, filterIssue("error", "Unexpected ')' in filter."))
+					break
+				}
+			}
+		}
+	}
+	if quoteOpen {
+		issues = append(issues, filterIssue("error", "Unclosed single quote in filter."))
+	}
+	if parenDepth > 0 {
+		issues = append(issues, filterIssue("error", "Unclosed '(' in filter."))
+	}
+	if filterTrailingOpRE.MatchString(sqlWhere) {
+		issues = append(issues, filterIssue("warning", "Filter ends with an operator or keyword."))
+	}
+
+	var safeSQL string
+	var probeErr error
+	if isAI {
+		safe, msg := normalizeAiSQLWhere(sqlWhere)
+		if msg != "" {
+			// _validate_user_sql_where raised (disallowed keyword) -> the except branch.
+			probeErr = errString(msg)
+		} else {
+			safeSQL = safe
+			_, probeErr = s.db.Execute(
+				"SELECT 1 FROM otel_traces WHERE (" + safeSQL + ") AND " + aiSpanCondition + " LIMIT 1")
+		}
+	} else {
+		if msg := validateUserSQLWhere(sqlWhere); msg != "" {
+			probeErr = errString(msg)
+		} else {
+			safeSQL = normalizeLogsSQLWhere(sqlWhere)
+			_, probeErr = s.db.Execute("SELECT 1 FROM otel_logs WHERE " + safeSQL + " LIMIT 1")
+		}
+	}
+
+	if probeErr != nil {
+		issues = append(issues, filterIssue("error", publicDashboardQueryError(probeErr)))
+		writeJSON(w, http.StatusOK, jsonenc.NewObject().
+			Set("ok", false).Set("normalized", "").Set("issues", issues))
+		return
+	}
+
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().
-		Set("issues", []any{}).Set("normalized", "").Set("ok", true))
+		Set("ok", true).Set("normalized", safeSQL).Set("issues", issues))
 }

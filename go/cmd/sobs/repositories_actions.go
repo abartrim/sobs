@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -243,7 +245,11 @@ func (s *server) validateGithubToken(token string) (string, string) {
 	}
 	resp, err := s.upstreamRequest("GET", "https://api.github.com/rate_limit", nil, githubAPIHeaders(token, false, nil))
 	if err != nil {
-		return "error", "Validation request failed: " + err.Error()
+		// app.py _validate_github_token: f"Validation request failed: {exc.__class__.__name__}"
+		// (the httpx exception class name, not the full message). This is persisted to the
+		// validation-message setting too (repoGithubTokenValidate), so the displayed + stored text
+		// match Python's class-name form.
+		return "error", "Validation request failed: " + httpxExceptionClassName(err)
 	}
 	switch resp.Status {
 	case 200:
@@ -255,6 +261,22 @@ func (s *server) validateGithubToken(token string) (string, string) {
 	default:
 		return "error", "GitHub returned HTTP " + strconv.Itoa(resp.Status)
 	}
+}
+
+// httpxExceptionClassName best-effort maps a Go HTTP-client error to the httpx exception class
+// name app.py surfaces via exc.__class__.__name__. Go's net stack does not expose httpx's class
+// taxonomy, so the realistic validation-failure cases (unreachable / blocked GitHub) map to the
+// httpx names a caller would observe: timeouts -> ConnectTimeout, everything else -> ConnectError.
+// (The parity corpus never reaches this branch — the upstream fixture always returns a response.)
+func httpxExceptionClassName(err error) string {
+	if err == nil {
+		return "ConnectError"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "ConnectTimeout"
+	}
+	return "ConnectError"
 }
 
 // metadataJSONOr mirrors str(current.get("MetadataJson","{}") or "{}").

@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/sobs/sobs/internal/jsonenc"
 )
 
 // RUM client-token auth — a faithful port of app.py's optional origin-bound RUM client auth
@@ -52,7 +54,14 @@ type rumClaims struct {
 }
 
 func (s *server) rumClientTokenEncode(c rumClaims) string {
-	raw, _ := json.Marshal(c)
+	// app.py: json.dumps(claims, separators=(",", ":"), ensure_ascii=False) — compact, insertion
+	// order (iss, app, origin, iat, exp, jti), and NO HTML escaping of <>& (stdlib json.Marshal
+	// escapes those to < etc, which would diverge the signed payload for such app/origin
+	// values). Use jsonenc.Compact (ensure_ascii=False, no HTML escaping) over an ordered object.
+	obj := jsonenc.NewObject().
+		Set("iss", c.Iss).Set("app", c.App).Set("origin", c.Origin).
+		Set("iat", c.Iat).Set("exp", c.Exp).Set("jti", c.Jti)
+	raw := jsonenc.Encode(obj, jsonenc.Compact)
 	payload := base64.RawURLEncoding.EncodeToString(raw)
 	return payload + "." + s.rumClientSign(payload)
 }
@@ -97,11 +106,9 @@ func (s *server) verifyRumClientAuth(events []any, r *http.Request) (bool, int, 
 	token := strings.TrimSpace(r.Header.Get("X-SOBS-RUM-Token"))
 	if token == "" {
 		for _, ev := range events {
-			if m, ok := ev.(map[string]any); ok {
-				if t := strings.TrimSpace(toStr(m["clientAuthToken"])); t != "" {
-					token = t
-					break
-				}
+			if t := strings.TrimSpace(toStr(eventField(ev, "clientAuthToken"))); t != "" {
+				token = t
+				break
 			}
 		}
 	}
@@ -135,17 +142,27 @@ func (s *server) verifyRumClientAuth(events []any, r *http.Request) (bool, int, 
 	boundApp := strings.TrimSpace(toStr(claims["app"]))
 	if boundApp != "" {
 		for _, ev := range events {
-			m, ok := ev.(map[string]any)
-			if !ok {
-				continue
-			}
-			eventApp := strings.TrimSpace(toStr(m["appName"]))
+			eventApp := strings.TrimSpace(toStr(eventField(ev, "appName")))
 			if eventApp != "" && eventApp != boundApp {
 				return false, 401, "RUM client token app mismatch"
 			}
 		}
 	}
 	return true, 200, ""
+}
+
+// eventField reads a top-level field from a parsed RUM event, which may be either an ordered
+// *jsonenc.Object (decodeOrdered) or a plain map[string]any. Returns nil when absent / not an
+// object.
+func eventField(ev any, key string) any {
+	switch e := ev.(type) {
+	case *jsonenc.Object:
+		v, _ := e.Get(key)
+		return v
+	case map[string]any:
+		return e[key]
+	}
+	return nil
 }
 
 // requestOrigin mirrors app.py _request_origin: normalized Origin, else the Referer's origin.

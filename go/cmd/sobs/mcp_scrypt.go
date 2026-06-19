@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"os"
 )
 
 // Hand-rolled scrypt (RFC 7914) + PBKDF2-HMAC-SHA256, to match Python hashlib.scrypt without
@@ -139,12 +140,32 @@ func scryptKey(password, salt []byte, N, r, p, keyLen int) []byte {
 	return pbkdf2SHA256(password, b, 1, keyLen)
 }
 
-// mcpScryptSalt is blake2b(SOBS_SECRET_KEY="parity-fixed-secret-key", person="sobs-mcp-v1\0\0\0\0\0")
-// precomputed (avoids hand-rolling BLAKE2b; the parity secret key is fixed). _mcp_mac_key() in mcp.py.
+// mcpScryptSaltHex is the parity-secret reference value: blake2b(SOBS_SECRET_KEY=
+// "parity-fixed-secret-key", person="sobs-mcp-v1\0\0\0\0\0").digest()[:32]. It is NO LONGER used
+// in the hash path (mcpMacKey derives the salt at runtime) — it is retained as the independently
+// Python-derived expectation that TestBlake2bMatchesPython pins the hand-rolled BLAKE2b against,
+// and as the value mcpMacKey() must reproduce when the parity secret is configured.
 const mcpScryptSaltHex = "7d9c06e1f59311d11e03eb7852f305278559898943739e9c77d03217dee42835"
 
-// hashMcpKey mirrors mcp.py _hash_key: scrypt(token, salt, n=1024, r=8, p=1, dklen=32) hex.
+// mcpMacKey mirrors mcp.py _mcp_mac_key: a per-installation 32-byte salt derived from
+// SOBS_SECRET_KEY at RUNTIME via personalized BLAKE2b — hashlib.blake2b(secret, person=
+// b"sobs-mcp-v1\x00\x00\x00\x00\x00").digest()[:32]. Python's blake2b default digest_size is 64,
+// so we compute the full 64-byte digest and truncate to 32 (blake2bPersonalSum zero-pads the
+// 11-byte person tag to the 16-byte personal field, matching the explicit null padding). The
+// secret defaults to "sobs-dev-secret-key" only when the env var is ABSENT (os.environ.get's
+// default honors an explicitly-empty value), so LookupEnv — same convention as ciPushHashSalt.
+// For the parity secret ("parity-fixed-secret-key") this reproduces the previously-hardcoded
+// 7d9c06e1...2835 salt byte-for-byte, so parity is unaffected; a real secret is now honored.
+func mcpMacKey() []byte {
+	secret, ok := os.LookupEnv("SOBS_SECRET_KEY")
+	if !ok {
+		secret = "sobs-dev-secret-key"
+	}
+	return blake2bPersonalSum([]byte(secret), []byte("sobs-mcp-v1"), 64)[:32]
+}
+
+// hashMcpKey mirrors mcp.py _hash_key: scrypt(token, salt=_mcp_mac_key(), n=1024, r=8, p=1,
+// dklen=32) hex.
 func hashMcpKey(rawToken string) string {
-	salt, _ := hex.DecodeString(mcpScryptSaltHex)
-	return hex.EncodeToString(scryptKey([]byte(rawToken), salt, 1024, 8, 1, 32))
+	return hex.EncodeToString(scryptKey([]byte(rawToken), mcpMacKey(), 1024, 8, 1, 32))
 }

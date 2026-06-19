@@ -263,6 +263,26 @@ func (s *server) getSchemaContext() string {
 		lines = append(lines, s.compactSchemaLine(t))
 	}
 	lines = append(lines, schemaContextStaticBlock...)
+
+	// Observed OTEL attribute keys block (app.py:29211-29220): append the non-empty
+	// _compact_attr_key_line lines for log/span/resource/scope under a header. The caches are empty
+	// on the parity fixture (no ingested attr keys), so every line is "" and nothing is appended —
+	// byte-identical to before; the block only appears once attr keys have been observed.
+	attrLines := []string{}
+	for _, al := range []string{
+		s.compactAttrKeyLine("log", "Observed LogAttributes keys", 20),
+		s.compactAttrKeyLine("span", "Observed SpanAttributes keys", 20),
+		s.compactAttrKeyLine("resource", "Observed ResourceAttributes keys", 20),
+		s.compactAttrKeyLine("scope", "Observed ScopeAttributes keys", 20),
+	} {
+		if al != "" {
+			attrLines = append(attrLines, al)
+		}
+	}
+	if len(attrLines) > 0 {
+		lines = append(lines, "Observed OTEL attribute keys:")
+		lines = append(lines, attrLines...)
+	}
 	return strings.Join(lines, "\n")
 }
 

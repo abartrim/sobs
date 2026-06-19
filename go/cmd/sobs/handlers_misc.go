@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -51,10 +52,11 @@ func (s *server) handleApiAiSpanAttributes(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	// raw_attrs = json.dumps(_map_to_dict(SpanAttributes), ensure_ascii=False, indent=2).
-	// Reached only with seeded AI-trace data (the fixture otel_traces is empty).
+	// Reached only with seeded AI-trace data (the fixture otel_traces is empty). Python returns
+	// _jsonify_with_optional_sql_output_mask({...}) — the success payload is output-masked.
 	attrs := rowMaps(res)[0]["SpanAttributes"]
 	pretty, _ := jsonDumpsIndent2(mapToDict(attrs))
-	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("raw_attrs", pretty))
+	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("raw_attrs", pretty))
 }
 
 // GET /api/enrichment/cve/findings — app.py api_cve_findings (app.py:18220). Feature-flag
@@ -117,9 +119,15 @@ func (s *server) handleApiCveFindings(w http.ResponseWriter, r *http.Request) {
 // values into per-country counts via the embedded geoip2fast country DB (see geoip.go). The base
 // fixture carries no client.ip rows, so country_counts/ip_details are empty here and in Python.
 func (s *server) handleApiWebTrafficGeo(w http.ResponseWriter, r *http.Request) {
+	// app.py: from_ts, to_ts, _ = _parse_time_window_args(); the time error is ignored — the
+	// conditions are built from whatever window parsed (empty on a param-less request).
+	fromTS, toTS, _ := parseTimeWindowArgs(r)
+	timeConds, timeParams := timeWindowConditions("Timestamp", fromTS, toTS)
+	where := whereClause(timeConds)
 	res, err := s.db.Execute(
-		"SELECT LogAttributes['client.ip'] AS ip, COUNT(*) AS cnt " +
-			"FROM hyperdx_sessions GROUP BY ip HAVING ip != '' ORDER BY cnt DESC LIMIT 200")
+		"SELECT LogAttributes['client.ip'] AS ip, COUNT(*) AS cnt "+
+			"FROM hyperdx_sessions "+where+
+			" GROUP BY ip HAVING ip != '' ORDER BY cnt DESC LIMIT 200", timeParams...)
 	if err != nil {
 		s.dbError(w, err)
 		return
@@ -242,17 +250,23 @@ func (s *server) handleApiDashboardsSpecOptions(w http.ResponseWriter, r *http.R
 }
 
 // GET /api/settings/masking/rules — app.py api_masking_rules -> _load_masking_settings.
-// Default sensitive keys/patterns are static config (embedded from masking.py); custom
-// keys/patterns come from settings (empty on the fixture); flags default to true.
+// Default keys/patterns come from the embedded masking_defaults.json (= masking.py constants);
+// custom keys/patterns go through the CANONICAL loaders (normalize/validate/dedupe/sort) so a
+// configured setting is reported exactly as Python's _load_masking_custom_keys/_patterns. The
+// effective_keys is sorted({DEFAULT ∪ custom}); effective_patterns is DEFAULT ++ custom. Custom
+// sets are empty on the fixture, so this is byte-identical there.
 func (s *server) handleApiMaskingRules(w http.ResponseWriter, r *http.Request) {
 	var def struct {
 		Keys     []string `json:"keys"`
 		Patterns []string `json:"patterns"`
 	}
 	_ = json.Unmarshal(maskingDefaultsJSON, &def)
-	customKeys := s.loadJSONStringListSetting("masking.custom_keys")
-	customPatterns := s.loadJSONStringListSetting("masking.custom_patterns")
+	// _load_masking_custom_keys (lowercase/trim/dedupe, sorted) and _load_masking_custom_patterns
+	// (validated, order-preserving dedupe) — the canonical loaders, not the raw list.
+	customKeys := s.loadMaskingCustomKeys()
+	customPatterns := s.loadMaskingCustomPatterns()
 
+	// effective_keys = sorted({*DEFAULT_SENSITIVE_KEYS, *custom_keys}).
 	keySet := map[string]bool{}
 	for _, k := range def.Keys {
 		keySet[k] = true
@@ -266,6 +280,7 @@ func (s *server) handleApiMaskingRules(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(keys) // Python sorted({...}) — lexicographic, matches byte sort for ASCII
 
+	// effective_patterns = [*DEFAULT_SENSITIVE_PATTERNS, *custom_patterns].
 	patterns := append(append([]string{}, def.Patterns...), customPatterns...)
 
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().
@@ -278,21 +293,35 @@ func (s *server) handleApiMaskingRules(w http.ResponseWriter, r *http.Request) {
 		Set("sql_output_masking_enabled", s.appSettingBool("masking.sql_output_enabled", true)))
 }
 
-// loadJSONStringListSetting mirrors _load_json_string_list_setting: parse a setting whose
-// value is a JSON array of strings; empty list when absent or invalid.
+// loadJSONStringListSetting mirrors _load_json_string_list_setting: parse a setting whose value
+// is a JSON array; for each item compute `str(item or "").strip()` and keep it when non-empty.
+// Non-string items are str()-coerced (truthy 5 -> "5", True -> "True"); falsy items (0/false/
+// null/""/[]/{}) collapse to "" and are dropped. Empty list when absent / not a JSON list. Uses
+// parseJSONValue so integer literals render as "5" not "5.0" (json.Number, matching Python str()).
 func (s *server) loadJSONStringListSetting(key string) []string {
 	out := []string{}
 	raw, ok := s.appSetting(key)
 	if !ok {
 		return out
 	}
-	var arr []any
-	if json.Unmarshal([]byte(raw), &arr) != nil {
+	v, err := parseJSONValue([]byte(raw))
+	if err != nil {
 		return out
 	}
-	for _, v := range arr {
-		if str, ok := v.(string); ok {
-			out = append(out, str)
+	arr, isList := v.([]any)
+	if !isList {
+		return out
+	}
+	for _, item := range arr {
+		// str(item or "").strip(): a falsy item becomes "", then str("")=="". Python truthiness
+		// also treats empty list/object as falsy (parseJSONValue yields []any / *jsonenc.Object).
+		coerced := item
+		if isFalsyAny(item) || isEmptyJSONContainer(item) {
+			coerced = ""
+		}
+		text := strings.TrimSpace(toStr(coerced))
+		if text != "" {
+			out = append(out, text)
 		}
 	}
 	return out
@@ -404,18 +433,98 @@ func (s *server) handleApiTagRuleConditionSuggestions(w http.ResponseWriter, r *
 		Set("suggestions", suggestions))
 }
 
-// GET /api/ai/conversation — app.py get_ai_conversation: requires ts+service (400 HTML
-// else). The success path renders the AI conversation partial for a matched span — needs
-// seeded AI traces (the fixture otel_traces has none), so only the guard is reachable here.
+// GET /api/ai/conversation — app.py get_ai_conversation: requires ts+service (400 HTML else).
+// Looks up the most recent matching AI span (optional trace_id/span_name filters); 404 HTML when
+// none. On a match it renders _ai_conversation_partial.html (200, text/html) for the span's
+// reconstructed conversation; a render/DB error yields 500 HTML. Needs seeded AI traces (the
+// fixture otel_traces is empty), so only the 400/404 guards run on the empty corpus.
 func (s *server) handleApiAiConversation(w http.ResponseWriter, r *http.Request) {
-	ts := strings.TrimSpace(r.URL.Query().Get("ts"))
-	service := strings.TrimSpace(r.URL.Query().Get("service"))
+	q := r.URL.Query()
+	ts := strings.TrimSpace(q.Get("ts"))
+	service := strings.TrimSpace(q.Get("service"))
+	traceID := strings.TrimSpace(q.Get("trace_id"))
+	spanName := strings.TrimSpace(q.Get("span_name"))
+	fromTS := strings.TrimSpace(q.Get("from_ts"))
+	toTS := strings.TrimSpace(q.Get("to_ts"))
+
 	if ts == "" || service == "" {
 		textStatus(w, http.StatusBadRequest,
 			"<p class='text-danger small'>Missing required params: ts and service.</p>")
 		return
 	}
-	textStatus(w, http.StatusNotFound, "<p class='text-danger small'>Span not found.</p>")
+
+	conds := aiSpanCondition + " AND Timestamp=? AND ServiceName=?"
+	params := []any{ts, service}
+	if traceID != "" {
+		conds += " AND TraceId=?"
+		params = append(params, traceID)
+	}
+	if spanName != "" {
+		conds += " AND SpanName=?"
+		params = append(params, spanName)
+	}
+
+	res, err := s.db.Execute(
+		"SELECT SpanAttributes FROM otel_traces WHERE "+conds+" ORDER BY Timestamp DESC LIMIT 1", params...)
+	if err != nil {
+		// app.py: any exception in the lookup/render is caught -> 500 HTML.
+		textStatus(w, http.StatusInternalServerError,
+			"<p class='text-danger small'>Error loading conversation.</p>")
+		return
+	}
+	if len(res.Rows) == 0 {
+		textStatus(w, http.StatusNotFound, "<p class='text-danger small'>Span not found.</p>")
+		return
+	}
+
+	// attrs = _map_to_dict(row["SpanAttributes"]); the conversation item mirrors app.py's dict.
+	attrs := attrMap(rowMaps(res)[0]["SpanAttributes"])
+	inputMessagesRaw := attrStr(attrs, "gen_ai.input.messages")
+	outputMessagesRaw := attrStr(attrs, "gen_ai.output.messages")
+	systemInstructionsRaw := attrStr(attrs, "gen_ai.system_instructions")
+	prompt := extractMessagesText(inputMessagesRaw)
+	if prompt == "" {
+		prompt = attrStr(attrs, "sobs.gen_ai.prompt")
+	}
+	responseText := extractMessagesText(outputMessagesRaw)
+	if responseText == "" {
+		responseText = attrStr(attrs, "sobs.gen_ai.response")
+	}
+	parsedInput, _ := parseGenaiMessagesJSON(inputMessagesRaw)
+	parsedOutput, _ := parseGenaiMessagesJSON(outputMessagesRaw)
+	inputMessages := normalizeGenaiMessagesForDisplay(parsedInput)
+	outputMessages := normalizeGenaiMessagesForDisplay(parsedOutput)
+	inputMessages, dedupedCount := dedupeSystemInputMessages(inputMessages, systemInstructionsRaw)
+
+	item := jsonenc.NewObject().
+		Set("service", service).
+		Set("trace_id", traceID).
+		Set("error_type", attrStr(attrs, "error.type")).
+		Set("error_message", attrStr(attrs, "exception.message")).
+		Set("system_instructions", systemInstructionsRaw).
+		Set("system_message_deduped_count", dedupedCount).
+		Set("input_messages", inputMessages).
+		Set("output_messages", outputMessages).
+		Set("prompt", prompt).
+		Set("response", responseText).
+		Set("operation", attrStrDef(attrs, "gen_ai.operation.name", "chat")).
+		Set("finish_reason", attrStr(attrs, "gen_ai.response.finish_reason"))
+
+	ctx := s.baseContext("get_ai_conversation")
+	ctx["item"] = item
+	ctx["from_ts"] = fromTS
+	ctx["to_ts"] = toTS
+	out, rerr := s.newEngine().Render("_ai_conversation_partial.html", ctx)
+	if rerr != nil {
+		textStatus(w, http.StatusInternalServerError,
+			"<p class='text-danger small'>Error loading conversation.</p>")
+		return
+	}
+	body := []byte(out)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
 }
 
 // GET /api/metrics/anomaly — app.py metrics_anomaly. Requires service+metric (400 else);
@@ -635,25 +744,22 @@ func (s *server) handleMcpEndpointPost(w http.ResponseWriter, r *http.Request) {
 		Set("error", jsonenc.NewObject().Set("code", -32601).Set("message", "Method not found: '"+method+"'")))
 }
 
-// mcpAuthenticated reports whether the request carries a valid MCP API key (one of the
-// descriptors in the mcp.api_keys setting). Empty registry -> never authenticated.
+// mcpAuthenticated mirrors mcp.py _authenticate_mcp_request: the X-MCP-API-Key header is
+// scrypt-hashed and compared (constant-time, secrets.compare_digest) against each persisted
+// descriptor's key_hash in the mcp.api_keys keystore. Empty header / empty registry -> false.
 func (s *server) mcpAuthenticated(r *http.Request) bool {
 	key := strings.TrimSpace(r.Header.Get("X-MCP-API-Key"))
 	if key == "" {
 		return false
 	}
-	raw, _ := s.appSetting("mcp.api_keys")
-	if raw == "" {
-		return false
-	}
-	v, err := parseJSONValue([]byte(raw))
-	if err != nil {
-		return false
-	}
-	list, _ := v.([]any)
 	keyHash := hashMcpKey(key)
-	for _, e := range list {
-		if o, ok := e.(*jsonenc.Object); ok && objGetStr(o, "key_hash") == keyHash {
+	for _, e := range s.loadMcpAPIKeys() {
+		o, ok := e.(*jsonenc.Object)
+		if !ok {
+			continue
+		}
+		// secrets.compare_digest(entry.get("key_hash", ""), key_hash) — constant-time equality.
+		if subtle.ConstantTimeCompare([]byte(objGetStr(o, "key_hash")), []byte(keyHash)) == 1 {
 			return true
 		}
 	}

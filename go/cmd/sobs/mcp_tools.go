@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,10 +14,13 @@ import (
 
 // mcpToolsJSON (the embedded MCP_TOOLS catalog) is declared in handlers_static.go.
 
-const mcpDefaultWindowHours = 24
+// mcpDefaultWindowHours mirrors mcp.py _DEFAULT_WINDOW_HOURS = 1.
+const mcpDefaultWindowHours = 1
 
-// mcpToolHandlers mirrors mcp.py _TOOL_HANDLERS.
-var mcpToolHandlers = map[string]func(*server, *jsonenc.Object) *jsonenc.Object{
+// mcpToolHandlers mirrors mcp.py _TOOL_HANDLERS. Each handler returns (result, error); a non-nil
+// error mirrors Python's handler raising, which mcp_endpoint catches and turns into a JSON-RPC
+// -32603 "Internal error" with HTTP 500 (mcp.py:1095-1112).
+var mcpToolHandlers = map[string]func(*server, *jsonenc.Object) (*jsonenc.Object, error){
 	"list_services":     (*server).mcpListServices,
 	"query_otel_logs":   (*server).mcpQueryOtelLogs,
 	"query_otel_traces": (*server).mcpQueryOtelTraces,
@@ -44,13 +49,58 @@ func (s *server) handleMcpToolsCall(w http.ResponseWriter, reqID any, body *json
 				Set("message", "Unknown tool: '"+toolName+"'. Available: "+avail)))
 		return
 	}
-	result := handler(s, args)
+	// mcp.py:1095-1112 wraps handler(...) + _mask_value_for_output(...) in try/except and converts
+	// ANY raised exception into {"error":{"code":-32603,"message":"Internal error: <ExcType>"}} with
+	// HTTP 500. Mirror that here: recover() catches panics, and handlers surface DB errors via the
+	// returned error. This path is never reached by the parity corpus (tools/call requires a
+	// configured MCP key; the fixture has none, so authentication fails before we get here).
+	result, callErr := s.mcpInvokeTool(handler, args)
+	if callErr != nil {
+		writeJSON(w, http.StatusInternalServerError, jsonenc.NewObject().Set("jsonrpc", "2.0").Set("id", reqID).
+			Set("error", jsonenc.NewObject().Set("code", -32603).
+				Set("message", "Internal error: "+mcpErrTypeName(callErr))))
+		return
+	}
 	masked := s.maskValueForOutput(result)
 	text := string(jsonenc.Encode(masked, dumpsDefault))
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("jsonrpc", "2.0").Set("id", reqID).
 		Set("result", jsonenc.NewObject().
 			Set("content", []any{jsonenc.NewObject().Set("type", "text").Set("text", text)}).
 			Set("isError", false)))
+}
+
+// mcpInvokeTool runs a tool handler with a recover() guard, mirroring the try/except in
+// mcp.py's tools/call branch: a returned error OR a panic becomes a -32603 internal error.
+func (s *server) mcpInvokeTool(handler func(*server, *jsonenc.Object) (*jsonenc.Object, error), args *jsonenc.Object) (result *jsonenc.Object, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			result = nil
+			if e, ok := rec.(error); ok {
+				err = e
+			} else {
+				err = fmt.Errorf("%v", rec)
+			}
+		}
+	}()
+	return handler(s, args)
+}
+
+// mcpErrTypeName produces the symbol used in the -32603 message. Python uses the raised exception's
+// type name (type(exc).__name__); Go has no equivalent stable type for chDB/runtime errors, so we
+// use the error's concrete type name, falling back to its message. The corpus never exercises this
+// authenticated path, so the exact text is not byte-compared.
+func mcpErrTypeName(err error) string {
+	if err == nil {
+		return "Error"
+	}
+	t := reflect.TypeOf(err)
+	for t != nil && t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t != nil && t.Name() != "" {
+		return t.Name()
+	}
+	return err.Error()
 }
 
 // ---- helpers (mirror mcp.py _parse_ts / _clamp / _build_time_where / _normalize_map_value) ----
@@ -69,23 +119,6 @@ func mcpParseTs(v string) string {
 		}
 	}
 	return ""
-}
-
-func mcpClamp(v string, lo, hi, def int) int {
-	if strings.TrimSpace(v) == "" {
-		return def
-	}
-	n, err := strconv.Atoi(strings.TrimSpace(v))
-	if err != nil {
-		return def
-	}
-	if n < lo {
-		return lo
-	}
-	if n > hi {
-		return hi
-	}
-	return n
 }
 
 func mcpTimeWhere(column, fromTs, toTs string, conds *[]string, params *[]any) {
@@ -110,20 +143,22 @@ func mcpWhere(conds []string) string {
 
 // ---- tool handlers ----
 
-func (s *server) mcpListServices(_ *jsonenc.Object) *jsonenc.Object {
+func (s *server) mcpListServices(_ *jsonenc.Object) (*jsonenc.Object, error) {
 	services := []any{}
-	if res, err := s.db.Execute("SELECT DISTINCT ServiceName FROM otel_logs WHERE ServiceName != '' " +
+	res, err := s.db.Execute("SELECT DISTINCT ServiceName FROM otel_logs WHERE ServiceName != '' " +
 		"UNION DISTINCT SELECT DISTINCT ServiceName FROM otel_traces WHERE ServiceName != '' " +
 		"UNION DISTINCT SELECT DISTINCT ServiceName FROM otel_metrics_gauge WHERE ServiceName != '' " +
-		"ORDER BY ServiceName"); err == nil {
-		for _, m := range rowMaps(res) {
-			services = append(services, cStr(m, "ServiceName"))
-		}
+		"ORDER BY ServiceName")
+	if err != nil {
+		return nil, err
 	}
-	return jsonenc.NewObject().Set("services", services)
+	for _, m := range rowMaps(res) {
+		services = append(services, cStr(m, "ServiceName"))
+	}
+	return jsonenc.NewObject().Set("services", services), nil
 }
 
-func (s *server) mcpQueryOtelLogs(args *jsonenc.Object) *jsonenc.Object {
+func (s *server) mcpQueryOtelLogs(args *jsonenc.Object) (*jsonenc.Object, error) {
 	conds := []string{}
 	params := []any{}
 	mcpTimeWhere("Timestamp", mcpParseTs(objGetStr(args, "from_ts")), mcpParseTs(objGetStr(args, "to_ts")), &conds, &params)
@@ -134,21 +169,23 @@ func (s *server) mcpQueryOtelLogs(args *jsonenc.Object) *jsonenc.Object {
 		conds = append(conds, "Body ILIKE ?")
 		params = append(params, "%"+search+"%")
 	}
-	limit := mcpClamp(objGetStr(args, "limit"), 1, 500, 100)
+	limit := mcpClampArg(args, "limit", 1, 500, 100)
 	rows := []any{}
-	if res, err := s.db.Execute("SELECT toString(Timestamp) AS ts, ServiceName, SeverityText, Body, TraceId, SpanId, LogAttributes "+
-		"FROM otel_logs "+mcpWhere(conds)+" ORDER BY Timestamp DESC LIMIT "+strconv.Itoa(limit), params...); err == nil {
-		for _, m := range rowMaps(res) {
-			rows = append(rows, jsonenc.NewObject().Set("ts", cStr(m, "ts")).Set("service", cStr(m, "ServiceName")).
-				Set("severity", cStr(m, "SeverityText")).Set("body", cStr(m, "Body")).
-				Set("trace_id", cStr(m, "TraceId")).Set("span_id", cStr(m, "SpanId")).
-				Set("attributes", mcpNormalizeMap(m["LogAttributes"])))
-		}
+	res, err := s.db.Execute("SELECT toString(Timestamp) AS ts, ServiceName, SeverityText, Body, TraceId, SpanId, LogAttributes "+
+		"FROM otel_logs "+mcpWhere(conds)+" ORDER BY Timestamp DESC LIMIT "+strconv.Itoa(limit), params...)
+	if err != nil {
+		return nil, err
 	}
-	return jsonenc.NewObject().Set("count", len(rows)).Set("rows", rows)
+	for _, m := range rowMaps(res) {
+		rows = append(rows, jsonenc.NewObject().Set("ts", cStr(m, "ts")).Set("service", cStr(m, "ServiceName")).
+			Set("severity", cStr(m, "SeverityText")).Set("body", cStr(m, "Body")).
+			Set("trace_id", cStr(m, "TraceId")).Set("span_id", cStr(m, "SpanId")).
+			Set("attributes", mcpNormalizeMap(m["LogAttributes"])))
+	}
+	return jsonenc.NewObject().Set("count", len(rows)).Set("rows", rows), nil
 }
 
-func (s *server) mcpQueryOtelTraces(args *jsonenc.Object) *jsonenc.Object {
+func (s *server) mcpQueryOtelTraces(args *jsonenc.Object) (*jsonenc.Object, error) {
 	conds := []string{}
 	params := []any{}
 	mcpTimeWhere("Timestamp", mcpParseTs(objGetStr(args, "from_ts")), mcpParseTs(objGetStr(args, "to_ts")), &conds, &params)
@@ -156,22 +193,24 @@ func (s *server) mcpQueryOtelTraces(args *jsonenc.Object) *jsonenc.Object {
 	mcpAddEq(&conds, &params, "SpanName = ?", strings.TrimSpace(objGetStr(args, "span_name")))
 	mcpAddEq(&conds, &params, "TraceId = ?", strings.TrimSpace(objGetStr(args, "trace_id")))
 	mcpAddEq(&conds, &params, "StatusCode = ?", strings.TrimSpace(objGetStr(args, "status_code")))
-	limit := mcpClamp(objGetStr(args, "limit"), 1, 500, 100)
+	limit := mcpClampArg(args, "limit", 1, 500, 100)
 	rows := []any{}
-	if res, err := s.db.Execute("SELECT toString(Timestamp) AS ts, ServiceName, TraceId, SpanId, SpanName, SpanKind, "+
+	res, err := s.db.Execute("SELECT toString(Timestamp) AS ts, ServiceName, TraceId, SpanId, SpanName, SpanKind, "+
 		"StatusCode, StatusMessage, toUInt64(Duration / 1000000) AS duration_ms FROM otel_traces "+mcpWhere(conds)+
-		" ORDER BY Timestamp DESC LIMIT "+strconv.Itoa(limit), params...); err == nil {
-		for _, m := range rowMaps(res) {
-			rows = append(rows, jsonenc.NewObject().Set("ts", cStr(m, "ts")).Set("service", cStr(m, "ServiceName")).
-				Set("trace_id", cStr(m, "TraceId")).Set("span_id", cStr(m, "SpanId")).Set("span_name", cStr(m, "SpanName")).
-				Set("span_kind", cStr(m, "SpanKind")).Set("status_code", cStr(m, "StatusCode")).
-				Set("status_message", cStr(m, "StatusMessage")).Set("duration_ms", cInt(m, "duration_ms")))
-		}
+		" ORDER BY Timestamp DESC LIMIT "+strconv.Itoa(limit), params...)
+	if err != nil {
+		return nil, err
 	}
-	return jsonenc.NewObject().Set("count", len(rows)).Set("rows", rows)
+	for _, m := range rowMaps(res) {
+		rows = append(rows, jsonenc.NewObject().Set("ts", cStr(m, "ts")).Set("service", cStr(m, "ServiceName")).
+			Set("trace_id", cStr(m, "TraceId")).Set("span_id", cStr(m, "SpanId")).Set("span_name", cStr(m, "SpanName")).
+			Set("span_kind", cStr(m, "SpanKind")).Set("status_code", cStr(m, "StatusCode")).
+			Set("status_message", cStr(m, "StatusMessage")).Set("duration_ms", cInt(m, "duration_ms")))
+	}
+	return jsonenc.NewObject().Set("count", len(rows)).Set("rows", rows), nil
 }
 
-func (s *server) mcpQueryMetrics(args *jsonenc.Object) *jsonenc.Object {
+func (s *server) mcpQueryMetrics(args *jsonenc.Object) (*jsonenc.Object, error) {
 	conds := []string{}
 	params := []any{}
 	mcpTimeWhere("MinuteBucket", mcpParseTs(objGetStr(args, "from_ts")), mcpParseTs(objGetStr(args, "to_ts")), &conds, &params)
@@ -182,57 +221,64 @@ func (s *server) mcpQueryMetrics(args *jsonenc.Object) *jsonenc.Object {
 		conds = append(conds, "MetricKind = ?")
 		params = append(params, kind)
 	}
-	limit := mcpClamp(objGetStr(args, "limit"), 1, 1000, 200)
+	limit := mcpClampArg(args, "limit", 1, 1000, 200)
 	rows := []any{}
-	if res, err := s.db.Execute("SELECT toString(MinuteBucket) AS ts, ServiceName, MetricName, MetricKind, Value, SampleCount "+
-		"FROM v_otel_metrics_1m "+mcpWhere(conds)+" ORDER BY MinuteBucket DESC LIMIT "+strconv.Itoa(limit), params...); err == nil {
-		for _, m := range rowMaps(res) {
-			rows = append(rows, jsonenc.NewObject().Set("ts", cStr(m, "ts")).Set("service", cStr(m, "ServiceName")).
-				Set("metric_name", cStr(m, "MetricName")).Set("metric_kind", cStr(m, "MetricKind")).
-				Set("value", cFloat(m, "Value")).Set("sample_count", cInt(m, "SampleCount")))
-		}
+	res, err := s.db.Execute("SELECT toString(MinuteBucket) AS ts, ServiceName, MetricName, MetricKind, Value, SampleCount "+
+		"FROM v_otel_metrics_1m "+mcpWhere(conds)+" ORDER BY MinuteBucket DESC LIMIT "+strconv.Itoa(limit), params...)
+	if err != nil {
+		return nil, err
 	}
-	return jsonenc.NewObject().Set("count", len(rows)).Set("rows", rows)
+	for _, m := range rowMaps(res) {
+		rows = append(rows, jsonenc.NewObject().Set("ts", cStr(m, "ts")).Set("service", cStr(m, "ServiceName")).
+			Set("metric_name", cStr(m, "MetricName")).Set("metric_kind", cStr(m, "MetricKind")).
+			Set("value", cFloat(m, "Value")).Set("sample_count", cInt(m, "SampleCount")))
+	}
+	return jsonenc.NewObject().Set("count", len(rows)).Set("rows", rows), nil
 }
 
 var mcpRawMetricTables = map[string]string{"gauge": "otel_metrics_gauge", "sum": "otel_metrics_sum", "histogram": "otel_metrics_histogram"}
 
-func (s *server) mcpQueryMetricsRaw(args *jsonenc.Object) *jsonenc.Object {
+func (s *server) mcpQueryMetricsRaw(args *jsonenc.Object) (*jsonenc.Object, error) {
 	kind := strings.ToLower(strings.TrimSpace(objGetStr(args, "metric_kind")))
 	table, ok := mcpRawMetricTables[kind]
 	if !ok {
-		return jsonenc.NewObject().Set("error", "metric_kind must be one of: gauge, sum, histogram")
+		// mcp.py returns this as a normal dict result (not an exception) -> no -32603.
+		return jsonenc.NewObject().Set("error", "metric_kind must be one of: gauge, sum, histogram"), nil
 	}
 	conds := []string{}
 	params := []any{}
 	mcpTimeWhere("TimeUnix", mcpParseTs(objGetStr(args, "from_ts")), mcpParseTs(objGetStr(args, "to_ts")), &conds, &params)
 	mcpAddEq(&conds, &params, "ServiceName = ?", strings.TrimSpace(objGetStr(args, "service")))
 	mcpAddEq(&conds, &params, "MetricName = ?", strings.TrimSpace(objGetStr(args, "metric_name")))
-	limit := mcpClamp(objGetStr(args, "limit"), 1, 500, 100)
+	limit := mcpClampArg(args, "limit", 1, 500, 100)
 	rows := []any{}
 	if kind == "histogram" {
-		if res, err := s.db.Execute("SELECT toString(TimeUnix) AS ts, ServiceName, MetricName, MetricUnit, Attributes, Count, Sum "+
-			"FROM "+table+" "+mcpWhere(conds)+" ORDER BY TimeUnix DESC LIMIT "+strconv.Itoa(limit), params...); err == nil {
-			for _, m := range rowMaps(res) {
-				rows = append(rows, jsonenc.NewObject().Set("ts", cStr(m, "ts")).Set("service", cStr(m, "ServiceName")).
-					Set("metric_name", cStr(m, "MetricName")).Set("metric_unit", cStr(m, "MetricUnit")).
-					Set("attributes", mcpNormalizeMap(m["Attributes"])).Set("count", cInt(m, "Count")).Set("sum", cFloat(m, "Sum")))
-			}
+		res, err := s.db.Execute("SELECT toString(TimeUnix) AS ts, ServiceName, MetricName, MetricUnit, Attributes, Count, Sum "+
+			"FROM "+table+" "+mcpWhere(conds)+" ORDER BY TimeUnix DESC LIMIT "+strconv.Itoa(limit), params...)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range rowMaps(res) {
+			rows = append(rows, jsonenc.NewObject().Set("ts", cStr(m, "ts")).Set("service", cStr(m, "ServiceName")).
+				Set("metric_name", cStr(m, "MetricName")).Set("metric_unit", cStr(m, "MetricUnit")).
+				Set("attributes", mcpNormalizeMap(m["Attributes"])).Set("count", cInt(m, "Count")).Set("sum", cFloat(m, "Sum")))
 		}
 	} else {
-		if res, err := s.db.Execute("SELECT toString(TimeUnix) AS ts, ServiceName, MetricName, MetricUnit, Attributes, Value "+
-			"FROM "+table+" "+mcpWhere(conds)+" ORDER BY TimeUnix DESC LIMIT "+strconv.Itoa(limit), params...); err == nil {
-			for _, m := range rowMaps(res) {
-				rows = append(rows, jsonenc.NewObject().Set("ts", cStr(m, "ts")).Set("service", cStr(m, "ServiceName")).
-					Set("metric_name", cStr(m, "MetricName")).Set("metric_unit", cStr(m, "MetricUnit")).
-					Set("attributes", mcpNormalizeMap(m["Attributes"])).Set("value", cFloat(m, "Value")))
-			}
+		res, err := s.db.Execute("SELECT toString(TimeUnix) AS ts, ServiceName, MetricName, MetricUnit, Attributes, Value "+
+			"FROM "+table+" "+mcpWhere(conds)+" ORDER BY TimeUnix DESC LIMIT "+strconv.Itoa(limit), params...)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range rowMaps(res) {
+			rows = append(rows, jsonenc.NewObject().Set("ts", cStr(m, "ts")).Set("service", cStr(m, "ServiceName")).
+				Set("metric_name", cStr(m, "MetricName")).Set("metric_unit", cStr(m, "MetricUnit")).
+				Set("attributes", mcpNormalizeMap(m["Attributes"])).Set("value", cFloat(m, "Value")))
 		}
 	}
-	return jsonenc.NewObject().Set("count", len(rows)).Set("rows", rows)
+	return jsonenc.NewObject().Set("count", len(rows)).Set("rows", rows), nil
 }
 
-func (s *server) mcpGetMetricNames(args *jsonenc.Object) *jsonenc.Object {
+func (s *server) mcpGetMetricNames(args *jsonenc.Object) (*jsonenc.Object, error) {
 	where := ""
 	params := []any{}
 	if service := strings.TrimSpace(objGetStr(args, "service")); service != "" {
@@ -244,34 +290,38 @@ func (s *server) mcpGetMetricNames(args *jsonenc.Object) *jsonenc.Object {
 		"UNION ALL SELECT MetricName, ServiceName, max(toString(TimeUnixMs)) AS last_seen FROM otel_metrics_histogram " + where + " GROUP BY MetricName, ServiceName " +
 		"ORDER BY MetricName, ServiceName"
 	metrics := []any{}
-	if res, err := s.db.Execute(sql, params...); err == nil {
-		for _, m := range rowMaps(res) {
-			metrics = append(metrics, jsonenc.NewObject().Set("metric_name", cStr(m, "MetricName")).
-				Set("service", cStr(m, "ServiceName")).Set("last_seen", cStr(m, "last_seen")))
-		}
+	res, err := s.db.Execute(sql, params...)
+	if err != nil {
+		return nil, err
 	}
-	return jsonenc.NewObject().Set("count", len(metrics)).Set("metrics", metrics)
+	for _, m := range rowMaps(res) {
+		metrics = append(metrics, jsonenc.NewObject().Set("metric_name", cStr(m, "MetricName")).
+			Set("service", cStr(m, "ServiceName")).Set("last_seen", cStr(m, "last_seen")))
+	}
+	return jsonenc.NewObject().Set("count", len(metrics)).Set("metrics", metrics), nil
 }
 
-func (s *server) mcpGetAnomalyRules(_ *jsonenc.Object) *jsonenc.Object {
+func (s *server) mcpGetAnomalyRules(_ *jsonenc.Object) (*jsonenc.Object, error) {
 	rules := []any{}
-	if res, err := s.db.Execute("SELECT Id, Name, RuleType, SignalSource, SignalName, ServiceName, Comparator, " +
-		"WarningThreshold, CriticalThreshold FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 ORDER BY SignalSource, SignalName"); err == nil {
-		for _, m := range rowMaps(res) {
-			rules = append(rules, jsonenc.NewObject().Set("id", cStr(m, "Id")).Set("name", cStr(m, "Name")).
-				Set("rule_type", cStr(m, "RuleType")).Set("signal_source", cStr(m, "SignalSource")).
-				Set("signal_name", cStr(m, "SignalName")).Set("service", cStr(m, "ServiceName")).
-				Set("comparator", cStr(m, "Comparator")).Set("warning_threshold", cFloat(m, "WarningThreshold")).
-				Set("critical_threshold", cFloat(m, "CriticalThreshold")))
-		}
+	res, err := s.db.Execute("SELECT Id, Name, RuleType, SignalSource, SignalName, ServiceName, Comparator, " +
+		"WarningThreshold, CriticalThreshold FROM sobs_anomaly_rules FINAL WHERE IsDeleted = 0 ORDER BY SignalSource, SignalName")
+	if err != nil {
+		return nil, err
 	}
-	return jsonenc.NewObject().Set("count", len(rules)).Set("rules", rules)
+	for _, m := range rowMaps(res) {
+		rules = append(rules, jsonenc.NewObject().Set("id", cStr(m, "Id")).Set("name", cStr(m, "Name")).
+			Set("rule_type", cStr(m, "RuleType")).Set("signal_source", cStr(m, "SignalSource")).
+			Set("signal_name", cStr(m, "SignalName")).Set("service", cStr(m, "ServiceName")).
+			Set("comparator", cStr(m, "Comparator")).Set("warning_threshold", cFloat(m, "WarningThreshold")).
+			Set("critical_threshold", cFloat(m, "CriticalThreshold")))
+	}
+	return jsonenc.NewObject().Set("count", len(rules)).Set("rules", rules), nil
 }
 
-func (s *server) mcpGetRecentErrors(args *jsonenc.Object) *jsonenc.Object {
+func (s *server) mcpGetRecentErrors(args *jsonenc.Object) (*jsonenc.Object, error) {
 	service := strings.TrimSpace(objGetStr(args, "service"))
 	fromTs, toTs := mcpParseTs(objGetStr(args, "from_ts")), mcpParseTs(objGetStr(args, "to_ts"))
-	limit := mcpClamp(objGetStr(args, "limit"), 1, 200, 50)
+	limit := mcpClampArg(args, "limit", 1, 200, 50)
 	half := limit / 2
 	if half == 0 {
 		half = 1
@@ -287,17 +337,21 @@ func (s *server) mcpGetRecentErrors(args *jsonenc.Object) *jsonenc.Object {
 	traceConds = append(traceConds, "StatusCode = 'STATUS_CODE_ERROR'")
 	mcpAddEq(&traceConds, &traceParams, "ServiceName = ?", service)
 	out := []map[string]any{}
-	if res, err := s.db.Execute("SELECT toString(Timestamp) AS ts, ServiceName, 'log' AS source, SeverityText AS level_or_status, "+
-		"Body AS message, TraceId FROM otel_logs WHERE "+strings.Join(logConds, " AND ")+" ORDER BY Timestamp DESC LIMIT "+strconv.Itoa(half), logParams...); err == nil {
-		for _, m := range rowMaps(res) {
-			out = append(out, m)
-		}
+	logRes, err := s.db.Execute("SELECT toString(Timestamp) AS ts, ServiceName, 'log' AS source, SeverityText AS level_or_status, "+
+		"Body AS message, TraceId FROM otel_logs WHERE "+strings.Join(logConds, " AND ")+" ORDER BY Timestamp DESC LIMIT "+strconv.Itoa(half), logParams...)
+	if err != nil {
+		return nil, err
 	}
-	if res, err := s.db.Execute("SELECT toString(Timestamp) AS ts, ServiceName, 'trace' AS source, StatusCode AS level_or_status, "+
-		"SpanName AS message, TraceId FROM otel_traces WHERE "+strings.Join(traceConds, " AND ")+" ORDER BY Timestamp DESC LIMIT "+strconv.Itoa(half), traceParams...); err == nil {
-		for _, m := range rowMaps(res) {
-			out = append(out, m)
-		}
+	for _, m := range rowMaps(logRes) {
+		out = append(out, m)
+	}
+	traceRes, err := s.db.Execute("SELECT toString(Timestamp) AS ts, ServiceName, 'trace' AS source, StatusCode AS level_or_status, "+
+		"SpanName AS message, TraceId FROM otel_traces WHERE "+strings.Join(traceConds, " AND ")+" ORDER BY Timestamp DESC LIMIT "+strconv.Itoa(half), traceParams...)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range rowMaps(traceRes) {
+		out = append(out, m)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return cStr(out[i], "ts") > cStr(out[j], "ts") })
 	errs := []any{}
@@ -306,7 +360,7 @@ func (s *server) mcpGetRecentErrors(args *jsonenc.Object) *jsonenc.Object {
 			Set("source", cStr(m, "source")).Set("level_or_status", cStr(m, "level_or_status")).
 			Set("message", cStr(m, "message")).Set("trace_id", cStr(m, "TraceId")))
 	}
-	return jsonenc.NewObject().Set("count", len(errs)).Set("errors", errs)
+	return jsonenc.NewObject().Set("count", len(errs)).Set("errors", errs), nil
 }
 
 func mcpAddEq(conds *[]string, params *[]any, clause, value string) {

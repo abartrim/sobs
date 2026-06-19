@@ -103,8 +103,10 @@ func (s *server) handleApiOnboardingCreateIssues(w http.ResponseWriter, r *http.
 		body := buildOnboardingIssueBody("otel", owner, repo, hasGithubActions)
 		res := s.createOrUpdateOnboardingIssue(githubToken, githubRepo,
 			"[Sobs] OTEL & RUM telemetry audit for "+repo, body, []string{"sobs-onboarding", "observability"})
+		// AgentAction is onboarding_observability for the OTEL audit issue (app.py 33927:
+		// issue_type="observability"), not onboarding_otel.
 		results.Set("otel_issue", s.buildOnboardingIssueResult(res, assignCopilot, githubToken, githubRepo,
-			"otel", repo, "[Sobs] OTEL & RUM telemetry audit for "+repo))
+			"observability", repo, "[Sobs] OTEL & RUM telemetry audit for "+repo))
 	}
 	writeJSON(w, http.StatusOK, results)
 }
@@ -121,7 +123,8 @@ func (s *server) buildOnboardingIssueResult(res map[string]any, assignCopilot bo
 	issueNote, _ := res["note"].(string)
 	copilotStatus, copilotReason, copilotAt := "not_requested", "", 0
 	if assignCopilot && issueNumber != 0 {
-		copilotStatus, copilotReason, copilotAt = s.assignIssueToCopilot(token, githubRepo, issueNumber)
+		// Onboarding assigns without base_branch / custom_instructions (app.py 33852, 33903).
+		copilotStatus, copilotReason, copilotAt = s.assignIssueToCopilot(token, githubRepo, issueNumber, "", "")
 	}
 	if issueStatus == "created" || issueStatus == "updated" {
 		title, _ := res["issue_title"].(string)
@@ -156,7 +159,8 @@ func (s *server) createOrUpdateOnboardingIssue(token, githubRepo, title, body st
 			}
 		}
 	}
-	created := s.createGithubIssueRecord(token, githubRepo, title, body, labels)
+	// Onboarding issues are created with mask_output_enabled=False (app.py 33063-33070).
+	created := s.createGithubIssueRecord(token, githubRepo, title, body, labels, false)
 	if _, isErr := created["error"]; isErr {
 		return created
 	}
@@ -166,20 +170,28 @@ func (s *server) createOrUpdateOnboardingIssue(token, githubRepo, title, body st
 }
 
 // createGithubIssueRecord mirrors _create_github_issue_record: POST a new issue, returning its URL.
-func (s *server) createGithubIssueRecord(token, githubRepo, title, body string, labels []string) map[string]any {
+// maskOutput selects whether the title/body are scrubbed before leaving for GitHub: the agent flow
+// threads the trigger-derived mask_output_enabled (default True), while the onboarding wizard passes
+// False (app.py 33069). Masking only affects the outbound bytes (ignored by the parity mock).
+func (s *server) createGithubIssueRecord(token, githubRepo, title, body string, labels []string, maskOutput bool) map[string]any {
 	owner, repo := parseGithubRepoOwnerName(githubRepo)
 	if owner == "" || repo == "" {
 		return map[string]any{}
 	}
-	// Mirror _create_github_issue_record: mask the title/body before they leave for GitHub
-	// (mask_output_enabled defaults true) and default the labels when the caller supplies none.
+	// Mirror _create_github_issue_record: mask the title/body only when mask_output_enabled, and
+	// default the labels when the caller supplies none.
 	issueLabels := labels
 	if len(issueLabels) == 0 {
 		issueLabels = []string{"sobs-agent", "automated"}
 	}
+	outTitle, outBody := title, body
+	if maskOutput {
+		outTitle = s.maskStringForOutput(title)
+		outBody = s.maskStringForOutput(body)
+	}
 	payload := jsonenc.NewObject().
-		Set("title", s.maskStringForOutput(title)).
-		Set("body", s.maskStringForOutput(body)).
+		Set("title", outTitle).
+		Set("body", outBody).
 		Set("labels", labelsToAny(issueLabels))
 	resp, err := s.upstreamRequest("POST", "https://api.github.com/repos/"+owner+"/"+repo+"/issues",
 		jsonenc.Encode(payload, dumpsDefault), githubAPIHeaders(token, true, nil))
@@ -278,26 +290,59 @@ func extractIssueAssigneeLogins(o *jsonenc.Object) []string {
 	return out
 }
 
-// assignIssueToCopilot mirrors _assign_issue_to_copilot at a high level: attempt the assignment via
-// GitHub (a body-ignoring mock under parity). Returns (status, reason, requested_at).
-func (s *server) assignIssueToCopilot(token, githubRepo string, issueNumber int) (string, string, int) {
+// assignIssueToCopilot mirrors _assign_issue_to_copilot in full: validate inputs, probe the repo for
+// Copilot-assignment support, POST the assignee + agent_assignment (base_branch / custom_instructions
+// optional), then inspect the response assignees. Returns (status, reason, requested_at_ms) — the
+// timestamp is int(time.time()*1000) on every success AND HTTP-error path, matching the limiter
+// (which compares against CopilotAssignmentRequestedAt in ms).
+func (s *server) assignIssueToCopilot(token, githubRepo string, issueNumber int, baseBranch, customInstructions string) (string, string, int) {
+	if token == "" || githubRepo == "" || issueNumber <= 0 {
+		return "blocked", "missing GitHub token, repo, or issue number", 0
+	}
+	if !s.githubRepoSupportsCopilot(token, githubRepo) {
+		return "blocked", "Copilot cloud agent is not enabled for the target repository", 0
+	}
 	owner, repo := parseGithubRepoOwnerName(githubRepo)
 	if owner == "" || repo == "" {
-		return "failed", "invalid repository", 0
+		return "blocked", "invalid GitHub repository target", 0
 	}
-	// Mirror _assign_issue_to_copilot's request: assign the Copilot SWE agent with the
-	// agent-assignment target. (The full Python path also gates on a copilot-support probe and
-	// threads base_branch/custom_instructions; this remains the high-level assignment.)
+
+	agentAssignment := jsonenc.NewObject().Set("target_repo", owner+"/"+repo)
+	if baseBranch != "" {
+		agentAssignment.Set("base_branch", baseBranch)
+	}
+	if customInstructions != "" {
+		agentAssignment.Set("custom_instructions", truncRunes(customInstructions, 4000))
+	}
 	payload := jsonenc.NewObject().
 		Set("assignees", []any{githubCopilotAssignee}).
-		Set("agent_assignment", jsonenc.NewObject().Set("target_repo", owner+"/"+repo))
+		Set("agent_assignment", agentAssignment)
+
+	requestedAt := int(nowUTC().UnixMilli())
 	resp, err := s.upstreamRequest("POST",
 		"https://api.github.com/repos/"+owner+"/"+repo+"/issues/"+itoaInt(issueNumber)+"/assignees",
 		jsonenc.Encode(payload, dumpsDefault), githubAPIHeaders(token, true, nil))
-	if err != nil || resp.Status >= 300 {
-		return "failed", "assignment request failed", 0
+	if err != nil {
+		return "failed", err.Error(), requestedAt
 	}
-	return "requested", "", int(nowUTC().Unix())
+	if resp.Status >= 300 {
+		// httpx raise_for_status -> detail = exc.response.text[:500].
+		detail := truncRunes(resp.RawContent, 500)
+		if detail == "" {
+			detail = "Copilot issue assignment failed"
+		}
+		return "failed", detail, requestedAt
+	}
+	assignees := map[string]bool{}
+	if o, ok := resp.Body.(*jsonenc.Object); ok {
+		for _, login := range extractIssueAssigneeLogins(o) {
+			assignees[strings.ToLower(strings.TrimSpace(login))] = true
+		}
+	}
+	if !assignees[strings.ToLower(githubCopilotAssignee)] && !assignees[githubCopilotSWEAgentLogin] {
+		return "requested", "Copilot assignment request accepted; GitHub assignee visibility may lag briefly", requestedAt
+	}
+	return "requested", "Copilot assignment requested", requestedAt
 }
 
 // persistOnboardingWorkItem mirrors _persist_onboarding_work_item: record the issue in the work-items

@@ -62,13 +62,25 @@ func (s *server) v1IngestOTLP(w http.ResponseWriter, r *http.Request, resKey, sc
 		}
 		m = parsed
 	} else {
-		if n, ok := otlpRecordCount(body, resKey, scopeKey, recKey); ok && n == 0 {
-			writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", 0))
-			return
+		// app.py _parse_otlp_request (JSON branch): payload = json.loads(body) if body else {};
+		// a json.loads error -> 400 "failed to read request body"; a non-object payload (array /
+		// scalar) -> 400 "failed to parse json body". An empty body parses to {} (valid).
+		if len(body) == 0 {
+			m = map[string]any{}
+		} else {
+			var payload any
+			if json.Unmarshal(body, &payload) != nil {
+				writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().Set("error", "failed to read request body"))
+				return
+			}
+			obj, ok := payload.(map[string]any)
+			if !ok {
+				writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().Set("error", "failed to parse json body"))
+				return
+			}
+			m = obj
 		}
-		if json.Unmarshal(body, &m) != nil {
-			// Malformed/non-object JSON that isn't protobuf: preserve the prior lenient behavior
-			// (the parity corpus never sends an invalid JSON body here).
+		if n, _ := otlpRecordCount(body, resKey, scopeKey, recKey); n == 0 {
 			writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", 0))
 			return
 		}
@@ -122,14 +134,6 @@ func mstr(m map[string]any, key string) string {
 	}
 }
 
-// mint returns m[key] as an int (0 when absent/non-numeric), mirroring int(payload.get(key,0) or 0).
-func mint(m map[string]any, key string) int {
-	if f, ok := m[key].(float64); ok {
-		return int(f)
-	}
-	return 0
-}
-
 // formatPyNumber renders a JSON number like Python's str(): integral floats lose the ".0".
 func formatPyNumber(f float64) string {
 	if f == float64(int64(f)) {
@@ -147,7 +151,7 @@ func (s *server) handleV1Ai(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	m := bodyMap(r)
+	m := bodyMapNumber(r)
 	ts := mstr(m, "timestamp")
 	if ts == "" {
 		ts = nowUTC().Format("2006-01-02T15:04:05.000-07:00")
@@ -159,20 +163,33 @@ func (s *server) handleV1Ai(w http.ResponseWriter, r *http.Request) {
 	}
 	provider := mstr(m, "provider")
 	service := mstr(m, "service")
+	// float(payload.get("duration_ms", 0) or 0): accept numeric strings too.
 	durationMs := 0.0
-	if f, ok := m["duration_ms"].(float64); ok {
-		durationMs = f
+	switch d := m["duration_ms"].(type) {
+	case json.Number:
+		durationMs, _ = strconv.ParseFloat(strings.TrimSpace(string(d)), 64)
+	case float64:
+		durationMs = d
+	case string:
+		durationMs, _ = strconv.ParseFloat(strings.TrimSpace(d), 64)
 	}
+	// _stringify_attrs(span_attrs): the int token counts stringify via str(int) -> "5".
 	attrs := map[string]any{
 		"gen_ai.operation.name":      operation,
 		"gen_ai.provider.name":       provider,
 		"gen_ai.request.model":       model,
-		"gen_ai.usage.input_tokens":  strconv.Itoa(mint(m, "tokens_in")),
-		"gen_ai.usage.output_tokens": strconv.Itoa(mint(m, "tokens_out")),
+		"gen_ai.usage.input_tokens":  strconv.Itoa(rumInt(m, "tokens_in")),
+		"gen_ai.usage.output_tokens": strconv.Itoa(rumInt(m, "tokens_out")),
 	}
-	stringifyInto(attrs, m, "input_messages", "gen_ai.input.messages")
-	stringifyInto(attrs, m, "output_messages", "gen_ai.output.messages")
-	stringifyInto(attrs, m, "system_instructions", "gen_ai.system_instructions")
+	if v, ok := m["input_messages"]; ok && v != nil {
+		attrs["gen_ai.input.messages"] = rumStringifyContentAttr(v)
+	}
+	if v, ok := m["output_messages"]; ok && v != nil {
+		attrs["gen_ai.output.messages"] = rumStringifyContentAttr(v)
+	}
+	if v, ok := m["system_instructions"]; ok && v != nil {
+		attrs["gen_ai.system_instructions"] = rumStringifyContentAttr(v)
+	}
 	if v := mstr(m, "prompt"); v != "" {
 		attrs["sobs.gen_ai.prompt"] = v
 	}
@@ -182,12 +199,17 @@ func (s *server) handleV1Ai(w http.ResponseWriter, r *http.Request) {
 	if v := mstr(m, "error_type"); v != "" {
 		attrs["error.type"] = v
 	}
+	// max(0, int(duration_ms * 1_000_000)) — negative durations clamp to 0.
+	durationNs := int64(durationMs * 1_000_000)
+	if durationNs < 0 {
+		durationNs = 0
+	}
 	row := map[string]any{
 		"Timestamp": ts, "TraceId": mstr(m, "trace_id"), "SpanId": mstr(m, "span_id"),
 		"ParentSpanId": "", "TraceState": "", "SpanName": strings.TrimSpace(operation + " " + model),
 		"SpanKind": "CLIENT", "ServiceName": service, "ResourceAttributes": map[string]any{},
 		"ScopeName": "sobs-ai", "ScopeVersion": "", "SpanAttributes": attrs,
-		"Duration": int64(durationMs * 1_000_000), "StatusCode": "STATUS_CODE_OK", "StatusMessage": "",
+		"Duration": durationNs, "StatusCode": "STATUS_CODE_OK", "StatusMessage": "",
 		"Events": map[string]any{"Timestamp": []any{}, "Name": []any{}, "Attributes": []any{}},
 		"Links":  map[string]any{"TraceId": []any{}, "SpanId": []any{}, "TraceState": []any{}, "Attributes": []any{}},
 	}
@@ -213,8 +235,8 @@ func (s *server) handleV1Ai(w http.ResponseWriter, r *http.Request) {
 		Set("model", model).
 		Set("operation", operation).
 		Set("duration_ms", roundHalfEven(durationMs, 1)).
-		Set("tokens_in", mint(m, "tokens_in")).
-		Set("tokens_out", mint(m, "tokens_out")))
+		Set("tokens_in", rumInt(m, "tokens_in")).
+		Set("tokens_out", rumInt(m, "tokens_out")))
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
 }
 
@@ -227,36 +249,6 @@ func mstrDef(m map[string]any, key, def string) string {
 	return mstr(m, key)
 }
 
-// stringifyAttrMap converts a JSON object value to app.py _stringify_attrs output: a
-// string->string map (scalars via Python str(); other values via compact ensure_ascii JSON).
-func stringifyAttrMap(v any) map[string]any {
-	out := map[string]any{}
-	o, ok := v.(map[string]any)
-	if !ok {
-		return out
-	}
-	for k, val := range o {
-		if val == nil {
-			continue
-		}
-		switch x := val.(type) {
-		case string:
-			out[k] = x
-		case bool:
-			if x {
-				out[k] = "True"
-			} else {
-				out[k] = "False"
-			}
-		case float64:
-			out[k] = formatPyNumber(x)
-		default:
-			out[k] = string(jsonenc.Encode(val, jsonenc.Options{SortKeys: false, EnsureASCII: true, ItemSep: ",", KeySep: ":"}))
-		}
-	}
-	return out
-}
-
 // POST /v1/errors — app.py ingest_errors: build an ERROR otel_logs row from the body and
 // insert it. An empty body yields exception.type "Error", empty message. Returns {"ok": true}.
 func (s *server) handleV1Errors(w http.ResponseWriter, r *http.Request) {
@@ -264,12 +256,13 @@ func (s *server) handleV1Errors(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	m := bodyMap(r)
+	m := bodyMapNumber(r)
 	ts := mstr(m, "timestamp")
 	if ts == "" {
 		ts = nowUTC().Format("2006-01-02T15:04:05.000-07:00")
 	}
-	attrs := stringifyAttrMap(m["attributes"])
+	attrsIn, _ := m["attributes"].(map[string]any)
+	attrs := rumStringifyAttrs(attrsIn)
 	attrs["exception.type"] = mstrDef(m, "type", "Error")
 	attrs["exception.message"] = mstr(m, "message")
 	if v := mstr(m, "stack"); v != "" {
@@ -306,20 +299,6 @@ func (s *server) handleV1Errors(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true))
 }
 
-// stringifyInto copies m[srcKey] into attrs[dstKey] as a string (raw string verbatim, else
-// compact ensure_ascii JSON) — mirroring app.py's gen_ai content-attribute handling.
-func stringifyInto(attrs map[string]any, m map[string]any, srcKey, dstKey string) {
-	v, ok := m[srcKey]
-	if !ok || v == nil {
-		return
-	}
-	if str, isStr := v.(string); isStr {
-		attrs[dstKey] = str
-		return
-	}
-	attrs[dstKey] = string(jsonenc.Encode(v, jsonenc.Options{SortKeys: false, EnsureASCII: true, ItemSep: ",", KeySep: ":"}))
-}
-
 // POST /v1/rum — app.py ingest_rum: each event in the body (a bare event, or {"events":[...]},
 // or a top-level array) becomes a browser-rum hyperdx_sessions row; error/unhandledrejection
 // events also index into otel_logs. An empty body is one default "unknown" INFO event, so the
@@ -330,68 +309,100 @@ func (s *server) handleV1Rum(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body, _ := io.ReadAll(r.Body)
+	// Parse with key order AND int/float literals preserved (decodeOrdered/UseNumber), matching
+	// Python json.loads — so the per-event json.dumps(event, ensure_ascii=False) Body keeps the
+	// original key order and number forms. Objects become *jsonenc.Object; arrays []any.
 	var payload any
-	_ = json.Unmarshal(body, &payload)
+	if len(body) > 0 {
+		payload, _ = parseJSONValue(body)
+	}
 	var events []any
 	switch p := payload.(type) {
 	case []any:
 		events = p
-	case map[string]any:
-		if e, ok := p["events"].([]any); ok {
-			events = e
+	case *jsonenc.Object:
+		if e, ok := p.Get("events"); ok {
+			if arr, isArr := e.([]any); isArr {
+				events = arr
+			} else {
+				events = []any{p}
+			}
 		} else {
 			events = []any{p}
 		}
 	default: // null/absent -> {} -> [{}]
-		events = []any{map[string]any{}}
+		events = []any{jsonenc.NewObject()}
 	}
 	// Optional origin-bound RUM client auth (no-op unless SOBS_RUM_CLIENT_AUTH_MODE is configured).
 	if ok, status, msg := s.verifyRumClientAuth(events, r); !ok {
 		writeJSON(w, status, jsonenc.NewObject().Set("error", msg))
 		return
 	}
-	clientIP := r.RemoteAddr
-	if i := strings.LastIndexByte(clientIP, ':'); i >= 0 {
-		clientIP = clientIP[:i]
+	// app.py: X-Forwarded-For (first hop), else X-Real-IP, else remote_addr.
+	clientIP := strings.TrimSpace(strings.SplitN(r.Header.Get("X-Forwarded-For"), ",", 2)[0])
+	if clientIP == "" {
+		clientIP = strings.TrimSpace(r.Header.Get("X-Real-IP"))
 	}
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		clientIP = strings.TrimSpace(strings.SplitN(xff, ",", 2)[0])
+	if clientIP == "" {
+		clientIP = r.RemoteAddr
+		if i := strings.LastIndexByte(clientIP, ':'); i >= 0 {
+			clientIP = clientIP[:i]
+		}
 	}
-	bodyOpts := jsonenc.Options{SortKeys: false, EnsureASCII: false, ItemSep: ",", KeySep: ":"}
 	now := nowUTC().Format("2006-01-02T15:04:05.000-07:00")
 	sessionRows := []map[string]any{}
 	errorRows := []map[string]any{}
 	for _, ev := range events {
-		e, ok := ev.(map[string]any)
+		eo, ok := ev.(*jsonenc.Object)
 		if !ok {
 			continue
 		}
-		// JS source-map demangling (no-op unless SOBS_SOURCE_MAP_ENABLE); mutates e before the
-		// event body is serialized, mirroring app.py ingest_rum.
-		if s.srcMap != nil && s.srcMap.enable {
-			if st := toStr(e["stack"]); st != "" {
-				e["stack"] = s.srcMap.demangleStack(st)
+		// app.py: event = dict(event); event.pop("clientAuthToken", None) — strip the auth token
+		// before the event is serialized into Body / LogAttributes. Rebuild a new ordered object
+		// (preserving key order) without that key.
+		ebody := jsonenc.NewObject()
+		for _, k := range eo.Keys() {
+			if k == "clientAuthToken" {
+				continue
 			}
-			s.srcMap.remapRumConsoleStacks(e)
+			v, _ := eo.Get(k)
+			ebody.Set(k, v)
 		}
+		// JS source-map demangling (no-op unless SOBS_SOURCE_MAP_ENABLE); mutates the event before
+		// the body is serialized, mirroring app.py ingest_rum.
+		if st := rumStrRaw(objGet(ebody, "stack")); st != "" {
+			ebody.Set("stack", s.srcMap.demangleStack(st))
+		}
+		s.srcMap.remapRumConsoleStacksObj(ebody)
+		// Shallow map of the top-level fields (nested values stay *jsonenc.Object so json.dumps of
+		// a nested object serializes correctly) for the field-reading / attr helpers.
+		e := objShallowMap(ebody)
+		ts := mstrDef(e, "timestamp", now)
+		sessionID := rumStrRaw(e["sessionId"])
 		eventType := mstrDef(e, "type", "unknown")
+		url := rumStrRaw(e["url"])
+		traceID, spanID, traceFlags := extractTraceFields(e)
 		isErr := eventType == "error" || eventType == "unhandledrejection"
 		sevText, sevNum := "INFO", 9
 		if isErr {
 			sevText, sevNum = "ERROR", 17
 		}
-		attrs := stringifyAttrMap(e)
+		attrs := rumStringifyAttrs(e)
+		// Browser context delta posting (compress redundant context) — browser.context.<key> attrs.
+		for k, v := range handleBrowserContextDelta(e) {
+			attrs[k] = v
+		}
 		if clientIP != "" {
 			attrs["client.ip"] = clientIP
 		}
 		sessionRows = append(sessionRows, map[string]any{
-			"Timestamp":    mstrDef(e, "timestamp", now),
-			"TraceId":      strings.ToLower(strings.TrimSpace(mstr(e, "traceId"))),
-			"SpanId":       strings.ToLower(strings.TrimSpace(mstr(e, "spanId"))),
-			"TraceFlags":   0,
+			"Timestamp":    ts,
+			"TraceId":      traceID,
+			"SpanId":       spanID,
+			"TraceFlags":   traceFlags,
 			"SeverityText": sevText, "SeverityNumber": sevNum,
 			"ServiceName":       mstrDef(e, "service", "browser"),
-			"Body":              string(jsonenc.Encode(e, bodyOpts)),
+			"Body":              string(jsonenc.Encode(ebody, jsonenc.Compact)),
 			"ResourceSchemaUrl": "", "ResourceAttributes": map[string]any{},
 			"ScopeSchemaUrl": "", "ScopeName": "browser-rum", "ScopeVersion": "", "ScopeAttributes": map[string]any{},
 			"LogAttributes": attrs, "EventName": eventType,
@@ -399,55 +410,86 @@ func (s *server) handleV1Rum(w http.ResponseWriter, r *http.Request) {
 		if isErr {
 			errAttrs := map[string]any{
 				"exception.type":    mstrDef(e, "errorType", "JSError"),
-				"exception.message": mstr(e, "message"),
-				"url.full":          mstr(e, "url"),
-				"session.id":        mstr(e, "sessionId"),
+				"exception.message": rumStrRaw(e["message"]),
+				"url.full":          url,
+				"session.id":        sessionID,
+			}
+			if st := rumStrRaw(e["stack"]); st != "" {
+				errAttrs["exception.stacktrace"] = st
+			}
+			if src := rumStrRaw(e["errorSource"]); src != "" {
+				errAttrs["error.source"] = src
+			}
+			if page, ok := e["page"].(*jsonenc.Object); ok {
+				if t := rumStrRaw(objGet(page, "title")); t != "" {
+					errAttrs["browser.page.title"] = t
+				}
+				if vp := rumStrRaw(objGet(page, "viewport")); vp != "" {
+					errAttrs["browser.viewport"] = vp
+				}
+			}
+			if artifact, ok := e["artifact"].(*jsonenc.Object); ok {
+				if v := rumStrRaw(objGet(artifact, "type")); v != "" {
+					errAttrs["artifact.type"] = v
+				}
+				if v := rumStrRaw(objGet(artifact, "id")); v != "" {
+					errAttrs["artifact.id"] = v
+				}
+				if v := rumStrRaw(objGet(artifact, "url")); v != "" {
+					errAttrs["artifact.url"] = v
+				}
+			}
+			if replay, ok := e["replay"].(*jsonenc.Object); ok {
+				if v := rumStrRaw(objGet(replay, "id")); v != "" {
+					errAttrs["replay.id"] = v
+				}
+				if v := rumStrRaw(objGet(replay, "url")); v != "" {
+					errAttrs["replay.url"] = v
+				}
 			}
 			errorRows = append(errorRows, map[string]any{
-				"Timestamp": mstrDef(e, "timestamp", now), "TraceId": "", "SpanId": "", "TraceFlags": 0,
-				"SeverityText": "ERROR", "SeverityNumber": 17, "ServiceName": mstrDef(e, "service", "browser"),
-				"Body": mstr(e, "message"), "ResourceSchemaUrl": "", "ResourceAttributes": map[string]any{},
+				"Timestamp": ts, "TraceId": traceID, "SpanId": spanID, "TraceFlags": traceFlags,
+				"SeverityText": "ERROR", "SeverityNumber": 17, "ServiceName": "rum",
+				"Body": rumStrRaw(e["message"]), "ResourceSchemaUrl": "", "ResourceAttributes": map[string]any{},
 				"ScopeSchemaUrl": "", "ScopeName": "browser-rum", "ScopeVersion": "", "ScopeAttributes": map[string]any{},
 				"LogAttributes": errAttrs, "EventName": "exception",
 			})
 		}
 	}
-	if len(sessionRows) > 0 {
-		if err := s.enqueueWrite(func() error {
+	// app.py _op: both inserts + remember + tag-rules run in ONE queued write; any failure -> 500.
+	if err := s.enqueueWrite(func() error {
+		if len(sessionRows) > 0 {
 			if _, e := s.db.InsertJSONEachRow("hyperdx_sessions", sessionRows); e != nil {
 				return e
 			}
-			// app.py ingest_rum applies the active tag rules to the session rows (record_type
-			// "rum", which uses the log record id).
-			if rules := s.loadTagRulesCtx(); len(rules) > 0 {
-				s.applyTagRules("rum", sessionRows, rules)
-			}
-			return nil
-		}); err != nil {
-			if errors.Is(err, errWriteQueueFull) {
-				writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().Set("error", "write queue is full"))
-			} else {
-				s.errorJSON(w, http.StatusInternalServerError, "rum ingest write failed")
-			}
-			return
 		}
-	}
-	if len(errorRows) > 0 {
-		_ = s.enqueueWrite(func() error {
+		if len(errorRows) > 0 {
 			if _, e := s.db.InsertJSONEachRow("otel_logs", errorRows); e != nil {
 				return e
 			}
-			// app.py ingest_rum tracks the error rows' log attr keys and applies tag rules with
-			// record_type "error" (only the otel_logs error rows, not the session rows).
-			s.rememberLogAttrKeys(extractLogAttrMaps(errorRows))
-			if rules := s.loadTagRulesCtx(); len(rules) > 0 {
+		}
+		// app.py: _remember_log_attr_keys(db, _extract_log_attr_maps(error_rows), record_type="log").
+		s.rememberLogAttrKeys(extractLogAttrMaps(errorRows))
+		// app.py applies active tag rules: "rum" to session rows, "error" to error rows.
+		if rules := s.loadTagRulesCtx(); len(rules) > 0 {
+			s.applyTagRules("rum", sessionRows, rules)
+			if len(errorRows) > 0 {
 				s.applyTagRules("error", errorRows, rules)
 			}
-			return nil
-		})
+		}
+		return nil
+	}); err != nil {
+		if errors.Is(err, errWriteQueueFull) {
+			writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().Set("error", "write queue is full"))
+		} else {
+			s.errorJSON(w, http.StatusInternalServerError, "rum ingest write failed")
+		}
+		return
 	}
-	s.tel.recordIngestEvents(len(sessionRows), "rum")
-	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", len(sessionRows)))
+	count := len(sessionRows)
+	s.tel.recordIngestEvents(count, "rum")
+	s.tel.recordIngestBatchSize(count, "rum")
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("accepted", count))
 }
 
 // POST /v1/rum/client-token — app.py issue_rum_client_token: when RUM_CLIENT_AUTH_MODE is unset
@@ -474,7 +516,7 @@ func (s *server) handleV1RumClientToken(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	m := bodyMap(r)
+	m := bodyMapNumber(r)
 	appName := strings.TrimSpace(orDefault(toStr(m["appName"]), toStr(m["app"])))
 	origin := normalizeOrigin(toStr(m["origin"]))
 	if origin == "" {
@@ -484,10 +526,23 @@ func (s *server) handleV1RumClientToken(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().Set("error", "origin is required"))
 		return
 	}
+	// ttl_raw = payload.get("ttlSec", default); int(ttl_raw) — accepts ints, floats, AND numeric
+	// strings ("3600"); a TypeError/ValueError falls back to the configured default.
 	ttlSec := s.rumClient.ttlSec
 	if v, ok := m["ttlSec"]; ok {
-		if f, isNum := v.(float64); isNum {
-			ttlSec = int(f)
+		switch t := v.(type) {
+		case float64:
+			ttlSec = int(t)
+		case json.Number:
+			if i, err := strconv.ParseInt(strings.TrimSpace(string(t)), 10, 64); err == nil {
+				ttlSec = int(i)
+			} else if f, err := strconv.ParseFloat(strings.TrimSpace(string(t)), 64); err == nil {
+				ttlSec = int(f)
+			}
+		case string:
+			if i, err := strconv.ParseInt(strings.TrimSpace(t), 10, 64); err == nil {
+				ttlSec = int(i)
+			}
 		}
 	}
 	ttlSec = clampInt(ttlSec, 30, 24*60*60)

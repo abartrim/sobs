@@ -43,7 +43,7 @@ func (s *server) handleApiDashboardsSpecAiBuild(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	finalSQL, columns, rows, execErr, retryCount := s.validateAndExecuteVannaSQL(sql)
+	finalSQL, columns, rows, execErr, retryCount := s.validateAndExecuteVannaSQLWithRepair(endpoint, question, sql)
 	if execErr != "" || columns == nil {
 		writeJSON(w, http.StatusUnprocessableEntity, jsonenc.NewObject().
 			Set("ok", false).Set("error", orDefault(execErr, "Generated SQL could not be executed.")).Set("sql", finalSQL))
@@ -60,7 +60,10 @@ func (s *server) handleApiDashboardsSpecAiBuild(w http.ResponseWriter, r *http.R
 	namedQueryResults := []any{}
 	if len(columns) > 0 {
 		namedRaw := s.generateNamedQueries(endpoint, question, sql)
-		namedQueryResults = s.executeNamedQueries(namedRaw, 1000)
+		// app.py ai_build routes named queries through _vanna_execute_named_queries(use_repair=True),
+		// i.e. validate_sql allowlist + the EXPLAIN/auto-repair/LLM-repair loop — NOT the dry-run path
+		// that legitimately skips validation. Use the validated variant to close the allowlist bypass.
+		namedQueryResults = s.executeNamedQueriesValidatedAiBuild(endpoint, question, namedRaw)
 		for _, nqv := range namedQueryResults {
 			nq, ok := nqv.(*jsonenc.Object)
 			if !ok || objGetStr(nq, "error") != "" {
@@ -79,7 +82,14 @@ func (s *server) handleApiDashboardsSpecAiBuild(w http.ResponseWriter, r *http.R
 	if len(columns) > 0 {
 		chartSpecJSON, chartError = s.generateChartSpec(endpoint, question, columns, rows, namedQueryResults)
 		if chartSpecJSON != "" {
-			customMappingJSON = "{}"
+			// app.py: inferred = _infer_custom_mapping_from_option(chart_spec_json, columns);
+			// custom_mapping_json = json.dumps(inferred, ensure_ascii=False) if inferred else "{}".
+			if inferred := inferCustomMappingFromOption(chartSpecJSON, columns); inferred != nil {
+				customMappingJSON = string(jsonenc.Encode(inferred,
+					jsonenc.Options{SortKeys: false, EnsureASCII: false, ItemSep: ", ", KeySep: ": "}))
+			} else {
+				customMappingJSON = "{}"
+			}
 		} else {
 			chartSpecJSON = buildFallbackCustomOptionJSON()
 			customMappingJSON = string(jsonenc.Encode(
@@ -115,23 +125,6 @@ func (s *server) handleApiDashboardsSpecAiBuild(w http.ResponseWriter, r *http.R
 		Set("ok", true).Set("spec", spec).Set("sql", sql).Set("retry_count", retryCount).
 		Set("columns", columns).Set("named_queries", namedQueries).
 		Set("named_query_results", namedQueryResults).Set("chart_error", chartError))
-}
-
-// validateAndExecuteVannaSQL mirrors _vanna_validate_and_execute_with_repair for a valid SQL:
-// validate read-only/allowlist (app.py _vanna_run_query -> validate_sql), then execute and return
-// columns/rows. A blocked statement yields the "SQL validation error: …" error the route surfaces
-// as a 422. (The EXPLAIN-fail -> AI repair retry loop is a follow-up; the parity canned SQL is
-// valid, so retry_count stays 0.)
-func (s *server) validateAndExecuteVannaSQL(sql string) (string, []any, []any, string, int) {
-	if vErr := validateSQL(sql); vErr != "" {
-		return sql, nil, nil, "SQL validation error: " + vErr, 0
-	}
-	res, err := s.db.Execute(sql)
-	if err != nil {
-		return sql, nil, nil, publicDashboardQueryError(err), 0
-	}
-	columns, rows := serializeQueryResult(res)
-	return sql, columns, rows, "", 0
 }
 
 // generateNamedQueries mirrors _vanna_generate_named_queries: parse the LLM reply as

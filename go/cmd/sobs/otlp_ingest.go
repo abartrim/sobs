@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"sort"
 	"strconv"
@@ -10,6 +12,43 @@ import (
 
 	"github.com/sobs/sobs/internal/jsonenc"
 )
+
+// otlpHexID normalizes an OTLP id field (trace_id / span_id / parent_span_id) to lowercase hex,
+// mirroring Python's `record.trace_id.hex() if record.trace_id else ""`.
+//
+// In Python the protobuf bytes are hex-encoded directly. In the Go port the parsed map value can
+// arrive in two encodings depending on the ingest path:
+//   - JSON ingest: the id is already a hex string (OTLP/JSON spec encodes id bytes as hex).
+//   - Protobuf-via-protojson: `bytes` fields are emitted as standard base64.
+//
+// expectHexLen is the hex length Python would produce (2x the raw byte count): 32 for a 16-byte
+// trace id, 16 for an 8-byte span/parent id. A non-empty value matching that length and consisting
+// only of hex digits is treated as already-hex (just lowercased); otherwise it is decoded as base64
+// and the raw bytes are hex-encoded. Empty stays empty.
+func otlpHexID(v any, expectHexLen int) string {
+	s := toStr(v)
+	if s == "" {
+		return ""
+	}
+	if len(s) == expectHexLen && isHexStr(s) {
+		return strings.ToLower(s)
+	}
+	if raw, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return hex.EncodeToString(raw)
+	}
+	// Fall back to lowercasing whatever we have (e.g. an unpadded/odd hex string).
+	return strings.ToLower(s)
+}
+
+func isHexStr(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
 
 // jsonDumpsNoEscBytes mirrors json.dumps(value, ensure_ascii=False) (compact, no HTML escaping) for
 // non-scalar OTLP attribute values stored as strings.
@@ -54,6 +93,22 @@ func otlpAnyValue(v any) any {
 		if b, ok := bv.(bool); ok {
 			return b
 		}
+	}
+	if bsv, ok := o["bytesValue"]; ok {
+		// Python: base64.b64encode(bytes(val.bytes_value)).decode("ascii"). protojson emits OTLP
+		// `bytes` fields as base64 strings; decode to raw bytes and re-emit standard base64 so the
+		// output matches Python's b64encode exactly (normalizing any URL-safe/unpadded variant).
+		s := toStr(bsv)
+		if raw, err := base64.StdEncoding.DecodeString(s); err == nil {
+			return base64.StdEncoding.EncodeToString(raw)
+		}
+		if raw, err := base64.RawStdEncoding.DecodeString(s); err == nil {
+			return base64.StdEncoding.EncodeToString(raw)
+		}
+		if raw, err := base64.URLEncoding.DecodeString(s); err == nil {
+			return base64.StdEncoding.EncodeToString(raw)
+		}
+		return s
 	}
 	if av, ok := o["arrayValue"].(map[string]any); ok {
 		vals, _ := av["values"].([]any)
@@ -195,8 +250,10 @@ func (s *server) ingestOTLPLogs(body map[string]any) (int, error) {
 				if !ok {
 					bodyStr = string(jsonDumpsNoEscBytes(bodyVal))
 				}
+				traceID := otlpHexID(m["traceId"], 32)
+				spanID := otlpHexID(m["spanId"], 16)
 				rows = append(rows, map[string]any{
-					"Timestamp": nsToISO(otlpInt(m["timeUnixNano"])), "TraceId": "", "SpanId": "",
+					"Timestamp": nsToISO(otlpInt(m["timeUnixNano"])), "TraceId": traceID, "SpanId": spanID,
 					"TraceFlags": 0, "SeverityText": level, "SeverityNumber": severityNumber(level),
 					"ServiceName": service, "Body": bodyStr, "ResourceSchemaUrl": "",
 					"ResourceAttributes": otlpStringifyAttrs(resAttrs), "ScopeSchemaUrl": "",
@@ -279,8 +336,11 @@ func (s *server) ingestOTLPTraces(body map[string]any) (int, error) {
 				merged := mergeAttrs(resAttrs, scopeAttrs, spanAttrs)
 				ts := nsToISO(startNs)
 				spanName := toStr(m["name"])
+				traceID := otlpHexID(m["traceId"], 32)
+				spanID := otlpHexID(m["spanId"], 16)
+				parentSpanID := otlpHexID(m["parentSpanId"], 16)
 				rows = append(rows, map[string]any{
-					"Timestamp": ts, "TraceId": "", "SpanId": "", "ParentSpanId": "",
+					"Timestamp": ts, "TraceId": traceID, "SpanId": spanID, "ParentSpanId": parentSpanID,
 					"TraceState": "", "SpanName": spanName,
 					"SpanKind": orDefault(toStr(spanAttrs["span.kind"]), "INTERNAL"), "ServiceName": service,
 					"ResourceAttributes": otlpStringifyAttrs(resAttrs), "ScopeName": "", "ScopeVersion": "",
@@ -295,7 +355,7 @@ func (s *server) ingestOTLPTraces(body map[string]any) (int, error) {
 					durVal = 0
 				}
 				tailEvents = append(tailEvents, jsonenc.NewObject().
-					Set("source", "traces").Set("ts", ts).Set("trace_id", "").Set("span_id", "").
+					Set("source", "traces").Set("ts", ts).Set("trace_id", traceID).Set("span_id", spanID).
 					Set("name", spanName).Set("service", service).
 					Set("duration_ms", durVal).Set("status", status))
 				// app.py also broadcasts an "ai" event when the span carries GenAI attributes
@@ -307,7 +367,7 @@ func (s *server) ingestOTLPTraces(body map[string]any) (int, error) {
 				operationName := toStr(merged["gen_ai.operation.name"])
 				if provider != "" || operationName != "" {
 					tailEvents = append(tailEvents, jsonenc.NewObject().
-						Set("source", "ai").Set("ts", ts).Set("trace_id", "").Set("span_id", "").
+						Set("source", "ai").Set("ts", ts).Set("trace_id", traceID).Set("span_id", spanID).
 						Set("service", service).Set("provider", provider).
 						Set("model", toStr(merged["gen_ai.request.model"])).
 						Set("operation", operationName).
@@ -332,7 +392,7 @@ func (s *server) ingestOTLPTraces(body map[string]any) (int, error) {
 						errAttrs["exception.stacktrace"] = stack
 					}
 					errorRows = append(errorRows, map[string]any{
-						"Timestamp": ts, "TraceId": "", "SpanId": "", "TraceFlags": 0,
+						"Timestamp": ts, "TraceId": traceID, "SpanId": spanID, "TraceFlags": 0,
 						"SeverityText": "ERROR", "SeverityNumber": severityNumber("ERROR"),
 						"ServiceName": service, "Body": message, "ResourceSchemaUrl": "",
 						"ResourceAttributes": map[string]any{}, "ScopeSchemaUrl": "",
@@ -409,8 +469,15 @@ func (s *server) ingestOTLPMetrics(body map[string]any) (int, error) {
 				name, desc, unit := toStr(m["name"]), toStr(m["description"]), toStr(m["unit"])
 				base := func(dp map[string]any, value float64) map[string]any {
 					dpAttrs := otlpKVList(asList(dp["attributes"]))
+					// app.py: _ns_to_iso(int(dp.time_unix_nano)) if dp.time_unix_nano else _now_iso().
+					// A zero/absent metric timestamp stamps now(), NOT the 1970 epoch (unlike logs/traces).
+					tsNs := otlpInt(dp["timeUnixNano"])
+					timeUnix := nsToISO(tsNs)
+					if tsNs == 0 {
+						timeUnix = nowISO()
+					}
 					return map[string]any{
-						"TimeUnix": nsToISO(otlpInt(dp["timeUnixNano"])), "ServiceName": service,
+						"TimeUnix": timeUnix, "ServiceName": service,
 						"MetricName": name, "MetricDescription": desc, "MetricUnit": unit,
 						"Attributes": otlpStringifyAttrs(dpAttrs), "Value": value, "Flags": 0,
 						"AttrFingerprint": attrFingerprint(dpAttrs),
@@ -446,6 +513,18 @@ func (s *server) ingestOTLPMetrics(body map[string]any) (int, error) {
 						row["AggregationTemporality"] = temp
 						hist = append(hist, row)
 					}
+				} else {
+					// Unsupported metric type (exponential histogram, summary, or unknown):
+					// app.py appends a minimal gauge-like fallback row at now() with empty attrs and
+					// value 0, counting toward accepted. Built directly (no data point) to mirror the
+					// fallback TypedMetricEvent -> gauge row in _insert_typed_metric_events.
+					emptyAttrs := map[string]any{}
+					gauge = append(gauge, map[string]any{
+						"TimeUnix": nowISO(), "ServiceName": service,
+						"MetricName": name, "MetricDescription": desc, "MetricUnit": unit,
+						"Attributes": otlpStringifyAttrs(emptyAttrs), "Value": 0.0, "Flags": 0,
+						"AttrFingerprint": attrFingerprint(emptyAttrs),
+					})
 				}
 			}
 		}

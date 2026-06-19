@@ -37,7 +37,8 @@ func TestHKDFRFC5869(t *testing.T) {
 
 func TestBuildVapidJWT(t *testing.T) {
 	priv, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	token, err := buildVapidJWT(map[string]any{"aud": "https://push.example.com", "exp": int64(123), "sub": "mailto:x@y"}, priv)
+	token, err := buildVapidJWT(jsonenc.NewObject().
+		Set("aud", "https://push.example.com").Set("exp", int64(123)).Set("sub", "mailto:x@y"), priv)
 	if err != nil {
 		t.Fatal(err)
 	}

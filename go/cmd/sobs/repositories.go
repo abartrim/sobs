@@ -115,8 +115,10 @@ func (s *server) ciPushStatus(appID string) map[string]any {
 	}
 }
 
-// buildRepositoriesApps mirrors the per-app list in app.py view_settings_repositories.
-func (s *server) buildRepositoriesApps() []any {
+// buildRepositoriesApps mirrors the per-app list in app.py view_settings_repositories. ciPushPlain
+// is the per-app one-time plaintext CI-push key popped from the session (empty when no rotation
+// just occurred); each app's ci_push_plain comes from ci_push_plain_by_app.get(app_id, "").
+func (s *server) buildRepositoriesApps(ciPushPlain map[string]string) []any {
 	appRes, err := s.db.Execute("SELECT * FROM sobs_apps FINAL WHERE IsDeleted=0 ORDER BY Name ASC")
 	if err != nil {
 		return []any{}
@@ -159,7 +161,7 @@ func (s *server) buildRepositoriesApps() []any {
 			"repo_url": cStr(row, "RepoUrl"), "repo_owner": owner, "repo_name": repo,
 			"enabled": enabled, "release_count": len(versions), "latest_versions": latestAny,
 			"repo_token_configured": repoTokenConfigured,
-			"ci_push_status":        s.ciPushStatus(id), "ci_push_plain": "",
+			"ci_push_status":        s.ciPushStatus(id), "ci_push_plain": ciPushPlain[id],
 		})
 	}
 	return apps

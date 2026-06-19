@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -131,8 +133,106 @@ func (s *server) handleApiRawSpan(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, jsonenc.NewObject().Set("error", "span not found"))
 		return
 	}
-	// Found-span serialization needs seeded trace data (none on the fixture).
-	writeJSON(w, http.StatusNotFound, jsonenc.NewObject().Set("error", "span not found"))
+	// Found-span serialization (app.py:15724-15764). Empty fixture never reaches here; this is the
+	// populated-data path. attrs/resource_attributes are built as ordered jsonenc Objects so the
+	// recursive output-masking descends into them (a bare Go map would be masked whole).
+	row := rowMaps(res)[0]
+	spanAttrs := mapToDictObject(row["SpanAttributes"])
+	resourceAttrs := mapToDictObject(row["ResourceAttributes"])
+	durationNS := spanInt64(row["Duration"])
+
+	buildPayload := func(attrs, resAttrs *jsonenc.Object) *jsonenc.Object {
+		return jsonenc.NewObject().
+			Set("timestamp", cStr(row, "Timestamp")).
+			Set("trace_id", cStr(row, "TraceId")).
+			Set("span_id", cStr(row, "SpanId")).
+			Set("parent_span_id", cStr(row, "ParentSpanId")).
+			Set("trace_state", cStr(row, "TraceState")).
+			Set("name", cStr(row, "SpanName")).
+			Set("kind", cStr(row, "SpanKind")).
+			Set("service", cStr(row, "ServiceName")).
+			Set("scope_name", cStr(row, "ScopeName")).
+			Set("scope_version", cStr(row, "ScopeVersion")).
+			Set("duration_ns", durationNS).
+			Set("duration_ms", roundHalfEven(float64(durationNS)/1_000_000, 3)).
+			Set("status_code", cStr(row, "StatusCode")).
+			Set("status_message", cStr(row, "StatusMessage")).
+			Set("attributes", attrs).
+			Set("resource_attributes", resAttrs)
+	}
+
+	payload := buildPayload(spanAttrs, resourceAttrs)
+	maskedPayload := s.maskValueForOutput(payload)
+	raw, _ := jsonDumpsIndent2(maskedPayload)
+	truncated := false
+	if len(raw) > rawSpanMaxBytes {
+		truncated = true
+		// Truncate over-long attribute string values to 512 chars + "…" (app.py _ATTR_TRUNCATE).
+		payload = buildPayload(truncateAttrObject(spanAttrs, 512), truncateAttrObject(resourceAttrs, 512))
+		maskedPayload = s.maskValueForOutput(payload)
+		raw, _ = jsonDumpsIndent2(maskedPayload)
+	}
+	// masked_jsonify masks again (idempotent) with mask_sql_fields=True, then sorts keys.
+	writeJSON(w, http.StatusOK, s.maskPayloadForOutput(jsonenc.NewObject().
+		Set("span", maskedPayload).Set("raw", raw).Set("truncated", truncated), true))
+}
+
+// rawSpanMaxBytes mirrors app.py _RAW_SPAN_MAX_BYTES (32 KB display cap on the pretty-printed span).
+const rawSpanMaxBytes = 32 * 1024
+
+// mapToDictObject builds an ordered jsonenc Object from a chdb Map column (a JSON object or string),
+// mirroring dict(_map_to_dict(value)). Go's JSON decode loses key order, so keys are emitted sorted
+// (the same tradeoff orderedFromMap makes); this only affects the populated-span display path.
+func mapToDictObject(v any) *jsonenc.Object {
+	parsed := mapToDict(v)
+	m, ok := parsed.(map[string]any)
+	if !ok {
+		return jsonenc.NewObject()
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	obj := jsonenc.NewObject()
+	for _, k := range keys {
+		obj.Set(k, m[k])
+	}
+	return obj
+}
+
+// truncateAttrObject mirrors app.py's _ATTR_TRUNCATE pass: shorten over-long string values to the
+// first n code points + "…"; non-string values pass through. Key order is preserved.
+func truncateAttrObject(o *jsonenc.Object, n int) *jsonenc.Object {
+	out := jsonenc.NewObject()
+	for _, k := range o.Keys() {
+		v, _ := o.Get(k)
+		if s, ok := v.(string); ok {
+			if r := []rune(s); len(r) > n {
+				out.Set(k, string(r[:n])+"…")
+				continue
+			}
+		}
+		out.Set(k, v)
+	}
+	return out
+}
+
+// spanInt64 mirrors Python int(row[col]) for a chdb numeric cell (UInt64 arrives as a JSON string).
+func spanInt64(v any) int64 {
+	switch x := v.(type) {
+	case float64:
+		return int64(x)
+	case json.Number:
+		if i, err := x.Int64(); err == nil {
+			return i
+		}
+	case string:
+		if i, err := strconv.ParseInt(strings.TrimSpace(x), 10, 64); err == nil {
+			return i
+		}
+	}
+	return 0
 }
 
 // GET /api/table-explorer/table/<name> — app.py api_table_explorer_table: query-page guard,

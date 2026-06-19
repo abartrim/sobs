@@ -17,6 +17,18 @@ type routeMethodSet struct {
 // sets once at startup.
 var routeMethods = buildRouteMethods()
 
+// explicitOptionsRoutes are the exact paths whose Python view explicitly declares
+// methods=["OPTIONS"] (app.py ingest_preflight: /v1/{logs,traces,metrics} + /v1/rum/assets).
+// Werkzeug sets provide_automatic_options=False for these, so OPTIONS is dispatched to the
+// real view (which returns ("", 204) + CORS) instead of the automatic empty-200+Allow. The
+// exact-route guard must therefore let OPTIONS pass through to the handler for these paths.
+var explicitOptionsRoutes = map[string]bool{
+	"/v1/logs":       true,
+	"/v1/traces":     true,
+	"/v1/metrics":    true,
+	"/v1/rum/assets": true,
+}
+
 func buildRouteMethods() map[string]routeMethodSet {
 	m := make(map[string]routeMethodSet, len(rawRouteAllow))
 	for path, allow := range rawRouteAllow {
@@ -30,11 +42,15 @@ func buildRouteMethods() map[string]routeMethodSet {
 }
 
 // route registers h for pattern, wrapping it in a Werkzeug-faithful method guard when pattern
-// is an exact route with a known allowed-method set. The guard reproduces Werkzeug's two
+// is an exact route with a known allowed-method set. The guard reproduces Werkzeug's three
 // automatic behaviors the bare ServeMux lacks: a wrong method yields 405 + sorted Allow + the
-// default error page, and OPTIONS yields an empty 200 + Allow. Declared methods (incl. the
-// auto HEAD where GET is allowed) pass straight through to h, so guarded routes keep their
-// existing behavior for every method the route actually serves.
+// default error page; OPTIONS (when the view did NOT declare it) is auto-answered with an empty
+// 200 + Allow WITHOUT invoking h (provide_automatic_options); and declared methods (incl. the
+// auto HEAD where GET is allowed) pass straight through to h.
+//
+// Routes whose Python view explicitly declares methods=["OPTIONS"] (explicitOptionsRoutes —
+// the v1 ingest preflight paths) keep provide_automatic_options=False: OPTIONS must reach h so
+// its real preflight response runs, so those paths skip the automatic-OPTIONS interception.
 //
 // Subtree patterns (trailing "/") and routes absent from the table register unguarded: the
 // former are prefix sub-routers that dispatch methods per sub-path themselves; the latter are
@@ -48,12 +64,21 @@ func (s *server) route(pattern string, h http.HandlerFunc) {
 		s.mux.HandleFunc(pattern, h)
 		return
 	}
-	g, ok := routeMethods[guardKey(pattern)]
+	key := guardKey(pattern)
+	g, ok := routeMethods[key]
 	if !ok {
 		s.mux.HandleFunc(pattern, h)
 		return
 	}
+	autoOptions := !explicitOptionsRoutes[key]
 	s.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+		// Werkzeug auto-answers OPTIONS itself (200 + Allow, empty body) for routes that did
+		// not declare OPTIONS — the view is never run. Intercept before the membership check
+		// since OPTIONS is in g.methods for every route.
+		if autoOptions && r.Method == http.MethodOptions {
+			writeMethodGuard(w, r, g.allow)
+			return
+		}
 		if g.methods[r.Method] {
 			h(w, r)
 			return

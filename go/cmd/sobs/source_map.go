@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/sobs/sobs/internal/jsonenc"
 )
 
 // JS source-map remapping — a faithful port of app.py's _maybe_demangle_js_stack /
@@ -49,7 +51,9 @@ func (sm *sourceMapper) demangleStack(text string) string {
 	if text == "" || sm == nil || !sm.enable {
 		return text
 	}
-	lines := strings.Split(text, "\n")
+	// app.py iterates text.splitlines() (splits on \r\n, \r, \n; no trailing empty element) and
+	// rejoins with "\n". Match the universal-newline boundaries rather than only "\n".
+	lines := rumSplitlines(text)
 	for i, raw := range lines {
 		m := stackFrameRe.FindStringSubmatch(raw)
 		if m == nil {
@@ -99,6 +103,35 @@ func (sm *sourceMapper) remapRumConsoleStacks(event map[string]any) {
 		}
 		if stack := toStr(entry["stack"]); stack != "" {
 			entry["stack"] = sm.demangleStack(stack)
+		}
+	}
+}
+
+// remapRumConsoleStacksObj is remapRumConsoleStacks for an ordered *jsonenc.Object event (the
+// shape ingest_rum parses RUM bodies into). It remaps breadcrumbs.console[].stack in place via
+// Set, so the mutation is reflected when the event object is serialized to Body.
+func (sm *sourceMapper) remapRumConsoleStacksObj(event *jsonenc.Object) {
+	if sm == nil || !sm.enable || event == nil {
+		return
+	}
+	bcv, _ := event.Get("breadcrumbs")
+	bc, ok := bcv.(*jsonenc.Object)
+	if !ok {
+		return
+	}
+	consoleV, _ := bc.Get("console")
+	entries, ok := consoleV.([]any)
+	if !ok {
+		return
+	}
+	for _, e := range entries {
+		entry, ok := e.(*jsonenc.Object)
+		if !ok {
+			continue
+		}
+		sv, _ := entry.Get("stack")
+		if stack, ok := sv.(string); ok && stack != "" {
+			entry.Set("stack", sm.demangleStack(stack))
 		}
 	}
 }

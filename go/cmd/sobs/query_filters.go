@@ -301,6 +301,22 @@ func unescapeRegexFilterTerm(term string) string {
 
 // parseRegexFilterExpression mirrors _parse_regex_filter_expression: parse `include && !exclude`,
 // validating each term compiles (case-insensitive). Returns (include, exclude, error).
+//
+// First-pass engine LIMITATION (audit finding #7): Python validates each term with the `re` module
+// (`re.compile(token, re.IGNORECASE)`), whereas Go has only RE2 (`regexp.Compile`). RE2 cannot fully
+// replicate Python `re`:
+//   - Patterns Python `re` ACCEPTS but RE2 rejects (backreferences `\1`, lookahead/lookbehind) are
+//     over-rejected here, and the error bytes differ. In Python these would pass the first pass and
+//     be authoritatively rejected by the chDB RE2 second pass (prepareRe2FilterPatterns) — which is
+//     ALSO RE2, so the eventual verdict matches even though this pass's message does not.
+//   - Patterns invalid in BOTH engines (e.g. an unbalanced paren) error here with Go's regexp message
+//     instead of Python `re`'s.
+//
+// This is irreducible without a Python-`re`-compatible engine. The two-pass STRUCTURE (parse-compile
+// then chDB `match(”, ?)`) faithfully mirrors Python, so the dominant case — a valid simple pattern
+// (accepted by both) — and the structural `&&` errors (caught below, engine-independent) are exact;
+// only first-pass error bytes for the exotic-syntax inputs above diverge, none of which the empty
+// golden corpus exercises.
 func parseRegexFilterExpression(raw string) (include, exclude []string, errMsg string) {
 	expression := strings.TrimSpace(raw)
 	if expression == "" {

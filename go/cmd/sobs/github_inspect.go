@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -61,11 +60,8 @@ func decodeGithubContents(payload *jsonenc.Object) []byte {
 	if strings.ToLower(enc) != "base64" {
 		return nil
 	}
-	b, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(content, "\n", ""))
-	if err != nil {
-		return nil
-	}
-	return b
+	// base64.b64decode(content, validate=False): discard ALL non-alphabet chars (\r, spaces, \n…).
+	return decodeBase64Lenient(content)
 }
 
 // githubFileText mirrors app.py _github_file_text.

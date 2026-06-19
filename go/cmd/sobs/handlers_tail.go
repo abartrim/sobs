@@ -106,13 +106,42 @@ func (s *server) handleTail(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// sseEventMatches mirrors the source/service filtering in app.py's _generate loop.
+// sseEventMatches mirrors the source/service filtering in app.py's _generate loop
+// (app.py:24492-24495): `event.get("source") != source` / `event.get("service") != service_filter`,
+// i.e. EXACT comparison against the event's dict values — NOT a substring search of the serialized
+// frame. The old `strings.Contains(eventJSON, ...)` form could match the literal text appearing in
+// any other field (e.g. a log body containing `"source": "logs"`) or fail to match when a value
+// contained characters that altered the serialized form. We parse the event back to its structured
+// form and compare the exact field values, reproducing Python's behavior.
 func sseEventMatches(eventJSON, source, serviceFilter string) bool {
-	if source != "all" && !strings.Contains(eventJSON, `"source": "`+source+`"`) {
-		return false
+	if source == "all" && serviceFilter == "" {
+		return true
 	}
-	if serviceFilter != "" && !strings.Contains(eventJSON, `"service": "`+serviceFilter+`"`) {
-		return false
+	ev := asObject(func() any { v, _ := parseJSONValue([]byte(eventJSON)); return v }())
+	if source != "all" {
+		// event.get("source") != source -> filtered out. A missing/non-string "source" key yields
+		// "" here, which only equals an (impossible) empty source, so it is filtered out — matching
+		// Python where event.get("source") would be None != source.
+		if sseEventField(ev, "source") != source {
+			return false
+		}
+	}
+	if serviceFilter != "" {
+		if sseEventField(ev, "service") != serviceFilter {
+			return false
+		}
 	}
 	return true
+}
+
+// sseEventField returns the event field as the string Python would compare against. The /tail
+// event payloads always carry "source"/"service" as JSON strings, so a non-string (or absent)
+// value compares unequal to any non-empty filter — the same outcome as Python's None != filter.
+func sseEventField(ev *jsonenc.Object, key string) string {
+	if v, ok := ev.Get(key); ok {
+		if str, ok := v.(string); ok {
+			return str
+		}
+	}
+	return ""
 }

@@ -32,17 +32,31 @@ func rumSessionKeyFromAttrs(attrs map[string]any, ts, bodyRaw string) string {
 func buildRumEventItem(m map[string]any) *jsonenc.Object {
 	attrs := mapToDict(cStr(m, "LogAttributes"))
 	bodyRaw := cStr(m, "Body")
-	var data any = jsonenc.NewObject()
+	// data = body_data if isinstance(body_data, dict) else {"value": body_data}; {} on parse error.
+	var data *jsonenc.Object
 	if bodyRaw != "" {
 		if v, err := parseJSONValue([]byte(bodyRaw)); err == nil {
-			if _, isObj := v.(*jsonenc.Object); isObj {
-				data = v
+			if o, isObj := v.(*jsonenc.Object); isObj {
+				data = o
 			} else {
 				data = jsonenc.NewObject().Set("value", v)
 			}
+		} else {
+			data = jsonenc.NewObject()
 		}
+	} else {
+		data = jsonenc.NewObject()
 	}
+	// The row always has TraceId/SpanId/ServiceName columns ("TraceId" in keys is always True),
+	// so use the column values directly (app.py's data.get fallbacks are for raw-dict rows).
 	traceID, spanID, service := cStr(m, "TraceId"), cStr(m, "SpanId"), cStr(m, "ServiceName")
+	// if trace_id and not data.get("traceId"): data["traceId"] = trace_id (same for spanId).
+	if traceID != "" && !truthy(objGet(data, "traceId")) {
+		data.Set("traceId", traceID)
+	}
+	if spanID != "" && !truthy(objGet(data, "spanId")) {
+		data.Set("spanId", spanID)
+	}
 	ts := cStr(m, "Timestamp")
 	attrsMap := map[string]any{}
 	if o, ok := attrs.(*jsonenc.Object); ok {
@@ -55,18 +69,37 @@ func buildRumEventItem(m map[string]any) *jsonenc.Object {
 	if url == "" {
 		url = mapStr(attrsMap, "url.full")
 	}
+	// has_artifact / has_replay: bool(artifact.get("url") or artifact.get("id")), from data.
+	hasArtifact := false
+	if a, ok := objGet(data, "artifact").(*jsonenc.Object); ok {
+		hasArtifact = truthy(objGet(a, "url")) || truthy(objGet(a, "id"))
+	}
+	hasReplay := false
+	if rp, ok := objGet(data, "replay").(*jsonenc.Object); ok {
+		hasReplay = truthy(objGet(rp, "url")) || truthy(objGet(rp, "id"))
+	}
+	sessionKey := rumSessionKeyFromAttrs(attrsMap, ts, bodyRaw)
 	return jsonenc.NewObject().
 		Set("ts", ts).
-		Set("session_key", rumSessionKeyFromAttrs(attrsMap, ts, bodyRaw)).
-		Set("session_id", truncStr(rumSessionKeyFromAttrs(attrsMap, ts, bodyRaw), 8)).
+		Set("session_key", sessionKey).
+		Set("session_id", truncStr(sessionKey, 8)).
 		Set("event_type", cStr(m, "EventName")).
 		Set("url", url).
 		Set("data", data).
 		Set("trace_id", traceID).
 		Set("span_id", spanID).
 		Set("service", service).
-		Set("has_artifact", false).
-		Set("has_replay", false)
+		Set("has_artifact", hasArtifact).
+		Set("has_replay", hasReplay)
+}
+
+// objGet returns o[key] (nil when o is nil or the key is absent).
+func objGet(o *jsonenc.Object, key string) any {
+	if o == nil {
+		return nil
+	}
+	v, _ := o.Get(key)
+	return v
 }
 
 func truncStr(s string, n int) string {
@@ -268,13 +301,13 @@ func (s *server) handleViewRum(w http.ResponseWriter, r *http.Request) {
 	errorSources := s.distinctStrings("SELECT DISTINCT LogAttributes['errorSource'] FROM hyperdx_sessions " +
 		"WHERE LogAttributes['errorSource']!='' ORDER BY LogAttributes['errorSource']")
 
-	// error_stats: by_type/recent/prior/top_* are empty on the fixture (data older than the
-	// now()-windows); the sparkline buckets carry now()-derived timestamps (masked in parity).
-	errorStats := jsonenc.NewObject().
-		Set("total", 0).Set("by_type", jsonenc.NewObject()).
-		Set("trend", "stable").Set("recent", 0).Set("prior", 0).
-		Set("sparkline", s.rumErrorSparkline()).
-		Set("top_messages", []any{}).Set("top_urls", []any{})
+	// Web vitals (anomaly state + sparklines + hotspot) and error trend stats — ported from
+	// app.py view_rum. On the empty fixture every now()-windowed query is empty (vitals -> {},
+	// error_stats -> total 0 / by_type {} / trend "stable" / empty top_* / 180 now()-derived
+	// sparkline buckets), so the rendered page is byte-identical to the prior hardcoded handler;
+	// these only differ once RUM data exists.
+	vitalsSummary, vitalsSparklines, vitalsHotspot := s.rumVitals()
+	errorStats := s.rumErrorStats()
 
 	errorMsg := qError
 	if errorMsg == "" {
@@ -292,7 +325,7 @@ func (s *server) handleViewRum(w http.ResponseWriter, r *http.Request) {
 		"events": events, "session_groups": sessionGroups, "total": total,
 		"limit": limit, "offset": offset, "view_mode": viewMode,
 		"event_type": eventType, "event_types": eventTypes, "error_source": errorSource, "error_sources": errorSources,
-		"vitals_summary": jsonenc.NewObject(), "vitals_sparklines": jsonenc.NewObject(), "vitals_hotspot": jsonenc.NewObject(),
+		"vitals_summary": vitalsSummary, "vitals_sparklines": vitalsSparklines, "vitals_hotspot": vitalsHotspot,
 		"error_stats": errorStats, "sort_by": sortBy, "sort_dir": sortDir,
 		"from_ts": fromVar, "to_ts": toVar, "q": qStr, "error_msg": errorMsg,
 	})
@@ -306,20 +339,214 @@ func rumSessionDetailEventCap() int {
 	return envInt("SOBS_RUM_SESSION_DETAIL_EVENT_CAP", 200)
 }
 
-// rumErrorSparkline runs the WITH FILL bucket query (180 minute buckets, all 0 on the fixture).
-func (s *server) rumErrorSparkline() []any {
-	out := []any{}
-	res, err := s.db.Execute("SELECT mb, cnt FROM (" +
-		"SELECT toStartOfMinute(Timestamp) AS mb, count() AS cnt FROM hyperdx_sessions " +
-		"WHERE EventName IN ('error','unhandledrejection') AND Timestamp >= now() - INTERVAL 180 MINUTE GROUP BY mb) " +
-		"ORDER BY mb WITH FILL FROM toStartOfMinute(now() - INTERVAL 180 MINUTE) TO toStartOfMinute(now()) STEP toIntervalMinute(1)")
+// rumVitals mirrors app.py view_rum's "Web vitals" block: anomaly state (summary), 1-minute
+// sparklines, and the per-metric URL hotspot, all from rule-backed derived signals + raw events.
+// Each sub-query is independent and a failure in any one leaves the corresponding map empty (the
+// Python try/except wraps the whole block; a single error there aborts all three, but on the
+// empty fixture every sub-query simply returns no rows). Returns (summary, sparklines, hotspot).
+func (s *server) rumVitals() (*jsonenc.Object, *jsonenc.Object, *jsonenc.Object) {
+	summary := jsonenc.NewObject()
+	sparklines := jsonenc.NewObject()
+	hotspot := jsonenc.NewObject()
+
+	anomRows, err := s.db.Execute("SELECT SignalName," +
+		" argMax(value, time) AS latest_value," +
+		" argMax(anomaly_state, time) AS latest_state," +
+		" toUInt64(argMax(SampleCount, time)) AS latest_count" +
+		" FROM v_derived_signals_anomaly" +
+		" WHERE SignalSource = 'rum_vitals'" +
+		"   AND time >= now() - INTERVAL 60 MINUTE" +
+		" GROUP BY SignalName")
 	if err != nil {
-		return out
+		return summary, sparklines, hotspot
 	}
-	for _, m := range rowMaps(res) {
-		out = append(out, jsonenc.NewObject().Set("t", cStr(m, "mb")).Set("v", cInt(m, "cnt")))
+	for _, m := range rowMaps(anomRows) {
+		nm := cStr(m, "SignalName")
+		val := cFloat(m, "latest_value")
+		p75 := roundHalfEven(val, 0)
+		if nm == "CLS" {
+			p75 = roundHalfEven(val, 3)
+		}
+		summary.Set(nm, jsonenc.NewObject().
+			Set("p75", p75).
+			Set("count", cInt(m, "latest_count")).
+			Set("anomaly_state", cStr(m, "latest_state")))
 	}
-	return out
+
+	sparkRows, err := s.db.Execute("SELECT SignalName, MinuteBucket, Value, SampleCount" +
+		" FROM v_derived_signals_1m" +
+		" WHERE SignalSource = 'rum_vitals'" +
+		"   AND MinuteBucket >= now() - INTERVAL 60 MINUTE" +
+		" ORDER BY SignalName, MinuteBucket")
+	if err != nil {
+		return summary, sparklines, hotspot
+	}
+	for _, m := range rowMaps(sparkRows) {
+		nm := cStr(m, "SignalName")
+		v := roundHalfEven(cFloat(m, "Value"), 1)
+		if nm == "CLS" {
+			v = roundHalfEven(cFloat(m, "Value"), 3)
+		}
+		lst, _ := sparklines.Get(nm)
+		arr, _ := lst.([]any)
+		arr = append(arr, jsonenc.NewObject().Set("t", cStr(m, "MinuteBucket")).Set("v", v))
+		sparklines.Set(nm, arr)
+	}
+
+	hotspotRows, err := s.db.Execute("SELECT" +
+		"  JSONExtractString(Body, 'name') AS metric," +
+		"  LogAttributes['url'] AS url," +
+		"  count() AS total," +
+		"  countIf(JSONExtractString(Body, 'rating') = 'poor') AS poor_count," +
+		"  round(toFloat64(poor_count) / toFloat64(total), 3) AS poor_rate," +
+		"  round(quantileExact(0.75)(JSONExtractFloat(Body, 'value')), 1) AS p75" +
+		" FROM hyperdx_sessions" +
+		" WHERE EventName = 'web-vital'" +
+		"   AND Timestamp >= now() - INTERVAL 24 HOUR" +
+		" GROUP BY metric, url" +
+		" HAVING total >= 3" +
+		" ORDER BY metric ASC, poor_rate DESC, total DESC" +
+		" LIMIT 60")
+	if err != nil {
+		return summary, sparklines, hotspot
+	}
+	for _, m := range rowMaps(hotspotRows) {
+		metric := cStr(m, "metric")
+		if metric == "" {
+			continue
+		}
+		lst, _ := hotspot.Get(metric)
+		arr, _ := lst.([]any)
+		arr = append(arr, jsonenc.NewObject().
+			Set("url", cStr(m, "url")).
+			Set("total", cInt(m, "total")).
+			Set("poor_count", cInt(m, "poor_count")).
+			Set("poor_rate", cFloat(m, "poor_rate")).
+			Set("p75", cFloat(m, "p75")))
+		hotspot.Set(metric, arr)
+	}
+	// hotspot[metric] = hotspot[metric][:5]
+	for _, metric := range hotspot.Keys() {
+		lst, _ := hotspot.Get(metric)
+		if arr, ok := lst.([]any); ok && len(arr) > 5 {
+			hotspot.Set(metric, arr[:5])
+		}
+	}
+	return summary, sparklines, hotspot
+}
+
+// rumErrorStats mirrors app.py view_rum's "Error trend" block: trend direction, 24h totals by
+// type, a 180-minute WITH FILL sparkline, and top messages/URLs. On the empty fixture every
+// now()-windowed query yields zero/empty results, matching the prior hardcoded handler. Each
+// sub-query failure short-circuits (Python's try/except wraps the whole block).
+func (s *server) rumErrorStats() *jsonenc.Object {
+	stats := jsonenc.NewObject().
+		Set("total", 0).Set("by_type", jsonenc.NewObject()).
+		Set("trend", "stable").Set("recent", 0).Set("prior", 0).
+		Set("sparkline", []any{}).Set("top_messages", []any{}).Set("top_urls", []any{})
+
+	trendRows, err := s.db.Execute("SELECT" +
+		" countIf(Timestamp >= now() - INTERVAL 30 MINUTE) AS recent," +
+		" countIf(" +
+		"   Timestamp >= now() - INTERVAL 60 MINUTE" +
+		"   AND Timestamp < now() - INTERVAL 30 MINUTE" +
+		" ) AS prior" +
+		" FROM hyperdx_sessions" +
+		" WHERE EventName IN ('error', 'unhandledrejection')" +
+		"   AND Timestamp >= now() - INTERVAL 60 MINUTE")
+	if err != nil {
+		return stats
+	}
+	if tr := rowMaps(trendRows); len(tr) > 0 {
+		recent := cInt(tr[0], "recent")
+		prior := cInt(tr[0], "prior")
+		stats.Set("recent", recent)
+		stats.Set("prior", prior)
+		trend := "stable"
+		switch {
+		case prior == 0:
+			if recent != 0 {
+				trend = "up"
+			}
+		case float64(recent) > float64(prior)*1.25:
+			trend = "up"
+		case float64(recent) < float64(prior)*0.75:
+			trend = "down"
+		}
+		stats.Set("trend", trend)
+	}
+
+	typeRows, err := s.db.Execute("SELECT EventName, count() AS cnt" +
+		" FROM hyperdx_sessions" +
+		" WHERE EventName IN ('error', 'unhandledrejection')" +
+		"   AND Timestamp >= now() - INTERVAL 24 HOUR" +
+		" GROUP BY EventName")
+	if err != nil {
+		return stats
+	}
+	total24h := 0
+	byType := jsonenc.NewObject()
+	for _, m := range rowMaps(typeRows) {
+		cnt := cInt(m, "cnt")
+		total24h += cnt
+		byType.Set(cStr(m, "EventName"), cnt)
+	}
+	stats.Set("total", total24h)
+	stats.Set("by_type", byType)
+
+	sparkRows, err := s.db.Execute("SELECT mb, cnt" +
+		" FROM (" +
+		"   SELECT toStartOfMinute(Timestamp) AS mb, count() AS cnt" +
+		"   FROM hyperdx_sessions" +
+		"   WHERE EventName IN ('error', 'unhandledrejection')" +
+		"     AND Timestamp >= now() - INTERVAL 180 MINUTE" +
+		"   GROUP BY mb" +
+		" )" +
+		" ORDER BY mb" +
+		" WITH FILL" +
+		" FROM toStartOfMinute(now() - INTERVAL 180 MINUTE)" +
+		" TO toStartOfMinute(now())" +
+		" STEP toIntervalMinute(1)")
+	if err != nil {
+		return stats
+	}
+	spark := []any{}
+	for _, m := range rowMaps(sparkRows) {
+		spark = append(spark, jsonenc.NewObject().Set("t", cStr(m, "mb")).Set("v", cInt(m, "cnt")))
+	}
+	stats.Set("sparkline", spark)
+
+	msgRows, err := s.db.Execute("SELECT JSONExtractString(Body, 'message') AS message, count() AS cnt" +
+		" FROM hyperdx_sessions" +
+		" WHERE EventName IN ('error', 'unhandledrejection')" +
+		"   AND Timestamp >= now() - INTERVAL 24 HOUR" +
+		"   AND JSONExtractString(Body, 'message') != ''" +
+		" GROUP BY message ORDER BY cnt DESC LIMIT 8")
+	if err != nil {
+		return stats
+	}
+	topMessages := []any{}
+	for _, m := range rowMaps(msgRows) {
+		topMessages = append(topMessages, jsonenc.NewObject().Set("message", cStr(m, "message")).Set("count", cInt(m, "cnt")))
+	}
+	stats.Set("top_messages", topMessages)
+
+	urlRows, err := s.db.Execute("SELECT LogAttributes['url'] AS url, count() AS cnt" +
+		" FROM hyperdx_sessions" +
+		" WHERE EventName IN ('error', 'unhandledrejection')" +
+		"   AND Timestamp >= now() - INTERVAL 24 HOUR" +
+		"   AND LogAttributes['url'] != ''" +
+		" GROUP BY url ORDER BY cnt DESC LIMIT 5")
+	if err != nil {
+		return stats
+	}
+	topUrls := []any{}
+	for _, m := range rowMaps(urlRows) {
+		topUrls = append(topUrls, jsonenc.NewObject().Set("url", cStr(m, "url")).Set("count", cInt(m, "cnt")))
+	}
+	stats.Set("top_urls", topUrls)
+
+	return stats
 }
 
 var _ = json.Marshal

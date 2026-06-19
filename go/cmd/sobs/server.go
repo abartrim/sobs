@@ -482,6 +482,23 @@ func setDefault(h http.Header, k, v string) {
 	}
 }
 
+// behindTLS mirrors app.py _BEHIND_TLS (= _env_flag("SOBS_BEHIND_TLS", False)), read once at
+// startup. When set, every request is treated as a secure context.
+var behindTLS = envFlag("SOBS_BEHIND_TLS", false)
+
+// isSecure ports app.py _request_is_secure_context (app.py:361-367): True when behind TLS, or
+// when the first comma-separated token of X-Forwarded-Proto is "https", or when the request was
+// itself served over TLS (Python's request.scheme == "https" — r.TLS != nil here).
 func isSecure(r *http.Request) bool {
-	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	if behindTLS {
+		return true
+	}
+	forwarded := r.Header.Get("X-Forwarded-Proto")
+	if i := strings.IndexByte(forwarded, ','); i >= 0 {
+		forwarded = forwarded[:i]
+	}
+	if strings.EqualFold(strings.TrimSpace(forwarded), "https") {
+		return true
+	}
+	return r.TLS != nil
 }

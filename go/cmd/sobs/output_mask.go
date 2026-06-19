@@ -43,12 +43,16 @@ func (s *server) activeSensitiveKeys() map[string]bool {
 }
 
 // activeMaskPatterns returns the effective SENSITIVE_PATTERNS compiled (DEFAULT first, then custom),
-// each as a DOTALL regex (Python re.sub(..., flags=re.DOTALL)).
+// each as a DOTALL regex (Python re.sub(..., flags=re.DOTALL)). compileMaskPattern reconciles RE2
+// with Python's `re` engine (\d -> \p{Nd}, \s -> Unicode whitespace; ASCII-identical) so the
+// redaction engine matches app.py on non-ASCII without changing ASCII (empty-corpus) bytes. A
+// custom pattern that uses RE2-unsupported syntax (lookahead/possessive) compiles to nil and is
+// skipped — a documented RE2 limitation, not reachable on the ASCII corpus.
 func (s *server) activeMaskPatterns() []*regexp.Regexp {
 	out := []*regexp.Regexp{}
 	add := func(p string) {
 		if s.effectivePatternActive(p) {
-			if re, err := regexp.Compile("(?s)" + p); err == nil {
+			if re := compileMaskPattern(p); re != nil {
 				out = append(out, re)
 			}
 		}

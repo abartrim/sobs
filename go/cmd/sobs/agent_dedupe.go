@@ -261,7 +261,7 @@ func (s *server) classifyIssueDedupeWithLLM(settings map[string]string, proposed
 // open a fresh issue. The returned map carries every field _run_agent_flow / _persist_github_work_item read.
 func (s *server) chooseGithubIssueOutcome(settings map[string]string, tctx *jsonenc.Object,
 	githubRepo, githubToken string, wantsCopilot bool,
-	analysis, suggestion, issueTitle, issueBody string, allowNewIssue bool) map[string]any {
+	analysis, suggestion, issueTitle, issueBody string, allowNewIssue, maskOutput bool) map[string]any {
 
 	tf := extractAgentTriggerFields(tctx)
 	dedupKey := buildGithubWorkItemDedupKey(githubRepo, tf)
@@ -356,7 +356,7 @@ func (s *server) chooseGithubIssueOutcome(settings map[string]string, tctx *json
 	// New-issue branch (app.py 5555-5646).
 	created := map[string]any{}
 	if allowNewIssue {
-		created = s.createGithubIssueRecord(githubToken, githubRepo, issueTitle, issueBody, []string{"sobs-agent", "automated"})
+		created = s.createGithubIssueRecord(githubToken, githubRepo, issueTitle, issueBody, []string{"sobs-agent", "automated"}, maskOutput)
 	}
 	creationError := toStr(created["error"])
 	dedupDecision := "create_failed"
@@ -417,7 +417,8 @@ func (s *server) chooseGithubIssueOutcome(settings map[string]string, tctx *json
 			outcome["copilot_assignment_reason"] = "active Copilot assignment limit reached"
 			return outcome
 		}
-		status, reason, requestedAt := s.assignIssueToCopilot(githubToken, githubRepo, mapInt(created, "issue_number"))
+		baseBranch, customInstructions := copilotAssignmentParams(settings, suggestion)
+		status, reason, requestedAt := s.assignIssueToCopilot(githubToken, githubRepo, mapInt(created, "issue_number"), baseBranch, customInstructions)
 		outcome["copilot_assignment_status"] = status
 		outcome["copilot_assignment_reason"] = reason
 		outcome["copilot_assignment_requested_at"] = requestedAt
@@ -497,7 +498,8 @@ func (s *server) reuseExistingIssueOutcome(settings map[string]string, githubRep
 		outcome["copilot_assignment_status"] = "blocked"
 		outcome["copilot_assignment_reason"] = "active Copilot assignment limit reached"
 	default:
-		status, reason, requestedAt := s.assignIssueToCopilot(githubToken, githubRepo, issueNumber)
+		baseBranch, customInstructions := copilotAssignmentParams(settings, suggestion)
+		status, reason, requestedAt := s.assignIssueToCopilot(githubToken, githubRepo, issueNumber, baseBranch, customInstructions)
 		outcome["copilot_assignment_status"] = status
 		outcome["copilot_assignment_reason"] = reason
 		outcome["copilot_assignment_requested_at"] = requestedAt

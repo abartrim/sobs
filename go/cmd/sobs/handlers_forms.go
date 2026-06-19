@@ -177,10 +177,14 @@ func (s *server) handleReportsFormSub(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		m := rowMaps(res)[0]
+		// app.py delete_report: _get_report -> _parse_report_filters(FiltersJson) ({} for
+		// empty/invalid/non-dict), then FiltersJson = json.dumps(report["filters"],
+		// ensure_ascii=False) — re-parse + re-serialize, never the raw stored column.
 		row := map[string]any{
 			"Id": id, "Name": cStr(m, "Name"), "Description": cStr(m, "Description"),
-			"PageType": cStr(m, "PageType"), "FiltersJson": cStr(m, "FiltersJson"),
-			"IsDeleted": 1, "Version": fixedVersionMillis(),
+			"PageType":    cStr(m, "PageType"),
+			"FiltersJson": jsonDumpsNoEsc(parseReportFiltersNative(cStr(m, "FiltersJson"))),
+			"IsDeleted":   1, "Version": fixedVersionMillis(),
 		}
 		if _, err := s.insertRowsNormalized("sobs_reports", []map[string]any{row}); err != nil {
 			s.dbError(w, err)
@@ -580,8 +584,9 @@ func (s *server) handleNotifChannelsCreate(w http.ResponseWriter, r *http.Reques
 	flashRedirect(w, "success", fmt.Sprintf("Notification channel '%s' created", name), loc)
 }
 
-// POST /settings/notifications/rules — app.py create_notification_rule (create path; the
-// edit_rule_id path requires an existing rule which the fixture lacks).
+// POST /settings/notifications/rules — app.py create_notification_rule: create OR update-in-place.
+// When edit_rule_id is supplied it reuses the existing rule's Id and preserves Enabled/LastFiredAt
+// (flashing "updated"); otherwise it mints a new rule (flashing "created").
 func (s *server) handleNotifRulesCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -589,6 +594,7 @@ func (s *server) handleNotifRulesCreate(w http.ResponseWriter, r *http.Request) 
 	}
 	_ = r.ParseForm()
 	loc := "/settings/notifications"
+	editRuleID := strings.TrimSpace(r.PostFormValue("edit_rule_id"))
 	name := strings.TrimSpace(r.PostFormValue("name"))
 	logicOp := orDefault(strings.ToLower(strings.TrimSpace(r.PostFormValue("logic_operator"))), "any")
 	severity := orDefault(strings.ToLower(strings.TrimSpace(r.PostFormValue("severity"))), "warning")
@@ -608,7 +614,7 @@ func (s *server) handleNotifRulesCreate(w http.ResponseWriter, r *http.Request) 
 		flashRedirect(w, "warning", "Invalid severity: "+severity, loc)
 		return
 	}
-	conditions, ok := s.buildNotificationConditions(w, r, loc)
+	conditions, ok := s.buildNotificationConditions(w, r, loc, editRuleID)
 	if !ok {
 		return // a validation flash was already written
 	}
@@ -632,17 +638,42 @@ func (s *server) handleNotifRulesCreate(w http.ResponseWriter, r *http.Request) 
 	}
 	// json.dumps(conditions, ensure_ascii=False): default (spaced) separators, insertion order.
 	condJSON := jsonenc.Encode(conditions, dumpsDefault)
+	// Defaults for a fresh rule; the edit_rule_id branch overrides id/enabled/last_fired_at from
+	// the existing row (app.py:26053-26064).
+	enabled := 1
+	lastFiredAt := "1970-01-01 00:00:00.000"
+	ruleID := newUUIDHex()
+	if editRuleID != "" {
+		res, err := s.db.Execute(
+			"SELECT Id, Enabled, LastFiredAt FROM sobs_notification_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1", editRuleID)
+		if err != nil {
+			s.dbError(w, err)
+			return
+		}
+		if len(res.Rows) == 0 {
+			flashRedirect(w, "warning", "Notification rule not found for editing", loc)
+			return
+		}
+		ex := rowMaps(res)[0]
+		ruleID = cStr(ex, "Id")
+		enabled = cInt(ex, "Enabled")
+		lastFiredAt = cStr(ex, "LastFiredAt")
+	}
 	row := map[string]any{
-		"Id": newUUIDHex(), "Name": name, "Enabled": 1, "LogicOperator": logicOp,
+		"Id": ruleID, "Name": name, "Enabled": enabled, "LogicOperator": logicOp,
 		"ConditionsJson": string(condJSON), "ChannelIds": strings.Join(chIDs, ","),
-		"Severity": severity, "CooldownSeconds": cooldown, "LastFiredAt": "1970-01-01 00:00:00.000",
+		"Severity": severity, "CooldownSeconds": cooldown, "LastFiredAt": lastFiredAt,
 		"IsDeleted": 0, "Version": fixedVersionMillis(),
 	}
 	if _, err := s.insertRowsNormalized("sobs_notification_rules", []map[string]any{row}); err != nil {
 		s.dbError(w, err)
 		return
 	}
-	flashRedirect(w, "success", fmt.Sprintf("Notification rule '%s' created", name), loc)
+	verb := "created"
+	if editRuleID != "" {
+		verb = "updated"
+	}
+	flashRedirect(w, "success", fmt.Sprintf("Notification rule '%s' %s", name, verb), loc)
 }
 
 // POST /settings/masking/keys — app.py add_masking_key.
@@ -739,8 +770,10 @@ var notificationTagMatchOps = map[string]bool{"eq": true, "contains": true, "reg
 var notificationTagRecordTypes = map[string]bool{"all": true, "log": true, "trace": true, "error": true, "ai": true, "rum": true}
 
 // buildNotificationConditions mirrors the per-row condition loop in create_notification_rule.
-// Returns (conditions, ok); ok=false means a validation flash was already written.
-func (s *server) buildNotificationConditions(w http.ResponseWriter, r *http.Request, loc string) ([]any, bool) {
+// Returns (conditions, ok); ok=false means a validation flash was already written. editRuleID is
+// the form's edit_rule_id: only the tag-regex error redirect is edit-aware (app.py:26002-26006);
+// every other validation flash redirects to the plain view_notifications location.
+func (s *server) buildNotificationConditions(w http.ResponseWriter, r *http.Request, loc, editRuleID string) ([]any, bool) {
 	get := func(k string) []string { return r.PostForm[k] }
 	at := func(xs []string, i int) string {
 		if i < len(xs) {
@@ -792,7 +825,9 @@ func (s *server) buildNotificationConditions(w http.ResponseWriter, r *http.Requ
 			}
 			if tagOp == "regex" {
 				if _, err := regexp.Compile(tagValue); err != nil {
-					flashRedirect(w, "warning", "Invalid tag regex pattern: "+err.Error(), loc)
+					// app.py:26002-26006: this error redirects to view_notifications carrying
+					// edit_rule=<id> when editing, else the plain location.
+					flashRedirect(w, "warning", "Invalid tag regex pattern: "+err.Error(), s.notifViewRedirect(editRuleID))
 					return nil, false
 				}
 			}
@@ -1047,18 +1082,20 @@ func (s *server) deleteDashboard(w http.ResponseWriter, dashID, name, descriptio
 		s.dbError(w, err)
 		return
 	}
-	res, err := s.db.Execute("SELECT Id, Title, ChartType, Query, OptionsJson, Position "+
-		"FROM sobs_chart_configs FINAL WHERE IsDeleted = 0 AND DashboardId = ?", dashID)
+	// app.py delete_dashboard sources its chart tombstones from _get_charts (rebuilt chart_spec
+	// + re-wrapped {"chart_spec": ...} options_json, ORDER BY Position, Id), not the raw column.
+	charts, err := s.getCharts(dashID)
 	if err != nil {
 		s.dbError(w, err)
 		return
 	}
 	tombstones := []map[string]any{}
-	for _, c := range rowMaps(res) {
+	for _, c := range charts {
+		co := c.(*jsonenc.Object)
 		tombstones = append(tombstones, map[string]any{
-			"Id": cStr(c, "Id"), "DashboardId": dashID, "Title": cStr(c, "Title"),
-			"ChartType": cStr(c, "ChartType"), "Query": cStr(c, "Query"),
-			"OptionsJson": cStr(c, "OptionsJson"), "Position": cInt(c, "Position"),
+			"Id": chartObjStr(co, "id"), "DashboardId": dashID, "Title": chartObjStr(co, "title"),
+			"ChartType": chartObjStr(co, "chart_type"), "Query": chartObjStr(co, "query"),
+			"OptionsJson": chartObjStr(co, "options_json"), "Position": chartObjInt(co, "position"),
 			"IsDeleted": 1, "Version": version,
 		})
 	}
@@ -1113,21 +1150,29 @@ func (s *server) addChart(w http.ResponseWriter, r *http.Request, dashID string)
 // plain-redirect to the dashboard.
 func (s *server) removeChart(w http.ResponseWriter, chartID, dashID string) {
 	loc := "/dashboards/" + dashID
-	res, err := s.db.Execute("SELECT Id, Title, ChartType, Query, OptionsJson, Position "+
-		"FROM sobs_chart_configs FINAL WHERE IsDeleted = 0 AND DashboardId = ? AND Id = ?", dashID, chartID)
+	// app.py remove_chart: charts = _get_charts(...); chart = next(c for c if c["id"]==chart_id),
+	// then tombstone the rebuilt chart values (options_json re-wrapped), not the raw column.
+	charts, err := s.getCharts(dashID)
 	if err != nil {
 		s.dbError(w, err)
 		return
 	}
-	if len(res.Rows) == 0 {
+	var c *jsonenc.Object
+	for _, ch := range charts {
+		co := ch.(*jsonenc.Object)
+		if chartObjStr(co, "id") == chartID {
+			c = co
+			break
+		}
+	}
+	if c == nil {
 		flashRedirect(w, "warning", "Chart not found", loc)
 		return
 	}
-	c := rowMaps(res)[0]
 	row := map[string]any{
-		"Id": chartID, "DashboardId": dashID, "Title": cStr(c, "Title"),
-		"ChartType": cStr(c, "ChartType"), "Query": cStr(c, "Query"),
-		"OptionsJson": cStr(c, "OptionsJson"), "Position": cInt(c, "Position"),
+		"Id": chartID, "DashboardId": dashID, "Title": chartObjStr(c, "title"),
+		"ChartType": chartObjStr(c, "chart_type"), "Query": chartObjStr(c, "query"),
+		"OptionsJson": chartObjStr(c, "options_json"), "Position": chartObjInt(c, "position"),
 		"IsDeleted": 1, "Version": fixedVersionMillis(),
 	}
 	if _, err := s.insertRowsNormalized("sobs_chart_configs", []map[string]any{row}); err != nil {

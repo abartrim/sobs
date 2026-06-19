@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 
 	"github.com/sobs/sobs/internal/jsonenc"
@@ -41,22 +42,59 @@ func (s *server) handleApiNotificationsVapidKeygen(w http.ResponseWriter, r *htt
 		Set("saved_to_db", true))
 }
 
-// mcpAPIKeysCreate — POST /api/mcp/keys (mcp.py mcp_api_create_key): mint "smcp_"+urlsafe(32)
-// with a hex id, return id/key/label/created_at/expires_at. id+key are cryptographically
-// random (masked in parity); created_at is the frozen clock; label defaults to "API Key".
+// mcpAPIKeysCreate — POST /api/mcp/keys (mcp.py mcp_api_create_key): enforce the 20-key cap,
+// mint "smcp_"+token_urlsafe(32) with a hex id, scrypt-hash the raw key, append the descriptor
+// {id,label,key_hash,created_at,expires_at} to the mcp.api_keys keystore, and return
+// id/key/label/created_at/expires_at. id+key are cryptographically random (masked in parity);
+// created_at is the frozen clock; label defaults to "API Key"; expires_at honors the body (null
+// when absent). The descriptor is persisted via _save_mcp_api_keys (json.dumps, ", " separators).
 func (s *server) mcpAPIKeysCreate(w http.ResponseWriter, r *http.Request) {
-	label := bstr(bodyMap(r), "label")
-	if len(label) > 128 {
-		label = label[:128]
+	// _load_mcp_api_keys + the cap check precede body parsing in mcp.py.
+	keys := s.loadMcpAPIKeys()
+	if len(keys) >= mcpAPIKeyMax {
+		writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().
+			Set("ok", false).
+			Set("error", fmt.Sprintf("Maximum of %d keys reached.", mcpAPIKeyMax)))
+		return
+	}
+
+	body := bodyMap(r)
+	// label = str(body.get("label", "")).strip()[:128] or "API Key" — strip, then slice by CODE
+	// POINTS (Python str slicing), then default. Rune-slice so a multibyte label isn't split mid-rune.
+	label := bstr(body, "label")
+	if r := []rune(label); len(r) > 128 {
+		label = string(r[:128])
 	}
 	if label == "" {
 		label = "API Key"
 	}
-	writeJSON(w, http.StatusOK, jsonenc.NewObject().
-		Set("created_at", nowUTC().Format("2006-01-02T15:04:05Z")).
-		Set("expires_at", nil).
-		Set("id", hex.EncodeToString(randBytes(8))).
-		Set("key", "smcp_"+base64.RawURLEncoding.EncodeToString(randBytes(32))).
+	// expires_at = body.get("expires_at") — passed through verbatim (null when absent / JSON null).
+	var expiresAt any = nil
+	if v, ok := body["expires_at"]; ok {
+		expiresAt = toEncodable(v)
+	}
+	// created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z").
+	createdAt := nowUTC().Format("2006-01-02T15:04:05Z")
+
+	rawKey := "smcp_" + base64.RawURLEncoding.EncodeToString(randBytes(32))
+	keyID := hex.EncodeToString(randBytes(8))
+
+	// Append the new descriptor (insertion order id,label,key_hash,created_at,expires_at) and
+	// persist via _save_mcp_api_keys (json.dumps(keys, ensure_ascii=False)).
+	descriptor := jsonenc.NewObject().
+		Set("id", keyID).
 		Set("label", label).
-		Set("ok", true))
+		Set("key_hash", hashMcpKey(rawKey)).
+		Set("created_at", createdAt).
+		Set("expires_at", expiresAt)
+	keys = append(keys, any(descriptor))
+	s.saveMcpAPIKeys(keys)
+
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().
+		Set("ok", true).
+		Set("id", keyID).
+		Set("key", rawKey).
+		Set("label", label).
+		Set("created_at", createdAt).
+		Set("expires_at", expiresAt))
 }

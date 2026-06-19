@@ -386,6 +386,13 @@ func (s *server) checkNotificationRule(rule notifRule, channelsByID map[string]n
 		"IsDeleted":   0, "Version": fixedVersionMillis(),
 	}})
 
+	// Register a raw preservation window around this signal (app.py 25315-25324). Best-effort, like
+	// the Python try/except — a failure must not abort the fired result.
+	func() {
+		defer func() { _ = recover() }()
+		s.registerRawWindow(nowUTC(), "notification", rule.id, "", "", "")
+	}()
+
 	dispatchResults := make([]any, 0, len(results))
 	for _, dr := range results {
 		o := jsonenc.NewObject().Set("channel_id", dr.channelID)
@@ -410,7 +417,17 @@ func (s *server) handleApiNotificationsCheck(w http.ResponseWriter, r *http.Requ
 	results := []any{}
 	fired := 0
 	for _, rule := range s.loadNotificationRulesForCheck() {
-		res := s.checkNotificationRule(rule, channelsByID)
+		// Per-rule isolation (app.py 26352-26359): a failing rule yields a {fired:false,
+		// error:"rule evaluation failed"} result and the loop continues with the next rule.
+		res := func(rule notifRule) (out *jsonenc.Object) {
+			defer func() {
+				if r := recover(); r != nil {
+					out = jsonenc.NewObject().Set("rule_id", rule.id).Set("fired", false).
+						Set("error", "rule evaluation failed")
+				}
+			}()
+			return s.checkNotificationRule(rule, channelsByID)
+		}(rule)
 		results = append(results, res)
 		if v, _ := res.Get("fired"); v == true {
 			fired++

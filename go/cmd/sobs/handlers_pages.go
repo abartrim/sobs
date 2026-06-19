@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -160,48 +161,122 @@ func (s *server) handleMetricsRulesDashboardAuto(w http.ResponseWriter, r *http.
 		http.NotFound(w, r)
 		return
 	}
-	rules := s.loadAnomalyRulesCtx()
-	candidates := []any{}
-	titleCounts := map[string]int{}
-	for _, ri := range rules {
-		rule, _ := ri.(map[string]any)
-		source, signal := mapStr(rule, "source"), mapStr(rule, "signal")
-		if source == "" || signal == "" {
-			continue
-		}
-		name := mapStr(rule, "name")
-		base := name
-		if base == "" {
-			base = source + "/" + signal
-		}
-		idx := titleCounts[base]
-		titleCounts[base]++
-		title := base
-		if idx > 0 {
-			title = base + " (" + strconv.Itoa(idx+1) + ")"
-		}
-		candidates = append(candidates, map[string]any{
-			"title": title, "rule_name": name, "rule_type": mapStr(rule, "rule_type"),
-			"source": source, "signal": signal, "service": mapStr(rule, "service"), "attr_fp": mapStr(rule, "attr_fp"),
-		})
+	_ = r.ParseForm()
+
+	action := strings.ToLower(strings.TrimSpace(orDefault(r.PostFormValue("action"), "preview")))
+	serviceFilter := strings.TrimSpace(r.PostFormValue("service_filter"))
+	hours := coercePositiveInt(r.PostFormValue("hours"), true, 24, 1, 168)
+	maxCharts := coercePositiveInt(r.PostFormValue("max_charts"), true, 12, 1, autoDashboardCreateMax)
+	dashboardName := strings.TrimSpace(r.PostFormValue("dashboard_name"))
+	if dashboardName == "" {
+		dashboardName = defaultAutoDashboardName(serviceFilter)
 	}
-	sort.SliceStable(candidates, func(i, j int) bool {
-		a, b := candidates[i].(map[string]any), candidates[j].(map[string]any)
-		for _, k := range []string{"service", "source", "signal", "title"} {
-			if mapStr(a, k) != mapStr(b, k) {
-				return mapStr(a, k) < mapStr(b, k)
+
+	rules := s.loadAnomalyRulesCtxAny()
+	candidates := buildAutoDashboardChartCandidates(rules, serviceFilter, hours)
+	cappedCandidates := candidates
+	if len(cappedCandidates) > maxCharts {
+		cappedCandidates = cappedCandidates[:maxCharts]
+	}
+
+	createdCount := 0
+	existingCount := 0
+	summary := jsonenc.NewObject().
+		Set("action", action).Set("hours", hours).Set("service_filter", serviceFilter).
+		Set("max_charts", maxCharts).Set("create_cap", autoDashboardCreateMax).
+		Set("dashboard_name", dashboardName).Set("rules_total", len(rules)).
+		Set("candidates", len(candidates)).Set("capped", len(candidates) > maxCharts).
+		Set("created", 0).Set("existing", 0)
+
+	if action == "create" {
+		if len(cappedCandidates) == 0 {
+			flashRedirect(w, "warning", "No matching rules found for dashboard generation",
+				"/metrics/rules?open_panel=auto-dashboard")
+			return
+		}
+
+		scope := "all services"
+		if serviceFilter != "" {
+			scope = serviceFilter
+		}
+		dashboardDescription := fmt.Sprintf(
+			"Auto-generated from active metric rules. window=%dh, scope=%s.", hours, scope)
+		dashboardID, err := s.seedDashboardIfMissing(dashboardName, dashboardDescription)
+		if err != nil {
+			s.dbError(w, err)
+			return
+		}
+
+		existingCharts, err := s.getCharts(dashboardID)
+		if err != nil {
+			s.dbError(w, err)
+			return
+		}
+		existingTitles := map[string]struct{}{}
+		nextPosition := -1
+		for _, ci := range existingCharts {
+			co, _ := ci.(*jsonenc.Object)
+			tv, _ := oGet(co, "title")
+			existingTitles[toStr(tv)] = struct{}{}
+			pv, _ := oGet(co, "position")
+			if p := anyToInt(pv); p > nextPosition {
+				nextPosition = p
 			}
 		}
-		return false
-	})
+		nextPosition++
+		nextVersion := fixedVersionMillis()
+
+		rowsToInsert := []map[string]any{}
+		for idx, cv := range cappedCandidates {
+			c := cv.(map[string]any)
+			title := mapStr(c, "title")
+			if _, dup := existingTitles[title]; dup {
+				existingCount++
+				continue
+			}
+			query := mapStr(c, "query")
+			chartType := mapStr(c, "chart_type")
+			rowsToInsert = append(rowsToInsert, map[string]any{
+				"Id":          newUUIDv4(),
+				"DashboardId": dashboardID,
+				"Title":       title,
+				"ChartType":   chartType,
+				"Query":       query,
+				"OptionsJson": chartSpecOptionsJSON(chartType, query),
+				"Position":    nextPosition + idx,
+				"IsDeleted":   0,
+				"Version":     nextVersion + int64(idx),
+			})
+			existingTitles[title] = struct{}{}
+		}
+
+		if len(rowsToInsert) > 0 {
+			if _, err := s.insertRowsNormalized("sobs_chart_configs", rowsToInsert); err != nil {
+				s.dbError(w, err)
+				return
+			}
+		}
+		createdCount = len(rowsToInsert)
+
+		skippedByMax := len(candidates) - len(cappedCandidates)
+		if skippedByMax < 0 {
+			skippedByMax = 0
+		}
+		capNote := ""
+		if skippedByMax > 0 {
+			capNote = fmt.Sprintf(", skipped %d by selected max (%d)", skippedByMax, maxCharts)
+		}
+		flashRedirect(w, "success", fmt.Sprintf(
+			"Auto dashboard ready: created %d chart(s), skipped %d existing%s.",
+			createdCount, existingCount, capNote),
+			"/dashboards/"+dashboardID)
+		return
+	}
+
 	services, signals, sources := s.listDerivedSignalDimensions()
-	summary := jsonenc.NewObject().
-		Set("action", "preview").Set("hours", 24).Set("service_filter", "").
-		Set("max_charts", 12).Set("create_cap", 24).Set("dashboard_name", "Auto Metric Rules Dashboard").
-		Set("rules_total", len(rules)).Set("candidates", len(candidates)).
-		Set("capped", false).Set("created", 0).Set("existing", 0)
 	s.renderPageFlash(w, "metrics_rules.html", "auto_metrics_rules_dashboard", "info",
-		"Auto-dashboard preview: "+strconv.Itoa(len(candidates))+" candidate chart(s) from "+strconv.Itoa(len(rules))+" rule(s).",
+		fmt.Sprintf("Auto-dashboard preview: %d candidate chart(s) from %d rule(s).",
+			len(candidates), len(rules)),
 		map[string]any{
 			"rules": rules, "services": services, "signals": signals, "sources": sources,
 			"auto_preview": []any{}, "auto_summary": nil,
@@ -477,19 +552,22 @@ func (s *server) handleViewSettings(w http.ResponseWriter, r *http.Request) {
 	cnt := func(table string) int {
 		return s.countRows("SELECT count() AS c FROM " + table + " FINAL WHERE IsDeleted=0")
 	}
-	aiURL, _ := s.appSetting("ai.endpoint_url")
-	aiModel, _ := s.appSetting("ai.model")
+	// app.py view_settings: ai_configured uses _load_all_ai_settings (DB->file-env->env precedence)
+	// so env-only AI config still reports configured.
+	aiSettings := s.loadAllAISettings()
 	kEnabled, _ := s.appSetting("kubernetes.enabled")
 	backup, _ := s.appSetting("data_management.backup_enabled")
 	s.renderPage(w, "settings.html", "view_settings", map[string]any{
-		"tag_rule_count":               cnt("sobs_tag_rules"),
-		"anomaly_rule_count":           cnt("sobs_anomaly_rules"),
-		"agent_rule_count":             cnt("sobs_agent_rules"),
-		"ai_configured":                aiURL != "" && aiModel != "",
-		"notification_channel_count":   cnt("sobs_notification_channels"),
-		"notification_rule_count":      cnt("sobs_notification_rules"),
-		"masking_custom_key_count":     len(s.loadJSONStringListSetting("masking.custom_keys")),
-		"masking_custom_pattern_count": len(s.loadJSONStringListSetting("masking.custom_patterns")),
+		"tag_rule_count":             cnt("sobs_tag_rules"),
+		"anomaly_rule_count":         cnt("sobs_anomaly_rules"),
+		"agent_rule_count":           cnt("sobs_agent_rules"),
+		"ai_configured":              aiSettings["ai.endpoint_url"] != "" && aiSettings["ai.model"] != "",
+		"notification_channel_count": cnt("sobs_notification_channels"),
+		"notification_rule_count":    cnt("sobs_notification_rules"),
+		// app.py view_settings: counts derive from _load_masking_settings (canonical normalized/
+		// validated/deduped lists), not the raw stored JSON.
+		"masking_custom_key_count":     len(s.loadMaskingCustomKeys()),
+		"masking_custom_pattern_count": len(s.loadMaskingCustomPatterns()),
 		"kubernetes_view_enabled":      kEnabled == "1",
 		"backup_enabled":               backup == "1",
 		"query_allowed_tables":         queryAllowedTables,
@@ -791,18 +869,36 @@ func (s *server) createMetricsRule(w http.ResponseWriter, r *http.Request) {
 	flashRedirect(w, "success", "Rule '"+name+"' created", loc)
 }
 
-// GET /settings/notifications — app.py view_notifications. Channels/rules/log empty on the
-// fixture; metric_rules = the 4 seeded anomaly rules; the rest are constants. VAPID is
-// unconfigured -> (nil, nil). signal_sources is an ORDERED object (tojson'd in template).
+// GET /settings/notifications — app.py view_notifications. Channels/rules/log loaded live (empty on
+// the fixture); metric_rules = the seeded anomaly rules; the rest are constants. VAPID is derived
+// from the resolved private key (unconfigured -> nil/nil). signal_sources is an ORDERED object
+// (tojson'd in template). ?edit_rule selects one of the loaded rules.
 func (s *server) handleViewNotifications(w http.ResponseWriter, r *http.Request) {
 	signalSources := jsonenc.NewObject().
 		Set("logs", []any{"log_volume", "error_volume", "error_ratio"}).
 		Set("traces", []any{"trace_volume", "trace_error_ratio", "latency_p95_ms"}).
 		Set("errors", []any{"exception_volume"})
+	rules := s.loadNotificationRules()
+	editRuleID := strings.TrimSpace(r.URL.Query().Get("edit_rule"))
+	var editRule any
+	if editRuleID != "" {
+		for _, rule := range rules {
+			if m, ok := rule.(map[string]any); ok && toStr(m["id"]) == editRuleID {
+				editRule = m
+				break
+			}
+		}
+	}
+	vapidPublicKey, vapidKeySource := s.getVapidPublicKey()
+	var vapidKeyAny, vapidSourceAny any
+	if vapidPublicKey != "" {
+		vapidKeyAny = vapidPublicKey
+		vapidSourceAny = vapidKeySource
+	}
 	s.renderPage(w, "settings_notifications.html", "view_notifications", map[string]any{
-		"channels":            []any{},
-		"rules":               []any{},
-		"notification_log":    []any{},
+		"channels":            s.loadNotificationChannels(),
+		"rules":               rules,
+		"notification_log":    s.loadNotificationLog(50),
 		"channel_types":       []any{"webhook", "slack", "email", "browser_push"},
 		"comparators":         []any{"gt", "lt", "gte", "lte", "eq"},
 		"condition_types":     []any{"signal", "tag"},
@@ -811,9 +907,9 @@ func (s *server) handleViewNotifications(w http.ResponseWriter, r *http.Request)
 		"signal_sources":      signalSources,
 		"tag_match_operators": []any{"eq", "contains", "regex"},
 		"tag_record_types":    []any{"all", "log", "trace", "error", "ai", "rum"},
-		"edit_rule":           nil,
-		"vapid_public_key":    nil,
-		"vapid_key_source":    nil,
+		"edit_rule":           editRule,
+		"vapid_public_key":    vapidKeyAny,
+		"vapid_key_source":    vapidSourceAny,
 		"metric_rules":        s.loadAnomalyRulesCtx(),
 	})
 }
@@ -831,6 +927,9 @@ func (s *server) activePartRows(table string) int {
 func (s *server) handleViewEnrichmentCve(w http.ResponseWriter, r *http.Request) {
 	cveEnabled := s.appSettingBool("enrichment.cve_enabled", true)
 	cveLastScan, _ := s.appSetting("enrichment.cve_last_scan")
+	cveLastBackfillAttempted := s.appSettingIntOrZero("enrichment.cve_last_scan_github_backfill_attempted")
+	cveLastBackfillInserted := s.appSettingIntOrZero("enrichment.cve_last_scan_github_backfill_inserted")
+	cveLastBackfillCap := s.appSettingIntOrZero("enrichment.cve_last_scan_github_backfill_cap")
 	maxRel := 300
 	if raw, ok := s.appSetting("enrichment.github_backfill_max_releases"); ok {
 		if n, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
@@ -948,8 +1047,10 @@ func (s *server) handleViewEnrichmentCve(w http.ResponseWriter, r *http.Request)
 		"cve_enabled":                  cveEnabled,
 		"cve_last_scan":                cveLastScan,
 		"github_backfill_max_releases": maxRel,
-		"cve_last_backfill_attempted":  0, "cve_last_backfill_inserted": 0, "cve_last_backfill_cap": 0,
-		"cve_findings": cveFindings, "ecosystems": ecosystems, "severities": severities,
+		"cve_last_backfill_attempted":  cveLastBackfillAttempted,
+		"cve_last_backfill_inserted":   cveLastBackfillInserted,
+		"cve_last_backfill_cap":        cveLastBackfillCap,
+		"cve_findings":                 cveFindings, "ecosystems": ecosystems, "severities": severities,
 		"severity_filter": severityFilter, "ecosystem_filter": ecosystemFilter,
 		"selected_severities": toAnySlice(selectedSeverities), "selected_ecosystems": toAnySlice(selectedEcosystems),
 		"package_filter": packageFilter, "show_all": showAll,
@@ -1992,13 +2093,168 @@ func jsonObjToMap(o *jsonenc.Object) map[string]any {
 	return out
 }
 
-// GET /metrics/anomaly — app.py view_metrics_anomaly. Empty derived signals.
+// GET /metrics/anomaly — app.py view_metrics_anomaly: parameterized WHERE over
+// v_otel_metrics_anomaly (metric drilldown, no signal/source) or v_derived_signals_anomaly
+// (LIMIT 500, ORDER BY time DESC), row mapping, the derived-signal rule annotation, and the
+// echoed filters/point_state/point_score/related_target.
 func (s *server) handleViewMetricsAnomaly(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	service := strings.TrimSpace(q.Get("service"))
+	metric := strings.TrimSpace(q.Get("metric"))
+	signal := strings.TrimSpace(q.Get("signal"))
+	source := strings.TrimSpace(q.Get("source"))
+	attrFp := strings.TrimSpace(q.Get("attr_fp"))
+	fromTs, toTs, timeError := parseTimeWindowArgs(r)
+
+	pointState := strings.TrimSpace(q.Get("_anomaly_state"))
+	pointScore := strings.TrimSpace(q.Get("_anomaly_score"))
+
+	hours := 24
+	if raw := strings.TrimSpace(q.Get("hours")); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil {
+			hours = v
+			if hours < 1 {
+				hours = 1
+			} else if hours > 168 {
+				hours = 168
+			}
+		}
+	}
+
+	var whereParts []string
+	var params []any
+	if service != "" {
+		whereParts = append(whereParts, "ServiceName = ?")
+		params = append(params, service)
+	}
+	if metric != "" {
+		whereParts = append(whereParts, "MetricName = ?")
+		params = append(params, metric)
+	}
+	if signal != "" {
+		whereParts = append(whereParts, "SignalName = ?")
+		params = append(params, signal)
+	}
+	if source != "" {
+		whereParts = append(whereParts, "SignalSource = ?")
+		params = append(params, source)
+	}
+	if attrFp != "" {
+		whereParts = append(whereParts, "AttrFingerprint = ?")
+		params = append(params, attrFp)
+	}
+
+	if timeError == "" {
+		timeConds, timeParams := timeWindowConditions("time", fromTs, toTs)
+		whereParts = append(whereParts, timeConds...)
+		params = append(params, timeParams...)
+	}
+
+	// Fallback to hour-based window only when explicit time window is not provided.
+	hourClause := ""
+	if fromTs == "" && toTs == "" {
+		hourClause = "time >= now() - INTERVAL ? HOUR"
+		params = append(params, hours)
+	}
+
+	whereClauseStr := ""
+	if len(whereParts) > 0 {
+		whereClauseStr = " WHERE " + strings.Join(whereParts, " AND ")
+	}
+	if hourClause != "" {
+		if whereClauseStr != "" {
+			whereClauseStr = whereClauseStr + " AND " + hourClause
+		} else {
+			whereClauseStr = " WHERE " + hourClause
+		}
+	}
+
+	rows := []map[string]any{}
+	errorMsg := timeError
+	relatedTarget := ""
+	if source == "logs" || source == "traces" || source == "errors" {
+		relatedTarget = source
+	}
+	activeRules := s.loadAnomalyRulesCtxAny()
+	useOtelMetricsView := metric != "" && signal == "" && source == ""
+	if errorMsg == "" {
+		var selectSQL string
+		if useOtelMetricsView {
+			selectSQL = "SELECT" +
+				"  time," +
+				"  ServiceName," +
+				"  MetricName AS Name," +
+				"  MetricKind AS Kind," +
+				"  AttrFingerprint," +
+				"  value," +
+				"  SampleCount," +
+				"  baseline_mean," +
+				"  baseline_stddev," +
+				"  baseline_lower," +
+				"  baseline_upper," +
+				"  anomaly_score," +
+				"  anomaly_state" +
+				" FROM v_otel_metrics_anomaly"
+		} else {
+			selectSQL = "SELECT" +
+				"  time," +
+				"  ServiceName," +
+				"  SignalName AS Name," +
+				"  SignalSource AS Kind," +
+				"  AttrFingerprint," +
+				"  value," +
+				"  SampleCount," +
+				"  baseline_mean," +
+				"  baseline_stddev," +
+				"  baseline_lower," +
+				"  baseline_upper," +
+				"  anomaly_score," +
+				"  anomaly_state" +
+				" FROM v_derived_signals_anomaly"
+		}
+		selectSQL = selectSQL + whereClauseStr + " ORDER BY time DESC" + " LIMIT 500"
+		res, err := s.db.Execute(selectSQL, params...)
+		if err != nil {
+			errorMsg = publicDashboardQueryError(err)
+		} else {
+			for _, m := range rowMaps(res) {
+				rowRelatedTarget := ""
+				if !useOtelMetricsView {
+					rowRelatedTarget = cStr(m, "Kind")
+				}
+				rows = append(rows, map[string]any{
+					"time":            cStr(m, "time"),
+					"service":         cStr(m, "ServiceName"),
+					"metric":          cStr(m, "Name"),
+					"metric_kind":     cStr(m, "Kind"),
+					"related_target":  rowRelatedTarget,
+					"attr_fp":         cStr(m, "AttrFingerprint"),
+					"value":           m["value"],
+					"sample_count":    m["SampleCount"],
+					"baseline_mean":   m["baseline_mean"],
+					"baseline_stddev": m["baseline_stddev"],
+					"baseline_lower":  m["baseline_lower"],
+					"baseline_upper":  m["baseline_upper"],
+					"anomaly_score":   m["anomaly_score"],
+					"anomaly_state":   cStr(m, "anomaly_state"),
+				})
+			}
+		}
+	}
+
+	if !useOtelMetricsView {
+		s.annotateRowsWithRules(rows, activeRules,
+			"related_target", "metric", "service", "attr_fp",
+			"value", "sample_count", "time")
+	}
+
 	services, signals, sources := s.listDerivedSignalDimensions()
+
 	s.renderPage(w, "metrics_anomaly.html", "view_metrics_anomaly", map[string]any{
-		"rows": []any{}, "total": 0, "service": "", "metric": "", "signal": "", "source": "",
-		"attr_fp": "", "from_ts": "", "to_ts": "", "hours": 24, "error_msg": "",
-		"point_state": "", "point_score": "", "related_target": "",
+		"rows": rowsToAny(rows), "total": len(rows),
+		"service": service, "metric": metric, "signal": signal, "source": source,
+		"attr_fp": attrFp, "from_ts": fromTs, "to_ts": toTs, "hours": hours, "error_msg": errorMsg,
+		"point_state": pointState, "point_score": pointScore, "related_target": relatedTarget,
 		"services": services, "signals": signals, "sources": sources,
 	})
 }
@@ -2929,8 +3185,27 @@ func (s *server) handleSummary(w http.ResponseWriter, r *http.Request) {
 			"UNION DISTINCT SELECT DISTINCT ServiceName FROM otel_traces WHERE ServiceName!='' " +
 			"UNION DISTINCT SELECT DISTINCT ServiceName FROM hyperdx_sessions WHERE ServiceName!=''"),
 	}
-	// recent_errors / recent_logs: empty on the fixture (no error/log rows).
+	// recent_errors: last-5 unresolved errors in the last 48h (ERROR_SOURCES_SQL + _build_error_item).
 	recentErrors := []any{}
+	if res, err := s.db.Execute(
+		"SELECT Timestamp, ServiceName, TraceId, SpanId, Body, LogAttributes " +
+			"FROM (" + errorSourcesSQL + ") " +
+			"WHERE Timestamp >= now() - INTERVAL 48 HOUR " +
+			"AND " + unresolved + " " +
+			"ORDER BY Timestamp DESC " +
+			"LIMIT 5"); err == nil {
+		for _, m := range rowMaps(res) {
+			item := s.buildErrorItem(m)
+			recentErrors = append(recentErrors, map[string]any{
+				"id":       item["id"],
+				"ts":       item["ts"],
+				"service":  item["service"],
+				"err_type": item["err_type"],
+				"message":  item["message"],
+			})
+		}
+	}
+	// recent_logs (last 10).
 	recentLogs := []any{}
 	if res, err := s.db.Execute("SELECT Timestamp, SeverityText, ServiceName, Body FROM otel_logs ORDER BY Timestamp DESC LIMIT 10"); err == nil {
 		for _, m := range rowMaps(res) {
@@ -2945,41 +3220,104 @@ func (s *server) handleSummary(w http.ResponseWriter, r *http.Request) {
 			rumSummary = append(rumSummary, []any{cStr(m, "EventName"), cInt(m, "cnt")})
 		}
 	}
+	// AI summary: per-model call/token aggregation from otel_traces. The template indexes each
+	// row positionally (row[0..3] = model, calls, tokens_in, tokens_out).
+	aiSummary := []any{}
+	if res, err := s.db.Execute(
+		"SELECT SpanAttributes['gen_ai.request.model'] AS model, " +
+			"COUNT(*) cnt, " +
+			"SUM(toUInt64OrZero(SpanAttributes['gen_ai.usage.input_tokens'])) ti, " +
+			"SUM(toUInt64OrZero(SpanAttributes['gen_ai.usage.output_tokens'])) to_ " +
+			"FROM otel_traces " +
+			"WHERE " + aiSpanCondition + " " +
+			"GROUP BY model"); err == nil {
+		for _, m := range rowMaps(res) {
+			aiSummary = append(aiSummary, []any{cStr(m, "model"), cInt(m, "cnt"), cInt(m, "ti"), cInt(m, "to_")})
+		}
+	}
+
+	// CVE summary for the Summary page security panel.
+	cveEnabled := s.appSettingBool("enrichment.cve_enabled", true)
 	cveLastScan, _ := s.appSetting("enrichment.cve_last_scan")
+	cveOverview := map[string]any{
+		"enabled": cveEnabled, "last_scan": cveLastScan,
+		"total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0,
+	}
+	if cveEnabled {
+		if res, err := s.db.Execute(
+			"SELECT Severity, COUNT(*) AS cnt FROM sobs_cve_findings FINAL GROUP BY Severity"); err == nil {
+			total := 0
+			critical, high, medium, low := 0, 0, 0, 0
+			for _, m := range rowMaps(res) {
+				sev := strings.ToUpper(cStr(m, "Severity"))
+				cnt := cInt(m, "cnt")
+				total += cnt
+				switch sev {
+				case "CRITICAL":
+					critical += cnt
+				case "HIGH":
+					high += cnt
+				case "MEDIUM":
+					medium += cnt
+				case "LOW":
+					low += cnt
+				}
+			}
+			cveOverview["total"] = total
+			cveOverview["critical"] = critical
+			cveOverview["high"] = high
+			cveOverview["medium"] = medium
+			cveOverview["low"] = low
+		}
+	}
+
 	s.renderPage(w, "summary.html", "summary", map[string]any{
 		"stats":         stats,
 		"recent_errors": recentErrors,
 		"recent_logs":   recentLogs,
 		"rum_summary":   rumSummary,
-		"ai_summary":    []any{},
-		"signal_health": []any{},
-		"cve_overview": map[string]any{
-			"enabled": s.appSettingBool("enrichment.cve_enabled", true), "last_scan": cveLastScan,
-			"total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0,
-		},
+		"ai_summary":    aiSummary,
+		"signal_health": s.getSignalHealthByService(24),
+		"cve_overview":  cveOverview,
 	})
 }
 
-// GET /web-traffic — app.py view_web_traffic.
+// GET /web-traffic — app.py view_web_traffic: IP→geo map, top URLs, and browser context
+// breakdown, with the time-window filter applied to total/top_urls/event_types.
 func (s *server) handleViewWebTraffic(w http.ResponseWriter, r *http.Request) {
-	total := s.activePartRows("hyperdx_sessions")
+	fromTs, toTs, timeError := parseTimeWindowArgs(r)
+	timeConds, timeParams := timeWindowConditions("Timestamp", fromTs, toTs)
+	where := ""
+	if len(timeConds) > 0 {
+		where = "WHERE " + strings.Join(timeConds, " AND ")
+	}
+
+	var total int
+	if where == "" {
+		total = s.activePartRows("hyperdx_sessions")
+	} else {
+		total = s.countRowsParams("SELECT COUNT(*) FROM hyperdx_sessions "+where, timeParams...)
+	}
+
 	topUrls := []any{}
-	if res, err := s.db.Execute("SELECT LogAttributes['url'] AS url, COUNT(*) AS cnt " +
-		"FROM hyperdx_sessions  GROUP BY url HAVING url != '' ORDER BY cnt DESC LIMIT 20"); err == nil {
+	if res, err := s.db.Execute("SELECT LogAttributes['url'] AS url, COUNT(*) AS cnt "+
+		"FROM hyperdx_sessions "+where+" GROUP BY url HAVING url != '' ORDER BY cnt DESC LIMIT 20",
+		timeParams...); err == nil {
 		for _, m := range rowMaps(res) {
 			topUrls = append(topUrls, []any{cStr(m, "url"), cInt(m, "cnt")})
 		}
 	}
 	eventTypes := []any{}
-	if res, err := s.db.Execute("SELECT EventName, COUNT(*) AS cnt FROM hyperdx_sessions  " +
-		"GROUP BY EventName ORDER BY cnt DESC LIMIT 20"); err == nil {
+	if res, err := s.db.Execute("SELECT EventName, COUNT(*) AS cnt FROM hyperdx_sessions "+where+" "+
+		"GROUP BY EventName ORDER BY cnt DESC LIMIT 20",
+		timeParams...); err == nil {
 		for _, m := range rowMaps(res) {
 			eventTypes = append(eventTypes, []any{cStr(m, "EventName"), cInt(m, "cnt")})
 		}
 	}
 	s.renderPage(w, "web_traffic.html", "view_web_traffic", map[string]any{
 		"total": total, "top_urls": topUrls, "event_types": eventTypes,
-		"from_ts": "", "to_ts": "", "error_msg": "",
+		"from_ts": fromTs, "to_ts": toTs, "error_msg": timeError,
 		"geo_enabled": s.appSettingBool("enrichment.geo_enabled", true),
 	})
 }
@@ -2993,7 +3331,7 @@ func (s *server) handleViewAgentRules(w http.ResponseWriter, r *http.Request) {
 	}
 	s.renderPage(w, "settings_agents.html", "view_agent_rules", map[string]any{
 		"rules":          s.loadAgentRulesCtx(),
-		"runs":           []any{},
+		"runs":           s.loadAgentRunsCtx(20),
 		"anomaly_rules":  s.loadAnomalyRulesCtx(),
 		"tag_rules":      s.loadTagRulesCtx(),
 		"trigger_types":  []any{"anomaly_rule", "tag_rule", "manual"},
@@ -3006,10 +3344,18 @@ var tagRuleFields = map[string]bool{"service_name": true, "severity": true, "bod
 var tagRuleOperators = map[string]bool{"eq": true, "contains": true, "regex": true}
 var tagRuleRecordTypes = map[string]bool{"log": true, "trace": true, "error": true, "ai": true, "rum": true, "all": true}
 
-// createTagRule mirrors app.py create_tag_rule (POST /settings/tags) create path.
+// createTagRule mirrors app.py create_tag_rule (POST /settings/tags): both the create path and the
+// edit-in-place path (?edit_rule_id). Validation failures redirect to the editing view (carrying
+// ?edit_rule) when editing; success/not-found redirect to the plain view.
 func (s *server) createTagRule(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	loc := "/settings/tags"
+	editRuleID := strings.TrimSpace(r.PostFormValue("edit_rule_id"))
+	plainLoc := "/settings/tags"
+	loc := plainLoc
+	if editRuleID != "" {
+		// url_for("view_tag_rules", edit_rule=edit_rule_id): Werkzeug query encoding (%3A->:).
+		loc = plainLoc + "?edit_rule=" + strings.ReplaceAll(url.QueryEscape(editRuleID), "%3A", ":")
+	}
 	name := strings.TrimSpace(r.PostFormValue("name"))
 	tagKey := strings.TrimSpace(r.PostFormValue("tag_key"))
 	tagValue := strings.TrimSpace(r.PostFormValue("tag_value"))
@@ -3077,23 +3423,47 @@ func (s *server) createTagRule(w http.ResponseWriter, r *http.Request) {
 	if len(chosen) > 0 {
 		recordTypesStr = strings.Join(chosen, ",")
 	}
+	// ConditionsJson = json.dumps(conditions, ensure_ascii=False): insertion-ordered keys
+	// (match_field, match_operator, match_value, match_attr_key), ", "/": " separators, no
+	// <>& HTML-escaping. Build ordered objects and encode with dumpsDefault (string, not []byte,
+	// so the JSONEachRow store does not base64-marshal it).
 	condList := make([]any, len(conditions))
 	for i, c := range conditions {
-		condList[i] = map[string]any{"match_field": c.field, "match_operator": c.op, "match_value": c.val, "match_attr_key": c.attr}
+		condList[i] = jsonenc.NewObject().
+			Set("match_field", c.field).
+			Set("match_operator", c.op).
+			Set("match_value", c.val).
+			Set("match_attr_key", c.attr)
 	}
-	condJSON, _ := json.Marshal(condList)
+	condJSON := string(jsonenc.Encode(condList, dumpsDefault))
 	p := conditions[0]
+	// rule_id = str(uuid.uuid4()) (dashed); the edit path reuses the existing row's Id.
+	ruleID := newUUIDv4()
+	if editRuleID != "" {
+		existing := s.db
+		res, err := existing.Execute(
+			"SELECT Id FROM sobs_tag_rules FINAL WHERE Id = ? AND IsDeleted = 0 LIMIT 1", editRuleID)
+		if err != nil || len(res.Rows) == 0 {
+			flashRedirect(w, "warning", "Tag rule not found for editing", plainLoc)
+			return
+		}
+		ruleID = cStr(rowMaps(res)[0], "Id")
+	}
 	row := map[string]any{
-		"Id": newUUIDHex(), "Name": name, "RecordTypes": recordTypesStr,
+		"Id": ruleID, "Name": name, "RecordTypes": recordTypesStr,
 		"MatchField": p.field, "MatchOperator": p.op, "MatchValue": p.val, "MatchAttrKey": p.attr,
-		"TagKey": tagKey, "TagValue": tagValue, "ConditionsJson": string(condJSON),
+		"TagKey": tagKey, "TagValue": tagValue, "ConditionsJson": condJSON,
 		"IsDeleted": 0, "Version": fixedVersionMillis(),
 	}
 	if _, err := s.db.InsertJSONEachRow("sobs_tag_rules", []map[string]any{row}); err != nil {
 		s.dbError(w, err)
 		return
 	}
-	flashRedirect(w, "success", fmt.Sprintf("Tag rule '%s' created", name), loc)
+	verb := "created"
+	if editRuleID != "" {
+		verb = "updated"
+	}
+	flashRedirect(w, "success", fmt.Sprintf("Tag rule '%s' %s", name, verb), plainLoc)
 }
 
 var agentTriggerTypes = map[string]bool{"anomaly_rule": true, "tag_rule": true, "manual": true}
@@ -3153,28 +3523,55 @@ func (s *server) handleMcpSettingsPage(w http.ResponseWriter, r *http.Request) {
 		enabled = v == "1"
 	}
 	s.renderPage(w, "settings_mcp.html", "mcp.mcp_settings_page", map[string]any{
-		"mcp_keys": []any{}, "mcp_enabled": enabled, "now_iso": "2024-01-02T03:04:05+00:00",
+		"mcp_keys": s.mcpSafeKeys(), "mcp_enabled": enabled, "now_iso": "2024-01-02T03:04:05+00:00",
 	})
 }
 
-// GET /settings/tags — app.py view_tag_rules. Empty tag rules; services from telemetry.
+// GET /settings/tags — app.py view_tag_rules. Tag rules loaded live; services from telemetry.
+// ?open_panel=auto-tags opens the auto panel; ?edit_rule selects a rule (a missing id flashes
+// "Tag rule not found for editing" and renders with edit_rule=None).
 func (s *server) handleViewTagRules(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		s.createTagRule(w, r)
 		return
 	}
+	q := r.URL.Query()
+	openPanel := strings.ToLower(strings.TrimSpace(q.Get("open_panel")))
+	if openPanel != "auto-tags" {
+		openPanel = ""
+	}
+	rules := s.loadTagRulesCtx()
+	editRuleID := strings.TrimSpace(q.Get("edit_rule"))
+	var editRule any
+	editNotFound := false
+	if editRuleID != "" {
+		for _, rule := range rules {
+			if m, ok := rule.(map[string]any); ok && toStr(m["id"]) == editRuleID {
+				editRule = m
+				break
+			}
+		}
+		if editRule == nil {
+			editNotFound = true
+		}
+	}
 	services := s.distinctStrings("SELECT DISTINCT ServiceName FROM (" +
 		"  SELECT ServiceName FROM otel_logs " +
 		"  UNION DISTINCT SELECT ServiceName FROM otel_traces " +
 		"  UNION DISTINCT SELECT ServiceName FROM hyperdx_sessions)")
-	s.renderPage(w, "settings_tags.html", "view_tag_rules", map[string]any{
-		"rules": s.loadTagRulesCtx(), "edit_rule": nil,
+	ctx := map[string]any{
+		"rules": rules, "edit_rule": editRule,
 		"record_types":    []any{"log", "trace", "error", "ai", "rum", "all"},
 		"match_fields":    []any{"service_name", "severity", "body", "span_name", "event_type", "attribute"},
 		"match_operators": []any{"eq", "contains", "regex"},
 		"services":        services,
-		"auto_preview":    []any{}, "auto_summary": nil, "auto_open_panel": "",
-	})
+		"auto_preview":    []any{}, "auto_summary": nil, "auto_open_panel": openPanel,
+	}
+	if editNotFound {
+		s.renderPageFlash(w, "settings_tags.html", "view_tag_rules", "warning", "Tag rule not found for editing", ctx)
+		return
+	}
+	s.renderPage(w, "settings_tags.html", "view_tag_rules", ctx)
 }
 
 // GET /settings/ai — app.py view_ai_settings. Empty AI settings -> all keys "".
@@ -3202,28 +3599,32 @@ func (s *server) handleViewAiSettings(w http.ResponseWriter, r *http.Request) {
 		flashRedirect(w, "success", "AI settings saved", "/settings/ai")
 		return
 	}
-	var keys []string
-	_ = json.Unmarshal(aiSettingKeysJSON, &keys)
+	// app.py view_ai_settings: full settings surface (_load_all_ai_settings, decrypts sensitive
+	// keys + env overrides), live pricing merge (defaults + observed otel models + DB-saved), tag
+	// rules, and the token expiry/validation status derived from the loaded settings.
+	all := s.loadAllAISettings()
 	settings := map[string]any{}
-	for _, k := range keys {
-		settings[k] = ""
+	for k, v := range all {
+		settings[k] = v
 	}
+	expiresAt := strings.TrimSpace(all["ai.github_token_expires_at"])
 	defPricing, _ := parseJSONValue(defaultAiPricingJSON)
-	savedPricing, _ := parseJSONValue(savedAiPricingJSON)
-	sources, _ := parseJSONValue(aiPricingSourcesJSON)
+	savedPricing, sources := s.loadAiPricingWithSources()
 	s.renderPage(w, "settings_ai.html", "view_ai_settings", map[string]any{
-		"settings":                  settings,
-		"anomaly_rules":             s.loadAnomalyRulesCtx(),
-		"tag_rules":                 []any{},
-		"github_token_expires_date": "",
-		"github_token_expiry_status": map[string]any{
-			"state": "unknown", "expires_at": "", "days_remaining": nil, "message": "Token expiry date not set"},
+		"settings":                   settings,
+		"anomaly_rules":              s.loadAnomalyRulesCtx(),
+		"tag_rules":                  s.loadTagRulesCtx(),
+		"github_token_expires_date":  githubTokenExpiryDateInputValue(expiresAt),
+		"github_token_expiry_status": githubTokenExpiryStatus(expiresAt, 14),
 		"github_token_validation_status": map[string]any{
-			"status": "", "message": "", "last_validated_at": ""},
+			"status":            strings.TrimSpace(all["ai.github_token_last_validation_status"]),
+			"message":           strings.TrimSpace(all["ai.github_token_last_validation_message"]),
+			"last_validated_at": strings.TrimSpace(all["ai.github_token_last_validated_at"]),
+		},
 		"default_ai_pricing":          defPricing,
 		"saved_ai_pricing":            savedPricing,
 		"ai_pricing_sources":          sources,
-		"confirmed_ai_pricing_models": []any{},
+		"confirmed_ai_pricing_models": s.sortedConfirmedAiPricingModels(),
 	})
 }
 
@@ -3263,9 +3664,16 @@ func (s *server) createSettingsRepository(w http.ResponseWriter, r *http.Request
 		return
 	}
 	githubToken := strings.TrimSpace(r.PostFormValue("github_token"))
+	// github_token_expiry = _normalize_github_token_expiry_input(form["github_token_expires_at"]):
+	// YYYY-MM-DD -> end-of-day UTC ISO, a full ISO timestamp normalized, anything else -> "".
+	githubTokenExpiry := normalizeGithubTokenExpiry(r.PostFormValue("github_token_expires_at"))
 	if r.PostFormValue("set_github_token") != "" && githubToken != "" {
 		s.saveAISetting("ai.github_token", githubToken)
-		s.saveAISetting("ai.github_token_expires_at", strings.TrimSpace(r.PostFormValue("github_token_expires_at")))
+		s.saveAISetting("ai.github_token_expires_at", githubTokenExpiry)
+		// A new token invalidates the prior validation bookkeeping (app.py 26938-26940).
+		s.saveAISetting("ai.github_token_last_validated_at", "")
+		s.saveAISetting("ai.github_token_last_validation_status", "")
+		s.saveAISetting("ai.github_token_last_validation_message", "")
 	}
 	if r.PostFormValue("set_repo_token") != "" && githubToken != "" && owner != "" && repo != "" {
 		s.saveAISetting(githubRepoTokenKey(owner, repo), githubToken)
@@ -3281,7 +3689,9 @@ func (s *server) handleViewSettingsRepositories(w http.ResponseWriter, r *http.R
 		s.createSettingsRepository(w, r)
 		return
 	}
-	apps := s.buildRepositoriesApps()
+	// app.py: ci_push_plain_by_app = session.pop("ci_push_api_key_plain_by_app", {}) — the
+	// one-time plaintext key shown once right after a rotation. Empty on the corpus (no cookie).
+	apps := s.buildRepositoriesApps(sessionCiPushPlainByApp(r))
 	realtimeEnabled, realtimeConfigured := false, false
 	for _, a := range apps {
 		if m, ok := a.(map[string]any); ok {
@@ -3389,15 +3799,18 @@ func (s *server) handleViewEnrichmentSettings(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// GET /settings/masking — app.py view_masking_settings: render the masking config page.
+// GET /settings/masking — app.py view_masking_settings -> _load_masking_settings. custom_keys /
+// custom_patterns come from the canonical loaders (normalized/deduped/sorted keys; validated,
+// order-preserving deduped patterns), NOT the raw stored JSON. effective_keys = sorted(default ∪
+// custom); effective_patterns = default_patterns + validated_custom_patterns.
 func (s *server) handleViewMaskingSettings(w http.ResponseWriter, r *http.Request) {
 	var def struct {
 		Keys     []string `json:"keys"`
 		Patterns []string `json:"patterns"`
 	}
 	_ = json.Unmarshal(maskingDefaultsJSON, &def)
-	customKeys := s.loadJSONStringListSetting("masking.custom_keys")
-	customPatterns := s.loadJSONStringListSetting("masking.custom_patterns")
+	customKeys := s.loadMaskingCustomKeys()
+	customPatterns := s.loadMaskingCustomPatterns()
 	defaultKeys := append([]string{}, def.Keys...)
 	sort.Strings(defaultKeys)
 	keySet := map[string]bool{}

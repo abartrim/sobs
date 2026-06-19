@@ -176,6 +176,12 @@ func serializeQueryDictRows(res *store.Result) ([]any, []map[string]any) {
 }
 
 // injectLimit appends " LIMIT n" when the query has no LIMIT (mirrors the spec/query routes).
+//
+// Python is `query.rstrip(";") + f" LIMIT {n}"` (app.py:21781), and every call site pre-`.strip()`s
+// the query, so the only structural difference is that Go also `TrimSpace`s leading whitespace here.
+// For the pre-stripped inputs every caller actually passes, `TrimSpace`+`TrimRight(";")` is byte-
+// identical to Python's `rstrip(";")`; it diverges only on a non-pre-stripped query with leading
+// whitespace (which no caller produces) — both still block, no bypass. Left as a faithful superset.
 func injectLimit(query string, n int) string {
 	if limitRe.MatchString(query) {
 		return query
@@ -298,39 +304,123 @@ func md5Hex(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// inferQueryFieldTypes mirrors app.py _infer_query_field_types: the pandas-dtype + display kind
-// per column. The dtype is the dtype pandas infers from the chdb DB-API values (int->int64,
-// float->float64, str->object, bool->bool, datetime->datetime64[ns]); empty column -> object.
+// cellKind classifies one serialized cell into the coarse Python type _infer_query_field_types keys
+// on: "int", "float", "bool", "datetime", "json" (dict/list/tuple), or "str".
+func cellKind(v any) string {
+	switch x := v.(type) {
+	case json.Number:
+		if strings.ContainsAny(x.String(), ".eE") {
+			return "float"
+		}
+		return "int"
+	case float64:
+		return "float"
+	case bool:
+		return "bool"
+	case chDateTime:
+		return "datetime"
+	case map[string]any, []any:
+		// chdb Map -> map, Array/Tuple -> list; pandas keeps these as object cells -> kind "json".
+		return "json"
+	default:
+		return "str"
+	}
+}
+
+// inferQueryFieldTypes mirrors app.py _infer_query_field_types: per column it reports the whole-column
+// pandas dtype string and a display kind. The dtype is what pandas infers from the chdb DB-API values:
+// all-int + no null -> int64; all-int WITH a null -> float64 (nullable-int promotion); any float ->
+// float64; all-bool + no null -> bool; all-datetime -> datetime64[ns]; everything else -> object. For
+// an object dtype the kind is then refined from the first non-null cell (bool/int/float/dict-list-tuple/
+// str), so Map/Array/Tuple columns report kind "json" (not "string"). An empty column -> object/string.
 func inferQueryFieldTypes(columns, rows []any) []any {
 	out := []any{}
 	for idx, col := range columns {
-		dtype, kind := "object", "string"
+		hasNull := false
+		hasValue := false
+		allInt := true
+		allNumeric := true // int or float
+		allBool := true
+		allDatetime := true
+		var firstNonNull any
+		haveFirst := false
 		for _, rowAny := range rows {
 			row, ok := rowAny.([]any)
-			if !ok || idx >= len(row) || row[idx] == nil {
+			if !ok || idx >= len(row) {
 				continue
 			}
-			switch v := row[idx].(type) {
-			case json.Number:
-				if strings.ContainsAny(v.String(), ".eE") {
-					dtype, kind = "float64", "number"
-				} else {
-					dtype, kind = "int64", "integer"
-				}
-			case float64:
-				dtype, kind = "float64", "number"
-			case bool:
-				dtype, kind = "bool", "boolean"
-			case chDateTime:
-				dtype, kind = "datetime64[ns]", "datetime"
-			default:
-				dtype, kind = "object", "string"
+			cell := row[idx]
+			if cell == nil {
+				hasNull = true
+				continue
 			}
-			break
+			hasValue = true
+			if !haveFirst {
+				firstNonNull, haveFirst = cell, true
+			}
+			switch cellKind(cell) {
+			case "int":
+				allBool, allDatetime = false, false
+			case "float":
+				allInt, allBool, allDatetime = false, false, false
+			case "bool":
+				allInt, allNumeric, allDatetime = false, false, false
+			case "datetime":
+				allInt, allNumeric, allBool = false, false, false
+			default: // str / json
+				allInt, allNumeric, allBool, allDatetime = false, false, false, false
+			}
 		}
+
+		dtype := "object"
+		switch {
+		case !hasValue:
+			dtype = "object"
+		case allDatetime:
+			dtype = "datetime64[ns]"
+		case allInt && !hasNull:
+			dtype = "int64"
+		case allNumeric: // all-int-with-null (promoted) or any-float
+			dtype = "float64"
+		case allBool && !hasNull:
+			dtype = "bool"
+		default:
+			dtype = "object"
+		}
+
+		kind := pandasKindFromDtype(dtype, firstNonNull)
 		out = append(out, jsonenc.NewObject().Set("name", pyStrAny(col)).Set("dtype", dtype).Set("kind", kind))
 	}
 	return out
+}
+
+// pandasKindFromDtype mirrors the kind-selection in _infer_query_field_types: derive the display kind
+// from the dtype string, refining an "object" dtype from the first non-null sample.
+func pandasKindFromDtype(dtype string, sample any) string {
+	lower := strings.ToLower(dtype)
+	switch {
+	case strings.Contains(lower, "datetime"):
+		return "datetime"
+	case lower == "bool" || lower == "boolean":
+		return "boolean"
+	case strings.HasPrefix(lower, "int") || strings.HasPrefix(lower, "uint"):
+		return "integer"
+	case strings.HasPrefix(lower, "float") || strings.HasPrefix(lower, "double"):
+		return "number"
+	}
+	// object dtype -> sample the first non-null value.
+	switch cellKind(sample) {
+	case "bool":
+		return "boolean"
+	case "int":
+		return "integer"
+	case "float":
+		return "number"
+	case "json":
+		return "json"
+	default:
+		return "string"
+	}
 }
 
 // zeroQueryLLMStats mirrors _summarize_query_llm_stats(named_query_generation={}, chart_generation={})
@@ -356,6 +446,9 @@ func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
 	m := bodyMap(r)
 	sql := strings.TrimSpace(bstr(m, "sql"))
 	question := strings.TrimSpace(bstr(m, "question"))
+	doChart := bodyBool(m, "chart", false)
+	// preferred_chart_type / chart_instruction are accepted but, like the existing ai_build named/chart
+	// helpers this branch reuses, not yet threaded into the LLM prompts (deferred — see report).
 	if sql == "" {
 		s.errorJSON(w, http.StatusBadRequest, "sql is required")
 		return
@@ -367,6 +460,7 @@ func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
 	}
 	model := strings.TrimSpace(s.loadAISetting("ai.model", ""))
 	guardModel := strings.TrimSpace(s.loadAISetting("ai.guard_model", ""))
+	endpoint := strings.TrimSpace(s.loadAISetting("ai.endpoint_url", ""))
 	traceID := md5Hex("query-run|" + sql + "|" + fakeTimeNs())
 	turnID := traceID[:16]
 	startBody := question
@@ -380,11 +474,13 @@ func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
 	s.emitAiHelperLogEvent("query.turn.start", traceID, turnID, "/query", model, guardModel, "off",
 		startBody, "INFO", map[string]string{"gen_ai.input.question": startQ})
 
-	// Pre-flight read-only / table-allowlist validation (app.py _vanna_explain_sql -> validate_sql).
-	// A blocked statement is rejected with the explain-failed payload (422) before any execution —
-	// this is the C5 security gate that restricts user-submitted SQL to the approved table set.
-	if vErr := validateSQL(sql); vErr != "" {
-		explainErr := "SQL validation error: " + vErr
+	// Pre-flight EXPLAIN to surface any parse/planning errors before execution (app.py
+	// _vanna_explain_sql): validate_sql first (the C5 security gate that restricts user-submitted SQL
+	// to the approved table set), then `EXPLAIN {sql}`. A blocked statement OR a planning error is
+	// rejected with the explain-failed payload (422) before any real execution. validateSQL returns a
+	// "SQL validation error: …" message; the EXPLAIN error is the RAW chdb exception string (str(exc))
+	// — neither is run through publicDashboardQueryError, matching Python.
+	if explainErr := s.vannaExplainSQL(sql); explainErr != "" {
 		s.emitAiHelperLogEvent("query.sql.explain_failed", traceID, turnID, "/query", model, guardModel, "off",
 			explainErr, "WARN", map[string]string{
 				"gen_ai.operation.name": "query_sql_explain", "sobs.query.exec.error": explainErr,
@@ -423,12 +519,80 @@ func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
 			"sobs.gen_ai.prompt": question, "sobs.gen_ai.response": sql,
 		})
 
-	datasets := []any{jsonenc.NewObject().
-		Set("name", "main").Set("purpose", "primary dataset").Set("sql", sql).
-		Set("columns", columns).Set("field_types", fieldTypes).Set("rows", rows).Set("error", "")}
+	// app.py only appends the primary "main" dataset when df is not None (i.e. no exec error). On an
+	// exec error _vanna_run_query returns (None, error) so datasets stays empty.
+	datasets := []any{}
+	if execErr == nil {
+		datasets = append(datasets, jsonenc.NewObject().
+			Set("name", "main").Set("purpose", "primary dataset").Set("sql", sql).
+			Set("columns", columns).Set("field_types", fieldTypes).Set("rows", rows).Set("error", ""))
+	}
 
+	// do_chart branch (app.py:30629-30765): when chart:true, the primary query succeeded, and it has
+	// columns, guard the chart request, generate + execute named datasets, generate the chart spec, and
+	// emit the named/chart telemetry. The parity corpus never sets chart:true, so this is runtime-only;
+	// it reuses the read-only LLM/guard/chart helpers and never alters the no-chart success bytes.
+	chartSpec, chartError := "", ""
+	var namedStats, chartStats llmStats
+	if doChart && execErr == nil && len(columns) > 0 {
+		guardInput := question
+		if guardInput == "" {
+			guardInput = "Generate chart for SQL: " + truncRunes(sql, 500)
+		}
+		allowed, guardReason, _ := s.checkGuardModel(guardInput)
+		s.emitAiHelperLogEvent("query.guard.result", traceID, turnID, "/query", model, guardModel, "off",
+			"Guard verdict: "+guardReason, "INFO", map[string]string{"gen_ai.operation.name": "guard"})
+		if allowed {
+			var namedQueries []any
+			namedQueries, namedStats = s.generateNamedQueriesStats(endpoint, firstNonEmpty(question, sql), sql)
+			s.emitAiHelperLogEvent("query.sql.named_generated", traceID, turnID, "/query", model, guardModel, "off",
+				jsonDumpsNoEsc(namedQueries), "INFO", map[string]string{
+					"gen_ai.operation.name":      "query_sql_named",
+					"gen_ai.usage.input_tokens":  strconv.Itoa(namedStats.prompt),
+					"gen_ai.usage.output_tokens": strconv.Itoa(namedStats.completion),
+					"gen_ai.response.latency_ms": "0",
+				})
+
+			for _, ds := range s.executeNamedQueriesForQueryRun(namedQueries) {
+				dso, ok := ds.(*jsonenc.Object)
+				if !ok {
+					continue
+				}
+				name := pyStr2OrDefault(objGetStr(dso, "name"), "dataset")
+				datasets = append(datasets, jsonenc.NewObject().
+					Set("name", name).Set("purpose", objGetStr(dso, "purpose")).
+					Set("sql", objGetStr(dso, "sql")).
+					Set("columns", objGetOr(dso, "columns", []any{})).
+					Set("field_types", objGetOr(dso, "field_types", []any{})).
+					Set("rows", objGetOr(dso, "rows", []any{})).
+					Set("error", objGetStr(dso, "error")))
+			}
+
+			// sample = [dict(zip(columns, r)) for r in rows[:20]]
+			sample := chartSampleRecords(columns, rows, 20)
+			chartSpec, chartError, chartStats = s.generateChartSpecStats(endpoint, question, columns, sample, datasets)
+			chartBody := chartSpec
+			if chartBody == "" {
+				chartBody = chartError
+			}
+			s.emitAiHelperLogEvent("query.chart.generated", traceID, turnID, "/query", model, guardModel, "off",
+				chartBody, "INFO", map[string]string{
+					"gen_ai.operation.name":      "query_chart",
+					"gen_ai.usage.input_tokens":  strconv.Itoa(chartStats.prompt),
+					"gen_ai.usage.output_tokens": strconv.Itoa(chartStats.completion),
+					"gen_ai.response.latency_ms": "0",
+				})
+		} else {
+			chartError = "Chart generation blocked by safety guard: " + guardReason
+		}
+	}
+
+	finalError := execErrStr
+	if finalError == "" {
+		finalError = chartError
+	}
 	s.emitAiHelperLogEvent("query.turn.complete", traceID, turnID, "/query", model, guardModel, "off",
-		"Query turn completed", severityFor(execErr), map[string]string{
+		"Query turn completed", severityForStr(finalError), map[string]string{
 			"gen_ai.input.question": question, "sobs.gen_ai.prompt": question,
 			"sobs.gen_ai.response": sql, "gen_ai.operation.name": "query",
 		})
@@ -436,8 +600,40 @@ func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
 	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().
 		Set("ok", true).Set("trace_id", traceID).Set("turn_id", turnID).Set("sql", sql).
 		Set("columns", columns).Set("field_types", fieldTypes).Set("rows", rows).
-		Set("retry_count", 0).Set("datasets", datasets).Set("chart_spec", "").
-		Set("error", execErrStr).Set("llm_stats", zeroQueryLLMStats()))
+		Set("retry_count", 0).Set("datasets", datasets).Set("chart_spec", chartSpec).
+		Set("error", finalError).Set("llm_stats", queryRunLLMStats(namedStats, chartStats)))
+}
+
+// pyStr2OrDefault mirrors `str(ds.get(k) or default)`.
+func pyStr2OrDefault(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
+}
+
+// chartSampleRecords mirrors `[dict(zip(columns, r)) for r in rows[:20]]`: up to 20 rows as ordered
+// {column: value} objects (column order preserved, like Python dict(zip(...))).
+func chartSampleRecords(columns, rows []any, limit int) []any {
+	out := []any{}
+	for i, rowAny := range rows {
+		if i >= limit {
+			break
+		}
+		row, ok := rowAny.([]any)
+		if !ok {
+			continue
+		}
+		rec := jsonenc.NewObject()
+		for j, c := range columns {
+			if j >= len(row) {
+				break
+			}
+			rec.Set(pyStrAny(c), row[j])
+		}
+		out = append(out, rec)
+	}
+	return out
 }
 
 func severityFor(err error) string {

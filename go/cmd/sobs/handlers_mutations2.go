@@ -76,10 +76,16 @@ func (s *server) handleApiNotificationsSubscribe(w http.ResponseWriter, r *http.
 		}
 	}
 	channelID := newUUIDv4()
+	// Mirror app.py: stored_config = _encrypt_notification_config({"endpoint":…,"p256dh":…,"auth":…})
+	// (Fernet-encrypts the sensitive `auth` key when an encryption key is configured — a no-op on the
+	// parity fixture so the stored bytes stay plaintext), then ConfigJson = json.dumps(stored_config).
+	// Insertion order endpoint→p256dh→auth matches Python's dict literal; store as a STRING so the
+	// JSONEachRow column carries the JSON text (not base64 of a Go []byte).
 	cfg := jsonenc.NewObject().Set("endpoint", endpoint).Set("p256dh", p256dh).Set("auth", auth)
+	storedConfig := s.encryptNotificationConfig(cfg)
 	row := map[string]any{
 		"Id": channelID, "Name": name, "ChannelType": "browser_push",
-		"ConfigJson": jsonenc.Encode(cfg, jsonenc.Options{SortKeys: false}),
+		"ConfigJson": string(jsonenc.Encode(storedConfig, dumpsDefault)),
 		"Enabled":    1, "IsDeleted": 0, "Version": fixedVersionMillis(),
 	}
 	if _, err := s.insertRowsNormalized("sobs_notification_channels", []map[string]any{row}); err != nil {
@@ -385,7 +391,31 @@ func (s *server) handleApiDashboardsSpecRender(w http.ResponseWriter, r *http.Re
 		return
 	}
 	columns, rows := serializeQueryDictRows(res)
-	option, rErr := s.renderChartFromTemplate(tid, columns, rows, spec)
+	// Execute the spec's named_queries and collect datasets so custom_echarts can resolve its
+	// {{rows:name}}/{{records:name}}/{{columns:name}} bindings (app.py render_chart_spec_api:
+	// _execute_chart_spec_named_queries(default_limit=1000, include_records=True), then
+	// named_datasets[name] = {columns, records, rows}). When named_queries is empty this map is
+	// empty and the renderer is byte-identical to the no-named path the golden corpus captures.
+	namedDatasets := map[string]*jsonenc.Object{}
+	if specNamed, ok := objGet(spec, "named_queries").([]any); ok {
+		for _, nqAny := range s.executeNamedQueriesWithRecords(specNamed, 1000) {
+			nq, ok := nqAny.(*jsonenc.Object)
+			if !ok {
+				continue
+			}
+			// Python skips only when the name is empty (it logs but still adds error items);
+			// executeNamedQueriesWithRecords already drops empty-name entries.
+			name := objGetStr(nq, "name")
+			if name == "" {
+				continue
+			}
+			namedDatasets[name] = jsonenc.NewObject().
+				Set("columns", objGetOr(nq, "columns", []any{})).
+				Set("records", objGetOr(nq, "records", []any{})).
+				Set("rows", objGetOr(nq, "rows", []any{}))
+		}
+	}
+	option, rErr := s.renderChartFromTemplateWithNamed(tid, columns, rows, spec, namedDatasets)
 	if rErr != "" {
 		errorOnly(w, http.StatusBadRequest, rErr)
 		return
@@ -429,7 +459,11 @@ func (s *server) handleApiSettingsMaskingPreview(w http.ResponseWriter, r *http.
 	default:
 		masked = s.maskStringForOutput(value)
 	}
-	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("masked", masked))
+	// app.py api_masking_preview returns a PLAIN jsonify — the value is already masked exactly once
+	// above. writeJSON (QuartJSONify, sorted keys) matches Python's jsonify byte-for-byte. Do NOT use
+	// writeMaskedJSON here: that would re-run output masking over the {ok, masked} wrapper, a second
+	// (Python-absent) mask pass that diverges from app.py whenever the re-pass isn't idempotent.
+	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("masked", masked))
 }
 
 // handleApiDataManagementPrune is defined in dm_prune.go.

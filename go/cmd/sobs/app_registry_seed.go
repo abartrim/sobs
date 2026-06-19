@@ -48,7 +48,9 @@ func (s *server) seedAppRegistry() {
 		if rawSlug == "" {
 			rawSlug = name
 		}
-		slug := appSlug(rawSlug, name)
+		// app.py: _app_slug(slug or name) — the fallback when the slugified value is empty is the
+		// helper's DEFAULT "app", not the raw name (which would itself need slugifying).
+		slug := appSlug(rawSlug, "app")
 		appID := strings.TrimSpace(toStr(appItem["id"]))
 		if appID == "" {
 			if existing := s.lookupAppIDBySlug(slug); existing != "" {
