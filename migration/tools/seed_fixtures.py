@@ -527,6 +527,63 @@ def seed_metricsauto(db) -> None:
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
 
 
+def seed_rumvitals(db) -> None:
+    # Seed hyperdx_sessions with now()-relative web-vital + error rows so view_rum's "Web vitals"
+    # and "Error trend" blocks (app.py 17472-17633) all populate. Every row is laid out at a FIXED
+    # offset from now() with CONSTANT values, so every derived quantity is timestamp-independent
+    # (deterministic regardless of the exact wall-clock capture/replay time). Only the now()-derived
+    # bucket/last_seen TIMESTAMPS drift between capture and replay; those are masked in the route.
+    #
+    # All rows share one ServiceName ('web') and one LogAttributes['sessionId'] so they collapse into
+    # a SINGLE deterministic session group in the default sessions view (no row-order ambiguity), and
+    # one LogAttributes['url'] so the hotspot / top_urls group keys are singular. Offsets keep a wide
+    # margin (>=5min) from every window boundary (now()-30/60min for the trend split, now()-60min for
+    # the derived signals) so capture/replay second-level drift never flips a row across a boundary.
+    #
+    # Web vitals: 4 LCP web-vital rows at now()-10/15/20/25 MINUTE (all inside both the 24h hotspot
+    # window AND the 60min derived-signal window). Body value=1200 (constant) -> quantileExact(0.75)
+    # = 1200.0 exactly in every minute bucket -> v_derived_signals_1m is a constant LCP=1200 series,
+    # so the 60-row rolling baseline has stddev=0 -> anomaly_state='normal' for every bucket (covers
+    # 17488-92 summary + 17505-06 sparkline). rating='good' -> poor_count=0/poor_rate=0.0; hotspot
+    # p75 = quantileExact(0.75)(value) = 1200.0 (covers 17529-32 + 17542-44; HAVING total>=3 fires
+    # at total=4). Each row in its own minute bucket -> 4 distinct sparkline points.
+    for off in (10, 15, 20, 25):
+        db.execute(
+            "INSERT INTO hyperdx_sessions (Timestamp, ServiceName, EventName, Body, LogAttributes) "
+            "SELECT now() - INTERVAL ? MINUTE, 'web', 'web-vital', "
+            '\'{"name":"LCP","value":1200,"rating":"good"}\', '
+            "map('url', 'https://app.example.com/checkout', 'sessionId', 'sobs-rumvitals-session') "
+            "FROM numbers(1)",
+            [off],
+        )
+    # Error trend: errors at now()-5 MINUTE (recent, inside now()-30min) and now()-45 MINUTE (prior,
+    # inside now()-60min AND outside now()-30min). recent=5 ('error' x4 + 'unhandledrejection' x1),
+    # prior=1 -> recent(5) > prior(1)*1.25 -> trend 'up' (covers 17576-79 + 17581). 24h totals by
+    # type: error=5, unhandledrejection=1, total=6 (covers 17593-95). The 180min sparkline gets two
+    # populated buckets (now()-5, now()-45) plus WITH FILL zeros (covers 17632-33). Constant Body
+    # 'message' + LogAttributes['url'] make top_messages / top_urls singular and deterministic.
+    _RUM_ERR_BODY = '\'{"message":"TypeError: cannot read x"}\''
+    _RUM_ERR_ATTRS = "map('url', 'https://app.example.com/checkout', 'sessionId', 'sobs-rumvitals-session')"
+    # recent window (now()-5min): 4 'error' + 1 'unhandledrejection'
+    db.execute(
+        "INSERT INTO hyperdx_sessions (Timestamp, ServiceName, EventName, Body, LogAttributes) "
+        f"SELECT now() - INTERVAL 5 MINUTE, 'web', 'error', {_RUM_ERR_BODY}, {_RUM_ERR_ATTRS} "
+        "FROM numbers(4)"
+    )
+    db.execute(
+        "INSERT INTO hyperdx_sessions (Timestamp, ServiceName, EventName, Body, LogAttributes) "
+        f"SELECT now() - INTERVAL 5 MINUTE, 'web', 'unhandledrejection', {_RUM_ERR_BODY}, {_RUM_ERR_ATTRS} "
+        "FROM numbers(1)"
+    )
+    # prior window (now()-45min): 1 'error'
+    db.execute(
+        "INSERT INTO hyperdx_sessions (Timestamp, ServiceName, EventName, Body, LogAttributes) "
+        f"SELECT now() - INTERVAL 45 MINUTE, 'web', 'error', {_RUM_ERR_BODY}, {_RUM_ERR_ATTRS} "
+        "FROM numbers(1)"
+    )
+    db.execute("OPTIMIZE TABLE hyperdx_sessions FINAL")
+
+
 def seed_tagsuggest(db) -> None:
     # Seed every table the tag-rule condition-suggestion builders read so each scope/target/field
     # branch of /api/settings/tags/condition-suggestions returns a non-empty, ranked result. The
@@ -1758,6 +1815,7 @@ PROFILE_SEEDS = {
     "tagauto": seed_tagauto,  # 30 recent prod-service logs -> auto_tag_rules in-window candidate
     "cveview": seed_cveview,  # CVE findings (1/severity) -> summary cve-overview + view_enrichment_cve
     "metricsauto": seed_metricsauto,  # constant log_volume series -> auto_metrics_rules candidates
+    "rumvitals": seed_rumvitals,  # now()-relative web-vital + error rows -> view_rum vitals + error-trend
     "tagsuggest": seed_tagsuggest,  # otel/tags/attr-key rows -> condition-suggestions non-empty branches
     "cvebackfill": seed_repo_app,  # app+release+github token -> cve github backfill attempts a release
     "onboard": seed_repo_app,  # app+token -> onboarding create-issues realtime + github-issue paths
