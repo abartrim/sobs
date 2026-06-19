@@ -23,6 +23,12 @@ var dbExcRe = regexp.MustCompile(`^DB::Exception:\s*`)
 func publicDashboardQueryError(err error) string {
 	raw := strings.TrimSpace(err.Error())
 	message := strings.TrimSpace(strings.SplitN(raw, "\n", 2)[0])
+	// chdb query errors are wrapped as "chdb query: <chdb error>" (internal/store/chdb.go); the
+	// Python oracle's exception has no such wrapper, so strip it before the Code:/DB::Exception:
+	// cleaning runs — otherwise the prefix defeats codePrefixRe and we leak the raw chdb text.
+	for strings.HasPrefix(message, "chdb query: ") {
+		message = strings.TrimPrefix(message, "chdb query: ")
+	}
 	message = codePrefixRe.ReplaceAllString(message, "")
 	message = dbExcRe.ReplaceAllString(message, "")
 	message = strings.TrimSpace(strings.SplitN(message, ": while executing function", 2)[0])

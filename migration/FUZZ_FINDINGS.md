@@ -3,9 +3,33 @@
 Produced by `migration/tools/fuzz_diff.py` (app.py test-client vs Go binary, byte-equal on the same
 random input). These are divergences on branches the golden corpus never exercised.
 
+## FIXED
+
+### F1 — chdb error wrapper defeated publicDashboardQueryError (validate-filter + every error path)
+- **Fixed** in `go/cmd/sobs/query_exec.go`: `publicDashboardQueryError` now strips the Go-only
+  `chdb query: ` wrapper (from `internal/store/chdb.go:152`) before the `Code:/DB::Exception:`
+  cleaning, so it matches Python's unwrapped exception. General fix — corrects every error-path
+  caller (all were latent because their error branches are uncovered). validate_filter fuzz went
+  0 → 64/80 byte-identical (seed 1, 80 cases).
+
 ## OPEN
 
-### F1 — validate-filter error path returns raw chdb errors (Go) vs cleaned messages (Python)
+### F2 — validate-filter: Go's normalized WHERE yields a different chdb error than Python
+- **Surface:** `POST /api/{logs,ai}/validate-filter` with column refs that fail to resolve.
+- **Symptom:** py `"Unknown expression or function identifier..."` / `"There is no supertype..."` /
+  `"Parameter for function..."` vs go `"Unknown table expression identifier..."`. The probe query
+  Go builds (`normalizeLogsSQLWhere` / `normalizeAiSQLWhere` → `SELECT 1 FROM ... WHERE <norm>`)
+  differs from Python's enough to trigger a different ClickHouse diagnostic, and the `normalized`
+  field text also differs in some cases. Needs alignment of the normalize step + probe SQL.
+- **Repro:** `python migration/tools/fuzz_diff.py --surface validate_filter --seed 1` (the
+  `Unknown table expression` mismatches).
+
+### F3 — non-dict JSON body: Python 500s, Go returns 200
+- **Surface:** `POST /api/{logs,ai}/validate-filter` (and likely other `get_json` handlers) with a
+  JSON **array** body, e.g. `["[a-z]+"]`.
+- **Symptom:** py `(payload or {}).get("sql")` raises `AttributeError` on a list → 500 HTML error
+  page; Go's `bodyMap` coerces to empty → 200 `{"issues":[],"normalized":""}`. Mirroring Python's
+  500 byte-for-byte (its error page) is the faithful behavior. Low value (malformed array body).
 - **Surface:** `POST /api/logs/validate-filter`, `POST /api/ai/validate-filter` (invalid `sql`).
 - **Oracle:** `app.py:23852` → on exception, `_public_dashboard_query_error(exc)` (`app.py:20489`)
   strips the `Code: N. DB::Exception:` prefix and trailing stack/`while executing` noise →
