@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 5074,
+  "total_uncovered": 5019,
   "summary_pct": "66",
   "by_bucket": {
     "helper": {
       "functions": 429,
-      "uncovered": 4077
+      "uncovered": 4033
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 119,
-      "uncovered": 728
+      "uncovered": 717
     },
     "module": {
       "functions": 0,
@@ -328,25 +328,6 @@
         4823,
         4824,
         4829
-      ]
-    },
-    {
-      "function": "_compute_advanced_log_analysis",
-      "bucket": "helper",
-      "start": 11015,
-      "end": 11107,
-      "uncovered": 41,
-      "span": 93,
-      "route": null,
-      "missing_sample": [
-        11017,
-        11018,
-        11019,
-        11026,
-        11027,
-        11028,
-        11030,
-        11031
       ]
     },
     {
@@ -1495,31 +1476,6 @@
       ]
     },
     {
-      "function": "view_ai",
-      "bucket": "route",
-      "start": 18631,
-      "end": 18998,
-      "uncovered": 18,
-      "span": 368,
-      "route": {
-        "path": "/ai",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        18649,
-        18671,
-        18672,
-        18673,
-        18692,
-        18693,
-        18719,
-        18747
-      ]
-    },
-    {
       "function": "_build_user_issue_trigger_context",
       "bucket": "helper",
       "start": 28476,
@@ -1637,31 +1593,6 @@
         9988,
         9989,
         9992
-      ]
-    },
-    {
-      "function": "view_logs",
-      "bucket": "route",
-      "start": 11239,
-      "end": 11512,
-      "uncovered": 17,
-      "span": 274,
-      "route": {
-        "path": "/logs",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        11343,
-        11344,
-        11379,
-        11383,
-        11390,
-        11397,
-        11402,
-        11403
       ]
     },
     {
@@ -1927,6 +1858,31 @@
         7787,
         7788,
         7790
+      ]
+    },
+    {
+      "function": "view_logs",
+      "bucket": "route",
+      "start": 11239,
+      "end": 11512,
+      "uncovered": 15,
+      "span": 274,
+      "route": {
+        "path": "/logs",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        11343,
+        11344,
+        11390,
+        11397,
+        11402,
+        11403,
+        11404,
+        11406
       ]
     },
     {
@@ -2555,6 +2511,31 @@
       ]
     },
     {
+      "function": "view_ai",
+      "bucket": "route",
+      "start": 18631,
+      "end": 18998,
+      "uncovered": 11,
+      "span": 368,
+      "route": {
+        "path": "/ai",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        18747,
+        18748,
+        18749,
+        18750,
+        18751,
+        18889,
+        18916,
+        18955
+      ]
+    },
+    {
       "function": "_to_sort_key",
       "bucket": "helper",
       "start": 21172,
@@ -2792,25 +2773,6 @@
         9509,
         9510,
         9523
-      ]
-    },
-    {
-      "function": "_fingerprint_log_message",
-      "bucket": "helper",
-      "start": 10993,
-      "end": 11012,
-      "uncovered": 10,
-      "span": 20,
-      "route": null,
-      "missing_sample": [
-        10995,
-        10996,
-        10997,
-        10999,
-        11006,
-        11007,
-        11009,
-        11010
       ]
     },
     {
@@ -3589,31 +3551,6 @@
         17207,
         17212,
         17213
-      ]
-    },
-    {
-      "function": "export_ai_training",
-      "bucket": "route",
-      "start": 19123,
-      "end": 19226,
-      "uncovered": 8,
-      "span": 104,
-      "route": {
-        "path": "/api/ai/export",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        19153,
-        19154,
-        19185,
-        19186,
-        19187,
-        19193,
-        19194,
-        19195
       ]
     },
     {
@@ -4658,6 +4595,23 @@
       ]
     },
     {
+      "function": "_compute_advanced_log_analysis",
+      "bucket": "helper",
+      "start": 11015,
+      "end": 11107,
+      "uncovered": 6,
+      "span": 93,
+      "route": null,
+      "missing_sample": [
+        11019,
+        11038,
+        11042,
+        11085,
+        11086,
+        11093
+      ]
+    },
+    {
       "function": "_validate_re2_pattern",
       "bucket": "helper",
       "start": 11113,
@@ -4735,6 +4689,29 @@
         19038,
         19039,
         19040
+      ]
+    },
+    {
+      "function": "export_ai_training",
+      "bucket": "route",
+      "start": 19123,
+      "end": 19226,
+      "uncovered": 6,
+      "span": 104,
+      "route": {
+        "path": "/api/ai/export",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        19185,
+        19186,
+        19187,
+        19193,
+        19194,
+        19195
       ]
     },
     {
@@ -9053,6 +9030,18 @@
       "route": null,
       "missing_sample": [
         10740
+      ]
+    },
+    {
+      "function": "_fingerprint_log_message",
+      "bucket": "helper",
+      "start": 10993,
+      "end": 11012,
+      "uncovered": 1,
+      "span": 20,
+      "route": null,
+      "missing_sample": [
+        10997
       ]
     },
     {

@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **66%** · **5074** uncovered statements.
+Oracle coverage **66%** · **5019** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 119 | 728 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 429 | 4077 | usually covered when a calling route's fixture is added; else difftest |
+| route | 119 | 717 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 429 | 4033 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -20,24 +20,23 @@ Oracle coverage **66%** · **5074** uncovered statements.
 | `auto_metrics_rules_dashboard` | 13848–13960 | 26 | `POST /metrics/rules/dashboard/auto` |
 | `view_rum` | 17309–17657 | 26 | `GET /rum` |
 | `view_traces` | 15312–15678 | 22 | `GET /traces` |
-| `view_ai` | 18631–18998 | 18 | `GET /ai` |
 | `api_onboarding_create_issues` | 33738–33930 | 18 | `POST /api/onboarding/create-issues` |
-| `view_logs` | 11239–11512 | 17 | `GET /logs` |
 | `api_query_run` | 30511–30765 | 17 | `POST /api/query/run` |
 | `auto_tag_rules` | 23353–23460 | 16 | `POST /settings/tags/auto` |
 | `check_notifications` | 26341–26447 | 16 | `POST /api/notifications/check` |
+| `view_logs` | 11239–11512 | 15 | `GET /logs` |
 | `clone_chart` | 21694–21733 | 15 | `POST /dashboards/<dashboard_id>/charts/<chart_id>/clone` |
 | `view_settings_repositories` | 26805–26884 | 15 | `GET /settings/repositories` |
 | `ingest_rum_asset` | 9699–9756 | 14 | `POST /v1/rum/assets` |
 | `api_enrichment_libraries` | 17882–17941 | 14 | `GET /api/enrichment/libraries` |
 | `edit_chart` | 21651–21689 | 14 | `POST /dashboards/<dashboard_id>/charts/<chart_id>/edit` |
 | `rum_asset_download` | 9761–9786 | 12 | `GET /v1/rum/assets/<asset_id>` |
+| `view_ai` | 18631–18998 | 11 | `GET /ai` |
 | `api_import_reports` | 22857–23017 | 11 | `POST /api/reports/import` |
 | `api_query_ask` | 30203–30506 | 11 | `POST /api/query/ask` |
 | `api_onboarding_list_repos` | 33603–33678 | 10 | `POST /api/onboarding/list-repos` |
 | `render_chart_spec_api` | 21986–22031 | 9 | `POST /api/dashboards/spec/render` |
 | `ingest_metrics` | 9896–9918 | 8 | `POST /v1/metrics` |
-| `export_ai_training` | 19123–19226 | 8 | `GET /api/ai/export` |
 | `api_ai_field_hints` | 24229–24402 | 8 | `GET /api/ai/field-hints` |
 | `api_onboarding_import_repo` | 33538–33598 | 8 | `POST /api/onboarding/import-repo` |
 | `ingest_rum` | 10010–10149 | 7 | `POST /v1/rum` |
@@ -51,6 +50,7 @@ Oracle coverage **66%** · **5074** uncovered statements.
 | `ingest_errors` | 10249–10295 | 6 | `POST /v1/errors` |
 | `view_metrics` | 13430–13595 | 6 | `GET /metrics` |
 | `get_ai_span_attributes` | 19003–19040 | 6 | `GET /api/ai/span-attributes` |
+| `export_ai_training` | 19123–19226 | 6 | `GET /api/ai/export` |
 | `render_chart` | 22036–22068 | 6 | `POST /api/dashboards/render` |
 | `create_tag_rule` | 23465–23584 | 6 | `POST /settings/tags` |
 | `create_agent_rule` | 27194–27242 | 6 | `POST /settings/agents` |
@@ -100,7 +100,6 @@ Oracle coverage **66%** · **5074** uncovered statements.
 | `_choose_github_issue_outcome` | 5388–5646 | 44 |  |
 | `_parse_oss_safeguard_reply` | 5042–5092 | 43 |  |
 | `_stream_llm_endpoint` | 4773–4887 | 41 |  |
-| `_compute_advanced_log_analysis` | 11015–11107 | 41 |  |
 | `_fetch_release_deps_from_github` | 16703–16873 | 41 |  |
 | `_verify_rum_client_auth` | 7827–7878 | 40 |  |
 | `_collect_github_repo_health_summary` | 17944–18083 | 39 |  |
@@ -126,3 +125,4 @@ Oracle coverage **66%** · **5074** uncovered statements.
 | `_load_chat_tool_history` | 4016–4075 | 25 |  |
 | `_coerce_reasoning_text` | 8304–8331 | 25 |  |
 | `_build_auto_tag_rule_candidates` | 12062–12308 | 25 |  |
+| `_build_agent_context_summary` | 6609–6703 | 24 |  |

@@ -156,9 +156,10 @@ def main() -> int:
         f"app.py statements — the realistic DoD-3 target for the corpus (the rest is classified as "
         f"deferred above, not coverable by deterministic byte-parity).",
         "",
-        "> Note: COVERABLE still includes seeded populated-handler success paths that currently surface "
-        "Go port bugs (D1-D3) — those must be fixed before their routes go GREEN, but the *lines* are "
-        "reachable, so they count toward the ceiling.",
+        "> Note: most COVERABLE lines are seeded populated-handler success paths — these go byte-GREEN "
+        "once captured with the CORRECT seeded-profile flow (seed_fixtures.py --only-profile X before "
+        "capture). A residual few expose genuine Go port bugs (e.g. raw_attrs JSON key-order) that must "
+        "be fixed first; the *lines* are reachable either way, so they count toward the ceiling.",
     ]
     OUT_MD.write_text("\n".join(md) + "\n")
     print("\n".join(md))
