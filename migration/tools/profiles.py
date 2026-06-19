@@ -40,6 +40,11 @@ PROFILES: dict[str, dict[str, str]] = {
     # ("1 1") errors at parse time, so it's column/table-agnostic (stable on logs AND ai). Locks in
     # differential-fuzz finding F1 as a permanent regression test.
     "validateerr": {},
+    # formerr: no env/seed — POST invalid form bodies to mutation endpoints so their early
+    # validation/error branches (flash + redirect, before any DB write) are byte-tested. These
+    # branches are mostly already ported but uncovered; the profile confirms them and surfaces any
+    # divergence (cf. fuzz finding F1). Deterministic: errors return before touching chdb.
+    "formerr": {},
     "ai": {
         # Python derives _query_page_enabled() from these (via _AI_ENV_OVERRIDES); Go reads
         # them through aiEnvOverrides AND gates the query page on SOBS_QUERY_PAGE_ENABLED.
