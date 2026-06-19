@@ -316,6 +316,14 @@ routes:
   - GET
   request:
     method: GET
+# api_cve_findings populated JSON (cveview seed: 1 finding/severity, distinct Published, all "open").
+- id: get__api_enrichment_cve_findings__cveview
+  path: /api/enrichment/cve/findings
+  methods:
+  - GET
+  profile: cveview
+  request:
+    method: GET
 - id: get__api_web_traffic_geo
   path: /api/web-traffic/geo
   methods:
@@ -1303,6 +1311,21 @@ routes:
       status: open
       from_ts: '2024-01-01T00:00:00'
       to_ts: '2024-12-31T23:59:59'
+# api_get_work_items (JSON) filter branches: anomaly_rule_id/service/rule_id/signal_source/signal_name
+# build the WHERE before the query -> empty-result base request covers them. The awaited backfill is a
+# no-op without a github token. {ok:true, items:[]}.
+- id: get__api_work_items__filters
+  path: /api/work-items
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      anomaly_rule_id: r1
+      service: api
+      rule_id: r2
+      signal_source: logs
+      signal_name: log_volume
 - id: get__enrichment_cve
   path: /enrichment/cve
   methods:
@@ -1567,6 +1590,18 @@ routes:
     method: POST
     json:
       pattern: "^log_volume$"
+# api_metrics_validate_regex scope-filter appends (service/source/signal/attr_fp). attr_fp=deadbeef
+# matches nothing -> sample=None; the appends run regardless. Deterministic {ok:true, sample:null}.
+- id: post__api_metrics_validate_regex__scoped
+  path: /api/metrics/validate-regex
+  profile: regexmetrics
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "volume"
+      scope: {service: web, source: logs, signal: log_volume, attr_fp: deadbeef}
 - id: post__api_logs_validate_filter
   path: /api/logs/validate-filter
   methods:
@@ -1597,6 +1632,58 @@ routes:
   request:
     method: POST
     json: {"sql": "1 1"}
+# api_logs_validate_filter structural-check branches (deterministic JSON, no DB needed for the parse
+# checks): unexpected ')', unclosed quote, unclosed '(', trailing operator, escaped-quote skip, plus
+# the SUCCESS path (valid where -> safe_sql column translations + empty-probe ok) and has_tag().
+- id: post__api_logs_validate_filter__vf_close_paren
+  path: /api/logs/validate-filter
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {sql: "a = 1)"}
+- id: post__api_logs_validate_filter__vf_unclosed_quote
+  path: /api/logs/validate-filter
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {sql: "ServiceName = 'x"}
+- id: post__api_logs_validate_filter__vf_unclosed_paren
+  path: /api/logs/validate-filter
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {sql: "(ServiceName = 'x'"}
+- id: post__api_logs_validate_filter__vf_trailing_op
+  path: /api/logs/validate-filter
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {sql: "ServiceName = 'x' AND"}
+- id: post__api_logs_validate_filter__vf_escaped_quote
+  path: /api/logs/validate-filter
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {sql: "Body = 'it''s fine'"}
+- id: post__api_logs_validate_filter__vf_success
+  path: /api/logs/validate-filter
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {sql: "service = 'web' AND level = 'ERROR'"}
+- id: post__api_logs_validate_filter__vf_has_tag
+  path: /api/logs/validate-filter
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {sql: "has_tag('env','prod')"}
 - id: post__metrics_rules_err_required
   path: /metrics/rules
   methods:
