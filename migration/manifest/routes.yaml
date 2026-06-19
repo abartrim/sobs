@@ -940,6 +940,19 @@ routes:
     method: GET
     query:
       q: checkout
+# view_incident error_id MATCH path under errorsview: error_id is the chdb-computed id of group A's
+# first event (errspan-a1). The scan finds it -> primary_error -> service=api -> a FIXED-2023 window
+# (errorsview uses fixed timestamps, NOT wall-clock) -> related errors/logs (deterministic) + empty
+# spans/rum/windows/metrics/anomaly. No mask (no now()-based content; fixed seed timestamps).
+- id: get__incident__errorsview_error
+  path: /incident
+  methods:
+  - GET
+  profile: errorsview
+  request:
+    method: GET
+    query:
+      error_id: 1398a9a3ac955e309e825e727c215341
 # logsview profile: seeded otel_logs (6 rows, distinct timestamps + distinct level/service counts)
 # plus two record tags. Drives view_logs' POPULATED branches: the rows/record-id/snapshot block,
 # every filter (level / service / event_name / trace_id / trace_ids), the raw-SQL-where path incl.
