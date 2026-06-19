@@ -3195,11 +3195,29 @@ routes:
       version: "1"
       reports:
       - {name: "Brand New Report", page_type: "metrics", filters: {limit: 50}}
+# api_import_reports rename collision LOOP (app.py 22982-22984): three copies of the same name in
+# ONE batch. The first resolves to "<name> (imported)"; the second finds that taken and the while
+# loop advances to "<name> (imported 2)"; the third to "(imported 3)". (This profile's prior single
+# rename of "Checkout errors" already created "(imported)", so the suffixes shift up, but the
+# response is pure counts — imported:3 — regardless of suffix, so it stays byte-deterministic.)
+- id: post__api_reports_import__rename_loop
+  path: /api/reports/import
+  methods:
+  - POST
+  profile: reportsimport
+  request:
+    method: POST
+    json:
+      sobs_reports_export: true
+      version: "1"
+      reports:
+      - {name: "Checkout errors", page_type: "logs", filters: {}}
+      - {name: "Checkout errors", page_type: "logs", filters: {}}
+      - {name: "Checkout errors", page_type: "logs", filters: {}}
 # api_import_reports multipart/urlencoded branch: a form POST (Content-Type
 # application/x-www-form-urlencoded) takes the `files`/`forms` path; with no `file` field
 # `files.get("file")` is None -> "No file uploaded" 400 (app.py 22886-22893). Returns before any
-# DB access -> deterministic, no seed dependency. (The file-present sub-branch needs multipart
-# upload support the capture harness lacks; left uncovered.)
+# DB access -> deterministic, no seed dependency.
 - id: post__api_reports_import__form_nofile
   path: /api/reports/import
   methods:
@@ -3218,6 +3236,65 @@ routes:
   profile: reportsimport
   request:
     method: POST
+# api_import_reports content-length guard (app.py 22875-22879): a request whose Content-Length
+# header exceeds _REPORTS_IMPORT_MAX_BYTES (5 MiB) returns the 413 from _payload_too_large_response
+# BEFORE reading the (tiny) body. The header is sent verbatim by both harnesses (urllib keeps an
+# explicit Content-Length; r.ContentLength on the Go side reads it) so neither actually transmits
+# 6 MB. Returns before any DB access -> deterministic, no seed dependency.
+- id: post__api_reports_import__too_large
+  path: /api/reports/import
+  methods:
+  - POST
+  profile: reportsimport
+  request:
+    method: POST
+    headers:
+      Content-Type: application/json
+      Content-Length: "6000000"
+    body_b64: e30=
+# api_import_reports multipart FILE-present branch (app.py 22893-22899): a multipart/form-data POST
+# whose `file` field carries a valid reports-export JSON. raw_bytes = uploaded.read() (22894), the
+# size check passes (22895), json.loads succeeds (22897). reports:[] -> 200 {imported:0,...} (pure
+# counts, no insert) -> deterministic, no seed dependency. body_b64 carries the literal multipart
+# body; the boundary Content-Type comes via headers.
+- id: post__api_reports_import__multipart_file
+  path: /api/reports/import
+  methods:
+  - POST
+  profile: reportsimport
+  request:
+    method: POST
+    headers:
+      Content-Type: "multipart/form-data; boundary=----sobsparitymp"
+    body_b64: LS0tLS0tc29ic3Bhcml0eW1wDQpDb250ZW50LURpc3Bvc2l0aW9uOiBmb3JtLWRhdGE7IG5hbWU9ImZpbGUiOyBmaWxlbmFtZT0ici5qc29uIg0KQ29udGVudC1UeXBlOiBhcHBsaWNhdGlvbi9qc29uDQoNCnsic29ic19yZXBvcnRzX2V4cG9ydCI6IHRydWUsICJ2ZXJzaW9uIjogIjEiLCAicmVwb3J0cyI6IFtdfQ0KLS0tLS0tc29ic3Bhcml0eW1wLS0NCg==
+# api_import_reports multipart file-present INVALID-JSON branch (app.py 22898-22899): the uploaded
+# `file` contents are not JSON -> json.loads raises -> "Invalid JSON file" 400. Returns before any
+# DB access -> deterministic, no seed dependency.
+- id: post__api_reports_import__multipart_badjson
+  path: /api/reports/import
+  methods:
+  - POST
+  profile: reportsimport
+  request:
+    method: POST
+    headers:
+      Content-Type: "multipart/form-data; boundary=----sobsparitymp"
+    body_b64: LS0tLS0tc29ic3Bhcml0eW1wDQpDb250ZW50LURpc3Bvc2l0aW9uOiBmb3JtLWRhdGE7IG5hbWU9ImZpbGUiOyBmaWxlbmFtZT0ici5qc29uIg0KQ29udGVudC1UeXBlOiBhcHBsaWNhdGlvbi9qc29uDQoNCm5vdCBqc29uIGF0IGFsbA0KLS0tLS0tc29ic3Bhcml0eW1wLS0NCg==
+# api_import_reports too-many guard (app.py 22918-22919): a reports list longer than
+# _REPORTS_IMPORT_MAX (500) -> "Too many reports (max 500)" 400, returned BEFORE the existing-index
+# build / any insert -> deterministic, non-mutating, no seed dependency. The decoded body is
+# {"sobs_reports_export":true,"version":"1","reports":[0,...x501]} — the length check fires before
+# any per-item parsing, so trivial (non-dict) items are fine and keep the blob small.
+- id: post__api_reports_import__too_many
+  path: /api/reports/import
+  methods:
+  - POST
+  profile: reportsimport
+  request:
+    method: POST
+    headers:
+      Content-Type: application/json
+    body_b64: eyJzb2JzX3JlcG9ydHNfZXhwb3J0IjogdHJ1ZSwgInZlcnNpb24iOiAiMSIsICJyZXBvcnRzIjogWzAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDAsIDBdfQ==
 - id: post__api_data_management_prune
   path: /api/data-management/prune
   methods:
@@ -4469,6 +4546,17 @@ routes:
   request:
     method: GET
     query: {limit: notanumber}
+# export_ai_training json.loads EXCEPT branches (app.py 19185-19187 / 19193-19195): the aiexport2
+# span carries NON-JSON input/output message attrs, so both json.loads raise and the handler falls
+# back to the extracted prompt/response text, appending {"role":"user"/"assistant", "content":...}.
+# Default jsonl format over one seeded row -> deterministic body (fixed Timestamp/Duration/TraceId).
+- id: get__api_ai_export__nonjson_messages
+  path: /api/ai/export
+  methods:
+  - GET
+  profile: aiexport2
+  request:
+    method: GET
 - id: get__api_setup_wizard_steps
   path: /api/setup-wizard/steps
   methods:

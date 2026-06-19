@@ -1304,6 +1304,38 @@ def seed_aichat(db) -> None:
     db.execute("OPTIMIZE TABLE otel_traces FINAL")
 
 
+def seed_aiexport2(db) -> None:
+    # export_ai_training's two json.loads EXCEPT branches (app.py 19185-19187 / 19193-19195): a
+    # gen_ai span whose input/output message attrs are NON-JSON strings. json.loads(raw) then
+    # raises JSONDecodeError, so the handler falls back to the extracted prompt/response text and
+    # appends {"role":"user","content":<raw>} / {"role":"assistant","content":<raw>}. The raw value
+    # is itself the fallback text: _extract_messages_text("...") returns the string unchanged when
+    # it isn't JSON, so prompt/response are truthy and the `if prompt:` / `if response:` arms run.
+    # All record fields come from the seeded row (fixed Timestamp/Duration/TraceId) -> deterministic.
+    _insert(
+        db,
+        "otel_traces",
+        [
+            {
+                "Timestamp": _TS,
+                "ServiceName": "sobs-ai-export2",
+                "TraceId": "trace-aiexport2-001",
+                "Duration": 2500000000,
+                "SpanAttributes": {
+                    "gen_ai.provider.name": "openai",
+                    "gen_ai.request.model": "gpt-4o",
+                    # Non-JSON strings: json.loads raises -> except branch -> prompt/response fallback.
+                    "gen_ai.input.messages": "plain user question",
+                    "gen_ai.output.messages": "plain assistant answer",
+                    "gen_ai.usage.input_tokens": "11",
+                    "gen_ai.usage.output_tokens": "22",
+                },
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_traces FINAL")
+
+
 # Trace-detail waterfall fixture: a small multi-span trace (two roots — a request tree plus an
 # async sibling that starts after the request finishes, creating a coverage gap) so view_traces'
 # trace_id branch exercises every helper (span tree, interval merge, active/coverage, timeline
@@ -2157,6 +2189,7 @@ PROFILE_SEEDS = {
     "mcpkey": seed_mcp_key,
     "mcpauth": seed_mcp_auth,  # api key whose hash auths tools/list + tools/call
     "aichat": seed_aichat,
+    "aiexport2": seed_aiexport2,  # gen_ai span w/ non-JSON messages -> export_ai_training json.loads except
     "ciauth": seed_ci_key,  # registered app + managed per-app CI-push key; managed-key require_api_key path
     "tracedetail": seed_trace_detail,  # multi-span trace + logs -> populated trace_detail waterfall
     "tracedetailerr": seed_tracedetailerr,  # tracedetail trace + 1 ERROR log -> trace_detail errors loop
