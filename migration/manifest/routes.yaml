@@ -652,6 +652,17 @@ routes:
   request:
     method: GET
     query: {ts: "2023-06-01 12:00:00.010000", service: checkout, trace_id: aaaa1111bbbb2222cccc3333dddd4444}
+# get_ai_span_attributes span_name= filter append (app.py 19023-19024): ts+service present so the
+# conditions build runs, span_name adds the SpanName=? predicate, and a clearly non-existent ts
+# yields "Span not found" 404 in BOTH oracle and Go. (The row-FOUND render 19035-19040 is deferred:
+# chdb DateTime64 string-equality diverges Go-vs-oracle on a 9-fractional-digit ts — see task chip.)
+- id: get__api_ai_span_attributes__span_name
+  path: /api/ai/span-attributes
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {ts: "2099-01-01 00:00:00.000000", service: ai-svc, span_name: ai.chat}
 - id: get__api_ai_conversation_seeded
   path: /api/ai/conversation
   methods:
