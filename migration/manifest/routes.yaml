@@ -1465,6 +1465,67 @@ routes:
   mask:
   - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
   mask_reason: see get__metrics__metricsauto_signal.
+# view_metrics over the metricsrich seed (web log_volume SPIKE on the latest bucket + a seasonal
+# anomaly rule matching it). signal=log_volume restricts to the ONE spiking series (no last_time
+# tie), so the row renders the OUTLIER anomaly-state badge (metrics.html bg-danger), the populated
+# RULE badge (bg-danger), and runs _evaluate_seasonal_rule's bucket-match path (view_metrics passes
+# time_key="last_time"). value/score/state/sample/point counts are deterministic from the fixed
+# window over fixed-offset buckets; only last_time (a wall-clock minute bucket) drifts -> masked.
+- id: get__metrics__metricsrich_signal
+  path: /metrics
+  methods:
+  - GET
+  profile: metricsrich
+  request:
+    method: GET
+    query:
+      signal: log_volume
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
+  mask_reason: last_time is a wall-clock minute bucket derived from the metricsrich seed's now()-relative timestamps; capture and replay re-seed at different wall-clock times so the bucket drifts. Everything else on the row (last_value 40.0/score 5.3852/state outlier + sample 40/point 30 counts + the fired seasonal rule badge) is deterministic from the fixed-window spike series and is byte-compared.
+# view_metrics attr_fp filter branch (app.py 13479-13480): attr_fp is the (web|log_volume) MD5
+# fingerprint, so the WHERE clause filters to the single spiking series (same row as the signal
+# route). Same last_time mask.
+- id: get__metrics__metricsrich_attrfp
+  path: /metrics
+  methods:
+  - GET
+  profile: metricsrich
+  request:
+    method: GET
+    query:
+      attr_fp: 7c0699f18ff7c247
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
+  mask_reason: see get__metrics__metricsrich_signal.
+# view_metrics pagination block (metrics.html 159-184). The metricsrich web service has THREE
+# derived signals (error_ratio < error_volume < log_volume); sort_by=signal gives a TOTAL order so
+# the limit=2 slices are row-order stable. Page 1 (offset 0) = [error_ratio, error_volume] with
+# next_offset=2 < total=3 -> the "Next" link renders. Same last_time mask (3 rows -> 3 buckets).
+- id: get__metrics__metricsrich_page1
+  path: /metrics
+  methods:
+  - GET
+  profile: metricsrich
+  request:
+    method: GET
+    query: {sort_by: signal, limit: '2', offset: '0'}
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
+  mask_reason: see get__metrics__metricsrich_signal; here three signal rows each carry a (drifting) last_time bucket.
+# view_metrics pagination block page 2 (offset 2): [log_volume] with offset>0 -> the "Prev" link
+# renders, and the single row is the outlier+rule one. Same sort_by=signal total order + mask.
+- id: get__metrics__metricsrich_page2
+  path: /metrics
+  methods:
+  - GET
+  profile: metricsrich
+  request:
+    method: GET
+    query: {sort_by: signal, limit: '2', offset: '2'}
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
+  mask_reason: see get__metrics__metricsrich_signal.
 - id: get__logs
   path: /logs
   methods:
