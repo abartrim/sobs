@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	_ "embed"
 	"encoding/json"
 	"net/http"
@@ -10,7 +9,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/sobs/sobs/internal/jsonenc"
 )
@@ -426,15 +424,38 @@ func (s *server) handleV1RumAssetByID(w http.ResponseWriter, r *http.Request) {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	// app.py serves via Quart send_from_directory (as_attachment=False), which sets
-	// Last-Modified / ETag / Accept-Ranges / Cache-Control and honors Range requests.
-	// http.ServeContent is Go's send_file equivalent: it reproduces Last-Modified,
-	// Accept-Ranges, conditional (304) + Range (206) handling. Content-Type is set first so
-	// ServeContent uses the stored mimetype rather than sniffing.
-	w.Header().Set("Content-Type", contentType)
-	var modTime time.Time
-	if info, statErr := os.Stat(filePath); statErr == nil {
-		modTime = info.ModTime()
+	// app.py serves via Quart send_from_directory(mimetype=…, as_attachment=False). Quart's
+	// send_file emits Content-Type (passed through Werkzeug get_content_type, which appends
+	// "; charset=utf-8" for text mimetypes), Content-Length, Cache-Control:
+	// "public, max-age=<send_file_max_age_default>" (12h), plus Last-Modified / Expires / a
+	// filesystem ETag. It does NOT set Accept-Ranges or honor Range requests in this config.
+	// http.ServeContent (the prior port) diverged on every one of these: it emits Accept-Ranges,
+	// omits Cache-Control, and does not charset the Content-Type. Mirror Quart's header set
+	// directly (the same approach serveRumFile uses for the static rum.* downloads). The
+	// non-reproducible Last-Modified / Expires / mtime-format ETag are intentionally NOT emitted —
+	// normalize.py drops them from the golden anyway, so omitting them keeps the compared header
+	// multiset exact. See POPULATED_RENDER_FINDINGS.md R15.
+	w.Header().Set("Content-Type", werkzeugContentType(contentType))
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.Header().Set("Cache-Control", "public, max-age="+strconv.Itoa(staticMaxAge))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+// werkzeugContentType mirrors werkzeug.utils.get_content_type(mimetype, "utf-8"): a charset is
+// appended for text mimetypes (text/*, the known-textual application types, or any +xml type).
+var werkzeugCharsetMimetypes = map[string]bool{
+	"application/ecmascript":                 true,
+	"application/javascript":                 true,
+	"application/sql":                        true,
+	"application/xml":                        true,
+	"application/xml-dtd":                    true,
+	"application/xml-external-parsed-entity": true,
+}
+
+func werkzeugContentType(mimetype string) string {
+	if strings.HasPrefix(mimetype, "text/") || werkzeugCharsetMimetypes[mimetype] || strings.HasSuffix(mimetype, "+xml") {
+		return mimetype + "; charset=utf-8"
 	}
-	http.ServeContent(w, r, storageName, modTime, bytes.NewReader(data))
+	return mimetype
 }

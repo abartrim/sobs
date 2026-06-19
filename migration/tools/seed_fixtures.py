@@ -1800,6 +1800,112 @@ def seed_cveview(db) -> None:
     _app._set_app_setting(db, "enrichment.cve_last_scan_github_backfill_cap", "x")
 
 
+def seed_enrichlibs(db) -> None:
+    # Populated library inventory for api_enrichment_libraries (GET /api/enrichment/libraries).
+    # Three otel_traces rows give _collect_library_inventory three distinct libraries, one per
+    # status, and one matching sobs_cve_findings row makes the SDK library "vulnerable". Every
+    # value is a FIXED string (no now()/uuid), and the handler RE-SORTS the merged list by
+    # (cve_count desc, source order, package lower, version lower, service lower) — so the output
+    # order is fully determined by these distinct keys and is byte-reproducible regardless of the
+    # dict/insert iteration order on either side. scanned_at stays "" (cve_last_scan unset).
+    #
+    #   tier 2 (otel_sdk):    package="opentelemetry"   ecosystem=PyPI  cve_count=1 -> "vulnerable"
+    #   tier 3 (otel_scope):  package="io.opentelemetry.http"  ecosystem=Maven (io.* prefix), cve_count=0 -> "clean"
+    #   tier 3 (otel_scope):  package="custom-tracer"  ecosystem="" (no prefix match) -> "unknown_ecosystem"
+    _insert(
+        db,
+        "otel_traces",
+        [
+            {
+                "Timestamp": _TS,
+                "ServiceName": "billing-api",
+                "SpanName": "GET /charge",
+                "ScopeName": "",
+                "ScopeVersion": "",
+                "ResourceAttributes": {
+                    "telemetry.sdk.name": "opentelemetry",
+                    "telemetry.sdk.version": "1.20.0",
+                    "telemetry.sdk.language": "python",
+                },
+            },
+            {
+                "Timestamp": _TS,
+                "ServiceName": "billing-api",
+                "SpanName": "http.client",
+                "ScopeName": "io.opentelemetry.http",
+                "ScopeVersion": "2.5.0",
+                "ResourceAttributes": {},
+            },
+            {
+                "Timestamp": _TS,
+                "ServiceName": "billing-api",
+                "SpanName": "internal.work",
+                "ScopeName": "custom-tracer",
+                "ScopeVersion": "0.9.1",
+                "ResourceAttributes": {},
+            },
+        ],
+    )
+    # One CVE finding keyed on (Package, Ecosystem, Version) of the SDK library so its
+    # countDistinct(OsvId) join -> cve_count=1 -> status "vulnerable". Fixed scalars only.
+    _insert(
+        db,
+        "sobs_cve_findings",
+        [
+            {
+                "Package": "opentelemetry",
+                "Ecosystem": "PyPI",
+                "Version": "1.20.0",
+                "ServiceName": "billing-api",
+                "OsvId": "GHSA-libs-0001",
+                "CveIds": "CVE-2024-9001",
+                "Summary": "SDK advisory for opentelemetry 1.20.0",
+                "Severity": "HIGH",
+                "Published": "2024-01-02 00:00:00",
+                "ScannedAt": _TS,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_cve_findings FINAL")
+
+
+# RUM asset download fixture (GET /v1/rum/assets/<asset_id>). The asset is a pair of files on
+# disk under DATA_DIR/rum_assets: <id>.meta.json (the metadata Quart/Go re-read) + the stored
+# blob. Both servers serve the SAME bytes from the SAME data dir (parity_check copies the fixture,
+# including rum_assets/, into the Go server's _run dir). The id and content are FIXED, so the body
+# is byte-identical; mtime-derived caching headers (Last-Modified / Werkzeug FS-ETag) are dropped
+# by normalize.py, so the on-disk mtime does not affect parity.
+RUM_ASSET_ID = "0123456789abcdef0123456789abcdef"  # 32-char lowercase hex (passes the id regex)
+RUM_ASSET_STORAGE = RUM_ASSET_ID + ".txt"
+RUM_ASSET_BODY = b"sobs parity rum asset body\n"
+RUM_ASSET_CONTENT_TYPE = "text/plain"
+
+
+def seed_rumasset(db) -> None:
+    # db is unused (the asset lives on the filesystem, not chdb). Resolve the active data dir the
+    # same way _boot_app_db set it, so both the default fixture build and the --data-dir _run copy
+    # land their files in the correct rum_assets/ directory.
+    import json
+
+    data_dir = Path(os.environ.get("SOBS_DATA_DIR", str(FIXTURE_DIR)))
+    asset_dir = data_dir / "rum_assets"
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    (asset_dir / RUM_ASSET_STORAGE).write_bytes(RUM_ASSET_BODY)
+    # Metadata mirrors ingest_rum_asset's json.dump (the download route only reads storage_name +
+    # content_type; the rest is informational). Fixed scalars -> deterministic, but the download
+    # response never echoes the metadata, so even non-read fields are harmless.
+    meta = {
+        "id": RUM_ASSET_ID,
+        "type": "asset",
+        "original_name": "parity-asset.txt",
+        "storage_name": RUM_ASSET_STORAGE,
+        "content_type": RUM_ASSET_CONTENT_TYPE,
+        "size": len(RUM_ASSET_BODY),
+        "uploaded_at": "2024-01-02T03:00:00+00:00",
+    }
+    (asset_dir / f"{RUM_ASSET_ID}.meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+
+
 PROFILE_SEEDS = {
     "agentrun": seed_agent_run,
     "notif": seed_notif,
@@ -1840,6 +1946,8 @@ PROFILE_SEEDS = {
     "regexmetrics": seed_metricsauto,  # constant log_volume series -> v_derived_signals_anomaly probe
     "metricscreate": seed_metricsauto,  # same constant series; isolated for auto_metrics_rules create
     "notifrule": seed_notif,  # channels+rules; isolated for create_notification_rule success insert
+    "enrichlibs": seed_enrichlibs,  # otel_traces sdk/scope rows + 1 CVE -> populated library inventory
+    "rumasset": seed_rumasset,  # on-disk rum asset (meta.json + blob) -> rum_asset_download FOUND branch
 }
 
 

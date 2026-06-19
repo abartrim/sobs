@@ -897,6 +897,17 @@ routes:
   - GET
   request:
     method: GET
+# api_enrichment_libraries POPULATED render under the enrichlibs seed (otel_traces sdk/scope rows +
+# 1 matching CVE finding) -> three libraries spanning vulnerable/clean/unknown_ecosystem, re-sorted
+# by (cve_count desc, source order, package, version, service). scanned_at "" (cve_last_scan unset).
+# No now()/uuid in the JSON -> no mask.
+- id: get__api_enrichment_libraries__enrichlibs
+  path: /api/enrichment/libraries
+  methods:
+  - GET
+  profile: enrichlibs
+  request:
+    method: GET
 - id: get__web_traffic
   path: /web-traffic
   methods:
@@ -3497,6 +3508,16 @@ routes:
   path: /v1/rum/assets/abcdef0123456789abcdef0123456789
   methods:
   - GET
+  request:
+    method: GET
+# rum_asset_download FOUND/download branch under the rumasset seed (an on-disk asset blob +
+# meta.json at DATA_DIR/rum_assets/<id>.*). Serves the stored bytes with the stored Content-Type;
+# the only volatile headers (Last-Modified / Werkzeug FS-ETag) are dropped by normalize.py.
+- id: get__v1_rum_assets__rumasset_found
+  path: /v1/rum/assets/0123456789abcdef0123456789abcdef
+  methods:
+  - GET
+  profile: rumasset
   request:
     method: GET
 - id: post__reports__id_delete
