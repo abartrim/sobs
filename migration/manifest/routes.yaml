@@ -654,8 +654,7 @@ routes:
     query: {ts: "2023-06-01 12:00:00.010000", service: checkout, trace_id: aaaa1111bbbb2222cccc3333dddd4444}
 # get_ai_span_attributes span_name= filter append (app.py 19023-19024): ts+service present so the
 # conditions build runs, span_name adds the SpanName=? predicate, and a clearly non-existent ts
-# yields "Span not found" 404 in BOTH oracle and Go. (The row-FOUND render 19035-19040 is deferred:
-# chdb DateTime64 string-equality diverges Go-vs-oracle on a 9-fractional-digit ts — see task chip.)
+# yields "Span not found" 404 in BOTH oracle and Go.
 - id: get__api_ai_span_attributes__span_name
   path: /api/ai/span-attributes
   methods:
@@ -663,6 +662,9 @@ routes:
   request:
     method: GET
     query: {ts: "2099-01-01 00:00:00.000000", service: ai-svc, span_name: ai.chat}
+# get_ai_span_attributes SUCCESS render (app.py 19035-19040) — pending a Go fix: raw_attrs is
+# json.dumps(_map_to_dict(SpanAttributes), indent=2); Go emits the same bytes in a different KEY ORDER
+# (does not preserve the chdb Map insertion order the oracle keeps). Re-added once Go matches.
 - id: get__api_ai_conversation_seeded
   path: /api/ai/conversation
   methods:
@@ -1181,9 +1183,18 @@ routes:
     method: GET
     query:
       sql: "ServiceName='x' OR DROP"
-# NOTE: view_logs analyze=1 (run_advanced_analysis, app.py 11379/11383) is DEFERRED — scoped parity
-# RED: Go's _compute_advanced_log_analysis render diverges from the oracle (body 250702 vs 219012 on
-# the logsview seed). Needs a Go port fix before it can be added.
+# view_logs advanced analysis branch: analyze=1 -> run_advanced_analysis -> analysis_rows query +
+# _compute_advanced_log_analysis (app.py 11379, 11383), under the logsview seed. (Go port verified
+# byte-identical; the earlier "divergence" was a scoped-capture seeding artifact.)
+- id: get__logs__logsview_analyze
+  path: /logs
+  methods:
+  - GET
+  profile: logsview
+  request:
+    method: GET
+    query:
+      analyze: "1"
 - id: get__metrics
   path: /metrics
   methods:
@@ -1579,10 +1590,47 @@ routes:
     method: GET
     query:
       sql: ServiceName='ai-svc'
-# NOTE: view_ai filter branches view=bogus (18649) / operation=embed (18692-93) / disallowed-sql
-# (18671-73) / view=trace+sql (18719) are DEFERRED — scoped parity RED: Go renders a larger body
-# than the oracle on these specific filter/view paths (the sibling valid-filter aiview routes are
-# GREEN). A Go view_ai render-divergence to fix before these can be added (see task chip).
+# view_ai additional filter branches under aiview: view=bogus -> reset to flat (app.py 18649);
+# operation=embed -> non-chat operation predicate (18692-18693); disallowed sql ->
+# _normalize_ai_sql_where raises -> fixed "SQL error: ..." (18671-18673); view=trace WITH a valid
+# sql -> the trace_where sql branch (18719).
+- id: get__ai__aiview_view_invalid
+  path: /ai
+  methods:
+  - GET
+  profile: aiview
+  request:
+    method: GET
+    query:
+      view: bogus
+- id: get__ai__aiview_operation_embed
+  path: /ai
+  methods:
+  - GET
+  profile: aiview
+  request:
+    method: GET
+    query:
+      operation: embed
+- id: get__ai__aiview_sql_disallowed
+  path: /ai
+  methods:
+  - GET
+  profile: aiview
+  request:
+    method: GET
+    query:
+      sql: "ServiceName='x' OR DROP"
+- id: get__ai__aiview_view_trace_sql
+  path: /ai
+  methods:
+  - GET
+  profile: aiview
+  request:
+    method: GET
+    query:
+      view: trace
+      sql: "ServiceName='ai-svc'"
 - id: post__api_logs_validate_regex
   path: /api/logs/validate-regex
   methods:
