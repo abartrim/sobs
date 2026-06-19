@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **63%** · **5528** uncovered statements.
+Oracle coverage **63%** · **5511** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 1113 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 436 | 4146 | usually covered when a calling route's fixture is added; else difftest |
+| route | 123 | 1097 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 436 | 4145 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -30,7 +30,6 @@ Oracle coverage **63%** · **5528** uncovered statements.
 | `view_work_items` | 18361–18488 | 20 | `GET /work-items` |
 | `export_ai_training` | 19123–19226 | 20 | `GET /api/ai/export` |
 | `auto_metrics_rules` | 13721–13843 | 19 | `POST /metrics/rules/auto` |
-| `metrics_anomaly` | 22540–22628 | 19 | `GET /api/metrics/anomaly` |
 | `api_import_reports` | 22857–23017 | 19 | `POST /api/reports/import` |
 | `view_enrichment_cve` | 18104–18215 | 18 | `GET /enrichment/cve` |
 | `view_ai` | 18631–18998 | 18 | `GET /ai` |
@@ -55,6 +54,7 @@ Oracle coverage **63%** · **5528** uncovered statements.
 | `api_query_ask` | 30203–30506 | 11 | `POST /api/query/ask` |
 | `api_cve_findings` | 18220–18278 | 10 | `GET /api/enrichment/cve/findings` |
 | `create_tag_rule` | 23465–23584 | 10 | `POST /settings/tags` |
+| `api_onboarding_list_repos` | 33603–33678 | 10 | `POST /api/onboarding/list-repos` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 

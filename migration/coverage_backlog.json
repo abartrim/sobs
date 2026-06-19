@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 5528,
+  "total_uncovered": 5511,
   "summary_pct": "63",
   "by_bucket": {
     "helper": {
       "functions": 436,
-      "uncovered": 4146
+      "uncovered": 4145
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 123,
-      "uncovered": 1113
+      "uncovered": 1097
     },
     "module": {
       "functions": 0,
@@ -1742,31 +1742,6 @@
         14913,
         14914,
         14915
-      ]
-    },
-    {
-      "function": "metrics_anomaly",
-      "bucket": "route",
-      "start": 22540,
-      "end": 22628,
-      "uncovered": 19,
-      "span": 89,
-      "route": {
-        "path": "/api/metrics/anomaly",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        22565,
-        22566,
-        22567,
-        22568,
-        22570,
-        22572,
-        22573,
-        22574
       ]
     },
     {
@@ -6501,21 +6476,6 @@
       ]
     },
     {
-      "function": "_safe",
-      "bucket": "helper",
-      "start": 22619,
-      "end": 22622,
-      "uncovered": 4,
-      "span": 4,
-      "route": null,
-      "missing_sample": [
-        22619,
-        22620,
-        22621,
-        22622
-      ]
-    },
-    {
       "function": "hkdf_extract",
       "bucket": "helper",
       "start": 25021,
@@ -7256,6 +7216,40 @@
         21925,
         21926,
         21927
+      ]
+    },
+    {
+      "function": "_safe",
+      "bucket": "helper",
+      "start": 22619,
+      "end": 22622,
+      "uncovered": 3,
+      "span": 4,
+      "route": null,
+      "missing_sample": [
+        22620,
+        22621,
+        22622
+      ]
+    },
+    {
+      "function": "metrics_anomaly",
+      "bucket": "route",
+      "start": 22540,
+      "end": 22628,
+      "uncovered": 3,
+      "span": 89,
+      "route": {
+        "path": "/api/metrics/anomaly",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        22626,
+        22627,
+        22628
       ]
     },
     {
