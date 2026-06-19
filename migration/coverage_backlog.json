@@ -1,14 +1,14 @@
 {
-  "total_uncovered": 6160,
+  "total_uncovered": 6081,
   "summary_pct": "59",
   "by_bucket": {
     "route": {
       "functions": 123,
-      "uncovered": 1611
+      "uncovered": 1551
     },
     "helper": {
-      "functions": 447,
-      "uncovered": 4280
+      "functions": 444,
+      "uncovered": 4261
     },
     "lifecycle": {
       "functions": 21,
@@ -175,31 +175,6 @@
         22890,
         22891,
         22892
-      ]
-    },
-    {
-      "function": "view_logs",
-      "bucket": "route",
-      "start": 11239,
-      "end": 11512,
-      "uncovered": 71,
-      "span": 274,
-      "route": {
-        "path": "/logs",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        11277,
-        11280,
-        11281,
-        11282,
-        11285,
-        11288,
-        11289,
-        11290
       ]
     },
     {
@@ -841,31 +816,6 @@
       ]
     },
     {
-      "function": "view_traces",
-      "bucket": "route",
-      "start": 15312,
-      "end": 15678,
-      "uncovered": 31,
-      "span": 367,
-      "route": {
-        "path": "/traces",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        15346,
-        15347,
-        15348,
-        15350,
-        15351,
-        15352,
-        15358,
-        15373
-      ]
-    },
-    {
       "function": "_update_github_issue_record",
       "bucket": "helper",
       "start": 32994,
@@ -1391,6 +1341,31 @@
       ]
     },
     {
+      "function": "view_traces",
+      "bucket": "route",
+      "start": 15312,
+      "end": 15678,
+      "uncovered": 22,
+      "span": 367,
+      "route": {
+        "path": "/traces",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        15348,
+        15479,
+        15480,
+        15482,
+        15483,
+        15484,
+        15485,
+        15486
+      ]
+    },
+    {
       "function": "_parse_requirements_dependencies",
       "bucket": "helper",
       "start": 16333,
@@ -1716,6 +1691,31 @@
         9803,
         9804,
         9805
+      ]
+    },
+    {
+      "function": "view_logs",
+      "bucket": "route",
+      "start": 11239,
+      "end": 11512,
+      "uncovered": 20,
+      "span": 274,
+      "route": {
+        "path": "/logs",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        11282,
+        11321,
+        11322,
+        11343,
+        11344,
+        11379,
+        11383,
+        11390
       ]
     },
     {
@@ -3844,25 +3844,6 @@
       ]
     },
     {
-      "function": "_parse_time_window_args",
-      "bucket": "helper",
-      "start": 8108,
-      "end": 8128,
-      "uncovered": 9,
-      "span": 21,
-      "route": null,
-      "missing_sample": [
-        8118,
-        8119,
-        8120,
-        8122,
-        8123,
-        8124,
-        8125,
-        8127
-      ]
-    },
-    {
       "function": "_parse_genai_messages_json",
       "bucket": "helper",
       "start": 8357,
@@ -4947,24 +4928,6 @@
       ]
     },
     {
-      "function": "_parse_trace_filter_values",
-      "bucket": "helper",
-      "start": 10706,
-      "end": 10725,
-      "uncovered": 7,
-      "span": 20,
-      "route": null,
-      "missing_sample": [
-        10714,
-        10715,
-        10716,
-        10717,
-        10720,
-        10721,
-        10722
-      ]
-    },
-    {
       "function": "api_raw_span",
       "bucket": "route",
       "start": 15695,
@@ -6007,6 +5970,22 @@
       ]
     },
     {
+      "function": "_parse_time_window_args",
+      "bucket": "helper",
+      "start": 8108,
+      "end": 8128,
+      "uncovered": 5,
+      "span": 21,
+      "route": null,
+      "missing_sample": [
+        8118,
+        8119,
+        8120,
+        8127,
+        8128
+      ]
+    },
+    {
       "function": "ingest_logs",
       "bucket": "route",
       "start": 9665,
@@ -6557,21 +6536,6 @@
       ]
     },
     {
-      "function": "_time_window_conditions",
-      "bucket": "helper",
-      "start": 8131,
-      "end": 8141,
-      "uncovered": 4,
-      "span": 11,
-      "route": null,
-      "missing_sample": [
-        8136,
-        8137,
-        8139,
-        8140
-      ]
-    },
-    {
       "function": "_normalize_for_dedupe",
       "bucket": "helper",
       "start": 8443,
@@ -6614,21 +6578,6 @@
         10551,
         10552,
         10553
-      ]
-    },
-    {
-      "function": "_translate_has_tag",
-      "bucket": "helper",
-      "start": 11300,
-      "end": 11308,
-      "uncovered": 4,
-      "span": 9,
-      "route": null,
-      "missing_sample": [
-        11300,
-        11301,
-        11302,
-        11303
       ]
     },
     {
