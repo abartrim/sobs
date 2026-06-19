@@ -1,6 +1,6 @@
 {
-  "total_uncovered": 5440,
-  "summary_pct": "63",
+  "total_uncovered": 5424,
+  "summary_pct": "64",
   "by_bucket": {
     "helper": {
       "functions": 436,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 123,
-      "uncovered": 1027
+      "uncovered": 1011
     },
     "module": {
       "functions": 0,
@@ -1648,31 +1648,6 @@
         8225,
         8226,
         8227
-      ]
-    },
-    {
-      "function": "auto_metrics_rules",
-      "bucket": "route",
-      "start": 13721,
-      "end": 13843,
-      "uncovered": 19,
-      "span": 123,
-      "route": {
-        "path": "/metrics/rules/auto",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        13726,
-        13727,
-        13730,
-        13731,
-        13737,
-        13740,
-        13747,
-        13782
       ]
     },
     {
@@ -6968,6 +6943,26 @@
         12323,
         12327,
         12338
+      ]
+    },
+    {
+      "function": "auto_metrics_rules",
+      "bucket": "route",
+      "start": 13721,
+      "end": 13843,
+      "uncovered": 3,
+      "span": 123,
+      "route": {
+        "path": "/metrics/rules/auto",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        13737,
+        13740,
+        13747
       ]
     },
     {

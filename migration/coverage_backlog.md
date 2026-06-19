@@ -1,12 +1,12 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **63%** · **5440** uncovered statements.
+Oracle coverage **64%** · **5424** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 1027 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| route | 123 | 1011 | needs a fixture/profile (corpus expansion; byte-verifiable) |
 | helper | 436 | 4144 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
@@ -27,7 +27,6 @@ Oracle coverage **63%** · **5440** uncovered statements.
 | `issue_rum_client_token` | 9791–9826 | 20 | `POST /v1/rum/client-token` |
 | `view_logs` | 11239–11512 | 20 | `GET /logs` |
 | `view_work_items` | 18361–18488 | 20 | `GET /work-items` |
-| `auto_metrics_rules` | 13721–13843 | 19 | `POST /metrics/rules/auto` |
 | `api_import_reports` | 22857–23017 | 19 | `POST /api/reports/import` |
 | `view_enrichment_cve` | 18104–18215 | 18 | `GET /enrichment/cve` |
 | `view_ai` | 18631–18998 | 18 | `GET /ai` |
@@ -55,6 +54,7 @@ Oracle coverage **63%** · **5440** uncovered statements.
 | `ingest_metrics` | 9896–9918 | 9 | `POST /v1/metrics` |
 | `chart_spec_options_api` | 21816–21887 | 9 | `GET /api/dashboards/spec/options` |
 | `render_chart_spec_api` | 21986–22031 | 9 | `POST /api/dashboards/spec/render` |
+| `get_ai_span_attributes` | 19003–19040 | 8 | `GET /api/ai/span-attributes` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
