@@ -1,17 +1,17 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **67%** · **4908** uncovered statements.
+Oracle coverage **67%** · **4881** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 118 | 636 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 426 | 4003 | usually covered when a calling route's fixture is added; else difftest |
+| route | 117 | 610 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 426 | 4002 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
-## route — top by uncovered lines (118 functions)
+## route — top by uncovered lines (117 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
@@ -23,10 +23,8 @@ Oracle coverage **67%** · **4908** uncovered statements.
 | `auto_tag_rules` | 23353–23460 | 16 | `POST /settings/tags/auto` |
 | `check_notifications` | 26341–26447 | 16 | `POST /api/notifications/check` |
 | `view_logs` | 11239–11512 | 15 | `GET /logs` |
-| `clone_chart` | 21694–21733 | 15 | `POST /dashboards/<dashboard_id>/charts/<chart_id>/clone` |
 | `ingest_rum_asset` | 9699–9756 | 14 | `POST /v1/rum/assets` |
 | `view_traces` | 15312–15678 | 14 | `GET /traces` |
-| `edit_chart` | 21651–21689 | 14 | `POST /dashboards/<dashboard_id>/charts/<chart_id>/edit` |
 | `view_ai` | 18631–18998 | 11 | `GET /ai` |
 | `api_import_reports` | 22857–23017 | 11 | `POST /api/reports/import` |
 | `api_query_ask` | 30203–30506 | 11 | `POST /api/query/ask` |
@@ -55,6 +53,8 @@ Oracle coverage **67%** · **4908** uncovered statements.
 | `summary` | 10841–10971 | 5 | `GET /` |
 | `view_metrics` | 13430–13595 | 5 | `GET /metrics` |
 | `api_web_traffic_geo` | 17711–17760 | 5 | `GET /api/web-traffic/geo` |
+| `view_work_items` | 18361–18488 | 5 | `GET /work-items` |
+| `import_chart` | 22467–22532 | 5 | `POST /api/dashboards/<dashboard_id>/charts/import` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
