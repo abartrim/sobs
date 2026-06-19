@@ -3024,6 +3024,19 @@ routes:
   mask:
   - '"run_id": ?"[^"]*"'
   mask_reason: run_id is a server-generated uuid4; the agent flow result (status/guard_decision/analysis/suggestion) and rule_id are byte-compared.
+# notifagentmiss profile: AI configured + the same tag-event infra, but the seeded agent rules ALL
+# hit a non-firing `continue` arm (disabled / anomaly_rule+ref-no-event / tag_rule-no-ref state
+# mismatch). No agent run fires, so agent_runs is [] (no uuid/now() in the body). This covers the
+# agent-branch continue arms that the firing notifagent path skips (app.py 26374, 26382-26383,
+# 26392-26393, 26398, 26402).
+- id: post__api_notifications_check__agentmiss
+  path: /api/notifications/check
+  methods:
+  - POST
+  profile: notifagentmiss
+  request:
+    method: POST
+    json: {}
 - id: post__api_mcp_enabled
   path: /api/mcp/enabled
   methods:

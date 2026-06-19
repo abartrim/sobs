@@ -915,6 +915,100 @@ def seed_notif_agent(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_agent_rules FINAL")
 
 
+def seed_notif_agent_miss(db) -> None:
+    # Cover the agent-trigger branch's NON-firing `continue` arms of check_notifications — the ones
+    # the (firing) notifagent profile skips because its rule matches an event and runs the flow.
+    # Same tag infra as notifagent (a tag rule + recent auto tags so _collect_tag_rule_agent_events
+    # emits a "warning" event keyed by the tag rule id), but the seeded AGENT rules every hit a
+    # `continue` and NEVER reach _run_agent_rule_instance — so no uuid/now() is consumed and
+    # agent_runs stays [] (byte-stable, identical surface to the empty-agent path):
+    #   - "A Disabled Watch" (is_enabled=0)            -> `if not is_enabled: continue`         26374
+    #   - "B Anomaly Ref"   anomaly_rule + ref id      -> anomaly_events.get(ref)=None          26382-26383
+    #                                                     -> `if not event: continue`           26398
+    #     (NO anomaly events exist: v_derived_signals_anomaly is now()-24h-windowed with no
+    #      in-window fixture rows, so _collect_anomaly_agent_events returns {}.)
+    #   - "C Tag NoRef Crit" tag_rule, NO ref id,      -> event = all_tag_events[0]             26392-26393
+    #     trigger_state="critical"                       -> state "warning" != "critical"
+    #                                                     -> `if not state matches: continue`   26402
+    # Names are A/B/C-prefixed so the ORDER BY Name load order is fixed and documented.
+    # IMPORTANT: the firing "Parity Tag Agent Rule" (e2…0001) is NOT seeded here, so nothing runs.
+    _insert(
+        db,
+        "sobs_tag_rules",
+        [
+            {
+                "Id": "ab000000000000000000000000000001",
+                "Name": "Prod Env Tag",
+                "RecordTypes": "",
+                "MatchField": "",
+                "MatchOperator": "",
+                "MatchValue": "",
+                "MatchAttrKey": "",
+                "TagKey": "env",
+                "TagValue": "production",
+                "ConditionsJson": "",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    # Recent auto tags (real now() so they're inside the 5-min Version window). The count only feeds
+    # the (un-captured) trigger context — and here no run is even reached — so the value is moot.
+    db.execute(
+        "INSERT INTO sobs_record_tags (RecordType, RecordId, TagKey, TagValue, IsAuto, IsDeleted, Version) "
+        "SELECT 'log', concat('rec-', toString(number)), 'env', 'production', 1, 0, toUnixTimestamp64Milli(now64(3)) "
+        "FROM numbers(7)"
+    )
+    _insert(
+        db,
+        "sobs_agent_rules",
+        [
+            {
+                "Id": "f1000000000000000000000000000001",
+                "Name": "A Disabled Watch",
+                "Description": "Disabled agent rule (is_enabled continue arm).",
+                "TriggerType": "tag_rule",
+                "TriggerRefId": "ab000000000000000000000000000001",
+                "TriggerState": "any",
+                "Actions": "analyze",
+                "RateLimitMinutes": 60,
+                "IsEnabled": 0,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "Id": "f1000000000000000000000000000002",
+                "Name": "B Anomaly Ref",
+                "Description": "anomaly_rule trigger with ref id but no event (continue).",
+                "TriggerType": "anomaly_rule",
+                "TriggerRefId": "no-such-anomaly-rule",
+                "TriggerState": "any",
+                "Actions": "analyze",
+                "RateLimitMinutes": 60,
+                "IsEnabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "Id": "f1000000000000000000000000000003",
+                "Name": "C Tag NoRef Crit",
+                "Description": "tag_rule trigger, no ref -> all_tag_events[0]; state mismatch (continue).",
+                "TriggerType": "tag_rule",
+                "TriggerRefId": "",
+                "TriggerState": "critical",
+                "Actions": "analyze",
+                "RateLimitMinutes": 60,
+                "IsEnabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_tag_rules FINAL")
+    db.execute("OPTIMIZE TABLE sobs_record_tags FINAL")
+    db.execute("OPTIMIZE TABLE sobs_agent_rules FINAL")
+
+
 def seed_notif(db) -> None:
     # Two channels + two rules, each on its OWN id so toggle/delete don't collide on the
     # ReplacingMergeTree version (both actions re-insert at Version 1704164645000). Seed Version
@@ -2044,6 +2138,7 @@ PROFILE_SEEDS = {
     "agenttrigger": seed_agent_rule,  # analyze-only rule; trigger_agent_run runs the agent flow
     "dmprune": seed_dm_prune,  # retention-eligible rows -> prune's DELETE window runs on real data
     "notifagent": seed_notif_agent,  # tag rule + auto tags + agent rule -> check_notifications auto-triggers the flow
+    "notifagentmiss": seed_notif_agent_miss,  # tag infra + continue-only agent rules -> agent_runs stays []
     "dmbackup": seed_dm_backup,
     "k8s": seed_k8s,  # backup_enabled=1; backup/run + restore reach their enabled branch
     "repoapp": seed_repo_app,  # registered app + release + github token; repositories-sub actions
