@@ -227,6 +227,11 @@ PROFILES: dict[str, dict[str, str]] = {
     # metricsauto: a constant recent log_volume series so auto_metrics_rules' threshold scan
     # generates fixed candidates (exact quantiles of a constant). No env overlay — just the seed.
     "metricsauto": {},
+    # rumvitals: now()-relative web-vital + error rows in hyperdx_sessions so view_rum's Web-vitals
+    # (anomaly summary + 1m sparkline + hotspot) and Error-trend (direction + by_type + sparkline)
+    # blocks all populate. Constant values -> every derived quantity is timestamp-independent; only
+    # the now()-derived bucket/last_seen timestamps drift, masked in the route. No env overlay.
+    "rumvitals": {},
     # tagsuggest: seeded otel_logs/otel_traces/hyperdx_sessions + sobs_record_tags + sobs_log_attr_keys
     # so /api/settings/tags/condition-suggestions returns non-empty ranked suggestions for every
     # scope/target/field branch. No env overlay — just the (isolated) seed. All seed rows use the
@@ -381,6 +386,7 @@ SEEDED_PROFILES = {
     "cveosv",
     "tagauto",
     "metricsauto",
+    "rumvitals",
     "tagsuggest",
     "cvebackfill",
     "onboard",
