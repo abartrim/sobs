@@ -4987,6 +4987,20 @@ routes:
   request:
     method: POST
     form: {action: preview}
+# auto_metrics_rules_dashboard PREVIEW over the dashboardautorich seed (sobs_anomaly_rules only, no
+# telemetry). With service_filter=web the preview exercises _build_auto_dashboard_chart_candidates'
+# remaining arms: the empty source/signal skip (12322-12323), the service_filter-mismatch skip
+# (12326-12327), and the AttrFingerprint WHERE arm (12337-12338). No telemetry is seeded, so the
+# rendered services dropdown stays the deterministic base set (dodges the racy
+# _list_derived_signal_dimensions union); the candidate list has no timestamps/uuids -> byte-stable.
+- id: post__metrics_rules_dashboard_auto__dar_preview
+  path: /metrics/rules/dashboard/auto
+  methods:
+  - POST
+  profile: dashboardautorich
+  request:
+    method: POST
+    form: {action: preview, service_filter: web}
 - id: post__settings_tags_auto
   path: /settings/tags/auto
   methods:
@@ -5003,6 +5017,40 @@ routes:
   - POST
   request:
     method: POST
+# auto_tag_rules PREVIEW over the tagautorich seed: rich telemetry across all five record types
+# makes _build_auto_tag_rule_candidates emit a candidate from every per-type arm (log env/non-env,
+# trace env/non-env, error, ai, rum) plus the empty-attr skips and the skipped_existing dedup. The
+# candidate list sorts by (point_count desc, name desc) -> deterministic; no timestamps in the body.
+- id: post__settings_tags_auto__tar_preview
+  path: /settings/tags/auto
+  profile: tagautorich
+  methods:
+  - POST
+  request:
+    method: POST
+    form: {action: preview}
+# Same tagautorich seed but auto_record_types is a single INVALID token: it survives the form parse
+# but intersects to the empty set inside _build_auto_tag_rule_candidates, exercising the
+# selected-empty fallback (app.py 12073) which resets to all five types before the scan.
+- id: post__settings_tags_auto__tar_badtypes
+  path: /settings/tags/auto
+  profile: tagautorich
+  methods:
+  - POST
+  request:
+    method: POST
+    form: {action: preview, auto_record_types: [__none__]}
+# Same tagautorich seed with service_filter set, exercising the service_filter param branch
+# (app.py 12138-12139 base_params.append + the WHERE ServiceName = ? arm). Filtering to 'checkout'
+# narrows the scan to that single service's candidate(s) -> deterministic.
+- id: post__settings_tags_auto__tar_svcfilter
+  path: /settings/tags/auto
+  profile: tagautorich
+  methods:
+  - POST
+  request:
+    method: POST
+    form: {action: preview, service_filter: checkout}
 - id: post__v1_ai
   path: /v1/ai
   methods:

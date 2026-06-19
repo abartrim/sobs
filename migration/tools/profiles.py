@@ -272,6 +272,24 @@ PROFILES: dict[str, dict[str, str]] = {
     # tagauto: 30 recent prod-service otel_logs rows so auto_tag_rules' in-window branch generates
     # one candidate. No env overlay — just the (isolated) seed. Timestamp-independent output.
     "tagauto": {},
+    # tagautorich: rich now()-anchored telemetry (distinct services across logs/traces/sessions +
+    # exception/provider attrs + a dup tag rule) so auto_tag_rules' PREVIEW exercises EVERY
+    # _build_auto_tag_rule_candidates arm — log env + log non-env, trace env + trace non-env, error
+    # append + error empty-type skip, ai append + ai empty-provider skip, rum append, and the
+    # skipped_existing dedup arm — in one capture. No env overlay — just the (isolated) seed. The
+    # candidate sort key is (point_count desc, name desc) and carries no timestamps, so the preview
+    # body is byte-stable; the rendered services dropdown (_list_tag_candidate_services, an outer
+    # SELECT DISTINCT ... ORDER BY ServiceName) is deterministically alphabetical. Isolated so the
+    # extra services + dup rule never ripple into base/tagauto readers.
+    "tagautorich": {},
+    # dashboardautorich: seed sobs_anomaly_rules ONLY (no telemetry) so auto_metrics_rules_dashboard's
+    # PREVIEW exercises _build_auto_dashboard_chart_candidates' remaining arms — empty source/signal
+    # skip, service_filter mismatch skip, and the AttrFingerprint WHERE arm. The candidate builder
+    # reads only sobs_anomaly_rules; seeding ZERO telemetry keeps _list_derived_signal_dimensions'
+    # services dropdown equal to the base set (genuinely racy once >1 service is present), which is
+    # the byte-stability safeguard. Preview only (the create path is deferred — uuid in redirect,
+    # R12). No env overlay — just the (isolated) seed.
+    "dashboardautorich": {},
     # metricsauto: a constant recent log_volume series so auto_metrics_rules' threshold scan
     # generates fixed candidates (exact quantiles of a constant). No env overlay — just the seed.
     "metricsauto": {},
@@ -467,6 +485,8 @@ SEEDED_PROFILES = {
     "repoapp",
     "cveosv",
     "tagauto",
+    "tagautorich",
+    "dashboardautorich",
     "metricsauto",
     "metricsrich",
     "rumvitals",

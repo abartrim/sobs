@@ -527,6 +527,190 @@ def seed_metricsauto(db) -> None:
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
 
 
+def seed_tagautorich(db) -> None:
+    # Rich now()-anchored telemetry so auto_tag_rules' candidate generator
+    # (_build_auto_tag_rule_candidates, app.py 12062-12308) exercises EVERY per-record-type
+    # candidate arm in a single preview, instead of the single "log env=production" candidate the
+    # plain `tagauto` seed produces. Like seed_tagauto, every row sits at a FIXED now()-relative
+    # offset (NOT the frozen 2024 epoch) so it lands inside the route's 24h scan window at both
+    # capture and replay; the base fixture has nothing in-window. The candidate OUTPUT
+    # (service/operator/tag/count/name) is timestamp-independent, and the final
+    # sort key is (point_count desc, name desc) — fully deterministic — so capture and replay,
+    # seeded at different wall-clock times, produce byte-identical candidate lists.
+    #
+    # Each service uses >= the route's default min_count (30) so its GROUP BY ... HAVING c >= 30
+    # bucket survives. Distinct, deterministic counts give every candidate a distinct point_count so
+    # the sort is total (no name-tie ambiguity beyond the deterministic name tiebreak).
+    #
+    # Branch coverage (app.py line -> seed shape):
+    #   log env       12150-12164  : already covered by plain tagauto, included here too (api-prod logs)
+    #   log non-env   12166-12175  : 'checkout' logs (no env token) -> "log service=checkout"
+    #   trace env     12187-12191  : 'api-prod' traces (ScopeName != 'sobs-ai') -> "trace env=production"
+    #   trace non-env 12201-12202  : 'gateway' traces -> "trace service=gateway"
+    #   error append  12225-12230  : ERROR logs w/ exception.type=ValueError -> "error type=valueerror"
+    #   error skip    12226-12228  : ERROR logs w/ NO exception.type (Provider='') -> skipped_invalid
+    #   ai append     12253-12258  : sobs-ai traces w/ gen_ai.provider.name=openai -> "ai provider=openai"
+    #   ai skip       12254-12256  : sobs-ai traces w/ NO provider -> skipped_invalid
+    #   rum append    12280-12282  : hyperdx_sessions EventName='click' -> "rum event=click"
+    #   skipped_existing 12119-12121: a sobs_tag_rules row matching the 'dupsvc' log candidate exactly
+    #                                 -> that candidate is skipped instead of appended
+    # The remaining uncovered lines are route-form-driven (12073 empty-selected, 12139 service_filter)
+    # and covered by dedicated routes; 12108-12109 and 12297-12298 are defensive/dead under chDB
+    # (every call site pre-validates and point_count is always a valid int) and are deferred.
+
+    # --- log branch -----------------------------------------------------------------------------
+    # 'checkout' (no env token) -> log non-env candidate; count 31 (distinct from others).
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, Body) "
+        "SELECT now() - INTERVAL 1 HOUR, 'checkout', 'request handled' FROM numbers(31)"
+    )
+    # 'dupsvc' (no env token) -> would be "log service=dupsvc", but a matching tag rule (seeded below)
+    # already exists -> skipped_existing arm.
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, Body) "
+        "SELECT now() - INTERVAL 1 HOUR, 'dupsvc', 'request handled' FROM numbers(32)"
+    )
+
+    # --- error branch (otel_logs, severity/exception driven) -----------------------------------
+    # 'errsvc' ERROR rows WITH exception.type=ValueError -> error append candidate. These rows ALSO
+    # feed the log branch (no severity filter there) -> an extra "log service=errsvc" candidate
+    # (deterministic). count 33.
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, SeverityText, SeverityNumber, Body, LogAttributes) "
+        "SELECT now() - INTERVAL 1 HOUR, 'errsvc', 'ERROR', 17, 'boom', "
+        "map('exception.type', 'ValueError') FROM numbers(33)"
+    )
+    # 'errnotype' ERROR rows with NO exception.type -> the error GROUP BY yields ExceptionType=''
+    # -> skipped_invalid (12226-12228). These also feed the log branch -> "log service=errnotype".
+    # count 34.
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, SeverityText, SeverityNumber, Body) "
+        "SELECT now() - INTERVAL 1 HOUR, 'errnotype', 'ERROR', 17, 'boom no type' FROM numbers(34)"
+    )
+
+    # --- trace branch (otel_traces, ScopeName != 'sobs-ai') ------------------------------------
+    # 'api-prod' (env token) -> trace env candidate. count 30.
+    db.execute(
+        "INSERT INTO otel_traces (Timestamp, ServiceName, SpanName, ScopeName) "
+        "SELECT now() - INTERVAL 1 HOUR, 'api-prod', 'GET /api', 'io.opentelemetry.http' FROM numbers(30)"
+    )
+    # 'gateway' (no env token) -> trace non-env candidate. count 35.
+    db.execute(
+        "INSERT INTO otel_traces (Timestamp, ServiceName, SpanName, ScopeName) "
+        "SELECT now() - INTERVAL 1 HOUR, 'gateway', 'route', 'io.opentelemetry.http' FROM numbers(35)"
+    )
+
+    # --- ai branch (otel_traces, ScopeName = 'sobs-ai') ----------------------------------------
+    # sobs-ai traces WITH gen_ai.provider.name=openai -> ai append candidate. count 36. Use a single
+    # service 'sobs-ai-svc' so these don't add an extra trace-branch candidate (the trace query
+    # excludes ScopeName='sobs-ai').
+    db.execute(
+        "INSERT INTO otel_traces (Timestamp, ServiceName, SpanName, ScopeName, SpanAttributes) "
+        "SELECT now() - INTERVAL 1 HOUR, 'sobs-ai-svc', 'chat', 'sobs-ai', "
+        "map('gen_ai.provider.name', 'openai') FROM numbers(36)"
+    )
+    # sobs-ai traces with NO provider -> Provider='' -> skipped_invalid (12254-12256). count 37.
+    db.execute(
+        "INSERT INTO otel_traces (Timestamp, ServiceName, SpanName, ScopeName) "
+        "SELECT now() - INTERVAL 1 HOUR, 'sobs-ai-svc', 'chat-noprov', 'sobs-ai' FROM numbers(37)"
+    )
+
+    # --- rum branch (hyperdx_sessions) ---------------------------------------------------------
+    # EventName='click' -> rum append candidate. count 38.
+    db.execute(
+        "INSERT INTO hyperdx_sessions (Timestamp, ServiceName, EventName, Body) "
+        "SELECT now() - INTERVAL 1 HOUR, 'rumsvc', 'click', 'tap' FROM numbers(38)"
+    )
+
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+    db.execute("OPTIMIZE TABLE otel_traces FINAL")
+    db.execute("OPTIMIZE TABLE hyperdx_sessions FINAL")
+
+    # An EXISTING tag rule that exactly matches the 'dupsvc' log candidate
+    # (record_types=["log"], match_field="service_name", match_operator="eq", match_value="dupsvc",
+    # match_attr_key="", tag_key="service", tag_value="dupsvc"). _build_auto_tag_rule_candidates
+    # builds existing_keys from these rows, so the generated dupsvc candidate is dropped via the
+    # skipped_existing arm (app.py 12119-12121). RecordTypes is the single token "log" so the
+    # joined+sorted record-types component of the existing key equals the candidate's single
+    # record_type "log".
+    _insert(
+        db,
+        "sobs_tag_rules",
+        [
+            {
+                "Id": "ta11ta11-0000-4000-8000-00000000d0pa",
+                "Name": "tagautorich dupsvc existing",
+                "RecordTypes": "log",
+                "MatchField": "service_name",
+                "MatchOperator": "eq",
+                "MatchValue": "dupsvc",
+                "MatchAttrKey": "",
+                "TagKey": "service",
+                "TagValue": "dupsvc",
+                "ConditionsJson": "",
+                "IsDeleted": 0,
+                "Version": 1,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_tag_rules FINAL")
+
+
+def seed_dashboardautorich(db) -> None:
+    # Seed sobs_anomaly_rules ONLY (no telemetry) so auto_metrics_rules_dashboard's PREVIEW exercises
+    # the remaining uncovered arms of _build_auto_dashboard_chart_candidates (app.py 12311-12385):
+    #   12322-12323 : a rule with empty SignalSource/SignalName -> `continue` (skipped)
+    #   12326-12327 : a rule whose ServiceName != the request service_filter -> `continue` (skipped)
+    #   12337-12338 : a rule with a non-empty AttrFingerprint -> the AttrFingerprint WHERE clause arm
+    # The candidate builder reads ONLY sobs_anomaly_rules; it never queries otel_logs/otel_traces/
+    # hyperdx_sessions, so seeding zero telemetry keeps _list_derived_signal_dimensions' services
+    # dropdown equal to the base-fixture set (genuinely racy once >1 service is present — see
+    # seed_metricsauto). The preview render embeds that dropdown, so NOT perturbing it is what keeps
+    # this route byte-stable. The candidate list itself sorts by (service, source, signal, title) and
+    # carries no timestamps/uuids, so it is deterministic.
+    #
+    # The route is invoked with action=preview + service_filter=web (see the dashboardautorich
+    # routes). With that filter:
+    #   - 'da-empty'  (source/signal blank)     -> 12322-12323 continue
+    #   - 'da-other'  (service='other-svc')     -> 12326-12327 continue (service != 'web')
+    #   - 'da-attrfp' (service='web', attr_fp set) -> appended via the attr_fp WHERE arm (12337-12338)
+    #   - 'da-plain'  (service='web', no attr_fp)  -> appended (baseline arm), keeps a second candidate
+    _rules = [
+        # (Id, Name, RuleType, SignalSource, SignalName, ServiceName, AttrFingerprint)
+        ("da-empty", "a dar empty", "threshold", "", "", "web", ""),
+        ("da-other", "b dar other", "threshold", "logs", "log_volume", "other-svc", ""),
+        ("da-attrfp", "c dar attrfp", "threshold", "logs", "log_volume", "web", "deadbeefdeadbeef"),
+        ("da-plain", "d dar plain", "threshold", "logs", "log_volume", "web", ""),
+    ]
+    rows = []
+    for rid, name, rtype, src, sig, svc, fp in _rules:
+        rows.append(
+            {
+                "Id": rid,
+                "Name": name,
+                "RuleType": rtype,
+                "SignalSource": src,
+                "SignalName": sig,
+                "ServiceName": svc,
+                "AttrFingerprint": fp,
+                "Comparator": "gt",
+                "WarningThreshold": 3.0,
+                "CriticalThreshold": 8.0,
+                "SecondarySignalSource": "",
+                "SecondarySignalName": "",
+                "SecondaryComparator": "gt",
+                "SecondaryWarningThreshold": 0.0,
+                "SecondaryCriticalThreshold": 0.0,
+                "MinSampleCount": 1,
+                "SeasonalBucketsJson": "",
+                "IsDeleted": 0,
+                "Version": 1,
+            }
+        )
+    _insert(db, "sobs_anomaly_rules", rows)
+    db.execute("OPTIMIZE TABLE sobs_anomaly_rules FINAL")
+
+
 def seed_rumvitals(db) -> None:
     # Seed hyperdx_sessions with now()-relative web-vital + error rows so view_rum's "Web vitals"
     # and "Error trend" blocks (app.py 17472-17633) all populate. Every row is laid out at a FIXED
@@ -2555,6 +2739,8 @@ PROFILE_SEEDS = {
     "repoapp": seed_repo_app,  # registered app + release + github token; repositories-sub actions
     "cveosv": seed_cve_osv,  # telemetry.sdk row -> non-empty inventory -> OSV scan finds a vuln
     "tagauto": seed_tagauto,  # 30 recent prod-service logs -> auto_tag_rules in-window candidate
+    "tagautorich": seed_tagautorich,  # rich telemetry -> every _build_auto_tag_rule_candidates arm
+    "dashboardautorich": seed_dashboardautorich,  # anomaly rules -> _build_auto_dashboard_chart_candidates arms
     "cveview": seed_cveview,  # CVE findings (1/severity) -> summary cve-overview + view_enrichment_cve
     "summaryrich": seed_summaryrich,  # now()-anchored logs + logs-source anomaly rules -> populated summary panels
     "metricsauto": seed_metricsauto,  # constant log_volume series -> auto_metrics_rules candidates
