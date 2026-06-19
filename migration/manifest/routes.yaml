@@ -2046,6 +2046,30 @@ routes:
   request:
     method: POST
     json: {"dashboard_id": "x"}
+# api_query_add_to_dashboard remaining validation branches (fixed-message 400/404 -> deterministic,
+# no seed; base already has dashboard 00000000-...-000a for the dashboard-found array branch).
+# (Invalid-JSON chart_spec 21357-58 is deferred — its message embeds Python's json error text.)
+- id: post__add_to_dashboard_no_chartspec  # 21345: dashboard_id+sql but no chart_spec
+  path: /api/query/add-to-dashboard
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {"dashboard_id": "x", "sql": "SELECT 1"}
+- id: post__add_to_dashboard_notfound  # 21350: dashboard does not exist
+  path: /api/query/add-to-dashboard
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {"dashboard_id": "nonexistent-dash", "sql": "SELECT 1", "chart_spec": {"series": [1]}}
+- id: post__add_to_dashboard_spec_array  # 21360: chart_spec not a JSON object
+  path: /api/query/add-to-dashboard
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {"dashboard_id": "00000000-0000-4000-8000-00000000000a", "sql": "SELECT 1", "chart_spec": [1]}
 - id: post__dashboard_create_err
   path: /dashboards
   methods:
@@ -4580,6 +4604,23 @@ routes:
       match_value: checkout
       tag_key: env
       tag_value: prod
+# create_tag_rule EDIT path with a non-existent edit_rule_id: passes all condition validation, enters
+# the edit branch (app.py 23549-23550 lookup), finds no row -> "Tag rule not found for editing"
+# warning + redirect (23558-23560). Fixed message, returns before any insert -> deterministic, no seed.
+- id: post__settings_tags_edit_notfound
+  path: /settings/tags
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      name: Prod Tagger
+      match_field: service_name
+      match_operator: eq
+      match_value: checkout
+      tag_key: env
+      tag_value: prod
+      edit_rule_id: nonexistent-rule-id
 # Register a repository/app (mutator; sobs_apps read only by early repositories/health readers).
 - id: post__settings_repositories_create_ok
   path: /settings/repositories
