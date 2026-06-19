@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **64%** · **5408** uncovered statements.
+Oracle coverage **64%** · **5382** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 995 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 436 | 4144 | usually covered when a calling route's fixture is added; else difftest |
+| route | 123 | 967 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 437 | 4146 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -17,7 +17,6 @@ Oracle coverage **64%** · **5408** uncovered statements.
 |---|---|---:|---|
 | `ai_helper` | 27607–28395 | 58 | `POST /api/ai/helper` |
 | `view_incident` | 15785–16144 | 39 | `GET /incident` |
-| `save_ai_settings` | 26677–26751 | 32 | `POST /settings/ai` |
 | `auto_metrics_rules_dashboard` | 13848–13960 | 26 | `POST /metrics/rules/dashboard/auto` |
 | `view_rum` | 17309–17657 | 26 | `GET /rum` |
 | `api_onboarding_create_issues` | 33738–33930 | 25 | `POST /api/onboarding/create-issues` |
@@ -55,6 +54,7 @@ Oracle coverage **64%** · **5408** uncovered statements.
 | `chart_spec_options_api` | 21816–21887 | 9 | `GET /api/dashboards/spec/options` |
 | `render_chart_spec_api` | 21986–22031 | 9 | `POST /api/dashboards/spec/render` |
 | `get_ai_span_attributes` | 19003–19040 | 8 | `GET /api/ai/span-attributes` |
+| `export_ai_training` | 19123–19226 | 8 | `GET /api/ai/export` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
@@ -82,7 +82,7 @@ Oracle coverage **64%** · **5408** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (436 functions)
+## helper — top by uncovered lines (437 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|

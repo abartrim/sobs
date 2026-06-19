@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 5408,
+  "total_uncovered": 5382,
   "summary_pct": "64",
   "by_bucket": {
     "helper": {
-      "functions": 436,
-      "uncovered": 4144
+      "functions": 437,
+      "uncovered": 4146
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 123,
-      "uncovered": 995
+      "uncovered": 967
     },
     "module": {
       "functions": 0,
@@ -619,31 +619,6 @@
         15043,
         15044,
         15045
-      ]
-    },
-    {
-      "function": "save_ai_settings",
-      "bucket": "route",
-      "start": 26677,
-      "end": 26751,
-      "uncovered": 32,
-      "span": 75,
-      "route": {
-        "path": "/settings/ai",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        26703,
-        26704,
-        26705,
-        26706,
-        26708,
-        26709,
-        26710,
-        26711
       ]
     },
     {
@@ -4965,23 +4940,6 @@
       ]
     },
     {
-      "function": "_coerce_ai_pricing_entry",
-      "bucket": "helper",
-      "start": 2767,
-      "end": 2773,
-      "uncovered": 6,
-      "span": 7,
-      "route": null,
-      "missing_sample": [
-        2768,
-        2769,
-        2770,
-        2771,
-        2772,
-        2773
-      ]
-    },
-    {
       "function": "_load_ai_pricing_with_sources",
       "bucket": "helper",
       "start": 2849,
@@ -6045,6 +6003,22 @@
       ]
     },
     {
+      "function": "get_schema_context",
+      "bucket": "helper",
+      "start": 29158,
+      "end": 29221,
+      "uncovered": 5,
+      "span": 64,
+      "route": null,
+      "missing_sample": [
+        29174,
+        29180,
+        29181,
+        29219,
+        29220
+      ]
+    },
+    {
       "function": "_vanna_run_query",
       "bucket": "helper",
       "start": 30161,
@@ -6494,6 +6468,27 @@
       ]
     },
     {
+      "function": "save_ai_settings",
+      "bucket": "route",
+      "start": 26677,
+      "end": 26751,
+      "uncovered": 4,
+      "span": 75,
+      "route": {
+        "path": "/settings/ai",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        26706,
+        26724,
+        26730,
+        26732
+      ]
+    },
+    {
       "function": "update_settings_repository",
       "bucket": "route",
       "start": 27035,
@@ -6691,6 +6686,20 @@
         2337,
         2338,
         2340
+      ]
+    },
+    {
+      "function": "_coerce_ai_pricing_entry",
+      "bucket": "helper",
+      "start": 2767,
+      "end": 2773,
+      "uncovered": 3,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        2769,
+        2772,
+        2773
       ]
     },
     {
@@ -7450,17 +7459,17 @@
       ]
     },
     {
-      "function": "get_schema_context",
+      "function": "_compact_attr_key_line",
       "bucket": "helper",
-      "start": 29158,
-      "end": 29221,
+      "start": 29150,
+      "end": 29156,
       "uncovered": 3,
-      "span": 64,
+      "span": 7,
       "route": null,
       "missing_sample": [
-        29174,
-        29180,
-        29181
+        29154,
+        29155,
+        29156
       ]
     },
     {
