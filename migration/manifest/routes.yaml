@@ -924,6 +924,16 @@ routes:
   profile: errorsview
   request:
     method: GET
+# view_errors invalid-regex q -> regex_error -> error_msg set (app.py 14292); query then skipped.
+- id: get__errors__errorsview_q_invalid
+  path: /errors
+  methods:
+  - GET
+  profile: errorsview
+  request:
+    method: GET
+    query:
+      q: "foo &&"
 - id: get__errors__errorsview_grouped
   path: /errors
   methods:
@@ -1008,6 +1018,17 @@ routes:
     method: GET
     query:
       trace_id: aaaa1111bbbb2222cccc3333dddd4444
+# view_traces (LIST mode, no trace_id) invalid-regex q -> regex_error -> q_error set (app.py 15348);
+# the regex clause is then skipped.
+- id: get__traces__tracedetail_q_invalid
+  path: /traces
+  methods:
+  - GET
+  profile: tracedetail
+  request:
+    method: GET
+    query:
+      q: "foo &&"
 # Same trace, paged: trace_span_limit=2 & trace_span_offset=2 forces the span-tree slice to pull
 # in ancestor context rows and renders the prev/next pagination — exercising
 # _slice_span_tree_with_ancestors' ancestor-expansion branch.
@@ -1216,6 +1237,21 @@ routes:
   mask:
   - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
   mask_reason: last_time is a wall-clock minute bucket derived from the metricsauto seed's now()-relative timestamps; capture and replay re-seed at different wall-clock times so the bucket drifts. Everything else on the row (last_value/score/state + sample/point counts) is deterministic from the constant log_volume=5 series and is byte-compared.
+# view_metrics invalid-regex q -> _prepare_re2_filter_patterns regex_error -> error_msg set (app.py
+# 13497); paired with signal=log_volume (one group, no tie) + the last_time mask.
+- id: get__metrics__metricsauto_q_invalid
+  path: /metrics
+  methods:
+  - GET
+  profile: metricsauto
+  request:
+    method: GET
+    query:
+      q: "foo &&"
+      signal: log_volume
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
+  mask_reason: same metricsauto last_time wall-clock bucket mask as the sibling routes.
 # view_metrics filter branches, each paired with signal=log_volume so the result is ONE group (no
 # ORDER BY last_time tie). Same last_time mask.
 - id: get__metrics__metricsauto_service
