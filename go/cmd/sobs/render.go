@@ -118,6 +118,11 @@ func (s *server) urlFor(pos []any, kw map[string]any, kwOrder []string) (any, er
 	// the kwargs INSERTION order (Quart/Werkzeug preserves it — not sorted).
 	var qs []string
 	for _, k := range kwOrder {
+		// Werkzeug/url_for omits query params whose value is None (e.g. `grouped=_g` where
+		// `_g = '1' if grouped_mode else none`). Empty string is kept (rendered as `k=`).
+		if kw[k] == nil {
+			continue
+		}
 		v := fmt.Sprintf("%v", kw[k])
 		if pathHasParam(rule, k) {
 			rule = replaceParam(rule, k, v)

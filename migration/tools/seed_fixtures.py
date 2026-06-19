@@ -1300,6 +1300,62 @@ def seed_logsview(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_record_tags FINAL")
 
 
+def seed_errorsview(db) -> None:
+    # Error events for view_errors (ERROR_SOURCES_SQL = otel_logs rows with EventName='exception'
+    # / SeverityNumber>=17 / SeverityText in ERROR,CRITICAL,FATAL / exception.type set). Three
+    # groups keyed by (lower service, lower exception.type, lower exception.message) with DISTINCT
+    # row counts 3/2/1 so the grouped ORDER BY Count DESC is tie-free, and ONE TraceId per group so
+    # groupUniqArray(TraceId) is single-element (deterministic). Distinct fixed timestamps make
+    # argMax(*, Timestamp) and ORDER BY Timestamp DESC stable. Plain-text message/Body (not JSON)
+    # so the *_is_json branches stay False and the render is deterministic.
+    def errrow(frac, service, etype, emsg, trace, span):
+        return {
+            "Timestamp": f"2023-06-01 14:00:00.{frac}",
+            "ServiceName": service,
+            "SeverityText": "ERROR",
+            "SeverityNumber": 17,
+            "EventName": "exception",
+            "TraceId": trace,
+            "SpanId": span,
+            "Body": emsg,
+            "LogAttributes": {"exception.type": etype, "exception.message": emsg},
+        }
+
+    _insert(
+        db,
+        "otel_logs",
+        [
+            # Group A: api / ValueError -> count 3
+            errrow("100000000", "api", "ValueError", "bad input on field amount", "errtraceaaaa", "errspan-a1"),
+            errrow("200000000", "api", "ValueError", "bad input on field amount", "errtraceaaaa", "errspan-a2"),
+            errrow("300000000", "api", "ValueError", "bad input on field amount", "errtraceaaaa", "errspan-a3"),
+            # Group B: api / KeyError -> count 2
+            errrow("400000000", "api", "KeyError", "missing key user_id", "errtracebbbb", "errspan-b1"),
+            errrow("500000000", "api", "KeyError", "missing key user_id", "errtracebbbb", "errspan-b2"),
+            # Group C: worker / TimeoutError -> count 1
+            errrow("600000000", "worker", "TimeoutError", "operation timed out", "errtracecccc", "errspan-c1"),
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+    # Resolve group C's single event so resolved=1 returns it and resolved=0 returns A+B. ErrorId is
+    # computed chdb-side with the SAME expression app._error_id_sql_expr() uses, so the resolved
+    # subquery (error_id_sql IN sobs_error_resolutions) matches on both the Python and Go sides.
+    err_id_sql = (
+        "lower(hex(MD5(concat("
+        "toString(Timestamp), '|', ServiceName, '|', "
+        "if(mapContains(LogAttributes, 'exception.type'), LogAttributes['exception.type'], 'Error'), '|', "
+        "if(mapContains(LogAttributes, 'exception.message'), LogAttributes['exception.message'], Body), '|', "
+        "TraceId, '|', SpanId"
+        "))))"
+    )
+    db.execute(
+        "INSERT INTO sobs_error_resolutions (ErrorId, ResolvedAt) "
+        f"SELECT {err_id_sql}, '2024-01-02 03:00:00.000' "
+        "FROM otel_logs WHERE SpanId='errspan-c1'"
+    )
+    db.execute("OPTIMIZE TABLE sobs_error_resolutions FINAL")
+
+
 def seed_dashview(db) -> None:
     # One dashboard + two charts with FIXED ids so GET /dashboards/<id> (view_custom_dashboard)
     # renders its view branch against real data. The base example seeder also creates an example
@@ -1440,6 +1496,7 @@ PROFILE_SEEDS = {
     "ciauth": seed_ci_key,  # registered app + managed per-app CI-push key; managed-key require_api_key path
     "tracedetail": seed_trace_detail,  # multi-span trace + logs -> populated trace_detail waterfall
     "logsview": seed_logsview,  # 5 otel_logs rows + record tags -> populated view_logs branches
+    "errorsview": seed_errorsview,  # error events + a resolution -> populated view_errors branches
     "dashview": seed_dashview,  # dashboard + charts -> GET /dashboards/<id> view branch
     "regexlogs": seed_regex_logs,  # validate-regex sample probe: otel_logs.Body
     "regextraces": seed_regex_traces,  # validate-regex sample probe: otel_traces.SpanName

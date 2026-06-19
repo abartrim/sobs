@@ -785,6 +785,83 @@ routes:
   - GET
   request:
     method: GET
+# errorsview profile: seeded otel_logs error events (3 groups, counts 3/2/1, one TraceId each) +
+# one resolution. Drives view_errors' POPULATED branches — the non-grouped narrow+hydrate path
+# (incl. _build_error_stub_from_narrow), the grouped aggregate path, the resolved=0/1/all variants,
+# and the service/regex filters. Deterministic: tie-free counts, one TraceId per group, distinct
+# fixed timestamps. No mask: no now()-windowed content (work-item links empty, no sparkline).
+- id: get__errors__errorsview
+  path: /errors
+  methods:
+  - GET
+  profile: errorsview
+  request:
+    method: GET
+- id: get__errors__errorsview_grouped
+  path: /errors
+  methods:
+  - GET
+  profile: errorsview
+  request:
+    method: GET
+    query:
+      grouped: '1'
+- id: get__errors__errorsview_resolved1
+  path: /errors
+  methods:
+  - GET
+  profile: errorsview
+  request:
+    method: GET
+    query:
+      resolved: '1'
+- id: get__errors__errorsview_resolved_all
+  path: /errors
+  methods:
+  - GET
+  profile: errorsview
+  request:
+    method: GET
+    query:
+      resolved: all
+- id: get__errors__errorsview_grouped_resolved1
+  path: /errors
+  methods:
+  - GET
+  profile: errorsview
+  request:
+    method: GET
+    query:
+      grouped: '1'
+      resolved: '1'
+- id: get__errors__errorsview_grouped_all
+  path: /errors
+  methods:
+  - GET
+  profile: errorsview
+  request:
+    method: GET
+    query:
+      grouped: '1'
+      resolved: all
+- id: get__errors__errorsview_service
+  path: /errors
+  methods:
+  - GET
+  profile: errorsview
+  request:
+    method: GET
+    query:
+      service: api
+- id: get__errors__errorsview_q
+  path: /errors
+  methods:
+  - GET
+  profile: errorsview
+  request:
+    method: GET
+    query:
+      q: bad
 - id: get__traces
   path: /traces
   methods:

@@ -51,6 +51,12 @@ PROFILES: dict[str, dict[str, str]] = {
     # batch-tag join. Deterministic: fixed seed timestamps + frozen now() make the stats-age block
     # stable; distinct timestamps make ORDER BY Timestamp DESC stable.
     "logsview": {},
+    # errorsview: seed otel_logs error events (3 groups, counts 3/2/1, one TraceId each) +
+    # one sobs_error_resolutions row so view_errors renders its POPULATED branches — the
+    # non-grouped narrow+hydrate path, the grouped aggregate path, and the resolved=0/1/all
+    # variants. Deterministic: distinct counts (tie-free grouped ORDER BY), one TraceId per group
+    # (single-element groupUniqArray), distinct fixed timestamps (stable argMax + ORDER BY).
+    "errorsview": {},
     "ai": {
         # Python derives _query_page_enabled() from these (via _AI_ENV_OVERRIDES); Go reads
         # them through aiEnvOverrides AND gates the query page on SOBS_QUERY_PAGE_ENABLED.
@@ -317,6 +323,7 @@ SEEDED_PROFILES = {
     "ciauth",
     "tracedetail",
     "logsview",
+    "errorsview",
     "dashview",
     "regexlogs",
     "regextraces",
