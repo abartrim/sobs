@@ -1,18 +1,18 @@
 {
-  "total_uncovered": 4908,
+  "total_uncovered": 4881,
   "summary_pct": "67",
   "by_bucket": {
     "helper": {
       "functions": 426,
-      "uncovered": 4003
+      "uncovered": 4002
     },
     "lifecycle": {
       "functions": 21,
       "uncovered": 256
     },
     "route": {
-      "functions": 118,
-      "uncovered": 636
+      "functions": 117,
+      "uncovered": 610
     },
     "module": {
       "functions": 0,
@@ -1874,31 +1874,6 @@
       ]
     },
     {
-      "function": "clone_chart",
-      "bucket": "route",
-      "start": 21694,
-      "end": 21733,
-      "uncovered": 15,
-      "span": 40,
-      "route": {
-        "path": "/dashboards/<dashboard_id>/charts/<chart_id>/clone",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        21701,
-        21702,
-        21703,
-        21704,
-        21705,
-        21707,
-        21708,
-        21709
-      ]
-    },
-    {
       "function": "_infer_query_field_types",
       "bucket": "helper",
       "start": 30092,
@@ -2060,31 +2035,6 @@
         16692,
         16693,
         16694
-      ]
-    },
-    {
-      "function": "edit_chart",
-      "bucket": "route",
-      "start": 21651,
-      "end": 21689,
-      "uncovered": 14,
-      "span": 39,
-      "route": {
-        "path": "/dashboards/<dashboard_id>/charts/<chart_id>/edit",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        21658,
-        21659,
-        21660,
-        21661,
-        21662,
-        21664,
-        21665,
-        21666
       ]
     },
     {
@@ -5830,21 +5780,6 @@
       ]
     },
     {
-      "function": "_parse_chart_form_submission",
-      "bucket": "helper",
-      "start": 21630,
-      "end": 21646,
-      "uncovered": 4,
-      "span": 17,
-      "route": null,
-      "missing_sample": [
-        21635,
-        21637,
-        21642,
-        21643
-      ]
-    },
-    {
       "function": "_regex_scope_time_conditions",
       "bucket": "helper",
       "start": 23882,
@@ -6613,6 +6548,40 @@
         21603,
         21604,
         21605
+      ]
+    },
+    {
+      "function": "_parse_chart_form_submission",
+      "bucket": "helper",
+      "start": 21630,
+      "end": 21646,
+      "uncovered": 3,
+      "span": 17,
+      "route": null,
+      "missing_sample": [
+        21637,
+        21642,
+        21643
+      ]
+    },
+    {
+      "function": "clone_chart",
+      "bucket": "route",
+      "start": 21694,
+      "end": 21733,
+      "uncovered": 3,
+      "span": 40,
+      "route": {
+        "path": "/dashboards/<dashboard_id>/charts/<chart_id>/clone",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        21710,
+        21711,
+        21712
       ]
     },
     {

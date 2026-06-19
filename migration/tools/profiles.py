@@ -182,6 +182,13 @@ PROFILES: dict[str, dict[str, str]] = {
     # id; this profile pins a known id for the manifest path. Isolated so the rows never ripple into
     # base dashboard readers.
     "dashview": {},
+    # chartedit: a seeded dashboard (d0…d001) + one chart (c0…c001), both fixed-id, so the chart
+    # MUTATION form routes (edit_chart / clone_chart) reach their real branches against an existing
+    # chart inside an existing dashboard. No env overlay — just the isolated seed. Both handlers
+    # redirect to the EXISTING dashboard_id, so even clone's server-generated chart uuid never
+    # reaches the response — both success bodies are byte-stable. Isolated (mutating POSTs) so the
+    # rows never ripple into base dashboard readers.
+    "chartedit": {},
     # feedback: a no-env isolation profile — ai_helper_feedback's telemetry INSERT (otel_logs +
     # otel_traces) runs in its own fixture copy so it doesn't ripple into base telemetry readers.
     "feedback": {},
@@ -416,6 +423,7 @@ SEEDED_PROFILES = {
     "errorsview",
     "aiview",
     "dashview",
+    "chartedit",
     "regexlogs",
     "regextraces",
     "regexrum",

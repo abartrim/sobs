@@ -1683,6 +1683,63 @@ def seed_dashview(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_chart_configs FINAL")
 
 
+def seed_chartedit(db) -> None:
+    # ONE dashboard (d0…d001) + ONE chart (c0…c001) with FIXED ids so the chart-MUTATION form
+    # routes (edit_chart / clone_chart) reach their real branches: the source chart EXISTS inside
+    # an existing dashboard, so the lookup `next(c for c in charts if c["id"]==chart_id)` matches
+    # and the parse+insert path runs. ISOLATED from the dashview profile (which uses the same dash
+    # id but different env scope and is read-only) so the mutating POSTs here never ripple into the
+    # base dashboard readers. Both handlers redirect to view_custom_dashboard(dashboard_id=<this
+    # existing id>) — the redirect body carries only the EXISTING dashboard id, so even clone's
+    # server-generated chart uuid never reaches the response: both success bodies are byte-stable.
+    # The chart's OptionsJson is built EXACTLY as _seed_chart_if_missing does so _get_charts'
+    # normalize-from-stored-spec path is identical on both sides. Version is fixed for a stable
+    # ReplacingMergeTree FINAL read.
+    import json as _json
+
+    import app as _app
+
+    dash_id = "d0000000-0000-4000-8000-00000000d001"
+    _insert(
+        db,
+        "sobs_dashboards",
+        [
+            {
+                "Id": dash_id,
+                "Name": "Parity Chart-Edit Dashboard",
+                "Description": "Seeded dashboard for the chart edit/clone mutation parity routes.",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    chart_id = "c0000000-0000-4000-8000-00000000c001"
+    chart_type = "anomaly_overlay"
+    query = "SELECT 1 AS time, 2 AS value"
+    _insert(
+        db,
+        "sobs_chart_configs",
+        [
+            {
+                "Id": chart_id,
+                "DashboardId": dash_id,
+                "Title": "Editable chart",
+                "ChartType": chart_type,
+                "Query": query,
+                "OptionsJson": _json.dumps(
+                    {"chart_spec": _app._build_raw_chart_spec(chart_type, query)},
+                    ensure_ascii=False,
+                ),
+                "Position": 0,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_dashboards FINAL")
+    db.execute("OPTIMIZE TABLE sobs_chart_configs FINAL")
+
+
 # validate-regex sample-probe seeds. Each inserts ONE row at now()-1h (real wall-clock, like
 # seed_tagauto — NOT the frozen 2024 epoch) so it lands inside the route's now()-24h candidate
 # window at both capture and replay time, while the base fixture's frozen-epoch rows stay out of
@@ -1939,6 +1996,7 @@ PROFILE_SEEDS = {
     "errorsview": seed_errorsview,  # error events + a resolution -> populated view_errors branches
     "aiview": seed_aiview,  # otel_traces AI spans (gen_ai.*) -> populated view_ai branches
     "dashview": seed_dashview,  # dashboard + charts -> GET /dashboards/<id> view branch
+    "chartedit": seed_chartedit,  # dashboard + 1 chart -> edit_chart/clone_chart mutation branches
     "regexlogs": seed_regex_logs,  # validate-regex sample probe: otel_logs.Body
     "regextraces": seed_regex_traces,  # validate-regex sample probe: otel_traces.SpanName
     "regexrum": seed_regex_rum,  # validate-regex sample probe: hyperdx_sessions.Body
