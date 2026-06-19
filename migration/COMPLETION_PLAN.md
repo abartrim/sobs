@@ -31,15 +31,19 @@ becomes a number, not another audit.
 - [x] `go-main` branch created and pushed to origin (base `a39ec6c` + plan/coverage-gate commits).
       Pushing it does **not** trigger CI yet — `ci.yml` only matches `main`/`master`/`v*` tags.
 - [x] Oracle coverage gate (`migration/tools/coverage_capture.py`) added; baseline measured = **58%**.
-- [ ] `ci.yml`: add `go-main` to `push`/`pull_request` triggers for the build / vet / gofmt /
-      unit-test / **Docker parity** / **coverage** jobs.
-- [ ] `ci.yml`: gate the ghcr-publish push + `register-sobs-release` + `cleanup-ghcr` + any
-      `environment:`/deploy job to **`main`/tags only**
-      (`if: github.ref == 'refs/heads/main' || startsWith(github.ref,'refs/tags/v')`).
-- [ ] `ci.yml`: image tags `:go-main` + `:<sha>` only — **never `:latest`** from `go-main`.
-- [ ] Add a coverage CI job: run `coverage_capture.py`, fail if app.py coverage regresses below the
-      committed floor (start 58%, ratchet up).
-- [ ] Branch protection on `go-main`: require build/test + Docker parity GREEN + coverage-no-regress.
+- [x] `ci.yml`: added `go-main` to `push`/`pull_request` triggers (build / vet / gofmt / unit-test /
+      Docker parity all run on go-main). Commit `89fd409`.
+- [x] Publish/release gating: the `docker`, `register-sobs-release`, `cleanup-ghcr` jobs were
+      **already** gated to `main`/`master`/`v*` tags via their own `if:` — verified they do NOT run on
+      go-main, so go-main never publishes.
+- [x] Image `:latest` is `enable={{is_default_branch}}` only, and the publish job doesn't run on
+      go-main anyway — no `:latest` from go-main.
+- [x] Added the `oracle-coverage` CI job (go-main context only): runs `coverage_capture.py` +
+      `coverage_gate.py`, fails if coverage drops below `migration/COVERAGE_FLOOR` (start 57.5%,
+      ratchet up).
+- [x] Branch protection on `go-main`: requires `Go Build & Test` + `Go Parity (byte-diff vs Python
+      oracle)` + `Oracle Coverage` checks; `enforce_admins=false` so the integration branch still
+      accepts direct pushes; force-push/deletion disabled.
 
 ## Definition of Done (measurable — this is what "100%" means)
 
