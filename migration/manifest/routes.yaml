@@ -2809,6 +2809,29 @@ routes:
       version: "1"
       reports:
       - {name: "Brand New Report", page_type: "metrics", filters: {limit: 50}}
+# api_import_reports multipart/urlencoded branch: a form POST (Content-Type
+# application/x-www-form-urlencoded) takes the `files`/`forms` path; with no `file` field
+# `files.get("file")` is None -> "No file uploaded" 400 (app.py 22886-22893). Returns before any
+# DB access -> deterministic, no seed dependency. (The file-present sub-branch needs multipart
+# upload support the capture harness lacks; left uncovered.)
+- id: post__api_reports_import__form_nofile
+  path: /api/reports/import
+  methods:
+  - POST
+  profile: reportsimport
+  request:
+    method: POST
+    form: {on_conflict: rename}
+# api_import_reports else-branch with no body: empty POST, no Content-Type -> not multipart/
+# urlencoded -> get_json(silent=True) returns None -> "Invalid or missing JSON body" 400
+# (app.py 22901-22903). Returns before any DB access -> deterministic, no seed dependency.
+- id: post__api_reports_import__empty_body
+  path: /api/reports/import
+  methods:
+  - POST
+  profile: reportsimport
+  request:
+    method: POST
 - id: post__api_data_management_prune
   path: /api/data-management/prune
   methods:
