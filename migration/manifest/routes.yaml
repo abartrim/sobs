@@ -1684,6 +1684,50 @@ routes:
   request:
     method: POST
     json: {sql: "has_tag('env','prod')"}
+# api_ai_validate_filter mirrors the logs validator (same structural checks); success probes
+# otel_traces with _AI_SPAN_CONDITION (empty on base -> ok). Deterministic JSON.
+- id: post__api_ai_validate_filter__avf_close_paren
+  path: /api/ai/validate-filter
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {sql: "a = 1)"}
+- id: post__api_ai_validate_filter__avf_unclosed_quote
+  path: /api/ai/validate-filter
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {sql: "ServiceName = 'x"}
+- id: post__api_ai_validate_filter__avf_unclosed_paren
+  path: /api/ai/validate-filter
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {sql: "(ServiceName = 'x'"}
+- id: post__api_ai_validate_filter__avf_trailing_op
+  path: /api/ai/validate-filter
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {sql: "ServiceName = 'x' OR"}
+- id: post__api_ai_validate_filter__avf_escaped_quote
+  path: /api/ai/validate-filter
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {sql: "ServiceName = 'a''b'"}
+- id: post__api_ai_validate_filter__avf_success
+  path: /api/ai/validate-filter
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {sql: "ServiceName = 'sobs-ai-helper'"}
 - id: post__metrics_rules_err_required
   path: /metrics/rules
   methods:
