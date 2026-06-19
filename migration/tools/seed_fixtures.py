@@ -1603,6 +1603,15 @@ def seed_cveview(db) -> None:
         ],
     )
     db.execute("OPTIMIZE TABLE sobs_cve_findings FINAL")
+    # Non-integer backfill-stat settings so view_enrichment_cve hits the int() except (TypeError,
+    # ValueError) -> 0 fallbacks (app.py 18112-18121). The except still yields 0 — byte-identical to
+    # the unset case — so the existing cveview goldens are unchanged; only the code path differs. Go's
+    # appSettingIntOrZero("x") -> strconv.Atoi error -> 0 matches, keeping parity GREEN.
+    import app as _app
+
+    _app._set_app_setting(db, "enrichment.cve_last_scan_github_backfill_attempted", "x")
+    _app._set_app_setting(db, "enrichment.cve_last_scan_github_backfill_inserted", "x")
+    _app._set_app_setting(db, "enrichment.cve_last_scan_github_backfill_cap", "x")
 
 
 PROFILE_SEEDS = {
