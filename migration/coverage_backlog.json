@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 5182,
+  "total_uncovered": 5174,
   "summary_pct": "65",
   "by_bucket": {
     "helper": {
       "functions": 430,
-      "uncovered": 4088
+      "uncovered": 4089
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 121,
-      "uncovered": 825
+      "uncovered": 816
     },
     "module": {
       "functions": 0,
@@ -2169,31 +2169,6 @@
       ]
     },
     {
-      "function": "ingest_ai",
-      "bucket": "route",
-      "start": 10157,
-      "end": 10241,
-      "uncovered": 14,
-      "span": 85,
-      "route": {
-        "path": "/v1/ai",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        10176,
-        10177,
-        10179,
-        10180,
-        10182,
-        10183,
-        10186,
-        10188
-      ]
-    },
-    {
       "function": "_get_signal_health_by_service",
       "bucket": "helper",
       "start": 12890,
@@ -4096,6 +4071,24 @@
       ]
     },
     {
+      "function": "_remember_attr_keys",
+      "bucket": "helper",
+      "start": 2198,
+      "end": 2237,
+      "uncovered": 7,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        2206,
+        2211,
+        2215,
+        2217,
+        2221,
+        2236,
+        2237
+      ]
+    },
+    {
       "function": "_chat_label_from_first_turn",
       "bucket": "helper",
       "start": 3739,
@@ -4637,23 +4630,6 @@
         1991,
         1992,
         1993
-      ]
-    },
-    {
-      "function": "_remember_attr_keys",
-      "bucket": "helper",
-      "start": 2198,
-      "end": 2237,
-      "uncovered": 6,
-      "span": 40,
-      "route": null,
-      "missing_sample": [
-        2206,
-        2211,
-        2217,
-        2221,
-        2236,
-        2237
       ]
     },
     {
@@ -5421,6 +5397,28 @@
         9807,
         9812,
         9813
+      ]
+    },
+    {
+      "function": "ingest_ai",
+      "bucket": "route",
+      "start": 10157,
+      "end": 10241,
+      "uncovered": 5,
+      "span": 85,
+      "route": {
+        "path": "/v1/ai",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        10223,
+        10224,
+        10225,
+        10226,
+        10227
       ]
     },
     {
