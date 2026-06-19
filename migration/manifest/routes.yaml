@@ -2711,6 +2711,52 @@ routes:
       app_id: f1000000000000000000000000000001
       create_ci: true
       create_otel: false
+# api_onboarding_create_issues early-validation returns (deterministic JSON, no github needed):
+# no-issue-type, no app_id/repo, unparseable repo, no token, app-not-found. Plus realtime-without-a
+# -saved-app (onboard profile has a token but the ghost repo matches no app).
+- id: post__api_onboarding_create_issues__oc_no_type
+  path: /api/onboarding/create-issues
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {create_ci: false, create_otel: false, enable_realtime_support: false}
+- id: post__api_onboarding_create_issues__oc_no_repo
+  path: /api/onboarding/create-issues
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {create_ci: true}
+- id: post__api_onboarding_create_issues__oc_bad_repo
+  path: /api/onboarding/create-issues
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {create_ci: true, repo: notarepo}
+- id: post__api_onboarding_create_issues__oc_no_token
+  path: /api/onboarding/create-issues
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {create_ci: true, repo: acme/widgets}
+- id: post__api_onboarding_create_issues__oc_app_notfound
+  path: /api/onboarding/create-issues
+  methods:
+  - POST
+  request:
+    method: POST
+    json: {create_ci: true, app_id: nonexistent-app-id}
+- id: post__api_onboarding_create_issues__oc_realtime_noapp
+  path: /api/onboarding/create-issues
+  methods:
+  - POST
+  profile: onboard
+  request:
+    method: POST
+    json: {create_ci: false, create_otel: false, enable_realtime_support: true, repo: ghost/norepo}
 - id: post__api_onboarding_create_repo
   path: /api/onboarding/create-repo
   methods:
