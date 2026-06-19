@@ -1405,6 +1405,64 @@ routes:
   request:
     method: POST
     form: {name: My Composite Rule, source: logs, signal: log_volume, rule_type: composite, comparator: gt, warning_threshold: "5", critical_threshold: "10", secondary_source: traces, secondary_signal: trace_volume, secondary_comparator: gt, secondary_warning_threshold: "1", secondary_critical_threshold: "2"}
+# create_tag_rule branches: invalid field/operator/attribute-required validation + the single- and
+# composite-condition SUCCESS inserts (-> sobs_tag_rules -> flash + redirect). The regex-error branch
+# is deferred (Python re.error vs Go regexp error text diverge). Error routes (no uuid) before the
+# success routes (1 uuid each). condition_*[] use list form values (urlencode doseq on both sides).
+- id: post__tag_rule__rc_err_invalid_field
+  path: /settings/tags
+  methods:
+  - POST
+  profile: rulecreate
+  request:
+    method: POST
+    form: {name: r, tag_key: env, tag_value: prod, match_field: bogus, match_value: x}
+- id: post__tag_rule__rc_err_invalid_op
+  path: /settings/tags
+  methods:
+  - POST
+  profile: rulecreate
+  request:
+    method: POST
+    form: {name: r, tag_key: env, tag_value: prod, match_field: body, match_operator: bogus, match_value: x}
+- id: post__tag_rule__rc_err_attr_required
+  path: /settings/tags
+  methods:
+  - POST
+  profile: rulecreate
+  request:
+    method: POST
+    form: {name: r, tag_key: env, tag_value: prod, match_field: attribute, match_value: x}
+- id: post__tag_rule__rc_success_single
+  path: /settings/tags
+  methods:
+  - POST
+  profile: rulecreate
+  request:
+    method: POST
+    form:
+      name: Tag Single
+      tag_key: env
+      tag_value: prod
+      match_field: body
+      match_operator: contains
+      match_value: error
+      record_types: [log, trace]
+- id: post__tag_rule__rc_success_composite
+  path: /settings/tags
+  methods:
+  - POST
+  profile: rulecreate
+  request:
+    method: POST
+    form:
+      name: Tag Composite
+      tag_key: team
+      tag_value: payments
+      condition_field: [body, service_name]
+      condition_operator: [contains, eq]
+      condition_value: [timeout, checkout]
+      condition_attr_key: ["", ""]
 - id: post__metrics_rules_err_ruletype
   path: /metrics/rules
   methods:
