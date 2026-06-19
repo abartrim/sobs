@@ -544,6 +544,22 @@ routes:
   request:
     method: GET
     query: {trace_id: aaaa1111bbbb2222cccc3333dddd4444}
+- id: get__api_ai_span_attributes_seeded
+  path: /api/ai/span-attributes
+  methods:
+  - GET
+  profile: tracedetail
+  request:
+    method: GET
+    query: {ts: "2023-06-01 12:00:00.010000", service: checkout, trace_id: aaaa1111bbbb2222cccc3333dddd4444}
+- id: get__api_ai_conversation_seeded
+  path: /api/ai/conversation
+  methods:
+  - GET
+  profile: tracedetail
+  request:
+    method: GET
+    query: {ts: "2023-06-01 12:00:00.010000", service: checkout, trace_id: aaaa1111bbbb2222cccc3333dddd4444}
 - id: get__api_table_explorer_table_otel_logs
   path: /api/table-explorer/table/otel_logs
   methods:
