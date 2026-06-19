@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -115,9 +114,15 @@ func (s *server) handleApiRawSpan(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().Set("error", "span_id is required"))
 		return
 	}
+	// mapKeys/mapValues columns preserve the chdb Map INSERTION order for the attribute objects.
+	// Reading the bare Map columns decodes into a Go map (order lost) which encoding/json then
+	// sorts; the Python oracle's dict(_map_to_dict(...)) keeps the insertion order json.dumps
+	// emits. The parallel ordered arrays reproduce it (see orderedMapFromKV in handlers_misc.go).
 	sql := "SELECT Timestamp, TraceId, SpanId, ParentSpanId, TraceState, SpanName, SpanKind, " +
-		"ServiceName, ResourceAttributes, ScopeName, ScopeVersion, SpanAttributes, Duration, " +
-		"StatusCode, StatusMessage FROM otel_traces WHERE SpanId=?"
+		"ServiceName, ScopeName, ScopeVersion, Duration, StatusCode, StatusMessage, " +
+		"mapKeys(SpanAttributes) AS span_attr_keys, mapValues(SpanAttributes) AS span_attr_values, " +
+		"mapKeys(ResourceAttributes) AS res_attr_keys, mapValues(ResourceAttributes) AS res_attr_values " +
+		"FROM otel_traces WHERE SpanId=?"
 	params := []any{spanID}
 	if traceID := strings.TrimSpace(r.URL.Query().Get("trace_id")); traceID != "" {
 		sql += " AND TraceId=?"
@@ -137,8 +142,8 @@ func (s *server) handleApiRawSpan(w http.ResponseWriter, r *http.Request) {
 	// populated-data path. attrs/resource_attributes are built as ordered jsonenc Objects so the
 	// recursive output-masking descends into them (a bare Go map would be masked whole).
 	row := rowMaps(res)[0]
-	spanAttrs := mapToDictObject(row["SpanAttributes"])
-	resourceAttrs := mapToDictObject(row["ResourceAttributes"])
+	spanAttrs := orderedMapFromKV(row["span_attr_keys"], row["span_attr_values"])
+	resourceAttrs := orderedMapFromKV(row["res_attr_keys"], row["res_attr_values"])
 	durationNS := spanInt64(row["Duration"])
 
 	buildPayload := func(attrs, resAttrs *jsonenc.Object) *jsonenc.Object {
@@ -179,27 +184,6 @@ func (s *server) handleApiRawSpan(w http.ResponseWriter, r *http.Request) {
 
 // rawSpanMaxBytes mirrors app.py _RAW_SPAN_MAX_BYTES (32 KB display cap on the pretty-printed span).
 const rawSpanMaxBytes = 32 * 1024
-
-// mapToDictObject builds an ordered jsonenc Object from a chdb Map column (a JSON object or string),
-// mirroring dict(_map_to_dict(value)). Go's JSON decode loses key order, so keys are emitted sorted
-// (the same tradeoff orderedFromMap makes); this only affects the populated-span display path.
-func mapToDictObject(v any) *jsonenc.Object {
-	parsed := mapToDict(v)
-	m, ok := parsed.(map[string]any)
-	if !ok {
-		return jsonenc.NewObject()
-	}
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	obj := jsonenc.NewObject()
-	for _, k := range keys {
-		obj.Set(k, m[k])
-	}
-	return obj
-}
 
 // truncateAttrObject mirrors app.py's _ATTR_TRUNCATE pass: shorten over-long string values to the
 // first n code points + "…"; non-string values pass through. Key order is preserved.

@@ -3,7 +3,7 @@
     "DEFENSIVE_EXCEPT": 411,
     "NOW_WINDOW": 7,
     "LIBRARY_ERR_TEXT": 47,
-    "COVERABLE": 4519
+    "COVERABLE": 4516
   },
   "buckets": {
     "DEFENSIVE_EXCEPT": [
@@ -3357,9 +3357,6 @@
       18916,
       18959,
       18960,
-      19035,
-      19036,
-      19037,
       19038,
       19039,
       19040,

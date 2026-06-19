@@ -1,5 +1,5 @@
 {
-  "total_uncovered": 4984,
+  "total_uncovered": 4981,
   "summary_pct": "67",
   "by_bucket": {
     "helper": {
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 119,
-      "uncovered": 688
+      "uncovered": 685
     },
     "module": {
       "functions": 0,
@@ -4621,29 +4621,6 @@
       ]
     },
     {
-      "function": "get_ai_span_attributes",
-      "bucket": "route",
-      "start": 19003,
-      "end": 19040,
-      "uncovered": 6,
-      "span": 38,
-      "route": {
-        "path": "/api/ai/span-attributes",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        19035,
-        19036,
-        19037,
-        19038,
-        19039,
-        19040
-      ]
-    },
-    {
       "function": "export_ai_training",
       "bucket": "route",
       "start": 19123,
@@ -6662,6 +6639,26 @@
         18766,
         18767,
         18769
+      ]
+    },
+    {
+      "function": "get_ai_span_attributes",
+      "bucket": "route",
+      "start": 19003,
+      "end": 19040,
+      "uncovered": 3,
+      "span": 38,
+      "route": {
+        "path": "/api/ai/span-attributes",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        19038,
+        19039,
+        19040
       ]
     },
     {
