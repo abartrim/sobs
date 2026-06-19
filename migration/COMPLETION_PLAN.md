@@ -177,3 +177,32 @@ systematic and the ratchet guarantees monotonic progress. Drive via the agent ro
   `view_rum` (filters; vitals derived-signal lines deferred), `view_errors`, `view_incident` (trace
   path; error_id/rum_session match deferred), `view_ai`. The nine render/handler primitives fixed so
   far make these go much smoother. Drain `FUZZ_FINDINGS.md` (F2/F3).
+
+### Update 2026-06-19 (b) — coverage 63.67% → 65.91%, floor → 65.9, HEAD `c5ef6a8`
+
+Continued the coverage drive (~40 routes since 505): chart_spec_options source-view, validate-regex
+scope-filters, create_settings_repository token branches, view_enrichment_cve int()-except (non-int
+seed), api_import_reports urlencoded/empty-body, ingest_traces/metrics OTLP json parse-error,
+view_incident no-match refs, view_logs invalid-q/disallowed-sql, api_query_add_to_dashboard 400/404,
+create_tag_rule edit-notfound, get_ai_span_attributes span_name, export_ai_training non-chat op.
+Full Docker parity GREEN **557/0** maintained.
+
+**The drive has reached the point the plan predicted (§Empirical finding): the headline % now needs
+the seeded populated-handler SUCCESS paths — and those surface Go PORT BUGS that must be fixed before
+their corpus routes can go GREEN.** Three such divergences found by the byte-parity gate (each a
+tracked work-item; this is DoD-3 "scheduled (has a tracking item)"):
+- **D1 — `view_logs ?analyze=1`**: Go `_compute_advanced_log_analysis` render ≠ oracle (250702 vs
+  219012 B under logsview).
+- **D2 — chdb DateTime64 ts-equality**: `Timestamp=?` with a 9-fractional-digit ts → oracle 404 (no
+  match) vs Go 200 (match). Blocks get_ai_span_attributes found-render; same class as the deferred
+  view_traces span URL-query.
+- **D3 — `view_ai` filter paths** (view=bogus / operation=embed / disallowed-sql / view=trace+sql):
+  Go renders a larger body than the oracle (valid-filter sibling routes GREEN).
+
+**Ceiling note for DoD-3:** a large share of the remaining ~5,070 uncovered lines are structurally
+un-byte-testable and must be *classified* (not covered) per DoD-3: defensive `except: pass`/
+log-and-continue (need fault injection), `now()`-window branches, F2-class library-error-text
+(`re.error`/`json` messages differ Go-vs-Python), the D2 chdb class, and LLM/GitHub/uuid(R12) routes.
+So "≥99% covered" is unreachable by corpus alone; the realistic DoD-3 is **max coverage of the
+deterministically-testable surface + every residual line classified.** Driving D1–D3 via the
+isolated-worktree Coder roster (§Multi-agent process) is the highest-leverage next step.
