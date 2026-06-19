@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **64%** · **5361** uncovered statements.
+Oracle coverage **64%** · **5324** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 952 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 436 | 4140 | usually covered when a calling route's fixture is added; else difftest |
+| route | 123 | 937 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 433 | 4118 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -23,7 +23,6 @@ Oracle coverage **64%** · **5361** uncovered statements.
 | `create_notification_rule` | 25918–26089 | 23 | `POST /settings/notifications/rules` |
 | `view_traces` | 15312–15678 | 22 | `GET /traces` |
 | `get_ai_conversation` | 19048–19115 | 21 | `GET /api/ai/conversation` |
-| `issue_rum_client_token` | 9791–9826 | 20 | `POST /v1/rum/client-token` |
 | `view_logs` | 11239–11512 | 20 | `GET /logs` |
 | `api_import_reports` | 22857–23017 | 19 | `POST /api/reports/import` |
 | `view_enrichment_cve` | 18104–18215 | 18 | `GET /enrichment/cve` |
@@ -55,6 +54,7 @@ Oracle coverage **64%** · **5361** uncovered statements.
 | `get_ai_span_attributes` | 19003–19040 | 8 | `GET /api/ai/span-attributes` |
 | `export_ai_training` | 19123–19226 | 8 | `GET /api/ai/export` |
 | `api_query_add_to_dashboard` | 21331–21407 | 8 | `POST /api/query/add-to-dashboard` |
+| `api_logs_validate_regex` | 23954–24004 | 8 | `POST /api/logs/validate-regex` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
@@ -82,7 +82,7 @@ Oracle coverage **64%** · **5361** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (436 functions)
+## helper — top by uncovered lines (433 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
@@ -121,8 +121,8 @@ Oracle coverage **64%** · **5361** uncovered statements.
 | `_resolve_custom_binding_expr` | 21086–21119 | 28 |  |
 | `_parse_gemfile_lock_dependencies` | 16426–16453 | 27 |  |
 | `_encrypt_push_payload` | 24990–25055 | 27 |  |
-| `_match_single_condition` | 12551–12588 | 26 |  |
 | `_build_trace_window_overlay_segments` | 14787–14842 | 26 |  |
 | `_collect_library_inventory` | 16876–17071 | 26 |  |
 | `_load_chat_tool_history` | 4016–4075 | 25 |  |
 | `_build_auto_tag_rule_candidates` | 12062–12308 | 25 |  |
+| `_build_agent_context_summary` | 6609–6703 | 24 |  |

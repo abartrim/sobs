@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 5361,
+  "total_uncovered": 5324,
   "summary_pct": "64",
   "by_bucket": {
     "helper": {
-      "functions": 436,
-      "uncovered": 4140
+      "functions": 433,
+      "uncovered": 4118
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 123,
-      "uncovered": 952
+      "uncovered": 937
     },
     "module": {
       "functions": 0,
@@ -774,25 +774,6 @@
       ]
     },
     {
-      "function": "_match_single_condition",
-      "bucket": "helper",
-      "start": 12551,
-      "end": 12588,
-      "uncovered": 26,
-      "span": 38,
-      "route": null,
-      "missing_sample": [
-        12561,
-        12562,
-        12563,
-        12564,
-        12565,
-        12566,
-        12567,
-        12568
-      ]
-    },
-    {
       "function": "auto_metrics_rules_dashboard",
       "bucket": "route",
       "start": 13848,
@@ -1475,31 +1456,6 @@
       ]
     },
     {
-      "function": "issue_rum_client_token",
-      "bucket": "route",
-      "start": 9791,
-      "end": 9826,
-      "uncovered": 20,
-      "span": 36,
-      "route": {
-        "path": "/v1/rum/client-token",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        9796,
-        9797,
-        9799,
-        9800,
-        9802,
-        9803,
-        9804,
-        9805
-      ]
-    },
-    {
       "function": "_first_scalar",
       "bucket": "helper",
       "start": 10583,
@@ -1598,6 +1554,25 @@
         8225,
         8226,
         8227
+      ]
+    },
+    {
+      "function": "_match_single_condition",
+      "bucket": "helper",
+      "start": 12551,
+      "end": 12588,
+      "uncovered": 19,
+      "span": 38,
+      "route": null,
+      "missing_sample": [
+        12564,
+        12565,
+        12566,
+        12567,
+        12568,
+        12569,
+        12570,
+        12571
       ]
     },
     {
@@ -4467,24 +4442,6 @@
       ]
     },
     {
-      "function": "_normalize_origin",
-      "bucket": "helper",
-      "start": 7760,
-      "end": 7767,
-      "uncovered": 7,
-      "span": 8,
-      "route": null,
-      "missing_sample": [
-        7761,
-        7762,
-        7763,
-        7764,
-        7765,
-        7766,
-        7767
-      ]
-    },
-    {
       "function": "ingest_traces",
       "bucket": "route",
       "start": 9834,
@@ -4894,23 +4851,6 @@
         1991,
         1992,
         1993
-      ]
-    },
-    {
-      "function": "_remember_attr_keys",
-      "bucket": "helper",
-      "start": 2198,
-      "end": 2237,
-      "uncovered": 6,
-      "span": 40,
-      "route": null,
-      "missing_sample": [
-        2206,
-        2211,
-        2217,
-        2221,
-        2236,
-        2237
       ]
     },
     {
@@ -5509,6 +5449,22 @@
       ]
     },
     {
+      "function": "_remember_attr_keys",
+      "bucket": "helper",
+      "start": 2198,
+      "end": 2237,
+      "uncovered": 5,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        2206,
+        2211,
+        2217,
+        2236,
+        2237
+      ]
+    },
+    {
       "function": "_window_copy_counts",
       "bucket": "helper",
       "start": 2426,
@@ -5656,6 +5612,28 @@
         9677,
         9678,
         9679
+      ]
+    },
+    {
+      "function": "issue_rum_client_token",
+      "bucket": "route",
+      "start": 9791,
+      "end": 9826,
+      "uncovered": 5,
+      "span": 36,
+      "route": {
+        "path": "/v1/rum/client-token",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        9797,
+        9800,
+        9807,
+        9812,
+        9813
       ]
     },
     {
@@ -6307,21 +6285,6 @@
       ]
     },
     {
-      "function": "_match_tag_rule",
-      "bucket": "helper",
-      "start": 12506,
-      "end": 12548,
-      "uncovered": 4,
-      "span": 43,
-      "route": null,
-      "missing_sample": [
-        12526,
-        12527,
-        12529,
-        12535
-      ]
-    },
-    {
       "function": "create_metrics_rule",
       "bucket": "route",
       "start": 13626,
@@ -6820,34 +6783,6 @@
         7553,
         7554,
         7555
-      ]
-    },
-    {
-      "function": "_rum_client_token_encode",
-      "bucket": "helper",
-      "start": 7804,
-      "end": 7807,
-      "uncovered": 3,
-      "span": 4,
-      "route": null,
-      "missing_sample": [
-        7805,
-        7806,
-        7807
-      ]
-    },
-    {
-      "function": "_insert_log_events",
-      "bucket": "helper",
-      "start": 9370,
-      "end": 9403,
-      "uncovered": 3,
-      "span": 34,
-      "route": null,
-      "missing_sample": [
-        9373,
-        9401,
-        9402
       ]
     },
     {
@@ -7869,6 +7804,19 @@
       ]
     },
     {
+      "function": "_normalize_origin",
+      "bucket": "helper",
+      "start": 7760,
+      "end": 7767,
+      "uncovered": 2,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        7763,
+        7766
+      ]
+    },
+    {
       "function": "_ns_to_iso",
       "bucket": "helper",
       "start": 7951,
@@ -7931,6 +7879,19 @@
       "missing_sample": [
         8172,
         8174
+      ]
+    },
+    {
+      "function": "_insert_log_events",
+      "bucket": "helper",
+      "start": 9370,
+      "end": 9403,
+      "uncovered": 2,
+      "span": 34,
+      "route": null,
+      "missing_sample": [
+        9401,
+        9402
       ]
     },
     {
@@ -9063,30 +9024,6 @@
       ]
     },
     {
-      "function": "_rum_b64url_encode",
-      "bucket": "helper",
-      "start": 7748,
-      "end": 7749,
-      "uncovered": 1,
-      "span": 2,
-      "route": null,
-      "missing_sample": [
-        7749
-      ]
-    },
-    {
-      "function": "_rum_client_sign",
-      "bucket": "helper",
-      "start": 7800,
-      "end": 7801,
-      "uncovered": 1,
-      "span": 2,
-      "route": null,
-      "missing_sample": [
-        7801
-      ]
-    },
-    {
       "function": "_rum_session_key_from_attrs",
       "bucket": "helper",
       "start": 8151,
@@ -9390,6 +9327,18 @@
       "route": null,
       "missing_sample": [
         12480
+      ]
+    },
+    {
+      "function": "_match_tag_rule",
+      "bucket": "helper",
+      "start": 12506,
+      "end": 12548,
+      "uncovered": 1,
+      "span": 43,
+      "route": null,
+      "missing_sample": [
+        12535
       ]
     },
     {
