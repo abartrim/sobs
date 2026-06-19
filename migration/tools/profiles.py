@@ -358,6 +358,19 @@ PROFILES: dict[str, dict[str, str]] = {
     "regexrum": {},
     "regexerrors": {},
     "regexmetrics": {},
+    # enrichlibs: seed otel_traces (one telemetry.sdk row + two ScopeName/ScopeVersion rows) plus a
+    # single matching sobs_cve_findings row so api_enrichment_libraries renders its POPULATED branch
+    # — three libraries spanning all three statuses (vulnerable / clean / unknown_ecosystem). The
+    # handler re-sorts by (cve_count desc, source order, package, version, service), so the output
+    # order is fully determined by the distinct fixed keys. scanned_at stays "" (cve_last_scan unset).
+    # No now()/uuid in the response -> no mask. No env overlay — just the (isolated) seed.
+    "enrichlibs": {},
+    # rumasset: an on-disk RUM asset (DATA_DIR/rum_assets/<id>.meta.json + the stored blob) so
+    # rum_asset_download serves its FOUND/download branch (the existing routes only cover 400/404).
+    # The id and content are FIXED; the response is the asset bytes with a stored Content-Type. The
+    # only volatile headers (Last-Modified / Werkzeug FS-ETag) are dropped by normalize.py, so the
+    # comparison is deterministic. No env overlay — the asset lives on the filesystem, not chdb.
+    "rumasset": {},
     # ask: query/ask — guard + main endpoints on DISTINCT mock paths (two canned responses).
     "ask": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/ask/v1",
@@ -411,6 +424,8 @@ SEEDED_PROFILES = {
     "metricscreate",
     "notifrule",
     "cveview",
+    "enrichlibs",
+    "rumasset",
 }
 
 
