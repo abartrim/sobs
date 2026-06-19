@@ -1579,6 +1579,10 @@ routes:
     method: GET
     query:
       sql: ServiceName='ai-svc'
+# NOTE: view_ai filter branches view=bogus (18649) / operation=embed (18692-93) / disallowed-sql
+# (18671-73) / view=trace+sql (18719) are DEFERRED — scoped parity RED: Go renders a larger body
+# than the oracle on these specific filter/view paths (the sibling valid-filter aiview routes are
+# GREEN). A Go view_ai render-divergence to fix before these can be added (see task chip).
 - id: post__api_logs_validate_regex
   path: /api/logs/validate-regex
   methods:
