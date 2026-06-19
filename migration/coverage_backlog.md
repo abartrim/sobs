@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **64%** · **5382** uncovered statements.
+Oracle coverage **64%** · **5377** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
 | route | 123 | 967 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 437 | 4146 | usually covered when a calling route's fixture is added; else difftest |
+| helper | 436 | 4141 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -82,7 +82,7 @@ Oracle coverage **64%** · **5382** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (437 functions)
+## helper — top by uncovered lines (436 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
