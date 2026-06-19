@@ -1155,6 +1155,36 @@ routes:
       trace_id: aaaa1111bbbb2222cccc3333dddd4444
       trace_span_limit: 2
       trace_span_offset: 2
+# view_traces trace-detail span-offset CLAMP branch (app.py 15599). The tracedetail trace has 5
+# spans (capped_total_spans=5); trace_span_offset=10 (>= 5) trips the clamp, which recomputes the
+# offset to the last full page: ((5-1)//2)*2 = 4. The page then renders spans[4:6] (the second
+# root + its ancestors). Distinct render from tracedetail_paged, and proves the clamp lands on
+# offset 4 byte-identically on both sides. Reuses the existing tracedetail seed (no seed change).
+- id: get__traces__tracedetail_offset_clamp
+  path: /traces
+  methods:
+  - GET
+  profile: tracedetail
+  request:
+    method: GET
+    query:
+      trace_id: aaaa1111bbbb2222cccc3333dddd4444
+      trace_span_limit: 2
+      trace_span_offset: 10
+# tracesrich profile: a single-span trace + 51 BYTE-IDENTICAL error logs. With trace_id set,
+# view_traces' trace-detail errors query fetches LIMIT 51, gets >50, so errors_truncated=True and
+# the list is sliced to the first 50 (app.py 15479-15480). The accordion is loop.index-keyed and
+# every error row is identical, so the truncated-to-50 render is permutation-invariant despite the
+# error query having no ORDER BY. Fixed 2023 timestamps + plain-text message -> deterministic.
+- id: get__traces__tracesrich
+  path: /traces
+  methods:
+  - GET
+  profile: tracesrich
+  request:
+    method: GET
+    query:
+      trace_id: bbbb1111cccc2222dddd3333eeee4444
 # Same tracedetail seed, LIST view (no trace_id): a service filter and a regex(q) filter drive the
 # selected_services / q-prepare / regex-clause / count-with-where / spans-loop branches of
 # view_traces. Distinct seed timestamps keep ORDER BY Timestamp DESC deterministic.
@@ -1793,6 +1823,39 @@ routes:
     query:
       view: trace
       sql: "ServiceName='ai-svc'"
+# view_ai raw-SQL query-EXECUTION error branch (app.py 18747-18751). The sql fragment passes
+# _validate_user_sql_where (no write/DDL keyword) and _normalize_ai_sql_where (no replaced token),
+# but references a column that does not exist, so chdb raises UNKNOWN_IDENTIFIER on BOTH the COUNT
+# query (inside the try -> except sets error_msg = "SQL error: " + _public_dashboard_query_error(exc),
+# total=0, rows=[]) AND the unconditional totals query (18938 -> 18955-18956 metadata_errors append),
+# so the metadata-error alert block (18958-18960) also renders. The sanitized first-line message is
+# byte-identical on both sides (same libchdb + same SQL, no now()/uuid/elapsed content). NOTE: the
+# except branch does NOT reset `params` (only `where`), but for this no-param sql route params stays
+# []; the totals query reuses the still-nonexistent_col `where`, so it errors deterministically.
+# ISOLATED profile (own capture process): the oracle's view_ai mutates the ALIASED cached
+# _ai_filter_metadata "errors" list when appending "totals=...", which would leak this alert into a
+# same-process plain-airich golden (Go does not alias the cache). Mirrors get__logs__logsrich_sql_exec_error.
+- id: get__ai__airichsql_sql_exec_error
+  path: /ai
+  methods:
+  - GET
+  profile: airichsql
+  request:
+    method: GET
+    query:
+      sql: nonexistent_col=1
+# view_ai _safe_attr_int defensive branches under the airich seed (ONE AI span with a non-numeric
+# input_tokens "abc" and an infinite output_tokens "inf"): float(str(...)) raises ValueError on
+# "abc" (app.py 18757-18758 -> 0) and parses "inf" to +inf, tripping the NaN/inf guard (18760 -> 0).
+# Both token cells render as 0, so the page is deterministic. Default flat view, no filters.
+- id: get__ai__airich
+  path: /ai
+  methods:
+  - GET
+  profile: airich
+  request:
+    method: GET
+    query: {}
 - id: post__api_logs_validate_regex
   path: /api/logs/validate-regex
   methods:

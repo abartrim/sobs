@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 4838,
-  "summary_pct": "67",
+  "total_uncovered": 4824,
+  "summary_pct": "68",
   "by_bucket": {
     "helper": {
-      "functions": 424,
-      "uncovered": 3997
+      "functions": 423,
+      "uncovered": 3995
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 116,
-      "uncovered": 572
+      "uncovered": 560
     },
     "module": {
       "functions": 0,
@@ -1944,31 +1944,6 @@
       ]
     },
     {
-      "function": "view_traces",
-      "bucket": "route",
-      "start": 15312,
-      "end": 15678,
-      "uncovered": 14,
-      "span": 367,
-      "route": {
-        "path": "/traces",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        15479,
-        15480,
-        15489,
-        15490,
-        15510,
-        15511,
-        15531,
-        15532
-      ]
-    },
-    {
       "function": "_github_item_is_security_related",
       "bucket": "helper",
       "start": 16686,
@@ -2311,28 +2286,28 @@
       ]
     },
     {
-      "function": "view_ai",
+      "function": "view_traces",
       "bucket": "route",
-      "start": 18631,
-      "end": 18998,
+      "start": 15312,
+      "end": 15678,
       "uncovered": 11,
-      "span": 368,
+      "span": 367,
       "route": {
-        "path": "/ai",
+        "path": "/traces",
         "methods": [
           "GET"
         ],
         "decorator": "route"
       },
       "missing_sample": [
-        18747,
-        18748,
-        18749,
-        18750,
-        18751,
-        18889,
-        18916,
-        18955
+        15489,
+        15490,
+        15510,
+        15511,
+        15531,
+        15532,
+        15533,
+        15548
       ]
     },
     {
@@ -3532,6 +3507,24 @@
       ]
     },
     {
+      "function": "_remember_attr_keys",
+      "bucket": "helper",
+      "start": 2198,
+      "end": 2237,
+      "uncovered": 7,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        2206,
+        2211,
+        2215,
+        2217,
+        2221,
+        2236,
+        2237
+      ]
+    },
+    {
       "function": "_chat_label_from_first_turn",
       "bucket": "helper",
       "start": 3739,
@@ -4007,23 +4000,6 @@
         1991,
         1992,
         1993
-      ]
-    },
-    {
-      "function": "_remember_attr_keys",
-      "bucket": "helper",
-      "start": 2198,
-      "end": 2237,
-      "uncovered": 6,
-      "span": 40,
-      "route": null,
-      "missing_sample": [
-        2206,
-        2211,
-        2217,
-        2221,
-        2236,
-        2237
       ]
     },
     {
@@ -6374,20 +6350,6 @@
       ]
     },
     {
-      "function": "_safe_attr_int",
-      "bucket": "helper",
-      "start": 18753,
-      "end": 18761,
-      "uncovered": 3,
-      "span": 9,
-      "route": null,
-      "missing_sample": [
-        18757,
-        18758,
-        18760
-      ]
-    },
-    {
       "function": "_safe_duration_ms",
       "bucket": "helper",
       "start": 18763,
@@ -7651,6 +7613,25 @@
       "missing_sample": [
         18352,
         18353
+      ]
+    },
+    {
+      "function": "view_ai",
+      "bucket": "route",
+      "start": 18631,
+      "end": 18998,
+      "uncovered": 2,
+      "span": 368,
+      "route": {
+        "path": "/ai",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        18889,
+        18916
       ]
     },
     {
