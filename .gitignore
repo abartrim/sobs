@@ -222,3 +222,4 @@ go/tmp/
 migration/coverage_app.json
 .coverage
 .coverage.*
+migration/structural_report.md

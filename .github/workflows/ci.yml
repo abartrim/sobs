@@ -175,6 +175,10 @@ jobs:
             requirements.txt
             .github/workflows/ci.yml
 
+      - name: Structural checks (route matrix / constant allowlists / stubs)
+        # stdlib-only + fast — fails early on a Python route with no Go handler before the slow capture.
+        run: python migration/tools/structural_checks.py
+
       - name: Install runtime dependencies + coverage
         run: pip install -r requirements.txt pyyaml coverage
 
