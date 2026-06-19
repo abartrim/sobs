@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **67%** · **4964** uncovered statements.
+Oracle coverage **67%** · **4937** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 119 | 669 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 426 | 4026 | usually covered when a calling route's fixture is added; else difftest |
+| route | 119 | 649 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 426 | 4019 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -26,9 +26,7 @@ Oracle coverage **67%** · **4964** uncovered statements.
 | `clone_chart` | 21694–21733 | 15 | `POST /dashboards/<dashboard_id>/charts/<chart_id>/clone` |
 | `ingest_rum_asset` | 9699–9756 | 14 | `POST /v1/rum/assets` |
 | `view_traces` | 15312–15678 | 14 | `GET /traces` |
-| `api_enrichment_libraries` | 17882–17941 | 14 | `GET /api/enrichment/libraries` |
 | `edit_chart` | 21651–21689 | 14 | `POST /dashboards/<dashboard_id>/charts/<chart_id>/edit` |
-| `rum_asset_download` | 9761–9786 | 12 | `GET /v1/rum/assets/<asset_id>` |
 | `view_ai` | 18631–18998 | 11 | `GET /ai` |
 | `api_import_reports` | 22857–23017 | 11 | `POST /api/reports/import` |
 | `api_query_ask` | 30203–30506 | 11 | `POST /api/query/ask` |
@@ -55,6 +53,8 @@ Oracle coverage **67%** · **4964** uncovered statements.
 | `api_onboarding_inspect_repo` | 33683–33733 | 6 | `GET /api/onboarding/inspect-repo` |
 | `ingest_logs` | 9665–9694 | 5 | `POST /v1/logs` |
 | `issue_rum_client_token` | 9791–9826 | 5 | `POST /v1/rum/client-token` |
+| `ingest_ai` | 10157–10241 | 5 | `POST /v1/ai` |
+| `summary` | 10841–10971 | 5 | `GET /` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
@@ -121,8 +121,8 @@ Oracle coverage **67%** · **4964** uncovered statements.
 | `_encrypt_push_payload` | 24990–25055 | 27 |  |
 | `_match_single_condition` | 12551–12588 | 26 |  |
 | `_build_trace_window_overlay_segments` | 14787–14842 | 26 |  |
-| `_collect_library_inventory` | 16876–17071 | 26 |  |
 | `_load_chat_tool_history` | 4016–4075 | 25 |  |
 | `_coerce_reasoning_text` | 8304–8331 | 25 |  |
 | `_build_auto_tag_rule_candidates` | 12062–12308 | 25 |  |
 | `_build_agent_context_summary` | 6609–6703 | 24 |  |
+| `_to_summary` | 10606–10632 | 24 |  |
