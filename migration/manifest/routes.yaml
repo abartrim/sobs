@@ -1012,6 +1012,30 @@ routes:
   request:
     method: POST
     form: {name: r, source: logs, signal: count, rule_type: threshold, comparator: bogus}
+- id: post__tag_rule_err_required
+  path: /settings/tags
+  methods:
+  - POST
+  profile: formerr
+  request:
+    method: POST
+    form: {}
+- id: post__notif_rule_err_required
+  path: /settings/notifications/rules
+  methods:
+  - POST
+  profile: formerr
+  request:
+    method: POST
+    form: {}
+- id: post__notif_channel_err_required
+  path: /settings/notifications/channels
+  methods:
+  - POST
+  profile: formerr
+  request:
+    method: POST
+    form: {}
 - id: post__api_data_management_backup_run
   path: /api/data-management/backup/run
   methods:
