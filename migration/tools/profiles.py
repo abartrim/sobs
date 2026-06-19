@@ -69,6 +69,23 @@ PROFILES: dict[str, dict[str, str]] = {
     # service/model/operation/span_name/row_type/sql filters. Deterministic: distinct timestamps,
     # distinct token/model values, empty message JSON (parsers return empty), no ties.
     "aiview": {},
+    # airich: an isolated AI span whose token attrs are NON-NUMERIC ("abc") / INFINITE ("inf"), so
+    # view_ai's _safe_attr_int defensive branches run — the ValueError path (app.py 18757-18758) and
+    # the NaN/inf guard (18760), both yielding 0. No env overlay — just the (isolated) seed; base
+    # aiview goldens stay untouched. (_safe_duration_ms's matching branches are unreachable: Duration
+    # is a UInt64 column, so r["Duration"] is always a parseable, finite integer.)
+    "airich": {},
+    # airichsql: the SAME airich seed, but a SEPARATE profile so the raw-SQL exec-error route is
+    # captured in its OWN process. view_ai's totals-error append mutates the (aliased) cached
+    # _ai_filter_metadata "errors" list in the oracle, which would otherwise leak the "totals=..."
+    # alert into a same-process plain-airich golden (Go does not alias the cache, so it would not
+    # replicate the leak -> RED). Process isolation keeps both goldens correct on both sides.
+    "airichsql": {},
+    # tracesrich: an isolated single-span trace + 51 BYTE-IDENTICAL error logs, so view_traces'
+    # trace-detail errors_truncated branch (app.py 15479-15480) runs: the trace-error query fetches
+    # LIMIT 51, gets >50, flips errors_truncated and slices to 50. Identical rows make the
+    # (loop.index-keyed) accordion render permutation-invariant despite the query's missing ORDER BY.
+    "tracesrich": {},
     # reportsimport: no seed (reuses the base fixture's 2 example reports for conflict tests). An
     # isolated profile because the success routes MUTATE sobs_reports — keeping them out of base so
     # they don't perturb other base routes that read reports. Routes run in manifest order and
@@ -454,6 +471,9 @@ SEEDED_PROFILES = {
     "logsrich",
     "errorsview",
     "aiview",
+    "airich",
+    "airichsql",
+    "tracesrich",
     "dashview",
     "chartedit",
     "regexlogs",

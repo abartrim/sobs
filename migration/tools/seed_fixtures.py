@@ -1814,6 +1814,97 @@ def seed_aiview(db) -> None:
     db.execute("OPTIMIZE TABLE otel_traces FINAL")
 
 
+_TRACESRICH_TRACE_ID = "bbbb1111cccc2222dddd3333eeee4444"
+
+
+def seed_tracesrich(db) -> None:
+    # view_traces trace-detail "errors_truncated" branch (app.py 15479-15480). The trace-error query
+    # fetches LIMIT _TRACE_ERROR_LIMIT+1 (=51) and, if it gets >50, flips errors_truncated=True and
+    # slices to the first 50. Seed a tiny SINGLE-span trace + EXACTLY 51 BYTE-IDENTICAL error logs on
+    # it: the inner query has NO ORDER BY (FROM (ERROR_SOURCES_SQL) WHERE TraceId=? LIMIT 51) so chdb
+    # may return the 51 rows in any order, but because every error row is identical the rendered
+    # accordion (loop.index-keyed, 50 identical items after truncation) is permutation-invariant and
+    # byte-reproducible. Fixed 2023 timestamps + plain-text (non-JSON) message keep the *_is_json
+    # branches False. Isolated profile (unique trace id) — base tracedetail/tracedetailerr untouched.
+    tid = _TRACESRICH_TRACE_ID
+    _insert(
+        db,
+        "otel_traces",
+        [
+            {
+                "Timestamp": "2023-07-01 09:00:00.000000",
+                "TraceId": tid,
+                "SpanId": "bbbb000000000001",
+                "ParentSpanId": "",
+                "SpanName": "GET /orders",
+                "ServiceName": "orders",
+                "Duration": int(40 * 1_000_000),  # ns
+                "StatusCode": "STATUS_CODE_ERROR",
+                "SpanAttributes": {"http.status_code": "500"},
+            }
+        ],
+    )
+
+    # 51 byte-identical ERROR logs, all attached to the single span on this trace. ERROR_SOURCES_SQL
+    # matches via EventName='exception' / SeverityNumber>=17 / SeverityText='ERROR' / exception.type.
+    err_logs = [
+        {
+            "Timestamp": "2023-07-01 09:00:00.010000",
+            "TraceId": tid,
+            "SpanId": "bbbb000000000001",
+            "ServiceName": "orders",
+            "SeverityText": "ERROR",
+            "SeverityNumber": 17,
+            "EventName": "exception",
+            "Body": "order processing failed",
+            "LogAttributes": {
+                "exception.type": "OrderError",
+                "exception.message": "order processing failed",
+            },
+        }
+        for _ in range(51)
+    ]
+    _insert(db, "otel_logs", err_logs)
+    db.execute("OPTIMIZE TABLE otel_traces FINAL")
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+
+def seed_airich(db) -> None:
+    # view_ai _safe_attr_int defensive branches (app.py 18757-18758 ValueError; 18760 NaN/inf guard).
+    # ONE AI span (gen_ai.* attrs so _AI_SPAN_CONDITION matches) carrying a NON-NUMERIC input_tokens
+    # ("abc" -> float() raises -> 18757-18758 -> 0) and an INFINITE output_tokens ("inf" -> float()
+    # succeeds -> NaN/inf guard 18760 -> 0). Both render as 0, so the token cells are deterministic.
+    # Distinct fixed 2023 timestamp + a unique service/model keep ORDER BY / filter metadata tie-free.
+    # Isolated profile — base aiview goldens are untouched. (_safe_duration_ms's matching branches are
+    # unreachable: Duration is a UInt64 column so r["Duration"] is always a parseable non-NaN int.)
+    _insert(
+        db,
+        "otel_traces",
+        [
+            {
+                "Timestamp": "2023-07-01 11:00:00.000000",
+                "TraceId": "airichtrace1",
+                "SpanId": "airichspan01",
+                "ParentSpanId": "",
+                "SpanName": "ai.chat",
+                "ServiceName": "airich-svc",
+                "Duration": int(1200 * 1_000_000),  # ns
+                "StatusCode": "STATUS_CODE_OK",
+                "SpanAttributes": {
+                    "gen_ai.provider.name": "anthropic",
+                    "gen_ai.request.model": "claude-airich",
+                    "gen_ai.operation.name": "chat",
+                    # non-numeric -> _safe_attr_int ValueError branch
+                    "gen_ai.usage.input_tokens": "abc",
+                    # parses to +inf -> _safe_attr_int NaN/inf guard branch
+                    "gen_ai.usage.output_tokens": "inf",
+                },
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_traces FINAL")
+
+
 def seed_dashview(db) -> None:
     # One dashboard + two charts with FIXED ids so GET /dashboards/<id> (view_custom_dashboard)
     # renders its view branch against real data. The base example seeder also creates an example
@@ -2198,6 +2289,9 @@ PROFILE_SEEDS = {
     "logsrich": seed_logsrich,  # 2 otel_logs rows -> view_logs raw-SQL query-execution error branch (11402-11404)
     "errorsview": seed_errorsview,  # error events + a resolution -> populated view_errors branches
     "aiview": seed_aiview,  # otel_traces AI spans (gen_ai.*) -> populated view_ai branches
+    "tracesrich": seed_tracesrich,  # single-span trace + 51 identical ERROR logs -> errors_truncated (15479-15480)
+    "airich": seed_airich,  # AI span w/ non-numeric + inf token attrs -> _safe_attr_int branches (18757-18760)
+    "airichsql": seed_airich,  # same AI span; ISOLATED process so the sql-error totals cache mutation can't leak
     "dashview": seed_dashview,  # dashboard + charts -> GET /dashboards/<id> view branch
     "chartedit": seed_chartedit,  # dashboard + 1 chart -> edit_chart/clone_chart mutation branches
     "regexlogs": seed_regex_logs,  # validate-regex sample probe: otel_logs.Body
