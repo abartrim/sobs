@@ -1261,6 +1261,97 @@ def seed_tracedetailerr(db) -> None:
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
 
 
+def seed_incidentmatch(db) -> None:
+    # Cover view_incident's two remaining deterministically-reachable MATCH branches (app.py
+    # view_incident at 15785):
+    #   1. rum_session MATCH (app.py 15904-15905 + 15918-15920): a hyperdx_sessions row whose
+    #      session key (_RUM_SESSION_KEY_SQL) equals the requested ?rum_session id, so
+    #      `if rum_row: primary_rum = _build_rum_event_item(rum_row)` runs and the
+    #      `elif primary_rum:` branch sets service/event_ts. The base seed_rum_sessions rows carry
+    #      NO sessionId (anon md5 key) so a clean ?rum_session=X never matches them — this row sets
+    #      LogAttributes['sessionId'] explicitly so the key resolves to 'incident-sess-001'.
+    #   2. existing_work_item (app.py 16113-16114): a sobs_github_work_items row whose AnomalyRuleId
+    #      equals that same rum_session id with a non-empty IssueUrl, so _load_work_item_links_for_ref_ids
+    #      returns a link for ref_id 'incident-sess-001' and the `existing_work_item = wi; break` runs.
+    #
+    # Determinism notes (ALL fixed 2023 timestamps, NO now()):
+    #   • Unique ServiceName ('incident-web-001') so the derived `service` matches no base rows: the
+    #     related-errors / related-logs / related-spans queries (filtered by ServiceName in the fixed
+    #     2023 window) all return empty.
+    #   • The RUM row carries NO LogAttributes['service.name'/'service'], so the related-RUM summary
+    #     (filtered by those keys) does not even match this row -> related_rum_count=0. Plain-text
+    #     (non-JSON) Body keeps _build_rum_event_item's data.* branches empty and byte-stable.
+    #   • from_ts/to_ts are derived from the RUM event's FIXED timestamp (deterministic). The
+    #     window/metrics block runs but finds no seeded raw windows / metrics for the unique service
+    #     in the 2023 window -> empty metrics_context. The anomaly query uses now()-48h, which the
+    #     fixed-2023 service never falls in -> anomaly_state=None.
+    _insert(
+        db,
+        "hyperdx_sessions",
+        [
+            {
+                "Timestamp": "2023-06-01 12:00:00.000000",
+                "ServiceName": "incident-web-001",
+                "EventName": "error",
+                "Body": "TypeError: undefined is not a function",
+                "TraceId": "9999000000000000000000000000aaaa",
+                "SpanId": "9999000000000001",
+                "LogAttributes": {
+                    "sessionId": "incident-sess-001",
+                    "url": "https://shop.example.com/checkout",
+                },
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE hyperdx_sessions FINAL")
+    _insert(
+        db,
+        "sobs_github_work_items",
+        [
+            {
+                "Id": "d1000000000000000000000000000001",
+                "CreatedAt": "2023-06-01 12:05:00.000000",
+                "CompletedAt": "2023-06-01 12:05:00.000000",
+                "AgentRunId": "ar000000000000000000000000000d01",
+                "AgentRuleId": "",
+                "AgentRuleName": "User Raised Issue (incident)",
+                "AgentAction": "github_issue",
+                "ServiceName": "incident-web-001",
+                # _load_work_item_links_for_ref_ids keys on AnomalyRuleId == ref_id (here the
+                # rum_session id), and requires IssueUrl != '' to surface the link.
+                "AnomalyRuleId": "incident-sess-001",
+                "AnomalyState": "critical",
+                "SignalSource": "rum",
+                "SignalName": "TypeError",
+                "SignalValue": 1.0,
+                "GithubRepo": "acme/reuse-demo",
+                "DedupKey": "incident-web-001||rum|typeerror|critical",
+                "DedupDecision": "new_issue",
+                "DedupConfidence": 1.0,
+                "IssueNumber": 77,
+                "IssueUrl": "https://github.com/acme/reuse-demo/issues/77",
+                "CanonicalIssueNumber": 77,
+                "CanonicalIssueUrl": "https://github.com/acme/reuse-demo/issues/77",
+                "RelatedIssueUrls": "[]",
+                "OccurrenceCount": 1,
+                "IssueState": "open",
+                "IssueTitle": "RUM TypeError on checkout",
+                "AnalysisSummary": "",
+                "SuggestionSummary": "",
+                "CopilotAssignmentRequestedAt": 0,
+                "CopilotAssignmentStatus": "not_requested",
+                "CopilotAssignmentReason": "",
+                "PrLinked": 0,
+                "PrNumber": 0,
+                "PrUrl": "",
+                "IsDeleted": 0,
+                "Version": 1685620500000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_github_work_items FINAL")
+
+
 def seed_logsview(db) -> None:
     # Populate otel_logs so view_logs (GET /logs) renders its POPULATED branches. Six rows with
     # DISTINCT fixed timestamps (deterministic ORDER BY Timestamp DESC). Severity and service counts
@@ -1679,6 +1770,7 @@ PROFILE_SEEDS = {
     "ciauth": seed_ci_key,  # registered app + managed per-app CI-push key; managed-key require_api_key path
     "tracedetail": seed_trace_detail,  # multi-span trace + logs -> populated trace_detail waterfall
     "tracedetailerr": seed_tracedetailerr,  # tracedetail trace + 1 ERROR log -> trace_detail errors loop
+    "incidentmatch": seed_incidentmatch,  # rum_session hyperdx row + matching work-item link -> view_incident MATCH
     "logsview": seed_logsview,  # 5 otel_logs rows + record tags -> populated view_logs branches
     "errorsview": seed_errorsview,  # error events + a resolution -> populated view_errors branches
     "aiview": seed_aiview,  # otel_traces AI spans (gen_ai.*) -> populated view_ai branches

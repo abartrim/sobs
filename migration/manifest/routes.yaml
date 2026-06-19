@@ -1030,6 +1030,20 @@ routes:
     method: GET
     query:
       trace_id: aaaa1111bbbb2222cccc3333dddd4444
+# incidentmatch profile: a hyperdx_sessions row keyed to ?rum_session=incident-sess-001 PLUS a
+# work-item link whose ref_id is that same session id. The single GET hits BOTH the rum_session
+# MATCH branch (app.py 15904-15905 -> primary_rum; 15918-15920 -> service/event_ts) AND the
+# existing_work_item resolution (app.py 16113-16114). Fixed 2023 timestamps + a unique service keep
+# every related/window/metric/anomaly block on its deterministic empty path (no mask needed).
+- id: get__incident__rum_match
+  path: /incident
+  methods:
+  - GET
+  profile: incidentmatch
+  request:
+    method: GET
+    query:
+      rum_session: incident-sess-001
 # view_traces (LIST mode, no trace_id) invalid-regex q -> regex_error -> q_error set (app.py 15348);
 # the regex clause is then skipped.
 - id: get__traces__tracedetail_q_invalid

@@ -30,7 +30,13 @@ func rumSessionKeyFromAttrs(attrs map[string]any, ts, bodyRaw string) string {
 
 // buildRumEventItem mirrors app.py _build_rum_event_item.
 func buildRumEventItem(m map[string]any) *jsonenc.Object {
-	attrs := mapToDict(cStr(m, "LogAttributes"))
+	// LogAttributes is a Map(String,String) column: ClickHouse FORMAT JSON serializes it as a JSON
+	// object, so the store materializes it as a map[string]any (or, for a JSON-string value, a
+	// string). Pass the raw column value to mapToDict — routing it through cStr first would
+	// fmt.Sprintf the map into a non-JSON "map[k:v]" string that mapToDict then fails to parse,
+	// silently dropping every attribute (anon session key, empty url). Mirrors app.py
+	// _map_to_dict(row["LogAttributes"]), which accepts a dict directly.
+	attrs := mapToDict(m["LogAttributes"])
 	bodyRaw := cStr(m, "Body")
 	// data = body_data if isinstance(body_data, dict) else {"value": body_data}; {} on parse error.
 	var data *jsonenc.Object
@@ -58,10 +64,15 @@ func buildRumEventItem(m map[string]any) *jsonenc.Object {
 		data.Set("spanId", spanID)
 	}
 	ts := cStr(m, "Timestamp")
+	// mapToDict returns either a map[string]any (Map column / JSON object) or a *jsonenc.Object;
+	// normalize both into a plain attr map for url + session-key derivation.
 	attrsMap := map[string]any{}
-	if o, ok := attrs.(*jsonenc.Object); ok {
-		for _, k := range o.Keys() {
-			v, _ := o.Get(k)
+	switch a := attrs.(type) {
+	case map[string]any:
+		attrsMap = a
+	case *jsonenc.Object:
+		for _, k := range a.Keys() {
+			v, _ := a.Get(k)
 			attrsMap[k] = v
 		}
 	}
