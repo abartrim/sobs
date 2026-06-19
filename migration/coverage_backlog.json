@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 5014,
+  "total_uncovered": 4996,
   "summary_pct": "66",
   "by_bucket": {
     "helper": {
-      "functions": 429,
-      "uncovered": 4032
+      "functions": 426,
+      "uncovered": 4026
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 119,
-      "uncovered": 713
+      "uncovered": 701
     },
     "module": {
       "functions": 0,
@@ -673,31 +673,6 @@
       ]
     },
     {
-      "function": "view_incident",
-      "bucket": "route",
-      "start": 15785,
-      "end": 16144,
-      "uncovered": 27,
-      "span": 360,
-      "route": {
-        "path": "/incident",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        15852,
-        15853,
-        15885,
-        15886,
-        15905,
-        15906,
-        15907,
-        15919
-      ]
-    },
-    {
       "function": "_parse_gemfile_lock_dependencies",
       "bucket": "helper",
       "start": 16426,
@@ -1128,6 +1103,31 @@
       ]
     },
     {
+      "function": "view_incident",
+      "bucket": "route",
+      "start": 15785,
+      "end": 16144,
+      "uncovered": 22,
+      "span": 360,
+      "route": {
+        "path": "/incident",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        15852,
+        15853,
+        15885,
+        15886,
+        15906,
+        15907,
+        15929,
+        15930
+      ]
+    },
+    {
       "function": "_parse_requirements_dependencies",
       "bucket": "helper",
       "start": 16333,
@@ -1277,31 +1277,6 @@
         7492,
         7493,
         7494
-      ]
-    },
-    {
-      "function": "view_traces",
-      "bucket": "route",
-      "start": 15312,
-      "end": 15678,
-      "uncovered": 21,
-      "span": 367,
-      "route": {
-        "path": "/traces",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        15479,
-        15480,
-        15482,
-        15483,
-        15484,
-        15485,
-        15486,
-        15487
       ]
     },
     {
@@ -2110,6 +2085,31 @@
         12982,
         12983,
         12984
+      ]
+    },
+    {
+      "function": "view_traces",
+      "bucket": "route",
+      "start": 15312,
+      "end": 15678,
+      "uncovered": 14,
+      "span": 367,
+      "route": {
+        "path": "/traces",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        15479,
+        15480,
+        15489,
+        15490,
+        15510,
+        15511,
+        15531,
+        15532
       ]
     },
     {
@@ -6565,20 +6565,6 @@
       ]
     },
     {
-      "function": "_load_work_item_links_for_ref_ids",
-      "bucket": "helper",
-      "start": 14178,
-      "end": 14204,
-      "uncovered": 3,
-      "span": 27,
-      "route": null,
-      "missing_sample": [
-        14197,
-        14198,
-        14199
-      ]
-    },
-    {
       "function": "resolve_error",
       "bucket": "route",
       "start": 14588,
@@ -7607,19 +7593,6 @@
       "missing_sample": [
         8102,
         8104
-      ]
-    },
-    {
-      "function": "_build_rum_event_item",
-      "bucket": "helper",
-      "start": 8158,
-      "end": 8194,
-      "uncovered": 2,
-      "span": 37,
-      "route": null,
-      "missing_sample": [
-        8172,
-        8174
       ]
     },
     {
@@ -8805,18 +8778,6 @@
       "route": null,
       "missing_sample": [
         7703
-      ]
-    },
-    {
-      "function": "_rum_session_key_from_attrs",
-      "bucket": "helper",
-      "start": 8151,
-      "end": 8155,
-      "uncovered": 1,
-      "span": 5,
-      "route": null,
-      "missing_sample": [
-        8154
       ]
     },
     {

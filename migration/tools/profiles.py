@@ -164,6 +164,18 @@ PROFILES: dict[str, dict[str, str]] = {
     # 2023-06-01 (outside the frozen 48h anomaly window) and no metrics/raw-windows are seeded, so
     # the anomaly / metric-context / window-overlay blocks take their deterministic empty paths.
     "tracedetail": {},
+    # tracedetailerr: the SAME tracedetail trace plus ONE ERROR otel_logs row carrying the
+    # trace's id, so view_traces' trace-detail errors loop (app.py 15481-15488) executes and
+    # renders an error item. No env overlay — just the (isolated) seed; the base tracedetail
+    # goldens are untouched.
+    "tracedetailerr": {},
+    # incidentmatch: a hyperdx_sessions row whose session key equals ?rum_session=incident-sess-001
+    # PLUS a sobs_github_work_items row whose AnomalyRuleId is that same id (with a non-empty
+    # IssueUrl), so view_incident's rum_session MATCH branch (primary_rum set -> service/event_ts)
+    # AND the existing_work_item resolution (app.py 15904-15905/15918-15920/16113-16114) both run.
+    # No env overlay — just the (isolated) seed; a unique ServiceName + fixed 2023 timestamps keep
+    # every related/window/metric/anomaly block on its deterministic empty path.
+    "incidentmatch": {},
     # dashview: a seeded dashboard (fixed id) + two charts so GET /dashboards/<id>
     # (view_custom_dashboard) renders its view branch against real data. No env overlay — just the
     # isolated seed. The base example seeder also creates a dashboard, but with a determinism-derived
@@ -379,6 +391,8 @@ SEEDED_PROFILES = {
     "aichat",
     "ciauth",
     "tracedetail",
+    "tracedetailerr",
+    "incidentmatch",
     "logsview",
     "errorsview",
     "aiview",
