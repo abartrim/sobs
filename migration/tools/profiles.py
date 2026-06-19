@@ -170,6 +170,11 @@ PROFILES: dict[str, dict[str, str]] = {
     # aichat: a seeded gen_ai chat turn (otel_logs) so the chat-detail reader serializes it. The
     # otel_logs row is isolated to this profile so base telemetry readers stay empty.
     "aichat": {},
+    # aiexport2: a seeded gen_ai otel_traces span whose input/output message attrs are NON-JSON
+    # strings, so export_ai_training's two json.loads calls raise and take the prompt/response
+    # fallback (app.py 19185-19187 / 19193-19195). Read-only export -> deterministic; isolated so
+    # the malformed span doesn't ripple into other AI readers.
+    "aiexport2": {},
     # tracedetail: a small multi-span trace (+ a few non-error logs) seeded into otel_traces /
     # otel_logs so /traces?trace_id=… builds the populated trace_detail waterfall (span tree,
     # active/gap timeline, log counts). No env overlay — just the (isolated) seed. The spans sit at
@@ -440,6 +445,7 @@ SEEDED_PROFILES = {
     "mcpkey",
     "mcpauth",
     "aichat",
+    "aiexport2",
     "ciauth",
     "tracedetail",
     "tracedetailerr",
