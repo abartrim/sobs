@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 4881,
+  "total_uncovered": 4863,
   "summary_pct": "67",
   "by_bucket": {
     "helper": {
       "functions": 426,
-      "uncovered": 4002
+      "uncovered": 3991
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 117,
-      "uncovered": 610
+      "uncovered": 603
     },
     "module": {
       "functions": 0,
@@ -711,25 +711,6 @@
       ]
     },
     {
-      "function": "_match_single_condition",
-      "bucket": "helper",
-      "start": 12551,
-      "end": 12588,
-      "uncovered": 26,
-      "span": 38,
-      "route": null,
-      "missing_sample": [
-        12561,
-        12562,
-        12563,
-        12564,
-        12565,
-        12566,
-        12567,
-        12568
-      ]
-    },
-    {
       "function": "auto_metrics_rules_dashboard",
       "bucket": "route",
       "start": 13848,
@@ -1369,6 +1350,25 @@
       ]
     },
     {
+      "function": "_match_single_condition",
+      "bucket": "helper",
+      "start": 12551,
+      "end": 12588,
+      "uncovered": 19,
+      "span": 38,
+      "route": null,
+      "missing_sample": [
+        12564,
+        12565,
+        12566,
+        12567,
+        12568,
+        12569,
+        12570,
+        12571
+      ]
+    },
+    {
       "function": "_group_metric_series",
       "bucket": "helper",
       "start": 14906,
@@ -1565,31 +1565,6 @@
       ]
     },
     {
-      "function": "api_query_run",
-      "bucket": "route",
-      "start": 30511,
-      "end": 30765,
-      "uncovered": 17,
-      "span": 255,
-      "route": {
-        "path": "/api/query/run",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        30527,
-        30580,
-        30581,
-        30634,
-        30635,
-        30636,
-        30647,
-        30648
-      ]
-    },
-    {
       "function": "_embedding_from_json",
       "bucket": "helper",
       "start": 3650,
@@ -1732,6 +1707,31 @@
         26383,
         26384,
         26385
+      ]
+    },
+    {
+      "function": "api_query_run",
+      "bucket": "route",
+      "start": 30511,
+      "end": 30765,
+      "uncovered": 16,
+      "span": 255,
+      "route": {
+        "path": "/api/query/run",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        30580,
+        30581,
+        30634,
+        30635,
+        30636,
+        30647,
+        30648,
+        30649
       ]
     },
     {
@@ -2468,31 +2468,6 @@
       ]
     },
     {
-      "function": "api_query_ask",
-      "bucket": "route",
-      "start": 30203,
-      "end": 30506,
-      "uncovered": 11,
-      "span": 304,
-      "route": {
-        "path": "/api/query/ask",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        30235,
-        30267,
-        30311,
-        30392,
-        30401,
-        30418,
-        30428,
-        30429
-      ]
-    },
-    {
       "function": "_inspect_repo_for_onboarding",
       "bucket": "helper",
       "start": 32883,
@@ -2683,6 +2658,31 @@
       ]
     },
     {
+      "function": "api_query_ask",
+      "bucket": "route",
+      "start": 30203,
+      "end": 30506,
+      "uncovered": 10,
+      "span": 304,
+      "route": {
+        "path": "/api/query/ask",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        30267,
+        30311,
+        30392,
+        30401,
+        30418,
+        30428,
+        30429,
+        30441
+      ]
+    },
+    {
       "function": "_validate_dm_s3_settings",
       "bucket": "helper",
       "start": 31866,
@@ -2737,31 +2737,6 @@
         32064,
         32065,
         32070
-      ]
-    },
-    {
-      "function": "api_onboarding_list_repos",
-      "bucket": "route",
-      "start": 33603,
-      "end": 33678,
-      "uncovered": 10,
-      "span": 76,
-      "route": {
-        "path": "/api/onboarding/list-repos",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        33626,
-        33627,
-        33638,
-        33639,
-        33647,
-        33648,
-        33649,
-        33650
       ]
     },
     {
@@ -3511,6 +3486,31 @@
       ]
     },
     {
+      "function": "api_onboarding_list_repos",
+      "bucket": "route",
+      "start": 33603,
+      "end": 33678,
+      "uncovered": 8,
+      "span": 76,
+      "route": {
+        "path": "/api/onboarding/list-repos",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        33638,
+        33639,
+        33647,
+        33648,
+        33649,
+        33650,
+        33655,
+        33658
+      ]
+    },
+    {
       "function": "_origin_allowed_for_otlp",
       "bucket": "helper",
       "start": 399,
@@ -4065,8 +4065,8 @@
       "missing_sample": [
         2206,
         2211,
+        2215,
         2217,
-        2221,
         2236,
         2237
       ]
@@ -4649,29 +4649,6 @@
         32003,
         32004,
         32006
-      ]
-    },
-    {
-      "function": "api_onboarding_inspect_repo",
-      "bucket": "route",
-      "start": 33683,
-      "end": 33733,
-      "uncovered": 6,
-      "span": 51,
-      "route": {
-        "path": "/api/onboarding/inspect-repo",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        33697,
-        33701,
-        33702,
-        33703,
-        33711,
-        33718
       ]
     },
     {
@@ -5591,21 +5568,6 @@
       ]
     },
     {
-      "function": "_match_tag_rule",
-      "bucket": "helper",
-      "start": 12506,
-      "end": 12548,
-      "uncovered": 4,
-      "span": 43,
-      "route": null,
-      "missing_sample": [
-        12526,
-        12527,
-        12529,
-        12535
-      ]
-    },
-    {
       "function": "create_metrics_rule",
       "bucket": "route",
       "start": 13626,
@@ -6212,20 +6174,6 @@
         8869,
         8872,
         8878
-      ]
-    },
-    {
-      "function": "_insert_log_events",
-      "bucket": "helper",
-      "start": 9370,
-      "end": 9403,
-      "uncovered": 3,
-      "span": 34,
-      "route": null,
-      "missing_sample": [
-        9373,
-        9401,
-        9402
       ]
     },
     {
@@ -7087,6 +7035,26 @@
       ]
     },
     {
+      "function": "api_onboarding_inspect_repo",
+      "bucket": "route",
+      "start": 33683,
+      "end": 33733,
+      "uncovered": 3,
+      "span": 51,
+      "route": {
+        "path": "/api/onboarding/inspect-repo",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        33702,
+        33711,
+        33718
+      ]
+    },
+    {
       "function": "_coerce_undefined_for_json",
       "bucket": "helper",
       "start": 76,
@@ -7435,6 +7403,19 @@
       "missing_sample": [
         8102,
         8104
+      ]
+    },
+    {
+      "function": "_insert_log_events",
+      "bucket": "helper",
+      "start": 9370,
+      "end": 9403,
+      "uncovered": 2,
+      "span": 34,
+      "route": null,
+      "missing_sample": [
+        9401,
+        9402
       ]
     },
     {
@@ -8984,6 +8965,18 @@
       "route": null,
       "missing_sample": [
         12480
+      ]
+    },
+    {
+      "function": "_match_tag_rule",
+      "bucket": "helper",
+      "start": 12506,
+      "end": 12548,
+      "uncovered": 1,
+      "span": 43,
+      "route": null,
+      "missing_sample": [
+        12535
       ]
     },
     {

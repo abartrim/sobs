@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **67%** · **4881** uncovered statements.
+Oracle coverage **67%** · **4863** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 117 | 610 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 426 | 4002 | usually covered when a calling route's fixture is added; else difftest |
+| route | 117 | 603 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 426 | 3991 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -19,20 +19,20 @@ Oracle coverage **67%** · **4881** uncovered statements.
 | `auto_metrics_rules_dashboard` | 13848–13960 | 26 | `POST /metrics/rules/dashboard/auto` |
 | `view_incident` | 15785–16144 | 22 | `GET /incident` |
 | `api_onboarding_create_issues` | 33738–33930 | 18 | `POST /api/onboarding/create-issues` |
-| `api_query_run` | 30511–30765 | 17 | `POST /api/query/run` |
 | `auto_tag_rules` | 23353–23460 | 16 | `POST /settings/tags/auto` |
 | `check_notifications` | 26341–26447 | 16 | `POST /api/notifications/check` |
+| `api_query_run` | 30511–30765 | 16 | `POST /api/query/run` |
 | `view_logs` | 11239–11512 | 15 | `GET /logs` |
 | `ingest_rum_asset` | 9699–9756 | 14 | `POST /v1/rum/assets` |
 | `view_traces` | 15312–15678 | 14 | `GET /traces` |
 | `view_ai` | 18631–18998 | 11 | `GET /ai` |
 | `api_import_reports` | 22857–23017 | 11 | `POST /api/reports/import` |
-| `api_query_ask` | 30203–30506 | 11 | `POST /api/query/ask` |
-| `api_onboarding_list_repos` | 33603–33678 | 10 | `POST /api/onboarding/list-repos` |
+| `api_query_ask` | 30203–30506 | 10 | `POST /api/query/ask` |
 | `view_rum` | 17309–17657 | 9 | `GET /rum` |
 | `ingest_metrics` | 9896–9918 | 8 | `POST /v1/metrics` |
 | `api_ai_field_hints` | 24229–24402 | 8 | `GET /api/ai/field-hints` |
 | `api_onboarding_import_repo` | 33538–33598 | 8 | `POST /api/onboarding/import-repo` |
+| `api_onboarding_list_repos` | 33603–33678 | 8 | `POST /api/onboarding/list-repos` |
 | `ingest_rum` | 10010–10149 | 7 | `POST /v1/rum` |
 | `api_raw_span` | 15695–15764 | 7 | `GET /api/traces/span/<span_id>` |
 | `ai_build_chart_spec` | 22263–22431 | 7 | `POST /api/dashboards/spec/ai-build` |
@@ -46,7 +46,6 @@ Oracle coverage **67%** · **4881** uncovered statements.
 | `create_tag_rule` | 23465–23584 | 6 | `POST /settings/tags` |
 | `create_agent_rule` | 27194–27242 | 6 | `POST /settings/agents` |
 | `ai_helper_execute_action` | 28400–28468 | 6 | `POST /api/ai/helper/actions/execute` |
-| `api_onboarding_inspect_repo` | 33683–33733 | 6 | `GET /api/onboarding/inspect-repo` |
 | `ingest_logs` | 9665–9694 | 5 | `POST /v1/logs` |
 | `issue_rum_client_token` | 9791–9826 | 5 | `POST /v1/rum/client-token` |
 | `ingest_ai` | 10157–10241 | 5 | `POST /v1/ai` |
@@ -55,6 +54,7 @@ Oracle coverage **67%** · **4881** uncovered statements.
 | `api_web_traffic_geo` | 17711–17760 | 5 | `GET /api/web-traffic/geo` |
 | `view_work_items` | 18361–18488 | 5 | `GET /work-items` |
 | `import_chart` | 22467–22532 | 5 | `POST /api/dashboards/<dashboard_id>/charts/import` |
+| `api_logs_field_hints` | 23707–23779 | 5 | `GET /api/logs/field-hints` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
@@ -119,10 +119,10 @@ Oracle coverage **67%** · **4881** uncovered statements.
 | `_resolve_custom_binding_expr` | 21086–21119 | 28 |  |
 | `_parse_gemfile_lock_dependencies` | 16426–16453 | 27 |  |
 | `_encrypt_push_payload` | 24990–25055 | 27 |  |
-| `_match_single_condition` | 12551–12588 | 26 |  |
 | `_build_trace_window_overlay_segments` | 14787–14842 | 26 |  |
 | `_load_chat_tool_history` | 4016–4075 | 25 |  |
 | `_coerce_reasoning_text` | 8304–8331 | 25 |  |
 | `_build_auto_tag_rule_candidates` | 12062–12308 | 25 |  |
 | `_build_agent_context_summary` | 6609–6703 | 24 |  |
 | `_to_summary` | 10606–10632 | 24 |  |
+| `_compute_health_chips` | 14929–14956 | 24 |  |
