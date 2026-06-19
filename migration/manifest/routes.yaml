@@ -621,6 +621,26 @@ routes:
   request:
     method: GET
     query: {ts: "2023-06-01 12:00:00.010000", service: checkout, trace_id: aaaa1111bbbb2222cccc3333dddd4444}
+# get_ai_conversation FOUND path: the aichat gen_ai span (sobs-ai-helper at _TS) matches
+# _AI_SPAN_CONDITION + Timestamp + ServiceName -> renders _ai_conversation_partial.html with the
+# seed's input/output messages (deterministic, fixed _TS). Plus the span_name-filter append (its
+# value won't match the unnamed span -> deterministic 404, covering the conditions.append branch).
+- id: get__api_ai_conversation__aichat_found
+  path: /api/ai/conversation
+  methods:
+  - GET
+  profile: aichat
+  request:
+    method: GET
+    query: {ts: '2024-01-02 03:00:00.000000', service: sobs-ai-helper}
+- id: get__api_ai_conversation__aichat_spanname
+  path: /api/ai/conversation
+  methods:
+  - GET
+  profile: aichat
+  request:
+    method: GET
+    query: {ts: '2024-01-02 03:00:00.000000', service: sobs-ai-helper, span_name: some-span}
 - id: get__api_table_explorer_table_otel_logs
   path: /api/table-explorer/table/otel_logs
   methods:
