@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 5511,
+  "total_uncovered": 5484,
   "summary_pct": "63",
   "by_bucket": {
     "helper": {
       "functions": 436,
-      "uncovered": 4145
+      "uncovered": 4144
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 123,
-      "uncovered": 1097
+      "uncovered": 1071
     },
     "module": {
       "functions": 0,
@@ -549,31 +549,6 @@
         24633,
         24634,
         24635
-      ]
-    },
-    {
-      "function": "ingest_rum",
-      "bucket": "route",
-      "start": 10010,
-      "end": 10149,
-      "uncovered": 33,
-      "span": 140,
-      "route": {
-        "path": "/v1/rum",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        10013,
-        10015,
-        10027,
-        10033,
-        10037,
-        10077,
-        10083,
-        10084
       ]
     },
     {
@@ -4652,6 +4627,30 @@
       ]
     },
     {
+      "function": "ingest_rum",
+      "bucket": "route",
+      "start": 10010,
+      "end": 10149,
+      "uncovered": 7,
+      "span": 140,
+      "route": {
+        "path": "/v1/rum",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        10013,
+        10027,
+        10141,
+        10142,
+        10143,
+        10144,
+        10145
+      ]
+    },
+    {
       "function": "api_raw_span",
       "bucket": "route",
       "start": 15695,
@@ -7952,19 +7951,6 @@
       ]
     },
     {
-      "function": "_stringify_attrs",
-      "bucket": "helper",
-      "start": 8204,
-      "end": 8216,
-      "uncovered": 2,
-      "span": 13,
-      "route": null,
-      "missing_sample": [
-        8211,
-        8215
-      ]
-    },
-    {
       "function": "_op",
       "bucket": "helper",
       "start": 10212,
@@ -9139,6 +9125,18 @@
       "route": null,
       "missing_sample": [
         8200
+      ]
+    },
+    {
+      "function": "_stringify_attrs",
+      "bucket": "helper",
+      "start": 8204,
+      "end": 8216,
+      "uncovered": 1,
+      "span": 13,
+      "route": null,
+      "missing_sample": [
+        8211
       ]
     },
     {
