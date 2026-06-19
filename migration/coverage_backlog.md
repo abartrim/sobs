@@ -1,12 +1,12 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **62%** · **5584** uncovered statements.
+Oracle coverage **63%** · **5570** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 1168 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| route | 123 | 1154 | needs a fixture/profile (corpus expansion; byte-verifiable) |
 | helper | 437 | 4147 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
@@ -34,7 +34,6 @@ Oracle coverage **62%** · **5584** uncovered statements.
 | `auto_metrics_rules` | 13721–13843 | 19 | `POST /metrics/rules/auto` |
 | `metrics_anomaly` | 22540–22628 | 19 | `GET /api/metrics/anomaly` |
 | `api_import_reports` | 22857–23017 | 19 | `POST /api/reports/import` |
-| `create_metrics_rule` | 13626–13716 | 18 | `POST /metrics/rules` |
 | `view_enrichment_cve` | 18104–18215 | 18 | `GET /enrichment/cve` |
 | `view_ai` | 18631–18998 | 18 | `GET /ai` |
 | `view_metrics_anomaly` | 14010–14172 | 17 | `GET /metrics/anomaly` |
@@ -55,6 +54,7 @@ Oracle coverage **62%** · **5584** uncovered statements.
 | `ai_helper_chats` | 27448–27502 | 13 | `GET /api/ai/helper/chats` |
 | `rum_asset_download` | 9761–9786 | 12 | `GET /v1/rum/assets/<asset_id>` |
 | `api_metrics_validate_regex` | 24115–24167 | 11 | `POST /api/metrics/validate-regex` |
+| `create_settings_repository` | 26889–26951 | 11 | `POST /settings/repositories` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
