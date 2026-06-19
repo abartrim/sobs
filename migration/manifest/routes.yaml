@@ -1027,6 +1027,21 @@ routes:
   - GET
   request:
     method: GET
+# view_metrics over the metricsauto seed (constant log_volume=5 series for the lone "web" service).
+# signal=log_volume restricts to ONE derived-signal group (no ORDER BY last_time tie); the constant
+# series makes value/score/state deterministic. last_time is a real wall-clock bucket -> masked.
+- id: get__metrics__metricsauto_signal
+  path: /metrics
+  methods:
+  - GET
+  profile: metricsauto
+  request:
+    method: GET
+    query:
+      signal: log_volume
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}'
+  mask_reason: last_time is a wall-clock minute bucket derived from the metricsauto seed's now()-relative timestamps; capture and replay re-seed at different wall-clock times so the bucket drifts. Everything else on the row (last_value/score/state + sample/point counts) is deterministic from the constant log_volume=5 series and is byte-compared.
 - id: get__logs
   path: /logs
   methods:

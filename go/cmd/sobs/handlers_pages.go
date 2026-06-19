@@ -2714,9 +2714,11 @@ func (s *server) handleViewMetrics(w http.ResponseWriter, r *http.Request) {
 						"last_value":         m["last_value"],
 						"last_anomaly_score": m["last_anomaly_score"],
 						"last_anomaly_state": cStr(m, "last_anomaly_state"),
-						"last_sample_count":  m["last_sample_count"],
-						"point_count":        m["point_count"],
-						"rule_name":          "",
+						// SampleCount/count() are UInts; Python renders them as ints (5 not 5.0).
+						// last_value/last_anomaly_score are genuine Float64 -> kept raw.
+						"last_sample_count": cInt(m, "last_sample_count"),
+						"point_count":       cInt(m, "point_count"),
+						"rule_name":         "",
 					}
 					annRows = append(annRows, row)
 				}
