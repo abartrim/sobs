@@ -1130,6 +1130,89 @@ routes:
   - GET
   request:
     method: GET
+# aiview profile: seeded otel_traces AI spans (gen_ai.*). Drives view_ai's POPULATED branches —
+# ai_items build, flat + trace view modes, totals, and the service/model/operation/span_name/
+# row_type/sql filters. Deterministic: distinct timestamps + distinct models/services, empty
+# message JSON.
+- id: get__ai__aiview
+  path: /ai
+  methods:
+  - GET
+  profile: aiview
+  request:
+    method: GET
+- id: get__ai__aiview_trace
+  path: /ai
+  methods:
+  - GET
+  profile: aiview
+  request:
+    method: GET
+    query:
+      view: trace
+- id: get__ai__aiview_service
+  path: /ai
+  methods:
+  - GET
+  profile: aiview
+  request:
+    method: GET
+    query:
+      service: ai-svc
+- id: get__ai__aiview_model
+  path: /ai
+  methods:
+  - GET
+  profile: aiview
+  request:
+    method: GET
+    query:
+      model: gpt-4
+- id: get__ai__aiview_operation
+  path: /ai
+  methods:
+  - GET
+  profile: aiview
+  request:
+    method: GET
+    query:
+      operation: chat
+- id: get__ai__aiview_span_name
+  path: /ai
+  methods:
+  - GET
+  profile: aiview
+  request:
+    method: GET
+    query:
+      span_name: ai.chat
+- id: get__ai__aiview_row_type_llm
+  path: /ai
+  methods:
+  - GET
+  profile: aiview
+  request:
+    method: GET
+    query:
+      row_type: llm
+- id: get__ai__aiview_row_type_system
+  path: /ai
+  methods:
+  - GET
+  profile: aiview
+  request:
+    method: GET
+    query:
+      row_type: system
+- id: get__ai__aiview_sql
+  path: /ai
+  methods:
+  - GET
+  profile: aiview
+  request:
+    method: GET
+    query:
+      sql: ServiceName='ai-svc'
 - id: post__api_logs_validate_regex
   path: /api/logs/validate-regex
   methods:

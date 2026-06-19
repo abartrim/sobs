@@ -1356,6 +1356,79 @@ def seed_errorsview(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_error_resolutions FINAL")
 
 
+def seed_aiview(db) -> None:
+    # otel_traces AI spans for view_ai (_AI_SPAN_CONDITION = any of gen_ai.provider.name /
+    # gen_ai.system / gen_ai.operation.name set). Distinct timestamps (stable ORDER BY Timestamp
+    # DESC), distinct models/services (tie-free filter metadata), empty message JSON (the genai
+    # message parsers return empty → deterministic, dodging message/turn-card formatting). Two
+    # spans share a TraceId (trace-view grouping); a third is a model-less system span carrying an
+    # error.type (drives the errors total + row_type=system filter).
+    def aispan(frac, span_id, service, name, dur_ms, trace, attrs):
+        return {
+            "Timestamp": f"2023-06-01 16:00:00.{frac}",
+            "TraceId": trace,
+            "SpanId": span_id,
+            "ParentSpanId": "",
+            "SpanName": name,
+            "ServiceName": service,
+            "Duration": int(dur_ms * 1_000_000),  # ns
+            "StatusCode": "STATUS_CODE_OK",
+            "SpanAttributes": attrs,
+        }
+
+    _insert(
+        db,
+        "otel_traces",
+        [
+            aispan(
+                "100000000",
+                "aispan-0001",
+                "ai-svc",
+                "ai.chat",
+                2000,
+                "aitrace1",
+                {
+                    "gen_ai.provider.name": "anthropic",
+                    "gen_ai.request.model": "claude-opus",
+                    "gen_ai.operation.name": "chat",
+                    "gen_ai.usage.input_tokens": "100",
+                    "gen_ai.usage.output_tokens": "50",
+                },
+            ),
+            aispan(
+                "200000000",
+                "aispan-0002",
+                "ai-svc",
+                "ai.chat",
+                1500,
+                "aitrace1",
+                {
+                    "gen_ai.provider.name": "openai",
+                    "gen_ai.request.model": "gpt-4",
+                    "gen_ai.operation.name": "chat",
+                    "gen_ai.usage.input_tokens": "200",
+                    "gen_ai.usage.output_tokens": "80",
+                },
+            ),
+            aispan(
+                "300000000",
+                "aispan-0003",
+                "worker",
+                "ai.embed",
+                500,
+                "aitrace2",
+                {
+                    "gen_ai.provider.name": "anthropic",
+                    "gen_ai.operation.name": "embed",
+                    "error.type": "RateLimitError",
+                    "exception.message": "rate limited",
+                },
+            ),
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_traces FINAL")
+
+
 def seed_dashview(db) -> None:
     # One dashboard + two charts with FIXED ids so GET /dashboards/<id> (view_custom_dashboard)
     # renders its view branch against real data. The base example seeder also creates an example
@@ -1497,6 +1570,7 @@ PROFILE_SEEDS = {
     "tracedetail": seed_trace_detail,  # multi-span trace + logs -> populated trace_detail waterfall
     "logsview": seed_logsview,  # 5 otel_logs rows + record tags -> populated view_logs branches
     "errorsview": seed_errorsview,  # error events + a resolution -> populated view_errors branches
+    "aiview": seed_aiview,  # otel_traces AI spans (gen_ai.*) -> populated view_ai branches
     "dashview": seed_dashview,  # dashboard + charts -> GET /dashboards/<id> view branch
     "regexlogs": seed_regex_logs,  # validate-regex sample probe: otel_logs.Body
     "regextraces": seed_regex_traces,  # validate-regex sample probe: otel_traces.SpanName

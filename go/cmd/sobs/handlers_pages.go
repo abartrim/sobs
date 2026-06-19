@@ -1387,7 +1387,9 @@ func (s *server) handleViewAi(w http.ResponseWriter, r *http.Request) {
 	aiItems := []any{}
 	itemsTyped := []*aiItem{}
 	for _, r := range rows {
-		attrs := attrMap(cStr(r, "SpanAttributes"))
+		// Pass the RAW SpanAttributes value (mapToDict handles both a chdb map and a JSON string);
+		// cStr would fmt.Sprintf a map into an unparseable "map[...]" string, yielding empty attrs.
+		attrs := attrMap(r["SpanAttributes"])
 		ts := cStr(r, "Timestamp")
 		provider := firstNonEmptyStr(attrs["gen_ai.provider.name"], attrs["gen_ai.system"])
 		reqModel := attrStr(attrs, "gen_ai.request.model")
@@ -1631,6 +1633,10 @@ func (s *server) handleViewAi(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Mirror app.py view_ai: ai_pricing is the dynamic merge (defaults + observed-model inference +
+	// saved/confirmed), NOT a static blob — observed models like claude-opus must appear as inferred.
+	aiPricing, aiPricingSources := s.loadAiPricingWithSources()
+
 	s.renderPage(w, "ai.html", "view_ai", map[string]any{
 		"ai_items": aiItems, "total": total, "limit": limit, "offset": offset,
 		"service": service, "selected_services": toAnySlice(selectedServices),
@@ -1646,8 +1652,8 @@ func (s *server) handleViewAi(w http.ResponseWriter, r *http.Request) {
 		"total_calls": totalCalls, "total_errors": totalErrors,
 		"error_msg": errorMsg, "sort_by": sortBy, "sort_dir": sortDir,
 		"from_ts": fromTS, "to_ts": toTS,
-		"ai_pricing_json":         mustParseJSON(savedAiPricingJSON),
-		"ai_pricing_sources_json": mustParseJSON(aiPricingSourcesJSON),
+		"ai_pricing_json":         aiPricing,
+		"ai_pricing_sources_json": aiPricingSources,
 	})
 }
 

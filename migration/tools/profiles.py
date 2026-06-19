@@ -57,6 +57,11 @@ PROFILES: dict[str, dict[str, str]] = {
     # variants. Deterministic: distinct counts (tie-free grouped ORDER BY), one TraceId per group
     # (single-element groupUniqArray), distinct fixed timestamps (stable argMax + ORDER BY).
     "errorsview": {},
+    # aiview: seed otel_traces AI spans (gen_ai.* SpanAttributes) so view_ai renders its POPULATED
+    # branches — the ai_items build, the flat + trace view modes, the totals aggregation, and the
+    # service/model/operation/span_name/row_type/sql filters. Deterministic: distinct timestamps,
+    # distinct token/model values, empty message JSON (parsers return empty), no ties.
+    "aiview": {},
     "ai": {
         # Python derives _query_page_enabled() from these (via _AI_ENV_OVERRIDES); Go reads
         # them through aiEnvOverrides AND gates the query page on SOBS_QUERY_PAGE_ENABLED.
@@ -324,6 +329,7 @@ SEEDED_PROFILES = {
     "tracedetail",
     "logsview",
     "errorsview",
+    "aiview",
     "dashview",
     "regexlogs",
     "regextraces",
