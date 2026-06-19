@@ -1990,6 +1990,110 @@ routes:
   request:
     method: POST
     json: {}
+# reportsimport profile: exercise api_import_reports' envelope/item validation + conflict branches.
+# Ordered so mutations accumulate predictably (envelope errors + errors + skip do NOT mutate; then
+# replace/rename/new mutate). Response is pure counts -> deterministic. Reuses the base fixture's two
+# example reports ("Checkout errors"/logs, "Slow traces"/traces) for conflict tests.
+- id: post__api_reports_import__bad_version
+  path: /api/reports/import
+  methods:
+  - POST
+  profile: reportsimport
+  request:
+    method: POST
+    json:
+      sobs_reports_export: true
+      version: "9"
+      reports: []
+- id: post__api_reports_import__bad_conflict
+  path: /api/reports/import
+  methods:
+  - POST
+  profile: reportsimport
+  request:
+    method: POST
+    json:
+      sobs_reports_export: true
+      version: "1"
+      on_conflict: bogus
+      reports: []
+- id: post__api_reports_import__reports_not_list
+  path: /api/reports/import
+  methods:
+  - POST
+  profile: reportsimport
+  request:
+    method: POST
+    json:
+      sobs_reports_export: true
+      version: "1"
+      reports: nope
+- id: post__api_reports_import__errors
+  path: /api/reports/import
+  methods:
+  - POST
+  profile: reportsimport
+  request:
+    method: POST
+    json:
+      sobs_reports_export: true
+      version: "1"
+      reports:
+      - {}
+      - {name: ""}
+      - {name: "X", page_type: "bogus"}
+      - {name: "Y", page_type: "logs", filters: "notadict"}
+      - "notadict"
+- id: post__api_reports_import__skip
+  path: /api/reports/import
+  methods:
+  - POST
+  profile: reportsimport
+  request:
+    method: POST
+    json:
+      sobs_reports_export: true
+      version: "1"
+      on_conflict: skip
+      reports:
+      - {name: "Slow traces", page_type: "traces", filters: {}}
+- id: post__api_reports_import__replace
+  path: /api/reports/import
+  methods:
+  - POST
+  profile: reportsimport
+  request:
+    method: POST
+    json:
+      sobs_reports_export: true
+      version: "1"
+      on_conflict: replace
+      reports:
+      - {name: "Slow traces", page_type: "traces", filters: {}}
+- id: post__api_reports_import__rename
+  path: /api/reports/import
+  methods:
+  - POST
+  profile: reportsimport
+  request:
+    method: POST
+    json:
+      sobs_reports_export: true
+      version: "1"
+      reports:
+      - {name: "Checkout errors", page_type: "logs", filters: {}}
+- id: post__api_reports_import__new
+  path: /api/reports/import
+  methods:
+  - POST
+  profile: reportsimport
+  request:
+    method: POST
+    json:
+      sobs_reports_export: true
+      version: "1"
+      reports:
+      - {name: "Brand New Report", page_type: "metrics", filters: {limit: 50}}
 - id: post__api_data_management_prune
   path: /api/data-management/prune
   methods:

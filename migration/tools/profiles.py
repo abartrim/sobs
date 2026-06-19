@@ -62,6 +62,13 @@ PROFILES: dict[str, dict[str, str]] = {
     # service/model/operation/span_name/row_type/sql filters. Deterministic: distinct timestamps,
     # distinct token/model values, empty message JSON (parsers return empty), no ties.
     "aiview": {},
+    # reportsimport: no seed (reuses the base fixture's 2 example reports for conflict tests). An
+    # isolated profile because the success routes MUTATE sobs_reports — keeping them out of base so
+    # they don't perturb other base routes that read reports. Routes run in manifest order and
+    # accumulate mutations within the profile; the JSON response is pure counts (no uuid/timestamp),
+    # so it's deterministic given a fixed order. Covers api_import_reports' envelope/item validation
+    # + skip/replace/rename/insert branches.
+    "reportsimport": {},
     "ai": {
         # Python derives _query_page_enabled() from these (via _AI_ENV_OVERRIDES); Go reads
         # them through aiEnvOverrides AND gates the query page on SOBS_QUERY_PAGE_ENABLED.
