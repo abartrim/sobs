@@ -93,6 +93,14 @@ PROFILES: dict[str, dict[str, str]] = {
     # github-token-changed branch. Response is flash+redirect or 400 JSON (deterministic); the
     # Fernet-encrypted writes are nondeterministic but never appear in the response.
     "aisettings": {},
+    # rumtoken: env overlay enabling origin-bound RUM client auth, so issue_rum_client_token reaches
+    # its token-issuance path (otherwise the base route returns the disabled payload). iat/exp use the
+    # frozen clock so expiresAt is deterministic; the token embeds a random jti uuid so its value is
+    # masked. Both sides read the same SOBS_RUM_CLIENT_* env.
+    "rumtoken": {
+        "SOBS_RUM_CLIENT_AUTH_MODE": "origin",
+        "SOBS_RUM_CLIENT_SIGNING_KEY": "parity-rum-signing-key",
+    },
     # dashauto: no seed, isolated (auto_metrics_rules_dashboard create inserts a dashboard + charts).
     # Candidates come from the base example anomaly rules (no extra seed). create's redirect Location
     # embeds the new dashboard_id (frozen uuid -> deterministic as the first uuid consumer); preview

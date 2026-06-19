@@ -3237,6 +3237,20 @@ routes:
   request:
     method: POST
     json: {}
+# issue_rum_client_token enabled path (rumtoken profile: origin mode + signing key). Issues a signed
+# token; expiresAt/origin/app are deterministic (frozen clock + fixed payload), only the token value
+# (embeds a random jti uuid + its HMAC) is masked.
+- id: post__v1_rum_client_token__rt_issue
+  path: /v1/rum/client-token
+  methods:
+  - POST
+  profile: rumtoken
+  request:
+    method: POST
+    json: {appName: parity-app, origin: 'https://app.example', ttlSec: 300}
+  mask:
+  - '"token": ?"[^"]*"'
+  mask_reason: token = b64url(claims).hmac where claims embed a random jti uuid (Go uuid is not parity-frozen) so the token bytes differ each run; expiresAt (frozen now+ttl), origin, and app are deterministic and byte-compared.
 - id: post__v1_releases__id_artifacts_meta
   path: /v1/releases/nonexistent/artifacts/meta
   methods:
