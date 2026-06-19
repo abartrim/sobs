@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **66%** · **5014** uncovered statements.
+Oracle coverage **66%** · **4996** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 119 | 713 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 429 | 4032 | usually covered when a calling route's fixture is added; else difftest |
+| route | 119 | 701 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 426 | 4026 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -16,10 +16,9 @@ Oracle coverage **66%** · **5014** uncovered statements.
 | function | lines | uncovered | route |
 |---|---|---:|---|
 | `ai_helper` | 27607–28395 | 58 | `POST /api/ai/helper` |
-| `view_incident` | 15785–16144 | 27 | `GET /incident` |
 | `auto_metrics_rules_dashboard` | 13848–13960 | 26 | `POST /metrics/rules/dashboard/auto` |
 | `view_rum` | 17309–17657 | 25 | `GET /rum` |
-| `view_traces` | 15312–15678 | 21 | `GET /traces` |
+| `view_incident` | 15785–16144 | 22 | `GET /incident` |
 | `api_onboarding_create_issues` | 33738–33930 | 18 | `POST /api/onboarding/create-issues` |
 | `api_query_run` | 30511–30765 | 17 | `POST /api/query/run` |
 | `auto_tag_rules` | 23353–23460 | 16 | `POST /settings/tags/auto` |
@@ -28,6 +27,7 @@ Oracle coverage **66%** · **5014** uncovered statements.
 | `clone_chart` | 21694–21733 | 15 | `POST /dashboards/<dashboard_id>/charts/<chart_id>/clone` |
 | `view_settings_repositories` | 26805–26884 | 15 | `GET /settings/repositories` |
 | `ingest_rum_asset` | 9699–9756 | 14 | `POST /v1/rum/assets` |
+| `view_traces` | 15312–15678 | 14 | `GET /traces` |
 | `api_enrichment_libraries` | 17882–17941 | 14 | `GET /api/enrichment/libraries` |
 | `edit_chart` | 21651–21689 | 14 | `POST /dashboards/<dashboard_id>/charts/<chart_id>/edit` |
 | `rum_asset_download` | 9761–9786 | 12 | `GET /v1/rum/assets/<asset_id>` |
@@ -82,7 +82,7 @@ Oracle coverage **66%** · **5014** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (429 functions)
+## helper — top by uncovered lines (426 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
