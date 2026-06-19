@@ -1002,6 +1002,44 @@ def seed_github_token(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
 
 
+def seed_onboard_repos(db) -> None:
+    # A configured global GitHub token so the onboarding READ endpoints take their token-USED
+    # branch. list_repos then dials https://api.github.com/users/<owner>/repos?per_page=100&
+    # type=all&sort=full_name (canned in migration/fixtures/upstream) -> token_used=true and an
+    # empty visibility_note; inspect_repo runs the full repo-inspection GitHub flow off the same
+    # global token (the repo-scoped key is absent). Token value is FIXED -> deterministic.
+    # Also seed ONE registered app whose RepoUrl is the canned-fixture repo (testowner/demo-svc),
+    # so inspect_repo can be exercised through its app_id -> sobs_apps RepoUrl resolution branch
+    # (distinct from the `repo=` query branch the githubtoken profile already covers). Id is FIXED.
+    _insert(
+        db,
+        "sobs_apps",
+        [
+            {
+                "Id": "f1000000000000000000000000000002",
+                "Name": "Demo Service",
+                "Slug": "demo-service",
+                "OwnerTeam": "platform",
+                "RepoUrl": "https://github.com/testowner/demo-svc",
+                "DefaultEnvironment": "prod",
+                "Enabled": 1,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164645000,
+                "CreatedAt": _TS,
+                "UpdatedAt": _TS,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [{"Key": "ai.github_token", "Value": "ghp_parityfixturetoken", "IsDeleted": 0, "Version": 1704164645000}],
+    )
+    db.execute("OPTIMIZE TABLE sobs_apps FINAL")
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+
+
 def seed_mcp_key(db) -> None:
     # One MCP API key descriptor (mcp.api_keys is a JSON list in sobs_app_settings) so the
     # DELETE /api/mcp/keys/<id> route can revoke it. Persisted via the app's own setter so the
@@ -1985,6 +2023,7 @@ PROFILE_SEEDS = {
     "issuesraise": seed_issues_raise,  # global github repo+token -> issues/raise agent flow creates an issue
     "issuereuse": seed_issues_reuse,  # prior work item + matching open issue -> issues/raise reuses it (dedup)
     "githubtoken": seed_github_token,
+    "onboardrepos": seed_onboard_repos,  # global github token -> onboarding list/inspect token-USED branch
     "mcpkey": seed_mcp_key,
     "mcpauth": seed_mcp_auth,  # api key whose hash auths tools/list + tools/call
     "aichat": seed_aichat,

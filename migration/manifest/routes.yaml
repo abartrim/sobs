@@ -3464,6 +3464,18 @@ routes:
     method: POST
     json:
       owner: testowner
+# onboardrepos: a seeded global ai.github_token, so list_repos takes its token-USED branch:
+# it dials the ?type=all users endpoint (canned repo list incl. private repos) -> token_used=true
+# and an empty visibility_note (vs the public branch covered by the `github` profile above).
+- id: post__api_onboarding_list_repos__onboardrepos
+  path: /api/onboarding/list-repos
+  methods:
+  - POST
+  profile: onboardrepos
+  request:
+    method: POST
+    json:
+      owner: testowner
 - id: post__api_data_management_prune_invalid
   path: /api/data-management/prune
   methods:
@@ -3647,6 +3659,18 @@ routes:
     method: GET
     query:
       repo: testowner/demo-svc
+# onboardrepos: resolve owner/repo via the app_id -> sobs_apps RepoUrl branch (the seeded app
+# f100…02 points at testowner/demo-svc) instead of the repo= query param, then run the full
+# token-USED inspect flow. Exercises the DB-lookup arm the `__github` route above does not.
+- id: get__api_onboarding_inspect_repo__onboardrepos
+  path: /api/onboarding/inspect-repo
+  methods:
+  - GET
+  profile: onboardrepos
+  request:
+    method: GET
+    query:
+      app_id: f1000000000000000000000000000002
 - id: get__v1_rum_assets__id
   path: /v1/rum/assets/nonexistent
   methods:
