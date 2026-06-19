@@ -1524,6 +1524,41 @@ def seed_logsview(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_record_tags FINAL")
 
 
+def seed_logsrich(db) -> None:
+    # Richer view_logs (GET /logs) fixture, kept SEPARATE from logsview so the 12 logsview goldens
+    # don't shift. Two otel_logs rows with DISTINCT fixed timestamps so any ORDER BY Timestamp DESC
+    # is tie-free and deterministic. The point of this profile is to drive view_logs' query-execution
+    # ERROR branch (app.py 11402-11404): a route passes a raw `sql` WHERE fragment that PASSES
+    # _validate_user_sql_where (no write/DDL keyword) but references a column that does not exist, so
+    # chdb raises UNKNOWN_IDENTIFIER on the COUNT query inside the try -> the `except` sets
+    # error_msg = "SQL error: " + _public_dashboard_query_error(exc). That sanitized message is the
+    # SAME on both sides (identical libchdb + identical SQL), so it is byte-deterministic with no
+    # now()/uuid/elapsed content. The seeded rows make the seed non-empty (the error fires before
+    # the rows query, but the rows existing keeps the profile reusable for future populated branches).
+    def logrow(frac, service, severity, sevnum, event, trace, span, body):
+        return {
+            "Timestamp": f"2023-07-01 09:00:00.{frac}",
+            "ServiceName": service,
+            "SeverityText": severity,
+            "SeverityNumber": sevnum,
+            "EventName": event,
+            "TraceId": trace,
+            "SpanId": span,
+            "Body": body,
+            "LogAttributes": {},
+        }
+
+    _insert(
+        db,
+        "otel_logs",
+        [
+            logrow("100000000", "api", "ERROR", 17, "http.request", "rtrace-aaa", "rspan-0001", "boom one"),
+            logrow("200000000", "worker", "INFO", 9, "job.run", "rtrace-bbb", "rspan-0002", "ok two"),
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+
 def seed_errorsview(db) -> None:
     # Error events for view_errors (ERROR_SOURCES_SQL = otel_logs rows with EventName='exception'
     # / SeverityNumber>=17 / SeverityText in ERROR,CRITICAL,FATAL / exception.type set). Three
@@ -2032,6 +2067,7 @@ PROFILE_SEEDS = {
     "tracedetailerr": seed_tracedetailerr,  # tracedetail trace + 1 ERROR log -> trace_detail errors loop
     "incidentmatch": seed_incidentmatch,  # rum_session hyperdx row + matching work-item link -> view_incident MATCH
     "logsview": seed_logsview,  # 5 otel_logs rows + record tags -> populated view_logs branches
+    "logsrich": seed_logsrich,  # 2 otel_logs rows -> view_logs raw-SQL query-execution error branch (11402-11404)
     "errorsview": seed_errorsview,  # error events + a resolution -> populated view_errors branches
     "aiview": seed_aiview,  # otel_traces AI spans (gen_ai.*) -> populated view_ai branches
     "dashview": seed_dashview,  # dashboard + charts -> GET /dashboards/<id> view branch

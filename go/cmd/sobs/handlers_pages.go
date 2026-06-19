@@ -2432,8 +2432,14 @@ func (s *server) handleViewLogs(w http.ResponseWriter, r *http.Request) {
 		if queryWhere == "" {
 			total = s.activePartRows("otel_logs")
 		} else {
-			if res, err := s.db.Execute("SELECT COUNT(*) AS c FROM otel_logs "+queryWhere, queryParams...); err == nil {
-				total = cInt(rowMaps(res)[0], "c")
+			// app.py 11372: SELECT COUNT(*) FROM otel_logs {query_where} — no alias. A bad raw-SQL
+			// WHERE makes chdb echo this exact query in the UNKNOWN_IDENTIFIER message, which feeds
+			// the SQL-error branch (11402-11404); an "AS c" alias here would leak into that message
+			// and break byte-parity, so read the lone column positionally instead of by alias.
+			if res, err := s.db.Execute("SELECT COUNT(*) FROM otel_logs "+queryWhere, queryParams...); err == nil {
+				if len(res.Columns) > 0 && len(res.Rows) > 0 {
+					total = cInt(rowMaps(res)[0], res.Columns[0])
+				}
 			} else {
 				queryErr = err
 			}
