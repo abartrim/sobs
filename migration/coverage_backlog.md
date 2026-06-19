@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **65%** · **5268** uncovered statements.
+Oracle coverage **65%** · **5238** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 900 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 433 | 4099 | usually covered when a calling route's fixture is added; else difftest |
+| route | 123 | 875 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 433 | 4094 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -20,13 +20,11 @@ Oracle coverage **65%** · **5268** uncovered statements.
 | `auto_metrics_rules_dashboard` | 13848–13960 | 26 | `POST /metrics/rules/dashboard/auto` |
 | `view_rum` | 17309–17657 | 26 | `GET /rum` |
 | `view_traces` | 15312–15678 | 22 | `GET /traces` |
-| `api_onboarding_create_issues` | 33738–33930 | 22 | `POST /api/onboarding/create-issues` |
 | `view_logs` | 11239–11512 | 20 | `GET /logs` |
 | `api_import_reports` | 22857–23017 | 19 | `POST /api/reports/import` |
-| `view_enrichment_cve` | 18104–18215 | 18 | `GET /enrichment/cve` |
 | `view_ai` | 18631–18998 | 18 | `GET /ai` |
+| `api_onboarding_create_issues` | 33738–33930 | 18 | `POST /api/onboarding/create-issues` |
 | `api_query_run` | 30511–30765 | 17 | `POST /api/query/run` |
-| `summary` | 10841–10971 | 16 | `GET /` |
 | `auto_tag_rules` | 23353–23460 | 16 | `POST /settings/tags/auto` |
 | `check_notifications` | 26341–26447 | 16 | `POST /api/notifications/check` |
 | `clone_chart` | 21694–21733 | 15 | `POST /dashboards/<dashboard_id>/charts/<chart_id>/clone` |
@@ -49,12 +47,14 @@ Oracle coverage **65%** · **5268** uncovered statements.
 | `ingest_metrics` | 9896–9918 | 9 | `POST /v1/metrics` |
 | `chart_spec_options_api` | 21816–21887 | 9 | `GET /api/dashboards/spec/options` |
 | `render_chart_spec_api` | 21986–22031 | 9 | `POST /api/dashboards/spec/render` |
+| `view_enrichment_cve` | 18104–18215 | 8 | `GET /enrichment/cve` |
 | `get_ai_span_attributes` | 19003–19040 | 8 | `GET /api/ai/span-attributes` |
 | `export_ai_training` | 19123–19226 | 8 | `GET /api/ai/export` |
 | `api_query_add_to_dashboard` | 21331–21407 | 8 | `POST /api/query/add-to-dashboard` |
 | `api_logs_validate_regex` | 23954–24004 | 8 | `POST /api/logs/validate-regex` |
 | `api_ai_field_hints` | 24229–24402 | 8 | `GET /api/ai/field-hints` |
 | `api_onboarding_import_repo` | 33538–33598 | 8 | `POST /api/onboarding/import-repo` |
+| `ingest_traces` | 9834–9888 | 7 | `POST /v1/traces` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 

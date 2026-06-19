@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 5268,
+  "total_uncovered": 5238,
   "summary_pct": "65",
   "by_bucket": {
     "helper": {
       "functions": 433,
-      "uncovered": 4099
+      "uncovered": 4094
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 123,
-      "uncovered": 900
+      "uncovered": 875
     },
     "module": {
       "functions": 0,
@@ -1305,31 +1305,6 @@
       ]
     },
     {
-      "function": "api_onboarding_create_issues",
-      "bucket": "route",
-      "start": 33738,
-      "end": 33930,
-      "uncovered": 22,
-      "span": 193,
-      "route": {
-        "path": "/api/onboarding/create-issues",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        33763,
-        33772,
-        33781,
-        33787,
-        33838,
-        33848,
-        33880,
-        33881
-      ]
-    },
-    {
       "function": "_shutdown_db_resources",
       "bucket": "helper",
       "start": 7484,
@@ -1570,31 +1545,6 @@
       ]
     },
     {
-      "function": "view_enrichment_cve",
-      "bucket": "route",
-      "start": 18104,
-      "end": 18215,
-      "uncovered": 18,
-      "span": 112,
-      "route": {
-        "path": "/enrichment/cve",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        18112,
-        18113,
-        18116,
-        18117,
-        18120,
-        18121,
-        18152,
-        18153
-      ]
-    },
-    {
       "function": "view_ai",
       "bucket": "route",
       "start": 18631,
@@ -1655,6 +1605,31 @@
         29728,
         29729,
         29731
+      ]
+    },
+    {
+      "function": "api_onboarding_create_issues",
+      "bucket": "route",
+      "start": 33738,
+      "end": 33930,
+      "uncovered": 18,
+      "span": 193,
+      "route": {
+        "path": "/api/onboarding/create-issues",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        33838,
+        33848,
+        33880,
+        33881,
+        33888,
+        33889,
+        33891,
+        33892
       ]
     },
     {
@@ -1832,31 +1807,6 @@
         9307,
         9308,
         9324
-      ]
-    },
-    {
-      "function": "summary",
-      "bucket": "route",
-      "start": 10841,
-      "end": 10971,
-      "uncovered": 16,
-      "span": 131,
-      "route": {
-        "path": "/",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        10855,
-        10856,
-        10905,
-        10947,
-        10948,
-        10949,
-        10950,
-        10951
       ]
     },
     {
@@ -3930,6 +3880,31 @@
       ]
     },
     {
+      "function": "view_enrichment_cve",
+      "bucket": "route",
+      "start": 18104,
+      "end": 18215,
+      "uncovered": 8,
+      "span": 112,
+      "route": {
+        "path": "/enrichment/cve",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        18112,
+        18113,
+        18116,
+        18117,
+        18120,
+        18121,
+        18195,
+        18196
+      ]
+    },
+    {
       "function": "get_ai_span_attributes",
       "bucket": "route",
       "start": 19003,
@@ -4246,24 +4221,6 @@
       ]
     },
     {
-      "function": "_remember_attr_keys",
-      "bucket": "helper",
-      "start": 2198,
-      "end": 2237,
-      "uncovered": 7,
-      "span": 40,
-      "route": null,
-      "missing_sample": [
-        2206,
-        2211,
-        2215,
-        2217,
-        2221,
-        2236,
-        2237
-      ]
-    },
-    {
       "function": "_chat_label_from_first_turn",
       "bucket": "helper",
       "start": 3739,
@@ -4513,24 +4470,6 @@
         16681,
         16682,
         16683
-      ]
-    },
-    {
-      "function": "_effective_cve_disposition",
-      "bucket": "helper",
-      "start": 17101,
-      "end": 17119,
-      "uncovered": 7,
-      "span": 19,
-      "route": null,
-      "missing_sample": [
-        17113,
-        17114,
-        17115,
-        17116,
-        17117,
-        17118,
-        17119
       ]
     },
     {
@@ -4823,6 +4762,23 @@
         1991,
         1992,
         1993
+      ]
+    },
+    {
+      "function": "_remember_attr_keys",
+      "bucket": "helper",
+      "start": 2198,
+      "end": 2237,
+      "uncovered": 6,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        2206,
+        2211,
+        2217,
+        2221,
+        2236,
+        2237
       ]
     },
     {
@@ -5625,6 +5581,28 @@
       ]
     },
     {
+      "function": "summary",
+      "bucket": "route",
+      "start": 10841,
+      "end": 10971,
+      "uncovered": 5,
+      "span": 131,
+      "route": {
+        "path": "/",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        10855,
+        10856,
+        10905,
+        10959,
+        10960
+      ]
+    },
+    {
       "function": "_parse_regex_filter_expression",
       "bucket": "helper",
       "start": 11157,
@@ -5740,22 +5718,6 @@
         16156,
         16157,
         16158
-      ]
-    },
-    {
-      "function": "_parse_github_repo_owner_name",
-      "bucket": "helper",
-      "start": 16277,
-      "end": 16303,
-      "uncovered": 5,
-      "span": 27,
-      "route": null,
-      "missing_sample": [
-        16284,
-        16291,
-        16295,
-        16299,
-        16302
       ]
     },
     {
@@ -6289,6 +6251,36 @@
         14767,
         14768,
         14769
+      ]
+    },
+    {
+      "function": "_parse_github_repo_owner_name",
+      "bucket": "helper",
+      "start": 16277,
+      "end": 16303,
+      "uncovered": 4,
+      "span": 27,
+      "route": null,
+      "missing_sample": [
+        16284,
+        16291,
+        16299,
+        16302
+      ]
+    },
+    {
+      "function": "_effective_cve_disposition",
+      "bucket": "helper",
+      "start": 17101,
+      "end": 17119,
+      "uncovered": 4,
+      "span": 19,
+      "route": null,
+      "missing_sample": [
+        17116,
+        17117,
+        17118,
+        17119
       ]
     },
     {
