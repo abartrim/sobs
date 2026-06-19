@@ -26,6 +26,21 @@ becomes a number, not another audit.
 - **Required checks to merge into `go-main`:** `go build ./...` + `go vet` + `gofmt` + full Go tests +
   **Docker parity GREEN (RED/MISSING/UNCOVERED = 0)** + **oracle coverage did not regress**.
 
+### Branch & CI setup — work items / status
+
+- [x] `go-main` branch created and pushed to origin (base `a39ec6c` + plan/coverage-gate commits).
+      Pushing it does **not** trigger CI yet — `ci.yml` only matches `main`/`master`/`v*` tags.
+- [x] Oracle coverage gate (`migration/tools/coverage_capture.py`) added; baseline measured = **58%**.
+- [ ] `ci.yml`: add `go-main` to `push`/`pull_request` triggers for the build / vet / gofmt /
+      unit-test / **Docker parity** / **coverage** jobs.
+- [ ] `ci.yml`: gate the ghcr-publish push + `register-sobs-release` + `cleanup-ghcr` + any
+      `environment:`/deploy job to **`main`/tags only**
+      (`if: github.ref == 'refs/heads/main' || startsWith(github.ref,'refs/tags/v')`).
+- [ ] `ci.yml`: image tags `:go-main` + `:<sha>` only — **never `:latest`** from `go-main`.
+- [ ] Add a coverage CI job: run `coverage_capture.py`, fail if app.py coverage regresses below the
+      committed floor (start 58%, ratchet up).
+- [ ] Branch protection on `go-main`: require build/test + Docker parity GREEN + coverage-no-regress.
+
 ## Definition of Done (measurable — this is what "100%" means)
 
 1. **Stubs:** `grep 'not implemented", http.StatusNotImplemented' go/cmd/sobs` → empty. ✅ (already 0)
@@ -82,5 +97,9 @@ barrier for every integration.
 - 0 `not implemented` stubs; Docker parity GREEN 396 / RED 0.
 - 2026-06-18 audit (`GO_PARITY_DIVERGENCE_AUDIT.md`, ~171 findings, 2 CRITICAL) fully fixed.
 - DLP masking + tag-rule regex now use `dlclark/regexp2` for Python-`re` parity.
-- **Next:** run `coverage_capture.py` → classify the uncovered app.py lines → size the remaining work
-  and decide how much agent machinery is warranted.
+- `go-main` created + pushed; `COMPLETION_PLAN.md` + `coverage_capture.py` committed.
+- **Oracle coverage measured = 58%** (6,280 / 14,884 app.py stmts uncovered) — the remaining risk
+  surface, recorded in `migration/coverage_app.json`.
+- **Next:** (a) classify the 6,280 uncovered lines into buckets (corpus-expandable / needs-difftest /
+  dead); (b) wire `go-main` CI per the checklist above (58% coverage floor); (c) stand up the agent
+  roster to drive the backlog.
