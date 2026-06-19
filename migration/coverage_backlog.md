@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **67%** · **4838** uncovered statements.
+Oracle coverage **68%** · **4824** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 116 | 572 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 424 | 3997 | usually covered when a calling route's fixture is added; else difftest |
+| route | 116 | 560 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 423 | 3995 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -22,8 +22,7 @@ Oracle coverage **67%** · **4838** uncovered statements.
 | `auto_tag_rules` | 23353–23460 | 16 | `POST /settings/tags/auto` |
 | `api_query_run` | 30511–30765 | 16 | `POST /api/query/run` |
 | `ingest_rum_asset` | 9699–9756 | 14 | `POST /v1/rum/assets` |
-| `view_traces` | 15312–15678 | 14 | `GET /traces` |
-| `view_ai` | 18631–18998 | 11 | `GET /ai` |
+| `view_traces` | 15312–15678 | 11 | `GET /traces` |
 | `api_query_ask` | 30203–30506 | 10 | `POST /api/query/ask` |
 | `view_rum` | 17309–17657 | 9 | `GET /rum` |
 | `check_notifications` | 26341–26447 | 9 | `POST /api/notifications/check` |
@@ -55,6 +54,7 @@ Oracle coverage **67%** · **4838** uncovered statements.
 | `api_logs_field_hints` | 23707–23779 | 5 | `GET /api/logs/field-hints` |
 | `api_errors_validate_regex` | 24013–24053 | 5 | `POST /api/errors/validate-regex` |
 | `api_dm_prune` | 32298–32321 | 5 | `POST /api/data-management/prune` |
+| `rum_asset_download` | 9761–9786 | 4 | `GET /v1/rum/assets/<asset_id>` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
@@ -82,7 +82,7 @@ Oracle coverage **67%** · **4838** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (424 functions)
+## helper — top by uncovered lines (423 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
