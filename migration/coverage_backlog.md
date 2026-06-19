@@ -1,17 +1,17 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **65%** · **5238** uncovered statements.
+Oracle coverage **65%** · **5182** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 875 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 433 | 4094 | usually covered when a calling route's fixture is added; else difftest |
+| route | 121 | 825 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 430 | 4088 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
-## route — top by uncovered lines (123 functions)
+## route — top by uncovered lines (121 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
@@ -34,14 +34,9 @@ Oracle coverage **65%** · **5238** uncovered statements.
 | `ingest_ai` | 10157–10241 | 14 | `POST /v1/ai` |
 | `api_enrichment_libraries` | 17882–17941 | 14 | `GET /api/enrichment/libraries` |
 | `edit_chart` | 21651–21689 | 14 | `POST /dashboards/<dashboard_id>/charts/<chart_id>/edit` |
-| `api_get_work_items` | 18493–18541 | 13 | `GET /api/work-items` |
-| `api_logs_validate_filter` | 23784–23855 | 13 | `POST /api/logs/validate-filter` |
-| `api_ai_validate_filter` | 24407–24454 | 13 | `POST /api/ai/validate-filter` |
 | `rum_asset_download` | 9761–9786 | 12 | `GET /v1/rum/assets/<asset_id>` |
-| `api_metrics_validate_regex` | 24115–24167 | 11 | `POST /api/metrics/validate-regex` |
 | `create_settings_repository` | 26889–26951 | 11 | `POST /settings/repositories` |
 | `api_query_ask` | 30203–30506 | 11 | `POST /api/query/ask` |
-| `api_cve_findings` | 18220–18278 | 10 | `GET /api/enrichment/cve/findings` |
 | `create_tag_rule` | 23465–23584 | 10 | `POST /settings/tags` |
 | `api_onboarding_list_repos` | 33603–33678 | 10 | `POST /api/onboarding/list-repos` |
 | `ingest_metrics` | 9896–9918 | 9 | `POST /v1/metrics` |
@@ -55,6 +50,11 @@ Oracle coverage **65%** · **5238** uncovered statements.
 | `api_ai_field_hints` | 24229–24402 | 8 | `GET /api/ai/field-hints` |
 | `api_onboarding_import_repo` | 33538–33598 | 8 | `POST /api/onboarding/import-repo` |
 | `ingest_traces` | 9834–9888 | 7 | `POST /v1/traces` |
+| `ingest_rum` | 10010–10149 | 7 | `POST /v1/rum` |
+| `api_raw_span` | 15695–15764 | 7 | `GET /api/traces/span/<span_id>` |
+| `ai_build_chart_spec` | 22263–22431 | 7 | `POST /api/dashboards/spec/ai-build` |
+| `api_traces_validate_regex` | 24062–24106 | 7 | `POST /api/traces/validate-regex` |
+| `api_rum_validate_regex` | 24176–24220 | 7 | `POST /api/rum/validate-regex` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
@@ -82,7 +82,7 @@ Oracle coverage **65%** · **5238** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (433 functions)
+## helper — top by uncovered lines (430 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|

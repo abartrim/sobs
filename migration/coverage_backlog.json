@@ -1,18 +1,18 @@
 {
-  "total_uncovered": 5238,
+  "total_uncovered": 5182,
   "summary_pct": "65",
   "by_bucket": {
     "helper": {
-      "functions": 433,
-      "uncovered": 4094
+      "functions": 430,
+      "uncovered": 4088
     },
     "lifecycle": {
       "functions": 21,
       "uncovered": 256
     },
     "route": {
-      "functions": 123,
-      "uncovered": 875
+      "functions": 121,
+      "uncovered": 825
     },
     "module": {
       "functions": 0,
@@ -2358,81 +2358,6 @@
       ]
     },
     {
-      "function": "api_get_work_items",
-      "bucket": "route",
-      "start": 18493,
-      "end": 18541,
-      "uncovered": 13,
-      "span": 49,
-      "route": {
-        "path": "/api/work-items",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        18509,
-        18510,
-        18512,
-        18513,
-        18515,
-        18516,
-        18518,
-        18519
-      ]
-    },
-    {
-      "function": "api_logs_validate_filter",
-      "bucket": "route",
-      "start": 23784,
-      "end": 23855,
-      "uncovered": 13,
-      "span": 72,
-      "route": {
-        "path": "/api/logs/validate-filter",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        23800,
-        23801,
-        23802,
-        23803,
-        23806,
-        23808,
-        23809,
-        23810
-      ]
-    },
-    {
-      "function": "api_ai_validate_filter",
-      "bucket": "route",
-      "start": 24407,
-      "end": 24454,
-      "uncovered": 13,
-      "span": 48,
-      "route": {
-        "path": "/api/ai/validate-filter",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        24422,
-        24423,
-        24424,
-        24425,
-        24428,
-        24430,
-        24431,
-        24432
-      ]
-    },
-    {
       "function": "_github_get_issue_detail",
       "bucket": "helper",
       "start": 32962,
@@ -2724,31 +2649,6 @@
       ]
     },
     {
-      "function": "api_metrics_validate_regex",
-      "bucket": "route",
-      "start": 24115,
-      "end": 24167,
-      "uncovered": 11,
-      "span": 53,
-      "route": {
-        "path": "/api/metrics/validate-regex",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        24128,
-        24139,
-        24140,
-        24142,
-        24143,
-        24145,
-        24146,
-        24148
-      ]
-    },
-    {
       "function": "_build_vapid_jwt",
       "bucket": "helper",
       "start": 24972,
@@ -3024,31 +2924,6 @@
         15128,
         15130,
         15132
-      ]
-    },
-    {
-      "function": "api_cve_findings",
-      "bucket": "route",
-      "start": 18220,
-      "end": 18278,
-      "uncovered": 10,
-      "span": 59,
-      "route": {
-        "path": "/api/enrichment/cve/findings",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        18225,
-        18246,
-        18247,
-        18248,
-        18249,
-        18256,
-        18257,
-        18258
       ]
     },
     {
@@ -6284,6 +6159,27 @@
       ]
     },
     {
+      "function": "api_cve_findings",
+      "bucket": "route",
+      "start": 18220,
+      "end": 18278,
+      "uncovered": 4,
+      "span": 59,
+      "route": {
+        "path": "/api/enrichment/cve/findings",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        18225,
+        18257,
+        18277,
+        18278
+      ]
+    },
+    {
       "function": "_default_source_label",
       "bucket": "helper",
       "start": 19940,
@@ -6991,6 +6887,26 @@
       ]
     },
     {
+      "function": "api_get_work_items",
+      "bucket": "route",
+      "start": 18493,
+      "end": 18541,
+      "uncovered": 3,
+      "span": 49,
+      "route": {
+        "path": "/api/work-items",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        18539,
+        18540,
+        18541
+      ]
+    },
+    {
       "function": "_safe_attr_int",
       "bucket": "helper",
       "start": 18753,
@@ -7255,17 +7171,23 @@
       ]
     },
     {
-      "function": "_translate_has_tag",
-      "bucket": "helper",
-      "start": 23831,
-      "end": 23839,
+      "function": "api_metrics_validate_regex",
+      "bucket": "route",
+      "start": 24115,
+      "end": 24167,
       "uncovered": 3,
-      "span": 9,
-      "route": null,
+      "span": 53,
+      "route": {
+        "path": "/api/metrics/validate-regex",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
       "missing_sample": [
-        23832,
-        23833,
-        23834
+        24128,
+        24166,
+        24167
       ]
     },
     {
@@ -7961,19 +7883,6 @@
       "missing_sample": [
         11232,
         11233
-      ]
-    },
-    {
-      "function": "_replace_sql_outside_single_quotes",
-      "bucket": "helper",
-      "start": 11538,
-      "end": 11570,
-      "uncovered": 2,
-      "span": 33,
-      "route": null,
-      "missing_sample": [
-        11554,
-        11555
       ]
     },
     {
@@ -9577,18 +9486,6 @@
       "route": null,
       "missing_sample": [
         23870
-      ]
-    },
-    {
-      "function": "_regex_scope_text",
-      "bucket": "helper",
-      "start": 23874,
-      "end": 23879,
-      "uncovered": 1,
-      "span": 6,
-      "route": null,
-      "missing_sample": [
-        23879
       ]
     },
     {
