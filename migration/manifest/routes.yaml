@@ -2815,6 +2815,67 @@ routes:
     json:
       template_id: derived_signal_overlay
       query: SELECT toDateTime('2024-01-01 00:00:00') AS time, 'trace-svc-0' AS service, 'traces' AS source, 'latency_p95_ms' AS signal, '' AS attr_fp, 500.0 AS value, toUInt32(10) AS sample_count, 100.0 AS baseline_mean, 50.0 AS baseline_lower, 150.0 AS baseline_upper, 'outlier' AS anomaly_state, 0.9 AS anomaly_score
+# render_chart ERROR branches (previously uncovered): unknown template_id (app.py 22047), the
+# ValueError column-mismatch branch from _render_chart_from_template (22063/22065), and the generic
+# DB-exception branch routed through _public_dashboard_query_error (22066-22068). All stateless
+# (literal queries), fixed deterministic error strings.
+- id: post__api_dashboards_render__unknown_template
+  path: /api/dashboards/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      template_id: not_a_real_template
+      query: SELECT 1 AS time, 2.0 AS value
+- id: post__api_dashboards_render__bad_cols
+  path: /api/dashboards/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      template_id: time_series_percentiles
+      query: SELECT toDateTime('2024-01-01 00:00:00') AS time, 2.0 AS value
+- id: post__api_dashboards_render__query_err
+  path: /api/dashboards/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      template_id: time_series_percentiles
+      query: SELECT no_such_column AS time, 2.0 AS value, 3.0 AS p95, 4.0 AS p99
+# render_chart_spec_api previously-uncovered branches: the named_queries collection loop
+# (app.py 22013-22022) -> named_datasets populated and surfaced via custom_echarts, and the generic
+# render Exception branch (22026-22028). custom_echarts spec keeps SVG/option deterministic (inline
+# literal SQL + a literal named query). The query-error spec exercises the except.
+- id: post__api_dashboards_render__spec_named
+  path: /api/dashboards/spec/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: custom_echarts
+        sql:
+          mode: raw
+          override_sql: SELECT toDateTime('2024-01-01 00:00:00') AS time, 5.0 AS value
+        named_queries:
+        - name: extra
+          sql: SELECT toUInt8(7) AS v, 'a' AS label
+          purpose: side dataset
+        visual:
+          custom_mapping_json: '{}'
+          custom_option_json: '{"xAxis": {"type": "category", "data": "{{columns:extra}}"}, "yAxis": {"type": "value"}, "series": [{"type": "bar", "data": "{{rows:extra}}"}]}'
+- id: post__api_dashboards_render__spec_query_err
+  path: /api/dashboards/spec/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: time_series_percentiles
+        sql:
+          mode: raw
+          override_sql: SELECT no_such_column AS time, 2.0 AS value, 3.0 AS p95, 4.0 AS p99
 - id: post__api_settings_masking_preview
   path: /api/settings/masking/preview
   methods:

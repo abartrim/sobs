@@ -1,18 +1,18 @@
 {
-  "total_uncovered": 4937,
+  "total_uncovered": 4908,
   "summary_pct": "67",
   "by_bucket": {
     "helper": {
       "functions": 426,
-      "uncovered": 4019
+      "uncovered": 4003
     },
     "lifecycle": {
       "functions": 21,
       "uncovered": 256
     },
     "route": {
-      "functions": 119,
-      "uncovered": 649
+      "functions": 118,
+      "uncovered": 636
     },
     "module": {
       "functions": 0,
@@ -1141,25 +1141,6 @@
       ]
     },
     {
-      "function": "_render_custom_echarts",
-      "bucket": "helper",
-      "start": 21199,
-      "end": 21271,
-      "uncovered": 22,
-      "span": 73,
-      "route": null,
-      "missing_sample": [
-        21212,
-        21218,
-        21220,
-        21227,
-        21228,
-        21238,
-        21239,
-        21240
-      ]
-    },
-    {
       "function": "_build_notification_payload",
       "bucket": "helper",
       "start": 24767,
@@ -1546,25 +1527,6 @@
       ]
     },
     {
-      "function": "_apply_chart_spec_visual_overrides",
-      "bucket": "helper",
-      "start": 20397,
-      "end": 20470,
-      "uncovered": 17,
-      "span": 74,
-      "route": null,
-      "missing_sample": [
-        20399,
-        20403,
-        20447,
-        20453,
-        20454,
-        20455,
-        20456,
-        20457
-      ]
-    },
-    {
       "function": "_generate",
       "bucket": "helper",
       "start": 24481,
@@ -1682,6 +1644,25 @@
         16180,
         16181,
         16183
+      ]
+    },
+    {
+      "function": "_apply_chart_spec_visual_overrides",
+      "bucket": "helper",
+      "start": 20397,
+      "end": 20470,
+      "uncovered": 16,
+      "span": 74,
+      "route": null,
+      "missing_sample": [
+        20403,
+        20447,
+        20453,
+        20454,
+        20455,
+        20456,
+        20457,
+        20458
       ]
     },
     {
@@ -2161,6 +2142,25 @@
         9090,
         9091,
         9092
+      ]
+    },
+    {
+      "function": "_render_custom_echarts",
+      "bucket": "helper",
+      "start": 21199,
+      "end": 21271,
+      "uncovered": 13,
+      "span": 73,
+      "route": null,
+      "missing_sample": [
+        21212,
+        21220,
+        21227,
+        21228,
+        21238,
+        21239,
+        21240,
+        21241
       ]
     },
     {
@@ -3068,50 +3068,6 @@
       ]
     },
     {
-      "function": "render_chart_spec_api",
-      "bucket": "route",
-      "start": 21986,
-      "end": 22031,
-      "uncovered": 9,
-      "span": 46,
-      "route": {
-        "path": "/api/dashboards/spec/render",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        22013,
-        22014,
-        22015,
-        22016,
-        22017,
-        22018,
-        22026,
-        22027
-      ]
-    },
-    {
-      "function": "_execute_chart_spec_named_queries",
-      "bucket": "helper",
-      "start": 22213,
-      "end": 22258,
-      "uncovered": 9,
-      "span": 46,
-      "route": null,
-      "missing_sample": [
-        22223,
-        22226,
-        22230,
-        22245,
-        22247,
-        22248,
-        22255,
-        22256
-      ]
-    },
-    {
       "function": "_dispatch_notification_channel",
       "bucket": "lifecycle",
       "start": 25058,
@@ -3498,25 +3454,6 @@
       ]
     },
     {
-      "function": "_parse_custom_json_config",
-      "bucket": "helper",
-      "start": 21072,
-      "end": 21083,
-      "uncovered": 8,
-      "span": 12,
-      "route": null,
-      "missing_sample": [
-        21074,
-        21077,
-        21078,
-        21079,
-        21080,
-        21081,
-        21082,
-        21083
-      ]
-    },
-    {
       "function": "_normalize_custom_series_point_order",
       "bucket": "helper",
       "start": 21166,
@@ -3533,6 +3470,25 @@
         21194,
         21195,
         21196
+      ]
+    },
+    {
+      "function": "_execute_chart_spec_named_queries",
+      "bucket": "helper",
+      "start": 22213,
+      "end": 22258,
+      "uncovered": 8,
+      "span": 46,
+      "route": null,
+      "missing_sample": [
+        22223,
+        22226,
+        22230,
+        22247,
+        22248,
+        22255,
+        22256,
+        22257
       ]
     },
     {
@@ -3692,24 +3648,6 @@
         657,
         661,
         662
-      ]
-    },
-    {
-      "function": "_remember_attr_keys",
-      "bucket": "helper",
-      "start": 2198,
-      "end": 2237,
-      "uncovered": 7,
-      "span": 40,
-      "route": null,
-      "missing_sample": [
-        2206,
-        2211,
-        2215,
-        2217,
-        2221,
-        2236,
-        2237
       ]
     },
     {
@@ -4167,6 +4105,23 @@
       ]
     },
     {
+      "function": "_remember_attr_keys",
+      "bucket": "helper",
+      "start": 2198,
+      "end": 2237,
+      "uncovered": 6,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        2206,
+        2211,
+        2217,
+        2221,
+        2236,
+        2237
+      ]
+    },
+    {
       "function": "_load_ai_pricing_with_sources",
       "bucket": "helper",
       "start": 2849,
@@ -4607,29 +4562,6 @@
         21126,
         21127,
         21128
-      ]
-    },
-    {
-      "function": "render_chart",
-      "bucket": "route",
-      "start": 22036,
-      "end": 22068,
-      "uncovered": 6,
-      "span": 33,
-      "route": {
-        "path": "/api/dashboards/render",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        22047,
-        22063,
-        22065,
-        22066,
-        22067,
-        22068
       ]
     },
     {
@@ -5859,6 +5791,21 @@
         20314,
         20321,
         20327
+      ]
+    },
+    {
+      "function": "_parse_custom_json_config",
+      "bucket": "helper",
+      "start": 21072,
+      "end": 21083,
+      "uncovered": 4,
+      "span": 12,
+      "route": null,
+      "missing_sample": [
+        21074,
+        21079,
+        21082,
+        21083
       ]
     },
     {
@@ -7880,6 +7827,25 @@
       "missing_sample": [
         21747,
         21748
+      ]
+    },
+    {
+      "function": "render_chart_spec_api",
+      "bucket": "route",
+      "start": 21986,
+      "end": 22031,
+      "uncovered": 2,
+      "span": 46,
+      "route": {
+        "path": "/api/dashboards/spec/render",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        22015,
+        22017
       ]
     },
     {

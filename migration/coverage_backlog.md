@@ -1,17 +1,17 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **67%** · **4937** uncovered statements.
+Oracle coverage **67%** · **4908** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 119 | 649 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 426 | 4019 | usually covered when a calling route's fixture is added; else difftest |
+| route | 118 | 636 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 426 | 4003 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
-## route — top by uncovered lines (119 functions)
+## route — top by uncovered lines (118 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
@@ -32,7 +32,6 @@ Oracle coverage **67%** · **4937** uncovered statements.
 | `api_query_ask` | 30203–30506 | 11 | `POST /api/query/ask` |
 | `api_onboarding_list_repos` | 33603–33678 | 10 | `POST /api/onboarding/list-repos` |
 | `view_rum` | 17309–17657 | 9 | `GET /rum` |
-| `render_chart_spec_api` | 21986–22031 | 9 | `POST /api/dashboards/spec/render` |
 | `ingest_metrics` | 9896–9918 | 8 | `POST /v1/metrics` |
 | `api_ai_field_hints` | 24229–24402 | 8 | `GET /api/ai/field-hints` |
 | `api_onboarding_import_repo` | 33538–33598 | 8 | `POST /api/onboarding/import-repo` |
@@ -46,7 +45,6 @@ Oracle coverage **67%** · **4937** uncovered statements.
 | `ingest_traces` | 9834–9888 | 6 | `POST /v1/traces` |
 | `ingest_errors` | 10249–10295 | 6 | `POST /v1/errors` |
 | `export_ai_training` | 19123–19226 | 6 | `GET /api/ai/export` |
-| `render_chart` | 22036–22068 | 6 | `POST /api/dashboards/render` |
 | `create_tag_rule` | 23465–23584 | 6 | `POST /settings/tags` |
 | `create_agent_rule` | 27194–27242 | 6 | `POST /settings/agents` |
 | `ai_helper_execute_action` | 28400–28468 | 6 | `POST /api/ai/helper/actions/execute` |
@@ -55,6 +53,8 @@ Oracle coverage **67%** · **4937** uncovered statements.
 | `issue_rum_client_token` | 9791–9826 | 5 | `POST /v1/rum/client-token` |
 | `ingest_ai` | 10157–10241 | 5 | `POST /v1/ai` |
 | `summary` | 10841–10971 | 5 | `GET /` |
+| `view_metrics` | 13430–13595 | 5 | `GET /metrics` |
+| `api_web_traffic_geo` | 17711–17760 | 5 | `GET /api/web-traffic/geo` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
