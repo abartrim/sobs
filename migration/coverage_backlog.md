@@ -1,12 +1,12 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **63%** · **5484** uncovered statements.
+Oracle coverage **63%** · **5458** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 1071 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| route | 123 | 1045 | needs a fixture/profile (corpus expansion; byte-verifiable) |
 | helper | 436 | 4144 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
@@ -15,8 +15,8 @@ Oracle coverage **63%** · **5484** uncovered statements.
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
-| `view_incident` | 15785–16144 | 65 | `GET /incident` |
 | `ai_helper` | 27607–28395 | 58 | `POST /api/ai/helper` |
+| `view_incident` | 15785–16144 | 39 | `GET /incident` |
 | `create_notification_rule` | 25918–26089 | 39 | `POST /settings/notifications/rules` |
 | `save_ai_settings` | 26677–26751 | 32 | `POST /settings/ai` |
 | `auto_metrics_rules_dashboard` | 13848–13960 | 26 | `POST /metrics/rules/dashboard/auto` |

@@ -1,5 +1,5 @@
 {
-  "total_uncovered": 5484,
+  "total_uncovered": 5458,
   "summary_pct": "63",
   "by_bucket": {
     "helper": {
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 123,
-      "uncovered": 1071
+      "uncovered": 1045
     },
     "module": {
       "functions": 0,
@@ -113,31 +113,6 @@
         2515,
         2517,
         2518
-      ]
-    },
-    {
-      "function": "view_incident",
-      "bucket": "route",
-      "start": 15785,
-      "end": 16144,
-      "uncovered": 65,
-      "span": 360,
-      "route": {
-        "path": "/incident",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        15839,
-        15840,
-        15841,
-        15845,
-        15846,
-        15847,
-        15848,
-        15849
       ]
     },
     {
@@ -410,6 +385,31 @@
         7839,
         7840,
         7841
+      ]
+    },
+    {
+      "function": "view_incident",
+      "bucket": "route",
+      "start": 15785,
+      "end": 16144,
+      "uncovered": 39,
+      "span": 360,
+      "route": {
+        "path": "/incident",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        15852,
+        15853,
+        15885,
+        15886,
+        15891,
+        15892,
+        15893,
+        15894
       ]
     },
     {
