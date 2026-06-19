@@ -2253,14 +2253,15 @@ func (s *server) handleViewMetricsAnomaly(w http.ResponseWriter, r *http.Request
 					rowRelatedTarget = cStr(m, "Kind")
 				}
 				rows = append(rows, map[string]any{
-					"time":            cStr(m, "time"),
-					"service":         cStr(m, "ServiceName"),
-					"metric":          cStr(m, "Name"),
-					"metric_kind":     cStr(m, "Kind"),
-					"related_target":  rowRelatedTarget,
-					"attr_fp":         cStr(m, "AttrFingerprint"),
-					"value":           m["value"],
-					"sample_count":    m["SampleCount"],
+					"time":           cStr(m, "time"),
+					"service":        cStr(m, "ServiceName"),
+					"metric":         cStr(m, "Name"),
+					"metric_kind":    cStr(m, "Kind"),
+					"related_target": rowRelatedTarget,
+					"attr_fp":        cStr(m, "AttrFingerprint"),
+					"value":          m["value"],
+					// SampleCount is a UInt; Python renders it as an int (5 not 5.0).
+					"sample_count":    cInt(m, "SampleCount"),
 					"baseline_mean":   m["baseline_mean"],
 					"baseline_stddev": m["baseline_stddev"],
 					"baseline_lower":  m["baseline_lower"],

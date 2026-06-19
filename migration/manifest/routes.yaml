@@ -1040,7 +1040,7 @@ routes:
     query:
       signal: log_volume
   mask:
-  - '[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}'
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
   mask_reason: last_time is a wall-clock minute bucket derived from the metricsauto seed's now()-relative timestamps; capture and replay re-seed at different wall-clock times so the bucket drifts. Everything else on the row (last_value/score/state + sample/point counts) is deterministic from the constant log_volume=5 series and is byte-compared.
 # view_metrics filter branches, each paired with signal=log_volume so the result is ONE group (no
 # ORDER BY last_time tie). Same last_time mask.
@@ -1053,7 +1053,7 @@ routes:
     method: GET
     query: {signal: log_volume, service: web}
   mask:
-  - '[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}'
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
   mask_reason: see get__metrics__metricsauto_signal.
 - id: get__metrics__metricsauto_source_empty
   path: /metrics
@@ -1072,7 +1072,7 @@ routes:
     method: GET
     query: {signal: log_volume, hours: notanumber}
   mask:
-  - '[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}'
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
   mask_reason: see get__metrics__metricsauto_signal.
 - id: get__metrics__metricsauto_q
   path: /metrics
@@ -1083,7 +1083,7 @@ routes:
     method: GET
     query: {signal: log_volume, q: volume}
   mask:
-  - '[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}'
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
   mask_reason: see get__metrics__metricsauto_signal.
 - id: get__logs
   path: /logs
@@ -1097,6 +1097,70 @@ routes:
   - GET
   request:
     method: GET
+# view_metrics_anomaly over the metricsauto seed: the derived-signals point series (30 distinct
+# wall-clock buckets -> no ORDER BY tie; masked) for signal=log_volume, plus service/source/attr_fp/
+# metric/hours filter branches. metric= takes the v_otel_metrics_anomaly branch (no otel metrics
+# seeded -> empty). Constant series -> value/baseline/score/state deterministic.
+- id: get__metrics_anomaly__ma_signal
+  path: /metrics/anomaly
+  methods:
+  - GET
+  profile: metricsauto
+  request:
+    method: GET
+    query: {signal: log_volume}
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
+  mask_reason: each point's `time` is a wall-clock minute bucket from the metricsauto seed; capture/replay re-seed at different times so the buckets drift. value/baseline/score/state/sample are constant from the log_volume=5 series and byte-compared.
+- id: get__metrics_anomaly__ma_service
+  path: /metrics/anomaly
+  methods:
+  - GET
+  profile: metricsauto
+  request:
+    method: GET
+    query: {signal: log_volume, service: web}
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
+  mask_reason: see get__metrics_anomaly__ma_signal.
+- id: get__metrics_anomaly__ma_source
+  path: /metrics/anomaly
+  methods:
+  - GET
+  profile: metricsauto
+  request:
+    method: GET
+    query: {signal: log_volume, source: logs}
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
+  mask_reason: see get__metrics_anomaly__ma_signal.
+- id: get__metrics_anomaly__ma_attr_empty
+  path: /metrics/anomaly
+  methods:
+  - GET
+  profile: metricsauto
+  request:
+    method: GET
+    query: {signal: log_volume, attr_fp: nonexistent}
+- id: get__metrics_anomaly__ma_metric_empty
+  path: /metrics/anomaly
+  methods:
+  - GET
+  profile: metricsauto
+  request:
+    method: GET
+    query: {metric: some_metric}
+- id: get__metrics_anomaly__ma_hours_err
+  path: /metrics/anomaly
+  methods:
+  - GET
+  profile: metricsauto
+  request:
+    method: GET
+    query: {signal: log_volume, hours: notanumber}
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
+  mask_reason: see get__metrics_anomaly__ma_signal.
 - id: get__incident
   path: /incident
   methods:
