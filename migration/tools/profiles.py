@@ -74,6 +74,10 @@ PROFILES: dict[str, dict[str, str]] = {
     # redirect, like the formerr routes but reaching the write). Isolated because success mutates
     # sobs_anomaly_rules; routes ordered so the (uuid-consuming) success inserts run last.
     "rulecreate": {},
+    # rumingest: no seed, isolated (ingest_rum writes hyperdx_sessions + otel_logs). Exercises the
+    # error-event indexing branch (page/artifact/replay attrs) and the list-payload + non-dict-event
+    # branches. Response is {accepted: count} only (no uuid/timestamp) -> deterministic.
+    "rumingest": {},
     "ai": {
         # Python derives _query_page_enabled() from these (via _AI_ENV_OVERRIDES); Go reads
         # them through aiEnvOverrides AND gates the query page on SOBS_QUERY_PAGE_ENABLED.

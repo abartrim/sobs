@@ -3723,6 +3723,40 @@ routes:
   request:
     method: POST
     json: {}
+# ingest_rum branches: an error event (indexes into otel_logs with exception/page/artifact/replay
+# attrs) and a top-level list payload with a non-dict element (skipped). Response is {accepted: N}
+# only -> deterministic. Isolated rumingest profile (writes hyperdx_sessions/otel_logs).
+- id: post__v1_rum__error_event
+  path: /v1/rum
+  methods:
+  - POST
+  profile: rumingest
+  request:
+    method: POST
+    json:
+      events:
+      - type: error
+        timestamp: '2023-06-01T15:00:00Z'
+        sessionId: sess-1
+        url: https://app.example/checkout
+        message: Cannot read property 'x' of undefined
+        errorType: TypeError
+        stack: at checkout (app.js:10)
+        errorSource: window.onerror
+        page: {title: Checkout, viewport: 1920x1080}
+        artifact: {type: screenshot, id: art-1, url: https://art.example/1}
+        replay: {id: rep-1, url: https://replay.example/1}
+- id: post__v1_rum__list_payload
+  path: /v1/rum
+  methods:
+  - POST
+  profile: rumingest
+  request:
+    method: POST
+    json:
+    - {type: pageview, timestamp: '2023-06-01T15:00:01Z', sessionId: s2, url: https://app.example/}
+    - not-a-dict
+    - {type: pageview, timestamp: '2023-06-01T15:00:02Z', sessionId: s3, url: https://app.example/cart}
 - id: post__api_enrichment_cve_scan
   path: /api/enrichment/cve/scan
   methods:
