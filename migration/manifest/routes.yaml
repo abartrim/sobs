@@ -1258,6 +1258,23 @@ routes:
   - GET
   request:
     method: GET
+# view_work_items filter branches (service/rule_name/action_type/status/from_ts/to_ts) — these build
+# the WHERE clause before any query, so an empty-result base request covers them deterministically
+# (no seed; filter values echoed in the form). Populated/cache-hit/except lines deferred (need a
+# no-github-token work-items seed to avoid the async backfill mutating between cache populate + hit).
+- id: get__work_items__filters
+  path: /work-items
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      service: api
+      rule_name: my-rule
+      action_type: create_issue
+      status: open
+      from_ts: '2024-01-01T00:00:00'
+      to_ts: '2024-12-31T23:59:59'
 - id: get__enrichment_cve
   path: /enrichment/cve
   methods:
