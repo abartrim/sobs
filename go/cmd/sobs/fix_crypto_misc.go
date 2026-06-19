@@ -1,7 +1,6 @@
 package main
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/sobs/sobs/internal/jsonenc"
@@ -116,60 +115,15 @@ func isEmptyJSONContainer(v any) bool {
 // re2UnicodeWhitespaceClass is the RE2 character-class body that exactly reproduces Python `re`'s
 // Unicode `\s`: ASCII [\t\n\v\f\r] + the \x1c-\x1f separators + space, plus NEL (\x85) and the
 // Unicode \p{Z} separator categories. Verified char-for-char against CPython's re.match(r"\s").
-const re2UnicodeWhitespaceClass = `\t\n\v\f\r\x1c\x1d\x1e\x1f \x{85}\p{Z}`
-
-// pythonizeMaskRegex rewrites a Python `re` pattern into the closest RE2 equivalent that keeps
-// ASCII behavior byte-identical while broadening \d and \s to match Python's Unicode semantics.
-//
-//   - `\d`  -> `\p{Nd}` (Unicode decimal digits; superset of ASCII [0-9], identical on ASCII).
-//   - `\s`  -> a Unicode-whitespace class, but ONLY when it appears outside a `[...]` character
-//     class (rewriting `\s` inside `[\s\S]` to a bracket class would nest brackets and break
-//     RE2; `[\s\S]` already means "any char" so it needs no change).
-//
-// Escaped sequences (`\\`) and the class-context tracking ensure we never disturb `\\d`, `\\s`,
-// or a `]`-terminated class. Anything we can't reconcile (Unicode `\b`, lookahead) is left as-is.
-func pythonizeMaskRegex(pat string) string {
-	var b []byte
-	inClass := false
-	for i := 0; i < len(pat); i++ {
-		c := pat[i]
-		if c == '\\' && i+1 < len(pat) {
-			next := pat[i+1]
-			switch {
-			case next == 'd':
-				b = append(b, `\p{Nd}`...)
-				i++
-				continue
-			case next == 's' && !inClass:
-				b = append(b, '[')
-				b = append(b, re2UnicodeWhitespaceClass...)
-				b = append(b, ']')
-				i++
-				continue
-			default:
-				// Copy the escape pair verbatim (handles \\, \s-in-class, \b, \S, etc.).
-				b = append(b, c, next)
-				i++
-				continue
-			}
-		}
-		switch c {
-		case '[':
-			inClass = true
-		case ']':
-			inClass = false
-		}
-		b = append(b, c)
-	}
-	return string(b)
-}
-
-// compileMaskPattern compiles a sensitive pattern for the redaction engine, applying the
-// Python-re reconciliation and the DOTALL flag (Python re.sub(..., flags=re.DOTALL)). Returns
-// nil when the (reconciled) pattern is not RE2-compilable — e.g. a custom pattern using
-// lookahead/possessive quantifiers that Python accepts but RE2 rejects (documented limitation).
-func compileMaskPattern(pat string) *regexp.Regexp {
-	re, err := regexp.Compile("(?s)" + pythonizeMaskRegex(pat))
+// compileMaskPattern compiles a sensitive masking pattern via regexp2 (see mask_regex.go) with the
+// DOTALL flag, mirroring Python masking.py `re.compile(..., re.DOTALL)` and `re.sub(..., re.DOTALL)`.
+// regexp2 is Unicode-aware and backtracking, so it matches Python `re` on non-ASCII input AND
+// accepts the lookahead/lookbehind/backreference custom patterns the previous RE2 port had to drop
+// (it no longer needs the hand-rolled \d->\p{Nd} / \s-broadening reconciliation). ASCII input is
+// unaffected, so the byte-parity corpus is unchanged. Returns nil for a genuinely uncompilable
+// pattern (the caller skips it, as before).
+func compileMaskPattern(pat string) *userRegex {
+	re, err := compileUserRegex(pat, true)
 	if err != nil {
 		return nil
 	}

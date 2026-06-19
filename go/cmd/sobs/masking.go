@@ -141,7 +141,12 @@ func validateCustomMaskingPattern(raw string) (string, error) {
 	if normalized == "" {
 		return "", fmt.Errorf("Pattern is required")
 	}
-	if _, err := regexp.Compile(normalized); err != nil {
+	// Compile-check via regexp2 (mask_regex.go), DOTALL — mirrors Python masking.py
+	// `re.compile(pattern, re.DOTALL)`. Unlike stdlib RE2, this accepts the lookahead/lookbehind/
+	// backreference patterns Python accepts (the explicit backref/lookbehind safety checks below
+	// still reject the ones masking.py rejects). The redaction engine (compileMaskPattern) uses the
+	// same regexp2 engine, so a pattern that validates here will compile there too.
+	if _, err := compileUserRegex(normalized, true); err != nil {
 		return "", err
 	}
 	if len(normalized) > maxCustomMaskingPatternLength {

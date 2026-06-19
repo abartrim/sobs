@@ -1,7 +1,6 @@
 package main
 
 import (
-	"regexp"
 	"strings"
 )
 
@@ -54,12 +53,14 @@ func matchSingleCondition(cond map[string]any, service, severity, body string, a
 	case "contains":
 		return strings.Contains(strings.ToLower(value), strings.ToLower(matchValue))
 	case "regex":
-		// Python re.search(match_value, value); invalid pattern -> False.
-		re, err := regexp.Compile(matchValue)
+		// Python re.search(match_value, value); invalid pattern -> False. Uses the regexp2 engine
+		// (mask_regex.go) — Unicode-aware + backtracking — to match Python `re` on arbitrary ingested
+		// values, including non-ASCII content and lookahead/backreference rule patterns.
+		re, err := compileUserRegex(matchValue, false)
 		if err != nil {
 			return false
 		}
-		return re.MatchString(value)
+		return re.match(value)
 	}
 	return false
 }

@@ -12,6 +12,7 @@ simple and the binary reproducible.
 |--------|----------------------|-------|
 | `github.com/chdb-io/chdb-go` | The embedded ClickHouse engine. The hard cutover requires reading the *same* on-disk `data/sobs.chdb`. No stdlib substitute exists; reimplementing ClickHouse is out of the question. | cgo; links native libchdb/chdb-core. Pin per `CHDB_PIN.md`. Build from `main`. |
 | `google.golang.org/protobuf` | OTLP ingest parses OpenTelemetry protobuf (`/v1/logs\|traces\|metrics`). The wire format is protobuf; hand-rolling a parser is error-prone and pointless. | Generate OTEL `.pb.go` from `open-telemetry/opentelemetry-proto` into `internal/otlp/genpb`. |
+| `github.com/dlclark/regexp2` | DLP output masking and tag-rule matching compile a (possibly user-supplied) pattern in-process and apply it to arbitrary text, mirroring Python `re`. Go's stdlib `regexp` is RE2: ASCII-only `\d`/`\w`/`\s`/`\b` and no lookahead/lookbehind/backreferences — so it under/over-redacts non-ASCII and silently drops patterns Python accepts. regexp2 is a backtracking, Unicode-aware engine that matches Python `re` far more closely. Pure Go, no cgo, no transitive deps. | Used ONLY at the in-process sites (see `mask_regex.go`). RE2 (stdlib `regexp`) is kept for `validate-regex`/query filters — those patterns are *executed by ClickHouse* (itself RE2), so RE2 is the correct validator there. A `MatchTimeout` bounds backtracking on user input. |
 
 ## Explicitly NOT used (and the stdlib we use instead)
 

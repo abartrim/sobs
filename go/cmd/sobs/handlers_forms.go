@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -824,7 +823,7 @@ func (s *server) buildNotificationConditions(w http.ResponseWriter, r *http.Requ
 				tagOp = "eq"
 			}
 			if tagOp == "regex" {
-				if _, err := regexp.Compile(tagValue); err != nil {
+				if _, err := compileUserRegex(tagValue, false); err != nil {
 					// app.py:26002-26006: this error redirects to view_notifications carrying
 					// edit_rule=<id> when editing, else the plain location.
 					flashRedirect(w, "warning", "Invalid tag regex pattern: "+err.Error(), s.notifViewRedirect(editRuleID))

@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"net/http"
-	"regexp"
 
 	"github.com/sobs/sobs/internal/jsonenc"
 )
@@ -43,13 +42,12 @@ func (s *server) activeSensitiveKeys() map[string]bool {
 }
 
 // activeMaskPatterns returns the effective SENSITIVE_PATTERNS compiled (DEFAULT first, then custom),
-// each as a DOTALL regex (Python re.sub(..., flags=re.DOTALL)). compileMaskPattern reconciles RE2
-// with Python's `re` engine (\d -> \p{Nd}, \s -> Unicode whitespace; ASCII-identical) so the
-// redaction engine matches app.py on non-ASCII without changing ASCII (empty-corpus) bytes. A
-// custom pattern that uses RE2-unsupported syntax (lookahead/possessive) compiles to nil and is
-// skipped — a documented RE2 limitation, not reachable on the ASCII corpus.
-func (s *server) activeMaskPatterns() []*regexp.Regexp {
-	out := []*regexp.Regexp{}
+// each as a DOTALL regexp2 pattern (Python re.sub(..., flags=re.DOTALL)). compileMaskPattern uses
+// the regexp2 engine (mask_regex.go), Unicode-aware and backtracking, so redaction matches app.py's
+// `re` on non-ASCII input and on lookahead/backreference custom patterns, while staying ASCII- (and
+// thus empty-corpus-) identical. A genuinely uncompilable pattern yields nil and is skipped.
+func (s *server) activeMaskPatterns() []*userRegex {
+	out := []*userRegex{}
 	add := func(p string) {
 		if s.effectivePatternActive(p) {
 			if re := compileMaskPattern(p); re != nil {
@@ -68,14 +66,14 @@ func (s *server) activeMaskPatterns() []*regexp.Regexp {
 
 // redactScalar mirrors masking.redact for scalar values: strings get every pattern applied;
 // numbers/bools pass through; a chDateTime (an "unhandled type" in Python's redact) -> MASK.
-func redactScalar(content any, patterns []*regexp.Regexp) any {
+func redactScalar(content any, patterns []*userRegex) any {
 	switch x := content.(type) {
 	case nil:
 		return nil
 	case string:
 		out := x
 		for _, re := range patterns {
-			out = re.ReplaceAllString(out, maskMASK)
+			out = re.replaceAll(out, maskMASK)
 		}
 		return out
 	case bool, json.Number, int, int64, float64:
@@ -128,12 +126,12 @@ func (s *server) maskStringForOutput(value any) string {
 		str = string(jsonenc.Encode(mv, jsonDumpsDefault))
 	}
 	for _, re := range s.activeMaskPatterns() {
-		str = re.ReplaceAllString(str, maskMASK)
+		str = re.replaceAll(str, maskMASK)
 	}
 	return str
 }
 
-func maskPayloadJSON(v any, keys map[string]bool, patterns []*regexp.Regexp, maskSQL bool) any {
+func maskPayloadJSON(v any, keys map[string]bool, patterns []*userRegex, maskSQL bool) any {
 	switch x := v.(type) {
 	case *jsonenc.Object:
 		out := jsonenc.NewObject()

@@ -6,7 +6,6 @@ import (
 	"math"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -3406,7 +3405,7 @@ func (s *server) createTagRule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if c.op == "regex" {
-			if _, err := regexp.Compile(c.val); err != nil {
+			if _, err := compileUserRegex(c.val, false); err != nil {
 				flashRedirect(w, "warning", "Invalid regex pattern: "+err.Error(), loc)
 				return
 			}

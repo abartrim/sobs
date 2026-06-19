@@ -16,6 +16,7 @@ go 1.23
 
 require (
 	github.com/chdb-io/chdb-go v1.11.0
+	github.com/dlclark/regexp2 v1.12.0
 	google.golang.org/protobuf v1.36.11
 )
 
