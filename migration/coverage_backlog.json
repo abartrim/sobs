@@ -1,0 +1,10252 @@
+{
+  "total_uncovered": 6280,
+  "summary_pct": "58",
+  "by_bucket": {
+    "route": {
+      "functions": 123,
+      "uncovered": 1710
+    },
+    "helper": {
+      "functions": 448,
+      "uncovered": 4301
+    },
+    "lifecycle": {
+      "functions": 21,
+      "uncovered": 256
+    },
+    "module": {
+      "functions": 0,
+      "uncovered": 13
+    }
+  },
+  "functions": [
+    {
+      "function": "view_incident",
+      "bucket": "route",
+      "start": 15785,
+      "end": 16144,
+      "uncovered": 178,
+      "span": 360,
+      "route": {
+        "path": "/incident",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        15797,
+        15798,
+        15837,
+        15838,
+        15839,
+        15840,
+        15841,
+        15845
+      ]
+    },
+    {
+      "function": "view_ai",
+      "bucket": "route",
+      "start": 18631,
+      "end": 18998,
+      "uncovered": 118,
+      "span": 368,
+      "route": {
+        "path": "/ai",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        18649,
+        18665,
+        18666,
+        18667,
+        18668,
+        18669,
+        18670,
+        18671
+      ]
+    },
+    {
+      "function": "view_errors",
+      "bucket": "route",
+      "start": 14210,
+      "end": 14583,
+      "uncovered": 108,
+      "span": 374,
+      "route": {
+        "path": "/errors",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        14270,
+        14290,
+        14291,
+        14292,
+        14295,
+        14299,
+        14300,
+        14301
+      ]
+    },
+    {
+      "function": "_generate",
+      "bucket": "helper",
+      "start": 27807,
+      "end": 28123,
+      "uncovered": 94,
+      "span": 317,
+      "route": null,
+      "missing_sample": [
+        27807,
+        27808,
+        27809,
+        27810,
+        27811,
+        27812,
+        27813,
+        27823
+      ]
+    },
+    {
+      "function": "_fetch_k8s_from_otel",
+      "bucket": "helper",
+      "start": 31071,
+      "end": 31697,
+      "uncovered": 92,
+      "span": 627,
+      "route": null,
+      "missing_sample": [
+        31110,
+        31198,
+        31199,
+        31203,
+        31204,
+        31205,
+        31206,
+        31207
+      ]
+    },
+    {
+      "function": "_backfill_github_work_item_links",
+      "bucket": "helper",
+      "start": 6030,
+      "end": 6189,
+      "uncovered": 82,
+      "span": 160,
+      "route": null,
+      "missing_sample": [
+        6054,
+        6061,
+        6062,
+        6063,
+        6076,
+        6078,
+        6079,
+        6081
+      ]
+    },
+    {
+      "function": "api_import_reports",
+      "bucket": "route",
+      "start": 22857,
+      "end": 23017,
+      "uncovered": 73,
+      "span": 161,
+      "route": {
+        "path": "/api/reports/import",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        22879,
+        22886,
+        22887,
+        22888,
+        22889,
+        22890,
+        22891,
+        22892
+      ]
+    },
+    {
+      "function": "view_logs",
+      "bucket": "route",
+      "start": 11239,
+      "end": 11512,
+      "uncovered": 71,
+      "span": 274,
+      "route": {
+        "path": "/logs",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        11277,
+        11280,
+        11281,
+        11282,
+        11285,
+        11288,
+        11289,
+        11290
+      ]
+    },
+    {
+      "function": "_github_actions_dependency_rows",
+      "bucket": "helper",
+      "start": 16479,
+      "end": 16629,
+      "uncovered": 71,
+      "span": 151,
+      "route": null,
+      "missing_sample": [
+        16494,
+        16498,
+        16500,
+        16501,
+        16507,
+        16508,
+        16510,
+        16511
+      ]
+    },
+    {
+      "function": "_build_ai_trace_turn_cards",
+      "bucket": "helper",
+      "start": 8506,
+      "end": 8644,
+      "uncovered": 69,
+      "span": 139,
+      "route": null,
+      "missing_sample": [
+        8507,
+        8508,
+        8509,
+        8510,
+        8511,
+        8512,
+        8540,
+        8541
+      ]
+    },
+    {
+      "function": "_run_raw_window_copy_worker",
+      "bucket": "lifecycle",
+      "start": 2496,
+      "end": 2649,
+      "uncovered": 67,
+      "span": 154,
+      "route": null,
+      "missing_sample": [
+        2504,
+        2506,
+        2507,
+        2513,
+        2514,
+        2515,
+        2517,
+        2518
+      ]
+    },
+    {
+      "function": "ai_helper",
+      "bucket": "route",
+      "start": 27607,
+      "end": 28395,
+      "uncovered": 58,
+      "span": 789,
+      "route": {
+        "path": "/api/ai/helper",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        27651,
+        27674,
+        27675,
+        27687,
+        27692,
+        27697,
+        27710,
+        27711
+      ]
+    },
+    {
+      "function": "_normalize_generic_ui_action_tool_call",
+      "bucket": "helper",
+      "start": 4399,
+      "end": 4529,
+      "uncovered": 56,
+      "span": 131,
+      "route": null,
+      "missing_sample": [
+        4405,
+        4406,
+        4407,
+        4409,
+        4410,
+        4411,
+        4412,
+        4413
+      ]
+    },
+    {
+      "function": "_seed_app_release_registry_from_env",
+      "bucket": "helper",
+      "start": 8935,
+      "end": 9063,
+      "uncovered": 54,
+      "span": 129,
+      "route": null,
+      "missing_sample": [
+        8940,
+        8941,
+        8942,
+        8943,
+        8944,
+        8946,
+        8947,
+        8948
+      ]
+    },
+    {
+      "function": "_build_seasonal_metric_rule_candidates",
+      "bucket": "helper",
+      "start": 11845,
+      "end": 12019,
+      "uncovered": 52,
+      "span": 175,
+      "route": null,
+      "missing_sample": [
+        11862,
+        11863,
+        11865,
+        11866,
+        11867,
+        11868,
+        11869,
+        11871
+      ]
+    },
+    {
+      "function": "_sourcemap_lookup_for_file",
+      "bucket": "helper",
+      "start": 7970,
+      "end": 8027,
+      "uncovered": 49,
+      "span": 58,
+      "route": null,
+      "missing_sample": [
+        7971,
+        7972,
+        7973,
+        7974,
+        7976,
+        7977,
+        7978,
+        7979
+      ]
+    },
+    {
+      "function": "_genai_message_content_to_text",
+      "bucket": "helper",
+      "start": 8242,
+      "end": 8298,
+      "uncovered": 48,
+      "span": 57,
+      "route": null,
+      "missing_sample": [
+        8246,
+        8247,
+        8248,
+        8249,
+        8251,
+        8252,
+        8253,
+        8254
+      ]
+    },
+    {
+      "function": "_call_llm_endpoint",
+      "bucket": "helper",
+      "start": 4615,
+      "end": 4770,
+      "uncovered": 46,
+      "span": 156,
+      "route": null,
+      "missing_sample": [
+        4631,
+        4673,
+        4674,
+        4675,
+        4676,
+        4677,
+        4678,
+        4679
+      ]
+    },
+    {
+      "function": "_choose_github_issue_outcome",
+      "bucket": "helper",
+      "start": 5388,
+      "end": 5646,
+      "uncovered": 44,
+      "span": 259,
+      "route": null,
+      "missing_sample": [
+        5415,
+        5442,
+        5484,
+        5526,
+        5527,
+        5529,
+        5530,
+        5532
+      ]
+    },
+    {
+      "function": "_parse_oss_safeguard_reply",
+      "bucket": "helper",
+      "start": 5042,
+      "end": 5092,
+      "uncovered": 43,
+      "span": 51,
+      "route": null,
+      "missing_sample": [
+        5043,
+        5044,
+        5045,
+        5047,
+        5048,
+        5049,
+        5050,
+        5051
+      ]
+    },
+    {
+      "function": "api_logs_validate_filter",
+      "bucket": "route",
+      "start": 23784,
+      "end": 23855,
+      "uncovered": 42,
+      "span": 72,
+      "route": {
+        "path": "/api/logs/validate-filter",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        23791,
+        23794,
+        23795,
+        23796,
+        23797,
+        23798,
+        23799,
+        23800
+      ]
+    },
+    {
+      "function": "_stream_llm_endpoint",
+      "bucket": "helper",
+      "start": 4773,
+      "end": 4887,
+      "uncovered": 41,
+      "span": 115,
+      "route": null,
+      "missing_sample": [
+        4784,
+        4794,
+        4795,
+        4815,
+        4818,
+        4823,
+        4824,
+        4829
+      ]
+    },
+    {
+      "function": "_compute_advanced_log_analysis",
+      "bucket": "helper",
+      "start": 11015,
+      "end": 11107,
+      "uncovered": 41,
+      "span": 93,
+      "route": null,
+      "missing_sample": [
+        11017,
+        11018,
+        11019,
+        11026,
+        11027,
+        11028,
+        11030,
+        11031
+      ]
+    },
+    {
+      "function": "_fetch_release_deps_from_github",
+      "bucket": "helper",
+      "start": 16703,
+      "end": 16873,
+      "uncovered": 41,
+      "span": 171,
+      "route": null,
+      "missing_sample": [
+        16716,
+        16717,
+        16718,
+        16728,
+        16729,
+        16730,
+        16767,
+        16769
+      ]
+    },
+    {
+      "function": "create_notification_rule",
+      "bucket": "route",
+      "start": 25918,
+      "end": 26089,
+      "uncovered": 41,
+      "span": 172,
+      "route": {
+        "path": "/settings/notifications/rules",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        25927,
+        25928,
+        25948,
+        25949,
+        25951,
+        25952,
+        25971,
+        25972
+      ]
+    },
+    {
+      "function": "_verify_rum_client_auth",
+      "bucket": "helper",
+      "start": 7827,
+      "end": 7878,
+      "uncovered": 40,
+      "span": 52,
+      "route": null,
+      "missing_sample": [
+        7832,
+        7833,
+        7835,
+        7836,
+        7838,
+        7839,
+        7840,
+        7841
+      ]
+    },
+    {
+      "function": "view_rum",
+      "bucket": "route",
+      "start": 17309,
+      "end": 17657,
+      "uncovered": 39,
+      "span": 349,
+      "route": {
+        "path": "/rum",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        17313,
+        17329,
+        17341,
+        17342,
+        17343,
+        17348,
+        17349,
+        17351
+      ]
+    },
+    {
+      "function": "_collect_github_repo_health_summary",
+      "bucket": "helper",
+      "start": 17944,
+      "end": 18083,
+      "uncovered": 39,
+      "span": 140,
+      "route": null,
+      "missing_sample": [
+        17961,
+        17962,
+        17969,
+        17982,
+        18007,
+        18008,
+        18009,
+        18010
+      ]
+    },
+    {
+      "function": "_dispatch_browser_push_channel",
+      "bucket": "lifecycle",
+      "start": 24895,
+      "end": 24960,
+      "uncovered": 39,
+      "span": 66,
+      "route": null,
+      "missing_sample": [
+        24901,
+        24902,
+        24903,
+        24905,
+        24906,
+        24908,
+        24909,
+        24910
+      ]
+    },
+    {
+      "function": "_evaluate_seasonal_rule",
+      "bucket": "helper",
+      "start": 13020,
+      "end": 13089,
+      "uncovered": 38,
+      "span": 70,
+      "route": null,
+      "missing_sample": [
+        13033,
+        13034,
+        13035,
+        13036,
+        13037,
+        13038,
+        13039,
+        13040
+      ]
+    },
+    {
+      "function": "_parse_package_lock_dependencies",
+      "bucket": "helper",
+      "start": 16358,
+      "end": 16399,
+      "uncovered": 38,
+      "span": 42,
+      "route": null,
+      "missing_sample": [
+        16359,
+        16360,
+        16361,
+        16362,
+        16363,
+        16365,
+        16366,
+        16367
+      ]
+    },
+    {
+      "function": "_build_series_sql",
+      "bucket": "helper",
+      "start": 19964,
+      "end": 20181,
+      "uncovered": 38,
+      "span": 218,
+      "route": null,
+      "missing_sample": [
+        19970,
+        19989,
+        19990,
+        19991,
+        19992,
+        19993,
+        19994,
+        19995
+      ]
+    },
+    {
+      "function": "api_ai_validate_filter",
+      "bucket": "route",
+      "start": 24407,
+      "end": 24454,
+      "uncovered": 34,
+      "span": 48,
+      "route": {
+        "path": "/api/ai/validate-filter",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        24414,
+        24416,
+        24417,
+        24418,
+        24419,
+        24420,
+        24421,
+        24422
+      ]
+    },
+    {
+      "function": "_normalize_notification_condition",
+      "bucket": "helper",
+      "start": 24626,
+      "end": 24679,
+      "uncovered": 34,
+      "span": 54,
+      "route": null,
+      "missing_sample": [
+        24627,
+        24628,
+        24630,
+        24631,
+        24632,
+        24633,
+        24634,
+        24635
+      ]
+    },
+    {
+      "function": "ingest_rum",
+      "bucket": "route",
+      "start": 10010,
+      "end": 10149,
+      "uncovered": 33,
+      "span": 140,
+      "route": {
+        "path": "/v1/rum",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        10013,
+        10015,
+        10027,
+        10033,
+        10037,
+        10077,
+        10083,
+        10084
+      ]
+    },
+    {
+      "function": "_vanna_validate_and_execute_with_repair",
+      "bucket": "helper",
+      "start": 22071,
+      "end": 22153,
+      "uncovered": 33,
+      "span": 83,
+      "route": null,
+      "missing_sample": [
+        22092,
+        22093,
+        22094,
+        22095,
+        22096,
+        22098,
+        22099,
+        22108
+      ]
+    },
+    {
+      "function": "_evaluate_tag_condition",
+      "bucket": "helper",
+      "start": 25127,
+      "end": 25175,
+      "uncovered": 33,
+      "span": 49,
+      "route": null,
+      "missing_sample": [
+        25129,
+        25130,
+        25131,
+        25132,
+        25133,
+        25134,
+        25135,
+        25137
+      ]
+    },
+    {
+      "function": "_check_notification_rule",
+      "bucket": "helper",
+      "start": 25185,
+      "end": 25332,
+      "uncovered": 33,
+      "span": 148,
+      "route": null,
+      "missing_sample": [
+        25188,
+        25203,
+        25204,
+        25208,
+        25217,
+        25218,
+        25219,
+        25220
+      ]
+    },
+    {
+      "function": "decorated",
+      "bucket": "helper",
+      "start": 7890,
+      "end": 7939,
+      "uncovered": 32,
+      "span": 50,
+      "route": null,
+      "missing_sample": [
+        7893,
+        7895,
+        7896,
+        7901,
+        7902,
+        7904,
+        7905,
+        7906
+      ]
+    },
+    {
+      "function": "_query_timeseries",
+      "bucket": "helper",
+      "start": 15030,
+      "end": 15089,
+      "uncovered": 32,
+      "span": 60,
+      "route": null,
+      "missing_sample": [
+        15038,
+        15039,
+        15040,
+        15041,
+        15042,
+        15043,
+        15044,
+        15045
+      ]
+    },
+    {
+      "function": "save_ai_settings",
+      "bucket": "route",
+      "start": 26677,
+      "end": 26751,
+      "uncovered": 32,
+      "span": 75,
+      "route": {
+        "path": "/settings/ai",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        26703,
+        26704,
+        26705,
+        26706,
+        26708,
+        26709,
+        26710,
+        26711
+      ]
+    },
+    {
+      "function": "_check_guard_model",
+      "bucket": "helper",
+      "start": 5136,
+      "end": 5233,
+      "uncovered": 31,
+      "span": 98,
+      "route": null,
+      "missing_sample": [
+        5143,
+        5150,
+        5153,
+        5185,
+        5186,
+        5187,
+        5188,
+        5189
+      ]
+    },
+    {
+      "function": "view_traces",
+      "bucket": "route",
+      "start": 15312,
+      "end": 15678,
+      "uncovered": 31,
+      "span": 367,
+      "route": {
+        "path": "/traces",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        15346,
+        15347,
+        15348,
+        15350,
+        15351,
+        15352,
+        15358,
+        15373
+      ]
+    },
+    {
+      "function": "get_ai_conversation",
+      "bucket": "route",
+      "start": 19048,
+      "end": 19115,
+      "uncovered": 31,
+      "span": 68,
+      "route": {
+        "path": "/api/ai/conversation",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        19061,
+        19062,
+        19063,
+        19064,
+        19065,
+        19066,
+        19067,
+        19068
+      ]
+    },
+    {
+      "function": "_update_github_issue_record",
+      "bucket": "helper",
+      "start": 32994,
+      "end": 33047,
+      "uncovered": 31,
+      "span": 54,
+      "route": null,
+      "missing_sample": [
+        33005,
+        33006,
+        33007,
+        33008,
+        33009,
+        33011,
+        33012,
+        33013
+      ]
+    },
+    {
+      "function": "_assign_issue_to_copilot",
+      "bucket": "helper",
+      "start": 5329,
+      "end": 5385,
+      "uncovered": 30,
+      "span": 57,
+      "route": null,
+      "missing_sample": [
+        5337,
+        5338,
+        5339,
+        5340,
+        5342,
+        5343,
+        5344,
+        5346
+      ]
+    },
+    {
+      "function": "_replace_sql_outside_single_quotes",
+      "bucket": "helper",
+      "start": 11538,
+      "end": 11570,
+      "uncovered": 29,
+      "span": 33,
+      "route": null,
+      "missing_sample": [
+        11539,
+        11540,
+        11541,
+        11542,
+        11543,
+        11544,
+        11545,
+        11546
+      ]
+    },
+    {
+      "function": "_coerce_reasoning_text",
+      "bucket": "helper",
+      "start": 8304,
+      "end": 8331,
+      "uncovered": 28,
+      "span": 28,
+      "route": null,
+      "missing_sample": [
+        8304,
+        8305,
+        8306,
+        8307,
+        8308,
+        8309,
+        8310,
+        8311
+      ]
+    },
+    {
+      "function": "_geo_lookup_batch",
+      "bucket": "helper",
+      "start": 16194,
+      "end": 16241,
+      "uncovered": 28,
+      "span": 48,
+      "route": null,
+      "missing_sample": [
+        16204,
+        16205,
+        16207,
+        16208,
+        16209,
+        16210,
+        16211,
+        16212
+      ]
+    },
+    {
+      "function": "_resolve_custom_binding_expr",
+      "bucket": "helper",
+      "start": 21086,
+      "end": 21119,
+      "uncovered": 28,
+      "span": 34,
+      "route": null,
+      "missing_sample": [
+        21089,
+        21090,
+        21091,
+        21092,
+        21093,
+        21094,
+        21095,
+        21096
+      ]
+    },
+    {
+      "function": "_parse_gemfile_lock_dependencies",
+      "bucket": "helper",
+      "start": 16426,
+      "end": 16453,
+      "uncovered": 27,
+      "span": 28,
+      "route": null,
+      "missing_sample": [
+        16427,
+        16428,
+        16429,
+        16430,
+        16431,
+        16432,
+        16433,
+        16434
+      ]
+    },
+    {
+      "function": "_encrypt_push_payload",
+      "bucket": "helper",
+      "start": 24990,
+      "end": 25055,
+      "uncovered": 27,
+      "span": 66,
+      "route": null,
+      "missing_sample": [
+        24994,
+        24995,
+        24996,
+        24997,
+        24998,
+        25001,
+        25002,
+        25005
+      ]
+    },
+    {
+      "function": "create_notification_channel",
+      "bucket": "route",
+      "start": 25742,
+      "end": 25813,
+      "uncovered": 27,
+      "span": 72,
+      "route": {
+        "path": "/settings/notifications/channels",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        25756,
+        25757,
+        25767,
+        25768,
+        25769,
+        25770,
+        25771,
+        25772
+      ]
+    },
+    {
+      "function": "_maybe_demangle_js_stack",
+      "bucket": "helper",
+      "start": 8030,
+      "end": 8061,
+      "uncovered": 26,
+      "span": 32,
+      "route": null,
+      "missing_sample": [
+        8031,
+        8032,
+        8033,
+        8035,
+        8036,
+        8037,
+        8038,
+        8039
+      ]
+    },
+    {
+      "function": "_normalize_genai_messages_for_display",
+      "bucket": "helper",
+      "start": 8403,
+      "end": 8440,
+      "uncovered": 26,
+      "span": 38,
+      "route": null,
+      "missing_sample": [
+        8405,
+        8406,
+        8408,
+        8415,
+        8416,
+        8417,
+        8418,
+        8419
+      ]
+    },
+    {
+      "function": "_match_single_condition",
+      "bucket": "helper",
+      "start": 12551,
+      "end": 12588,
+      "uncovered": 26,
+      "span": 38,
+      "route": null,
+      "missing_sample": [
+        12561,
+        12562,
+        12563,
+        12564,
+        12565,
+        12566,
+        12567,
+        12568
+      ]
+    },
+    {
+      "function": "auto_metrics_rules_dashboard",
+      "bucket": "route",
+      "start": 13848,
+      "end": 13960,
+      "uncovered": 26,
+      "span": 113,
+      "route": {
+        "path": "/metrics/rules/dashboard/auto",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        13886,
+        13887,
+        13888,
+        13890,
+        13894,
+        13896,
+        13897,
+        13898
+      ]
+    },
+    {
+      "function": "_build_trace_window_overlay_segments",
+      "bucket": "helper",
+      "start": 14787,
+      "end": 14842,
+      "uncovered": 26,
+      "span": 56,
+      "route": null,
+      "missing_sample": [
+        14795,
+        14796,
+        14799,
+        14804,
+        14805,
+        14806,
+        14807,
+        14808
+      ]
+    },
+    {
+      "function": "_collect_library_inventory",
+      "bucket": "helper",
+      "start": 16876,
+      "end": 17071,
+      "uncovered": 26,
+      "span": 196,
+      "route": null,
+      "missing_sample": [
+        16948,
+        16949,
+        16950,
+        16951,
+        16952,
+        16953,
+        16954,
+        16955
+      ]
+    },
+    {
+      "function": "_dispatch_email_channel",
+      "bucket": "lifecycle",
+      "start": 24858,
+      "end": 24892,
+      "uncovered": 26,
+      "span": 35,
+      "route": null,
+      "missing_sample": [
+        24860,
+        24861,
+        24863,
+        24864,
+        24865,
+        24866,
+        24867,
+        24868
+      ]
+    },
+    {
+      "function": "_shutdown_async_http_client",
+      "bucket": "lifecycle",
+      "start": 326,
+      "end": 352,
+      "uncovered": 25,
+      "span": 27,
+      "route": null,
+      "missing_sample": [
+        328,
+        329,
+        330,
+        331,
+        332,
+        333,
+        334,
+        335
+      ]
+    },
+    {
+      "function": "_load_chat_tool_history",
+      "bucket": "helper",
+      "start": 4016,
+      "end": 4075,
+      "uncovered": 25,
+      "span": 60,
+      "route": null,
+      "missing_sample": [
+        4033,
+        4034,
+        4035,
+        4036,
+        4037,
+        4038,
+        4039,
+        4040
+      ]
+    },
+    {
+      "function": "_to_summary",
+      "bucket": "helper",
+      "start": 10606,
+      "end": 10632,
+      "uncovered": 25,
+      "span": 27,
+      "route": null,
+      "missing_sample": [
+        10606,
+        10607,
+        10608,
+        10609,
+        10610,
+        10612,
+        10613,
+        10614
+      ]
+    },
+    {
+      "function": "_build_auto_tag_rule_candidates",
+      "bucket": "helper",
+      "start": 12062,
+      "end": 12308,
+      "uncovered": 25,
+      "span": 247,
+      "route": null,
+      "missing_sample": [
+        12073,
+        12139,
+        12166,
+        12187,
+        12188,
+        12189,
+        12190,
+        12191
+      ]
+    },
+    {
+      "function": "api_onboarding_create_issues",
+      "bucket": "route",
+      "start": 33738,
+      "end": 33930,
+      "uncovered": 25,
+      "span": 193,
+      "route": {
+        "path": "/api/onboarding/create-issues",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        33763,
+        33772,
+        33775,
+        33781,
+        33787,
+        33795,
+        33798,
+        33838
+      ]
+    },
+    {
+      "function": "_build_agent_context_summary",
+      "bucket": "helper",
+      "start": 6609,
+      "end": 6703,
+      "uncovered": 24,
+      "span": 95,
+      "route": null,
+      "missing_sample": [
+        6628,
+        6636,
+        6638,
+        6649,
+        6650,
+        6651,
+        6652,
+        6653
+      ]
+    },
+    {
+      "function": "_compute_health_chips",
+      "bucket": "helper",
+      "start": 14929,
+      "end": 14956,
+      "uncovered": 24,
+      "span": 28,
+      "route": null,
+      "missing_sample": [
+        14931,
+        14932,
+        14933,
+        14934,
+        14935,
+        14936,
+        14937,
+        14938
+      ]
+    },
+    {
+      "function": "_fetch_trace_metric_context",
+      "bucket": "helper",
+      "start": 14959,
+      "end": 15306,
+      "uncovered": 24,
+      "span": 348,
+      "route": null,
+      "missing_sample": [
+        15027,
+        15028,
+        15259,
+        15260,
+        15261,
+        15263,
+        15267,
+        15269
+      ]
+    },
+    {
+      "function": "_vanna_generate_named_queries",
+      "bucket": "helper",
+      "start": 29555,
+      "end": 29648,
+      "uncovered": 24,
+      "span": 94,
+      "route": null,
+      "missing_sample": [
+        29574,
+        29610,
+        29614,
+        29615,
+        29621,
+        29628,
+        29629,
+        29630
+      ]
+    },
+    {
+      "function": "_run_dm_backup",
+      "bucket": "helper",
+      "start": 32134,
+      "end": 32170,
+      "uncovered": 24,
+      "span": 37,
+      "route": null,
+      "missing_sample": [
+        32139,
+        32140,
+        32141,
+        32143,
+        32144,
+        32146,
+        32147,
+        32150
+      ]
+    },
+    {
+      "function": "_evaluate_signal_condition",
+      "bucket": "helper",
+      "start": 25078,
+      "end": 25124,
+      "uncovered": 23,
+      "span": 47,
+      "route": null,
+      "missing_sample": [
+        25083,
+        25084,
+        25085,
+        25086,
+        25087,
+        25088,
+        25090,
+        25091
+      ]
+    },
+    {
+      "function": "_vanna_repair_sql",
+      "bucket": "helper",
+      "start": 29651,
+      "end": 29710,
+      "uncovered": 23,
+      "span": 60,
+      "route": null,
+      "missing_sample": [
+        29664,
+        29665,
+        29666,
+        29668,
+        29669,
+        29671,
+        29672,
+        29679
+      ]
+    },
+    {
+      "function": "_sanitize_value",
+      "bucket": "helper",
+      "start": 4353,
+      "end": 4382,
+      "uncovered": 22,
+      "span": 30,
+      "route": null,
+      "missing_sample": [
+        4355,
+        4357,
+        4359,
+        4363,
+        4365,
+        4366,
+        4367,
+        4368
+      ]
+    },
+    {
+      "function": "create_metrics_rule",
+      "bucket": "route",
+      "start": 13626,
+      "end": 13716,
+      "uncovered": 22,
+      "span": 91,
+      "route": {
+        "path": "/metrics/rules",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        13644,
+        13645,
+        13648,
+        13649,
+        13651,
+        13652,
+        13660,
+        13661
+      ]
+    },
+    {
+      "function": "_parse_requirements_dependencies",
+      "bucket": "helper",
+      "start": 16333,
+      "end": 16355,
+      "uncovered": 22,
+      "span": 23,
+      "route": null,
+      "missing_sample": [
+        16334,
+        16335,
+        16336,
+        16337,
+        16338,
+        16339,
+        16340,
+        16341
+      ]
+    },
+    {
+      "function": "_build_custom_drilldown",
+      "bucket": "helper",
+      "start": 21133,
+      "end": 21163,
+      "uncovered": 22,
+      "span": 31,
+      "route": null,
+      "missing_sample": [
+        21138,
+        21139,
+        21140,
+        21142,
+        21143,
+        21145,
+        21146,
+        21147
+      ]
+    },
+    {
+      "function": "_render_custom_echarts",
+      "bucket": "helper",
+      "start": 21199,
+      "end": 21271,
+      "uncovered": 22,
+      "span": 73,
+      "route": null,
+      "missing_sample": [
+        21212,
+        21218,
+        21220,
+        21227,
+        21228,
+        21238,
+        21239,
+        21240
+      ]
+    },
+    {
+      "function": "create_tag_rule",
+      "bucket": "route",
+      "start": 23465,
+      "end": 23584,
+      "uncovered": 22,
+      "span": 120,
+      "route": {
+        "path": "/settings/tags",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        23494,
+        23495,
+        23496,
+        23497,
+        23498,
+        23499,
+        23525,
+        23526
+      ]
+    },
+    {
+      "function": "_build_notification_payload",
+      "bucket": "helper",
+      "start": 24767,
+      "end": 24811,
+      "uncovered": 22,
+      "span": 45,
+      "route": null,
+      "missing_sample": [
+        24774,
+        24777,
+        24778,
+        24779,
+        24780,
+        24781,
+        24782,
+        24783
+      ]
+    },
+    {
+      "function": "_vanna_generate_sql",
+      "bucket": "helper",
+      "start": 29475,
+      "end": 29552,
+      "uncovered": 22,
+      "span": 78,
+      "route": null,
+      "missing_sample": [
+        29492,
+        29501,
+        29503,
+        29506,
+        29507,
+        29508,
+        29509,
+        29510
+      ]
+    },
+    {
+      "function": "_auto_repair_incomplete_cte_sql",
+      "bucket": "helper",
+      "start": 29746,
+      "end": 29785,
+      "uncovered": 22,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        29756,
+        29757,
+        29758,
+        29760,
+        29761,
+        29763,
+        29764,
+        29765
+      ]
+    },
+    {
+      "function": "_infer_custom_mapping_from_option",
+      "bucket": "helper",
+      "start": 29900,
+      "end": 29927,
+      "uncovered": 22,
+      "span": 28,
+      "route": null,
+      "missing_sample": [
+        29902,
+        29903,
+        29904,
+        29906,
+        29907,
+        29908,
+        29909,
+        29910
+      ]
+    },
+    {
+      "function": "_shutdown_db_resources",
+      "bucket": "helper",
+      "start": 7484,
+      "end": 7510,
+      "uncovered": 21,
+      "span": 27,
+      "route": null,
+      "missing_sample": [
+        7487,
+        7488,
+        7489,
+        7490,
+        7491,
+        7492,
+        7493,
+        7494
+      ]
+    },
+    {
+      "function": "_first_scalar",
+      "bucket": "helper",
+      "start": 10583,
+      "end": 10604,
+      "uncovered": 21,
+      "span": 22,
+      "route": null,
+      "missing_sample": [
+        10583,
+        10584,
+        10585,
+        10586,
+        10588,
+        10589,
+        10590,
+        10591
+      ]
+    },
+    {
+      "function": "view_metrics",
+      "bucket": "route",
+      "start": 13430,
+      "end": 13595,
+      "uncovered": 21,
+      "span": 166,
+      "route": {
+        "path": "/metrics",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        13461,
+        13462,
+        13467,
+        13468,
+        13469,
+        13471,
+        13472,
+        13473
+      ]
+    },
+    {
+      "function": "_parse_go_sum_dependencies",
+      "bucket": "helper",
+      "start": 16402,
+      "end": 16423,
+      "uncovered": 21,
+      "span": 22,
+      "route": null,
+      "missing_sample": [
+        16403,
+        16404,
+        16405,
+        16406,
+        16407,
+        16408,
+        16409,
+        16410
+      ]
+    },
+    {
+      "function": "_vanna_execute_named_queries",
+      "bucket": "helper",
+      "start": 22156,
+      "end": 22210,
+      "uncovered": 21,
+      "span": 55,
+      "route": null,
+      "missing_sample": [
+        22170,
+        22171,
+        22172,
+        22173,
+        22174,
+        22176,
+        22177,
+        22178
+      ]
+    },
+    {
+      "function": "_create_github_issue_record",
+      "bucket": "helper",
+      "start": 6380,
+      "end": 6435,
+      "uncovered": 20,
+      "span": 56,
+      "route": null,
+      "missing_sample": [
+        6390,
+        6393,
+        6394,
+        6395,
+        6397,
+        6421,
+        6422,
+        6423
+      ]
+    },
+    {
+      "function": "issue_rum_client_token",
+      "bucket": "route",
+      "start": 9791,
+      "end": 9826,
+      "uncovered": 20,
+      "span": 36,
+      "route": {
+        "path": "/v1/rum/client-token",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        9796,
+        9797,
+        9799,
+        9800,
+        9802,
+        9803,
+        9804,
+        9805
+      ]
+    },
+    {
+      "function": "view_work_items",
+      "bucket": "route",
+      "start": 18361,
+      "end": 18488,
+      "uncovered": 20,
+      "span": 128,
+      "route": {
+        "path": "/work-items",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        18377,
+        18378,
+        18380,
+        18381,
+        18383,
+        18384,
+        18386,
+        18387
+      ]
+    },
+    {
+      "function": "export_ai_training",
+      "bucket": "route",
+      "start": 19123,
+      "end": 19226,
+      "uncovered": 20,
+      "span": 104,
+      "route": {
+        "path": "/api/ai/export",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        19133,
+        19134,
+        19141,
+        19142,
+        19144,
+        19145,
+        19147,
+        19148
+      ]
+    },
+    {
+      "function": "_vanna_generate_chart_spec",
+      "bucket": "helper",
+      "start": 29788,
+      "end": 29889,
+      "uncovered": 20,
+      "span": 102,
+      "route": null,
+      "missing_sample": [
+        29807,
+        29815,
+        29831,
+        29833,
+        29836,
+        29861,
+        29862,
+        29863
+      ]
+    },
+    {
+      "function": "_consolidate_memory_candidates",
+      "bucket": "helper",
+      "start": 3838,
+      "end": 3900,
+      "uncovered": 19,
+      "span": 63,
+      "route": null,
+      "missing_sample": [
+        3848,
+        3883,
+        3884,
+        3885,
+        3886,
+        3887,
+        3888,
+        3889
+      ]
+    },
+    {
+      "function": "_genai_tool_calls_to_text",
+      "bucket": "helper",
+      "start": 8219,
+      "end": 8239,
+      "uncovered": 19,
+      "span": 21,
+      "route": null,
+      "missing_sample": [
+        8220,
+        8221,
+        8222,
+        8223,
+        8224,
+        8225,
+        8226,
+        8227
+      ]
+    },
+    {
+      "function": "auto_metrics_rules",
+      "bucket": "route",
+      "start": 13721,
+      "end": 13843,
+      "uncovered": 19,
+      "span": 123,
+      "route": {
+        "path": "/metrics/rules/auto",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        13726,
+        13727,
+        13730,
+        13731,
+        13737,
+        13740,
+        13747,
+        13782
+      ]
+    },
+    {
+      "function": "_group_metric_series",
+      "bucket": "helper",
+      "start": 14906,
+      "end": 14926,
+      "uncovered": 19,
+      "span": 21,
+      "route": null,
+      "missing_sample": [
+        14908,
+        14909,
+        14910,
+        14911,
+        14912,
+        14913,
+        14914,
+        14915
+      ]
+    },
+    {
+      "function": "metrics_anomaly",
+      "bucket": "route",
+      "start": 22540,
+      "end": 22628,
+      "uncovered": 19,
+      "span": 89,
+      "route": {
+        "path": "/api/metrics/anomaly",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        22565,
+        22566,
+        22567,
+        22568,
+        22570,
+        22572,
+        22573,
+        22574
+      ]
+    },
+    {
+      "function": "_genai_message_reasoning_to_text",
+      "bucket": "helper",
+      "start": 8301,
+      "end": 8354,
+      "uncovered": 18,
+      "span": 54,
+      "route": null,
+      "missing_sample": [
+        8334,
+        8335,
+        8336,
+        8337,
+        8340,
+        8341,
+        8342,
+        8343
+      ]
+    },
+    {
+      "function": "_extract_structured_error_summary",
+      "bucket": "helper",
+      "start": 10568,
+      "end": 10649,
+      "uncovered": 18,
+      "span": 82,
+      "route": null,
+      "missing_sample": [
+        10569,
+        10580,
+        10581,
+        10634,
+        10635,
+        10636,
+        10637,
+        10638
+      ]
+    },
+    {
+      "function": "_sync_github_repo_health_once",
+      "bucket": "helper",
+      "start": 17255,
+      "end": 17292,
+      "uncovered": 18,
+      "span": 38,
+      "route": null,
+      "missing_sample": [
+        17257,
+        17258,
+        17259,
+        17260,
+        17262,
+        17270,
+        17271,
+        17272
+      ]
+    },
+    {
+      "function": "view_enrichment_cve",
+      "bucket": "route",
+      "start": 18104,
+      "end": 18215,
+      "uncovered": 18,
+      "span": 112,
+      "route": {
+        "path": "/enrichment/cve",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        18112,
+        18113,
+        18116,
+        18117,
+        18120,
+        18121,
+        18152,
+        18153
+      ]
+    },
+    {
+      "function": "get_ai_span_attributes",
+      "bucket": "route",
+      "start": 19003,
+      "end": 19040,
+      "uncovered": 18,
+      "span": 38,
+      "route": {
+        "path": "/api/ai/span-attributes",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        19013,
+        19018,
+        19019,
+        19020,
+        19021,
+        19022,
+        19023,
+        19024
+      ]
+    },
+    {
+      "function": "_build_user_issue_trigger_context",
+      "bucket": "helper",
+      "start": 28476,
+      "end": 28542,
+      "uncovered": 18,
+      "span": 67,
+      "route": null,
+      "missing_sample": [
+        28479,
+        28497,
+        28498,
+        28499,
+        28500,
+        28501,
+        28502,
+        28503
+      ]
+    },
+    {
+      "function": "_repair_truncated_in_clause_literals",
+      "bucket": "helper",
+      "start": 29713,
+      "end": 29743,
+      "uncovered": 18,
+      "span": 31,
+      "route": null,
+      "missing_sample": [
+        29722,
+        29723,
+        29724,
+        29725,
+        29727,
+        29728,
+        29729,
+        29731
+      ]
+    },
+    {
+      "function": "_verify_rum_asset_signature",
+      "bucket": "helper",
+      "start": 7706,
+      "end": 7745,
+      "uncovered": 17,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        7718,
+        7719,
+        7720,
+        7721,
+        7723,
+        7724,
+        7725,
+        7726
+      ]
+    },
+    {
+      "function": "_summarize_ai_tool_action",
+      "bucket": "helper",
+      "start": 8486,
+      "end": 8503,
+      "uncovered": 17,
+      "span": 18,
+      "route": null,
+      "missing_sample": [
+        8487,
+        8488,
+        8489,
+        8490,
+        8491,
+        8492,
+        8493,
+        8494
+      ]
+    },
+    {
+      "function": "_handle_browser_context_delta",
+      "bucket": "helper",
+      "start": 9961,
+      "end": 10005,
+      "uncovered": 17,
+      "span": 45,
+      "route": null,
+      "missing_sample": [
+        9977,
+        9979,
+        9980,
+        9985,
+        9987,
+        9988,
+        9989,
+        9992
+      ]
+    },
+    {
+      "function": "view_metrics_anomaly",
+      "bucket": "route",
+      "start": 14010,
+      "end": 14172,
+      "uncovered": 17,
+      "span": 163,
+      "route": {
+        "path": "/metrics/anomaly",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        14025,
+        14026,
+        14031,
+        14032,
+        14034,
+        14035,
+        14037,
+        14038
+      ]
+    },
+    {
+      "function": "api_raw_span",
+      "bucket": "route",
+      "start": 15695,
+      "end": 15764,
+      "uncovered": 17,
+      "span": 70,
+      "route": {
+        "path": "/api/traces/span/<span_id>",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        15699,
+        15715,
+        15716,
+        15724,
+        15725,
+        15727,
+        15746,
+        15747
+      ]
+    },
+    {
+      "function": "_apply_chart_spec_visual_overrides",
+      "bucket": "helper",
+      "start": 20397,
+      "end": 20470,
+      "uncovered": 17,
+      "span": 74,
+      "route": null,
+      "missing_sample": [
+        20399,
+        20403,
+        20447,
+        20453,
+        20454,
+        20455,
+        20456,
+        20457
+      ]
+    },
+    {
+      "function": "_generate",
+      "bucket": "helper",
+      "start": 24481,
+      "end": 24498,
+      "uncovered": 17,
+      "span": 18,
+      "route": null,
+      "missing_sample": [
+        24481,
+        24482,
+        24483,
+        24484,
+        24485,
+        24486,
+        24487,
+        24488
+      ]
+    },
+    {
+      "function": "_vanna_refine_chart_spec",
+      "bucket": "helper",
+      "start": 30015,
+      "end": 30086,
+      "uncovered": 17,
+      "span": 72,
+      "route": null,
+      "missing_sample": [
+        30032,
+        30037,
+        30038,
+        30063,
+        30064,
+        30065,
+        30066,
+        30072
+      ]
+    },
+    {
+      "function": "api_query_run",
+      "bucket": "route",
+      "start": 30511,
+      "end": 30765,
+      "uncovered": 17,
+      "span": 255,
+      "route": {
+        "path": "/api/query/run",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        30527,
+        30580,
+        30581,
+        30634,
+        30635,
+        30636,
+        30647,
+        30648
+      ]
+    },
+    {
+      "function": "_embedding_from_json",
+      "bucket": "helper",
+      "start": 3650,
+      "end": 3666,
+      "uncovered": 16,
+      "span": 17,
+      "route": null,
+      "missing_sample": [
+        3651,
+        3652,
+        3653,
+        3654,
+        3655,
+        3656,
+        3657,
+        3658
+      ]
+    },
+    {
+      "function": "_proto_metrics_to_events",
+      "bucket": "helper",
+      "start": 9266,
+      "end": 9367,
+      "uncovered": 16,
+      "span": 102,
+      "route": null,
+      "missing_sample": [
+        9302,
+        9303,
+        9304,
+        9305,
+        9306,
+        9307,
+        9308,
+        9324
+      ]
+    },
+    {
+      "function": "summary",
+      "bucket": "route",
+      "start": 10841,
+      "end": 10971,
+      "uncovered": 16,
+      "span": 131,
+      "route": {
+        "path": "/",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        10855,
+        10856,
+        10905,
+        10947,
+        10948,
+        10949,
+        10950,
+        10951
+      ]
+    },
+    {
+      "function": "_get_geo_db",
+      "bucket": "helper",
+      "start": 16172,
+      "end": 16191,
+      "uncovered": 16,
+      "span": 20,
+      "route": null,
+      "missing_sample": [
+        16175,
+        16176,
+        16177,
+        16178,
+        16179,
+        16180,
+        16181,
+        16183
+      ]
+    },
+    {
+      "function": "auto_tag_rules",
+      "bucket": "route",
+      "start": 23353,
+      "end": 23460,
+      "uncovered": 16,
+      "span": 108,
+      "route": {
+        "path": "/settings/tags/auto",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        23358,
+        23359,
+        23362,
+        23363,
+        23398,
+        23399,
+        23400,
+        23401
+      ]
+    },
+    {
+      "function": "_collect_anomaly_agent_events",
+      "bucket": "helper",
+      "start": 25351,
+      "end": 25395,
+      "uncovered": 16,
+      "span": 45,
+      "route": null,
+      "missing_sample": [
+        25363,
+        25364,
+        25376,
+        25377,
+        25378,
+        25379,
+        25380,
+        25381
+      ]
+    },
+    {
+      "function": "check_notifications",
+      "bucket": "route",
+      "start": 26341,
+      "end": 26447,
+      "uncovered": 16,
+      "span": 107,
+      "route": {
+        "path": "/api/notifications/check",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        26357,
+        26358,
+        26359,
+        26374,
+        26382,
+        26383,
+        26384,
+        26385
+      ]
+    },
+    {
+      "function": "_decrypt_secret_value",
+      "bucket": "helper",
+      "start": 593,
+      "end": 613,
+      "uncovered": 15,
+      "span": 21,
+      "route": null,
+      "missing_sample": [
+        598,
+        599,
+        600,
+        601,
+        602,
+        603,
+        605,
+        606
+      ]
+    },
+    {
+      "function": "_derive_copilot_assignment_status",
+      "bucket": "helper",
+      "start": 6004,
+      "end": 6027,
+      "uncovered": 15,
+      "span": 24,
+      "route": null,
+      "missing_sample": [
+        6010,
+        6011,
+        6012,
+        6013,
+        6017,
+        6018,
+        6019,
+        6020
+      ]
+    },
+    {
+      "function": "_same_origin_request",
+      "bucket": "helper",
+      "start": 7781,
+      "end": 7797,
+      "uncovered": 15,
+      "span": 17,
+      "route": null,
+      "missing_sample": [
+        7782,
+        7783,
+        7784,
+        7785,
+        7786,
+        7787,
+        7788,
+        7790
+      ]
+    },
+    {
+      "function": "_build_error_item",
+      "bucket": "helper",
+      "start": 10652,
+      "end": 10694,
+      "uncovered": 15,
+      "span": 43,
+      "route": null,
+      "missing_sample": [
+        10653,
+        10654,
+        10655,
+        10656,
+        10657,
+        10658,
+        10659,
+        10660
+      ]
+    },
+    {
+      "function": "_compile_builder_sql",
+      "bucket": "helper",
+      "start": 19914,
+      "end": 20293,
+      "uncovered": 15,
+      "span": 380,
+      "route": null,
+      "missing_sample": [
+        19916,
+        19930,
+        20208,
+        20209,
+        20225,
+        20226,
+        20239,
+        20240
+      ]
+    },
+    {
+      "function": "_resolve_template_role_indices",
+      "bucket": "helper",
+      "start": 20332,
+      "end": 20381,
+      "uncovered": 15,
+      "span": 50,
+      "route": null,
+      "missing_sample": [
+        20352,
+        20363,
+        20364,
+        20365,
+        20366,
+        20367,
+        20368,
+        20370
+      ]
+    },
+    {
+      "function": "_format_drilldown_time",
+      "bucket": "helper",
+      "start": 20751,
+      "end": 20774,
+      "uncovered": 15,
+      "span": 24,
+      "route": null,
+      "missing_sample": [
+        20757,
+        20758,
+        20759,
+        20761,
+        20762,
+        20763,
+        20764,
+        20765
+      ]
+    },
+    {
+      "function": "clone_chart",
+      "bucket": "route",
+      "start": 21694,
+      "end": 21733,
+      "uncovered": 15,
+      "span": 40,
+      "route": {
+        "path": "/dashboards/<dashboard_id>/charts/<chart_id>/clone",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        21701,
+        21702,
+        21703,
+        21704,
+        21705,
+        21707,
+        21708,
+        21709
+      ]
+    },
+    {
+      "function": "view_settings_repositories",
+      "bucket": "route",
+      "start": 26805,
+      "end": 26884,
+      "uncovered": 15,
+      "span": 80,
+      "route": {
+        "path": "/settings/repositories",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        26810,
+        26830,
+        26831,
+        26832,
+        26833,
+        26834,
+        26835,
+        26836
+      ]
+    },
+    {
+      "function": "_infer_query_field_types",
+      "bucket": "helper",
+      "start": 30092,
+      "end": 30123,
+      "uncovered": 15,
+      "span": 32,
+      "route": null,
+      "missing_sample": [
+        30102,
+        30104,
+        30107,
+        30108,
+        30110,
+        30111,
+        30112,
+        30113
+      ]
+    },
+    {
+      "function": "_validate_custom_masking_pattern_for_storage",
+      "bucket": "helper",
+      "start": 186,
+      "end": 245,
+      "uncovered": 14,
+      "span": 60,
+      "route": null,
+      "missing_sample": [
+        189,
+        192,
+        194,
+        198,
+        206,
+        207,
+        215,
+        222
+      ]
+    },
+    {
+      "function": "_rum_client_token_decode",
+      "bucket": "helper",
+      "start": 7810,
+      "end": 7824,
+      "uncovered": 14,
+      "span": 15,
+      "route": null,
+      "missing_sample": [
+        7811,
+        7812,
+        7813,
+        7814,
+        7815,
+        7816,
+        7817,
+        7818
+      ]
+    },
+    {
+      "function": "_dedupe_system_input_messages",
+      "bucket": "helper",
+      "start": 8450,
+      "end": 8467,
+      "uncovered": 14,
+      "span": 18,
+      "route": null,
+      "missing_sample": [
+        8453,
+        8454,
+        8455,
+        8457,
+        8458,
+        8459,
+        8460,
+        8461
+      ]
+    },
+    {
+      "function": "ingest_rum_asset",
+      "bucket": "route",
+      "start": 9699,
+      "end": 9756,
+      "uncovered": 14,
+      "span": 58,
+      "route": {
+        "path": "/v1/rum/assets",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        9706,
+        9708,
+        9721,
+        9723,
+        9724,
+        9725,
+        9726,
+        9727
+      ]
+    },
+    {
+      "function": "ingest_ai",
+      "bucket": "route",
+      "start": 10157,
+      "end": 10241,
+      "uncovered": 14,
+      "span": 85,
+      "route": {
+        "path": "/v1/ai",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        10176,
+        10177,
+        10179,
+        10180,
+        10182,
+        10183,
+        10186,
+        10188
+      ]
+    },
+    {
+      "function": "_get_signal_health_by_service",
+      "bucket": "helper",
+      "start": 12890,
+      "end": 12935,
+      "uncovered": 14,
+      "span": 46,
+      "route": null,
+      "missing_sample": [
+        12901,
+        12902,
+        12905,
+        12906,
+        12907,
+        12917,
+        12918,
+        12919
+      ]
+    },
+    {
+      "function": "_evaluate_threshold_condition",
+      "bucket": "helper",
+      "start": 12952,
+      "end": 12998,
+      "uncovered": 14,
+      "span": 47,
+      "route": null,
+      "missing_sample": [
+        12964,
+        12965,
+        12969,
+        12980,
+        12981,
+        12982,
+        12983,
+        12984
+      ]
+    },
+    {
+      "function": "_github_item_is_security_related",
+      "bucket": "helper",
+      "start": 16686,
+      "end": 16700,
+      "uncovered": 14,
+      "span": 15,
+      "route": null,
+      "missing_sample": [
+        16687,
+        16688,
+        16689,
+        16690,
+        16691,
+        16692,
+        16693,
+        16694
+      ]
+    },
+    {
+      "function": "api_enrichment_libraries",
+      "bucket": "route",
+      "start": 17882,
+      "end": 17941,
+      "uncovered": 14,
+      "span": 60,
+      "route": {
+        "path": "/api/enrichment/libraries",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        17897,
+        17898,
+        17899,
+        17900,
+        17901,
+        17902,
+        17903,
+        17904
+      ]
+    },
+    {
+      "function": "edit_chart",
+      "bucket": "route",
+      "start": 21651,
+      "end": 21689,
+      "uncovered": 14,
+      "span": 39,
+      "route": {
+        "path": "/dashboards/<dashboard_id>/charts/<chart_id>/edit",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        21658,
+        21659,
+        21660,
+        21661,
+        21662,
+        21664,
+        21665,
+        21666
+      ]
+    },
+    {
+      "function": "_build_s3_backup_dest",
+      "bucket": "helper",
+      "start": 32086,
+      "end": 32106,
+      "uncovered": 14,
+      "span": 21,
+      "route": null,
+      "missing_sample": [
+        32088,
+        32089,
+        32091,
+        32092,
+        32093,
+        32094,
+        32095,
+        32097
+      ]
+    },
+    {
+      "function": "_sanitize_chat_label_candidate",
+      "bucket": "helper",
+      "start": 3718,
+      "end": 3736,
+      "uncovered": 13,
+      "span": 19,
+      "route": null,
+      "missing_sample": [
+        3719,
+        3720,
+        3721,
+        3722,
+        3723,
+        3725,
+        3726,
+        3727
+      ]
+    },
+    {
+      "function": "_proto_any_value_to_python",
+      "bucket": "helper",
+      "start": 9080,
+      "end": 9097,
+      "uncovered": 13,
+      "span": 18,
+      "route": null,
+      "missing_sample": [
+        9085,
+        9086,
+        9087,
+        9088,
+        9089,
+        9090,
+        9091,
+        9092
+      ]
+    },
+    {
+      "function": "api_get_work_items",
+      "bucket": "route",
+      "start": 18493,
+      "end": 18541,
+      "uncovered": 13,
+      "span": 49,
+      "route": {
+        "path": "/api/work-items",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        18509,
+        18510,
+        18512,
+        18513,
+        18515,
+        18516,
+        18518,
+        18519
+      ]
+    },
+    {
+      "function": "ai_helper_chats",
+      "bucket": "route",
+      "start": 27448,
+      "end": 27502,
+      "uncovered": 13,
+      "span": 55,
+      "route": {
+        "path": "/api/ai/helper/chats",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        27454,
+        27455,
+        27458,
+        27459,
+        27464,
+        27465,
+        27483,
+        27484
+      ]
+    },
+    {
+      "function": "_github_get_issue_detail",
+      "bucket": "helper",
+      "start": 32962,
+      "end": 32980,
+      "uncovered": 13,
+      "span": 19,
+      "route": null,
+      "missing_sample": [
+        32964,
+        32965,
+        32966,
+        32967,
+        32968,
+        32969,
+        32970,
+        32971
+      ]
+    },
+    {
+      "function": "_create_or_update_onboarding_issue",
+      "bucket": "helper",
+      "start": 33050,
+      "end": 33105,
+      "uncovered": 13,
+      "span": 56,
+      "route": null,
+      "missing_sample": [
+        33072,
+        33077,
+        33078,
+        33079,
+        33081,
+        33082,
+        33091,
+        33092
+      ]
+    },
+    {
+      "function": "_load_saved_ai_pricing",
+      "bucket": "helper",
+      "start": 2776,
+      "end": 2792,
+      "uncovered": 12,
+      "span": 17,
+      "route": null,
+      "missing_sample": [
+        2781,
+        2782,
+        2783,
+        2784,
+        2785,
+        2786,
+        2787,
+        2788
+      ]
+    },
+    {
+      "function": "_load_confirmed_ai_pricing_models",
+      "bucket": "helper",
+      "start": 2795,
+      "end": 2810,
+      "uncovered": 12,
+      "span": 16,
+      "route": null,
+      "missing_sample": [
+        2799,
+        2800,
+        2801,
+        2802,
+        2803,
+        2804,
+        2805,
+        2806
+      ]
+    },
+    {
+      "function": "_infer_ai_pricing_for_model",
+      "bucket": "helper",
+      "start": 2813,
+      "end": 2825,
+      "uncovered": 12,
+      "span": 13,
+      "route": null,
+      "missing_sample": [
+        2814,
+        2815,
+        2816,
+        2817,
+        2818,
+        2819,
+        2820,
+        2821
+      ]
+    },
+    {
+      "function": "_parse_guard_reply",
+      "bucket": "helper",
+      "start": 5009,
+      "end": 5039,
+      "uncovered": 12,
+      "span": 31,
+      "route": null,
+      "missing_sample": [
+        5013,
+        5021,
+        5022,
+        5024,
+        5025,
+        5027,
+        5028,
+        5029
+      ]
+    },
+    {
+      "function": "_find_app_id_by_repo_url",
+      "bucket": "helper",
+      "start": 8866,
+      "end": 8879,
+      "uncovered": 12,
+      "span": 14,
+      "route": null,
+      "missing_sample": [
+        8867,
+        8868,
+        8869,
+        8870,
+        8871,
+        8872,
+        8874,
+        8875
+      ]
+    },
+    {
+      "function": "rum_asset_download",
+      "bucket": "route",
+      "start": 9761,
+      "end": 9786,
+      "uncovered": 12,
+      "span": 26,
+      "route": {
+        "path": "/v1/rum/assets/<asset_id>",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        9767,
+        9768,
+        9769,
+        9770,
+        9771,
+        9773,
+        9774,
+        9775
+      ]
+    },
+    {
+      "function": "_extract_bindings",
+      "bucket": "helper",
+      "start": 20525,
+      "end": 20748,
+      "uncovered": 12,
+      "span": 224,
+      "route": null,
+      "missing_sample": [
+        20615,
+        20616,
+        20639,
+        20661,
+        20662,
+        20663,
+        20664,
+        20678
+      ]
+    },
+    {
+      "function": "_validate_chdb_startup_configuration",
+      "bucket": "helper",
+      "start": 1909,
+      "end": 1931,
+      "uncovered": 11,
+      "span": 23,
+      "route": null,
+      "missing_sample": [
+        1915,
+        1916,
+        1918,
+        1919,
+        1920,
+        1921,
+        1922,
+        1923
+      ]
+    },
+    {
+      "function": "ensure_db_schema",
+      "bucket": "lifecycle",
+      "start": 2135,
+      "end": 2152,
+      "uncovered": 11,
+      "span": 18,
+      "route": null,
+      "missing_sample": [
+        2140,
+        2141,
+        2142,
+        2143,
+        2144,
+        2147,
+        2148,
+        2149
+      ]
+    },
+    {
+      "function": "_load_recent_turn_summaries",
+      "bucket": "helper",
+      "start": 3928,
+      "end": 3971,
+      "uncovered": 11,
+      "span": 44,
+      "route": null,
+      "missing_sample": [
+        3942,
+        3943,
+        3944,
+        3945,
+        3946,
+        3947,
+        3948,
+        3949
+      ]
+    },
+    {
+      "function": "_extract_stream_tool_call_deltas",
+      "bucket": "helper",
+      "start": 4553,
+      "end": 4577,
+      "uncovered": 11,
+      "span": 25,
+      "route": null,
+      "missing_sample": [
+        4556,
+        4562,
+        4563,
+        4564,
+        4565,
+        4566,
+        4567,
+        4568
+      ]
+    },
+    {
+      "function": "_to_utc_iso",
+      "bucket": "helper",
+      "start": 5863,
+      "end": 5883,
+      "uncovered": 11,
+      "span": 21,
+      "route": null,
+      "missing_sample": [
+        5866,
+        5870,
+        5871,
+        5872,
+        5873,
+        5874,
+        5875,
+        5876
+      ]
+    },
+    {
+      "function": "_get_ai_filter_metadata",
+      "bucket": "helper",
+      "start": 18547,
+      "end": 18626,
+      "uncovered": 11,
+      "span": 80,
+      "route": null,
+      "missing_sample": [
+        18553,
+        18570,
+        18593,
+        18594,
+        18598,
+        18599,
+        18603,
+        18604
+      ]
+    },
+    {
+      "function": "_to_sort_key",
+      "bucket": "helper",
+      "start": 21172,
+      "end": 21183,
+      "uncovered": 11,
+      "span": 12,
+      "route": null,
+      "missing_sample": [
+        21173,
+        21174,
+        21175,
+        21176,
+        21177,
+        21178,
+        21179,
+        21180
+      ]
+    },
+    {
+      "function": "api_metrics_validate_regex",
+      "bucket": "route",
+      "start": 24115,
+      "end": 24167,
+      "uncovered": 11,
+      "span": 53,
+      "route": {
+        "path": "/api/metrics/validate-regex",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        24128,
+        24139,
+        24140,
+        24142,
+        24143,
+        24145,
+        24146,
+        24148
+      ]
+    },
+    {
+      "function": "_build_vapid_jwt",
+      "bucket": "helper",
+      "start": 24972,
+      "end": 24987,
+      "uncovered": 11,
+      "span": 16,
+      "route": null,
+      "missing_sample": [
+        24974,
+        24975,
+        24977,
+        24978,
+        24979,
+        24980,
+        24982,
+        24984
+      ]
+    },
+    {
+      "function": "hkdf_expand",
+      "bucket": "helper",
+      "start": 25026,
+      "end": 25036,
+      "uncovered": 11,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        25026,
+        25027,
+        25028,
+        25029,
+        25030,
+        25031,
+        25032,
+        25033
+      ]
+    },
+    {
+      "function": "create_settings_repository",
+      "bucket": "route",
+      "start": 26889,
+      "end": 26951,
+      "uncovered": 11,
+      "span": 63,
+      "route": {
+        "path": "/settings/repositories",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        26915,
+        26916,
+        26936,
+        26937,
+        26938,
+        26939,
+        26940,
+        26943
+      ]
+    },
+    {
+      "function": "api_query_ask",
+      "bucket": "route",
+      "start": 30203,
+      "end": 30506,
+      "uncovered": 11,
+      "span": 304,
+      "route": {
+        "path": "/api/query/ask",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        30235,
+        30267,
+        30311,
+        30392,
+        30401,
+        30418,
+        30428,
+        30429
+      ]
+    },
+    {
+      "function": "_inspect_repo_for_onboarding",
+      "bucket": "helper",
+      "start": 32883,
+      "end": 32959,
+      "uncovered": 11,
+      "span": 77,
+      "route": null,
+      "missing_sample": [
+        32895,
+        32907,
+        32929,
+        32930,
+        32941,
+        32942,
+        32943,
+        32944
+      ]
+    },
+    {
+      "function": "_empty_content_hint",
+      "bucket": "helper",
+      "start": 4637,
+      "end": 4647,
+      "uncovered": 10,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        4638,
+        4639,
+        4640,
+        4641,
+        4642,
+        4643,
+        4644,
+        4645
+      ]
+    },
+    {
+      "function": "_is_benign_observability_question",
+      "bucket": "helper",
+      "start": 4899,
+      "end": 4909,
+      "uncovered": 10,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        4900,
+        4901,
+        4902,
+        4903,
+        4904,
+        4905,
+        4906,
+        4907
+      ]
+    },
+    {
+      "function": "_search_open_pr_for_issue",
+      "bucket": "helper",
+      "start": 5964,
+      "end": 5994,
+      "uncovered": 10,
+      "span": 31,
+      "route": null,
+      "missing_sample": [
+        5966,
+        5969,
+        5982,
+        5985,
+        5986,
+        5987,
+        5988,
+        5989
+      ]
+    },
+    {
+      "function": "_resolve_agent_github_target",
+      "bucket": "helper",
+      "start": 6726,
+      "end": 6769,
+      "uncovered": 10,
+      "span": 44,
+      "route": null,
+      "missing_sample": [
+        6745,
+        6752,
+        6753,
+        6754,
+        6755,
+        6756,
+        6761,
+        6762
+      ]
+    },
+    {
+      "function": "_safe_json_dumps",
+      "bucket": "helper",
+      "start": 8813,
+      "end": 8827,
+      "uncovered": 10,
+      "span": 15,
+      "route": null,
+      "missing_sample": [
+        8815,
+        8817,
+        8818,
+        8819,
+        8820,
+        8821,
+        8822,
+        8823
+      ]
+    },
+    {
+      "function": "_insert_typed_metric_events",
+      "bucket": "helper",
+      "start": 9485,
+      "end": 9528,
+      "uncovered": 10,
+      "span": 44,
+      "route": null,
+      "missing_sample": [
+        9492,
+        9503,
+        9504,
+        9505,
+        9506,
+        9509,
+        9510,
+        9523
+      ]
+    },
+    {
+      "function": "_fingerprint_log_message",
+      "bucket": "helper",
+      "start": 10993,
+      "end": 11012,
+      "uncovered": 10,
+      "span": 20,
+      "route": null,
+      "missing_sample": [
+        10995,
+        10996,
+        10997,
+        10999,
+        11006,
+        11007,
+        11009,
+        11010
+      ]
+    },
+    {
+      "function": "_evaluate_composite_rule",
+      "bucket": "helper",
+      "start": 13151,
+      "end": 13224,
+      "uncovered": 10,
+      "span": 74,
+      "route": null,
+      "missing_sample": [
+        13175,
+        13180,
+        13200,
+        13209,
+        13210,
+        13212,
+        13213,
+        13214
+      ]
+    },
+    {
+      "function": "_build_error_stub_from_narrow",
+      "bucket": "helper",
+      "start": 14216,
+      "end": 14254,
+      "uncovered": 10,
+      "span": 39,
+      "route": null,
+      "missing_sample": [
+        14217,
+        14218,
+        14219,
+        14220,
+        14221,
+        14222,
+        14223,
+        14224
+      ]
+    },
+    {
+      "function": "_query",
+      "bucket": "helper",
+      "start": 15091,
+      "end": 15163,
+      "uncovered": 10,
+      "span": 73,
+      "route": null,
+      "missing_sample": [
+        15123,
+        15124,
+        15125,
+        15126,
+        15127,
+        15128,
+        15130,
+        15132
+      ]
+    },
+    {
+      "function": "api_cve_findings",
+      "bucket": "route",
+      "start": 18220,
+      "end": 18278,
+      "uncovered": 10,
+      "span": 59,
+      "route": {
+        "path": "/api/enrichment/cve/findings",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        18225,
+        18246,
+        18247,
+        18248,
+        18249,
+        18256,
+        18257,
+        18258
+      ]
+    },
+    {
+      "function": "_validate_dm_s3_settings",
+      "bucket": "helper",
+      "start": 31866,
+      "end": 31877,
+      "uncovered": 10,
+      "span": 12,
+      "route": null,
+      "missing_sample": [
+        31867,
+        31868,
+        31869,
+        31870,
+        31871,
+        31873,
+        31874,
+        31875
+      ]
+    },
+    {
+      "function": "_apply_dm_ttl",
+      "bucket": "helper",
+      "start": 31938,
+      "end": 31974,
+      "uncovered": 10,
+      "span": 37,
+      "route": null,
+      "missing_sample": [
+        31952,
+        31953,
+        31962,
+        31963,
+        31964,
+        31968,
+        31969,
+        31970
+      ]
+    },
+    {
+      "function": "_run_dm_prune",
+      "bucket": "helper",
+      "start": 32024,
+      "end": 32083,
+      "uncovered": 10,
+      "span": 60,
+      "route": null,
+      "missing_sample": [
+        32038,
+        32039,
+        32061,
+        32062,
+        32063,
+        32064,
+        32065,
+        32070
+      ]
+    },
+    {
+      "function": "api_onboarding_list_repos",
+      "bucket": "route",
+      "start": 33603,
+      "end": 33678,
+      "uncovered": 10,
+      "span": 76,
+      "route": {
+        "path": "/api/onboarding/list-repos",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        33626,
+        33627,
+        33638,
+        33639,
+        33647,
+        33648,
+        33649,
+        33650
+      ]
+    },
+    {
+      "function": "_list_trace_overlapping_raw_windows",
+      "bucket": "helper",
+      "start": 2441,
+      "end": 2493,
+      "uncovered": 9,
+      "span": 53,
+      "route": null,
+      "missing_sample": [
+        2470,
+        2471,
+        2472,
+        2474,
+        2475,
+        2476,
+        2477,
+        2478
+      ]
+    },
+    {
+      "function": "_raw_window_copy_loop",
+      "bucket": "lifecycle",
+      "start": 2652,
+      "end": 2667,
+      "uncovered": 9,
+      "span": 16,
+      "route": null,
+      "missing_sample": [
+        2654,
+        2655,
+        2656,
+        2657,
+        2658,
+        2659,
+        2665,
+        2666
+      ]
+    },
+    {
+      "function": "_load_ai_pricing_with_sources",
+      "bucket": "helper",
+      "start": 2849,
+      "end": 2869,
+      "uncovered": 9,
+      "span": 21,
+      "route": null,
+      "missing_sample": [
+        2856,
+        2857,
+        2858,
+        2862,
+        2863,
+        2864,
+        2865,
+        2866
+      ]
+    },
+    {
+      "function": "_helper_action_manifest_for_page",
+      "bucket": "helper",
+      "start": 4148,
+      "end": 4236,
+      "uncovered": 9,
+      "span": 89,
+      "route": null,
+      "missing_sample": [
+        4152,
+        4154,
+        4179,
+        4180,
+        4186,
+        4189,
+        4193,
+        4205
+      ]
+    },
+    {
+      "function": "_warn_unimplemented_ai_action_annotations",
+      "bucket": "helper",
+      "start": 4249,
+      "end": 4263,
+      "uncovered": 9,
+      "span": 15,
+      "route": null,
+      "missing_sample": [
+        4250,
+        4251,
+        4252,
+        4253,
+        4254,
+        4255,
+        4256,
+        4257
+      ]
+    },
+    {
+      "function": "_run_agent_flow",
+      "bucket": "lifecycle",
+      "start": 6772,
+      "end": 6999,
+      "uncovered": 9,
+      "span": 228,
+      "route": null,
+      "missing_sample": [
+        6805,
+        6806,
+        6814,
+        6821,
+        6853,
+        6875,
+        6885,
+        6902
+      ]
+    },
+    {
+      "function": "_remap_rum_console_stacks",
+      "bucket": "helper",
+      "start": 8064,
+      "end": 8076,
+      "uncovered": 9,
+      "span": 13,
+      "route": null,
+      "missing_sample": [
+        8068,
+        8069,
+        8070,
+        8071,
+        8072,
+        8073,
+        8074,
+        8075
+      ]
+    },
+    {
+      "function": "_parse_time_window_args",
+      "bucket": "helper",
+      "start": 8108,
+      "end": 8128,
+      "uncovered": 9,
+      "span": 21,
+      "route": null,
+      "missing_sample": [
+        8118,
+        8119,
+        8120,
+        8122,
+        8123,
+        8124,
+        8125,
+        8127
+      ]
+    },
+    {
+      "function": "_parse_genai_messages_json",
+      "bucket": "helper",
+      "start": 8357,
+      "end": 8371,
+      "uncovered": 9,
+      "span": 15,
+      "route": null,
+      "missing_sample": [
+        8359,
+        8362,
+        8363,
+        8366,
+        8367,
+        8368,
+        8369,
+        8370
+      ]
+    },
+    {
+      "function": "_first_message_content",
+      "bucket": "helper",
+      "start": 8474,
+      "end": 8483,
+      "uncovered": 9,
+      "span": 10,
+      "route": null,
+      "missing_sample": [
+        8475,
+        8476,
+        8477,
+        8478,
+        8479,
+        8480,
+        8481,
+        8482
+      ]
+    },
+    {
+      "function": "_attr_list_to_dict",
+      "bucket": "helper",
+      "start": 9066,
+      "end": 9077,
+      "uncovered": 9,
+      "span": 12,
+      "route": null,
+      "missing_sample": [
+        9068,
+        9069,
+        9070,
+        9071,
+        9073,
+        9074,
+        9075,
+        9076
+      ]
+    },
+    {
+      "function": "ingest_metrics",
+      "bucket": "route",
+      "start": 9896,
+      "end": 9918,
+      "uncovered": 9,
+      "span": 23,
+      "route": {
+        "path": "/v1/metrics",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        9900,
+        9904,
+        9905,
+        9906,
+        9910,
+        9911,
+        9912,
+        9913
+      ]
+    },
+    {
+      "function": "_extract_trace_fields",
+      "bucket": "helper",
+      "start": 9927,
+      "end": 9951,
+      "uncovered": 9,
+      "span": 25,
+      "route": null,
+      "missing_sample": [
+        9934,
+        9935,
+        9936,
+        9937,
+        9940,
+        9947,
+        9948,
+        9949
+      ]
+    },
+    {
+      "function": "_github_actions_snapshot_name",
+      "bucket": "helper",
+      "start": 16467,
+      "end": 16476,
+      "uncovered": 9,
+      "span": 10,
+      "route": null,
+      "missing_sample": [
+        16468,
+        16469,
+        16470,
+        16471,
+        16472,
+        16473,
+        16474,
+        16475
+      ]
+    },
+    {
+      "function": "_cve_scanner_loop",
+      "bucket": "lifecycle",
+      "start": 17227,
+      "end": 17241,
+      "uncovered": 9,
+      "span": 15,
+      "route": null,
+      "missing_sample": [
+        17229,
+        17230,
+        17231,
+        17232,
+        17233,
+        17234,
+        17239,
+        17240
+      ]
+    },
+    {
+      "function": "_default_signal_label",
+      "bucket": "helper",
+      "start": 19951,
+      "end": 19962,
+      "uncovered": 9,
+      "span": 12,
+      "route": null,
+      "missing_sample": [
+        19954,
+        19955,
+        19956,
+        19957,
+        19958,
+        19959,
+        19960,
+        19961
+      ]
+    },
+    {
+      "function": "api_query_add_to_dashboard",
+      "bucket": "route",
+      "start": 21331,
+      "end": 21407,
+      "uncovered": 9,
+      "span": 77,
+      "route": {
+        "path": "/api/query/add-to-dashboard",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        21343,
+        21345,
+        21350,
+        21353,
+        21357,
+        21358,
+        21360,
+        21372
+      ]
+    },
+    {
+      "function": "chart_spec_options_api",
+      "bucket": "route",
+      "start": 21816,
+      "end": 21887,
+      "uncovered": 9,
+      "span": 72,
+      "route": {
+        "path": "/api/dashboards/spec/options",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        21832,
+        21865,
+        21866,
+        21869,
+        21870,
+        21871,
+        21872,
+        21873
+      ]
+    },
+    {
+      "function": "render_chart_spec_api",
+      "bucket": "route",
+      "start": 21986,
+      "end": 22031,
+      "uncovered": 9,
+      "span": 46,
+      "route": {
+        "path": "/api/dashboards/spec/render",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        22013,
+        22014,
+        22015,
+        22016,
+        22017,
+        22018,
+        22026,
+        22027
+      ]
+    },
+    {
+      "function": "_execute_chart_spec_named_queries",
+      "bucket": "helper",
+      "start": 22213,
+      "end": 22258,
+      "uncovered": 9,
+      "span": 46,
+      "route": null,
+      "missing_sample": [
+        22223,
+        22226,
+        22230,
+        22245,
+        22247,
+        22248,
+        22255,
+        22256
+      ]
+    },
+    {
+      "function": "_regex_scope_time_conditions",
+      "bucket": "helper",
+      "start": 23882,
+      "end": 23903,
+      "uncovered": 9,
+      "span": 22,
+      "route": null,
+      "missing_sample": [
+        23890,
+        23891,
+        23892,
+        23893,
+        23895,
+        23896,
+        23897,
+        23898
+      ]
+    },
+    {
+      "function": "_dispatch_notification_channel",
+      "bucket": "lifecycle",
+      "start": 25058,
+      "end": 25075,
+      "uncovered": 9,
+      "span": 18,
+      "route": null,
+      "missing_sample": [
+        25065,
+        25066,
+        25067,
+        25068,
+        25069,
+        25070,
+        25072,
+        25074
+      ]
+    },
+    {
+      "function": "_get_vapid_public_key",
+      "bucket": "helper",
+      "start": 25686,
+      "end": 25700,
+      "uncovered": 9,
+      "span": 15,
+      "route": null,
+      "missing_sample": [
+        25691,
+        25692,
+        25693,
+        25695,
+        25696,
+        25697,
+        25698,
+        25699
+      ]
+    },
+    {
+      "function": "_get_notification_auto_candidates",
+      "bucket": "helper",
+      "start": 26165,
+      "end": 26253,
+      "uncovered": 9,
+      "span": 89,
+      "route": null,
+      "missing_sample": [
+        26176,
+        26207,
+        26221,
+        26222,
+        26229,
+        26230,
+        26231,
+        26233
+      ]
+    },
+    {
+      "function": "_merge_script_name",
+      "bucket": "helper",
+      "start": 508,
+      "end": 517,
+      "uncovered": 8,
+      "span": 10,
+      "route": null,
+      "missing_sample": [
+        510,
+        511,
+        512,
+        513,
+        514,
+        515,
+        516,
+        517
+      ]
+    },
+    {
+      "function": "_merge_root_path",
+      "bucket": "helper",
+      "start": 624,
+      "end": 632,
+      "uncovered": 8,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        625,
+        626,
+        627,
+        628,
+        629,
+        630,
+        631,
+        632
+      ]
+    },
+    {
+      "function": "_validate_github_token",
+      "bucket": "helper",
+      "start": 3335,
+      "end": 3360,
+      "uncovered": 8,
+      "span": 26,
+      "route": null,
+      "missing_sample": [
+        3338,
+        3351,
+        3352,
+        3356,
+        3357,
+        3358,
+        3359,
+        3360
+      ]
+    },
+    {
+      "function": "_infer_genai_provider",
+      "bucket": "helper",
+      "start": 3507,
+      "end": 3525,
+      "uncovered": 8,
+      "span": 19,
+      "route": null,
+      "missing_sample": [
+        3510,
+        3512,
+        3514,
+        3516,
+        3518,
+        3520,
+        3522,
+        3524
+      ]
+    },
+    {
+      "function": "_tool_status_label",
+      "bucket": "helper",
+      "start": 4005,
+      "end": 4013,
+      "uncovered": 8,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        4006,
+        4007,
+        4008,
+        4009,
+        4010,
+        4011,
+        4012,
+        4013
+      ]
+    },
+    {
+      "function": "_action_meta_for_id",
+      "bucket": "helper",
+      "start": 4273,
+      "end": 4281,
+      "uncovered": 8,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        4274,
+        4275,
+        4276,
+        4277,
+        4278,
+        4279,
+        4280,
+        4281
+      ]
+    },
+    {
+      "function": "_check_external_auth",
+      "bucket": "helper",
+      "start": 7561,
+      "end": 7578,
+      "uncovered": 8,
+      "span": 18,
+      "route": null,
+      "missing_sample": [
+        7567,
+        7568,
+        7569,
+        7570,
+        7571,
+        7576,
+        7577,
+        7578
+      ]
+    },
+    {
+      "function": "_request_origin",
+      "bucket": "helper",
+      "start": 7770,
+      "end": 7778,
+      "uncovered": 8,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        7771,
+        7772,
+        7773,
+        7774,
+        7775,
+        7776,
+        7777,
+        7778
+      ]
+    },
+    {
+      "function": "_insert_error_events",
+      "bucket": "helper",
+      "start": 9442,
+      "end": 9477,
+      "uncovered": 8,
+      "span": 36,
+      "route": null,
+      "missing_sample": [
+        9445,
+        9446,
+        9447,
+        9448,
+        9449,
+        9450,
+        9476,
+        9477
+      ]
+    },
+    {
+      "function": "_parse_otlp_request",
+      "bucket": "helper",
+      "start": 9602,
+      "end": 9649,
+      "uncovered": 8,
+      "span": 48,
+      "route": null,
+      "missing_sample": [
+        9626,
+        9627,
+        9628,
+        9642,
+        9643,
+        9646,
+        9647,
+        9648
+      ]
+    },
+    {
+      "function": "_try_pretty_json_text",
+      "bucket": "helper",
+      "start": 10557,
+      "end": 10565,
+      "uncovered": 8,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        10558,
+        10559,
+        10560,
+        10561,
+        10562,
+        10563,
+        10564,
+        10565
+      ]
+    },
+    {
+      "function": "_auto_rule_thresholds",
+      "bucket": "helper",
+      "start": 11706,
+      "end": 11724,
+      "uncovered": 8,
+      "span": 19,
+      "route": null,
+      "missing_sample": [
+        11710,
+        11711,
+        11712,
+        11713,
+        11714,
+        11715,
+        11716,
+        11721
+      ]
+    },
+    {
+      "function": "_build_auto_metric_rule_candidates",
+      "bucket": "helper",
+      "start": 11734,
+      "end": 11830,
+      "uncovered": 8,
+      "span": 97,
+      "route": null,
+      "missing_sample": [
+        11745,
+        11746,
+        11791,
+        11792,
+        11804,
+        11805,
+        11807,
+        11808
+      ]
+    },
+    {
+      "function": "_infer_env_from_service",
+      "bucket": "helper",
+      "start": 12036,
+      "end": 12048,
+      "uncovered": 8,
+      "span": 13,
+      "route": null,
+      "missing_sample": [
+        12039,
+        12042,
+        12043,
+        12044,
+        12045,
+        12046,
+        12047,
+        12048
+      ]
+    },
+    {
+      "function": "_run_cve_scan",
+      "bucket": "lifecycle",
+      "start": 17122,
+      "end": 17224,
+      "uncovered": 8,
+      "span": 103,
+      "route": null,
+      "missing_sample": [
+        17131,
+        17174,
+        17179,
+        17190,
+        17206,
+        17207,
+        17212,
+        17213
+      ]
+    },
+    {
+      "function": "_safe_attr_int",
+      "bucket": "helper",
+      "start": 18753,
+      "end": 18761,
+      "uncovered": 8,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        18754,
+        18755,
+        18756,
+        18757,
+        18758,
+        18759,
+        18760,
+        18761
+      ]
+    },
+    {
+      "function": "_normalize_chart_spec",
+      "bucket": "helper",
+      "start": 19847,
+      "end": 19911,
+      "uncovered": 8,
+      "span": 65,
+      "route": null,
+      "missing_sample": [
+        19853,
+        19887,
+        19888,
+        19889,
+        19890,
+        19900,
+        19905,
+        19907
+      ]
+    },
+    {
+      "function": "_parse_custom_json_config",
+      "bucket": "helper",
+      "start": 21072,
+      "end": 21083,
+      "uncovered": 8,
+      "span": 12,
+      "route": null,
+      "missing_sample": [
+        21074,
+        21077,
+        21078,
+        21079,
+        21080,
+        21081,
+        21082,
+        21083
+      ]
+    },
+    {
+      "function": "_normalize_custom_series_point_order",
+      "bucket": "helper",
+      "start": 21166,
+      "end": 21196,
+      "uncovered": 8,
+      "span": 31,
+      "route": null,
+      "missing_sample": [
+        21170,
+        21187,
+        21191,
+        21192,
+        21193,
+        21194,
+        21195,
+        21196
+      ]
+    },
+    {
+      "function": "api_logs_validate_regex",
+      "bucket": "route",
+      "start": 23954,
+      "end": 24004,
+      "uncovered": 8,
+      "span": 51,
+      "route": {
+        "path": "/api/logs/validate-regex",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        23979,
+        23980,
+        23982,
+        23983,
+        23985,
+        23986,
+        24003,
+        24004
+      ]
+    },
+    {
+      "function": "api_ai_field_hints",
+      "bucket": "route",
+      "start": 24229,
+      "end": 24402,
+      "uncovered": 8,
+      "span": 174,
+      "route": {
+        "path": "/api/ai/field-hints",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        24339,
+        24340,
+        24341,
+        24342,
+        24343,
+        24344,
+        24345,
+        24346
+      ]
+    },
+    {
+      "function": "_dispatch_webhook_channel",
+      "bucket": "lifecycle",
+      "start": 24814,
+      "end": 24839,
+      "uncovered": 8,
+      "span": 26,
+      "route": null,
+      "missing_sample": [
+        24818,
+        24822,
+        24823,
+        24824,
+        24825,
+        24831,
+        24832,
+        24839
+      ]
+    },
+    {
+      "function": "api_onboarding_import_repo",
+      "bucket": "route",
+      "start": 33538,
+      "end": 33598,
+      "uncovered": 8,
+      "span": 61,
+      "route": {
+        "path": "/api/onboarding/import-repo",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        33556,
+        33569,
+        33570,
+        33573,
+        33574,
+        33575,
+        33576,
+        33579
+      ]
+    },
+    {
+      "function": "_origin_allowed_for_otlp",
+      "bucket": "helper",
+      "start": 399,
+      "end": 426,
+      "uncovered": 7,
+      "span": 28,
+      "route": null,
+      "missing_sample": [
+        405,
+        416,
+        417,
+        419,
+        420,
+        421,
+        426
+      ]
+    },
+    {
+      "function": "_normalize_base_path",
+      "bucket": "helper",
+      "start": 495,
+      "end": 505,
+      "uncovered": 7,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        499,
+        500,
+        501,
+        502,
+        503,
+        504,
+        505
+      ]
+    },
+    {
+      "function": "_read_env_or_file",
+      "bucket": "helper",
+      "start": 538,
+      "end": 552,
+      "uncovered": 7,
+      "span": 15,
+      "route": null,
+      "missing_sample": [
+        543,
+        547,
+        548,
+        549,
+        550,
+        551,
+        552
+      ]
+    },
+    {
+      "function": "_read_file_or_env",
+      "bucket": "helper",
+      "start": 555,
+      "end": 566,
+      "uncovered": 7,
+      "span": 12,
+      "route": null,
+      "missing_sample": [
+        559,
+        560,
+        561,
+        562,
+        563,
+        564,
+        565
+      ]
+    },
+    {
+      "function": "__call__",
+      "bucket": "helper",
+      "start": 642,
+      "end": 664,
+      "uncovered": 7,
+      "span": 23,
+      "route": null,
+      "missing_sample": [
+        644,
+        650,
+        651,
+        653,
+        657,
+        661,
+        662
+      ]
+    },
+    {
+      "function": "_remember_attr_keys",
+      "bucket": "helper",
+      "start": 2198,
+      "end": 2237,
+      "uncovered": 7,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        2206,
+        2211,
+        2215,
+        2217,
+        2221,
+        2236,
+        2237
+      ]
+    },
+    {
+      "function": "_chat_label_from_first_turn",
+      "bucket": "helper",
+      "start": 3739,
+      "end": 3746,
+      "uncovered": 7,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        3740,
+        3741,
+        3742,
+        3743,
+        3744,
+        3745,
+        3746
+      ]
+    },
+    {
+      "function": "_semantic_memory_matches",
+      "bucket": "helper",
+      "start": 3787,
+      "end": 3812,
+      "uncovered": 7,
+      "span": 26,
+      "route": null,
+      "missing_sample": [
+        3797,
+        3798,
+        3799,
+        3800,
+        3801,
+        3802,
+        3803
+      ]
+    },
+    {
+      "function": "_load_recent_chat_turns",
+      "bucket": "helper",
+      "start": 3974,
+      "end": 4002,
+      "uncovered": 7,
+      "span": 29,
+      "route": null,
+      "missing_sample": [
+        3976,
+        3989,
+        3990,
+        3991,
+        3992,
+        3993,
+        3994
+      ]
+    },
+    {
+      "function": "_coerce_llm_content",
+      "bucket": "helper",
+      "start": 4588,
+      "end": 4599,
+      "uncovered": 7,
+      "span": 12,
+      "route": null,
+      "missing_sample": [
+        4592,
+        4593,
+        4594,
+        4595,
+        4596,
+        4597,
+        4598
+      ]
+    },
+    {
+      "function": "_build_oss_safeguard_prompt",
+      "bucket": "helper",
+      "start": 4974,
+      "end": 5006,
+      "uncovered": 7,
+      "span": 33,
+      "route": null,
+      "missing_sample": [
+        4975,
+        4976,
+        4977,
+        4978,
+        4998,
+        5002,
+        5006
+      ]
+    },
+    {
+      "function": "_extract_first_json_object",
+      "bucket": "helper",
+      "start": 6292,
+      "end": 6305,
+      "uncovered": 7,
+      "span": 14,
+      "route": null,
+      "missing_sample": [
+        6295,
+        6297,
+        6301,
+        6302,
+        6303,
+        6304,
+        6305
+      ]
+    },
+    {
+      "function": "_normalize_origin",
+      "bucket": "helper",
+      "start": 7760,
+      "end": 7767,
+      "uncovered": 7,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        7761,
+        7762,
+        7763,
+        7764,
+        7765,
+        7766,
+        7767
+      ]
+    },
+    {
+      "function": "_extract_messages_text",
+      "bucket": "helper",
+      "start": 8374,
+      "end": 8400,
+      "uncovered": 7,
+      "span": 27,
+      "route": null,
+      "missing_sample": [
+        8381,
+        8386,
+        8395,
+        8396,
+        8398,
+        8399,
+        8400
+      ]
+    },
+    {
+      "function": "ingest_traces",
+      "bucket": "route",
+      "start": 9834,
+      "end": 9888,
+      "uncovered": 7,
+      "span": 55,
+      "route": {
+        "path": "/v1/traces",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        9838,
+        9849,
+        9850,
+        9851,
+        9852,
+        9853,
+        9871
+      ]
+    },
+    {
+      "function": "_parse_trace_filter_values",
+      "bucket": "helper",
+      "start": 10706,
+      "end": 10725,
+      "uncovered": 7,
+      "span": 20,
+      "route": null,
+      "missing_sample": [
+        10714,
+        10715,
+        10716,
+        10717,
+        10720,
+        10721,
+        10722
+      ]
+    },
+    {
+      "function": "_inventory_scope_ecosystem",
+      "bucket": "helper",
+      "start": 16267,
+      "end": 16274,
+      "uncovered": 7,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        16268,
+        16269,
+        16270,
+        16271,
+        16272,
+        16273,
+        16274
+      ]
+    },
+    {
+      "function": "_github_version_tokens",
+      "bucket": "helper",
+      "start": 16665,
+      "end": 16672,
+      "uncovered": 7,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        16666,
+        16667,
+        16668,
+        16669,
+        16670,
+        16671,
+        16672
+      ]
+    },
+    {
+      "function": "_text_mentions_version_tokens",
+      "bucket": "helper",
+      "start": 16675,
+      "end": 16683,
+      "uncovered": 7,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        16676,
+        16677,
+        16678,
+        16679,
+        16681,
+        16682,
+        16683
+      ]
+    },
+    {
+      "function": "_effective_cve_disposition",
+      "bucket": "helper",
+      "start": 17101,
+      "end": 17119,
+      "uncovered": 7,
+      "span": 19,
+      "route": null,
+      "missing_sample": [
+        17113,
+        17114,
+        17115,
+        17116,
+        17117,
+        17118,
+        17119
+      ]
+    },
+    {
+      "function": "_github_repo_health_loop",
+      "bucket": "lifecycle",
+      "start": 17244,
+      "end": 17252,
+      "uncovered": 7,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        17246,
+        17247,
+        17248,
+        17249,
+        17250,
+        17251,
+        17252
+      ]
+    },
+    {
+      "function": "_safe_duration_ms",
+      "bucket": "helper",
+      "start": 18763,
+      "end": 18770,
+      "uncovered": 7,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        18764,
+        18765,
+        18766,
+        18767,
+        18768,
+        18769,
+        18770
+      ]
+    },
+    {
+      "function": "ai_build_chart_spec",
+      "bucket": "route",
+      "start": 22263,
+      "end": 22431,
+      "uncovered": 7,
+      "span": 169,
+      "route": {
+        "path": "/api/dashboards/spec/ai-build",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        22283,
+        22299,
+        22311,
+        22360,
+        22361,
+        22388,
+        22389
+      ]
+    },
+    {
+      "function": "api_traces_validate_regex",
+      "bucket": "route",
+      "start": 24062,
+      "end": 24106,
+      "uncovered": 7,
+      "span": 45,
+      "route": {
+        "path": "/api/traces/validate-regex",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        24075,
+        24084,
+        24085,
+        24087,
+        24088,
+        24105,
+        24106
+      ]
+    },
+    {
+      "function": "api_rum_validate_regex",
+      "bucket": "route",
+      "start": 24176,
+      "end": 24220,
+      "uncovered": 7,
+      "span": 45,
+      "route": {
+        "path": "/api/rum/validate-regex",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        24189,
+        24198,
+        24199,
+        24201,
+        24202,
+        24219,
+        24220
+      ]
+    },
+    {
+      "function": "_parse_notification_conditions_json",
+      "bucket": "helper",
+      "start": 24682,
+      "end": 24698,
+      "uncovered": 7,
+      "span": 17,
+      "route": null,
+      "missing_sample": [
+        24685,
+        24688,
+        24689,
+        24691,
+        24695,
+        24696,
+        24697
+      ]
+    },
+    {
+      "function": "_dispatch_slack_channel",
+      "bucket": "lifecycle",
+      "start": 24842,
+      "end": 24855,
+      "uncovered": 7,
+      "span": 14,
+      "route": null,
+      "missing_sample": [
+        24844,
+        24845,
+        24846,
+        24847,
+        24848,
+        24854,
+        24855
+      ]
+    },
+    {
+      "function": "raise_issue_from_user_observation",
+      "bucket": "route",
+      "start": 28547,
+      "end": 28654,
+      "uncovered": 7,
+      "span": 108,
+      "route": {
+        "path": "/api/issues/raise",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        28572,
+        28594,
+        28612,
+        28613,
+        28614,
+        28616,
+        28629
+      ]
+    },
+    {
+      "function": "_run_dm_restore",
+      "bucket": "helper",
+      "start": 32173,
+      "end": 32186,
+      "uncovered": 7,
+      "span": 14,
+      "route": null,
+      "missing_sample": [
+        32180,
+        32181,
+        32182,
+        32183,
+        32184,
+        32185,
+        32186
+      ]
+    },
+    {
+      "function": "_github_issue_is_new_state",
+      "bucket": "helper",
+      "start": 32983,
+      "end": 32991,
+      "uncovered": 7,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        32985,
+        32986,
+        32987,
+        32988,
+        32989,
+        32990,
+        32991
+      ]
+    },
+    {
+      "function": "api_onboarding_create_repo",
+      "bucket": "route",
+      "start": 33464,
+      "end": 33533,
+      "uncovered": 7,
+      "span": 70,
+      "route": {
+        "path": "/api/onboarding/create-repo",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        33491,
+        33511,
+        33512,
+        33513,
+        33514,
+        33515,
+        33518
+      ]
+    },
+    {
+      "function": "_mask_payload_for_output_json",
+      "bucket": "helper",
+      "start": 248,
+      "end": 274,
+      "uncovered": 6,
+      "span": 27,
+      "route": null,
+      "missing_sample": [
+        256,
+        263,
+        264,
+        266,
+        267,
+        273
+      ]
+    },
+    {
+      "function": "__init__",
+      "bucket": "helper",
+      "start": 1969,
+      "end": 1993,
+      "uncovered": 6,
+      "span": 25,
+      "route": null,
+      "missing_sample": [
+        1986,
+        1987,
+        1990,
+        1991,
+        1992,
+        1993
+      ]
+    },
+    {
+      "function": "_coerce_ai_pricing_entry",
+      "bucket": "helper",
+      "start": 2767,
+      "end": 2773,
+      "uncovered": 6,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        2768,
+        2769,
+        2770,
+        2771,
+        2772,
+        2773
+      ]
+    },
+    {
+      "function": "_load_observed_ai_models",
+      "bucket": "helper",
+      "start": 2828,
+      "end": 2846,
+      "uncovered": 6,
+      "span": 19,
+      "route": null,
+      "missing_sample": [
+        2837,
+        2838,
+        2842,
+        2843,
+        2844,
+        2845
+      ]
+    },
+    {
+      "function": "_normalize_github_token_expiry_input",
+      "bucket": "helper",
+      "start": 3137,
+      "end": 3147,
+      "uncovered": 6,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        3142,
+        3143,
+        3144,
+        3145,
+        3146,
+        3147
+      ]
+    },
+    {
+      "function": "_cosine_similarity",
+      "bucket": "helper",
+      "start": 3637,
+      "end": 3643,
+      "uncovered": 6,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        3638,
+        3639,
+        3640,
+        3641,
+        3642,
+        3643
+      ]
+    },
+    {
+      "function": "_extract_memory_candidates",
+      "bucket": "helper",
+      "start": 3903,
+      "end": 3925,
+      "uncovered": 6,
+      "span": 23,
+      "route": null,
+      "missing_sample": [
+        3912,
+        3913,
+        3914,
+        3920,
+        3924,
+        3925
+      ]
+    },
+    {
+      "function": "_helper_tools_for_page",
+      "bucket": "helper",
+      "start": 4239,
+      "end": 4246,
+      "uncovered": 6,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        4241,
+        4242,
+        4243,
+        4244,
+        4245,
+        4246
+      ]
+    },
+    {
+      "function": "_decode_ai_action_token",
+      "bucket": "helper",
+      "start": 4295,
+      "end": 4314,
+      "uncovered": 6,
+      "span": 20,
+      "route": null,
+      "missing_sample": [
+        4298,
+        4302,
+        4307,
+        4308,
+        4310,
+        4313
+      ]
+    },
+    {
+      "function": "_suggest_chart_dashboard_pivot_tool",
+      "bucket": "helper",
+      "start": 4532,
+      "end": 4550,
+      "uncovered": 6,
+      "span": 19,
+      "route": null,
+      "missing_sample": [
+        4535,
+        4538,
+        4539,
+        4540,
+        4541,
+        4542
+      ]
+    },
+    {
+      "function": "_is_benign_ai_usage_question",
+      "bucket": "helper",
+      "start": 4912,
+      "end": 4918,
+      "uncovered": 6,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        4913,
+        4914,
+        4915,
+        4916,
+        4917,
+        4918
+      ]
+    },
+    {
+      "function": "_is_benign_ui_navigation_request",
+      "bucket": "helper",
+      "start": 4921,
+      "end": 4927,
+      "uncovered": 6,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        4922,
+        4923,
+        4924,
+        4925,
+        4926,
+        4927
+      ]
+    },
+    {
+      "function": "_github_repo_supports_copilot_assignment",
+      "bucket": "helper",
+      "start": 5280,
+      "end": 5326,
+      "uncovered": 6,
+      "span": 47,
+      "route": null,
+      "missing_sample": [
+        5283,
+        5315,
+        5316,
+        5317,
+        5322,
+        5326
+      ]
+    },
+    {
+      "function": "_classify_issue_dedupe_with_llm",
+      "bucket": "helper",
+      "start": 6308,
+      "end": 6377,
+      "uncovered": 6,
+      "span": 70,
+      "route": null,
+      "missing_sample": [
+        6367,
+        6368,
+        6369,
+        6370,
+        6371,
+        6372
+      ]
+    },
+    {
+      "function": "_persist_github_work_item",
+      "bucket": "helper",
+      "start": 6438,
+      "end": 6537,
+      "uncovered": 6,
+      "span": 100,
+      "route": null,
+      "missing_sample": [
+        6473,
+        6474,
+        6490,
+        6491,
+        6536,
+        6537
+      ]
+    },
+    {
+      "function": "decorated",
+      "bucket": "helper",
+      "start": 7617,
+      "end": 7643,
+      "uncovered": 6,
+      "span": 27,
+      "route": null,
+      "missing_sample": [
+        7631,
+        7632,
+        7633,
+        7636,
+        7637,
+        7643
+      ]
+    },
+    {
+      "function": "_map_to_dict",
+      "bucket": "helper",
+      "start": 8647,
+      "end": 8667,
+      "uncovered": 6,
+      "span": 21,
+      "route": null,
+      "missing_sample": [
+        8650,
+        8652,
+        8656,
+        8665,
+        8666,
+        8667
+      ]
+    },
+    {
+      "function": "_trace_status_code",
+      "bucket": "helper",
+      "start": 8686,
+      "end": 8692,
+      "uncovered": 6,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        8687,
+        8688,
+        8689,
+        8690,
+        8691,
+        8692
+      ]
+    },
+    {
+      "function": "ingest_errors",
+      "bucket": "route",
+      "start": 10249,
+      "end": 10295,
+      "uncovered": 6,
+      "span": 47,
+      "route": {
+        "path": "/v1/errors",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        10256,
+        10289,
+        10290,
+        10291,
+        10292,
+        10293
+      ]
+    },
+    {
+      "function": "_get_db_stats",
+      "bucket": "helper",
+      "start": 10747,
+      "end": 10820,
+      "uncovered": 6,
+      "span": 74,
+      "route": null,
+      "missing_sample": [
+        10779,
+        10780,
+        10809,
+        10810,
+        10817,
+        10818
+      ]
+    },
+    {
+      "function": "_validate_re2_pattern",
+      "bucket": "helper",
+      "start": 11113,
+      "end": 11125,
+      "uncovered": 6,
+      "span": 13,
+      "route": null,
+      "missing_sample": [
+        11116,
+        11120,
+        11121,
+        11122,
+        11123,
+        11124
+      ]
+    },
+    {
+      "function": "_inventory_versions_by_package",
+      "bucket": "helper",
+      "start": 17088,
+      "end": 17098,
+      "uncovered": 6,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        17092,
+        17093,
+        17094,
+        17095,
+        17096,
+        17097
+      ]
+    },
+    {
+      "function": "_build_raw_chart_spec",
+      "bucket": "helper",
+      "start": 19831,
+      "end": 19844,
+      "uncovered": 6,
+      "span": 14,
+      "route": null,
+      "missing_sample": [
+        19838,
+        19839,
+        19841,
+        19842,
+        19843,
+        19844
+      ]
+    },
+    {
+      "function": "_replace",
+      "bucket": "helper",
+      "start": 21123,
+      "end": 21128,
+      "uncovered": 6,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        21123,
+        21124,
+        21125,
+        21126,
+        21127,
+        21128
+      ]
+    },
+    {
+      "function": "render_chart",
+      "bucket": "route",
+      "start": 22036,
+      "end": 22068,
+      "uncovered": 6,
+      "span": 33,
+      "route": {
+        "path": "/api/dashboards/render",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        22047,
+        22063,
+        22065,
+        22066,
+        22067,
+        22068
+      ]
+    },
+    {
+      "function": "_mask_channel_config",
+      "bucket": "helper",
+      "start": 24747,
+      "end": 24754,
+      "uncovered": 6,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        24749,
+        24750,
+        24751,
+        24752,
+        24753,
+        24754
+      ]
+    },
+    {
+      "function": "create_agent_rule",
+      "bucket": "route",
+      "start": 27194,
+      "end": 27242,
+      "uncovered": 6,
+      "span": 49,
+      "route": {
+        "path": "/settings/agents",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        27204,
+        27205,
+        27211,
+        27212,
+        27214,
+        27215
+      ]
+    },
+    {
+      "function": "ai_helper_execute_action",
+      "bucket": "route",
+      "start": 28400,
+      "end": 28468,
+      "uncovered": 6,
+      "span": 69,
+      "route": {
+        "path": "/api/ai/helper/actions/execute",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        28408,
+        28418,
+        28420,
+        28422,
+        28427,
+        28432
+      ]
+    },
+    {
+      "function": "_repair_chart_spec_json_with_llm",
+      "bucket": "helper",
+      "start": 29434,
+      "end": 29472,
+      "uncovered": 6,
+      "span": 39,
+      "route": null,
+      "missing_sample": [
+        29444,
+        29464,
+        29465,
+        29466,
+        29467,
+        29472
+      ]
+    },
+    {
+      "function": "_detect_k8s_metric_format",
+      "bucket": "helper",
+      "start": 31047,
+      "end": 31068,
+      "uncovered": 6,
+      "span": 22,
+      "route": null,
+      "missing_sample": [
+        31054,
+        31055,
+        31056,
+        31065,
+        31066,
+        31067
+      ]
+    },
+    {
+      "function": "_parse_dm_prune_period",
+      "bucket": "helper",
+      "start": 31988,
+      "end": 32008,
+      "uncovered": 6,
+      "span": 21,
+      "route": null,
+      "missing_sample": [
+        31995,
+        31997,
+        31999,
+        32003,
+        32004,
+        32006
+      ]
+    },
+    {
+      "function": "api_onboarding_inspect_repo",
+      "bucket": "route",
+      "start": 33683,
+      "end": 33733,
+      "uncovered": 6,
+      "span": 51,
+      "route": {
+        "path": "/api/onboarding/inspect-repo",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        33697,
+        33701,
+        33702,
+        33703,
+        33711,
+        33718
+      ]
+    },
+    {
+      "function": "close",
+      "bucket": "helper",
+      "start": 2035,
+      "end": 2040,
+      "uncovered": 5,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        2036,
+        2037,
+        2038,
+        2039,
+        2040
+      ]
+    },
+    {
+      "function": "init_db",
+      "bucket": "helper",
+      "start": 2125,
+      "end": 2132,
+      "uncovered": 5,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        2128,
+        2129,
+        2130,
+        2131,
+        2132
+      ]
+    },
+    {
+      "function": "_window_copy_counts",
+      "bucket": "helper",
+      "start": 2426,
+      "end": 2438,
+      "uncovered": 5,
+      "span": 13,
+      "route": null,
+      "missing_sample": [
+        2428,
+        2429,
+        2430,
+        2431,
+        2438
+      ]
+    },
+    {
+      "function": "_emit_internal_genai_span",
+      "bucket": "helper",
+      "start": 3528,
+      "end": 3614,
+      "uncovered": 5,
+      "span": 87,
+      "route": null,
+      "missing_sample": [
+        3557,
+        3595,
+        3596,
+        3613,
+        3614
+      ]
+    },
+    {
+      "function": "_resolve_endpoint_timeout_seconds",
+      "bucket": "helper",
+      "start": 5113,
+      "end": 5122,
+      "uncovered": 5,
+      "span": 10,
+      "route": null,
+      "missing_sample": [
+        5118,
+        5119,
+        5120,
+        5121,
+        5122
+      ]
+    },
+    {
+      "function": "_resolve_guard_timeout_seconds",
+      "bucket": "helper",
+      "start": 5125,
+      "end": 5133,
+      "uncovered": 5,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        5129,
+        5130,
+        5131,
+        5132,
+        5133
+      ]
+    },
+    {
+      "function": "_check_dlp_endpoint",
+      "bucket": "helper",
+      "start": 5236,
+      "end": 5256,
+      "uncovered": 5,
+      "span": 21,
+      "route": null,
+      "missing_sample": [
+        5242,
+        5245,
+        5254,
+        5255,
+        5256
+      ]
+    },
+    {
+      "function": "_asset_extension",
+      "bucket": "helper",
+      "start": 7664,
+      "end": 7677,
+      "uncovered": 5,
+      "span": 14,
+      "route": null,
+      "missing_sample": [
+        7665,
+        7666,
+        7667,
+        7668,
+        7677
+      ]
+    },
+    {
+      "function": "_rum_b64url_decode",
+      "bucket": "helper",
+      "start": 7752,
+      "end": 7757,
+      "uncovered": 5,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        7753,
+        7754,
+        7755,
+        7756,
+        7757
+      ]
+    },
+    {
+      "function": "ingest_logs",
+      "bucket": "route",
+      "start": 9665,
+      "end": 9694,
+      "uncovered": 5,
+      "span": 30,
+      "route": {
+        "path": "/v1/logs",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        9675,
+        9676,
+        9677,
+        9678,
+        9679
+      ]
+    },
+    {
+      "function": "_error_group_key",
+      "bucket": "helper",
+      "start": 10697,
+      "end": 10703,
+      "uncovered": 5,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        10699,
+        10700,
+        10701,
+        10702,
+        10703
+      ]
+    },
+    {
+      "function": "_parse_regex_filter_expression",
+      "bucket": "helper",
+      "start": 11157,
+      "end": 11184,
+      "uncovered": 5,
+      "span": 28,
+      "route": null,
+      "missing_sample": [
+        11161,
+        11174,
+        11177,
+        11178,
+        11180
+      ]
+    },
+    {
+      "function": "_auto_tag_slug",
+      "bucket": "helper",
+      "start": 12028,
+      "end": 12033,
+      "uncovered": 5,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        12029,
+        12030,
+        12031,
+        12032,
+        12033
+      ]
+    },
+    {
+      "function": "_apply_tag_rules",
+      "bucket": "helper",
+      "start": 12777,
+      "end": 12830,
+      "uncovered": 5,
+      "span": 54,
+      "route": null,
+      "missing_sample": [
+        12798,
+        12815,
+        12817,
+        12828,
+        12830
+      ]
+    },
+    {
+      "function": "_get_service_tags",
+      "bucket": "helper",
+      "start": 12852,
+      "end": 12869,
+      "uncovered": 5,
+      "span": 18,
+      "route": null,
+      "missing_sample": [
+        12854,
+        12855,
+        12867,
+        12868,
+        12869
+      ]
+    },
+    {
+      "function": "_get_def_tags_for_service",
+      "bucket": "helper",
+      "start": 12872,
+      "end": 12887,
+      "uncovered": 5,
+      "span": 16,
+      "route": null,
+      "missing_sample": [
+        12874,
+        12875,
+        12885,
+        12886,
+        12887
+      ]
+    },
+    {
+      "function": "_is_private_ip",
+      "bucket": "helper",
+      "start": 16152,
+      "end": 16158,
+      "uncovered": 5,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        16154,
+        16155,
+        16156,
+        16157,
+        16158
+      ]
+    },
+    {
+      "function": "_parse_github_repo_owner_name",
+      "bucket": "helper",
+      "start": 16277,
+      "end": 16303,
+      "uncovered": 5,
+      "span": 27,
+      "route": null,
+      "missing_sample": [
+        16284,
+        16291,
+        16295,
+        16299,
+        16302
+      ]
+    },
+    {
+      "function": "api_web_traffic_geo",
+      "bucket": "route",
+      "start": 17711,
+      "end": 17760,
+      "uncovered": 5,
+      "span": 50,
+      "route": {
+        "path": "/api/web-traffic/geo",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        17736,
+        17737,
+        17738,
+        17739,
+        17740
+      ]
+    },
+    {
+      "function": "_attach_drilldown_metadata",
+      "bucket": "helper",
+      "start": 20777,
+      "end": 20920,
+      "uncovered": 5,
+      "span": 144,
+      "route": null,
+      "missing_sample": [
+        20781,
+        20785,
+        20807,
+        20901,
+        20902
+      ]
+    },
+    {
+      "function": "import_chart",
+      "bucket": "route",
+      "start": 22467,
+      "end": 22532,
+      "uncovered": 5,
+      "span": 66,
+      "route": {
+        "path": "/api/dashboards/<dashboard_id>/charts/import",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        22478,
+        22490,
+        22494,
+        22498,
+        22499
+      ]
+    },
+    {
+      "function": "api_logs_field_hints",
+      "bucket": "route",
+      "start": 23707,
+      "end": 23779,
+      "uncovered": 5,
+      "span": 73,
+      "route": {
+        "path": "/api/logs/field-hints",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        23733,
+        23738,
+        23739,
+        23740,
+        23741
+      ]
+    },
+    {
+      "function": "api_errors_validate_regex",
+      "bucket": "route",
+      "start": 24013,
+      "end": 24053,
+      "uncovered": 5,
+      "span": 41,
+      "route": {
+        "path": "/api/errors/validate-regex",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        24026,
+        24034,
+        24035,
+        24052,
+        24053
+      ]
+    },
+    {
+      "function": "_pad_base64",
+      "bucket": "helper",
+      "start": 24963,
+      "end": 24969,
+      "uncovered": 5,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        24965,
+        24966,
+        24967,
+        24968,
+        24969
+      ]
+    },
+    {
+      "function": "_run_agent_rule_instance",
+      "bucket": "lifecycle",
+      "start": 25426,
+      "end": 25488,
+      "uncovered": 5,
+      "span": 63,
+      "route": null,
+      "missing_sample": [
+        25461,
+        25462,
+        25463,
+        25464,
+        25488
+      ]
+    },
+    {
+      "function": "_emit_ai_helper_log_event",
+      "bucket": "helper",
+      "start": 27313,
+      "end": 27404,
+      "uncovered": 5,
+      "span": 92,
+      "route": null,
+      "missing_sample": [
+        27340,
+        27372,
+        27373,
+        27403,
+        27404
+      ]
+    },
+    {
+      "function": "_vanna_run_query",
+      "bucket": "helper",
+      "start": 30161,
+      "end": 30182,
+      "uncovered": 5,
+      "span": 22,
+      "route": null,
+      "missing_sample": [
+        30177,
+        30179,
+        30180,
+        30181,
+        30182
+      ]
+    },
+    {
+      "function": "api_dm_prune",
+      "bucket": "route",
+      "start": 32298,
+      "end": 32321,
+      "uncovered": 5,
+      "span": 24,
+      "route": {
+        "path": "/api/data-management/prune",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        32304,
+        32307,
+        32310,
+        32311,
+        32315
+      ]
+    },
+    {
+      "function": "_encrypt_secret_value",
+      "bucket": "helper",
+      "start": 576,
+      "end": 590,
+      "uncovered": 4,
+      "span": 15,
+      "route": null,
+      "missing_sample": [
+        580,
+        588,
+        589,
+        590
+      ]
+    },
+    {
+      "function": "_build_chdb_connect_target",
+      "bucket": "helper",
+      "start": 1876,
+      "end": 1906,
+      "uncovered": 4,
+      "span": 31,
+      "route": null,
+      "missing_sample": [
+        1880,
+        1881,
+        1882,
+        1883
+      ]
+    },
+    {
+      "function": "_parse_iso_datetime",
+      "bucket": "helper",
+      "start": 3122,
+      "end": 3134,
+      "uncovered": 4,
+      "span": 13,
+      "route": null,
+      "missing_sample": [
+        3127,
+        3130,
+        3131,
+        3133
+      ]
+    },
+    {
+      "function": "_encode_ai_action_token",
+      "bucket": "helper",
+      "start": 4288,
+      "end": 4292,
+      "uncovered": 4,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        4289,
+        4290,
+        4291,
+        4292
+      ]
+    },
+    {
+      "function": "_build_client_action",
+      "bucket": "helper",
+      "start": 4341,
+      "end": 4396,
+      "uncovered": 4,
+      "span": 56,
+      "route": null,
+      "missing_sample": [
+        4347,
+        4349,
+        4387,
+        4390
+      ]
+    },
+    {
+      "function": "_resolve_guard_thinking_level",
+      "bucket": "helper",
+      "start": 5095,
+      "end": 5105,
+      "uncovered": 4,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        5100,
+        5101,
+        5102,
+        5105
+      ]
+    },
+    {
+      "function": "_extract_agent_trigger_fields",
+      "bucket": "helper",
+      "start": 5802,
+      "end": 5827,
+      "uncovered": 4,
+      "span": 26,
+      "route": null,
+      "missing_sample": [
+        5805,
+        5807,
+        5816,
+        5817
+      ]
+    },
+    {
+      "function": "_fetch_open_github_issues",
+      "bucket": "helper",
+      "start": 5921,
+      "end": 5961,
+      "uncovered": 4,
+      "span": 41,
+      "route": null,
+      "missing_sample": [
+        5927,
+        5930,
+        5945,
+        5950
+      ]
+    },
+    {
+      "function": "_persist_onboarding_work_item",
+      "bucket": "helper",
+      "start": 6540,
+      "end": 6606,
+      "uncovered": 4,
+      "span": 67,
+      "route": null,
+      "missing_sample": [
+        6557,
+        6563,
+        6605,
+        6606
+      ]
+    },
+    {
+      "function": "_seed_chart_if_missing",
+      "bucket": "helper",
+      "start": 7049,
+      "end": 7082,
+      "uncovered": 4,
+      "span": 34,
+      "route": null,
+      "missing_sample": [
+        7057,
+        7061,
+        7062,
+        7063
+      ]
+    },
+    {
+      "function": "_write_worker_main",
+      "bucket": "lifecycle",
+      "start": 7427,
+      "end": 7447,
+      "uncovered": 4,
+      "span": 21,
+      "route": null,
+      "missing_sample": [
+        7432,
+        7438,
+        7442,
+        7443
+      ]
+    },
+    {
+      "function": "_sse_broadcast",
+      "bucket": "helper",
+      "start": 7523,
+      "end": 7529,
+      "uncovered": 4,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        7526,
+        7527,
+        7528,
+        7529
+      ]
+    },
+    {
+      "function": "decompress",
+      "bucket": "helper",
+      "start": 7540,
+      "end": 7545,
+      "uncovered": 4,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        7542,
+        7543,
+        7544,
+        7545
+      ]
+    },
+    {
+      "function": "_auth_mode",
+      "bucket": "helper",
+      "start": 7581,
+      "end": 7597,
+      "uncovered": 4,
+      "span": 17,
+      "route": null,
+      "missing_sample": [
+        7589,
+        7592,
+        7594,
+        7596
+      ]
+    },
+    {
+      "function": "_time_window_conditions",
+      "bucket": "helper",
+      "start": 8131,
+      "end": 8141,
+      "uncovered": 4,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        8136,
+        8137,
+        8139,
+        8140
+      ]
+    },
+    {
+      "function": "_normalize_for_dedupe",
+      "bucket": "helper",
+      "start": 8443,
+      "end": 8447,
+      "uncovered": 4,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        8444,
+        8445,
+        8446,
+        8447
+      ]
+    },
+    {
+      "function": "_decompress_request_body",
+      "bucket": "helper",
+      "start": 9568,
+      "end": 9599,
+      "uncovered": 4,
+      "span": 32,
+      "route": null,
+      "missing_sample": [
+        9595,
+        9596,
+        9597,
+        9598
+      ]
+    },
+    {
+      "function": "_compact_text",
+      "bucket": "helper",
+      "start": 10549,
+      "end": 10553,
+      "uncovered": 4,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        10550,
+        10551,
+        10552,
+        10553
+      ]
+    },
+    {
+      "function": "_translate_has_tag",
+      "bucket": "helper",
+      "start": 11300,
+      "end": 11308,
+      "uncovered": 4,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        11300,
+        11301,
+        11302,
+        11303
+      ]
+    },
+    {
+      "function": "_normalize_ai_sql_where",
+      "bucket": "helper",
+      "start": 11573,
+      "end": 11598,
+      "uncovered": 4,
+      "span": 26,
+      "route": null,
+      "missing_sample": [
+        11574,
+        11575,
+        11576,
+        11598
+      ]
+    },
+    {
+      "function": "_append_candidate",
+      "bucket": "helper",
+      "start": 12094,
+      "end": 12134,
+      "uncovered": 4,
+      "span": 41,
+      "route": null,
+      "missing_sample": [
+        12108,
+        12109,
+        12120,
+        12121
+      ]
+    },
+    {
+      "function": "_parse_tag_rule_conditions_json",
+      "bucket": "helper",
+      "start": 12441,
+      "end": 12465,
+      "uncovered": 4,
+      "span": 25,
+      "route": null,
+      "missing_sample": [
+        12448,
+        12449,
+        12451,
+        12456
+      ]
+    },
+    {
+      "function": "_match_tag_rule",
+      "bucket": "helper",
+      "start": 12506,
+      "end": 12548,
+      "uncovered": 4,
+      "span": 43,
+      "route": null,
+      "missing_sample": [
+        12526,
+        12527,
+        12529,
+        12535
+      ]
+    },
+    {
+      "function": "_build_trace_timeline_segments",
+      "bucket": "helper",
+      "start": 14712,
+      "end": 14778,
+      "uncovered": 4,
+      "span": 67,
+      "route": null,
+      "missing_sample": [
+        14717,
+        14767,
+        14768,
+        14769
+      ]
+    },
+    {
+      "function": "_default_source_label",
+      "bucket": "helper",
+      "start": 19940,
+      "end": 19949,
+      "uncovered": 4,
+      "span": 10,
+      "route": null,
+      "missing_sample": [
+        19942,
+        19944,
+        19946,
+        19949
+      ]
+    },
+    {
+      "function": "_compile_chart_spec",
+      "bucket": "helper",
+      "start": 20296,
+      "end": 20329,
+      "uncovered": 4,
+      "span": 34,
+      "route": null,
+      "missing_sample": [
+        20308,
+        20314,
+        20321,
+        20327
+      ]
+    },
+    {
+      "function": "_parse_chart_form_submission",
+      "bucket": "helper",
+      "start": 21630,
+      "end": 21646,
+      "uncovered": 4,
+      "span": 17,
+      "route": null,
+      "missing_sample": [
+        21635,
+        21637,
+        21642,
+        21643
+      ]
+    },
+    {
+      "function": "_safe",
+      "bucket": "helper",
+      "start": 22619,
+      "end": 22622,
+      "uncovered": 4,
+      "span": 4,
+      "route": null,
+      "missing_sample": [
+        22619,
+        22620,
+        22621,
+        22622
+      ]
+    },
+    {
+      "function": "_translate_has_tag",
+      "bucket": "helper",
+      "start": 23831,
+      "end": 23839,
+      "uncovered": 4,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        23831,
+        23832,
+        23833,
+        23834
+      ]
+    },
+    {
+      "function": "hkdf_extract",
+      "bucket": "helper",
+      "start": 25021,
+      "end": 25024,
+      "uncovered": 4,
+      "span": 4,
+      "route": null,
+      "missing_sample": [
+        25021,
+        25022,
+        25023,
+        25024
+      ]
+    },
+    {
+      "function": "_evaluate_notification_condition",
+      "bucket": "helper",
+      "start": 25178,
+      "end": 25182,
+      "uncovered": 4,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        25179,
+        25180,
+        25181,
+        25182
+      ]
+    },
+    {
+      "function": "_load_json_string_list_setting",
+      "bucket": "helper",
+      "start": 25566,
+      "end": 25582,
+      "uncovered": 4,
+      "span": 17,
+      "route": null,
+      "missing_sample": [
+        25572,
+        25573,
+        25574,
+        25576
+      ]
+    },
+    {
+      "function": "update_settings_repository",
+      "bucket": "route",
+      "start": 27035,
+      "end": 27077,
+      "uncovered": 4,
+      "span": 43,
+      "route": {
+        "path": "/settings/repositories/<app_id>",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        27052,
+        27053,
+        27073,
+        27074
+      ]
+    },
+    {
+      "function": "ai_helper_chat_detail",
+      "bucket": "route",
+      "start": 27507,
+      "end": 27574,
+      "uncovered": 4,
+      "span": 68,
+      "route": {
+        "path": "/api/ai/helper/chats/<chat_id>",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        27510,
+        27556,
+        27557,
+        27572
+      ]
+    },
+    {
+      "function": "trigger_agent_run",
+      "bucket": "route",
+      "start": 28671,
+      "end": 28727,
+      "uncovered": 4,
+      "span": 57,
+      "route": {
+        "path": "/api/agent/runs",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        28683,
+        28687,
+        28702,
+        28722
+      ]
+    },
+    {
+      "function": "get_table_sample",
+      "bucket": "helper",
+      "start": 29058,
+      "end": 29074,
+      "uncovered": 4,
+      "span": 17,
+      "route": null,
+      "missing_sample": [
+        29064,
+        29071,
+        29073,
+        29074
+      ]
+    },
+    {
+      "function": "_extract_chart_option_placeholders",
+      "bucket": "helper",
+      "start": 29892,
+      "end": 29897,
+      "uncovered": 4,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        29894,
+        29895,
+        29896,
+        29897
+      ]
+    },
+    {
+      "function": "_normalized_values",
+      "bucket": "helper",
+      "start": 31091,
+      "end": 31097,
+      "uncovered": 4,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        31094,
+        31095,
+        31096,
+        31097
+      ]
+    },
+    {
+      "function": "save_dm_settings",
+      "bucket": "route",
+      "start": 32215,
+      "end": 32248,
+      "uncovered": 4,
+      "span": 34,
+      "route": {
+        "path": "/settings/data-management",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        32223,
+        32225,
+        32229,
+        32230
+      ]
+    },
+    {
+      "function": "_github_file_text",
+      "bucket": "helper",
+      "start": 32862,
+      "end": 32880,
+      "uncovered": 4,
+      "span": 19,
+      "route": null,
+      "missing_sample": [
+        32873,
+        32876,
+        32879,
+        32880
+      ]
+    },
+    {
+      "function": "_mask_string_for_output",
+      "bucket": "helper",
+      "start": 288,
+      "end": 293,
+      "uncovered": 3,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        290,
+        291,
+        292
+      ]
+    },
+    {
+      "function": "_startup_async_http_client",
+      "bucket": "lifecycle",
+      "start": 319,
+      "end": 322,
+      "uncovered": 3,
+      "span": 4,
+      "route": null,
+      "missing_sample": [
+        320,
+        321,
+        322
+      ]
+    },
+    {
+      "function": "_append_vary_header",
+      "bucket": "helper",
+      "start": 447,
+      "end": 455,
+      "uncovered": 3,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        452,
+        454,
+        455
+      ]
+    },
+    {
+      "function": "_parse_positive_int_env",
+      "bucket": "helper",
+      "start": 2333,
+      "end": 2341,
+      "uncovered": 3,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        2337,
+        2338,
+        2340
+      ]
+    },
+    {
+      "function": "_save_repo_scoped_github_token",
+      "bucket": "helper",
+      "start": 2907,
+      "end": 2910,
+      "uncovered": 3,
+      "span": 4,
+      "route": null,
+      "missing_sample": [
+        2908,
+        2909,
+        2910
+      ]
+    },
+    {
+      "function": "_load_ai_setting",
+      "bucket": "helper",
+      "start": 3072,
+      "end": 3089,
+      "uncovered": 3,
+      "span": 18,
+      "route": null,
+      "missing_sample": [
+        3085,
+        3086,
+        3087
+      ]
+    },
+    {
+      "function": "_is_valid_ci_push_api_key",
+      "bucket": "helper",
+      "start": 3285,
+      "end": 3303,
+      "uncovered": 3,
+      "span": 19,
+      "route": null,
+      "missing_sample": [
+        3293,
+        3297,
+        3300
+      ]
+    },
+    {
+      "function": "_strip_meta_blocks",
+      "bucket": "helper",
+      "start": 3672,
+      "end": 3684,
+      "uncovered": 3,
+      "span": 13,
+      "route": null,
+      "missing_sample": [
+        3679,
+        3681,
+        3683
+      ]
+    },
+    {
+      "function": "_issue_ai_action_token",
+      "bucket": "helper",
+      "start": 4317,
+      "end": 4338,
+      "uncovered": 3,
+      "span": 22,
+      "route": null,
+      "missing_sample": [
+        4326,
+        4327,
+        4338
+      ]
+    },
+    {
+      "function": "_maybe_backfill_github_work_item_links",
+      "bucket": "helper",
+      "start": 6224,
+      "end": 6238,
+      "uncovered": 3,
+      "span": 15,
+      "route": null,
+      "missing_sample": [
+        6228,
+        6235,
+        6236
+      ]
+    },
+    {
+      "function": "_seed_dashboard_if_missing",
+      "bucket": "helper",
+      "start": 7024,
+      "end": 7046,
+      "uncovered": 3,
+      "span": 23,
+      "route": null,
+      "missing_sample": [
+        7032,
+        7033,
+        7046
+      ]
+    },
+    {
+      "function": "_upsert_seed_chart",
+      "bucket": "helper",
+      "start": 7085,
+      "end": 7129,
+      "uncovered": 3,
+      "span": 45,
+      "route": null,
+      "missing_sample": [
+        7100,
+        7101,
+        7110
+      ]
+    },
+    {
+      "function": "_queue_write",
+      "bucket": "helper",
+      "start": 7462,
+      "end": 7477,
+      "uncovered": 3,
+      "span": 16,
+      "route": null,
+      "missing_sample": [
+        7469,
+        7470,
+        7477
+      ]
+    },
+    {
+      "function": "decompress_json",
+      "bucket": "helper",
+      "start": 7552,
+      "end": 7555,
+      "uncovered": 3,
+      "span": 4,
+      "route": null,
+      "missing_sample": [
+        7553,
+        7554,
+        7555
+      ]
+    },
+    {
+      "function": "_rum_client_token_encode",
+      "bucket": "helper",
+      "start": 7804,
+      "end": 7807,
+      "uncovered": 3,
+      "span": 4,
+      "route": null,
+      "missing_sample": [
+        7805,
+        7806,
+        7807
+      ]
+    },
+    {
+      "function": "_hex",
+      "bucket": "helper",
+      "start": 8197,
+      "end": 8201,
+      "uncovered": 3,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        8199,
+        8200,
+        8201
+      ]
+    },
+    {
+      "function": "_insert_log_events",
+      "bucket": "helper",
+      "start": 9370,
+      "end": 9403,
+      "uncovered": 3,
+      "span": 34,
+      "route": null,
+      "missing_sample": [
+        9373,
+        9401,
+        9402
+      ]
+    },
+    {
+      "function": "_insert_span_events",
+      "bucket": "helper",
+      "start": 9406,
+      "end": 9439,
+      "uncovered": 3,
+      "span": 34,
+      "route": null,
+      "missing_sample": [
+        9409,
+        9437,
+        9438
+      ]
+    },
+    {
+      "function": "_decompress_with_limit",
+      "bucket": "helper",
+      "start": 9537,
+      "end": 9565,
+      "uncovered": 3,
+      "span": 29,
+      "route": null,
+      "missing_sample": [
+        9554,
+        9562,
+        9564
+      ]
+    },
+    {
+      "function": "_op",
+      "bucket": "helper",
+      "start": 10126,
+      "end": 10137,
+      "uncovered": 3,
+      "span": 12,
+      "route": null,
+      "missing_sample": [
+        10135,
+        10136,
+        10137
+      ]
+    },
+    {
+      "function": "_fmt_bytes",
+      "bucket": "helper",
+      "start": 10823,
+      "end": 10833,
+      "uncovered": 3,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        10826,
+        10828,
+        10830
+      ]
+    },
+    {
+      "function": "_build_seasonal_bucket_expr",
+      "bucket": "helper",
+      "start": 11838,
+      "end": 11842,
+      "uncovered": 3,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        11840,
+        11841,
+        11842
+      ]
+    },
+    {
+      "function": "_build_auto_dashboard_chart_candidates",
+      "bucket": "helper",
+      "start": 12311,
+      "end": 12385,
+      "uncovered": 3,
+      "span": 75,
+      "route": null,
+      "missing_sample": [
+        12323,
+        12327,
+        12338
+      ]
+    },
+    {
+      "function": "_load_work_item_links_for_ref_ids",
+      "bucket": "helper",
+      "start": 14178,
+      "end": 14204,
+      "uncovered": 3,
+      "span": 27,
+      "route": null,
+      "missing_sample": [
+        14197,
+        14198,
+        14199
+      ]
+    },
+    {
+      "function": "resolve_error",
+      "bucket": "route",
+      "start": 14588,
+      "end": 14598,
+      "uncovered": 3,
+      "span": 11,
+      "route": {
+        "path": "/errors/<string:error_id>/resolve",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        14595,
+        14596,
+        14597
+      ]
+    },
+    {
+      "function": "_ts_str_to_epoch_ms",
+      "bucket": "helper",
+      "start": 14606,
+      "end": 14620,
+      "uncovered": 3,
+      "span": 15,
+      "route": null,
+      "missing_sample": [
+        14618,
+        14619,
+        14620
+      ]
+    },
+    {
+      "function": "_decode_github_contents_payload",
+      "bucket": "helper",
+      "start": 16456,
+      "end": 16464,
+      "uncovered": 3,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        16460,
+        16463,
+        16464
+      ]
+    },
+    {
+      "function": "_add",
+      "bucket": "helper",
+      "start": 16901,
+      "end": 16922,
+      "uncovered": 3,
+      "span": 22,
+      "route": null,
+      "missing_sample": [
+        16905,
+        16921,
+        16922
+      ]
+    },
+    {
+      "function": "_startup_enrichment",
+      "bucket": "lifecycle",
+      "start": 17296,
+      "end": 17301,
+      "uncovered": 3,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        17299,
+        17300,
+        17301
+      ]
+    },
+    {
+      "function": "_parse_bool",
+      "bucket": "helper",
+      "start": 20384,
+      "end": 20394,
+      "uncovered": 3,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        20392,
+        20393,
+        20394
+      ]
+    },
+    {
+      "function": "_public_dashboard_query_error",
+      "bucket": "helper",
+      "start": 20489,
+      "end": 20506,
+      "uncovered": 3,
+      "span": 18,
+      "route": null,
+      "missing_sample": [
+        20498,
+        20503,
+        20505
+      ]
+    },
+    {
+      "function": "add_chart",
+      "bucket": "route",
+      "start": 21594,
+      "end": 21627,
+      "uncovered": 3,
+      "span": 34,
+      "route": {
+        "path": "/dashboards/<dashboard_id>/charts",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        21603,
+        21604,
+        21605
+      ]
+    },
+    {
+      "function": "execute_chart_query",
+      "bucket": "route",
+      "start": 21772,
+      "end": 21791,
+      "uncovered": 3,
+      "span": 20,
+      "route": {
+        "path": "/api/dashboards/query",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        21789,
+        21790,
+        21791
+      ]
+    },
+    {
+      "function": "_distinct_values",
+      "bucket": "helper",
+      "start": 21836,
+      "end": 21843,
+      "uncovered": 3,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        21840,
+        21841,
+        21842
+      ]
+    },
+    {
+      "function": "compile_chart_spec_api",
+      "bucket": "route",
+      "start": 21892,
+      "end": 21902,
+      "uncovered": 3,
+      "span": 11,
+      "route": {
+        "path": "/api/dashboards/spec/compile",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        21899,
+        21900,
+        21901
+      ]
+    },
+    {
+      "function": "dry_run_chart_spec_api",
+      "bucket": "route",
+      "start": 21907,
+      "end": 21946,
+      "uncovered": 3,
+      "span": 40,
+      "route": {
+        "path": "/api/dashboards/spec/dry-run",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        21925,
+        21926,
+        21927
+      ]
+    },
+    {
+      "function": "_parse_report_filters",
+      "bucket": "helper",
+      "start": 22639,
+      "end": 22646,
+      "uncovered": 3,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        22641,
+        22644,
+        22645
+      ]
+    },
+    {
+      "function": "api_export_reports",
+      "bucket": "route",
+      "start": 22810,
+      "end": 22852,
+      "uncovered": 3,
+      "span": 43,
+      "route": {
+        "path": "/api/reports/export",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        22822,
+        22823,
+        22824
+      ]
+    },
+    {
+      "function": "view_tag_rules",
+      "bucket": "route",
+      "start": 23278,
+      "end": 23302,
+      "uncovered": 3,
+      "span": 25,
+      "route": {
+        "path": "/settings/tags",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        23287,
+        23288,
+        23289
+      ]
+    },
+    {
+      "function": "api_tag_rule_condition_suggestions",
+      "bucket": "route",
+      "start": 23307,
+      "end": 23348,
+      "uncovered": 3,
+      "span": 42,
+      "route": {
+        "path": "/api/settings/tags/condition-suggestions",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        23321,
+        23322,
+        23337
+      ]
+    },
+    {
+      "function": "tail_stream",
+      "bucket": "route",
+      "start": 24462,
+      "end": 24504,
+      "uncovered": 3,
+      "span": 43,
+      "route": {
+        "path": "/tail",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        24478,
+        24479,
+        24500
+      ]
+    },
+    {
+      "function": "generate_vapid_key",
+      "bucket": "route",
+      "start": 26540,
+      "end": 26571,
+      "uncovered": 3,
+      "span": 32,
+      "route": {
+        "path": "/api/notifications/vapid-keygen",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        26569,
+        26570,
+        26571
+      ]
+    },
+    {
+      "function": "health_db",
+      "bucket": "route",
+      "start": 26609,
+      "end": 26638,
+      "uncovered": 3,
+      "span": 30,
+      "route": {
+        "path": "/health/db",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        26614,
+        26615,
+        26616
+      ]
+    },
+    {
+      "function": "_build_query_allowed_tables",
+      "bucket": "helper",
+      "start": 28816,
+      "end": 28830,
+      "uncovered": 3,
+      "span": 15,
+      "route": null,
+      "missing_sample": [
+        28828,
+        28829,
+        28830
+      ]
+    },
+    {
+      "function": "validate_sql",
+      "bucket": "helper",
+      "start": 28885,
+      "end": 28925,
+      "uncovered": 3,
+      "span": 41,
+      "route": null,
+      "missing_sample": [
+        28899,
+        28903,
+        28909
+      ]
+    },
+    {
+      "function": "_check_table_refs",
+      "bucket": "helper",
+      "start": 28928,
+      "end": 28971,
+      "uncovered": 3,
+      "span": 44,
+      "route": null,
+      "missing_sample": [
+        28953,
+        28961,
+        28965
+      ]
+    },
+    {
+      "function": "get_table_ddl",
+      "bucket": "helper",
+      "start": 29044,
+      "end": 29056,
+      "uncovered": 3,
+      "span": 13,
+      "route": null,
+      "missing_sample": [
+        29054,
+        29055,
+        29056
+      ]
+    },
+    {
+      "function": "get_schema_context",
+      "bucket": "helper",
+      "start": 29158,
+      "end": 29221,
+      "uncovered": 3,
+      "span": 64,
+      "route": null,
+      "missing_sample": [
+        29174,
+        29180,
+        29181
+      ]
+    },
+    {
+      "function": "_load_chart_types_catalog",
+      "bucket": "helper",
+      "start": 29950,
+      "end": 29964,
+      "uncovered": 3,
+      "span": 15,
+      "route": null,
+      "missing_sample": [
+        29962,
+        29963,
+        29964
+      ]
+    },
+    {
+      "function": "api_query_refine_chart",
+      "bucket": "route",
+      "start": 30770,
+      "end": 30869,
+      "uncovered": 3,
+      "span": 100,
+      "route": {
+        "path": "/api/query/refine-chart",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        30784,
+        30786,
+        30852
+      ]
+    },
+    {
+      "function": "api_table_explorer_table",
+      "bucket": "route",
+      "start": 30948,
+      "end": 30985,
+      "uncovered": 3,
+      "span": 38,
+      "route": {
+        "path": "/api/table-explorer/table/<name>",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        30969,
+        30984,
+        30985
+      ]
+    },
+    {
+      "function": "api_chart_types",
+      "bucket": "route",
+      "start": 30990,
+      "end": 31015,
+      "uncovered": 3,
+      "span": 26,
+      "route": {
+        "path": "/api/chart-types",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        30997,
+        31011,
+        31012
+      ]
+    },
+    {
+      "function": "_append_or_equals",
+      "bucket": "helper",
+      "start": 31099,
+      "end": 31104,
+      "uncovered": 3,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        31102,
+        31103,
+        31104
+      ]
+    },
+    {
+      "function": "_get_dm_column_type",
+      "bucket": "helper",
+      "start": 32011,
+      "end": 32021,
+      "uncovered": 3,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        32015,
+        32016,
+        32021
+      ]
+    },
+    {
+      "function": "_list_dm_backups",
+      "bucket": "helper",
+      "start": 32109,
+      "end": 32131,
+      "uncovered": 3,
+      "span": 23,
+      "route": null,
+      "missing_sample": [
+        32118,
+        32130,
+        32131
+      ]
+    },
+    {
+      "function": "_github_list_directory",
+      "bucket": "helper",
+      "start": 32842,
+      "end": 32859,
+      "uncovered": 3,
+      "span": 18,
+      "route": null,
+      "missing_sample": [
+        32855,
+        32858,
+        32859
+      ]
+    },
+    {
+      "function": "_coerce_undefined_for_json",
+      "bucket": "helper",
+      "start": 76,
+      "end": 90,
+      "uncovered": 2,
+      "span": 15,
+      "route": null,
+      "missing_sample": [
+        79,
+        82
+      ]
+    },
+    {
+      "function": "_get_masking_settings_flags",
+      "bucket": "helper",
+      "start": 138,
+      "end": 157,
+      "uncovered": 2,
+      "span": 20,
+      "route": null,
+      "missing_sample": [
+        149,
+        150
+      ]
+    },
+    {
+      "function": "_request_is_secure_context",
+      "bucket": "helper",
+      "start": 361,
+      "end": 367,
+      "uncovered": 2,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        363,
+        366
+      ]
+    },
+    {
+      "function": "_ensure_raw_metrics_retention",
+      "bucket": "lifecycle",
+      "start": 2360,
+      "end": 2376,
+      "uncovered": 2,
+      "span": 17,
+      "route": null,
+      "missing_sample": [
+        2375,
+        2376
+      ]
+    },
+    {
+      "function": "_load_ai_pricing",
+      "bucket": "helper",
+      "start": 2872,
+      "end": 2875,
+      "uncovered": 2,
+      "span": 4,
+      "route": null,
+      "missing_sample": [
+        2874,
+        2875
+      ]
+    },
+    {
+      "function": "_github_token_expiry_status",
+      "bucket": "helper",
+      "start": 3155,
+      "end": 3190,
+      "uncovered": 2,
+      "span": 36,
+      "route": null,
+      "missing_sample": [
+        3172,
+        3179
+      ]
+    },
+    {
+      "function": "_normalize_ttl_days",
+      "bucket": "helper",
+      "start": 3193,
+      "end": 3198,
+      "uncovered": 2,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        3196,
+        3197
+      ]
+    },
+    {
+      "function": "_kubernetes_enabled",
+      "bucket": "helper",
+      "start": 3371,
+      "end": 3378,
+      "uncovered": 2,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        3377,
+        3378
+      ]
+    },
+    {
+      "function": "inject_feature_flags",
+      "bucket": "helper",
+      "start": 3385,
+      "end": 3403,
+      "uncovered": 2,
+      "span": 19,
+      "route": null,
+      "missing_sample": [
+        3396,
+        3397
+      ]
+    },
+    {
+      "function": "_llm_usage_stats",
+      "bucket": "helper",
+      "start": 3465,
+      "end": 3478,
+      "uncovered": 2,
+      "span": 14,
+      "route": null,
+      "missing_sample": [
+        3471,
+        3472
+      ]
+    },
+    {
+      "function": "_op",
+      "bucket": "helper",
+      "start": 3584,
+      "end": 3591,
+      "uncovered": 2,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        3590,
+        3591
+      ]
+    },
+    {
+      "function": "_text_embedding",
+      "bucket": "helper",
+      "start": 3623,
+      "end": 3634,
+      "uncovered": 2,
+      "span": 12,
+      "route": null,
+      "missing_sample": [
+        3627,
+        3633
+      ]
+    },
+    {
+      "function": "_extract_assistant_meta",
+      "bucket": "helper",
+      "start": 3669,
+      "end": 3708,
+      "uncovered": 2,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        3705,
+        3706
+      ]
+    },
+    {
+      "function": "_parse_bool_attr",
+      "bucket": "helper",
+      "start": 4156,
+      "end": 4164,
+      "uncovered": 2,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        4159,
+        4164
+      ]
+    },
+    {
+      "function": "parser",
+      "bucket": "helper",
+      "start": 5155,
+      "end": 5156,
+      "uncovered": 2,
+      "span": 2,
+      "route": null,
+      "missing_sample": [
+        5155,
+        5156
+      ]
+    },
+    {
+      "function": "_create_github_issue",
+      "bucket": "helper",
+      "start": 5259,
+      "end": 5277,
+      "uncovered": 2,
+      "span": 19,
+      "route": null,
+      "missing_sample": [
+        5269,
+        5277
+      ]
+    },
+    {
+      "function": "_parse_bounded_int_setting",
+      "bucket": "helper",
+      "start": 5788,
+      "end": 5799,
+      "uncovered": 2,
+      "span": 12,
+      "route": null,
+      "missing_sample": [
+        5797,
+        5798
+      ]
+    },
+    {
+      "function": "_fallback_issue_dedupe_decision",
+      "bucket": "helper",
+      "start": 6255,
+      "end": 6289,
+      "uncovered": 2,
+      "span": 35,
+      "route": null,
+      "missing_sample": [
+        6272,
+        6278
+      ]
+    },
+    {
+      "function": "_extract_trigger_service_name",
+      "bucket": "helper",
+      "start": 6706,
+      "end": 6723,
+      "uncovered": 2,
+      "span": 18,
+      "route": null,
+      "missing_sample": [
+        6709,
+        6722
+      ]
+    },
+    {
+      "function": "_ensure_notification_schema",
+      "bucket": "lifecycle",
+      "start": 7002,
+      "end": 7011,
+      "uncovered": 2,
+      "span": 10,
+      "route": null,
+      "missing_sample": [
+        7010,
+        7011
+      ]
+    },
+    {
+      "function": "_run_write_batch",
+      "bucket": "helper",
+      "start": 7414,
+      "end": 7424,
+      "uncovered": 2,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        7419,
+        7420
+      ]
+    },
+    {
+      "function": "_ns_to_iso",
+      "bucket": "helper",
+      "start": 7951,
+      "end": 7957,
+      "uncovered": 2,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        7956,
+        7957
+      ]
+    },
+    {
+      "function": "_parse_limit",
+      "bucket": "helper",
+      "start": 8079,
+      "end": 8083,
+      "uncovered": 2,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        8082,
+        8083
+      ]
+    },
+    {
+      "function": "_parse_offset",
+      "bucket": "helper",
+      "start": 8086,
+      "end": 8090,
+      "uncovered": 2,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        8089,
+        8090
+      ]
+    },
+    {
+      "function": "_parse_sort",
+      "bucket": "helper",
+      "start": 8093,
+      "end": 8105,
+      "uncovered": 2,
+      "span": 13,
+      "route": null,
+      "missing_sample": [
+        8102,
+        8104
+      ]
+    },
+    {
+      "function": "_build_rum_event_item",
+      "bucket": "helper",
+      "start": 8158,
+      "end": 8194,
+      "uncovered": 2,
+      "span": 37,
+      "route": null,
+      "missing_sample": [
+        8172,
+        8174
+      ]
+    },
+    {
+      "function": "_stringify_attrs",
+      "bucket": "helper",
+      "start": 8204,
+      "end": 8216,
+      "uncovered": 2,
+      "span": 13,
+      "route": null,
+      "missing_sample": [
+        8211,
+        8215
+      ]
+    },
+    {
+      "function": "_error_id",
+      "bucket": "helper",
+      "start": 8695,
+      "end": 8697,
+      "uncovered": 2,
+      "span": 3,
+      "route": null,
+      "missing_sample": [
+        8696,
+        8697
+      ]
+    },
+    {
+      "function": "_normalize_ch_timestamp",
+      "bucket": "helper",
+      "start": 8794,
+      "end": 8810,
+      "uncovered": 2,
+      "span": 17,
+      "route": null,
+      "missing_sample": [
+        8797,
+        8801
+      ]
+    },
+    {
+      "function": "_op",
+      "bucket": "helper",
+      "start": 10212,
+      "end": 10219,
+      "uncovered": 2,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        10218,
+        10219
+      ]
+    },
+    {
+      "function": "_op",
+      "bucket": "helper",
+      "start": 10277,
+      "end": 10285,
+      "uncovered": 2,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        10284,
+        10285
+      ]
+    },
+    {
+      "function": "update_app_registry_entry",
+      "bucket": "route",
+      "start": 10362,
+      "end": 10399,
+      "uncovered": 2,
+      "span": 38,
+      "route": {
+        "path": "/v1/apps/<app_id>",
+        "methods": [
+          "PATCH"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        10371,
+        10379
+      ]
+    },
+    {
+      "function": "_split_regex_filter_expression_terms",
+      "bucket": "helper",
+      "start": 11128,
+      "end": 11149,
+      "uncovered": 2,
+      "span": 22,
+      "route": null,
+      "missing_sample": [
+        11139,
+        11140
+      ]
+    },
+    {
+      "function": "_append_regex_expression_clauses",
+      "bucket": "helper",
+      "start": 11220,
+      "end": 11233,
+      "uncovered": 2,
+      "span": 14,
+      "route": null,
+      "missing_sample": [
+        11232,
+        11233
+      ]
+    },
+    {
+      "function": "_validate_user_sql_where",
+      "bucket": "helper",
+      "start": 11613,
+      "end": 11642,
+      "uncovered": 2,
+      "span": 30,
+      "route": null,
+      "missing_sample": [
+        11638,
+        11639
+      ]
+    },
+    {
+      "function": "_candidate_point_count",
+      "bucket": "helper",
+      "start": 12293,
+      "end": 12298,
+      "uncovered": 2,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        12297,
+        12298
+      ]
+    },
+    {
+      "function": "_rule_matches_series",
+      "bucket": "helper",
+      "start": 12938,
+      "end": 12949,
+      "uncovered": 2,
+      "span": 12,
+      "route": null,
+      "missing_sample": [
+        12945,
+        12948
+      ]
+    },
+    {
+      "function": "_lookup_secondary_rule_row",
+      "bucket": "helper",
+      "start": 13121,
+      "end": 13148,
+      "uncovered": 2,
+      "span": 28,
+      "route": null,
+      "missing_sample": [
+        13139,
+        13148
+      ]
+    },
+    {
+      "function": "_annotate_rows_with_rules",
+      "bucket": "helper",
+      "start": 13227,
+      "end": 13308,
+      "uncovered": 2,
+      "span": 82,
+      "route": null,
+      "missing_sample": [
+        13283,
+        13284
+      ]
+    },
+    {
+      "function": "_slice_span_tree_with_ancestors",
+      "bucket": "helper",
+      "start": 14648,
+      "end": 14682,
+      "uncovered": 2,
+      "span": 35,
+      "route": null,
+      "missing_sample": [
+        14662,
+        14669
+      ]
+    },
+    {
+      "function": "_has_gap_activity",
+      "bucket": "helper",
+      "start": 14732,
+      "end": 14739,
+      "uncovered": 2,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        14737,
+        14739
+      ]
+    },
+    {
+      "function": "_to_pct",
+      "bucket": "helper",
+      "start": 14801,
+      "end": 14802,
+      "uncovered": 2,
+      "span": 2,
+      "route": null,
+      "missing_sample": [
+        14801,
+        14802
+      ]
+    },
+    {
+      "function": "_github_ref_candidates",
+      "bucket": "helper",
+      "start": 16632,
+      "end": 16653,
+      "uncovered": 2,
+      "span": 22,
+      "route": null,
+      "missing_sample": [
+        16636,
+        16650
+      ]
+    },
+    {
+      "function": "_github_backfill_max_releases",
+      "bucket": "helper",
+      "start": 16656,
+      "end": 16662,
+      "uncovered": 2,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        16660,
+        16661
+      ]
+    },
+    {
+      "function": "_extract_library_versions_from_otel",
+      "bucket": "helper",
+      "start": 17074,
+      "end": 17085,
+      "uncovered": 2,
+      "span": 12,
+      "route": null,
+      "missing_sample": [
+        17076,
+        17077
+      ]
+    },
+    {
+      "function": "api_cve_scan",
+      "bucket": "route",
+      "start": 18342,
+      "end": 18353,
+      "uncovered": 2,
+      "span": 12,
+      "route": {
+        "path": "/api/enrichment/cve/scan",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        18352,
+        18353
+      ]
+    },
+    {
+      "function": "_validate_chart_query",
+      "bucket": "helper",
+      "start": 19732,
+      "end": 19742,
+      "uncovered": 2,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        19739,
+        19741
+      ]
+    },
+    {
+      "function": "_infer_column_types",
+      "bucket": "helper",
+      "start": 20473,
+      "end": 20486,
+      "uncovered": 2,
+      "span": 14,
+      "route": null,
+      "missing_sample": [
+        20479,
+        20482
+      ]
+    },
+    {
+      "function": "_render_chart_from_template",
+      "bucket": "helper",
+      "start": 21008,
+      "end": 21069,
+      "uncovered": 2,
+      "span": 62,
+      "route": null,
+      "missing_sample": [
+        21022,
+        21050
+      ]
+    },
+    {
+      "function": "view_custom_dashboard",
+      "bucket": "route",
+      "start": 21446,
+      "end": 21472,
+      "uncovered": 2,
+      "span": 27,
+      "route": {
+        "path": "/dashboards/<dashboard_id>",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        21450,
+        21451
+      ]
+    },
+    {
+      "function": "remove_chart",
+      "bucket": "route",
+      "start": 21738,
+      "end": 21767,
+      "uncovered": 2,
+      "span": 30,
+      "route": {
+        "path": "/dashboards/<dashboard_id>/charts/<chart_id>/delete",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        21747,
+        21748
+      ]
+    },
+    {
+      "function": "api_create_report",
+      "bucket": "route",
+      "start": 22736,
+      "end": 22769,
+      "uncovered": 2,
+      "span": 34,
+      "route": {
+        "path": "/api/reports",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        22746,
+        22748
+      ]
+    },
+    {
+      "function": "_rum_etag",
+      "bucket": "helper",
+      "start": 23023,
+      "end": 23029,
+      "uncovered": 2,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        23028,
+        23029
+      ]
+    },
+    {
+      "function": "add_masking_key",
+      "bucket": "route",
+      "start": 23126,
+      "end": 23141,
+      "uncovered": 2,
+      "span": 16,
+      "route": {
+        "path": "/settings/masking/keys",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        23134,
+        23135
+      ]
+    },
+    {
+      "function": "add_masking_pattern",
+      "bucket": "route",
+      "start": 23163,
+      "end": 23181,
+      "uncovered": 2,
+      "span": 19,
+      "route": {
+        "path": "/settings/masking/patterns",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        23174,
+        23175
+      ]
+    },
+    {
+      "function": "delete_masking_pattern",
+      "bucket": "route",
+      "start": 23186,
+      "end": 23204,
+      "uncovered": 2,
+      "span": 19,
+      "route": {
+        "path": "/settings/masking/patterns/delete",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        23197,
+        23198
+      ]
+    },
+    {
+      "function": "_notification_channel_mask_output_enabled",
+      "bucket": "helper",
+      "start": 24757,
+      "end": 24764,
+      "uncovered": 2,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        24760,
+        24764
+      ]
+    },
+    {
+      "function": "_normalize_agent_trigger_state",
+      "bucket": "helper",
+      "start": 25335,
+      "end": 25341,
+      "uncovered": 2,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        25338,
+        25341
+      ]
+    },
+    {
+      "function": "_collect_tag_rule_agent_events",
+      "bucket": "helper",
+      "start": 25398,
+      "end": 25423,
+      "uncovered": 2,
+      "span": 26,
+      "route": null,
+      "missing_sample": [
+        25401,
+        25415
+      ]
+    },
+    {
+      "function": "_del_app_setting",
+      "bucket": "helper",
+      "start": 25552,
+      "end": 25563,
+      "uncovered": 2,
+      "span": 12,
+      "route": null,
+      "missing_sample": [
+        25561,
+        25563
+      ]
+    },
+    {
+      "function": "_load_masking_custom_patterns",
+      "bucket": "helper",
+      "start": 25611,
+      "end": 25618,
+      "uncovered": 2,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        25616,
+        25617
+      ]
+    },
+    {
+      "function": "_refresh_masking_rules_before_request",
+      "bucket": "lifecycle",
+      "start": 25660,
+      "end": 25666,
+      "uncovered": 2,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        25665,
+        25666
+      ]
+    },
+    {
+      "function": "_get_vapid_private_key_b64",
+      "bucket": "helper",
+      "start": 25674,
+      "end": 25683,
+      "uncovered": 2,
+      "span": 10,
+      "route": null,
+      "missing_sample": [
+        25678,
+        25682
+      ]
+    },
+    {
+      "function": "save_enrichment_settings",
+      "bucket": "route",
+      "start": 26778,
+      "end": 26797,
+      "uncovered": 2,
+      "span": 20,
+      "route": {
+        "path": "/settings/enrichment",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        26789,
+        26790
+      ]
+    },
+    {
+      "function": "rotate_settings_repository_ci_ingest_key",
+      "bucket": "route",
+      "start": 26994,
+      "end": 27017,
+      "uncovered": 2,
+      "span": 24,
+      "route": {
+        "path": "/settings/repositories/<app_id>/ci-ingest-key/rotate",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        27004,
+        27005
+      ]
+    },
+    {
+      "function": "add_settings_repository_release",
+      "bucket": "route",
+      "start": 27082,
+      "end": 27112,
+      "uncovered": 2,
+      "span": 31,
+      "route": {
+        "path": "/settings/repositories/<app_id>/releases",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        27094,
+        27095
+      ]
+    },
+    {
+      "function": "_guard_blocked",
+      "bucket": "helper",
+      "start": 27689,
+      "end": 27690,
+      "uncovered": 2,
+      "span": 2,
+      "route": null,
+      "missing_sample": [
+        27689,
+        27690
+      ]
+    },
+    {
+      "function": "list_agent_runs",
+      "bucket": "route",
+      "start": 28659,
+      "end": 28666,
+      "uncovered": 2,
+      "span": 8,
+      "route": {
+        "path": "/api/agent/runs",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        28663,
+        28664
+      ]
+    },
+    {
+      "function": "_normalize_chart_spec_text",
+      "bucket": "helper",
+      "start": 29361,
+      "end": 29373,
+      "uncovered": 2,
+      "span": 13,
+      "route": null,
+      "missing_sample": [
+        29365,
+        29366
+      ]
+    },
+    {
+      "function": "_parse_chart_spec_json",
+      "bucket": "helper",
+      "start": 29410,
+      "end": 29431,
+      "uncovered": 2,
+      "span": 22,
+      "route": null,
+      "missing_sample": [
+        29414,
+        29430
+      ]
+    },
+    {
+      "function": "_vanna_explain_sql",
+      "bucket": "helper",
+      "start": 30138,
+      "end": 30158,
+      "uncovered": 2,
+      "span": 21,
+      "route": null,
+      "missing_sample": [
+        30157,
+        30158
+      ]
+    },
+    {
+      "function": "api_table_explorer_tables",
+      "bucket": "route",
+      "start": 30906,
+      "end": 30943,
+      "uncovered": 2,
+      "span": 38,
+      "route": {
+        "path": "/api/table-explorer/tables",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        30942,
+        30943
+      ]
+    },
+    {
+      "function": "_to_int",
+      "bucket": "helper",
+      "start": 31075,
+      "end": 31080,
+      "uncovered": 2,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        31078,
+        31079
+      ]
+    },
+    {
+      "function": "_count_query",
+      "bucket": "helper",
+      "start": 31082,
+      "end": 31089,
+      "uncovered": 2,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        31085,
+        31089
+      ]
+    },
+    {
+      "function": "_q_int",
+      "bucket": "helper",
+      "start": 31751,
+      "end": 31757,
+      "uncovered": 2,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        31755,
+        31756
+      ]
+    },
+    {
+      "function": "_require_dm_safe_value",
+      "bucket": "helper",
+      "start": 31856,
+      "end": 31858,
+      "uncovered": 2,
+      "span": 3,
+      "route": null,
+      "missing_sample": [
+        31857,
+        31858
+      ]
+    },
+    {
+      "function": "api_dm_restore",
+      "bucket": "route",
+      "start": 32279,
+      "end": 32293,
+      "uncovered": 2,
+      "span": 15,
+      "route": {
+        "path": "/api/data-management/restore",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        32288,
+        32289
+      ]
+    },
+    {
+      "function": "_mask_value_for_output",
+      "bucket": "helper",
+      "start": 282,
+      "end": 285,
+      "uncovered": 1,
+      "span": 4,
+      "route": null,
+      "missing_sample": [
+        284
+      ]
+    },
+    {
+      "function": "_maybe_await",
+      "bucket": "helper",
+      "start": 355,
+      "end": 358,
+      "uncovered": 1,
+      "span": 4,
+      "route": null,
+      "missing_sample": [
+        358
+      ]
+    },
+    {
+      "function": "_otlp_cors_allow_methods",
+      "bucket": "helper",
+      "start": 440,
+      "end": 444,
+      "uncovered": 1,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        443
+      ]
+    },
+    {
+      "function": "_apply_security_headers",
+      "bucket": "lifecycle",
+      "start": 459,
+      "end": 485,
+      "uncovered": 1,
+      "span": 27,
+      "route": null,
+      "missing_sample": [
+        466
+      ]
+    },
+    {
+      "function": "_header_value",
+      "bucket": "helper",
+      "start": 635,
+      "end": 640,
+      "uncovered": 1,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        639
+      ]
+    },
+    {
+      "function": "_classify_chdb_query_name",
+      "bucket": "helper",
+      "start": 2043,
+      "end": 2050,
+      "uncovered": 1,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        2046
+      ]
+    },
+    {
+      "function": "_json_error",
+      "bucket": "helper",
+      "start": 2108,
+      "end": 2109,
+      "uncovered": 1,
+      "span": 2,
+      "route": null,
+      "missing_sample": [
+        2109
+      ]
+    },
+    {
+      "function": "_normalize_ai_model_name",
+      "bucket": "helper",
+      "start": 2759,
+      "end": 2760,
+      "uncovered": 1,
+      "span": 2,
+      "route": null,
+      "missing_sample": [
+        2760
+      ]
+    },
+    {
+      "function": "_load_repo_scoped_github_token",
+      "bucket": "helper",
+      "start": 2901,
+      "end": 2904,
+      "uncovered": 1,
+      "span": 4,
+      "route": null,
+      "missing_sample": [
+        2903
+      ]
+    },
+    {
+      "function": "_load_all_ai_settings",
+      "bucket": "helper",
+      "start": 3102,
+      "end": 3119,
+      "uncovered": 1,
+      "span": 18,
+      "route": null,
+      "missing_sample": [
+        3114
+      ]
+    },
+    {
+      "function": "_hash_api_key",
+      "bucket": "helper",
+      "start": 3216,
+      "end": 3223,
+      "uncovered": 1,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        3220
+      ]
+    },
+    {
+      "function": "_ci_push_api_key_status",
+      "bucket": "helper",
+      "start": 3234,
+      "end": 3282,
+      "uncovered": 1,
+      "span": 49,
+      "route": null,
+      "missing_sample": [
+        3237
+      ]
+    },
+    {
+      "function": "_set_ci_push_realtime_enabled",
+      "bucket": "helper",
+      "start": 3306,
+      "end": 3310,
+      "uncovered": 1,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        3309
+      ]
+    },
+    {
+      "function": "_rotate_ci_push_api_key",
+      "bucket": "helper",
+      "start": 3313,
+      "end": 3323,
+      "uncovered": 1,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        3316
+      ]
+    },
+    {
+      "function": "_revoke_ci_push_api_key",
+      "bucket": "helper",
+      "start": 3326,
+      "end": 3332,
+      "uncovered": 1,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        3329
+      ]
+    },
+    {
+      "function": "_llm_reasoning_payload",
+      "bucket": "helper",
+      "start": 3446,
+      "end": 3451,
+      "uncovered": 1,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        3451
+      ]
+    },
+    {
+      "function": "_summarize_query_llm_stats",
+      "bucket": "helper",
+      "start": 3491,
+      "end": 3504,
+      "uncovered": 1,
+      "span": 14,
+      "route": null,
+      "missing_sample": [
+        3497
+      ]
+    },
+    {
+      "function": "_tokenize_for_embedding",
+      "bucket": "helper",
+      "start": 3617,
+      "end": 3620,
+      "uncovered": 1,
+      "span": 4,
+      "route": null,
+      "missing_sample": [
+        3619
+      ]
+    },
+    {
+      "function": "_coerce_summary_value",
+      "bucket": "helper",
+      "start": 3711,
+      "end": 3715,
+      "uncovered": 1,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        3714
+      ]
+    },
+    {
+      "function": "_load_chat_memories",
+      "bucket": "helper",
+      "start": 3767,
+      "end": 3784,
+      "uncovered": 1,
+      "span": 18,
+      "route": null,
+      "missing_sample": [
+        3775
+      ]
+    },
+    {
+      "function": "_action_meta_for_page",
+      "bucket": "helper",
+      "start": 4266,
+      "end": 4270,
+      "uncovered": 1,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        4270
+      ]
+    },
+    {
+      "function": "_extract_stream_finish_reason",
+      "bucket": "helper",
+      "start": 4580,
+      "end": 4585,
+      "uncovered": 1,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        4583
+      ]
+    },
+    {
+      "function": "_extract_stream_delta",
+      "bucket": "helper",
+      "start": 4602,
+      "end": 4612,
+      "uncovered": 1,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        4605
+      ]
+    },
+    {
+      "function": "_heuristic_guard_check",
+      "bucket": "helper",
+      "start": 4890,
+      "end": 4896,
+      "uncovered": 1,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        4895
+      ]
+    },
+    {
+      "function": "_load_agent_rule",
+      "bucket": "helper",
+      "start": 5680,
+      "end": 5699,
+      "uncovered": 1,
+      "span": 20,
+      "route": null,
+      "missing_sample": [
+        5688
+      ]
+    },
+    {
+      "function": "_build_agent_issue_title",
+      "bucket": "helper",
+      "start": 5847,
+      "end": 5855,
+      "uncovered": 1,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        5855
+      ]
+    },
+    {
+      "function": "_parse_issue_ref_from_url",
+      "bucket": "helper",
+      "start": 5997,
+      "end": 6001,
+      "uncovered": 1,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        6000
+      ]
+    },
+    {
+      "function": "_seed_rule_if_missing",
+      "bucket": "helper",
+      "start": 7014,
+      "end": 7021,
+      "uncovered": 1,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        7021
+      ]
+    },
+    {
+      "function": "_soft_delete_seed_chart_by_title",
+      "bucket": "helper",
+      "start": 7132,
+      "end": 7157,
+      "uncovered": 1,
+      "span": 26,
+      "route": null,
+      "missing_sample": [
+        7141
+      ]
+    },
+    {
+      "function": "compress",
+      "bucket": "helper",
+      "start": 7535,
+      "end": 7537,
+      "uncovered": 1,
+      "span": 3,
+      "route": null,
+      "missing_sample": [
+        7537
+      ]
+    },
+    {
+      "function": "compress_json",
+      "bucket": "helper",
+      "start": 7548,
+      "end": 7549,
+      "uncovered": 1,
+      "span": 2,
+      "route": null,
+      "missing_sample": [
+        7549
+      ]
+    },
+    {
+      "function": "_sanitize_rum_asset_name",
+      "bucket": "helper",
+      "start": 7648,
+      "end": 7653,
+      "uncovered": 1,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        7651
+      ]
+    },
+    {
+      "function": "_sanitize_rum_asset_type",
+      "bucket": "helper",
+      "start": 7656,
+      "end": 7661,
+      "uncovered": 1,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        7659
+      ]
+    },
+    {
+      "function": "_rum_asset_signature_payload",
+      "bucket": "helper",
+      "start": 7680,
+      "end": 7699,
+      "uncovered": 1,
+      "span": 20,
+      "route": null,
+      "missing_sample": [
+        7689
+      ]
+    },
+    {
+      "function": "_rum_asset_signature",
+      "bucket": "helper",
+      "start": 7702,
+      "end": 7703,
+      "uncovered": 1,
+      "span": 2,
+      "route": null,
+      "missing_sample": [
+        7703
+      ]
+    },
+    {
+      "function": "_rum_b64url_encode",
+      "bucket": "helper",
+      "start": 7748,
+      "end": 7749,
+      "uncovered": 1,
+      "span": 2,
+      "route": null,
+      "missing_sample": [
+        7749
+      ]
+    },
+    {
+      "function": "_rum_client_sign",
+      "bucket": "helper",
+      "start": 7800,
+      "end": 7801,
+      "uncovered": 1,
+      "span": 2,
+      "route": null,
+      "missing_sample": [
+        7801
+      ]
+    },
+    {
+      "function": "_rum_session_key_from_attrs",
+      "bucket": "helper",
+      "start": 8151,
+      "end": 8155,
+      "uncovered": 1,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        8154
+      ]
+    },
+    {
+      "function": "_string_attr_truthy",
+      "bucket": "helper",
+      "start": 8470,
+      "end": 8471,
+      "uncovered": 1,
+      "span": 2,
+      "route": null,
+      "missing_sample": [
+        8471
+      ]
+    },
+    {
+      "function": "_insert_rows_json_each_row",
+      "bucket": "helper",
+      "start": 8759,
+      "end": 8791,
+      "uncovered": 1,
+      "span": 33,
+      "route": null,
+      "missing_sample": [
+        8761
+      ]
+    },
+    {
+      "function": "_safe_json_loads",
+      "bucket": "helper",
+      "start": 8838,
+      "end": 8850,
+      "uncovered": 1,
+      "span": 13,
+      "route": null,
+      "missing_sample": [
+        8850
+      ]
+    },
+    {
+      "function": "_proto_traces_to_events",
+      "bucket": "helper",
+      "start": 9219,
+      "end": 9263,
+      "uncovered": 1,
+      "span": 45,
+      "route": null,
+      "missing_sample": [
+        9249
+      ]
+    },
+    {
+      "function": "ingest_preflight",
+      "bucket": "route",
+      "start": 9659,
+      "end": 9660,
+      "uncovered": 1,
+      "span": 2,
+      "route": {
+        "path": "/v1/logs",
+        "methods": [
+          "OPTIONS"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        9660
+      ]
+    },
+    {
+      "function": "list_apps",
+      "bucket": "route",
+      "start": 10303,
+      "end": 10310,
+      "uncovered": 1,
+      "span": 8,
+      "route": {
+        "path": "/v1/apps",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        10309
+      ]
+    },
+    {
+      "function": "create_app_registry_entry",
+      "bucket": "route",
+      "start": 10315,
+      "end": 10347,
+      "uncovered": 1,
+      "span": 33,
+      "route": {
+        "path": "/v1/apps",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        10328
+      ]
+    },
+    {
+      "function": "create_app_release",
+      "bucket": "route",
+      "start": 10421,
+      "end": 10446,
+      "uncovered": 1,
+      "span": 26,
+      "route": {
+        "path": "/v1/apps/<app_id>/releases",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        10430
+      ]
+    },
+    {
+      "function": "create_release_artifact_meta",
+      "bucket": "route",
+      "start": 10487,
+      "end": 10517,
+      "uncovered": 1,
+      "span": 31,
+      "route": {
+        "path": "/v1/releases/<release_id>/artifacts/meta",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        10497
+      ]
+    },
+    {
+      "function": "_get_resolved_error_ids",
+      "bucket": "helper",
+      "start": 10728,
+      "end": 10729,
+      "uncovered": 1,
+      "span": 2,
+      "route": null,
+      "missing_sample": [
+        10729
+      ]
+    },
+    {
+      "function": "_active_part_rows",
+      "bucket": "helper",
+      "start": 10732,
+      "end": 10741,
+      "uncovered": 1,
+      "span": 10,
+      "route": null,
+      "missing_sample": [
+        10740
+      ]
+    },
+    {
+      "function": "_validate_re2_patterns",
+      "bucket": "helper",
+      "start": 11187,
+      "end": 11192,
+      "uncovered": 1,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        11191
+      ]
+    },
+    {
+      "function": "_prepare_re2_filter_patterns",
+      "bucket": "helper",
+      "start": 11195,
+      "end": 11207,
+      "uncovered": 1,
+      "span": 13,
+      "route": null,
+      "missing_sample": [
+        11206
+      ]
+    },
+    {
+      "function": "_infer_auto_rule_comparator",
+      "bucket": "helper",
+      "start": 11697,
+      "end": 11703,
+      "uncovered": 1,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        11700
+      ]
+    },
+    {
+      "function": "_format_auto_rule_name",
+      "bucket": "helper",
+      "start": 11727,
+      "end": 11731,
+      "uncovered": 1,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        11730
+      ]
+    },
+    {
+      "function": "_default_auto_dashboard_name",
+      "bucket": "helper",
+      "start": 12022,
+      "end": 12025,
+      "uncovered": 1,
+      "span": 4,
+      "route": null,
+      "missing_sample": [
+        12024
+      ]
+    },
+    {
+      "function": "_load_tag_rules",
+      "bucket": "helper",
+      "start": 12468,
+      "end": 12503,
+      "uncovered": 1,
+      "span": 36,
+      "route": null,
+      "missing_sample": [
+        12480
+      ]
+    },
+    {
+      "function": "_run",
+      "bucket": "helper",
+      "start": 12623,
+      "end": 12631,
+      "uncovered": 1,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        12629
+      ]
+    },
+    {
+      "function": "_record_tag_value_suggestions",
+      "bucket": "helper",
+      "start": 12727,
+      "end": 12752,
+      "uncovered": 1,
+      "span": 26,
+      "route": null,
+      "missing_sample": [
+        12736
+      ]
+    },
+    {
+      "function": "_evaluate_threshold_rule",
+      "bucket": "helper",
+      "start": 13001,
+      "end": 13017,
+      "uncovered": 1,
+      "span": 17,
+      "route": null,
+      "missing_sample": [
+        13012
+      ]
+    },
+    {
+      "function": "signal_label",
+      "bucket": "helper",
+      "start": 13386,
+      "end": 13396,
+      "uncovered": 1,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        13396
+      ]
+    },
+    {
+      "function": "_merge_span_intervals",
+      "bucket": "helper",
+      "start": 14691,
+      "end": 14709,
+      "uncovered": 1,
+      "span": 19,
+      "route": null,
+      "missing_sample": [
+        14694
+      ]
+    },
+    {
+      "function": "_uniq",
+      "bucket": "helper",
+      "start": 14982,
+      "end": 14992,
+      "uncovered": 1,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        14984
+      ]
+    },
+    {
+      "function": "_attr_clause",
+      "bucket": "helper",
+      "start": 15008,
+      "end": 15017,
+      "uncovered": 1,
+      "span": 10,
+      "route": null,
+      "missing_sample": [
+        15010
+      ]
+    },
+    {
+      "function": "_build_geo_dict",
+      "bucket": "helper",
+      "start": 16161,
+      "end": 16169,
+      "uncovered": 1,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        16169
+      ]
+    },
+    {
+      "function": "view_web_traffic",
+      "bucket": "route",
+      "start": 17665,
+      "end": 17703,
+      "uncovered": 1,
+      "span": 39,
+      "route": {
+        "path": "/web-traffic",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        17675
+      ]
+    },
+    {
+      "function": "api_enrichment_github_repo_health",
+      "bucket": "route",
+      "start": 18088,
+      "end": 18094,
+      "uncovered": 1,
+      "span": 7,
+      "route": {
+        "path": "/api/enrichment/github/repo-health",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        18093
+      ]
+    },
+    {
+      "function": "_prepare_template_rows",
+      "bucket": "helper",
+      "start": 20923,
+      "end": 21005,
+      "uncovered": 1,
+      "span": 83,
+      "route": null,
+      "missing_sample": [
+        20947
+      ]
+    },
+    {
+      "function": "_col_for_role",
+      "bucket": "helper",
+      "start": 20949,
+      "end": 20955,
+      "uncovered": 1,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        20955
+      ]
+    },
+    {
+      "function": "_resolve_template_string",
+      "bucket": "helper",
+      "start": 21122,
+      "end": 21130,
+      "uncovered": 1,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        21130
+      ]
+    },
+    {
+      "function": "export_chart",
+      "bucket": "route",
+      "start": 22436,
+      "end": 22462,
+      "uncovered": 1,
+      "span": 27,
+      "route": {
+        "path": "/api/dashboards/<dashboard_id>/charts/<chart_id>/export",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        22446
+      ]
+    },
+    {
+      "function": "_get_reports",
+      "bucket": "helper",
+      "start": 22649,
+      "end": 22670,
+      "uncovered": 1,
+      "span": 22,
+      "route": null,
+      "missing_sample": [
+        22651
+      ]
+    },
+    {
+      "function": "_payload_too_large_response",
+      "bucket": "helper",
+      "start": 22875,
+      "end": 22876,
+      "uncovered": 1,
+      "span": 2,
+      "route": null,
+      "missing_sample": [
+        22876
+      ]
+    },
+    {
+      "function": "rum_js_map",
+      "bucket": "route",
+      "start": 23044,
+      "end": 23049,
+      "uncovered": 1,
+      "span": 6,
+      "route": {
+        "path": "/static/rum.js.map",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        23048
+      ]
+    },
+    {
+      "function": "_get",
+      "bucket": "helper",
+      "start": 23489,
+      "end": 23490,
+      "uncovered": 1,
+      "span": 2,
+      "route": null,
+      "missing_sample": [
+        23490
+      ]
+    },
+    {
+      "function": "api_add_tag",
+      "bucket": "route",
+      "start": 23632,
+      "end": 23655,
+      "uncovered": 1,
+      "span": 24,
+      "route": {
+        "path": "/api/tags/<record_type>/<record_id>",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        23639
+      ]
+    },
+    {
+      "function": "api_delete_tag",
+      "bucket": "route",
+      "start": 23660,
+      "end": 23696,
+      "uncovered": 1,
+      "span": 37,
+      "route": {
+        "path": "/api/tags/<record_type>/<record_id>/<tag_key>",
+        "methods": [
+          "DELETE"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        23677
+      ]
+    },
+    {
+      "function": "_truncate_sample",
+      "bucket": "helper",
+      "start": 23867,
+      "end": 23871,
+      "uncovered": 1,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        23870
+      ]
+    },
+    {
+      "function": "_regex_scope_text",
+      "bucket": "helper",
+      "start": 23874,
+      "end": 23879,
+      "uncovered": 1,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        23879
+      ]
+    },
+    {
+      "function": "_agent_rule_trigger_state_matches",
+      "bucket": "helper",
+      "start": 25344,
+      "end": 25348,
+      "uncovered": 1,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        25348
+      ]
+    },
+    {
+      "function": "test_notification_channel",
+      "bucket": "route",
+      "start": 25882,
+      "end": 25913,
+      "uncovered": 1,
+      "span": 32,
+      "route": {
+        "path": "/api/notifications/channels/<channel_id>/test",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        25913
+      ]
+    },
+    {
+      "function": "auto_generate_notification_rules",
+      "bucket": "route",
+      "start": 26258,
+      "end": 26336,
+      "uncovered": 1,
+      "span": 79,
+      "route": {
+        "path": "/api/notifications/rules/auto-generate",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        26280
+      ]
+    },
+    {
+      "function": "get_vapid_public_key",
+      "bucket": "route",
+      "start": 26452,
+      "end": 26457,
+      "uncovered": 1,
+      "span": 6,
+      "route": {
+        "path": "/api/notifications/vapid-public-key",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        26457
+      ]
+    },
+    {
+      "function": "subscribe_browser_push",
+      "bucket": "route",
+      "start": 26497,
+      "end": 26535,
+      "uncovered": 1,
+      "span": 39,
+      "route": {
+        "path": "/api/notifications/subscribe",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        26516
+      ]
+    },
+    {
+      "function": "_sse_json_event",
+      "bucket": "helper",
+      "start": 27275,
+      "end": 27276,
+      "uncovered": 1,
+      "span": 2,
+      "route": null,
+      "missing_sample": [
+        27276
+      ]
+    },
+    {
+      "function": "_guard_telemetry_attrs",
+      "bucket": "helper",
+      "start": 27279,
+      "end": 27297,
+      "uncovered": 1,
+      "span": 19,
+      "route": null,
+      "missing_sample": [
+        27294
+      ]
+    },
+    {
+      "function": "_suggest_allowed_table_names",
+      "bucket": "helper",
+      "start": 28836,
+      "end": 28842,
+      "uncovered": 1,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        28841
+      ]
+    },
+    {
+      "function": "describe_table",
+      "bucket": "helper",
+      "start": 29001,
+      "end": 29011,
+      "uncovered": 1,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        29010
+      ]
+    },
+    {
+      "function": "_compact_schema_line",
+      "bucket": "helper",
+      "start": 29137,
+      "end": 29148,
+      "uncovered": 1,
+      "span": 12,
+      "route": null,
+      "missing_sample": [
+        29144
+      ]
+    },
+    {
+      "function": "_insert_missing_json_commas",
+      "bucket": "helper",
+      "start": 29379,
+      "end": 29407,
+      "uncovered": 1,
+      "span": 29,
+      "route": null,
+      "missing_sample": [
+        29383
+      ]
+    },
+    {
+      "function": "_json_safe_scalar",
+      "bucket": "helper",
+      "start": 30126,
+      "end": 30130,
+      "uncovered": 1,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        30129
+      ]
+    },
+    {
+      "function": "view_query",
+      "bucket": "route",
+      "start": 30192,
+      "end": 30198,
+      "uncovered": 1,
+      "span": 7,
+      "route": {
+        "path": "/query",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        30198
+      ]
+    },
+    {
+      "function": "view_table_explorer",
+      "bucket": "route",
+      "start": 30894,
+      "end": 30901,
+      "uncovered": 1,
+      "span": 8,
+      "route": {
+        "path": "/table-explorer",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        30901
+      ]
+    },
+    {
+      "function": "_load_k8s_settings",
+      "bucket": "helper",
+      "start": 31027,
+      "end": 31034,
+      "uncovered": 1,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        31033
+      ]
+    },
+    {
+      "function": "save_k8s_settings",
+      "bucket": "route",
+      "start": 31718,
+      "end": 31729,
+      "uncovered": 1,
+      "span": 12,
+      "route": {
+        "path": "/settings/kubernetes",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        31727
+      ]
+    },
+    {
+      "function": "view_kubernetes",
+      "bucket": "route",
+      "start": 31734,
+      "end": 31741,
+      "uncovered": 1,
+      "span": 8,
+      "route": {
+        "path": "/kubernetes",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        31741
+      ]
+    },
+    {
+      "function": "_sql_quote_literal",
+      "bucket": "helper",
+      "start": 31851,
+      "end": 31853,
+      "uncovered": 1,
+      "span": 3,
+      "route": null,
+      "missing_sample": [
+        31853
+      ]
+    },
+    {
+      "function": "_validate_dm_backup_name",
+      "bucket": "helper",
+      "start": 31861,
+      "end": 31863,
+      "uncovered": 1,
+      "span": 3,
+      "route": null,
+      "missing_sample": [
+        31863
+      ]
+    },
+    {
+      "function": "_acquire_dm_prune_lock",
+      "bucket": "helper",
+      "start": 31981,
+      "end": 31985,
+      "uncovered": 1,
+      "span": 5,
+      "route": null,
+      "missing_sample": [
+        31984
+      ]
+    },
+    {
+      "function": "api_dm_backup_run",
+      "bucket": "route",
+      "start": 32263,
+      "end": 32274,
+      "uncovered": 1,
+      "span": 12,
+      "route": {
+        "path": "/api/data-management/backup/run",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        32270
+      ]
+    },
+    {
+      "function": "_build_otel_audit_issue_body",
+      "bucket": "helper",
+      "start": 33333,
+      "end": 33459,
+      "uncovered": 1,
+      "span": 127,
+      "route": null,
+      "missing_sample": [
+        33335
+      ]
+    }
+  ],
+  "module_missing_count": 13,
+  "module_missing_sample": [
+    528,
+    33934,
+    33935,
+    33944,
+    33945,
+    33946,
+    33948,
+    33949,
+    33950,
+    33951,
+    33953,
+    33954,
+    33957
+  ]
+}
