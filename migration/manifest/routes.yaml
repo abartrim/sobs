@@ -536,6 +536,14 @@ routes:
   - GET
   request:
     method: GET
+- id: get__api_traces_span_seeded
+  path: /api/traces/span/aaaa000000000002
+  methods:
+  - GET
+  profile: tracedetail
+  request:
+    method: GET
+    query: {trace_id: aaaa1111bbbb2222cccc3333dddd4444}
 - id: get__api_table_explorer_table_otel_logs
   path: /api/table-explorer/table/otel_logs
   methods:
