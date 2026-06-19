@@ -1,0 +1,14 @@
+columns substreams version: 1
+4 columns:
+3 substreams for column `Key`:
+	Key.dict_prefix
+	Key.dict
+	Key
+2 substreams for column `Value`:
+	Value.size
+	Value
+2 substreams for column `IsDeleted`:
+	IsDeleted.sparse.idx
+	IsDeleted
+1 substreams for column `Version`:
+	Version

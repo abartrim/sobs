@@ -1,0 +1,13 @@
+columns format version: 1
+11 columns:
+`Id` String
+`Name` String
+`Description` String
+`TriggerType` LowCardinality(String)
+`TriggerRefId` String
+`TriggerState` LowCardinality(String)
+`Actions` String
+`RateLimitMinutes` UInt32
+`IsEnabled` UInt8
+`IsDeleted` UInt8
+`Version` UInt64

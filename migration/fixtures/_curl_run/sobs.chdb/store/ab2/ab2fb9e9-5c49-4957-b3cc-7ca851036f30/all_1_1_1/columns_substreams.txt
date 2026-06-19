@@ -1,0 +1,36 @@
+columns substreams version: 1
+12 columns:
+2 substreams for column `Id`:
+	Id.size
+	Id
+2 substreams for column `Name`:
+	Name.size
+	Name
+2 substreams for column `Slug`:
+	Slug.size
+	Slug
+3 substreams for column `OwnerTeam`:
+	OwnerTeam.sparse.idx
+	OwnerTeam.size
+	OwnerTeam
+2 substreams for column `RepoUrl`:
+	RepoUrl.size
+	RepoUrl
+3 substreams for column `DefaultEnvironment`:
+	DefaultEnvironment.sparse.idx
+	DefaultEnvironment.size
+	DefaultEnvironment
+1 substreams for column `Enabled`:
+	Enabled
+2 substreams for column `MetadataJson`:
+	MetadataJson.size
+	MetadataJson
+2 substreams for column `IsDeleted`:
+	IsDeleted.sparse.idx
+	IsDeleted
+1 substreams for column `Version`:
+	Version
+1 substreams for column `CreatedAt`:
+	CreatedAt
+1 substreams for column `UpdatedAt`:
+	UpdatedAt

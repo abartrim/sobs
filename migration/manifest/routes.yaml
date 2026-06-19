@@ -4508,6 +4508,28 @@ routes:
     form:
       name: Billing Service
       repo_url: https://github.com/acme/billing
+# create_settings_repository with all three token-setting flags set, exercising the
+# set_github_token / set_repo_token / set_agent_repo branches (each runs _save_ai_setting).
+# Distinct slug (payments-service) avoids the create_ok "Billing Service" collision. The Id is a
+# fresh uuid but it is only INSERTED into sobs_apps -> the response is a deterministic redirect +
+# "Repository added" flash (no uuid in body/Location), so no mask is needed. Placed among the
+# end-of-base mutators so the settings writes don't perturb earlier base reads.
+- id: post__settings_repositories_create_token
+  path: /settings/repositories
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      name: Payments Service
+      repo_url: https://github.com/acme/payments
+      repo_owner: acme
+      repo_name: payments
+      set_github_token: "1"
+      set_repo_token: "1"
+      set_agent_repo: "1"
+      github_token: ghp_parity_token_abc123
+      github_token_expires_at: "2026-12-31"
 # Create a dashboard; redirects to /dashboards/<fresh-uuid> (masked in body + Location header).
 - id: post__dashboards_create_ok
   path: /dashboards

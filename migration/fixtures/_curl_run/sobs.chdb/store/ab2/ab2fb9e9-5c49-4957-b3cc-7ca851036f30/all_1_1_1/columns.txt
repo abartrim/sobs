@@ -1,0 +1,14 @@
+columns format version: 1
+12 columns:
+`Id` String
+`Name` String
+`Slug` String
+`OwnerTeam` String
+`RepoUrl` String
+`DefaultEnvironment` String
+`Enabled` UInt8
+`MetadataJson` String
+`IsDeleted` UInt8
+`Version` UInt64
+`CreatedAt` DateTime64(3)
+`UpdatedAt` DateTime64(3)
