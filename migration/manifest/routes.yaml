@@ -4370,6 +4370,19 @@ routes:
   mask:
   - '"t": "[^"]*"'
   mask_reason: same now()-based error sparkline as get__rum.
+# view_rum invalid-regex q -> _prepare_re2_filter_patterns returns regex_error -> q_error set
+# (app.py 17343); the regex clause is then skipped. Same now()-sparkline mask as get__rum.
+- id: get__rum__q_invalid
+  path: /rum
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      q: "foo &&"
+  mask:
+  - '"t": "[^"]*"'
+  mask_reason: same now()-based error sparkline as get__rum.
 - id: post__metrics_rules_auto
   path: /metrics/rules/auto
   methods:
