@@ -512,6 +512,30 @@ routes:
   - GET
   request:
     method: GET
+# metrics_anomaly API success path with a non-existent service/metric -> v_otel_metrics_anomaly
+# returns 0 rows -> deterministic empty JSON (default columns, rows=[]); no wall-clock in the
+# response so no mask. Covers hours parse + except, attr_fp clause, fetch, columns, jsonify.
+- id: get__api_metrics_anomaly__empty
+  path: /api/metrics/anomaly
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {service: nonexistent-svc, metric: nonexistent-metric}
+- id: get__api_metrics_anomaly__attr
+  path: /api/metrics/anomaly
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {service: nonexistent-svc, metric: nonexistent-metric, attr_fp: deadbeef}
+- id: get__api_metrics_anomaly__hours_err
+  path: /api/metrics/anomaly
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {service: nonexistent-svc, metric: nonexistent-metric, hours: notanumber}
 - id: get__api_ai_helper_chats
   path: /api/ai/helper/chats
   methods:
