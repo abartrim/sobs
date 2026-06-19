@@ -96,14 +96,31 @@ Orchestration is **hierarchical**, not a peer mesh. Roles (define in `.claude/ag
 *call* the parity gate; it is never trusted in place of it. The parity gate is the non-negotiable
 barrier for every integration.
 
-## Current status snapshot (2026-06-18)
+## Current status snapshot (2026-06-19)
 
-- 0 `not implemented` stubs; Docker parity GREEN 396 / RED 0.
-- 2026-06-18 audit (`GO_PARITY_DIVERGENCE_AUDIT.md`, ~171 findings, 2 CRITICAL) fully fixed.
-- DLP masking + tag-rule regex now use `dlclark/regexp2` for Python-`re` parity.
-- `go-main` created + pushed; `COMPLETION_PLAN.md` + `coverage_capture.py` committed.
-- **Oracle coverage measured = 58%** (6,280 / 14,884 app.py stmts uncovered) — the remaining risk
-  surface, recorded in `migration/coverage_app.json`.
-- **Next:** (a) classify the 6,280 uncovered lines into buckets (corpus-expandable / needs-difftest /
-  dead); (b) wire `go-main` CI per the checklist above (58% coverage floor); (c) stand up the agent
-  roster to drive the backlog.
+**Harness COMPLETE and operational** (all of §"confidence harness" + §"structural checks" + the
+agent roster + CI are built and committed on `go-main`):
+- Coverage gate (`coverage_capture.py`) + ratchet (`coverage_gate.py` + `COVERAGE_FLOOR`) — baseline
+  **57.81%** (8,604/14,884 covered; 6,280 uncovered).
+- Backlog classifier (`classify_coverage.py` → `coverage_backlog.{json,md}`): route 123 fns/1,710
+  lines · helper 448/4,301 · lifecycle 21/256 · module 13. The sized work-list for corpus expansion.
+- Structural checks (`structural_checks.py`): route matrix 188/188 mapped · 0 allowlist gaps · 3
+  benign stub markers. Wired as a fast CI gate.
+- Differential fuzzer (`fuzz_diff.py`): found **F1** (validate-filter error path leaked raw chdb
+  errors) → fixed in `query_exec.go`; validate_filter fuzz 0→64/80. F2/F3 logged (`FUZZ_FINDINGS.md`).
+- Mutation harness (`mutation_test.py`): validated (summary/get__root 2/5 killed). High-value once
+  coverage is high.
+- CI on `go-main` (build/test/parity/structural/coverage) + branch protection; publish gated to main.
+- **Full loop proven end-to-end:** fuzz → fix (F1) → `validateerr` profile byte-tests the error
+  branch GREEN → permanent regression test + coverage gain. Docker parity GREEN 396/0 (398 with
+  validateerr).
+
+**Remaining DoD item — the coverage drive (ongoing operational work):** raise oracle coverage
+57.81% → ≥99% by working the backlog (corpus expansion for the 123 route fns + their helpers;
+function-level difftests for the 21 lifecycle fns; classify the 13 module/dead lines). This is a
+sequential, Docker-capture-bound grind (~1 profile per route-cluster) — the machinery makes it
+systematic and the ratchet guarantees monotonic progress. Drive via the agent roster, parity-gated.
+
+- **Next:** work the `route` bucket of `coverage_backlog.md` top-down (view_incident 178,
+  view_ai 118, view_errors 108, api_import_reports 73, view_logs 71, …) — one seeded/feature-on
+  profile per cluster, parity-GREEN, ratchet the floor. Drain `FUZZ_FINDINGS.md` (F2/F3) as found.
