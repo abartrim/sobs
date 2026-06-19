@@ -1,12 +1,12 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **59%** · **6081** uncovered statements.
+Oracle coverage **59%** · **6068** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 1551 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| route | 123 | 1538 | needs a fixture/profile (corpus expansion; byte-verifiable) |
 | helper | 444 | 4261 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
@@ -20,11 +20,11 @@ Oracle coverage **59%** · **6081** uncovered statements.
 | `view_errors` | 14210–14583 | 108 | `GET /errors` |
 | `api_import_reports` | 22857–23017 | 73 | `POST /api/reports/import` |
 | `ai_helper` | 27607–28395 | 58 | `POST /api/ai/helper` |
-| `view_rum` | 17309–17657 | 39 | `GET /rum` |
 | `create_notification_rule` | 25918–26089 | 39 | `POST /settings/notifications/rules` |
 | `ingest_rum` | 10010–10149 | 33 | `POST /v1/rum` |
 | `save_ai_settings` | 26677–26751 | 32 | `POST /settings/ai` |
 | `auto_metrics_rules_dashboard` | 13848–13960 | 26 | `POST /metrics/rules/dashboard/auto` |
+| `view_rum` | 17309–17657 | 26 | `GET /rum` |
 | `api_onboarding_create_issues` | 33738–33930 | 25 | `POST /api/onboarding/create-issues` |
 | `view_traces` | 15312–15678 | 22 | `GET /traces` |
 | `create_tag_rule` | 23465–23584 | 22 | `POST /settings/tags` |

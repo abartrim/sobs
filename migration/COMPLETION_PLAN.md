@@ -122,8 +122,11 @@ agent roster + CI are built and committed on `go-main`):
   - *Big-view populated mode:* `logsview` profile (seeded otel_logs + record tags) byte-tests the
     whole `view_logs` populated render (rows/snapshot/tags, every filter, raw-SQL incl. `has_tag()`,
     regex `q`); plus the `view_traces` LIST path (service/regex filters) reusing `tracedetail`.
-  - Coverage **57.81% → 59.14%** (covered 8,803 / 14,884; uncovered 6,081), floor ratcheted to
-    **59.0**. Full Docker parity GREEN **431/0** throughout.
+  - Plus `view_rum` filter/mode branches (4 base routes: `?view=`, `?type=`, `?q=`,
+    `?error_source=`) reusing the base hyperdx_sessions seed; its vitals/error-trend
+    derived-signal lines (need the `v_derived_signals_*` views) are deferred.
+  - Coverage **57.81% → 59.23%** (covered 8,816 / 14,884; uncovered 6,068), floor ratcheted to
+    **59.2**. Full Docker parity GREEN **431/0** (logsview/traces); rum routes scoped GREEN **4/0**.
 - **Populated-render fixes (found by the logsview/traces batch, all latent in the empty corpus):**
   five genuine Go render-layer bugs fixed — float-rendered COUNT()s, over-aggressive `url_for`
   query encoding (matched to Werkzeug 3.1.8's exact safe set via an oracle probe), `request.args`

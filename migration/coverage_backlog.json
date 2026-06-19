@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 6081,
+  "total_uncovered": 6068,
   "summary_pct": "59",
   "by_bucket": {
     "route": {
       "functions": 123,
-      "uncovered": 1551
+      "uncovered": 1538
     },
     "helper": {
       "functions": 444,
@@ -485,31 +485,6 @@
         7839,
         7840,
         7841
-      ]
-    },
-    {
-      "function": "view_rum",
-      "bucket": "route",
-      "start": 17309,
-      "end": 17657,
-      "uncovered": 39,
-      "span": 349,
-      "route": {
-        "path": "/rum",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        17313,
-        17329,
-        17341,
-        17342,
-        17343,
-        17348,
-        17349,
-        17351
       ]
     },
     {
@@ -1066,6 +1041,31 @@
         16953,
         16954,
         16955
+      ]
+    },
+    {
+      "function": "view_rum",
+      "bucket": "route",
+      "start": 17309,
+      "end": 17657,
+      "uncovered": 26,
+      "span": 349,
+      "route": {
+        "path": "/rum",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        17343,
+        17451,
+        17488,
+        17489,
+        17490,
+        17491,
+        17492,
+        17505
       ]
     },
     {
