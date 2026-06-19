@@ -2074,6 +2074,41 @@ routes:
   request:
     method: POST
     form: {name: c, channel_type: email}
+# create_notification_channel per-type validation errors (all return before the insert -> no mutation,
+# formerr profile): invalid channel_type, and the missing-required-field branch for webhook/slack/
+# browser_push. Deterministic flash + redirect.
+- id: post__notif_channel__cc_invalid_type
+  path: /settings/notifications/channels
+  methods:
+  - POST
+  profile: formerr
+  request:
+    method: POST
+    form: {name: c, channel_type: bogus}
+- id: post__notif_channel__cc_webhook_no_url
+  path: /settings/notifications/channels
+  methods:
+  - POST
+  profile: formerr
+  request:
+    method: POST
+    form: {name: c, channel_type: webhook}
+- id: post__notif_channel__cc_slack_no_url
+  path: /settings/notifications/channels
+  methods:
+  - POST
+  profile: formerr
+  request:
+    method: POST
+    form: {name: c, channel_type: slack}
+- id: post__notif_channel__cc_push_no_endpoint
+  path: /settings/notifications/channels
+  methods:
+  - POST
+  profile: formerr
+  request:
+    method: POST
+    form: {name: c, channel_type: browser_push}
 - id: post__api_data_management_backup_run
   path: /api/data-management/backup/run
   methods:
