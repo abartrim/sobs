@@ -1018,6 +1018,18 @@ routes:
     method: GET
     query:
       trace_id: aaaa1111bbbb2222cccc3333dddd4444
+# tracedetailerr profile: same tracedetail trace PLUS one ERROR otel_logs row on the trace, so
+# view_traces' trace-detail errors loop (app.py 15481-15488) runs and renders an error item in
+# the waterfall. Fixed 2023 timestamps + plain-text message keep the render deterministic.
+- id: get__traces__tracedetailerr
+  path: /traces
+  methods:
+  - GET
+  profile: tracedetailerr
+  request:
+    method: GET
+    query:
+      trace_id: aaaa1111bbbb2222cccc3333dddd4444
 # view_traces (LIST mode, no trace_id) invalid-regex q -> regex_error -> q_error set (app.py 15348);
 # the regex clause is then skipped.
 - id: get__traces__tracedetail_q_invalid

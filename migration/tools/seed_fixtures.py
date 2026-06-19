@@ -1223,6 +1223,44 @@ def seed_trace_detail(db) -> None:
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
 
 
+def seed_tracedetailerr(db) -> None:
+    # Same multi-span trace as seed_trace_detail, PLUS one ERROR otel_logs row carrying the trace's
+    # id so view_traces' trace-detail "errors" loop (app.py 15481-15488) executes and renders an
+    # error item. seed_trace_detail seeds NON-error logs only, so that loop body is otherwise never
+    # reached (err_rows is empty). Isolated profile: the base tracedetail goldens are untouched.
+    #
+    # The error row attaches to the existing error span (aaaa000000000003, the STATUS_CODE_ERROR
+    # "SELECT items" span) so it lands inside the trace's span tree (error_span_ids -> that span's
+    # error badge stays deterministic). ERROR_SOURCES_SQL matches it via EventName='exception' /
+    # SeverityNumber>=17 / SeverityText='ERROR' / exception.type set. Exactly ONE error row: the
+    # trace-error query has NO ORDER BY (FROM (ERROR_SOURCES_SQL) WHERE TraceId=? LIMIT N), so a
+    # single row removes any chDB row-order nondeterminism while still covering the loop body.
+    # Fixed 2023 timestamp + plain-text (non-JSON) message keep the render byte-reproducible
+    # (the *_is_json branches stay False).
+    seed_trace_detail(db)
+    _insert(
+        db,
+        "otel_logs",
+        [
+            {
+                "Timestamp": "2023-06-01 12:00:00.060000",
+                "TraceId": _TRACE_DETAIL_TRACE_ID,
+                "SpanId": "aaaa000000000003",
+                "ServiceName": "checkout-db",
+                "SeverityText": "ERROR",
+                "SeverityNumber": 17,
+                "EventName": "exception",
+                "Body": "connection reset by peer",
+                "LogAttributes": {
+                    "exception.type": "ConnectionError",
+                    "exception.message": "connection reset by peer",
+                },
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+
 def seed_logsview(db) -> None:
     # Populate otel_logs so view_logs (GET /logs) renders its POPULATED branches. Six rows with
     # DISTINCT fixed timestamps (deterministic ORDER BY Timestamp DESC). Severity and service counts
@@ -1640,6 +1678,7 @@ PROFILE_SEEDS = {
     "aichat": seed_aichat,
     "ciauth": seed_ci_key,  # registered app + managed per-app CI-push key; managed-key require_api_key path
     "tracedetail": seed_trace_detail,  # multi-span trace + logs -> populated trace_detail waterfall
+    "tracedetailerr": seed_tracedetailerr,  # tracedetail trace + 1 ERROR log -> trace_detail errors loop
     "logsview": seed_logsview,  # 5 otel_logs rows + record tags -> populated view_logs branches
     "errorsview": seed_errorsview,  # error events + a resolution -> populated view_errors branches
     "aiview": seed_aiview,  # otel_traces AI spans (gen_ai.*) -> populated view_ai branches
