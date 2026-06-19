@@ -4176,6 +4176,33 @@ routes:
   request:
     method: POST
     json: {}
+# ingest_ai full JSON payload -> exercises the input/output/system-instructions/prompt/response/
+# error_type span-attr branches + the otel_traces write. Response {"ok": true} only -> deterministic.
+# Isolated aiingest profile (the write must not perturb base otel_traces readers).
+- id: post__v1_ai__ai_ingest_full
+  path: /v1/ai
+  methods:
+  - POST
+  profile: aiingest
+  request:
+    method: POST
+    json:
+      timestamp: '2024-01-02T03:00:00Z'
+      model: gpt-4
+      operation: Chat
+      provider: openai
+      service: checkout-ai
+      tokens_in: 42
+      tokens_out: 100
+      duration_ms: 1234.5
+      trace_id: aitrace0001
+      span_id: aispan0001
+      input_messages: [{role: user, content: hi}]
+      output_messages: [{role: assistant, content: hello}]
+      system_instructions: be terse
+      prompt: legacy prompt
+      response: legacy response
+      error_type: TimeoutError
 # Same /v1/ai POST but with a (default-allowlisted localhost) Origin -> exercises the OTLP CORS
 # headers added by _apply_security_headers for browser cross-origin ingest.
 - id: post__v1_ai_cors

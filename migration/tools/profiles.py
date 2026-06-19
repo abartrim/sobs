@@ -105,6 +105,10 @@ PROFILES: dict[str, dict[str, str]] = {
     # cve-overview counts and view_enrichment_cve findings loop/filters render populated.
     # Read-only (the pages only query) -> shareable, but kept isolated/seeded for clarity.
     "cveview": {},
+    # aiingest: no seed, isolated (ingest_ai writes otel_traces). A full JSON payload exercises the
+    # input/output/system-instructions/prompt/response/error_type span-attr branches. Response is
+    # {"ok": true} only (no uuid/count) -> deterministic; provide timestamp to avoid _now_iso drift.
+    "aiingest": {},
     # dashauto: no seed, isolated (auto_metrics_rules_dashboard create inserts a dashboard + charts).
     # Candidates come from the base example anomaly rules (no extra seed). create's redirect Location
     # embeds the new dashboard_id (frozen uuid -> deterministic as the first uuid consumer); preview
