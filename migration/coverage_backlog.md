@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **64%** · **5324** uncovered statements.
+Oracle coverage **65%** · **5279** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 937 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 433 | 4118 | usually covered when a calling route's fixture is added; else difftest |
+| route | 123 | 903 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 433 | 4107 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -20,9 +20,7 @@ Oracle coverage **64%** · **5324** uncovered statements.
 | `auto_metrics_rules_dashboard` | 13848–13960 | 26 | `POST /metrics/rules/dashboard/auto` |
 | `view_rum` | 17309–17657 | 26 | `GET /rum` |
 | `api_onboarding_create_issues` | 33738–33930 | 25 | `POST /api/onboarding/create-issues` |
-| `create_notification_rule` | 25918–26089 | 23 | `POST /settings/notifications/rules` |
 | `view_traces` | 15312–15678 | 22 | `GET /traces` |
-| `get_ai_conversation` | 19048–19115 | 21 | `GET /api/ai/conversation` |
 | `view_logs` | 11239–11512 | 20 | `GET /logs` |
 | `api_import_reports` | 22857–23017 | 19 | `POST /api/reports/import` |
 | `view_enrichment_cve` | 18104–18215 | 18 | `GET /enrichment/cve` |
@@ -55,6 +53,8 @@ Oracle coverage **64%** · **5324** uncovered statements.
 | `export_ai_training` | 19123–19226 | 8 | `GET /api/ai/export` |
 | `api_query_add_to_dashboard` | 21331–21407 | 8 | `POST /api/query/add-to-dashboard` |
 | `api_logs_validate_regex` | 23954–24004 | 8 | `POST /api/logs/validate-regex` |
+| `api_ai_field_hints` | 24229–24402 | 8 | `GET /api/ai/field-hints` |
+| `api_onboarding_import_repo` | 33538–33598 | 8 | `POST /api/onboarding/import-repo` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
@@ -116,13 +116,13 @@ Oracle coverage **64%** · **5324** uncovered statements.
 | `_check_guard_model` | 5136–5233 | 31 |  |
 | `_update_github_issue_record` | 32994–33047 | 31 |  |
 | `_assign_issue_to_copilot` | 5329–5385 | 30 |  |
-| `_coerce_reasoning_text` | 8304–8331 | 28 |  |
 | `_geo_lookup_batch` | 16194–16241 | 28 |  |
 | `_resolve_custom_binding_expr` | 21086–21119 | 28 |  |
 | `_parse_gemfile_lock_dependencies` | 16426–16453 | 27 |  |
 | `_encrypt_push_payload` | 24990–25055 | 27 |  |
+| `_match_single_condition` | 12551–12588 | 26 |  |
 | `_build_trace_window_overlay_segments` | 14787–14842 | 26 |  |
 | `_collect_library_inventory` | 16876–17071 | 26 |  |
 | `_load_chat_tool_history` | 4016–4075 | 25 |  |
+| `_coerce_reasoning_text` | 8304–8331 | 25 |  |
 | `_build_auto_tag_rule_candidates` | 12062–12308 | 25 |  |
-| `_build_agent_context_summary` | 6609–6703 | 24 |  |
