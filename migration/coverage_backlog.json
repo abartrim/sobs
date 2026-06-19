@@ -1,5 +1,5 @@
 {
-  "total_uncovered": 5112,
+  "total_uncovered": 5104,
   "summary_pct": "66",
   "by_bucket": {
     "helper": {
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 119,
-      "uncovered": 763
+      "uncovered": 755
     },
     "module": {
       "functions": 0,
@@ -1501,31 +1501,6 @@
       ]
     },
     {
-      "function": "api_import_reports",
-      "bucket": "route",
-      "start": 22857,
-      "end": 23017,
-      "uncovered": 19,
-      "span": 161,
-      "route": {
-        "path": "/api/reports/import",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        22879,
-        22886,
-        22887,
-        22888,
-        22889,
-        22890,
-        22891,
-        22892
-      ]
-    },
-    {
       "function": "_sync_github_repo_health_once",
       "bucket": "helper",
       "start": 17255,
@@ -2596,6 +2571,31 @@
         21178,
         21179,
         21180
+      ]
+    },
+    {
+      "function": "api_import_reports",
+      "bucket": "route",
+      "start": 22857,
+      "end": 23017,
+      "uncovered": 11,
+      "span": 161,
+      "route": {
+        "path": "/api/reports/import",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        22879,
+        22893,
+        22894,
+        22895,
+        22896,
+        22897,
+        22898,
+        22899
       ]
     },
     {

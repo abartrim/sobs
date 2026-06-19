@@ -1,12 +1,12 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **66%** · **5112** uncovered statements.
+Oracle coverage **66%** · **5104** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 119 | 763 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| route | 119 | 755 | needs a fixture/profile (corpus expansion; byte-verifiable) |
 | helper | 430 | 4080 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
@@ -21,7 +21,6 @@ Oracle coverage **66%** · **5112** uncovered statements.
 | `view_rum` | 17309–17657 | 26 | `GET /rum` |
 | `view_traces` | 15312–15678 | 22 | `GET /traces` |
 | `view_logs` | 11239–11512 | 20 | `GET /logs` |
-| `api_import_reports` | 22857–23017 | 19 | `POST /api/reports/import` |
 | `view_ai` | 18631–18998 | 18 | `GET /ai` |
 | `api_onboarding_create_issues` | 33738–33930 | 18 | `POST /api/onboarding/create-issues` |
 | `api_query_run` | 30511–30765 | 17 | `POST /api/query/run` |
@@ -33,6 +32,7 @@ Oracle coverage **66%** · **5112** uncovered statements.
 | `api_enrichment_libraries` | 17882–17941 | 14 | `GET /api/enrichment/libraries` |
 | `edit_chart` | 21651–21689 | 14 | `POST /dashboards/<dashboard_id>/charts/<chart_id>/edit` |
 | `rum_asset_download` | 9761–9786 | 12 | `GET /v1/rum/assets/<asset_id>` |
+| `api_import_reports` | 22857–23017 | 11 | `POST /api/reports/import` |
 | `api_query_ask` | 30203–30506 | 11 | `POST /api/query/ask` |
 | `create_tag_rule` | 23465–23584 | 10 | `POST /settings/tags` |
 | `api_onboarding_list_repos` | 33603–33678 | 10 | `POST /api/onboarding/list-repos` |
