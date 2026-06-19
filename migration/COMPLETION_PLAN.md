@@ -112,8 +112,18 @@ agent roster + CI are built and committed on `go-main`):
   coverage is high.
 - CI on `go-main` (build/test/parity/structural/coverage) + branch protection; publish gated to main.
 - **Full loop proven end-to-end:** fuzz → fix (F1) → `validateerr` profile byte-tests the error
-  branch GREEN → permanent regression test + coverage gain. Docker parity GREEN 396/0 (398 with
-  validateerr).
+  branch GREEN → permanent regression test + coverage gain. Docker parity GREEN 396/0.
+- **Coverage drive started — BOTH expansion modes demonstrated GREEN:**
+  - *Error-path mode:* `validateerr` (2) + `formerr` (15) = 17 routes byte-testing
+    validation/error branches across validate-filter, metrics-rule, tag-rule, notification
+    rule/channel, repos, onboarding, add-to-dashboard, cve-disposition, subscribe.
+  - *Seeded populated-data mode:* `api_raw_span` found-branch (949B real span detail) via the
+    existing `tracedetail` seed.
+  - Coverage **57.81% → 58.32%** (+76 lines from the first ~8 routes), floor ratcheted to **58.0**.
+- **Empirical finding:** error-path routes plateau coverage fast (their branches are 1–2 lines, often
+  already executed) — they keep *verification* value but the headline % needs the **seeded
+  populated-data handlers** (view_incident/view_ai/view_errors/…), which dominate the remaining gap
+  and are the real (multi-session) work.
 
 **Remaining DoD item — the coverage drive (ongoing operational work):** raise oracle coverage
 57.81% → ≥99% by working the backlog (corpus expansion for the 123 route fns + their helpers;
