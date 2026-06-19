@@ -20,6 +20,12 @@ Python/Quart/Werkzeug/Jinja2 oracle — it can never regress empty-corpus parity
 | R10 | `view_metrics` + `view_metrics_anomaly` rendered `Sample` `5.0` / `point_count` as floats vs Python ints | `last_sample_count`/`point_count`/`sample_count` are UInts (`argMax(SampleCount,…)`/`count()`) passed raw (float64 from chdb); Python renders the int. `value`/`baseline_*`/`anomaly_score` are genuine Float64 → kept raw | `cInt(m, …)` for the count columns in both handlers (`handlers_pages.go`) — found by the `metricsauto` batches (same class as R1) |
 | R11 | `save_ai_settings` returned 302 (success) on invalid `model_pricing`/`model_pricing_confirmed` JSON; Python returns 400 `{"error": ...}` | the Go POST handler was a simplified port — it wrote the basic ai.* keys but omitted the pricing/confirmed JSON validation+normalize and the github_token expiry/validation-reset logic | ported the validation (parse → 400 on bad JSON, normalize entries, save) + github_token branch (`handlers_pages.go`) — found by the `aisettings` batch |
 
+## Deferred limitation
+
+| # | Symptom | Root cause | Status |
+|---|---|---|---|
+| R12 | `auto_metrics_rules_dashboard` create redirects to `/dashboards/<id>` — Python emits a frozen sequential uuid (`00000000-0000-4000-8000-00000000000a`), Go emits a crypto-random one | Go's `newUUIDv4` is NOT parity-frozen (its own comment notes this); Python's `determinism.install()` makes `uuid.uuid4()` a sequential counter. Matching a **response-exposed** server-generated uuid would require Go to replicate Python's entire uuid-consumption sequence from boot (seeder + every prior route) — impractical and fragile. | **DEFERRED.** Any route that returns a server-generated uuid in its response body/Location (dashboard/chart create-and-redirect-to-id, etc.) is excluded from corpus parity. The create *logic* is still byte-unverifiable here; only the preview path is covered. Revisit only if a frozen-uuid lockstep is built into the Go parity harness. |
+
 **Werkzeug query-encoding reference** (probed from the frozen oracle, WZ 3.1.8): input
 `a b!"#$%&'()*+,-./:;<=>?@[\]^_`+"`"+`{|}~` → `a+b!%22%23$%25%26'()*%2B,-./:;%3C%3D%3E?@%5B%5C%5D%5E_%60%7B%7C%7D~`.
 Literal: `! $ ' ( ) * , - . / : ; ? @ _ ~` + alnum; space→`+`; escaped: `" # % & + < = > [ \ ] ^ ` + "`` ` `` + `{ | }`.

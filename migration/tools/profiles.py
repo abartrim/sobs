@@ -93,6 +93,11 @@ PROFILES: dict[str, dict[str, str]] = {
     # github-token-changed branch. Response is flash+redirect or 400 JSON (deterministic); the
     # Fernet-encrypted writes are nondeterministic but never appear in the response.
     "aisettings": {},
+    # dashauto: no seed, isolated (auto_metrics_rules_dashboard create inserts a dashboard + charts).
+    # Candidates come from the base example anomaly rules (no extra seed). create's redirect Location
+    # embeds the new dashboard_id (frozen uuid -> deterministic as the first uuid consumer); preview
+    # + no-candidates branches don't mutate. Routes ordered so the create runs last.
+    "dashauto": {},
     "ai": {
         # Python derives _query_page_enabled() from these (via _AI_ENV_OVERRIDES); Go reads
         # them through aiEnvOverrides AND gates the query page on SOBS_QUERY_PAGE_ENABLED.

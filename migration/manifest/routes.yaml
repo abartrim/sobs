@@ -3827,6 +3827,18 @@ routes:
   - POST
   request:
     method: POST
+# auto_metrics_rules_dashboard PREVIEW (candidates from base anomaly rules -> render). The CREATE
+# path is DEFERRED: its redirect Location embeds a server-generated dashboard uuid, and Go's uuid is
+# crypto-random (not parity-frozen like Python's determinism shim), so a response-exposed uuid can't
+# byte-match without full uuid-counter lockstep from boot (R12 — see POPULATED_RENDER_FINDINGS.md).
+- id: post__metrics_rules_dashboard_auto__da_preview
+  path: /metrics/rules/dashboard/auto
+  methods:
+  - POST
+  profile: dashauto
+  request:
+    method: POST
+    form: {action: preview}
 - id: post__settings_tags_auto
   path: /settings/tags/auto
   methods:
