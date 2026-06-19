@@ -818,6 +818,132 @@ routes:
       trace_id: aaaa1111bbbb2222cccc3333dddd4444
       trace_span_limit: 2
       trace_span_offset: 2
+# Same tracedetail seed, LIST view (no trace_id): a service filter and a regex(q) filter drive the
+# selected_services / q-prepare / regex-clause / count-with-where / spans-loop branches of
+# view_traces. Distinct seed timestamps keep ORDER BY Timestamp DESC deterministic.
+- id: get__traces__tracedetail_service
+  path: /traces
+  methods:
+  - GET
+  profile: tracedetail
+  request:
+    method: GET
+    query:
+      service: checkout
+- id: get__traces__tracedetail_q
+  path: /traces
+  methods:
+  - GET
+  profile: tracedetail
+  request:
+    method: GET
+    query:
+      q: checkout
+# logsview profile: seeded otel_logs (6 rows, distinct timestamps + distinct level/service counts)
+# plus two record tags. Drives view_logs' POPULATED branches: the rows/record-id/snapshot block,
+# every filter (level / service / event_name / trace_id / trace_ids), the raw-SQL-where path incl.
+# the has_tag() translation and time-window append, the regex(q) clauses, and the batch-tag join.
+# Deterministic via fixed seed timestamps + frozen now(); tie-free stats avoid ORDER BY ambiguity.
+- id: get__logs__logsview
+  path: /logs
+  methods:
+  - GET
+  profile: logsview
+  request:
+    method: GET
+- id: get__logs__logsview_level
+  path: /logs
+  methods:
+  - GET
+  profile: logsview
+  request:
+    method: GET
+    query:
+      level: ERROR
+- id: get__logs__logsview_service
+  path: /logs
+  methods:
+  - GET
+  profile: logsview
+  request:
+    method: GET
+    query:
+      service: api
+- id: get__logs__logsview_event
+  path: /logs
+  methods:
+  - GET
+  profile: logsview
+  request:
+    method: GET
+    query:
+      event_name: job.run
+- id: get__logs__logsview_trace_id
+  path: /logs
+  methods:
+  - GET
+  profile: logsview
+  request:
+    method: GET
+    query:
+      trace_id: trace-aaa
+- id: get__logs__logsview_trace_ids
+  path: /logs
+  methods:
+  - GET
+  profile: logsview
+  request:
+    method: GET
+    query:
+      trace_ids: trace-aaa
+- id: get__logs__logsview_q
+  path: /logs
+  methods:
+  - GET
+  profile: logsview
+  request:
+    method: GET
+    query:
+      q: timeout
+- id: get__logs__logsview_sql
+  path: /logs
+  methods:
+  - GET
+  profile: logsview
+  request:
+    method: GET
+    query:
+      sql: service='api'
+- id: get__logs__logsview_sql_hastag
+  path: /logs
+  methods:
+  - GET
+  profile: logsview
+  request:
+    method: GET
+    query:
+      sql: has_tag('env','prod')
+- id: get__logs__logsview_sql_time
+  path: /logs
+  methods:
+  - GET
+  profile: logsview
+  request:
+    method: GET
+    query:
+      sql: service='api'
+      from_ts: '2023-06-01T00:00:00'
+      to_ts: '2023-06-02T00:00:00'
+- id: get__logs__logsview_time_error
+  path: /logs
+  methods:
+  - GET
+  profile: logsview
+  request:
+    method: GET
+    query:
+      from_ts: '2023-06-02T00:00:00'
+      to_ts: '2023-06-01T00:00:00'
 - id: get__metrics
   path: /metrics
   methods:

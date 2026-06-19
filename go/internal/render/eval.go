@@ -142,19 +142,47 @@ func (e *Engine) compareOrd(l, r string, ctx *scope, op string) (any, error) {
 	}
 	lf, lok := numFloat(lv)
 	rf, rok := numFloat(rv)
-	if !lok || !rok {
-		return false, nil
+	if lok && rok {
+		switch op {
+		case ">=":
+			return lf >= rf, nil
+		case "<=":
+			return lf <= rf, nil
+		case ">":
+			return lf > rf, nil
+		default: // "<"
+			return lf < rf, nil
+		}
 	}
-	switch op {
-	case ">=":
-		return lf >= rf, nil
-	case "<=":
-		return lf <= rf, nil
-	case ">":
-		return lf > rf, nil
-	default: // "<"
-		return lf < rf, nil
+	// Non-numeric: Python compares two strings lexicographically (str >= str), used e.g. as
+	// span.http_status|string >= '500'. Mixed number/string would TypeError in Python; treat
+	// as false rather than raise.
+	ls, lsok := orderString(lv)
+	rs, rsok := orderString(rv)
+	if lsok && rsok {
+		switch op {
+		case ">=":
+			return ls >= rs, nil
+		case "<=":
+			return ls <= rs, nil
+		case ">":
+			return ls > rs, nil
+		default: // "<"
+			return ls < rs, nil
+		}
 	}
+	return false, nil
+}
+
+// orderString extracts a comparable string from a string or safeString value.
+func orderString(v any) (string, bool) {
+	switch x := v.(type) {
+	case string:
+		return x, true
+	case safeString:
+		return x.s, true
+	}
+	return "", false
 }
 
 // isTest implements Jinja `x is TEST` / `x is not TEST` for the tests templates use.
@@ -998,6 +1026,9 @@ func (e *Engine) applyFilter(f string, val any, ctx *scope) (any, error) {
 	case "tojson":
 		// Jinja tojson: compact JSON + HTML-safe escaping, marked safe.
 		return safeString{tojson(val)}, nil
+	case "string":
+		// Jinja |string == soft_str == Python str(); used e.g. as span.http_status|string >= '500'.
+		return pyStr(val), nil
 	case "default", "d":
 		// Jinja default(d, boolean=False): substitute only when the value is undefined
 		// (nil), unless the boolean flag is set, in which case substitute on any falsy value.

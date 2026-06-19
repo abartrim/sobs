@@ -432,6 +432,31 @@ func (s *server) renderPage(w http.ResponseWriter, templateName, endpoint string
 	s.renderInto(w, s.newEngine(), templateName, ctx)
 }
 
+// requestArgsContext mirrors Quart's `request` object for templates that read request.args
+// (filtered pages: from_ts/to_ts/live/stats fallbacks, etc.). args holds the FIRST value per
+// query key, matching MultiDict.get. baseContext's hardcoded-empty request is fine only for the
+// param-less captures; filtered renders must pass the real query string.
+func requestArgsContext(r *http.Request, endpoint string) map[string]any {
+	args := map[string]any{}
+	for k, vs := range r.URL.Query() {
+		if len(vs) > 0 {
+			args[k] = vs[0]
+		}
+	}
+	return map[string]any{"endpoint": endpoint, "args": args, "cookies": map[string]any{}}
+}
+
+// renderPageReq is renderPage with request.args populated from r (for pages whose templates
+// consult request.args).
+func (s *server) renderPageReq(w http.ResponseWriter, r *http.Request, templateName, endpoint string, extra map[string]any) {
+	ctx := s.baseContext(endpoint)
+	ctx["request"] = requestArgsContext(r, endpoint)
+	for k, v := range extra {
+		ctx[k] = v
+	}
+	s.renderInto(w, s.newEngine(), templateName, ctx)
+}
+
 // renderPageFlash renders a page with a single pre-seeded flash (category, message) consumed
 // by get_flashed_messages — for handlers that flash() then render rather than redirect.
 func (s *server) renderPageFlash(w http.ResponseWriter, templateName, endpoint, flashCategory, flashMessage string, extra map[string]any) {
@@ -2530,7 +2555,7 @@ func (s *server) handleViewLogs(w http.ResponseWriter, r *http.Request) {
 	levels := s.distinctStrings("SELECT DISTINCT SeverityText FROM otel_logs ORDER BY SeverityText")
 	eventNames := s.distinctStrings("SELECT DISTINCT EventName FROM otel_logs WHERE EventName!='' ORDER BY EventName")
 
-	s.renderPage(w, "logs.html", "view_logs", map[string]any{
+	s.renderPageReq(w, r, "logs.html", "view_logs", map[string]any{
 		"logs": logRows, "total": total, "limit": limit, "offset": offset, "q": q,
 		"level": "", "selected_levels": toAnySlice(selectedLevels),
 		"service": "", "selected_services": toAnySlice(selectedServices),

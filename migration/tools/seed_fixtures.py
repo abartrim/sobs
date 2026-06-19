@@ -1223,6 +1223,83 @@ def seed_trace_detail(db) -> None:
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
 
 
+def seed_logsview(db) -> None:
+    # Populate otel_logs so view_logs (GET /logs) renders its POPULATED branches. Six rows with
+    # DISTINCT fixed timestamps (deterministic ORDER BY Timestamp DESC). Severity and service counts
+    # are kept DISTINCT (ERROR=3, WARN=2, INFO=1; api=4, worker=2) so the stats queries' ORDER BY cnt
+    # DESC has no ties — a tie would let ClickHouse pick either order and break byte-parity. The fixed
+    # 2023 timestamps + the frozen now() keep the stats-snapshot age block deterministic.
+    def logrow(frac, service, severity, sevnum, event, trace, span, body):
+        return {
+            "Timestamp": f"2023-06-01 12:00:00.{frac}",
+            "ServiceName": service,
+            "SeverityText": severity,
+            "SeverityNumber": sevnum,
+            "EventName": event,
+            "TraceId": trace,
+            "SpanId": span,
+            "Body": body,
+            "LogAttributes": {},
+        }
+
+    _insert(
+        db,
+        "otel_logs",
+        [
+            logrow(
+                "100000000",
+                "api",
+                "ERROR",
+                17,
+                "http.request",
+                "trace-aaa",
+                "span-0001",
+                "database connection timeout after 5000ms",
+            ),
+            logrow(
+                "200000000",
+                "api",
+                "ERROR",
+                17,
+                "http.request",
+                "trace-aaa",
+                "span-0002",
+                "upstream returned status 503",
+            ),
+            logrow(
+                "300000000", "api", "ERROR", 17, "http.request", "trace-bbb", "span-0003", "request failed validation"
+            ),
+            logrow(
+                "400000000",
+                "api",
+                "WARN",
+                13,
+                "http.request",
+                "trace-bbb",
+                "span-0004",
+                "slow query detected on orders",
+            ),
+            logrow("500000000", "worker", "WARN", 13, "job.run", "trace-ccc", "span-0005", "queue backlog growing"),
+            logrow("600000000", "worker", "INFO", 9, "job.run", "trace-ccc", "span-0006", "batch job completed"),
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+    # Two tags on the first (ERROR/api/trace-aaa) record so the batch-tag join (view_logs) and a
+    # has_tag('env','prod') SQL filter both resolve. RecordId is computed chdb-side with the SAME
+    # lower(hex(MD5(concat(...)))) the app's _record_id_for_log produces, so it matches what both the
+    # Python capture and the Go replay compute at read time.
+    for tk, tv in (("env", "prod"), ("owner", "team-a")):
+        db.execute(
+            "INSERT INTO sobs_record_tags "
+            "(RecordType, RecordId, TagKey, TagValue, IsAuto, IsDeleted, Version) "
+            "SELECT 'log', "
+            "lower(hex(MD5(concat(ServiceName,'|',toString(Timestamp),'|',TraceId,'|',SpanId)))), "
+            f"'{tk}', '{tv}', 0, 0, 1704164644000 "
+            "FROM otel_logs WHERE SpanId='span-0001'"
+        )
+    db.execute("OPTIMIZE TABLE sobs_record_tags FINAL")
+
+
 def seed_dashview(db) -> None:
     # One dashboard + two charts with FIXED ids so GET /dashboards/<id> (view_custom_dashboard)
     # renders its view branch against real data. The base example seeder also creates an example
@@ -1362,6 +1439,7 @@ PROFILE_SEEDS = {
     "aichat": seed_aichat,
     "ciauth": seed_ci_key,  # registered app + managed per-app CI-push key; managed-key require_api_key path
     "tracedetail": seed_trace_detail,  # multi-span trace + logs -> populated trace_detail waterfall
+    "logsview": seed_logsview,  # 5 otel_logs rows + record tags -> populated view_logs branches
     "dashview": seed_dashview,  # dashboard + charts -> GET /dashboards/<id> view branch
     "regexlogs": seed_regex_logs,  # validate-regex sample probe: otel_logs.Body
     "regextraces": seed_regex_traces,  # validate-regex sample probe: otel_traces.SpanName

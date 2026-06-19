@@ -122,7 +122,7 @@ func (s *server) urlFor(pos []any, kw map[string]any, kwOrder []string) (any, er
 		if pathHasParam(rule, k) {
 			rule = replaceParam(rule, k, v)
 		} else {
-			qs = append(qs, url.QueryEscape(k)+"="+strings.ReplaceAll(url.QueryEscape(v), "%3A", ":"))
+			qs = append(qs, werkzeugQueryEscape(k)+"="+werkzeugQueryEscape(v))
 		}
 	}
 	out := s.cfg.BasePath + rule
@@ -130,6 +130,20 @@ func (s *server) urlFor(pos []any, kw map[string]any, kwOrder []string) (any, er
 		out += "?" + strings.Join(qs, "&")
 	}
 	return out, nil
+}
+
+// werkzeugQueryRelax converts Go's url.QueryEscape output to match Werkzeug's _urlencode
+// (urllib quote_plus) safe set. Go escapes everything but A-Za-z0-9-_.~; Werkzeug additionally
+// leaves the sub-delims/gen-delims  ! $ ' ( ) * , / : ; ? @  literal in query values. Both use
+// '+' for space and escape  " # % & + < = > [ \ ] ^ ` { | } . Relaxing these back makes
+// url_for() query strings byte-identical (e.g. sql=has_tag('env','prod') not %28%27...%29).
+var werkzeugQueryRelax = strings.NewReplacer(
+	"%21", "!", "%24", "$", "%27", "'", "%28", "(", "%29", ")", "%2A", "*",
+	"%2C", ",", "%2F", "/", "%3A", ":", "%3B", ";", "%3F", "?", "%40", "@",
+)
+
+func werkzeugQueryEscape(s string) string {
+	return werkzeugQueryRelax.Replace(url.QueryEscape(s))
 }
 
 // pathHasParam reports whether a rule contains the named path param (<name> or <conv:name>).

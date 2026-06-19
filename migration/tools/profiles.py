@@ -45,6 +45,12 @@ PROFILES: dict[str, dict[str, str]] = {
     # branches are mostly already ported but uncovered; the profile confirms them and surfaces any
     # divergence (cf. fuzz finding F1). Deterministic: errors return before touching chdb.
     "formerr": {},
+    # logsview: seed otel_logs (5 rows, distinct fixed timestamps) + record tags so view_logs renders
+    # its POPULATED branches — the rows/record-id/snapshot block, the level/service/event/trace
+    # filters, the raw-SQL-where path (incl. has_tag() translation), the regex(q) clauses, and the
+    # batch-tag join. Deterministic: fixed seed timestamps + frozen now() make the stats-age block
+    # stable; distinct timestamps make ORDER BY Timestamp DESC stable.
+    "logsview": {},
     "ai": {
         # Python derives _query_page_enabled() from these (via _AI_ENV_OVERRIDES); Go reads
         # them through aiEnvOverrides AND gates the query page on SOBS_QUERY_PAGE_ENABLED.
@@ -310,6 +316,7 @@ SEEDED_PROFILES = {
     "aichat",
     "ciauth",
     "tracedetail",
+    "logsview",
     "dashview",
     "regexlogs",
     "regextraces",

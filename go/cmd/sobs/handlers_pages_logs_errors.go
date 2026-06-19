@@ -284,7 +284,9 @@ func (s *server) computeLogStats(where string, params []any) (*jsonenc.Object, *
 			if key == "" {
 				key = "UNKNOWN"
 			}
-			levelStats.Set(key, m["cnt"])
+			// COUNT() arrives as a float64 here; Python keeps it an int, so the template
+			// renders "3" not "3.0". Coerce to int to match.
+			levelStats.Set(key, cInt(m, "cnt"))
 		}
 	}
 
@@ -297,7 +299,7 @@ func (s *server) computeLogStats(where string, params []any) (*jsonenc.Object, *
 		" GROUP BY ServiceName ORDER BY cnt DESC LIMIT 10"
 	if res, err := s.db.Execute(serviceQuery, params...); err == nil {
 		for _, m := range rowMaps(res) {
-			serviceStats.Set(cStr(m, "ServiceName"), m["cnt"])
+			serviceStats.Set(cStr(m, "ServiceName"), cInt(m, "cnt"))
 		}
 	}
 	return levelStats, serviceStats
