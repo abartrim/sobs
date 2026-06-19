@@ -1,14 +1,14 @@
 {
-  "total_uncovered": 6280,
+  "total_uncovered": 6204,
   "summary_pct": "58",
   "by_bucket": {
     "route": {
       "functions": 123,
-      "uncovered": 1710
+      "uncovered": 1656
     },
     "helper": {
-      "functions": 448,
-      "uncovered": 4301
+      "functions": 447,
+      "uncovered": 4279
     },
     "lifecycle": {
       "functions": 21,
@@ -437,31 +437,6 @@
       ]
     },
     {
-      "function": "api_logs_validate_filter",
-      "bucket": "route",
-      "start": 23784,
-      "end": 23855,
-      "uncovered": 42,
-      "span": 72,
-      "route": {
-        "path": "/api/logs/validate-filter",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        23791,
-        23794,
-        23795,
-        23796,
-        23797,
-        23798,
-        23799,
-        23800
-      ]
-    },
-    {
       "function": "_stream_llm_endpoint",
       "bucket": "helper",
       "start": 4773,
@@ -680,31 +655,6 @@
         19993,
         19994,
         19995
-      ]
-    },
-    {
-      "function": "api_ai_validate_filter",
-      "bucket": "route",
-      "start": 24407,
-      "end": 24454,
-      "uncovered": 34,
-      "span": 48,
-      "route": {
-        "path": "/api/ai/validate-filter",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        24414,
-        24416,
-        24417,
-        24418,
-        24419,
-        24420,
-        24421,
-        24422
       ]
     },
     {
@@ -976,25 +926,6 @@
         5343,
         5344,
         5346
-      ]
-    },
-    {
-      "function": "_replace_sql_outside_single_quotes",
-      "bucket": "helper",
-      "start": 11538,
-      "end": 11570,
-      "uncovered": 29,
-      "span": 33,
-      "route": null,
-      "missing_sample": [
-        11539,
-        11540,
-        11541,
-        11542,
-        11543,
-        11544,
-        11545,
-        11546
       ]
     },
     {
@@ -1507,31 +1438,6 @@
         4366,
         4367,
         4368
-      ]
-    },
-    {
-      "function": "create_metrics_rule",
-      "bucket": "route",
-      "start": 13626,
-      "end": 13716,
-      "uncovered": 22,
-      "span": 91,
-      "route": {
-        "path": "/metrics/rules",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        13644,
-        13645,
-        13648,
-        13649,
-        13651,
-        13652,
-        13660,
-        13661
       ]
     },
     {
@@ -2049,6 +1955,31 @@
         10636,
         10637,
         10638
+      ]
+    },
+    {
+      "function": "create_metrics_rule",
+      "bucket": "route",
+      "start": 13626,
+      "end": 13716,
+      "uncovered": 18,
+      "span": 91,
+      "route": {
+        "path": "/metrics/rules",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        13651,
+        13652,
+        13660,
+        13661,
+        13662,
+        13665,
+        13666,
+        13668
       ]
     },
     {
@@ -2575,6 +2506,25 @@
       ]
     },
     {
+      "function": "_replace_sql_outside_single_quotes",
+      "bucket": "helper",
+      "start": 11538,
+      "end": 11570,
+      "uncovered": 15,
+      "span": 33,
+      "route": null,
+      "missing_sample": [
+        11549,
+        11550,
+        11551,
+        11552,
+        11553,
+        11554,
+        11555,
+        11556
+      ]
+    },
+    {
       "function": "_compile_builder_sql",
       "bucket": "helper",
       "start": 19914,
@@ -2994,6 +2944,56 @@
         18516,
         18518,
         18519
+      ]
+    },
+    {
+      "function": "api_logs_validate_filter",
+      "bucket": "route",
+      "start": 23784,
+      "end": 23855,
+      "uncovered": 13,
+      "span": 72,
+      "route": {
+        "path": "/api/logs/validate-filter",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        23800,
+        23801,
+        23802,
+        23803,
+        23806,
+        23808,
+        23809,
+        23810
+      ]
+    },
+    {
+      "function": "api_ai_validate_filter",
+      "bucket": "route",
+      "start": 24407,
+      "end": 24454,
+      "uncovered": 13,
+      "span": 48,
+      "route": {
+        "path": "/api/ai/validate-filter",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        24422,
+        24423,
+        24424,
+        24425,
+        24428,
+        24430,
+        24431,
+        24432
       ]
     },
     {
@@ -4786,24 +4786,6 @@
       ]
     },
     {
-      "function": "_remember_attr_keys",
-      "bucket": "helper",
-      "start": 2198,
-      "end": 2237,
-      "uncovered": 7,
-      "span": 40,
-      "route": null,
-      "missing_sample": [
-        2206,
-        2211,
-        2215,
-        2217,
-        2221,
-        2236,
-        2237
-      ]
-    },
-    {
       "function": "_chat_label_from_first_turn",
       "bucket": "helper",
       "start": 3739,
@@ -5321,6 +5303,23 @@
         1991,
         1992,
         1993
+      ]
+    },
+    {
+      "function": "_remember_attr_keys",
+      "bucket": "helper",
+      "start": 2198,
+      "end": 2237,
+      "uncovered": 6,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        2206,
+        2211,
+        2217,
+        2221,
+        2236,
+        2237
       ]
     },
     {
@@ -6633,21 +6632,6 @@
       ]
     },
     {
-      "function": "_normalize_ai_sql_where",
-      "bucket": "helper",
-      "start": 11573,
-      "end": 11598,
-      "uncovered": 4,
-      "span": 26,
-      "route": null,
-      "missing_sample": [
-        11574,
-        11575,
-        11576,
-        11598
-      ]
-    },
-    {
       "function": "_append_candidate",
       "bucket": "helper",
       "start": 12094,
@@ -6765,21 +6749,6 @@
         22620,
         22621,
         22622
-      ]
-    },
-    {
-      "function": "_translate_has_tag",
-      "bucket": "helper",
-      "start": 23831,
-      "end": 23839,
-      "uncovered": 4,
-      "span": 9,
-      "route": null,
-      "missing_sample": [
-        23831,
-        23832,
-        23833,
-        23834
       ]
     },
     {
@@ -7398,20 +7367,6 @@
       ]
     },
     {
-      "function": "_public_dashboard_query_error",
-      "bucket": "helper",
-      "start": 20489,
-      "end": 20506,
-      "uncovered": 3,
-      "span": 18,
-      "route": null,
-      "missing_sample": [
-        20498,
-        20503,
-        20505
-      ]
-    },
-    {
       "function": "add_chart",
       "bucket": "route",
       "start": 21594,
@@ -7577,6 +7532,20 @@
         23321,
         23322,
         23337
+      ]
+    },
+    {
+      "function": "_translate_has_tag",
+      "bucket": "helper",
+      "start": 23831,
+      "end": 23839,
+      "uncovered": 3,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        23832,
+        23833,
+        23834
       ]
     },
     {
@@ -8288,19 +8257,6 @@
       ]
     },
     {
-      "function": "_validate_user_sql_where",
-      "bucket": "helper",
-      "start": 11613,
-      "end": 11642,
-      "uncovered": 2,
-      "span": 30,
-      "route": null,
-      "missing_sample": [
-        11638,
-        11639
-      ]
-    },
-    {
       "function": "_candidate_point_count",
       "bucket": "helper",
       "start": 12293,
@@ -8473,6 +8429,19 @@
       "missing_sample": [
         20479,
         20482
+      ]
+    },
+    {
+      "function": "_public_dashboard_query_error",
+      "bucket": "helper",
+      "start": 20489,
+      "end": 20506,
+      "uncovered": 2,
+      "span": 18,
+      "route": null,
+      "missing_sample": [
+        20498,
+        20503
       ]
     },
     {
@@ -9564,6 +9533,18 @@
       "route": null,
       "missing_sample": [
         11206
+      ]
+    },
+    {
+      "function": "_validate_user_sql_where",
+      "bucket": "helper",
+      "start": 11613,
+      "end": 11642,
+      "uncovered": 1,
+      "span": 30,
+      "route": null,
+      "missing_sample": [
+        11639
       ]
     },
     {

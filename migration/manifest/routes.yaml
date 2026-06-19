@@ -1036,6 +1036,30 @@ routes:
   request:
     method: POST
     form: {}
+- id: post__notif_subscribe_err
+  path: /api/notifications/subscribe
+  methods:
+  - POST
+  profile: formerr
+  request:
+    method: POST
+    json: {}
+- id: post__query_add_to_dashboard_err
+  path: /api/query/add-to-dashboard
+  methods:
+  - POST
+  profile: formerr
+  request:
+    method: POST
+    json: {}
+- id: post__cve_disposition_err
+  path: /api/enrichment/cve/findings/x/disposition
+  methods:
+  - POST
+  profile: formerr
+  request:
+    method: POST
+    json: {}
 - id: post__api_data_management_backup_run
   path: /api/data-management/backup/run
   methods:

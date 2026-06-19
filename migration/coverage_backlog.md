@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **58%** · **6280** uncovered statements.
+Oracle coverage **58%** · **6204** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
-| route | 123 | 1710 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 448 | 4301 | usually covered when a calling route's fixture is added; else difftest |
+| route | 123 | 1656 | needs a fixture/profile (corpus expansion; byte-verifiable) |
+| helper | 447 | 4279 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -21,10 +21,8 @@ Oracle coverage **58%** · **6280** uncovered statements.
 | `api_import_reports` | 22857–23017 | 73 | `POST /api/reports/import` |
 | `view_logs` | 11239–11512 | 71 | `GET /logs` |
 | `ai_helper` | 27607–28395 | 58 | `POST /api/ai/helper` |
-| `api_logs_validate_filter` | 23784–23855 | 42 | `POST /api/logs/validate-filter` |
 | `create_notification_rule` | 25918–26089 | 41 | `POST /settings/notifications/rules` |
 | `view_rum` | 17309–17657 | 39 | `GET /rum` |
-| `api_ai_validate_filter` | 24407–24454 | 34 | `POST /api/ai/validate-filter` |
 | `ingest_rum` | 10010–10149 | 33 | `POST /v1/rum` |
 | `save_ai_settings` | 26677–26751 | 32 | `POST /settings/ai` |
 | `view_traces` | 15312–15678 | 31 | `GET /traces` |
@@ -32,7 +30,6 @@ Oracle coverage **58%** · **6280** uncovered statements.
 | `create_notification_channel` | 25742–25813 | 27 | `POST /settings/notifications/channels` |
 | `auto_metrics_rules_dashboard` | 13848–13960 | 26 | `POST /metrics/rules/dashboard/auto` |
 | `api_onboarding_create_issues` | 33738–33930 | 25 | `POST /api/onboarding/create-issues` |
-| `create_metrics_rule` | 13626–13716 | 22 | `POST /metrics/rules` |
 | `create_tag_rule` | 23465–23584 | 22 | `POST /settings/tags` |
 | `view_metrics` | 13430–13595 | 21 | `GET /metrics` |
 | `issue_rum_client_token` | 9791–9826 | 20 | `POST /v1/rum/client-token` |
@@ -40,6 +37,7 @@ Oracle coverage **58%** · **6280** uncovered statements.
 | `export_ai_training` | 19123–19226 | 20 | `GET /api/ai/export` |
 | `auto_metrics_rules` | 13721–13843 | 19 | `POST /metrics/rules/auto` |
 | `metrics_anomaly` | 22540–22628 | 19 | `GET /api/metrics/anomaly` |
+| `create_metrics_rule` | 13626–13716 | 18 | `POST /metrics/rules` |
 | `view_enrichment_cve` | 18104–18215 | 18 | `GET /enrichment/cve` |
 | `get_ai_span_attributes` | 19003–19040 | 18 | `GET /api/ai/span-attributes` |
 | `view_metrics_anomaly` | 14010–14172 | 17 | `GET /metrics/anomaly` |
@@ -55,6 +53,8 @@ Oracle coverage **58%** · **6280** uncovered statements.
 | `api_enrichment_libraries` | 17882–17941 | 14 | `GET /api/enrichment/libraries` |
 | `edit_chart` | 21651–21689 | 14 | `POST /dashboards/<dashboard_id>/charts/<chart_id>/edit` |
 | `api_get_work_items` | 18493–18541 | 13 | `GET /api/work-items` |
+| `api_logs_validate_filter` | 23784–23855 | 13 | `POST /api/logs/validate-filter` |
+| `api_ai_validate_filter` | 24407–24454 | 13 | `POST /api/ai/validate-filter` |
 
 ## lifecycle — top by uncovered lines (21 functions)
 
@@ -82,7 +82,7 @@ Oracle coverage **58%** · **6280** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (448 functions)
+## helper — top by uncovered lines (447 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
@@ -116,7 +116,6 @@ Oracle coverage **58%** · **6280** uncovered statements.
 | `_check_guard_model` | 5136–5233 | 31 |  |
 | `_update_github_issue_record` | 32994–33047 | 31 |  |
 | `_assign_issue_to_copilot` | 5329–5385 | 30 |  |
-| `_replace_sql_outside_single_quotes` | 11538–11570 | 29 |  |
 | `_coerce_reasoning_text` | 8304–8331 | 28 |  |
 | `_geo_lookup_batch` | 16194–16241 | 28 |  |
 | `_resolve_custom_binding_expr` | 21086–21119 | 28 |  |
@@ -126,3 +125,4 @@ Oracle coverage **58%** · **6280** uncovered statements.
 | `_normalize_genai_messages_for_display` | 8403–8440 | 26 |  |
 | `_match_single_condition` | 12551–12588 | 26 |  |
 | `_build_trace_window_overlay_segments` | 14787–14842 | 26 |  |
+| `_collect_library_inventory` | 16876–17071 | 26 |  |
