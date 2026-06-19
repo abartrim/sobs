@@ -1,5 +1,5 @@
 {
-  "total_uncovered": 5542,
+  "total_uncovered": 5528,
   "summary_pct": "63",
   "by_bucket": {
     "helper": {
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 123,
-      "uncovered": 1127
+      "uncovered": 1113
     },
     "module": {
       "functions": 0,
@@ -1975,31 +1975,6 @@
         9988,
         9989,
         9992
-      ]
-    },
-    {
-      "function": "view_metrics_anomaly",
-      "bucket": "route",
-      "start": 14010,
-      "end": 14172,
-      "uncovered": 17,
-      "span": 163,
-      "route": {
-        "path": "/metrics/anomaly",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        14025,
-        14026,
-        14031,
-        14032,
-        14034,
-        14035,
-        14037,
-        14038
       ]
     },
     {
@@ -7035,6 +7010,26 @@
         12323,
         12327,
         12338
+      ]
+    },
+    {
+      "function": "view_metrics_anomaly",
+      "bucket": "route",
+      "start": 14010,
+      "end": 14172,
+      "uncovered": 3,
+      "span": 163,
+      "route": {
+        "path": "/metrics/anomaly",
+        "methods": [
+          "GET"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        14134,
+        14135,
+        14136
       ]
     },
     {
