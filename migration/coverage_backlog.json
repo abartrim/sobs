@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 5570,
+  "total_uncovered": 5557,
   "summary_pct": "63",
   "by_bucket": {
     "helper": {
-      "functions": 437,
-      "uncovered": 4147
+      "functions": 436,
+      "uncovered": 4146
     },
     "lifecycle": {
       "functions": 21,
@@ -12,7 +12,7 @@
     },
     "route": {
       "functions": 123,
-      "uncovered": 1154
+      "uncovered": 1142
     },
     "module": {
       "functions": 0,
@@ -1326,31 +1326,6 @@
         21238,
         21239,
         21240
-      ]
-    },
-    {
-      "function": "create_tag_rule",
-      "bucket": "route",
-      "start": 23465,
-      "end": 23584,
-      "uncovered": 22,
-      "span": 120,
-      "route": {
-        "path": "/settings/tags",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        23494,
-        23495,
-        23496,
-        23497,
-        23498,
-        23499,
-        23525,
-        23526
       ]
     },
     {
@@ -3481,6 +3456,31 @@
         18603,
         18604,
         18608
+      ]
+    },
+    {
+      "function": "create_tag_rule",
+      "bucket": "route",
+      "start": 23465,
+      "end": 23584,
+      "uncovered": 10,
+      "span": 120,
+      "route": {
+        "path": "/settings/tags",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        23534,
+        23535,
+        23536,
+        23537,
+        23538,
+        23550,
+        23558,
+        23559
       ]
     },
     {
@@ -9626,18 +9626,6 @@
       },
       "missing_sample": [
         23048
-      ]
-    },
-    {
-      "function": "_get",
-      "bucket": "helper",
-      "start": 23489,
-      "end": 23490,
-      "uncovered": 1,
-      "span": 2,
-      "route": null,
-      "missing_sample": [
-        23490
       ]
     },
     {
