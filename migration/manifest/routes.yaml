@@ -3051,6 +3051,55 @@ routes:
   mask:
   - '"t": "[^"]*"'
   mask_reason: the error-rate sparkline's 180 bucket timestamps come from chdb now() (WITH FILL now()-180min..now()); the bucket counts (v) + the entire rest of the page (session aggregation, vitals) are byte-compared.
+# Same base hyperdx_sessions data, view_rum FILTER/MODE branches (uncovered by the param-less
+# get__rum). Each renders the same now()-based error sparkline, so it carries the same "t" mask.
+# Deterministic: the base rum rows share one anon session (identical Timestamp+Body), so every
+# result below is either that single session or an empty filtered set — no row-order ambiguity.
+- id: get__rum__badmode
+  path: /rum
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      view: invalidmode
+  mask:
+  - '"t": "[^"]*"'
+  mask_reason: same now()-based error sparkline as get__rum.
+- id: get__rum__events_filtered
+  path: /rum
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      view: events
+      type: zzz-no-match
+  mask:
+  - '"t": "[^"]*"'
+  mask_reason: same now()-based error sparkline as get__rum.
+- id: get__rum__q
+  path: /rum
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      q: page
+  mask:
+  - '"t": "[^"]*"'
+  mask_reason: same now()-based error sparkline as get__rum.
+- id: get__rum__error_source
+  path: /rum
+  methods:
+  - GET
+  request:
+    method: GET
+    query:
+      error_source: network
+  mask:
+  - '"t": "[^"]*"'
+  mask_reason: same now()-based error sparkline as get__rum.
 - id: post__metrics_rules_auto
   path: /metrics/rules/auto
   methods:
