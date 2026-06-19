@@ -1,0 +1,8 @@
+{
+  "status": 200,
+  "json": [
+    {"name": "delta-svc", "full_name": "testowner/delta-svc", "html_url": "https://github.com/testowner/delta-svc", "private": true, "owner": {"login": "testowner"}},
+    {"name": "Bravo-svc", "full_name": "testowner/Bravo-svc", "html_url": "https://github.com/testowner/Bravo-svc", "private": false, "owner": {"login": "testowner"}},
+    {"name": "charlie-svc", "full_name": "testowner/charlie-svc", "html_url": "https://github.com/testowner/charlie-svc", "private": true, "owner": {"login": "testowner"}}
+  ]
+}

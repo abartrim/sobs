@@ -146,6 +146,11 @@ PROFILES: dict[str, dict[str, str]] = {
     # githubtoken = the github mock + a seeded ai.github_token, so the onboarding inspect/issue
     # routes reach (and exercise) their token-gated GitHub branch.
     "githubtoken": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
+    # onboardrepos = the github mock + a seeded ai.github_token so the onboarding READ endpoints
+    # take their token-USED branch: list-repos dials the ?type=all users endpoint (canned repo list
+    # incl. private repos -> token_used=true, empty visibility_note) and inspect-repo runs the full
+    # repo-inspection GitHub flow (workflows listing + ci.yml + copilot graphql, all canned).
+    "onboardrepos": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
     # createrepo: a no-env isolation profile for create_repo — its sobs_apps/ai-settings INSERTs
     # run in their own fixture copy so they don't ripple into the base registry/repository readers
     # (a profile pass = fresh fixture, and only this route runs in it).
@@ -412,6 +417,7 @@ SEEDED_PROFILES = {
     "onboard",
     "issuesraise",
     "githubtoken",
+    "onboardrepos",
     "mcpkey",
     "mcpauth",
     "aichat",
