@@ -752,6 +752,126 @@ def seed_summaryrich(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_anomaly_rules FINAL")
 
 
+def seed_metricsrich(db) -> None:
+    # Populate the metrics index (GET /metrics, def view_metrics) so its POPULATED render branches
+    # that the constant metricsauto seed never reaches all run byte-stably:
+    #   * the OUTLIER anomaly_state badge (metrics.html 127 `bg-danger`) — needs a derived signal
+    #     whose latest bucket deviates >3 stddev from its rolling baseline.
+    #   * the populated RULE badge (metrics.html 132-135) + rule_state badge classes — needs an
+    #     anomaly rule that MATCHES a rendered series and FIRES.
+    #   * _evaluate_seasonal_rule's per-bucket-match path (app.py 13049-13067) — view_metrics is the
+    #     caller that passes time_key="last_time", so a seasonal rule whose buckets cover the
+    #     last_time hour runs the bucket lookup (is_seasonal=True) instead of the global fallback.
+    #   * the attr_fp filter branch (app.py 13479-13480) — reached by ?attr_fp=<fp> in a route.
+    #   * the pagination block (metrics.html 159-184) — reached by ?sort_by=signal&limit=2 routes.
+    #
+    # SINGLE service "web" on PURPOSE (mirrors seed_metricsauto/seed_summaryrich): the metrics
+    # Service dropdown is _list_derived_signal_dimensions' DISTINCT-over-UNION whose trailing ORDER
+    # BY binds only to the last branch -> genuinely racy once >1 derived-signal service exists. The
+    # base fixture already carries exactly the lone "web" service, so reusing it keeps the dropdown a
+    # singular, ordered badge. This profile is isolated, so the spike rows never ripple into base
+    # readers.
+    #
+    # log_volume series for "web": 29 CONSTANT minute buckets at 5 logs each (now()-2 … now()-30)
+    # then a FINAL spike bucket at now()-1 with 40 logs. The window (ROWS 59 PRECEDING) at the latest
+    # bucket is fixed (30 buckets: 29x5 + 1x40), so mean/stddev/anomaly_score are timestamp-
+    # independent: argMax(value,time)=40.0, anomaly_score=5.3852, anomaly_state='outlier',
+    # SampleCount=40, point_count=30 — all exact/byte-stable (only the now()-anchored last_time
+    # minute bucket drifts, masked in the routes, exactly like seed_metricsauto). error_volume /
+    # error_ratio stay a constant-0 series (anomaly_state 'normal'). Three signals total -> the
+    # default no-filter view has 3 rows (paginatable with limit=2, sort_by=signal for a total order).
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, Body) "
+        "SELECT now() - INTERVAL (intDiv(number, 5) + 2) MINUTE, 'web', 'req' "
+        "FROM numbers(145)"
+    )
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, Body) "
+        "SELECT now() - INTERVAL 1 MINUTE, 'web', 'spike' "
+        "FROM numbers(40)"
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+    # A SEASONAL anomaly rule matching (logs, log_volume, web). ServiceName 'web' + empty
+    # AttrFingerprint -> _rule_matches_series matches the web log_volume series. The seasonal buckets
+    # span ALL 24 hour-of-day keys with IDENTICAL thresholds (warning 10, critical 30), so regardless
+    # of which hour the now()-anchored last_time lands in, _evaluate_seasonal_rule finds a bucket and
+    # takes its (constant) thresholds -> is_seasonal=True and the rule fires deterministically:
+    # value 40 >= critical 30 -> rule_state='outlier' (covers the bucket-match path 13049-13067 AND
+    # the bg-danger rule badge). Fixed Id/Version keep the row byte-stable; view_metrics renders only
+    # rule_name/rule_state/rule_reason (all constant here).
+    import json as _json
+
+    _all_hour_buckets = _json.dumps(
+        {
+            "strategy": "hour_of_day",
+            "buckets": {str(h): {"warning": 10, "critical": 30} for h in range(24)},
+        }
+    )
+    # A SECOND seasonal rule using strategy=day_of_week (all 7 weekday buckets identical) so
+    # _evaluate_seasonal_rule's day_of_week bucket-key branch (app.py 13060) executes too. Its
+    # thresholds are deliberately HIGH (warn 100 / crit 200) so value 40 crosses neither -> the inner
+    # _evaluate_threshold_condition returns None -> this rule does NOT fire, leaving the hour_of_day
+    # 'outlier' rule (rule-1) as the rendered best_match (so the byte-compared rule badge is stable).
+    # All 7 buckets identical -> whichever weekday last_time lands on yields the same thresholds ->
+    # deterministic regardless of capture/replay wall-clock day.
+    _all_weekday_buckets = _json.dumps(
+        {
+            "strategy": "day_of_week",
+            "buckets": {str(d): {"warning": 100, "critical": 200} for d in range(1, 8)},
+        }
+    )
+    _insert(
+        db,
+        "sobs_anomaly_rules",
+        [
+            {
+                "Id": "metr-rule-1",
+                "Name": "z metricsrich log_volume seasonal",
+                "RuleType": "seasonal",
+                "SignalSource": "logs",
+                "SignalName": "log_volume",
+                "ServiceName": "web",
+                "AttrFingerprint": "",
+                "Comparator": "gt",
+                "WarningThreshold": 10.0,
+                "CriticalThreshold": 30.0,
+                "SecondarySignalSource": "",
+                "SecondarySignalName": "",
+                "SecondaryComparator": "gt",
+                "SecondaryWarningThreshold": 0.0,
+                "SecondaryCriticalThreshold": 0.0,
+                "MinSampleCount": 1,
+                "SeasonalBucketsJson": _all_hour_buckets,
+                "IsDeleted": 0,
+                "Version": 1,
+            },
+            {
+                "Id": "metr-rule-2",
+                "Name": "a metricsrich log_volume seasonal dow",
+                "RuleType": "seasonal",
+                "SignalSource": "logs",
+                "SignalName": "log_volume",
+                "ServiceName": "web",
+                "AttrFingerprint": "",
+                "Comparator": "gt",
+                "WarningThreshold": 100.0,
+                "CriticalThreshold": 200.0,
+                "SecondarySignalSource": "",
+                "SecondarySignalName": "",
+                "SecondaryComparator": "gt",
+                "SecondaryWarningThreshold": 0.0,
+                "SecondaryCriticalThreshold": 0.0,
+                "MinSampleCount": 1,
+                "SeasonalBucketsJson": _all_weekday_buckets,
+                "IsDeleted": 0,
+                "Version": 1,
+            },
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_anomaly_rules FINAL")
+
+
 def seed_tagsuggest(db) -> None:
     # Seed every table the tag-rule condition-suggestion builders read so each scope/target/field
     # branch of /api/settings/tags/condition-suggestions returns a non-empty, ranked result. The
@@ -2438,6 +2558,7 @@ PROFILE_SEEDS = {
     "cveview": seed_cveview,  # CVE findings (1/severity) -> summary cve-overview + view_enrichment_cve
     "summaryrich": seed_summaryrich,  # now()-anchored logs + logs-source anomaly rules -> populated summary panels
     "metricsauto": seed_metricsauto,  # constant log_volume series -> auto_metrics_rules candidates
+    "metricsrich": seed_metricsrich,  # web log_volume SPIKE + seasonal rule -> view_metrics outlier/rule render
     "rumvitals": seed_rumvitals,  # now()-relative web-vital + error rows -> view_rum vitals + error-trend
     "tagsuggest": seed_tagsuggest,  # otel/tags/attr-key rows -> condition-suggestions non-empty branches
     "cvebackfill": seed_repo_app,  # app+release+github token -> cve github backfill attempts a release

@@ -275,6 +275,15 @@ PROFILES: dict[str, dict[str, str]] = {
     # metricsauto: a constant recent log_volume series so auto_metrics_rules' threshold scan
     # generates fixed candidates (exact quantiles of a constant). No env overlay — just the seed.
     "metricsauto": {},
+    # metricsrich: a web log_volume series that SPIKES on its latest bucket (29x5 + 1x40) so
+    # v_derived_signals_anomaly's latest bucket is anomaly_state='outlier' (anomaly_score 5.3852),
+    # PLUS a seasonal anomaly rule matching (logs, log_volume, web) whose all-24-hour buckets fire on
+    # value 40. view_metrics then renders the OUTLIER anomaly-state badge, the populated RULE badge,
+    # and runs _evaluate_seasonal_rule's bucket-match path (it passes time_key="last_time"). All
+    # derived quantities are timestamp-independent (fixed window over fixed-offset buckets); only the
+    # now()-anchored last_time minute bucket drifts and is masked. Isolated so the spike never ripples
+    # into base/metricsauto readers. No env overlay.
+    "metricsrich": {},
     # rumvitals: now()-relative web-vital + error rows in hyperdx_sessions so view_rum's Web-vitals
     # (anomaly summary + 1m sparkline + hotspot) and Error-trend (direction + by_type + sparkline)
     # blocks all populate. Constant values -> every derived quantity is timestamp-independent; only
@@ -459,6 +468,7 @@ SEEDED_PROFILES = {
     "cveosv",
     "tagauto",
     "metricsauto",
+    "metricsrich",
     "rumvitals",
     "tagsuggest",
     "cvebackfill",
