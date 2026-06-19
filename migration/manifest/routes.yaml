@@ -662,9 +662,20 @@ routes:
   request:
     method: GET
     query: {ts: "2099-01-01 00:00:00.000000", service: ai-svc, span_name: ai.chat}
-# get_ai_span_attributes SUCCESS render (app.py 19035-19040) — pending a Go fix: raw_attrs is
-# json.dumps(_map_to_dict(SpanAttributes), indent=2); Go emits the same bytes in a different KEY ORDER
-# (does not preserve the chdb Map insertion order the oracle keeps). Re-added once Go matches.
+# get_ai_span_attributes SUCCESS render (app.py 19035-19040): raw_attrs is
+# json.dumps(_map_to_dict(SpanAttributes), ensure_ascii=False, indent=2). Under the aiview seed the
+# matching span (aispan-0001) carries attrs in chdb INSERTION order (gen_ai.provider.name,
+# .request.model, .operation.name, .usage.input_tokens, .usage.output_tokens — NOT alphabetical).
+# Go now fetches mapKeys/mapValues and rebuilds an order-preserving object so the pretty JSON's KEY
+# ORDER matches the oracle's dict order (verified mapKeys order == _map_to_dict dict order).
+- id: get__api_ai_span_attributes__aiview_match
+  path: /api/ai/span-attributes
+  methods:
+  - GET
+  profile: aiview
+  request:
+    method: GET
+    query: {ts: "2023-06-01 16:00:00.100000000", service: ai-svc, span_name: ai.chat}
 - id: get__api_ai_conversation_seeded
   path: /api/ai/conversation
   methods:

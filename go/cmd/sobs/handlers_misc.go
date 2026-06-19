@@ -39,8 +39,14 @@ func (s *server) handleApiAiSpanAttributes(w http.ResponseWriter, r *http.Reques
 		conds += " AND SpanName=?"
 		params = append(params, v)
 	}
+	// Also pull mapKeys/mapValues so raw_attrs preserves the chdb Map INSERTION order. The
+	// Python oracle's _map_to_dict yields a dict in chdb-insertion order (verified == mapKeys
+	// order), and json.dumps preserves it. Go's store decodes the bare Map column into a Go map
+	// (order lost) and encoding/json sorts keys — same bytes, wrong order -> RED. mapKeys()/
+	// mapValues() arrive as ordered Array(String) (JSON arrays survive json.Unmarshal in order).
 	res, err := s.db.Execute(
-		"SELECT SpanAttributes FROM otel_traces WHERE "+conds+" ORDER BY Timestamp DESC LIMIT 1", params...)
+		"SELECT mapKeys(SpanAttributes) AS attr_keys, mapValues(SpanAttributes) AS attr_values "+
+			"FROM otel_traces WHERE "+conds+" ORDER BY Timestamp DESC LIMIT 1", params...)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError,
 			jsonenc.NewObject().Set("ok", false).Set("error", "Failed to load span attributes"))
@@ -54,8 +60,9 @@ func (s *server) handleApiAiSpanAttributes(w http.ResponseWriter, r *http.Reques
 	// raw_attrs = json.dumps(_map_to_dict(SpanAttributes), ensure_ascii=False, indent=2).
 	// Reached only with seeded AI-trace data (the fixture otel_traces is empty). Python returns
 	// _jsonify_with_optional_sql_output_mask({...}) — the success payload is output-masked.
-	attrs := rowMaps(res)[0]["SpanAttributes"]
-	pretty, _ := jsonDumpsIndent2(mapToDict(attrs))
+	row := rowMaps(res)[0]
+	attrs := orderedMapFromKV(row["attr_keys"], row["attr_values"])
+	pretty, _ := jsonDumpsIndent2(attrs)
 	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().Set("ok", true).Set("raw_attrs", pretty))
 }
 
@@ -853,6 +860,48 @@ func mapToDict(v any) any {
 	default:
 		return map[string]any{}
 	}
+}
+
+// orderedMapFromKV builds an ORDER-PRESERVING jsonenc Object from parallel mapKeys()/
+// mapValues() arrays (Array(String) columns; ClickHouse FORMAT JSON renders them as JSON
+// arrays, which json.Unmarshal decodes into []any in order). This reproduces _map_to_dict's
+// dict — a Map column read directly decodes into a Go map (order lost) and encoding/json sorts
+// it; the parallel kv arrays keep the chdb insertion order the Python oracle preserves. Values
+// are coerced with str() semantics (cell strings stay verbatim) so the bytes match. Extra keys
+// or values beyond the shorter array are dropped (lengths always match for a real Map row).
+func orderedMapFromKV(keys, values any) *jsonenc.Object {
+	ks := anySlice(keys)
+	vs := anySlice(values)
+	obj := jsonenc.NewObject()
+	for i, k := range ks {
+		key, ok := k.(string)
+		if !ok {
+			continue
+		}
+		var val any = ""
+		if i < len(vs) {
+			val = vs[i]
+		}
+		obj.Set(key, val)
+	}
+	return obj
+}
+
+// anySlice normalizes a chdb cell that should be an Array into a []any. FORMAT JSON yields a
+// []any directly; a JSON-array string (defensive fallback) is parsed.
+func anySlice(v any) []any {
+	switch x := v.(type) {
+	case []any:
+		return x
+	case string:
+		var parsed any
+		if json.Unmarshal([]byte(x), &parsed) == nil {
+			if arr, ok := parsed.([]any); ok {
+				return arr
+			}
+		}
+	}
+	return nil
 }
 
 // jsonDumpsIndent2 mirrors json.dumps(obj, ensure_ascii=False, indent=2). Python does NOT
