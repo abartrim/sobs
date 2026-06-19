@@ -1060,6 +1060,30 @@ routes:
   request:
     method: POST
     json: {}
+- id: post__repos_create_err
+  path: /settings/repositories
+  methods:
+  - POST
+  profile: formerr
+  request:
+    method: POST
+    form: {}
+- id: post__onboarding_listrepos_err
+  path: /api/onboarding/list-repos
+  methods:
+  - POST
+  profile: formerr
+  request:
+    method: POST
+    json: {}
+- id: post__add_to_dashboard_chartspec_err
+  path: /api/query/add-to-dashboard
+  methods:
+  - POST
+  profile: formerr
+  request:
+    method: POST
+    json: {"dashboard_id": "x"}
 - id: post__api_data_management_backup_run
   path: /api/data-management/backup/run
   methods:
