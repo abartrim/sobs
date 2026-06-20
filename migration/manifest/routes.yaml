@@ -1269,6 +1269,42 @@ routes:
     method: GET
     query:
       trace_id: bbbb1111cccc2222dddd3333eeee4444
+# tracemetrics profile: a now()-anchored single-span trace carrying k8s identity attrs
+# (namespace=shop / pod=cart-7d / node=node-a / deployment=cart) PLUS three matching now()-anchored
+# otel_metrics_gauge rows. With trace_id set, view_traces' trace-detail metric-context fetch
+# (_fetch_trace_metric_context, app.py 15580) runs: the trace's pod+namespace match the gauge rows
+# so the FIRST ranked attempt ("pod_exact", app.py 15180-15189) returns data and the populated
+# branch (app.py 15258-15297) renders -- source_mode=raw, the 3-metric series, _query_timeseries
+# buckets, _group_metric_series groups, and _compute_health_chips + header_chip (CPU). The metric
+# values are CONSTANT so every rendered avg/min/max/chip value is byte-stable. The otel_metrics 48h
+# baseline TTL (evaluated against wall-clock) forces both the trace and the metric rows to be
+# now()-anchored, so the absolute trace-timestamp pair (traces.html 262) and the match-case
+# _traceMetricChartData epoch-ms/ticks JS block (traces.html 374-383) drift between capture and
+# replay -- the masks below redact exactly those now()-derived tokens; all metric-context values
+# and badges are left byte-compared.
+- id: get__traces__tracemetrics
+  path: /traces
+  methods:
+  - GET
+  profile: tracemetrics
+  request:
+    method: GET
+    query:
+      trace_id: cccc1111dddd2222eeee3333ffff4444
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}[0-9.]*'
+  - 'traceStart: [0-9]+'
+  - 'traceEnd: [0-9]+'
+  - 'ticks: \[[0-9, ]*\]'
+  mask_reason: >-
+    The otel_metrics 48h baseline TTL is evaluated against the real wall clock, so the trace span and
+    its matching gauge rows MUST be now()-anchored to survive (a fixed-epoch row is silently TTL-dropped
+    on OPTIMIZE). The trace + metric rows share one toStartOfMinute(now())-30min instant, so all RELATIVE
+    render values (span left/width %, coverage %, durations, metric avg/min/max, health chips, source/match
+    badges, bucket counts) are wall-clock-independent and byte-compared. Only the ABSOLUTE now()-derived
+    tokens drift: mask 1 redacts the trace_start_ts/trace_end_ts pair (traces.html 262, DateTime64 form);
+    masks 2-3 redact the match-case _traceMetricChartData traceStart/traceEnd epoch-ms and the ticks_ms
+    array (traces.html 374-383), which are absolute now()-relative ms.
 # Same tracedetail seed, LIST view (no trace_id): a service filter and a regex(q) filter drive the
 # selected_services / q-prepare / regex-clause / count-with-where / spans-loop branches of
 # view_traces. Distinct seed timestamps keep ORDER BY Timestamp DESC deterministic.
