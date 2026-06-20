@@ -5692,10 +5692,7 @@ routes:
   - POST
   request:
     method: POST
-# auto_metrics_rules_dashboard PREVIEW (candidates from base anomaly rules -> render). The CREATE
-# path is DEFERRED: its redirect Location embeds a server-generated dashboard uuid, and Go's uuid is
-# crypto-random (not parity-frozen like Python's determinism shim), so a response-exposed uuid can't
-# byte-match without full uuid-counter lockstep from boot (R12 — see POPULATED_RENDER_FINDINGS.md).
+# auto_metrics_rules_dashboard PREVIEW (candidates from base anomaly rules -> render).
 - id: post__metrics_rules_dashboard_auto__da_preview
   path: /metrics/rules/dashboard/auto
   methods:
@@ -5704,6 +5701,37 @@ routes:
   request:
     method: POST
     form: {action: preview}
+# auto_metrics_rules_dashboard CREATE (M36): action=create over the dashauto profile. The base
+# example seeder seeds 10 active anomaly rules (the _seed_example_metrics_content threshold/composite
+# rules + the default Core-Web-Vitals threshold rules), all with a valid SignalSource/SignalName, so
+# _build_auto_dashboard_chart_candidates yields 10 candidates with no service_filter; max_charts
+# defaults to 12 so none are capped. create therefore inserts a fresh dashboard + 10 charts and
+# 302-redirects to view_custom_dashboard. This exercises the whole CREATE arm (app.py 13885-13940):
+# _seed_dashboard_if_missing, _get_charts (empty -> next_position 0), the title-dedup loop,
+# _build_raw_chart_spec per chart, _insert_rows_json_each_row, the (empty) cap_note + success flash.
+#
+# The route is a MUTATION but runs against its own per-profile fixture copy (parity_check re-copies
+# FIXTURE_SRC per profile; the verify flow re-seeds the clean base before each capture), so created
+# is always 10 / existing 0 / cap_note empty on both sides. The success-flash text
+# ("created 10 chart(s), skipped 0 existing.") is deterministic and is byte-compared inside the
+# decoded session-cookie payload. The ONLY non-deterministic bytes are the new dashboard uuid, which
+# appears in BOTH the redirect Location header AND the redirect body's <a href>/text (Python's
+# frozen-counter uuid vs Go's crypto-random uuid — same v4 shape, different value); a single
+# /dashboards/<uuid> mask covers every occurrence (Content-Length is recomputed off the masked body).
+# The inserted rows' chart uuids + Version millis live only in the DB, never the response. This
+# SUPERSEDES the earlier R12 deferral note: a Location-uuid mask is the standard surgical fix (cf.
+# the agent-flow run_id masks) and does not require uuid-counter lockstep.
+- id: post__metrics_rules_dashboard_auto__da_create
+  path: /metrics/rules/dashboard/auto
+  methods:
+  - POST
+  profile: dashauto
+  mask:
+  - '/dashboards/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+  mask_reason: the create redirect Location is /dashboards/<new dashboard uuid> (and the same uuid in the redirect body's <a href>/text); Python's frozen-counter uuid4 and Go's crypto-random uuid4 produce the same v4 shape but different values, so the uuid is masked everywhere it appears. The 302 status, the deterministic success flash (created 10 chart(s), skipped 0 existing.) inside the session-cookie payload, and every other header are byte-compared.
+  request:
+    method: POST
+    form: {action: create}
 # auto_metrics_rules_dashboard PREVIEW over the dashboardautorich seed (sobs_anomaly_rules only, no
 # telemetry). With service_filter=web the preview exercises _build_auto_dashboard_chart_candidates'
 # remaining arms: the empty source/signal skip (12322-12323), the service_filter-mismatch skip
