@@ -65,6 +65,16 @@ PROFILES: dict[str, dict[str, str]] = {
     # byte-identical on both sides (same libchdb + same SQL); no now()/uuid content. Kept separate
     # from logsview so its 12 goldens don't shift.
     "logsrich": {},
+    # tagmatch (M38): seed ONLY tag rules whose conditions span every operator (eq/contains/regex/
+    # unknown) and field (service_name/severity/body/event_type/attribute/unknown) plus a composite
+    # AND rule and a trace-only record-type-gated rule. The matcher (_match_single_condition /
+    # _match_tag_rule) is INGEST-time, not render-time, so the route pair POSTs an OTLP log batch to
+    # /v1/logs (running the matcher -> sobs_record_tags) then GETs /logs to render the applied tags.
+    # Deterministic: every rule writes a DISTINCT tag_key (no last-wins ambiguity), all fields are
+    # fixed constants, the POST timeUnixNano is the frozen epoch, and capture drains the async write
+    # queue before the GET (mirroring Go's parity commit-before-ack). Isolated so the ingested rows +
+    # rules never ripple into base/otlpingest/logsview readers. No env overlay — just the seed.
+    "tagmatch": {},
     # errorsview: seed otel_logs error events (3 groups, counts 3/2/1, one TraceId each) +
     # one sobs_error_resolutions row so view_errors renders its POPULATED branches — the
     # non-grouped narrow+hydrate path, the grouped aggregate path, and the resolved=0/1/all
@@ -757,6 +767,7 @@ SEEDED_PROFILES = {
     "incidentmatch",
     "logsview",
     "logsrich",
+    "tagmatch",
     "errorsview",
     "errorsummary",
     "aiview",

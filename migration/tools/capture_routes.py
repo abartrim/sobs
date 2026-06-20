@@ -51,6 +51,18 @@ def boot(profile: str = "base"):
     import app as app_module
 
     determinism.install()
+    # Materialize the DB (schema + the example seeder) with TESTING UNSET, exactly as the fixture
+    # was built — so the baseline content is identical to every prior capture. THEN flip TESTING on
+    # for the request phase: it makes ingest writes synchronous (app.py _queue_write wait=TESTING),
+    # so an ingest route's auto-tag matcher (_apply_tag_rules -> _match_single_condition) runs and
+    # commits DURING the captured request instead of on the background writer thread. Without this,
+    # the async write never lands before the process exits under the parity-frozen clock (which
+    # breaks the writer queue's blocking primitives), so the matcher is neither covered nor
+    # observable. Synchronous-commit also mirrors the Go parity server (cfg.Parity commits before
+    # ack), keeping the two sides aligned. The example seeder (gated on `not TESTING`, app.py 2165)
+    # already ran in this get_db() call, and it is idempotent, so flipping TESTING is render-neutral.
+    app_module.get_db()
+    app_module.app.config["TESTING"] = True
     return app_module
 
 
