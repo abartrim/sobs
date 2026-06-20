@@ -2820,6 +2820,47 @@ routes:
     method: POST
     json:
       question: how many logs are there
+# Guard-BLOCK path (gpt-oss-safeguard parser). The aiguard profile sets a gpt-oss-safeguard guard
+# model, so _check_guard_model -> _build_oss_safeguard_prompt + _call_llm_endpoint (the NON-streaming
+# LLM call) + _parse_oss_safeguard_reply. The canned guard reply is a JSON verdict {"violation": 1,
+# "policy_category": "S7"} -> UNSAFE + S7. S7 (Privacy) is not a noisy category, so no benign
+# override fires -> "blocked (S7: Privacy)" -> api_query_ask returns 403 with that reason in `error`.
+# This cracks the non-streaming LLM bucket: _call_llm_endpoint (request build, response parse,
+# content extraction, verdict parse) all run on the canned reply. trace_id is md5(query|q|time_ns)
+# and turn_id is its [:16] -> both time-based -> masked. The `error` text (the deterministic guard
+# reason) is byte-compared; a Go-side mismatch in the reason string would diff RED.
+- id: post__api_query_ask__guardblock
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiguard
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: 'trace_id = md5("query|{question}|{time_ns}") and turn_id = trace_id[:16] are time-based (time_ns), so they drift between capture and replay; the masks require a 32/16-hex value present so an absent id would diff RED. The deterministic guard reason ("blocked (S7: Privacy)") carried in `error` is byte-compared, proving the whole guard -> _call_llm_endpoint -> _parse_oss_safeguard_reply chain ran identically on both sides.'
+# Guard-BLOCK path (llama-guard parser). The aiguardllama profile sets a llama-guard model name, so
+# _check_guard_model takes the OTHER branch -> _build_llama_guard_prompt + _parse_guard_reply (the
+# two-line "unsafe\nSx" parser). The canned reply "unsafe\nS9" -> UNSAFE + S9 (Indiscriminate
+# Weapons, not noisy) -> "blocked (S9: Indiscriminate Weapons)" -> 403. Covers the llama parser arm.
+- id: post__api_query_ask__guardllama
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiguardllama
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: 'see post__api_query_ask__guardblock; same time-based trace_id/turn_id masks. The byte-compared `error` ("blocked (S9: Indiscriminate Weapons)") proves the llama prompt-builder + _parse_guard_reply path ran identically.'
 - id: post__api_query_run
   path: /api/query/run
   methods:
