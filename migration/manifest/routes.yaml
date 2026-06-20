@@ -2882,6 +2882,257 @@ routes:
         sql:
           mode: raw
           override_sql: SELECT toStartOfMinute(Timestamp) AS time, count() AS value FROM otel_logs GROUP BY time ORDER BY time
+# _compile_builder_sql per-template / per-source SQL-generation branches. Deterministic string
+# building (no DB execution, no now()-resolution: literal now() appears in the SQL text). Each route
+# exercises a distinct template_id and/or source_view sub-branch so the compiled `query` text is
+# byte-compared.
+# derived_signal_overlay over v_otel_metrics_anomaly (metric series; metric_name signal label;
+# "metrics" source label).
+- id: post__api_dashboards_spec_compile__tmpl_derivedsignal_metricsanomaly
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: derived_signal_overlay
+        sql:
+          mode: builder
+        data:
+          source_view: v_otel_metrics_anomaly
+          service: api
+          signal_source: ''
+          signal_name: ''
+          metric_name: http.server.duration
+          attr_fp: fp123
+          window_hours: 12
+          limit: 500
+# derived_signal_overlay over otel_metrics_histogram (histogram value_expr Sum/Count branch).
+- id: post__api_dashboards_spec_compile__tmpl_derivedsignal_histogram
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: derived_signal_overlay
+        sql:
+          mode: builder
+        data:
+          source_view: otel_metrics_histogram
+          service: api
+          signal_source: ''
+          signal_name: ''
+          metric_name: http.server.duration
+          attr_fp: fp123
+          window_hours: 24
+          limit: 250
+# derived_signal_overlay over otel_metrics_gauge (Value expr else-branch; no attr_fp).
+- id: post__api_dashboards_spec_compile__tmpl_derivedsignal_gauge
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: derived_signal_overlay
+        sql:
+          mode: builder
+        data:
+          source_view: otel_metrics_gauge
+          service: api
+          signal_source: ''
+          signal_name: ''
+          metric_name: cpu.utilization
+# derived_signal_overlay over otel_logs (count-per-minute series; "logs" source / "log_volume"
+# signal label branches; empty signal/metric names).
+- id: post__api_dashboards_spec_compile__tmpl_derivedsignal_logs
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: derived_signal_overlay
+        sql:
+          mode: builder
+        data:
+          source_view: otel_logs
+          service: api
+          signal_source: ''
+          signal_name: ''
+          metric_name: ''
+# derived_signal_overlay over otel_traces ("traces" source / "trace_volume" signal label branches).
+- id: post__api_dashboards_spec_compile__tmpl_derivedsignal_traces
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: derived_signal_overlay
+        sql:
+          mode: builder
+        data:
+          source_view: otel_traces
+          service: api
+          signal_source: ''
+          signal_name: ''
+          metric_name: ''
+# derived_signal_overlay over sobs_error_resolutions (fall-through series; "errors" source /
+# "resolved_error_volume" signal label branches).
+- id: post__api_dashboards_spec_compile__tmpl_derivedsignal_errors
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: derived_signal_overlay
+        sql:
+          mode: builder
+        data:
+          source_view: sobs_error_resolutions
+          service: ''
+          signal_source: ''
+          signal_name: ''
+          metric_name: ''
+# derived_signal_overlay over v_derived_signals_anomaly with attr_fp and empty signal_source/name
+# (attr_fp WHERE branch; "derived" source-label fallback; "value" signal-label fallback).
+- id: post__api_dashboards_spec_compile__tmpl_derivedsignal_attrfp
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: derived_signal_overlay
+        sql:
+          mode: builder
+        data:
+          source_view: v_derived_signals_anomaly
+          service: api
+          signal_source: ''
+          signal_name: ''
+          metric_name: ''
+          attr_fp: fp999
+# anomaly_overlay template SELECT.
+- id: post__api_dashboards_spec_compile__tmpl_anomalyoverlay
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: anomaly_overlay
+        sql:
+          mode: builder
+        data:
+          service: api
+          signal_source: traces
+          signal_name: trace_volume
+# dual_axis_anomaly template SELECT.
+- id: post__api_dashboards_spec_compile__tmpl_dualaxis
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: dual_axis_anomaly
+        sql:
+          mode: builder
+        data:
+          service: api
+          signal_source: traces
+          signal_name: trace_volume
+# time_series_percentiles template SELECT (builder mode).
+- id: post__api_dashboards_spec_compile__tmpl_percentiles
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: time_series_percentiles
+        sql:
+          mode: builder
+        data:
+          service: api
+          signal_source: traces
+          signal_name: trace_volume
+# heatmap template SELECT (GROUP BY y_category).
+- id: post__api_dashboards_spec_compile__tmpl_heatmap
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: heatmap
+        sql:
+          mode: builder
+        data:
+          service: api
+          signal_source: traces
+          signal_name: trace_volume
+# box_plot template SELECT (quantiles; also calls _default_signal_label).
+- id: post__api_dashboards_spec_compile__tmpl_boxplot
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: box_plot
+        sql:
+          mode: builder
+        data:
+          service: api
+          signal_source: traces
+          signal_name: trace_volume
+# gauge_kpi template SELECT (round(avg(...))).
+- id: post__api_dashboards_spec_compile__tmpl_gauge
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: gauge_kpi
+        sql:
+          mode: builder
+        data:
+          service: api
+          signal_source: traces
+          signal_name: trace_volume
+# Unsupported source_view -> ValueError("Unsupported source for builder mode") 400.
+- id: post__api_dashboards_spec_compile__tmpl_badsource
+  path: /api/dashboards/spec/compile
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: derived_signal_overlay
+        sql:
+          mode: builder
+        data:
+          source_view: not_a_real_table
 - id: post__api_dashboards_spec_validate
   path: /api/dashboards/spec/validate
   methods:

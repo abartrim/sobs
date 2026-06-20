@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **68%** · **4718** uncovered statements.
+Oracle coverage **69%** · **4654** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
 | route | 116 | 555 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 415 | 3894 | usually covered when a calling route's fixture is added; else difftest |
+| helper | 412 | 3830 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -82,7 +82,7 @@ Oracle coverage **68%** · **4718** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (415 functions)
+## helper — top by uncovered lines (412 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
@@ -104,7 +104,6 @@ Oracle coverage **68%** · **4718** uncovered statements.
 | `_verify_rum_client_auth` | 7827–7878 | 40 |  |
 | `_collect_github_repo_health_summary` | 17944–18083 | 39 |  |
 | `_parse_package_lock_dependencies` | 16358–16399 | 38 |  |
-| `_build_series_sql` | 19964–20181 | 38 |  |
 | `_normalize_notification_condition` | 24626–24679 | 34 |  |
 | `_vanna_validate_and_execute_with_repair` | 22071–22153 | 33 |  |
 | `_evaluate_tag_condition` | 25127–25175 | 33 |  |
@@ -126,3 +125,4 @@ Oracle coverage **68%** · **4718** uncovered statements.
 | `_to_summary` | 10606–10632 | 24 |  |
 | `_compute_health_chips` | 14929–14956 | 24 |  |
 | `_fetch_trace_metric_context` | 14959–15306 | 24 |  |
+| `_vanna_generate_named_queries` | 29555–29648 | 24 |  |
