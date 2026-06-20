@@ -362,6 +362,215 @@ def seed_k8s(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_app_settings FINAL")
 
 
+# otel_metrics_gauge/_sum carry a baseline TTL of TimeUnixMs + 48 HOUR (SOBS_RAW_METRICS_TTL_HOURS),
+# and chDB evaluates that TTL against the REAL wall clock (NOT the frozen 2024 determinism epoch). A
+# fixed 2024 timestamp is therefore immediately TTL-dropped (the part lands inactive), so k8s metric
+# rows MUST be now()-anchored to survive. The function emits max(TimeUnix) AS last_seen ("created"),
+# so that string drifts across capture/replay -> the routes MASK the timestamp (rumvitals/metricsrich
+# pattern). A CONSTANT offset (all rows now() - INTERVAL 1 HOUR) keeps max(TimeUnix) identical for
+# every group, so every "created" is the same masked token and all non-time values stay byte-stable.
+_K8S_OFFSET_SQL = "now() - INTERVAL 1 HOUR"
+
+
+def _k8s_enable(db) -> None:
+    _insert(db, "sobs_app_settings", [{"Key": "kubernetes.enabled", "Value": "1", "UpdatedAt": _TS}])
+    db.execute("OPTIMIZE TABLE sobs_app_settings FINAL")
+
+
+def _k8s_insert(db, table: str, rows: list[tuple]) -> None:
+    # Each row is (metric, value, attrs_dict). Insert via INSERT ... SELECT so TimeUnix is the
+    # now()-anchored offset (within the 48h TTL window) and Attributes is built with map(...). One
+    # statement per row keeps the map literal simple and the value list explicit.
+    for metric, value, attrs in rows:
+        pairs = ", ".join(f"'{k}', '{v}'" for k, v in attrs.items())
+        db.execute(
+            f"INSERT INTO {table} (TimeUnix, ServiceName, MetricName, Value, Attributes) "
+            f"SELECT {_K8S_OFFSET_SQL}, 'k8s', '{metric}', {value}, map({pairs}) FROM numbers(1)"
+        )
+    db.execute(f"OPTIMIZE TABLE {table} FINAL")
+
+
+def seed_k8srich(db) -> None:
+    # OTEL-NATIVE k8s metrics (k8s.* resource attributes) so _detect_k8s_metric_format returns
+    # "otel" (any otel_metrics_gauge row with Attributes['k8s.node.name'] != '') and the function
+    # takes its ELSE (native-OTEL) branch for every section with POPULATED data. Covers the otel
+    # nodes/pods/deployments/namespaces success bodies (already empty-executed by the bare `k8s`
+    # profile) PLUS, when a route adds ?name=, the otel name-filter branches (31273-31274,
+    # 31459-31460, 31594-31595) and the _append_or_equals non-empty branch (31102-31104).
+    #
+    # CONSTANT values + one now()-anchored offset so max(TimeUnix) AS last_seen ("created") is one
+    # masked token (the TTL forces now()-relative rows; the function has no now() window itself).
+    # Every aggregate is single-row-per-group so any()/anyIf()/maxIf() are deterministic, and each
+    # entity's default-sort column (node name, pod/deployment namespace, namespace name) is UNIQUE so
+    # ORDER BY needs no extra tiebreak.
+    #
+    # Shape exercises every summary arm:
+    #   nodes:       node-a Ready (cpu 0.5, mem 2e9, version v1.29.1), node-b NotReady -> nodes_ready=1
+    #   pods:        ns "alpha" web-1 Running restarts 0; ns "beta" api-1 Failed restarts 3 (on node-b)
+    #                -> pods_running=1, pods_failed=1; api-1 has cpu/mem usage + restarts>0
+    #   deployments: ns "alpha" web desired 3 ready 3 (healthy); ns "beta" api desired 2 ready 1
+    #                (ready < desired -> deployments_unhealthy=1)
+    #   namespaces:  alpha, beta (DISTINCT k8s.namespace.name) -> namespaces_total=2
+    rows = [
+        # --- nodes ---
+        ("k8s.node.condition_ready", 1.0, {"k8s.node.name": "node-a", "k8s.kubelet.version": "v1.29.1"}),
+        ("k8s.node.cpu.usage", 0.5, {"k8s.node.name": "node-a"}),
+        ("k8s.node.memory.usage", 2000000000.0, {"k8s.node.name": "node-a"}),
+        ("k8s.node.condition_ready", 0.0, {"k8s.node.name": "node-b", "k8s.kubelet.version": "v1.29.1"}),
+        ("k8s.node.cpu.usage", 0.9, {"k8s.node.name": "node-b"}),
+        ("k8s.node.memory.usage", 3000000000.0, {"k8s.node.name": "node-b"}),
+        # --- pods: alpha/web-1 (Running, no restarts) ---
+        (
+            "k8s.pod.status_ready",
+            1.0,
+            {
+                "k8s.namespace.name": "alpha",
+                "k8s.pod.name": "web-1",
+                "k8s.pod.phase": "Running",
+                "k8s.node.name": "node-a",
+            },
+        ),
+        (
+            "k8s.pod.cpu.usage",
+            0.25,
+            {
+                "k8s.namespace.name": "alpha",
+                "k8s.pod.name": "web-1",
+                "k8s.pod.phase": "Running",
+                "k8s.node.name": "node-a",
+            },
+        ),
+        (
+            "k8s.pod.memory.usage",
+            500000000.0,
+            {
+                "k8s.namespace.name": "alpha",
+                "k8s.pod.name": "web-1",
+                "k8s.pod.phase": "Running",
+                "k8s.node.name": "node-a",
+            },
+        ),
+        # --- pods: beta/api-1 (Failed, restarts 3) ---
+        (
+            "k8s.pod.status_ready",
+            0.0,
+            {
+                "k8s.namespace.name": "beta",
+                "k8s.pod.name": "api-1",
+                "k8s.pod.phase": "Failed",
+                "k8s.node.name": "node-b",
+            },
+        ),
+        (
+            "k8s.pod.cpu.usage",
+            0.75,
+            {
+                "k8s.namespace.name": "beta",
+                "k8s.pod.name": "api-1",
+                "k8s.pod.phase": "Failed",
+                "k8s.node.name": "node-b",
+            },
+        ),
+        (
+            "k8s.pod.memory.usage",
+            800000000.0,
+            {
+                "k8s.namespace.name": "beta",
+                "k8s.pod.name": "api-1",
+                "k8s.pod.phase": "Failed",
+                "k8s.node.name": "node-b",
+            },
+        ),
+        (
+            "k8s.container.restart_count",
+            3.0,
+            {
+                "k8s.namespace.name": "beta",
+                "k8s.pod.name": "api-1",
+                "k8s.pod.phase": "Failed",
+                "k8s.node.name": "node-b",
+            },
+        ),
+        # --- deployments: alpha/web healthy (3/3) ---
+        ("k8s.deployment.desired", 3.0, {"k8s.namespace.name": "alpha", "k8s.deployment.name": "web"}),
+        ("k8s.deployment.ready", 3.0, {"k8s.namespace.name": "alpha", "k8s.deployment.name": "web"}),
+        ("k8s.deployment.available", 3.0, {"k8s.namespace.name": "alpha", "k8s.deployment.name": "web"}),
+        ("k8s.deployment.updated", 3.0, {"k8s.namespace.name": "alpha", "k8s.deployment.name": "web"}),
+        # --- deployments: beta/api unhealthy (ready 1 < desired 2) ---
+        ("k8s.deployment.desired", 2.0, {"k8s.namespace.name": "beta", "k8s.deployment.name": "api"}),
+        ("k8s.deployment.ready", 1.0, {"k8s.namespace.name": "beta", "k8s.deployment.name": "api"}),
+        ("k8s.deployment.available", 1.0, {"k8s.namespace.name": "beta", "k8s.deployment.name": "api"}),
+        ("k8s.deployment.updated", 2.0, {"k8s.namespace.name": "beta", "k8s.deployment.name": "api"}),
+    ]
+    _k8s_insert(db, "otel_metrics_gauge", rows)
+    _k8s_enable(db)
+
+
+def seed_k8sprom(db) -> None:
+    # PROMETHEUS (kube-state-metrics + cAdvisor) k8s metrics so _detect_k8s_metric_format returns
+    # "prometheus": NO Attributes['k8s.node.name'] anywhere (otel probe misses) and MetricName LIKE
+    # 'kube_%' / container_memory_working_set_bytes present. Drives the PROMETHEUS branch of every
+    # section (the big uncovered set: nodes 31198-31266, pods 31331-31451, deployments 31524-31586,
+    # namespaces 31643-31665), incl. the otel_metrics_sum restart-counter UNION (31376-31390) and
+    # the prom name-filter branches when a route adds ?name=.
+    #
+    # CONSTANT values + one now()-anchored offset (TTL window -> stable masked "created"). Single row
+    # per (metric, group) keeps any()/anyIf()/maxIf() deterministic; unique default-sort key per
+    # entity keeps ORDER BY tie-free. Same logical shape as k8srich so every summary arm fires:
+    #   nodes:       node-a Ready (mem alloc 2e9, kubelet v1.29.1), node-b NotReady -> nodes_ready=1
+    #   pods:        ns "alpha" web-1 Running (mem 500MB, restart counter in otel_metrics_SUM=1,
+    #                node node-a); ns "beta" api-1 Failed (restart counter=4, node node-b)
+    #                -> pods_running=1, pods_failed=1
+    #   deployments: ns "alpha" web 3/3 healthy; ns "beta" api desired 2 ready 1 unhealthy
+    #   namespaces:  alpha (phase Active), beta (phase Active) -> namespaces_total=2
+    gauge_rows = [
+        # --- nodes ---
+        ("kube_node_status_condition", 1.0, {"node": "node-a", "condition": "Ready", "status": "true"}),
+        ("kube_node_status_allocatable", 2000000000.0, {"node": "node-a", "resource": "memory"}),
+        ("kube_node_info", 1.0, {"node": "node-a", "kubelet_version": "v1.29.1"}),
+        ("kube_node_status_condition", 0.0, {"node": "node-b", "condition": "Ready", "status": "true"}),
+        ("kube_node_status_allocatable", 3000000000.0, {"node": "node-b", "resource": "memory"}),
+        ("kube_node_info", 1.0, {"node": "node-b", "kubelet_version": "v1.29.1"}),
+        # --- pods: alpha/web-1 Running ---
+        ("kube_pod_status_phase", 1.0, {"namespace": "alpha", "pod": "web-1", "phase": "Running"}),
+        ("kube_pod_status_ready", 1.0, {"namespace": "alpha", "pod": "web-1", "condition": "true"}),
+        ("container_memory_working_set_bytes", 500000000.0, {"namespace": "alpha", "pod": "web-1", "container": "app"}),
+        ("kube_pod_container_status_restarts_total", 0.0, {"namespace": "alpha", "pod": "web-1"}),
+        ("kube_pod_info", 1.0, {"namespace": "alpha", "pod": "web-1", "node": "node-a"}),
+        # --- pods: beta/api-1 Failed ---
+        ("kube_pod_status_phase", 1.0, {"namespace": "beta", "pod": "api-1", "phase": "Failed"}),
+        ("kube_pod_status_ready", 0.0, {"namespace": "beta", "pod": "api-1", "condition": "true"}),
+        ("container_memory_working_set_bytes", 800000000.0, {"namespace": "beta", "pod": "api-1", "container": "api"}),
+        ("kube_pod_container_status_restarts_total", 2.0, {"namespace": "beta", "pod": "api-1"}),
+        ("kube_pod_info", 1.0, {"namespace": "beta", "pod": "api-1", "node": "node-b"}),
+        # --- deployments: alpha/web healthy ---
+        ("kube_deployment_spec_replicas", 3.0, {"namespace": "alpha", "deployment": "web"}),
+        ("kube_deployment_status_replicas_ready", 3.0, {"namespace": "alpha", "deployment": "web"}),
+        ("kube_deployment_status_replicas_available", 3.0, {"namespace": "alpha", "deployment": "web"}),
+        ("kube_deployment_status_replicas_updated", 3.0, {"namespace": "alpha", "deployment": "web"}),
+        # --- deployments: beta/api unhealthy ---
+        ("kube_deployment_spec_replicas", 2.0, {"namespace": "beta", "deployment": "api"}),
+        ("kube_deployment_status_replicas_ready", 1.0, {"namespace": "beta", "deployment": "api"}),
+        ("kube_deployment_status_replicas_available", 1.0, {"namespace": "beta", "deployment": "api"}),
+        ("kube_deployment_status_replicas_updated", 2.0, {"namespace": "beta", "deployment": "api"}),
+        # --- namespaces ---
+        ("kube_namespace_status_phase", 1.0, {"namespace": "alpha", "phase": "Active"}),
+        ("kube_namespace_status_phase", 1.0, {"namespace": "beta", "phase": "Active"}),
+    ]
+    _k8s_insert(db, "otel_metrics_gauge", gauge_rows)
+
+    # Restart counters in otel_metrics_sum (some exporters store _total there) -> exercises the
+    # pod_sum_sql UNION branch (31376-31390) + max(restarts) merge. web-1 sum=1 (gauge 0 -> merged 1);
+    # api-1 sum=4 (gauge 2 -> merged 4). Both > their gauge value so the sum-table value wins, proving
+    # the UNION+max path runs.
+    sum_rows = [
+        ("kube_pod_container_status_restarts_total", 1.0, {"namespace": "alpha", "pod": "web-1"}),
+        ("kube_pod_container_status_restarts_total", 4.0, {"namespace": "beta", "pod": "api-1"}),
+    ]
+    _k8s_insert(db, "otel_metrics_sum", sum_rows)
+    _k8s_enable(db)
+
+
 # Far older than now() - INTERVAL <any period>: chDB evaluates now() against the REAL wall clock
 # (not the frozen 2024 epoch), so a fixed 2020 timestamp is retention-eligible for any prune window
 # the route is exercised with — every seeded row is deleted on BOTH the Python capture and the Go
@@ -2736,6 +2945,8 @@ PROFILE_SEEDS = {
     "notifagentmiss": seed_notif_agent_miss,  # tag infra + continue-only agent rules -> agent_runs stays []
     "dmbackup": seed_dm_backup,
     "k8s": seed_k8s,  # backup_enabled=1; backup/run + restore reach their enabled branch
+    "k8srich": seed_k8srich,  # OTEL-native k8s.* gauge rows -> _fetch_k8s_from_otel otel-branch populated
+    "k8sprom": seed_k8sprom,  # prometheus (kube_*) gauge+sum rows -> _fetch_k8s_from_otel prometheus-branch
     "repoapp": seed_repo_app,  # registered app + release + github token; repositories-sub actions
     "cveosv": seed_cve_osv,  # telemetry.sdk row -> non-empty inventory -> OSV scan finds a vuln
     "tagauto": seed_tagauto,  # 30 recent prod-service logs -> auto_tag_rules in-window candidate

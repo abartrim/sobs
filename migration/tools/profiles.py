@@ -260,6 +260,15 @@ PROFILES: dict[str, dict[str, str]] = {
     "dmsecret": {"SOBS_SETTINGS_ENCRYPTION_KEY": "sobs-parity-dm-secret-key"},
     # k8s: Go boot flag on; Python reads the seeded kubernetes.enabled=1. No k8s metrics -> empty status.
     "k8s": {"SOBS_KUBERNETES_ENABLED": "1"},
+    # k8srich: enabled + OTEL-native k8s.* gauge metrics seeded so _fetch_k8s_from_otel's "otel"
+    # branch runs over POPULATED data (nodes/pods/deployments/namespaces lists + summary), and
+    # ?name=/?namespace= routes hit the otel name/value filter branches. No now() window in the
+    # function -> the max(TimeUnix) "created" string is constant, so no time mask is needed.
+    "k8srich": {"SOBS_KUBERNETES_ENABLED": "1"},
+    # k8sprom: enabled + PROMETHEUS (kube_*) gauge+sum metrics seeded so _fetch_k8s_from_otel's
+    # "prometheus" branch runs (the big uncovered set), including the otel_metrics_sum restart-counter
+    # UNION. Same no-mask reasoning as k8srich.
+    "k8sprom": {"SOBS_KUBERNETES_ENABLED": "1"},
     # repoapp: a seeded registered app + release + github token so /settings/repositories/<id>/...
     # actions run their real branch; the github mock serves the token-validate /rate_limit call.
     "repoapp": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
@@ -482,6 +491,8 @@ SEEDED_PROFILES = {
     "notifagentmiss",
     "dmbackup",
     "k8s",
+    "k8srich",
+    "k8sprom",
     "repoapp",
     "cveosv",
     "tagauto",
