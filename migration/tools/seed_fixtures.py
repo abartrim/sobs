@@ -2876,6 +2876,78 @@ def seed_tracesrich(db) -> None:
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
 
 
+_TRACEMETRICS_TRACE_ID = "cccc1111dddd2222eeee3333ffff4444"
+# Anchor the trace + matching metric rows at ONE stable now()-relative instant. toStartOfMinute
+# collapses the sub-second drift between the separate INSERT statements (now() is evaluated per
+# statement) so the trace span and every metric row share the IDENTICAL TimeUnix -> the relative
+# metric-window math (bucket index, +/-5 min pad) is wall-clock-independent and deterministic; only
+# the ABSOLUTE timestamp strings/epoch-ms drift between capture and replay (masked in routes.yaml).
+# 30 min ago keeps every row comfortably inside the otel_metrics 48h baseline TTL (otherwise the
+# part is silently dropped on OPTIMIZE and the panel renders empty / run-to-run divergent).
+_TM_ANCHOR_SQL = "toStartOfMinute(now()) - INTERVAL 30 MINUTE"
+
+
+def seed_tracemetrics(db) -> None:
+    # _fetch_trace_metric_context SUCCESS path (app.py 14959-15306). A now()-anchored SINGLE-span
+    # trace carrying k8s identity attrs (namespace/pod/node/deployment) drives view_traces'
+    # trace-detail metric-context fetch (app.py 15580). Matching now()-anchored gauge rows make the
+    # FIRST attempt -- "pod_exact" (pod + namespace, app.py 15180-15189) -- return data, so the
+    # ranked-match loop short-circuits on tier 1 and the populated branch (15258-15297) runs:
+    # source_mode='raw' (gauge rows -> SourceRank 0), the metric series, _query_timeseries buckets,
+    # _group_metric_series groups, and _compute_health_chips + header_chip all render.
+    #
+    # SINGLE span on purpose: trace_start_ms==span.start_ms so the +/-5 min metric window is a tight,
+    # stable interval around the one anchored instant; the timeline render reduces to one absolute
+    # ts pair (traces.html 262) plus the match-case _traceMetricChartData JS block (traces.html
+    # 374-383) -- the only now()-derived tokens, all masked. Span positions are RELATIVE (left/width
+    # %), so they stay byte-stable.
+    #
+    # Metric rows (all gauge -> raw; all share the trace's k8s attrs so tier 1 fires; CONSTANT values
+    # so every rendered avg/min/max/chip is deterministic; 1 point each -> series order is the
+    # MetricName ASC tiebreak, fully ordered):
+    #   k8s.pod.cpu.utilization   45.0  -> CPU health chip (avg 45 <= 60 -> "ok") + header_chip
+    #                                      + Resource Pressure group ("cpu" pattern)
+    #   k8s.pod.memory.usage      5.36870912e8 (512 MiB) -> Memory chip + Resource group
+    #   k8s.pod.status_phase       1.0  -> Pod Phase chip (avg 1.0 >= 0.9 -> "ok") + K8s State group
+    # Three distinct group buckets + three chips exercise the grouping/chip arms broadly.
+    tid = _TRACEMETRICS_TRACE_ID
+
+    # --- the trace span (now()-anchored, k8s identity attrs) ---
+    db.execute(
+        "INSERT INTO otel_traces "
+        "(Timestamp, TraceId, SpanId, ParentSpanId, SpanName, ServiceName, "
+        "Duration, StatusCode, SpanAttributes) "
+        f"SELECT toDateTime64({_TM_ANCHOR_SQL}, 9), '{tid}', 'cccc000000000001', '', "
+        "'GET /cart', 'cart-api', toUInt64(80 * 1000000), 'STATUS_CODE_OK', "
+        "map("
+        "'http.method', 'GET', 'http.url', '/cart', 'http.status_code', '200', "
+        "'k8s.namespace.name', 'shop', 'k8s.pod.name', 'cart-7d', "
+        "'k8s.node.name', 'node-a', 'k8s.deployment.name', 'cart') "
+        "FROM numbers(1)"
+    )
+
+    # --- matching metric rows in otel_metrics_gauge (raw source; same k8s attrs + ServiceName) ---
+    metric_rows = [
+        ("k8s.pod.cpu.utilization", 45.0),
+        ("k8s.pod.memory.usage", 536870912.0),
+        ("k8s.pod.status_phase", 1.0),
+    ]
+    attrs_map = (
+        "map("
+        "'k8s.namespace.name', 'shop', 'k8s.pod.name', 'cart-7d', "
+        "'k8s.node.name', 'node-a', 'k8s.deployment.name', 'cart')"
+    )
+    for metric, value in metric_rows:
+        db.execute(
+            "INSERT INTO otel_metrics_gauge "
+            "(TimeUnix, ServiceName, MetricName, Value, Attributes) "
+            f"SELECT toDateTime64({_TM_ANCHOR_SQL}, 9), 'cart-api', '{metric}', "
+            f"{value}, {attrs_map} FROM numbers(1)"
+        )
+    db.execute("OPTIMIZE TABLE otel_traces FINAL")
+    db.execute("OPTIMIZE TABLE otel_metrics_gauge FINAL")
+
+
 def seed_airich(db) -> None:
     # view_ai _safe_attr_int defensive branches (app.py 18757-18758 ValueError; 18760 NaN/inf guard).
     # ONE AI span (gen_ai.* attrs so _AI_SPAN_CONDITION matches) carrying a NON-NUMERIC input_tokens
@@ -3306,6 +3378,7 @@ PROFILE_SEEDS = {
     "errorsview": seed_errorsview,  # error events + a resolution -> populated view_errors branches
     "aiview": seed_aiview,  # otel_traces AI spans (gen_ai.*) -> populated view_ai branches
     "tracesrich": seed_tracesrich,  # single-span trace + 51 identical ERROR logs -> errors_truncated (15479-15480)
+    "tracemetrics": seed_tracemetrics,  # now()-anchored trace + gauge rows -> _fetch_trace_metric_context tier-1
     "airich": seed_airich,  # AI span w/ non-numeric + inf token attrs -> _safe_attr_int branches (18757-18760)
     "airichsql": seed_airich,  # same AI span; ISOLATED process so the sql-error totals cache mutation can't leak
     "dashview": seed_dashview,  # dashboard + charts -> GET /dashboards/<id> view branch

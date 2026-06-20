@@ -86,6 +86,11 @@ PROFILES: dict[str, dict[str, str]] = {
     # LIMIT 51, gets >50, flips errors_truncated and slices to 50. Identical rows make the
     # (loop.index-keyed) accordion render permutation-invariant despite the query's missing ORDER BY.
     "tracesrich": {},
+    # tracemetrics: an isolated now()-anchored single-span trace carrying k8s identity attrs
+    # (namespace/pod/node/deployment) PLUS matching now()-anchored otel_metrics_gauge rows, so
+    # view_traces' trace-detail metric-context fetch (_fetch_trace_metric_context, app.py 15580)
+    # hits its tier-1 "pod + namespace" success path. No env overlay -- just the (isolated) seed.
+    "tracemetrics": {},
     # reportsimport: no seed (reuses the base fixture's 2 example reports for conflict tests). An
     # isolated profile because the success routes MUTATE sobs_reports — keeping them out of base so
     # they don't perturb other base routes that read reports. Routes run in manifest order and
@@ -541,6 +546,7 @@ SEEDED_PROFILES = {
     "airich",
     "airichsql",
     "tracesrich",
+    "tracemetrics",
     "dashview",
     "chartedit",
     "regexlogs",
