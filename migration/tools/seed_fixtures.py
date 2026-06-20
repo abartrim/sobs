@@ -1979,6 +1979,90 @@ def seed_notif(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_notification_rules FINAL")
 
 
+def seed_notifydispatch(db) -> None:
+    # Milestone 25: byte-parity-cover the notification channel DISPATCH cluster via
+    # POST /api/notifications/channels/<id>/test. Three channels — one per HTTP-dispatchable
+    # type (webhook / slack / browser_push) — each pointed at a canned upstream fixture so the
+    # outbound POST returns 2xx and _dispatch_notification_channel returns "ok" (route response
+    # is the constant {"ok": true}). The test_payload carries a wall-clock fired_at and, for
+    # push, a random ciphertext, but those go ONLY into the (mock-ignored) outbound body, so the
+    # byte-compared response is timestamp/ciphertext-independent — no masks needed.
+    #
+    # All three URLs are on hosts in the MockTransport allowlist (hooks.example.com), and
+    # ConfigJson is PLAINTEXT: _decrypt_notification_config is identity on un-prefixed values
+    # (no _SETTINGS_ENCRYPTION_PREFIX), so the seeded config is read back verbatim by both
+    # runtimes. The browser_push subscriber p256dh/auth and the VAPID private key (env, set by
+    # the profile) are fixed, structurally-valid P-256 material so the crypto path runs without
+    # raising. Seed Version is 1ms below the mutation Version for FINAL-determinism parity with
+    # the other notification seeds (these /test routes make no DB writes, so it's belt-and-braces).
+    _insert(
+        db,
+        "sobs_notification_channels",
+        [
+            {
+                # webhook: dispatched via _dispatch_webhook_channel (config key "url").
+                "Id": "notifch-webhook",
+                "Name": "Dispatch Webhook",
+                "ChannelType": "webhook",
+                "ConfigJson": '{"url": "https://hooks.example.com/ops"}',
+                "Enabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                # slack: dispatched via _dispatch_slack_channel (config key "webhook_url").
+                "Id": "notifch-slack",
+                "Name": "Dispatch Slack",
+                "ChannelType": "slack",
+                "ConfigJson": '{"webhook_url": "https://hooks.example.com/slack"}',
+                "Enabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                # browser_push: dispatched via _dispatch_browser_push_channel. Needs endpoint +
+                # subscriber p256dh (65-byte uncompressed P-256 point, b64url) + auth (16 bytes
+                # b64url); the VAPID private key comes from SOBS_VAPID_PRIVATE_KEY (profile env).
+                "Id": "notifch-push",
+                "Name": "Dispatch Push",
+                "ChannelType": "browser_push",
+                "ConfigJson": (
+                    '{"endpoint": "https://hooks.example.com/push", '
+                    '"p256dh": "BIVtslThZNO44xAdSscI5pTdaxoGybRCYznd86fnBR3wwZ7Lh'
+                    'Mxmqnc0Ft1NsJWD9BcqQPiOLnRdCfbB-DdHKjE", '
+                    '"auth": "AAECAwQFBgcICQoLDA0ODw"}'
+                ),
+                "Enabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                # Unknown channel type -> _dispatch_notification_channel returns
+                # "Unknown channel type: bogus" (no per-type fn) -> route {"ok": false, ...}, 500.
+                "Id": "notifch-unknown",
+                "Name": "Dispatch Unknown",
+                "ChannelType": "bogus",
+                "ConfigJson": "{}",
+                "Enabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                # Failing webhook: URL has NO upstream fixture -> mock returns 404 -> the webhook fn
+                # raises "Webhook returned HTTP 404" -> hub's except returns it -> {"ok": false}, 500.
+                "Id": "notifch-fail",
+                "Name": "Dispatch Fail",
+                "ChannelType": "webhook",
+                "ConfigJson": '{"url": "https://hooks.example.com/no-fixture-here"}',
+                "Enabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_notification_channels FINAL")
+
+
 def seed_github_token(db) -> None:
     # A configured global GitHub token so onboarding inspect/issue routes reach their GitHub
     # branch (the repo-scoped key is absent, so this global one is used).
@@ -3716,6 +3800,7 @@ PROFILE_SEEDS = {
     "notifrule": seed_notif,  # channels+rules; isolated for create_notification_rule success insert
     "enrichlibs": seed_enrichlibs,  # otel_traces sdk/scope rows + 1 CVE -> populated library inventory
     "rumasset": seed_rumasset,  # on-disk rum asset (meta.json + blob) -> rum_asset_download FOUND branch
+    "notifydispatch": seed_notifydispatch,  # 3 channels (webhook/slack/push) -> channel /test dispatch SUCCESS path
 }
 
 

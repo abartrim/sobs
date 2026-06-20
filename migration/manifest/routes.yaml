@@ -4234,6 +4234,52 @@ routes:
   request:
     method: POST
     json: {}
+# Milestone 25: notification channel DISPATCH cluster. One /test route per HTTP-dispatchable
+# channel type; each outbound POST is served by a canned upstream fixture (=> dispatch returns
+# "ok" => constant {"ok": true}). The test_payload's wall-clock/ciphertext go only into the
+# mock-ignored outbound body, so no mask is needed.
+- id: post__api_notifications_channels_test__webhook
+  path: /api/notifications/channels/notifch-webhook/test
+  methods:
+  - POST
+  profile: notifydispatch
+  request:
+    method: POST
+    json: {}
+- id: post__api_notifications_channels_test__slack
+  path: /api/notifications/channels/notifch-slack/test
+  methods:
+  - POST
+  profile: notifydispatch
+  request:
+    method: POST
+    json: {}
+- id: post__api_notifications_channels_test__push
+  path: /api/notifications/channels/notifch-push/test
+  methods:
+  - POST
+  profile: notifydispatch
+  request:
+    method: POST
+    json: {}
+# Hub error branches (cheap coverage, response {"ok": false, "error": ...}, 500):
+# unknown channel type, and a webhook whose URL has no fixture (mock 404 => raise).
+- id: post__api_notifications_channels_test__unknown
+  path: /api/notifications/channels/notifch-unknown/test
+  methods:
+  - POST
+  profile: notifydispatch
+  request:
+    method: POST
+    json: {}
+- id: post__api_notifications_channels_test__fail
+  path: /api/notifications/channels/notifch-fail/test
+  methods:
+  - POST
+  profile: notifydispatch
+  request:
+    method: POST
+    json: {}
 - id: post__api_enrichment_cve_disposition
   path: /api/enrichment/cve/findings/nonexistent/disposition
   methods:

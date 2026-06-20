@@ -194,6 +194,20 @@ PROFILES: dict[str, dict[str, str]] = {
     # notif also points at the upstream fixtures so the channel /test webhook POST is served
     # from a canned response (the toggle/delete routes make no HTTP calls, so it's a no-op there).
     "notif": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
+    # notifydispatch (Milestone 25): cover the channel-DISPATCH cluster via the per-channel
+    # POST /api/notifications/channels/<id>/test routes. Points at the upstream fixtures so the
+    # webhook/slack/push outbound POSTs are served from canned 2xx responses (=> dispatch returns
+    # "ok" => {"ok": true}). SOBS_VAPID_PRIVATE_KEY is a FIXED, structurally-valid P-256 PKCS8 DER
+    # key (base64url) read identically by app.py _get_vapid_private_key_b64 and the Go
+    # loadVapidPrivateKey, so the browser_push VAPID/JWT path runs without raising on both sides.
+    "notifydispatch": {
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+        "SOBS_VAPID_PRIVATE_KEY": (
+            "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgESIzRFVmd4gRIjNEVWZ3iBEiM0RVZneI"
+            "ESIzRFVmd4ihRANCAARB9kj5MzwMoMBeoRI3FUvOmnLUPtEVJ4BQ8uky1TkZfJ_J6vv4CHvqtkuPYZy"
+            "Q7nV0dFTHvJYnBhfXvlda4orD"
+        ),
+    },
     # githubtoken = the github mock + a seeded ai.github_token, so the onboarding inspect/issue
     # routes reach (and exercise) their token-gated GitHub branch.
     "githubtoken": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
@@ -519,6 +533,7 @@ SEEDED_PROFILES = {
     "agentrun",
     "dmprune",
     "notif",
+    "notifydispatch",
     "notifcheck",
     "notifgen",
     "agenttrigger",
