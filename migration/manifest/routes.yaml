@@ -6054,6 +6054,38 @@ routes:
   mask:
   - '"scanned_at": ?"[^"]*"'
   mask_reason: scanned_at is _now_iso() (wall-clock); libraries_found/vulns_found/github_backfill_* are byte-compared.
+# cvescan profile (M41): a seeded TIER-3 instrumentation-scope library (otel_traces ScopeName/
+# ScopeVersion/ServiceName) so _collect_library_inventory reaches its scope branch (->"Maven"
+# ecosystem) and the scan queries OSV (canned) for that one library. WRITER: it WRITES the parsed
+# finding into sobs_cve_findings (libraries_found=1, vulns_found=1, backfill 0/0/300). scanned_at
+# is _now_iso() (masked); everything else byte-compared. This route runs BEFORE the findings-read
+# route below (same profile/process/DB) so the read verifies the row this scan wrote.
+- id: post__api_enrichment_cve_scan__cvescan
+  path: /api/enrichment/cve/scan
+  methods:
+  - POST
+  profile: cvescan
+  request:
+    method: POST
+    json: {}
+  mask:
+  - '"scanned_at": ?"[^"]*"'
+  mask_reason: scanned_at is _now_iso() (wall-clock); libraries_found/vulns_found/github_backfill_* are byte-compared.
+# cvescan READER: GET findings AFTER the scan above wrote one finding into sobs_cve_findings, so the
+# OSV finding-parse FIELDS (osv_id, cve_ids split, summary, severity from the CVSS score, published
+# truncated to YYYY-MM-DD, service from the scope row) are byte-verified against the scan-WRITTEN row
+# rather than directly-seeded rows. No dispositions -> all "open" -> shown under the default
+# show_all=off. last_scan is the scan's _now_iso() value (wall-clock) -> masked.
+- id: get__api_enrichment_cve_findings__cvescan
+  path: /api/enrichment/cve/findings
+  methods:
+  - GET
+  profile: cvescan
+  request:
+    method: GET
+  mask:
+  - '"last_scan": ?"[^"]*"'
+  mask_reason: last_scan is the scan's _now_iso() value (wall-clock); the finding fields are byte-compared.
 # cvebackfill profile: a seeded app+release+token so the github backfill attempts the release. The
 # repo has no fetchable lockfile (every contents GET 404s) -> attempted=1, inserted=0. Inventory is
 # still empty (no artifact inserted, no telemetry.sdk) -> zero OSV summary (no scanned_at field).

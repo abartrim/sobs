@@ -1039,6 +1039,32 @@ def seed_cve_osv(db) -> None:
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
 
 
+def seed_cvescan(db) -> None:
+    # M41: ONE otel_traces row carrying ScopeName/ScopeVersion/ServiceName so
+    # _collect_library_inventory reaches its TIER-3 instrumentation-scope branch (app.py
+    # 17025-17046) — distinct from cveosv's tier-2 telemetry.sdk.* path. The scope name starts with
+    # "io.opentelemetry", so _inventory_scope_ecosystem maps it to a NON-EMPTY ecosystem ("Maven");
+    # the OSV loop skips libraries with an empty ecosystem, so this is what makes the single library
+    # actually reach the (canned) OSV /v1/query. EXACTLY ONE library => one logical OSV call => the
+    # body-ignored URL-keyed fixture is unambiguous. No telemetry.sdk.* attrs and no
+    # ScopeVersion-bearing otel_logs row, so tier-2 and the logs tier-3 query yield nothing — the
+    # lone finding comes solely from this trace-scope row. The Tier-3 query has no time-window
+    # filter, so the fixed determinism-window timestamp is fine (no wall-clock dependency).
+    _insert(
+        db,
+        "otel_traces",
+        [
+            {
+                "Timestamp": _TS,
+                "ServiceName": "checkout",
+                "ScopeName": "io.opentelemetry.contrib.instrumentation",
+                "ScopeVersion": "1.20.0",
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_traces FINAL")
+
+
 def seed_tagauto(db) -> None:
     # 30 recent otel_logs rows for a single prod-named service so auto_tag_rules' in-window branch
     # finds EXACTLY one candidate ("log env=production", point_count=30). Seeded at now()-1h (real
@@ -4505,6 +4531,7 @@ PROFILE_SEEDS = {
     "k8sprom": seed_k8sprom,  # prometheus (kube_*) gauge+sum rows -> _fetch_k8s_from_otel prometheus-branch
     "repoapp": seed_repo_app,  # registered app + release + github token; repositories-sub actions
     "cveosv": seed_cve_osv,  # telemetry.sdk row -> non-empty inventory -> OSV scan finds a vuln
+    "cvescan": seed_cvescan,  # M41: tier-3 scope row -> OSV scan writes a finding -> findings-read verifies fields
     "tagauto": seed_tagauto,  # 30 recent prod-service logs -> auto_tag_rules in-window candidate
     "tagautorich": seed_tagautorich,  # rich telemetry -> every _build_auto_tag_rule_candidates arm
     "dashboardautorich": seed_dashboardautorich,  # anomaly rules -> _build_auto_dashboard_chart_candidates arms
