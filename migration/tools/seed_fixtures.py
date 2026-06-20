@@ -350,6 +350,50 @@ def seed_agent_rule(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_agent_rules FINAL")
 
 
+def seed_agentflow(db) -> None:
+    # M29: drive the FULL agent flow (_run_agent_flow create-new-issue arm) via POST /api/agent/runs
+    # (trigger_agent_run), not just the analyze-only slice agenttrigger covers. One enabled rule with
+    # Actions="analyze,github_issue" (no dlp_check) + a global github repo+token so the flow:
+    #   guard (canned SAFE) -> analyze LLM (canned ROOT CAUSE / SUGGESTED FIX) -> dedup
+    #   (_fetch_open_github_issues 404s -> no candidates -> fallback "unrelated") -> create a NEW
+    #   issue via the canned POST /repos/acme/widget/issues (#42) -> persist a work item -> completed
+    #   run. Reuses the SAME canned guard/analyze/create fixtures as issuesraise (acme/widget): the
+    #   open-issues GET 404s (no fixture) so allow_new_issue stays true and a fresh issue is created.
+    #   No prior agent runs are seeded, so _count_github_issues_last_hour()=0 < max_issues (allow)
+    #   and the rate-limit/dedupe arms never trip nondeterministically. TriggerType="manual" so the
+    #   trigger context carries no service_name -> _resolve_agent_github_target falls to the global
+    #   ai.github_repo (acme/widget). The only volatile response field is run_id (uuid4) -> masked.
+    _insert(
+        db,
+        "sobs_agent_rules",
+        [
+            {
+                "Id": "e3000000000000000000000000000001",
+                "Name": "Parity Flow Issue Rule",
+                "Description": "Analyze + github_issue agent rule for the full-flow parity.",
+                "TriggerType": "manual",
+                "TriggerRefId": "",
+                "TriggerState": "any",
+                "Actions": "analyze,github_issue",
+                "RateLimitMinutes": 60,
+                "IsEnabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_agent_rules FINAL")
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [
+            {"Key": "ai.github_repo", "Value": "acme/widget", "IsDeleted": 0, "Version": 1704164644000},
+            {"Key": "ai.github_token", "Value": "ghp_parity_token", "IsDeleted": 0, "Version": 1704164644000},
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+
+
 def seed_k8s(db) -> None:
     # Enable the Kubernetes health view (DB setting that Python's _kubernetes_enabled reads). The Go
     # side reads the SOBS_KUBERNETES_ENABLED boot flag from the profile env. With no k8s metrics in
@@ -3926,6 +3970,7 @@ PROFILE_SEEDS = {
     "notifcheck": seed_notif,  # same rows; isolated so check doesn't see toggle/delete mutations
     "notifgen": seed_notif,  # channels+rules; auto-generate create inserts new rules (isolated)
     "agenttrigger": seed_agent_rule,  # analyze-only rule; trigger_agent_run runs the agent flow
+    "agentflow": seed_agentflow,  # analyze+github_issue rule + repo/token -> trigger_agent_run creates an issue
     "dmprune": seed_dm_prune,  # retention-eligible rows -> prune's DELETE window runs on real data
     "notifagent": seed_notif_agent,  # tag rule + auto tags + agent rule -> check_notifications auto-triggers the flow
     "notifagentmiss": seed_notif_agent_miss,  # tag infra + continue-only agent rules -> agent_runs stays []
