@@ -425,6 +425,22 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # agentcopilot (M31): clone of agentflow but the seeded rule's Actions includes
+    # github_issue_copilot, so after the create-new-issue arm the flow probes Copilot support
+    # (GraphQL api.github.com/graphql -> suggestedActors has copilot-swe-agent) and POSTs the
+    # assignee (/repos/acme/widget/issues/42/assignees -> assignees include copilot-swe-agent[bot])
+    # via _assign_issue_to_copilot, which returns ("requested", "Copilot assignment requested").
+    # Same agent/guard mock paths + acme/widget repo+token as agentflow; reuses its guard/analyze/
+    # create/graphql fixtures plus one NEW assignees fixture. No prior work items => both Copilot
+    # rate limiters are 0 < default 1, so the assignment deterministically proceeds. The response's
+    # copilot_assignment_status/reason are byte-compared; requested_at is DB-only. run_id is masked.
+    "agentcopilot": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # notifagent: check_notifications' AUTOMATIC agent branch. AI configured (same agent + guard mock
     # paths as agenttrigger) + a seeded tag rule, recent auto tags, and an analyze-only agent rule
     # whose tag-rule trigger fires from those tags. POST /api/notifications/check then runs the agent
@@ -614,6 +630,7 @@ SEEDED_PROFILES = {
     "notifgen",
     "agenttrigger",
     "agentflow",
+    "agentcopilot",
     "issuereuse",
     "workitems",
     "notifagent",

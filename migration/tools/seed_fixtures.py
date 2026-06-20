@@ -394,6 +394,57 @@ def seed_agentflow(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
 
 
+def seed_agentcopilot(db) -> None:
+    # M31: drive the COPILOT-ASSIGNMENT arm of the agent flow (_run_agent_flow ->
+    # _choose_github_issue_outcome create-new branch -> _assign_issue_to_copilot) via
+    # POST /api/agent/runs. A clone of seed_agentflow but the rule's Actions includes
+    # "github_issue_copilot" (=> wants_copilot_assignment=True), so after a fresh issue
+    # (#42) is created the flow:
+    #   * probes copilot support via the GraphQL POST api.github.com/graphql (canned fixture
+    #     returns suggestedActors containing "copilot-swe-agent" => supported), then
+    #   * POSTs the assignee to /repos/acme/widget/issues/42/assignees (canned fixture returns
+    #     an issue whose assignees include "copilot-swe-agent[bot]") => _assign_issue_to_copilot
+    #     returns ("requested", "Copilot assignment requested", <ms-ts>).
+    # No prior work items are seeded so _count_copilot_assignments_last_hour()=0 and
+    # _count_active_copilot_assignments()=0 are both < the default limit of 1, so the
+    # rate-limiter arms never trip and the assignment deterministically proceeds. requested_at
+    # is int(time.time()*1000) (wall-clock) but it lives ONLY in the persisted work-item row /
+    # run record (DB-only); the agent-run RESPONSE returns only copilot_assignment_status
+    # ("requested") and copilot_assignment_reason ("Copilot assignment requested"), both
+    # deterministic, plus the masked run_id uuid. Reuses the SAME canned guard/analyze/create
+    # /graphql fixtures as agentflow/issuesraise (acme/widget); only the assignees POST fixture
+    # is new.
+    _insert(
+        db,
+        "sobs_agent_rules",
+        [
+            {
+                "Id": "e3000000000000000000000000000002",
+                "Name": "Parity Flow Copilot Rule",
+                "Description": "Analyze + github_issue_copilot agent rule for the copilot-assignment parity arm.",
+                "TriggerType": "manual",
+                "TriggerRefId": "",
+                "TriggerState": "any",
+                "Actions": "analyze,github_issue_copilot",
+                "RateLimitMinutes": 60,
+                "IsEnabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_agent_rules FINAL")
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [
+            {"Key": "ai.github_repo", "Value": "acme/widget", "IsDeleted": 0, "Version": 1704164644000},
+            {"Key": "ai.github_token", "Value": "ghp_parity_token", "IsDeleted": 0, "Version": 1704164644000},
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+
+
 def seed_k8s(db) -> None:
     # Enable the Kubernetes health view (DB setting that Python's _kubernetes_enabled reads). The Go
     # side reads the SOBS_KUBERNETES_ENABLED boot flag from the profile env. With no k8s metrics in
@@ -4044,6 +4095,7 @@ PROFILE_SEEDS = {
     "notifgen": seed_notif,  # channels+rules; auto-generate create inserts new rules (isolated)
     "agenttrigger": seed_agent_rule,  # analyze-only rule; trigger_agent_run runs the agent flow
     "agentflow": seed_agentflow,  # analyze+github_issue rule + repo/token -> trigger_agent_run creates an issue
+    "agentcopilot": seed_agentcopilot,  # M31: analyze+github_issue_copilot rule -> create issue then assign Copilot
     "dmprune": seed_dm_prune,  # retention-eligible rows -> prune's DELETE window runs on real data
     "notifagent": seed_notif_agent,  # tag rule + auto tags + agent rule -> check_notifications auto-triggers the flow
     "notifagentmiss": seed_notif_agent_miss,  # tag infra + continue-only agent rules -> agent_runs stays []

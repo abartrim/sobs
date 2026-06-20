@@ -4288,6 +4288,25 @@ routes:
   mask:
   - '"run_id": ?"[^"]*"'
   mask_reason: run_id is a server-generated uuid4; the result (guard_decision/analysis/suggestion/github_issue_url/dedup_decision/status) is byte-compared.
+# agentcopilot profile (M31): the COPILOT-ASSIGNMENT arm. A seeded analyze+github_issue_copilot rule
+# (wants_copilot_assignment=True) + the acme/widget repo+token. POST runs the full flow (guard ->
+# analyze LLM -> create issue #42), then probes Copilot support (canned GraphQL -> supported) and POSTs
+# the assignee (canned /issues/42/assignees -> assignees include copilot-swe-agent[bot]) so
+# _assign_issue_to_copilot returns "requested". copilot_assignment_status ("requested") and
+# copilot_assignment_reason ("Copilot assignment requested") are byte-compared; requested_at is DB-only
+# (int(time.time()*1000), not in the response). run_id is a fresh uuid -> masked.
+- id: post__api_agent_runs__copilot
+  path: /api/agent/runs
+  methods:
+  - POST
+  profile: agentcopilot
+  request:
+    method: POST
+    json:
+      rule_id: e3000000000000000000000000000002
+  mask:
+  - '"run_id": ?"[^"]*"'
+  mask_reason: run_id is a server-generated uuid4; the result (guard_decision/analysis/suggestion/github_issue_url/dedup_decision/copilot_assignment_status/copilot_assignment_reason/status) is byte-compared. requested_at is wall-clock but DB-only, never in the response.
 - id: post__api_dashboards__id_charts_import
   path: /api/dashboards/nonexistent/charts/import
   methods:
