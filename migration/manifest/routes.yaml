@@ -2967,6 +2967,39 @@ routes:
   - '"trace_id": ?"[0-9a-f]{32}"'
   - '"turn_id": ?"[0-9a-f]{16}"'
   mask_reason: 'see post__api_query_ask__guardblock; same time-based trace_id/turn_id masks. The byte-compared `error` ("blocked (S9: Indiscriminate Weapons)") proves the llama prompt-builder + _parse_guard_reply path ran identically.'
+# M39: Vanna SQL REPAIR-TO-FAILURE loop. The vannarepair profile's guard returns SAFE -> ALLOW, so the
+# flow runs _vanna_generate_sql. The body-ignored URL-keyed mock returns the SAME canned INVALID SQL
+# ("SELECT nonexistent_column_xyz FROM otel_logs") for the generate call AND every repair call. That SQL
+# passes validate_sql (read-only SELECT, otel_logs is allowlisted) but fails EXPLAIN (chdb
+# UNKNOWN_IDENTIFIER: the column does not exist). _vanna_validate_and_execute_with_repair then:
+#   EXPLAIN fails -> _auto_repair_incomplete_cte_sql no-ops (not a WITH/CTE query) -> _vanna_repair_sql
+#   returns the SAME invalid SQL (mock ignores the repair prompt body) -> retry_count=1 -> the bounded
+#   for-loop (max_attempts=3) executes run_query 3x, each failing identically, calling _vanna_repair_sql
+#   on attempts 1 and 2 (retry_count -> 2, 3) and breaking on attempt 3 -> give-up arm.
+# So retry_count=3 is byte-compared (proving the loop ran the full 3 attempts), datasets=[] / columns=[]
+# / rows=[] (failure -> no main dataset), and llm_stats.sql_repair is NON-zero (the last _vanna_repair_sql
+# call's canned token usage, threaded through last_repair_stats) — the value byte-distinguishing this
+# from the success path where sql_repair is all-zero. The `error` field carries the run_query error
+# ("Query execution error: <raw chdb UNKNOWN_IDENTIFIER text>"). That raw chdb text is library-native
+# (str(exc) on the Python side, err.Error() on the Go side, both over the SAME pinned libchdb) but the
+# two runtimes' exception-formatting wrappers around the identical underlying message are NOT guaranteed
+# byte-identical, so `error` is MASKED to its stable prefix while the structure + retry_count + sql +
+# llm_stats stay byte-compared. trace_id/turn_id are time-based -> masked.
+- id: post__api_query_ask__vannarepair
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: vannarepair
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: true
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  - '"error": ?"Query execution error: .*?"'
+  mask_reason: 'trace_id = md5("query|{question}|{time_ns}") and turn_id = trace_id[:16] are time-based -> masked (a 32/16-hex value must be present, so an absent id diffs RED). The `error` is masked from its stable "Query execution error: " prefix onward because the trailing text is the raw chdb exception string (UNKNOWN_IDENTIFIER for the missing column) surfaced via Python str(exc) vs Go err.Error() — the underlying libchdb message is identical but the per-runtime exception wrapper around it is not guaranteed byte-identical. Everything that proves the repair LOOP ran is still byte-compared: retry_count=3 (the loop drove all 3 bounded attempts via _vanna_repair_sql), datasets/columns/rows are empty (failure -> no main dataset), and llm_stats.sql_repair is NON-zero (the canned repair-call token usage threaded through last_repair_stats), which is exactly the value that distinguishes the repair-failure path from the success path.'
 - id: post__api_query_run
   path: /api/query/run
   methods:

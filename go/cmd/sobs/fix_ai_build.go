@@ -120,12 +120,13 @@ func autoRepairIncompleteCTESQL(sql string) string {
 }
 
 // vannaRepairSQL mirrors app.py _vanna_repair_sql: ask the LLM to fix SQL after a failure. Returns
-// (sql, error) where error is "" on success. A minimal local replica of the ai_llm.go LLM-call path
+// (sql, error, stats) where error is "" on success and stats carries the repair call's LLM token
+// usage (last_repair_stats in app.py). A minimal local replica of the ai_llm.go LLM-call path
 // (callLLMChat) so this fix does not touch ai_llm.go.
-func (s *server) vannaRepairSQL(endpoint, question, previousSQL, executionError string, attemptNumber int) (string, string) {
+func (s *server) vannaRepairSQL(endpoint, question, previousSQL, executionError string, attemptNumber int) (string, string, llmStats) {
 	model := strings.TrimSpace(s.loadAISetting("ai.model", ""))
 	if endpoint == "" || model == "" {
-		return "", "AI endpoint not configured."
+		return "", "AI endpoint not configured.", llmStats{}
 	}
 	systemPrompt := strings.Replace(querySQLSystemPrompt, "{schema}", s.getSchemaContext(), 1)
 	userMessage := "Original question: " + question + "\n\n" +
@@ -137,7 +138,7 @@ func (s *server) vannaRepairSQL(endpoint, question, previousSQL, executionError 
 		jsonenc.NewObject().Set("role", "system").Set("content", systemPrompt),
 		jsonenc.NewObject().Set("role", "user").Set("content", userMessage),
 	}
-	raw, _, err := s.callLLMChat(llmRequest{
+	raw, st, err := s.callLLMChat(llmRequest{
 		endpoint:      endpoint,
 		model:         model,
 		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
@@ -146,27 +147,28 @@ func (s *server) vannaRepairSQL(endpoint, question, previousSQL, executionError 
 		maxTokens:     queryLLMMaxTokens,
 	})
 	if err != nil {
-		return "", "LLM repair request failed: " + err.Error()
+		return "", "LLM repair request failed: " + err.Error(), st
 	}
 	if strings.TrimSpace(raw) == "" {
-		return "", "LLM did not return a repaired SQL statement."
+		return "", "LLM did not return a repaired SQL statement.", st
 	}
 	sql := stripCodeFences(strings.TrimSpace(raw))
 	if sql == "" {
-		return "", "LLM returned an empty repaired SQL statement."
+		return "", "LLM returned an empty repaired SQL statement.", st
 	}
-	return sql, ""
+	return sql, "", st
 }
 
 // validateAndExecuteVannaSQLWithRepair mirrors app.py _vanna_validate_and_execute_with_repair:
 // EXPLAIN preflight -> _auto_repair_incomplete_cte_sql -> up to 3x _vanna_repair_sql, with the real
-// retry_count. Returns (finalSQL, columns, rows, error, retryCount); on success error == "" and
-// columns is non-nil.
-func (s *server) validateAndExecuteVannaSQLWithRepair(endpoint, question, initialSQL string) (string, []any, []any, string, int) {
+// retry_count and last_repair_stats. Returns (finalSQL, columns, rows, error, retryCount,
+// lastRepairStats); on success error == "" and columns is non-nil.
+func (s *server) validateAndExecuteVannaSQLWithRepair(endpoint, question, initialSQL string) (string, []any, []any, string, int, llmStats) {
 	currentSQL := strings.TrimSpace(initialSQL)
 	retryCount := 0
 	lastRepairError := ""
 	execError := ""
+	var lastRepairStats llmStats
 
 	explainError := s.vannaExplainSQL(currentSQL)
 	if explainError != "" {
@@ -177,7 +179,8 @@ func (s *server) validateAndExecuteVannaSQLWithRepair(endpoint, question, initia
 			explainError = s.vannaExplainSQL(currentSQL)
 		}
 		if explainError != "" {
-			repairedSQL, repairErr := s.vannaRepairSQL(endpoint, question, currentSQL, explainError, 0)
+			repairedSQL, repairErr, repairStats := s.vannaRepairSQL(endpoint, question, currentSQL, explainError, 0)
+			lastRepairStats = repairStats
 			if repairedSQL != "" && repairErr == "" {
 				currentSQL = repairedSQL
 				retryCount++
@@ -191,7 +194,7 @@ func (s *server) validateAndExecuteVannaSQLWithRepair(endpoint, question, initia
 		var cols, rows []any
 		cols, rows, execError = s.vannaRunQuery(currentSQL)
 		if execError == "" {
-			return currentSQL, cols, rows, "", retryCount
+			return currentSQL, cols, rows, "", retryCount, lastRepairStats
 		}
 		if attempt >= vannaMaxRepairAttempts {
 			break
@@ -206,7 +209,8 @@ func (s *server) validateAndExecuteVannaSQLWithRepair(endpoint, question, initia
 		if errForRepair == "" {
 			errForRepair = "Unknown SQL execution error."
 		}
-		repairedSQL, repairErr := s.vannaRepairSQL(endpoint, question, currentSQL, errForRepair, attempt)
+		repairedSQL, repairErr, repairStats := s.vannaRepairSQL(endpoint, question, currentSQL, errForRepair, attempt)
+		lastRepairStats = repairStats
 		if repairedSQL != "" && repairErr == "" {
 			currentSQL = repairedSQL
 			retryCount++
@@ -223,19 +227,32 @@ func (s *server) validateAndExecuteVannaSQLWithRepair(endpoint, question, initia
 	if lastRepairError != "" {
 		finalError = finalError + " | SQL repair error: " + lastRepairError
 	}
-	return currentSQL, nil, nil, finalError, retryCount
+	return currentSQL, nil, nil, finalError, retryCount, lastRepairStats
+}
+
+// rawChdbError recovers the underlying chdb exception text that Python's str(exc) yields, by
+// stripping the Go store's "chdb query: " wrapper (internal/store/chdb.go) from err.Error(). Used
+// where app.py surfaces the raw exception verbatim (e.g. _vanna_run_query's "Query execution error:
+// {exc}"), as opposed to _public_dashboard_query_error which further sanitizes the message.
+func rawChdbError(err error) string {
+	msg := strings.TrimSpace(err.Error())
+	for strings.HasPrefix(msg, "chdb query: ") {
+		msg = strings.TrimPrefix(msg, "chdb query: ")
+	}
+	return msg
 }
 
 // vannaRunQuery mirrors app.py _vanna_run_query: validate read-only/allowlist, execute, apply the
 // hard _QUERY_MAX_ROWS row cap. Returns (columns, rows, error); on success error == "" and columns
-// is non-nil.
+// is non-nil. On a chdb failure the error is "Query execution error: {exc}" — the RAW chdb exception
+// (app.py _vanna_run_query), NOT _public_dashboard_query_error (that sanitizer is a different route's).
 func (s *server) vannaRunQuery(sql string) ([]any, []any, string) {
 	if vErr := validateSQL(sql); vErr != "" {
 		return nil, nil, "SQL validation error: " + vErr
 	}
 	res, err := s.db.Execute(sql)
 	if err != nil {
-		return nil, nil, publicDashboardQueryError(err)
+		return nil, nil, "Query execution error: " + rawChdbError(err)
 	}
 	columns, rows := serializeQueryResult(res)
 	// Hard row cap (_QUERY_MAX_ROWS, default 1000) applied after execution.
@@ -267,7 +284,7 @@ func (s *server) executeNamedQueriesValidatedAiBuild(endpoint, question string, 
 		if name == "" || nqSQL == "" {
 			continue
 		}
-		finalSQL, cols, rows, nqErr, retryCount := s.validateAndExecuteVannaSQLWithRepair(endpoint, question, nqSQL)
+		finalSQL, cols, rows, nqErr, retryCount, _ := s.validateAndExecuteVannaSQLWithRepair(endpoint, question, nqSQL)
 		if cols == nil {
 			cols = []any{}
 		}

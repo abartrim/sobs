@@ -654,6 +654,27 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_QUERY_PAGE_ENABLED": "1",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # vannarepair (M39): query/ask SQL REPAIR-TO-FAILURE path. DISTINCT mock endpoints (so the canned
+    # INVALID-SQL response does not clobber the `ask` profile's valid-SQL fixture). The guard model is
+    # the default `sobs-guard-model` -> _check_guard_model parses the canned "SAFE" reply -> ALLOW, so
+    # the flow proceeds into _vanna_generate_sql. The body-ignored URL-keyed mock returns the SAME
+    # canned response for BOTH generate AND repair calls, so:
+    #   generate -> "SELECT nonexistent_column_xyz FROM otel_logs" (passes validate_sql: read-only +
+    #     otel_logs is allowlisted, but the column does not exist) -> EXPLAIN fails (chdb
+    #     UNKNOWN_IDENTIFIER) -> _auto_repair_incomplete_cte_sql no-ops (not a CTE) -> _vanna_repair_sql
+    #     returns the SAME invalid SQL (mock ignores the repair prompt) -> the bounded for-loop runs
+    #     all max_attempts=3 times, each EXPLAIN/run failing identically, incrementing retry_count to 3,
+    #     then gives up -> final_error = the run_query error. This exercises _vanna_repair_sql (call +
+    #     SQL extraction + stats) and the give-up arm of _vanna_validate_and_execute_with_repair.
+    # Env-only (no DB seed): the base schema already creates otel_logs, which is all the EXPLAIN needs.
+    "vannarepair": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/vannarepair/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/vannarepair-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # rumauthmap: a PURE env overlay (no DB seed) that enables BOTH RUM client-auth verification
     # AND JS source-map console-stack remap on POST /v1/rum (ingest_rum). The signing key flips
     # _verify_rum_client_auth on (mode "origin" + fixed HMAC key, same key as `rumtoken`); the

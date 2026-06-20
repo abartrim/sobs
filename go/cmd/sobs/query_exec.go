@@ -701,30 +701,43 @@ func (s *server) handleApiQueryAsk(w http.ResponseWriter, r *http.Request) {
 		s.writeMaskedJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().
 			Set("ok", false).Set("error", sqlErr).Set("trace_id", traceID).Set("turn_id", turnID).
 			Set("sql", "").Set("columns", []any{}).Set("rows", []any{}).
-			Set("llm_stats", queryAskLLMStats(sqlStats)))
+			Set("llm_stats", queryAskGenOnlyLLMStats(sqlStats)))
 		return
 	}
 
-	// Validate read-only / table-allowlist BEFORE executing LLM-generated SQL (app.py
-	// _vanna_validate_and_execute_with_repair -> _vanna_run_query -> validate_sql). The canned
-	// parity SQL is valid, so this is a no-op there; at runtime it gates the NL→SQL output.
+	// Validate + execute LLM-generated SQL with the bounded EXPLAIN/auto-CTE/AI-repair loop
+	// (app.py _vanna_validate_and_execute_with_repair). On the canned parity success path the SQL is
+	// valid so EXPLAIN passes and the loop returns on the first run; when the SQL is invalid this
+	// drives the full repair-to-failure loop (retry_count + last_repair_stats reflect it). do_execute
+	// defaults True; api_query_ask only runs this block when execute is truthy.
 	columns, rows, fieldTypes := []any{}, []any{}, []any{}
 	execErrStr := ""
-	if vErr := validateSQL(sql); vErr != "" {
-		execErrStr = "SQL validation error: " + vErr
-	} else if res, execErr := s.db.Execute(sql); execErr != nil {
-		execErrStr = publicDashboardQueryError(execErr)
-	} else {
-		columns, rows = serializeQueryResult(res)
-		fieldTypes = inferQueryFieldTypes(columns, rows)
+	retryCount := 0
+	mainDataframe := false
+	var lastRepairStats llmStats
+	if bodyBool(m, "execute", true) {
+		finalSQL, cols, rws, execErr, rc, repairStats := s.validateAndExecuteVannaSQLWithRepair(endpoint, question, sql)
+		sql = finalSQL
+		execErrStr = execErr
+		retryCount = rc
+		lastRepairStats = repairStats
+		// app.py: main_df is None on failure -> cols is nil here. A successful (even empty) result
+		// returns a non-nil cols slice, which is the "main_df is not None" condition.
+		mainDataframe = cols != nil
+		if mainDataframe && execErr == "" {
+			columns, rows = cols, rws
+			fieldTypes = inferQueryFieldTypes(columns, rows)
+		}
 	}
 	s.emitAiHelperLogEvent("query.sql.executed", traceID, turnID, "/query", model, guardModel, "off",
 		sql, severityForStr(execErrStr), map[string]string{
-			"gen_ai.operation.name": "query_sql_execute", "sobs.query.exec.attempt": "1",
+			"gen_ai.operation.name": "query_sql_execute", "sobs.query.exec.attempt": itoa(maxInt(1, retryCount+1)),
 			"sobs.query.exec.error": execErrStr, "sobs.gen_ai.response": sql,
 		})
 	datasets := []any{}
-	if execErrStr == "" {
+	// app.py: appends the main dataset when main_df is not None and not exec_error (columns/rows are
+	// empty when the df itself is empty, but the dataset entry is still present).
+	if mainDataframe && execErrStr == "" {
 		datasets = append(datasets, jsonenc.NewObject().
 			Set("name", "main").Set("purpose", "primary dataset").Set("sql", sql).
 			Set("columns", columns).Set("field_types", fieldTypes).Set("rows", rows).Set("error", ""))
@@ -737,20 +750,35 @@ func (s *server) handleApiQueryAsk(w http.ResponseWriter, r *http.Request) {
 	s.writeMaskedJSON(w, http.StatusOK, jsonenc.NewObject().
 		Set("ok", true).Set("trace_id", traceID).Set("turn_id", turnID).Set("sql", sql).
 		Set("columns", columns).Set("field_types", fieldTypes).Set("rows", rows).
-		Set("retry_count", 0).Set("datasets", datasets).Set("chart_spec", "").
-		Set("error", execErrStr).Set("llm_stats", queryAskLLMStats(sqlStats)))
+		Set("retry_count", retryCount).Set("datasets", datasets).Set("chart_spec", "").
+		Set("error", execErrStr).Set("llm_stats", queryAskLLMStats(sqlStats, lastRepairStats)))
 }
 
 // queryAskLLMStats mirrors _summarize_query_llm_stats(sql_generation, sql_repair,
-// named_query_generation, chart_generation): the sql stage + three zero stages (no repair / named
-// / chart on the success path) + totals (= sql, since the others are 0).
-func queryAskLLMStats(sqlStats llmStats) *jsonenc.Object {
+// named_query_generation, chart_generation): the sql-generation stage + the sql-repair stage
+// (last_repair_stats — non-zero whenever the repair loop dialed the LLM, zero on the no-repair
+// success path) + two zero stages (no named-query / chart on this route) + totals (sum of all four).
+func queryAskLLMStats(sqlStats, repairStats llmStats) *jsonenc.Object {
+	totals := llmStats{
+		prompt:     sqlStats.prompt + repairStats.prompt,
+		completion: sqlStats.completion + repairStats.completion,
+		thinking:   sqlStats.thinking + repairStats.thinking,
+	}
 	return jsonenc.NewObject().
 		Set("sql_generation", queryStageStats(sqlStats)).
-		Set("sql_repair", queryStageStats(llmStats{})).
+		Set("sql_repair", queryStageStats(repairStats)).
 		Set("named_query_generation", queryStageStats(llmStats{})).
 		Set("chart_generation", queryStageStats(llmStats{})).
-		Set("totals", queryStageStats(sqlStats))
+		Set("totals", queryStageStats(totals))
+}
+
+// queryAskGenOnlyLLMStats mirrors the sqlErr early-return's _summarize_query_llm_stats(
+// sql_generation=sql_stats): ONLY the sql_generation stage + totals (= sql_generation), with no
+// sql_repair / named_query_generation / chart_generation keys (Python passes only that one kwarg).
+func queryAskGenOnlyLLMStats(sqlStats llmStats) *jsonenc.Object {
+	return jsonenc.NewObject().
+		Set("totals", queryStageStats(sqlStats)).
+		Set("sql_generation", queryStageStats(sqlStats))
 }
 
 // handleApiDashboardsQuery — app.py execute_chart_query: validate + execute a SELECT and return

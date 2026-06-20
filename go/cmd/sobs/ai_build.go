@@ -43,7 +43,7 @@ func (s *server) handleApiDashboardsSpecAiBuild(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	finalSQL, columns, rows, execErr, retryCount := s.validateAndExecuteVannaSQLWithRepair(endpoint, question, sql)
+	finalSQL, columns, rows, execErr, retryCount, _ := s.validateAndExecuteVannaSQLWithRepair(endpoint, question, sql)
 	if execErr != "" || columns == nil {
 		writeJSON(w, http.StatusUnprocessableEntity, jsonenc.NewObject().
 			Set("ok", false).Set("error", orDefault(execErr, "Generated SQL could not be executed.")).Set("sql", finalSQL))
