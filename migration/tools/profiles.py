@@ -546,6 +546,26 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # aitools: like `aihelper`, but the canned MAIN /chat/completions SSE emits a `tool_calls`
+    # delta (function propose_ui_action) carrying a logs.filter.apply_sql action_id that EXISTS in
+    # the /logs page action manifest. This drives the previously-dark tool branch of the (non-
+    # streaming) ai_helper turn loop: _stream_llm_endpoint accumulates the tool-call delta,
+    # _normalize_generic_ui_action_tool_call validates it against the manifest + runs the
+    # apply_sql_filter sql_where extraction + _build_client_action sanitization, the loop mints a
+    # signed action_token (deterministic under SOBS_SECRET_KEY + frozen clock), appends it to
+    # tool_proposals, and — because logs.filter.apply_sql is on-page (requires_confirmation False) —
+    # the URL-keyed mock returns the SAME tool-call SSE every round, so the loop runs to its
+    # max_tool_rounds cap (4 identical proposals) before producing the final answer. No memory
+    # candidates (empty memory_candidates) so saved_memory_ids stays [] — nothing to mask; the
+    # whole turn (answer/summary/model_stats/guard_stats + the 4 normalized tool_proposals with
+    # their tokens) is byte-compared identically on both sides.
+    "aitools": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aitools/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aitools-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # dmttl: data-management save with apply_ttl=1. No env / no seed — the OTel tables already
     # exist in the base fixture, so the day-based ALTER … MODIFY TTL runs for real; isolated so
     # those schema mutations (and TTL materialization) never ripple into base otel readers.
