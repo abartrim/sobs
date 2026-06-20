@@ -83,6 +83,13 @@ PROFILES: dict[str, dict[str, str]] = {
     # aiview goldens stay untouched. (_safe_duration_ms's matching branches are unreachable: Duration
     # is a UInt64 column, so r["Duration"] is always a parseable, finite integer.)
     "airich": {},
+    # aiturns: an isolated trace (aiturnstrace1) of 5 AI spans across 2 gen_ai.turn_ids, each carrying
+    # a distinct gen_ai.input/output.messages JSON shape, captured via GET /ai?view=trace. Exercises
+    # the full GenAI message-rendering cluster (_genai_message_content_to_text / _reasoning_to_text /
+    # _extract_messages_text / _genai_tool_calls_to_text) AND _build_ai_trace_turn_cards' group/sort/
+    # enumerate over >1 turn. No env overlay -- view_ai is a read-only telemetry view (no AI gate); the
+    # isolated seed keeps the base aiview goldens untouched. Fixed 2023 ts -> no now()-window, no masks.
+    "aiturns": {},
     # airichsql: the SAME airich seed, but a SEPARATE profile so the raw-SQL exec-error route is
     # captured in its OWN process. view_ai's totals-error append mutates the (aliased) cached
     # _ai_filter_metadata "errors" list in the oracle, which would otherwise leak the "totals=..."
@@ -553,6 +560,7 @@ SEEDED_PROFILES = {
     "errorsummary",
     "aiview",
     "airich",
+    "aiturns",
     "airichsql",
     "tracesrich",
     "tracemetrics",

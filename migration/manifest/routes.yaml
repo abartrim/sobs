@@ -2064,6 +2064,24 @@ routes:
   request:
     method: GET
     query: {}
+# aiturns profile: GET /ai?view=trace over an isolated trace (aiturnstrace1) of 5 AI spans across 2
+# gen_ai.turn_ids, each carrying a distinct gen_ai.input/output.messages JSON shape. The trace view
+# groups the spans, builds the per-turn cards (_build_ai_trace_turn_cards: group/sort by
+# (started_at, turn_id)/enumerate), and renders the GenAI message text via the full parser cluster
+# (_genai_message_content_to_text content-str/content-list/parts text+reasoning+tool_call+
+# tool_call_response/tool_calls/function_call arms; _extract_messages_text; _genai_tool_calls_to_text).
+# All text is CONSTANT and prompts are < 80 chars (the span-summary truncation slice) so the FULL
+# parser output byte-compares. Fixed 2023 timestamps + UInt64 Duration -> every rendered ts/duration
+# is constant and otel_traces has NO static TTL, so NO now()-anchoring and NO masks are needed.
+- id: get__ai__aiturns
+  path: /ai
+  methods:
+  - GET
+  profile: aiturns
+  request:
+    method: GET
+    query:
+      view: trace
 - id: post__api_logs_validate_regex
   path: /api/logs/validate-regex
   methods:

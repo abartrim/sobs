@@ -352,8 +352,14 @@ func parseGenaiMessagesJSON(messagesStr string) ([]any, bool) {
 	if messagesStr == "" {
 		return []any{}, true
 	}
+	// UseNumber so integer literals survive as json.Number rather than being promoted to float64
+	// — Python's json.loads keeps `2` an int, and a later json.dumps (e.g. tool_call arguments,
+	// app.py 8234) must re-emit `2`, not `2.0`. (Objects stay map[string]any to match the message
+	// parsers' type assertions; jsonenc.Encode renders json.Number verbatim.)
+	dec := json.NewDecoder(strings.NewReader(messagesStr))
+	dec.UseNumber()
 	var parsed any
-	if err := json.Unmarshal([]byte(messagesStr), &parsed); err != nil {
+	if err := dec.Decode(&parsed); err != nil {
 		return nil, false
 	}
 	switch p := parsed.(type) {

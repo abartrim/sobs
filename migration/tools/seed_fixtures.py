@@ -3159,6 +3159,153 @@ def seed_airich(db) -> None:
     db.execute("OPTIMIZE TABLE otel_traces FINAL")
 
 
+def seed_aiturns(db) -> None:
+    # GenAI message-rendering cluster + _build_ai_trace_turn_cards (app.py 8242-8644), reached via
+    # GET /ai?view=trace. ONE trace (aiturnstrace1) carrying 5 LLM spans across TWO turn ids so the
+    # turn-card builder groups, sorts (started_at, turn_id), and enumerates >1 ordered card. Each span
+    # carries a DISTINCT gen_ai.input/output.messages JSON shape so a single render exercises every
+    # arm of _genai_message_content_to_text / _genai_message_reasoning_to_text / _extract_messages_text
+    # / _genai_tool_calls_to_text / _parse_genai_messages_json:
+    #
+    #   A1 (turn A): input = user message with content as a PLAIN STRING ("content str" arm);
+    #                output = assistant message with content as a LIST of {type:text,text} PARTS
+    #                ("content list" arm -> " ".join). SpanName ai.turn.complete -> event turn.complete
+    #                -> turn.status='completed'. Drives turn A user_message + assistant_message.
+    #   A2 (turn A): input = ONE message (no role) with a PARTS list carrying types text, reasoning,
+    #                tool_call, tool_call_response -> the parts-branch of _genai_message_content_to_text
+    #                (text/reasoning content, _genai_tool_calls_to_text, response text).
+    #   A3 (turn A): input = message with top-level TOOL_CALLS (function.name+arguments dict ->
+    #                json.dumps(arguments)); output = message with FUNCTION_CALL -> the tool_calls /
+    #                function_call fallthrough arms of _genai_message_content_to_text.
+    #   B1 (turn B): assistant message with reasoning_content STRING -> _coerce_reasoning_text str arm;
+    #                output assistant content string drives turn B assistant_message.
+    #   B2 (turn B): user message (content str -> turn B user_message) + a parts list with a
+    #                type:reasoning entry, plus reasoning as a LIST -> the reasoning list arm + parts
+    #                reasoning arm of _genai_message_reasoning_to_text.
+    #
+    # Each span's gen_ai.turn_id pins the turn group; gen_ai.request.model + tokens make is_llm_call
+    # true (full accordion -> the span summary renders _extract_messages_text(prompt)[:80]). All text
+    # is CONSTANT and the prompts are kept short (< 80 chars) so the truncated span-summary slice
+    # byte-compares the FULL parser output. Fixed 2023 timestamps (otel_traces has NO static TTL — the
+    # DM ttl is applied dynamically, never on the parity boot) -> the now()-window is empty (no from/to
+    # arg) so rows survive and every rendered ts/duration is constant. Reasoning text feeds
+    # thinking_content on the (lazy, off-page) conversation tab, so the reasoning ARMS are executed
+    # here but byte-compared only for their effect on coverage, not on this page.
+    import json as _json
+
+    tid = "aiturnstrace1"
+    turn_a = "turn-aiturns-a"
+    turn_b = "turn-aiturns-b"
+
+    def aispan(frac, span_id, name, dur_ms, turn_id, extra_attrs):
+        attrs = {
+            "gen_ai.provider.name": "anthropic",
+            "gen_ai.request.model": "claude-aiturns",
+            "gen_ai.operation.name": "chat",
+            "gen_ai.usage.input_tokens": "10",
+            "gen_ai.usage.output_tokens": "5",
+            "gen_ai.turn_id": turn_id,
+            "gen_ai.chat_id": "chat-aiturns",
+        }
+        attrs.update(extra_attrs)
+        return {
+            "Timestamp": f"2023-07-02 15:00:0{frac}",
+            "TraceId": tid,
+            "SpanId": span_id,
+            "ParentSpanId": "",
+            "SpanName": name,
+            "ServiceName": "aiturns-svc",
+            "Duration": int(dur_ms * 1_000_000),  # ns
+            "StatusCode": "STATUS_CODE_OK",
+            "SpanAttributes": attrs,
+        }
+
+    # A1: content str (input/user) + content list-of-parts (output/assistant)
+    a1_in = [{"role": "user", "content": "hello there"}]
+    a1_out = [{"role": "assistant", "content": [{"type": "text", "text": "hi"}, {"type": "text", "text": "friend"}]}]
+
+    # A2: parts list carrying text / reasoning / tool_call / tool_call_response
+    a2_in = [
+        {
+            "parts": [
+                {"type": "text", "content": "ptext"},
+                {"type": "reasoning", "content": "preason"},
+                {"type": "tool_call", "name": "lookup", "arguments": {"q": "x"}},
+                {"type": "tool_call_response", "response": "presp"},
+            ]
+        }
+    ]
+
+    # A3: top-level tool_calls (input) + function_call (output)
+    a3_in = [{"role": "assistant", "tool_calls": [{"function": {"name": "calc", "arguments": {"n": 2}}}]}]
+    a3_out = [{"role": "assistant", "function_call": {"name": "emit", "arguments": {"k": 1}}}]
+
+    # B1: reasoning_content str + plain assistant content
+    b1_in = [{"role": "assistant", "content": "thinking done", "reasoning_content": "deep thought"}]
+    b1_out = [{"role": "assistant", "content": "the answer"}]
+
+    # B2: user content str + reasoning list + parts reasoning entry
+    b2_in = [
+        {"role": "user", "content": "next question"},
+        {
+            "role": "assistant",
+            "reasoning": ["step one", "step two"],
+            "parts": [{"type": "reasoning", "content": "more"}],
+        },
+    ]
+
+    def dump(v):
+        return _json.dumps(v, ensure_ascii=False)
+
+    _insert(
+        db,
+        "otel_traces",
+        [
+            aispan(
+                "0.100000000",
+                "aiturnspan01",
+                "ai.turn.complete",
+                900,
+                turn_a,
+                {"gen_ai.input.messages": dump(a1_in), "gen_ai.output.messages": dump(a1_out)},
+            ),
+            aispan(
+                "0.200000000",
+                "aiturnspan02",
+                "ai.chat",
+                700,
+                turn_a,
+                {"gen_ai.input.messages": dump(a2_in)},
+            ),
+            aispan(
+                "0.300000000",
+                "aiturnspan03",
+                "ai.chat",
+                600,
+                turn_a,
+                {"gen_ai.input.messages": dump(a3_in), "gen_ai.output.messages": dump(a3_out)},
+            ),
+            aispan(
+                "1.100000000",
+                "aiturnspan04",
+                "ai.chat",
+                800,
+                turn_b,
+                {"gen_ai.input.messages": dump(b1_in), "gen_ai.output.messages": dump(b1_out)},
+            ),
+            aispan(
+                "1.200000000",
+                "aiturnspan05",
+                "ai.chat",
+                500,
+                turn_b,
+                {"gen_ai.input.messages": dump(b2_in)},
+            ),
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_traces FINAL")
+
+
 def seed_dashview(db) -> None:
     # One dashboard + two charts with FIXED ids so GET /dashboards/<id> (view_custom_dashboard)
     # renders its view branch against real data. The base example seeder also creates an example
@@ -3556,6 +3703,7 @@ PROFILE_SEEDS = {
     "tracesrich": seed_tracesrich,  # single-span trace + 51 identical ERROR logs -> errors_truncated (15479-15480)
     "tracemetrics": seed_tracemetrics,  # now()-anchored trace + gauge rows -> _fetch_trace_metric_context tier-1
     "airich": seed_airich,  # AI span w/ non-numeric + inf token attrs -> _safe_attr_int branches (18757-18760)
+    "aiturns": seed_aiturns,  # 1 trace, 5 AI spans, 2 turns -> genai message-render + _build_ai_trace_turn_cards
     "airichsql": seed_airich,  # same AI span; ISOLATED process so the sql-error totals cache mutation can't leak
     "dashview": seed_dashview,  # dashboard + charts -> GET /dashboards/<id> view branch
     "chartedit": seed_chartedit,  # dashboard + 1 chart -> edit_chart/clone_chart mutation branches
