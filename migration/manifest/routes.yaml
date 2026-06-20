@@ -3971,6 +3971,29 @@ routes:
   mask:
   - '"saved_memory_ids": ?\["[0-9a-fA-F-]{36}"\]'
   mask_reason: saved_memory_ids holds exactly one freshly minted memory uuid (frozen-counter Python vs random Go). The mask requires a uuid to be present, so a Go-side empty array would NOT match and the turn would diff RED — i.e. GREEN proves both sides actually wrote a memory. The rest of the turn is byte-compared.
+# Tool-call path under the aitools profile: the canned MAIN SSE emits a `tool_calls` delta
+# (function propose_ui_action) carrying action_id logs.filter.apply_sql, which EXISTS in the /logs
+# action manifest. This drives the previously-dark tool branch of the (non-streaming) ai_helper
+# turn loop: _stream_llm_endpoint accumulates the tool-call delta, _normalize_generic_ui_action_
+# tool_call validates it against the manifest + runs the apply_sql_filter sql_where extraction +
+# _build_client_action sanitization, the loop mints a signed action_token (deterministic under the
+# fixed SECRET_KEY + frozen clock), and appends the proposal to tool_proposals. Because
+# logs.filter.apply_sql is on-page (requires_confirmation False) the URL-keyed mock returns the
+# SAME tool-call SSE every round, so the loop runs to its max_tool_rounds cap (4 identical
+# proposals). No memory candidates -> saved_memory_ids [] (nothing to mask). The whole turn is
+# byte-compared identically on both sides.
+- id: post__api_ai_helper_tools
+  path: /api/ai/helper
+  profile: aitools
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: Apply a SQL filter to show only error logs.
+      page: /logs
+      chat_id: chat-parity-tool1
+      turn_id: turn-parity-tool1
 - id: post__api_ai_helper_actions_execute
   path: /api/ai/helper/actions/execute
   methods:
