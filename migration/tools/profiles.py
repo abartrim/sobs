@@ -32,6 +32,13 @@ from pathlib import Path
 # determinism httpx shim and the Go upstream.go fixtures transport.
 _UPSTREAM_DIR = str(Path(__file__).resolve().parents[2] / "migration" / "fixtures" / "upstream")
 
+# Absolute path to the committed Source-Map fixture dir. Both the Python oracle
+# (_sourcemap_lookup_for_file -> sourcemap.loads) and the Go server (source_map.go) read the
+# SAME `.map` file from here via SOBS_SOURCE_MAP_DIR. An absolute path resolves identically
+# from each process's CWD (Python capture in-process; the Go server boots with cwd=REPO), which
+# is what keeps the console-stack remap byte-identical on both sides.
+_SOURCEMAP_DIR = str(Path(__file__).resolve().parents[2] / "migration" / "fixtures" / "sourcemaps")
+
 # name -> {ENV_VAR: value}. "base" is the empty overlay (current corpus behavior, unchanged).
 PROFILES: dict[str, dict[str, str]] = {
     "base": {},
@@ -524,6 +531,20 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_QUERY_PAGE_ENABLED": "1",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # rumauthmap: a PURE env overlay (no DB seed) that enables BOTH RUM client-auth verification
+    # AND JS source-map console-stack remap on POST /v1/rum (ingest_rum). The signing key flips
+    # _verify_rum_client_auth on (mode "origin" + fixed HMAC key, same key as `rumtoken`); the
+    # source-map dir/enable flip _sourcemap_lookup_for_file / _maybe_demangle_js_stack on. Manifest
+    # tokens are pre-signed offline with this key; the success token's exp=4102444800 (year 2100) so
+    # the `exp <= now()` check passes wall-clock-independently. Both runtimes read the IDENTICAL key
+    # + the same committed `.map`, so the accept/reject decision (the {"accepted": N} response) is
+    # byte-identical.
+    "rumauthmap": {
+        "SOBS_RUM_CLIENT_AUTH_MODE": "origin",
+        "SOBS_RUM_CLIENT_SIGNING_KEY": "parity-rum-signing-key",
+        "SOBS_SOURCE_MAP_ENABLE": "1",
+        "SOBS_SOURCE_MAP_DIR": _SOURCEMAP_DIR,
     },
 }
 

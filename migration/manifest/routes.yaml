@@ -4756,6 +4756,95 @@ routes:
   mask:
   - '"token": ?"[^"]*"'
   mask_reason: token = b64url(claims).hmac where claims embed a random jti uuid (Go uuid is not parity-frozen) so the token bytes differ each run; expiresAt (frozen now+ttl), origin, and app are deterministic and byte-compared.
+# ---------------------------------------------------------------------------
+# M26: POST /v1/rum (ingest_rum) — RUM client-auth verification (_verify_rum_client_auth)
+# AND JS source-map console-stack remap (_sourcemap_lookup_for_file chain), both under the
+# `rumauthmap` profile (RUM_CLIENT_AUTH_MODE=origin + fixed signing key + SOURCE_MAP_ENABLE +
+# the committed migration/fixtures/sourcemaps/app.min.js.map). Tokens are pre-signed offline with
+# the profile's signing key; the success token's exp=4102444800 (year 2100) so the expiry check
+# passes wall-clock-independently. The response is {"accepted": <count>} — a pure seeded count, so
+# byte-parity verifies BOTH runtimes reach the SAME accept/reject decision (and on the success path,
+# both run the source-map remap into the stored Body). No mask needed.
+#
+# SUCCESS: a header X-SOBS-RUM-Token + matching Origin; an error event whose `stack` references
+# app.min.js:1:5 (resolves to myFunc (src.js:1:1)); appName matches the token's bound app. The body
+# token on a second event also exercises the per-event clientAuthToken fallback. -> 200 accepted:2.
+- id: post__v1_rum__authmap_ok
+  path: /v1/rum
+  methods:
+  - POST
+  profile: rumauthmap
+  request:
+    method: POST
+    headers:
+      Origin: https://rum.example.com
+      X-SOBS-RUM-Token: eyJpc3MiOiJzb2JzLXJ1bSIsImFwcCI6InBhcml0eS1hcHAiLCJvcmlnaW4iOiJodHRwczovL3J1bS5leGFtcGxlLmNvbSIsImlhdCI6MTcwNDA2NzIwMCwiZXhwIjo0MTAyNDQ0ODAwLCJqdGkiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCJ9.d7e0d382a7dedfcc2f9a055e0c05ba5e41208a43ecc767b9627e0078ef8761f3
+    json:
+      events:
+      - appName: parity-app
+        type: error
+        sessionId: m26-sess-1
+        errorType: TypeError
+        message: boom
+        timestamp: '2024-01-02T03:04:05.000Z'
+        stack: "    at https://cdn.example.com/app.min.js:1:5"
+        breadcrumbs:
+          console:
+          - level: error
+            stack: "    at https://cdn.example.com/app.min.js:1:5"
+      - appName: parity-app
+        type: info
+        sessionId: m26-sess-2
+        timestamp: '2024-01-02T03:04:06.000Z'
+        clientAuthToken: eyJpc3MiOiJzb2JzLXJ1bSIsImFwcCI6InBhcml0eS1hcHAiLCJvcmlnaW4iOiJodHRwczovL3J1bS5leGFtcGxlLmNvbSIsImlhdCI6MTcwNDA2NzIwMCwiZXhwIjo0MTAyNDQ0ODAwLCJqdGkiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCJ9.d7e0d382a7dedfcc2f9a055e0c05ba5e41208a43ecc767b9627e0078ef8761f3
+# FAILURE arm — missing token (no header, no clientAuthToken) -> 401 {"error":"Missing RUM client auth token"}.
+- id: post__v1_rum__authmap_missing
+  path: /v1/rum
+  methods:
+  - POST
+  profile: rumauthmap
+  request:
+    method: POST
+    headers:
+      Origin: https://rum.example.com
+    json:
+      events:
+      - appName: parity-app
+        type: info
+        sessionId: m26-miss
+# FAILURE arm — expired token (exp in the past) -> 401 {"error":"RUM client token expired"}.
+- id: post__v1_rum__authmap_expired
+  path: /v1/rum
+  methods:
+  - POST
+  profile: rumauthmap
+  request:
+    method: POST
+    headers:
+      Origin: https://rum.example.com
+      X-SOBS-RUM-Token: eyJpc3MiOiJzb2JzLXJ1bSIsImFwcCI6InBhcml0eS1hcHAiLCJvcmlnaW4iOiJodHRwczovL3J1bS5leGFtcGxlLmNvbSIsImlhdCI6MTAwMDAwMDAwMCwiZXhwIjoxMDAwMDAwOTAwLCJqdGkiOiIxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMSJ9.627131320d16e63621bef35b56b7e38ffe09c71eef7aea02000f09ceca4b3ec7
+    json:
+      events:
+      - appName: parity-app
+        type: info
+        sessionId: m26-exp
+# FAILURE arm — origin mismatch (token bound to other.example.com, request Origin is rum.example.com)
+# -> 401 {"error":"RUM client token origin mismatch"}.
+- id: post__v1_rum__authmap_origin_mismatch
+  path: /v1/rum
+  methods:
+  - POST
+  profile: rumauthmap
+  request:
+    method: POST
+    headers:
+      Origin: https://rum.example.com
+      X-SOBS-RUM-Token: eyJpc3MiOiJzb2JzLXJ1bSIsImFwcCI6InBhcml0eS1hcHAiLCJvcmlnaW4iOiJodHRwczovL290aGVyLmV4YW1wbGUuY29tIiwiaWF0IjoxNzA0MDY3MjAwLCJleHAiOjQxMDI0NDQ4MDAsImp0aSI6IjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyIn0.6e42f0239116869f08f9da308c7656da83e38f86b177684aea9fc15873ced2fe
+    json:
+      events:
+      - appName: parity-app
+        type: info
+        sessionId: m26-mismatch
 - id: post__v1_releases__id_artifacts_meta
   path: /v1/releases/nonexistent/artifacts/meta
   methods:
