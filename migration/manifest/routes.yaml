@@ -238,6 +238,76 @@ routes:
   profile: k8s
   request:
     method: GET
+# k8srich: OTEL-native (k8s.*) metrics seeded -> _fetch_k8s_from_otel takes its "otel" branch over
+# POPULATED data. The plain route renders the full nodes/pods/deployments/namespaces lists + every
+# summary arm (nodes_ready / pods_running / pods_failed / deployments_unhealthy / namespaces_total).
+# The metric tables carry a TimeUnixMs+48h TTL that chDB evaluates vs the REAL wall clock, so the
+# seed rows are now()-anchored -> max(TimeUnix) "created" drifts and the YYYY-MM-DD HH:MM:SS prefix
+# is masked. Everything else (names/phases/restart counts/cpu+mem/summary tallies) is byte-compared.
+- id: get__api_kubernetes_status__k8srich
+  path: /api/kubernetes/status
+  methods:
+  - GET
+  profile: k8srich
+  request:
+    method: GET
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
+  mask_reason: each entity's "created" is str(max(TimeUnix)); the k8s metric rows must be now()-anchored to survive the otel_metrics 48h TTL (evaluated vs real wall clock), so the timestamp prefix drifts between capture and replay. The constant offset makes every "created" the same token; all non-time fields are byte-compared.
+# k8srich + ?name= -> the otel name-filter branches (positionCaseInsensitive on k8s.node.name /
+# k8s.pod.name / k8s.deployment.name; app.py 31273-31274, 31459-31460, 31594-31595). "api" matches
+# only the beta/api entities, so the lists narrow deterministically.
+- id: get__api_kubernetes_status__k8srich_name
+  path: /api/kubernetes/status
+  methods:
+  - GET
+  profile: k8srich
+  request:
+    method: GET
+    query: {name: api}
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
+  mask_reason: see get__api_kubernetes_status__k8srich.
+# k8srich + per-section value filters -> _append_or_equals non-empty branch (app.py 31102-31104) for
+# node_values / namespace_values / deployment_values / pod_values, plus the namespace single-value
+# path. Single values exercise the same placeholder-building loop as multi-value.
+- id: get__api_kubernetes_status__k8srich_filters
+  path: /api/kubernetes/status
+  methods:
+  - GET
+  profile: k8srich
+  request:
+    method: GET
+    query: {namespace: alpha, node: node-a, deployment: web, pod: web-1}
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
+  mask_reason: see get__api_kubernetes_status__k8srich.
+# k8sprom: prometheus (kube_*) metrics seeded -> _fetch_k8s_from_otel takes its "prometheus" branch
+# for every section (the largest uncovered set), including the otel_metrics_sum restart-counter UNION
+# in the pods block. Same now()-anchored TTL reasoning -> masked "created".
+- id: get__api_kubernetes_status__k8sprom
+  path: /api/kubernetes/status
+  methods:
+  - GET
+  profile: k8sprom
+  request:
+    method: GET
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
+  mask_reason: see get__api_kubernetes_status__k8srich; the prometheus seed rows are likewise now()-anchored to survive the otel_metrics 48h TTL.
+# k8sprom + ?name= -> the prometheus name-filter branches (positionCaseInsensitive on node / pod /
+# deployment attrs; app.py 31205-31207, 31341-31343, 31372-31374, 31536-31538).
+- id: get__api_kubernetes_status__k8sprom_name
+  path: /api/kubernetes/status
+  methods:
+  - GET
+  profile: k8sprom
+  request:
+    method: GET
+    query: {name: api}
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
+  mask_reason: see get__api_kubernetes_status__k8sprom.
 - id: get__api_notifications_vapid_public_key
   path: /api/notifications/vapid-public-key
   methods:
