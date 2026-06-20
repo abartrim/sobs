@@ -26,6 +26,7 @@ they never call the endpoint. So any non-empty endpoint/model value flips the ga
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 # Absolute path to the canned upstream (GitHub/OSV) response directory, shared by the Python
@@ -38,6 +39,99 @@ _UPSTREAM_DIR = str(Path(__file__).resolve().parents[2] / "migration" / "fixture
 # from each process's CWD (Python capture in-process; the Go server boots with cwd=REPO), which
 # is what keeps the console-stack remap byte-identical on both sides.
 _SOURCEMAP_DIR = str(Path(__file__).resolve().parents[2] / "migration" / "fixtures" / "sourcemaps")
+
+# app-registry boot seed (SOBS_APP_REGISTRY_SEED_JSON): drives _seed_app_release_registry_from_env
+# (app.py 8935) / seedAppRegistry (Go), which run at startup when this env holds an app/release/
+# artifact graph. Every entity carries an explicit id/slug + already-normalized values so the seed
+# is uuid-free and the readback is deterministic; releasedAt/uploadedAt are pinned (DateTime64(3),
+# JSON-overridable) so they are byte-compared. The apps' createdAt/updatedAt come from _now_iso()
+# at boot (NOT overridable) so they drift per-process -> masked in the two app-surfacing routes.
+# Interleaved malformed entries (non-dict / empty-name app, non-dict / empty-version release,
+# non-dict / empty-type artifact, non-list releases/artifacts) exercise every skip branch of the
+# seeder in BOTH ports; each is skipped identically, so the byte output stays exactly the two real
+# apps. Distinct release/artifact timestamps make the ReleasedAt/UploadedAt DESC orderings stable.
+_APP_REGISTRY_SEED = json.dumps(
+    {
+        "apps": [
+            "not-a-dict-skipped",  # non-dict app -> skipped (8964-8965)
+            {"name": "", "slug": "empty-name-skipped"},  # empty name -> skipped (8967-8968)
+            {
+                "id": "a1000000000000000000000000000001",
+                "name": "Alpha Service",
+                "slug": "alpha-service",
+                "ownerTeam": "payments",
+                "repoUrl": "https://github.com/acme/alpha",
+                "defaultEnvironment": "production",
+                "enabled": True,
+                "metadata": {},
+                "releases": [
+                    "bad-release-skipped",  # non-dict release -> skipped (8998-8999)
+                    {"commitSha": "no-version-skipped"},  # empty version -> skipped (9001-9002)
+                    {
+                        "id": "a2000000000000000000000000000001",
+                        "version": "2.1.0",
+                        "commitSha": "c0ffee01",
+                        "buildId": "build-1001",
+                        "environment": "production",
+                        "releasedAt": "2024-01-03 03:00:00.000000",
+                        "metadata": {},
+                        "artifacts": [
+                            "bad-artifact-skipped",  # non-dict artifact -> skipped (9035-9036)
+                            {"name": "no-type-skipped"},  # empty artifactType -> skipped (9039-9040)
+                            {
+                                "id": "a3000000000000000000000000000001",
+                                "artifactType": "container-image",
+                                "name": "alpha-image",
+                                "contentType": "application/vnd.oci.image.manifest.v1+json",
+                                "size": 10485760,
+                                "storageRef": "oci://registry/acme/alpha:2.1.0",
+                                "checksumSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                                "platform": "linux",
+                                "architecture": "amd64",
+                                "metadata": {},
+                                "uploadedAt": "2024-01-03 03:10:00.000000",
+                            },
+                            {
+                                "id": "a3000000000000000000000000000002",
+                                "artifactType": "sbom",
+                                "name": "alpha-sbom",
+                                "contentType": "application/spdx+json",
+                                "size": 4096,
+                                "storageRef": "oci://registry/acme/alpha-sbom:2.1.0",
+                                "checksumSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                                "platform": "",
+                                "architecture": "",
+                                "metadata": {},
+                                "uploadedAt": "2024-01-03 03:05:00.000000",
+                            },
+                        ],
+                    },
+                    {
+                        "id": "a2000000000000000000000000000002",
+                        "version": "2.0.0",
+                        "commitSha": "c0ffee00",
+                        "buildId": "build-1000",
+                        "environment": "production",
+                        "releasedAt": "2024-01-02 03:00:00.000000",
+                        "metadata": {},
+                        "artifacts": "not-a-list-skipped",  # artifacts not a list -> skipped (9032-9033)
+                    },
+                ],
+            },
+            {
+                "id": "a1000000000000000000000000000002",
+                "name": "Beta Worker",
+                "slug": "beta-worker",
+                "ownerTeam": "data",
+                "repoUrl": "https://github.com/acme/beta",
+                "defaultEnvironment": "staging",
+                "enabled": True,
+                "metadata": {},
+                "releases": "not-a-list-skipped",  # releases not a list -> skipped (8995-8996)
+            },
+        ]
+    }
+)
 
 # name -> {ENV_VAR: value}. "base" is the empty overlay (current corpus behavior, unchanged).
 PROFILES: dict[str, dict[str, str]] = {
@@ -341,6 +435,12 @@ PROFILES: dict[str, dict[str, str]] = {
     # repoapp: a seeded registered app + release + github token so /settings/repositories/<id>/...
     # actions run their real branch; the github mock serves the token-validate /rate_limit call.
     "repoapp": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
+    # appreg: env-only (NOT in SEEDED_PROFILES) — the app self-seeds the registry at boot from
+    # SOBS_APP_REGISTRY_SEED_JSON, so _seed_app_release_registry_from_env (app.py 8935) runs in BOTH
+    # the oracle (capture_routes.boot sets the env before `import app`) and the Go server (parity_check
+    # passes profile_env to the boot). The /v1/apps + /v1/releases read routes then byte-verify the
+    # seeded graph. Isolated populated state — other profiles keep the intentionally-empty registry.
+    "appreg": {"SOBS_APP_REGISTRY_SEED_JSON": _APP_REGISTRY_SEED},
     # cveosv: a seeded telemetry.sdk library so the cve scan reaches its OSV branch; the OSV mock
     # serves the canned /v1/query vuln response. No github token (backfill stays the 0/0/cap no-op).
     "cveosv": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
