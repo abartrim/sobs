@@ -1,0 +1,9 @@
+{
+    "status": 200,
+    "json": {
+        "name": "go.sum",
+        "path": "go.sum",
+        "encoding": "base64",
+        "content": "CmdpdGh1Yi5jb20vcGtnL2Vycm9ycyB2MC45LjEgaDE6YWJjPQpnaXRodWIuY29tL3BrZy9lcnJvcnMgdjAuOS4xL2dvLm1vZCBoMTpkZWY9CmdvbGFuZy5vcmcveC9zeXMgdjAuMTUuMCBoMTpnaGk9CnNpbmdsZS1maWVsZApnaXRodWIuY29tL3N0cmV0Y2hyL3Rlc3RpZnkgdjEuOC40L2dvLm1vZCBoMTpqa2w9Cg=="
+    }
+}

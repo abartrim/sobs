@@ -781,6 +781,79 @@ def seed_depsrich(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
 
 
+def seed_lockfiles(db) -> None:
+    # M30: like seed_depsrich, but FOUR enabled apps (one per ecosystem) + FOUR releases (each with a
+    # CommitSha + ReleaseVersion 1.0.0) + the shared github token, so the cve scan's github backfill
+    # iterates all four releases and reaches a DIFFERENT lockfile parser per repo. The contents loop
+    # BREAKS after the first lockfile that returns 200 AND parses to non-empty deps, so each repo's
+    # canned contents fixtures are arranged so the loop stops on exactly one parser:
+    #   acme/reqs  -> requirements.txt    200 (4 PyPI deps)  -> _parse_requirements_dependencies
+    #   acme/npm   -> requirements.txt    404 (no fixture),
+    #                 package-lock.json   200 LEGACY top-level "dependencies" obj (3 npm deps)
+    #                                       -> _parse_package_lock_dependencies legacy branch
+    #   acme/gomod -> requirements.txt    404, package-lock.json 404,
+    #                 go.sum              200 (3 Go deps)     -> _parse_go_sum_dependencies
+    #   acme/ruby  -> requirements/pkg-lock/go.sum all 404,
+    #                 Gemfile.lock        200 (3 RubyGems)    -> _parse_gemfile_lock_dependencies
+    # The earlier-candidate 404s come from the harness's missing-fixture -> 404 default (no fixture
+    # files needed for them). actions/runs?head_sha=<sha> also 404s (no fixture) -> the actions
+    # traversal returns no rows -> contents fallback runs (matches the Go stub, which also skips
+    # actions and falls straight to contents). Each repo's app Name is distinct, so the per-artifact
+    # `service` label differs and _collect_library_inventory does NOT cross-dedup the 13 deps.
+    #   attempted=4, inserted=4, libraries_found=13, vulns_found=13 (canned OSV -> 1 vuln per lib).
+    repos = [
+        ("Reqs App", "reqs-app", "https://github.com/acme/reqs"),
+        ("Npm App", "npm-app", "https://github.com/acme/npm"),
+        ("Gomod App", "gomod-app", "https://github.com/acme/gomod"),
+        ("Ruby App", "ruby-app", "https://github.com/acme/ruby"),
+    ]
+    app_rows = []
+    release_rows = []
+    for idx, (name, slug, repo_url) in enumerate(repos, start=1):
+        app_id = f"a000000000000000000000000000000{idx}"
+        release_id = f"b000000000000000000000000000000{idx}"
+        app_rows.append(
+            {
+                "Id": app_id,
+                "Name": name,
+                "Slug": slug,
+                "OwnerTeam": "platform",
+                "RepoUrl": repo_url,
+                "DefaultEnvironment": "prod",
+                "Enabled": 1,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+                "CreatedAt": _TS,
+                "UpdatedAt": _TS,
+            }
+        )
+        release_rows.append(
+            {
+                "Id": release_id,
+                "AppId": app_id,
+                "ReleaseVersion": "1.0.0",
+                "CommitSha": f"deadbeef{idx:04d}",
+                "BuildId": "",
+                "Environment": "prod",
+                "ReleasedAt": _TS,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        )
+    _insert(db, "sobs_apps", app_rows)
+    _insert(db, "sobs_app_releases", release_rows)
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [{"Key": "ai.github_token", "Value": "ghp_parity_token", "IsDeleted": 0, "Version": 1704164644000}],
+    )
+    db.execute("OPTIMIZE TABLE sobs_apps FINAL")
+    db.execute("OPTIMIZE TABLE sobs_app_releases FINAL")
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+
+
 def seed_cve_osv(db) -> None:
     # One otel_logs row carrying telemetry.sdk.* resource attributes so _collect_library_inventory
     # (tier 2) yields a single library; the cve scan then queries OSV (canned) for it and records a
@@ -3992,6 +4065,7 @@ PROFILE_SEEDS = {
     "tagsuggest": seed_tagsuggest,  # otel/tags/attr-key rows -> condition-suggestions non-empty branches
     "cvebackfill": seed_repo_app,  # app+release+github token -> cve github backfill attempts a release
     "depsrich": seed_depsrich,  # app+release(+commit)+token -> cve backfill walks the full deps-parse chain
+    "lockfiles": seed_lockfiles,  # M30: 4 apps/releases -> cve backfill hits all 4 lockfile parsers
     "onboard": seed_repo_app,  # app+token -> onboarding create-issues realtime + github-issue paths
     "issuesraise": seed_issues_raise,  # global github repo+token -> issues/raise agent flow creates an issue
     "issuereuse": seed_issues_reuse,  # prior work item + matching open issue -> issues/raise reuses it (dedup)

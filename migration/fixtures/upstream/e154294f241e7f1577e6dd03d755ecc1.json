@@ -1,0 +1,9 @@
+{
+    "status": 200,
+    "json": {
+        "name": "Gemfile.lock",
+        "path": "Gemfile.lock",
+        "encoding": "base64",
+        "content": "R0VNCiAgcmVtb3RlOiBodHRwczovL3J1YnlnZW1zLm9yZy8KICBzcGVjczoKICAgIHJhaWxzICg3LjAuNCkKICAgICMgYSBjb21tZW50IGxpbmUgaW5zaWRlIHNwZWNzIChza2lwKQogICAgbm9rb2dpcmkgKDEuMTUuMCwgPj0gMS4xNCkKICAgIHJhY2sgKDIuMi42KQogICAgUmFpbHMgKDcuMC40KQpQTEFURk9STVMKICAgIHJ1YnkK"
+    }
+}

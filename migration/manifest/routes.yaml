@@ -5816,6 +5816,25 @@ routes:
   mask:
   - '"scanned_at": ?"[^"]*"'
   mask_reason: scanned_at is _now_iso() (wall-clock); libraries_found/vulns_found/github_backfill_* are byte-compared.
+# lockfiles profile (M30): FOUR seeded apps+releases(+CommitSha)+token so the cve scan's github
+# backfill iterates all four releases and reaches a DIFFERENT lockfile parser per repo (the contents
+# loop BREAKS after the first 200-that-parses): acme/reqs -> requirements.txt (_parse_requirements,
+# 4 PyPI), acme/npm -> package-lock.json LEGACY top-level dependencies obj (_parse_package_lock
+# legacy branch, 3 npm), acme/gomod -> go.sum (_parse_go_sum, 3 Go), acme/ruby -> Gemfile.lock
+# (_parse_gemfile_lock, 3 RubyGems). Earlier candidates 404 via missing-fixture default; actions/runs
+# also 404s -> contents fallback. attempted=4, inserted=4, libraries_found=13, vulns_found=13 (canned
+# OSV -> 1 vuln/lib). MUTATING (inserts 4 artifacts + 13 cve findings). scanned_at masked like depsrich.
+- id: post__api_enrichment_cve_scan__lockfiles
+  path: /api/enrichment/cve/scan
+  methods:
+  - POST
+  profile: lockfiles
+  request:
+    method: POST
+    json: {}
+  mask:
+  - '"scanned_at": ?"[^"]*"'
+  mask_reason: scanned_at is _now_iso() (wall-clock); libraries_found/vulns_found/github_backfill_* are byte-compared.
 - id: post__settings_masking_output
   path: /settings/masking/output
   methods:
