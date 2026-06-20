@@ -131,15 +131,32 @@ func errorIDHash(ts, service, errType, message, traceID, spanID string) string {
 }
 
 // firstScalarFromJSON mirrors the nested _first_scalar in _extract_structured_error_summary.
+// Dicts are *jsonenc.Object (parseJSONValue) so iteration follows Python's INSERTION order:
+// both the direct-match and the descend passes are order-faithful (a plain Go map would make
+// the descend pass — first non-empty wins — nondeterministic when several keys could match).
 func firstScalarFromJSON(value any, keyset map[string]bool, depth int) string {
 	if depth > 5 {
 		return ""
 	}
 	switch x := value.(type) {
+	case *jsonenc.Object:
+		// Prefer direct key matches before descending, exactly as Python does.
+		for _, k := range x.Keys() {
+			inner, _ := x.Get(k)
+			if keyset[strings.ToLower(k)] && isJSONScalar(inner) {
+				return strings.TrimSpace(jsonScalarToStr(inner))
+			}
+		}
+		for _, k := range x.Keys() {
+			inner, _ := x.Get(k)
+			if found := firstScalarFromJSON(inner, keyset, depth+1); found != "" {
+				return found
+			}
+		}
+		return ""
 	case map[string]any:
-		// Prefer direct key matches before descending. Note: Python iterates dict in
-		// insertion order; Go map iteration is unordered, so the direct-match pass and the
-		// descend pass are split exactly as Python does (direct matches always win first).
+		// Defensive: a plain map can still arrive from other callers. Python iterates dicts
+		// in insertion order; Go map order is unordered, so this branch is best-effort.
 		for k, inner := range x {
 			if keyset[strings.ToLower(k)] && isJSONScalar(inner) {
 				return strings.TrimSpace(jsonScalarToStr(inner))
@@ -199,13 +216,16 @@ func summaryFromParsed(parsed any) string {
 		if len(arr) > 0 {
 			parsed = arr[0]
 		} else {
-			parsed = map[string]any{}
+			parsed = jsonenc.NewObject()
 		}
 	}
-	obj, ok := parsed.(map[string]any)
-	if !ok {
+	// _to_summary only proceeds for a dict; parseJSONValue gives *jsonenc.Object.
+	switch parsed.(type) {
+	case *jsonenc.Object:
+	default:
 		return ""
 	}
+	obj := parsed
 	textKeys := map[string]bool{
 		"message": true, "error": true, "error_message": true, "errormessage": true,
 		"detail": true, "description": true, "reason": true, "body": true, "msg": true,
@@ -254,7 +274,10 @@ func extractStructuredErrorSummary(message, rawBody string) (string, bool) {
 		if raw[0] != '{' && raw[0] != '[' {
 			continue
 		}
-		parsed, err := parseJSONNative([]byte(raw))
+		// Order-preserving parse: dicts become *jsonenc.Object so both the summary descend
+		// pass and the json.dumps fallback keep Python's INSERTION order (a key-sorting
+		// decode would reorder the fallback dump — app.py line ~10647).
+		parsed, err := parseJSONValue([]byte(raw))
 		if err != nil {
 			continue
 		}
@@ -262,10 +285,11 @@ func extractStructuredErrorSummary(message, rawBody string) (string, bool) {
 		if summary != "" {
 			return summary, true
 		}
-		dumped, derr := jsonDumpsNoEscErr(parsed)
-		if derr != nil {
-			return compactText("", 220), true
-		}
+		// json.dumps(parsed, ensure_ascii=False): default (spaced) separators ", "/": ",
+		// insertion order, raw UTF-8.
+		dumped := string(jsonenc.Encode(parsed, jsonenc.Options{
+			SortKeys: false, EnsureASCII: false, ItemSep: ", ", KeySep: ": ",
+		}))
 		return compactText(dumped, 220), true
 	}
 	basis := message
@@ -273,30 +297,6 @@ func extractStructuredErrorSummary(message, rawBody string) (string, bool) {
 		basis = rawBody
 	}
 	return compactText(basis, 220), false
-}
-
-// parseJSONNative decodes JSON into native Go values (map[string]any / []any / json.Number)
-// so summary scalar extraction matches Python's json.loads structure.
-func parseJSONNative(raw []byte) (any, error) {
-	dec := json.NewDecoder(strings.NewReader(string(raw)))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err != nil {
-		return nil, err
-	}
-	return v, nil
-}
-
-// jsonDumpsNoEscErr mirrors json.dumps(value, ensure_ascii=False) (compact, no HTML escaping).
-// Returns an error (vs the string-only jsonDumpsNoEsc in ai_view.go).
-func jsonDumpsNoEscErr(v any) (string, error) {
-	var b strings.Builder
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return "", err
-	}
-	return strings.TrimRight(b.String(), "\n"), nil
 }
 
 // buildErrorItem mirrors app.py _build_error_item: an error-row map from ERROR_SOURCES_SQL
