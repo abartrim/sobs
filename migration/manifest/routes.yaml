@@ -3593,6 +3593,26 @@ routes:
         visual:
           legend_show: false
           zoom_slider: true
+# value_color visual override (_apply_chart_spec_visual_overrides 20452-20466): the anomaly
+# template (derived_signal_overlay) renders a series literally named "Value" (the arm that already
+# covers 20448-20451 via _derived); adding spec.visual.value_color makes that series take
+# lineStyle.color + itemStyle.color = value_color — the only previously-uncovered arm. smooth_line
+# re-confirms the line branch. Same constant override_sql as _derived keeps it deterministic; the
+# handler's datetime redaction applies. Go applyChartSpecVisualOverrides already ports this arm.
+- id: post__api_dashboards_spec_render_value_color
+  path: /api/dashboards/spec/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: derived_signal_overlay
+        sql:
+          mode: raw
+          override_sql: SELECT toDateTime('2024-01-01 00:00:00') AS time, 'trace-svc-0' AS service, 'traces' AS source, 'latency_p95_ms' AS signal, '' AS attr_fp, 500.0 AS value, toUInt32(10) AS sample_count, 100.0 AS baseline_mean, 50.0 AS baseline_lower, 150.0 AS baseline_upper, 'outlier' AS anomaly_state, 0.9 AS anomaly_score
+        visual:
+          value_color: "#ff0000"
+          smooth_line: true
 - id: post__api_dashboards_spec_render_builder_empty
   path: /api/dashboards/spec/render
   methods: [POST]
