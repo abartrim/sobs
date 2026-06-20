@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 4718,
-  "summary_pct": "68",
+  "total_uncovered": 4654,
+  "summary_pct": "69",
   "by_bucket": {
     "helper": {
-      "functions": 415,
-      "uncovered": 3894
+      "functions": 412,
+      "uncovered": 3830
     },
     "lifecycle": {
       "functions": 21,
@@ -423,25 +423,6 @@
         16365,
         16366,
         16367
-      ]
-    },
-    {
-      "function": "_build_series_sql",
-      "bucket": "helper",
-      "start": 19964,
-      "end": 20181,
-      "uncovered": 38,
-      "span": 218,
-      "route": null,
-      "missing_sample": [
-        19970,
-        19989,
-        19990,
-        19991,
-        19992,
-        19993,
-        19994,
-        19995
       ]
     },
     {
@@ -1729,25 +1710,6 @@
       ]
     },
     {
-      "function": "_compile_builder_sql",
-      "bucket": "helper",
-      "start": 19914,
-      "end": 20293,
-      "uncovered": 15,
-      "span": 380,
-      "route": null,
-      "missing_sample": [
-        19916,
-        19930,
-        20208,
-        20209,
-        20225,
-        20226,
-        20239,
-        20240
-      ]
-    },
-    {
       "function": "_resolve_template_role_indices",
       "bucket": "helper",
       "start": 20332,
@@ -2795,25 +2757,6 @@
         17579,
         17581,
         17632
-      ]
-    },
-    {
-      "function": "_default_signal_label",
-      "bucket": "helper",
-      "start": 19951,
-      "end": 19962,
-      "uncovered": 9,
-      "span": 12,
-      "route": null,
-      "missing_sample": [
-        19954,
-        19955,
-        19956,
-        19957,
-        19958,
-        19959,
-        19960,
-        19961
       ]
     },
     {
@@ -5478,21 +5421,6 @@
       ]
     },
     {
-      "function": "_default_source_label",
-      "bucket": "helper",
-      "start": 19940,
-      "end": 19949,
-      "uncovered": 4,
-      "span": 10,
-      "route": null,
-      "missing_sample": [
-        19942,
-        19944,
-        19946,
-        19949
-      ]
-    },
-    {
       "function": "_compile_chart_spec",
       "bucket": "helper",
       "start": 20296,
@@ -7546,6 +7474,19 @@
       "missing_sample": [
         19739,
         19741
+      ]
+    },
+    {
+      "function": "_compile_builder_sql",
+      "bucket": "helper",
+      "start": 19914,
+      "end": 20293,
+      "uncovered": 2,
+      "span": 380,
+      "route": null,
+      "missing_sample": [
+        19916,
+        20293
       ]
     },
     {
