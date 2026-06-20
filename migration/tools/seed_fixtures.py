@@ -2896,6 +2896,130 @@ def seed_aichat(db) -> None:
             }
         ],
     )
+    # tool.proposed/tool.executed otel_logs rows so _load_chat_tool_history (app.py ~4016) returns a
+    # POPULATED tools_by_turn and ai_helper_chat_detail merges a tool/action section into messages.
+    # Without these the grouping/parse/status block (~4033-4074) is dark. DISTINCT fixed timestamps
+    # (_TS + Ns) make `ORDER BY Timestamp ASC` a TOTAL order across Python and Go (no stable-sort tie
+    # divergence). No now() => byte-stable (the seeded chat-detail golden has no timestamp mask). Each
+    # row targets a specific dark branch (see inline notes). All on chat-parity-001; the first five on
+    # turn-parity-001 (the existing turn.complete turn) so they attach to that turn's messages.
+    _tool_ts = [
+        "2024-01-02 03:00:01.000000",  # +1s  act-1 proposed
+        "2024-01-02 03:00:02.000000",  # +2s  act-2 proposed
+        "2024-01-02 03:00:03.000000",  # +3s  act-2 executed
+        "2024-01-02 03:00:04.000000",  # +4s  anon (empty action_id)
+        "2024-01-02 03:00:05.000000",  # +5s  invalid-JSON action
+        "2024-01-02 03:00:06.000000",  # +6s  empty turn_id (skipped)
+    ]
+    _valid_action = '{"action_id": "act-1", "tool": "filter_logs", "args": {"severity": "ERROR"}}'
+    _insert(
+        db,
+        "otel_logs",
+        [
+            # 1) tool.proposed, VALID JSON action, requires_confirmation=true, stays "proposed".
+            #    Covers: create-entry + valid-JSON-parse + status_label "Awaiting confirmation".
+            {
+                "Timestamp": _tool_ts[0],
+                "ServiceName": "sobs-ai-helper",
+                "EventName": "tool.proposed",
+                "Body": "tool.proposed",
+                "LogAttributes": {
+                    "gen_ai.chat_id": "chat-parity-001",
+                    "gen_ai.turn_id": "turn-parity-001",
+                    "sobs.ai.action_id": "act-1",
+                    "sobs.ai.tool.summary": "Filter logs to ERROR severity",
+                    "sobs.ai.tool.action": _valid_action,
+                    "sobs.ai.action.status": "proposed",
+                    "sobs.ai.action.requires_confirmation": "true",
+                },
+            },
+            # 2) tool.proposed for act-2 (entry created here, will be upgraded by row 3).
+            {
+                "Timestamp": _tool_ts[1],
+                "ServiceName": "sobs-ai-helper",
+                "EventName": "tool.proposed",
+                "Body": "tool.proposed",
+                "LogAttributes": {
+                    "gen_ai.chat_id": "chat-parity-001",
+                    "gen_ai.turn_id": "turn-parity-001",
+                    "sobs.ai.action_id": "act-2",
+                    "sobs.ai.tool.summary": "Pin a metric panel",
+                    "sobs.ai.tool.action": '{"action_id": "act-2", "tool": "pin_metric"}',
+                    "sobs.ai.action.status": "proposed",
+                    "sobs.ai.action.requires_confirmation": "true",
+                },
+            },
+            # 3) tool.executed for the SAME act-2 => "EventName=='tool.executed' -> status='executed'"
+            #    upgrade branch (entry already exists). status_label becomes "Executed".
+            {
+                "Timestamp": _tool_ts[2],
+                "ServiceName": "sobs-ai-helper",
+                "EventName": "tool.executed",
+                "Body": "tool.executed",
+                "LogAttributes": {
+                    "gen_ai.chat_id": "chat-parity-001",
+                    "gen_ai.turn_id": "turn-parity-001",
+                    "sobs.ai.action_id": "act-2",
+                    "sobs.ai.tool.summary": "Pin a metric panel",
+                    "sobs.ai.tool.action": '{"action_id": "act-2", "tool": "pin_metric"}',
+                    "sobs.ai.action.status": "executed",
+                    "sobs.ai.action.requires_confirmation": "true",
+                },
+            },
+            # 4) tool.proposed with EMPTY action_id => `anon-{Timestamp}` fallback branch.
+            #    requires_confirmation absent/false => status_label "Queued".
+            {
+                "Timestamp": _tool_ts[3],
+                "ServiceName": "sobs-ai-helper",
+                "EventName": "tool.proposed",
+                "Body": "tool.proposed",
+                "LogAttributes": {
+                    "gen_ai.chat_id": "chat-parity-001",
+                    "gen_ai.turn_id": "turn-parity-001",
+                    "sobs.ai.action_id": "",
+                    "sobs.ai.tool.summary": "Anonymous queued action",
+                    "sobs.ai.tool.action": '{"tool": "noop"}',
+                    "sobs.ai.action.status": "proposed",
+                    "sobs.ai.action.requires_confirmation": "false",
+                },
+            },
+            # 5) tool.proposed with INVALID (non-JSON) action => the `except (TypeError,
+            #    JSONDecodeError)` branch => action_payload stays {}. status "unsupported" =>
+            #    status_label "Not available in this page action manifest".
+            {
+                "Timestamp": _tool_ts[4],
+                "ServiceName": "sobs-ai-helper",
+                "EventName": "tool.proposed",
+                "Body": "tool.proposed",
+                "LogAttributes": {
+                    "gen_ai.chat_id": "chat-parity-001",
+                    "gen_ai.turn_id": "turn-parity-001",
+                    "sobs.ai.action_id": "act-bad",
+                    "sobs.ai.tool.summary": "Action with malformed payload",
+                    "sobs.ai.tool.action": "{not json",
+                    "sobs.ai.action.status": "unsupported",
+                    "sobs.ai.action.requires_confirmation": "false",
+                },
+            },
+            # 6) tool.proposed with EMPTY turn_id => `if not turn_id: continue` skip branch.
+            #    Never appears in any turn's items.
+            {
+                "Timestamp": _tool_ts[5],
+                "ServiceName": "sobs-ai-helper",
+                "EventName": "tool.proposed",
+                "Body": "tool.proposed",
+                "LogAttributes": {
+                    "gen_ai.chat_id": "chat-parity-001",
+                    "gen_ai.turn_id": "",
+                    "sobs.ai.action_id": "act-skip",
+                    "sobs.ai.tool.summary": "Should be skipped (no turn_id)",
+                    "sobs.ai.tool.action": '{"tool": "skip"}',
+                    "sobs.ai.action.status": "proposed",
+                    "sobs.ai.action.requires_confirmation": "true",
+                },
+            },
+        ],
+    )
     # A gen_ai span (otel_traces) matching _AI_SPAN_CONDITION so /api/ai/export emits a JSONL row.
     _insert(
         db,
