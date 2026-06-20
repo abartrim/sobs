@@ -4272,6 +4272,22 @@ routes:
   mask:
   - '"run_id": ?"[^"]*"'
   mask_reason: run_id is a server-generated uuid4; the result (guard_decision/analysis/suggestion/status) is byte-compared.
+# agentflow profile (M29): a seeded analyze+github_issue rule + a global acme/widget repo+token. POST
+# runs the FULL agent flow (guard model -> root-cause LLM -> github issue CREATE). The open-issues GET
+# 404s -> no dedup candidate -> a fresh issue (#42) is created via the canned POST. run_id is a fresh
+# uuid; the analysis/suggestion/guard_decision/github_issue_url/dedup_decision/status are byte-compared.
+- id: post__api_agent_runs__flow
+  path: /api/agent/runs
+  methods:
+  - POST
+  profile: agentflow
+  request:
+    method: POST
+    json:
+      rule_id: e3000000000000000000000000000001
+  mask:
+  - '"run_id": ?"[^"]*"'
+  mask_reason: run_id is a server-generated uuid4; the result (guard_decision/analysis/suggestion/github_issue_url/dedup_decision/status) is byte-compared.
 - id: post__api_dashboards__id_charts_import
   path: /api/dashboards/nonexistent/charts/import
   methods:

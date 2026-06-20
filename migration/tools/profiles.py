@@ -407,6 +407,18 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # agentflow (M29): trigger_agent_run runs the FULL agent flow (guard -> analyze LLM -> github
+    # issue CREATE) for a seeded analyze+github_issue rule. Same agent + guard mock paths and the
+    # same acme/widget github repo+token as issuesraise, so the canned guard/analyze/create fixtures
+    # are reused; the open-issues GET 404s -> no dedup candidate -> a fresh issue (#42) is created.
+    # Only run_id (uuid4) is volatile in the response and is masked.
+    "agentflow": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # notifagent: check_notifications' AUTOMATIC agent branch. AI configured (same agent + guard mock
     # paths as agenttrigger) + a seeded tag rule, recent auto tags, and an analyze-only agent rule
     # whose tag-rule trigger fires from those tags. POST /api/notifications/check then runs the agent
@@ -595,6 +607,7 @@ SEEDED_PROFILES = {
     "notifeval",
     "notifgen",
     "agenttrigger",
+    "agentflow",
     "issuereuse",
     "workitems",
     "notifagent",
