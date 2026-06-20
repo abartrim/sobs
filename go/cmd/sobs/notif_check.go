@@ -31,7 +31,61 @@ type notifChannel struct {
 	enabled                           bool
 }
 
-// loadNotificationRulesForCheck mirrors _load_notification_rules, ORDER BY Name.
+// normalizeNotificationConditionObj mirrors app.py _normalize_notification_condition, returning a
+// *jsonenc.Object whose keys are inserted in the SAME order as the Python dict literal (so the
+// downstream JSON serialization / masked-conditions payload is byte-faithful). The crux for parity:
+// Python coerces threshold via float(...), so the rendered summary shows "0.0", not the raw JSON
+// "0". Returns nil for a non-object entry (Python returns None -> the entry is dropped).
+func normalizeNotificationConditionObj(raw any) *jsonenc.Object {
+	o, ok := raw.(*jsonenc.Object)
+	if !ok {
+		return nil
+	}
+	// gs mirrors str(raw.get(k) or "").strip(): falsy -> "", else str()-coerced then stripped.
+	gs := func(k string) string {
+		v, has := o.Get(k)
+		return strings.TrimSpace(orDefaultVal(v, has, ""))
+	}
+	condTypeRaw, hasType := o.Get("type")
+	condType := strings.ToLower(strings.TrimSpace(orDefaultVal(condTypeRaw, hasType, "signal")))
+	threshold := condFloat(o, "threshold", 0.0) // float(raw.get("threshold") or 0)
+	windowMinutes := condWindowMinutes(o)
+	comparator := strings.ToLower(orDefault(gs("comparator"), "gt"))
+	if !notificationComparators[comparator] {
+		comparator = "gt"
+	}
+	if condType == "tag" {
+		recordType := strings.ToLower(orDefault(gs("record_type"), "all"))
+		if !tagRuleRecordTypes[recordType] {
+			recordType = "all"
+		}
+		tagOp := strings.ToLower(orDefault(gs("tag_match_operator"), "eq"))
+		if !notificationTagMatchOperators[tagOp] {
+			tagOp = "eq"
+		}
+		return jsonenc.NewObject().
+			Set("type", "tag").
+			Set("record_type", recordType).
+			Set("tag_key", gs("tag_key")).
+			Set("tag_match_operator", tagOp).
+			Set("tag_value", gs("tag_value")).
+			Set("comparator", comparator).
+			Set("threshold", threshold).
+			Set("window_minutes", windowMinutes)
+	}
+	return jsonenc.NewObject().
+		Set("type", "signal").
+		Set("source", gs("source")).
+		Set("signal", gs("signal")).
+		Set("service", gs("service")).
+		Set("comparator", comparator).
+		Set("threshold", threshold).
+		Set("window_minutes", windowMinutes)
+}
+
+// loadNotificationRulesForCheck mirrors _load_notification_rules, ORDER BY Name. ConditionsJson is
+// run through normalizeNotificationConditionObj (= _parse_notification_conditions_json), so each
+// condition carries the normalized shape + float threshold the evaluator and summary depend on.
 func (s *server) loadNotificationRulesForCheck() []notifRule {
 	res, err := s.db.Execute(
 		"SELECT Id, Name, Enabled, LogicOperator, ConditionsJson, ChannelIds, Severity, CooldownSeconds " +
@@ -44,7 +98,11 @@ func (s *server) loadNotificationRulesForCheck() []notifRule {
 		conds := []any{}
 		if parsed, err := parseJSONValue([]byte(cStr(m, "ConditionsJson"))); err == nil {
 			if list, ok := parsed.([]any); ok {
-				conds = list
+				for _, it := range list {
+					if c := normalizeNotificationConditionObj(it); c != nil {
+						conds = append(conds, c)
+					}
+				}
 			}
 		}
 		chIDs := []string{}

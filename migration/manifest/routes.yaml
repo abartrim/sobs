@@ -3577,6 +3577,25 @@ routes:
   request:
     method: POST
     json: {}
+# notifeval profile (Milestone 27): notification rules carrying REAL conditions + matching tag data
+# so check_notifications runs the rule-EVALUATION cluster (_normalize_notification_condition,
+# _evaluate_tag_condition, _check_notification_rule). Four rules cover the evaluator arms:
+#   A fires (tag count > 0) -> dispatch to a hooks.example.com webhook (canned 2xx -> "ok");
+#   B all-logic with a false tag + a no-data signal -> "conditions not met";
+#   C disabled -> "disabled"; D recent LastFiredAt within cooldown -> "cooldown".
+# Tag counts use the frozen-time min_version window, cooldown uses frozen now() vs the stored
+# LastFiredAt, and the signal condition windows on un-frozen now() over an empty fixture window
+# (-> no row) -> every fired/value field is a constant. The response carries no uuid/timestamp
+# (the log-row uuid + fired_at live only in DB writes / the mock-ignored outbound body), so it is
+# byte-compared verbatim with no masks. AI is unconfigured -> agent_runs == [].
+- id: post__api_notifications_check__eval
+  path: /api/notifications/check
+  methods:
+  - POST
+  profile: notifeval
+  request:
+    method: POST
+    json: {}
 - id: post__api_mcp_enabled
   path: /api/mcp/enabled
   methods:
