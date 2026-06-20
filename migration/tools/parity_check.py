@@ -127,7 +127,15 @@ def _compute_uncovered(routes: list, generated: list, excluded: set) -> list[str
 
 def _build_go() -> None:
     print("Building Go binary…")
-    r = subprocess.run(["go", "build", "-o", str(GO_DIR / "sobs"), "./cmd/sobs"], cwd=GO_DIR)
+    cmd = ["go", "build"]
+    # SOBS_GOCOVER=1 → build a coverage-instrumented binary so a full corpus replay measures Go
+    # integration coverage. Each per-profile boot writes counters into GOCOVERDIR (set in the env and
+    # inherited by _boot_go); merge them afterwards with `go tool covdata`. Off by default, so the
+    # normal parity build produces the usual binary.
+    if os.environ.get("SOBS_GOCOVER"):
+        cmd += ["-cover", "-coverpkg=./..."]
+    cmd += ["-o", str(GO_DIR / "sobs"), "./cmd/sobs"]
+    r = subprocess.run(cmd, cwd=GO_DIR)
     if r.returncode != 0:
         raise SystemExit("Go build failed — fix compilation before parity can run.")
 

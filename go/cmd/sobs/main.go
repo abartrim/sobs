@@ -13,7 +13,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -34,6 +36,19 @@ func main() {
 	srv := newServer(cfg)
 
 	addr := resolveBindAddr(cfg.Port)
+	// Coverage flush hook (NO-OP unless GOCOVERDIR is set, i.e. a `go build -cover` measurement run):
+	// a -cover binary only writes its GOCOVERDIR data on a clean exit, but the parity harness stops
+	// the server with SIGTERM, which by default kills it without running the runtime's exit hooks.
+	// When measuring, trap SIGTERM/SIGINT and os.Exit(0) so the counters are flushed. Production and
+	// normal parity runs never set GOCOVERDIR, so behaviour there is unchanged.
+	if os.Getenv("GOCOVERDIR") != "" {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+		go func() {
+			<-sigCh
+			os.Exit(0)
+		}()
+	}
 	log.Printf("sobs (go) listening on %s  parity=%v dataDir=%s", addr, cfg.Parity, cfg.DataDir)
 	if err := http.ListenAndServe(addr, srv); err != nil {
 		log.Fatal(err)
