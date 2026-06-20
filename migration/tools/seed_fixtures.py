@@ -2748,6 +2748,181 @@ def seed_errorsview(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_error_resolutions FINAL")
 
 
+def seed_errorsummary(db) -> None:
+    # Drive EVERY branch of _extract_structured_error_summary(message, raw_body) (app.py ~10568-
+    # 10649) through view_errors' non-grouped narrow+hydrate path, which calls _build_error_item ->
+    # the summary extractor for each error row. In _build_error_item, message = exception.message
+    # (or Body when absent) and raw_body = Body; the extractor tries `message` then `raw_body`,
+    # parsing JSON only when the stripped value starts with { or [. The header template
+    # (_error_panels.html) renders (message_summary or message) plus a "Parsed JSON" badge when
+    # summary_from_json is true, so each row's extracted summary appears verbatim in the page.
+    #
+    # Determinism: view_errors applies NO time-window filter when from_ts/to_ts are absent, so a
+    # fixed timestamp is safe (no now()-anchoring, nothing to mask). Each row gets a DISTINCT
+    # whole-fixed timestamp so ORDER BY Timestamp DESC is a total order and the hydrate dedup key
+    # (Timestamp, ServiceName, TraceId, SpanId) is unique per row. All values are CONSTANT. No
+    # resolution is seeded, so every row is unresolved and appears under the default resolved=0.
+    # All non-ASCII is literal so the ensure_ascii=False json.dumps fallback is exercised.
+    #
+    # Each row's (exception.message -> message, Body -> raw_body) and the branch it exercises:
+    #  r01  msg JSON, message+type+code extras            -> "... [ConnError, code 503]"  (a,b,c,d)
+    #  r02  msg JSON, nested dict+list descent            -> "bad gateway"                 (e,f)
+    #  r03  msg JSON, type+code only                      -> "TimeoutError (code 408)"     (g)
+    #  r04  msg JSON, type only                           -> "DiskFull"                    (h)
+    #  r05  msg JSON, code only                           -> "code E_FATAL"                (i)
+    #  r06  msg JSON, type/code already substring -> skip -> "NotFoundError code 404 ..."  (j)
+    #  r07  msg JSON, scalar value descend (no key) -> message_text="bar"                 (descend-into-value)
+    #  r08  msg JSON, unicode scalar value descend -> message_text="café"                  (descend unicode)
+    #  r09  msg invalid JSON {not json (Body same)        -> plain fallback, False         (l)
+    #  r10  msg non-{/[ prefix -> continue; Body JSON     -> "db down" from raw_body       (m)
+    #  r11  msg + Body both plain text                    -> plain fallback, False         (n)
+    #  r12  msg top-level JSON list [{...}] -> parsed[0]  -> "top-level list error"        (f-toplevel)
+    #  r13  msg JSON, NO scalar anywhere -> _to_summary "" -> json.dumps(ensure_ascii=False)
+    #       compact fallback '{"a": {}, "b": []}' (insertion order, spaced separators)     (k)
+    #  r14  msg JSON, unicode key + nested-empty -> compact dumps '{"ü": {}, "x": []}'     (k-unicode)
+    #
+    # NOTE the descend behavior: _first_scalar(text_keys) descends into a dict's VALUES, so a bare
+    # scalar value (e.g. {"foo":"bar"}) is returned as message_text even though "foo" isn't a text
+    # key — hence r07/r08 yield the value, not the dumps fallback. The dumps fallback (branch k,
+    # app.py ~10647) only fires when NO scalar exists at any depth AND there is no type/code, which
+    # r13/r14 arrange with all-empty nested containers.
+    def errrow(frac, etype, exc_message, body, trace, span):
+        attrs = {"exception.type": etype}
+        if exc_message is not None:
+            attrs["exception.message"] = exc_message
+        return {
+            "Timestamp": f"2023-07-01 09:00:00.{frac}",
+            "ServiceName": "errsum-svc",
+            "SeverityText": "ERROR",
+            "SeverityNumber": 17,
+            "EventName": "exception",
+            "TraceId": trace,
+            "SpanId": span,
+            "Body": body,
+            "LogAttributes": attrs,
+        }
+
+    _insert(
+        db,
+        "otel_logs",
+        [
+            errrow(
+                "120000000",
+                "HttpError",
+                '{"message":"Connection refused","code":503,"type":"ConnError"}',
+                "raw connection refused payload",
+                "esumtrace01",
+                "esumspan-01",
+            ),
+            errrow(
+                "110000000",
+                "GatewayError",
+                '{"errors":[{"detail":"bad gateway"}]}',
+                "raw gateway payload",
+                "esumtrace02",
+                "esumspan-02",
+            ),
+            errrow(
+                "100000000",
+                "TimeoutErr",
+                '{"type":"TimeoutError","status":408}',
+                "raw timeout payload",
+                "esumtrace03",
+                "esumspan-03",
+            ),
+            errrow(
+                "090000000",
+                "DiskErr",
+                '{"type":"DiskFull"}',
+                "raw disk payload",
+                "esumtrace04",
+                "esumspan-04",
+            ),
+            errrow(
+                "080000000",
+                "FatalErr",
+                '{"code":"E_FATAL"}',
+                "raw fatal payload",
+                "esumtrace05",
+                "esumspan-05",
+            ),
+            errrow(
+                "070000000",
+                "NotFound",
+                '{"message":"NotFoundError code 404 raised","type":"NotFoundError","code":404}',
+                "raw notfound payload",
+                "esumtrace06",
+                "esumspan-06",
+            ),
+            errrow(
+                "060000000",
+                "NoKeysErr",
+                '{"foo":"bar","n":1,"z":true}',
+                "raw nokeys payload",
+                "esumtrace07",
+                "esumspan-07",
+            ),
+            errrow(
+                "050000000",
+                "UnicodeErr",
+                '{"naïve":"café","über":"grüß"}',
+                "raw unicode payload",
+                "esumtrace08",
+                "esumspan-08",
+            ),
+            errrow(
+                "040000000",
+                "BadJsonErr",
+                "{not json",
+                "{not json",
+                "esumtrace09",
+                "esumspan-09",
+            ),
+            errrow(
+                "030000000",
+                "BodyJsonErr",
+                "plain text error message",
+                '{"error":"db down"}',
+                "esumtrace10",
+                "esumspan-10",
+            ),
+            errrow(
+                "020000000",
+                "PlainErr",
+                "a plain non-json message",
+                "a plain non-json message",
+                "esumtrace11",
+                "esumspan-11",
+            ),
+            errrow(
+                "010000000",
+                "ListErr",
+                '[{"error":"top-level list error"}]',
+                "raw list payload",
+                "esumtrace12",
+                "esumspan-12",
+            ),
+            errrow(
+                "005000000",
+                "DumpsErr",
+                '{"a":{},"b":[]}',
+                "raw dumps payload",
+                "esumtrace13",
+                "esumspan-13",
+            ),
+            errrow(
+                "002000000",
+                "DumpsUniErr",
+                '{"über":{},"x":[]}',
+                "raw dumps unicode payload",
+                "esumtrace14",
+                "esumspan-14",
+            ),
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+
 def seed_aiview(db) -> None:
     # otel_traces AI spans for view_ai (_AI_SPAN_CONDITION = any of gen_ai.provider.name /
     # gen_ai.system / gen_ai.operation.name set). Distinct timestamps (stable ORDER BY Timestamp
@@ -3376,6 +3551,7 @@ PROFILE_SEEDS = {
     "logsview": seed_logsview,  # 5 otel_logs rows + record tags -> populated view_logs branches
     "logsrich": seed_logsrich,  # 2 otel_logs rows -> view_logs raw-SQL query-execution error branch (11402-11404)
     "errorsview": seed_errorsview,  # error events + a resolution -> populated view_errors branches
+    "errorsummary": seed_errorsummary,  # structured/plain error bodies -> every error-summary branch
     "aiview": seed_aiview,  # otel_traces AI spans (gen_ai.*) -> populated view_ai branches
     "tracesrich": seed_tracesrich,  # single-span trace + 51 identical ERROR logs -> errors_truncated (15479-15480)
     "tracemetrics": seed_tracemetrics,  # now()-anchored trace + gauge rows -> _fetch_trace_metric_context tier-1

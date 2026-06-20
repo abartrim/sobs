@@ -64,6 +64,14 @@ PROFILES: dict[str, dict[str, str]] = {
     # variants. Deterministic: distinct counts (tie-free grouped ORDER BY), one TraceId per group
     # (single-element groupUniqArray), distinct fixed timestamps (stable argMax + ORDER BY).
     "errorsview": {},
+    # errorsummary: seed 12 otel_logs error rows whose exception.message / Body carry distinct
+    # structured (JSON) and plain payloads so _build_error_item -> _extract_structured_error_summary
+    # hits every branch (message+type+code extras, nested/list descent, type/code-only summaries,
+    # substring-skip extras, the json.dumps(ensure_ascii=False) fallback incl. unicode, invalid-JSON
+    # continue, non-{/[ prefix continue, raw_body-JSON success, plain fallback). No env overlay.
+    # Deterministic: no time-window filter is applied (no from_ts/to_ts), distinct fixed timestamps
+    # give a total ORDER BY Timestamp DESC and a unique hydrate dedup key per row; values constant.
+    "errorsummary": {},
     # aiview: seed otel_traces AI spans (gen_ai.* SpanAttributes) so view_ai renders its POPULATED
     # branches — the ai_items build, the flat + trace view modes, the totals aggregation, and the
     # service/model/operation/span_name/row_type/sql filters. Deterministic: distinct timestamps,
@@ -542,6 +550,7 @@ SEEDED_PROFILES = {
     "logsview",
     "logsrich",
     "errorsview",
+    "errorsummary",
     "aiview",
     "airich",
     "airichsql",

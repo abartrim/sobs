@@ -26,6 +26,11 @@ type Options struct {
 	ItemSep     string // separator between items: ", " (default) or "," (compact)
 	KeySep      string // separator between key and value: ": " (default) or ":"
 	TrailingNL  bool   // Flask/Quart jsonify appends "\n"
+	// Indent, when non-empty, renders json.dumps(..., indent=<this>) pretty form: each item on
+	// its own line, indented by repetitions of Indent, with empty objects/arrays kept inline
+	// ({} / []). Python's indent mode also forces the ITEM separator to "," (no trailing
+	// space); callers should pass ItemSep="," with Indent set. KeySep stays ": ".
+	Indent string
 }
 
 // QuartJSONify is the option set Quart's jsonify uses for response bodies. Pinned from
@@ -97,8 +102,20 @@ func Encode(v any, opts Options) []byte {
 }
 
 type encoder struct {
-	opts Options
-	b    *strings.Builder
+	opts  Options
+	b     *strings.Builder
+	depth int // current nesting level, for Indent mode
+}
+
+// newlineIndent writes "\n" + Indent*level when Indent is set; no-op otherwise.
+func (e *encoder) newlineIndent(level int) {
+	if e.opts.Indent == "" {
+		return
+	}
+	e.b.WriteByte('\n')
+	for i := 0; i < level; i++ {
+		e.b.WriteString(e.opts.Indent)
+	}
 }
 
 func (e *encoder) value(v any) {
@@ -135,31 +152,49 @@ func (e *encoder) value(v any) {
 }
 
 func (e *encoder) object(o *Object) {
-	e.b.WriteByte('{')
 	keys := o.keys
 	if e.opts.SortKeys {
 		keys = append([]string(nil), o.keys...)
 		sortStrings(keys)
 	}
+	if len(keys) == 0 {
+		// Empty object stays inline ({}), matching json.dumps(indent=...).
+		e.b.WriteString("{}")
+		return
+	}
+	e.b.WriteByte('{')
+	e.depth++
 	for i, k := range keys {
 		if i > 0 {
 			e.b.WriteString(e.opts.ItemSep)
 		}
+		e.newlineIndent(e.depth)
 		e.encodeString(k)
 		e.b.WriteString(e.opts.KeySep)
 		e.value(o.vals[k])
 	}
+	e.depth--
+	e.newlineIndent(e.depth)
 	e.b.WriteByte('}')
 }
 
 func (e *encoder) array(a []any) {
+	if len(a) == 0 {
+		// Empty array stays inline ([]), matching json.dumps(indent=...).
+		e.b.WriteString("[]")
+		return
+	}
 	e.b.WriteByte('[')
+	e.depth++
 	for i, v := range a {
 		if i > 0 {
 			e.b.WriteString(e.opts.ItemSep)
 		}
+		e.newlineIndent(e.depth)
 		e.value(v)
 	}
+	e.depth--
+	e.newlineIndent(e.depth)
 	e.b.WriteByte(']')
 }
 

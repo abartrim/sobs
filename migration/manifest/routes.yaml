@@ -1094,6 +1094,20 @@ routes:
   profile: errorsview
   request:
     method: GET
+# errorsummary profile: 12 otel_logs error rows with distinct structured/plain exception.message &
+# Body so view_errors' non-grouped narrow+hydrate path drives _build_error_item ->
+# _extract_structured_error_summary through EVERY branch (message+type+code extras, nested/list
+# descent, type/code-only, substring-skip, json.dumps(ensure_ascii=False) fallback incl. unicode &
+# insertion order, invalid-JSON continue, non-{/[ continue, raw_body-JSON success, plain fallback).
+# Header template renders (message_summary or message) + a "Parsed JSON" badge per row. No mask: no
+# time-window filter is applied (no from_ts/to_ts) so the fixed timestamps need no now()-anchoring.
+- id: get__errors__errorsummary
+  path: /errors
+  methods:
+  - GET
+  profile: errorsummary
+  request:
+    method: GET
 # view_errors invalid-regex q -> regex_error -> error_msg set (app.py 14292); query then skipped.
 - id: get__errors__errorsview_q_invalid
   path: /errors

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/subtle"
 	"encoding/json"
 	"io"
@@ -910,15 +909,17 @@ func jsonDumpsIndent2(v any) (string, error) {
 	return jsonDumpsIndent2NoEsc(v)
 }
 
-// jsonDumpsIndent2NoEsc mirrors json.dumps(obj, ensure_ascii=False, indent=2) WITHOUT Go's
-// default HTML escaping (so `<`, `>`, `&` in embedded SQL stay literal, like CPython).
+// jsonDumpsIndent2NoEsc mirrors json.dumps(obj, ensure_ascii=False, indent=2): two-space indent,
+// raw UTF-8 (ensure_ascii=False keeps non-ASCII literal — Go's encoding/json always escapes it to
+// \uXXXX, which diverged), no HTML escaping of <>& (like CPython), insertion-order keys. v must be
+// a jsonenc-encodable tree (parseJSONValue output: *jsonenc.Object / []any / json.Number / ...).
+// Python's indent mode uses the "," item separator (no trailing space) and ": " key separator.
 func jsonDumpsIndent2NoEsc(v any) (string, error) {
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(v); err != nil {
-		return "", err
-	}
-	return strings.TrimRight(b.String(), "\n"), nil
+	return string(jsonenc.Encode(v, jsonenc.Options{
+		SortKeys:    false,
+		EnsureASCII: false,
+		ItemSep:     ",",
+		KeySep:      ": ",
+		Indent:      "  ",
+	})), nil
 }
