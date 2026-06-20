@@ -50,18 +50,33 @@ def _capture_under_coverage(profile: str) -> None:
                 _run([PY, str(TOOLS / "seed_fixtures.py"), "--only-profile", profile])
             # -p: parallel mode (unique data file per run, combined at the end).
             # --source=app: only instrument app.py (the oracle), not the tooling/libs.
-            _run([PY, "-m", "coverage", "run", "-p", "--source=app",
-                  str(TOOLS / "capture_routes.py"), "--profile", profile])
+            _run(
+                [
+                    PY,
+                    "-m",
+                    "coverage",
+                    "run",
+                    "-p",
+                    "--source=app",
+                    str(TOOLS / "capture_routes.py"),
+                    "--profile",
+                    profile,
+                ]
+            )
             return
         except subprocess.CalledProcessError:
             if attempt == _MAX_ATTEMPTS:
                 raise
-            print(f"  [retry {attempt}/{_MAX_ATTEMPTS - 1}] profile {profile} — chdb contention; resetting",
-                  flush=True)
+            print(f"  [retry {attempt}/{_MAX_ATTEMPTS - 1}] profile {profile} — chdb contention; resetting", flush=True)
             time.sleep(2)
 
 
 def main() -> int:
+    # Erase any leftover .coverage / .coverage.* from a prior run FIRST. `coverage run -p` only
+    # appends parallel data and `coverage combine` folds in a stale singular .coverage, so without
+    # this a repeated local run (bind-mounted worktree) silently re-reports the PREVIOUS run's
+    # numbers. CI is unaffected (fresh container), but locally this masked real coverage gains.
+    _run([PY, "-m", "coverage", "erase"])
     profiles = ["base"] + sorted(P.PROFILES)
     print(f"Coverage capture across {len(profiles)} profile(s): {', '.join(profiles)}", flush=True)
     for profile in profiles:
