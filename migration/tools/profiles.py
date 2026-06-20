@@ -540,6 +540,34 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_QUERY_PAGE_ENABLED": "1",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # aiguard: query/ask GUARD-BLOCK path with a gpt-oss-safeguard guard model. The guard model name
+    # routes _check_guard_model through _is_gpt_oss_safeguard_model -> _build_oss_safeguard_prompt +
+    # _parse_oss_safeguard_reply. The canned guard reply is a JSON verdict ({"violation": 1,
+    # "policy_category": "S7", ...}) so the parser yields UNSAFE + S7. S7 (Privacy) is NOT a noisy
+    # category, so none of the benign-override arms apply -> _check_guard_model returns
+    # "blocked (S7: Privacy)" and api_query_ask returns 403 with that reason in `error`. The main
+    # ai.endpoint_url is set only to satisfy _query_page_enabled; the block path never dials it. The
+    # whole non-streaming LLM chain (_call_llm_endpoint POST -> response parse -> verdict) runs.
+    "aiguard": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguard/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguard-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aiguardllama: same query/ask GUARD-BLOCK path, but a llama-guard model name routes the OTHER
+    # way -> _build_llama_guard_prompt + _parse_guard_reply (the two-line "unsafe\nSx" parser). The
+    # canned reply "unsafe\nS9" yields UNSAFE + S9 (Indiscriminate Weapons, NOT noisy) ->
+    # "blocked (S9: Indiscriminate Weapons)" -> 403. Covers the llama parser arm + prompt builder.
+    "aiguardllama": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardllama/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardllama-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "llama-guard-3-8b",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # rumauthmap: a PURE env overlay (no DB seed) that enables BOTH RUM client-auth verification
     # AND JS source-map console-stack remap on POST /v1/rum (ingest_rum). The signing key flips
     # _verify_rum_client_auth on (mode "origin" + fixed HMAC key, same key as `rumtoken`); the
