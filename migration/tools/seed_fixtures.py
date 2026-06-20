@@ -675,6 +675,68 @@ def seed_repo_app(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
 
 
+def seed_depsrich(db) -> None:
+    # Like seed_repo_app (an enabled app + a release + a github token) but the release carries a
+    # non-empty CommitSha so the cve scan's github backfill walks the FULL dependency-parse chain:
+    #   _fetch_release_deps_from_github -> _github_actions_dependency_rows (runs/artifacts traversal,
+    #   reached because CommitSha is set) -> contents-API lockfile fetch+parse.
+    # The canned upstream fixtures (migration/fixtures/upstream/) drive these:
+    #   - actions/runs?head_sha=<sha> -> one successful run (run id 555)
+    #   - actions/runs/555/artifacts  -> a list WITHOUT the snapshot artifact name, so the actions
+    #     path finds no usable snapshot, returns no rows, and the contents fallback runs (the binary
+    #     zip-archive download branch is not representable in the utf-8 `content` fixture harness).
+    #   - contents/requirements.txt   -> 404 (no fixture) so the loop advances to the next candidate.
+    #   - contents/package-lock.json  -> a base64 package-lock that _parse_package_lock_dependencies
+    #     parses into 3 npm deps (left-pad, nested-dep, dup-pkg) -> one dependencies-lockfile artifact
+    #     is INSERTED -> _collect_library_inventory tier-1 yields those 3 libs -> OSV (canned) scan.
+    _insert(
+        db,
+        "sobs_apps",
+        [
+            {
+                "Id": "f1000000000000000000000000000001",
+                "Name": "Widget Service",
+                "Slug": "widget-service",
+                "OwnerTeam": "platform",
+                "RepoUrl": "https://github.com/acme/widget",
+                "DefaultEnvironment": "prod",
+                "Enabled": 1,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+                "CreatedAt": _TS,
+                "UpdatedAt": _TS,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_app_releases",
+        [
+            {
+                "Id": "f2000000000000000000000000000001",
+                "AppId": "f1000000000000000000000000000001",
+                "ReleaseVersion": "1.0.0",
+                "CommitSha": "deadbeefcafe",
+                "BuildId": "",
+                "Environment": "prod",
+                "ReleasedAt": _TS,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [{"Key": "ai.github_token", "Value": "ghp_parity_token", "IsDeleted": 0, "Version": 1704164644000}],
+    )
+    db.execute("OPTIMIZE TABLE sobs_apps FINAL")
+    db.execute("OPTIMIZE TABLE sobs_app_releases FINAL")
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+
+
 def seed_cve_osv(db) -> None:
     # One otel_logs row carrying telemetry.sdk.* resource attributes so _collect_library_inventory
     # (tier 2) yields a single library; the cve scan then queries OSV (canned) for it and records a
@@ -3072,6 +3134,7 @@ PROFILE_SEEDS = {
     "rumvitals": seed_rumvitals,  # now()-relative web-vital + error rows -> view_rum vitals + error-trend
     "tagsuggest": seed_tagsuggest,  # otel/tags/attr-key rows -> condition-suggestions non-empty branches
     "cvebackfill": seed_repo_app,  # app+release+github token -> cve github backfill attempts a release
+    "depsrich": seed_depsrich,  # app+release(+commit)+token -> cve backfill walks the full deps-parse chain
     "onboard": seed_repo_app,  # app+token -> onboarding create-issues realtime + github-issue paths
     "issuesraise": seed_issues_raise,  # global github repo+token -> issues/raise agent flow creates an issue
     "issuereuse": seed_issues_reuse,  # prior work item + matching open issue -> issues/raise reuses it (dedup)
