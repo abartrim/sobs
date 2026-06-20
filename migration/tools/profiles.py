@@ -113,6 +113,11 @@ PROFILES: dict[str, dict[str, str]] = {
     # view_traces' trace-detail metric-context fetch (_fetch_trace_metric_context, app.py 15580)
     # hits its tier-1 "pod + namespace" success path. No env overlay -- just the (isolated) seed.
     "tracemetrics": {},
+    # tracewindows: clones the tracemetrics now()-anchored single-span trace and ADDS two overlapping
+    # sobs_raw_windows rows (one fully containing the trace, one interior) so view_traces' trace-detail
+    # render runs _build_trace_window_overlay_segments (app.py 14787, called 15594) and emits two
+    # overlay segments with deterministic RELATIVE left/width % + titles. No env overlay -- isolated seed.
+    "tracewindows": {},
     # reportsimport: no seed (reuses the base fixture's 2 example reports for conflict tests). An
     # isolated profile because the success routes MUTATE sobs_reports — keeping them out of base so
     # they don't perturb other base routes that read reports. Routes run in manifest order and
@@ -750,6 +755,7 @@ SEEDED_PROFILES = {
     "airichsql",
     "tracesrich",
     "tracemetrics",
+    "tracewindows",
     "dashview",
     "chartedit",
     "regexlogs",
