@@ -394,6 +394,78 @@ def seed_agentflow(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
 
 
+def seed_agentctx(db) -> None:
+    # M40: byte-parity-COVER the dark branches of _build_agent_context_summary (app.py 6609-6703),
+    # which assembles the telemetry-context string fed to the guard + analysis LLM. agentflow (M29)
+    # already RUNS the flow, but its trigger_context (extra="") leaves ~24 summary lines dark: the
+    # additional_context line, the service+err_type EVENT-FREQUENCY/noise-indicator branch (which
+    # queries otel_logs), and the "Trigger details" remaining-extra-keys branch never execute.
+    #
+    # We clone the agentflow rule + acme/widget repo+token verbatim (same canned guard/analyze/create
+    # fixtures, same masked-uuid run_id, same byte-compared analysis/suggestion/github_issue_url/
+    # dedup_decision/status), then enrich the trigger_context via the POST body's extra_context (a JSON
+    # string) so _build_agent_context_summary's extra_dict carries additional_context + service +
+    # err_type + an extra key. That drives:
+    #   * additional_context (6626-6628)  -> "User-provided context: ..."
+    #   * service & err_type (6635-6661)  -> the single-query countIf EVENT-FREQUENCY block + a
+    #                                        deterministic noise indicator (we seed enough ERROR rows
+    #                                        to land HIGH recurrence: count_1h>=10)
+    #   * remaining extra keys (6694-6699)-> "Trigger details: {...}"
+    # The recent-errors query (6665) references a nonexistent otel_logs.ExceptionType column -> it
+    # raises in chDB and is swallowed by the bare except (its if-body is dead in practice; mirrored on
+    # the Go side). The active-anomalies branch (6679-6692) executes its query but the empty
+    # v_derived_signals_1m yields no non-normal rows (the windowed outlier math isn't deterministically
+    # seedable) -> empty-result path only; classified schedulable.
+    #
+    # CRITICAL: the context summary feeds ONLY the LLM prompt (messages[1].content) and the GitHub
+    # issue body, both of which the URL-keyed upstream mock IGNORES. It NEVER appears in the agent-run
+    # RESPONSE (status/guard_decision/analysis/suggestion/github_issue_url/dedup_decision). So seeding
+    # this data is a pure COVERAGE win: the Python branches execute during capture while the
+    # byte-compared response stays identical to agentflow's. run_id (uuid4) is the only volatile field.
+    #
+    # The freq query is now()-windowed (now()-1h / now()-24h on Timestamp DateTime64). A FIXED 2024
+    # timestamp would be outside both windows (and TTL-irrelevant for otel_logs, which has no row TTL),
+    # so the ERROR rows are now()-anchored at a CONSTANT offset (now()-30min, inside both windows) so
+    # count_1h == count_24h == 12 at both capture and replay -> the HIGH-recurrence branch is stable.
+    _insert(
+        db,
+        "sobs_agent_rules",
+        [
+            {
+                "Id": "e3000000000000000000000000000001",
+                "Name": "Parity Flow Issue Rule",
+                "Description": "Analyze + github_issue agent rule for the full-flow parity.",
+                "TriggerType": "manual",
+                "TriggerRefId": "",
+                "TriggerState": "any",
+                "Actions": "analyze,github_issue",
+                "RateLimitMinutes": 60,
+                "IsEnabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_agent_rules FINAL")
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [
+            {"Key": "ai.github_repo", "Value": "acme/widget", "IsDeleted": 0, "Version": 1704164644000},
+            {"Key": "ai.github_token", "Value": "ghp_parity_token", "IsDeleted": 0, "Version": 1704164644000},
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+    # 12 ERROR rows for checkout-prod carrying exception.type=TimeoutError, anchored 30 min ago so
+    # they sit inside BOTH the 1h and 24h freq windows -> count_1h=count_24h=12 -> HIGH recurrence.
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, SeverityText, SeverityNumber, Body, LogAttributes) "
+        "SELECT now() - INTERVAL 30 MINUTE, 'checkout-prod', 'ERROR', 17, 'request timed out', "
+        "map('exception.type', 'TimeoutError') FROM numbers(12)"
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+
 def seed_agentcopilot(db) -> None:
     # M31: drive the COPILOT-ASSIGNMENT arm of the agent flow (_run_agent_flow ->
     # _choose_github_issue_outcome create-new branch -> _assign_issue_to_copilot) via
@@ -4421,6 +4493,7 @@ PROFILE_SEEDS = {
     "notifgen": seed_notif,  # channels+rules; auto-generate create inserts new rules (isolated)
     "agenttrigger": seed_agent_rule,  # analyze-only rule; trigger_agent_run runs the agent flow
     "agentflow": seed_agentflow,  # analyze+github_issue rule + repo/token -> trigger_agent_run creates an issue
+    "agentctx": seed_agentctx,  # M40: agentflow + ERROR logs + rich extra_context -> _build_agent_context_summary
     "agentcopilot": seed_agentcopilot,  # M31: analyze+github_issue_copilot rule -> create issue then assign Copilot
     "dmprune": seed_dm_prune,  # retention-eligible rows -> prune's DELETE window runs on real data
     "notifagent": seed_notif_agent,  # tag rule + auto tags + agent rule -> check_notifications auto-triggers the flow

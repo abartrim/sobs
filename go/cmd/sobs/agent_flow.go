@@ -604,22 +604,65 @@ func (s *server) buildAgentContextSummary(tctx *jsonenc.Object) string {
 	}
 	lines = append(lines, "Triggered by: "+ruleName+" ("+objGetStr(tctx, "trigger_state")+")")
 
+	// extra may be a JSON object string (mirrors _safe_json_loads(str(extra), {})). When it parses
+	// to an object, extraObj carries it with key order preserved; otherwise it stays nil and the
+	// final "Additional context:" arm fires on the raw string.
 	extraRaw := objGetStr(tctx, "extra")
-	extra := map[string]string{}
+	var extraObj *jsonenc.Object
 	if extraRaw != "" {
 		if parsed, err := parseJSONValue([]byte(extraRaw)); err == nil {
 			if o, ok := parsed.(*jsonenc.Object); ok {
-				for _, k := range o.Keys() {
-					extra[k] = objGetStr(o, k)
-				}
+				extraObj = o
 			}
 		}
 	}
-	if ac := strings.TrimSpace(extra["additional_context"]); ac != "" {
+
+	if ac := strings.TrimSpace(objGetStrAny(extraObj, "additional_context")); ac != "" {
 		lines = append(lines, "\nUser-provided context: "+ac)
 	}
 
-	// Recent errors (last 1h, all services).
+	// Event frequency / noise analysis — only when we have BOTH service + err_type (otherwise the
+	// counts would be "all errors for this service", too broad to be a meaningful noise indicator).
+	// service falls back from extra_dict.service to trigger_context.service.
+	service := strings.TrimSpace(objGetStrAny(extraObj, "service"))
+	if service == "" {
+		service = strings.TrimSpace(objGetStr(tctx, "service"))
+	}
+	errType := strings.TrimSpace(objGetStrAny(extraObj, "err_type"))
+	if service != "" && errType != "" {
+		// Single query with countIf for both windows to halve DB round-trips.
+		if res, err := s.db.Execute(
+			"SELECT "+
+				"  countIf(Timestamp >= now() - INTERVAL 1 HOUR) AS c_1h, "+
+				"  count() AS c_24h "+
+				"FROM otel_logs "+
+				"WHERE Timestamp >= now() - INTERVAL 24 HOUR "+
+				"  AND SeverityText IN ('ERROR','FATAL') "+
+				"  AND ServiceName = ? "+
+				"  AND LogAttributes['exception.type'] = ?",
+			service, errType); err == nil {
+			rows := rowMaps(res)
+			count1h, count24h := 0, 0
+			if len(rows) > 0 {
+				count1h = cInt(rows[0], "c_1h")
+				count24h = cInt(rows[0], "c_24h")
+			}
+			lines = append(lines, "\nEvent frequency ("+service+" / "+errType+"):")
+			lines = append(lines, "  Last 1h:  "+strconv.Itoa(count1h)+" occurrence(s)")
+			lines = append(lines, "  Last 24h: "+strconv.Itoa(count24h)+" occurrence(s)")
+			if count1h <= 1 && count24h <= 2 {
+				lines = append(lines, "  Noise indicator: LOW recurrence — may be an isolated event")
+			} else if count1h >= 10 || count24h >= 50 {
+				lines = append(lines, "  Noise indicator: HIGH recurrence — persistent or systemic pattern")
+			} else {
+				lines = append(lines, "  Noise indicator: MODERATE recurrence — monitor for escalation")
+			}
+		}
+	}
+
+	// Recent errors (last 1h, all services). NOTE: otel_logs has no ExceptionType column, so this
+	// query errors in chDB and the rows are never produced — mirroring app.py's bare-except swallow
+	// (its if-body is dead in practice). Kept verbatim for structural fidelity.
 	if res, err := s.db.Execute(
 		"SELECT ServiceName, ExceptionType, count() AS c FROM otel_logs FINAL " +
 			"WHERE Timestamp >= now() - INTERVAL 1 HOUR AND SeverityText IN ('ERROR','FATAL') " +
@@ -646,7 +689,22 @@ func (s *server) buildAgentContextSummary(tctx *jsonenc.Object) string {
 		}
 	}
 
-	if extraRaw != "" && len(extra) == 0 {
+	// Remaining extra fields (exclude already-rendered keys), or the raw string when extra wasn't
+	// a dict. Mirrors app.py's `if extra_dict: ... "Trigger details: {remaining}" elif extra: ...`.
+	renderedExtraKeys := map[string]bool{"additional_context": true, "mask_output": true, "initiated_by": true}
+	if extraObj != nil && extraObj.Len() > 0 {
+		var parts []string
+		for _, k := range extraObj.Keys() {
+			if renderedExtraKeys[k] {
+				continue
+			}
+			v, present := extraObj.Get(k)
+			parts = append(parts, pyRepr(k, true)+": "+pyRepr(v, present))
+		}
+		if len(parts) > 0 {
+			lines = append(lines, "\nTrigger details: {"+strings.Join(parts, ", ")+"}")
+		}
+	} else if extraRaw != "" {
 		lines = append(lines, "\nAdditional context: "+extraRaw)
 	}
 	return strings.Join(lines, "\n")
