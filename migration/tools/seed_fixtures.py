@@ -770,6 +770,45 @@ def seed_repo_app(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
 
 
+def seed_onbupdate(db) -> None:
+    # M37: like seed_repo_app (an enabled app + a github token) but the app points at a DISTINCT repo
+    # (acme/onboard-existing) so its canned open-issues / issue-detail / PATCH fixtures never ripple
+    # into the onboard profile (acme/widget, whose open-issues lookup must keep 404-ing so it still
+    # CREATEs). With this repo, onboarding create-issues takes the UPDATE branch of
+    # _create_or_update_onboarding_issue: _fetch_open_github_issues returns a title-matching OPEN
+    # issue, _github_get_issue_detail reports it still in new state (open, comments=0, created==updated)
+    # so _github_issue_is_new_state -> True -> _update_github_issue_record PATCHes it (status="updated").
+    # No release row is needed (the onboarding issue path never reads releases). No work-item seed is
+    # needed either — the create-vs-update DECISION is purely GitHub-fixture-driven, not DB-driven.
+    _insert(
+        db,
+        "sobs_apps",
+        [
+            {
+                "Id": "f1000000000000000000000000000001",
+                "Name": "Onboard Existing Service",
+                "Slug": "onboard-existing-service",
+                "OwnerTeam": "platform",
+                "RepoUrl": "https://github.com/acme/onboard-existing",
+                "DefaultEnvironment": "prod",
+                "Enabled": 1,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+                "CreatedAt": _TS,
+                "UpdatedAt": _TS,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [{"Key": "ai.github_token", "Value": "ghp_parity_token", "IsDeleted": 0, "Version": 1704164644000}],
+    )
+    db.execute("OPTIMIZE TABLE sobs_apps FINAL")
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+
+
 def seed_depsrich(db) -> None:
     # Like seed_repo_app (an enabled app + a release + a github token) but the release carries a
     # non-empty CommitSha so the cve scan's github backfill walks the FULL dependency-parse chain:
@@ -4269,6 +4308,7 @@ PROFILE_SEEDS = {
     "depsrich": seed_depsrich,  # app+release(+commit)+token -> cve backfill walks the full deps-parse chain
     "lockfiles": seed_lockfiles,  # M30: 4 apps/releases -> cve backfill hits all 4 lockfile parsers
     "onboard": seed_repo_app,  # app+token -> onboarding create-issues realtime + github-issue paths
+    "onbupdate": seed_onbupdate,  # M37: app+token (distinct repo) -> onboarding create-issues UPDATE branch (PATCH)
     "issuesraise": seed_issues_raise,  # global github repo+token -> issues/raise agent flow creates an issue
     "issuereuse": seed_issues_reuse,  # prior work item + matching open issue -> issues/raise reuses it (dedup)
     "workitems": seed_workitems,  # token + 3 stale work items -> /api/work-items SYNC backfill refreshes each

@@ -4122,6 +4122,23 @@ routes:
       app_id: f1000000000000000000000000000001
       create_ci: true
       create_otel: false
+# onbupdate profile (M37): the seeded app's repo (acme/onboard-existing) already has BOTH onboarding
+# issues open and untouched (new state), so _create_or_update_onboarding_issue takes its UPDATE branch:
+# _fetch_open_github_issues matches each title -> _github_get_issue_detail reports new state ->
+# _update_github_issue_record PATCHes -> ci_issue/otel_issue carry status="updated". Both issue blocks
+# are byte-compared (url/number/status/note + copilot fields); copilot_assignment_requested_at is 0
+# (assign_copilot omitted) and the work-item uuid/timestamp it writes is DB-only, so no mask needed.
+- id: post__api_onboarding_create_issues__update
+  path: /api/onboarding/create-issues
+  methods:
+  - POST
+  profile: onbupdate
+  request:
+    method: POST
+    json:
+      app_id: f1000000000000000000000000000001
+      create_ci: true
+      create_otel: true
 # api_onboarding_create_issues early-validation returns (deterministic JSON, no github needed):
 # no-issue-type, no app_id/repo, unparseable repo, no token, app-not-found. Plus realtime-without-a
 # -saved-app (onboard profile has a token but the ghost repo matches no app).
