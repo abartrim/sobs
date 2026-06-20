@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 4654,
+  "total_uncovered": 4575,
   "summary_pct": "69",
   "by_bucket": {
     "helper": {
-      "functions": 412,
-      "uncovered": 3830
+      "functions": 411,
+      "uncovered": 3751
     },
     "lifecycle": {
       "functions": 21,
@@ -37,25 +37,6 @@
         27812,
         27813,
         27823
-      ]
-    },
-    {
-      "function": "_fetch_k8s_from_otel",
-      "bucket": "helper",
-      "start": 31071,
-      "end": 31697,
-      "uncovered": 92,
-      "span": 627,
-      "route": null,
-      "missing_sample": [
-        31110,
-        31198,
-        31199,
-        31203,
-        31204,
-        31205,
-        31206,
-        31207
       ]
     },
     {
@@ -1385,6 +1366,25 @@
         29728,
         29729,
         29731
+      ]
+    },
+    {
+      "function": "_fetch_k8s_from_otel",
+      "bucket": "helper",
+      "start": 31071,
+      "end": 31697,
+      "uncovered": 18,
+      "span": 627,
+      "route": null,
+      "missing_sample": [
+        31110,
+        31265,
+        31266,
+        31326,
+        31327,
+        31450,
+        31451,
+        31519
       ]
     },
     {
@@ -4392,23 +4392,6 @@
       ]
     },
     {
-      "function": "_detect_k8s_metric_format",
-      "bucket": "helper",
-      "start": 31047,
-      "end": 31068,
-      "uncovered": 6,
-      "span": 22,
-      "route": null,
-      "missing_sample": [
-        31054,
-        31055,
-        31056,
-        31065,
-        31066,
-        31067
-      ]
-    },
-    {
       "function": "_parse_dm_prune_period",
       "bucket": "helper",
       "start": 31988,
@@ -5646,6 +5629,21 @@
       ]
     },
     {
+      "function": "_detect_k8s_metric_format",
+      "bucket": "helper",
+      "start": 31047,
+      "end": 31068,
+      "uncovered": 4,
+      "span": 22,
+      "route": null,
+      "missing_sample": [
+        31055,
+        31056,
+        31066,
+        31067
+      ]
+    },
+    {
       "function": "_normalized_values",
       "bucket": "helper",
       "start": 31091,
@@ -6712,20 +6710,6 @@
         30997,
         31011,
         31012
-      ]
-    },
-    {
-      "function": "_append_or_equals",
-      "bucket": "helper",
-      "start": 31099,
-      "end": 31104,
-      "uncovered": 3,
-      "span": 6,
-      "route": null,
-      "missing_sample": [
-        31102,
-        31103,
-        31104
       ]
     },
     {

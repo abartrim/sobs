@@ -1,13 +1,13 @@
 # app.py uncovered-line backlog
 
-Oracle coverage **69%** · **4654** uncovered statements.
+Oracle coverage **69%** · **4575** uncovered statements.
 
 ## By bucket
 
 | bucket | functions | uncovered lines | meaning |
 |---|---:|---:|---|
 | route | 116 | 555 | needs a fixture/profile (corpus expansion; byte-verifiable) |
-| helper | 412 | 3830 | usually covered when a calling route's fixture is added; else difftest |
+| helper | 411 | 3751 | usually covered when a calling route's fixture is added; else difftest |
 | lifecycle | 21 | 256 | background/lifecycle — needs a function-level difftest (capture can't reach) |
 | module | — | 13 | top-level/startup/defensive — mostly dead, classify+exclude |
 
@@ -82,12 +82,11 @@ Oracle coverage **69%** · **4654** uncovered statements.
 | `_refresh_masking_rules_before_request` | 25660–25666 | 2 |  |
 | `_apply_security_headers` | 459–485 | 1 |  |
 
-## helper — top by uncovered lines (412 functions)
+## helper — top by uncovered lines (411 functions)
 
 | function | lines | uncovered | route |
 |---|---|---:|---|
 | `_generate` | 27807–28123 | 94 |  |
-| `_fetch_k8s_from_otel` | 31071–31697 | 92 |  |
 | `_backfill_github_work_item_links` | 6030–6189 | 82 |  |
 | `_github_actions_dependency_rows` | 16479–16629 | 71 |  |
 | `_build_ai_trace_turn_cards` | 8506–8644 | 61 |  |
@@ -126,3 +125,4 @@ Oracle coverage **69%** · **4654** uncovered statements.
 | `_compute_health_chips` | 14929–14956 | 24 |  |
 | `_fetch_trace_metric_context` | 14959–15306 | 24 |  |
 | `_vanna_generate_named_queries` | 29555–29648 | 24 |  |
+| `_run_dm_backup` | 32134–32170 | 24 |  |
