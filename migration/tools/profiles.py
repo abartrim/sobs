@@ -392,6 +392,15 @@ PROFILES: dict[str, dict[str, str]] = {
     # onboard: a seeded app+token so onboarding create-issues runs its realtime path (rotate CI key)
     # and its github-issue path (open-issue search 404s -> empty -> create via the canned POST).
     "onboard": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
+    # onbupdate (M37): clone of onboard but the seeded app points at a DISTINCT repo
+    # (acme/onboard-existing) so onboarding create-issues takes the UPDATE branch of
+    # _create_or_update_onboarding_issue. The canned GitHub fixtures drive it: the open-issues GET
+    # returns BOTH onboarding issues already open (titles matching the CI + OTEL issue text, #77/#78);
+    # each issue-detail GET reports the issue still in new state (open, comments=0, created_at ==
+    # updated_at) so _github_issue_is_new_state -> True; the matching PATCH /issues/<n> returns the
+    # updated issue -> _update_github_issue_record yields status="updated". Distinct repo so its
+    # open-issues fixture never ripples into onboard (acme/widget must keep 404-ing to CREATE).
+    "onbupdate": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
     # cvebackfill: a seeded app+release+github token so the cve scan's github backfill attempts a
     # release (the repo has no fetchable lockfile -> every contents GET 404s -> attempted=1,
     # inserted=0). The github mock dir must be set so the fetches 404 rather than erroring.
@@ -733,6 +742,7 @@ SEEDED_PROFILES = {
     "depsrich",
     "lockfiles",
     "onboard",
+    "onbupdate",
     "issuesraise",
     "githubtoken",
     "onboardrepos",

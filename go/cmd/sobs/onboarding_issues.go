@@ -144,29 +144,157 @@ func (s *server) buildOnboardingIssueResult(res map[string]any, assignCopilot bo
 		Set("copilot_assignment_reason", copilotReason).Set("copilot_assignment_requested_at", copilotAt)
 }
 
-// createOrUpdateOnboardingIssue mirrors _create_or_update_onboarding_issue: create the issue when no
-// open issue with the same title exists. (The update/reuse branch for an existing new-state issue is
-// reached only when GitHub already has a matching issue, which the parity fixture's mock never does.)
+// createOrUpdateOnboardingIssue mirrors _create_or_update_onboarding_issue: create the issue once;
+// when an open issue with the same title already exists, fetch its detail and either UPDATE it (PATCH)
+// while it is still in new/untouched state, or leave it unchanged ("reused").
 func (s *server) createOrUpdateOnboardingIssue(token, githubRepo, title, body string, labels []string) map[string]any {
 	titleNorm := strings.TrimSpace(title)
+	var existing map[string]any
 	for _, item := range s.fetchOpenGithubIssues(token, githubRepo) {
 		if strings.TrimSpace(toStr(item["issue_title"])) == titleNorm {
-			// Existing issue found — leave it unchanged (the new-state update path is a follow-up).
-			return map[string]any{
-				"issue_url": toStr(item["issue_url"]), "issue_number": mapInt(item, "issue_number"),
-				"issue_title": toStr(item["issue_title"]), "issue_state": orDefault(toStr(item["issue_state"]), "open"),
-				"status": "reused", "note": "Existing onboarding issue is not in new state; left unchanged.",
-			}
+			existing = item
+			break
 		}
 	}
-	// Onboarding issues are created with mask_output_enabled=False (app.py 33063-33070).
-	created := s.createGithubIssueRecord(token, githubRepo, title, body, labels, false)
-	if _, isErr := created["error"]; isErr {
+
+	if existing == nil {
+		// Onboarding issues are created with mask_output_enabled=False (app.py 33063-33070).
+		created := s.createGithubIssueRecord(token, githubRepo, title, body, labels, false)
+		if _, isErr := created["error"]; isErr {
+			return created
+		}
+		created["status"] = "created"
+		created["note"] = "Created a new onboarding issue."
 		return created
 	}
-	created["status"] = "created"
-	created["note"] = "Created a new onboarding issue."
-	return created
+
+	issueNumber := mapInt(existing, "issue_number")
+	issueURL := toStr(existing["issue_url"])
+	detail := s.githubGetIssueDetail(token, githubRepo, issueNumber)
+
+	if detail != nil && githubIssueIsNewState(detail) {
+		// app.py 33082-33095: the existing issue is still untouched, so PATCH it with the fresh
+		// onboarding content. Onboarding updates pass mask_output_enabled=False (app.py 33089).
+		updated := s.updateGithubIssueRecord(token, githubRepo, issueNumber, title, body, labels, false)
+		if _, isErr := updated["error"]; isErr {
+			return updated
+		}
+		updated["status"] = "updated"
+		updated["note"] = "Updated the existing onboarding issue because it was still new."
+		return updated
+	}
+
+	// app.py 33097-33105: not new state -> leave unchanged, preferring the detail payload's fields.
+	existingState := orDefault(objGetStrAny(detail, "state"), orDefault(toStr(existing["issue_state"]), "open"))
+	return map[string]any{
+		"issue_url":    orDefault(objGetStrAny(detail, "html_url"), issueURL),
+		"issue_number": issueNumber,
+		"issue_title":  orDefault(objGetStrAny(detail, "title"), orDefault(toStr(existing["issue_title"]), title)),
+		"issue_state":  existingState,
+		"status":       "reused",
+		"note":         "Existing onboarding issue is not in new state; left unchanged.",
+	}
+}
+
+// githubGetIssueDetail mirrors _github_get_issue_detail: GET a single issue payload; nil on error.
+func (s *server) githubGetIssueDetail(token, githubRepo string, issueNumber int) *jsonenc.Object {
+	if token == "" || githubRepo == "" || issueNumber <= 0 {
+		return nil
+	}
+	owner, repo := parseGithubRepoOwnerName(githubRepo)
+	if owner == "" || repo == "" {
+		return nil
+	}
+	resp, err := s.upstreamRequest("GET",
+		"https://api.github.com/repos/"+owner+"/"+repo+"/issues/"+itoaInt(issueNumber),
+		nil, githubAPIHeaders(token, false, nil))
+	if err != nil || resp.Status >= 300 {
+		return nil
+	}
+	o, _ := resp.Body.(*jsonenc.Object)
+	return o
+}
+
+// githubIssueIsNewState mirrors _github_issue_is_new_state: True when state=="open", comments==0,
+// created_at non-empty and created_at == updated_at (i.e. the issue is still untouched).
+func githubIssueIsNewState(o *jsonenc.Object) bool {
+	if o == nil {
+		return false
+	}
+	state := strings.ToLower(strings.TrimSpace(objGetStr(o, "state")))
+	comments := 0
+	if v, ok := o.Get("comments"); ok {
+		comments = jnToInt(v)
+	}
+	createdAt := strings.TrimSpace(objGetStr(o, "created_at"))
+	updatedAt := strings.TrimSpace(objGetStr(o, "updated_at"))
+	return state == "open" && comments == 0 && createdAt != "" && createdAt == updatedAt
+}
+
+// updateGithubIssueRecord mirrors _update_github_issue_record: PATCH an existing issue (title/body and
+// optionally labels) and return normalized metadata. maskOutput scrubs title/body before the outbound
+// request (the onboarding caller passes False); the parity mock ignores the body either way.
+func (s *server) updateGithubIssueRecord(token, githubRepo string, issueNumber int, title, body string, labels []string, maskOutput bool) map[string]any {
+	if token == "" || githubRepo == "" || issueNumber <= 0 {
+		return map[string]any{}
+	}
+	owner, repo := parseGithubRepoOwnerName(githubRepo)
+	if owner == "" || repo == "" {
+		return map[string]any{}
+	}
+	outTitle, outBody := title, body
+	if maskOutput {
+		outTitle = s.maskStringForOutput(title)
+		outBody = s.maskStringForOutput(body)
+	}
+	payload := jsonenc.NewObject().Set("title", outTitle).Set("body", outBody)
+	// app.py 33014: labels is added only when not None. The onboarding caller always supplies labels.
+	if labels != nil {
+		payload.Set("labels", labelsToAny(labels))
+	}
+	resp, err := s.upstreamRequest("PATCH",
+		"https://api.github.com/repos/"+owner+"/"+repo+"/issues/"+itoaInt(issueNumber),
+		jsonenc.Encode(payload, dumpsDefault), githubAPIHeaders(token, true, nil))
+	if err != nil || resp.Status >= 300 {
+		detail := ""
+		if o, ok := resp.Body.(*jsonenc.Object); ok {
+			detail = strings.TrimSpace(objGetStr(o, "message"))
+		}
+		if detail == "" {
+			detail = "request failed"
+		}
+		return map[string]any{"error": "GitHub issue update failed: " + detail}
+	}
+	o, _ := resp.Body.(*jsonenc.Object)
+	if o == nil {
+		o = jsonenc.NewObject()
+	}
+	num := issueNumber
+	if v, ok := o.Get("number"); ok {
+		if n := jnToInt(v); n != 0 {
+			num = n
+		}
+	}
+	respTitle := objGetStr(o, "title")
+	if respTitle == "" {
+		respTitle = title
+	}
+	state := objGetStr(o, "state")
+	if state == "" {
+		state = "open"
+	}
+	return map[string]any{
+		"issue_url": objGetStr(o, "html_url"), "issue_number": num,
+		"issue_title": respTitle, "issue_state": state,
+	}
+}
+
+// objGetStrAny reads a string field from an optional *jsonenc.Object (empty when nil/absent).
+func objGetStrAny(o *jsonenc.Object, key string) string {
+	if o == nil {
+		return ""
+	}
+	return objGetStr(o, key)
 }
 
 // createGithubIssueRecord mirrors _create_github_issue_record: POST a new issue, returning its URL.
