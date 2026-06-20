@@ -5506,6 +5506,24 @@ routes:
   request:
     method: POST
     json: {}
+# depsrich profile: a seeded app+release(+CommitSha)+token so the cve scan's github backfill walks the
+# FULL dependency-parse chain. Canned fixtures: actions/runs+artifacts traversal (reached because the
+# release has a CommitSha; finds no matching snapshot artifact -> empty -> contents fallback), then a
+# base64 package-lock.json that _parse_package_lock_dependencies parses into 3 npm deps -> one
+# dependencies-lockfile artifact INSERTED -> _collect_library_inventory yields 3 libs -> OSV (canned)
+# scan -> 3 findings. attempted=1, inserted=1, libraries_found=3, vulns_found=3. MUTATING (inserts the
+# artifact + cve findings). scanned_at is wall-clock-derived (frozen but masked like the __osv route).
+- id: post__api_enrichment_cve_scan__depsrich
+  path: /api/enrichment/cve/scan
+  methods:
+  - POST
+  profile: depsrich
+  request:
+    method: POST
+    json: {}
+  mask:
+  - '"scanned_at": ?"[^"]*"'
+  mask_reason: scanned_at is _now_iso() (wall-clock); libraries_found/vulns_found/github_backfill_* are byte-compared.
 - id: post__settings_masking_output
   path: /settings/masking/output
   methods:

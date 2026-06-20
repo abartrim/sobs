@@ -334,6 +334,12 @@ PROFILES: dict[str, dict[str, str]] = {
     # release (the repo has no fetchable lockfile -> every contents GET 404s -> attempted=1,
     # inserted=0). The github mock dir must be set so the fetches 404 rather than erroring.
     "cvebackfill": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
+    # depsrich: like cvebackfill but the seeded release carries a CommitSha, so the cve scan's github
+    # backfill walks the FULL dependency-parse chain. Canned fixtures drive it: the actions/runs +
+    # artifacts traversal (no matching snapshot -> empty -> contents fallback), then a base64
+    # package-lock.json that _parse_package_lock_dependencies parses into 3 npm deps -> one
+    # dependencies-lockfile artifact inserted -> 3 libs -> OSV (canned) scan. attempted=1, inserted=1.
+    "depsrich": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
     # refine: query/refine-chart — query gate on + the LLM endpoint pointed at the canned
     # /chat/completions mock (distinct path so its URL key is unique to this route).
     "refine": {
@@ -508,6 +514,7 @@ SEEDED_PROFILES = {
     "rumvitals",
     "tagsuggest",
     "cvebackfill",
+    "depsrich",
     "onboard",
     "issuesraise",
     "githubtoken",
