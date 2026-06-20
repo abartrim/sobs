@@ -3536,6 +3536,92 @@ routes:
           mode: builder
         data:
           service: api
+# custom_echarts render path (M42): template_id=custom_echarts forces _render_custom_echarts.
+# Exercises the binding mini-language across every _resolve_custom_binding_expr branch (bare
+# "columns"/"rows"/"records" strings, a bare column-ref string, and dict {from: literal|column|
+# rows|records|columns}), a named dataset ({{rows:ds1}} resolved from named_queries), and the
+# series point-order normalization (the primary SQL returns rows out of lexical order; the
+# series.data binds {{rows}} so _normalize_custom_series_point_order re-sorts the points).
+# Constant override_sql / named-query SQL keep it deterministic with no table seeding. No
+# _drilldown here -> _build_custom_drilldown returns None (the option has no _customDrilldown).
+- id: post__api_dashboards_spec_render_custom
+  path: /api/dashboards/spec/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: custom_echarts
+        sql:
+          mode: raw
+          override_sql: SELECT label, value, category FROM (SELECT 'b_label' AS label, 20.0 AS value, 'cat2' AS category UNION ALL SELECT 'a_label' AS label, 10.0 AS value, 'cat1' AS category UNION ALL SELECT 'c_label' AS label, 5.0 AS value, 'cat3' AS category) ORDER BY value DESC
+        named_queries:
+        - name: ds1
+          sql: SELECT 'k1' AS k, 7.0 AS n UNION ALL SELECT 'k2' AS k, 9.0 AS n
+          purpose: side dataset
+        visual:
+          custom_mapping_json:
+            all_columns: columns
+            all_rows: rows
+            all_records: records
+            label_values: label
+            cat_dict: {from: column, name: category}
+            value_dict: {from: columns}
+            rows_dict: {from: rows}
+            records_dict: {from: records}
+            literal_units: {from: literal, value: ms}
+          custom_option_json:
+            tooltip: {trigger: axis}
+            xAxis: {type: category, data: "{{label_values}}"}
+            yAxis: {type: value, name: "{{literal_units}}"}
+            dataset: {source: "{{rows:ds1}}"}
+            legend: {data: "{{all_columns}}"}
+            series:
+            - name: Value
+              type: bar
+              data: "{{all_rows}}"
+            - name: Categories
+              type: line
+              data: "{{cat_dict}}"
+# custom_echarts drilldown path (M42): same custom render but the mapping carries a non-_ key set
+# PLUS a _drilldown block whose target is in {logs,metrics,traces,errors}, so _build_custom_drilldown
+# returns non-None and option["_customDrilldown"] is attached. The drilldown.extra value carries a
+# {{label}} template var resolved by _resolve_template_string against the FIRST record, and the
+# optional keys (bucket_seconds/time_axis/service_axis) are passed through. The series.data uses a
+# dict literal list so point-order normalization is a no-op on it (covers the early-return guard).
+- id: post__api_dashboards_spec_render_custom_drilldown
+  path: /api/dashboards/spec/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: custom_echarts
+        sql:
+          mode: raw
+          override_sql: SELECT 'svc_alpha' AS service, 42.0 AS value, 'errors' AS source
+        visual:
+          custom_mapping_json:
+            series_values: value
+            svc_list: service
+            _drilldown:
+              target: traces
+              label: Open Traces
+              bucket_seconds: 300
+              time_axis: t
+              service_axis: service
+              extra:
+                service_filter: "service={{service}}"
+                source_kind: "{{source}}"
+                static_flag: true
+          custom_option_json:
+            tooltip: {trigger: item}
+            xAxis: {type: category, data: "{{svc_list}}"}
+            yAxis: {type: value}
+            series:
+            - name: Value
+              type: bar
+              data: "{{series_values}}"
 - id: post__api_dashboards_query
   path: /api/dashboards/query
   methods:
