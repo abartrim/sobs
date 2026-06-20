@@ -214,7 +214,8 @@ func (s *server) handleV1Ai(w http.ResponseWriter, r *http.Request) {
 		"Links":  map[string]any{"TraceId": []any{}, "SpanId": []any{}, "TraceState": []any{}, "Attributes": []any{}},
 	}
 	if err := s.enqueueWrite(func() error {
-		_, e := s.db.InsertJSONEachRow("otel_traces", []map[string]any{row})
+		// app.py ingest_ai inserts via _insert_rows_json_each_row (normalizes the DateTime columns).
+		_, e := s.insertRowsNormalized("otel_traces", []map[string]any{row})
 		return e
 	}); err != nil {
 		if errors.Is(err, errWriteQueueFull) {
@@ -277,7 +278,8 @@ func (s *server) handleV1Errors(w http.ResponseWriter, r *http.Request) {
 		"LogAttributes": attrs, "EventName": "exception",
 	}
 	if err := s.enqueueWrite(func() error {
-		if _, e := s.db.InsertJSONEachRow("otel_logs", []map[string]any{row}); e != nil {
+		// app.py ingest_error inserts via _insert_rows_json_each_row (normalizes DateTime columns).
+		if _, e := s.insertRowsNormalized("otel_logs", []map[string]any{row}); e != nil {
 			return e
 		}
 		// Side-effects mirroring app.py ingest_error's _op: track discovered log attr keys and
@@ -377,7 +379,14 @@ func (s *server) handleV1Rum(w http.ResponseWriter, r *http.Request) {
 		// Shallow map of the top-level fields (nested values stay *jsonenc.Object so json.dumps of
 		// a nested object serializes correctly) for the field-reading / attr helpers.
 		e := objShallowMap(ebody)
-		ts := mstrDef(e, "timestamp", now)
+		// app.py: ts = event.get("timestamp", now) — NOT str()-wrapped (unlike service/type), so a
+		// present non-string timestamp (bool/number/null) passes through raw into the row and chdb
+		// coerces it on insert; only an absent key falls back to now. Stringifying it (mstrDef) makes
+		// e.g. False/1.5 become "False"/"1.5", which chdb then rejects as a DateTime -> 500.
+		var ts any = now
+		if v, ok := e["timestamp"]; ok {
+			ts = v
+		}
 		sessionID := rumStrRaw(e["sessionId"])
 		eventType := mstrDef(e, "type", "unknown")
 		url := rumStrRaw(e["url"])
@@ -459,12 +468,15 @@ func (s *server) handleV1Rum(w http.ResponseWriter, r *http.Request) {
 	// app.py _op: both inserts + remember + tag-rules run in ONE queued write; any failure -> 500.
 	if err := s.enqueueWrite(func() error {
 		if len(sessionRows) > 0 {
-			if _, e := s.db.InsertJSONEachRow("hyperdx_sessions", sessionRows); e != nil {
+			// app.py ingest_rum inserts via _insert_rows_json_each_row, which normalizes the
+			// DateTime columns (Timestamp) — a raw user value like false/1.5/"" must be coerced the
+			// same way, so go through insertRowsNormalized rather than the store method directly.
+			if _, e := s.insertRowsNormalized("hyperdx_sessions", sessionRows); e != nil {
 				return e
 			}
 		}
 		if len(errorRows) > 0 {
-			if _, e := s.db.InsertJSONEachRow("otel_logs", errorRows); e != nil {
+			if _, e := s.insertRowsNormalized("otel_logs", errorRows); e != nil {
 				return e
 			}
 		}
@@ -482,7 +494,8 @@ func (s *server) handleV1Rum(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, errWriteQueueFull) {
 			writeJSON(w, http.StatusServiceUnavailable, jsonenc.NewObject().Set("error", "write queue is full"))
 		} else {
-			s.errorJSON(w, http.StatusInternalServerError, "rum ingest write failed")
+			// app.py _json_error -> {"error": msg} with NO "ok" field (errorJSON would add ok:false).
+			writeJSON(w, http.StatusInternalServerError, jsonenc.NewObject().Set("error", "rum ingest write failed"))
 		}
 		return
 	}

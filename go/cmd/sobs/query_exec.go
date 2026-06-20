@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/sobs/sobs/internal/jsonenc"
 	"github.com/sobs/sobs/internal/store"
@@ -40,8 +41,12 @@ func publicDashboardQueryError(err error) string {
 		!strings.Contains(message, "Check casts and column types.") {
 		message += ". Check casts and column types."
 	}
-	if len(message) > 280 {
-		message = strings.TrimRight(message[:277], " \t\n\r") + "..."
+	// app.py truncates by CODEPOINT: `len(message) > 280` and `message[:277].rstrip()` operate on
+	// Python str (Unicode), so a message containing multibyte chars (the echoed SQL) truncates at a
+	// different byte offset than Go's old byte-slice. Mirror with rune length + rune slice + a
+	// Unicode-aware right-strip (Python str.rstrip()).
+	if r := []rune(message); len(r) > 280 {
+		message = strings.TrimRightFunc(string(r[:277]), unicode.IsSpace) + "..."
 	}
 	return message
 }
