@@ -42,6 +42,7 @@ PY = sys.executable
 
 def _covered_lines() -> set[int]:
     import json
+
     c = json.loads((REPO / "migration" / "coverage_app.json").read_text())
     k = next(x for x in c["files"] if x.endswith("app.py"))
     return set(c["files"][k]["executed_lines"])
@@ -95,10 +96,13 @@ def _apply(src_lines: list[str], m) -> str:
 
 
 def _seed_and_capture(profile: str, only: str) -> None:
-    subprocess.run([PY, str(TOOLS / "seed_fixtures.py")], cwd=str(REPO), check=True,
-                   stdout=subprocess.DEVNULL)
-    subprocess.run([PY, str(TOOLS / "capture_routes.py"), "--profile", profile, "--only", only],
-                   cwd=str(REPO), check=True, stdout=subprocess.DEVNULL)
+    subprocess.run([PY, str(TOOLS / "seed_fixtures.py")], cwd=str(REPO), check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(
+        [PY, str(TOOLS / "capture_routes.py"), "--profile", profile, "--only", only],
+        cwd=str(REPO),
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
 
 
 def _snapshot(route_ids: list[str], dst: Path) -> None:
@@ -160,13 +164,18 @@ def main() -> int:
             ln, _c0, _c1, orig, new = m
             APP.write_text(_apply(src_lines, m))
             try:
-                _seed_and_capture(args.profile, args.only)
-                dead = _differs(route_ids, baseline)
+                try:
+                    _seed_and_capture(args.profile, args.only)
+                    dead = _differs(route_ids, baseline)
+                except subprocess.CalledProcessError:
+                    # The mutant broke the oracle (capture crashed) — that IS a detectable change,
+                    # so the corpus would catch it: count as killed rather than aborting the sweep.
+                    dead = True
             finally:
                 APP.write_text(src)  # restore the pristine oracle
             tag = "KILLED " if dead else "SURVIVED"
             killed += dead
-            survived += (not dead)
+            survived += not dead
             print(f"  [{tag}] L{ln}: {orig} -> {new}", flush=True)
     finally:
         APP.write_text(src)  # guarantee the pristine oracle is restored
@@ -174,8 +183,10 @@ def main() -> int:
 
     total = killed + survived
     score = (killed / total * 100) if total else 0.0
-    print(f"\nMutation score: {killed}/{total} killed ({score:.0f}%). "
-          f"{survived} survivor(s) = covered-but-unasserted holes.")
+    print(
+        f"\nMutation score: {killed}/{total} killed ({score:.0f}%). "
+        f"{survived} survivor(s) = covered-but-unasserted holes."
+    )
     return 0
 
 
