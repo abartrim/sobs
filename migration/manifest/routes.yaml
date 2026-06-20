@@ -1538,6 +1538,80 @@ routes:
     method: GET
     query:
       sql: nonexistent_col=1
+# tagmatch (M38): byte-parity cover _match_single_condition (app.py 12551-12588) + _match_tag_rule
+# (12506) — the INGEST-time auto-tag matcher. The matcher is NOT reachable from view_logs (GET /logs
+# only RENDERS already-stored sobs_record_tags); it runs inside _apply_tag_rules (12777), called from
+# the ingest inserters (_insert_log_events 9398-9400). So this POST to /v1/logs is what EXECUTES the
+# matcher (synchronously: capture flips app.config TESTING on -> _queue_write wait=True -> the insert
+# + auto-tag application commit during the request, mirroring the Go parity server's commit-before-
+# ack). The seed (seed_tagmatch) loads tag rules whose conditions span every operator
+# (eq / contains / regex / unknown-op) and field (service_name / severity / body / event_type /
+# attribute / unknown-field) plus a composite AND rule and a trace-only record-type-gated rule. The
+# OTLP batch carries a "match" row (service tmsvc, ERROR, body 'Connection TIMEOUT status 503',
+# event.name=http.request, http.method=POST) that drives every TRUE arm, and a "non-match" row
+# (othersvc / INFO / 'all good' / job.run) that drives the FALSE arms; the unknown-field+empty-value
+# rule (by_field) is a degenerate match-all that tags both rows. _insert_log_events -> _apply_tag_rules
+# evaluates every rule per row, exercising all of _match_single_condition's branches. The POST
+# response {"accepted": 2} is the parsed-event count (independent of which tags matched) -> trivially
+# byte-identical Go vs Python; the matcher's 26 dark lines run DURING capture (the coverage gate
+# measures the capture phase). The GET below renders the resulting auto-tags for byte-parity of the
+# matcher OUTPUT (this is the route that actually distinguishes a Go matcher divergence).
+- id: post__v1_logs__tagmatch
+  path: /v1/logs
+  methods:
+  - POST
+  profile: tagmatch
+  request:
+    method: POST
+    json:
+      resourceLogs:
+      - resource:
+          attributes:
+          - key: service.name
+            value:
+              stringValue: tmsvc
+        scopeLogs:
+        - logRecords:
+          - timeUnixNano: '1704164645000000000'
+            severityText: ERROR
+            body:
+              stringValue: Connection TIMEOUT status 503
+            attributes:
+            - key: event.name
+              value:
+                stringValue: http.request
+            - key: http.method
+              value:
+                stringValue: POST
+      - resource:
+          attributes:
+          - key: service.name
+            value:
+              stringValue: othersvc
+        scopeLogs:
+        - logRecords:
+          - timeUnixNano: '1704164645000000000'
+            severityText: INFO
+            body:
+              stringValue: all good
+            attributes:
+            - key: event.name
+              value:
+                stringValue: job.run
+# GET /logs renders the auto-tags the matcher wrote for the two ingested rows. tmsvc row carries 8
+# IsAuto tags (by_attr, by_body, by_comp, by_evt, by_field, by_re, by_sev, by_svc — ordered by
+# TagKey); the othersvc row carries only by_field. The applied set is a pure function of the constant
+# log fields + rule conditions, so it is byte-deterministic. No mask: the POST's timeUnixNano and the
+# frozen now() are the same fixed instant, so the stats-age block is constant. This GET is what
+# byte-validates the Go matcher (matchSingleCondition / matchTagRule) against the Python oracle — a
+# semantic divergence in any operator/field arm would change a rendered tag and flip this RED.
+- id: get__logs__tagmatch
+  path: /logs
+  methods:
+  - GET
+  profile: tagmatch
+  request:
+    method: GET
 - id: get__metrics
   path: /metrics
   methods:

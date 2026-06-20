@@ -3204,6 +3204,144 @@ def seed_logsrich(db) -> None:
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
 
 
+def seed_tagmatch(db) -> None:
+    # M38: byte-parity cover _match_single_condition (app.py 12551-12588) and the _match_tag_rule
+    # (12506) composite/legacy/record-type gating it drives — the INGEST-TIME auto-tag matcher.
+    #
+    # Reachability (important — NOT view_logs): _match_single_condition runs inside _apply_tag_rules
+    # (12777), which is called from the ingest inserters (_insert_log_events 9398-9400). So the
+    # matcher fires when a batch is POSTed to /v1/logs, NOT when GET /logs renders (view_logs only
+    # reads already-stored sobs_record_tags). This profile therefore drives the matcher with a single
+    # POST /v1/logs (post__v1_logs__tagmatch) whose batch carries rows engineered to hit match-true
+    # and match-false for every operator/field arm. The POST runs the Python matcher during capture
+    # (coverage.py tracks all threads; the writer flushes via the atexit drain before exit, so the 26
+    # dark lines count) and the Go matcher during replay; the response {"accepted": 2} is trivially
+    # byte-identical. No follow-up GET renders the tags: the ingest write is async (wait=False) and
+    # the parity-frozen clock (time.monotonic == 0.0) makes the writer queue impossible to drain
+    # deterministically mid-process, so a same-process POST-then-GET would be racy. Byte-parity of the
+    # matcher RESULT is asserted by ingest_tag_rules_test.go (TestMatchTagRule) across the same arms.
+    #
+    # This seed inserts ONLY the tag rules (the otel_logs rows arrive via the POSTed OTLP batch). Each
+    # rule writes a DISTINCT tag_key so the per-record "last matching rule wins per key" reduction is
+    # unambiguous (no two rules share a key). _load_tag_rules ORDER BY Name; Names are prefixed so the
+    # rule order is fixed (matters for the deterministic last-wins reduction).
+    #
+    # _match_single_condition arm coverage (field -> value source, then operator):
+    #   service_name (12562) | severity (12564) | body (12566) | event_type (12570) |
+    #   attribute via match_attr_key (12572-12573) | else-> "" (12574-12575, the unknown-field arm).
+    #   operators: eq (12579-12580) | contains, case-insensitive substring (12581-12582) |
+    #   regex via re.search (12583-12587) | fall-through return False (12588, unknown operator).
+    #   span_name (12568) is a TRACE-only field (logs carry no SpanName) -> left to the trace path;
+    #   documented as schedulable, not reachable from /v1/logs.
+    # _match_tag_rule arm coverage:
+    #   record-type gate skip (12523, a 'trace'-only rule never matches a log row) |
+    #   composite all-conditions (12527-12531, the two-condition AND rule) |
+    #   single legacy triple (12535-12548, every non-composite rule above; ConditionsJson='' so the
+    #   12479 back-compat synthesises the single condition from MatchField/Operator/Value).
+    _seq = {"n": 0}
+
+    def rule(name, field, op, val, attr_key, tag_key, tag_value, record_types="log", conditions_json=""):
+        _seq["n"] += 1
+        return {
+            "Id": f"c0000000-0000-4000-8000-{_seq['n']:012d}",
+            "Name": name,
+            "RecordTypes": record_types,
+            "MatchField": field,
+            "MatchOperator": op,
+            "MatchValue": val,
+            "MatchAttrKey": attr_key,
+            "TagKey": tag_key,
+            "TagValue": tag_value,
+            "ConditionsJson": conditions_json,
+            "IsDeleted": 0,
+            "Version": 1704164645000,
+        }
+
+    _insert(
+        db,
+        "sobs_tag_rules",
+        [
+            # service_name eq  -> by_svc=hit   (matches the 'tmsvc' row)
+            rule("A svc eq", "service_name", "eq", "tmsvc", "", "by_svc", "hit"),
+            # severity eq      -> by_sev=hit   (matches ERROR rows)
+            rule("B sev eq", "severity", "eq", "ERROR", "", "by_sev", "hit"),
+            # body contains (case-insensitive substring): match_value 'timeout' vs Body 'Connection
+            # TIMEOUT after 5s' -> by_body=hit. Proves the .lower() on both sides (12582).
+            rule("C body contains", "body", "contains", "timeout", "", "by_body", "hit"),
+            # body regex (re.search): '\d{3}' finds 3 consecutive digits in 'status 503 upstream'
+            # -> by_re=hit. Simple, identical semantics in Python re and Go regexp2.
+            rule("D body regex", "body", "regex", r"\d{3}", "", "by_re", "hit"),
+            # event_type eq    -> by_evt=hit   (EventName 'http.request')
+            rule("E evt eq", "event_type", "eq", "http.request", "", "by_evt", "hit"),
+            # attribute eq via match_attr_key='http.method'  -> by_attr=hit (LogAttributes carries it)
+            rule("F attr eq", "attribute", "eq", "POST", "http.method", "by_attr", "hit"),
+            # unknown OPERATOR (not eq/contains/regex) -> _match_single_condition fall-through return
+            # False (12588). Never tags anything; by_badop must NOT appear on any row.
+            rule("G badop", "service_name", "startswith", "tmsvc", "", "by_badop", "nope"),
+            # unknown FIELD -> value="" (12574-12575). With operator eq and match_value "" this MATCHES
+            # (""==""), so by_field tags EVERY row in the batch. Exercises the else field arm + the
+            # empty-string eq. (A real "no such field" rule with empty match_value is a degenerate
+            # match-all; that is exactly app.py's behavior and we render it faithfully.)
+            rule("H badfield", "no_such_field", "eq", "", "", "by_field", "all"),
+            # record-type GATE: a 'trace'-only rule (record_types='trace') must be SKIPPED for log
+            # rows at 12523 -> by_trace never appears. Proves the gate's negative arm.
+            rule("I trace only", "service_name", "eq", "tmsvc", "", "by_trace", "nope", record_types="trace"),
+            # COMPOSITE rule: BOTH conditions must hold (service_name eq tmsvc AND body contains
+            # 'timeout'). The 'tmsvc'+timeout row matches -> by_comp=hit; the 'othersvc' row fails the
+            # service condition -> by_comp absent there. Exercises the all(...) composite arm
+            # (12527-12531) and a multi-condition _match_single_condition loop.
+            rule(
+                "J composite",
+                "service_name",
+                "eq",
+                "tmsvc",
+                "",
+                "by_comp",
+                "hit",
+                conditions_json=(
+                    '[{"match_field": "service_name", "match_operator": "eq", '
+                    '"match_value": "tmsvc", "match_attr_key": ""}, '
+                    '{"match_field": "body", "match_operator": "contains", '
+                    '"match_value": "timeout", "match_attr_key": ""}]'
+                ),
+            ),
+            # span_name field arm (12568-12569): logs carry no SpanName, so value="" and this never
+            # matches a non-empty match_value -> by_span absent. Covers the elif span_name branch.
+            rule("K span eq", "span_name", "eq", "GET /x", "", "by_span", "nope"),
+            # regex with an INVALID pattern -> re.search raises re.error -> the except returns False
+            # (12586-12587). Covers the regex error arm; by_badre never appears.
+            rule("L bad regex", "body", "regex", "([", "", "by_badre", "nope"),
+        ],
+    )
+    # Legacy (pre-ConditionsJson) rule with NO conditions and EMPTY MatchField: _load_tag_rules'
+    # back-compat (12479) only synthesises a condition when MatchField is non-empty, so this rule's
+    # `conditions` stays [] -> _match_tag_rule takes the SINGLE legacy path (12535-12548) instead of
+    # the composite all(...) path. With field="" the value resolves to "" (the else arm 12574-12575)
+    # and operator eq vs match_value "" -> ""=="" matches every row, tagging by_legacy. Inserted
+    # separately because the `rule()` helper always sets a non-empty MatchField.
+    _insert(
+        db,
+        "sobs_tag_rules",
+        [
+            {
+                "Id": "c0000000-0000-4000-8000-000000000099",
+                "Name": "M legacy",
+                "RecordTypes": "log",
+                "MatchField": "",
+                "MatchOperator": "eq",
+                "MatchValue": "",
+                "MatchAttrKey": "",
+                "TagKey": "by_legacy",
+                "TagValue": "all",
+                "ConditionsJson": "",
+                "IsDeleted": 0,
+                "Version": 1704164645000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_tag_rules FINAL")
+
+
 def seed_errorsview(db) -> None:
     # Error events for view_errors (ERROR_SOURCES_SQL = otel_logs rows with EventName='exception'
     # / SeverityNumber>=17 / SeverityText in ERROR,CRITICAL,FATAL / exception.type set). Three
@@ -4325,6 +4463,7 @@ PROFILE_SEEDS = {
     "incidentmatch": seed_incidentmatch,  # rum_session hyperdx row + matching work-item link -> view_incident MATCH
     "logsview": seed_logsview,  # 5 otel_logs rows + record tags -> populated view_logs branches
     "logsrich": seed_logsrich,  # 2 otel_logs rows -> view_logs raw-SQL query-execution error branch (11402-11404)
+    "tagmatch": seed_tagmatch,  # M38: diverse-operator/field tag rules -> POST /v1/logs runs _match_single_condition
     "errorsview": seed_errorsview,  # error events + a resolution -> populated view_errors branches
     "errorsummary": seed_errorsummary,  # structured/plain error bodies -> every error-summary branch
     "aiview": seed_aiview,  # otel_traces AI spans (gen_ai.*) -> populated view_ai branches
