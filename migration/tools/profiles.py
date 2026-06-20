@@ -356,6 +356,14 @@ PROFILES: dict[str, dict[str, str]] = {
     # metricsauto: a constant recent log_volume series so auto_metrics_rules' threshold scan
     # generates fixed candidates (exact quantiles of a constant). No env overlay — just the seed.
     "metricsauto": {},
+    # seasonalauto (M32): same constant log_volume=5 series as metricsauto but confined to ONE
+    # wall-clock hour (toStartOfHour(now()) + 0..30 MINUTE), so auto_metrics_rules' SEASONAL scan
+    # (mode=seasonal) emits candidates whose seasonal_bucket_count is ALWAYS 1 (every minute bucket
+    # shares one toHour()) regardless of the real hour. Exact quantiles of the constant series give
+    # fixed thresholds; the action=preview render omits the wall-clock bucket KEY (only the count is
+    # shown), so the page is byte-reproducible. Isolated so the single-hour layout never ripples into
+    # base/metricsauto readers. No env overlay — just the seed.
+    "seasonalauto": {},
     # metricsrich: a web log_volume series that SPIKES on its latest bucket (29x5 + 1x40) so
     # v_derived_signals_anomaly's latest bucket is anomaly_state='outlier' (anomaly_score 5.3852),
     # PLUS a seasonal anomaly rule matching (logs, log_volume, web) whose all-24-hour buckets fire on
@@ -645,6 +653,7 @@ SEEDED_PROFILES = {
     "tagautorich",
     "dashboardautorich",
     "metricsauto",
+    "seasonalauto",
     "metricsrich",
     "rumvitals",
     "tagsuggest",

@@ -966,6 +966,45 @@ def seed_metricsauto(db) -> None:
     db.execute("OPTIMIZE TABLE otel_logs FINAL")
 
 
+def seed_seasonalauto(db) -> None:
+    # M32: a constant log_volume series confined to a SINGLE hour-of-day bucket so
+    # auto_metrics_rules' SEASONAL scan (_build_seasonal_metric_rule_candidates, mode=seasonal)
+    # yields byte-reproducible candidates.
+    #
+    # Determinism, layer by layer:
+    #   * CONSTANT value. 155 otel_logs rows for the EXISTING base service "web", laid out as 5
+    #     logs in each of 31 distinct minute buckets. The 1m derived-signals view turns this into
+    #     a CONSTANT log_volume=5 series across 31 buckets, so every quantile (q05..q95) equals 5.0
+    #     exactly (quantile of a constant is that constant — deterministic despite chDB's otherwise
+    #     non-deterministic reservoir sampler). error_volume / error_ratio are likewise constant 0.
+    #     _auto_rule_thresholds therefore returns fixed thresholds: gt log_volume -> warning q80=5.0,
+    #     critical (q95==q80 -> warning*1.1) = 5.5; error_volume/error_ratio -> 0.0 / 0.1.
+    #   * SINGLE hour-of-day bucket, wall-clock-stable. The seasonal bucket key is toHour(time),
+    #     which is wall-clock-derived and drifts run-to-run. We anchor EVERY minute bucket inside the
+    #     SAME wall-clock hour via toStartOfHour(now()) + INTERVAL m MINUTE (m = 0..30). All 31
+    #     buckets share one toHour() value, so seasonal_bucket_count is ALWAYS exactly 1 regardless
+    #     of which real hour "now" lands in. (The hour NUMBER differs across runs, but it lives only
+    #     in seasonal_buckets_json, which the action=preview render does NOT emit — the preview table
+    #     shows name/source/signal/service/comparator/thresholds/min-sample/points + the seasonal
+    #     bucket COUNT, all timestamp-independent. The bucket count, not the bucket key, is rendered.)
+    #     toStartOfHour(now()) <= now() so the lower part of the hour is in the past; minutes after
+    #     now()'s minute are slightly in the future but still satisfy the unbounded upper window
+    #     (time >= now() - INTERVAL hours HOUR), so all 31 buckets are scanned at both capture/replay.
+    #   * Per-bucket support gate. _SEASONAL_MIN_BUCKET_POINTS = 3 requires >= 3 points per bucket;
+    #     the single bucket holds all 31 minute-bucket points, so it passes. The route passes a small
+    #     min_points (5) so the per-series HAVING point_count >= min_points gate (31 >= 5) passes.
+    #   * Racy UNION avoidance. We reuse "web" (already the lone base derived-signal service) rather
+    #     than a fresh name: _list_derived_signal_dimensions' service dropdown is a DISTINCT-over-UNION
+    #     whose trailing ORDER BY binds only to the last branch (genuinely racy in chDB once >1 service
+    #     is present). A single service keeps that list trivially deterministic.
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, Body) "
+        "SELECT toStartOfHour(now()) + INTERVAL (intDiv(number, 5)) MINUTE, 'web', 'req' "
+        "FROM numbers(155)"
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+
 def seed_tagautorich(db) -> None:
     # Rich now()-anchored telemetry so auto_tag_rules' candidate generator
     # (_build_auto_tag_rule_candidates, app.py 12062-12308) exercises EVERY per-record-type
@@ -4112,6 +4151,7 @@ PROFILE_SEEDS = {
     "cveview": seed_cveview,  # CVE findings (1/severity) -> summary cve-overview + view_enrichment_cve
     "summaryrich": seed_summaryrich,  # now()-anchored logs + logs-source anomaly rules -> populated summary panels
     "metricsauto": seed_metricsauto,  # constant log_volume series -> auto_metrics_rules candidates
+    "seasonalauto": seed_seasonalauto,  # M32: constant log_volume in ONE hour bucket -> seasonal candidates
     "metricsrich": seed_metricsrich,  # web log_volume SPIKE + seasonal rule -> view_metrics outlier/rule render
     "rumvitals": seed_rumvitals,  # now()-relative web-vital + error rows -> view_rum vitals + error-trend
     "tagsuggest": seed_tagsuggest,  # otel/tags/attr-key rows -> condition-suggestions non-empty branches
