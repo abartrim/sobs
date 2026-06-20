@@ -457,6 +457,20 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # agentctx (M40): clone of agentflow's env (same agent + guard mock paths + acme/widget repo+token
+    # + canned guard/analyze/create fixtures). The ONLY difference is the seed adds 12 ERROR otel_logs
+    # rows and the POST body passes a rich extra_context, so _build_agent_context_summary's dark
+    # branches (additional_context line, service+err_type event-frequency/noise block, "Trigger
+    # details" remaining-keys block) execute during capture. The context summary feeds only the
+    # mock-ignored LLM prompt + GitHub issue body, so the byte-compared response is identical to
+    # agentflow's; run_id (uuid4) is the only volatile field and is masked.
+    "agentctx": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # agentcopilot (M31): clone of agentflow but the seeded rule's Actions includes
     # github_issue_copilot, so after the create-new-issue arm the flow probes Copilot support
     # (GraphQL api.github.com/graphql -> suggestedActors has copilot-swe-agent) and POSTs the
@@ -750,6 +764,7 @@ SEEDED_PROFILES = {
     "notifgen",
     "agenttrigger",
     "agentflow",
+    "agentctx",
     "agentcopilot",
     "issuereuse",
     "workitems",

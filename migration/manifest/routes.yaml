@@ -4467,6 +4467,27 @@ routes:
   mask:
   - '"run_id": ?"[^"]*"'
   mask_reason: run_id is a server-generated uuid4; the result (guard_decision/analysis/suggestion/github_issue_url/dedup_decision/status) is byte-compared.
+# agentctx profile (M40): clone of agentflow that COVERS _build_agent_context_summary's dark branches.
+# The POST body passes a rich extra_context (a JSON string) carrying additional_context + service +
+# err_type + an extra key; combined with the agentctx seed's 12 now()-anchored ERROR otel_logs rows
+# (checkout-prod / exception.type=TimeoutError), the summary builder runs its additional_context line,
+# its service+err_type event-frequency/HIGH-noise block, and its "Trigger details" remaining-keys
+# block. That summary feeds only the mock-ignored LLM prompt + GitHub issue body, so the byte-compared
+# response (status/guard_decision/analysis/suggestion/github_issue_url/dedup_decision) is identical to
+# agentflow's; run_id (uuid4) is the only volatile field -> masked.
+- id: post__api_agent_runs__ctx
+  path: /api/agent/runs
+  methods:
+  - POST
+  profile: agentctx
+  request:
+    method: POST
+    json:
+      rule_id: e3000000000000000000000000000001
+      extra_context: '{"additional_context": "Investigating elevated 5xx on checkout", "service": "checkout-prod", "err_type": "TimeoutError", "severity": "high"}'
+  mask:
+  - '"run_id": ?"[^"]*"'
+  mask_reason: run_id is a server-generated uuid4; the result (guard_decision/analysis/suggestion/github_issue_url/dedup_decision/status) is byte-compared. The context summary built from extra_context + seeded ERROR logs feeds only the mock-ignored LLM prompt / issue body, never the response.
 # agentcopilot profile (M31): the COPILOT-ASSIGNMENT arm. A seeded analyze+github_issue_copilot rule
 # (wants_copilot_assignment=True) + the acme/widget repo+token. POST runs the full flow (guard ->
 # analyze LLM -> create issue #42), then probes Copilot support (canned GraphQL -> supported) and POSTs
