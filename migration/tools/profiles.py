@@ -344,6 +344,17 @@ PROFILES: dict[str, dict[str, str]] = {
     # cveosv: a seeded telemetry.sdk library so the cve scan reaches its OSV branch; the OSV mock
     # serves the canned /v1/query vuln response. No github token (backfill stays the 0/0/cap no-op).
     "cveosv": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
+    # cvescan (M41): a seeded TIER-3 scope library (one otel_traces row carrying ScopeName/
+    # ScopeVersion/ServiceName) so _collect_library_inventory reaches its instrumentation-scope
+    # branch (the io.opentelemetry.* -> "Maven" ecosystem path), distinct from cveosv's tier-2
+    # telemetry.sdk.* and depsrich/lockfiles' tier-1 release-artifact paths. The cve scan then
+    # queries OSV (canned /v1/query) for that one library and WRITES the parsed finding into
+    # sobs_cve_findings. A FOLLOW-UP findings-read route runs in the SAME profile/process so the
+    # OSV finding-parse FIELDS (cve_ids/severity/published/...) are byte-verified against the row
+    # the scan itself wrote (not merely against directly-seeded rows like cveview). No github token
+    # so the backfill stays the 0/0/cap no-op. scanned_at (POST) and last_scan (GET) are _now_iso()
+    # wall-clock values -> masked; every other field is byte-compared.
+    "cvescan": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
     # otlpingest: a no-env isolation profile so the OTLP /v1/{logs,traces,metrics} ingest INSERTs
     # (which would otherwise ripple into every otel reader) land in their own fixture copy.
     "otlpingest": {},
@@ -776,6 +787,7 @@ SEEDED_PROFILES = {
     "k8sprom",
     "repoapp",
     "cveosv",
+    "cvescan",
     "tagauto",
     "tagautorich",
     "dashboardautorich",
