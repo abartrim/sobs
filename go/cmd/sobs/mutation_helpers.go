@@ -183,7 +183,13 @@ func normalizeCHTimestamp(v any) string {
 	if t, ok := v.(time.Time); ok {
 		return t.UTC().Format("2006-01-02 15:04:05.000000")
 	}
-	raw := strings.TrimSpace(toStr(v))
+	// Python: raw = str(value or "").strip() — `value or ""` collapses every FALSY value (None,
+	// False, 0, 0.0, -0.0, "", empty container) to "", so they fall through to now() below. Using
+	// toStr unconditionally would turn False/0 into "False"/"0" and then leak a bad DateTime string.
+	raw := ""
+	if rumTruthy(v) {
+		raw = strings.TrimSpace(toStr(v))
+	}
 	if raw == "" {
 		return nowUTC().Format("2006-01-02 15:04:05.000000")
 	}
