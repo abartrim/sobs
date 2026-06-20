@@ -23,10 +23,27 @@ By area (hand-written):
 | 78.6% | `internal/render` | the Jinja template engine |
 | 66.4% | `internal/store` | chdb wrapper |
 
+### Combined with the Go unit suite
+
+The corpus is one lens; the `go test ./...` unit suite is another (it reaches corpus-unreachable
+pure logic directly). Their **union** is the honest "verified Go" surface:
+
+| Lens | Hand-written Go | All Go |
+|---|---:|---:|
+| byte-parity corpus only | 73.3% | 69.4% |
+| unit tests only | — | 12.4% |
+| **corpus ∪ unit** | **75.4%** | 71.4% |
+
+Reproduce the union: run a corpus profile (above) and a unit profile
+(`go test -count=1 -coverpkg=./... -coverprofile=../migration/go_unit_cover.txt ./...`), then OR the
+two textfmt profiles per statement span. Targeted unit tests for corpus-unreachable functions (e.g.
+the AI-guard parsers and the data-management validators in `safeguard_dm_validate_test.go`) raise
+this union without needing the parity harness.
+
 ### Reading it
 
-- **73.3%** is the meaningful number (generated protobuf is auto-generated getters/marshalers we do
-  not hand-test; excluding it is correct).
+- **73.3%** (corpus) / **75.4%** (corpus ∪ unit) is the meaningful number (generated protobuf is
+  auto-generated getters/marshalers we do not hand-test; excluding it is correct).
 - It runs **~6 pts below the oracle's 79.7%**, and that gap is expected, not a parity hole: the Go
   server carries code with **no `app.py` counterpart** that the parity corpus (`SOBS_PARITY=1`)
   deliberately never exercises — real network egress, WebPush/notification dispatch, chdb disk
