@@ -1,10 +1,10 @@
 {
-  "total_uncovered": 4575,
-  "summary_pct": "69",
+  "total_uncovered": 4520,
+  "summary_pct": "70",
   "by_bucket": {
     "helper": {
       "functions": 411,
-      "uncovered": 3751
+      "uncovered": 3696
     },
     "lifecycle": {
       "functions": 21,
@@ -347,25 +347,6 @@
         7839,
         7840,
         7841
-      ]
-    },
-    {
-      "function": "_collect_github_repo_health_summary",
-      "bucket": "helper",
-      "start": 17944,
-      "end": 18083,
-      "uncovered": 39,
-      "span": 140,
-      "route": null,
-      "missing_sample": [
-        17961,
-        17962,
-        17969,
-        17982,
-        18007,
-        18008,
-        18009,
-        18010
       ]
     },
     {
@@ -1830,25 +1811,6 @@
       ]
     },
     {
-      "function": "_github_item_is_security_related",
-      "bucket": "helper",
-      "start": 16686,
-      "end": 16700,
-      "uncovered": 14,
-      "span": 15,
-      "route": null,
-      "missing_sample": [
-        16687,
-        16688,
-        16689,
-        16690,
-        16691,
-        16692,
-        16693,
-        16694
-      ]
-    },
-    {
       "function": "_build_s3_backup_dest",
       "bucket": "helper",
       "start": 32086,
@@ -3114,6 +3076,25 @@
       ]
     },
     {
+      "function": "_collect_github_repo_health_summary",
+      "bucket": "helper",
+      "start": 17944,
+      "end": 18083,
+      "uncovered": 8,
+      "span": 140,
+      "route": null,
+      "missing_sample": [
+        17961,
+        17962,
+        17969,
+        17982,
+        18012,
+        18030,
+        18031,
+        18032
+      ]
+    },
+    {
       "function": "_normalize_chart_spec",
       "bucket": "helper",
       "start": 19847,
@@ -3586,42 +3567,6 @@
         15757,
         15761,
         15762
-      ]
-    },
-    {
-      "function": "_github_version_tokens",
-      "bucket": "helper",
-      "start": 16665,
-      "end": 16672,
-      "uncovered": 7,
-      "span": 8,
-      "route": null,
-      "missing_sample": [
-        16666,
-        16667,
-        16668,
-        16669,
-        16670,
-        16671,
-        16672
-      ]
-    },
-    {
-      "function": "_text_mentions_version_tokens",
-      "bucket": "helper",
-      "start": 16675,
-      "end": 16683,
-      "uncovered": 7,
-      "span": 9,
-      "route": null,
-      "missing_sample": [
-        16676,
-        16677,
-        16678,
-        16679,
-        16681,
-        16682,
-        16683
       ]
     },
     {
@@ -7359,6 +7304,19 @@
       ]
     },
     {
+      "function": "_github_item_is_security_related",
+      "bucket": "helper",
+      "start": 16686,
+      "end": 16700,
+      "uncovered": 2,
+      "span": 15,
+      "route": null,
+      "missing_sample": [
+        16696,
+        16699
+      ]
+    },
+    {
       "function": "_extract_library_versions_from_otel",
       "bucket": "helper",
       "start": 17074,
@@ -8772,6 +8730,30 @@
       "route": null,
       "missing_sample": [
         16169
+      ]
+    },
+    {
+      "function": "_github_version_tokens",
+      "bucket": "helper",
+      "start": 16665,
+      "end": 16672,
+      "uncovered": 1,
+      "span": 8,
+      "route": null,
+      "missing_sample": [
+        16668
+      ]
+    },
+    {
+      "function": "_text_mentions_version_tokens",
+      "bucket": "helper",
+      "start": 16675,
+      "end": 16683,
+      "uncovered": 1,
+      "span": 9,
+      "route": null,
+      "missing_sample": [
+        16677
       ]
     },
     {
