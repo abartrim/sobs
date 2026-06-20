@@ -1593,6 +1593,157 @@ def seed_issues_reuse(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_github_work_items FINAL")
 
 
+def seed_workitems(db) -> None:
+    # Drive the SYNCHRONOUS GitHub work-item backfill chain awaited inside GET /api/work-items
+    # (_maybe_backfill_github_work_item_links -> _backfill_github_work_item_links). A non-empty
+    # ai.github_token makes the backfill PROCEED past its missing-default-token early-return; three
+    # seeded "stale" work items each carry OLD field values, and the canned GitHub fixtures
+    # (migration/fixtures/upstream/*.json) return DIFFERENT values, so every row flips `changed` and
+    # is re-inserted with a fresh (frozen-epoch) Version that wins under ReplacingMergeTree FINAL.
+    # The three rows fan out across distinct _derive_copilot_assignment_status branches:
+    #   * #7 issue went CLOSED while CopilotAssignmentStatus="requested" -> ("completed","issue is
+    #     closed").
+    #   * #8 issue gained the Copilot assignee (copilot-swe-agent[bot]) -> ("active","Copilot is
+    #     assigned on the issue").
+    #   * #9 issue now has a linked open PR (search returns one) while status="not_requested" ->
+    #     ("blocked","linked pull request already exists").
+    # Token/repo are seeded; NO repo-scoped token is seeded so _load_repo_scoped_github_token falls
+    # back to the default. CreatedAt are fixed 2024 timestamps (distinct per row + distinct AgentRunId
+    # so the (CreatedAt, AgentRunId) sort key never collapses) and the serializer emits no wall-clock
+    # value, so the JSON is byte-reproducible with no mask. Seed Version=1704164644000 < the backfill's
+    # update Version (int(FIXED_EPOCH*1000)=1704164645000) so FINAL returns the refreshed rows.
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [
+            {"Key": "ai.github_repo", "Value": "acme/backfill-demo", "IsDeleted": 0, "Version": 1704164644000},
+            {"Key": "ai.github_token", "Value": "ghp_parity_token", "IsDeleted": 0, "Version": 1704164644000},
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+    _insert(
+        db,
+        "sobs_github_work_items",
+        [
+            {
+                "Id": "d2000000000000000000000000000007",
+                "CreatedAt": "2024-01-02 03:05:07.000000",
+                "CompletedAt": "2024-01-02 03:05:07.000000",
+                "AgentRunId": "br000000000000000000000000000007",
+                "AgentRuleId": "",
+                "AgentRuleName": "Backfill demo",
+                "AgentAction": "github_issue_copilot",
+                "ServiceName": "checkout",
+                "AnomalyRuleId": "",
+                "AnomalyState": "critical",
+                "SignalSource": "errors",
+                "SignalName": "TimeoutError",
+                "SignalValue": 1.0,
+                "GithubRepo": "acme/backfill-demo",
+                "DedupKey": "acme backfill demo|checkout|errors|timeouterror|critical",
+                "DedupDecision": "new_issue",
+                "DedupConfidence": 1.0,
+                "IssueNumber": 7,
+                "IssueUrl": "https://github.com/acme/backfill-demo/issues/7",
+                "CanonicalIssueNumber": 7,
+                "CanonicalIssueUrl": "https://github.com/acme/backfill-demo/issues/7",
+                "RelatedIssueUrls": "[]",
+                "OccurrenceCount": 1,
+                # OLD values -> the closed-issue fixture flips IssueState/IssueTitle/status.
+                "IssueState": "open",
+                "IssueTitle": "Checkout latency: TimeoutError spike",
+                "AnalysisSummary": "Prior root-cause analysis.",
+                "SuggestionSummary": "Prior suggested fix.",
+                "CopilotAssignmentRequestedAt": 0,
+                "CopilotAssignmentStatus": "requested",
+                "CopilotAssignmentReason": "Copilot assignment requested",
+                "PrLinked": 0,
+                "PrNumber": 0,
+                "PrUrl": "",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "Id": "d2000000000000000000000000000008",
+                "CreatedAt": "2024-01-02 03:05:08.000000",
+                "CompletedAt": "2024-01-02 03:05:08.000000",
+                "AgentRunId": "br000000000000000000000000000008",
+                "AgentRuleId": "",
+                "AgentRuleName": "Backfill demo",
+                "AgentAction": "github_issue_copilot",
+                "ServiceName": "api",
+                "AnomalyRuleId": "",
+                "AnomalyState": "warning",
+                "SignalSource": "metrics",
+                "SignalName": "rss_bytes",
+                "SignalValue": 1.0,
+                "GithubRepo": "acme/backfill-demo",
+                "DedupKey": "acme backfill demo|api|metrics|rss_bytes|warning",
+                "DedupDecision": "new_issue",
+                "DedupConfidence": 1.0,
+                "IssueNumber": 8,
+                "IssueUrl": "https://github.com/acme/backfill-demo/issues/8",
+                "CanonicalIssueNumber": 8,
+                "CanonicalIssueUrl": "https://github.com/acme/backfill-demo/issues/8",
+                "RelatedIssueUrls": "[]",
+                "OccurrenceCount": 1,
+                # OLD values -> the copilot-assignee fixture flips IssueTitle + status->active.
+                "IssueState": "open",
+                "IssueTitle": "Memory growth observed",
+                "AnalysisSummary": "",
+                "SuggestionSummary": "",
+                "CopilotAssignmentRequestedAt": 0,
+                "CopilotAssignmentStatus": "not_requested",
+                "CopilotAssignmentReason": "",
+                "PrLinked": 0,
+                "PrNumber": 0,
+                "PrUrl": "",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "Id": "d2000000000000000000000000000009",
+                "CreatedAt": "2024-01-02 03:05:09.000000",
+                "CompletedAt": "2024-01-02 03:05:09.000000",
+                "AgentRunId": "br000000000000000000000000000009",
+                "AgentRuleId": "",
+                "AgentRuleName": "Backfill demo",
+                "AgentAction": "github_issue",
+                "ServiceName": "gateway",
+                "AnomalyRuleId": "",
+                "AnomalyState": "warning",
+                "SignalSource": "logs",
+                "SignalName": "error_rate",
+                "SignalValue": 1.0,
+                "GithubRepo": "acme/backfill-demo",
+                "DedupKey": "acme backfill demo|gateway|logs|error_rate|warning",
+                "DedupDecision": "new_issue",
+                "DedupConfidence": 1.0,
+                "IssueNumber": 9,
+                "IssueUrl": "https://github.com/acme/backfill-demo/issues/9",
+                "CanonicalIssueNumber": 9,
+                "CanonicalIssueUrl": "https://github.com/acme/backfill-demo/issues/9",
+                "RelatedIssueUrls": "[]",
+                "OccurrenceCount": 1,
+                # OLD values -> the linked-PR fixture flips IssueTitle/PrLinked/PrNumber/PrUrl/status.
+                "IssueState": "open",
+                "IssueTitle": "Intermittent 503 from retries",
+                "AnalysisSummary": "",
+                "SuggestionSummary": "",
+                "CopilotAssignmentRequestedAt": 0,
+                "CopilotAssignmentStatus": "not_requested",
+                "CopilotAssignmentReason": "",
+                "PrLinked": 0,
+                "PrNumber": 0,
+                "PrUrl": "",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_github_work_items FINAL")
+
+
 def seed_notif_agent(db) -> None:
     # Exercise the AUTOMATIC agent-rule trigger branch of check_notifications (the path that the
     # base/notifcheck profiles never reach because AI is off there). Three isolated seeds:
@@ -3138,6 +3289,7 @@ PROFILE_SEEDS = {
     "onboard": seed_repo_app,  # app+token -> onboarding create-issues realtime + github-issue paths
     "issuesraise": seed_issues_raise,  # global github repo+token -> issues/raise agent flow creates an issue
     "issuereuse": seed_issues_reuse,  # prior work item + matching open issue -> issues/raise reuses it (dedup)
+    "workitems": seed_workitems,  # token + 3 stale work items -> /api/work-items SYNC backfill refreshes each
     "githubtoken": seed_github_token,
     "onboardrepos": seed_onboard_repos,  # global github token -> onboarding list/inspect token-USED branch
     "repohealth": seed_repohealth,  # apps+releases+github token -> populated repo-health /issues scan

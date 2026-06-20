@@ -1757,6 +1757,19 @@ routes:
       rule_id: r2
       signal_source: logs
       signal_name: log_volume
+# api_get_work_items SYNCHRONOUS GitHub backfill SUCCESS path (workitems profile): a seeded
+# ai.github_token makes _maybe_backfill_github_work_item_links proceed past its missing-token
+# early-return, and 3 stale work items each flip `changed` against the canned issue-GET / PR-search
+# fixtures, exercising the closed->completed, copilot-assignee->active, and linked-PR->blocked arms
+# of _derive_copilot_assignment_status. The refreshed rows are re-inserted (frozen-epoch Version
+# wins under FINAL) and returned. Fixed 2024 timestamps + no wall-clock field -> no mask needed.
+- id: get__api_work_items__workitems
+  path: /api/work-items
+  methods:
+  - GET
+  profile: workitems
+  request:
+    method: GET
 - id: get__enrichment_cve
   path: /enrichment/cve
   methods:
