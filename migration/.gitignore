@@ -10,3 +10,8 @@ tools/__pycache__/
 # headers) carry environment-derived mtimes. Regenerate locally to run parity_check.
 golden/
 _run/
+
+# Go integration-coverage artifacts (produced by an SOBS_GOCOVER=1 corpus replay; see
+# GO_COVERAGE.md). The raw covdata files and the textfmt profile are regenerated, not source.
+.gocov/
+go_coverage.txt
