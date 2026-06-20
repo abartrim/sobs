@@ -409,6 +409,11 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # workitems: the github mock + a seeded ai.github_token + 3 stale work items so the SYNCHRONOUS
+    # backfill awaited inside GET /api/work-items (not the background page caller) refreshes each row
+    # from the canned issue-GET / PR-search fixtures and returns the updated items. Only the upstream
+    # fixtures dir is needed (no AI endpoints — the chain calls GitHub only).
+    "workitems": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
     # aibuild: dashboards/spec/ai-build — the vanna pipeline (generate SQL -> execute -> named
     # queries -> chart option). No guard check; one canned /chat/completions ("SELECT 1 AS x") is
     # reused for every stage (URL-keyed), so the named-query/chart stages fail to parse identically
@@ -498,6 +503,7 @@ SEEDED_PROFILES = {
     "notifgen",
     "agenttrigger",
     "issuereuse",
+    "workitems",
     "notifagent",
     "notifagentmiss",
     "dmbackup",

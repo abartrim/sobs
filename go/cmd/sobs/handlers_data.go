@@ -246,11 +246,18 @@ func (s *server) handleApiEnrichmentLibraries(w http.ResponseWriter, r *http.Req
 
 // GET /api/work-items — app.py api_get_work_items: serialize sobs_github_work_items (FINAL),
 // filtered by the optional anomaly_rule_id/service/rule_id/signal_source/signal_name query args
-// and ordered by CreatedAt DESC. The async GitHub backfill is fire-and-forget (does not affect
-// the response) and is owned elsewhere, so it is skipped. Empty fixture -> {"ok": true, "items":
-// []}, matching the golden. The filter args are applied in app.py's source order so the SQL is
-// byte-identical (the WHERE clause is opaque to the empty-result render but kept faithful).
+// and ordered by CreatedAt DESC. app.py AWAITS _maybe_backfill_github_work_item_links(db, settings)
+// SYNCHRONOUSLY before the SELECT, so the refreshed (issue state/title, linked PR, Copilot status)
+// rows it re-inserts ARE reflected in the same response — this is the synchronous backfill caller
+// (distinct from view_work_items' background asyncio.create_task one). Token-gated: with no
+// ai.github_token the backfill returns immediately (no DB/network), so the empty-corpus golden is
+// unaffected. The filter args are applied in app.py's source order so the SQL is byte-identical.
 func (s *server) handleApiWorkItems(w http.ResponseWriter, r *http.Request) {
+	// app.py: settings = _load_all_ai_settings(db); await _maybe_backfill_github_work_item_links(...).
+	// maybeBackfillGithubWorkItemLinks reads ai.github_token itself, so the load is implicit; call it
+	// SYNCHRONOUSLY (not a goroutine) so its inserts land before the SELECT below, matching app.py.
+	s.maybeBackfillGithubWorkItemLinks()
+
 	q := r.URL.Query()
 	conds := []string{"IsDeleted = 0"}
 	var params []any
