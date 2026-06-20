@@ -389,6 +389,12 @@ PROFILES: dict[str, dict[str, str]] = {
     # package-lock.json that _parse_package_lock_dependencies parses into 3 npm deps -> one
     # dependencies-lockfile artifact inserted -> 3 libs -> OSV (canned) scan. attempted=1, inserted=1.
     "depsrich": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
+    # lockfiles (M30): like depsrich but FOUR apps/releases so the cve backfill reaches all four
+    # lockfile parsers (requirements / package-lock LEGACY-dependencies / go.sum / Gemfile.lock).
+    # Canned per-repo contents fixtures stop the contents loop on a distinct parser per repo;
+    # missing-fixture->404 advances earlier candidates. attempted=4, inserted=4,
+    # libraries_found=13, vulns_found=13 (canned OSV -> 1 vuln per lib).
+    "lockfiles": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
     # refine: query/refine-chart — query gate on + the LLM endpoint pointed at the canned
     # /chat/completions mock (distinct path so its URL key is unique to this route).
     "refine": {
@@ -627,6 +633,7 @@ SEEDED_PROFILES = {
     "tagsuggest",
     "cvebackfill",
     "depsrich",
+    "lockfiles",
     "onboard",
     "issuesraise",
     "githubtoken",
