@@ -2063,6 +2063,188 @@ def seed_notifydispatch(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_notification_channels FINAL")
 
 
+def seed_notifeval(db) -> None:
+    # Milestone 27: byte-parity-cover the notification-rule EVALUATION cluster of
+    # check_notifications (POST /api/notifications/check) — _normalize_notification_condition,
+    # _evaluate_tag_condition, and _check_notification_rule. The existing notifcheck/notifrule
+    # seeds register rules with EMPTY ConditionsJson ("[]"), so the real evaluation path never
+    # runs. Here every rule carries REAL conditions + matching tag data so each branch executes.
+    #
+    # DETERMINISM. The two clocks differ:
+    #   * Python time.time()/datetime.now() are FROZEN to FIXED_EPOCH (2024-01-02T03:04:05Z) by
+    #     the determinism harness, and the Go side reads SOBS_FAKE_EPOCH for the same value.
+    #   * ClickHouse/chdb now() is NOT frozen — it is real wall-clock on both runtimes.
+    # _evaluate_tag_condition computes min_version from FROZEN time
+    # (int((time.time()-window*60)*1000)) and filters sobs_record_tags WHERE Version >= min_version,
+    # so seeding tag rows at a frozen-era Version (1704164644000, comfortably above the 5-min-back
+    # bound 1704164345000) makes the count a fixed CONSTANT on every run — no wall-clock dependence.
+    # The cooldown gate likewise compares FROZEN now_ts against toUnixTimestamp64Milli(LastFiredAt)
+    # (a stored literal, not wall-clock), so a recent frozen-era LastFiredAt deterministically lands
+    # inside the cooldown window. The one signal condition (Rule B) windows on the un-frozen chdb
+    # now(); the base fixture carries NO logs inside that window, so it yields no row -> (False, 0.0)
+    # regardless of wall-clock timing — also deterministic.
+    #
+    # The base fixture has ZERO sobs_record_tags / sobs_notification_* rows, so the counts below are
+    # fully owned by this seed. ConfigJson is plaintext (decrypt is identity on un-prefixed values).
+    #
+    # Tag data: 3 production/log + 1 production/trace + 1 staging/log env tags (distinct RecordId so
+    # the ReplacingMergeTree keeps each). Counts the conditions resolve to:
+    #   env=production, RecordType=log    -> 3   (Rule A eq+record_type filter)
+    #   env (any value/record type)       -> 5   (Rule B's empty-value tag condition)
+    db.execute(
+        "INSERT INTO sobs_record_tags (RecordType, RecordId, TagKey, TagValue, IsAuto, IsDeleted, Version) "
+        "SELECT 'log', concat('ne-prod-', toString(number)), 'env', 'production', 1, 0, 1704164644000 "
+        "FROM numbers(3)"
+    )
+    _insert(
+        db,
+        "sobs_record_tags",
+        [
+            {
+                "RecordType": "trace",
+                "RecordId": "ne-prod-trace-1",
+                "TagKey": "env",
+                "TagValue": "production",
+                "IsAuto": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "RecordType": "log",
+                "RecordId": "ne-stg-1",
+                "TagKey": "env",
+                "TagValue": "staging",
+                "IsAuto": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+        ],
+    )
+
+    # One webhook channel pointed at the canned upstream sink (hooks.example.com/ops -> 200), so the
+    # firing rule's dispatch returns "ok". config key is "url" (the webhook fn reads config["url"]).
+    _insert(
+        db,
+        "sobs_notification_channels",
+        [
+            {
+                "Id": "ne-ch-webhook-1",
+                "Name": "Eval Webhook",
+                "ChannelType": "webhook",
+                "ConfigJson": '{"url": "https://hooks.example.com/ops"}',
+                "Enabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+        ],
+    )
+
+    # Four rules. Names are A/B/C/D-prefixed so the ORDER BY Name load order is fixed and the
+    # masked-uuid sequence (the per-channel notification-log Id of the ONE firing rule) is stable.
+    # Each rule exercises a distinct arm of _check_notification_rule and a distinct mix of
+    # _normalize_notification_condition branches:
+    #
+    #   A "Aaa Prod Tag Fires" (logic=any, 1 channel): a single tag condition with all VALID,
+    #       explicit fields (record_type=log, tag_match_operator=eq, comparator=gt). count=3 > 0 =>
+    #       fires => dispatch to the webhook (ok) => log write + LastFiredAt bump + raw-window
+    #       register. Covers normalize's tag branch (valid paths), _evaluate_tag_condition's
+    #       record_type filter + eq value filter + gt comparator true-arm, and the full FIRE path.
+    #   B "Bbb Defaults NoFire" (logic=all, 2 conditions, no channel): exercises the DEFAULTING
+    #       arms of normalize and the NOT-FIRE arm of the evaluator.
+    #         cond1: tag with INVALID record_type ("galaxy"->all), INVALID tag_match_operator
+    #               ("wat"->eq), INVALID comparator ("nope"->gt), empty tag_value (so the value
+    #               filter is skipped), threshold=99. count of all env tags = 5, 5 > 99 is False.
+    #         cond2: a SIGNAL condition (source=logs, signal=log_volume, comparator=gt,
+    #               threshold=0). The signal view windows on un-frozen now(); the base fixture has no
+    #               in-window logs => no row => (False, 0.0). Covers the signal eval no-data path.
+    #       logic=all with a False cond => "conditions not met" (not fired).
+    #   C "Ccc Disabled" (enabled=0): the `if not enabled` early-return arm (reason "disabled").
+    #       Its single tag condition still flows through normalize at LOAD time (covering a regex
+    #       tag_match_operator + lt comparator + a window_minutes clamp), but is never evaluated.
+    #   D "Ddd Cooldown" (enabled=1, LastFiredAt 5s before frozen now, cooldown 300): the cooldown
+    #       early-return arm (reason "cooldown"). Its condition (contains operator, gte comparator)
+    #       is normalized at load but never evaluated.
+    _insert(
+        db,
+        "sobs_notification_rules",
+        [
+            {
+                "Id": "ne-rule-a",
+                "Name": "Aaa Prod Tag Fires",
+                "Enabled": 1,
+                "LogicOperator": "any",
+                "ConditionsJson": (
+                    '[{"type": "tag", "record_type": "log", "tag_key": "env", '
+                    '"tag_match_operator": "eq", "tag_value": "production", '
+                    '"comparator": "gt", "threshold": 0, "window_minutes": 5}]'
+                ),
+                "ChannelIds": "ne-ch-webhook-1",
+                "Severity": "critical",
+                "CooldownSeconds": 300,
+                "LastFiredAt": "1970-01-01 00:00:00.000",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "Id": "ne-rule-b",
+                "Name": "Bbb Defaults NoFire",
+                "Enabled": 1,
+                "LogicOperator": "all",
+                "ConditionsJson": (
+                    '[{"type": "tag", "record_type": "galaxy", "tag_key": "env", '
+                    '"tag_match_operator": "wat", "tag_value": "", '
+                    '"comparator": "nope", "threshold": 99}, '
+                    '{"type": "signal", "source": "logs", "signal": "log_volume", '
+                    '"service": "web", "comparator": "gt", "threshold": 0, "window_minutes": 5}]'
+                ),
+                "ChannelIds": "",
+                "Severity": "warning",
+                "CooldownSeconds": 600,
+                "LastFiredAt": "1970-01-01 00:00:00.000",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "Id": "ne-rule-c",
+                "Name": "Ccc Disabled",
+                "Enabled": 0,
+                "LogicOperator": "any",
+                "ConditionsJson": (
+                    '[{"type": "tag", "tag_key": "env", "tag_match_operator": "regex", '
+                    '"tag_value": "prod.*", "comparator": "lt", "threshold": 1, '
+                    '"window_minutes": 999}]'
+                ),
+                "ChannelIds": "ne-ch-webhook-1",
+                "Severity": "warning",
+                "CooldownSeconds": 300,
+                "LastFiredAt": "1970-01-01 00:00:00.000",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "Id": "ne-rule-d",
+                "Name": "Ddd Cooldown",
+                "Enabled": 1,
+                "LogicOperator": "any",
+                "ConditionsJson": (
+                    '[{"type": "tag", "record_type": "error", "tag_key": "env", '
+                    '"tag_match_operator": "contains", "tag_value": "prod", '
+                    '"comparator": "gte", "threshold": 1, "window_minutes": 0}]'
+                ),
+                "ChannelIds": "ne-ch-webhook-1",
+                "Severity": "critical",
+                "CooldownSeconds": 300,
+                "LastFiredAt": "2024-01-02 03:04:00.000",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_record_tags FINAL")
+    db.execute("OPTIMIZE TABLE sobs_notification_channels FINAL")
+    db.execute("OPTIMIZE TABLE sobs_notification_rules FINAL")
+
+
 def seed_github_token(db) -> None:
     # A configured global GitHub token so onboarding inspect/issue routes reach their GitHub
     # branch (the repo-scoped key is absent, so this global one is used).
@@ -3747,6 +3929,7 @@ PROFILE_SEEDS = {
     "dmprune": seed_dm_prune,  # retention-eligible rows -> prune's DELETE window runs on real data
     "notifagent": seed_notif_agent,  # tag rule + auto tags + agent rule -> check_notifications auto-triggers the flow
     "notifagentmiss": seed_notif_agent_miss,  # tag infra + continue-only agent rules -> agent_runs stays []
+    "notifeval": seed_notifeval,  # rules w/ REAL conditions+matching tags -> eval fire/no-fire/cooldown/disabled arms
     "dmbackup": seed_dm_backup,
     "k8s": seed_k8s,  # backup_enabled=1; backup/run + restore reach their enabled branch
     "k8srich": seed_k8srich,  # OTEL-native k8s.* gauge rows -> _fetch_k8s_from_otel otel-branch populated

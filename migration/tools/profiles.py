@@ -286,6 +286,14 @@ PROFILES: dict[str, dict[str, str]] = {
     # non-firing) rules; isolated from the notif toggle/delete tests. Also exercises auto-generate
     # *preview* with enabled channels (channel pre-selection + covered-set build).
     "notifcheck": {},
+    # notifeval (Milestone 27): seeded notification rules carrying REAL conditions + matching tag
+    # data, so check_notifications runs the rule-EVALUATION cluster (_normalize_notification_condition,
+    # _evaluate_tag_condition, _check_notification_rule) end to end — covering the fire / not-fired /
+    # disabled / cooldown arms. The ONE firing rule dispatches to a webhook on hooks.example.com, so
+    # SOBS_UPSTREAM_FIXTURES points at the canned-2xx sink (=> dispatch returns "ok"). AI stays
+    # UNCONFIGURED so the automatic agent-trigger branch is a no-op (agent_runs == []), exactly like
+    # the oracle on this fixture.
+    "notifeval": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
     # notifgen: seeded channels+rules so auto-generate *create* runs its insert branch (derives a
     # notification rule per uncovered anomaly rule); isolated so the new rows don't ripple.
     "notifgen": {},
@@ -556,6 +564,7 @@ SEEDED_PROFILES = {
     "notif",
     "notifydispatch",
     "notifcheck",
+    "notifeval",
     "notifgen",
     "agenttrigger",
     "issuereuse",
