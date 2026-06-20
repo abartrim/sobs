@@ -3596,6 +3596,116 @@ def seed_tracemetrics(db) -> None:
     db.execute("OPTIMIZE TABLE otel_metrics_gauge FINAL")
 
 
+# The tracewindows trace id (distinct from tracemetrics' so the seed is isolated).
+_TRACEWINDOWS_TRACE_ID = "cccc5555dddd6666eeee7777ffff8888"
+
+
+def seed_tracewindows(db) -> None:
+    # _build_trace_window_overlay_segments SUCCESS path (app.py 14787-14842), reached via
+    # view_traces' trace-detail render (app.py 15594): trace_window_segments =
+    # _build_trace_window_overlay_segments(all_trace_spans, trace_windows). The builder only runs
+    # when BOTH spans and windows are non-empty, and trace_windows comes from
+    # _list_trace_overlapping_raw_windows (app.py 2441) -- sobs_raw_windows rows whose
+    # [WindowStart, WindowEnd] interval overlaps the trace's [start, end] AND whose ServiceName is
+    # '' or in the trace's services. So we seed a now()-anchored SINGLE-span trace (cart-api, 80ms,
+    # identical shape to the tracemetrics span so the page render is stable) PLUS two overlapping
+    # sobs_raw_windows rows.
+    #
+    # Determinism: otel_metrics has a 48h baseline TTL evaluated against the real wall clock, so the
+    # span+gauge rows MUST be now()-anchored to survive OPTIMIZE (mirrors tracemetrics). sobs_raw_windows
+    # itself has NO TTL, but the windows must be anchored to the SAME instant as the span or they would
+    # not overlap. The overlay segments use RELATIVE positions (left/width % of the trace timeline), so
+    # they are byte-stable across capture/replay regardless of absolute epoch: the span lands on a
+    # toStartOfMinute(now()) boundary (integer epoch-ms, .000 fraction) and every window edge is a fixed
+    # ms offset from it. Only the ABSOLUTE window_start/window_end strings rendered in the raw_windows
+    # table (traces.html 469-470) and the trace_start_ts/trace_end_ts pair drift -> masked below.
+    #
+    # Two windows exercise the builder's branches broadly:
+    #   W1 "deploy" (cccc...w1): WindowStart = anchor-5min, WindowEnd = anchor+5min -> FULLY contains
+    #     the 80ms trace. Both clamp arms fire: start_ms = max(ws, trace_start) = trace_start;
+    #     end_ms = min(we, trace_end) = trace_end -> start_pct=0.0, width_pct=100.0. ServiceName=cart-api
+    #     (the IN-services branch). 3 sobs_raw_window_copy_state rows (one per _RAW_METRIC_TABLES entry)
+    #     -> copied_count=3 == expected_count=3 -> copy_complete=True -> title "[3/3]" + "complete" class.
+    #   W2 "anomaly" (cccc...w2): WindowStart = anchor+20ms, WindowEnd = anchor+60ms -> INTERIOR of the
+    #     trace, NEITHER clamp fires (ws > trace_start, we < trace_end) -> start_pct=25.0, width_pct=50.0.
+    #     ServiceName='' (the global / ServiceName='' branch). 1 copy_state row -> copied_count=1 < 3 ->
+    #     copy_complete=False -> title "[1/3]" + "partial" class. Carries a signal_ref so the
+    #     " ({signal_ref})" title arm fires; W1 also has a signal_ref. The two segments sort by start_pct
+    #     (0.0 before 25.0).
+    tid = _TRACEWINDOWS_TRACE_ID
+
+    # --- the trace span (now()-anchored, same k8s identity shape as tracemetrics) ---
+    db.execute(
+        "INSERT INTO otel_traces "
+        "(Timestamp, TraceId, SpanId, ParentSpanId, SpanName, ServiceName, "
+        "Duration, StatusCode, SpanAttributes) "
+        f"SELECT toDateTime64({_TM_ANCHOR_SQL}, 9), '{tid}', 'cccc000000000002', '', "
+        "'GET /cart', 'cart-api', toUInt64(80 * 1000000), 'STATUS_CODE_OK', "
+        "map("
+        "'http.method', 'GET', 'http.url', '/cart', 'http.status_code', '200', "
+        "'k8s.namespace.name', 'shop', 'k8s.pod.name', 'cart-7d', "
+        "'k8s.node.name', 'node-a', 'k8s.deployment.name', 'cart') "
+        "FROM numbers(1)"
+    )
+
+    # --- matching metric rows (keeps the metric-context render identical to tracemetrics) ---
+    metric_rows = [
+        ("k8s.pod.cpu.utilization", 45.0),
+        ("k8s.pod.memory.usage", 536870912.0),
+        ("k8s.pod.status_phase", 1.0),
+    ]
+    attrs_map = (
+        "map("
+        "'k8s.namespace.name', 'shop', 'k8s.pod.name', 'cart-7d', "
+        "'k8s.node.name', 'node-a', 'k8s.deployment.name', 'cart')"
+    )
+    for metric, value in metric_rows:
+        db.execute(
+            "INSERT INTO otel_metrics_gauge "
+            "(TimeUnix, ServiceName, MetricName, Value, Attributes) "
+            f"SELECT toDateTime64({_TM_ANCHOR_SQL}, 9), 'cart-api', '{metric}', "
+            f"{value}, {attrs_map} FROM numbers(1)"
+        )
+
+    # --- two overlapping sobs_raw_windows rows aligned to the SAME now()-anchored instant ---
+    w1_id = "cccc5555dddd6666eeee7777ffffwww1"
+    w2_id = "cccc5555dddd6666eeee7777ffffwww2"
+    # W1: fully contains the trace (anchor-5min .. anchor+5min), ServiceName=cart-api, signal_ref set.
+    db.execute(
+        "INSERT INTO sobs_raw_windows "
+        "(Id, SignalTs, WindowStart, WindowEnd, SignalType, SignalRef, ServiceName, Namespace, NodeName, Version) "
+        f"SELECT '{w1_id}', toDateTime64({_TM_ANCHOR_SQL}, 9), "
+        f"toDateTime64({_TM_ANCHOR_SQL} - INTERVAL 5 MINUTE, 9), "
+        f"toDateTime64({_TM_ANCHOR_SQL} + INTERVAL 5 MINUTE, 9), "
+        "'deploy', 'cart@v2', 'cart-api', 'shop', 'node-a', toUInt64(1000) FROM numbers(1)"
+    )
+    # W2: interior of the trace (anchor+20ms .. anchor+60ms), ServiceName='' (global), signal_ref set.
+    db.execute(
+        "INSERT INTO sobs_raw_windows "
+        "(Id, SignalTs, WindowStart, WindowEnd, SignalType, SignalRef, ServiceName, Namespace, NodeName, Version) "
+        f"SELECT '{w2_id}', toDateTime64({_TM_ANCHOR_SQL}, 9), "
+        f"toDateTime64({_TM_ANCHOR_SQL} + INTERVAL 20 MILLISECOND, 9), "
+        f"toDateTime64({_TM_ANCHOR_SQL} + INTERVAL 60 MILLISECOND, 9), "
+        "'anomaly', 'latency-p99', '', '', '', toUInt64(1000) FROM numbers(1)"
+    )
+
+    # --- copy-state rows: W1 fully copied (3/3 -> complete), W2 partially copied (1/3 -> partial) ---
+    for src_table in ("otel_metrics_gauge", "otel_metrics_sum", "otel_metrics_histogram"):
+        db.execute(
+            "INSERT INTO sobs_raw_window_copy_state (WindowId, SourceTable, Version) "
+            f"SELECT '{w1_id}', '{src_table}', toUInt64(1000) FROM numbers(1)"
+        )
+    db.execute(
+        "INSERT INTO sobs_raw_window_copy_state (WindowId, SourceTable, Version) "
+        f"SELECT '{w2_id}', 'otel_metrics_gauge', toUInt64(1000) FROM numbers(1)"
+    )
+
+    db.execute("OPTIMIZE TABLE otel_traces FINAL")
+    db.execute("OPTIMIZE TABLE otel_metrics_gauge FINAL")
+    db.execute("OPTIMIZE TABLE sobs_raw_windows FINAL")
+    db.execute("OPTIMIZE TABLE sobs_raw_window_copy_state FINAL")
+
+
 def seed_airich(db) -> None:
     # view_ai _safe_attr_int defensive branches (app.py 18757-18758 ValueError; 18760 NaN/inf guard).
     # ONE AI span (gen_ai.* attrs so _AI_SPAN_CONDITION matches) carrying a NON-NUMERIC input_tokens
@@ -4180,6 +4290,7 @@ PROFILE_SEEDS = {
     "aiview": seed_aiview,  # otel_traces AI spans (gen_ai.*) -> populated view_ai branches
     "tracesrich": seed_tracesrich,  # single-span trace + 51 identical ERROR logs -> errors_truncated (15479-15480)
     "tracemetrics": seed_tracemetrics,  # now()-anchored trace + gauge rows -> _fetch_trace_metric_context tier-1
+    "tracewindows": seed_tracewindows,  # now()-anchored trace + 2 overlapping sobs_raw_windows -> overlay segments
     "airich": seed_airich,  # AI span w/ non-numeric + inf token attrs -> _safe_attr_int branches (18757-18760)
     "aiturns": seed_aiturns,  # 1 trace, 5 AI spans, 2 turns -> genai message-render + _build_ai_trace_turn_cards
     "airichsql": seed_airich,  # same AI span; ISOLATED process so the sql-error totals cache mutation can't leak

@@ -1319,6 +1319,38 @@ routes:
     tokens drift: mask 1 redacts the trace_start_ts/trace_end_ts pair (traces.html 262, DateTime64 form);
     masks 2-3 redact the match-case _traceMetricChartData traceStart/traceEnd epoch-ms and the ticks_ms
     array (traces.html 374-383), which are absolute now()-relative ms.
+# tracewindows profile: the tracemetrics now()-anchored single-span trace PLUS two overlapping
+# sobs_raw_windows rows (W1 fully contains the trace -> both clamp arms -> start_pct=0.0 width_pct=100.0
+# complete; W2 interior -> no clamp -> start_pct=25.0 width_pct=50.0 partial). With trace_id set,
+# view_traces' trace-detail render calls _build_trace_window_overlay_segments (app.py 14787, call 15594)
+# and emits two overlay segments (traces.html 523-535) plus the raw_windows table (traces.html 460-487).
+# The overlay segments' start_pct/width_pct/title/copy_complete are RELATIVE to the trace timeline, so
+# they are byte-stable regardless of wall clock and are byte-compared. Only the ABSOLUTE now()-anchored
+# DateTime64 strings drift (the raw_windows table window_start/window_end pair + trace_start_ts/end +
+# the metric-context JS epoch tokens) -> masked exactly as tracemetrics (same span + gauge rows render).
+- id: get__traces__tracewindows
+  path: /traces
+  methods:
+  - GET
+  profile: tracewindows
+  request:
+    method: GET
+    query:
+      trace_id: cccc5555dddd6666eeee7777ffff8888
+  mask:
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}[0-9.]*'
+  - 'traceStart: [0-9]+'
+  - 'traceEnd: [0-9]+'
+  - 'ticks: \[[0-9, ]*\]'
+  mask_reason: >-
+    Mirrors the tracemetrics masks: the now()-anchored span + gauge rows render the same absolute
+    now()-derived tokens. Mask 1 redacts every DateTime64 string -- the trace_start_ts/trace_end_ts pair
+    (traces.html 262) AND the raw_windows table's per-window window_start/window_end strings (traces.html
+    469-470), which are anchored to toStartOfMinute(now())-30min and so drift between capture and replay.
+    Masks 2-3 redact the metric-context _traceMetricChartData traceStart/traceEnd epoch-ms and the ticks_ms
+    array (traces.html 374-383). The _build_trace_window_overlay_segments output (start_pct, width_pct,
+    title "[copied/expected]", copy_complete -> complete/partial class) is RELATIVE to the trace timeline
+    and wall-clock-independent, so it is left byte-compared and proves the overlay builder fired.
 # Same tracedetail seed, LIST view (no trace_id): a service filter and a regex(q) filter drive the
 # selected_services / q-prepare / regex-clause / count-with-where / spans-loop branches of
 # view_traces. Distinct seed timestamps keep ORDER BY Timestamp DESC deterministic.
