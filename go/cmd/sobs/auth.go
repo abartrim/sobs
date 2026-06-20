@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/sobs/sobs/internal/jsonenc"
 )
@@ -306,26 +305,27 @@ func (s *server) enforceUIAuth(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-var externalAuthClient = &http.Client{Timeout: 5 * time.Second}
-
 // checkExternalAuth mirrors app.py _check_external_auth: POST the Authorization header to
 // {EXTERNAL_AUTH_URL}/internal/auth/validate; true only on HTTP 200.
+//
+// The dial goes through s.upstreamRequest so it honours the SOBS_UPSTREAM_FIXTURES mock under the
+// parity harness — exactly as the Python oracle's _get_async_http_client() does (its httpx client is
+// patched by the determinism shim's MockTransport). app.py reads the external auth service through
+// the SAME shimmed client, so without this both sides would disagree: Python returns the canned 200
+// (pass) while a raw net/http dial here would hit the (non-existent) host and fail to 401. When the
+// fixtures dir is UNSET (real runtime) upstreamRequest falls back to a real http.Client, sending the
+// Authorization header to the live auth service — matching Python's runtime behaviour. The 5s timeout
+// app.py sets is a transport detail with no effect on either the mocked or the byte-compared result.
 func (s *server) checkExternalAuth(authorization string) bool {
 	if s.auth.externalURL == "" {
 		return false
 	}
 	endpoint := strings.TrimRight(s.auth.externalURL, "/") + "/internal/auth/validate"
-	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
+	resp, err := s.upstreamRequest(http.MethodPost, endpoint, nil, map[string]string{"Authorization": authorization})
 	if err != nil {
 		return false
 	}
-	req.Header.Set("Authorization", authorization)
-	resp, err := externalAuthClient.Do(req)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	return resp.Status == http.StatusOK
 }
 
 func isStateChangingMethod(m string) bool {

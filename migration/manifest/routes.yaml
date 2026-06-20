@@ -6361,6 +6361,95 @@ routes:
   - POST
   request:
     method: POST
+# ---- require_basic_auth decorator branches (R34) ------------------------------------------------
+# The auth gate (app.py require_basic_auth) only runs its "none" arm in the base corpus. These
+# variants flip _auth_mode() to basic/external/invalid via env-only profiles (profiles.py:
+# authbasic / authexternal / authextfail / authinvalid) and drive each branch with credential
+# headers. The PASS cases target GET /api/web-traffic/browsers (already base-GREEN -> body
+# {"ok": true, "browsers": []}); the FAIL cases (401/403/500) use a decorated route but never reach
+# its handler (the gate returns first), so the body + WWW-Authenticate header are static. normalize.py
+# compares WWW-Authenticate byte-for-byte (it is in no drop-list), so the realm challenge is diffed.
+#
+# basic mode: valid Basic creds (base64("sobs:secret")) pass to the handler -> 200.
+- id: get__api_web_traffic_browsers__basic_ok
+  path: /api/web-traffic/browsers
+  methods:
+  - GET
+  profile: authbasic
+  request:
+    method: GET
+    headers:
+      Authorization: "Basic c29iczpzZWNyZXQ="
+# basic mode: wrong password -> credentials rejected -> 401 Basic realm challenge.
+- id: get__api_web_traffic_browsers__basic_badpass
+  path: /api/web-traffic/browsers
+  methods:
+  - GET
+  profile: authbasic
+  request:
+    method: GET
+    headers:
+      Authorization: "Basic c29iczp3cm9uZw=="
+# basic mode: no Authorization header at all -> 401 Basic realm challenge.
+- id: get__api_web_traffic_browsers__basic_noauth
+  path: /api/web-traffic/browsers
+  methods:
+  - GET
+  profile: authbasic
+  request:
+    method: GET
+# basic mode + CSRF_ORIGIN_CHECK on: a write (POST) with no same-origin Origin/Referer trips the
+# CSRF gate (which fires before the credential check) -> 403 {"error":"CSRF origin check failed"}.
+# Uses a decorated POST route (api_dm_prune) that BOTH runtimes register for POST; the handler is
+# never reached. No Origin/Referer is sent, so sameOriginRequest()/_same_origin_request() return
+# False host-independently (origin="" != any expected_origin).
+- id: post__api_data_management_prune__csrf_block
+  path: /api/data-management/prune
+  methods:
+  - POST
+  profile: authbasic
+  request:
+    method: POST
+    json: {}
+# external mode: a Bearer token validated by the external auth service. The /extauth fixture returns
+# 200 (authexternal profile), so _check_external_auth/checkExternalAuth pass -> the handler runs -> 200.
+- id: get__api_web_traffic_browsers__external_ok
+  path: /api/web-traffic/browsers
+  methods:
+  - GET
+  profile: authexternal
+  request:
+    method: GET
+    headers:
+      Authorization: "Bearer parity-ext-token"
+# external mode: no Bearer (and no session cookie) -> the service is never dialed -> 401 Bearer realm.
+- id: get__api_web_traffic_browsers__external_nobearer
+  path: /api/web-traffic/browsers
+  methods:
+  - GET
+  profile: authexternal
+  request:
+    method: GET
+# external mode REJECT: a well-formed Bearer, but the /extauthbad fixture returns 403, so
+# checkExternalAuth returns False -> 401 Bearer realm. Covers the validate-call-but-not-200 arm.
+- id: get__api_web_traffic_browsers__external_reject
+  path: /api/web-traffic/browsers
+  methods:
+  - GET
+  profile: authextfail
+  request:
+    method: GET
+    headers:
+      Authorization: "Bearer parity-ext-token"
+# invalid mode: both basic creds AND an external URL configured -> _auth_mode()=="invalid" -> 500
+# {"error":"Server auth misconfiguration"} on any decorated route, before the handler runs.
+- id: get__api_web_traffic_browsers__invalid
+  path: /api/web-traffic/browsers
+  methods:
+  - GET
+  profile: authinvalid
+  request:
+    method: GET
 - id: get__tail
   path: /tail
   methods:

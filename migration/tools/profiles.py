@@ -644,6 +644,53 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_SOURCE_MAP_ENABLE": "1",
         "SOBS_SOURCE_MAP_DIR": _SOURCEMAP_DIR,
     },
+    # ---- require_basic_auth decorator branches (R34) ----------------------------------------
+    # The auth gate (app.py require_basic_auth / _auth_mode) is exercised only on its "none" arm by
+    # the base corpus (no auth env set). These PURE env overlays (no DB seed) flip _auth_mode() to
+    # each of its other configured states so the gate's branches become byte-comparable. They target
+    # the SAME deterministic decorated route the base corpus already proves GREEN
+    # (GET /api/web-traffic/browsers -> {"ok": true, "browsers": []} on the empty seed) for the
+    # PASS cases, and any decorated route for the FAIL cases (the gate returns BEFORE the route runs,
+    # so the 401/403/500 body + WWW-Authenticate header are static). Header comparison is byte-exact
+    # in normalize.py (WWW-Authenticate is NOT in any drop-list), so the realm challenge is diffed.
+    #
+    # authbasic: both basic creds set (-> mode "basic"), and CSRF_ORIGIN_CHECK ON so the write-path
+    # origin gate is also exercised. A valid `Basic base64("sobs:secret")` passes to the handler;
+    # a wrong password / a missing Authorization header falls through to 401 Basic-realm; a write
+    # (POST) with no same-origin Origin trips the CSRF 403 (which fires before the credential check,
+    # so it needs no creds). The GET pass-route is unaffected by the CSRF gate (GET is not a write).
+    "authbasic": {
+        "SOBS_BASIC_AUTH_USERNAME": "sobs",
+        "SOBS_BASIC_AUTH_PASSWORD": "secret",
+        "SOBS_CSRF_ORIGIN_CHECK": "1",
+    },
+    # authexternal: EXTERNAL_AUTH_URL set (-> mode "external"). _check_external_auth POSTs
+    # {EXTERNAL_AUTH_URL}/internal/auth/validate and passes iff that returns HTTP 200. The URL host
+    # is sobs-ai.mock (on the determinism shim allowlist) and SOBS_UPSTREAM_FIXTURES points at the
+    # canned dir, so BOTH the Python oracle (httpx MockTransport) and the Go server
+    # (checkExternalAuth -> upstreamRequest, R34 fix) read the SAME URL-keyed fixture. The /extauth
+    # fixture returns 200 -> a Bearer request passes to the handler; a request with no Bearer never
+    # dials the service (the startswith guard fails) and falls to 401 Bearer-realm.
+    "authexternal": {
+        "SOBS_EXTERNAL_AUTH_URL": "http://sobs-ai.mock/extauth",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # authextfail: same external mode, but the auth-validate fixture returns 403 (not 200), so
+    # _check_external_auth returns False even for a well-formed Bearer token -> the request falls to
+    # 401 Bearer-realm. This covers the external REJECT arm (the validate-call-but-not-200 branch),
+    # distinct from authexternal's no-Bearer-at-all reject.
+    "authextfail": {
+        "SOBS_EXTERNAL_AUTH_URL": "http://sobs-ai.mock/extauthbad",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # authinvalid: BOTH basic creds AND an external URL configured -> _auth_mode() returns "invalid"
+    # (configuration is exclusive). Any decorated route then short-circuits to 500
+    # {"error": "Server auth misconfiguration"} before the route runs.
+    "authinvalid": {
+        "SOBS_BASIC_AUTH_USERNAME": "sobs",
+        "SOBS_BASIC_AUTH_PASSWORD": "secret",
+        "SOBS_EXTERNAL_AUTH_URL": "http://sobs-ai.mock/extauth",
+    },
 }
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via
