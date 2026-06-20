@@ -778,6 +778,75 @@ routes:
   profile: repoapp
   request:
     method: GET
+# appreg: SOBS_APP_REGISTRY_SEED_JSON drives _seed_app_release_registry_from_env (app.py 8935) at
+# boot so the registry is POPULATED with two real apps (a1…01 Alpha Service, a1…02 Beta Worker),
+# two releases under Alpha, and two artifacts under Alpha's 2.1.0 release. These read routes
+# byte-verify the seeded graph; the boot itself covers the seeder's happy + every skip branch.
+# list_apps ORDER BY Name ASC: Alpha Service then Beta Worker. createdAt/updatedAt are _now_iso()
+# at boot (not overridable) so they drift per-process -> field-masked; everything else is byte-equal.
+- id: get__v1_apps__appreg
+  path: /v1/apps
+  methods:
+  - GET
+  profile: appreg
+  request:
+    method: GET
+  mask:
+  - '"createdAt": ?"[^"]*"'
+  - '"updatedAt": ?"[^"]*"'
+  mask_reason: each app's createdAt/updatedAt is _now_iso() set at boot by the registry seeder (not JSON-overridable), so it differs between the oracle capture and the Go replay; the value is masked per-field while name/slug/ownerTeam/repoUrl/enabled/metadata and the Name-ASC ordering are byte-compared.
+# list_apps q-filter branch (app.py 10308-10309): ?q=alpha matches only Alpha Service (substring of
+# name.lower()), so Beta Worker drops -> the comprehension's filter arm is exercised deterministically.
+- id: get__v1_apps__appreg_q
+  path: /v1/apps
+  methods:
+  - GET
+  profile: appreg
+  request:
+    method: GET
+    query: {q: alpha}
+  mask:
+  - '"createdAt": ?"[^"]*"'
+  - '"updatedAt": ?"[^"]*"'
+  mask_reason: see get__v1_apps__appreg.
+# get_app_registry_entry + _find_app_by_id (app.py 10352): single-app detail for the seeded Alpha id.
+- id: get__v1_apps__appreg_detail
+  path: /v1/apps/a1000000000000000000000000000001
+  methods:
+  - GET
+  profile: appreg
+  request:
+    method: GET
+  mask:
+  - '"createdAt": ?"[^"]*"'
+  - '"updatedAt": ?"[^"]*"'
+  mask_reason: see get__v1_apps__appreg.
+# list_app_releases (app.py 10404) ORDER BY ReleasedAt DESC: Alpha's 2.1.0 (2024-01-03) then 2.0.0
+# (2024-01-02). releasedAt is JSON-pinned (DateTime64(3)) so it is byte-compared, no mask needed.
+- id: get__v1_apps__appreg_releases
+  path: /v1/apps/a1000000000000000000000000000001/releases
+  methods:
+  - GET
+  profile: appreg
+  request:
+    method: GET
+# get_release (app.py 10451) -> {release, artifacts}: the 2.1.0 release plus its two artifacts
+# ordered by UploadedAt DESC (alpha-image 03:10 then alpha-sbom 03:05). All timestamps JSON-pinned.
+- id: get__v1_releases__appreg
+  path: /v1/releases/a2000000000000000000000000000001
+  methods:
+  - GET
+  profile: appreg
+  request:
+    method: GET
+# list_release_artifacts (app.py 10470): the same two artifacts as a bare array, UploadedAt DESC.
+- id: get__v1_releases__appreg_artifacts
+  path: /v1/releases/a2000000000000000000000000000001/artifacts
+  methods:
+  - GET
+  profile: appreg
+  request:
+    method: GET
 - id: get__api_ai_span_attributes_seeded
   path: /api/ai/span-attributes
   methods:
