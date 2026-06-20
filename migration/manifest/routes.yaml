@@ -5110,6 +5110,16 @@ routes:
   path: /api/enrichment/github/repo-health
   methods:
   - GET
+# repohealth: a seeded global ai.github_token + three apps/releases drive the populated
+# _collect_github_repo_health_summary scan (app.py 17944-18083). Each repo's token-gated
+# /issues?state=open call is served canned (rich list, empty list, missing fixture -> 404 skip),
+# exercising version-token scoping, issue/PR split, security detection, the sort, and the non-200
+# skip. last_synced_at is the frozen-clock _now_iso() -> byte-stable, no mask needed.
+- id: get__api_enrichment_github_repo_health__repohealth
+  path: /api/enrichment/github/repo-health
+  methods:
+  - GET
+  profile: repohealth
 - id: get__settings_data_management
   path: /settings/data-management
   methods:

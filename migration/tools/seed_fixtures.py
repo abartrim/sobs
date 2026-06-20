@@ -1815,6 +1815,119 @@ def seed_onboard_repos(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
 
 
+def seed_repohealth(db) -> None:
+    # Exercises the populated _collect_github_repo_health_summary scan path (app.py 17944-18083),
+    # reached by GET /api/enrichment/github/repo-health. Seeds a global GitHub token plus three
+    # enabled apps, each with a parseable GitHub RepoUrl AND at least one release version, so each
+    # becomes a repo_target and the token-gated per-repo /issues?state=open scan runs:
+    #   * parityorg/health-svc (v3.1.0): canned /issues list with version-matching issues, PRs,
+    #     security items (keyword + label), a non-matching item, and a non-dict item -> covers the
+    #     issue/PR split, security detection, version-token filter, and the populated repos entry.
+    #   * parityorg/quiet-svc (v9.9.9): canned EMPTY /issues list -> scanned, all-zero repos entry.
+    #   * parityorg/dark-svc (v5.0.0): NO upstream fixture -> the mock returns 404, so the per-repo
+    #     branch increments scanned_repos then `continue`s (resp.status_code != 200) and is NOT
+    #     appended -> covers the non-200 skip. Names sort AAA/BBB/CCC so iteration order is fixed;
+    #     last_synced_at is the frozen-clock _now_iso() (deterministic on both sides). Ids/token FIXED.
+    _insert(
+        db,
+        "sobs_apps",
+        [
+            {
+                "Id": "f1000000000000000000000000000031",
+                "Name": "AAA Health Service",
+                "Slug": "aaa-health-service",
+                "OwnerTeam": "platform",
+                "RepoUrl": "https://github.com/parityorg/health-svc",
+                "DefaultEnvironment": "prod",
+                "Enabled": 1,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164645000,
+                "CreatedAt": _TS,
+                "UpdatedAt": _TS,
+            },
+            {
+                "Id": "f1000000000000000000000000000032",
+                "Name": "BBB Quiet Service",
+                "Slug": "bbb-quiet-service",
+                "OwnerTeam": "platform",
+                "RepoUrl": "https://github.com/parityorg/quiet-svc",
+                "DefaultEnvironment": "prod",
+                "Enabled": 1,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164645000,
+                "CreatedAt": _TS,
+                "UpdatedAt": _TS,
+            },
+            {
+                "Id": "f1000000000000000000000000000033",
+                "Name": "CCC Dark Service",
+                "Slug": "ccc-dark-service",
+                "OwnerTeam": "platform",
+                "RepoUrl": "https://github.com/parityorg/dark-svc",
+                "DefaultEnvironment": "prod",
+                "Enabled": 1,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164645000,
+                "CreatedAt": _TS,
+                "UpdatedAt": _TS,
+            },
+        ],
+    )
+    _insert(
+        db,
+        "sobs_app_releases",
+        [
+            {
+                "Id": "f1000000000000000000000000000041",
+                "AppId": "f1000000000000000000000000000031",
+                "ReleaseVersion": "3.1.0",
+                "CommitSha": "",
+                "BuildId": "",
+                "Environment": "prod",
+                "ReleasedAt": _TS,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164645000,
+            },
+            {
+                "Id": "f1000000000000000000000000000042",
+                "AppId": "f1000000000000000000000000000032",
+                "ReleaseVersion": "9.9.9",
+                "CommitSha": "",
+                "BuildId": "",
+                "Environment": "prod",
+                "ReleasedAt": _TS,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164645000,
+            },
+            {
+                "Id": "f1000000000000000000000000000043",
+                "AppId": "f1000000000000000000000000000033",
+                "ReleaseVersion": "5.0.0",
+                "CommitSha": "",
+                "BuildId": "",
+                "Environment": "prod",
+                "ReleasedAt": _TS,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164645000,
+            },
+        ],
+    )
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [{"Key": "ai.github_token", "Value": "ghp_parityfixturetoken", "IsDeleted": 0, "Version": 1704164645000}],
+    )
+    db.execute("OPTIMIZE TABLE sobs_apps FINAL")
+    db.execute("OPTIMIZE TABLE sobs_app_releases FINAL")
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+
+
 def seed_mcp_key(db) -> None:
     # One MCP API key descriptor (mcp.api_keys is a JSON list in sobs_app_settings) so the
     # DELETE /api/mcp/keys/<id> route can revoke it. Persisted via the app's own setter so the
@@ -2964,6 +3077,7 @@ PROFILE_SEEDS = {
     "issuereuse": seed_issues_reuse,  # prior work item + matching open issue -> issues/raise reuses it (dedup)
     "githubtoken": seed_github_token,
     "onboardrepos": seed_onboard_repos,  # global github token -> onboarding list/inspect token-USED branch
+    "repohealth": seed_repohealth,  # apps+releases+github token -> populated repo-health /issues scan
     "mcpkey": seed_mcp_key,
     "mcpauth": seed_mcp_auth,  # api key whose hash auths tools/list + tools/call
     "aichat": seed_aichat,

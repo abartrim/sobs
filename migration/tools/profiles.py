@@ -182,6 +182,11 @@ PROFILES: dict[str, dict[str, str]] = {
     # incl. private repos -> token_used=true, empty visibility_note) and inspect-repo runs the full
     # repo-inspection GitHub flow (workflows listing + ci.yml + copilot graphql, all canned).
     "onboardrepos": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
+    # repohealth = the github mock + a seeded ai.github_token + three apps/releases so
+    # GET /api/enrichment/github/repo-health takes its populated per-repo scan branch: each repo's
+    # token-gated /issues?state=open call is served from a canned fixture (rich list, empty list,
+    # and a missing fixture -> 404 skip), exercising the version-scope/issue-PR-security counting.
+    "repohealth": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
     # createrepo: a no-env isolation profile for create_repo — its sobs_apps/ai-settings INSERTs
     # run in their own fixture copy so they don't ripple into the base registry/repository readers
     # (a profile pass = fresh fixture, and only this route runs in it).
@@ -507,6 +512,7 @@ SEEDED_PROFILES = {
     "issuesraise",
     "githubtoken",
     "onboardrepos",
+    "repohealth",
     "mcpkey",
     "mcpauth",
     "aichat",
