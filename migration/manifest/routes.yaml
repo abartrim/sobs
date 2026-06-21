@@ -7339,3 +7339,118 @@ routes:
     headers:
       Content-Type: application/json
     body_b64: "e2ludmFsaWQ="
+# ---------------------------------------------------------------------------
+# Batch 10 — reachable non-defensive error/validation branches (fresh-coverage sweep).
+# Each returns BEFORE any mutating DB write, so base-profile cases are safe at end-of-sequence.
+# ---------------------------------------------------------------------------
+# api_add_tag tag-too-long branch (app.py 23638-23639): key length > 128 -> 400
+# {"error":"tag key or value too long"}. Returns before the insert; constant body.
+- id: post__api_tags_add__toolong
+  path: /api/tags/log/rec1
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      key: "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+      value: short
+# update_app_registry_entry name-required branch (app.py 10369-10371): an EXISTING app (appreg seeds
+# a1…001 alpha-service) PATCHed with an explicit empty name -> 400 {"error":"name is required"}.
+- id: patch__v1_apps__appreg_noname
+  path: /v1/apps/a1000000000000000000000000000001
+  methods:
+  - PATCH
+  profile: appreg
+  request:
+    method: PATCH
+    json:
+      name: ""
+# update_app_registry_entry slug-conflict branch (app.py 10374-10379): PATCH alpha-service (a1…001)
+# to the slug already owned by beta-worker (a1…002) -> 409 {"error":"app slug already exists"}.
+- id: patch__v1_apps__appreg_slugconflict
+  path: /v1/apps/a1000000000000000000000000000001
+  methods:
+  - PATCH
+  profile: appreg
+  request:
+    method: PATCH
+    json:
+      slug: beta-worker
+# add_masking_pattern already-active branch (app.py 23173-23175): POST a default sensitive pattern
+# (the SSN regex, already in effective_patterns) -> flash "That regex pattern is already active"
+# + 302 redirect to /settings/masking. Returns before any custom-pattern write; both runtimes apply
+# the identical validate_pattern normalization + effective-patterns membership check.
+- id: post__settings_masking_patterns__already_active
+  path: /settings/masking/patterns
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      pattern: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+# api_query_refine_chart no-spec branch (app.py 30783-30784): query page enabled (ai profile), but the
+# payload has no chart_spec -> 400 {"error":"No chart spec provided.","ok":false}. Returns before any
+# LLM dial, so no upstream mock is needed.
+- id: post__api_query_refine_chart__nospec
+  path: /api/query/refine-chart
+  methods:
+  - POST
+  profile: ai
+  request:
+    method: POST
+    json:
+      instruction: Make it a bar chart
+# api_query_refine_chart no-instruction branch (app.py 30785-30786): chart_spec present but instruction
+# is empty -> 400 {"error":"No instruction provided.","ok":false}. Returns before any LLM dial.
+- id: post__api_query_refine_chart__noinstruction
+  path: /api/query/refine-chart
+  methods:
+  - POST
+  profile: ai
+  request:
+    method: POST
+    json:
+      chart_spec: '{"series":[{"type":"line"}]}'
+# trigger_agent_run rule-not-found (app.py 28683): rule_id present but no such agent rule ->
+# 404 {"error":"agent rule not found","ok":false}. Returns before any AI/settings load.
+- id: post__api_agent_runs__rule_not_found
+  path: /api/agent/runs
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      rule_id: no-such-rule
+# save_ai_settings invalid model_pricing (app.py 26705-26706 -> 26714-26715): model_pricing is
+# valid JSON but NOT an object -> ValueError -> 400 {"error":"Invalid model_pricing JSON"}.
+- id: post__settings_ai__bad_pricing
+  path: /settings/ai
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      model_pricing: "[1, 2]"
+# save_ai_settings invalid model_pricing_confirmed (app.py 26723-26724 -> 26736-26737): pricing
+# empty (passes), but model_pricing_confirmed is valid JSON yet NOT a list -> 400
+# {"error":"Invalid model_pricing_confirmed JSON"}.
+- id: post__settings_ai__bad_confirmed
+  path: /settings/ai
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      model_pricing_confirmed: "{}"
+# raise_issue_from_user_observation github-not-configured (app.py 28571-28580): AI endpoint set
+# (ai profile passes the 28555 gate) but no GitHub repo/token -> 503 {"error":"GitHub repo/token
+# not configured for issue creation. Visit Settings -> AI Configuration.","ok":false}. Returns
+# before any LLM dial.
+- id: post__api_issues_raise__no_github
+  path: /api/issues/raise
+  methods:
+  - POST
+  profile: ai
+  request:
+    method: POST
+    json: {}
