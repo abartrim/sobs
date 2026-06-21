@@ -261,6 +261,18 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_RUM_CLIENT_AUTH_MODE": "origin",
         "SOBS_RUM_CLIENT_SIGNING_KEY": "parity-rum-signing-key",
     },
+    # rummodebad: RUM client auth mode set to an unrecognized value, so issue_rum_client_token hits
+    # the `mode not in ("origin", "origin-session")` arm -> 500 {"error":"Invalid SOBS_RUM_CLIENT_AUTH_MODE"}.
+    # The invalid-mode check precedes the signing-key check, so no key is needed. Env-only overlay.
+    "rummodebad": {
+        "SOBS_RUM_CLIENT_AUTH_MODE": "bogus",
+    },
+    # rumnokey: a valid mode ("origin") but NO signing key (base/parity_env never sets one), so
+    # issue_rum_client_token reaches the `if not RUM_CLIENT_SIGNING_KEY` arm -> 503
+    # {"error":"RUM client signing key is not configured"}. Env-only overlay.
+    "rumnokey": {
+        "SOBS_RUM_CLIENT_AUTH_MODE": "origin",
+    },
     # cveview: seed sobs_cve_findings (1 per severity, distinct Published) so the summary
     # cve-overview counts and view_enrichment_cve findings loop/filters render populated.
     # Read-only (the pages only query) -> shareable, but kept isolated/seeded for clarity.

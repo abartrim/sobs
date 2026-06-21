@@ -5227,6 +5227,38 @@ routes:
   mask:
   - '"token": ?"[^"]*"'
   mask_reason: token = b64url(claims).hmac where claims embed a random jti uuid (Go uuid is not parity-frozen) so the token bytes differ each run; expiresAt (frozen now+ttl), origin, and app are deterministic and byte-compared.
+# issue_rum_client_token invalid-mode arm: RUM_CLIENT_AUTH_MODE set to an unrecognized value (rummodebad
+# profile) -> 500 {"error":"Invalid SOBS_RUM_CLIENT_AUTH_MODE"}. Constant body, no mask. The invalid-mode
+# check precedes the signing-key/origin checks, so no key/payload is needed.
+- id: post__v1_rum_client_token__mode_invalid
+  path: /v1/rum/client-token
+  methods:
+  - POST
+  profile: rummodebad
+  request:
+    method: POST
+    json: {}
+# issue_rum_client_token no-signing-key arm: mode "origin" but no signing key configured (rumnokey
+# profile; base/parity_env never sets one) -> 503 {"error":"RUM client signing key is not configured"}.
+- id: post__v1_rum_client_token__no_key
+  path: /v1/rum/client-token
+  methods:
+  - POST
+  profile: rumnokey
+  request:
+    method: POST
+    json: {}
+# issue_rum_client_token missing-origin arm: mode "origin" + signing key (rumtoken profile), but the
+# request carries no origin (empty payload, no Origin/Referer header) so origin resolves to "" ->
+# 400 {"error":"origin is required"}. Constant body, no mask.
+- id: post__v1_rum_client_token__no_origin
+  path: /v1/rum/client-token
+  methods:
+  - POST
+  profile: rumtoken
+  request:
+    method: POST
+    json: {}
 # ---------------------------------------------------------------------------
 # M26: POST /v1/rum (ingest_rum) — RUM client-auth verification (_verify_rum_client_auth)
 # AND JS source-map console-stack remap (_sourcemap_lookup_for_file chain), both under the
@@ -6669,6 +6701,28 @@ routes:
   mask:
   - '"chart_id":"[^"]*"'
   mask_reason: the imported chart's id is a fresh uuid4 (random); ok/dashboard_id/dashboard_url are byte-compared.
+# import_chart bad-template-version arm: the seeded dashboard ...00a EXISTS (so the 404 is skipped),
+# but sobs_chart_template_version != 1 -> 400 {"error":"Invalid or unsupported chart template format
+# (expected sobs_chart_template_version: 1)","ok":false}. Returns before any chart read; constant body.
+- id: post__api_dashboards_charts_import_badversion
+  path: /api/dashboards/00000000-0000-4000-8000-00000000000a/charts/import
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      sobs_chart_template_version: 2
+# import_chart missing-chart_spec arm: dashboard exists, version is 1, but chart_spec is absent ->
+# 400 {"error":"chart_spec is required in template","ok":false}. Constant body, returns before insert.
+- id: post__api_dashboards_charts_import_nospec
+  path: /api/dashboards/00000000-0000-4000-8000-00000000000a/charts/import
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      sobs_chart_template_version: 1
+      title: No Spec
 # Export a seeded chart as a downloadable JSON template (read-only; deterministic indent=2 body).
 - id: get__api_dashboards_chart_export_ok
   path: /api/dashboards/00000000-0000-4000-8000-00000000000a/charts/00000000-0000-4000-8000-00000000000c/export
