@@ -550,9 +550,9 @@ func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
 		if guardInput == "" {
 			guardInput = "Generate chart for SQL: " + truncRunes(sql, 500)
 		}
-		allowed, guardReason, _ := s.checkGuardModel(guardInput, "/query")
+		allowed, guardReason, guardStats := s.aiHelperGuardCheck(guardInput, "/query")
 		s.emitAiHelperLogEvent("query.guard.result", traceID, turnID, "/query", model, guardModel, "off",
-			"Guard verdict: "+guardReason, "INFO", map[string]string{"gen_ai.operation.name": "guard"})
+			"Guard verdict: "+guardReason, "INFO", guardTelemetryAttrs(allowed, guardReason, guardStats))
 		if allowed {
 			var namedQueries []any
 			namedQueries, namedStats = s.generateNamedQueriesStats(endpoint, firstNonEmpty(question, sql), sql)
@@ -685,9 +685,14 @@ func (s *server) handleApiQueryAsk(w http.ResponseWriter, r *http.Request) {
 	s.emitAiHelperLogEvent("query.turn.start", traceID, turnID, "/query", model, guardModel, "off",
 		question, "INFO", map[string]string{"gen_ai.input.question": question})
 
-	allowed, reason, _ := s.checkGuardModel(question, "/query")
+	// Call aiHelperGuardCheck directly (not checkGuardModel, which discards the stats) so the
+	// query.guard.result event carries the same _guard_telemetry_attrs Python emits — the guard
+	// verdict/reason, token usage, latency, system instructions, and input messages. Those gen_ai.*
+	// LogAttributes are then remembered (rememberLogAttrKeys), so the SQL-gen schema context's
+	// "Observed LogAttributes keys" line matches Python byte-for-byte (app.py:30254-30265).
+	allowed, reason, guardStats := s.aiHelperGuardCheck(question, "/query")
 	s.emitAiHelperLogEvent("query.guard.result", traceID, turnID, "/query", model, guardModel, "off",
-		"Guard verdict: "+reason, "INFO", map[string]string{"gen_ai.operation.name": "guard"})
+		"Guard verdict: "+reason, "INFO", guardTelemetryAttrs(allowed, reason, guardStats))
 	if !allowed {
 		s.writeMaskedJSON(w, http.StatusForbidden, jsonenc.NewObject().
 			Set("ok", false).Set("error", "Request blocked by safety guard: "+reason).

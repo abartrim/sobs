@@ -396,6 +396,7 @@ func (s *server) generateSQLViaLLM(endpoint, question string, chartOpts ...strin
 		model:         model,
 		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
 		thinkingLevel: strings.TrimSpace(s.loadAISetting("ai.thinking_level", "off")),
+		maxTokens:     queryLLMMaxTokens, // app.py _vanna_generate_sql: max_tokens=_QUERY_LLM_MAX_TOKENS (8192)
 		messages:      messages,
 	})
 	if err != nil || raw == "" {
