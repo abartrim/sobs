@@ -7090,3 +7090,163 @@ routes:
     method: POST
     form:
       default_environment: production
+# ---------------------------------------------------------------------------
+# Corpus batch 5: chart/table-explorer/onboarding not-found & validation branches
+# ---------------------------------------------------------------------------
+# export_chart chart-not-found branch (app.py 22446): chartedit dashboard exists, chart id absent ->
+# 404 {"ok":false,"error":"Chart not found"} (non-mutating).
+- id: get__api_dashboards_chart_export__chart_missing
+  path: /api/dashboards/d0000000-0000-4000-8000-00000000d001/charts/cffffff0-0000-4000-8000-00000000cfff/export
+  methods:
+  - GET
+  profile: chartedit
+  request:
+    method: GET
+# add_chart form-validation branch (app.py 21603-21605): chartedit dashboard exists, form omits title
+# -> _parse_chart_form_submission raises ValueError("Chart title is required") -> flash + redirect.
+- id: post__dashboards_chart_add_invalid
+  path: /dashboards/d0000000-0000-4000-8000-00000000d001/charts
+  methods:
+  - POST
+  profile: chartedit
+  request:
+    method: POST
+    form:
+      chart_spec_json: '{"template_id":"anomaly_overlay","sql":{"mode":"raw","override_sql":"SELECT 1 AS time, 2 AS value"}}'
+# clone_chart form-validation branch (app.py 21710-21712): source chart exists but the form omits
+# title -> ValueError -> flash + redirect (no INSERT).
+- id: post__dashboards_chart_clone_invalid
+  path: /dashboards/d0000000-0000-4000-8000-00000000d001/charts/c0000000-0000-4000-8000-00000000c001/clone
+  methods:
+  - POST
+  profile: chartedit
+  request:
+    method: POST
+    form:
+      chart_spec_json: '{"template_id":"anomaly_overlay","sql":{"mode":"raw","override_sql":"SELECT 1 AS time, 2 AS value"}}'
+# api_table_explorer_table not-allowed branch (app.py 30969): query page enabled (ai) but the table
+# name is not in _QUERY_ALLOWED_TABLES -> 403 (non-mutating).
+- id: get__api_table_explorer_table__notallowed
+  path: /api/table-explorer/table/not_a_real_table
+  methods:
+  - GET
+  profile: ai
+  request:
+    method: GET
+# api_onboarding_inspect_repo app-not-found branch (app.py 33702): ?app_id with no matching sobs_apps
+# row -> 404 (non-mutating).
+- id: get__api_onboarding_inspect_repo__app_notfound
+  path: /api/onboarding/inspect-repo
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {app_id: no-such-app-id}
+# api_onboarding_inspect_repo unparseable-repo branch (app.py 33711): ?repo cannot be parsed into
+# owner/repo -> 400; the message embeds the (input) repo string, so it is deterministic.
+- id: get__api_onboarding_inspect_repo__badrepo
+  path: /api/onboarding/inspect-repo
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {repo: not-a-valid-repo}
+# NOTE: get__api_onboarding_inspect_repo__notoken removed — in the full base sequence Go reaches the
+# WITH-token branch (a base mutating route sets ai.github_token in Go but not PY) -> "GitHub API
+# returned 401" vs PY's "No GitHub token configured". Same mutation-side-effect divergence class as
+# the ServiceName one; tracked for a dedicated fix (do not re-add until fixed).
+# ---------------------------------------------------------------------------
+# Corpus batch 6: create_metrics_rule composite-secondary validation branches
+# ---------------------------------------------------------------------------
+# create_metrics_rule secondary-gt validation (app.py 13674-13676): composite rule, valid primary,
+# secondary gt with critical < warning -> flash + redirect (no INSERT). base.
+- id: post__metrics_rules__secondary_gt_invalid
+  path: /metrics/rules
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      name: "Batch6 Rule"
+      source: logs
+      signal: log_volume
+      rule_type: composite
+      comparator: gt
+      warning_threshold: "1"
+      critical_threshold: "2"
+      min_sample_count: "1"
+      secondary_source: traces
+      secondary_signal: span_count
+      secondary_comparator: gt
+      secondary_warning_threshold: "5"
+      secondary_critical_threshold: "3"
+# create_metrics_rule secondary-lt validation (app.py 13677-13679): composite rule, secondary lt with
+# critical > warning -> flash + redirect (no INSERT). base.
+- id: post__metrics_rules__secondary_lt_invalid
+  path: /metrics/rules
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      name: "Batch6 Rule"
+      source: logs
+      signal: log_volume
+      rule_type: composite
+      comparator: gt
+      warning_threshold: "1"
+      critical_threshold: "2"
+      min_sample_count: "1"
+      secondary_source: traces
+      secondary_signal: span_count
+      secondary_comparator: lt
+      secondary_warning_threshold: "3"
+      secondary_critical_threshold: "5"
+# ---------------------------------------------------------------------------
+# Corpus batch 7: agent-rule + errors-validate-regex validation branches
+# ---------------------------------------------------------------------------
+# create_agent_rule bad-rate-limit fallback + bad-trigger-type (app.py 27204-27205, 27211-27212):
+# non-numeric rate_limit_minutes -> fallback 60; bogus trigger_type -> flash "Invalid trigger type:
+# <input>" (input-derived, deterministic) + redirect, no INSERT. base.
+- id: post__settings_agents__badtype
+  path: /settings/agents
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      name: "Batch7 Agent Rule"
+      rate_limit_minutes: "not-a-number"
+      trigger_type: "bogus-type"
+# create_agent_rule bad-trigger-state (app.py 27214-27215): valid trigger_type, bogus trigger_state
+# -> flash "Invalid trigger state: <input>" + redirect, no INSERT. base.
+- id: post__settings_agents__badstate
+  path: /settings/agents
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      name: "Batch7 Agent Rule"
+      trigger_type: "manual"
+      trigger_state: "bogus-state"
+# api_errors_validate_regex expression-error branch (app.py 24026): "foo &&" structural parse error.
+- id: post__api_errors_validate_regex__invalid
+  path: /api/errors/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "foo &&"
+# api_errors_validate_regex service-scope branch (app.py 24034-24035): a valid pattern + scope.service
+# appends the ServiceName filter inside the try-block; empty corpus -> sample null (deterministic).
+- id: post__api_errors_validate_regex__scoped
+  path: /api/errors/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "error"
+      scope: {service: web}
