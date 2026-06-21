@@ -743,6 +743,13 @@ PROFILES: dict[str, dict[str, str]] = {
     # comparison is deterministic. No env overlay — the asset lives on the filesystem, not chdb.
     "rumasset": {},
     # ask: query/ask — guard + main endpoints on DISTINCT mock paths (two canned responses).
+    # BODY-KEYED (strict prompt parity): the two ask fixtures are keyed by the sha256 of the EXACT
+    # LLM request body (upstream_fixture_key_body), NOT the URL — and the URL-keyed fallbacks were
+    # removed. So the canned guard/SQL responses resolve ONLY when Python and Go send byte-identical
+    # request bodies. If either runtime's prompt drifts (system prompt, schema context, observed
+    # attr-key line, max_tokens, …), its body-key changes, no fixture matches, the mock 404s, and the
+    # route diffs RED. Fixture files: 57da0797…(guard "SAFE") + 84464a88…(SQL "SELECT 1 AS x"). To
+    # regenerate after an intentional prompt change: SOBS_MOCK_BODYDUMP=<f> + capture, read the keys.
     "ask": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/ask/v1",
         "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/ask-guard/v1",
