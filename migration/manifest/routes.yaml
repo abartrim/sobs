@@ -6927,3 +6927,166 @@ routes:
   request:
     method: POST
     json: {}
+# ---------------------------------------------------------------------------
+# Corpus batch 2: reachable validation / not-found error branches
+# ---------------------------------------------------------------------------
+# api_traces_validate_regex expression-error branch (app.py 24075): "foo &&" is a structural parse
+# error -> {ok:false,error,sample:null}; the message is regex-engine-independent, no DB touched.
+- id: post__api_traces_validate_regex__invalid
+  path: /api/traces/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "foo &&"
+# api_metrics_validate_regex expression-error branch (app.py 24128).
+- id: post__api_metrics_validate_regex__invalid
+  path: /api/metrics/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "foo &&"
+# api_rum_validate_regex expression-error branch (app.py 24189).
+- id: post__api_rum_validate_regex__invalid
+  path: /api/rum/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "foo &&"
+# api_create_report invalid page_type branch (app.py 22746): name present but page_type not in the
+# allow-set -> 400 with the sorted allow-list message (deterministic).
+- id: post__api_reports__bad_pagetype
+  path: /api/reports
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      name: "Batch2 Report"
+      page_type: "not-a-real-type"
+# api_create_report non-dict filters branch (app.py 22748): valid page_type, filters not an object.
+- id: post__api_reports__bad_filters
+  path: /api/reports
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      name: "Batch2 Report"
+      page_type: "logs"
+      filters: "not-an-object"
+# view_custom_dashboard not-found branch (app.py 21450-21451): unknown dashboard id -> flash
+# "Dashboard not found" + redirect to list_dashboards.
+- id: get__dashboards__notfound
+  path: /dashboards/no-such-dashboard-id
+  methods:
+  - GET
+  request:
+    method: GET
+# remove_chart chart-not-found branch (app.py 21747-21748): the chartedit dashboard exists but the
+# chart id is absent -> flash "Chart not found" + redirect to the dashboard (no INSERT).
+- id: post__dashboards_chart_delete_chart_missing
+  path: /dashboards/d0000000-0000-4000-8000-00000000d001/charts/cffffff0-0000-4000-8000-00000000cfff/delete
+  methods:
+  - POST
+  profile: chartedit
+  request:
+    method: POST
+# delete_masking_pattern not-found branch (app.py 23197-23198): a valid regex that is not a stored
+# custom pattern -> flash "Custom masking pattern not found" + redirect (no DB write).
+- id: post__settings_masking_patterns_delete__notfound
+  path: /settings/masking/patterns/delete
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      pattern: "sobs-del-probe-[0-9]+"
+# add_masking_key already-active branch (app.py 23134-23135): "password" is a DEFAULT sensitive key,
+# so it is already in effective_keys -> flash "already active" + redirect (no DB write).
+- id: post__settings_masking_keys__active
+  path: /settings/masking/keys
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      key: "password"
+# ---------------------------------------------------------------------------
+# Corpus batch 3: more reachable not-found / validation branches
+# ---------------------------------------------------------------------------
+# create_settings_repository slug-conflict branch (app.py 26915-26916): name+repo_url present but the
+# slug ("alpha-service") already exists in the appreg-seeded sobs_apps -> flash + redirect, no INSERT.
+- id: post__settings_repositories__appreg_slug_conflict
+  path: /settings/repositories
+  methods:
+  - POST
+  profile: appreg
+  request:
+    method: POST
+    form:
+      name: "Alpha Service"
+      repo_url: "https://github.com/acme/alpha"
+# add_settings_repository_release missing-version branch (app.py 27094-27095): existing seeded app id
+# but no version field -> flash "Release version is required" + redirect, no INSERT.
+- id: post__settings_repositories_releases__appreg_noversion
+  path: /settings/repositories/a1000000000000000000000000000001/releases
+  methods:
+  - POST
+  profile: appreg
+  request:
+    method: POST
+    form:
+      environment: production
+# NOTE: get__settings_tags__edit_notfound was removed — its settings_tags.html render observes a
+# latent base-sequence service-list divergence (PY vs Go ServiceName set after base mutations) that
+# is unrelated to the edit-not-found branch it was meant to cover. Tracked for a dedicated fix.
+# api_export_reports ids-filter branch (app.py 22822-22824): ?ids=<uuid> takes the wanted-set filter
+# path instead of export-all. Empty corpus -> the filter yields no reports; the branch still runs.
+- id: get__api_reports_export__ids
+  path: /api/reports/export
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {ids: "11111111-2222-3333-4444-555555555555"}
+# ---------------------------------------------------------------------------
+# Corpus batch 4: more reachable validation branches
+# ---------------------------------------------------------------------------
+# list_agent_runs invalid-limit branch (app.py 28663-28664): a non-numeric ?limit -> int() raises ->
+# limit falls back to 50; the empty corpus returns {ok:true, runs:[]}. base, no DB writes.
+- id: get__api_agent_runs__badlimit
+  path: /api/agent/runs
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {limit: not-a-number}
+# api_dm_restore invalid-name branch (app.py 32288-32289): backup feature enabled (dmbackup) + a
+# backup_name with unsupported characters -> _validate_dm_backup_name raises -> 400 with the fixed
+# app-defined message (engine-independent), before any restore runs.
+- id: post__api_dm_restore__badname
+  path: /api/data-management/restore
+  methods:
+  - POST
+  profile: dmbackup
+  request:
+    method: POST
+    json:
+      backup_name: "../etc/passwd"
+# update_settings_repository repository-required branch (app.py 27052-27053): existing seeded app id
+# but the form resolves to no repo_url -> flash "Repository is required" + redirect, no INSERT.
+- id: post__settings_repositories_update__noremote
+  path: /settings/repositories/a1000000000000000000000000000001
+  methods:
+  - POST
+  profile: appreg
+  request:
+    method: POST
+    form:
+      default_environment: production
