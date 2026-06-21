@@ -4162,7 +4162,7 @@ def seed_aiturns(db) -> None:
     #   B1 (turn B): assistant message with reasoning_content STRING -> _coerce_reasoning_text str arm;
     #                output assistant content string drives turn B assistant_message.
     #   B2 (turn B): user message (content str -> turn B user_message) + a parts list with a
-    #                type:reasoning entry, plus reasoning as a LIST -> the reasoning list arm + parts
+    # type: reasoning entry, plus reasoning as a LIST -> the reasoning list arm + parts
     #                reasoning arm of _genai_message_reasoning_to_text.
     #
     # Each span's gen_ai.turn_id pins the turn group; gen_ai.request.model + tokens make is_llm_call

@@ -13,12 +13,12 @@ byte-diff can miss. Read-only static analysis (no chdb / no capture needed).
 
 Output: migration/structural_report.md + stdout summary. Exit 1 iff the route matrix has a gap.
 """
+
 from __future__ import annotations
 
 import ast
 import re
 import subprocess
-import sys
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent
@@ -57,8 +57,8 @@ def _canon(path: str) -> str:
     """Canonicalize a route: Python <x> and Go {x} dynamic segments -> '*'; Go '/{$}' (exact root)
     -> '/'."""
     path = path.replace("/{$}", "/")
-    path = re.sub(r"\{[^}]*\}", "*", path)   # Go {param}
-    path = re.sub(r"<[^>]*>", "*", path)     # Python <param>
+    path = re.sub(r"\{[^}]*\}", "*", path)  # Go {param}
+    path = re.sub(r"<[^>]*>", "*", path)  # Python <param>
     return path
 
 
@@ -116,7 +116,10 @@ def check_stubs() -> list[str]:
     try:
         out = subprocess.run(
             ["grep", "-rniE", pat, str(GO_DIR / "cmd" / "sobs"), str(GO_DIR / "internal")],
-            capture_output=True, text=True, cwd=str(REPO))
+            capture_output=True,
+            text=True,
+            cwd=str(REPO),
+        )
         lines = [ln for ln in out.stdout.splitlines() if ln.strip()]
     except Exception:
         lines = []
@@ -131,10 +134,14 @@ def main() -> int:
     const_findings = check_constants(tree, go_src)
     stub_lines = check_stubs()
 
-    md = ["# Structural checks", "",
-          f"- Python routes: **{len(all_py)}**, unmapped in Go: **{len(missing_routes)}**",
-          f"- Constant collections with members absent from Go source: **{len(const_findings)}**",
-          f"- Go stub/deferral markers: **{len(stub_lines)}**", ""]
+    md = [
+        "# Structural checks",
+        "",
+        f"- Python routes: **{len(all_py)}**, unmapped in Go: **{len(missing_routes)}**",
+        f"- Constant collections with members absent from Go source: **{len(const_findings)}**",
+        f"- Go stub/deferral markers: **{len(stub_lines)}**",
+        "",
+    ]
 
     md.append("## 1. Route matrix (HARD)")
     if not missing_routes:

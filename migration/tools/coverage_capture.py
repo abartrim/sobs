@@ -16,6 +16,7 @@ Outputs:
     migration/coverage_app.json  — machine-readable per-line coverage of app.py
     stdout                       — coverage.py report (Stmts/Miss/Cover + missing line ranges)
 """
+
 from __future__ import annotations
 
 import subprocess

@@ -21,6 +21,7 @@ with uncovered lines is bucketed so the work is sized and routable:
 
 This converts "42% unknown" into "here are N functions, here is exactly what each needs."
 """
+
 from __future__ import annotations
 
 import ast
@@ -33,11 +34,35 @@ APP = REPO / "app.py"
 COV = REPO / "migration" / "coverage_app.json"
 
 ROUTE_DECORATORS = {"route", "get", "post", "put", "delete", "patch", "websocket"}
-LIFECYCLE_DECORATORS = {"before_serving", "after_serving", "while_serving",
-                        "before_request", "after_request", "errorhandler", "teardown_request"}
-BACKGROUND_HINTS = ("loop", "worker", "dispatch", "scan", "poll", "consume", "background",
-                    "scheduler", "_tick", "lifespan", "_cron", "drain", "flush_queue",
-                    "_task", "ensure_", "_run_agent", "watchdog", "reconcile")
+LIFECYCLE_DECORATORS = {
+    "before_serving",
+    "after_serving",
+    "while_serving",
+    "before_request",
+    "after_request",
+    "errorhandler",
+    "teardown_request",
+}
+BACKGROUND_HINTS = (
+    "loop",
+    "worker",
+    "dispatch",
+    "scan",
+    "poll",
+    "consume",
+    "background",
+    "scheduler",
+    "_tick",
+    "lifespan",
+    "_cron",
+    "drain",
+    "flush_queue",
+    "_task",
+    "ensure_",
+    "_run_agent",
+    "watchdog",
+    "reconcile",
+)
 
 
 def _decorator_name(dec: ast.expr) -> str | None:
@@ -108,16 +133,18 @@ def main() -> int:
     rows = []
     for i, rec in per_func.items():
         s, e, name, bucket, route_meta = funcs[i]
-        rows.append({
-            "function": name,
-            "bucket": bucket,
-            "start": s,
-            "end": e,
-            "uncovered": len(rec["missing"]),
-            "span": e - s + 1,
-            "route": route_meta,
-            "missing_sample": rec["missing"][:8],
-        })
+        rows.append(
+            {
+                "function": name,
+                "bucket": bucket,
+                "start": s,
+                "end": e,
+                "uncovered": len(rec["missing"]),
+                "span": e - s + 1,
+                "route": route_meta,
+                "missing_sample": rec["missing"][:8],
+            }
+        )
     rows.sort(key=lambda r: r["uncovered"], reverse=True)
 
     by_bucket: dict[str, dict] = {}
@@ -139,14 +166,16 @@ def main() -> int:
     (REPO / "migration" / "coverage_backlog.json").write_text(json.dumps(backlog, indent=2))
 
     # Markdown report.
-    lines = ["# app.py uncovered-line backlog",
-             "",
-             f"Oracle coverage **{backlog['summary_pct']}%** · **{total_uncovered}** uncovered statements.",
-             "",
-             "## By bucket",
-             "",
-             "| bucket | functions | uncovered lines | meaning |",
-             "|---|---:|---:|---|"]
+    lines = [
+        "# app.py uncovered-line backlog",
+        "",
+        f"Oracle coverage **{backlog['summary_pct']}%** · **{total_uncovered}** uncovered statements.",
+        "",
+        "## By bucket",
+        "",
+        "| bucket | functions | uncovered lines | meaning |",
+        "|---|---:|---:|---|",
+    ]
     meaning = {
         "route": "needs a fixture/profile (corpus expansion; byte-verifiable)",
         "lifecycle": "background/lifecycle — needs a function-level difftest (capture can't reach)",
@@ -163,8 +192,13 @@ def main() -> int:
         sub = [r for r in rows if r["bucket"] == b]
         if not sub:
             continue
-        lines += ["", f"## {b} — top by uncovered lines ({len(sub)} functions)", "",
-                  "| function | lines | uncovered | route |", "|---|---|---:|---|"]
+        lines += [
+            "",
+            f"## {b} — top by uncovered lines ({len(sub)} functions)",
+            "",
+            "| function | lines | uncovered | route |",
+            "|---|---|---:|---|",
+        ]
         for r in sub[:40]:
             rt = ""
             if r["route"]:
