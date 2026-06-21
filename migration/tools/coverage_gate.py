@@ -4,10 +4,10 @@
 Reads migration/coverage_app.json (written by coverage_capture.py) and migration/COVERAGE_FLOOR.
 As corpus expansion raises coverage, bump COVERAGE_FLOOR so it can only go up.
 """
+
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent
@@ -21,8 +21,10 @@ def main() -> int:
     floor = float((REPO / "migration" / "COVERAGE_FLOOR").read_text().strip())
     print(f"app.py oracle coverage: {pct:.2f}%  (floor {floor:.2f}%)")
     if pct + 1e-6 < floor:
-        print(f"::error::oracle coverage regressed: {pct:.2f}% < floor {floor:.2f}% — "
-              "a fixture/profile likely broke, or covered behavior was removed.")
+        print(
+            f"::error::oracle coverage regressed: {pct:.2f}% < floor {floor:.2f}% — "
+            "a fixture/profile likely broke, or covered behavior was removed."
+        )
         return 1
     if pct - floor >= 1.0:
         print(f"::notice::coverage is {pct - floor:.1f} pts above the floor — bump migration/COVERAGE_FLOOR.")

@@ -22,6 +22,7 @@ corpus is regenerated scratch, so it needs no restore. If interrupted hard, rest
 
 Run inside the parity Docker image. Exit 0 always (it's a report); non-zero only on harness error.
 """
+
 from __future__ import annotations
 
 import argparse

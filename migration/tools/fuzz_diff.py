@@ -13,6 +13,7 @@ generated ids advance both counters in lockstep.
 
 Run inside the parity Docker image (chdb + libchdb + Go). Exit 1 on any byte mismatch.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -246,7 +247,7 @@ def main() -> int:
         print(f"  py: status={ps} len={len(pb)}  go: status={gs} len={len(gb)}")
         for i, (a, b) in enumerate(zip(pb, gb)):
             if a != b:
-                print(f"  first diff @byte {i}: py={pb[max(0,i-10):i+20]!r} go={gb[max(0,i-10):i+20]!r}")
+                print(f"  first diff @byte {i}: py={pb[max(0, i-10):i+20]!r} go={gb[max(0, i-10):i+20]!r}")
                 break
         else:
             if len(pb) != len(gb):
