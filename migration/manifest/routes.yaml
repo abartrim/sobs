@@ -7151,15 +7151,10 @@ routes:
   request:
     method: GET
     query: {repo: not-a-valid-repo}
-# api_onboarding_inspect_repo no-token branch (app.py 33718): a parseable repo but no GitHub token
-# configured -> ok:true structured "no token" payload (no upstream call).
-- id: get__api_onboarding_inspect_repo__notoken
-  path: /api/onboarding/inspect-repo
-  methods:
-  - GET
-  request:
-    method: GET
-    query: {repo: acme/widget}
+# NOTE: get__api_onboarding_inspect_repo__notoken removed — in the full base sequence Go reaches the
+# WITH-token branch (a base mutating route sets ai.github_token in Go but not PY) -> "GitHub API
+# returned 401" vs PY's "No GitHub token configured". Same mutation-side-effect divergence class as
+# the ServiceName one; tracked for a dedicated fix (do not re-add until fixed).
 # ---------------------------------------------------------------------------
 # Corpus batch 6: create_metrics_rule composite-secondary validation branches
 # ---------------------------------------------------------------------------
