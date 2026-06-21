@@ -6870,3 +6870,60 @@ routes:
   - GET
   stream: true
   stream_reason: "SSE live-tail; the parity harness reads only the deterministic opening frame (retry: 5000) \u2014 keepalive cadence is timing-dependent."
+# ---------------------------------------------------------------------------
+# Corpus batch 1: small uncovered route branches (TDD coverage expansion)
+# ---------------------------------------------------------------------------
+# ingest_preflight (app.py 9659-9660): OPTIONS CORS preflight on an ingest path -> 204 empty body.
+- id: options__v1_logs
+  path: /v1/logs
+  methods:
+  - OPTIONS
+  request:
+    method: OPTIONS
+# view_web_traffic time-window branch (app.py 17675): from_ts/to_ts query args make the WHERE
+# non-empty, so the COUNT(*)-over-window path runs instead of _active_part_rows. The empty fixture
+# yields zero rows but the branch executes; deterministic (fixed timestamps, no now()).
+- id: get__web_traffic_window
+  path: /web-traffic
+  methods:
+  - GET
+  request:
+    method: GET
+    query: {from_ts: "2024-01-01T00:00:00Z", to_ts: "2024-01-02T00:00:00Z"}
+# view_query enabled branch (app.py 30198): under the ai profile _query_page_enabled() is True, so
+# the page renders query.html instead of returning the 404 disabled guard.
+- id: get__query__ai
+  path: /query
+  methods:
+  - GET
+  profile: ai
+  request:
+    method: GET
+# view_table_explorer enabled branch (app.py 30901): ai profile -> renders table_explorer.html.
+- id: get__table_explorer__ai
+  path: /table-explorer
+  methods:
+  - GET
+  profile: ai
+  request:
+    method: GET
+# create_app_registry_entry slug-conflict branch (app.py 10328): POST a name whose slug
+# ("alpha-service") already exists in the appreg seed -> 409 before any INSERT (non-mutating).
+- id: post__v1_apps__appreg_conflict
+  path: /v1/apps
+  methods:
+  - POST
+  profile: appreg
+  request:
+    method: POST
+    json: {name: "Alpha Service"}
+# create_app_release missing-version branch (app.py 10430): POST to an existing seeded app id with
+# no version -> 400 before any INSERT (non-mutating).
+- id: post__v1_apps_releases__appreg_noversion
+  path: /v1/apps/a1000000000000000000000000000001/releases
+  methods:
+  - POST
+  profile: appreg
+  request:
+    method: POST
+    json: {}

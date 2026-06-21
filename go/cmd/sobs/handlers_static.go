@@ -163,6 +163,12 @@ const methodNotAllowed405Body = "<!doctype html>\n<html lang=en>\n<title>405 Met
 // are layered on by the OTLP after_request hook regardless.)
 func (s *server) handleV1IngestGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
+		// Match Quart's `return "", 204`: the empty Response still carries the default
+		// Content-Type (text/html; charset=utf-8). Set it explicitly since net/http does not
+		// sniff/add one for a bodyless 204. Quart also emits "Content-Length: 0" but net/http
+		// refuses to write Content-Length on a 204 (RFC 7230 §3.3.2); the parity normalizer
+		// drops that transport-artifact header on both sides for bodyless statuses.
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
