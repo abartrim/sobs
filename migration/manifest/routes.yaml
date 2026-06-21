@@ -7250,3 +7250,38 @@ routes:
     json:
       pattern: "error"
       scope: {service: web}
+# ---------------------------------------------------------------------------
+# Corpus batch 8: api_dm_prune body-validation branches (all return 400 before any prune; base)
+# ---------------------------------------------------------------------------
+# api_dm_prune non-dict body branch (app.py 32307): a JSON array parses but isn't a dict -> 400.
+- id: post__api_dm_prune__notdict
+  path: /api/data-management/prune
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+    - 1
+    - 2
+# api_dm_prune bad-period branch (app.py 32310-32311): _parse_dm_prune_period raises ValueError on an
+# invalid unit -> 400 "prune_period_unit must be 'hours' or 'days'" (app-defined message).
+- id: post__api_dm_prune__badperiod
+  path: /api/data-management/prune
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      prune_period_value: 5
+      prune_period_unit: "fortnights"
+# api_dm_prune invalid-JSON branch (app.py 32304): non-empty body + Content-Type application/json that
+# fails to parse -> 400 "request body contains invalid JSON". body_b64 is base64('{invalid').
+- id: post__api_dm_prune__badjson
+  path: /api/data-management/prune
+  methods:
+  - POST
+  request:
+    method: POST
+    headers:
+      Content-Type: application/json
+    body_b64: "e2ludmFsaWQ="
