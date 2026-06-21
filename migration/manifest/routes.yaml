@@ -7207,3 +7207,51 @@ routes:
       secondary_comparator: lt
       secondary_warning_threshold: "3"
       secondary_critical_threshold: "5"
+# ---------------------------------------------------------------------------
+# Corpus batch 7: agent-rule + errors-validate-regex validation branches
+# ---------------------------------------------------------------------------
+# create_agent_rule bad-rate-limit fallback + bad-trigger-type (app.py 27204-27205, 27211-27212):
+# non-numeric rate_limit_minutes -> fallback 60; bogus trigger_type -> flash "Invalid trigger type:
+# <input>" (input-derived, deterministic) + redirect, no INSERT. base.
+- id: post__settings_agents__badtype
+  path: /settings/agents
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      name: "Batch7 Agent Rule"
+      rate_limit_minutes: "not-a-number"
+      trigger_type: "bogus-type"
+# create_agent_rule bad-trigger-state (app.py 27214-27215): valid trigger_type, bogus trigger_state
+# -> flash "Invalid trigger state: <input>" + redirect, no INSERT. base.
+- id: post__settings_agents__badstate
+  path: /settings/agents
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      name: "Batch7 Agent Rule"
+      trigger_type: "manual"
+      trigger_state: "bogus-state"
+# api_errors_validate_regex expression-error branch (app.py 24026): "foo &&" structural parse error.
+- id: post__api_errors_validate_regex__invalid
+  path: /api/errors/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "foo &&"
+# api_errors_validate_regex service-scope branch (app.py 24034-24035): a valid pattern + scope.service
+# appends the ServiceName filter inside the try-block; empty corpus -> sample null (deterministic).
+- id: post__api_errors_validate_regex__scoped
+  path: /api/errors/validate-regex
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      pattern: "error"
+      scope: {service: web}
