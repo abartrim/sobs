@@ -50,10 +50,19 @@ _FS_ETAG_RE = re.compile(r'^"?\d+\.\d+-\d+-\d+"?$')
 
 
 def normalize(resp: dict) -> dict:
+    # A bodyless status (1xx/204/304) must not carry a message body (RFC 7230 §3.3.2), so any
+    # Content-Length on it is a transport artifact, not application output: Quart/Hypercorn emits
+    # "Content-Length: 0", Go's net/http omits it (it refuses to write Content-Length for these
+    # statuses). Drop it on BOTH sides for these statuses ONLY; every body-bearing status still
+    # compares Content-Length exactly. Same category as the _DROP_HEADERS transport artifacts.
+    status = resp["status"]
+    bodyless = status in (204, 304) or (100 <= status < 200)
     headers = []
     for name, value in resp["headers"]:
         lname = name.lower()
         if lname in _DROP_HEADERS:
+            continue
+        if lname == "content-length" and bodyless:
             continue
         if lname in _ALWAYS_DROP_CACHE_HEADERS:
             continue

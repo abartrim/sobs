@@ -28,6 +28,11 @@ is the **minimal, explicit** transform in [`tools/normalize.py`](tools/normalize
   server stacks legitimately differ (Quart preserves insertion order; Go's `net/http`
   emits sorted). This is the one concession to HTTP-framing reality — it never touches
   the body.
+- **`Content-Length` on a bodyless status** (`1xx`/`204`/`304`) is dropped on BOTH sides.
+  RFC 7230 §3.3.2 forbids a message body for these statuses, so the header is a transport
+  artifact, not application output: Quart/Hypercorn emits `Content-Length: 0`, Go's
+  `net/http` refuses to write it at all. For every body-bearing status `Content-Length` is
+  still compared exactly. (Added for the OTLP CORS preflight `OPTIONS /v1/{logs,…}` → 204.)
 - **Status code** compared exactly.
 
 If you ever feel the need to widen `normalize`, that is a signal the Go port is wrong.
