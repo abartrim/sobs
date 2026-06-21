@@ -8,14 +8,21 @@ import (
 	"github.com/sobs/sobs/internal/jsonenc"
 )
 
-// LLM prompt templates ported from app.py. These are sent in the request body, which the parity
-// mock ignores (it keys on the URL), so their exact text is parity-irrelevant — at runtime they
-// shape the real model output. Markdown code backticks in the Python source are rendered here as
-// single quotes so the text fits a Go raw-string literal; the meaning is identical.
+// LLM prompt templates ported from app.py. These go in the LLM request body. NOTE: this must be
+// byte-identical to app.py — the deterministic OpenAI-compatible mock can key a canned response on
+// the request body (and the real upstream receives the same bytes), so prompt text IS parity-
+// relevant. Where the Python source uses markdown backticks, a Go raw-string literal cannot contain
+// one, so they are stored as a private-use sentinel (U+F8FF) and restored to backticks at init (see
+// querySQLSystemPrompt). Any prompt below still using single quotes for backtick'd identifiers is a
+// known remaining divergence to convert the same way.
 
 // querySQLSystemPrompt mirrors app.py _QUERY_SQL_SYSTEM_PROMPT ({schema} is substituted at call
 // time with getSchemaContext()).
-const querySQLSystemPrompt = `You are a ClickHouse SQL expert. Your job is to write correct, read-only ClickHouse SELECT queries based on natural-language questions.
+// querySQLSystemPrompt: the Python source uses markdown backticks around identifiers; a Go
+// raw-string literal cannot contain a backtick, so they are stored as a private-use sentinel
+// (U+F8FF) and restored to backticks at init — making the prompt byte-identical to app.py's
+// _QUERY_SQL_SYSTEM_PROMPT (required now the parity mock keys on the LLM request body).
+var querySQLSystemPrompt = strings.ReplaceAll(`You are a ClickHouse SQL expert. Your job is to write correct, read-only ClickHouse SELECT queries based on natural-language questions.
 
 Rules:
 - Output ONLY raw SQL. No markdown, no backticks, no explanation.
@@ -28,28 +35,28 @@ Rules:
 - If the user's wording does not exactly match the schema, map it to the
     closest real table/column names from the provided schema.
 - Terminology disambiguation:
-  - 'sobs_anomaly_rules' = metric/anomaly rule definitions (configuration rows).
-    - 'v_otel_metrics_1m' = finalized 1-minute metric rollups for trend/chart queries.
-    - 'otel_metrics_1m_agg' = aggregate-state backing table for those 1-minute metric rollups.
-        If you query it directly, you MUST use 'avgMerge(Value)' and 'sumMerge(SampleCount)' and
-        'GROUP BY ServiceName, MetricName, AttrFingerprint, MetricKind, MinuteBucket' (or a subset
+  - sobs_anomaly_rules = metric/anomaly rule definitions (configuration rows).
+    - v_otel_metrics_1m = finalized 1-minute metric rollups for trend/chart queries.
+    - otel_metrics_1m_agg = aggregate-state backing table for those 1-minute metric rollups.
+        If you query it directly, you MUST use avgMerge(Value) and sumMerge(SampleCount) and
+        GROUP BY ServiceName, MetricName, AttrFingerprint, MetricKind, MinuteBucket (or a subset
         that still includes every selected non-aggregated column).
-  - 'v_derived_signals_1m' = derived signal time series before anomaly scoring.
-  - 'v_derived_signals_anomaly' and 'v_otel_metrics_anomaly' = scored outputs with
+  - v_derived_signals_1m = derived signal time series before anomaly scoring.
+  - v_derived_signals_anomaly and v_otel_metrics_anomaly = scored outputs with
       anomaly_state and anomaly_score.
-  - 'sobs_raw_windows' = signal windows that preserve raw metrics data around active
+  - sobs_raw_windows = signal windows that preserve raw metrics data around active
       signals; this is window metadata, not rule definitions.
 - If asked about rule definitions, thresholds, comparators, or rule coverage,
-    query 'sobs_anomaly_rules' first.
-- If asked about signal trends/values over time, prefer 'v_derived_signals_1m'
+    query sobs_anomaly_rules first.
+- If asked about signal trends/values over time, prefer v_derived_signals_1m
     unless anomaly state/score is explicitly requested.
-- Prefer 'v_otel_metrics_1m' over 'otel_metrics_1m_agg' for normal charts unless the user
-    explicitly wants aggregate-state internals or a query that benefits from direct 'avgMerge' access.
+- Prefer v_otel_metrics_1m over otel_metrics_1m_agg for normal charts unless the user
+    explicitly wants aggregate-state internals or a query that benefits from direct avgMerge access.
 - For signal, anomaly, alert, or incident-window questions, prefer
-    'sobs_raw_windows' for window metadata and
-    'v_otel_metrics_signal_context' for metrics that occurred inside those windows.
+    sobs_raw_windows for window metadata and
+    v_otel_metrics_signal_context for metrics that occurred inside those windows.
 - For deployment/release correlation requests, treat deployment windows as a subset
-    of signal windows in 'sobs_raw_windows' (typically matched via SignalType/SignalRef
+    of signal windows in sobs_raw_windows (typically matched via SignalType/SignalRef
     text filters when explicit deployment tables are absent).
 - For complex analytical, correlation, or chart-oriented questions with
     multiple metrics or transforms, prefer 2-4 compact, clearly named CTEs
@@ -59,7 +66,7 @@ Rules:
     filtering, aggregation, enrichment, or final shaping.
 - If you use CTEs (WITH ...), you MUST include a final SELECT statement after the CTE block.
 - Ensure all parentheses and quotes are balanced before returning the SQL.
-- The database name is "default". Always qualify table names as 'default.<table>' or omit the database when unambiguous.
+- The database name is "default". Always qualify table names as default.<table> or omit the database when unambiguous.
 - Use ClickHouse-compatible syntax (e.g. toDate(), now(), formatDateTime(), arrayJoin(), etc.).
 - ClickHouse JOIN safety: keep JOIN ON predicates equality-based whenever possible.
 - For time-window overlap/non-equality correlation (e.g. t between WindowStart and WindowEnd),
@@ -85,7 +92,7 @@ LIMIT 20
 
 Schema context:
 {schema}
-`
+`, "\uF8FF", "`")
 
 // chartRefinementPromptTemplate mirrors app.py _build_chart_refinement_prompt's static base;
 // {catalog} is filled with the dynamic chart-types section at call time.

@@ -102,6 +102,14 @@ def _install_upstream_fixtures() -> None:
         if host not in intercept_hosts:
             return httpx.Response(599, json={"error": f"unmocked upstream host {host}"})
         body = request.content or b""
+        # Debug: SOBS_MOCK_BODYDUMP=<file> appends every intercepted request body, so capture (this
+        # shim) and replay (go upstream.go) can be diffed to confirm byte-identical LLM request bodies
+        # — the prerequisite for body-keyed canned responses. No-op unless the env var is set.
+        _dump = os.environ.get("SOBS_MOCK_BODYDUMP", "").strip()
+        if _dump:
+            _bk = upstream_fixture_key_body(request.method, str(request.url), body)
+            with open(_dump, "a") as _f:
+                _f.write(f"PY {request.url.path} key={_bk}\n  body={body!r}\n")
         # A body-keyed fixture takes precedence (deterministic per-request AI responses); fall back
         # to the URL-only key so every existing canned GitHub/OSV/webhook/AI fixture still resolves.
         stems = []
