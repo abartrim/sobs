@@ -24,6 +24,17 @@ func upstreamFixtureKey(method, url string) string {
 	return hex.EncodeToString(sum[:])[:32]
 }
 
+// upstreamFixtureKeyBody mirrors determinism.upstream_fixture_key_body: sha256("METHOD url\n" +
+// raw request body)[:32]. Lets the deterministic OpenAI-compatible mock return a per-request-body
+// canned response (prompt-dependent / multi-call AI flows); requires both runtimes to emit a
+// byte-identical body. The URL-only key remains the fallback for bodyless / legacy fixtures.
+func upstreamFixtureKeyBody(method, url string, body []byte) string {
+	h := sha256.New()
+	h.Write([]byte(strings.ToUpper(method) + " " + url + "\n"))
+	h.Write(body)
+	return hex.EncodeToString(h.Sum(nil))[:32]
+}
+
 // upstreamResponse is a canned upstream HTTP response: a status and a parsed JSON body
 // (jsonenc.Object / []any / json.Number, via parseJSONValue), or nil body. RawContent holds the
 // fixture's raw "content" string (used for non-JSON bodies such as the SSE streams the AI helper's
@@ -45,7 +56,7 @@ var upstreamHTTPClient = &http.Client{Timeout: 30 * time.Second}
 // fixtures dir, so the mock path is taken there exactly as before.
 func (s *server) upstreamRequest(method, url string, body []byte, headers map[string]string) (upstreamResponse, error) {
 	if dir := strings.TrimSpace(os.Getenv("SOBS_UPSTREAM_FIXTURES")); dir != "" {
-		return s.upstreamFixture(dir, method, url)
+		return s.upstreamFixture(dir, method, url, body)
 	}
 	var rdr io.Reader
 	if body != nil {
@@ -71,10 +82,18 @@ func (s *server) upstreamRequest(method, url string, body []byte, headers map[st
 	return out, nil
 }
 
-// upstreamFixture serves the canned parity response keyed by METHOD+url. A missing fixture
-// resolves to a 404.
-func (s *server) upstreamFixture(dir, method, url string) (upstreamResponse, error) {
-	raw, err := os.ReadFile(filepath.Join(dir, upstreamFixtureKey(method, url)+".json"))
+// upstreamFixture serves the canned parity response. A body-keyed fixture takes precedence (a
+// deterministic per-request-body AI response); it falls back to the URL-only key so every existing
+// canned GitHub/OSV/webhook/AI fixture still resolves. A missing fixture resolves to a 404.
+func (s *server) upstreamFixture(dir, method, url string, reqBody []byte) (upstreamResponse, error) {
+	var raw []byte
+	var err error = os.ErrNotExist
+	if len(reqBody) > 0 {
+		raw, err = os.ReadFile(filepath.Join(dir, upstreamFixtureKeyBody(method, url, reqBody)+".json"))
+	}
+	if err != nil {
+		raw, err = os.ReadFile(filepath.Join(dir, upstreamFixtureKey(method, url)+".json"))
+	}
 	if err != nil {
 		return upstreamResponse{Status: 404, Body: jsonenc.NewObject().
 			Set("message", "Not Found (no upstream fixture)")}, nil

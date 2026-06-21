@@ -61,6 +61,19 @@ def upstream_fixture_key(method: str, url: str) -> str:
     return hashlib.sha256(f"{method.upper()} {url}".encode("utf-8")).hexdigest()[:32]
 
 
+def upstream_fixture_key_body(method: str, url: str, body: bytes) -> str:
+    """Body-sensitive variant: sha256 of "METHOD url\\n" + raw request body, first 32 hex. MUST
+    match Go (upstream.go upstreamFixtureKeyBody). Lets a deterministic OpenAI-compatible mock return
+    a DIFFERENT canned response per distinct request body (multi-call AI flows / prompt-dependent
+    paths) instead of one response per URL. Requires both runtimes to emit a byte-identical body."""
+    import hashlib
+
+    h = hashlib.sha256()
+    h.update(f"{method.upper()} {url}\n".encode("utf-8"))
+    h.update(body or b"")
+    return h.hexdigest()[:32]
+
+
 def _install_upstream_fixtures() -> None:
     """Serve api.github.com / api.osv.dev from canned files instead of the network, so the
     external-integration routes are byte-reproducible. Both the Python oracle (this httpx
@@ -88,9 +101,15 @@ def _install_upstream_fixtures() -> None:
         host = request.url.host
         if host not in intercept_hosts:
             return httpx.Response(599, json={"error": f"unmocked upstream host {host}"})
-        stem = upstream_fixture_key(request.method, str(request.url))
-        path = base / f"{stem}.json"
-        if not path.exists():
+        body = request.content or b""
+        # A body-keyed fixture takes precedence (deterministic per-request AI responses); fall back
+        # to the URL-only key so every existing canned GitHub/OSV/webhook/AI fixture still resolves.
+        stems = []
+        if body:
+            stems.append(upstream_fixture_key_body(request.method, str(request.url), body))
+        stems.append(upstream_fixture_key(request.method, str(request.url)))
+        path = next((base / f"{s}.json" for s in stems if (base / f"{s}.json").exists()), None)
+        if path is None:
             return httpx.Response(404, json={"message": "Not Found (no upstream fixture)"})
         spec = _json.loads(path.read_text())
         status = int(spec.get("status", 200))
