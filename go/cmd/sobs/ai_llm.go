@@ -195,7 +195,11 @@ func llmRequestBody(req llmRequest) []byte {
 	if len(req.tools) > 0 {
 		payload.Set("tools", req.tools)
 	}
-	return jsonenc.Encode(payload, dumpsDefault)
+	// httpx (the app's HTTP client) serializes `json=payload` COMPACT (separators (",", ":"), raw
+	// UTF-8) — NOT json.dumps' spaced default. The request body must be byte-identical to Python's so
+	// the deterministic OpenAI-compatible mock can key a canned response on it (and so the real
+	// upstream receives the same bytes). dumpsDefault (", "/": ") would silently differ.
+	return jsonenc.Encode(payload, jsonenc.Compact)
 }
 
 // llmRequestHeaders mirrors app.py _llm_request_headers.
