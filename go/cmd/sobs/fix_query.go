@@ -101,9 +101,13 @@ func (s *server) compactAttrKeyLine(recordType, label string, maxKeys int) strin
 // named_query_generation in llm_stats. Logic is a faithful copy of generateNamedQueries; the only
 // difference is the captured stats return. (generateNamedQueries lives in ai_build.go, owned by
 // another agent, so this stats variant is kept here rather than modifying it.)
-func (s *server) generateNamedQueriesStats(endpoint, question, baseSQL string) ([]any, llmStats) {
+func (s *server) generateNamedQueriesStats(endpoint, question, baseSQL, preferredChartType, chartInstruction string) ([]any, llmStats) {
+	preferred := preferredChartType
+	if preferred == "" {
+		preferred = "auto"
+	}
 	userMsg := "Question: " + question + "\n\n" +
-		"Preferred chart type: \nChart instruction: \n\n" +
+		"Preferred chart type: " + preferred + "\nChart instruction: " + chartInstruction + "\n\n" +
 		"Primary SQL:\n" + baseSQL + "\n\n" +
 		"Schema context:\n" + s.getSchemaContext() + "\n\n" +
 		"If one dataset is sufficient, return an empty datasets array. " +
@@ -117,6 +121,7 @@ func (s *server) generateNamedQueriesStats(endpoint, question, baseSQL string) (
 		model:         strings.TrimSpace(s.loadAISetting("ai.model", "")),
 		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
 		thinkingLevel: strings.TrimSpace(s.loadAISetting("ai.thinking_level", "off")),
+		maxTokens:     queryLLMMaxTokens, // app.py _vanna_generate_named_queries: max_tokens=_QUERY_LLM_MAX_TOKENS
 		messages:      messages,
 	})
 	if err != nil || raw == "" {
@@ -211,13 +216,14 @@ func (s *server) executeNamedQueriesForQueryRun(named []any) []any {
 // generateChartSpecStats mirrors generateChartSpec (ai_build.go _vanna_generate_chart_spec) but ALSO
 // returns the LLM usage stats so api_query_run's do_chart branch can populate chart_generation in
 // llm_stats. The body is a faithful copy of generateChartSpec; only the captured stats differ.
-func (s *server) generateChartSpecStats(endpoint, question string, columns, sampleRows, namedDatasets []any) (string, string, llmStats) {
+func (s *server) generateChartSpecStats(endpoint, question string, columns, sampleRows, namedDatasets []any, preferredChartType, chartInstruction string) (string, string, llmStats) {
 	rows := sampleRows
 	if len(rows) > 20 {
 		rows = rows[:20]
 	}
-	compact := jsonenc.Options{SortKeys: false, EnsureASCII: false, ItemSep: ",", KeySep: ":"}
-	sampleStr := string(jsonenc.Encode(jsonenc.NewObject().Set("columns", columns).Set("rows", rows), compact))
+	// app.py json.dumps(..., ensure_ascii=False) — default (spaced) separators; sampleRows is already
+	// records (chartSampleRecords) built by the caller.
+	sampleStr := string(jsonenc.Encode(jsonenc.NewObject().Set("columns", columns).Set("rows", rows), jsonDumpsDefault))
 	namedStr := ""
 	if len(namedDatasets) > 0 {
 		condensed := []any{}
@@ -236,17 +242,29 @@ func (s *server) generateChartSpecStats(endpoint, question string, columns, samp
 		}
 		if len(condensed) > 0 {
 			namedStr = "\n\nNamed datasets (use when multi-dataset chart structures are needed):\n" +
-				string(jsonenc.Encode(condensed, compact))
+				string(jsonenc.Encode(condensed, jsonDumpsDefault))
 		}
+	}
+	var prefLines []string
+	if preferredChartType != "" {
+		prefLines = append(prefLines, "Preferred chart type: "+preferredChartType)
+	}
+	if chartInstruction != "" {
+		prefLines = append(prefLines, "Chart instruction: "+chartInstruction)
+	}
+	preferenceBlock := ""
+	if len(prefLines) > 0 {
+		preferenceBlock = "\n\nChart preferences:\n" + strings.Join(prefLines, "\n")
 	}
 	userMsg := "Original question: " + question + "\n\n" +
 		"Result set (columns + up to 20 sample rows):\n" + sampleStr + "\n\n" +
-		namedStr + "Produce an ECharts option JSON object for this data."
+		namedStr + preferenceBlock + "Produce an ECharts option JSON object for this data."
 	chatReq := llmRequest{
 		endpoint:      endpoint,
 		model:         strings.TrimSpace(s.loadAISetting("ai.model", "")),
 		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
 		thinkingLevel: strings.TrimSpace(s.loadAISetting("ai.thinking_level", "off")),
+		maxTokens:     queryLLMMaxTokens, // app.py _vanna_generate_chart_spec: max_tokens=_QUERY_LLM_MAX_TOKENS
 		messages: []any{
 			jsonenc.NewObject().Set("role", "system").Set("content", chartSystemPrompt),
 			jsonenc.NewObject().Set("role", "user").Set("content", userMsg),
@@ -264,10 +282,16 @@ func (s *server) generateChartSpecStats(endpoint, question string, columns, samp
 		return string(jsonenc.Encode(parsed, dumpsDefault)), "", stats
 	}
 	parseErr := chartSpecParseError(raw)
+	// app.py _repair_chart_spec_json_with_llm: ECharts-repair system prompt, raw failed reply + parse
+	// error in the user message, thinking off, max_tokens _QUERY_LLM_MAX_TOKENS (inherited).
 	repairReq := chatReq
+	repairReq.thinkingLevel = "off"
 	repairReq.messages = []any{
-		jsonenc.NewObject().Set("role", "system").Set("content", "You repair malformed JSON. Return ONLY corrected, valid JSON — no markdown, no commentary."),
-		jsonenc.NewObject().Set("role", "user").Set("content", "The following should be a JSON ECharts option but failed to parse ("+parseErr+"). Return ONLY the corrected JSON:\n"+raw),
+		jsonenc.NewObject().Set("role", "system").Set("content", chartJSONRepairSystemPrompt),
+		jsonenc.NewObject().Set("role", "user").Set("content",
+			"The chart JSON below failed to parse. Repair it and return only valid JSON.\n\n"+
+				"Parse error: "+parseErr+"\n\n"+
+				"Malformed chart JSON:\n"+raw),
 	}
 	repaired, _, rerr := s.callLLMChat(repairReq)
 	if rerr != nil || strings.TrimSpace(repaired) == "" {

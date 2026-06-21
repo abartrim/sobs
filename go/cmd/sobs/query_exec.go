@@ -458,8 +458,10 @@ func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
 	sql := strings.TrimSpace(bstr(m, "sql"))
 	question := strings.TrimSpace(bstr(m, "question"))
 	doChart := bodyBool(m, "chart", false)
-	// preferred_chart_type / chart_instruction are accepted but, like the existing ai_build named/chart
-	// helpers this branch reuses, not yet threaded into the LLM prompts (deferred — see report).
+	// app.py api_query_run threads preferred_chart_type + chart_instruction into the named-query and
+	// chart-spec LLM prompts (do_chart branch); thread them here too.
+	preferredChartType := strings.TrimSpace(bstr(m, "preferred_chart_type"))
+	chartInstruction := strings.TrimSpace(bstr(m, "chart_instruction"))
 	if sql == "" {
 		s.errorJSON(w, http.StatusBadRequest, "sql is required")
 		return
@@ -555,7 +557,7 @@ func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
 			"Guard verdict: "+guardReason, "INFO", guardTelemetryAttrs(allowed, guardReason, guardStats))
 		if allowed {
 			var namedQueries []any
-			namedQueries, namedStats = s.generateNamedQueriesStats(endpoint, firstNonEmpty(question, sql), sql)
+			namedQueries, namedStats = s.generateNamedQueriesStats(endpoint, firstNonEmpty(question, sql), sql, preferredChartType, chartInstruction)
 			s.emitAiHelperLogEvent("query.sql.named_generated", traceID, turnID, "/query", model, guardModel, "off",
 				jsonDumpsNoEsc(namedQueries), "INFO", map[string]string{
 					"gen_ai.operation.name":      "query_sql_named",
@@ -581,7 +583,7 @@ func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
 
 			// sample = [dict(zip(columns, r)) for r in rows[:20]]
 			sample := chartSampleRecords(columns, rows, 20)
-			chartSpec, chartError, chartStats = s.generateChartSpecStats(endpoint, question, columns, sample, datasets)
+			chartSpec, chartError, chartStats = s.generateChartSpecStats(endpoint, question, columns, sample, datasets, preferredChartType, chartInstruction)
 			chartBody := chartSpec
 			if chartBody == "" {
 				chartBody = chartError

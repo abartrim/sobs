@@ -188,17 +188,18 @@ SUGGESTED FIX: <text>`
 // namedQueriesSystemPrompt mirrors app.py _vanna_generate_named_queries' system prompt.
 const namedQueriesSystemPrompt = `You are a ClickHouse SQL planner for chart datasets. Return ONLY valid JSON with the shape: {"datasets":[{"name":"...","sql":"SELECT ...","purpose":"..."}]}. Rules: use only read-only SELECT/WITH queries; keep at most 3 datasets; names should be short snake_case identifiers; no markdown.`
 
-// chartSystemPrompt mirrors app.py _QUERY_CHART_SYSTEM_PROMPT (backticks -> single quotes for the
-// raw-string literal; line-continuations joined).
-const chartSystemPrompt = `You are a data-visualisation expert. Given a ClickHouse SQL result set described as column names and sample rows, produce an Apache ECharts option object (JSON) that best visualises the data.
+// chartSystemPrompt mirrors app.py _QUERY_CHART_SYSTEM_PROMPT. The Python source uses markdown
+// backticks; a Go raw-string literal cannot contain one, so they are stored as a private-use
+// sentinel (U+F8FF) and restored at init — byte-identical to _QUERY_CHART_SYSTEM_PROMPT.
+var chartSystemPrompt = strings.ReplaceAll(`You are a data-visualisation expert. Given a ClickHouse SQL result set described as column names and sample rows, produce an Apache ECharts option object (JSON) that best visualises the data.
 
 Guidelines:
-- Output ONLY a valid JSON object — the value to assign to 'chart.setOption(...)'.
+- Output ONLY a valid JSON object — the value to assign to chart.setOption(...).
 - You MUST return a non-empty final JSON object.
 - Use Bootstrap 5 colours where possible (primary: #0d6efd, success: #198754, danger: #dc3545, warning: #ffc107, info: #0dcaf0).
 - Choose the most appropriate chart type from the full ECharts library (bar, line, pie, scatter, heatmap, radar, funnel, gauge, candlestick, tree, treemap, sunburst, etc.).
 - Titles, tooltips, legends, and axes should be concise and readable.
-- Set 'backgroundColor: transparent' to inherit the page background.
+- Set backgroundColor: 'transparent' to inherit the page background.
 - If the data is tabular with no obvious chart form, use a simple bar chart.
 - If a preferred chart type is incompatible with available columns, choose the nearest compatible
     type and still return valid JSON.
@@ -206,8 +207,8 @@ Guidelines:
 
 Formatting and placeholder guidance:
 - Prefer compact, deterministic ECharts option structures with explicit arrays/objects.
-- If you use custom placeholders, only use '{{rows}}', '{{records}}', '{{columns}}', or named-dataset forms like
-    '{{rows:nodes}}' / '{{rows:links}}'.
+- If you use custom placeholders, only use {{rows}}, {{records}}, {{columns}}, or named-dataset forms like
+    {{rows:nodes}} / {{rows:links}}.
 - Do not emit pseudo-JSON, JavaScript functions, or template syntax beyond those placeholders.
 
 Reference examples (for shape/style only):
@@ -231,6 +232,17 @@ ECharts option JSON example:
         }
     ]
 }
+`, "", "`")
+
+// chartJSONRepairSystemPrompt mirrors app.py _QUERY_CHART_JSON_REPAIR_SYSTEM_PROMPT (the trailing
+// newline before the closing delimiter is part of the prompt, matching the Python triple-quoted form).
+const chartJSONRepairSystemPrompt = `You repair malformed Apache ECharts option JSON.
+
+Rules:
+- Return ONLY a valid JSON object.
+- Preserve the original visualization intent as closely as possible.
+- Do not add markdown, comments, or code fences.
+- Ensure the output is parseable by JSON.parse().
 `
 
 // aiHelperDefaultSystemPrompt mirrors app.py's ai_helper default system prompt (the text used when
