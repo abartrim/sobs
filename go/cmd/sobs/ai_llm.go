@@ -315,8 +315,11 @@ func heuristicGuardCheck(text string) bool {
 // category parsing, benign overrides, and rich reasons. The third return is kept as llmStats for
 // signature compatibility with the existing callers (which discard it); the rich guard_stats dict is
 // produced internally and surfaced only on the AI-helper route.
-func (s *server) checkGuardModel(userInput string) (bool, string, llmStats) {
-	allowed, reason, _ := s.aiHelperGuardCheck(userInput, "")
+func (s *server) checkGuardModel(userInput, context string) (bool, string, llmStats) {
+	// context mirrors app.py _check_guard_model(settings, user_input, context): it wraps the guard's
+	// user turn as "Context: <ctx>\n\nUser input: <userInput>". Passing "" (as before) dropped that
+	// wrapper, so Go sent a different guard prompt than Python on the /query routes.
+	allowed, reason, _ := s.aiHelperGuardCheck(userInput, context)
 	return allowed, reason, llmStats{}
 }
 

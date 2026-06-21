@@ -550,7 +550,7 @@ func (s *server) handleApiQueryRun(w http.ResponseWriter, r *http.Request) {
 		if guardInput == "" {
 			guardInput = "Generate chart for SQL: " + truncRunes(sql, 500)
 		}
-		allowed, guardReason, _ := s.checkGuardModel(guardInput)
+		allowed, guardReason, _ := s.checkGuardModel(guardInput, "/query")
 		s.emitAiHelperLogEvent("query.guard.result", traceID, turnID, "/query", model, guardModel, "off",
 			"Guard verdict: "+guardReason, "INFO", map[string]string{"gen_ai.operation.name": "guard"})
 		if allowed {
@@ -685,7 +685,7 @@ func (s *server) handleApiQueryAsk(w http.ResponseWriter, r *http.Request) {
 	s.emitAiHelperLogEvent("query.turn.start", traceID, turnID, "/query", model, guardModel, "off",
 		question, "INFO", map[string]string{"gen_ai.input.question": question})
 
-	allowed, reason, _ := s.checkGuardModel(question)
+	allowed, reason, _ := s.checkGuardModel(question, "/query")
 	s.emitAiHelperLogEvent("query.guard.result", traceID, turnID, "/query", model, guardModel, "off",
 		"Guard verdict: "+reason, "INFO", map[string]string{"gen_ai.operation.name": "guard"})
 	if !allowed {

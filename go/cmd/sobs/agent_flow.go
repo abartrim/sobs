@@ -145,7 +145,7 @@ func (s *server) runAgentFlow(rule *agentRule, settings map[string]string, tctx 
 	contextSummary := s.buildAgentContextSummary(tctx)
 
 	// 1. Guard model check.
-	allowed, guardReason, _ := s.checkGuardModel(contextSummary)
+	allowed, guardReason, _ := s.checkGuardModel(contextSummary, "")
 	guardDecision := "allowed"
 	if !allowed {
 		guardDecision = "blocked: " + guardReason

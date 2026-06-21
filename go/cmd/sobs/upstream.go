@@ -86,6 +86,15 @@ func (s *server) upstreamRequest(method, url string, body []byte, headers map[st
 // deterministic per-request-body AI response); it falls back to the URL-only key so every existing
 // canned GitHub/OSV/webhook/AI fixture still resolves. A missing fixture resolves to a 404.
 func (s *server) upstreamFixture(dir, method, url string, reqBody []byte) (upstreamResponse, error) {
+	// Debug: SOBS_MOCK_BODYDUMP=<file> appends every fixture request body so a Go replay can be
+	// diffed against the Python capture (determinism.py) to confirm byte-identical LLM request
+	// bodies — the prerequisite for body-keyed canned responses. No-op unless the env var is set.
+	if dump := strings.TrimSpace(os.Getenv("SOBS_MOCK_BODYDUMP")); dump != "" {
+		if f, e := os.OpenFile(dump, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); e == nil {
+			fmt.Fprintf(f, "GO %s key=%s\n  body=%q\n", url, upstreamFixtureKeyBody(method, url, reqBody), reqBody)
+			f.Close()
+		}
+	}
 	var raw []byte
 	var err error = os.ErrNotExist
 	if len(reqBody) > 0 {
