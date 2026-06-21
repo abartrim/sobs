@@ -1142,6 +1142,7 @@ routes:
   profile: summaryrich
   mask:
   - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}'
   mask_reason: the summaryrich seed lands now()-anchored otel_logs (5 ERROR + 5 INFO rows in one minute bucket for the base "web" service) plus logs-source anomaly rules, so the summary dashboard's recent_errors, recent_logs and signal_health panels all render populated. Every count/ratio/rule-state/signal_count is deterministic from the constant seed (log_volume=10/error_volume=5/error_ratio=0.5; rule states outlier/warning; signal_count=3) and is byte-compared. The ONLY drift between capture and replay is the now()-derived recent-errors/recent-logs timestamps, rendered as e.ts/l.ts (full DateTime64 in data-utc-ts) and e.ts[:19]/l.ts[:19] (YYYY-MM-DD HH:MM:SS). The single YYYY-MM-DD HH:MM:SS mask redacts both the [:19] slice and the leading 19 chars of the full data-utc-ts value; the trailing nanosecond fraction in data-utc-ts is masked by the same pattern's prefix and the residual fraction is on the same wall-clock day window so it never desynchronises the diff. signal_health renders no timestamps, so it is fully unmasked.
   request:
     method: GET
@@ -5942,7 +5943,8 @@ routes:
   - '"t": "[^"]*"'
   - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
   - '[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}'
-  mask_reason: the rumvitals seed lands now()-relative web-vital + error rows so every view_rum vitals/error-trend block populates. All counts/values/states/ratings are deterministic from the constant seed (value=1200/rating=good, recent=5/prior=1 -> trend up, error=5/unhandledrejection=1) and byte-compared; only the now()-derived timestamps drift between capture and replay. Mask 1 redacts every sparkline t-bucket field; mask 2 (YYYY-MM-DD HH:MM:SS) redacts the full-form last_ts/data-utc-ts/ev.ts renders; mask 3 (HH:MM:SS.mmm) redacts the time-only session-ts span the template splits out (rum.html last_ts[11:23]), which the date-anchored mask 2 does not cover. The date-only span (last_ts[:10]) is the same calendar day at capture and replay so it is byte-identical and left unmasked.
+  - '[0-9]{4}-[0-9]{2}-[0-9]{2}'
+  mask_reason: the rumvitals seed lands now()-relative web-vital + error rows so every view_rum vitals/error-trend block populates. All counts/values/states/ratings are deterministic from the constant seed (value=1200/rating=good, recent=5/prior=1 -> trend up, error=5/unhandledrejection=1) and byte-compared; only the now()-derived timestamps drift between capture and replay. Mask 1 redacts every sparkline t-bucket field; mask 2 (YYYY-MM-DD HH:MM:SS) redacts the full-form last_ts/data-utc-ts/ev.ts renders; mask 3 (HH:MM:SS.mmm) redacts the time-only session-ts span the template splits out (rum.html last_ts[11:23]); mask 4 (bare YYYY-MM-DD) redacts the date-only span (last_ts[:10]) so a capture/replay that straddles MIDNIGHT (different calendar day) stays byte-identical — the prior same-day assumption was the cross-midnight flake source.
 - id: post__metrics_rules_auto
   path: /metrics/rules/auto
   methods:

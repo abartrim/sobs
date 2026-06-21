@@ -21,6 +21,15 @@ export SOBS_BASE_PATH=""
 # them from the same settings once the DB layer lands; until then they default False.
 export SOBS_ENABLE_FIRST_RUN_TOUR="0"
 
+# Disable the summary-stats TTL cache during parity. app.py caches the dashboard headline stats
+# (Logs / Open Errors / AI / Services) in a module global for SOBS_SUMMARY_STATS_CACHE_TTL_SEC
+# (default 60s); under the frozen parity clock that cache NEVER expires, so the value is whatever
+# the FIRST summary() call in the capture process computed — making the golden depend on capture
+# order/state. The Go port has no such cache (it computes fresh per request), so the two diverge.
+# TTL=0 makes `expires_at > now` always false -> Python also computes fresh every request, so both
+# sides are symmetric and the now()-anchored summary routes become deterministic.
+export SOBS_SUMMARY_STATS_CACHE_TTL_SEC="0"
+
 # chdb memory caps — pin so any size-derived output (rare) is stable.
 export CHDB_MAX_SERVER_MB="768"
 export CHDB_MAX_THREADS="1"
