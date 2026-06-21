@@ -655,9 +655,12 @@ PROFILES: dict[str, dict[str, str]] = {
     # fixtures dir is needed (no AI endpoints — the chain calls GitHub only).
     "workitems": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
     # aibuild: dashboards/spec/ai-build — the vanna pipeline (generate SQL -> execute -> named
-    # queries -> chart option). No guard check; one canned /chat/completions ("SELECT 1 AS x") is
-    # reused for every stage (URL-keyed), so the named-query/chart stages fail to parse identically
-    # on both sides and fall back deterministically.
+    # queries -> chart option -> chart repair). No guard check. BODY-KEYED (strict prompt parity):
+    # the FOUR distinct LLM calls each resolve a body-keyed fixture (all return "SELECT 1 AS x", so
+    # generate yields valid SQL, named-queries parses to none, chart-spec fails -> repair, repair
+    # fails -> safe template fallback). The URL-keyed fallback was removed, so any drift in ANY of the
+    # four prompt builders (NL->SQL, named-queries, chart-spec, chart-repair) -> body-key miss -> 404
+    # -> RED. Keys: 19f939a2(SQL) 2108ee30(named) e733443a(chart) 9283972d(repair).
     "aibuild": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aibuild/v1",
         "SOBS_AI_MODEL": "sobs-parity-model",
@@ -766,6 +769,8 @@ PROFILES: dict[str, dict[str, str]] = {
     # "blocked (S7: Privacy)" and api_query_ask returns 403 with that reason in `error`. The main
     # ai.endpoint_url is set only to satisfy _query_page_enabled; the block path never dials it. The
     # whole non-streaming LLM chain (_call_llm_endpoint POST -> response parse -> verdict) runs.
+    # BODY-KEYED guard fixture 1a484efd… (see the `ask` note): the gpt-oss-safeguard prompt builder is
+    # byte-verified — drift in _build_oss_safeguard_prompt changes the body-key -> 404 -> RED.
     "aiguard": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguard/v1",
         "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguard-guard/v1",
@@ -778,6 +783,8 @@ PROFILES: dict[str, dict[str, str]] = {
     # way -> _build_llama_guard_prompt + _parse_guard_reply (the two-line "unsafe\nSx" parser). The
     # canned reply "unsafe\nS9" yields UNSAFE + S9 (Indiscriminate Weapons, NOT noisy) ->
     # "blocked (S9: Indiscriminate Weapons)" -> 403. Covers the llama parser arm + prompt builder.
+    # BODY-KEYED guard fixture 3237d47b… (see the `ask` note): the llama-guard prompt builder is
+    # byte-verified — drift in _build_llama_guard_prompt changes the body-key -> 404 -> RED.
     "aiguardllama": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardllama/v1",
         "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardllama-guard/v1",
