@@ -163,10 +163,7 @@ def main() -> int:
     OUT_JSON.write_text(json.dumps({"summary": summary, "buckets": buckets}, indent=2))
 
     deferred = (
-        summary["DEFENSIVE_EXCEPT"]
-        + summary["FAULT_INJECTION"]
-        + summary["NOW_WINDOW"]
-        + summary["LIBRARY_ERR_TEXT"]
+        summary["DEFENSIVE_EXCEPT"] + summary["FAULT_INJECTION"] + summary["NOW_WINDOW"] + summary["LIBRARY_ERR_TEXT"]
     )
     # the deterministically-reachable ceiling = covered + coverable, as a % of all statements
     ceiling = (covered + summary["COVERABLE"]) / total_app * 100 if total_app else 0.0
