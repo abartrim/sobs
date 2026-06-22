@@ -4326,6 +4326,42 @@ routes:
       chat_id: chat-parity-strm1
       turn_id: turn-parity-strm1
       stream: true
+# Streaming tool-loop variant (stream:true) of the aitools turn: byte-tests the Go streaming branch's
+# tool path (app.py _generate 27846-27955 — tool normalization, signed action_token, the per-round
+# `tool` SSE event, and the loop running to its max_tool_rounds cap on the on-page propose_ui_action).
+- id: post__api_ai_helper_tools__stream
+  path: /api/ai/helper
+  profile: aitools
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: Apply a SQL filter to show only error logs.
+      page: /logs
+      chat_id: chat-parity-toolstrm1
+      turn_id: turn-parity-toolstrm1
+      stream: true
+# Streaming memory-write variant (stream:true) of the aihelpermem turn: byte-tests the Go streaming
+# branch's memory-consolidation path (app.py _generate 28000-28038 — _extract_memory_candidates,
+# _consolidate_memory_candidates, _upsert_ai_memory write, saved_memory_ids in the done event). The
+# fresh memory uuid in the streamed done event is masked exactly as the non-streaming case.
+- id: post__api_ai_helper_memory__stream
+  path: /api/ai/helper
+  profile: aihelpermem
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: Remember that I prefer error logs grouped by service.
+      page: /logs
+      chat_id: chat-parity-memstrm1
+      turn_id: turn-parity-memstrm1
+      stream: true
+  mask:
+  - '"saved_memory_ids": ?\["[0-9a-fA-F-]{36}"\]'
+  mask_reason: streamed done-event saved_memory_ids holds one freshly minted memory uuid (frozen-counter Python vs random Go); the mask requires a uuid present so a Go empty array diffs RED — GREEN proves both sides wrote the memory on the streaming path. Rest of the SSE byte-compared.
 - id: post__api_ai_helper_actions_execute
   path: /api/ai/helper/actions/execute
   methods:
